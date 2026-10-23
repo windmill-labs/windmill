@@ -67,8 +67,8 @@ value:
 ## AI Agent Modules
 
 An `aiagent` module runs an LLM that can call tools. Each entry of `value.tools` is a module-shaped
-object with an extra `value.tool_type`: `flowmodule` for a script/flow tool, `mcp` for an MCP server
-tool, `websearch` for web search.
+object with an extra `value.tool_type`: `flowmodule` for a script or inline script tool (or a nested
+agent or AI decision), `mcp` for an MCP server tool, `websearch` for web search.
 
 ```json
 {
@@ -95,7 +95,7 @@ tool, `websearch` for web search.
           "type": "rawscript",
           "language": "bun",
           "content": "export async function main(query: string) { return ['doc1', 'doc2']; }",
-          "input_transforms": { "query": { "type": "static", "value": "" } }
+          "input_transforms": { "query": { "type": "ai" } }
         }
       }
     ]
@@ -103,6 +103,11 @@ tool, `websearch` for web search.
 }
 ```
 
+- A flow cannot be a tool: a run offered one fails with `Unsupported tool`. Wrap it in a script
+  that runs the flow
+- Each argument of a tool is either the model's or fixed. `{ "type": "ai" }` (or no value) lets the
+  model fill it; a static value, an empty string included, fixes it and hides it from the model. Fix
+  what the model must not choose, such as a resource, a table name or a limit
 - `provider` is an object, not a bare resource string: `{ "kind": <provider kind>,
   "resource": "$res:<path>", "model": <model id> }`. Required unless the module links to a saved
   agent through `value.agent`. Static is right for a flow run from a form; a chat flow wires its

@@ -48,8 +48,23 @@ import type {
 } from '$lib/gen/types.gen'
 import { loadSchemaFromModule, memoryPropertyFor } from '$lib/components/flows/flowInfers'
 import { linkedAgentStepSchema } from '$lib/components/flows/agentResourceUtils'
-import { AGENT_FIELDS, initialVisibleAgentFields } from '$lib/components/flows/agentFormFields'
-import { withAgentDrafts } from '$lib/components/flows/linkedAgentDrafts'
+import {
+	AGENT_FIELDS,
+	initialVisibleAgentFields,
+	keepsManagedMemory
+} from '$lib/components/flows/agentFormFields'
+import {
+	fetchAgentWithDraft,
+	inlineAgentDraft,
+	withAgentDrafts
+} from '$lib/components/flows/linkedAgentDrafts'
+import {
+	AGENT_CHAT_SCHEMA,
+	AGENT_STEP_ID,
+	agentChatFlow,
+	agentChatPath
+} from '$lib/components/flows/conversations/agentEditorChat'
+import type { AIAgentConfig } from '$lib/components/flows/agentResourceUtils'
 import { resolveLinkedAgentTools } from '$lib/components/flows/flowState'
 import { enabledToolNames, type AgentTool } from '$lib/components/flows/agentToolUtils'
 import { evalValue } from '$lib/components/flows/utils.svelte'
@@ -183,6 +198,7 @@ import { artifactTools } from '../artifacts/artifactTools'
 import type { SessionArtifactsStore } from '../artifacts/artifactsState.svelte'
 import type { Runnable } from '$lib/components/apps/inputType'
 import { UserDraft } from '$lib/userDraft.svelte'
+import { agentEditHref } from '../workspaceItems.svelte'
 import { emptySchema } from '$lib/utils'
 import type { Schema } from '$lib/common'
 import { inferArgs } from '$lib/infer'
@@ -1057,6 +1073,45 @@ const runFlowToolDef = createToolDef(
 	{ strict: false }
 )
 
+const agentRunArgsSchema = z
+	.object({
+		user_message: z.string().describe('The message the agent answers.')
+	})
+	.passthrough()
+	.describe("The run's inputs: `user_message`, and `user_attachments` for files the user attaches.")
+
+const testRunAgentSchema = z.object({
+	path: z.string().describe('Workspace path of the agent (`ai_agent` resource) to test.'),
+	args: agentRunArgsSchema,
+	memory_id: testRunFlowSchema.shape.memory_id.describe(
+		'A UUID naming the conversation this turn belongs to: reuse the same one across calls to test memory and follow-ups, and omit it for a one-off turn in a conversation of its own. Generate the UUID yourself so you can pass it again.'
+	),
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
+})
+
+const testRunAgentToolDef = createToolDef(
+	testRunAgentSchema,
+	'test_run_agent',
+	'Execute a test run of an AI agent by path, preferring its draft when one exists, so an agent you drafted can be tried before the user deploys it. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer.',
+	{ strict: false }
+)
+
+const runAgentSchema = z.object({
+	path: z.string().describe('Workspace path of the deployed agent (`ai_agent` resource) to run.'),
+	args: agentRunArgsSchema,
+	memory_id: testRunAgentSchema.shape.memory_id,
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
+})
+
+const runAgentToolDef = createToolDef(
+	runAgentSchema,
+	'run_agent',
+	'Run a DEPLOYED AI agent for real, as its own page runs it. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. Use only when the user names the deployed version ("the deployed X", "in production", "for real").',
+	{ strict: false }
+)
+
 const testRunStepSchema = z.object({
 	path: z.string().describe('Workspace path of the flow containing the step to test.'),
 	stepId: z.string().describe('The id of the step/module to test.'),
@@ -1710,8 +1765,11 @@ ${external ? 'More rules:' : `Rules:${draftsOnlyRule}\n${findItemsRule}`}
 ${groupMembershipRule}- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
 - An agent, as the Agents page lists it, is a resource of type \`ai_agent\`: read it with read_workspace_item type "resource".${when(
 		canDraftResources,
-		` You may draft a new agent or a change to one, after calling get_instructions with subject "agent", but never deploy or rename one here: the user reviews and deploys it from the agent's page, \`/agents/edit/<path>\`, so point them there.`
+		` You may draft a new agent or a change to one, after calling get_instructions with subject "agent", but never deploy or rename one here: the user reviews and deploys it from the agent's page, ${external ? 'the url write_resource returns' : '\`/agents/edit/<path>\`'}, so point them there.`
 	)}${when(
+		canRunFlowPreview,
+		' Test an agent, its draft included, with test_run_agent.'
+	)} Run a deployed agent with run_agent, never with run_flow or run_script.${when(
 		!external,
 		`
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".`
@@ -2870,19 +2928,30 @@ ${getResourcePrompt()}`
 
 async function getAgentInstructions(
 	workspace: string | undefined,
-	external: boolean
+	external: boolean,
+	/** The user cannot write inline code: the server refuses a rawscript tool from them. */
+	composeOnly: boolean,
+	/** The session cannot run `test_run_agent`. */
+	untestable: boolean
 ): Promise<string> {
 	const aiAgentProviders = external
 		? ''
 		: formatAiAgentProvidersPrompt(await getAiAgentProviderCatalog(workspace), {
 				canAskUser: true
 			})
+	const testRule = untestable
+		? ''
+		: '\n- Test the draft with `test_run_agent` before handing it over, and fix what the run shows: a test runs the draft as it stands, its tools included. Reuse one `memory_id` across calls to test follow-ups.'
 	return `# Global draft agent instructions
 
 - An agent is drafted with \`write_resource\`: \`{ path, resource_type: "ai_agent", description?, value }\`, where \`value\` is the agent's configuration described below. To change an existing agent, read it with \`read_workspace_item\` type "resource" first and write back the whole value.
-- Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` for a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist.
-- Never deploy or rename an agent here, new or existing: the user reviews and deploys it from the agent's page, \`/agents/edit/<path>\`. Give them that link.
-- A script tool must point at a deployed script: find it with the workspace search tools. When one is missing, draft it if you can and tell the user to deploy it along with the agent; otherwise tell the user which script the agent needs.
+- Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` for a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist.${testRule}
+- Never deploy or rename an agent here, new or existing: the user reviews and deploys it from the agent's page, ${external ? 'the url `write_resource` returns' : '`/agents/edit/<path>`'}. Give them that link.
+${
+	composeOnly
+		? '- This user cannot write inline code, so skip what the reference says about inline tools: every script tool points at a deployed script, found with the workspace search tools. When none does the job, say so and suggest asking a workspace admin for that script; never add a rawscript tool.'
+		: '- Before writing an inline tool, look for a deployed script that already does the job with the workspace search tools.'
+}
 ${aiAgentProviders ? `\n${aiAgentProviders}\n` : ''}
 # Windmill agent authoring reference
 
@@ -2913,7 +2982,9 @@ export function getInstructions(
 	language: ScriptLang | undefined,
 	workspace: string | undefined,
 	composeOnly: boolean,
-	external = false
+	external = false,
+	/** The session cannot run a flow preview, which an agent's test run is. */
+	untestable = false
 ): string | Promise<string> {
 	switch (subject) {
 		case 'script':
@@ -2923,7 +2994,7 @@ export function getInstructions(
 		case 'resource':
 			return getResourceInstructions()
 		case 'agent':
-			return getAgentInstructions(workspace, external)
+			return getAgentInstructions(workspace, external, composeOnly, untestable)
 		case 'app':
 			return getAppInstructions(language, composeOnly, external)
 		case 'datatable':
@@ -3820,9 +3891,22 @@ export const openPageTool: SessionTool<{}> = {
 		if (!urlWorkspace) {
 			return 'Error: no workspace is selected, so no page can be opened.'
 		}
-		const url = buildOpenPageUrl(page, parsed, { workspaceId: urlWorkspace })
-		const pageLabel = OPEN_PAGE_LABELS[page]
-		const summary = summarizeOpenPage(url, page)
+		// An agent is a resource, but the resources drawer would show it as raw JSON.
+		const agentPath =
+			page === 'resources' && parsed.open
+				? await ResourceService.getResource({
+						workspace: urlWorkspace,
+						path: parsed.open,
+						getDraft: true
+					})
+						.then((r) => (r.resource_type === 'ai_agent' ? parsed.open : undefined))
+						.catch(() => undefined)
+				: undefined
+		const url = agentPath
+			? agentEditHref(agentPath)
+			: buildOpenPageUrl(page, parsed, { workspaceId: urlWorkspace })
+		const pageLabel = agentPath ? 'Agent' : OPEN_PAGE_LABELS[page]
+		const summary = agentPath ?? summarizeOpenPage(url, page)
 
 		// In a session, show the page as a preview tab alongside the chat (the primary
 		// UX). By default a filter change reuses the tab already showing this page;
@@ -3890,17 +3974,25 @@ export const globalTools: SessionTool<{}>[] = [
 					: parsed.subject
 			toolCallbacks.setToolStatus(toolId, { content: `Loaded ${label} instructions` })
 			// Guidance for inline code would steer a composing role at writes the server refuses
-			// and tools it was not given.
+			// and tools it was not given. An agent's test run is a flow preview, so its inline
+			// tools follow the flow rule.
 			const composeOnly =
 				!!access &&
 				!access.has(
-					parsed.subject === 'flow'
+					parsed.subject === 'flow' || parsed.subject === 'agent'
 						? 'write_inline_flow_code'
 						: parsed.subject === 'app'
 							? 'write_inline_app_code'
 							: 'write_draft'
 				)
-			return getInstructions(parsed.subject, parsed.language, ctx.workspace, composeOnly)
+			return getInstructions(
+				parsed.subject,
+				parsed.language,
+				ctx.workspace,
+				composeOnly,
+				false,
+				!!access && !access.has('run_flow_preview')
+			)
 		}
 	},
 	createSearchHubScriptsTool(false),
@@ -4474,6 +4566,35 @@ export const globalTools: SessionTool<{}>[] = [
 		streamingLabel: 'Preparing the run form...',
 		confirmationMessage: 'Run a deployed flow',
 		queuedLabel: (args) => `Run ${args?.path ?? 'a flow'}`,
+		showDetails: true,
+		autoCollapseDetails: false
+	},
+	{
+		requires: RUN_FLOW_PREVIEW,
+		def: testRunAgentToolDef,
+		fn: async (ctx) => {
+			const parsed = testRunAgentSchema.parse(ctx.args)
+			return testRunAgentByPath(parsed, ctx)
+		},
+		// No requiresConfirmation, for the reason test_run_script carries.
+		bypassedByAutoAccept: true,
+		streamingLabel: 'Preparing the test form...',
+		confirmationMessage: 'Run a test of an agent',
+		queuedLabel: (args) => `Test ${args?.path ?? 'the agent'}`,
+		showDetails: true,
+		autoCollapseDetails: false
+	},
+	{
+		requires: NONE,
+		def: runAgentToolDef,
+		fn: async (ctx) => {
+			const parsed = runAgentSchema.parse(ctx.args)
+			return runDeployedAgent(parsed, ctx)
+		},
+		bypassedByAutoAccept: true,
+		streamingLabel: 'Preparing the run form...',
+		confirmationMessage: 'Run a deployed agent',
+		queuedLabel: (args) => `Run ${args?.path ?? 'an agent'}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -5901,15 +6022,15 @@ const PREVIEW_CARD_KIND_BY_ITEM_KIND: Partial<
 // `open_preview` takes), not its synthetic draft storage key.
 function maybeAttachPreviewCard(
 	ctx: WriteDraftCtx,
-	itemKind: DraftPersistResult['itemKind'],
+	kind: PreviewCardKind | 'agent' | undefined,
 	path: string
-): void {
+): boolean {
 	// Write tools pass the raw tool ctx, whose session id lives in `helpers` —
 	// `ctx.sessionId` is only set by callers that thread it explicitly.
-	if (!ctx.sessionId && !sessionIdFromCtx(ctx)) return
-	const kind = PREVIEW_CARD_KIND_BY_ITEM_KIND[itemKind]
-	if (!kind) return
+	if (!ctx.sessionId && !sessionIdFromCtx(ctx)) return false
+	if (!kind) return false
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { previewCard: { kind, path } })
+	return true
 }
 
 // App write tools build varied success messages but share the same conflict /
@@ -5924,7 +6045,7 @@ function finishAppDraftWrite(
 	if (failure) return failure
 	if (codeDiff) ctx.toolCallbacks.setToolStatus(ctx.toolId, { codeDiff })
 	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
-	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
+	maybeAttachPreviewCard(ctx, PREVIEW_CARD_KIND_BY_ITEM_KIND[result.itemKind], result.item.path)
 	const { content, message, warning } = onSaved()
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content, result: 'Saved as draft' })
 	return JSON.stringify({ success: true, message, warning }, null, 2)
@@ -5934,14 +6055,24 @@ function finishDraftWrite(
 	result: DraftPersistResult,
 	existed: boolean,
 	ctx: WriteDraftCtx,
-	codeDiff?: ToolCodeDiff
+	codeDiff?: ToolCodeDiff,
+	actions?: ToolDisplayAction[]
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
 	if (codeDiff) ctx.toolCallbacks.setToolStatus(ctx.toolId, { codeDiff })
 	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
-	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
 	const stored = result.item
+	const isAgent =
+		stored.type === 'resource' &&
+		(stored.value as CreateResource | undefined)?.resource_type === 'ai_agent'
+	const card = maybeAttachPreviewCard(
+		ctx,
+		isAgent ? 'agent' : PREVIEW_CARD_KIND_BY_ITEM_KIND[result.itemKind],
+		stored.path
+	)
+	// Outside a session there is no preview chip, so the actions carry the way in.
+	if (actions && !card) ctx.toolCallbacks.setToolStatus(ctx.toolId, { actions })
 	const verb = existed ? 'Updated' : 'Created'
 	// Don't echo the flow value back: the model just sent it in the write call,
 	// so reflecting the (large) compact flow JSON only burns tokens. Variables
@@ -5954,7 +6085,7 @@ function finishDraftWrite(
 				: stored
 
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
-		content: `${verb} ${stored.type} "${stored.path}" as a draft`,
+		content: `${verb} ${isAgent ? 'agent' : stored.type} "${stored.path}" as a draft`,
 		result: `Saved as draft`
 	})
 	return JSON.stringify(
@@ -5988,6 +6119,7 @@ async function writeDraft<T, A>(
 		triggerKind?: TriggerKind
 		override?: boolean
 		codeDiff?: ToolCodeDiff | ((base: T | undefined, draft: T) => ToolCodeDiff | undefined)
+		actions?: ToolDisplayAction[]
 	} = {}
 ): Promise<string> {
 	const { workspace } = ctx
@@ -6008,7 +6140,7 @@ async function writeDraft<T, A>(
 		force: opts.override
 	})
 	const codeDiff = typeof opts.codeDiff === 'function' ? opts.codeDiff(base, draft) : opts.codeDiff
-	return finishDraftWrite(result, existed, ctx, codeDiff)
+	return finishDraftWrite(result, existed, ctx, codeDiff, opts.actions)
 }
 
 type ScriptDraftArgs = {
@@ -6216,7 +6348,11 @@ function writeResourceDraft(
 	args: CreateResource & { override?: boolean },
 	ctx: WriteDraftCtx
 ): Promise<string> {
-	return writeDraft(RESOURCE_SPEC, 'resource', args.path, args, ctx, { override: args.override })
+	return writeDraft(RESOURCE_SPEC, 'resource', args.path, args, ctx, {
+		override: args.override,
+		// The agent editor is where the user reviews and deploys the draft.
+		actions: args.resource_type === 'ai_agent' ? [createOpenAgentAction(args.path)] : undefined
+	})
 }
 
 const VARIABLE_SPEC: WriteSpec<VariableDraftState, WriteVariableArgs> = {
@@ -6723,6 +6859,12 @@ type FormRunSpec = {
 	autoAcceptable?: boolean
 	/** Whether this item's deployed page is a conversation rather than a run form. */
 	conversational?: boolean
+	/** The item has no deployed page that can take over the run form. */
+	noDeployedPage?: boolean
+	/** What the card's prose calls the runnable, when `contextName` would name it wrongly. */
+	cardNoun?: string
+	/** Asks only for the message, as a chat composer: the agent keeps its conversation. */
+	chatInput?: boolean
 	background?: boolean
 	detachAfterMs?: number
 	startJob: (submitted: Record<string, any>) => Promise<string>
@@ -6807,6 +6949,9 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		kind: spec.kind,
 		runnableKind: spec.contextName,
 		conversational: spec.conversational || undefined,
+		noDeployedPage: spec.noDeployedPage || undefined,
+		cardNoun: spec.cardNoun,
+		chatInput: spec.chatInput || undefined,
 		schema: autoAccepted ? undefined : schema,
 		code: autoAccepted ? undefined : spec.code,
 		lang: autoAccepted ? undefined : spec.lang,
@@ -7110,6 +7255,109 @@ async function testRunFlowByPath(
 					}
 				})
 			}
+		},
+		ctx
+	)
+}
+
+/** The agent at `path` as a run of it would use it: the user's draft when there is one, else the
+ *  deployed resource. Refuses a path holding some other kind of resource. */
+async function loadAgentForTest(
+	path: string,
+	workspace: string
+): Promise<{ config: AIAgentConfig; description?: string }> {
+	// Settles a save the agent editor still has pending, or refuses: a test of the stored row would
+	// otherwise run an older configuration than the one on screen.
+	const { response, draft } = await fetchAgentWithDraft(path, workspace)
+	if (response.resource_type !== 'ai_agent') {
+		throw new Error(`"${path}" is a ${response.resource_type} resource, not an AI agent.`)
+	}
+	return draft
+		? { config: draft.args, description: draft.description }
+		: { config: response.value as AIAgentConfig, description: response.description }
+}
+
+async function testRunAgentByPath(
+	args: z.infer<typeof testRunAgentSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace } = ctx
+	const { config, description } = await loadAgentForTest(args.path, workspace)
+	// Who the agent runs as and who may ask it in Slack, not inputs: a test runs as its editor.
+	const {
+		on_behalf_of: _obo,
+		run_on_behalf_of: _runObo,
+		slack_anyone: _slack,
+		...brain
+	} = config as AIAgentConfig & Record<string, unknown>
+	// The run the agent editor's chat makes of its draft.
+	const flow = agentChatFlow({
+		id: AGENT_STEP_ID,
+		value: inlineAgentDraft({ type: 'aiagent', tools: [], input_transforms: {} } as any, brain)
+	} as FlowModule)
+	return runThroughForm(
+		{
+			path: args.path,
+			schema: AGENT_CHAT_SCHEMA,
+			summary: description,
+			kind: 'test',
+			schemaNoun: 'agent',
+			toolName: 'test_run_agent',
+			proposed: args.args,
+			startMessage: `Starting agent test run for "${args.path}"...`,
+			contextName: 'flow',
+			noun: 'agent',
+			cardNoun: 'agent',
+			chatInput: keepsManagedMemory(brain.memory),
+			autoAcceptable: true,
+			background: args.background,
+			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+			startJob: (submitted) =>
+				JobService.runFlowPreview({
+					workspace,
+					memoryId: args.memory_id ?? randomUUID(),
+					requestBody: { path: agentChatPath(args.path), value: flow.value, args: submitted }
+				})
+		},
+		ctx
+	)
+}
+
+async function runDeployedAgent(
+	args: z.infer<typeof runAgentSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace } = ctx
+	const agent = await ResourceService.getResource({ workspace, path: args.path })
+	if (agent.resource_type !== 'ai_agent') {
+		throw new Error(`"${args.path}" is a ${agent.resource_type} resource, not an AI agent.`)
+	}
+	return runThroughForm(
+		{
+			path: args.path,
+			schema: AGENT_CHAT_SCHEMA,
+			summary: agent.description,
+			kind: 'run',
+			// Its page is not a flow's, so the run form cannot move onto it.
+			noDeployedPage: true,
+			schemaNoun: 'agent',
+			toolName: 'run_agent',
+			proposed: args.args,
+			startMessage: `Running agent "${args.path}"...`,
+			contextName: 'flow',
+			noun: 'agent',
+			cardNoun: 'agent',
+			chatInput: keepsManagedMemory((agent.value as AIAgentConfig | undefined)?.memory),
+			autoAcceptable: true,
+			background: args.background,
+			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+			startJob: (submitted) =>
+				JobService.runAgent({
+					workspace,
+					path: args.path,
+					memoryId: args.memory_id,
+					requestBody: submitted as { user_message?: string }
+				})
 		},
 		ctx
 	)
@@ -7907,6 +8155,16 @@ function createOpenResourceAction(path: string): ToolDisplayAction {
 		type: 'open_created_resource',
 		label: 'Open resource',
 		resource: 'resource',
+		path
+	}
+}
+
+function createOpenAgentAction(path: string): ToolDisplayAction {
+	return {
+		id: `open-agent:${path}`,
+		type: 'open_created_resource',
+		label: 'Open agent',
+		resource: 'agent',
 		path
 	}
 }
@@ -9138,12 +9396,14 @@ async function deployDraft(
 			}
 			case 'resource': {
 				let requestBody = draft.value as any
+				let isAgent = requestBody.resource_type === 'ai_agent'
 				if (await ResourceService.existsResource({ workspace, path })) {
 					// The server resets an agent's identity to whoever deploys, unless told to keep
 					// it: the identity is the deployed one, never the draft's.
 					const deployed = await ResourceService.getResource({ workspace, path })
 					const obo = (deployed.value as any)?.on_behalf_of
-					if (deployed.resource_type === 'ai_agent' && obo) {
+					isAgent = deployed.resource_type === 'ai_agent'
+					if (isAgent && obo) {
 						requestBody = {
 							...requestBody,
 							value: { ...requestBody.value, on_behalf_of: obo },
@@ -9154,7 +9414,7 @@ async function deployDraft(
 				} else {
 					await ResourceService.createResource({ workspace, requestBody })
 				}
-				actions = [createOpenResourceAction(path)]
+				actions = [isAgent ? createOpenAgentAction(path) : createOpenResourceAction(path)]
 				break
 			}
 			case 'variable': {

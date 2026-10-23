@@ -73,6 +73,7 @@
 	} from '$lib/components/copilot/chat/global/gate'
 	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
+	import { agentEditHref } from '$lib/components/copilot/chat/workspaceItems.svelte'
 	import { previewTargetForSessionTarget } from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import {
 		artifactKey,
@@ -721,6 +722,10 @@
 	$effect(() => {
 		return registerToolDisplayActionHandler('open_created_resource', (action) => {
 			if (action.type !== 'open_created_resource') return
+			if (action.resource === 'agent') {
+				owner?.open({ type: 'page', href: agentEditHref(action.path), label: action.path })
+				return
+			}
 			const ref: PageItemRef | undefined =
 				action.resource === 'trigger'
 					? action.triggerKind && {

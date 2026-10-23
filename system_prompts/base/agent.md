@@ -74,8 +74,11 @@ script or inline script the agent calls (or a nested agent or AI decision), `mcp
 (`{ "tool_type": "mcp", "resource_path": "$res:<path>", "include_tools": [], "exclude_tools": [] }`),
 or `websearch` for web search (`{ "tool_type": "websearch" }`, summary `Web Search`).
 
-- Prefer a `script` tool pointing at a deployed script (`path`) over an inline `rawscript`: it can
-  be tested and reused on its own
+- Write logic made for this agent as an inline `rawscript` tool, as a flow writes its steps. Point a
+  `script` tool at a deployed script (`path`) only when one already does the job: a run calls the
+  deployed version, so a script that exists only as a draft fails the run. An inline tool's
+  `value` is a flow's rawscript step:
+  `{ "tool_type": "flowmodule", "type": "rawscript", "language": "bun", "content": "export async function main(query: string) { ... }", "input_transforms": { "query": { "type": "ai" } } }`
 - A flow cannot be a tool: a run offered one fails with `Unsupported tool`. Wrap it in a script
   that runs the flow
 - A flowmodule tool's `summary` is the name the agent calls it by: letters, numbers and underscores

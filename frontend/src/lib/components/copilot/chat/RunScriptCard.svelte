@@ -75,6 +75,7 @@
 				? 'flow'
 				: 'script')
 	)
+	const runnableNoun = $derived(runForm?.cardNoun ?? runnableKind)
 	// Declining the form, stopping the turn and cancelling the job all land here, and none
 	// of them is a failure: the run stopped because someone said so.
 	const canceled = $derived(
@@ -198,8 +199,8 @@
 	)
 	const cancelReason = $derived(
 		ran
-			? `This run was cancelled while the ${runnableKind} was running.`
-			: `This run was cancelled before the ${runnableKind} started.`
+			? `This run was cancelled while the ${runnableNoun} was running.`
+			: `This run was cancelled before the ${runnableNoun} started.`
 	)
 	// Streaming opens the tab early: the result is already arriving, and one that appeared
 	// only at the end would hide the thing the user is waiting to read.
@@ -433,7 +434,11 @@
 	// takes over the call, so Run there is Run here. A test run has no deployed page — it
 	// executes the draft being written — so it keeps the chat's own form tab.
 	const asDeployedPage = $derived(
-		pending && runForm?.kind === 'run' && !!path && !!aiChatManager.openRunOnDeployedPage
+		pending &&
+			runForm?.kind === 'run' &&
+			!runForm.noDeployedPage &&
+			!!path &&
+			!!aiChatManager.openRunOnDeployedPage
 	)
 	const previewTarget = $derived(
 		pending
@@ -758,7 +763,7 @@
 					unifiedSize="sm"
 					destructive
 					startIcon={{ icon: TimerOff }}
-					title={`Cancel the ${runnableKind}`}
+					title={`Cancel the ${runnableNoun}`}
 					onClick={() => aiChatManager.cancelJob(chatJob.jobId)}
 				>
 					Cancel

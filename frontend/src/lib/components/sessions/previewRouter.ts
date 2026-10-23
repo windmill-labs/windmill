@@ -496,6 +496,8 @@ export function previewLocationLabel(url: string): string {
 	if (historical) return `${historical.path.split('/').pop()} @ ${historical.hash.slice(0, 8)}`
 	const parsed = parsePreviewItemRoute(url)
 	if (parsed) return parsed.itemPath.split('/').pop() ?? parsed.itemPath
+	const agent = barePath(url).match(/^\/agents\/(?:edit|get)\/(.+)$/)
+	if (agent) return decodeURIComponent(agent[1]).split('/').pop() || agent[1]
 	return barePath(url)
 }
 

@@ -31,6 +31,8 @@ export type WindmillItemKind =
 	| 'app'
 	| 'variable'
 	| 'resource'
+	/** An `ai_agent` resource, which has its own pages. */
+	| 'agent'
 	| 'schedule'
 	| 'http_trigger'
 	| 'websocket_trigger'
@@ -90,7 +92,10 @@ function workspaceItemTriggerKind(kind: WindmillItemKind): CreatedResourceAction
  */
 export function itemHref(entry: WorkspaceItemEntry, workspace?: string): string {
 	const raw =
-		(entry.draftOnly && draftEditHref(entry)) || offboardingItemHref(entry.kind, entry.path) || '#'
+		(entry.draftOnly && draftEditHref(entry)) ||
+		(entry.kind === 'agent' ? agentEditHref(entry.path) : undefined) ||
+		offboardingItemHref(entry.kind, entry.path) ||
+		'#'
 	if (!workspace) return raw
 	const hashIdx = raw.indexOf('#')
 	if (hashIdx === -1) {
@@ -100,6 +105,11 @@ export function itemHref(entry: WorkspaceItemEntry, workspace?: string): string 
 	const hashPart = raw.slice(hashIdx)
 	const sep = pathPart.includes('?') ? '&' : '?'
 	return `${pathPart}${sep}workspace=${workspace}${hashPart}`
+}
+
+/** The agent editor, which shows the user's draft of the agent when there is one. */
+export function agentEditHref(path: string): string {
+	return `/agents/edit/${path}`
 }
 
 function draftEditHref(entry: WorkspaceItemEntry): string | undefined {
@@ -121,6 +131,7 @@ type WorkspaceItemListResult = Array<{
 	raw_app?: boolean | null
 	draft_only?: boolean | null
 	draft_path?: string | null
+	resource_type?: string
 }>
 
 const workspaceItemLoaders: Array<{
@@ -193,7 +204,7 @@ class WorkspaceItemRegistry {
 			for (const it of items) {
 				if (!map.has(it.path)) {
 					map.set(it.path, {
-						kind,
+						kind: kind === 'resource' && it.resource_type === 'ai_agent' ? 'agent' : kind,
 						path: it.path,
 						targetKind:
 							typeof it.is_flow === 'boolean' ? (it.is_flow ? 'flow' : 'script') : undefined,
@@ -292,7 +303,7 @@ export function workspaceItemAction(
 		path
 	}
 
-	if (kind === 'resource' || kind === 'variable') {
+	if (kind === 'resource' || kind === 'agent' || kind === 'variable') {
 		return { ...base, resource: kind }
 	}
 
