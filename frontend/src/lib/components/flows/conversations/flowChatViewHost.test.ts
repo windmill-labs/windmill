@@ -198,6 +198,16 @@ describe('toDisplayMessages', () => {
 			parameters: { name: 'staging' }
 		})
 
+		const twice = {
+			...approval,
+			calls: [...approval.calls, { function_name: 'delete_database', arguments: { name: 'prod' } }]
+		}
+		const added = toDisplayMessages(turn.slice(0, 1), true, new Set(), { request: twice })
+		expect(added.slice(1).map((m) => (m as { parameters?: unknown }).parameters)).toEqual([
+			{ name: 'staging' },
+			{ name: 'prod' }
+		])
+
 		const question = {
 			type: 'question' as const,
 			call_id: 'c2',

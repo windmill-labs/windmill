@@ -183,6 +183,10 @@ function requestCard(
 	}
 }
 
+function requestKey({ agentJobId, action }: PendingAgentRequest): string {
+	return `${agentJobId}:${action.call_id}`
+}
+
 function holds(request: AgentRequest, toolName: string | undefined): toolName is string {
 	return (
 		!!toolName &&
@@ -374,16 +378,19 @@ export function toDisplayMessages(
 	if (!request || requestShown) return shown
 	// No streamed card to put it on: the agent does not stream, or the page was opened after
 	// the call was made.
-	const names =
-		request.type === 'question' ? ['ask_question'] : request.calls.map((c) => c.function_name)
+	const calls =
+		request.type === 'question'
+			? [{ function_name: 'ask_question', arguments: undefined }]
+			: request.calls
 	return [
 		...shown,
-		...names.map((name, n) =>
-			requestCard(request, name, {
+		...calls.map((call, n) =>
+			requestCard(request, call.function_name, {
 				role: 'tool',
 				tool_call_id: `${request.call_id}:${n}`,
 				content: '',
-				toolName: name
+				toolName: call.function_name,
+				parameters: call.arguments
 			})
 		)
 	]
@@ -534,19 +541,19 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 		})
 	)
 
-	/** The call id of the request answered here: its cards drop their buttons until the
-	 * flow's status catches up. */
+	/** The request answered here, by agent job and call id: its cards drop their buttons until
+	 * the flow's status catches up. */
 	#answeredRequest = $state<string | undefined>(undefined)
 	get #agentRequest(): PendingAgentRequest | undefined {
 		const request = this.#options.agentRequest?.()
-		return request?.action.call_id === this.#answeredRequest ? undefined : request
+		return request && requestKey(request) === this.#answeredRequest ? undefined : request
 	}
 
 	#answer(approved: boolean, answer?: string | string[]): boolean {
 		const request = this.#agentRequest
 		const workspace = this.#options.workspace?.()
 		if (!request || !workspace) return false
-		this.#answeredRequest = request.action.call_id
+		this.#answeredRequest = requestKey(request)
 		answerAgentRequest(workspace, request, approved, answer).catch((e: any) => {
 			this.#answeredRequest = undefined
 			sendUserToast(e?.body ?? e?.message ?? 'Failed to answer the request', true)
