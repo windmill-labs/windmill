@@ -13,7 +13,9 @@ General tab of workspace settings, or `pauseWorkspaceJobs` / `pause_workspace_jo
   `pause_decision`); anything pushed under `PausePolicy::Exempt` (datatable migrations, raw app
   bundles). A job with a parent always runs: the flow or job it belongs to already started.
   "Admin" is the caller (`push`'s `authed`), never the identity the job runs as: a member running
-  an on-behalf-of-admin script is held.
+  an on-behalf-of-admin script is held. An on-behalf-of run reaches `push` with no `authed`, so an
+  admin's run of such a script is held too; the sweep's SQL (`permissioned_as = 'u/' ||
+  created_by`) matches that, so a job is never exempted at push time and held by a later sweep.
 - **Held**: script, flow and single-step-flow jobs are queued as `unassigned_*`, 30 days out, the
   same way a suspended trigger holds its jobs, plus a `workspace_held_job` row carrying when the
   job was due.
@@ -43,7 +45,7 @@ synchronous entry point needs the same wrapper. The policy is a task-local: it d
 - A job a waiting caller (`run_wait_result`, a sync route) pushed before the pause and that has not
   started yet is held by the sweep like any queued job: that caller times out rather than getting
   a 503, and the job runs on resume. Telling those jobs apart would need per-job state.
-  A pause past its deadline reads as over immediately; `monitor_db` deletes it and releases its
+- A pause past its deadline reads as over immediately; `monitor_db` deletes it and releases its
   jobs, and also releases held rows left without a pause (a push that read a stale cache).
 - `MAX_PAUSE_DAYS` (7) must stay well under the 30-day horizon after which a worker fails an
   `unassigned_*` job it reaches. A pause can be renewed indefinitely, so every renewal also moves
