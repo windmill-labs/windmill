@@ -25,12 +25,14 @@
 	import AgentHistory from '$lib/components/flows/AgentHistory.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { recentItems } from '$lib/components/home/recentItems.svelte'
-	import { userStore } from '$lib/stores'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { sendUserToast } from '$lib/toast'
 	import { PLAN_MODE_MESSAGES } from '$lib/components/copilot/chat/planModeMessages'
 	import type { PendingRun } from '$lib/components/details/pendingRun'
-	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		setOperatingWorkspace,
+		useOperatingUser
+	} from '$lib/components/operatingWorkspace.svelte'
 
 	/**
 	 * The deployed agent, as a flow's or a script's page shows theirs: a way to run it, a chat when
@@ -70,6 +72,9 @@
 	// permissions, history) targets `workspace`, not the nav store: a session shows the agent of its
 	// own workspace, which a fork makes a different one.
 	setOperatingWorkspace(() => ws)
+
+	// The user as this workspace knows them: in a fork, the navigation user is the parent's.
+	const operatingUser = useOperatingUser()
 
 	/** Bumped to read the agent again after it was renamed in place. */
 	let reloaded = $state(0)
@@ -400,7 +405,7 @@
 	<AgentUsePanel
 		agentPath={path}
 		workspace={ws}
-		isAdmin={!!($userStore?.is_admin || $userStore?.is_super_admin)}
+		isAdmin={!!(operatingUser.current?.is_admin || operatingUser.current?.is_super_admin)}
 		chat={chatAvailable}
 		slackLoading={slack.loading && !slack.current}
 		slackTeamName={slack.current?.slack_team_name}

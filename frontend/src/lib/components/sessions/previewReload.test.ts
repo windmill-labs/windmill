@@ -7,6 +7,10 @@ describe('toolReloadEffect', () => {
 	it('maps a non-item mutation to its own list page only', () => {
 		expect(toolReloadEffect('write_schedule', { path: 'u/me/s' }).pages).toEqual(['/schedules'])
 		expect(toolReloadEffect('write_resource', {}).pages).toEqual(['/resources'])
+		// An agent's editor follows the write live; reloading would end its test chat.
+		expect(
+			toolReloadEffect('write_resource', { resource_type: 'ai_agent', path: 'u/me/a' })
+		).toEqual({ pages: [], items: [], deployed: [] })
 		expect(toolReloadEffect('write_variable', {}).pages).toEqual(['/variables'])
 		expect(toolReloadEffect('create_folder', { name: 'f' }).pages).toEqual(['/folders'])
 		expect(toolReloadEffect('create_resource_type', { name: 'c_x' }).pages).toEqual(['/resources'])

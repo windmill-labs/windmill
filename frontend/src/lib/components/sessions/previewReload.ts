@@ -45,9 +45,10 @@ export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
 			return withItem(triggerPages(args?.kind), itemRef('trigger', args?.config, args?.kind))
 		case 'write_resource':
 			// An agent's editor follows the chat's writes through the draft cell they share, so
-			// reloading its tab would only throw away where the reader was in it.
+			// reloading its tab would only throw away where the reader was in it, a test chat included.
+			// Nothing is reloaded: a list page with no item named reloads every editor on it.
 			return args?.resource_type === 'ai_agent'
-				? { pages: ['/resources'], items: [], deployed: [] }
+				? NO_RELOAD
 				: withItem(['/resources'], itemRef('resource', args))
 		case 'write_variable':
 			return withItem(['/variables'], itemRef('variable', args))
