@@ -44,7 +44,7 @@
 	let {
 		open = $bindable(),
 		tab = $bindable(),
-		policy,
+		policy = $bindable(),
 		appPath,
 		customPath = $bindable(),
 		savedApp,

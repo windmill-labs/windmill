@@ -374,7 +374,7 @@
 				{path}
 				autosaveWorkspace={workspaceId}
 				autosavePath={path}
-				policy={cell.store.val.policy}
+				bind:policy={cell.store.val.policy}
 				bind:savedApp={cell.saved.val}
 				version={cell.store.val?.parent_version ?? cell.saved.val?.deployed_version}
 				draftBaseVersion={cell.store.val?.parent_version != null

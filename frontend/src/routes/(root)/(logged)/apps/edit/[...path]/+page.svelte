@@ -511,7 +511,7 @@
 				{deployedBaseline}
 				newPath={app.value?.draft_path ?? app.path}
 				path={page.params.path ?? ''}
-				policy={app.policy}
+				bind:policy={app.policy}
 				bind:savedApp
 				{diffDrawer}
 				version={app.versions ? app.versions[app.versions.length - 1] : undefined}

@@ -686,7 +686,7 @@
 				{labels}
 				path={page.params.path ?? ''}
 				liveEditorDraftStoragePath={path}
-				{policy}
+				bind:policy
 				bind:savedApp
 				{diffDrawer}
 				newApp={isNewApp}
