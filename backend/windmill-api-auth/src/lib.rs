@@ -7,6 +7,7 @@
  */
 
 pub mod auth;
+pub mod composed;
 #[cfg(feature = "private")]
 pub mod ee;
 pub mod ee_oss;

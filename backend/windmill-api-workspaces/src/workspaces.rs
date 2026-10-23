@@ -39,7 +39,7 @@ use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
 use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{
-    crypt_from_key_with_suffix, decrypt, encrypt, WORKSPACE_CRYPT_CACHE,
+    crypt_from_key_with_suffix, decrypt, decrypt_secret_value, encrypt, WORKSPACE_CRYPT_CACHE,
 };
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::workspaces::GitRepositorySettings;
@@ -76,7 +76,9 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use windmill_common::oauth2::InstanceEvent;
-use windmill_common::secret_backend::{get_secret_backend, is_vault_backend_configured};
+use windmill_common::secret_backend::{
+    get_secret_backend, is_external_stored_value, is_vault_backend_configured,
+};
 use windmill_common::utils::not_found_if_none;
 
 lazy_static::lazy_static! {
@@ -14372,6 +14374,12 @@ async fn compare_two_apps(
     });
 }
 
+// Resources and resource types can be stored with a NULL description, but deploy writes "",
+// so the two must compare equal or the item never settles after a deploy.
+fn description_differs(a: &Option<String>, b: &Option<String>) -> bool {
+    a.as_deref().unwrap_or("") != b.as_deref().unwrap_or("")
+}
+
 async fn compare_two_resources(
     db: &DB,
     source_workspace_id: &str,
@@ -14440,7 +14448,7 @@ async fn compare_two_resources(
             source.value != target.value
         };
         if values_differ
-            || source.description != target.description
+            || description_differs(&source.description, &target.description)
             || source.resource_type != target.resource_type
         {
             has_changes = true;
@@ -14518,11 +14526,22 @@ async fn compare_two_variables(
 
     // Check metadata differences
     if let (Some(source), Some(target)) = (&source_variable, &target_variable) {
-        if source.is_secret != target.is_secret
-            || source.value != target.value
-            || source.description != target.description
-        {
+        if source.is_secret != target.is_secret || source.description != target.description {
             has_changes = true;
+        } else if source.value != target.value
+            || (source.is_secret && is_external_stored_value(&source.value))
+        {
+            // A secret's ciphertext is randomized on every write, so equal secrets are compared
+            // by plaintext, each decrypted with its own workspace's key. An external backend
+            // reference is the same text on both sides but names a per-workspace entry.
+            has_changes = !source.is_secret
+                || !matches!(
+                    tokio::try_join!(
+                        decrypt_secret_value(db, source_workspace_id, path, source.value.clone()),
+                        decrypt_secret_value(db, fork_workspace_id, path, target.value.clone()),
+                    ),
+                    Ok((a, b)) if a == b
+                );
         }
     } else if source_variable.is_some() || target_variable.is_some() {
         // The variable exists in one of source or target, but not the other, this is considered as a change
@@ -14568,7 +14587,7 @@ async fn compare_two_resource_types(
     // Check metadata differences
     if let (Some(source), Some(target)) = (&source_resource_type, &target_resource_type) {
         if source.schema != target.schema
-            || source.description != target.description
+            || description_differs(&source.description, &target.description)
             || source.format_extension != target.format_extension
             || source.is_fileset != target.is_fileset
         {

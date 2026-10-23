@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { DisplayMessage } from './shared'
-import { groupHeader, groupToolRuns, type GroupState, type ToolGroup } from './toolGroups'
+import {
+	createChatItemGrouper,
+	groupHeader,
+	groupToolRuns,
+	type GroupState,
+	type ToolGroup
+} from './toolGroups'
 
 let nextId = 0
 function tool(
@@ -272,5 +278,39 @@ describe('groupToolRuns', () => {
 		)
 		const other = tool('call_mcp_read_tool', { server: 'f/team/github', tool: 'get_issue' })
 		expect(header([mcp('list_issues'), other])).toBe('List issues, get issue')
+	})
+})
+
+describe('createChatItemGrouper', () => {
+	it('keeps the history rows while only the live answer changes', () => {
+		const group = createChatItemGrouper()
+		const history = [
+			assistant('done'),
+			tool('read_workspace_item'),
+			tool('list_runs'),
+			assistant('more')
+		]
+		const first = group([...history, assistant('a', { streaming: true })])
+		const second = group([...history, assistant('ab', { streaming: true })])
+		expect(second).toHaveLength(first.length)
+		second.slice(0, -1).forEach((item, i) => expect(item).toBe(first[i]))
+		expect(second.at(-1)).toMatchObject({ kind: 'message', index: 4, message: { content: 'ab' } })
+		expect(shape([...history, assistant('ab', { streaming: true })])).toEqual(
+			second.map((item) =>
+				item.kind === 'group' ? { [item.groupKind]: item.entries.map((e) => e.index) } : item.index
+			)
+		)
+	})
+
+	it('keeps every row but the one a tool status change replaced', () => {
+		const group = createChatItemGrouper()
+		const history = [assistant('done'), tool('run_script'), assistant('more')]
+		const first = group(history)
+		const updated = [history[0], { ...history[1], isLoading: false }, history[2]]
+		const second = group(updated)
+		expect(second[0]).toBe(first[0])
+		expect(second[1]).not.toBe(first[1])
+		expect(second[1]).toMatchObject({ message: updated[1] })
+		expect(second[2]).toBe(first[2])
 	})
 })

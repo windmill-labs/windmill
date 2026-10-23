@@ -61,6 +61,7 @@
 		getSessionDraftAttachments,
 		setSessionDraftAttachments,
 		peekSessionAutoSend,
+		getSessionAutoSendDomElement,
 		takeSessionAutoSend,
 		reconcileAfterWorkspaceChange,
 		renameSession,
@@ -158,13 +159,14 @@
 		if (!session?.autoSendDraftAt || !runtime) return
 		untrack(() => {
 			const prompt = getSessionDraftPrompt(sessionId)
+			const domElement = getSessionAutoSendDomElement(sessionId)
 			// takeSessionAutoSend clears the intent whether or not it is still
 			// fresh, so this cannot re-enter on the next dependency change.
 			if (!takeSessionAutoSend(sessionId) || !prompt) return
 			// sendOrQueue, not sendRequest: a reused session may already be mid-turn.
 			// The runtime's beforeSend awaits loadCopilot for the committed
 			// workspace, so this cannot race the model config on a cold session.
-			runtime.manager.sendOrQueue(prompt)
+			runtime.manager.sendOrQueue(prompt, domElement ? [domElement] : undefined)
 		})
 	})
 

@@ -9,12 +9,14 @@ import {
 	takeNewSessionSeed
 } from './sessionSwitch.svelte'
 import {
+	getSessionAutoSendDomElement,
 	peekSessionAutoSend,
 	sessionState,
 	takeSessionAutoSend,
 	type Session
 } from './sessionState.svelte'
 import { usersWorkspaceStore, workspaceStore, type UserWorkspace } from '$lib/stores'
+import { createAppDomSelectorElement } from '../copilot/chat/context'
 
 vi.mock('$lib/navigation', () => ({ goto: vi.fn().mockResolvedValue(undefined) }))
 import { goto } from '$lib/navigation'
@@ -170,6 +172,31 @@ describe('auto-send intent', () => {
 			expect(peekSessionAutoSend(createdId)).toBe(true)
 			expect(takeSessionAutoSend(createdId)).toBe(true)
 			expect(takeSessionAutoSend(createdId)).toBe(false)
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== createdId)
+			sessionState.currentSessionId = prevCurrent
+		}
+	})
+
+	// A picked element names what the prompt is about ("make this bigger"): it must
+	// arrive with the prompt and be consumed with it, never outlive the intent.
+	it('carries a picked element with the prompt and clears it on claim', async () => {
+		const prevCurrent = sessionState.currentSessionId
+		let createdId: string | undefined
+		const el = createAppDomSelectorElement({
+			selector: 'main > h1',
+			appPath: 'u/me/app',
+			tagName: 'H1'
+		})
+		try {
+			await openSourceInSession(
+				{ target: { kind: 'raw_app', path: 'u/me/app' } },
+				{ seedPrompt: 'make this bigger', autoSend: true, seedDomElement: el }
+			)
+			createdId = sessionState.currentSessionId!
+			expect(getSessionAutoSendDomElement(createdId)).toEqual(el)
+			expect(takeSessionAutoSend(createdId)).toBe(true)
+			expect(getSessionAutoSendDomElement(createdId)).toBeUndefined()
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== createdId)
 			sessionState.currentSessionId = prevCurrent

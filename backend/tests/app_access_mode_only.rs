@@ -250,6 +250,26 @@ async fn test_access_mode_only_update(db: Pool<Postgres>) -> anyhow::Result<()> 
     );
     assert_eq!(policy(&db, BUILT).await?["execution_mode"], "anonymous");
 
+    // A builder's deploy would sandbox an app whose policy leaves it unset, which a mode-only
+    // change must not do.
+    sqlx::query(
+        "UPDATE app SET policy = policy - 'sandbox' WHERE path = $1 AND workspace_id = 'test-workspace'",
+    )
+    .bind(BUILT)
+    .execute(&db)
+    .await?;
+    let (status, body) = update(
+        &ws,
+        BUILT,
+        BUILDER,
+        json!({ "execution_mode": "publisher" }),
+    )
+    .await?;
+    assert_eq!(status, 403, "{body}");
+    let p = policy(&db, BUILT).await?;
+    assert!(p.get("sandbox").is_none(), "{p}");
+    assert_eq!(p["execution_mode"], "anonymous");
+
     // Changing the mode alone skips the check of the triggerables against the builder's RLS, so
     // it stays refused on an app that runs as someone else; deploying it is the way.
     const ADMIN_RUN: &str = "u/test-user-3/admin_run";

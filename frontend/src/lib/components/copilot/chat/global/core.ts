@@ -181,7 +181,7 @@ import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { artifactTools } from '../artifacts/artifactTools'
 import type { SessionArtifactsStore } from '../artifacts/artifactsState.svelte'
-import type { Runnable } from '$lib/components/apps/inputType'
+import type { PathRunType, Runnable } from '$lib/components/apps/inputType'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import type { Schema } from '$lib/common'
@@ -1077,9 +1077,9 @@ const backendRunnableSchema = z
 	.object({
 		name: z.string().describe('Short summary/description of what the runnable does.'),
 		type: z
-			.enum(['inline', 'script', 'flow', 'hubscript'])
+			.enum(['inline', 'script', 'flow', 'hubscript', 'agent'])
 			.describe(
-				'Runnable kind: "inline" for custom code stored on the app; "script"/"flow" for a workspace runnable; "hubscript" for a hub script.'
+				'Runnable kind: "inline" for custom code stored on the app; "script"/"flow" for a workspace runnable; "hubscript" for a hub script; "agent" for a saved AI agent, run as one chat turn.'
 			),
 		staticInputs: z
 			.record(z.string(), z.any())
@@ -1098,7 +1098,7 @@ const backendRunnableSchema = z
 			.string()
 			.optional()
 			.describe(
-				'Required when type is "script", "flow", or "hubscript". Workspace path of the runnable.'
+				'Required when type is "script", "flow", "hubscript" or "agent". Workspace path of the runnable.'
 			),
 		viewerDataAccess: z
 			.boolean()
@@ -1657,7 +1657,7 @@ ${
 				' To make something recur, they can schedule a deployed script or flow themselves; only when none does the job is there something to ask an admin for, and it is that script.'
 			)} When you decline something, give the reason stated here and keep to it.${when(
 				buildsFlows,
-				'\n\nFlows are the exception: this workspace lets them compose flows out of scripts and flows that are already deployed. Write flow drafts with write_flow and patch_flow_json, using only steps that call a deployed script or flow by path. The server refuses inline code anywhere in the flow, so never add a rawscript step or inline code; when the flow needs logic no deployed script provides, say so and suggest asking a workspace admin for that script.'
+				'\n\nFlows are the exception: this workspace lets them compose flows out of scripts and flows that are already deployed. Write flow drafts with write_flow and patch_flow_json, using only steps that call a deployed script or flow by path. The server refuses inline code anywhere in the flow, so never add a rawscript step or inline code; when the flow needs logic no deployed script provides, say so and suggest asking a workspace admin for that script. An AI agent step may link a saved agent they can read, which runs its tools as the agent defines them. Its `tool_inputs` may only fill tool inputs the agent leaves for the AI to fill: the server refuses a step that changes an input the agent sets.'
 			)}${when(
 				buildsApps,
 				`\n\nRaw apps are ${buildsFlows ? 'an exception too' : 'the exception'}: this workspace lets them build raw apps whose backend calls scripts and flows that are already deployed. Call get_instructions with subject "app" first, then write app drafts with init_app and the app file and runnable tools, making every backend runnable a path runnable to a deployed script or flow. The server refuses inline and hub runnables, so never write one; when the app needs logic no deployed script provides, say so and suggest asking a workspace admin for that script. An app this user deploys always runs sandboxed, and runs its runnables as the user who deployed it: turning the sandbox off or running them as the viewer is refused. If asked, say operators cannot, because the app's code would then run with the permissions of whoever opens it.`
@@ -1708,8 +1708,12 @@ ${findItemsRule}${deployRule}${when(canWriteDraft, `\n${instructionsRule}`)}${wh
 ${external ? 'More rules:' : `Rules:${draftsOnlyRule}\n${findItemsRule}`}
 ${groupMembershipRule}- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
 - An agent, as the Agents page lists it, is a resource of type \`ai_agent\`: read it with read_workspace_item type "resource".${when(
-		canDraftResources,
+		// An agent draft is a resource draft that the server checks under the flow builder right.
+		canDraftResources && canWriteFlowDraft,
 		" You may draft a change to an agent, but never deploy or rename one here: the user reviews and deploys it from the agent's page, `/agents/edit/<path>`, so point them there."
+	)}${when(
+		buildsFlows,
+		' Its tools, like flow steps, may only reference deployed scripts and flows by path: the server refuses inline code and hub scripts.'
 	)}${when(
 		!external,
 		`
@@ -2009,7 +2013,7 @@ type BackendRunnableInput = z.infer<typeof backendRunnableSchema>
 type PersistedRunnable = {
 	name: string
 	type: 'inline' | 'path' | 'runnableByName' | 'runnableByPath'
-	runType?: 'script' | 'flow' | 'hubscript'
+	runType?: PathRunType
 	path?: string
 	inlineScript?: { language: string; content: string }
 	fields?: Record<string, any>
@@ -2042,6 +2046,7 @@ function convertPersistedToBackendRunnable(
 	} else if (persisted.type === 'path' || persisted.type === 'runnableByPath') {
 		if (persisted.runType === 'flow') out.type = 'flow'
 		else if (persisted.runType === 'hubscript') out.type = 'hubscript'
+		else if (persisted.runType === 'agent') out.type = 'agent'
 		else out.type = 'script'
 		out.path = persisted.path
 	}
@@ -2063,14 +2068,19 @@ function buildPersistedRunnable(
 	input: BackendRunnableInput,
 	existing: PersistedRunnable | undefined
 ): PersistedRunnable {
-	const fields = input.staticInputs
-		? Object.fromEntries(
-				Object.entries(input.staticInputs).map(([k, v]) => [
-					k,
-					{ type: 'static', value: v, fieldType: 'object' }
-				])
-			)
-		: (existing?.fields ?? {})
+	// An agent runnable takes every input from the app: a static one inherited from the kind it was
+	// converted from would be pinned by the deployed policy over every viewer's message.
+	const fields =
+		input.type === 'agent'
+			? {}
+			: input.staticInputs
+				? Object.fromEntries(
+						Object.entries(input.staticInputs).map(([k, v]) => [
+							k,
+							{ type: 'static', value: v, fieldType: 'object' }
+						])
+					)
+				: (existing?.fields ?? {})
 
 	// Converting between kinds must drop the other kind's fields. Every consumer dispatches on
 	// `type` (isRunnableByName / isRunnableByPath), so a leftover does not change which code
@@ -2111,7 +2121,15 @@ function buildPersistedRunnable(
 	}
 
 	if (!input.path) {
-		throw new Error('path is required when runnable type is "script", "flow", or "hubscript".')
+		throw new Error(
+			'path is required when runnable type is "script", "flow", "hubscript" or "agent".'
+		)
+	}
+	// A static input is pinned by the deployed policy: every viewer's turn would send the same one.
+	if (input.type === 'agent' && Object.keys(input.staticInputs ?? {}).length > 0) {
+		throw new Error(
+			'An "agent" runnable takes no staticInputs: each turn\'s inputs come from the app.'
+		)
 	}
 	return {
 		...carried,
@@ -9445,9 +9463,16 @@ async function undeployedRunnableTargets(
 				? runnable?.runType
 				: runnable?.type
 		const path = runnable?.path
-		if ((type !== 'script' && type !== 'flow') || !path) continue
+		if ((type !== 'script' && type !== 'flow' && type !== 'agent') || !path) continue
 		try {
-			if (await deployedItemExists(workspace, type, path, undefined)) continue
+			if (type === 'agent') {
+				// A saved agent is an `ai_agent` resource; another resource at the path runs nothing.
+				const found = await ResourceService.getResource({ workspace, path }).catch((e) => {
+					if ((e as { status?: number } | null | undefined)?.status === 404) return undefined
+					throw e
+				})
+				if (found?.resource_type === 'ai_agent') continue
+			} else if (await deployedItemExists(workspace, type, path, undefined)) continue
 		} catch {
 			// The probe is advisory: a lookup failure must never block the write or
 			// the deploy it annotates.

@@ -57,6 +57,8 @@
 	import HighlightCode from '../HighlightCode.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
+	import FolderEditorDrawer from '../FolderEditorDrawer.svelte'
+	import { isDemoWorkspaceRestricted } from '$lib/cloud'
 	import Item from './Item.svelte'
 	import PipelineRow from '../common/table/PipelineRow.svelte'
 	import { TreeOpenMemory } from './treeViewState.svelte'
@@ -933,6 +935,7 @@
 		)
 	})
 	let viewCodeDrawer: Drawer | undefined = $state()
+	let folderEditorDrawer: FolderEditorDrawer | undefined = $state()
 	let viewCodeTitle: string | undefined = $state()
 	let script: Script | undefined = $state()
 	async function showCode(path: string, summary: string) {
@@ -1047,6 +1050,13 @@
 	// window instead.
 	let treeLazyMode = $derived(
 		!flatList && !searching && ownerFilter == undefined && labelFilter == undefined
+	)
+	// Unfiltered, the tree lists every folder, empty ones too, so a workspace holding only
+	// folders is not empty: its first folder is created from here and managed from its row.
+	// A role without the Folders page gets no folder menu, so empty rows would be noise.
+	let keepEmptyFolders = $derived(itemKind === 'all' && $roleCapabilities.visibility.folders)
+	let treeShowsFolders = $derived(
+		treeLazyMode && !archived && keepEmptyFolders && (folderNamesRes.current?.length ?? 0) > 0
 	)
 	// How many runnables each owner (`f/<folder>` / `u/<user>`) holds for this user,
 	// in one request. It labels every tree node up front — a lazy owner's own count is
@@ -1199,6 +1209,11 @@
 	let canCreateHere = $derived(
 		(editRights.roleCanAuthor('flow') || editRights.roleCanAuthor('raw_app')) && showEditButtons
 	)
+	// The Folders page's own rule for its "New folder" button.
+	let canCreateFolder = $derived(
+		$roleCapabilities.visibility.folders &&
+			!isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
+	)
 
 	// The workspace itself holds nothing — no filter is narrowing the list away. It stays
 	// false until the first load resolves: a skeleton already means "loading", and the
@@ -1212,6 +1227,7 @@
 			filteredItems != undefined &&
 			filteredItems.length === 0 &&
 			visiblePipelineFolders.size === 0 &&
+			!treeShowsFolders &&
 			!hasMoreServer
 	)
 	/**
@@ -1870,6 +1886,21 @@
 	{opts}
 />
 
+<!-- Permission changes can hide or reveal rows for this user, so a save reloads them. -->
+<FolderEditorDrawer
+	bind:this={folderEditorDrawer}
+	onSaved={async (name, created) => {
+		if (created) {
+			// Folder pickers and the tree's folder menu derive write access from these, which
+			// the server only resends on the next whoami. The creator is the folder's owner.
+			$userStore?.folders.push(name)
+			$userStore?.folders_owners.push(name)
+			await folderNamesRes.refetch()
+		}
+		await reloadItemsAndCounts()
+	}}
+/>
+
 <Drawer
 	bind:this={viewCodeDrawer}
 	on:close={() => {
@@ -1990,6 +2021,7 @@
 						onImportHubProject={$disableHubStore || !editRights.roleCanAuthor('script')
 							? undefined
 							: () => (hubPickerOpen = true)}
+						onCreateFolder={canCreateFolder ? () => folderEditorDrawer?.initNew() : undefined}
 					/>
 				{/if}
 			</div>
@@ -2033,7 +2065,7 @@
 			     have scrolled away. -->
 			<div class="sticky z-10 border-b mx-5" style:top="{toolbarHeight}px"></div>
 		{/if}
-		{#if filteredItems?.length == 0 && !workspaceEmpty}
+		{#if filteredItems?.length == 0 && !workspaceEmpty && !treeShowsFolders}
 			<div class="mt-10"></div>
 		{/if}
 		<!-- Inset so a row's hover fill clears the card's border; the controls above take the same
@@ -2060,7 +2092,7 @@
 						<Skeleton layout={[[4], 0.5]} />
 					{/each}
 				</div>
-			{:else if filteredItems.length === 0 && (filter !== '' || visiblePipelineFolders.size === 0)}
+			{:else if filteredItems.length === 0 && (filter !== '' || visiblePipelineFolders.size === 0) && !treeShowsFolders}
 				<div class="px-4 pb-3">
 					<!-- Pipelines aren't part of the text filter, so only fall through to show
 			     them (list rows / injected tree folders) when not actively searching;
@@ -2077,6 +2109,7 @@
 								<WorkspaceEmptyState
 									archivedOnly={archivedProbe?.hasArchived === true}
 									canCreate={canCreateHere}
+									onCreateFolder={canCreateFolder ? () => folderEditorDrawer?.initNew() : undefined}
 									onPick={(project) => (hubPick = project)}
 									onShowArchived={() =>
 										(filterValues.val = { ...filterValues.val, archived: true })}
@@ -2173,6 +2206,10 @@
 						{showCode}
 						showEditButton={showEditButtons}
 						framed={false}
+						onManageFolder={$roleCapabilities.visibility.folders
+							? (name) => folderEditorDrawer?.initEdit(name)
+							: undefined}
+						{keepEmptyFolders}
 					/>
 				{/key}
 			{/if}

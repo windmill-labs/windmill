@@ -14,7 +14,7 @@
 	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
 	import { agentMenuItems, deleteAgent } from '$lib/components/flows/agentActions'
 	import AgentHistory from '$lib/components/flows/AgentHistory.svelte'
-	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
+	import { cachedDeployUiSettings, warmDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import Row from './Row.svelte'
 	import { selectMenuItems, type RowSelection } from './rowSelection'
 
@@ -47,6 +47,8 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
+
+	warmDeployUiSettings()
 
 	async function remove(path: string) {
 		if (await deleteAgent($workspaceStore!, path)) dispatch('change')
@@ -106,10 +108,10 @@
 		{/if}
 		<Dropdown
 			size="sm"
-			items={async () => [
+			items={() => [
 				...selectMenuItems(rowSelection),
 				...agentMenuItems({
-					deployUiSettings: await getDeployUiSettings(),
+					deployUiSettings: cachedDeployUiSettings(),
 					path: agent.path,
 					canWrite: agent.canWrite,
 					draftOnly: Boolean(agent.draft_only),
