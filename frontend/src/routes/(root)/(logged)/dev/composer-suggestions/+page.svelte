@@ -112,7 +112,7 @@
 	const DATABASE_ITEMS = Object.entries(DATABASE_TYPES).map(([value, label]) => ({ value, label }))
 	const CHANNEL_ITEMS = [
 		NONE,
-		...Object.keys(CHANNEL_TYPES).map((value) => ({ value, label: value }))
+		...Object.entries(CHANNEL_TYPES).map(([value, { name }]) => ({ value, label: name }))
 	]
 
 	let roleName = $state<RoleName>('instanceAdmin')

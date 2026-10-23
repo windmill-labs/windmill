@@ -276,6 +276,8 @@ export function registerBenchmarkWorkspaceRunnables(
 	}
 	if (runnables.workspaceSettings) {
 		benchmarkWorkspaceSettings.set(workspace, structuredClone(runnables.workspaceSettings))
+	} else {
+		benchmarkWorkspaceSettings.delete(workspace)
 	}
 }
 
@@ -474,10 +476,6 @@ export function queryBenchmarkResourceTypes(
 		.slice(0, limit)
 }
 
-/** A seeded resource with its value, as `ResourceService.getResource` returns it. Covers both
- * seed kinds, so it agrees with `existsResource` and `listResource` — both of those report AI
- * providers too, and a case that lists resources and then reads one by path would otherwise get
- * a row it cannot fetch. */
 /** The tables a fixture seeds for a database resource; `null` when it seeds none. */
 export function getBenchmarkDbSchemaSeed(
 	workspace: string,
@@ -487,6 +485,10 @@ export function getBenchmarkDbSchemaSeed(
 	return seed?.dbSchema ? { resourceType: seed.resource_type, schema: seed.dbSchema } : null
 }
 
+/** A seeded resource with its value, as `ResourceService.getResource` returns it. Covers both
+ * seed kinds, so it agrees with `existsResource` and `listResource` — both of those report AI
+ * providers too, and a case that lists resources and then reads one by path would otherwise get
+ * a row it cannot fetch. */
 export function getBenchmarkResource(workspace: string, path: string): Resource | null {
 	const runnables = benchmarkWorkspaceRunnables.get(workspace)
 	const seed = runnables?.resources?.find((entry) => entry.path === path)
@@ -828,8 +830,12 @@ function assertBenchmarkDataTables(value: unknown): void {
 	if (value === undefined || value === null) return
 	const datatables = (value as { datatables?: Record<string, unknown> }).datatables ?? {}
 	for (const [name, entry] of Object.entries(datatables)) {
-		const database = (entry as { database?: { resource_type?: unknown; resource_path?: unknown } })
-			?.database
+		const { database, reference } = (entry ?? {}) as {
+			database?: { resource_type?: unknown; resource_path?: unknown }
+			reference?: unknown
+		}
+		// A fork's pointer at its parent's entry owns no database.
+		if (reference && !database) continue
 		if (!DATA_TABLE_DATABASE_TYPES.includes(String(database?.resource_type))) {
 			throw new Error(
 				`datatable.datatables.${name}.database.resource_type must be one of ${DATA_TABLE_DATABASE_TYPES.join(', ')}`

@@ -138,8 +138,10 @@ export async function readComposerSignals(workspace: string): Promise<ComposerSi
 			}
 		}
 		const signals = await request
-		if (key) settled.set(key, signals)
-		return signals
+		if (!key) return signals
+		// A request that outlived the reuse window can settle after the one that replaced it.
+		if (requests.get(key)?.request === request) settled.set(key, signals)
+		return settled.get(key) ?? signals
 	} catch (e) {
 		// Unknown reads as a full workspace: a collapsed composer is the quieter mistake.
 		console.error(`Could not list the items of workspace ${workspace}:`, e)
@@ -148,6 +150,11 @@ export async function readComposerSignals(workspace: string): Promise<ComposerSi
 }
 
 async function fetchSignals(workspace: string): Promise<ComposerSignals> {
+	// Read before the requests: a workspace switch while they are pending moves the user store
+	// to the next workspace's membership.
+	const member = get(userStore)
+	const user = member?.workspace_id === workspace ? member : undefined
+	const capabilities = get(roleCapabilities)
 	const [res, resources, dataTables] = await Promise.all([
 		// What Home's list counts: library scripts and the user's own drafts included.
 		ScriptService.listRunnables({
@@ -163,7 +170,6 @@ async function fetchSignals(workspace: string): Promise<ComposerSignals> {
 	])
 	const items = res.items ?? []
 	const deployed = items.filter((i) => !i.draft_only)
-	const user = get(userStore)
 	const username = user?.username
 	const draft = items.find(
 		(i) =>
@@ -177,7 +183,7 @@ async function fetchSignals(workspace: string): Promise<ComposerSignals> {
 			i.path,
 			i.extra_perms,
 			user,
-			get(roleCapabilities)
+			capabilities
 		)
 	const shared = deployed.find(
 		(i) => i.type === 'flow' && !(username && i.path.startsWith(`u/${username}/`))
