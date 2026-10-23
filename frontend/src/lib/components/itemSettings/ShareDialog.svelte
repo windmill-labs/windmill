@@ -94,13 +94,23 @@
 	)
 	// What a run can reach. It changes only with a deploy, so Share explains it and says where.
 	let permissions = $derived.by(() => {
-		const identity = isApp ? app && { runAs, canEdit: canWriteApp } : runnableIdentity
+		// A viewer-mode app runs its runnables as whoever opens it, whatever its run-as user.
+		const identity = isApp
+			? app && {
+					runAs: app.policy.execution_mode === 'viewer' ? undefined : runAs,
+					canEdit: canWriteApp
+				}
+			: runnableIdentity
 		if (!identity) return undefined
 		const who = identity.runAs
 		return {
-			summary: who ? `Uses the access of ${who}` : 'Uses the access of whoever runs it',
+			summary: who
+				? `Uses the access of ${who}`
+				: `Uses the access of whoever ${isApp ? 'opens' : 'runs'} it`,
 			body: !who
-				? 'A run can use only the resources and variables that the person who starts it can access.'
+				? isApp
+					? 'Its runnables can use only the resources and variables that the person who opens the app can access.'
+					: 'A run can use only the resources and variables that the person who starts it can access.'
 				: isApp
 					? `Its runnables can use the resources and variables ${who} can access, for everyone who can open the app.`
 					: `Every run can use the resources and variables ${who} can access, whoever starts it. Who started a run stays recorded, and the code can read their email from WM_END_USER_EMAIL.`,
