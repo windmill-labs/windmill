@@ -201,6 +201,11 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
                 // stay due, and would otherwise retake the same capped slots on every pass,
                 // ahead of every other workspace.
                 failed_this_pass.insert(row.workspace_id.clone());
+                // A script whose first version is still waiting on its dependency job becomes
+                // runnable without being redeployed, which the wait could never see.
+                if handler_lock_pending(db, &row.workspace_id, &row.handler_path).await {
+                    continue;
+                }
                 if let Err(e) = sqlx::query!(
                     // Stamped with the read, not now(): a handler redeployed while this pass ran
                     // must count as deployed since the failure. A handler saved under another
@@ -251,4 +256,16 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
     if dispatched > 0 {
         tracing::info!("Dispatched {dispatched} variable expiration handler job(s)");
     }
+}
+
+async fn handler_lock_pending(db: &DB, w_id: &str, handler_path: &str) -> bool {
+    let Some(path) = handler_path
+        .strip_prefix("script/")
+        .filter(|p| !p.starts_with("hub/"))
+    else {
+        return false;
+    };
+    windmill_common::get_latest_deployed_script_hash(db, path, w_id)
+        .await
+        .is_ok_and(|latest| latest.pending_lock)
 }

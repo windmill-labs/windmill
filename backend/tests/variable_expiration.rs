@@ -467,6 +467,38 @@ async fn test_deploying_the_handler_mid_pass_ends_the_wait(
     Ok(())
 }
 
+/// A handler script still waiting on its dependency job is not a failure: writing its lock
+/// changes nothing the wait would see.
+#[sqlx::test(fixtures("base"))]
+async fn test_pending_handler_lock_is_not_a_failure(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    configure_handler(&db, r#"{"path": "script/u/test-user/pending_lock_handler"}"#).await?;
+    seed_variable(&db, "u/test-user/due", "30 minutes").await?;
+    seed_handler_script(&db, "u/test-user/pending_lock_handler").await?;
+    sqlx::query("UPDATE script SET lock = NULL WHERE workspace_id = $1")
+        .bind(WS)
+        .execute(&db)
+        .await?;
+
+    dispatch_expiring_variables(&db).await;
+    assert_eq!(
+        queued_handler_jobs(&db, "u/test-user/pending_lock_handler").await?,
+        0
+    );
+    sqlx::query("UPDATE script SET lock = '' WHERE workspace_id = $1")
+        .bind(WS)
+        .execute(&db)
+        .await?;
+    dispatch_expiring_variables(&db).await;
+
+    assert_eq!(
+        queued_handler_jobs(&db, "u/test-user/pending_lock_handler").await?,
+        1,
+        "the handler waited out the delay once its lock landed"
+    );
+    Ok(())
+}
+
 /// The handler endpoint: admin-only, existence-checked, and clearing by omission, which
 /// `wmill sync push` relies on to propagate an absent handler.
 #[sqlx::test(fixtures("base"))]
