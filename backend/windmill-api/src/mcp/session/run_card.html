@@ -192,7 +192,9 @@
   function onResult(result) {
     const next = result?._meta?.['windmill/run'];
     if (!next) {
+      // A poll that failed (the job read erred) keeps the run's last state and tries again.
       if (!run?.id) renderText(result ?? {});
+      else if (RUNNING.includes(run.status)) schedulePoll();
       return;
     }
     run = next;
