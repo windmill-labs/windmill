@@ -221,7 +221,7 @@
 		runnables = $bindable({}),
 		data = $bindable(DEFAULT_DATA),
 		newApp,
-		policy,
+		policy = $bindable(),
 		summary = $bindable(''),
 		path,
 		newPath = undefined,
@@ -2639,7 +2639,7 @@ addEventListener('message', function (e) {
 			}
 			onSavedNewAppPath?.(newAppPath)
 		}}
-		{policy}
+		bind:policy
 		{diffDrawer}
 		{newApp}
 		{newPath}

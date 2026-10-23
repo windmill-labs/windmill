@@ -221,7 +221,7 @@
 
 	let {
 		summary = $bindable(),
-		policy,
+		policy = $bindable(),
 		diffDrawer = undefined,
 		savedApp = $bindable(undefined),
 		version = $bindable(undefined),
@@ -952,7 +952,7 @@
 	bind:tab={settingsTab}
 	{newPath}
 	{newApp}
-	{policy}
+	bind:policy
 	{appPath}
 	{savedApp}
 	rawApp

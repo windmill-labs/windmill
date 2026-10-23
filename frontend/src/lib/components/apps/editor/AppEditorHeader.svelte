@@ -1002,7 +1002,7 @@
 	bind:tab={settingsTab}
 	{newPath}
 	{newApp}
-	{policy}
+	bind:policy
 	appPath={$appPath}
 	{savedApp}
 	bind:summary={$summary}

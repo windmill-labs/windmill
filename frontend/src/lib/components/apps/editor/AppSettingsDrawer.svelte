@@ -28,7 +28,7 @@
 	let {
 		open = $bindable(),
 		tab = $bindable(),
-		policy,
+		policy = $bindable(),
 		appPath,
 		savedApp,
 		summary = $bindable(),
