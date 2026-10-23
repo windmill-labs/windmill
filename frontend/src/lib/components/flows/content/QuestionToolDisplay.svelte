@@ -15,7 +15,7 @@
 <FlowCard
 	{noEditor}
 	title={BUILTIN_TOOLS.question.label}
-	subtitle="The agent waits for the answer from the run page or the chat, without holding a worker."
+	subtitle="Lets the agent ask a person and wait for their answer, from the run page or the chat."
 	subtitleDocLink="https://www.windmill.dev/docs/core_concepts/ai_agents"
 >
 	<div class="flex flex-col gap-4 overflow-auto p-4" style="scrollbar-gutter: stable">
