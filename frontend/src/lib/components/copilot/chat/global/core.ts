@@ -3952,22 +3952,9 @@ export const openPageTool: SessionTool<{}> = {
 		if (!urlWorkspace) {
 			return 'Error: no workspace is selected, so no page can be opened.'
 		}
-		// An agent is a resource, but the resources drawer would show it as raw JSON.
-		const agentPath =
-			page === 'resources' && parsed.open
-				? await ResourceService.getResource({
-						workspace: urlWorkspace,
-						path: parsed.open,
-						getDraft: true
-					})
-						.then((r) => (r.resource_type === 'ai_agent' ? parsed.open : undefined))
-						.catch(() => undefined)
-				: undefined
-		const url = agentPath
-			? agentEditHref(agentPath)
-			: buildOpenPageUrl(page, parsed, { workspaceId: urlWorkspace })
-		const pageLabel = agentPath ? 'Agent' : OPEN_PAGE_LABELS[page]
-		const summary = agentPath ?? summarizeOpenPage(url, page)
+		const url = buildOpenPageUrl(page, parsed, { workspaceId: urlWorkspace })
+		const pageLabel = OPEN_PAGE_LABELS[page]
+		const summary = summarizeOpenPage(url, page)
 
 		// In a session, show the page as a preview tab alongside the chat (the primary
 		// UX). By default a filter change reuses the tab already showing this page;
@@ -3984,14 +3971,37 @@ export const openPageTool: SessionTool<{}> = {
 			return previewResult
 		}
 
+		// A session's tab opens an agent in its own editor; the resources page would show it as JSON.
+		const agentPath =
+			page === 'resources' && parsed.open
+				? await ResourceService.getResource({
+						workspace: urlWorkspace,
+						path: parsed.open,
+						getDraft: true
+					})
+						.then((r) => (r.resource_type === 'ai_agent' ? parsed.open : undefined))
+						.catch(() => undefined)
+				: undefined
+		const linkUrl = agentPath ? agentEditHref(agentPath) : url
+		const linkLabel = agentPath ? 'Agent' : pageLabel
+		const linkSummary = agentPath ?? summary
+
 		// Outside a session there is no preview panel — offer a clickable link the user
 		// controls. (We deliberately don't navigate in place: a same-route goto would
 		// not re-sync the page's URL-driven filter state, so the change wouldn't land.)
 		toolCallbacks.setToolStatus(toolId, {
-			content: `Prepared a link to ${pageLabel}: ${summary}`,
-			actions: [{ id: `open-page:${page}:${url}`, type: 'navigate', label: summary, url, page }]
+			content: `Prepared a link to ${linkLabel}: ${linkSummary}`,
+			actions: [
+				{
+					id: `open-page:${page}:${linkUrl}`,
+					type: 'navigate',
+					label: linkSummary,
+					url: linkUrl,
+					page
+				}
+			]
 		})
-		return `Offered the user a link to the ${pageLabel} page (${summary}). They can click it to open.`
+		return `Offered the user a link to the ${linkLabel} page (${linkSummary}). They can click it to open.`
 	}
 }
 

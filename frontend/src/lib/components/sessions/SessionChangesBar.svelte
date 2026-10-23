@@ -33,7 +33,6 @@
 	import type { PreviewTarget } from './previewRouter'
 	import { ResourceService } from '$lib/gen'
 	import { resource } from 'runed'
-	import { agentEditHref } from '$lib/components/copilot/chat/workspaceItems.svelte'
 	import JobsSegment from '$lib/components/copilot/chat/JobsSegment.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import ArtifactsSegment from '$lib/components/copilot/chat/artifacts/ArtifactsSegment.svelte'
@@ -166,8 +165,8 @@
 			: []
 	)
 	const dockCounts = $derived(badgeCounts(dockItems))
-	// An agent is a resource the draft list cannot tell apart, but it has an icon and an
-	// editor of its own. Keyed on the joined paths so a re-derived list doesn't re-fetch.
+	// An agent is a resource the draft list cannot tell apart, but it has an icon of its own.
+	// Keyed on the joined paths so a re-derived list doesn't re-fetch.
 	const resourcePaths = $derived(
 		dockItems
 			.filter((i) => i.deployKind === 'resource')
@@ -259,10 +258,6 @@
 		const owner = runtime?.previewTabs
 		const target = previewTargetFor(item)
 		if (!owner || !target) return
-		if (isAgentRow(item)) {
-			owner.open({ type: 'page', href: agentEditHref(item.path), label: item.displayPath })
-			return
-		}
 		owner.open(target)
 	}
 

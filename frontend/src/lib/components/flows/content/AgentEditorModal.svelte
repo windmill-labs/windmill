@@ -50,8 +50,10 @@
 		/** A deploy moved the agent from `from` to `to`. What names the old path belongs to the surface
 		 *  that opened the editor: a flow's own steps, a page's URL. */
 		onRenamed?: (from: string, to: string) => void
-		/** `page` fills its container with the editor's header and body instead of opening a dialog. */
-		layout?: 'modal' | 'page'
+		/** `page` fills its container with the editor's header and body instead of opening a dialog,
+		 *  the header going to the route's page header; `pane` draws that header itself, for a host
+		 *  nested in another page (a session tab) whose page header is not this editor's. */
+		layout?: 'modal' | 'page' | 'pane'
 		/** Where closing leads, for a layout that has no dialog to dismiss. `deployed` is false for an
 		 *  agent that exists only as a draft, which has no page of its own to return to. */
 		onClose?: (deployed: boolean) => void
@@ -59,6 +61,10 @@
 		onDeployed?: (path: string) => void
 		/** Open on the settings, as a link to them does. */
 		startInSettings?: boolean
+		/** The agent this mount shows, held here rather than in the editor every other mount shares,
+		 *  for a host that shows several at once (a session's tabs). Navigating and closing then stay
+		 *  with this mount, and `owns` is not consulted. */
+		fixedTarget?: AgentEditorTarget
 	}
 
 	let {
@@ -68,17 +74,28 @@
 		layout = 'modal',
 		onClose = undefined,
 		onDeployed = undefined,
-		startInSettings = false
+		startInSettings = false,
+		fixedTarget = undefined
 	}: Props = $props()
 
 	// Every target names the surface that opened it, and only a flow step or a resource row can:
 	// an agent used as a tool of the agent being edited stays part of it, with no way in this editor
 	// to link it to a saved agent of its own. So `owns` decides alone — nothing here has to adopt a
 	// target opened from inside another editor.
+	let local = $state<AgentEditorTarget | undefined>(untrack(() => fixedTarget))
 	let target = $derived.by(() => {
+		if (local) return local
 		const t = agentEditorTarget()
 		return t && owns(t) ? t : undefined
 	})
+	function showTool(toolId: string | undefined) {
+		if (local) local = { ...local, toolId, view: undefined }
+		else showAgentEditorTool(toolId)
+	}
+	function showView(view: AgentEditorTarget['view']) {
+		if (local) local = { ...local, view, toolId: undefined }
+		else showAgentEditorView(view)
+	}
 	// The last agent this dialog showed. The version pane keeps working after `onRestore` returns —
 	// it reloads its list keyed on the path it was given — while the restore handler has already
 	// closed the dialog and dropped the target. Reading the live one there throws, and the throw
@@ -166,7 +183,7 @@
 
 	let root = $derived<ModalTrailSegment>({
 		label: shownPath ?? 'Agent',
-		onclick: inEvals || inSettings ? () => showAgentEditorView(undefined) : undefined
+		onclick: inEvals || inSettings ? () => showView(undefined) : undefined
 	})
 	let trail = $derived<ModalTrailSegment[]>(
 		inEvals
@@ -185,12 +202,12 @@
 
 	// The dialog's levels are its pages; a page has none, so evals open over it as a dialog.
 	function openEvals() {
-		if (layout === 'modal') showAgentEditorView('evals')
+		if (layout === 'modal') showView('evals')
 		else evalsModal?.openModal()
 	}
 
 	function openSettings() {
-		if (layout === 'modal') showAgentEditorView('settings')
+		if (layout === 'modal') showView('settings')
 		else settingsDrawer?.openDrawer()
 	}
 
@@ -219,7 +236,7 @@
 	function close() {
 		// Unknown until the load answers, and a detail page that does not exist is the worse guess.
 		const deployed = draft != undefined && !draft.loading && !draftOnly && !refused
-		closeAgentEditor()
+		if (!local) closeAgentEditor()
 		if (layout === 'modal') void clearPageDrawerAnchor(RESOURCES_PATH)
 		onClose?.(deployed)
 	}
@@ -229,6 +246,7 @@
 	// way back and tells the flow editor a dialog is over its graph. Only its own, so a mount going
 	// down never drops a target another one is showing.
 	onDestroy(() => {
+		if (local) return
 		const t = agentEditorTarget()
 		if (t && owns(t)) closeAgentEditor()
 	})
@@ -298,7 +316,9 @@
 			// The dialog is keyed on the path, so this reloads it on the renamed agent. Only while it
 			// still shows the one deployed: it can be closed or pointed elsewhere mid-request.
 			if (target?.path === at.path) {
-				openAgentEditor({ path: savedPath, workspace: target.workspace, host: target.host })
+				const next = { path: savedPath, workspace: target.workspace, host: target.host }
+				if (local) local = next
+				else openAgentEditor(next)
 			}
 		}
 		await reconciled
@@ -331,6 +351,19 @@
 			>
 				{@render body()}
 			</Modal>
+		{:else if layout === 'pane'}
+			<div class="h-full min-h-0 flex flex-col">
+				<div class="flex items-center gap-2 px-4 py-2 border-b min-w-0 shrink-0">
+					<div class="min-w-0 flex-1 flex items-center gap-1">
+						{@render agentSummary()}
+						{@render agentHint()}
+					</div>
+					{@render settings()}
+				</div>
+				<div class="flex-1 min-h-0 px-4 sm:px-6">
+					{@render body()}
+				</div>
+			</div>
 		{:else}
 			<!-- On its own route the editor's header is the page header: the agent's path is the
 			     breadcrumb, the level it is on reads after that name, and its controls are the band's
@@ -591,7 +624,7 @@
 			workspace={ws}
 			{enableAi}
 			toolId={target?.toolId}
-			onSelectTool={(id) => showAgentEditorTool(id)}
+			onSelectTool={(id) => showTool(id)}
 			{onSaved}
 			isNew={target?.isNew}
 		/>
@@ -625,7 +658,7 @@
 		</div>
 	{/snippet}
 
-	{#if layout === 'page' && ws}
+	{#if layout !== 'modal' && ws}
 		<AgentEvalsModal
 			bind:this={evalsModal}
 			agentPath={target?.path ?? ''}
