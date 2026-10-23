@@ -43,9 +43,13 @@ export function useActingUser(workspace: () => string | undefined) {
 		})
 	})
 
+	// Right after a switch, `$userStore` still holds the previous workspace's membership until
+	// the new `whoami` lands: that is unknown, not an answer.
+	const navStale = () => !!navUser.current && navUser.current.workspace_id !== navWorkspace.current
+
 	function userIn(ws: string | undefined): UserExt | undefined {
 		if (!ws) return undefined
-		if (ws === navWorkspace.current) return navUser.current
+		if (ws === navWorkspace.current) return navStale() ? undefined : navUser.current
 		const lookup = looked.get(ws)
 		return lookup?.kind === 'resolved' ? lookup.user : undefined
 	}
@@ -55,9 +59,12 @@ export function useActingUser(workspace: () => string | undefined) {
 		 *  hook has been pointed at are looked up; the rest read as unknown. */
 		in: userIn,
 		/** Whether `ws` has an answer at all — a user, or a lookup that came back without one.
-		 *  The navigation workspace always has one: `$userStore`, "nobody" included. */
+		 *  The navigation workspace has one once `$userStore` was fetched for it, "nobody"
+		 *  included. */
 		resolved: (ws: string | undefined): boolean =>
-			!!ws && (ws === navWorkspace.current || looked.has(ws)),
+			!!ws && (ws === navWorkspace.current ? !navStale() : looked.has(ws)),
+		/** Unknown right after a workspace switch: load lists without waiting for it, as it only
+		 *  gates their controls, or they keep the previous workspace's rows. */
 		get current(): UserExt | undefined {
 			return userIn(workspace())
 		},
