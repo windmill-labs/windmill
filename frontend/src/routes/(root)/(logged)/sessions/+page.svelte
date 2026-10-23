@@ -1258,6 +1258,7 @@
 													<PreviewRouterPicker
 														workspaceId={previewWorkspace}
 														artifacts={sessionArtifacts}
+														chat={activeRuntime?.manager}
 														onPick={(t) => {
 															emptyStateNewTabOpen = false
 															openInNewTab(t)
@@ -1393,6 +1394,7 @@
 									{currentItem}
 									workspaceId={previewWorkspace}
 									artifacts={sessionArtifacts}
+									chat={activeRuntime?.manager}
 									onPick={(t) => {
 										activeTabPickerOpen = false
 										navigatePreviewTo(t)
@@ -1424,6 +1426,7 @@
 						<PreviewRouterPicker
 							workspaceId={previewWorkspace}
 							artifacts={sessionArtifacts}
+							chat={activeRuntime?.manager}
 							onPick={(t) => {
 								newTabOpen = false
 								openInNewTab(t)

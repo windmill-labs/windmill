@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT value, is_secret, expires_at FROM variable WHERE path = $1",
+  "query": "SELECT value::text AS \"value!\", is_secret, expires_at FROM variable WHERE path = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "value",
-        "type_info": "Varchar"
+        "name": "value!",
+        "type_info": "Text"
       },
       {
         "ordinal": 1,
@@ -25,10 +25,10 @@
       ]
     },
     "nullable": [
-      false,
+      null,
       false,
       true
     ]
   },
-  "hash": "44a12919fb154055f1142cc078ef131f8a0c9cdb37cfba6283a6718480b02a4b"
+  "hash": "b2c35e00474b8fa335d9485c1f98018dc033582642988ed7a3181989fef72fed"
 }

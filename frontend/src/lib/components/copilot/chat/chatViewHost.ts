@@ -1,5 +1,6 @@
 import { getContext, setContext } from 'svelte'
 import type { AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import type { AIWorkMode } from './workMode'
 import { getAiChatManager } from './aiChatManagerContext'
 import type { DisplayMessage, Tool } from './shared'
 import type { ContextElement } from './context'
@@ -160,6 +161,10 @@ export interface ChatViewHost {
 	readonly tools: readonly Tool<any>[]
 	autonomyMode: AIAutonomyMode
 	setAutonomyMode: (mode: AIAutonomyMode) => void
+	/** Use, Plan or Build: offered by a session chat only. */
+	readonly workModesAvailable: boolean
+	workMode: AIWorkMode
+	setWorkMode: (mode: AIWorkMode) => void
 	readonly autoAcceptEditsActive: boolean
 	readonly autoAcceptEditsAvailable: boolean
 	readonly autoAcceptToolConfirmationsAvailable: boolean

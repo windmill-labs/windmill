@@ -57,6 +57,7 @@
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
 	import { policyForUpdate, publishAccessMode } from '$lib/components/apps/editor/publishAccessMode'
+	import { saveRawAppFork } from './forkRawApp.svelte'
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { getContext } from 'svelte'
 
@@ -196,6 +197,9 @@
 		/** `Exit & see details`: leaves the editor for the app's deployed page. A session hosts that
 		 *  page itself, so it flips the tab there rather than navigating out of the session. */
 		onDetails?: (e: { path: string }) => void
+		/** Opens the draft `Fork` saved. Without it, the fork opens in a new browser tab; a
+		 *  session opens it as one of its own tabs instead. */
+		onOpenFork?: (path: string) => void
 		onResetToDeployed?: () => void | Promise<void>
 		// See ScriptBuilderProps — same semantics for the raw-app editor's
 		// indicator.
@@ -248,6 +252,7 @@
 		pendingDraftPath = $bindable(undefined),
 		pendingDraftSettings = $bindable(),
 		onDetails,
+		onOpenFork,
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
@@ -268,6 +273,21 @@
 	// session's (workspace, path), else the full-page editor's own values.
 	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
+
+	async function forkApp() {
+		if (!opWorkspace || !files) return
+		const workspace = opWorkspace
+		// Opened before the save: a tab opened after an await is no longer tied to the
+		// click, and browsers block it as a popup.
+		const tab = onOpenFork ? undefined : window.open('', '_blank')
+		const forkPath = await saveRawAppFork(workspace, { files, runnables, data, policy })
+		if (!forkPath) {
+			tab?.close()
+			return
+		}
+		if (onOpenFork) onOpenFork(forkPath)
+		else if (tab) tab.location.href = `/apps_raw/edit/${forkPath}?workspace=${workspace}`
+	}
 
 	$effect(() => {
 		const typed = newEditedPath
@@ -1221,9 +1241,7 @@
 							]),
 					{
 						label: 'Fork',
-						onClick: () => {
-							window.open(`/apps/add?template=${appPath}`)
-						}
+						onClick: forkApp
 					},
 					...(!isCloudHosted() && editInForkAllowed(opWorkspace, $userWorkspaces)
 						? [

@@ -6524,7 +6524,7 @@ async fn set_encryption_key(
         );
 
         let all_variables = sqlx::query!(
-            "SELECT path, value, is_secret FROM variable WHERE workspace_id = $1",
+            "SELECT path, value::text AS \"value!\", is_secret FROM variable WHERE workspace_id = $1",
             w_id
         )
         .fetch_all(&mut *tx)
@@ -14503,7 +14503,7 @@ async fn compare_two_variables(
 
     // Get variable from each workspace
     let source_variable = sqlx::query!(
-        "SELECT value, is_secret, description
+        "SELECT value::text AS \"value!\", is_secret, description
          FROM variable
          WHERE workspace_id = $1 AND path = $2",
         source_workspace_id,
@@ -14513,7 +14513,7 @@ async fn compare_two_variables(
     .await?;
 
     let target_variable = sqlx::query!(
-        "SELECT value, is_secret, description
+        "SELECT value::text AS \"value!\", is_secret, description
          FROM variable
          WHERE workspace_id = $1 AND path = $2",
         fork_workspace_id,

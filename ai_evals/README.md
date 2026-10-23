@@ -195,6 +195,15 @@ profile:
   operatorSettings: { builder_apps: true }   # also builder_flows, manage_schedules, manage_triggers
 ```
 
+A role that builds nothing (no builder rights, `manage_schedules` and `manage_triggers` both
+`false`) holds the session in Use, as the chat does in production: the toolset is the
+read-only one and the prompt carries the session section that names the role as the reason.
+
+`judgeAssistantText: true` hands the judge what the assistant said alongside the mode's
+output. Use it when the deliverable is the answer itself, such as a refusal and where to go
+instead: the `global` judge otherwise reads only the drafts, and a substring check cannot tell
+"you can't create it yourself" from "create it yourself".
+
 `toolExpect.toolCallArgs` entries support `sharedByAtLeast: <n>`: at least `n` recorded
 calls to that tool must carry the same non-blank string in the field. Use it for calls that
 have to share an identifier, like two test runs of one chat conversation.

@@ -337,7 +337,7 @@ async fn get_variable(
     let mut tx = user_db.begin(&authed).await?;
 
     let variable_o = sqlx::query_as::<_, ListableVariable>(
-        "SELECT variable.workspace_id, variable.path, variable.value, variable.is_secret,
+        "SELECT variable.workspace_id, variable.path, variable.value::text AS value, variable.is_secret,
         variable.description, variable.extra_perms, variable.account, variable.is_oauth,
         variable.expires_at, variable.labels,
         folder_labels(variable.workspace_id, variable.path) as inherited_labels,
@@ -1243,7 +1243,7 @@ async fn update_variable(
 
             // Handle Vault secret rename if the variable is a secret stored in Vault
             let current_var = sqlx::query!(
-                "SELECT value, is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
+                "SELECT value::text AS \"value!\", is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
                 path,
                 w_id
             )
@@ -1537,7 +1537,7 @@ pub async fn get_value_internal<'a>(
 
     let mut tx = db_with_opt_authed.begin().await?;
     let variable_o = sqlx::query!(
-        "SELECT value, account, (now() > account.expires_at) as is_expired, is_secret, path from variable
+        "SELECT value::text AS \"value!\", account, (now() > account.expires_at) as is_expired, is_secret, path from variable
         LEFT JOIN account ON variable.account = account.id WHERE variable.path = $1 AND variable.workspace_id = $2", path, w_id
     )
     .fetch_optional(&mut *tx)

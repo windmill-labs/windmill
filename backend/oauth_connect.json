@@ -343,6 +343,10 @@
   "quickbooks": {
     "auth_url": "https://appcenter.intuit.com/connect/oauth2",
     "token_url": "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+    "connect_fields": {
+      "realmId": "callback.realmId"
+    },
+    "resource_fields": ["realmId", "isSandBox"],
     "scopes": ["com.intuit.quickbooks.accounting"]
   },
   "visma": {
@@ -468,15 +472,26 @@
   "docusign": {
     "auth_url": "https://account.docusign.com/oauth/auth",
     "token_url": "https://account.docusign.com/oauth/token",
+    "userinfo_url": "https://account.docusign.com/oauth/userinfo",
+    "connect_fields": {
+      "account_id": "userinfo.accounts[is_default=true].account_id",
+      "base_uri": "userinfo.accounts[is_default=true].base_uri"
+    },
+    "resource_fields": ["account_id", "base_uri"],
     "scopes": ["signature"],
     "sandbox": {
       "auth_url": "https://account-d.docusign.com/oauth/auth",
-      "token_url": "https://account-d.docusign.com/oauth/token"
+      "token_url": "https://account-d.docusign.com/oauth/token",
+      "userinfo_url": "https://account-d.docusign.com/oauth/userinfo"
     }
   },
   "salesforce": {
     "auth_url": "https://login.salesforce.com/services/oauth2/authorize",
     "token_url": "https://login.salesforce.com/services/oauth2/token",
+    "connect_fields": {
+      "instance_url": "token.instance_url"
+    },
+    "resource_fields": ["instance_url"],
     "scopes": ["api", "refresh_token", "offline_access"],
     "sandbox": {
       "auth_url": "https://test.salesforce.com/services/oauth2/authorize",

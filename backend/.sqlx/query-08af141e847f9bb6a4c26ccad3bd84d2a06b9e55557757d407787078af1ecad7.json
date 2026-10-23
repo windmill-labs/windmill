@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT value, account, (now() > account.expires_at) as is_expired, is_secret, path from variable\n        LEFT JOIN account ON variable.account = account.id WHERE variable.path = $1 AND variable.workspace_id = $2",
+  "query": "SELECT value::text AS \"value!\", account, (now() > account.expires_at) as is_expired, is_secret, path from variable\n        LEFT JOIN account ON variable.account = account.id WHERE variable.path = $1 AND variable.workspace_id = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "value",
-        "type_info": "Varchar"
+        "name": "value!",
+        "type_info": "Text"
       },
       {
         "ordinal": 1,
@@ -36,12 +36,12 @@
       ]
     },
     "nullable": [
-      false,
+      null,
       true,
       null,
       false,
       false
     ]
   },
-  "hash": "7a92837ad2a1181580c1e0d059fd6bc0ece84d3c315635de52bd2b364c238a71"
+  "hash": "08af141e847f9bb6a4c26ccad3bd84d2a06b9e55557757d407787078af1ecad7"
 }
