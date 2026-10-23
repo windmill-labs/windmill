@@ -22,6 +22,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { sessionState, type Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
+	import { useSessionPermissions } from './sessionPermissions.svelte'
 	import SessionDiffDrawer from './SessionDiffDrawer.svelte'
 	import { TOKEN_TRIGGER_CLASS } from './SessionStatusToken.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
@@ -78,6 +79,11 @@
 	)
 
 	const runtime = $derived(getRuntime(session.id))
+	// A session in Use deploys and discards nothing, as its chat does not.
+	const permissions = useSessionPermissions(
+		() => committedId,
+		() => runtime?.manager
+	)
 
 	// The chat's modified-items mask (`${UserDraftItemKind}:${storagePath}`).
 	// undefined = legacy/untracked chat → fall back to showing every draft.
@@ -429,5 +435,6 @@
 				void runtime?.forgetPipelineDrafts(folder)
 		}}
 		deployPipeline={runtime?.deployPipeline}
+		readOnly={permissions.readOnly}
 	/>
 {/if}

@@ -515,11 +515,19 @@ describe('global AI tools', () => {
 		expect(result).not.toContain('Python Datatable API')
 	})
 
-	it('gives agent guidance to a session that may only draft resources', async () => {
-		const result = await callGlobalTool('get_instructions', { subject: 'agent' }, toolCallbacks, {
-			access: new Set(['write_resource_draft'])
+	it('gives agent guidance only to a session that may also draft flows', async () => {
+		const resourcesOnly = await callGlobalTool(
+			'get_instructions',
+			{ subject: 'agent' },
+			toolCallbacks,
+			{ access: new Set(['write_resource_draft']) }
+		)
+		expect(resourcesOnly).not.toContain('Windmill agent authoring reference')
+		const builder = await callGlobalTool('get_instructions', { subject: 'agent' }, toolCallbacks, {
+			access: new Set(['write_resource_draft', 'write_flow_draft'])
 		})
-		expect(result).toContain('Windmill agent authoring reference')
+		expect(builder).toContain('Windmill agent authoring reference')
+		expect(builder).toContain('This user cannot write inline code')
 	})
 
 	it('returns only the requested language SDK for the datatable subject', async () => {
@@ -2553,6 +2561,38 @@ describe('global AI tools', () => {
 		expect(asPath.type).toBe('path')
 		expect(asPath.runType).toBe('flow')
 		expect(asPath.inlineScript).toBeUndefined()
+	})
+
+	// A static input is pinned by the deployed policy: carried into an agent runnable, it would
+	// replace every viewer's message.
+	it('drops inherited static inputs when a runnable becomes an agent', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/agent_conv_app',
+			{ summary: 'Converted', files: {}, runnables: {}, data: { tables: [] } },
+			{ workspace: WORKSPACE }
+		)
+		await callGlobalTool('write_app_runnable', {
+			path: 'u/admin/agent_conv_app',
+			key: 'chat',
+			runnable: {
+				name: 'Run the flow',
+				type: 'flow',
+				path: 'u/admin/hello_flow',
+				staticInputs: { user_message: 'pinned' }
+			}
+		})
+		await callGlobalTool('write_app_runnable', {
+			path: 'u/admin/agent_conv_app',
+			key: 'chat',
+			runnable: { name: 'Chat', type: 'agent', path: 'u/admin/assistant' }
+		})
+
+		const asAgent = getBackendDraft<any>('raw_app', 'u/admin/agent_conv_app', {
+			workspace: WORKSPACE
+		}).runnables.chat
+		expect(asAgent.runType).toBe('agent')
+		expect(asAgent.fields).toEqual({})
 	})
 
 	it("resets a path runnable's schema when it is retargeted, and keeps it when it is not", async () => {

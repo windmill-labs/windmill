@@ -9,6 +9,7 @@
 	import { sendUserToast } from '$lib/utils'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { PLAN_MODE_MESSAGES } from './planModeMessages'
+	import { USE_MODE_WITHDRAWN } from './workMode'
 	import { scrollFades } from './scrollFades.svelte'
 	import type { RunFormDisplay } from './shared'
 
@@ -55,6 +56,14 @@
 	// off the entrypoint a `dynselect-` argument runs, which does not wait for Run. A password
 	// field mints at mount, too early to hold off here, so `runThroughForm` gates that instead.
 	const planMode = $derived(aiChatManager.planModeActive)
+	// A test run previews undeployed code, which Use withholds as plan mode withholds every run.
+	const refusal = $derived(
+		planMode
+			? PLAN_MODE_MESSAGES.runFormRefused
+			: runForm.kind === 'test' && aiChatManager.useModeActive
+				? USE_MODE_WITHDRAWN.testRunRefused
+				: undefined
+	)
 
 	onMount(() => {
 		void tick().then(() => cardNode?.scrollIntoView({ block: 'nearest' }))
@@ -80,10 +89,10 @@
 			return
 		}
 		// Ahead of processSecretArgs, which writes ephemeral variables to the workspace: the
-		// autonomy picker moves while a form sits pending, and the re-gate on the other side
-		// of the callback runs too late to unmake a write plan mode promised not to do.
-		if (aiChatManager.planModeActive) {
-			sendUserToast(PLAN_MODE_MESSAGES.runFormRefused, true)
+		// mode picker moves while a form sits pending, and the re-gate on the other side of the
+		// callback runs too late to unmake a write plan mode or Use promised not to do.
+		if (refusal) {
+			sendUserToast(refusal, true)
 			return
 		}
 		if (!aiChatManager.beginRunFormSubmit(toolCallId)) return
@@ -146,18 +155,19 @@
 				{#if hasArgs}
 					<!-- Passing `helperScript` is what lets DynamicInput run a job before Run: it
 			executes the `dynselect-` entrypoint on mount, carrying the other args as proposed,
-			and Cancel does not undo it. Withheld under plan mode, which promised no writes.
+			and Cancel does not undo it. Withheld under plan mode, which promised no writes, and from
+			a test run in Use, whose helper is undeployed code too.
 			A test run names its draft by code: `deployed` resolves a stale version, or none. -->
 					<SchemaForm
 						bind:schema={draft.schema}
-						helperScript={planMode
+						helperScript={refusal
 							? undefined
 							: runForm.kind === 'test'
 								? runForm.code && runForm.lang
 									? { source: 'inline', code: runForm.code, lang: runForm.lang }
 									: undefined
 								: { source: 'deployed', path: runForm.path, runnable_kind: runnableKind }}
-						disabled={planMode}
+						disabled={!!refusal}
 						{workspace}
 						prettifyHeader
 						bind:isValid
@@ -211,8 +221,8 @@
 				<span class="font-mono">{runForm.strippedKeys.join(', ')}</span>
 			</p>
 		{/if}
-		{#if planMode}
-			<p class="text-2xs text-secondary">{PLAN_MODE_MESSAGES.runFormRefused}</p>
+		{#if refusal}
+			<p class="text-2xs text-secondary">{refusal}</p>
 		{/if}
 
 		<!-- Reject then confirm at the end of the row, as ToolConfirmationFooter puts them: this
@@ -233,7 +243,7 @@
 				variant="accent"
 				unifiedSize="sm"
 				startIcon={{ icon: Play }}
-				disabled={!isValid || submitting || planMode}
+				disabled={!isValid || submitting || !!refusal}
 				onClick={run}
 			>
 				Run

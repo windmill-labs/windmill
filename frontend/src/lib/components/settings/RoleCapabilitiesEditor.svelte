@@ -93,8 +93,9 @@
 		},
 		{
 			key: 'flows',
-			label: 'Flows',
-			description: 'Compose assembles deployed scripts and flows without code of their own.'
+			label: 'Flows and AI agents',
+			description:
+				'Compose builds flows and AI agents out of deployed scripts and flows, without code of their own.'
 		},
 		{
 			key: 'apps',

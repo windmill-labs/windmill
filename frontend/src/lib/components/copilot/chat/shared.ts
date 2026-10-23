@@ -8,6 +8,7 @@ import type { UserDraftItemKind } from '$lib/gen'
 // The gate's two refusals, from a module that holds prose and one size limit: under the
 // shallow-import rule below, the rest of plan mode is not reachable from here.
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
+import { USE_MODE_WITHDRAWN } from './workMode'
 import { NONE, type SessionTool } from './sessionCapabilities'
 import { integrationDisplayName } from '$lib/components/resourceTypeDisplay'
 // Import-free leaf, so it satisfies the shallow-import rule below.
@@ -961,6 +962,7 @@ type ToolCallStatus =
 	| 'declined'
 	| 'rejected'
 	| 'blocked_plan_mode'
+	| 'withdrawn'
 	| 'held_for_instructions'
 
 /** Re-reads the chat loop's current tools and helpers. A call earlier in the same
@@ -1041,6 +1043,27 @@ export async function processToolCall<T>({
 				role: 'tool' as const,
 				tool_call_id: toolCall.id,
 				content: refusal.result
+			}
+		}
+
+		const withdrawnBlock = (): ChatCompletionMessageParam | undefined => {
+			if (!tool || !toolCallbacks.isToolWithdrawn?.(tool.def.function.name)) return undefined
+			logToolOutcome('withdrawn')
+			toolCallbacks.setToolStatus(toolCall.id, {
+				content: USE_MODE_WITHDRAWN.label,
+				parameters: args,
+				isLoading: false,
+				isQueued: false,
+				isStreamingArguments: false,
+				error: USE_MODE_WITHDRAWN.result,
+				needsConfirmation: false,
+				showDetails: tool.showDetails,
+				autoCollapseDetails: tool.autoCollapseDetails
+			})
+			return {
+				role: 'tool' as const,
+				tool_call_id: toolCall.id,
+				content: USE_MODE_WITHDRAWN.result
 			}
 		}
 
@@ -1163,7 +1186,7 @@ export async function processToolCall<T>({
 				}
 			}
 
-			const postConfirmationBlock = planModeBlock()
+			const postConfirmationBlock = planModeBlock() ?? withdrawnBlock()
 			if (postConfirmationBlock) {
 				return postConfirmationBlock
 			}
@@ -1462,6 +1485,10 @@ export interface ToolCallbacks {
 	shouldAutoAcceptToolConfirmations?: (toolName?: string) => boolean
 	isPlanModeActive?: () => boolean
 	onToolBlockedByPlanMode?: () => void
+	/** Whether the session has stopped shipping this tool since the call was made, as a switch to
+	 * Use does to every write. Asked once a confirmation or a run form has been answered, since
+	 * the switch can land while either waits. */
+	isToolWithdrawn?: (toolName: string) => boolean
 	requestUserQuestion?: (
 		toolId: string,
 		question: UserQuestionDisplay
