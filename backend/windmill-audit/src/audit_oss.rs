@@ -64,6 +64,22 @@ impl AuditAuthorable for AuditAuthor {
     }
 }
 
+/// Where an audit row is written decides what a failed insert breaks. On a pool connection it
+/// breaks nothing else, so it is logged and the action goes on. On a connection, which may hold
+/// the action's transaction, the failure has aborted that transaction and its COMMIT would roll
+/// back silently, so it is returned.
+pub trait AuditExecutor<'c>: sqlx::Executor<'c, Database = sqlx::Postgres> {
+    const ISOLATED: bool;
+}
+
+impl<'c> AuditExecutor<'c> for &'c sqlx::Pool<sqlx::Postgres> {
+    const ISOLATED: bool = true;
+}
+
+impl<'c> AuditExecutor<'c> for &'c mut sqlx::PgConnection {
+    const ISOLATED: bool = false;
+}
+
 pub trait AuditAuthorable {
     fn username(&self) -> &str;
     fn email(&self) -> &str;
@@ -75,7 +91,7 @@ pub trait AuditAuthorable {
 
 #[cfg(not(feature = "private"))]
 #[tracing::instrument(level = "trace", skip_all)]
-pub async fn audit_log<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+pub async fn audit_log<'c, E: AuditExecutor<'c>>(
     _db: E,
     _author: &impl AuditAuthorable,
     mut _operation: &str,
@@ -91,7 +107,7 @@ pub async fn audit_log<'c, E: sqlx::Executor<'c, Database = Postgres>>(
 /// AUTHORIZATION: records entries, checks nothing. The caller must have authorized `author`
 /// for the operation on every resource in `w_id` before calling.
 #[cfg(not(feature = "private"))]
-pub async fn audit_log_many<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+pub async fn audit_log_many<'c, E: AuditExecutor<'c>>(
     _db: E,
     _author: &impl AuditAuthorable,
     _operation: &str,

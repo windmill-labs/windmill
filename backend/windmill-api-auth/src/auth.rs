@@ -903,10 +903,9 @@ async fn admit_and_record_guest_jwt(db: &DB, w_id: &str, email: &str, app_path: 
         return false;
     }
     GUEST_JWT_ACTIVITY_CACHE.insert(cache_key, ());
-    // Audit last, best-effort, on its own connection: the EE writer swallows an
-    // `audit_partitioned` failure but that failing statement still aborts the
-    // transaction it runs in, so auditing before the commit would let the whole
-    // activity row roll back while this returned success, admitting an uncounted guest.
+    // Audit last, best-effort, on its own connection: a failed `audit_partitioned`
+    // insert aborts the transaction it runs in, so auditing before the commit would
+    // let an audit failure drop the activity row that counts this guest.
     if first_jwt {
         let author = windmill_common::audit::AuditAuthor {
             email: email.to_string(),

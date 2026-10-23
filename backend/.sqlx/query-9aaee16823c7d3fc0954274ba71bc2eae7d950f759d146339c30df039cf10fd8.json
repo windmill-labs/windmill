@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.email FROM password p LEFT JOIN usr m ON m.workspace_id = $1 AND m.email = p.email WHERE p.super_admin AND NOT p.disabled AND (m.email IS NOT NULL AND NOT m.disabled OR m.email IS NULL AND NOT EXISTS (SELECT 1 FROM usr c WHERE c.workspace_id = $1 AND c.username = COALESCE(p.username, p.email))) ORDER BY m.email IS NULL, p.email LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9aaee16823c7d3fc0954274ba71bc2eae7d950f759d146339c30df039cf10fd8"
+}

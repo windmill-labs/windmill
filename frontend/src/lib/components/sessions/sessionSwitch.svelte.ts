@@ -20,6 +20,10 @@ import { findMountedOpenInSessionSource } from './openInSessionContext'
 // Type-only: erased at compile time, so the component graph stays out of this
 // navigation seam (see the dynamic import in openEditorInSession).
 import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
+import type { AppDomSelectorElement } from '../copilot/chat/context'
+
+// `seedDomElement` rides only with `autoSend`: it is the chip of the prompt being sent.
+type SeedOpts = { seedPrompt?: string; autoSend?: boolean; seedDomElement?: AppDomSelectorElement }
 
 // The session/navigation switch turns the global rail into either the workspace
 // navigation (navigation mode) or the sessions sidebar (session mode). Session
@@ -171,7 +175,7 @@ export async function openEditorInSession(
 	target: SessionTarget,
 	workspaceId?: string,
 	previewParams?: Record<string, string>,
-	opts?: { seedPrompt?: string; autoSend?: boolean }
+	opts?: SeedOpts
 ): Promise<void> {
 	await openInSession(
 		withPreviewParams(sessionTargetHref(target), previewParams),
@@ -186,7 +190,7 @@ export async function openEditorInSession(
 export async function openPageInSession(
 	href: string,
 	workspaceId?: string,
-	opts?: { seedPrompt?: string; autoSend?: boolean }
+	opts?: SeedOpts
 ): Promise<void> {
 	await openInSession(href, workspaceId, opts)
 }
@@ -194,7 +198,7 @@ export async function openPageInSession(
 async function openInSession(
 	url: string | undefined,
 	workspaceId?: string,
-	opts?: { seedPrompt?: string; autoSend?: boolean }
+	opts?: SeedOpts
 ): Promise<void> {
 	await goto(await sessionHrefFor(url, workspaceId, opts))
 }
@@ -212,7 +216,7 @@ export function editorSessionHref(
 async function sessionHrefFor(
 	url: string | undefined,
 	workspaceId?: string,
-	opts?: { seedPrompt?: string; autoSend?: boolean }
+	opts?: SeedOpts
 ): Promise<string> {
 	// Seed the fresh session's preview with a single tab on `url` so it opens
 	// straight onto what the caller wants (resetSessionPreviewTabs also writes
@@ -221,7 +225,7 @@ async function sessionHrefFor(
 	if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
 	if (opts?.seedPrompt) {
 		setSessionDraftPrompt(session.id, opts.seedPrompt)
-		if (opts.autoSend) setSessionAutoSend(session.id)
+		if (opts.autoSend) setSessionAutoSend(session.id, opts.seedDomElement)
 	}
 	if (url) {
 		// Dynamic import: a static one would drag the runtime's heavy graph
@@ -243,12 +247,13 @@ async function sessionHrefFor(
 // step; `OpenInSessionButton` is the declarative equivalent.
 export async function openSourceInSession(
 	source: OpenInSessionSource,
-	overrides?: { previewParams?: Record<string, string>; seedPrompt?: string; autoSend?: boolean }
+	overrides?: { previewParams?: Record<string, string> } & SeedOpts
 ): Promise<void> {
 	await source.beforeOpen?.()
 	const opts = {
 		seedPrompt: overrides?.seedPrompt ?? source.seedPrompt,
-		autoSend: overrides?.autoSend ?? source.autoSend
+		autoSend: overrides?.autoSend ?? source.autoSend,
+		seedDomElement: overrides?.seedDomElement
 	}
 	if (source.target) {
 		await openEditorInSession(
@@ -267,15 +272,14 @@ export async function openSourceInSession(
 // composer. For entry points that carry a question rather than a target (the
 // global search's "Ask AI"). Always a new session rather than the most recent
 // one (`enterSessionMode`), so the seed cannot overwrite a prompt the user has
-// already typed into a session they are mid-way through.
+// already typed into a session they are mid-way through. `workspace` is the way
+// out of a read-only session, whose workspace is fixed once it has started.
 export async function startSessionWithPrompt(
 	prompt: string,
-	opts?: { autoSend?: boolean }
+	opts?: { autoSend?: boolean; workspace?: string }
 ): Promise<void> {
-	// No setSessionPendingWorkspace: createSession already picked the workspace,
-	// steering off a root the user cannot deploy to onto its dev. Overwriting it
-	// with the raw current workspace would land the session where it cannot edit.
 	const session = createSession()
+	if (opts?.workspace) setSessionPendingWorkspace(session.id, opts.workspace)
 	setSessionDraftPrompt(session.id, prompt)
 	// An empty prompt has nothing to send; leave the composer focused instead.
 	if (opts?.autoSend && prompt.trim()) setSessionAutoSend(session.id)
