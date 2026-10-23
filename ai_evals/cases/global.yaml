@@ -3256,7 +3256,7 @@
     - the reply puts the refusal on the user's role in this workspace, not only on this session or its mode
     - the reply suggests asking a workspace admin, who can create the script or give the role more rights
     - the reply does not tell or invite the user to create the script themselves with the role they have now, with steps or with code offered for them to paste in; code offered for an admin to add, or saying they could once an admin grants their role more, is fine
-    - the reply does not suggest switching this session to Build or Plan; saying a role with more rights could build is fine
+    - the reply does not suggest switching this session to Use & build or Plan; saying a role with more rights could build is fine
 
 # An agent from the Agents page is an `ai_agent` resource. Asked about one by name, the model
 # has to read it as a resource rather than look for a flow or script of that name.

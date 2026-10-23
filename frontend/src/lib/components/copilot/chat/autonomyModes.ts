@@ -105,7 +105,8 @@ export const workModeOptions: WorkModeOption[] = [
 	},
 	{
 		mode: AIWorkMode.BUILD,
-		label: 'Build',
+		// Named for both halves: building does not take away running what is deployed.
+		label: 'Use & build',
 		description: 'Edits, tests and deploys.',
 		icon: Hammer,
 		iconColor: 'text-secondary'

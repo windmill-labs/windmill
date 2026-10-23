@@ -143,9 +143,18 @@ import {
 	canBuild,
 	isReadOnlyAccess,
 	USE_MODE_ACCESS,
-	type SessionAccess
+	type SessionAccess,
+	type SessionTool
 } from './sessionCapabilities'
-import { AIWorkMode } from './workMode'
+import {
+	AIWorkMode,
+	ENTER_BUILD_MODE_TOOL,
+	ENTER_USE_MODE_TOOL,
+	isWorkModeSwitchTool,
+	WORK_MODE_SWITCH_TARGET,
+	type WorkModeSwitchTool
+} from './workMode'
+import { workModeSwitchTools } from './workModeSwitch'
 import { filterSessionTools, sessionToolAllowed } from './global/sessionToolset'
 import {
 	listFolderInstructions,
@@ -789,6 +798,18 @@ export class AIChatManager implements ChatViewHost {
 		if (isReadOnlyAccess(this.sessionAccess)) return 'protected'
 		return this.#useOnly ? 'role' : 'chosen'
 	})
+	#workModeSwitches: Record<WorkModeSwitchTool, SessionTool<any>> = workModeSwitchTools({
+		offers: (tool) => this.workModeSwitchOffered === tool,
+		setWorkMode: (mode) => this.setWorkMode(mode)
+	})
+	/** The switch the current mode offers between Use and Use & build. None from Plan, which
+	 * leaves through its plan's approval, from a session held in Use, or while confirmations are
+	 * auto-accepted: the switch is the user's answer, which that posture would give for them. */
+	workModeSwitchOffered = $derived.by((): WorkModeSwitchTool | undefined => {
+		if (!this.workModesAvailable || this.autoAcceptToolConfirmationsActive) return undefined
+		if (this.#useReason === 'chosen') return ENTER_BUILD_MODE_TOOL
+		return this.useModeActive || this.planModeActive ? undefined : ENTER_USE_MODE_TOOL
+	})
 	/** What the tools and the prompt are built for. */
 	#toolAccess = $derived(this.useModeActive ? USE_MODE_ACCESS : this.sessionAccess)
 	// The posture's own state — its two tools, the plan document and the planning round.
@@ -807,17 +828,27 @@ export class AIChatManager implements ChatViewHost {
 	/** Both views narrow the same way — concatenate every source, then filter — so a tool
 	 * reaching either one can never arrive unfiltered. A session withholds what its user's
 	 * capabilities do not cover; elsewhere `sessionAccess` is unset and nothing is dropped. */
-	#shipped = (planTools: Tool<any>[]): Tool<any>[] =>
-		filterSessionTools([...this.#assembledTools, ...planTools], this.#toolAccess)
-	/** What the request carries: the assembled tools plus the plan-mode transition the current
+	#shipped = (modeTools: Tool<any>[]): Tool<any>[] =>
+		filterSessionTools([...this.#assembledTools, ...modeTools], this.#toolAccess)
+	/** What the request carries: the assembled tools plus the mode transitions the current
 	 * posture offers. Read by the request path and by the YOLO disclosure. */
-	tools: Tool<any>[] = $derived(this.#shipped(this.planMode.tools))
+	tools: Tool<any>[] = $derived(
+		this.#shipped([
+			...this.planMode.tools,
+			...(this.workModeSwitchOffered ? [this.#workModeSwitches[this.workModeSwitchOffered]] : [])
+		])
+	)
 	/** What the assistant can call in this session, posture-independent: both plan-mode
-	 * transitions, whichever one is offered right now. A reference answer, so flipping the
-	 * autonomy picker must not change it. */
-	availableTools: Tool<any>[] = $derived(this.#shipped(this.planMode.availableTools))
+	 * transitions and both switches, whichever one is offered right now. A reference answer, so
+	 * flipping the autonomy picker must not change it. */
+	availableTools: Tool<any>[] = $derived(
+		this.#shipped([
+			...this.planMode.availableTools,
+			...(this.workModesAvailable && !this.#useOnly ? Object.values(this.#workModeSwitches) : [])
+		])
+	)
 	/** Whether a tool the call was made with is no longer shipped: a switch to Use withdraws
-	 * every write while its card waits. Plan's own tools are not assembled, so never are. */
+	 * every write while its card waits. The mode transitions are not assembled, so never are. */
 	isToolWithdrawn = (toolName: string): boolean => {
 		const access = this.#toolAccess
 		if (!access) return false
@@ -1996,8 +2027,10 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	/** enter_plan_mode never qualifies: YOLO means "stop asking and run it", and a research
-	 * posture inverts that. Every accept path asks here rather than carrying its own copy. */
-	private autoAcceptsTool = (toolName: string | undefined) => toolName !== ENTER_PLAN_MODE_TOOL
+	 * posture inverts that. Nor does a switch between Use and Use & build, which only the user
+	 * picks. Every accept path asks here rather than carrying its own copy. */
+	private autoAcceptsTool = (toolName: string | undefined) =>
+		toolName !== ENTER_PLAN_MODE_TOOL && !isWorkModeSwitchTool(toolName)
 
 	/** Asked before the confirmation wait is skipped, so a tool the posture will not answer
 	 * for still gets a card rather than running unasked. */
@@ -2037,7 +2070,7 @@ export class AIChatManager implements ChatViewHost {
 		}
 	}
 
-	private resolvePendingPlanCard = (toolName: string, confirmed: boolean) => {
+	private resolvePendingModeCard = (toolName: string, confirmed: boolean) => {
 		for (const [toolId, cb] of this.confirmationCallbacks) {
 			if (cb.toolName === toolName) {
 				cb.resolve(confirmed)
@@ -2070,13 +2103,17 @@ export class AIChatManager implements ChatViewHost {
 		this.onWorkModeChanged?.(mode)
 
 		if (enteringPlan) {
-			this.resolvePendingPlanCard(ENTER_PLAN_MODE_TOOL, true)
+			this.resolvePendingModeCard(ENTER_PLAN_MODE_TOOL, true)
 		} else if (leavingPlan) {
 			// Building under Yolo means "run it"; leaving plan mode any other way is not a sign-off.
-			this.resolvePendingPlanCard(
+			this.resolvePendingModeCard(
 				EXIT_PLAN_MODE_TOOL,
 				mode === AIWorkMode.BUILD && this.autonomyMode === AIAutonomyMode.YOLO
 			)
+		}
+		// A switch card the picker answered: accepted when the picker went where the card asked.
+		for (const tool of [ENTER_BUILD_MODE_TOOL, ENTER_USE_MODE_TOOL] as const) {
+			this.resolvePendingModeCard(tool, mode === WORK_MODE_SWITCH_TARGET[tool])
 		}
 		if (this.autoAcceptToolConfirmationsActive) {
 			this.acceptPendingToolConfirmations()

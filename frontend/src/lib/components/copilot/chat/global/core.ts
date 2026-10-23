@@ -3016,7 +3016,7 @@ export function getSessionContextPromptSection(
 			? `start a new session in the dev workspace "${dev.id}", which the "New session in ${dev.name} (dev)" entry of the composer's mode picker opens`
 			: 'start a new session in a fork of this workspace, or, where forking is refused too, make the change in git and open a pull request'
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — a production workspace protected against direct changes, so this session is READ-ONLY whatever the user's role. To make a change, the user needs to ${elsewhere}. This session's mode picker shows Plan and Build greyed out and its workspace cannot change once it has started, so never suggest picking Build or switching this session.`
+			`- Operating workspace: "${ctx.workspaceId}" — a production workspace protected against direct changes, so this session is READ-ONLY whatever the user's role. To make a change, the user needs to ${elsewhere}. This session's mode picker shows Plan and Use & build greyed out and its workspace cannot change once it has started, so never suggest picking Use & build or switching this session.`
 		)
 	} else if (ctx.parentWorkspaceId && ctx.isDevWorkspace) {
 		lines.push(
@@ -3041,11 +3041,11 @@ export function getSessionContextPromptSection(
 	}
 	if (readOnly && ctx.useMode === 'chosen') {
 		lines.push(
-			"- The user put this session in Use mode with the composer's mode picker, so it is READ-ONLY until they switch. To make a change, ask them to switch the picker to Build, or to Plan to agree on the change first."
+			"- The user put this session in Use mode with the composer's mode picker, so it is READ-ONLY until they switch. To make a change, call `enter_build_mode`, which asks them to switch to Use & build, or `enter_plan_mode` to agree on the change first; without those tools, ask them to switch the picker."
 		)
 	} else if (readOnly && ctx.useMode === 'role') {
 		lines.push(
-			`- This user's workspace role cannot create or change scripts, flows, apps, schedules or triggers, neither through you nor by hand anywhere in the workspace. That role, not this session, is why the session is held in Use mode and is READ-ONLY. When they ask for one, say that their role does not allow it, and that a workspace admin can create it for them or grant their role more in ${OPERATOR_SETTINGS_LOCATION}. Do not write its code or give steps: they can use neither. Their mode picker shows Plan and Build greyed out, so never suggest switching modes. Resources and variables are the exception: every role creates and edits those by hand, outside this session, on the workspace's own Resources and Variables pages.`
+			`- This user's workspace role cannot create or change scripts, flows, apps, schedules or triggers, neither through you nor by hand anywhere in the workspace. That role, not this session, is why the session is held in Use mode and is READ-ONLY. When they ask for one, say that their role does not allow it, and that a workspace admin can create it for them or grant their role more in ${OPERATOR_SETTINGS_LOCATION}. Do not write its code or give steps: they can use neither. Their mode picker shows Plan and Use & build greyed out, so never suggest switching modes. Resources and variables are the exception: every role creates and edits those by hand, outside this session, on the workspace's own Resources and Variables pages.`
 		)
 	}
 	// The kind enum already withholds what the rules refuse; this says why, and where the user
@@ -3063,7 +3063,7 @@ export function getSessionContextPromptSection(
 	}
 	lines.push(
 		'- Sessions are saved: the sidebar lists them under AI Sessions, and the user can reopen any of them.',
-		`- The composer has a mode picker in two parts. What you may do: Use (read and run deployed items, change nothing), Plan (research, then propose a plan for approval) and Build. How tool confirmations work: Ask permission, Auto-accept edits, or Yolo (bypass permissions: tool confirmations are accepted without asking). Some options are hidden where they do not apply${protectedWorkspace ? ', and this workspace locks the picker to Use' : ctx.useMode === 'role' ? ", and this user's role locks the picker to Use" : ''}.`,
+		`- The composer has a mode picker in two parts. What you may do: Use (read and run deployed items, change nothing), Plan (research, then propose a plan for approval) and Use & build (everything Use does, plus changes). How tool confirmations work: Ask permission, Auto-accept edits, or Yolo (bypass permissions: tool confirmations are accepted without asking). Some options are hidden where they do not apply${protectedWorkspace ? ', and this workspace locks the picker to Use' : ctx.useMode === 'role' ? ", and this user's role locks the picker to Use" : ''}.`,
 		"- The sliders button next to the model picker opens Assistant settings. Its Permissions section shows what the user's role lets them change and what you can change for them; point them there when they ask what they are allowed to do."
 	)
 	return lines.join('\n')

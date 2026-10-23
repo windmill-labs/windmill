@@ -1061,7 +1061,7 @@
 															destructive
 															disabled={model.deploying || !!staged[d.key] || model.readOnly}
 															title={model.readOnly
-																? 'A session in Use mode discards nothing. Switch it to Build to discard.'
+																? 'A session in Use mode discards nothing. Switch it to Use & build to discard.'
 																: undefined}
 															onclick={() => confirmDiscard(d)}
 														>

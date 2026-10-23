@@ -5018,4 +5018,56 @@ describe('AIChatManager tool views', () => {
 		expect(names(manager.tools)).not.toContain('enter_plan_mode')
 		expect(names(manager.availableTools)).toEqual(before)
 	})
+
+	it('offers the switch out of the mode the session is in, and switches only once called', async () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.configureGlobalMode()
+		// The posture is persisted, and the test above leaves it on Yolo.
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+		const shipped = () => manager.tools.map((t) => t.def.function.name)
+		expect(shipped()).toContain('enter_use_mode')
+		expect(shipped()).not.toContain('enter_build_mode')
+
+		// Plan leaves through its plan's approval, and Yolo would answer the card for the user.
+		manager.setWorkMode(AIWorkMode.PLAN)
+		expect(shipped()).not.toContain('enter_use_mode')
+		expect(shipped()).not.toContain('enter_build_mode')
+		manager.setWorkMode(AIWorkMode.USE)
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+		expect(shipped()).not.toContain('enter_build_mode')
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+
+		const enterBuild = manager.tools.find((t) => t.def.function.name === 'enter_build_mode')
+		expect(manager.workMode).toBe(AIWorkMode.USE)
+		await enterBuild?.fn({} as any)
+		expect(manager.workMode).toBe(AIWorkMode.BUILD)
+		expect(manager.systemMessage.content).toContain('write_script')
+	})
+
+	// The card is the only consent the switch has: the picker can answer it by going where it
+	// asked, and turning on Yolo must not approve it.
+	it('resolves a pending switch card from the picker, and never from Yolo', async () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.configureGlobalMode()
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+		manager.setWorkMode(AIWorkMode.USE)
+
+		const toPlan = manager.requestConfirmation('a', 'enter_build_mode')
+		manager.setWorkMode(AIWorkMode.PLAN)
+		await expect(toPlan).resolves.toBe(false)
+
+		manager.setWorkMode(AIWorkMode.USE)
+		const toBuild = manager.requestConfirmation('b', 'enter_build_mode')
+		manager.setWorkMode(AIWorkMode.BUILD)
+		await expect(toBuild).resolves.toBe(true)
+
+		manager.setWorkMode(AIWorkMode.USE)
+		const underYolo = manager.requestConfirmation('c', 'enter_build_mode')
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+		await expect(underYolo).resolves.toBe(false)
+	})
 })

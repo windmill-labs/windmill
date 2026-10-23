@@ -66,7 +66,7 @@ export interface SessionDeployModelArgs {
 
 const USE_MODE_REFUSAL: DeployPermission = {
 	ok: false,
-	reason: 'A session in Use mode deploys nothing. Switch it to Build to deploy.'
+	reason: 'A session in Use mode deploys nothing. Switch it to Use & build to deploy.'
 }
 
 export interface DiffValues {
