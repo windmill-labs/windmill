@@ -238,17 +238,15 @@
     return '';
   }
 
-  // A form is offered for an input schema the card can fill: files cannot be re-sent.
+  // A form is offered for an input schema the card can fill: a file, at any depth, comes
+  // back as a size marker the form would send in its place.
   function formFields() {
     const schema = run?.form?.schema;
-    const properties = schema?.properties ?? {};
-    const names = [...new Set([...(schema?.order ?? []), ...Object.keys(properties)])]
-      .filter((name) => properties[name]);
-    const fileless = names.every((name) => {
-      const prop = properties[name];
-      return prop.contentEncoding !== 'base64' && prop.items?.contentEncoding !== 'base64';
-    });
-    return fileless ? names.map((name) => [name, properties[name]]) : null;
+    if (!schema || /"contentEncoding":\s*"base64"/.test(JSON.stringify(schema))) return null;
+    const properties = schema.properties ?? {};
+    return [...new Set([...(schema.order ?? []), ...Object.keys(properties)])]
+      .filter((name) => properties[name])
+      .map((name) => [name, properties[name]]);
   }
 
   function renderRun() {
@@ -372,7 +370,8 @@
         run = null;
         onResult(result);
         request('ui/update-model-context', {
-          content: [{ type: 'text', text: `The user ran ${path} again from the Windmill card (${tool}) with arguments ${JSON.stringify(run?.form?.args ?? next)}: run ${run?.id ?? 'not started'}, status ${run?.status ?? 'unknown'}.` }]
+          // Only the server's redacted copy of the arguments: `next` may hold a typed secret.
+          content: [{ type: 'text', text: `The user ran ${path} again from the Windmill card (${tool})${run?.form?.args ? ` with arguments ${JSON.stringify(run.form.args)}` : ''}: run ${run?.id ?? 'not started'}, status ${run?.status ?? 'unknown'}.` }]
         }).catch(() => {});
       } catch (e) {
         error.hidden = false;
@@ -481,8 +480,8 @@
     if (!meta.items) {
       const label = meta.trigger_kind ? `${meta.trigger_kind} trigger` : meta.type;
       setHeader({ path: meta.path, ws: meta.workspace, kind: label ? `Draft vs deployed · ${label}` : '' });
-      setOpen(meta.url, 'Open in editor');
-      body.replaceChildren(patchView(text, PATCH_LINES_INLINE));
+      setOpen(result.isError ? null : meta.url, 'Open in editor');
+      body.replaceChildren(result.isError ? el('pre', { class: 'error' }, text) : patchView(text, PATCH_LINES_INLINE));
       return;
     }
     setHeader({ path: 'Drafts vs deployed', ws: meta.workspace, kind: `${meta.items.length} item${meta.items.length === 1 ? '' : 's'}` });

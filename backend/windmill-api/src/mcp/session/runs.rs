@@ -1785,10 +1785,7 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             .as_array()
             .map(Vec::as_slice)
             .unwrap_or_default();
-        let steps = card_steps(entries);
-        if !steps.is_empty() {
-            details.insert("step_list".into(), steps.into());
-        }
+        details.insert("step_list".into(), card_steps(entries).into());
         if let Ok(logs) = &logs {
             if !logs.trim().is_empty() {
                 details.insert("logs".into(), js_tail(logs, CARD_LOG_CHARS).into());
