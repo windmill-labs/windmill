@@ -278,6 +278,7 @@
 				{onNavigate}
 				{pendingRun}
 				onLoadState={setLoadState}
+				onSummary={(summary) => runtime.previewTabs.setTabFriendlyLabel(tabId, summary)}
 			/>
 		{/await}
 	{:else if kind === 'script'}

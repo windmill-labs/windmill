@@ -30,6 +30,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { PLAN_MODE_MESSAGES } from '$lib/components/copilot/chat/planModeMessages'
 	import type { PendingRun } from '$lib/components/details/pendingRun'
+	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	/**
 	 * The deployed agent, as a flow's or a script's page shows theirs: a way to run it, a chat when
@@ -50,6 +51,8 @@
 		pendingRun?: PendingRun
 		/** Whether the agent is deployed, once that is known. */
 		onLoadState?: (state: 'loaded' | 'not_found') => void
+		/** The deployed agent's summary, for a host that names the page after it. */
+		onSummary?: (summary: string | undefined) => void
 	}
 
 	let {
@@ -59,8 +62,14 @@
 		active = true,
 		onNavigate = (url) => goto(url),
 		pendingRun = undefined,
-		onLoadState = undefined
+		onLoadState = undefined,
+		onSummary = undefined
 	}: Props = $props()
+
+	// Every workspace-scoped call below and in the drawers this page opens (the summary's save,
+	// permissions, history) targets `workspace`, not the nav store: a session shows the agent of its
+	// own workspace, which a fork makes a different one.
+	setOperatingWorkspace(() => ws)
 
 	/** Bumped to read the agent again after it was renamed in place. */
 	let reloaded = $state(0)
@@ -69,7 +78,7 @@
 	let testPane = $derived(host?.testPaneHandle())
 	let config = $derived(agent?.state?.args)
 	let chatAvailable = $derived(keepsManagedMemory(config?.memory))
-	const editRights = useEditRights()
+	const editRights = useEditRights(() => ws)
 	let canAuthor = $derived(editRights.roleCanAuthor('agent'))
 	let canCode = $derived(editRights.capabilities.code)
 	let canEdit = $derived(config != undefined && (agent?.canWrite ?? false) && canAuthor)
@@ -85,6 +94,10 @@
 				via: 'view'
 			})
 		}
+	})
+	$effect(() => {
+		const summary = config ? agent?.state?.description?.trim() || undefined : undefined
+		untrack(() => onSummary?.(summary))
 	})
 	$effect(() => {
 		if (!agent || agent.loading) return

@@ -44,7 +44,11 @@ export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
 			// Its path sits in the trigger's own config, not beside `kind`.
 			return withItem(triggerPages(args?.kind), itemRef('trigger', args?.config, args?.kind))
 		case 'write_resource':
-			return withItem(['/resources'], itemRef('resource', args))
+			// An agent's editor follows the chat's writes through the draft cell they share, so
+			// reloading its tab would only throw away where the reader was in it.
+			return args?.resource_type === 'ai_agent'
+				? { pages: ['/resources'], items: [], deployed: [] }
+				: withItem(['/resources'], itemRef('resource', args))
 		case 'write_variable':
 			return withItem(['/variables'], itemRef('variable', args))
 		case 'create_folder':

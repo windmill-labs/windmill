@@ -436,8 +436,10 @@
 	 * otherwise be two tabs with the same name. Only the editor is marked: the deployed
 	 * page is the item itself, and a page, artifact or pipeline has no second side to be
 	 * told apart from. */
-	function sideSuffix(url: string): string {
-		const slot = resolvePreviewTab(url)
+	function sideSuffix(tab: SessionPreviewTab): string {
+		// An agent's editor is a resource tab, beside the agent's own deployed page.
+		if (tab.agentEditor) return ' (edit)'
+		const slot = resolvePreviewTab(tab.url)
 		return slot.kind === 'editor' && slot.editorKind !== 'pipeline' ? ' (edit)' : ''
 	}
 	let newTabOpen = $state(false)
@@ -859,7 +861,7 @@
 			tab.friendlyLabel ??
 			(listed && itemDisplayName(listed.path, listed.draftPath, listed.summary)) ??
 			previewLocationLabel(tab.loc)
-		return name + sideSuffix(tab.url)
+		return name + sideSuffix(tab)
 	}
 
 	// Hover title for a tab. A summary label is free text the strip truncates, and
