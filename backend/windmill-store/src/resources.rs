@@ -2189,7 +2189,7 @@ async fn update_resource(
 
             // Handle Vault secret rename if the linked variable is a Vault-stored secret
             let linked_var = sqlx::query!(
-                "SELECT value, is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
+                "SELECT value::text AS \"value!\", is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
                 path,
                 w_id
             )
