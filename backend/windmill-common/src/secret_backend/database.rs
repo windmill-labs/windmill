@@ -39,7 +39,7 @@ impl DatabaseBackend {
 impl SecretBackend for DatabaseBackend {
     async fn get_secret(&self, workspace_id: &str, path: &str) -> Result<String> {
         let variable = sqlx::query!(
-            "SELECT value FROM variable WHERE path = $1 AND workspace_id = $2 AND is_secret = true",
+            "SELECT value::text AS \"value!\" FROM variable WHERE path = $1 AND workspace_id = $2 AND is_secret = true",
             path,
             workspace_id
         )
