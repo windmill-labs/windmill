@@ -262,9 +262,11 @@
     if (!schema || /"contentEncoding":\s*"base64"/.test(JSON.stringify(schema))) return null;
     if (JSON.stringify(run.form.args ?? {}).includes('"<hidden>"')) return null;
     const properties = schema.properties ?? {};
-    return [...new Set([...(schema.order ?? []), ...Object.keys(properties)])]
+    const fields = [...new Set([...(schema.order ?? []), ...Object.keys(properties)])]
       .filter((name) => properties[name])
       .map((name) => [name, properties[name]]);
+    // No declared field: the run's arguments are unknown to the card, and would be dropped.
+    return fields.length ? fields : null;
   }
 
   function renderRun() {
@@ -333,6 +335,12 @@
       const title = `${prop.title || name}${required.has(name) ? ' *' : ''}`;
       const hint = prop.description ? el('small', {}, prop.description) : null;
       let input;
+      // A reference stands for a value of any type; it is shown, and sent, as written.
+      const reference = typeof value === 'string' && /^\$(var|res|jsonvar):/.test(value);
+      if (reference && !prop.password) {
+        input = el('input', { type: 'text', name, value });
+        return el('label', {}, title, hint, input);
+      }
       if (prop.type === 'boolean') {
         input = el('input', { type: 'checkbox', name, checked: value === true });
         return el('label', { class: 'check' }, input, title, hint);
@@ -344,7 +352,6 @@
       } else if (prop.type === 'number' || prop.type === 'integer') {
         input = el('input', { type: 'number', name, step: prop.type === 'integer' ? '1' : 'any', value: value ?? '' });
       } else if (prop.type === 'string' && prop.password) {
-        const reference = typeof value === 'string' && /^\$(var|res|jsonvar):/.test(value);
         input = el('input', { type: 'password', name, placeholder: reference ? 'Unchanged' : '', value: reference ? '' : (value ?? '') });
       } else if (prop.type === 'string') {
         const long = typeof value === 'string' && value.includes('\n');
@@ -352,7 +359,6 @@
       } else {
         input = el('textarea', { name, value: value === undefined ? '' : JSON.stringify(value, null, 2) });
       }
-      input.required = required.has(name) && !(prop.password && args[name]);
       return el('label', {}, title, hint, input);
     });
     const error = el('div', { class: 'form-error', hidden: true });
@@ -361,6 +367,8 @@
     // A field the user left alone is sent exactly as the run had it: a reference, an empty
     // string, a null or an omission would not survive the round trip through an input.
     const touched = new Set();
+    // Native validation would judge untouched fields by what their inputs can show.
+    form.noValidate = true;
     form.oninput = form.onchange = (event) => touched.add(event.target.name);
     form.onsubmit = async (event) => {
       event.preventDefault();
@@ -370,7 +378,8 @@
           const input = form.elements.namedItem(name);
           if (!touched.has(name)) {
             if (name in args) next[name] = args[name];
-          } else if (prop.type === 'boolean') next[name] = input.checked;
+          } else if (/^\$(var|res|jsonvar):/.test(input.value)) next[name] = input.value;
+          else if (prop.type === 'boolean') next[name] = input.checked;
           else if (input.value === '') {
             if (prop.password && args[name]) next[name] = args[name];
           } else if (Array.isArray(prop.enum)) next[name] = JSON.parse(input.value);
@@ -381,6 +390,12 @@
       } catch {
         error.hidden = false;
         error.textContent = 'A field holds invalid JSON.';
+        return;
+      }
+      const missing = fields.find(([name, prop]) => required.has(name) && prop.default === undefined && (next[name] === undefined || next[name] === ''));
+      if (missing) {
+        error.hidden = false;
+        error.textContent = `Fill in ${missing[1].title || missing[0]}.`;
         return;
       }
       submit.disabled = true;
@@ -508,7 +523,7 @@
     if (!meta.items) {
       const label = meta.trigger_kind ? `${meta.trigger_kind} trigger` : meta.type;
       setHeader({ path: meta.path, ws: meta.workspace, kind: label ? `Draft vs deployed · ${label}` : '' });
-      setOpen(result.isError ? null : meta.url, 'Open in editor');
+      setOpen(result.isError ? null : meta.url, meta.editor ? 'Open in editor' : 'Open in Windmill');
       body.replaceChildren(result.isError ? el('pre', { class: 'error' }, text) : patchView(text, PATCH_LINES_INLINE));
       return;
     }

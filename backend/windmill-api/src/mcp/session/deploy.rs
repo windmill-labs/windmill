@@ -1978,8 +1978,9 @@ async fn diff(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     if args.get("path").is_some_and(|p| !p.is_null()) {
         let item_type = opt_str_arg(args, "type").unwrap_or_default();
         let path = opt_str_arg(args, "path").unwrap_or_default();
-        let page = draft_page(item_type, path, &Value::Null)
-            .or_else(|| deployed_page(item_type, path, &Value::Null));
+        let editor = draft_page(item_type, path, &Value::Null);
+        let has_editor = editor.is_some();
+        let page = editor.or_else(|| deployed_page(item_type, path, &Value::Null));
         let _ = ctx.view.set((
             "windmill/diff",
             json!({
@@ -1988,6 +1989,7 @@ async fn diff(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                 "trigger_kind": opt_str_arg(args, "trigger_kind"),
                 "path": path,
                 "url": page.map(|page| ctx.page_url(&page)),
+                "editor": has_editor,
             }),
         ));
         diff_item(ctx, args).await
