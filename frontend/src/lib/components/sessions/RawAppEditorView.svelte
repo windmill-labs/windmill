@@ -177,14 +177,16 @@
 			files: $state.snapshot(source.files),
 			runnables: $state.snapshot(source.runnables),
 			data: $state.snapshot(source.data),
-			// The forker's own: the source's would publish as its owner.
+			// The forker's identity, since the source's would publish as its owner, but the
+			// source's sandbox and SDK scopes: the copied code's SDK calls depend on them.
 			policy: {
 				on_behalf_of: $userStore?.username.includes('@')
 					? $userStore?.username
 					: `u/${$userStore?.username}`,
 				on_behalf_of_email: $userStore?.email,
 				execution_mode: 'publisher',
-				sandbox: true
+				sandbox: source.policy?.sandbox ?? false,
+				frontend_sdk_scopes: $state.snapshot(source.policy?.frontend_sdk_scopes)
 			}
 		}
 		const key = { workspace: workspaceId, itemKind: 'raw_app' as const, path: forkPath }

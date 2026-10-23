@@ -281,8 +281,9 @@
 				return
 			}
 			// Fork of a raw app, from the forker's draft of it when there is one: that is what
-			// their editor shows, and a never-deployed app has nothing else. Only its content
-			// is copied: the policy stays the forker's, since the source's would publish as its owner.
+			// their editor shows, and a never-deployed app has nothing else. Its identity is reset
+			// to the forker, since the source's would publish as its owner, but its sandbox and
+			// SDK scopes are kept: the copied code's SDK calls depend on them.
 			const templatePath = page.url.searchParams.get('template')
 			if (templatePath) {
 				try {
@@ -297,15 +298,21 @@
 					const value = sourceDraft
 						? { files: sourceDraft.files, runnables: sourceDraft.runnables, data: sourceDraft.data }
 						: template.value
+					const sourcePolicy = sourceDraft ? sourceDraft.policy : template.policy
+					const forkPolicy = {
+						...defaultPolicy,
+						sandbox: sourcePolicy?.sandbox ?? false,
+						frontend_sdk_scopes: sourcePolicy?.frontend_sdk_scopes
+					}
 					if (value?.files) {
 						savedApp = {
 							summary: '',
 							value,
 							path: '',
-							policy: defaultPolicy,
+							policy: forkPolicy,
 							custom_path: undefined
 						}
-						extractRawApp({ summary: '', value, policy: defaultPolicy })
+						extractRawApp({ summary: '', value, policy: forkPolicy })
 						newPath = pathParam ?? ''
 						templatePicker = false
 						sendUserToast('App loaded from template')
