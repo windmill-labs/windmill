@@ -97,7 +97,10 @@
 	)
 	let group: Group | undefined
 	let instance_group: InstanceGroup | undefined = $state()
-	let usernames: string[] = $state([])
+	// Every username of the workspace, for the Add member picker: loaded on its first open,
+	// since it grows with the workspace and most opens of this editor add no one.
+	let usernames: string[] | undefined = $state()
+	let usernamesLoading = $state(false)
 	let groupNames: string[] = $state([])
 	let loaded = $state(false)
 	let reloadHistory = $state(0)
@@ -140,8 +143,40 @@
 	}
 
 	async function loadUsernames(): Promise<void> {
-		usernames = await UserService.listUsernames({ workspace: $operatingWorkspace! })
+		if (usernames !== undefined || usernamesLoading) return
+		usernamesLoading = true
+		try {
+			usernames = await UserService.listUsernames({ workspace: $operatingWorkspace! })
+		} catch (e) {
+			sendUserToast(`Could not load users: ${e?.body ?? e}`, true)
+		} finally {
+			usernamesLoading = false
+		}
 	}
+
+	// From this many rows a table no longer fits its 320px box: it scrolls, and a search shows.
+	// Both follow every row, not the matching ones, so typing never resizes the drawer.
+	const MANY_ROWS = 8
+	let memberSearch = $state('')
+	const memberQuery = $derived(
+		draft.members.length >= MANY_ROWS ? memberSearch.trim().toLowerCase() : ''
+	)
+	const shownMembers = $derived(
+		draft.members
+			.filter((m) => !memberQuery || m.member_name.toLowerCase().includes(memberQuery))
+			.sort((a, b) => a.member_name.localeCompare(b.member_name))
+	)
+
+	let emailSearch = $state('')
+	const instanceEmails = $derived(instance_group?.emails ?? [])
+	const emailQuery = $derived(
+		instanceEmails.length >= MANY_ROWS ? emailSearch.trim().toLowerCase() : ''
+	)
+	const shownEmails = $derived(
+		instanceEmails
+			.filter((e) => !emailQuery || e.toLowerCase().includes(emailQuery))
+			.sort((a, b) => a.localeCompare(b))
+	)
 
 	async function loadGroupNames(): Promise<void> {
 		groupNames = (await GroupService.listGroupNames({ workspace: $operatingWorkspace! })) ?? []
@@ -156,7 +191,6 @@
 	}
 
 	async function load() {
-		loadAside(loadUsernames)
 		if (isNew) {
 			loadAside(loadGroupNames)
 			writeVerdict = true
@@ -410,69 +444,87 @@
 
 	<Label label={`Members (${draft.members.length})`} tooltip={MEMBERS_EXPLAINER}>
 		{#snippet action()}
-			{#if can_write && !restricted}
-				<Popover
-					placement="bottom-end"
-					onClose={() => {
-						memberToAdd = ''
-						newMemberRole = 'member'
-					}}
-				>
-					{#snippet trigger()}
-						<Button
-							variant="default"
-							unifiedSize="sm"
-							nonCaptureEvent={true}
-							startIcon={{ icon: Plus }}
-						>
-							Add member
-						</Button>
-					{/snippet}
-					{#snippet content({ close })}
-						<div class="flex flex-col w-72 p-4 gap-4">
-							<span class="text-sm leading-6 font-semibold">Add a member</span>
-							<Label label="User">
-								<Select
-									items={safeSelectItems(
-										usernames.filter((x) => !draft.members.some((m) => m.member_name === x))
-									)}
-									bind:value={memberToAdd}
-									size="sm"
-									class="grow min-w-0"
-								/>
-							</Label>
-							<Label label="Role">
-								<ToggleButtonGroup bind:selected={newMemberRole}>
-									{#snippet children({ item })}
-										<ToggleButton
-											value="member"
-											label="Member"
-											tooltip={ROLE_TOOLTIPS.member}
-											{item}
-											size="sm"
-										/>
-										<ToggleButton
-											value="admin"
-											label="Admin"
-											tooltip={ROLE_TOOLTIPS.admin}
-											{item}
-											size="sm"
-										/>
-									{/snippet}
-								</ToggleButtonGroup>
-							</Label>
+			<div class="flex items-center gap-2 min-w-0">
+				{#if draft.members.length >= MANY_ROWS}
+					<TextInput
+						size="sm"
+						class="w-56 min-w-0"
+						bind:value={memberSearch}
+						inputProps={{
+							type: 'search',
+							placeholder: `Search ${draft.members.length} members`,
+							'aria-label': 'Search members'
+						}}
+					/>
+				{/if}
+				{#if can_write && !restricted}
+					<Popover
+						placement="bottom-end"
+						on:openChange={(e) => e.detail && loadUsernames()}
+						onClose={() => {
+							memberToAdd = ''
+							newMemberRole = 'member'
+						}}
+					>
+						{#snippet trigger()}
 							<Button
-								variant="accent"
+								variant="default"
 								unifiedSize="sm"
-								disabled={memberToAdd == ''}
-								onClick={() => addMember(close)}
+								nonCaptureEvent={true}
+								startIcon={{ icon: Plus }}
 							>
-								Add
+								Add member
 							</Button>
-						</div>
-					{/snippet}
-				</Popover>
-			{/if}
+						{/snippet}
+						{#snippet content({ close })}
+							<div class="flex flex-col w-72 p-4 gap-4">
+								<span class="text-sm leading-6 font-semibold">Add a member</span>
+								<Label label="User">
+									<Select
+										items={safeSelectItems(
+											(usernames ?? []).filter(
+												(x) => !draft.members.some((m) => m.member_name === x)
+											)
+										)}
+										loading={usernamesLoading}
+										bind:value={memberToAdd}
+										size="sm"
+										class="grow min-w-0"
+									/>
+								</Label>
+								<Label label="Role">
+									<ToggleButtonGroup bind:selected={newMemberRole}>
+										{#snippet children({ item })}
+											<ToggleButton
+												value="member"
+												label="Member"
+												tooltip={ROLE_TOOLTIPS.member}
+												{item}
+												size="sm"
+											/>
+											<ToggleButton
+												value="admin"
+												label="Admin"
+												tooltip={ROLE_TOOLTIPS.admin}
+												{item}
+												size="sm"
+											/>
+										{/snippet}
+									</ToggleButtonGroup>
+								</Label>
+								<Button
+									variant="accent"
+									unifiedSize="sm"
+									disabled={memberToAdd == ''}
+									onClick={() => addMember(close)}
+								>
+									Add
+								</Button>
+							</div>
+						{/snippet}
+					</Popover>
+				{/if}
+			</div>
 		{/snippet}
 		<div class="flex flex-col gap-2">
 			{#if can_write && restricted}
@@ -480,19 +532,31 @@
 			{/if}
 
 			{#if loaded}
-				<DataTable size="sm">
+				<!-- A definite height, not a max: it is what lets the table's own box scroll under
+				     its sticky header. Fixed column widths keep the columns still as rows change. -->
+				<DataTable
+					size="sm"
+					tableFixed
+					containerClass={draft.members.length >= MANY_ROWS ? 'h-80' : ''}
+				>
 					<Head>
 						<tr>
 							<Cell head first class="text-secondary">Name</Cell>
-							<Cell head class="text-secondary">Role</Cell>
-							<Cell head last actions class="text-secondary">Actions</Cell>
+							<Cell head class="text-secondary {can_write && !restricted ? 'w-60' : 'w-24'}">
+								Role
+							</Cell>
+							<Cell head last actions class="text-secondary {isNew ? 'w-40' : 'w-20'}">
+								Actions
+							</Cell>
 						</tr>
 					</Head>
 					<tbody class="divide-y">
-						{#each draft.members as member, idx (member.member_name)}
+						{#each shownMembers as member (member.member_name)}
 							<Row>
 								<Cell first>
-									<span class="text-emphasis font-medium">{member.member_name}</span>
+									<span class="block truncate text-emphasis font-medium" title={member.member_name}>
+										{member.member_name}
+									</span>
 								</Cell>
 								<Cell>
 									{#if can_write && !restricted}
@@ -501,7 +565,7 @@
 												disabled={isFixedCreatorRow(member.member_name)}
 												selected={member.role}
 												on:selected={(e) => {
-													draft.members[idx].role = e.detail
+													member.role = e.detail
 												}}
 											>
 												{#snippet children({ item })}
@@ -559,6 +623,13 @@
 								</Cell>
 							</Row>
 						{/each}
+						{#if memberQuery && shownMembers.length === 0}
+							<Row>
+								<Cell first last colspan={3} class="text-hint truncate">
+									No one matches “{memberSearch.trim()}”
+								</Cell>
+							</Row>
+						{/if}
 					</tbody>
 				</DataTable>
 			{:else}
@@ -573,18 +644,45 @@
 
 	{#if instance_group?.emails}
 		<Label label="Members from the instance group">
-			<DataTable size="sm">
+			{#snippet action()}
+				{#if instanceEmails.length >= MANY_ROWS}
+					<TextInput
+						size="sm"
+						class="w-56 min-w-0"
+						bind:value={emailSearch}
+						inputProps={{
+							type: 'search',
+							placeholder: `Search ${instanceEmails.length} members`,
+							'aria-label': 'Search members from the instance group'
+						}}
+					/>
+				{/if}
+			{/snippet}
+			<DataTable
+				size="sm"
+				tableFixed
+				containerClass={instanceEmails.length >= MANY_ROWS ? 'h-80' : ''}
+			>
 				<Head>
 					<tr>
 						<Cell head first last class="text-secondary">Email</Cell>
 					</tr>
 				</Head>
 				<tbody class="divide-y">
-					{#each instance_group?.emails ?? [] as email}
+					{#each shownEmails as email (email)}
 						<Row>
-							<Cell first last>{email}</Cell>
+							<Cell first last>
+								<span class="block truncate" title={email}>{email}</span>
+							</Cell>
 						</Row>
 					{/each}
+					{#if emailQuery && shownEmails.length === 0}
+						<Row>
+							<Cell first last class="text-hint truncate">
+								No one matches “{emailSearch.trim()}”
+							</Cell>
+						</Row>
+					{/if}
 				</tbody>
 			</DataTable>
 		</Label>

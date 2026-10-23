@@ -135,7 +135,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.4
 
       - uses: denoland/setup-deno@v2
         with:

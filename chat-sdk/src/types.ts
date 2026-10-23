@@ -88,9 +88,33 @@ export type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 
 export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
+/** A raw app's generated `wmill.ts`, as far as a chat uses it. */
+export interface RawAppWmill {
+  backendAsync: Record<string, (args: any) => Promise<string>>
+  streamJob: (jobId: string, onUpdate?: (update: { new_result_stream?: string }) => void) => Promise<unknown>
+}
+
+/** `ChatOptions` whose `runnable` must name one of `wmill`'s runnables. */
+export type TypedChatOptions<W extends RawAppWmill> = ChatOptions & {
+  wmill?: W
+  runnable?: keyof W['backendAsync'] & string
+}
+
 export interface ChatOptions {
-  /** Path of a deployed flow with chat mode enabled, e.g. `f/support/assistant`. */
-  flowPath: string
+  /**
+   * Path of a deployed flow with chat mode enabled, e.g. `f/support/assistant`. Required
+   * unless `runnable` or `follow` is set, where it only names the local history.
+   */
+  flowPath?: string
+  /**
+   * In a raw app, chat through its agent runnable of this name instead of a flow:
+   * `{ wmill, runnable: 'chat' }`. Each turn runs as the app, so a sandboxed app needs no
+   * frontend SDK scope and its viewers no access to the agent; the chat follows it as
+   * with `follow`. It also names the local history, so each runnable keeps its own.
+   */
+  runnable?: string
+  /** The app's generated module, `import * as wmill from './wmill'`, which `runnable` goes through. */
+  wmill?: RawAppWmill
   /** Windmill origin, e.g. `https://app.windmill.dev`. Detected inside a raw app. */
   baseUrl?: string
   /** Detected inside a raw app. */
@@ -128,6 +152,15 @@ export interface ChatOptions {
    * Windmill's own editor uses this to chat with an undeployed flow through a preview run.
    */
   run?: (args: Record<string, unknown>, turn: { conversationId: string; signal: AbortSignal }) => Promise<string>
+  /**
+   * Follows the job `run` returned through your own client instead of the SDK's requests:
+   * call `onStream` with each chunk of the job's result stream and resolve with its result.
+   * With it the chat makes no request of its own, so it needs no credential, `baseUrl` or
+   * `workspace`, and in exchange history is `local` (or `none`), `stop()` stops following
+   * without cancelling the job, and attachments are refused. `runnable` sets both for a raw
+   * app's agent runnable.
+   */
+  follow?: (jobId: string, onStream: (chunk: string) => void, turn: { signal: AbortSignal }) => Promise<unknown>
   /** Called once a turn has its answer (a failed flow included: its error is the answer). */
   onFinish?: (turn: { conversationId: string; jobId?: string; messages: ChatMessage[] }) => void
   /** Called when a turn could not run or be followed; `state.error` holds the same error. */

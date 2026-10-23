@@ -82,6 +82,7 @@ pub async fn build_oauth_clients(
         logins: HashMap::default(),
         connects: HashMap::default(),
         slack: None,
+        slack_signing_secret: None,
     });
 }
 

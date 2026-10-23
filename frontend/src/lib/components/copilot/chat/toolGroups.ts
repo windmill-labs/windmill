@@ -295,6 +295,49 @@ export function groupToolRuns(messages: DisplayMessage[]): ChatItem[] {
 	return items
 }
 
+function sameChatItem(a: ChatItem, b: ChatItem): boolean {
+	if (a.kind === 'message') {
+		return b.kind === 'message' && a.message === b.message && a.index === b.index
+	}
+	return (
+		b.kind === 'group' &&
+		a.groupKind === b.groupKind &&
+		a.key === b.key &&
+		a.target === b.target &&
+		a.entries.length === b.entries.length &&
+		a.entries.every((e, i) => e.message === b.entries[i].message && e.index === b.entries[i].index)
+	)
+}
+
+/** `groupToolRuns` for a transcript that is re-sent whole on every streamed chunk and on every
+ * tool status change: a row whose messages did not change keeps its previous item object. A
+ * fresh item per row re-renders the whole history each time (every answer re-parsing its
+ * markdown, every tool row its result), which freezes the tab on long sessions.
+ *
+ * A changed message is told apart by identity alone, so a row must be replaced, never mutated
+ * in place, for its grouping to update. */
+export function createChatItemGrouper(): (messages: DisplayMessage[]) => ChatItem[] {
+	let settled: DisplayMessage[] = []
+	let settledItems: ChatItem[] = []
+	return (messages) => {
+		// The live answer only ever comes last, and it can neither join nor end a group
+		// differently than the end of the transcript does, so it is grouped on its own and the
+		// rows before it are not regrouped while it streams.
+		const last = messages.at(-1)
+		const live = last?.role === 'assistant' && last.streaming ? last : undefined
+		const n = live ? messages.length - 1 : messages.length
+		if (n !== settled.length || settled.some((m, i) => m !== messages[i])) {
+			const previous = new Map(settledItems.map((item) => [chatItemKey(item), item]))
+			settled = messages.slice(0, n)
+			settledItems = groupToolRuns(settled).map((item) => {
+				const before = previous.get(chatItemKey(item))
+				return before && sameChatItem(before, item) ? before : item
+			})
+		}
+		return live ? [...settledItems, { kind: 'message', message: live, index: n }] : settledItems
+	}
+}
+
 // The server's full resource path: two servers can share a last segment (u/alice/github,
 // f/team/github), so only the display shortens it.
 function mcpServerPath(call: ToolDisplayMessage): string | undefined {

@@ -338,3 +338,65 @@ async fn test_variables_are_cached(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Reading a variable linked to an OAuth account refreshes through it and returns the fresh token,
+/// so the variable endpoints must not let a caller choose the link.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_variable_endpoints_ignore_account_link(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/variables");
+
+    let account: i32 = sqlx::query_scalar(
+        "INSERT INTO account (workspace_id, client, expires_at, refresh_token)
+         VALUES ('test-workspace', 'github', now(), 'r') RETURNING id",
+    )
+    .fetch_one(&db)
+    .await?;
+    let link = |path: &'static str| {
+        let db = db.clone();
+        async move {
+            sqlx::query_scalar::<_, Option<i32>>(
+                "SELECT account FROM variable WHERE workspace_id = 'test-workspace' AND path = $1",
+            )
+            .bind(path)
+            .fetch_one(&db)
+            .await
+            .unwrap()
+        }
+    };
+
+    let path = "u/test-user/oauth_probe";
+    let resp = authed(client().post(format!("{base}/create")))
+        .json(
+            &json!({ "path": path, "value": "t", "is_secret": true, "description": "",
+                       "is_oauth": true, "account": account }),
+        )
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201);
+    assert_eq!(link(path).await, None);
+
+    let other: i32 = sqlx::query_scalar(
+        "INSERT INTO account (workspace_id, client, expires_at, refresh_token)
+         VALUES ('test-workspace', 'github', now(), 'r') RETURNING id",
+    )
+    .fetch_one(&db)
+    .await?;
+    sqlx::query(
+        "UPDATE variable SET account = $1 WHERE workspace_id = 'test-workspace' AND path = $2",
+    )
+    .bind(account)
+    .bind(path)
+    .execute(&db)
+    .await?;
+    let resp = authed(client().post(variable_url(port, "update", path)))
+        .json(&json!({ "description": "d", "account": other }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(link(path).await, Some(account));
+
+    Ok(())
+}

@@ -134,7 +134,7 @@
 			const html = unsandboxedRawAppHtml(
 				workspace,
 				secret,
-				{ ctx: u, workspace },
+				{ ctx: u, workspace, path },
 				window.location.origin,
 				pageHash()
 			)
@@ -207,7 +207,7 @@
 			// Same shape as the unsandboxed wrapper: always the object, so
 			// `window.ctx.workspace` works for anonymous viewers too. Snapshotted: a
 			// caller's `$state` user is a proxy, which postMessage cannot clone.
-			ctx: { ctx: $state.snapshot(user), workspace },
+			ctx: { ctx: $state.snapshot(user), workspace, path },
 			initialHash,
 			storage: { local: bundleStorage ?? {}, session: {} },
 			// The wrapper turns this into `window.process.env` before it injects the
