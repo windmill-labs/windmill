@@ -120,6 +120,8 @@
 	let workspace = $state<string | undefined>($workspaceStore ?? undefined)
 	let loading = $state(false)
 	let picked = $state<string>()
+	/** The kinds a loaded workspace reported, which the form's path fields do not hold. */
+	let loadedKinds = $state<{ draft?: string; folderItem?: string; favorite?: string }>({})
 
 	const num = (s: string) => (s.trim() === '' || isNaN(Number(s)) ? undefined : Number(s))
 
@@ -141,13 +143,13 @@
 
 	const signals: ComposerSignals = $derived({
 		itemCount: num(form.itemCount),
-		myDraft: item('flow', form.draftPath),
+		myDraft: item(loadedKinds.draft ?? 'flow', form.draftPath),
 		sharedFlow: item('flow', form.sharedFlowPath),
 		script: item('script', form.scriptPath),
 		app: item('app', form.appPath),
 		agent: item('agent', form.agentPath),
-		folderItem: item('flow', form.folderItemPath),
-		favorite: item('script', form.favoritePath),
+		folderItem: item(loadedKinds.folderItem ?? 'flow', form.folderItemPath),
+		favorite: item(loadedKinds.favorite ?? 'script', form.favoritePath),
 		database: connection(form.databaseType, form.databasePath),
 		channel: form.channelType === 'none' ? null : connection(form.channelType, form.channelPath),
 		dataTables: names(form.dataTables)
@@ -156,14 +158,24 @@
 
 	function applyPreset(name: string) {
 		form = { ...BLANK, ...PRESETS[name] }
+		loadedKinds = {}
 		picked = undefined
 	}
 
 	async function loadWorkspace() {
-		if (!workspace) return
+		const requested = workspace
+		if (!requested) return
 		loading = true
 		// A failed list reads as 10 items with nothing of yours; the console says why.
-		const s = await readComposerSignals(workspace)
+		const s = await readComposerSignals(requested)
+		loading = false
+		// The selection changed while this was loading: these signals describe another workspace.
+		if (workspace !== requested) return
+		loadedKinds = {
+			draft: s.myDraft?.kind,
+			folderItem: s.folderItem?.kind,
+			favorite: s.favorite?.kind
+		}
 		form = {
 			itemCount: String(s.itemCount ?? ''),
 			draftPath: s.myDraft?.path ?? '',
@@ -180,7 +192,6 @@
 			channelType: s.channel === null ? 'none' : (s.channel?.type ?? BLANK.channelType)
 		}
 		picked = undefined
-		loading = false
 	}
 </script>
 
