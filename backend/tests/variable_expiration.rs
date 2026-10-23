@@ -416,15 +416,15 @@ async fn test_many_broken_handlers_do_not_starve_a_healthy_one(
 #[sqlx::test(fixtures("base"))]
 async fn test_deploying_the_handler_ends_the_wait(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
-    configure_handler(&db, r#"{"path": "script/u/test-user/expiry_handler"}"#).await?;
+    configure_handler(&db, r#"{"path": "script/u/test-user/redeployed_handler"}"#).await?;
     seed_variable(&db, "u/test-user/due", "30 minutes").await?;
 
     dispatch_expiring_variables(&db).await;
-    seed_handler_script(&db, "u/test-user/expiry_handler").await?;
+    seed_handler_script(&db, "u/test-user/redeployed_handler").await?;
     dispatch_expiring_variables(&db).await;
 
     assert_eq!(
-        queued_handler_jobs(&db, "u/test-user/expiry_handler").await?,
+        queued_handler_jobs(&db, "u/test-user/redeployed_handler").await?,
         1,
         "the deployed handler waited out the delay"
     );
@@ -438,13 +438,13 @@ async fn test_deploying_the_handler_mid_pass_ends_the_wait(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
-    configure_handler(&db, r#"{"path": "script/u/test-user/expiry_handler"}"#).await?;
+    configure_handler(&db, r#"{"path": "script/u/test-user/mid_pass_handler"}"#).await?;
     seed_variable(&db, "u/test-user/due", "30 minutes").await?;
     sqlx::raw_sql(
         r#"CREATE FUNCTION deploy_mid_pass() RETURNS trigger LANGUAGE plpgsql AS $$
            BEGIN
                INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, language, lock)
-               VALUES (NEW.workspace_id, 42, 'u/test-user/expiry_handler', '', '', 'export function main() {}', 'test-user', 'bun', '');
+               VALUES (NEW.workspace_id, 42, 'u/test-user/mid_pass_handler', '', '', 'export function main() {}', 'test-user', 'bun', '');
                RETURN NEW;
            END $$;
            CREATE TRIGGER deploy_mid_pass BEFORE UPDATE OF variable_expiration_failed_at ON workspace_settings
@@ -460,7 +460,7 @@ async fn test_deploying_the_handler_mid_pass_ends_the_wait(
     dispatch_expiring_variables(&db).await;
 
     assert_eq!(
-        queued_handler_jobs(&db, "u/test-user/expiry_handler").await?,
+        queued_handler_jobs(&db, "u/test-user/mid_pass_handler").await?,
         1,
         "the handler deployed mid-pass waited out the delay"
     );
