@@ -10,7 +10,7 @@ export const load: PageLoad = async ({ params }) => {
 
 	if (!serviceConfig) {
 		throw error(404, {
-			message: `Service "${serviceName}" is not supported for native triggers.`
+			message: `Service "${serviceName}" is not supported for integration triggers.`
 		})
 	}
 

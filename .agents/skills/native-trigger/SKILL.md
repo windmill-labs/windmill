@@ -123,10 +123,18 @@ accounts) are many per service. Each trigger acts through one connection, named 
 
 | Table | What's Stored |
 |-------|---------------|
-| `workspace_integrations` | `oauth_data` JSON with `base_url`, `client_id`, `client_secret`, `instance_shared` flag. One row per (workspace, service); it must exist for every connection, since token refresh reads the client from it |
+| `workspace_integrations` | `oauth_data` JSON with `base_url`, `client_id`, `client_secret`, `instance_shared` flag and the workspace app's registered `redirect_uri`. One row per (workspace, service); it must exist for every connection made by the connect flow, since token refresh reads the client from it |
 | `variable` | Encrypted `access_token` at the connection path, linked to `account` via its `account` column |
-| `account` | `refresh_token`, with `client` = service name and `is_workspace_integration = true` |
-| `resource` | The connection's resource at the same path, `{ "token": "$var:<path>" }` |
+| `account` | `refresh_token` and the requested `scopes`. The connect flow writes `client` = service name and `is_workspace_integration = true` |
+| `resource` | The connection's resource at the same path, of the service's resource type, `{ "token": "$var:<path>" }` |
+
+Any resource of the service's resource type with a variable at the same path is a connection,
+including one connected for runnables through the resource connect drawer. Its account
+(`is_workspace_integration = false`) was issued by the instance connect client, so
+`http_client_request` refreshes it through the variable store (`windmill_store`'s
+`_refresh_token`), never with the workspace app. A connection whose account lacks some of
+`ServiceName::oauth_scopes` reports them as `missing_scopes`; reconnecting asks for those plus the
+account's own scopes.
 
 A user may use a connection when they can read its variable (checked with a user transaction,
 so the variable's row-level security decides): `resolve_usable_connection` /
@@ -768,7 +776,7 @@ pub async fn prepare_native_trigger_args(service_name, db, w_id, headers, body) 
 
 When `workspace_integrations.oauth_data.instance_shared == true`, `decrypt_oauth_data()` reads `client_id` and `client_secret` from instance-level global settings instead of workspace-level. This allows admins to share OAuth app credentials across workspaces.
 
-`generate_connect_url` picks the client (`resolve_oauth_client`): the workspace's own app when configured, the instance's otherwise. A GitHub OAuth app only redirects below its single registered callback, so connections made with the instance GitHub app land on `/oauth/callback/github/native_trigger` instead of the workspace settings page.
+`generate_connect_url` picks the client (`resolve_oauth_client`): the workspace's own app when configured, the instance's otherwise. The server also picks the redirect URI (`redirect_uri_for`), identically when exchanging the code: `{BASE_URL}/oauth/callback/{resource_type}` for an instance client, which it already registers for resources; for a workspace app, the `redirect_uri` it was saved with, or `/workspace_settings?tab=native_triggers&service=<s>` for one saved before that was stored. Every page a provider can send the user back to (that callback, `/user/login_callback/{client}`, the workspace settings page, the legacy `/oauth/callback/github/native_trigger`) recognises the signed state and hands it to `NativeOAuthCallback`, so a provider with a single registered URI per client (Nextcloud) works whichever one the admin registered.
 
 ---
 

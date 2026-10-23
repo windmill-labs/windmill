@@ -14,14 +14,20 @@
 	import { page } from '$app/state'
 	import { isCloudHosted } from '$lib/cloud'
 	import { getCookie } from '$lib/cookies'
+	import NativeOAuthCallback from '$lib/components/triggers/native/NativeOAuthCallback.svelte'
+	import { decodeNativeOAuthState } from '$lib/components/triggers/native/utils'
 	// import { getAndDeleteCookie } from '$lib/cookies'
 
 	let error = page.url.searchParams.get('error')
 	let clientName = page.params.client_name ?? ''
 	let code = page.url.searchParams.get('code') ?? undefined
 	let state = page.url.searchParams.get('state') ?? undefined
+	// A provider that allows one redirect URI per client (Nextcloud) sends integration trigger
+	// connections made with an instance client registered for sign-in here too.
+	const nativeTrigger = !!state && !!decodeNativeOAuthState(state)
 
 	onMount(async () => {
+		if (nativeTrigger) return
 		const rawRd = localStorage.getItem('rd')
 		if (rawRd) {
 			localStorage.removeItem('rd')
@@ -186,4 +192,8 @@
 	}
 </script>
 
-<CenteredModal title="Login from {clientName}" loading={true}></CenteredModal>
+{#if nativeTrigger}
+	<NativeOAuthCallback />
+{:else}
+	<CenteredModal title="Login from {clientName}" loading={true}></CenteredModal>
+{/if}

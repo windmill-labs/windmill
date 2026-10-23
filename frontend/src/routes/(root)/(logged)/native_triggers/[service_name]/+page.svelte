@@ -200,7 +200,7 @@
 		<div class="max-w-md mx-auto text-center py-12">
 			<h2 class="text-lg font-semibold text-emphasis mb-2">Service not supported</h2>
 			<p class="text-secondary text-xs mb-4">
-				The service "{serviceName}" is not supported for native triggers.
+				The service "{serviceName}" is not supported for integration triggers.
 			</p>
 			<p class="text-xs text-secondary">Supported services: nextcloud</p>
 		</div>
@@ -209,7 +209,7 @@
 	<CenteredPage>
 		<PageHeader
 			title="{serviceConfig?.serviceDisplayName || serviceName} triggers"
-			tooltip="Native triggers managed externally by {serviceConfig?.serviceDisplayName ||
+			tooltip="Integration triggers managed externally by {serviceConfig?.serviceDisplayName ||
 				serviceName}. These are more efficient than regular triggers as they're handled directly by the service provider."
 		>
 			<Button
@@ -279,7 +279,7 @@
 							disabled: !!$triggerLock,
 							title: $triggerLock,
 							aiId: 'native-triggers-empty-add',
-							aiDescription: 'Add native trigger'
+							aiDescription: 'Add integration trigger'
 						}}
 					/>
 				{:else if items?.length}

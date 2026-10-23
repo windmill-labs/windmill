@@ -190,6 +190,9 @@ pub struct ListableResource {
     pub is_expired: Option<bool>,
     pub refresh_error: Option<String>,
     pub account: Option<i32>,
+    /// The OAuth scopes the linked account was connected with.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
     /// Labels inherited from the parent folder, computed at read time.
@@ -368,6 +371,7 @@ async fn list_resources(
             "variable.is_oauth",
             "variable.account",
             "account.refresh_error",
+            "account.scopes",
             "resource.created_by",
             "resource.edited_at",
             "resource.labels",
@@ -569,6 +573,7 @@ async fn list_resources(
                 is_expired: None,
                 refresh_error: None,
                 account: None,
+                scopes: None,
                 labels,
                 // No deployed row to inherit folder labels from.
                 inherited_labels: None,
@@ -603,7 +608,7 @@ async fn get_resource(
         resource.labels,
         folder_labels(resource.workspace_id, resource.path) as \"inherited_labels?\",
         (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,
-        account.refresh_error,
+        account.refresh_error, account.scopes as \"scopes?\",
         variable.path IS NOT NULL as is_linked,
         variable.is_oauth as \"is_oauth?\",
         variable.account,

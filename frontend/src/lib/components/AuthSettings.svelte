@@ -632,7 +632,7 @@
 										<Toggle
 											options={{
 												right:
-													'Allow workspace admins to setup Google native triggers using these credentials'
+													'Allow workspace admins to set up Google integration triggers using these credentials'
 											}}
 											checked={oauths[k]?.share_with_workspaces ?? false}
 											on:change={(e) => {
@@ -643,23 +643,10 @@
 										/>
 										{#if oauths[k]?.share_with_workspaces}
 											<p class="text-xs text-tertiary mt-1">
-												Workspace admins will be able to connect Google native triggers without
+												Workspace admins will be able to connect Google integration triggers without
 												configuring their own OAuth client. The credentials are not exposed to them.
+												Connections use the redirect URI above.
 											</p>
-											<p class="text-xs text-tertiary mt-2">
-												Add the following redirect URI to
-												<a
-													href="https://console.cloud.google.com/apis/credentials"
-													target="_blank"
-													class="underline">Google Cloud Console</a
-												>:
-											</p>
-											<div class="mt-1">
-												<ClipboardPanel
-													content="{baseUrl}/workspace_settings?tab=native_triggers&service=google"
-													size="sm"
-												/>
-											</div>
 										{/if}
 									</div>
 								{/if}

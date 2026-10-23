@@ -1194,7 +1194,7 @@
 							</Head>
 							<tbody class="divide-y bg-surface">
 								{#if filteredItems}
-									{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+									{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, scopes, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
 										{@const hasDraft =
 											getLocalDraftHint($operatingWorkspace, 'resource', path) ?? is_draft}
 										<Row>
@@ -1321,6 +1321,7 @@
 																		<div>
 																			Latest exchange of the refresh token did not succeed. Error: {refresh_error}
 																		</div>
+																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
 															{:else if is_expired}
@@ -1336,6 +1337,7 @@
 																			this variable is fetched or you can request is to be refreshed
 																			in the dropdown on the right.
 																		</div>
+																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
 															{:else}
@@ -1349,6 +1351,7 @@
 																			The resource was connected through OAuth and the token is not
 																			expired.
 																		</div>
+																		{@render oauthScopes(resource_type, scopes)}
 																	{/snippet}
 																</Popover>
 															{/if}
@@ -1636,3 +1639,16 @@
 		/>
 	{/await}
 {/if}
+
+{#snippet oauthScopes(resourceType: string, scopes: string[] | undefined)}
+	{#if resourceType === 'nextcloud'}
+		<div class="mt-2">Scopes: full access</div>
+	{:else if scopes?.length}
+		<div class="mt-2 flex flex-col gap-0.5">
+			<span>Scopes:</span>
+			{#each scopes as scope (scope)}
+				<code class="text-2xs break-all">{scope}</code>
+			{/each}
+		</div>
+	{/if}
+{/snippet}

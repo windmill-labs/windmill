@@ -15,7 +15,7 @@ doctest = false
 default = []
 enterprise = ["windmill-common/enterprise"]
 cloud = ["windmill-common/cloud"]
-native_trigger = ["dep:windmill-oauth", "dep:backon"]
+native_trigger = ["dep:windmill-oauth", "dep:backon", "dep:windmill-store", "windmill-store/oauth2"]
 
 [dependencies]
 windmill-api-auth.workspace = true
@@ -23,6 +23,7 @@ windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true
 windmill-queue.workspace = true
 windmill-oauth = { workspace = true, optional = true }
+windmill-store = { workspace = true, optional = true }
 axum.workspace = true
 serde.workspace = true
 serde_json.workspace = true
