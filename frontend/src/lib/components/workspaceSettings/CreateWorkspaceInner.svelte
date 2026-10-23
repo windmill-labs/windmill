@@ -155,7 +155,9 @@
 	)
 	let defaultBaseWorkspaceId = $derived.by(() => {
 		const id = findDefaultForkBase($workspaceStore, forkableWorkspaces)?.id
-		return baseCandidates.some((w) => w.id === id) ? id : baseCandidates[0]?.id
+		const allowed = (wid: string | undefined) => baseCandidates.some((w) => w.id === wid)
+		if (allowed(id)) return id
+		return allowed($workspaceStore) ? $workspaceStore : baseCandidates[0]?.id
 	})
 	// Seed the base once the family is known; keep an explicit user choice as long as it stays valid.
 	$effect(() => {
