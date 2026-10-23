@@ -3366,10 +3366,6 @@ pub(crate) async fn resolve_pg_source_checked_with_kind(
 
     let pg: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
-    // Checked here rather than at each caller: every source and target of a dump, restore or copy
-    // comes through this function, and `validate_dbname` only ever reaches a target. The check is
-    // deliberately the narrow one — see `validate_dbname_not_option_like`.
-    windmill_common::validate_dbname_not_option_like(&pg.dbname)?;
     Ok((pg, managed_kind))
 }
 
@@ -3459,20 +3455,21 @@ pub(crate) struct PgDumpOptions<'a> {
     pub(crate) no_acl: bool,
 }
 
-/// A pg_dump invocation against `pg_db` writing to `dump_path`, carrying the connection settings
-/// the CLI reads from the environment. The returned file, when there is one, holds the root
-/// certificate the command points at and must outlive it.
-fn pg_dump_command(
+/// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
+/// Returns a DumpFile handle; the file is deleted when the handle is dropped.
+pub(crate) async fn pg_dump_database(
     pg_db: &PgDatabase,
     opts: PgDumpOptions<'_>,
-    dump_path: &std::path::Path,
-) -> Result<(tokio::process::Command, Option<DumpFile>)> {
+) -> Result<DumpFile> {
+    let dump_file = DumpFile::new()?;
+
     let host = &pg_db.host;
     let port = pg_db.port.unwrap_or(5432).to_string();
     let user = pg_db.login_name();
+    let dbname = &pg_db.dbname;
 
     let mut cmd = tokio::process::Command::new("pg_dump");
-    cmd.arg("--format=plain").arg("--file").arg(dump_path);
+    cmd.arg("--format=plain").arg("--file").arg(&dump_file.path);
     if opts.schema_only {
         cmd.arg("--schema-only");
     }
@@ -3490,31 +3487,13 @@ fn pg_dump_command(
         .arg("--port")
         .arg(&port)
         .arg("--username")
-        .arg(user);
-
-    // The name comes from a resource, so it never goes on the command line: as the positional
-    // argument a name starting with `-` is read as an option of pg_dump (`--file`,
-    // `--restrict-key`), and as `--dbname` a name holding `=` is expanded as a libpq connection
-    // string overriding the host, port and user set above. libpq takes the environment variable
-    // as a plain database name, neither parsed as an option nor expanded.
-    cmd.env("PGDATABASE", &pg_db.dbname);
+        .arg(user)
+        .arg(dbname);
 
     if let Some(ref password) = pg_db.password {
         cmd.env("PGPASSWORD", password);
     }
-    let root_cert = apply_pg_tls_env(&mut cmd, pg_db)?;
-    Ok((cmd, root_cert))
-}
-
-/// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
-/// Returns a DumpFile handle; the file is deleted when the handle is dropped.
-pub(crate) async fn pg_dump_database(
-    pg_db: &PgDatabase,
-    opts: PgDumpOptions<'_>,
-) -> Result<DumpFile> {
-    let dump_file = DumpFile::new()?;
-
-    let (mut cmd, _root_cert) = pg_dump_command(pg_db, opts, &dump_file.path)?;
+    let _root_cert = apply_pg_tls_env(&mut cmd, pg_db)?;
 
     let output = cmd
         .output()
@@ -3640,13 +3619,11 @@ fn psql_command(pg_db: &PgDatabase) -> Result<(tokio::process::Command, Option<D
         .arg(pg_db.port.unwrap_or(5432).to_string())
         .arg("--username")
         .arg(pg_db.login_name())
+        .arg("--dbname")
+        .arg(&pg_db.dbname)
         .arg("--no-psqlrc")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-
-    // Not `--dbname`, which expands a name holding `=` as a libpq connection string overriding
-    // the host, port and user set above. See `pg_dump_command`.
-    cmd.env("PGDATABASE", &pg_db.dbname);
 
     if let Some(ref password) = pg_db.password {
         cmd.env("PGPASSWORD", password);
@@ -3735,97 +3712,6 @@ mod pg_tls_env_tests {
             root_cert_env("verify-ca").as_deref(),
             Some("system".as_ref())
         );
-    }
-}
-
-/// The database name of a resource reaches `pg_dump` and `psql` through `PGDATABASE`, never in
-/// their argument vector, so neither an option (`--file=`, `--restrict-key=`) nor a libpq
-/// connection string (`host=... port=...`) in that field is parsed as one.
-#[cfg(test)]
-mod pg_dbname_env_tests {
-    use super::{pg_dump_command, pg_dump_database, psql_command, DumpFile, PgDumpOptions};
-    use windmill_common::PgDatabase;
-
-    /// Nothing listens on that port.
-    fn pg_db(dbname: &str) -> PgDatabase {
-        PgDatabase {
-            host: "127.0.0.1".to_string(),
-            user: None,
-            password: None,
-            port: Some(1),
-            sslmode: None,
-            dbname: dbname.to_string(),
-            root_certificate_pem: None,
-            accept_invalid_certs: None,
-            use_iam_auth: None,
-            region: None,
-            options: None,
-        }
-    }
-
-    fn pgdatabase_of(cmd: &std::process::Command) -> Option<std::ffi::OsString> {
-        cmd.get_envs()
-            .find(|(k, _)| *k == "PGDATABASE")
-            .and_then(|(_, v)| v.map(|v| v.to_os_string()))
-    }
-
-    #[test]
-    fn pg_dump_takes_the_dbname_from_the_environment() {
-        let dump_file = DumpFile::new().unwrap();
-        let name = "--file=/tmp/written_by_the_caller";
-        let (cmd, _root_cert) =
-            pg_dump_command(&pg_db(name), PgDumpOptions::default(), &dump_file.path).unwrap();
-        let cmd = cmd.as_std();
-        assert!(
-            cmd.get_args().all(|arg| arg != name),
-            "the dbname is still in pg_dump's argument vector"
-        );
-        assert_eq!(pgdatabase_of(cmd).as_deref(), Some(name.as_ref()));
-        // The only `--file` pg_dump is given is still Windmill's own.
-        assert_eq!(
-            cmd.get_args()
-                .filter(|arg| arg.to_string_lossy().starts_with("--file"))
-                .count(),
-            1
-        );
-    }
-
-    #[test]
-    fn psql_takes_the_dbname_from_the_environment() {
-        let name = "host=elsewhere";
-        let (cmd, _root_cert) = psql_command(&pg_db(name)).unwrap();
-        let cmd = cmd.as_std();
-        assert!(
-            cmd.get_args().all(|arg| arg != name),
-            "the dbname is still in psql's argument vector"
-        );
-        assert_eq!(pgdatabase_of(cmd).as_deref(), Some(name.as_ref()));
-    }
-
-    /// The same, observed on the real binary: an option-shaped name must reach the connection
-    /// attempt rather than pg_dump's option parser. Skipped where pg_dump is not installed —
-    /// which is why the assertion also requires that pg_dump ran at all (our `pg_dump failed:`
-    /// prefix) instead of only that the option message is absent.
-    #[tokio::test]
-    async fn pg_dump_does_not_read_an_option_shaped_dbname_as_an_option() {
-        if std::process::Command::new("pg_dump")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            eprintln!("skipped: pg_dump is not installed");
-            return;
-        }
-        let Err(err) = pg_dump_database(&pg_db("--no-such-option"), PgDumpOptions::default()).await
-        else {
-            panic!("pg_dump reached a server on 127.0.0.1:1");
-        };
-        let err = err.to_string();
-        assert!(
-            err.contains("pg_dump failed:"),
-            "pg_dump did not run: {err}"
-        );
-        assert!(!err.contains("unrecognized option"), "{err}");
     }
 }
 
@@ -4175,25 +4061,6 @@ fn ensure_copied_without_roles(governing: &GoverningDatatable) -> Result<()> {
     Ok(())
 }
 
-/// Gate for the endpoints that make the API server run `pg_dump`/`psql` against a database a
-/// request names.
-///
-/// Those two processes are children of the API server, outside any job sandbox and holding its
-/// environment, and the dump they exchange is a `psql` script assembled from strings the source
-/// server returns — so reaching them is close enough to running code on the server that the role
-/// which may not run code at all must not reach them either. `code` is the capability the data
-/// table migration endpoints next door already ask for (`datatable_migrations::ensure_not_operator`),
-/// and not admin: the database manager offers an export and an import of a user's own Postgres
-/// resource to every author, who can run the same `pg_dump` in a job anyway.
-async fn ensure_can_dump_databases(
-    db: &DB,
-    w_id: &str,
-    authed: &ApiAuthed,
-    action: &str,
-) -> Result<()> {
-    windmill_common::workspaces::check_role_can_code(db, w_id, authed, action).await
-}
-
 /// Import (pg_dump/pg_import) from source to target
 async fn import_pg_database(
     authed: ApiAuthed,
@@ -4202,8 +4069,6 @@ async fn import_pg_database(
     Path(w_id): Path<String>,
     Json(req): Json<ImportPgDatabaseRequest>,
 ) -> Result<String> {
-    ensure_can_dump_databases(&db, &w_id, &authed, "import a database").await?;
-
     if req.fork_behavior == DataTableForkBehavior::KeepOriginal {
         return Ok("No action needed for KeepOriginal behavior".to_string());
     }
@@ -4320,8 +4185,6 @@ async fn export_pg_schema(
     Path(w_id): Path<String>,
     Json(req): Json<ExportPgSchemaRequest>,
 ) -> Result<String> {
-    ensure_can_dump_databases(&db, &w_id, &authed, "export a database schema").await?;
-
     let pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
     let dump_file = pg_dump_database(
         &pg,

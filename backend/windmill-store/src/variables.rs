@@ -200,18 +200,19 @@ async fn list_variables(
 
     if let Some(broad_filter) = &lq.broad_filter {
         let pat = format!("%{}%", escape_ilike_pattern(broad_filter));
+        // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
         sqlb.and_where(
             "(variable.path ILIKE ? OR variable.description ILIKE ? OR (is_secret = FALSE AND variable.value ILIKE ?))"
-                .bind(&pat).bind(&pat).bind(&pat)
+                .binds(&[&pat]),
         );
     }
 
     if let Some(label) = &lq.label {
         for l in label.split(',') {
+            // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
             sqlb.and_where(
                 "(variable.labels @> ARRAY[?] OR folder_labels(variable.workspace_id, variable.path) @> ARRAY[?])"
-                    .bind(&l.trim())
-                    .bind(&l.trim()),
+                    .binds(&[&l.trim()]),
             );
         }
     }

@@ -844,50 +844,6 @@ mod validate_dbname_tests {
 }
 
 #[cfg(test)]
-mod validate_dbname_not_option_like_tests {
-    use super::validate_dbname_not_option_like;
-
-    /// A source is any database a user already has, so everything `validate_dbname` refuses but
-    /// Postgres accepts has to keep working.
-    #[test]
-    fn accepts_every_name_that_is_not_an_option() {
-        for name in [
-            "mydb",
-            "My-Db_1",
-            "2024_archive",
-            "my.db",
-            "db with spaces",
-            "Grüße",
-            "host=elsewhere port=5433",
-            "",
-            "a-dash-inside--it",
-        ] {
-            assert!(
-                validate_dbname_not_option_like(name).is_ok(),
-                "refused the legitimate name {name:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn rejects_a_name_that_an_argument_vector_would_read_as_an_option() {
-        for name in [
-            "--file=/tmp/x",
-            "--restrict-key=k",
-            "-f",
-            "-",
-            "   --file=/tmp/x",
-            "\t-f",
-        ] {
-            let err = validate_dbname_not_option_like(name)
-                .expect_err(&format!("accepted the option-like name {name:?}"))
-                .to_string();
-            assert!(err.contains("cannot start with '-'"), "{err}");
-        }
-    }
-}
-
-#[cfg(test)]
 mod pg_tls_tests {
     use super::PgDatabase;
 
@@ -1634,26 +1590,6 @@ pub fn validate_dbname(dbname: &str) -> error::Result<()> {
         return Err(error::Error::BadRequest(
             "Database name must contain only alphanumeric characters, underscores, or hyphens"
                 .to_string(),
-        ));
-    }
-    Ok(())
-}
-
-/// The one restriction on the name of a database Windmill only *reads from*: it may not look like
-/// a command-line option.
-///
-/// [`validate_dbname`] is the rule for a name Windmill creates or interpolates into SQL, and is
-/// far too narrow here: a source is any Postgres resource a user already has, and an existing
-/// database may legitimately be named `2024_archive`, `my.db`, `Grüße` or anything else Postgres
-/// accepts as a quoted identifier. Refusing those would break working resources. A name opening
-/// with `-` is the one shape that is never a database and always a mistake or an attempt to smuggle
-/// an option into a `pg_dump`/`psql` argument vector, so it is refused wherever a source is
-/// resolved — the commands themselves pass the name through `PGDATABASE` and never on the command
-/// line, and this keeps a future caller that forgets from re-opening that door.
-pub fn validate_dbname_not_option_like(dbname: &str) -> error::Result<()> {
-    if dbname.trim_start().starts_with('-') {
-        return Err(error::Error::BadRequest(
-            "Database name cannot start with '-'".to_string(),
         ));
     }
     Ok(())

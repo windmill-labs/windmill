@@ -740,10 +740,10 @@ async fn list_apps(
 
     if let Some(label) = &lq.label {
         for l in label.split(',') {
+            // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
             sqlb.and_where(
                 "(app.labels @> ARRAY[?] OR folder_labels(app.workspace_id, app.path) @> ARRAY[?])"
-                    .bind(&l.trim())
-                    .bind(&l.trim()),
+                    .binds(&[&l.trim()]),
             );
         }
     }
