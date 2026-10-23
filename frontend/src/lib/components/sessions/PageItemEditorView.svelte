@@ -105,6 +105,8 @@
 			)
 	)
 
+	const isAgent = $derived(item.kind === 'resource' && lookup.current?.resourceType === 'ai_agent')
+
 	// These editors save on click, and a schedule or trigger save passes a production
 	// workspace's deploy rules, so a read-only session mounts none of them.
 	const permissions = useSessionPermissions(
@@ -134,7 +136,8 @@
 <div class="flex h-full min-h-0 flex-col">
 	{#if eeLocked}
 		<div class="p-4 text-sm text-secondary">This trigger requires an enterprise license.</div>
-	{:else if lookup.loading || !lookup.current}
+		<!-- Only the first lookup: a recheck keeps the editor on screen until it answers. -->
+	{:else if !lookup.current}
 		{@render loading()}
 	{:else if !lookup.current.exists}
 		<div class="flex flex-col items-start gap-3 p-4 text-sm text-secondary">
@@ -160,7 +163,9 @@
 			</Button>
 		</div>
 	{:else}
-		{#key `${item.kind}:${triggerKey}:${item.path}:${workspaceId}:${reloadNonce}:${savedNonce}`}
+		<!-- An agent's editor follows the chat's writes through the draft cell they share, so a reload
+		     would only throw away where the reader was in it. -->
+		{#key `${item.kind}:${triggerKey}:${item.path}:${workspaceId}:${isAgent ? '' : reloadNonce}:${savedNonce}`}
 			{#if item.kind === 'variable'}
 				<VariableEditor
 					bind:this={variableEditor}
@@ -181,7 +186,7 @@
 						enableAi={$copilotInfo.enabled}
 						onClose={closeTab}
 						onRenamed={(_, to) => onSaved(to)}
-						onSummary={(summary) => runtime.previewTabs.setPageItemFriendlyLabel(item, summary)}
+						onSummary={(summary) => runtime.previewTabs.stampAgentTab(item, summary)}
 					/>
 				{/await}
 			{:else if item.kind === 'resource'}

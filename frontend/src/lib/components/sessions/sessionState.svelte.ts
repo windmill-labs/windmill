@@ -195,6 +195,9 @@ export type SessionPreviewTab = {
 	// from the workspace listing; after, the editor is the only source, else
 	// clearing a summary would fall back to the listing's stale copy of it.
 	editorNamed?: boolean
+	// Stamped by an agent's editor in a resource tab, which is what makes that tab the chat's
+	// ACTIVE EDITOR rather than a page it previews.
+	agentEditor?: boolean
 }
 
 // Sessions live in one per-user IndexedDB, one record per session in the

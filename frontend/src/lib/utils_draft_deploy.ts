@@ -58,6 +58,7 @@ import { saveSqsTriggerFromCfg } from '$lib/components/triggers/sqs/utils'
 import { saveGcpTriggerFromCfg } from '$lib/components/triggers/gcp/utils'
 import { saveAzureTriggerFromCfg } from '$lib/components/triggers/azure/utils'
 import { saveEmailTriggerFromCfg } from '$lib/components/triggers/email/utils'
+import { markAgentWritten } from '$lib/components/flows/agentEditorStore.svelte'
 
 export type DraftKind = UserDraftItemKind
 
@@ -682,6 +683,8 @@ export async function deployDraft(
 					}
 				})
 			}
+			// What shows a deployed agent reads it again on this, wherever the deploy came from.
+			if (!noop) markAgentWritten(workspace, d.path ?? path)
 		} else if (kind === 'trigger_schedule') {
 			const { draft: d } = splitOverlay(await OVERLAY_GETTERS.trigger_schedule!(workspace, path))
 			// The schedule editor's draft IS the cfg shape `saveScheduleFromCfg`

@@ -4,4 +4,7 @@
 	import { workspaceStore } from '$lib/stores'
 </script>
 
-<AgentDetailPage path={page.params.path ?? ''} workspace={$workspaceStore} />
+<!-- Keyed: the route is reused across agents, and the page holds the form's args. -->
+{#key `${$workspaceStore}:${page.params.path}`}
+	<AgentDetailPage path={page.params.path ?? ''} workspace={$workspaceStore} />
+{/key}

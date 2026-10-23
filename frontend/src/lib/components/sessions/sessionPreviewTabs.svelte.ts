@@ -648,12 +648,13 @@ export class SessionPreviewTabs {
 		this.#flush()
 	}
 
-	/** Name a page item's tab after what its editor holds, as `setEditorFriendlyLabel` does for
-	 * the live editors; undefined falls back to the path. */
-	setPageItemFriendlyLabel(ref: PageItemRef, label: string | undefined): void {
+	/** Mark a resource tab as an agent's editor, named after its summary as `setEditorFriendlyLabel`
+	 * names the live editors' tabs; an undefined summary falls back to the path. */
+	stampAgentTab(ref: PageItemRef, summary: string | undefined): void {
 		const tab = this.#tabs.find((t) => t.url === pageItemUrl(ref))
-		if (!tab || tab.friendlyLabel === label) return
-		tab.friendlyLabel = label
+		if (!tab || (tab.agentEditor && tab.friendlyLabel === summary)) return
+		tab.agentEditor = true
+		tab.friendlyLabel = summary
 		this.#flush()
 	}
 

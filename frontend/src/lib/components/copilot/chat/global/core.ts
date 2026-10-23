@@ -196,6 +196,7 @@ import type { SessionArtifactsStore } from '../artifacts/artifactsState.svelte'
 import type { PathRunType, Runnable } from '$lib/components/apps/inputType'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { agentEditHref } from '../workspaceItems.svelte'
+import { markAgentWritten } from '$lib/components/flows/agentEditorStore.svelte'
 import { emptySchema } from '$lib/utils'
 import type { Schema } from '$lib/common'
 import { inferArgs } from '$lib/infer'
@@ -363,7 +364,7 @@ const ACTIVE_GLOBAL_EDITOR_DRAFTS: readonly {
 ]
 
 export type GlobalActiveEditorContext = {
-	type: ActiveGlobalEditorType
+	type: ActiveGlobalEditorType | 'agent'
 	path: string
 	/** The key the draft is stored under, which `path` leaves behind on a rename. */
 	storagePath: string
@@ -1769,7 +1770,7 @@ ${groupMembershipRule}- Listings and reads return only what this user can see: i
 - An agent, as the Agents page lists it, is a resource of type \`ai_agent\`: read it with read_workspace_item type "resource".${when(
 		// An agent draft is a resource draft that the server checks under the flow builder right.
 		canDraftResources && canWriteFlowDraft,
-		` You may draft a new agent or a change to one, after calling get_instructions with subject "agent", but never deploy or rename one here: the user reviews and deploys it from the agent's page, ${external ? 'the url write_resource returns' : '\`/agents/edit/<path>\`'}, so point them there.`
+		` You may draft a new agent or a change to one, after calling get_instructions with subject "agent". The user can review it on the agent's page, ${external ? 'the url write_resource returns' : '\`/agents/edit/<path>\`'}.`
 	)}${when(
 		buildsFlows,
 		' Its tools, like flow steps, may only reference deployed scripts and flows by path: the server refuses inline code and hub scripts.'
@@ -2967,7 +2968,7 @@ async function getAgentInstructions(
 
 - An agent is drafted with \`write_resource\`: \`{ path, resource_type: "ai_agent", description?, value }\`, where \`value\` is the agent's configuration described below. To change an existing agent, read it with \`read_workspace_item\` type "resource" first and write back the whole value.
 - Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` for a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist.${testRule}
-- Never deploy or rename an agent here, new or existing: the user reviews and deploys it from the agent's page, ${external ? 'the url `write_resource` returns' : '`/agents/edit/<path>`'}. Give them that link.
+- The user can review the agent on its page, ${external ? 'the url `write_resource` returns' : '`/agents/edit/<path>`'}. Deploy it with \`deploy_workspace_item\` (type "resource") once they ask, as for any other draft.
 ${
 	composeOnly
 		? '- This user cannot write inline code, so skip what the reference says about inline tools: every script tool points at a deployed script, found with the workspace search tools. When none does the job, say so and suggest asking a workspace admin for that script; never add a rawscript tool.'
@@ -7445,8 +7446,10 @@ async function runDeployedAgent(
 			schema: AGENT_CHAT_SCHEMA,
 			summary: agent.description,
 			kind: 'run',
-			// Its page is the agent's rather than a flow's, which is where the form moves.
+			// Its page is the agent's rather than a flow's, which is where the form moves. A turn of a
+			// conversation stays on the card: the page's run starts one of its own, without the memory id.
 			agentPage: true,
+			conversational: args.memory_id !== undefined,
 			schemaNoun: 'agent',
 			toolName: 'run_agent',
 			proposed: args.args,
@@ -9520,6 +9523,7 @@ async function deployDraft(
 				} else {
 					await ResourceService.createResource({ workspace, requestBody })
 				}
+				if (isAgent) markAgentWritten(workspace, path)
 				actions = [isAgent ? createOpenAgentAction(path) : createOpenResourceAction(path)]
 				break
 			}
