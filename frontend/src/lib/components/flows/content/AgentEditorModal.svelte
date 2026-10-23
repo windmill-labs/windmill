@@ -557,9 +557,11 @@
 			     them for its own levels. Warmed, as those levels are: a page built on its first visit
 			     lands inside the transition and arrives empty. The page layout has no levels: it opens
 			     settings in a drawer and evals in a dialog, so warming them there would build them twice. -->
+			<!-- Full-bleed as the banner is, each page padding itself: the editor drops its padding
+			     when its panes become tabs, and this clips anything that reaches past it. -->
 			<PagedContent
 				warm
-				class="flex-1 min-h-0"
+				class="flex-1 min-h-0 -mx-4 sm:-mx-6"
 				current={inEvals ? 'evals' : inSettings ? 'settings' : 'agent'}
 				pages={[
 					{ key: 'agent', content: agentPage },
@@ -599,17 +601,19 @@
 	{/snippet}
 
 	{#snippet settingsPage()}
-		<div class="max-w-2xl py-6">{@render settingsFields()}</div>
+		<div class="max-w-2xl py-6 px-4 sm:px-6">{@render settingsFields()}</div>
 	{/snippet}
 
 	{#snippet evalsPage()}
-		<EvalsPane
-			agentPath={target?.path ?? ''}
-			opWorkspace={ws}
-			editedConfig={draft?.sync.hasDraft ? editedConfig : undefined}
-			bind:location={evalsLocation}
-			active={inEvals}
-		/>
+		<div class="h-full min-h-0 px-4 sm:px-6">
+			<EvalsPane
+				agentPath={target?.path ?? ''}
+				opWorkspace={ws}
+				editedConfig={draft?.sync.hasDraft ? editedConfig : undefined}
+				bind:location={evalsLocation}
+				active={inEvals}
+			/>
+		</div>
 	{/snippet}
 
 	{#if layout === 'page' && ws}

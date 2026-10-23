@@ -48,11 +48,7 @@ import type {
 } from '$lib/gen/types.gen'
 import { loadSchemaFromModule, memoryPropertyFor } from '$lib/components/flows/flowInfers'
 import { linkedAgentStepSchema } from '$lib/components/flows/agentResourceUtils'
-import {
-	AGENT_FIELDS,
-	initialVisibleAgentFields,
-	keepsManagedMemory
-} from '$lib/components/flows/agentFormFields'
+import { AGENT_FIELDS, initialVisibleAgentFields } from '$lib/components/flows/agentFormFields'
 import {
 	fetchAgentWithDraft,
 	inlineAgentDraft,
@@ -6863,8 +6859,6 @@ type FormRunSpec = {
 	noDeployedPage?: boolean
 	/** What the card's prose calls the runnable, when `contextName` would name it wrongly. */
 	cardNoun?: string
-	/** Asks only for the message, as a chat composer: the agent keeps its conversation. */
-	chatInput?: boolean
 	background?: boolean
 	detachAfterMs?: number
 	startJob: (submitted: Record<string, any>) => Promise<string>
@@ -6951,7 +6945,6 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		conversational: spec.conversational || undefined,
 		noDeployedPage: spec.noDeployedPage || undefined,
 		cardNoun: spec.cardNoun,
-		chatInput: spec.chatInput || undefined,
 		schema: autoAccepted ? undefined : schema,
 		code: autoAccepted ? undefined : spec.code,
 		lang: autoAccepted ? undefined : spec.lang,
@@ -7308,7 +7301,6 @@ async function testRunAgentByPath(
 			contextName: 'flow',
 			noun: 'agent',
 			cardNoun: 'agent',
-			chatInput: keepsManagedMemory(brain.memory),
 			autoAcceptable: true,
 			background: args.background,
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
@@ -7347,7 +7339,6 @@ async function runDeployedAgent(
 			contextName: 'flow',
 			noun: 'agent',
 			cardNoun: 'agent',
-			chatInput: keepsManagedMemory((agent.value as AIAgentConfig | undefined)?.memory),
 			autoAcceptable: true,
 			background: args.background,
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),

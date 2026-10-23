@@ -581,8 +581,6 @@ export type RunFormDisplay = {
 	noDeployedPage?: boolean
 	/** What the card's prose calls the runnable when `runnableKind` would name it wrongly. */
 	cardNoun?: string
-	/** Asks only for the message, as a chat composer: the agent keeps its conversation. */
-	chatInput?: boolean
 	/** Of whatever version is about to run: the deployed script, or the draft a test
 	 * previews. Only the rendered form reads it, so it is dropped once one of the flags
 	 * below unmounts that form: kept, every settled card would carry a copy of the schema

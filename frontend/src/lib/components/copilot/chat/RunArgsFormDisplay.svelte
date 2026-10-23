@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { ArrowUp, Play, X } from 'lucide-svelte'
+	import { Play, X } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { processSecretArgs } from '$lib/components/secretArgUtils'
 	import { enforceDisabledDefaults, resetKeysToast } from '$lib/components/job_args'
 	import { sendUserToast } from '$lib/utils'
@@ -47,18 +46,6 @@
 	const hasArgs = $derived(Object.keys(properties).length > 0)
 
 	let isValid = $state(true)
-	// An agent that keeps its conversation is tested as it is used, one message at a time; the
-	// form's other field, attachments, is left out of the composer.
-	const chatMode = $derived(runForm.chatInput === true)
-	const canRun = $derived(
-		chatMode ? String(draft.args?.user_message ?? '').trim().length > 0 : isValid
-	)
-
-	function handleComposerKeydown(e: KeyboardEvent) {
-		if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return
-		e.preventDefault()
-		void run()
-	}
 	// Off the manager, not this instance: moving the form between the card and the preview
 	// panel unmounts it, and a flag that died with it would re-arm both buttons mid-submit.
 	const submitting = $derived(aiChatManager.isRunFormSubmitting(toolCallId))
@@ -84,7 +71,7 @@
 	)
 
 	async function run() {
-		if (!canRun) return
+		if (!isValid) return
 		// Before processSecretArgs, not after: a card restored from history outlives the
 		// manager that opened it, so submitting would mint an ephemeral secret variable
 		// per click and still run nothing.
@@ -137,167 +124,120 @@
 	class={twMerge('flex flex-col font-main', layout === 'pane' ? 'h-full min-h-0' : 'pt-3')}
 	data-chat-keyboard-scope="run-args-form"
 >
-	{#if chatMode}
-		<div class={twMerge('flex flex-col gap-2 px-3 pb-3', layout === 'pane' ? 'pl-9 pt-3' : '')}>
-			<div class="flex items-end gap-2" data-run-form-actions={toolCallId}>
-				<TextInput
-					underlyingInputEl="textarea"
-					class="min-w-0 flex-1"
-					size="sm"
-					autosizeParams={{ minHeight: 0 }}
-					bind:value={
-						() => String(draft.args?.user_message ?? ''),
-						(v) => (draft.args = { ...(draft.args ?? {}), user_message: v })
-					}
-					inputProps={{
-						'aria-label': `Message to the ${runnableNoun}`,
-						placeholder: `Message the ${runnableNoun}`,
-						rows: 1,
-						disabled: planMode || submitting,
-						onkeydown: handleComposerKeydown
-					}}
-				/>
-				<Button
-					variant="default"
-					unifiedSize="sm"
-					iconOnly
-					title="Cancel"
-					startIcon={{ icon: X }}
-					disabled={submitting}
-					onClick={() => aiChatManager.handleRunFormCancel(toolCallId)}
-					btnClasses="shrink-0"
-				/>
-				<Button
-					variant="accent"
-					unifiedSize="sm"
-					iconOnly
-					title="Send"
-					startIcon={{ icon: ArrowUp }}
-					disabled={!canRun || submitting || planMode}
-					onClick={run}
-					btnClasses="shrink-0"
-				/>
-			</div>
-			{#if planMode}
-				<p class="text-2xs text-secondary">{PLAN_MODE_MESSAGES.runFormRefused}</p>
-			{/if}
-		</div>
-	{:else}
-		<!-- Only the fields scroll, sized by their content rather than filling the host: the actions
-		     follow the last field of a short form, and a long one scrolls under them rather than
-		     pushing the Run button — and the lines naming what the form dropped — below the fold. -->
-		<div class={twMerge('relative flex flex-col', layout === 'pane' ? 'min-h-0' : '')}>
-			<!-- `pl-9` is the rail the pane header's title stands on, its padding plus the icon and
-			     the gap beside it, so the tab reads down one edge. The card has no such rail to meet
-			     and reserves the gutter on both sides instead, which keeps its fields centred. -->
-			<div
-				use:fadeContainer
-				onscroll={measureFades}
-				class={twMerge(
-					'overflow-y-auto',
-					layout === 'pane' ? 'min-h-0 pl-9 pr-3' : 'max-h-[min(28rem,50vh)] px-3'
-				)}
-				style={layout === 'pane'
-					? 'scrollbar-gutter: stable;'
-					: 'scrollbar-gutter: stable both-edges;'}
-			>
-				<div use:fadeContent>
-					{#if hasArgs}
-						<!-- Passing `helperScript` is what lets DynamicInput run a job before Run: it
-				executes the `dynselect-` entrypoint on mount, carrying the other args as proposed,
-				and Cancel does not undo it. Withheld under plan mode, which promised no writes.
-				A test run names its draft by code: `deployed` resolves a stale version, or none. -->
-						<SchemaForm
-							bind:schema={draft.schema}
-							helperScript={planMode
-								? undefined
-								: runForm.kind === 'test'
-									? runForm.code && runForm.lang
-										? { source: 'inline', code: runForm.code, lang: runForm.lang }
-										: undefined
-									: { source: 'deployed', path: runForm.path, runnable_kind: runnableKind }}
-							disabled={planMode}
-							{workspace}
-							prettifyHeader
-							bind:isValid
-							bind:args={draft.args}
-						/>
-					{:else}
-						<p class="text-xs text-secondary">This {runnableNoun} takes no arguments.</p>
-					{/if}
-				</div>
-			</div>
-			<!-- Only what is still below, and only while there is some: the fade the tool cards draw
-			     under their own content, over the scroller rather than inside it. Nothing at the top —
-			     having scrolled down is itself the knowledge that there is more up there. -->
-			{#if fades.bottom}
-				<div
-					class={twMerge(
-						'pointer-events-none absolute inset-x-0 bottom-0 h-[min(2.5rem,35%)]',
-						fadeTo
-					)}
-				></div>
-			{/if}
-		</div>
-
-		<!-- One region with the actions: these lines report on the run the button below launches,
-		     and separating them would read as two subjects. No padding of its own over the fields:
-		     every one of them ends on the room ArgInput keeps for a validation message, and adding
-		     to it would sit the buttons twice as far below the last field as the first label sits
-		     from the top. A form with no fields keeps none of that room, so there it comes back. -->
+	<!-- Only the fields scroll, sized by their content rather than filling the host: the actions
+	     follow the last field of a short form, and a long one scrolls under them rather than
+	     pushing the Run button — and the lines naming what the form dropped — below the fold. -->
+	<div class={twMerge('relative flex flex-col', layout === 'pane' ? 'min-h-0' : '')}>
+		<!-- `pl-9` is the rail the pane header's title stands on, its padding plus the icon and
+		     the gap beside it, so the tab reads down one edge. The card has no such rail to meet
+		     and reserves the gutter on both sides instead, which keeps its fields centred. -->
 		<div
+			use:fadeContainer
+			onscroll={measureFades}
 			class={twMerge(
-				'flex flex-col gap-2 px-3 pb-3',
-				hasArgs ? '' : 'pt-3',
-				layout === 'pane' ? 'pl-9' : ''
+				'overflow-y-auto',
+				layout === 'pane' ? 'min-h-0 pl-9 pr-3' : 'max-h-[min(28rem,50vh)] px-3'
 			)}
+			style={layout === 'pane'
+				? 'scrollbar-gutter: stable;'
+				: 'scrollbar-gutter: stable both-edges;'}
 		>
-			{#if runForm.clearedKeys?.length}
-				<p class="text-2xs text-secondary">
-					Sent in a shape this field has no reading of, so it opened empty:
-					<span class="font-mono">{runForm.clearedKeys.join(', ')}</span>
-				</p>
-			{/if}
-			{#if runForm.resetKeys?.length}
-				<p class="text-2xs text-secondary">
-					Disabled by this {runnableNoun}, so it will run with its default:
-					<span class="font-mono">{runForm.resetKeys.join(', ')}</span>
-				</p>
-			{/if}
-			{#if runForm.strippedKeys?.length}
-				<p class="text-2xs text-secondary">
-					A file, so it opened empty for you to attach:
-					<span class="font-mono">{runForm.strippedKeys.join(', ')}</span>
-				</p>
-			{/if}
-			{#if planMode}
-				<p class="text-2xs text-secondary">{PLAN_MODE_MESSAGES.runFormRefused}</p>
-			{/if}
-
-			<!-- Reject then confirm at the end of the row, as ToolConfirmationFooter puts them: this
-			     is a tool call being validated. Both rest while a submit is in flight — the ephemeral
-			     variables exist by then, and cancelling would settle the call as declined on a run
-			     already starting. Escape stops the turn from here and nowhere else in the form. -->
-			<div class="flex items-center justify-end gap-2" data-run-form-actions={toolCallId}>
-				<Button
-					variant="default"
-					unifiedSize="sm"
-					startIcon={{ icon: X }}
-					disabled={submitting}
-					onClick={() => aiChatManager.handleRunFormCancel(toolCallId)}
-				>
-					Cancel
-				</Button>
-				<Button
-					variant="accent"
-					unifiedSize="sm"
-					startIcon={{ icon: Play }}
-					disabled={!canRun || submitting || planMode}
-					onClick={run}
-				>
-					Run
-				</Button>
+			<div use:fadeContent>
+				{#if hasArgs}
+					<!-- Passing `helperScript` is what lets DynamicInput run a job before Run: it
+			executes the `dynselect-` entrypoint on mount, carrying the other args as proposed,
+			and Cancel does not undo it. Withheld under plan mode, which promised no writes.
+			A test run names its draft by code: `deployed` resolves a stale version, or none. -->
+					<SchemaForm
+						bind:schema={draft.schema}
+						helperScript={planMode
+							? undefined
+							: runForm.kind === 'test'
+								? runForm.code && runForm.lang
+									? { source: 'inline', code: runForm.code, lang: runForm.lang }
+									: undefined
+								: { source: 'deployed', path: runForm.path, runnable_kind: runnableKind }}
+						disabled={planMode}
+						{workspace}
+						prettifyHeader
+						bind:isValid
+						bind:args={draft.args}
+					/>
+				{:else}
+					<p class="text-xs text-secondary">This {runnableNoun} takes no arguments.</p>
+				{/if}
 			</div>
 		</div>
-	{/if}
+		<!-- Only what is still below, and only while there is some: the fade the tool cards draw
+		     under their own content, over the scroller rather than inside it. Nothing at the top —
+		     having scrolled down is itself the knowledge that there is more up there. -->
+		{#if fades.bottom}
+			<div
+				class={twMerge(
+					'pointer-events-none absolute inset-x-0 bottom-0 h-[min(2.5rem,35%)]',
+					fadeTo
+				)}
+			></div>
+		{/if}
+	</div>
+
+	<!-- One region with the actions: these lines report on the run the button below launches,
+	     and separating them would read as two subjects. No padding of its own over the fields:
+	     every one of them ends on the room ArgInput keeps for a validation message, and adding
+	     to it would sit the buttons twice as far below the last field as the first label sits
+	     from the top. A form with no fields keeps none of that room, so there it comes back. -->
+	<div
+		class={twMerge(
+			'flex flex-col gap-2 px-3 pb-3',
+			hasArgs ? '' : 'pt-3',
+			layout === 'pane' ? 'pl-9' : ''
+		)}
+	>
+		{#if runForm.clearedKeys?.length}
+			<p class="text-2xs text-secondary">
+				Sent in a shape this field has no reading of, so it opened empty:
+				<span class="font-mono">{runForm.clearedKeys.join(', ')}</span>
+			</p>
+		{/if}
+		{#if runForm.resetKeys?.length}
+			<p class="text-2xs text-secondary">
+				Disabled by this {runnableNoun}, so it will run with its default:
+				<span class="font-mono">{runForm.resetKeys.join(', ')}</span>
+			</p>
+		{/if}
+		{#if runForm.strippedKeys?.length}
+			<p class="text-2xs text-secondary">
+				A file, so it opened empty for you to attach:
+				<span class="font-mono">{runForm.strippedKeys.join(', ')}</span>
+			</p>
+		{/if}
+		{#if planMode}
+			<p class="text-2xs text-secondary">{PLAN_MODE_MESSAGES.runFormRefused}</p>
+		{/if}
+
+		<!-- Reject then confirm at the end of the row, as ToolConfirmationFooter puts them: this
+		     is a tool call being validated. Both rest while a submit is in flight — the ephemeral
+		     variables exist by then, and cancelling would settle the call as declined on a run
+		     already starting. Escape stops the turn from here and nowhere else in the form. -->
+		<div class="flex items-center justify-end gap-2" data-run-form-actions={toolCallId}>
+			<Button
+				variant="default"
+				unifiedSize="sm"
+				startIcon={{ icon: X }}
+				disabled={submitting}
+				onClick={() => aiChatManager.handleRunFormCancel(toolCallId)}
+			>
+				Cancel
+			</Button>
+			<Button
+				variant="accent"
+				unifiedSize="sm"
+				startIcon={{ icon: Play }}
+				disabled={!isValid || submitting || planMode}
+				onClick={run}
+			>
+				Run
+			</Button>
+		</div>
+	</div>
 </div>

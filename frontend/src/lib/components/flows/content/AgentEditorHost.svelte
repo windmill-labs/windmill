@@ -557,9 +557,11 @@
 {:else if agentModule && agentValue}
 	<!-- Named and positioned so the tool picker's popover can portal here: the `#flow-editor` it
 	     otherwise targets is behind this dialog, and does not exist at all on the resources page. -->
+	<!-- The editor's hosts leave the horizontal padding to it: side by side the panes sit inside
+	     it, and as tabs the strip runs edge to edge while each pane keeps its own. -->
 	<div
 		id="agent-editor"
-		class="relative h-full min-h-0 flex flex-col"
+		class="relative h-full min-h-0 flex flex-col {!view && !narrow ? 'px-4 sm:px-6' : ''}"
 		bind:clientWidth={editorWidth}
 	>
 		{#if view}
