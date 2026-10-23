@@ -16,8 +16,10 @@
 		homeStarterSession,
 		setSessionDraftAttachments,
 		selectSession,
+		sessionInCurrentFamily,
 		sessionPageHref,
 		sessionState,
+		setNewSessionWorkspace,
 		setSessionDraftPrompt
 	} from './sessionState.svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
@@ -97,6 +99,18 @@
 		const wrapper = chatWrapper
 		requestAnimationFrame(() => onSettled?.(wrapper.offsetHeight))
 	})
+	// The draft acts on the workspace Home shows, whichever picker switched it: a switch within
+	// the family keeps this mount, so the draft's pick has to follow. A switch to another family
+	// remounts with that family's draft, so this one is left where it was. A staged fork of the
+	// shown workspace stays. On mount, a draft that differs is one that follows Home, moved off it
+	// by a switch made elsewhere (homeStarterSession).
+	onMount(() =>
+		workspaceStore.subscribe((ws) => {
+			const s = sessionState.sessions.find((x) => x.id === sessionId)
+			if (!ws || !s || s.workspace_id || s.pending_workspace_id === ws) return
+			if (sessionInCurrentFamily(s)) setNewSessionWorkspace(sessionId, ws)
+		})
+	)
 	onMount(() => {
 		onShown?.()
 		if (takeComposerFocus()) setTimeout(() => aiChat?.focusInput(), 0)

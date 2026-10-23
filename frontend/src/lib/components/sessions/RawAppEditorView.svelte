@@ -100,7 +100,9 @@
 			files: { ...result.files },
 			runnables: {
 				...result.runnables,
-				...(capabilitiesInWorkspace(workspaceId).apps === 'compose' ? {} : structuredClone(STARTER_RUNNABLES))
+				...(capabilitiesInWorkspace(workspaceId).apps === 'compose'
+					? {}
+					: structuredClone(STARTER_RUNNABLES))
 			},
 			data: result.data,
 			policy: result.policy
@@ -161,6 +163,13 @@
 			}
 		})
 	})
+
+	function openFork(forkPath: string) {
+		runtime.previewTabs.open({
+			type: 'item',
+			item: { kind: 'app', raw_app: true, path: forkPath, summary: '' }
+		})
+	}
 
 	async function reloadDeployed() {
 		await runtime.loadRawApp(workspaceId, path, true, true)
@@ -380,6 +389,7 @@
 				{diffDrawer}
 				{onNavigate}
 				onDetails={onSeeDetails}
+				onOpenFork={openFork}
 				condensedHeader={true}
 				onResetToDeployed={reloadDeployed}
 				onDeploy={(e) => runtime.itemDeployed(workspaceId, 'raw_app', path, e.path)}

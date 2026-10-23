@@ -8862,6 +8862,11 @@ paths:
                   type: string
                 state:
                   type: string
+                params:
+                  type: object
+                  description: The callback URL's other query params, which the provider's `connect_fields` may read (QuickBooks' `realmId`)
+                  additionalProperties:
+                    type: string
               required:
                 - code
                 - state
@@ -38017,6 +38022,13 @@ components:
             type: string
         grant_type:
           type: string
+        resource_fields:
+          type: object
+          additionalProperties: {}
+          description: >
+            Resource fields the provider's `connect_fields` picked on connect
+            (Salesforce's instance_url, Docusign's account_id and base_uri,
+            QuickBooks' realmId), for the connect dialog to prefill.
 
       required:
         - access_token
