@@ -483,6 +483,9 @@ pub const PERIODIC_SCRIPT_TAG: &str = "periodic_bash_script";
 pub const INIT_SCRIPT_TAG: &str = "init_script";
 pub const INIT_SCRIPT_PATH_PREFIX: &str = "init_script_";
 pub const PERIODIC_SCRIPT_PATH_PREFIX: &str = "periodic_script_";
+/// The email the worker's own init/periodic scripts are pushed under by [`push_init_job`]
+/// and [`push_periodic_bash_job`].
+pub const WORKER_SCRIPT_EMAIL: &str = "worker@windmill.dev";
 
 pub async fn push_init_job<'c>(
     db: &Pool<Postgres>,
@@ -511,7 +514,7 @@ pub async fn push_init_job<'c>(
         }),
         PushArgs::from(&ehm),
         worker_name,
-        "worker@windmill.dev",
+        WORKER_SCRIPT_EMAIL,
         SUPERADMIN_SECRET_EMAIL.to_string(),
         Some("worker_init_job"),
         None,
@@ -572,7 +575,7 @@ pub async fn push_periodic_bash_job<'c>(
         }),
         PushArgs::from(&ehm),
         worker_name,
-        "worker@windmill.dev",
+        WORKER_SCRIPT_EMAIL,
         SUPERADMIN_SECRET_EMAIL.to_string(),
         Some("worker_periodic_script_job"),
         None,
@@ -3855,6 +3858,25 @@ pub struct MiniPulledJob {
 }
 
 impl MiniPulledJob {
+    /// Whether this is an init or periodic script a worker queued for itself
+    /// ([`push_init_job`], [`push_periodic_bash_job`]). These run outside any sandbox, so every
+    /// executor that skips isolation uses this check.
+    pub fn is_worker_own_script(&self) -> bool {
+        let own_script = |own_tag: &str, path_prefix: &str| {
+            self.tag == own_tag
+                && self
+                    .runnable_path
+                    .as_ref()
+                    .is_some_and(|p| p.starts_with(path_prefix))
+        };
+        self.workspace_id == "admins"
+            && self.permissioned_as == SUPERADMIN_SECRET_EMAIL
+            && self.permissioned_as_email == WORKER_SCRIPT_EMAIL
+            && self.parent_job.is_none()
+            && (own_script(INIT_SCRIPT_TAG, INIT_SCRIPT_PATH_PREFIX)
+                || own_script(PERIODIC_SCRIPT_TAG, PERIODIC_SCRIPT_PATH_PREFIX))
+    }
+
     pub fn new_inline(
         workspace_id: String,
         args: Option<HashMap<String, Box<RawValue>>>,
@@ -8956,6 +8978,111 @@ mod git_sync_concurrency_key_tests {
         let b = git_sync_concurrency_key(ws, Some(format!("u/user/b{long}")), 0);
         assert_ne!(a, b);
         assert!(a.len() <= 255 && b.len() <= 255);
+    }
+}
+
+#[cfg(test)]
+mod worker_own_script_tests {
+    use super::*;
+
+    const WK: &str = "wk-default-host-a1b2c";
+
+    /// Built exactly as [`push_init_job`] and [`push_periodic_bash_job`] queue them.
+    fn own_script(path: &str, tag: &str) -> MiniPulledJob {
+        MiniPulledJob::new_inline(
+            "admins".to_string(),
+            None,
+            WK.to_string(),
+            SUPERADMIN_SECRET_EMAIL.to_string(),
+            WORKER_SCRIPT_EMAIL.to_string(),
+            Some(path.to_string()),
+            JobKind::Preview,
+            None,
+            tag.to_string(),
+            Some(ScriptLang::Bash),
+        )
+    }
+
+    /// The init and periodic scripts the worker queues for itself are recognised.
+    #[test]
+    fn what_the_worker_queues_for_itself_is_recognized() {
+        assert!(
+            own_script(&format!("{INIT_SCRIPT_PATH_PREFIX}{WK}"), INIT_SCRIPT_TAG)
+                .is_worker_own_script()
+        );
+        assert!(own_script(
+            &format!("{PERIODIC_SCRIPT_PATH_PREFIX}{WK}_1700000000"),
+            PERIODIC_SCRIPT_TAG
+        )
+        .is_worker_own_script());
+    }
+
+    /// Only the exact shape the worker queues is recognised.
+    #[test]
+    fn other_job_shapes_are_not_recognized() {
+        let init = || own_script(&format!("{INIT_SCRIPT_PATH_PREFIX}x"), INIT_SCRIPT_TAG);
+        let periodic = || {
+            own_script(
+                &format!("{PERIODIC_SCRIPT_PATH_PREFIX}x"),
+                PERIODIC_SCRIPT_TAG,
+            )
+        };
+        for (what, job) in [
+            (
+                "other workspace",
+                MiniPulledJob { workspace_id: "ws-a".to_string(), ..init() },
+            ),
+            (
+                "other permissioned_as",
+                MiniPulledJob { permissioned_as: "u/deva".to_string(), ..init() },
+            ),
+            (
+                "other email",
+                MiniPulledJob { permissioned_as_email: "deva@example.com".to_string(), ..init() },
+            ),
+            (
+                "flow step",
+                MiniPulledJob { parent_job: Some(Uuid::from_u128(1)), ..init() },
+            ),
+            (
+                "flow step",
+                MiniPulledJob { parent_job: Some(Uuid::from_u128(1)), ..periodic() },
+            ),
+            (
+                "user tag",
+                own_script(&format!("{INIT_SCRIPT_PATH_PREFIX}x"), "bash"),
+            ),
+            (
+                "crossed tag",
+                own_script(&format!("{INIT_SCRIPT_PATH_PREFIX}x"), PERIODIC_SCRIPT_TAG),
+            ),
+            (
+                "crossed tag",
+                own_script(&format!("{PERIODIC_SCRIPT_PATH_PREFIX}x"), INIT_SCRIPT_TAG),
+            ),
+            ("ordinary path", own_script("u/admin/s", INIT_SCRIPT_TAG)),
+            (
+                "ordinary path",
+                own_script("u/admin/s", PERIODIC_SCRIPT_TAG),
+            ),
+        ] {
+            assert!(
+                !job.is_worker_own_script(),
+                "{what}: {:?}/{:?}/{} must not be recognised as a worker script",
+                job.workspace_id,
+                job.runnable_path,
+                job.tag
+            );
+        }
+    }
+
+    /// A job without a path is not a worker script.
+    #[test]
+    fn a_job_without_a_path_is_not_an_own_script() {
+        assert!(
+            !MiniPulledJob { runnable_path: None, ..own_script("x", INIT_SCRIPT_TAG) }
+                .is_worker_own_script()
+        );
     }
 }
 
