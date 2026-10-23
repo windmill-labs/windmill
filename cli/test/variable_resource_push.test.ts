@@ -156,6 +156,10 @@ describe("variable", () => {
       );
       expect(createResp.status).toBeLessThan(300);
       await createResp.text();
+      const created = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${path}`
+      );
+      expect((await created.json()).value_valid_until).toBe("2027-03-15T08:00:00Z");
 
       await writeFile(
         join(tempDir, "wmill.yaml"),

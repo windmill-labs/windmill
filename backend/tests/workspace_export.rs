@@ -298,7 +298,7 @@ async fn test_tarball_export_excludes_only_gc_variables(db: Pool<Postgres>) -> a
 
     sqlx::query(
         r#"INSERT INTO variable (workspace_id, path, value, is_secret, description, expires_at, value_valid_until)
-           VALUES ('test-workspace', 'u/test-user/expiring', 'v', false, '', NULL, now() + interval '30 days'),
+           VALUES ('test-workspace', 'u/test-user/expiring', 'v', false, '', NULL, '2030-01-15T08:00:00Z'),
                   ('test-workspace', 'u/test-user/ephemeral', 'v', false, '', now() + interval '7 days', NULL)"#,
     )
     .execute(&db)
@@ -319,7 +319,7 @@ async fn test_tarball_export_excludes_only_gc_variables(db: Pool<Postgres>) -> a
         "a variable with an expiry must still reach git sync"
     );
     assert!(
-        body.contains("value_valid_until"),
+        body.contains("2030-01-15T08:00:00Z"),
         "the exported entry must carry the expiry back"
     );
     assert!(
