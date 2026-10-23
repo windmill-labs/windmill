@@ -178,7 +178,7 @@ pub async fn resume_suspended_trigger_jobs(
     // Released in place mid-pause, a job would start during the deploy the pause protects; a
     // repushed one goes through `push`, which applies the pause itself.
     let workspace_paused = windmill_common::job_pause::jobs_paused_until(&mut *tx, &w_id)
-        .await
+        .await?
         .is_some();
 
     for job in jobs {

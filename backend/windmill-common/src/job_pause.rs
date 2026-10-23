@@ -35,37 +35,31 @@ lazy_static::lazy_static! {
 pub const JOB_PAUSE_CHANGE_CHANNEL: &str = "notify_workspace_job_pause_change";
 
 /// The deadline of the workspace's pause, `None` when it is not paused. A pause past its deadline
-/// reads as over even before the monitor deletes it. Fails open: a job is never held because the
-/// pause could not be read. Takes the caller's connection: `push` reads it inside its own
-/// transaction, where asking the pool for a second connection can starve it.
+/// reads as over even before the monitor deletes it. Takes the caller's connection: `push` reads it
+/// inside its own transaction, where asking the pool for a second connection can starve it, and
+/// where a failed read has aborted the transaction anyway, so the error is returned.
 pub async fn jobs_paused_until<'c, E: sqlx::PgExecutor<'c>>(
     db: E,
     w_id: &str,
-) -> Option<DateTime<Utc>> {
+) -> Result<Option<DateTime<Utc>>> {
     let now = Utc::now();
     let cached = JOB_PAUSE_CACHE
         .get(w_id)
         .filter(|(_, cached_at)| now.timestamp() - cached_at < CACHE_TTL_SECS);
     let until = match cached {
         Some((until, _)) => until,
-        None => match sqlx::query_scalar!(
-            "SELECT paused_until FROM workspace_job_pause WHERE workspace_id = $1",
-            w_id
-        )
-        .fetch_optional(db)
-        .await
-        {
-            Ok(until) => {
-                JOB_PAUSE_CACHE.insert(w_id.to_string(), (until, now.timestamp()));
-                until
-            }
-            Err(e) => {
-                tracing::error!("could not read the job pause of workspace {w_id}: {e:#}");
-                None
-            }
-        },
+        None => {
+            let until = sqlx::query_scalar!(
+                "SELECT paused_until FROM workspace_job_pause WHERE workspace_id = $1",
+                w_id
+            )
+            .fetch_optional(db)
+            .await?;
+            JOB_PAUSE_CACHE.insert(w_id.to_string(), (until, now.timestamp()));
+            until
+        }
     };
-    until.filter(|until| *until > now)
+    Ok(until.filter(|until| *until > now))
 }
 
 pub fn evict(w_id: &str) {
@@ -154,7 +148,7 @@ pub async fn check_push<'c, E: sqlx::PgExecutor<'c>>(
     if policy == Some(PausePolicy::Exempt) {
         return Ok(None);
     }
-    let Some(until) = jobs_paused_until(db, w_id).await else {
+    let Some(until) = jobs_paused_until(db, w_id).await? else {
         return Ok(None);
     };
     match pause_decision(kind, trigger_kind, trigger_path, is_admin) {
@@ -180,6 +174,12 @@ pub async fn hold_queued_jobs(tx: &mut Transaction<'_, Postgres>, w_id: &str) ->
     )
     .execute(&mut **tx)
     .await?;
+    sweep_queued_jobs(tx, w_id).await
+}
+
+/// The sweep half of [`hold_queued_jobs`], also run by the monitor while a pause lasts: a server
+/// or worker whose cached read still says "not paused" queues jobs for up to the cache TTL.
+async fn sweep_queued_jobs(tx: &mut Transaction<'_, Postgres>, w_id: &str) -> Result<i64> {
     let held = sqlx::query_scalar!(
         r#"WITH candidates AS (
             SELECT q.id, q.scheduled_for
@@ -286,9 +286,24 @@ pub async fn resume(tx: &mut Transaction<'_, Postgres>, w_id: &str) -> Result<i6
     release_held_jobs(tx, w_id).await
 }
 
-/// Ends every pause past its deadline and releases the jobs of workspaces that are no longer
-/// paused. Safe to run on every server at once: each release deletes the rows it acts on.
-pub async fn resume_expired(db: &DB) -> Result<()> {
+/// Holds what slipped through since the last pass in workspaces still paused, ends every pause past
+/// its deadline, and releases the jobs of workspaces that are no longer paused. Safe to run on
+/// every server at once: the sweep skips locked rows and each release deletes the rows it acts on.
+pub async fn maintain_pauses(db: &DB) -> Result<()> {
+    let paused = sqlx::query_scalar!(
+        "SELECT workspace_id FROM workspace_job_pause WHERE paused_until > now()"
+    )
+    .fetch_all(db)
+    .await?;
+    for w_id in paused {
+        let mut tx = db.begin().await?;
+        let held = sweep_queued_jobs(&mut tx, &w_id).await?;
+        tx.commit().await?;
+        if held > 0 {
+            tracing::info!("job pause of workspace {w_id} held {held} more queued jobs");
+        }
+    }
+
     let workspaces = sqlx::query_scalar!(
         r#"SELECT workspace_id AS "workspace_id!" FROM workspace_job_pause WHERE paused_until <= now()
         UNION

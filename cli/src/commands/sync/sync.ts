@@ -70,6 +70,7 @@ import {
   pauseWorkspaceJobs,
   resumeWorkspaceJobs,
   waitForDependencyJobs,
+  waitForPauseToPropagate,
 } from "../workspace/jobsPause.ts";
 import {
   deepEqual,
@@ -5848,6 +5849,7 @@ export async function push(
           "wmill sync push",
         )
       : undefined;
+    if (jobsPause) await waitForPauseToPropagate();
     log.info(colors.gray(`Applying changes to files ...`));
 
     let stateful = opts.stateful;

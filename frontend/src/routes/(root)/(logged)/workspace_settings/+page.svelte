@@ -1872,9 +1872,7 @@
 															onclick={saveSlackSigningSecret}
 															disabled={!slackSigningSecret.trim() && !slackSigningSecretSet}
 														>
-															{slackSigningSecret.trim() || !slackSigningSecretSet
-																? 'Save'
-																: 'Remove'}
+															{slackSigningSecret.trim() || !slackSigningSecretSet ? 'Save' : 'Remove'}
 														</Button>
 													</div>
 													<div class="text-2xs text-hint"

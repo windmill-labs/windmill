@@ -39,6 +39,15 @@ export async function pauseWorkspaceJobs(
   return pause;
 }
 
+// Servers and workers cache whether a workspace is paused for up to 10s; until then they can still
+// start a new job. Deploying only after that keeps such a job on the pre-deploy state.
+const PAUSE_PROPAGATION_MS = 11_000;
+
+export async function waitForPauseToPropagate() {
+  log.info(colors.gray("Waiting for the pause to reach every server ..."));
+  await new Promise((r) => setTimeout(r, PAUSE_PROPAGATION_MS));
+}
+
 export async function resumeWorkspaceJobs(workspaceId: string) {
   const released = await wmill.resumeJobs({ workspace: workspaceId });
   log.info(
