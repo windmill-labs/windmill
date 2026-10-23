@@ -1020,6 +1020,22 @@ mod tests {
     }
 
     #[test]
+    fn fork_does_not_restrict() {
+        // A full role stored before `fork` existed has no key for it and so reads it as unset.
+        let instance: Vec<RoleDefinition> = serde_json::from_value(serde_json::json!([
+            {"name": "developer"},
+            {"name": "lead", "capabilities": {"code": true, "flows": "full", "apps": "full",
+                "manage_schedules": true, "manage_triggers": true}}
+        ]))
+        .unwrap();
+        let lead = effective_roles(&instance, &RoleOverrides::new())
+            .unwrap()
+            .remove(1);
+        assert!(!lead.capabilities.fork);
+        assert!(!lead.capabilities.is_restricted());
+    }
+
+    #[test]
     fn full_authoring_requires_code() {
         let err = parse_instance_roles(&serde_json::json!([
             {"name": "builder", "capabilities": {"flows": "full"}}
