@@ -71,7 +71,7 @@
 	import AppSettingsDrawer, { type AppSettingsTab } from './AppSettingsDrawer.svelte'
 	import DeployButton from '$lib/components/DeployButton.svelte'
 	import { updatePolicy } from './appPolicy'
-	import { publishAccessMode } from './publishAccessMode'
+	import { policyForUpdate, publishAccessMode } from './publishAccessMode'
 	import { appDraftSettings } from './appDraftSettings'
 	import { classicAppDraftParts } from '$lib/appDiffSides'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
@@ -303,15 +303,14 @@
 		return classicAppDraftParts(a).value as T
 	}
 
-	async function setPublishState(message?: string) {
-		await publishAccessMode($workspaceStore!, $appPath, policy.execution_mode)
-		if (message) {
-			sendUserToast(message)
-		} else if (policy.execution_mode == 'anonymous') {
-			sendUserToast('App require no login to be accessed')
-		} else {
-			sendUserToast('App require login and read-access')
-		}
+	async function setAccessMode(mode: NonNullable<Policy['execution_mode']>) {
+		await publishAccessMode($workspaceStore!, $appPath, mode)
+		if (savedApp) savedApp.policy = { ...savedApp.policy, execution_mode: mode }
+		sendUserToast(
+			mode == 'anonymous'
+				? 'App require no login to be accessed'
+				: 'App require login and read-access'
+		)
 	}
 
 	async function createApp(path: string) {
@@ -444,7 +443,7 @@
 			requestBody: {
 				value: withoutDraftBase($app!),
 				summary: $summary,
-				policy,
+				policy: policyForUpdate(policy, savedApp?.policy?.execution_mode),
 				path: npath,
 				deployment_message: deploymentMsg,
 				// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
@@ -938,7 +937,7 @@
 	bind:newEditedPath
 	bind:labels
 	showErrors={deployRefused}
-	setPublishState={() => setPublishState()}
+	{setAccessMode}
 />
 
 <Drawer bind:open={inputsDrawerOpen} size="600px">

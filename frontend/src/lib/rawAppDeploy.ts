@@ -17,6 +17,7 @@ import { userStore } from '$lib/stores'
 import { bundleRawAppDraft } from '$lib/components/copilot/chat/global/rawAppBundlerBridge'
 import type { AppDraftValue } from '$lib/components/copilot/chat/global/workspaceItems'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
+import { policyForUpdate } from '$lib/components/apps/editor/publishAccessMode'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import {
 	appSourceToDraftValue,
@@ -140,7 +141,7 @@ export async function deployRawAppDraft(
 					path: targetPath,
 					value: rawAppValue,
 					summary,
-					policy,
+					policy: policyForUpdate(policy),
 					deployment_message: deploymentMessage,
 					custom_path: isAdmin ? (value.custom_path ?? '') : undefined,
 					labels: value.labels,

@@ -24,7 +24,10 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import RunOnBehalfOfSetting from '$lib/components/itemSettings/RunOnBehalfOfSetting.svelte'
-	import { appOnBehalfOfTooltip } from '$lib/components/itemSettings/onBehalfOf'
+	import {
+		appOnBehalfOfTooltip,
+		canPreserveOnBehalfOf
+	} from '$lib/components/itemSettings/onBehalfOf'
 	import SettingToggle from '$lib/components/itemSettings/SettingToggle.svelte'
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 	import { FRONTEND_SDK_SCOPES, sdkScopesToConfirm } from '$lib/components/raw_apps/sdkScopes'
@@ -58,11 +61,11 @@
 		newApp = false,
 		operatingWorkspace = undefined,
 		showErrors = false,
-		setPublishState
+		setAccessMode
 	}: {
 		open: boolean
 		tab: AppSettingsTab
-		/** Mutated in place and deployed with the app, except who can open it: see `setPublishState`. */
+		/** Mutated in place and deployed with the app, except who can open it: see `setAccessMode`. */
 		policy: Policy
 		appPath: string
 		customPath: string | undefined
@@ -87,8 +90,8 @@
 		operatingWorkspace?: string
 		/** A deploy was refused over these errors: show them before the fields are edited. */
 		showErrors?: boolean
-		/** Writes the policy to the deployed app at once; who can open it applies on change. */
-		setPublishState?: () => void
+		/** Changes who can open the deployed app at once, leaving the rest of its deployed policy. */
+		setAccessMode?: (mode: NonNullable<Policy['execution_mode']>) => Promise<void>
 	} = $props()
 
 	const opWs = $derived(operatingWorkspace ?? $operatingWorkspaceStore)
@@ -142,11 +145,32 @@
 		})
 	})
 
-	function onAccessModeChange(mode: string | undefined) {
-		if (mode === undefined || mode === accessMode) return
+	// The server refuses to change the mode alone of an app that runs as someone else unless the
+	// caller may keep that identity, and always for a builder: for them it changes on deploy.
+	let deployedRunsAs = $derived(savedApp?.policy?.on_behalf_of as string | undefined)
+	let modeChangesOnDeploy = $derived(
+		!!deployedRunsAs &&
+			deployedRunsAs !== (actingUser?.username ? `u/${actingUser.username}` : undefined) &&
+			(!canPreserveOnBehalfOf(actingUser) || composeOnlyApps)
+	)
+	// One change at a time: a failed request puts back the mode it replaced, which would
+	// overwrite a newer selection that already succeeded.
+	let accessModePending = $state(false)
+	async function onAccessModeChange(mode: string | undefined) {
+		if (mode === undefined || mode === accessMode || accessModePending) return
+		const previous = policy.execution_mode
 		policy.execution_mode = mode as Policy['execution_mode']
 		// A not-yet-deployed app has no row to update: its first deploy carries the mode.
-		if (savedApp && !newApp) setPublishState?.()
+		if (!savedApp || newApp || modeChangesOnDeploy || !setAccessMode) return
+		accessModePending = true
+		try {
+			await setAccessMode(mode as NonNullable<Policy['execution_mode']>)
+		} catch (e) {
+			policy.execution_mode = previous
+			throw e
+		} finally {
+			accessModePending = false
+		}
 	}
 
 	let isAdmin = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin)
@@ -453,6 +477,7 @@
 										<ToggleButtonGroup
 											selected={accessMode}
 											on:selected={(e) => onAccessModeChange(e.detail)}
+											disabled={accessModePending}
 										>
 											{#snippet children({ item })}
 												<ToggleButton
@@ -481,6 +506,12 @@
 											{/snippet}
 										</ToggleButtonGroup>
 									</div>
+									{#if savedApp && !newApp && modeChangesOnDeploy}
+										<div class="text-xs text-secondary">
+											This app runs on behalf of <strong>{deployedRunsAs}</strong>, so a change here
+											takes effect when you deploy.
+										</div>
+									{/if}
 									<div class="text-xs text-secondary">
 										{#if policy.execution_mode == 'anonymous'}
 											Anyone holding the secret URL below can open this app without signing in.

@@ -56,7 +56,7 @@
 	import DeployButton from '$lib/components/DeployButton.svelte'
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
-	import { publishAccessMode } from '$lib/components/apps/editor/publishAccessMode'
+	import { policyForUpdate, publishAccessMode } from '$lib/components/apps/editor/publishAccessMode'
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { getContext } from 'svelte'
 
@@ -375,15 +375,14 @@
 		return updateRawAppPolicy(runnables, policy)
 	}
 
-	async function setPublishState(message?: string) {
-		await publishAccessMode(opWorkspace!, appPath, policy.execution_mode)
-		if (message) {
-			sendUserToast(message)
-		} else if (policy.execution_mode == 'anonymous') {
-			sendUserToast('App require no login to be accessed')
-		} else {
-			sendUserToast('App require login and read-access')
-		}
+	async function setAccessMode(mode: NonNullable<Policy['execution_mode']>) {
+		await publishAccessMode(opWorkspace!, appPath, mode)
+		if (savedApp) savedApp.policy = { ...savedApp.policy, execution_mode: mode }
+		sendUserToast(
+			mode == 'anonymous'
+				? 'App require no login to be accessed'
+				: 'App require login and read-access'
+		)
 	}
 
 	async function createApp(path: string) {
@@ -634,7 +633,7 @@
 				app: {
 					value: app!,
 					summary: summary,
-					policy: deployedPolicy,
+					policy: policyForUpdate(deployedPolicy, savedApp?.policy?.execution_mode),
 					path: npath,
 					deployment_message: deploymentMsg,
 					preserve_on_behalf_of: true,
@@ -895,7 +894,7 @@
 	bind:newEditedPath
 	bind:labels
 	showErrors={deployRefused}
-	setPublishState={() => setPublishState()}
+	{setAccessMode}
 />
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
