@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.848.2](https://github.com/windmill-labs/windmill/compare/v1.848.1...v1.848.2) (2026-10-24)
+
+
+### Bug Fixes
+
+* tighten file handling in deno/bun, stricter codebase tarball,executor isolation ([#11990](https://github.com/windmill-labs/windmill/issues/11990)) ([ccf8892](https://github.com/windmill-labs/windmill/commit/ccf889269b8897be707cde639b2531d522c286c9))
+
 ## [1.848.1](https://github.com/windmill-labs/windmill/compare/v1.848.0...v1.848.1) (2026-10-23)
 
 
