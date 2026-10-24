@@ -1014,6 +1014,13 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
     }
 
     #[test]
+    fn to_uri_sslmode_cannot_add_parameters() {
+        let uri = pg(Some("disable&hostaddr=127.0.0.2"), None).to_uri();
+        assert!(uri.ends_with("?sslmode=disable%26hostaddr%3D127.0.0.2"));
+        assert!(uri.parse::<tokio_postgres::Config>().is_err());
+    }
+
+    #[test]
     fn options_survive_to_uri() {
         let mut db = pg(Some("require"), None);
         db.options = Some("endpoint=ep-x -c search_path=a&b".to_string());
@@ -1152,7 +1159,9 @@ impl PgDatabase {
         let sslmode = match self.sslmode.as_deref() {
             Some("allow") => "prefer".to_string(),
             Some("require") | Some("verify-ca") | Some("verify-full") => "require".to_string(),
-            Some(s) => s.to_string(),
+            // Encoded like the other fields: a raw '&' would append parameters (`hostaddr`, `host`,
+            // `port`) that send the connection somewhere else than the host this struct names.
+            Some(s) => urlencoding::encode(s).into_owned(),
             None => "prefer".to_string(),
         };
         // Encode host/dbname too: an unencoded '@', '/', '?' or '&' would otherwise
@@ -1207,6 +1216,14 @@ impl PgDatabase {
                     let on_local_cluster = local.host == self.host
                         && local.port.unwrap_or(5432) == self.port.unwrap_or(5432);
                     if let Some(db) = main_db.filter(|_| on_local_cluster) {
+                        // Only a connection Windmill built carries the stored password (and the
+                        // role's has drifted from it). Anything else is a resource whose author
+                        // named this role and host: retrying it would log them in with a
+                        // credential they were never given, and rotate it on their say-so.
+                        let stored_pwd = crate::utils::get_custom_pg_instance_password(db).await?;
+                        if self.password.as_deref() != Some(stored_pwd.as_str()) {
+                            return Err(e);
+                        }
                         tracing::warn!(
                             "custom_instance_user password auth failed, refreshing and retrying..."
                         );
