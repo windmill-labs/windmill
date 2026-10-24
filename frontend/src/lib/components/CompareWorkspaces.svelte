@@ -290,7 +290,8 @@
 						path,
 						value: v.value ?? '',
 						is_secret: v.is_secret ?? false,
-						description: v.description ?? ''
+						description: v.description ?? '',
+						value_valid_until: v.value_valid_until ?? undefined
 					}
 				})
 			}

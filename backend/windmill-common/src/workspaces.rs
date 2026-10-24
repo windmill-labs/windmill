@@ -3805,7 +3805,7 @@ async fn transform_json_unchecked(
         serde_json::Value::String(s) if s.starts_with("$var:") => {
             let path = &s[5..];
             let (value, is_secret): (String, bool) = sqlx::query_as(
-                "SELECT value, is_secret FROM variable WHERE workspace_id = $1 AND path = $2",
+                "SELECT value::text, is_secret FROM variable WHERE workspace_id = $1 AND path = $2",
             )
             .bind(&w_id)
             .bind(path)

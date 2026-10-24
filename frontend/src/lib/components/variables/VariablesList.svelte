@@ -50,6 +50,7 @@
 		Shield,
 		Trash,
 		Building,
+		CalendarClock,
 		DollarSign,
 		EyeOff,
 		Circle,
@@ -441,7 +442,7 @@
 								</tr>
 							</Head>
 							<tbody class="divide-y">
-								{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+								{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels, inherited_labels, ws_specific, draft_only, is_draft, value_valid_until }}
 									{@const hasDraft =
 										getLocalDraftHint($operatingWorkspace, 'variable', path) ?? is_draft}
 									<Row>
@@ -518,6 +519,21 @@
 															<div>
 																This variable is linked with a resource of the same path. They are
 																deleted and renamed together.
+															</div>
+														{/snippet}
+													</Popover>
+												{/if}
+												{#if value_valid_until}
+													{@const expired = new Date(value_valid_until).getTime() <= Date.now()}
+													<Popover notClickable>
+														<CalendarClock
+															size={16}
+															class={expired ? 'text-red-600' : 'text-secondary'}
+														/>
+														{#snippet text()}
+															<div>
+																The value {expired ? 'expired' : 'expires'} on
+																{new Date(value_valid_until).toLocaleString()}.
 															</div>
 														{/snippet}
 													</Popover>

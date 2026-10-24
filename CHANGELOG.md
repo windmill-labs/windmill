@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.848.2](https://github.com/windmill-labs/windmill/compare/v1.848.1...v1.848.2) (2026-10-24)
+
+
+### Bug Fixes
+
+* tighten file handling in deno/bun, stricter codebase tarball,executor isolation ([#11990](https://github.com/windmill-labs/windmill/issues/11990)) ([ccf8892](https://github.com/windmill-labs/windmill/commit/ccf889269b8897be707cde639b2531d522c286c9))
+
+## [1.848.1](https://github.com/windmill-labs/windmill/compare/v1.848.0...v1.848.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* restore workspace pg_dump changes reverted by 812ff6ea5e ([#11988](https://github.com/windmill-labs/windmill/issues/11988)) ([45d3c95](https://github.com/windmill-labs/windmill/commit/45d3c951bb8827c67daaaf75ed52f3c3e1215911))
+* use linkedin openid connect default scopes ([#11953](https://github.com/windmill-labs/windmill/issues/11953)) ([001313a](https://github.com/windmill-labs/windmill/commit/001313aa242c6de053a9deb0c6cdb64580ce1cee))
+
+## [1.848.0](https://github.com/windmill-labs/windmill/compare/v1.847.0...v1.848.0) (2026-10-23)
+
+
+### Features
+
+* add a use/plan/build mode picker and read-only prod sessions ([#11940](https://github.com/windmill-labs/windmill/issues/11940)) ([d6c2b2c](https://github.com/windmill-labs/windmill/commit/d6c2b2c68344bb95939701c418116b2e7d4715a3))
+* composer pills that teach Windmill from the workspace ([#11889](https://github.com/windmill-labs/windmill/issues/11889)) ([ebeea51](https://github.com/windmill-labs/windmill/commit/ebeea514926f60295f3f11f516f4ccda3448f829))
+* fill docusign, salesforce and quickbooks fields on connect ([#11960](https://github.com/windmill-labs/windmill/issues/11960)) ([11f2a4c](https://github.com/windmill-labs/windmill/commit/11f2a4c7ffac980036f839759ae93da6ff3f22e4))
+* group home row menus and open them at their final height ([#11949](https://github.com/windmill-labs/windmill/issues/11949)) ([91bf9b6](https://github.com/windmill-labs/windmill/commit/91bf9b67a74afb419659719949484f1cfd5338c0))
+* let flow builder operators build AI agents ([#11898](https://github.com/windmill-labs/windmill/issues/11898)) ([e5dedd1](https://github.com/windmill-labs/windmill/commit/e5dedd147e1db0c4f36796ba292188bcdb0efc5a))
+* manage and create folders from the home tree view ([#11943](https://github.com/windmill-labs/windmill/issues/11943)) ([da443d2](https://github.com/windmill-labs/windmill/commit/da443d2fb263ecaf90320809b1bb2fc8a4f65b20))
+* run a workspace handler when a variable's value expires ([#10837](https://github.com/windmill-labs/windmill/issues/10837)) ([7a29abc](https://github.com/windmill-labs/windmill/commit/7a29abc7eec491c35217445c1c08486ff030a22c))
+
+
+### Bug Fixes
+
+* change an app's access mode under the deploy row lock ([#11965](https://github.com/windmill-labs/windmill/issues/11965)) ([725b15f](https://github.com/windmill-labs/windmill/commit/725b15f546cf20c2e5908acffb105d73fe907558))
+* fork a raw app into the raw app builder, in its session when there ([#11978](https://github.com/windmill-labs/windmill/issues/11978)) ([3d6a2bc](https://github.com/windmill-labs/windmill/commit/3d6a2bcef2e284d64690db04db32a2326a4b0670))
+* home's acting-on follows the workspace home switches to ([#11946](https://github.com/windmill-labs/windmill/issues/11946)) ([18c6936](https://github.com/windmill-labs/windmill/commit/18c69360c9a8e9a9fe4c7c1d9e825a2b7be403a9))
+* keep a staged flow path across reloads and follow moves in session tabs ([#11967](https://github.com/windmill-labs/windmill/issues/11967)) ([6b56656](https://github.com/windmill-labs/windmill/commit/6b56656bd650f2db5fbd74e23b55b926c6f69dd7))
+* keep the log indexer starting when a stored day chunk is broken ([#11979](https://github.com/windmill-labs/windmill/issues/11979)) ([79fe8ab](https://github.com/windmill-labs/windmill/commit/79fe8ab03f6f052bf7fe763b6f8a0a23fe922611))
+* list usr columns explicitly in whoami's user lookup ([#11970](https://github.com/windmill-labs/windmill/issues/11970)) ([fb193d7](https://github.com/windmill-labs/windmill/commit/fb193d7a816ae97fa8fc60608270296e159dfd3c))
+* make the autoscaling Test scaling button run the integration ([#11972](https://github.com/windmill-labs/windmill/issues/11972)) ([72c6b10](https://github.com/windmill-labs/windmill/commit/72c6b10821cfa35ff3deb3a3ecc729ed75a9dbc6))
+* return variable.value as text so widening it changes no result type ([#11976](https://github.com/windmill-labs/windmill/issues/11976)) ([f6f3a0a](https://github.com/windmill-labs/windmill/commit/f6f3a0a1f24cd9ea0d78207d6848147ebd73bea0))
+* run unstamped git auto-pulls as a superadmin when no admin ([#11973](https://github.com/windmill-labs/windmill/issues/11973)) ([c89a827](https://github.com/windmill-labs/windmill/commit/c89a82750ed0a461d8d4f1502f019bc0da4ed58c))
+* send app editor inspector picks to a new AI session as a chip ([#11966](https://github.com/windmill-labs/windmill/issues/11966)) ([28d2556](https://github.com/windmill-labs/windmill/commit/28d2556c941f66cad353eca3809f43e8d8cf3c05))
+* share settings.yaml's git sync block between a fork and its parent ([#11974](https://github.com/windmill-labs/windmill/issues/11974)) ([fe38a1d](https://github.com/windmill-labs/windmill/commit/fe38a1d3763a11f8b0bc4b07d61824d3a7b51850))
+
 ## [1.847.0](https://github.com/windmill-labs/windmill/compare/v1.846.1...v1.847.0) (2026-10-22)
 
 
