@@ -1602,7 +1602,6 @@ pub async fn do_duckdb(
         )
         .await?;
 
-
         let base_internal_url = client.base_internal_url.clone();
         let w_id = job.workspace_id.clone();
         let job_dir = job_dir.to_string();
@@ -2267,7 +2266,7 @@ async fn transform_attach_ducklake(
         Connection::Sql(db) => get_ducklake_from_db_unchecked(name, w_id, db).await?,
     };
     // In a fork, METADATA_SCHEMA / DATA_PATH / OVERRIDE_DATA_PATH are owned by the fork
-    // resolution (DuckDB silently keeps the last occurrence of a duplicated option, so a
+    // resolution (the last occurrence of a duplicated option is the one kept, so a
     // user-supplied one would escape the fork namespace back to the parent's).
     let user_extra_args = if ducklake.fork_defer.is_some() {
         strip_fork_reserved_attach_args(&user_extra_args)
@@ -2312,33 +2311,13 @@ async fn transform_attach_ducklake(
     } else {
         extra_args
     };
-    // Ducklake 0.3 only requires DATA_PATH at creation and then stores it internally in the catalog
-    // But it will fail if DATA_PATH changes afterwards which is annoying for us
-    // So we always enable override
-    let extra_args = if extra_args.contains("OVERRIDE_DATA_PATH") {
-        extra_args
-    } else {
-        format!(", OVERRIDE_DATA_PATH TRUE{extra_args}")
-    };
-    // Automatically migrate ducklake
-    let extra_args = if extra_args.contains("AUTOMATIC_MIGRATION") {
-        extra_args
-    } else {
-        format!(", AUTOMATIC_MIGRATION TRUE{extra_args}")
-    };
-    // In a fork, re-emit the fork-owned DATA_PATH as the LAST option: DuckDB keeps the last
-    // occurrence of a duplicated option, so this wins over anything the arg stripping might
-    // not recognize (e.g. a dollar-quoted literal), regardless of literal syntax. The
-    // METADATA_SCHEMA injected by the fork resolution is already last within `extra_args`.
-    let extra_args = if ducklake.fork_defer.is_some() {
-        format!("{extra_args}, DATA_PATH 's3://{storage}/{data_path}'")
-    } else {
-        extra_args
-    };
-
-    let attach_str = format!(
-        "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH 's3://{storage}/{data_path}'{extra_args});",
+    let options = ducklake_attach_options(
+        &format!("s3://{storage}/{data_path}"),
+        &extra_args,
+        ducklake.fork_defer.is_some(),
     );
+    let attach_str =
+        format!("ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} ({options});");
 
     let install_db_ext_str = get_attach_db_install_str(db_type)?;
     let mut statements = vec![
@@ -2357,6 +2336,108 @@ async fn transform_attach_ducklake(
         )?);
     }
     Ok(Some(statements))
+}
+
+/// The option list of a lake's ATTACH. `extra_args` are the script's then the lake config's,
+/// each part prefixed by a comma; later options override earlier ones, so Windmill's defaults
+/// come first and, in a fork, the fork-owned DATA_PATH last (it must win over anything the
+/// reserved-arg stripping did not recognize, e.g. a dollar-quoted literal).
+fn ducklake_attach_options(data_path: &str, extra_args: &str, fork: bool) -> String {
+    // OVERRIDE_DATA_PATH: DuckLake stores DATA_PATH at creation and refuses a different one
+    // afterwards. DUCKLAKE_VERSION '1.0': a catalog migrated to 1.1 cannot be downgraded and is
+    // unreadable by DuckDB 1.x engines, so one job on an upgraded worker would break every older
+    // worker and any rollback. Unpinned, AUTOMATIC_MIGRATION targets the newest format and new
+    // catalogs are created at it.
+    let mut options = format!(
+        "DATA_PATH '{data_path}', OVERRIDE_DATA_PATH TRUE, AUTOMATIC_MIGRATION TRUE, \
+         DUCKLAKE_VERSION '1.0'{extra_args}"
+    );
+    if fork {
+        options.push_str(&format!(", DATA_PATH '{data_path}'"));
+    }
+    keep_last_attach_option(&options)
+}
+
+/// Drops every occurrence of an ATTACH option but its last. DuckDB 1.x kept the last of
+/// duplicated options; 2.0 rejects the statement ("Unexpected duplicate option").
+fn keep_last_attach_option(options: &str) -> String {
+    let parts = split_attach_options(options);
+    let key = |part: &str| -> String {
+        match part.strip_prefix('"') {
+            Some(quoted) => quoted.split('"').next().unwrap_or_default().to_string(),
+            None => part
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect(),
+        }
+        .to_ascii_uppercase()
+    };
+    let keys: Vec<String> = parts.iter().map(|p| key(p)).collect();
+    parts
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| keys[i + 1..].iter().all(|k| k.is_empty() || *k != keys[*i]))
+        .map(|(_, p)| p.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Splits an ATTACH option list on the commas outside string literals ('…', "…", $tag$…$tag$)
+/// and parentheses, dropping empty parts. SQL comments are dropped too: a `--` comment would
+/// otherwise swallow whatever is joined after it on the same line, `);` included.
+fn split_attach_options(options: &str) -> Vec<String> {
+    let mut parts = vec![];
+    let mut part = String::new();
+    let mut depth = 0usize;
+    let mut i = 0;
+    while i < options.len() {
+        let rest = &options[i..];
+        // The byte length of a literal or comment starting here, if one does.
+        let span = match rest.as_bytes()[0] {
+            q @ (b'\'' | b'"') => Some(rest[1..].find(q as char).map_or(rest.len(), |e| e + 2)),
+            b'$' => rest[1..]
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .filter(|&n| rest[1 + n..].starts_with('$'))
+                .map(|n| {
+                    let delim = &rest[..n + 2];
+                    rest[n + 2..]
+                        .find(delim)
+                        .map_or(rest.len(), |e| n + 2 + e + delim.len())
+                }),
+            _ => None,
+        };
+        if let Some(len) = span {
+            part.push_str(&rest[..len]);
+            i += len;
+            continue;
+        }
+        if rest.starts_with("--") {
+            i += rest.find('\n').unwrap_or(rest.len());
+            part.push(' ');
+            continue;
+        }
+        if rest.starts_with("/*") {
+            i += rest[2..].find("*/").map_or(rest.len(), |e| e + 4);
+            part.push(' ');
+            continue;
+        }
+        let c = rest.chars().next().unwrap();
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(std::mem::take(&mut part).trim().to_string());
+                i += 1;
+                continue;
+            }
+            _ => {}
+        }
+        part.push(c);
+        i += c.len_utf8();
+    }
+    parts.push(part.trim().to_string());
+    parts.retain(|p| !p.is_empty());
+    parts
 }
 
 // Double-quote a possibly schema-qualified table reference, each dotted segment
@@ -2420,8 +2501,8 @@ fn fork_defer_statements(
             .map(|s| format!(", METADATA_SCHEMA '{}'", s.replace('\'', "''")))
             .unwrap_or_default();
         // The ancestor config's own non-reserved args (e.g. `ENCRYPTED true`) — an
-        // option-dependent lake wouldn't attach without them. Emitted FIRST: DuckDB keeps the
-        // last occurrence of a duplicated option, so the fork-owned DATA_PATH / READ_ONLY /
+        // option-dependent lake wouldn't attach without them. Emitted FIRST: the last occurrence
+        // of a duplicated option is the one kept, so the fork-owned DATA_PATH / READ_ONLY /
         // METADATA_SCHEMA after them always win.
         let extra_args = a
             .extra_args
@@ -2432,8 +2513,11 @@ fn fork_defer_statements(
         // / CREATE_IF_NOT_EXISTS: an ancestor lake that would need creating or migrating fails
         // loudly rather than being mutated from a fork. IF NOT EXISTS: several ATTACH blocks in
         // one script (e.g. the user's + the materialize synthetic one) emit the same ancestors.
+        let options = keep_last_attach_option(&format!(
+            "{extra_args}DATA_PATH 's3://{storage}/{data_path}', OVERRIDE_DATA_PATH TRUE, READ_ONLY{metadata_schema}"
+        ));
         stmts.push(format!(
-            "ATTACH IF NOT EXISTS 'ducklake:{db_type}:{conn_str}' AS {} ({extra_args}DATA_PATH 's3://{storage}/{data_path}', OVERRIDE_DATA_PATH TRUE, READ_ONLY{metadata_schema});",
+            "ATTACH IF NOT EXISTS 'ducklake:{db_type}:{conn_str}' AS {} ({options});",
             a.alias
         ));
     }
@@ -2904,6 +2988,36 @@ mod tests {
             defer_tables.into_iter().map(|(t, c)| (t, c, 0)).collect(),
             fork_views,
         )
+    }
+
+    #[test]
+    fn ducklake_attach_pins_catalog_format_and_never_repeats_an_option() {
+        assert_eq!(
+            ducklake_attach_options("s3://b/p", "", false),
+            "DATA_PATH 's3://b/p', OVERRIDE_DATA_PATH TRUE, AUTOMATIC_MIGRATION TRUE, \
+             DUCKLAKE_VERSION '1.0'"
+        );
+        // The script's then the lake config's args override the defaults; in a fork the
+        // fork-owned DATA_PATH overrides everything.
+        assert_eq!(
+            ducklake_attach_options(
+                "s3://b/fork",
+                ", data_path 's3://b/parent', ducklake_version '1.1',METADATA_SCHEMA 'a,b'",
+                true
+            ),
+            "OVERRIDE_DATA_PATH TRUE, AUTOMATIC_MIGRATION TRUE, ducklake_version '1.1', \
+             METADATA_SCHEMA 'a,b', DATA_PATH 's3://b/fork'"
+        );
+        assert_eq!(
+            keep_last_attach_option("X 'it''s, ok', ENCRYPTED $t$a, b$t$, X 1, f(a, b)"),
+            "ENCRYPTED $t$a, b$t$, X 1, f(a, b)"
+        );
+        assert_eq!(
+            keep_last_attach_option(
+                "DATA_PATH 'a', \"data_path\" 'b', READ_ONLY false -- why, it is\n, /* x, */ E 1"
+            ),
+            "\"data_path\" 'b', READ_ONLY false, E 1"
+        );
     }
 
     #[test]
