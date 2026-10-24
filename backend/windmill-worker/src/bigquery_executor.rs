@@ -23,7 +23,7 @@ use crate::common::{
     s3_stream_and_upload_with_logs, OccupancyMetrics, S3ModeWorkerData,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
-use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::sanitized_sql_params::{sanitize_and_interpolate_unsafe_sql_args, SqlStringEscaping};
 
 use gcp_auth::{AuthenticationManager, CustomServiceAccount};
 
@@ -438,6 +438,7 @@ pub async fn do_bigquery(
         &sig,
         &bigquery_args,
         &reserved_variables,
+        SqlStringEscaping::BigQuery,
     )?;
 
     let queries = parse_sql_blocks(query, false);
