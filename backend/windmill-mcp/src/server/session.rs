@@ -16,8 +16,10 @@ use crate::server::runner::{
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, DiscoverResult,
-    Implementation, InitializeRequestParams, InitializeResult, ListToolsResult,
-    PaginatedRequestParams, ProtocolVersion, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
+    Implementation, InitializeRequestParams, InitializeResult, ListResourcesResult,
+    ListToolsResult, PaginatedRequestParams, ProtocolVersion, ReadResourceRequestParams,
+    ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ServerCapabilities,
+    ServerInfo, Tool, ToolAnnotations,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::ErrorData;
@@ -45,6 +47,9 @@ fn access<A: McpAuth>(auth: &A, scope: &McpScopeConfig) -> SessionAccess {
 }
 
 const GET_WORKSPACE_CONTEXT: &str = "get_workspace_context";
+
+/// The MIME type of an MCP Apps view (the `io.modelcontextprotocol/ui` extension).
+const MCP_APP_MIME_TYPE: &str = "text/html;profile=mcp-app";
 
 /// Workspaces named in the instructions before the rest are left to `list_workspaces`.
 const MAX_LISTED_WORKSPACES: usize = 40;
@@ -198,8 +203,13 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
         let server_info = Implementation::new("windmill", env!("CARGO_PKG_VERSION"))
             .with_title("Windmill")
             .with_website_url("https://windmill.dev");
-        InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(server_info)
+        InitializeResult::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .build(),
+        )
+        .with_server_info(server_info)
     }
 
     fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
@@ -250,6 +260,46 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
         Ok(ListToolsResult::with_all_items(tools)
             .with_ttl_ms(LIST_TTL_MS)
             .with_cache_scope(LIST_CACHE_SCOPE))
+    }
+
+    /// The MCP Apps views a client draws tool results in. Static pages: what they show
+    /// comes from tool results, which every request authorizes on its own.
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        let views = self
+            .backend
+            .session_views()
+            .iter()
+            .map(|(uri, _)| Resource::new(*uri, *uri).with_mime_type(MCP_APP_MIME_TYPE))
+            .collect();
+        Ok(ListResourcesResult::with_all_items(views)
+            .with_ttl_ms(LIST_TTL_MS)
+            .with_cache_scope(LIST_CACHE_SCOPE))
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResponse, ErrorData> {
+        let Some((uri, html)) = self
+            .backend
+            .session_views()
+            .iter()
+            .find(|(uri, _)| *uri == request.uri)
+        else {
+            return Err(ErrorData::resource_not_found(
+                format!("No resource at {}", request.uri),
+                None,
+            ));
+        };
+        Ok(ReadResourceResult::new(vec![
+            ResourceContents::text(*html, *uri).with_mime_type(MCP_APP_MIME_TYPE)
+        ])
+        .into())
     }
 
     async fn call_tool(

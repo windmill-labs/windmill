@@ -22,7 +22,10 @@ pub(super) const TOOLS: &[&str] = &[
 pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult {
     match name {
         "list_workspace_items" => list_workspace_items(ctx, args).await,
-        "read_workspace_item" => read_workspace_item(ctx, args).await,
+        "read_workspace_item" => {
+            report_item(ctx, args);
+            read_workspace_item(ctx, args).await
+        }
         "write_script" => {
             write_script_draft(
                 ctx,
@@ -1023,7 +1026,7 @@ pub(super) fn is_agent(value: &Value) -> bool {
 }
 
 /// The editor that shows the user's draft: a detail page shows only the deployed version.
-fn draft_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
+pub(super) fn draft_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
     Some(match item_type {
         "script" => format!("/scripts/edit/{path}?nomenubar=true"),
         "flow" => format!("/flows/edit/{path}?nomenubar=true"),
@@ -1412,6 +1415,29 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         })
         .collect();
     Ok(pretty(&Value::Array(results)))
+}
+
+/// The links the item card opens: the item's page, and the editor a draft opens in. The
+/// card draws the item itself from the result's text.
+fn report_item(ctx: &Ctx<'_>, args: &Value) {
+    let (Some(item_type), Some(path)) = (opt_str_arg(args, "type"), opt_str_arg(args, "path"))
+    else {
+        return;
+    };
+    let page = match (item_type, opt_str_arg(args, "trigger_kind")) {
+        ("trigger", Some("http")) => Some("/routes".to_string()),
+        ("trigger", Some(kind)) => Some(format!("/{kind}_triggers")),
+        _ => super::deploy::deployed_page(item_type, path, &Value::Null),
+    };
+    let url = |page: Option<String>| page.map(|page| ctx.page_url(&page));
+    let _ = ctx.view.set((
+        "windmill/item",
+        json!({
+            "workspace": ctx.w_id,
+            "url": url(page),
+            "edit_url": url(draft_page(item_type, path, &Value::Null)),
+        }),
+    ));
 }
 
 async fn read_workspace_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {

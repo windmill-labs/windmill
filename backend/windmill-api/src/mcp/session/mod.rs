@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use serde::Deserialize;
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use windmill_mcp::server::{
     BackendResult, CallToolResult, ContentBlock, ErrorData, MetaObject, SessionAccess, Tool,
     ToolAnnotations,
@@ -154,12 +154,41 @@ fn result_size_meta() -> MetaObject {
     MetaObject(meta)
 }
 
+/// The MCP Apps view a client that renders them draws these tools' results in. It draws
+/// what the tool put in its result's `_meta` (`Ctx::view`), and acts by calling tools.
+pub(super) const CARD_URI: &str = "ui://windmill/card";
+const CARD_HTML: &str = include_str!("card.html");
+const CARD_TOOLS: &[&str] = &[
+    "run_script",
+    "run_flow",
+    "test_run_script",
+    "test_run_flow",
+    "get_run",
+    "diff",
+    "read_workspace_item",
+];
+
+/// The `ui://` views the session's tools render in, as `(uri, html)`.
+pub(super) fn session_views() -> &'static [(&'static str, &'static str)] {
+    &[(CARD_URI, CARD_HTML)]
+}
+
 pub(super) fn session_tools(access: SessionAccess) -> Vec<Tool> {
     TOOL_DEFS
         .iter()
         .filter(|def| implemented().any(|name| name == def.name))
         .filter(|def| allowed(def, access))
         .map(|def| {
+            let name = def.name.as_str();
+            let mut meta = result_size_meta();
+            if CARD_TOOLS.contains(&name) {
+                meta.0
+                    .insert("ui".into(), json!({ "resourceUri": CARD_URI }));
+            } else if DESTRUCTIVE.contains(&name) {
+                // A view acts as the user with no one confirming, so none may deploy or delete.
+                meta.0
+                    .insert("ui".into(), json!({ "visibility": ["model"] }));
+            }
             Tool::new(
                 def.name.clone(),
                 def.description.clone(),
@@ -168,9 +197,9 @@ pub(super) fn session_tools(access: SessionAccess) -> Vec<Tool> {
             .with_annotations(
                 ToolAnnotations::new()
                     .read_only(def.read_only)
-                    .destructive(DESTRUCTIVE.contains(&def.name.as_str())),
+                    .destructive(DESTRUCTIVE.contains(&name)),
             )
-            .with_meta(result_size_meta())
+            .with_meta(meta)
         })
         .collect()
 }
@@ -189,6 +218,9 @@ pub(super) struct Ctx<'a> {
     /// Minted once per tool call: every JWT the API sees is cached by the auth layer, and a
     /// tool can make dozens of calls, which would evict other users' cached sessions.
     pub jwt: tokio::sync::OnceCell<String>,
+    /// What the card draws of this call, as `(key, value)`: returned in the result's
+    /// `_meta`, which the model never reads.
+    pub view: std::sync::OnceLock<(&'static str, Value)>,
 }
 
 impl Ctx<'_> {
@@ -541,7 +573,7 @@ pub(super) async fn call_session_tool(
         ));
     };
     windmill_common::feature_usage::log_feature_usage("mcp_workspace", "tool_call", name);
-    Ok(match result {
+    let mut result = match result {
         Ok(text) => CallToolResult::success(vec![ContentBlock::text(text)]),
         // Without the status code `Ctx` prefixes an API failure with, as the session reads it.
         Err(message) => {
@@ -549,7 +581,14 @@ pub(super) async fn call_session_tool(
             let text = if body.is_empty() { &message } else { body };
             CallToolResult::error(vec![ContentBlock::text(text.to_string())])
         }
-    })
+    };
+    if let Some((key, view)) = ctx.view.get() {
+        result.meta = Some(MetaObject(Map::from_iter([(
+            key.to_string(),
+            view.clone(),
+        )])));
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -590,6 +629,21 @@ mod tests {
     }
 
     #[test]
+    fn no_view_can_call_a_destructive_tool() {
+        for tool in session_tools(SessionAccess::Full) {
+            if DESTRUCTIVE.contains(&tool.name.as_ref()) {
+                let meta = tool.meta.as_ref().map(|m| &m.0["ui"]);
+                assert_eq!(
+                    meta,
+                    Some(&json!({ "visibility": ["model"] })),
+                    "{}",
+                    tool.name
+                );
+            }
+        }
+    }
+
+    #[test]
     fn every_session_tool_is_implemented_or_editor_only() {
         let implemented: Vec<&str> = implemented().collect();
         for def in TOOL_DEFS.iter() {
@@ -599,7 +653,7 @@ mod tests {
                 "session tool `{name}` must be implemented here or listed in EDITOR_ONLY, not both"
             );
         }
-        for name in implemented.iter().chain(EDITOR_ONLY) {
+        for name in implemented.iter().chain(EDITOR_ONLY).chain(CARD_TOOLS) {
             assert!(
                 TOOL_DEFS.iter().any(|def| def.name == *name),
                 "`{name}` is not a session tool any more"

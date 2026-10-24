@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Windmill</title>
+<!--
+  The MCP Apps view of the session tools' results (`ui://windmill/card`): a run, a diff, or
+  a workspace item, from whichever of `_meta["windmill/run" | "windmill/diff" |
+  "windmill/item"]` the result carries. It holds no credential: it acts by calling tools
+  through the host, as the user the connection belongs to. Everything it shows is set as
+  text, never as markup: a run's result is whatever its script returned.
+-->
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: var(--color-background-primary, #ffffff);
+    --bg-2: var(--color-background-secondary, #f5f4ed);
+    --fg: var(--color-text-primary, #141413);
+    --fg-2: var(--color-text-secondary, #3d3d3a);
+    --fg-3: var(--color-text-tertiary, #73726c);
+    --line: var(--color-border-tertiary, rgba(31, 30, 29, 0.15));
+    --info-bg: var(--color-background-info, #d6e4f6);
+    --info-fg: var(--color-text-info, #3266ad);
+    --ok-bg: var(--color-background-success, #e9f1dc);
+    --ok-fg: var(--color-text-success, #265b19);
+    --bad-bg: var(--color-background-danger, #f7ecec);
+    --bad-fg: var(--color-text-danger, #7f2c28);
+    --inv-bg: var(--color-background-inverse, #141413);
+    --inv-fg: var(--color-text-inverse, #ffffff);
+    --radius: var(--border-radius-md, 8px);
+    --sans: var(--font-sans, system-ui, -apple-system, sans-serif);
+    --mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: var(--color-background-primary, #30302e);
+      --bg-2: var(--color-background-secondary, #262624);
+      --fg: var(--color-text-primary, #faf9f5);
+      --fg-2: var(--color-text-secondary, #c2c0b6);
+      --fg-3: var(--color-text-tertiary, #9c9a92);
+      --line: var(--color-border-tertiary, rgba(222, 220, 209, 0.15));
+      --info-bg: var(--color-background-info, #253e5f);
+      --info-fg: var(--color-text-info, #80aadd);
+      --ok-bg: var(--color-background-success, #1b4614);
+      --ok-fg: var(--color-text-success, #7ab948);
+      --bad-bg: var(--color-background-danger, #602a28);
+      --bad-fg: var(--color-text-danger, #ee8884);
+      --inv-bg: var(--color-background-inverse, #faf9f5);
+      --inv-fg: var(--color-text-inverse, #141413);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: var(--color-background-primary, #30302e);
+    --bg-2: var(--color-background-secondary, #262624);
+    --fg: var(--color-text-primary, #faf9f5);
+    --fg-2: var(--color-text-secondary, #c2c0b6);
+    --fg-3: var(--color-text-tertiary, #9c9a92);
+    --line: var(--color-border-tertiary, rgba(222, 220, 209, 0.15));
+    --info-bg: var(--color-background-info, #253e5f);
+    --info-fg: var(--color-text-info, #80aadd);
+    --ok-bg: var(--color-background-success, #1b4614);
+    --ok-fg: var(--color-text-success, #7ab948);
+    --bad-bg: var(--color-background-danger, #602a28);
+    --bad-fg: var(--color-text-danger, #ee8884);
+    --inv-bg: var(--color-background-inverse, #faf9f5);
+    --inv-fg: var(--color-text-inverse, #141413);
+  }
+  html, body { margin: 0; background: transparent; }
+  body { font: 14px/1.4 var(--sans); color: var(--fg); }
+  .card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
+  .head { display: flex; align-items: flex-start; gap: 12px; }
+  .title { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .path { font: 600 14px/1.3 var(--mono); overflow-wrap: anywhere; }
+  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-3); }
+  .ws { background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; color: var(--fg-2); font-weight: 500; }
+  .pill { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--info-bg); color: var(--info-fg); }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .success, .pill.success { background: var(--ok-bg); color: var(--ok-fg); }
+  .failure, .canceled, .not_started, .pill.failure, .pill.canceled, .pill.not_started { background: var(--bad-bg); color: var(--bad-fg); }
+  .step { font-size: 13px; color: var(--fg-2); }
+  .step code, .mono { font-family: var(--mono); }
+  .summary { color: var(--fg-2); font-size: 13px; }
+  pre { margin: 0; padding: 10px 12px; border-radius: var(--radius); background: var(--bg-2); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+  pre.clip { max-height: 180px; overflow: hidden; }
+  pre.error { background: var(--bad-bg); color: var(--bad-fg); }
+  h3 { margin: 4px 0 0; font-size: 12px; font-weight: 600; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.04em; }
+  .rows { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); }
+  .row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 10px; font-size: 13px; }
+  .row + .row, .row + .patch, .patch + .row { border-top: 1px solid var(--line); }
+  .row .k { color: var(--fg-3); min-width: 110px; }
+  .row .v { min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; }
+  .row .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .row .dim { color: var(--fg-3); font-size: 12px; }
+  .row pre { flex-basis: 100%; padding: 6px 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; background: var(--info-fg); }
+  .dot.success { background: var(--ok-fg); }
+  .dot.failure, .dot.canceled { background: var(--bad-fg); }
+  .dot.skipped { background: var(--fg-3); }
+  button.row { width: 100%; text-align: left; border: 0; border-radius: 0; background: transparent; font: inherit; font-size: 13px; color: inherit; min-height: 0; }
+  .patch { font: 12px/1.45 var(--mono); padding: 6px 0; background: var(--bg-2); border-radius: var(--radius); overflow-wrap: anywhere; }
+  .rows .patch { border-radius: 0; }
+  .patch div { padding: 0 12px; white-space: pre-wrap; }
+  .patch .add { background: var(--ok-bg); color: var(--ok-fg); }
+  .patch .del { background: var(--bad-bg); color: var(--bad-fg); }
+  .patch .hunk { color: var(--info-fg); }
+  .patch .note { color: var(--fg-2); font-family: var(--sans); }
+  form { display: flex; flex-direction: column; gap: 10px; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; }
+  label.check { flex-direction: row; align-items: center; gap: 8px; }
+  label small { font-weight: 400; color: var(--fg-3); }
+  input, select, textarea { font: 13px var(--sans); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+  textarea { font-family: var(--mono); min-height: 60px; resize: vertical; }
+  .form-error { color: var(--bad-fg); font-size: 13px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  button { font: 600 13px var(--sans); min-height: 32px; padding: 0 12px; border-radius: var(--radius); cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--fg); }
+  button.primary { background: var(--inv-bg); color: var(--inv-fg); border-color: transparent; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main class="card" aria-live="polite">
+  <div class="head">
+    <div class="title">
+      <div class="path" id="path">Windmill</div>
+      <div class="meta">
+        <span class="ws" id="ws" hidden></span>
+        <span id="kind"></span>
+        <span id="duration"></span>
+      </div>
+    </div>
+    <span class="pill" id="status" hidden></span>
+  </div>
+  <div class="summary" id="summary" hidden></div>
+  <div class="step" id="step" hidden></div>
+  <div class="step" id="stale" hidden>No longer refreshing here. Open it in Windmill for its live status.</div>
+  <pre class="clip" id="result" hidden></pre>
+  <div id="body"></div>
+  <section id="details" hidden></section>
+  <form id="form" hidden></form>
+  <div class="actions">
+    <button class="primary" id="open" hidden>Open in Windmill</button>
+    <button id="cancel" hidden>Cancel run</button>
+    <button id="toggle-details" hidden>Details</button>
+    <button id="toggle-form" hidden>Run with other inputs</button>
+  </div>
+</main>
+<script>
+(() => {
+  // Every poll is a tool call the server serves with a freshly minted token, which lands in
+  // the API's shared auth cache: polls back off and stop after ten minutes (~50 per card).
+  const MAX_POLL_MS = 10 * 60 * 1000;
+  const pollDelay = (age) => (age < 10_000 ? 2_000 : age < 60_000 ? 5_000 : 15_000);
+  const RUNNING = ['running', 'queued', 'suspended'];
+  const LABELS = {
+    running: 'Running', queued: 'Queued', suspended: 'Waiting', success: 'Success',
+    failure: 'Failed', canceled: 'Canceled', skipped: 'Skipped', not_started: 'Not started',
+    step: 'Step result', in_progress: 'Running'
+  };
+  const PATCH_LINES_INLINE = 60;
+  const $ = (id) => document.getElementById(id);
+
+  let nextId = 1;
+  const pending = new Map();
+  let host = {};
+  let toolArgs = {};
+  let view = null;
+  let run = null;
+  let pollStarted = 0;
+  let pollTimer = null;
+  let tickTimer = null;
+
+  function post(message) {
+    window.parent.postMessage({ jsonrpc: '2.0', ...message }, '*');
+  }
+  function request(method, params) {
+    const id = nextId++;
+    post({ id, method, params });
+    return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+  }
+  function callTool(name, args) {
+    return request('tools/call', { name, arguments: args });
+  }
+  function textOf(result) {
+    return (result?.content ?? []).filter((c) => c.type === 'text').map((c) => c.text).join('\n');
+  }
+  function el(tag, props = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(props)) {
+      if (value == null || value === false) continue;
+      if (key === 'class') node.className = value;
+      else if (key.startsWith('on')) node.addEventListener(key.slice(2), value);
+      else if (key in node) node[key] = value;
+      else node.setAttribute(key, value);
+    }
+    node.append(...children.filter((c) => c != null && c !== false));
+    return node;
+  }
+  function row(key, value) {
+    return el('div', { class: 'row' }, el('span', { class: 'k' }, key), el('span', { class: 'v' }, value));
+  }
+  function display(value) {
+    if (value == null) return '';
+    if (typeof value === 'string') return value;
+    const json = JSON.stringify(value);
+    return json.length > 300 ? `${json.slice(0, 300)}…` : json;
+  }
+
+  function formatMs(ms) {
+    if (ms == null || ms < 0) return '';
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    const s = ms / 1000;
+    if (s < 60) return `${s.toFixed(1)}s`;
+    return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+  }
+
+  function canFullscreen() {
+    return (host.availableDisplayModes ?? []).includes('fullscreen');
+  }
+  function setDisplayMode(mode) {
+    if (mode === 'fullscreen' && !canFullscreen()) return;
+    if (mode === 'inline' && host.displayMode !== 'fullscreen') return;
+    request('ui/request-display-mode', { mode }).then((result) => {
+      if (result?.mode) host.displayMode = result.mode;
+    }).catch(() => {});
+  }
+
+  function setHeader({ path, ws, kind = '', status = null, label = null }) {
+    $('path').textContent = path || 'Windmill';
+    $('ws').hidden = !ws;
+    $('ws').textContent = ws || '';
+    $('kind').textContent = kind;
+    const pill = $('status');
+    pill.hidden = !label;
+    pill.className = `pill ${status ?? ''}`;
+    pill.textContent = label ?? '';
+  }
+  function setOpen(url, label = 'Open in Windmill') {
+    const open = $('open');
+    open.hidden = !url;
+    open.textContent = label;
+    open.dataset.url = url ?? '';
+  }
+
+  // ---------------------------------------------------------------- run
+
+  function elapsed() {
+    if (!run) return '';
+    if (run.duration_ms != null) return formatMs(run.duration_ms);
+    if (run.started_at && RUNNING.includes(run.status)) {
+      return formatMs(Date.now() - Date.parse(run.started_at));
+    }
+    return '';
+  }
+
+  // A form is offered for an input schema the card can fill: a file, at any depth, comes
+  // back as a size marker, and a secret not stored as a reference as `<hidden>`, either of
+  // which the form would send in place of the value.
+  function formFields() {
+    const schema = run?.form?.schema;
+    if (!schema || /"contentEncoding":\s*"base64"/.test(JSON.stringify(schema))) return null;
+    if (JSON.stringify(run.form.args ?? {}).includes('"<hidden>"')) return null;
+    const properties = schema.properties ?? {};
+    const fields = [...new Set([...(schema.order ?? []), ...Object.keys(properties)])]
+      .filter((name) => properties[name])
+      .map((name) => [name, properties[name]]);
+    // No declared field: the run's arguments are unknown to the card, and would be dropped.
+    return fields.length ? fields : null;
+  }
+
+  function renderRun() {
+    const status = run?.status ?? 'running';
+    const running = RUNNING.includes(status);
+    setHeader({
+      path: run?.path ?? run?.form?.path ?? toolArgs.path ?? (run?.id ? `Run ${run.id.slice(0, 8)}` : 'Windmill run'),
+      ws: run?.workspace ?? toolArgs.workspace_id,
+      kind: run?.job_kind ? run.job_kind.replace(/preview$/, ' test') : '',
+      status,
+      label: run ? (LABELS[status] ?? status) : 'Starting'
+    });
+    $('duration').textContent = elapsed();
+    if (!running) $('stale').hidden = true;
+    const step = $('step');
+    step.hidden = !(running && run?.steps);
+    if (!step.hidden) {
+      step.textContent = `Step ${run.step} of ${run.steps}`;
+      if (run.step_id) step.append(' · ', el('code', {}, run.step_id));
+    }
+    const result = $('result');
+    result.hidden = running || run?.result == null;
+    result.textContent = run?.result ?? '';
+    result.classList.toggle('error', status === 'failure' || status === 'not_started');
+
+    setOpen(run?.url);
+    $('cancel').hidden = !(running && run?.id);
+    $('toggle-details').hidden = !run?.id;
+    $('toggle-form').hidden = running || !formFields();
+    if (!$('details').hidden) renderDetails();
+    window.clearInterval(tickTimer);
+    if (running && run?.started_at) tickTimer = window.setInterval(() => {
+      $('duration').textContent = elapsed();
+    }, 1000);
+  }
+
+  function renderDetails() {
+    const details = $('details');
+    const children = [];
+    if (run.step_list?.length) {
+      children.push(el('h3', {}, 'Steps'), el('div', { class: 'rows' }, ...run.step_list.map((step) =>
+        el('div', { class: 'row' },
+          el('span', { class: `dot ${step.status ?? ''}` }),
+          el('span', { class: 'v' }, step.id),
+          el('span', { class: 'grow' }, [step.id, `Step ${step.id}`].includes(step.label) ? '' : step.label),
+          el('span', { class: 'dim' }, [
+            step.runs > 1 ? `${step.runs} runs` : '',
+            LABELS[step.status] ?? step.status ?? '',
+            formatMs(step.duration_ms)
+          ].filter(Boolean).join(' · ')),
+          step.result ? el('pre', { class: step.status === 'failure' ? 'error' : '' }, step.result) : null
+        ))));
+    }
+    if (run.logs) children.push(el('h3', {}, 'Logs (end)'), el('pre', {}, run.logs));
+    if (!children.length) children.push(el('div', { class: 'step' }, run.step_list ? 'Nothing more to show.' : 'Loading…'));
+    details.replaceChildren(...children);
+  }
+
+  function renderForm() {
+    const form = $('form');
+    const fields = formFields() ?? [];
+    const args = run.form.args ?? {};
+    const required = new Set(run.form.schema?.required ?? []);
+    const asText = new Set();
+    const inputs = fields.map(([name, prop]) => {
+      const value = args[name] ?? prop.default;
+      const title = `${prop.title || name}${required.has(name) ? ' *' : ''}`;
+      const hint = prop.description ? el('small', {}, prop.description) : null;
+      let input;
+      // A reference stands for a value of any type; it is shown, and sent, as written.
+      const reference = typeof value === 'string' && /^\$(var|res|jsonvar):/.test(value);
+      if (reference && !prop.password) {
+        asText.add(name);
+        input = el('input', { type: 'text', name, value });
+        return el('label', {}, title, hint, input);
+      }
+      if (prop.type === 'boolean') {
+        input = el('input', { type: 'checkbox', name, checked: value === true });
+        return el('label', { class: 'check' }, input, title, hint);
+      }
+      if (Array.isArray(prop.enum)) {
+        input = el('select', { name },
+          required.has(name) ? null : el('option', { value: '' }, ''),
+          ...prop.enum.map((option) => el('option', { value: JSON.stringify(option), selected: option === value }, String(option))));
+      } else if (prop.type === 'number' || prop.type === 'integer') {
+        input = el('input', { type: 'number', name, step: prop.type === 'integer' ? '1' : 'any', value: value ?? '' });
+      } else if (prop.type === 'string' && prop.password) {
+        input = el('input', { type: 'password', name, placeholder: reference ? 'Unchanged' : '', value: reference ? '' : (value ?? '') });
+      } else if (prop.type === 'string') {
+        const long = typeof value === 'string' && value.includes('\n');
+        input = el(long ? 'textarea' : 'input', { name, value: value ?? '', type: long ? null : (prop.format === 'date' ? 'date' : 'text') });
+      } else {
+        input = el('textarea', { name, value: value === undefined ? '' : JSON.stringify(value, null, 2) });
+      }
+      return el('label', {}, title, hint, input);
+    });
+    const error = el('div', { class: 'form-error', hidden: true });
+    const submit = el('button', { class: 'primary', type: 'submit' }, 'Run');
+    form.replaceChildren(...inputs, error, el('div', { class: 'actions' }, submit));
+    // A field the user left alone is sent exactly as the run had it: a reference, an empty
+    // string, a null or an omission would not survive the round trip through an input.
+    const touched = new Set();
+    // Native validation would judge untouched fields by what their inputs can show.
+    form.noValidate = true;
+    form.oninput = form.onchange = (event) => touched.add(event.target.name);
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      const next = {};
+      try {
+        for (const [name, prop] of fields) {
+          const input = form.elements.namedItem(name);
+          if (!touched.has(name)) {
+            if (name in args) next[name] = args[name];
+          } else if (/^\$(var|res|jsonvar):/.test(input.value)) next[name] = input.value;
+          else if (asText.has(name)) {
+            // A reference replaced by a literal, typed as text whatever the field's type.
+            if (input.value !== '') next[name] = prop.type === 'string' ? input.value : JSON.parse(input.value);
+          } else if (prop.type === 'boolean') next[name] = input.checked;
+          else if (input.value === '') {
+            if (prop.password && args[name]) next[name] = args[name];
+          } else if (Array.isArray(prop.enum)) next[name] = JSON.parse(input.value);
+          else if (prop.type === 'number' || prop.type === 'integer') next[name] = Number(input.value);
+          else if (prop.type === 'string') next[name] = input.value;
+          else next[name] = JSON.parse(input.value);
+        }
+      } catch {
+        error.hidden = false;
+        error.textContent = 'A field holds invalid JSON.';
+        return;
+      }
+      const missing = fields.find(([name, prop]) => required.has(name) && prop.default === undefined
+        && (touched.has(name) ? next[name] === undefined || next[name] === '' : !(name in args)));
+      if (missing) {
+        error.hidden = false;
+        error.textContent = `Fill in ${missing[1].title || missing[0]}.`;
+        return;
+      }
+      submit.disabled = true;
+      const { tool, path } = run.form;
+      const workspace = run.workspace;
+      try {
+        const result = await callTool(tool, { workspace_id: workspace, path, args: next });
+        form.hidden = true;
+        $('toggle-form').textContent = 'Run with other inputs';
+        pollStarted = Date.now();
+        window.clearTimeout(pollTimer);
+        run = null;
+        onResult(result);
+        request('ui/update-model-context', {
+          // Only the server's redacted copy of the arguments: `next` may hold a typed secret.
+          content: [{ type: 'text', text: `The user ran ${path} again from the Windmill card (${tool})${run?.form?.args ? ` with arguments ${JSON.stringify(run.form.args)}` : ''}: run ${run?.id ?? 'not started'}, status ${run?.status ?? 'unknown'}.` }]
+        }).catch(() => {});
+      } catch (e) {
+        error.hidden = false;
+        error.textContent = e?.message ?? 'The run could not be started.';
+      }
+      submit.disabled = false;
+    };
+  }
+
+  // A tool result without a run, shown as the model got it: a call that started nothing,
+  // or a `get_run` drilling into one step.
+  function renderText(result) {
+    const inspected = toolArgs.id && !result.isError;
+    run = { status: inspected ? 'step' : 'not_started', result: textOf(result).slice(0, 1500) };
+    view = 'run';
+    renderRun();
+  }
+
+  function onRun(next) {
+    // A refresh carries the run alone: what the starting call attached stays.
+    run = { ...next, form: next.form ?? run?.form };
+    view = 'run';
+    renderRun();
+    if (RUNNING.includes(run.status)) schedulePoll();
+  }
+
+  function schedulePoll() {
+    window.clearTimeout(pollTimer);
+    const age = Date.now() - pollStarted;
+    if (age < MAX_POLL_MS) {
+      pollTimer = window.setTimeout(poll, pollDelay(age));
+    } else {
+      $('stale').hidden = false;
+    }
+  }
+
+  async function poll() {
+    const id = run?.id;
+    if (!id) return;
+    try {
+      const result = await callTool('get_run', { workspace_id: run.workspace, id });
+      // The form may have started another run while this one was being read.
+      if (run?.id === id) onResult(result);
+    } catch {
+      if (run?.id === id && RUNNING.includes(run.status)) schedulePoll();
+    }
+  }
+
+  $('cancel').addEventListener('click', async () => {
+    const button = $('cancel');
+    button.disabled = true;
+    try {
+      await callTool('cancel_job', { workspace_id: run.workspace, id: run.id });
+    } catch {}
+    button.disabled = false;
+    window.clearTimeout(pollTimer);
+    poll();
+  });
+  $('toggle-details').addEventListener('click', () => {
+    const details = $('details');
+    details.hidden = !details.hidden;
+    $('toggle-details').textContent = details.hidden ? 'Details' : 'Hide details';
+    if (details.hidden) return setDisplayMode('inline');
+    renderDetails();
+    setDisplayMode('fullscreen');
+    // A run reported by the call that started it has no steps or logs yet.
+    if (!run.step_list && !run.logs && !RUNNING.includes(run.status)) poll();
+  });
+  $('toggle-form').addEventListener('click', () => {
+    const form = $('form');
+    form.hidden = !form.hidden;
+    $('toggle-form').textContent = form.hidden ? 'Run with other inputs' : 'Hide inputs';
+    if (!form.hidden) renderForm();
+  });
+
+  // ---------------------------------------------------------------- diff
+
+  // A tool's text with its unified patch lines coloured; `---`/`+++` labels are dropped.
+  function patchView(text, limit) {
+    const lines = text.split('\n');
+    const shown = limit ? lines.slice(0, limit) : lines;
+    let inHunk = false;
+    const nodes = [];
+    for (const line of shown) {
+      if (line.startsWith('@@')) inHunk = true;
+      if (!inHunk && /^(--- |\+\+\+ |=+$)/.test(line)) continue;
+      const kind = line.startsWith('@@') ? 'hunk'
+        : !inHunk ? 'note'
+        : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : '';
+      nodes.push(el('div', { class: kind }, line || ' '));
+    }
+    const patch = el('div', { class: 'patch' }, ...nodes);
+    if (limit && lines.length > limit) {
+      patch.append(el('div', { class: 'note' }, el('button', {
+        type: 'button',
+        onclick: () => {
+          patch.replaceWith(patchView(text));
+          setDisplayMode('fullscreen');
+        }
+      }, `Show all ${lines.length} lines`)));
+    }
+    return patch;
+  }
+
+  function renderDiff(meta, result) {
+    view = 'diff';
+    const text = textOf(result);
+    const body = $('body');
+    if (!meta.items) {
+      const label = meta.trigger_kind ? `${meta.trigger_kind} trigger` : meta.type;
+      setHeader({ path: meta.path, ws: meta.workspace, kind: label ? `Draft vs deployed · ${label}` : '' });
+      setOpen(result.isError ? null : meta.url, meta.editor ? 'Open in editor' : 'Open in Windmill');
+      body.replaceChildren(result.isError ? el('pre', { class: 'error' }, text) : patchView(text, PATCH_LINES_INLINE));
+      return;
+    }
+    setHeader({ path: 'Drafts vs deployed', ws: meta.workspace, kind: `${meta.items.length} item${meta.items.length === 1 ? '' : 's'}` });
+    setOpen(null);
+    const summary = $('summary');
+    summary.hidden = meta.items.length > 0;
+    summary.textContent = text.split('\n')[0];
+    body.replaceChildren(meta.items.length ? el('div', { class: 'rows' }, ...meta.items.map((item) => {
+      const label = item.trigger_kind ? `${item.trigger_kind} trigger` : item.type;
+      let open = null;
+      const button = el('button', { class: 'row', type: 'button' },
+        el('span', { class: 'v' }, item.path),
+        el('span', { class: 'dim grow' }, label),
+        el('span', { class: 'dim' }, item.status));
+      button.addEventListener('click', async () => {
+        if (open) {
+          open.remove();
+          open = null;
+          return;
+        }
+        button.disabled = true;
+        try {
+          const result = await callTool('diff', {
+            workspace_id: meta.workspace, type: item.type, path: item.path,
+            ...(item.trigger_kind ? { trigger_kind: item.trigger_kind } : {})
+          });
+          open = patchView(textOf(result), PATCH_LINES_INLINE);
+          button.after(open);
+        } catch {}
+        button.disabled = false;
+      });
+      return button;
+    })) : '');
+  }
+
+  // ---------------------------------------------------------------- item
+
+  const NOISE = new Set([
+    'workspace_id', 'path', 'summary', 'description', 'edited_by', 'edited_at', 'extra_perms',
+    'email', 'error', 'last_server_ping', 'server_id', 'created_by', 'created_at', 'value',
+    'is_flow', 'script_path', 'enabled', 'mode', 'labels', 'ws_specific', 'permissioned_as'
+  ]);
+  const SENSITIVE = /pass|secret|token|key|private|credential/i;
+
+  function inputsRows(schema) {
+    const properties = schema?.properties ?? {};
+    const required = new Set(schema?.required ?? []);
+    return Object.entries(properties).map(([name, prop]) =>
+      row(`${name}${required.has(name) ? ' *' : ''}`, [prop.type ?? 'any', prop.format, prop.description].filter(Boolean).join(' · ')));
+  }
+  function section(title, rows) {
+    return rows.length ? [el('h3', {}, title), el('div', { class: 'rows' }, ...rows)] : [];
+  }
+  function scalarRows(object, skip = NOISE) {
+    return Object.entries(object ?? {})
+      .filter(([key, value]) => !skip.has(key) && value != null && value !== '' && !(Array.isArray(value) && !value.length))
+      .map(([key, value]) => row(key, display(value)));
+  }
+  function moduleRows(modules) {
+    return (modules ?? []).map((module) => {
+      const value = module.value ?? {};
+      return el('div', { class: 'row' },
+        el('span', { class: 'v' }, module.id ?? ''),
+        el('span', { class: 'grow' }, module.summary || value.path || ''),
+        el('span', { class: 'dim' }, value.type ?? ''));
+    });
+  }
+
+  function renderItem(meta, result) {
+    view = 'item';
+    let item;
+    try {
+      item = JSON.parse(textOf(result));
+    } catch {}
+    const body = $('body');
+    if (!item || typeof item !== 'object' || item.success === false || result.isError) {
+      setHeader({ path: toolArgs.path, ws: meta.workspace, kind: toolArgs.type ?? '' });
+      body.replaceChildren(el('pre', { class: result.isError || item?.success === false ? 'error' : '' }, item?.error ?? textOf(result)));
+      return;
+    }
+    const type = item.type ?? toolArgs.type;
+    const kind = item.triggerKind ? `${item.triggerKind} trigger` : type;
+    setHeader({
+      path: item.path ?? toolArgs.path,
+      ws: meta.workspace,
+      kind: kind ?? '',
+      status: item.isDraft ? 'running' : null,
+      label: item.isDraft ? 'Draft' : null
+    });
+    setOpen(item.isDraft && meta.edit_url ? meta.edit_url : meta.url, item.isDraft && meta.edit_url ? 'Open in editor' : 'Open in Windmill');
+    const summary = $('summary');
+    summary.hidden = !item.summary;
+    summary.textContent = item.summary ?? '';
+    const value = item.value ?? {};
+    const parts = [];
+    const target = value.script_path
+      ? row('Runs', `${value.is_flow ? 'flow' : 'script'} ${value.script_path}`) : null;
+    switch (type) {
+      case 'script': {
+        const code = typeof item.value === 'string' ? item.value.split('\n') : [];
+        parts.push(...section('Script', [row('Language', item.language ?? '')]));
+        parts.push(...section('Inputs', inputsRows(item.schema)));
+        if (code.length) {
+          parts.push(el('h3', {}, 'Code'), el('pre', { class: 'clip' }, code.slice(0, 20).join('\n') + (code.length > 20 ? '\n…' : '')));
+        }
+        break;
+      }
+      case 'flow':
+        parts.push(...section('Steps', moduleRows(value.modules)));
+        parts.push(...section('Inputs', inputsRows(value.schema)));
+        break;
+      case 'schedule':
+        parts.push(...section('Schedule', [
+          row('Cron', value.schedule ?? ''),
+          row('Timezone', value.timezone ?? ''),
+          target,
+          row('Enabled', String(value.enabled ?? ''))
+        ].filter(Boolean)));
+        if (value.args && Object.keys(value.args).length) parts.push(el('h3', {}, 'Arguments'), el('pre', { class: 'clip' }, JSON.stringify(value.args, null, 2)));
+        break;
+      case 'trigger':
+        parts.push(...section('Trigger', [
+          target,
+          value.mode != null ? row('Mode', value.mode) : value.enabled != null ? row('Enabled', String(value.enabled)) : null,
+          ...scalarRows(value)
+        ].filter(Boolean)));
+        break;
+      case 'resource': {
+        const fields = value.value && typeof value.value === 'object' ? value.value : {};
+        parts.push(...section('Resource', [row('Type', value.resource_type ?? '')]));
+        parts.push(...section('Fields', Object.entries(fields).map(([key, field]) => {
+          const reference = typeof field === 'string' && /^\$(var|res):/.test(field);
+          return row(key, SENSITIVE.test(key) && !reference ? '••••••' : display(field));
+        })));
+        break;
+      }
+      case 'variable':
+        parts.push(...section('Variable', [row('Secret', item.isSecret ? 'yes' : 'no'), row('Value', 'Not shown here')]));
+        break;
+      default:
+        parts.push(...section('Details', scalarRows(typeof value === 'object' ? value : {}, new Set(['files', 'runnables']))));
+    }
+    body.replaceChildren(...parts);
+  }
+
+  // ---------------------------------------------------------------- dispatch
+
+  function onResult(result) {
+    const meta = result?._meta ?? {};
+    if (meta['windmill/diff']) return renderDiff(meta['windmill/diff'], result);
+    if (meta['windmill/item']) return renderItem(meta['windmill/item'], result);
+    if (meta['windmill/run']) return onRun(meta['windmill/run']);
+    // A poll that failed (the job read erred) keeps the run's last state and tries again.
+    if (!run?.id) renderText(result ?? {});
+    else if (RUNNING.includes(run.status)) schedulePoll();
+  }
+
+  function applyContext(context) {
+    if (!context) return;
+    host = { ...host, ...context };
+    if (context.theme) document.documentElement.dataset.theme = context.theme;
+    for (const [name, value] of Object.entries(context.styles?.variables ?? {})) {
+      if (value) document.documentElement.style.setProperty(name, value);
+    }
+  }
+
+  $('open').addEventListener('click', () => {
+    const url = $('open').dataset.url;
+    if (url) request('ui/open-link', { url }).catch(() => {});
+  });
+
+  window.addEventListener('message', (event) => {
+    if (event.source !== window.parent) return;
+    const message = event.data;
+    if (!message || message.jsonrpc !== '2.0') return;
+    if (message.id != null && pending.has(message.id) && !message.method) {
+      const { resolve, reject } = pending.get(message.id);
+      pending.delete(message.id);
+      if (message.error) reject(message.error); else resolve(message.result);
+      return;
+    }
+    switch (message.method) {
+      case 'ui/notifications/tool-input':
+        toolArgs = message.params?.arguments ?? {};
+        if (!view && toolArgs.path) $('path').textContent = toolArgs.path;
+        break;
+      case 'ui/notifications/tool-result':
+        pollStarted = Date.now();
+        onResult(message.params);
+        break;
+      case 'ui/notifications/tool-cancelled':
+        if (!view) {
+          run = { status: 'not_started', result: message.params?.reason ?? null };
+          view = 'run';
+          renderRun();
+        }
+        break;
+      case 'ui/notifications/host-context-changed':
+        applyContext(message.params);
+        break;
+      case 'ui/resource-teardown':
+        window.clearTimeout(pollTimer);
+        window.clearInterval(tickTimer);
+        if (message.id != null) post({ id: message.id, result: {} });
+        break;
+    }
+  });
+
+  new ResizeObserver(() => {
+    post({
+      method: 'ui/notifications/size-changed',
+      params: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight }
+    });
+  }).observe(document.body);
+
+  request('ui/initialize', {
+    protocolVersion: '2026-01-26',
+    appInfo: { name: 'windmill-card', version: '1.0.0' },
+    appCapabilities: { availableDisplayModes: ['inline', 'fullscreen'] }
+  }).then((result) => {
+    applyContext(result?.hostContext);
+    post({ method: 'ui/notifications/initialized', params: {} });
+  }).catch(() => {});
+})();
+</script>
+</body>
+</html>

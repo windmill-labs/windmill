@@ -89,6 +89,7 @@ impl WindmillBackend {
             access,
             origin: None,
             jwt: Default::default(),
+            view: Default::default(),
         }
     }
 
@@ -476,6 +477,10 @@ impl McpBackend for WindmillBackend {
 
     fn session_tools(&self, access: SessionAccess) -> Vec<Tool> {
         session::session_tools(access)
+    }
+
+    fn session_views(&self) -> &'static [(&'static str, &'static str)] {
+        session::session_views()
     }
 
     async fn call_session_tool(

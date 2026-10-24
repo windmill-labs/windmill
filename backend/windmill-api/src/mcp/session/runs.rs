@@ -187,6 +187,7 @@ pub(super) fn format_result_summary(job: &Value) -> String {
 /// Settle a just-queued job (`started` is the queueing call's answer) into a run
 /// tool's result: wait within the tool's budget, then the result summary or the
 /// background notice. `action` is `test` or `run`, `label` names the job in the notice.
+/// `form` is what the card's run form re-runs the tool with (`run_form`).
 pub(super) async fn finish_run(
     ctx: &Ctx<'_>,
     started: Result<String, String>,
@@ -194,10 +195,27 @@ pub(super) async fn finish_run(
     is_flow: bool,
     action: &str,
     tool_args: &Value,
+    form: Option<Value>,
 ) -> ToolResult {
-    let id = started.map_err(|e| format!("Failed to execute {action}: {}", api_message(&e)))?;
+    let extra = Map::from_iter(form.map(|form| ("form".to_string(), form)));
+    let id = match started {
+        Ok(id) => id,
+        Err(e) => {
+            let message = format!("Failed to execute {action}: {}", api_message(&e));
+            if !extra.is_empty() {
+                let mut run = extra;
+                run.insert("status".into(), "not_started".into());
+                run.insert("result".into(), message.clone().into());
+                run.insert("workspace".into(), ctx.w_id.into());
+                let _ = ctx.view.set(("windmill/run", Value::Object(run)));
+            }
+            return Err(message);
+        }
+    };
     let run_page = format!("\n\nRun page: {}", ctx.page_url(&format!("/run/{id}")));
-    let Some(job) = wait_job(ctx, &id, wait_budget(tool_args), true).await else {
+    let job = wait_job(ctx, &id, wait_budget(tool_args), true).await;
+    report_run(ctx, &id, job.as_ref(), extra);
+    let Some(job) = job else {
         return Ok(format!("{}{run_page}", backgrounded_summary(&id, label)));
     };
     let mut summary = format_result_summary(&job);
@@ -589,9 +607,19 @@ async fn conclude(
     label: &str,
     is_flow: bool,
     action: &str,
+    form: Option<Value>,
 ) -> ToolResult {
-    notes.push(finish_run(ctx, started, label, is_flow, action, tool_args).await?);
+    notes.push(finish_run(ctx, started, label, is_flow, action, tool_args, form).await?);
     Ok(notes.join("\n"))
+}
+
+/// What the card's run form needs to call `tool` on `path` again: the input schema and
+/// the arguments the run carried, as the model may read them (secrets as references,
+/// files as size markers, which the form leaves alone).
+fn run_form(tool: &str, path: &str, schema: Option<&Value>, args: &Map<String, Value>) -> Value {
+    let schema = schema.cloned().unwrap_or_else(|| json!({}));
+    let args = redact_args(args, &schema);
+    json!({ "tool": tool, "path": path, "schema": schema, "args": args })
 }
 
 // ============================================================================
@@ -607,6 +635,7 @@ async fn test_run_script(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             Ok(prepared) => prepared,
             Err(message) => return Ok(message),
         };
+    let form = run_form("test_run_script", path, schema.as_ref(), &prepared.args);
     let started = run_script_preview(
         ctx,
         Some(path),
@@ -615,7 +644,17 @@ async fn test_run_script(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         Value::Object(prepared.args),
     )
     .await;
-    conclude(ctx, args, prepared.notes, started, path, false, "test").await
+    conclude(
+        ctx,
+        args,
+        prepared.notes,
+        started,
+        path,
+        false,
+        "test",
+        Some(form),
+    )
+    .await
 }
 
 /// `run_script` and `run_flow`: the deployed item, whatever draft sits on top of it.
@@ -645,6 +684,8 @@ async fn run_deployed(ctx: &Ctx<'_>, args: &Value, is_flow: bool) -> ToolResult 
     } else {
         String::new()
     };
+    let tool = if is_flow { "run_flow" } else { "run_script" };
+    let form = run_form(tool, path, Some(&schema), &prepared.args);
     // The arguments fill the main input schema; a preprocessor would take them for a
     // trigger event.
     let started = ctx
@@ -657,7 +698,17 @@ async fn run_deployed(ctx: &Ctx<'_>, args: &Value, is_flow: bool) -> ToolResult 
         )
         .await
         .map(job_id);
-    conclude(ctx, args, prepared.notes, started, path, is_flow, "run").await
+    conclude(
+        ctx,
+        args,
+        prepared.notes,
+        started,
+        path,
+        is_flow,
+        "run",
+        Some(form),
+    )
+    .await
 }
 
 /// The flow value a preview runs, from a loaded `{value, schema, groups}`.
@@ -696,6 +747,7 @@ async fn test_run_flow(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let memory_id = memory_id.map(String::from).or_else(|| {
         truthy(value.get("chat_input_enabled")).then(|| uuid::Uuid::new_v4().to_string())
     });
+    let form = run_form("test_run_flow", path, Some(&schema), &prepared.args);
     let started = run_flow_preview(
         ctx,
         Some(path),
@@ -704,7 +756,17 @@ async fn test_run_flow(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         memory_id.as_deref(),
     )
     .await;
-    conclude(ctx, args, prepared.notes, started, path, true, "test").await
+    conclude(
+        ctx,
+        args,
+        prepared.notes,
+        started,
+        path,
+        true,
+        "test",
+        Some(form),
+    )
+    .await
 }
 
 // ============================================================================
@@ -1223,7 +1285,17 @@ async fn test_run_step(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             )
         }
     };
-    conclude(ctx, args, prepared.notes, started, &label, is_flow, "test").await
+    conclude(
+        ctx,
+        args,
+        prepared.notes,
+        started,
+        &label,
+        is_flow,
+        "test",
+        None,
+    )
+    .await
 }
 
 fn migrated_agent_value(value: &Value) -> Value {
@@ -1707,11 +1779,118 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         ctx.get(&tree_route),
     );
     let results = results.unwrap_or_else(|_| json!({ "entries": [] }));
+    if let Ok(job) = &job {
+        let mut details = Map::new();
+        let entries = results["entries"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        details.insert("step_list".into(), card_steps(entries).into());
+        if let Ok(logs) = &logs {
+            if !logs.trim().is_empty() {
+                details.insert("logs".into(), js_tail(logs, CARD_LOG_CHARS).into());
+            }
+        }
+        report_run(ctx, id, Some(job), details);
+    }
     Ok(format!(
         "{}\n\nRun page: {}",
         shape_run(id, &job?, logs, &results),
         ctx.page_url(&format!("/run/{}", enc(id)))
     ))
+}
+
+/// Result head the run card shows; the full result is one click away on the run page.
+const CARD_RESULT_CHARS: usize = 1500;
+const CARD_STEP_RESULT_CHARS: usize = 300;
+const CARD_LOG_CHARS: usize = 3000;
+
+/// Hand the run card the run `id`, read as `job` (`None` while it is still running), with
+/// `extra` fields beside it.
+fn report_run(ctx: &Ctx<'_>, id: &str, job: Option<&Value>, extra: Map<String, Value>) {
+    let mut run = run_card(id, job);
+    run.extend(extra);
+    run.insert("workspace".into(), ctx.w_id.into());
+    run.insert(
+        "url".into(),
+        ctx.page_url(&format!("/run/{}", enc(id))).into(),
+    );
+    let _ = ctx.view.set(("windmill/run", Value::Object(run)));
+}
+
+/// A flow run's top-level steps for the card's details, each as its last iteration or
+/// attempt, from the run tree `get_flow_all_results` lists.
+fn card_steps(entries: &[Value]) -> Vec<Value> {
+    if entries.is_empty() {
+        return Vec::new();
+    }
+    let tree = RunTree::new(entries);
+    let mut steps: Vec<(&str, Map<String, Value>)> = Vec::new();
+    for &child in &tree.children[0] {
+        let entry = &entries[child];
+        let Some(id) = entry["flow_step_id"].as_str() else {
+            continue;
+        };
+        let mut step = Map::new();
+        step.insert("id".into(), id.into());
+        for key in ["label", "status", "duration_ms", "job_id"] {
+            if let Some(value) = entry.get(key).filter(|v| !v.is_null()) {
+                step.insert(key.into(), value.clone());
+            }
+        }
+        if let Some(prefix) = entry["result_prefix"].as_str() {
+            step.insert(
+                "result".into(),
+                js_head(prefix, CARD_STEP_RESULT_CHARS).into(),
+            );
+        }
+        match steps.iter_mut().find(|(seen, _)| *seen == id) {
+            Some((_, last)) => {
+                let runs = last.get("runs").and_then(Value::as_u64).unwrap_or(1) + 1;
+                step.insert("runs".into(), runs.into());
+                *last = step;
+            }
+            None => steps.push((id, step)),
+        }
+    }
+    steps
+        .into_iter()
+        .map(|(_, step)| Value::Object(step))
+        .collect()
+}
+
+/// What the run card draws of a run: its summary, the head of its result (a failure's
+/// message alone), and a running flow's top-level step.
+fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
+    let mut run = job.map(summarize_run).unwrap_or_default();
+    run.insert("id".into(), id.into());
+    run.entry("status").or_insert("running".into());
+    if let Some(job) = job {
+        let result = job.get("result").filter(|r| !r.is_null());
+        let error = result
+            .and_then(|r| r["error"]["message"].as_str())
+            .filter(|_| job.get("success") == Some(&json!(false)));
+        if let Some(text) = error
+            .map(String::from)
+            .or_else(|| result.map(|r| format_result(Some(r))))
+        {
+            run.insert("result".into(), js_head(&text, CARD_RESULT_CHARS).into());
+        }
+        // 1-based, of how many: `step` already points past the last module once it is done.
+        let status = &job["flow_status"];
+        if let Some(modules) = status["modules"]
+            .as_array()
+            .filter(|_| job.get("success").is_none())
+        {
+            let step = status["step"].as_u64().unwrap_or(0) as usize;
+            run.insert("steps".into(), modules.len().into());
+            run.insert("step".into(), (step + 1).min(modules.len()).into());
+            if let Some(step_id) = modules.get(step).and_then(|m| m.get("id")) {
+                run.insert("step_id".into(), step_id.clone());
+            }
+        }
+    }
+    run
 }
 
 /// A run as `get_run` reports it: its summary, args, result and logs around the step
@@ -2005,5 +2184,48 @@ mod tests {
         );
         assert_eq!(transforms["max_iterations"]["value"], 10);
         assert!(!transforms.contains_key("memory_id"));
+    }
+
+    #[test]
+    fn run_card_shows_a_failure_message_and_a_running_flow_step() {
+        let failed = json!({
+            "type": "CompletedJob", "success": false, "duration_ms": 3600,
+            "result": { "error": { "name": "Error", "message": "duplicate key" } },
+        });
+        let card = run_card("j", Some(&failed));
+        assert_eq!(card["status"], "failure");
+        assert_eq!(card["result"], "duplicate key");
+
+        let running = json!({
+            "type": "QueuedJob", "running": true,
+            "flow_status": { "step": 1, "modules": [{ "id": "a" }, { "id": "b" }] },
+        });
+        let card = run_card("j", Some(&running));
+        assert_eq!(
+            (card["step"].clone(), card["steps"].clone()),
+            (json!(2), json!(2))
+        );
+        assert_eq!(card["step_id"], "b");
+
+        // Not read yet: still running, by id alone.
+        assert_eq!(run_card("j", None)["status"], "running");
+    }
+
+    #[test]
+    fn card_steps_keep_each_steps_last_run() {
+        let entries = [
+            json!({ "depth": 0, "job_id": "root" }),
+            json!({ "depth": 1, "flow_step_id": "a", "status": "failure" }),
+            json!({ "depth": 2, "flow_step_id": "inner", "status": "success" }),
+            json!({ "depth": 1, "flow_step_id": "a", "status": "success" }),
+            json!({ "depth": 1, "flow_step_id": "b", "status": "running" }),
+        ];
+        let steps = card_steps(&entries);
+        assert_eq!(steps.len(), 2);
+        assert_eq!(
+            (&steps[0]["id"], &steps[0]["status"], &steps[0]["runs"]),
+            (&json!("a"), &json!("success"), &json!(2))
+        );
+        assert_eq!(steps[1]["status"], "running");
     }
 }
