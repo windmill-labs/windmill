@@ -224,6 +224,33 @@ pub fn build_openai_compatible_proxy_request(args: &ProxyBuildArgs<'_>) -> Resul
         args.body.to_vec()
     };
 
+    let body = if credentials.extra_body.is_some() || credentials.reasoning_effort_mapping.is_some()
+    {
+        let mut body_val: serde_json::Value = serde_json::from_slice(&body)
+            .map_err(|e| Error::BadRequest(format!("Invalid JSON body in proxy request: {}", e)))?;
+        let reasoning_effort = body_val
+            .get("reasoning_effort")
+            .and_then(|v| v.as_str())
+            .or_else(|| {
+                body_val
+                    .get("reasoning")
+                    .and_then(|r| r.get("effort"))
+                    .and_then(|e| e.as_str())
+            })
+            .map(|s| s.to_string());
+        crate::body_overrides::apply_body_overrides(
+            &mut body_val,
+            credentials.extra_body.as_ref(),
+            reasoning_effort.as_deref(),
+            credentials.reasoning_effort_mapping.as_ref(),
+        );
+        serde_json::to_vec(&body_val).map_err(|e| {
+            Error::internal_err(format!("Failed to serialize modified proxy request: {}", e))
+        })?
+    } else {
+        body
+    };
+
     let base_url = credentials.base_url.trim_end_matches('/');
     let is_azure = credentials.provider.is_azure(base_url);
     let url = if is_azure {
@@ -287,6 +314,8 @@ mod tests {
             oidc_role_arn: None,
             platform: AIPlatform::Standard,
             custom_headers: HashMap::new(),
+            extra_body: None,
+            reasoning_effort_mapping: None,
         }
     }
 

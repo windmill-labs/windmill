@@ -1786,6 +1786,8 @@ pub async fn run_agent(
                             &credentials,
                             args.provider.get_model(),
                         ),
+                        extra_body: credentials.extra_body.as_ref(),
+                        reasoning_effort_mapping: credentials.reasoning_effort_mapping.as_ref(),
                     };
 
                     // A worker cannot run the client credentials exchange, so an OAuth resource

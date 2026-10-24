@@ -500,6 +500,12 @@ components:
         reasoning_effort:
           type: string
           description: Provider-native reasoning effort token (e.g. 'low', 'high', 'none') for models that support extended thinking. Optional; unset leaves the provider default.
+        extra_body:
+          type: object
+          description: Optional provider-specific request body overrides or extra fields merged into outgoing requests. Supports setting fields to null to remove generated fields.
+        reasoning_effort_mapping:
+          type: object
+          description: Optional map from reasoning effort tokens (e.g. none, low, medium, high) to request body overrides.
       required:
         - kind
         - resource

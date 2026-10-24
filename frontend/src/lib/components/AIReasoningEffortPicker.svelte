@@ -24,11 +24,16 @@
 	)
 	let model = $derived(typeof providerConfig === 'object' ? providerConfig?.model : undefined)
 
-	let capability = $derived(
-		provider && model
-			? getReasoningCapability(provider, model)
-			: { supported: false, levels: [], canDisable: false, known: false }
-	)
+	let capability = $derived.by(() => {
+		if (!provider || !model) {
+			return { supported: false, levels: [], canDisable: false, known: false }
+		}
+		const cap = getReasoningCapability(provider, model)
+		if (!cap.known) {
+			return { supported: true, levels: ['low', 'medium', 'high'], canDisable: true, known: false }
+		}
+		return cap
+	})
 
 	// The token that turns reasoning off on a model that reasons by default
 	// (e.g. Gemini/OpenAI 'none'). Undefined means omission already disables it,

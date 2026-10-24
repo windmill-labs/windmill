@@ -34,4 +34,6 @@ pub struct ProviderCredentials {
     pub oidc_role_arn: Option<String>,
     pub platform: AIPlatform,
     pub custom_headers: HashMap<String, String>,
+    pub extra_body: Option<serde_json::Value>,
+    pub reasoning_effort_mapping: Option<HashMap<String, serde_json::Value>>,
 }

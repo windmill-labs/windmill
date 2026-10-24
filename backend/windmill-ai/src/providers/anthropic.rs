@@ -861,6 +861,8 @@ mod tests {
             oidc_role_arn: None,
             platform,
             custom_headers: HashMap::new(),
+            extra_body: None,
+            reasoning_effort_mapping: None,
         }
     }
 
@@ -904,6 +906,8 @@ mod tests {
             has_websearch: false,
             prompt_cache_key: None,
             reasoning_summary: false,
+            extra_body: None,
+            reasoning_effort_mapping: None,
         };
 
         AnthropicQueryBuilder::new(AIProvider::Anthropic, platform)

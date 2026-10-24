@@ -521,7 +521,16 @@ impl OpenAIQueryBuilder {
             prompt_cache_key: args.prompt_cache_key,
         };
 
-        serde_json::to_string(&request)
+        let mut req_val = serde_json::to_value(&request)
+            .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))?;
+        crate::body_overrides::apply_body_overrides(
+            &mut req_val,
+            args.extra_body,
+            args.reasoning_effort,
+            args.reasoning_effort_mapping,
+        );
+
+        serde_json::to_string(&req_val)
             .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))
     }
 
@@ -736,6 +745,8 @@ mod tests {
             has_websearch: false,
             prompt_cache_key: Some(PROMPT_CACHE_KEY),
             reasoning_summary: true,
+            extra_body: None,
+            reasoning_effort_mapping: None,
         }
     }
 

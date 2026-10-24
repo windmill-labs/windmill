@@ -266,6 +266,12 @@ pub struct ProviderResource {
     /// Custom HTTP headers to include in AI requests
     #[serde(default)]
     pub headers: HashMap<String, String>,
+    /// Optional provider-specific extra request body fields or overrides
+    #[serde(default)]
+    pub extra_body: Option<serde_json::Value>,
+    /// Optional map from reasoning effort token (e.g. none, low, medium, high) to request body overrides
+    #[serde(default)]
+    pub reasoning_effort_mapping: Option<HashMap<String, serde_json::Value>>,
     /// Set only by OAuth resources, which resolve to a token through a client
     /// credentials exchange this crate does not perform.
     #[serde(default, deserialize_with = "empty_string_as_none")]
@@ -287,6 +293,12 @@ pub struct ProviderWithResource {
     /// Belongs to the model selection, so it rides on the provider config.
     #[serde(default)]
     pub reasoning_effort: Option<String>,
+    /// Optional step-level request body overrides
+    #[serde(default)]
+    pub extra_body: Option<serde_json::Value>,
+    /// Optional step-level reasoning effort mapping
+    #[serde(default)]
+    pub reasoning_effort_mapping: Option<HashMap<String, serde_json::Value>>,
 }
 
 impl ProviderWithResource {
@@ -329,6 +341,31 @@ impl ProviderWithResource {
             self.get_base_url(db).await?
         };
 
+        let extra_body = match (&self.resource.extra_body, &self.extra_body) {
+            (Some(res), Some(step)) => {
+                let mut merged = res.clone();
+                crate::body_overrides::deep_merge_and_delete(&mut merged, step);
+                Some(merged)
+            }
+            (Some(res), None) => Some(res.clone()),
+            (None, Some(step)) => Some(step.clone()),
+            (None, None) => None,
+        };
+
+        let reasoning_effort_mapping = match (
+            &self.resource.reasoning_effort_mapping,
+            &self.reasoning_effort_mapping,
+        ) {
+            (Some(res), Some(step)) => {
+                let mut merged = res.clone();
+                merged.extend(step.clone());
+                Some(merged)
+            }
+            (Some(res), None) => Some(res.clone()),
+            (None, Some(step)) => Some(step.clone()),
+            (None, None) => None,
+        };
+
         Ok(ProviderCredentials {
             provider: self.kind.clone(),
             base_url,
@@ -350,6 +387,8 @@ impl ProviderWithResource {
             oidc_role_arn: self.resource.oidc_role_arn.clone(),
             platform: self.resource.platform.clone(),
             custom_headers: self.resource.headers.clone(),
+            extra_body,
+            reasoning_effort_mapping,
         })
     }
 
