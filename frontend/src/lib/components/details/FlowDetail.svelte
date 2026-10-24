@@ -1016,6 +1016,7 @@
 				isDeployed={true}
 				noCapture={true}
 				isEditor={false}
+				chatMode={chatInputEnabled}
 			/>
 		{/if}
 	{/snippet}

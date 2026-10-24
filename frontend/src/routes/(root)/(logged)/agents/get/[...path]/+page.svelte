@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state'
 	import { FlaskConical, FormInput, MessageSquare, Pen } from 'lucide-svelte'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { resource } from 'runed'
 	import { goto } from '$lib/navigation'
 	import { copilotInfo } from '$lib/aiStore'
@@ -66,11 +65,11 @@
 	let history: AgentHistory | undefined = $state(undefined)
 	let deleteOpen = $state(false)
 	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
-	let clientWidth = $state(window.innerWidth)
-	let pickedMobileTab = $state('agent')
-	// The page is reused across agents, and an agent without managed memory has no Slack tab.
-	let mobileTab = $derived(pickedMobileTab === 'slack' && !chatAvailable ? 'api' : pickedMobileTab)
-	let wide = $derived(clientWidth >= 1024)
+	let pickedTab = $state<'agent' | 'api' | 'slack' | 'app'>('agent')
+	// The page is reused across agents, and an agent without managed memory has no Slack or App tab.
+	let tab = $derived(
+		pickedTab !== 'agent' && pickedTab !== 'api' && !chatAvailable ? 'api' : pickedTab
+	)
 
 	const slack = resource(
 		() => ({ workspace: ws, path }),
@@ -84,7 +83,7 @@
 	// while the chat shows, and the chat's composer owns the key then.
 	function onKeyDown(event: KeyboardEvent) {
 		if (event.defaultPrevented || event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) return
-		if (!runForm || testPane?.mode === 'chat' || (!wide && mobileTab !== 'agent')) return
+		if (!runForm || testPane?.mode === 'chat' || tab !== 'agent') return
 		if (isValid) {
 			event.preventDefault()
 			runForm.run()
@@ -235,38 +234,25 @@
 			{/if}
 		{/snippet}
 	</DetailPageHeader>
-	<!-- Below `lg` the split would squeeze the chat, so the panel's sections become tabs of the
-	     page, as on a script's or a flow's page. They cover the agent rather than replacing it:
-	     unmounting the host destroys the chat and any turn in flight, so the agent pane keeps one
-	     parent at every width. -->
-	{#if !wide && ws && config}
-		<Tabs
-			bind:selected={() => mobileTab, (t) => (pickedMobileTab = t)}
-			wrapperClass="flex-none no-scrollbar"
-		>
+	<!-- Tabs at every width, as a chat-mode flow's page has them. They cover the agent rather than
+	     replacing it: unmounting the host destroys the chat and any turn in flight. -->
+	{#if ws && config}
+		<Tabs bind:selected={() => tab, (t) => (pickedTab = t)} wrapperClass="flex-none no-scrollbar">
 			<Tab value="agent" label={testPane?.mode === 'chat' ? 'Chat' : 'Run form'} />
-			<Tab value="api" label="API" />
+			<Tab value="api" label="Webhook" />
 			{#if chatAvailable}
 				<Tab value="slack" label="Slack" />
+				<Tab value="app" label="App" />
 			{/if}
 		</Tabs>
 	{/if}
-	<div class="relative flex-1 min-h-0" bind:clientWidth>
-		<Splitpanes>
-			<Pane size={wide ? 65 : 100} minSize={50}>
-				<div class="h-full" inert={!wide && mobileTab !== 'agent'}>
-					{@render agentPane()}
-				</div>
-			</Pane>
-			{#if wide && ws && config}
-				<Pane size={35} minSize={15}>
-					{@render usePane(ws)}
-				</Pane>
-			{/if}
-		</Splitpanes>
-		{#if !wide && ws && config}
-			<div class={['absolute inset-0 z-10 bg-surface', mobileTab === 'agent' && 'hidden']}>
-				{@render usePane(ws, mobileTab === 'slack' ? 'slack' : 'api')}
+	<div class="relative flex-1 min-h-0">
+		<div class="h-full" inert={tab !== 'agent'}>
+			{@render agentPane()}
+		</div>
+		{#if ws && config}
+			<div class={['absolute inset-0 z-10 bg-surface', tab === 'agent' && 'hidden']}>
+				{@render usePane(ws, tab === 'agent' ? 'api' : tab)}
 			</div>
 		{/if}
 	</div>
@@ -307,7 +293,7 @@
 	{/key}
 {/snippet}
 
-{#snippet usePane(ws: string, section?: 'api' | 'slack')}
+{#snippet usePane(ws: string, section: 'api' | 'slack' | 'app')}
 	<AgentUsePanel
 		agentPath={path}
 		workspace={ws}
