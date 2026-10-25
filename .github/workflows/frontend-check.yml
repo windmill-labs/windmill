@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26
           cache: "npm"
           cache-dependency-path: "frontend/package-lock.json"
       - name: "npm check"
