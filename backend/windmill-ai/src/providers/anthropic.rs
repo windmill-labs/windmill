@@ -2,6 +2,7 @@ use super::{anthropic_model_rejects_sampling_params, REASONING_OFF_SENTINEL};
 use crate::{
     ai_google::parse_data_url,
     ai_providers::{AIPlatform, AIProvider, DISABLE_ANTHROPIC_PROMPT_CACHING},
+    credentials::{AnthropicFederation, ProviderCredentials},
     image_handler::prepare_messages_for_api,
     proxy::{
         add_user_to_body, common_outbound_headers, credential_header, ProxyBuildArgs, ProxyRequest,
@@ -837,6 +838,123 @@ impl QueryBuilder for AnthropicQueryBuilder {
     }
 }
 
+pub const ANTHROPIC_API_BASE_URL: &str = "https://api.anthropic.com/v1";
+
+/// Audience of the OIDC token Windmill presents in an Anthropic token exchange,
+/// which a federation rule can pin with its `audience` matcher.
+pub const ANTHROPIC_OIDC_AUDIENCE: &str = "https://api.anthropic.com";
+
+/// Lifetime of that OIDC token. A federation issuer refuses a token that lives
+/// longer than its maximum (one hour by default), and Anthropic caps the access
+/// token at twice the assertion's remaining life, so 30 minutes still lets a rule
+/// mint its default one-hour token.
+pub const ANTHROPIC_OIDC_TOKEN_LIFETIME_SECS: i64 = 1800;
+
+/// Exchange again this long before the access token expires, so a long streamed
+/// response that starts on a reused token cannot outlive it.
+const FEDERATED_TOKEN_REFRESH_MARGIN: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// The federation settings to exchange for an access token, if this request
+/// should federate: an API key set on the resource wins, and Vertex AI has its
+/// own Google credentials.
+pub fn federation_to_exchange(credentials: &ProviderCredentials) -> Option<&AnthropicFederation> {
+    if credentials.provider != AIProvider::Anthropic
+        || credentials.platform != AIPlatform::Standard
+        || credentials
+            .api_key
+            .as_deref()
+            .is_some_and(|key| !key.is_empty())
+        || credentials.access_token.is_some()
+    {
+        return None;
+    }
+    credentials.anthropic_federation.as_ref()
+}
+
+/// A short-lived Anthropic access token minted by a federated token exchange.
+#[derive(Clone, Debug)]
+pub struct FederatedAccessToken {
+    pub access_token: String,
+    pub expires_at: std::time::SystemTime,
+}
+
+impl FederatedAccessToken {
+    pub fn is_fresh(&self) -> bool {
+        self.expires_at > std::time::SystemTime::now() + FEDERATED_TOKEN_REFRESH_MARGIN
+    }
+}
+
+#[derive(Serialize)]
+struct FederatedTokenRequest<'a> {
+    grant_type: &'static str,
+    assertion: &'a str,
+    federation_rule_id: &'a str,
+    organization_id: &'a str,
+    service_account_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_id: Option<&'a str>,
+}
+
+#[derive(Deserialize)]
+struct FederatedTokenResponse {
+    access_token: String,
+    expires_in: u64,
+}
+
+/// Exchange an OIDC token for an Anthropic access token at `POST /v1/oauth/token`
+/// (RFC 7523 `jwt-bearer` grant). `client` must already be pinned to the
+/// validated address of `base_url`.
+pub async fn exchange_federated_token(
+    client: &reqwest::Client,
+    base_url: &str,
+    federation: &AnthropicFederation,
+    assertion: &str,
+) -> Result<FederatedAccessToken, Error> {
+    let url = AIProvider::build_anthropic_api_url(base_url, "oauth/token");
+    let response = client
+        .post(url)
+        .header("anthropic-version", ANTHROPIC_VERSION_STANDARD)
+        .json(&FederatedTokenRequest {
+            grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            assertion,
+            federation_rule_id: &federation.federation_rule_id,
+            organization_id: &federation.organization_id,
+            service_account_id: &federation.service_account_id,
+            workspace_id: federation.workspace_id.as_deref(),
+        })
+        .send()
+        .await
+        .map_err(|e| Error::internal_err(format!("Anthropic token exchange failed: {e}")))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        // Anthropic answers every denied assertion with the same opaque 401; the
+        // reason is only recorded in the Console's authentication history.
+        let hint = if status == reqwest::StatusCode::UNAUTHORIZED {
+            " The reason the exchange was denied is in the authentication history of the Claude Console's Workload identity page."
+        } else {
+            ""
+        };
+        return Err(Error::BadRequest(format!(
+            "Anthropic token exchange failed with status {status}: {body}.{hint}"
+        )));
+    }
+
+    let token = response
+        .json::<FederatedTokenResponse>()
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to parse the Anthropic token exchange response: {e}"
+            ))
+        })?;
+    Ok(FederatedAccessToken {
+        access_token: token.access_token,
+        expires_at: std::time::SystemTime::now() + std::time::Duration::from_secs(token.expires_in),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -859,9 +977,32 @@ mod tests {
             aws_secret_access_key: None,
             aws_session_token: None,
             oidc_role_arn: None,
+            anthropic_federation: None,
             platform,
             custom_headers: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn federation_only_without_a_key_on_the_standard_platform() {
+        let federation = AnthropicFederation {
+            federation_rule_id: "fdrl_x".to_string(),
+            organization_id: "org".to_string(),
+            service_account_id: "svac_x".to_string(),
+            workspace_id: None,
+        };
+        let mut creds = credentials(AIPlatform::Standard);
+        creds.anthropic_federation = Some(federation.clone());
+        assert!(federation_to_exchange(&creds).is_none(), "an API key wins");
+
+        creds.api_key = None;
+        assert_eq!(federation_to_exchange(&creds), Some(&federation));
+
+        creds.platform = AIPlatform::GoogleVertexAi;
+        assert!(
+            federation_to_exchange(&creds).is_none(),
+            "Vertex has its own auth"
+        );
     }
 
     const SYSTEM_PROMPT: &str = "You are a helpful assistant";

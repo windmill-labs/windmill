@@ -24,7 +24,10 @@ use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
 use windmill_ai::ai_types::{validate_token_limit, CONTEXT_WINDOWS, MAX_MODEL_RATE, OUTPUT_LIMITS};
-use windmill_ai::credentials::ProviderCredentials;
+use windmill_ai::credentials::{AnthropicFederation, ProviderCredentials};
+use windmill_ai::providers::anthropic::{
+    exchange_federated_token, federation_to_exchange, FederatedAccessToken, ANTHROPIC_API_BASE_URL,
+};
 #[cfg(feature = "bedrock")]
 use windmill_ai::providers::bedrock::{
     handle_bedrock_proxy, BedrockProxyResponse, BedrockProxyResponseBody,
@@ -119,6 +122,10 @@ lazy_static::lazy_static! {
 
     pub static ref AI_REQUEST_CACHE: Cache<(String, AIProvider), ExpiringProviderCredentials> = Cache::new(500);
 
+    /// Anthropic access tokens from a federated exchange, keyed by (workspace,
+    /// federation settings, user email). Like BEDROCK_ASSUMED_ROLE_CACHE, an entry
+    /// is never handed to another user than the one the OIDC token named.
+    static ref ANTHROPIC_FEDERATED_TOKEN_CACHE: Cache<(String, AnthropicFederation, String), FederatedAccessToken> = Cache::new(500);
 }
 
 #[cfg(feature = "bedrock")]
@@ -132,6 +139,8 @@ lazy_static::lazy_static! {
 
 pub(crate) fn invalidate_ai_request_cache_for_workspace(workspace_id: &str) {
     AI_REQUEST_CACHE.retain(|(cached_workspace_id, _), _| cached_workspace_id != workspace_id);
+    ANTHROPIC_FEDERATED_TOKEN_CACHE
+        .retain(|(cached_workspace_id, _, _), _| cached_workspace_id != workspace_id);
     // Dropped alongside the credentials that named the role, so that changing a
     // workspace's AI settings does not leave a session assumed under the old ones
     // in play until STS expires it.
@@ -228,6 +237,17 @@ struct AIStandardResource {
         deserialize_with = "empty_string_as_none"
     )]
     oidc_role_arn: Option<String>,
+    /// Anthropic Workload Identity Federation: the Claude Console federation rule,
+    /// organization, service account and (for a multi-workspace rule) workspace to
+    /// exchange the requesting user's OIDC token against.
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    federation_rule_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    federation_organization_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    federation_service_account_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    federation_workspace_id: Option<String>,
     /// Platform (standard or google_vertex_ai)
     #[serde(default)]
     platform: AIPlatform,
@@ -333,6 +353,17 @@ async fn resolve_provider_credentials(
                 None
             };
 
+            let anthropic_federation = if *provider == AIProvider::Anthropic {
+                anthropic_federation_from_resource(
+                    resource.federation_rule_id,
+                    resource.federation_organization_id,
+                    resource.federation_service_account_id,
+                    resource.federation_workspace_id,
+                )?
+            } else {
+                None
+            };
+
             Ok(ProviderCredentials {
                 provider: provider.clone(),
                 base_url,
@@ -345,6 +376,7 @@ async fn resolve_provider_credentials(
                 aws_secret_access_key,
                 aws_session_token,
                 oidc_role_arn,
+                anthropic_federation,
                 platform: resource.platform,
                 custom_headers: resource.headers,
             })
@@ -370,10 +402,37 @@ async fn resolve_provider_credentials(
                 aws_secret_access_key: None,
                 aws_session_token: None,
                 oidc_role_arn: None,
+                anthropic_federation: None,
                 platform: AIPlatform::Standard,
                 custom_headers: HashMap::new(),
             })
         }
+    }
+}
+
+/// None when no federation field is set; an error when only some are, so a
+/// half-filled resource is reported rather than sent to Anthropic without a key.
+fn anthropic_federation_from_resource(
+    federation_rule_id: Option<String>,
+    organization_id: Option<String>,
+    service_account_id: Option<String>,
+    workspace_id: Option<String>,
+) -> Result<Option<AnthropicFederation>> {
+    match (federation_rule_id, organization_id, service_account_id) {
+        (None, None, None) => Ok(None),
+        (Some(federation_rule_id), Some(organization_id), Some(service_account_id)) => {
+            Ok(Some(AnthropicFederation {
+                federation_rule_id,
+                organization_id,
+                service_account_id,
+                workspace_id,
+            }))
+        }
+        _ => Err(Error::BadRequest(
+            "Workload Identity Federation needs federation_rule_id, federation_organization_id \
+             and federation_service_account_id to all be set on the Anthropic resource"
+                .to_string(),
+        )),
     }
 }
 
@@ -517,6 +576,89 @@ async fn assume_bedrock_role(
         let _ = (db, w_id, authed, role_arn, region, session_name);
         Err(Error::BadRequest(
             "Assuming an AWS role through Windmill's OIDC provider requires an enterprise license"
+                .to_string(),
+        ))
+    }
+}
+
+/// Exchange an OIDC token minted for the requesting user for an Anthropic access
+/// token, in place, when the resource is set up for Workload Identity Federation.
+///
+/// Runs after the workspace credential cache for the same reason the Bedrock
+/// exchange does: the token's `sub` names the user, and is what a federation rule
+/// matches and the Claude Console's authentication history records.
+///
+/// `resource_from_path` marks a resource named by `X-Resource-Path`, which anyone
+/// with read access may use but someone else may have written. The exchanged token
+/// is the caller's identity, so it only goes to Anthropic's own API there: a custom
+/// base URL would hand it to whoever set that URL.
+async fn resolve_anthropic_federated_credentials(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    credentials: &mut ProviderCredentials,
+    resource_from_path: bool,
+) -> Result<()> {
+    let Some(federation) = federation_to_exchange(credentials) else {
+        return Ok(());
+    };
+
+    if resource_from_path
+        && AIProvider::build_anthropic_api_url(&credentials.base_url, "")
+            != AIProvider::build_anthropic_api_url(ANTHROPIC_API_BASE_URL, "")
+    {
+        return Err(Error::BadRequest(format!(
+            "Workload Identity Federation through a resource picked by path only works against {ANTHROPIC_API_BASE_URL}; this resource sets base_url to {}",
+            credentials.base_url
+        )));
+    }
+
+    let cache_key = (w_id.to_string(), federation.clone(), authed.email.clone());
+    let token = match ANTHROPIC_FEDERATED_TOKEN_CACHE
+        .get(&cache_key)
+        .filter(FederatedAccessToken::is_fresh)
+    {
+        Some(cached) => cached,
+        None => {
+            let assertion = mint_anthropic_oidc_token(db, w_id, authed).await?;
+            let client = pinned_ai_client_for(&credentials.base_url).await?;
+            let token =
+                exchange_federated_token(&client, &credentials.base_url, federation, &assertion)
+                    .await?;
+            ANTHROPIC_FEDERATED_TOKEN_CACHE.insert(cache_key, token.clone());
+            token
+        }
+    };
+
+    credentials.access_token = Some(token.access_token);
+    Ok(())
+}
+
+async fn mint_anthropic_oidc_token(db: &DB, w_id: &str, authed: &ApiAuthed) -> Result<String> {
+    #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+    {
+        use windmill_ai::providers::anthropic::{
+            ANTHROPIC_OIDC_AUDIENCE, ANTHROPIC_OIDC_TOKEN_LIFETIME_SECS,
+        };
+        use windmill_common::oidc_oss::{generate_id_token, OidcCaller, WorkspaceClaim};
+
+        let id_token = generate_id_token(
+            OidcCaller::Anthropic,
+            Some(db),
+            WorkspaceClaim { workspace: w_id.to_string() },
+            ANTHROPIC_OIDC_AUDIENCE,
+            format!("{}::{}", authed.email, w_id),
+            Some(authed.email.clone()),
+            Some(ANTHROPIC_OIDC_TOKEN_LIFETIME_SECS),
+        )
+        .await?;
+        Ok(id_token.to_string())
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "openidconnect", feature = "private")))]
+    {
+        let _ = (db, w_id, authed);
+        Err(Error::BadRequest(
+            "Anthropic Workload Identity Federation through Windmill's OIDC provider requires an enterprise license"
                 .to_string(),
         ))
     }
@@ -1129,6 +1271,7 @@ async fn global_proxy(
         aws_secret_access_key: None,
         aws_session_token: None,
         oidc_role_arn: None,
+        anthropic_federation: None,
         platform: AIPlatform::Standard,
         custom_headers: HashMap::new(),
     };
@@ -1435,6 +1578,14 @@ async fn proxy(
 
     #[cfg(feature = "bedrock")]
     resolve_bedrock_oidc_credentials(&db, &w_id, &authed, &mut credentials).await?;
+    resolve_anthropic_federated_credentials(
+        &db,
+        &w_id,
+        &authed,
+        &mut credentials,
+        is_user_specified_resource,
+    )
+    .await?;
 
     // Free tier: pin the model and clamp max_tokens server-side before forwarding,
     // since the request body is otherwise client-controlled.
@@ -1643,6 +1794,7 @@ mod tests {
             aws_secret_access_key: None,
             aws_session_token: None,
             oidc_role_arn: None,
+            anthropic_federation: None,
             platform: AIPlatform::Standard,
             custom_headers: HashMap::new(),
         }
