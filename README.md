@@ -250,15 +250,11 @@ Configure OAuth and SSO (Google Workspace, Microsoft/Azure, Okta) directly from 
 
 ### License
 
-The Community Edition is free to use internally. For commercial redistribution or managed services, contact <sales@windmill.dev>. See [LICENSE](./LICENSE) and [Pricing](https://www.windmill.dev/pricing) for details.
+- Using the Community Edition as is, internally or through its APIs, is free and needs no commercial license, within the limits and quotas set in the software.
+- Selling, reselling or serving the Community Edition as a managed service, modifying or wrapping it, or re-exposing it to your users as a feature of your product (iframed public apps excepted) requires a commercial license: contact <sales@windmill.dev>.
+- The binary built from this repository without the `enterprise` feature flag is open source under [AGPLv3](./LICENSE-AGPL): the same uses are then allowed under the AGPLv3 terms, or with a commercial license. The API clients and the OpenAPI spec are [Apache 2.0](./LICENSE-APACHE).
 
-The "Community Edition" of Windmill available in the docker images hosted under ghcr.io/windmill-labs/windmill and the github binary releases contains the files under the AGPLv3 and Apache 2 sources but also includes proprietary and non-public code and features which are not open source and under the following terms: Windmill Labs, Inc. grants a right to use all the features of the "Community Edition" for free without restrictions other than the limits and quotas set in the software and a right to distribute the community edition as is but not to sell, resell, serve Windmill as a managed service, modify or wrap under any form without an explicit agreement.
-
-The binary compilable from source code in this repository without the "enterprise" feature flag is open-source under the [LICENSE-AGPLv3](https://github.com/windmill-labs/windmill/blob/main/LICENSE-AGPL) License terms and conditions.
-
-To [re-expose directly any Windmill parts to your users](https://www.windmill.dev/docs/misc/white_labelling) as a feature of your product, with the exception of iframed public Windmill "apps", or to build a feature on top of "Windmill Community Edition" that you sell commercially or embed in a distributable product or binary, you must get a commercial license. Contact us at <sales@windmill.dev> if you have any questions. To do the same from the binary compiled from the source code in this repository without the "enterprise" feature flag, you must comply with the AGPLv3 license terms and conditions or get a commercial license from Windmill Labs, Inc.
-
-To use Windmill "Community Edition" as is internally in your organization, or to use its APIs as is, you do NOT need a commercial license.
+See [LICENSE](./LICENSE) for the full terms and [Pricing](https://www.windmill.dev/pricing) for plans.
 
 ### Integrations
 
