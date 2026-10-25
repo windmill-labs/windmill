@@ -263,10 +263,16 @@ struct OAuthTokens {
 /// It has no base URL on purpose. The exchanged token is the identity of whoever
 /// uses the resource, not of whoever wrote it, so a configurable host would let
 /// the resource's author collect other users' tokens.
+///
+/// Only `federation_rule_id` decides that a value is one: the other fields are
+/// optional here and checked afterwards, so a resource missing one is reported
+/// rather than read as a standard resource with no key.
 #[derive(Deserialize, Debug)]
 struct AIAnthropicFederatedResource {
     federation_rule_id: String,
+    #[serde(default)]
     organization_id: String,
+    #[serde(default)]
     service_account_id: String,
     #[serde(default, deserialize_with = "empty_string_as_none")]
     workspace_id: Option<String>,
@@ -1798,6 +1804,12 @@ mod tests {
             Ok(AIResource::AnthropicFederated(
                 AIAnthropicFederatedResource { workspace_id: None, .. }
             ))
+        ));
+
+        let incomplete = serde_json::json!({"federation_rule_id": "fdrl_x"});
+        assert!(matches!(
+            serde_json::from_value::<AIResource>(incomplete),
+            Ok(AIResource::AnthropicFederated(_))
         ));
 
         // `organization_id` is also the OpenAI organization of a standard resource.
