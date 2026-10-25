@@ -1804,6 +1804,18 @@ pub async fn run_agent(
                         )));
                     }
 
+                    if credentials.provider == AIProvider::Anthropic
+                        && credentials.api_key.is_none()
+                        && args.provider.resource.federation_rule_id.is_some()
+                    {
+                        return Err(Error::ExecutionErr(
+                            "The Anthropic resource authenticates through Workload Identity \
+                             Federation, which only Windmill AI chat supports. Set an API key on \
+                             the resource to use it in an AI agent step."
+                                .to_string(),
+                        ));
+                    }
+
                     let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
                         .await
                         .0;

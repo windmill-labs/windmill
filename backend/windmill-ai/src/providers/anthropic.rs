@@ -840,6 +840,12 @@ impl QueryBuilder for AnthropicQueryBuilder {
 
 pub const ANTHROPIC_API_BASE_URL: &str = "https://api.anthropic.com/v1";
 
+/// Whether `base_url` is Anthropic's own API, with or without its `/v1`.
+pub fn is_anthropic_api(base_url: &str) -> bool {
+    AIProvider::build_anthropic_api_url(base_url, "")
+        == AIProvider::build_anthropic_api_url(ANTHROPIC_API_BASE_URL, "")
+}
+
 /// Audience of the OIDC token Windmill presents in an Anthropic token exchange,
 /// which a federation rule can pin with its `audience` matcher.
 pub const ANTHROPIC_OIDC_AUDIENCE: &str = "https://api.anthropic.com";
@@ -851,7 +857,9 @@ pub const ANTHROPIC_OIDC_AUDIENCE: &str = "https://api.anthropic.com";
 pub const ANTHROPIC_OIDC_TOKEN_LIFETIME_SECS: i64 = 1800;
 
 /// Exchange again this long before the access token expires, so a long streamed
-/// response that starts on a reused token cannot outlive it.
+/// response that starts on a reused token cannot outlive it. Capped at half the
+/// token's lifetime: a rule may mint tokens for as little as a minute, and a
+/// margin longer than that would exchange again on every request.
 const FEDERATED_TOKEN_REFRESH_MARGIN: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// The federation settings to exchange for an access token, if this request
@@ -875,12 +883,17 @@ pub fn federation_to_exchange(credentials: &ProviderCredentials) -> Option<&Anth
 #[derive(Clone, Debug)]
 pub struct FederatedAccessToken {
     pub access_token: String,
-    pub expires_at: std::time::SystemTime,
+    refresh_at: std::time::SystemTime,
 }
 
 impl FederatedAccessToken {
+    fn new(access_token: String, lifetime: std::time::Duration) -> Self {
+        let margin = FEDERATED_TOKEN_REFRESH_MARGIN.min(lifetime / 2);
+        Self { access_token, refresh_at: std::time::SystemTime::now() + lifetime - margin }
+    }
+
     pub fn is_fresh(&self) -> bool {
-        self.expires_at > std::time::SystemTime::now() + FEDERATED_TOKEN_REFRESH_MARGIN
+        std::time::SystemTime::now() < self.refresh_at
     }
 }
 
@@ -949,10 +962,10 @@ pub async fn exchange_federated_token(
                 "Failed to parse the Anthropic token exchange response: {e}"
             ))
         })?;
-    Ok(FederatedAccessToken {
-        access_token: token.access_token,
-        expires_at: std::time::SystemTime::now() + std::time::Duration::from_secs(token.expires_in),
-    })
+    Ok(FederatedAccessToken::new(
+        token.access_token,
+        std::time::Duration::from_secs(token.expires_in),
+    ))
 }
 
 #[cfg(test)]
@@ -1003,6 +1016,17 @@ mod tests {
             federation_to_exchange(&creds).is_none(),
             "Vertex has its own auth"
         );
+    }
+
+    #[test]
+    fn only_anthropic_own_api_counts_as_anthropic_api() {
+        assert!(is_anthropic_api("https://api.anthropic.com"));
+        assert!(is_anthropic_api("https://api.anthropic.com/v1/"));
+        assert!(!is_anthropic_api(
+            "https://api.anthropic.com.evil.example/v1"
+        ));
+        assert!(!is_anthropic_api("http://api.anthropic.com/v1"));
+        assert!(!is_anthropic_api("https://gateway.example/v1"));
     }
 
     const SYSTEM_PROMPT: &str = "You are a helpful assistant";

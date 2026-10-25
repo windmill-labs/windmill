@@ -26,7 +26,8 @@ use windmill_ai::ai_providers::{
 use windmill_ai::ai_types::{validate_token_limit, CONTEXT_WINDOWS, MAX_MODEL_RATE, OUTPUT_LIMITS};
 use windmill_ai::credentials::{AnthropicFederation, ProviderCredentials};
 use windmill_ai::providers::anthropic::{
-    exchange_federated_token, federation_to_exchange, FederatedAccessToken, ANTHROPIC_API_BASE_URL,
+    exchange_federated_token, federation_to_exchange, is_anthropic_api, FederatedAccessToken,
+    ANTHROPIC_API_BASE_URL,
 };
 #[cfg(feature = "bedrock")]
 use windmill_ai::providers::bedrock::{
@@ -603,10 +604,7 @@ async fn resolve_anthropic_federated_credentials(
         return Ok(());
     };
 
-    if resource_from_path
-        && AIProvider::build_anthropic_api_url(&credentials.base_url, "")
-            != AIProvider::build_anthropic_api_url(ANTHROPIC_API_BASE_URL, "")
-    {
+    if resource_from_path && !is_anthropic_api(&credentials.base_url) {
         return Err(Error::BadRequest(format!(
             "Workload Identity Federation through a resource picked by path only works against {ANTHROPIC_API_BASE_URL}; this resource sets base_url to {}",
             credentials.base_url
