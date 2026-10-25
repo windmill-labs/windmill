@@ -46,6 +46,7 @@ https://github.com/user-attachments/assets/d80de1d9-64de-4d89-aacd-6df23fa81fc4
   - [Build with AI, ship with review](#build-with-ai-ship-with-review)
   - [Main Concepts](#main-concepts)
   - [What the code looks like](#what-the-code-looks-like)
+  - [Data: data tables, DuckDB and DuckLake](#data-data-tables-duckdb-and-ducklake)
   - [Develop locally or in the browser](#develop-locally-or-in-the-browser)
   - [Stack](#stack)
   - [Fastest Self-Hostable Workflow Engine](#fastest-self-hostable-workflow-engine)
@@ -108,16 +109,26 @@ import * as wmill from "windmill-client";
 import dayjs from "dayjs"; // any npm package, resolved and pinned automatically
 
 export async function main(
-  db: RT.Postgresql, // a resource from the workspace: credentials stay out of the code
-  env: "staging" | "production", // a union of strings becomes a dropdown
-  retries = 3 // defaults infer the type
+  customerId: string,
+  plan: "starter" | "pro", // a union of strings becomes a dropdown
+  trialDays = 14 // defaults infer the type
 ) {
-  const token = await wmill.getVariable("f/ops/api_token"); // secrets are permissioned by path
-  const lastRun = await wmill.getState(); // state persists between runs
-  console.log(`Last run: ${lastRun ?? "never"}`); // logs stream live in the UI
-  await wmill.setState(dayjs().toISOString());
+  const trialEnd = dayjs().add(trialDays, "day").toISOString();
 
-  return { env, host: db.host, retries, hasToken: token.length > 0 }; // returned as JSON
+  // a data table: the workspace's Postgres, queried without a connection string
+  const sql = wmill.datatable();
+  await sql`INSERT INTO trials (customer_id, plan, trial_end) VALUES (${customerId}, ${plan}, ${trialEnd})`.fetch();
+
+  // secrets are permissioned by path
+  const slackToken = await wmill.getVariable("f/sales/slack_token");
+  await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${slackToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ channel: "#sales", text: `New ${plan} trial: ${customerId}` }),
+  });
+
+  console.log(`Trial started for ${customerId}`); // logs stream live in the UI
+  return { customerId, plan, trialEnd }; // returned as JSON
 }
 ```
 
@@ -145,6 +156,25 @@ export const main = workflow(async (env: string) => {
 ```
 
 Flows can also be built in the visual [flow editor](https://www.windmill.dev/docs/flows/flow_editor) or as YAML, with scripts like the first one as steps. See [workflows as code](https://www.windmill.dev/docs/core_concepts/workflows_as_code).
+
+## Data: data tables, DuckDB and DuckLake
+
+- [Data tables](https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables) give each workspace managed Postgres tables, queried with type-checked SQL from TypeScript, Python and DuckDB scripts without exposing a connection string.
+- [DuckDB](https://www.windmill.dev/docs/integrations/duckdb) scripts query S3 and Azure Blob files (CSV, Parquet, JSON), data tables, Postgres, MySQL and BigQuery in SQL, on your workers.
+- [DuckLake](https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake) stores large datasets as lakehouse tables in your workspace object storage, queried in plain SQL.
+- [Pipelines](https://www.windmill.dev/docs/core_concepts/pipelines) (alpha) wire scripts by the data they read and write instead of a hand-drawn DAG. This script runs whenever `events` is materialized, and materializes its own table:
+
+```sql
+-- pipeline
+-- on ducklake://main/events
+-- materialize ducklake://main/events_by_kind
+ATTACH 'ducklake://main' AS dl;
+SELECT kind, count(*) AS n
+FROM dl.events
+GROUP BY kind;
+```
+
+Existing [dbt projects](https://www.windmill.dev/docs/getting_started/scripts_quickstart/dbt) run unmodified as scripts. See the [pipelines quickstart](https://www.windmill.dev/docs/getting_started/pipeline_quickstart).
 
 ## Develop locally or in the browser
 
