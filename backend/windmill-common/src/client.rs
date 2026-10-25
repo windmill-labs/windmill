@@ -70,9 +70,13 @@ impl AuthedClient {
             })
     }
 
+    pub async fn get_id_token(&self, audience: &str) -> anyhow::Result<String> {
+        self.get_id_token_expiring_in(audience, None).await
+    }
+
     /// `expires_in` caps the token's lifetime below the instance default, for
     /// audiences that refuse long-lived assertions.
-    pub async fn get_id_token(
+    pub async fn get_id_token_expiring_in(
         &self,
         audience: &str,
         expires_in: Option<i64>,

@@ -977,7 +977,7 @@ pub async fn refresh_federated_access_token<'a>(
     if !cached.as_ref().is_some_and(FederatedAccessToken::is_fresh) {
         // A worker holds no OIDC signing key, so it asks the API to mint the token for this job.
         let assertion = client
-            .get_id_token(
+            .get_id_token_expiring_in(
                 ANTHROPIC_OIDC_AUDIENCE,
                 Some(ANTHROPIC_OIDC_TOKEN_LIFETIME_SECS),
             )
