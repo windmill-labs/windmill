@@ -259,7 +259,6 @@
 		return registryEntryFor(connectClient, resourceType)
 	}
 
-	/** The static registry declares this provider supports client credentials */
 	let resourceTypeAlternative = $derived(AI_RESOURCE_TYPE_ALTERNATIVES[resourceType])
 
 	function switchToResourceType(rt: string) {
@@ -270,6 +269,7 @@
 		getResourceTypeInfo()
 	}
 
+	/** The static registry declares this provider supports client credentials */
 	function registryCcCapable(): boolean {
 		return registryCcCapableFor(connectClient, resourceType)
 	}
