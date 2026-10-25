@@ -32,10 +32,9 @@ pub struct ProviderCredentials {
     /// A role trust policy that conditions on `sub` has to admit both, or only
     /// one of the copilot and the AI agent step will be able to assume the role.
     pub oidc_role_arn: Option<String>,
-    /// Anthropic Workload Identity Federation settings. Only consulted when no
-    /// API key is set — see [`crate::providers::anthropic::federation_to_exchange`].
-    /// The API proxy exchanges an OIDC token minted for the requesting user for a
-    /// short-lived access token, which then goes out as `access_token`.
+    /// Anthropic Workload Identity Federation settings, from an `anthropic_federated`
+    /// resource. The API proxy exchanges an OIDC token minted for the requesting
+    /// user for a short-lived access token, which then goes out as `access_token`.
     pub anthropic_federation: Option<AnthropicFederation>,
     pub platform: AIPlatform,
     pub custom_headers: HashMap<String, String>,

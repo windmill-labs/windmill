@@ -26,8 +26,7 @@ use windmill_ai::ai_providers::{
 use windmill_ai::ai_types::{validate_token_limit, CONTEXT_WINDOWS, MAX_MODEL_RATE, OUTPUT_LIMITS};
 use windmill_ai::credentials::{AnthropicFederation, ProviderCredentials};
 use windmill_ai::providers::anthropic::{
-    exchange_federated_token, federation_to_exchange, is_anthropic_api, FederatedAccessToken,
-    ANTHROPIC_API_BASE_URL,
+    exchange_federated_token, FederatedAccessToken, ANTHROPIC_API_BASE_URL,
 };
 #[cfg(feature = "bedrock")]
 use windmill_ai::providers::bedrock::{
@@ -238,17 +237,6 @@ struct AIStandardResource {
         deserialize_with = "empty_string_as_none"
     )]
     oidc_role_arn: Option<String>,
-    /// Anthropic Workload Identity Federation: the Claude Console federation rule,
-    /// organization, service account and (for a multi-workspace rule) workspace to
-    /// exchange the requesting user's OIDC token against.
-    #[serde(default, deserialize_with = "empty_string_as_none")]
-    federation_rule_id: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
-    federation_organization_id: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
-    federation_service_account_id: Option<String>,
-    #[serde(default, deserialize_with = "empty_string_as_none")]
-    federation_workspace_id: Option<String>,
     /// Platform (standard or google_vertex_ai)
     #[serde(default)]
     platform: AIPlatform,
@@ -268,10 +256,27 @@ struct OAuthTokens {
     access_token: String,
 }
 
+/// An `anthropic_federated` resource: the Claude Console federation rule,
+/// organization, service account and (for a rule enabled in several workspaces)
+/// workspace to exchange the requesting user's OIDC token against.
+///
+/// It has no base URL on purpose. The exchanged token is the identity of whoever
+/// uses the resource, not of whoever wrote it, so a configurable host would let
+/// the resource's author collect other users' tokens.
+#[derive(Deserialize, Debug)]
+struct AIAnthropicFederatedResource {
+    federation_rule_id: String,
+    organization_id: String,
+    service_account_id: String,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    workspace_id: Option<String>,
+}
+
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
 enum AIResource {
     OAuth(AIOAuthResource),
+    AnthropicFederated(AIAnthropicFederatedResource),
     Standard(AIStandardResource),
 }
 
@@ -354,17 +359,6 @@ async fn resolve_provider_credentials(
                 None
             };
 
-            let anthropic_federation = if *provider == AIProvider::Anthropic {
-                anthropic_federation_from_resource(
-                    resource.federation_rule_id,
-                    resource.federation_organization_id,
-                    resource.federation_service_account_id,
-                    resource.federation_workspace_id,
-                )?
-            } else {
-                None
-            };
-
             Ok(ProviderCredentials {
                 provider: provider.clone(),
                 base_url,
@@ -377,9 +371,48 @@ async fn resolve_provider_credentials(
                 aws_secret_access_key,
                 aws_session_token,
                 oidc_role_arn,
-                anthropic_federation,
+                anthropic_federation: None,
                 platform: resource.platform,
                 custom_headers: resource.headers,
+            })
+        }
+        AIResource::AnthropicFederated(resource) => {
+            if *provider != AIProvider::Anthropic {
+                return Err(Error::BadRequest(format!(
+                    "An anthropic_federated resource can only be used for the Anthropic provider, not {provider:?}"
+                )));
+            }
+            let required = [
+                ("federation_rule_id", &resource.federation_rule_id),
+                ("organization_id", &resource.organization_id),
+                ("service_account_id", &resource.service_account_id),
+            ];
+            if let Some((field, _)) = required.iter().find(|(_, value)| value.is_empty()) {
+                return Err(Error::BadRequest(format!(
+                    "The anthropic_federated resource needs {field} to be set"
+                )));
+            }
+
+            Ok(ProviderCredentials {
+                provider: provider.clone(),
+                base_url: ANTHROPIC_API_BASE_URL.to_string(),
+                api_key: None,
+                access_token: None,
+                organization_id: None,
+                user: None,
+                region: None,
+                aws_access_key_id: None,
+                aws_secret_access_key: None,
+                aws_session_token: None,
+                oidc_role_arn: None,
+                anthropic_federation: Some(AnthropicFederation {
+                    federation_rule_id: resource.federation_rule_id,
+                    organization_id: resource.organization_id,
+                    service_account_id: resource.service_account_id,
+                    workspace_id: resource.workspace_id,
+                }),
+                platform: AIPlatform::Standard,
+                custom_headers: HashMap::new(),
             })
         }
         AIResource::OAuth(resource) => {
@@ -408,32 +441,6 @@ async fn resolve_provider_credentials(
                 custom_headers: HashMap::new(),
             })
         }
-    }
-}
-
-/// None when no federation field is set; an error when only some are, so a
-/// half-filled resource is reported rather than sent to Anthropic without a key.
-fn anthropic_federation_from_resource(
-    federation_rule_id: Option<String>,
-    organization_id: Option<String>,
-    service_account_id: Option<String>,
-    workspace_id: Option<String>,
-) -> Result<Option<AnthropicFederation>> {
-    match (federation_rule_id, organization_id, service_account_id) {
-        (None, None, None) => Ok(None),
-        (Some(federation_rule_id), Some(organization_id), Some(service_account_id)) => {
-            Ok(Some(AnthropicFederation {
-                federation_rule_id,
-                organization_id,
-                service_account_id,
-                workspace_id,
-            }))
-        }
-        _ => Err(Error::BadRequest(
-            "Workload Identity Federation needs federation_rule_id, federation_organization_id \
-             and federation_service_account_id to all be set on the Anthropic resource"
-                .to_string(),
-        )),
     }
 }
 
@@ -588,28 +595,15 @@ async fn assume_bedrock_role(
 /// Runs after the workspace credential cache for the same reason the Bedrock
 /// exchange does: the token's `sub` names the user, and is what a federation rule
 /// matches and the Claude Console's authentication history records.
-///
-/// `resource_from_path` marks a resource named by `X-Resource-Path`, which anyone
-/// with read access may use but someone else may have written. The exchanged token
-/// is the caller's identity, so it only goes to Anthropic's own API there: a custom
-/// base URL would hand it to whoever set that URL.
 async fn resolve_anthropic_federated_credentials(
     db: &DB,
     w_id: &str,
     authed: &ApiAuthed,
     credentials: &mut ProviderCredentials,
-    resource_from_path: bool,
 ) -> Result<()> {
-    let Some(federation) = federation_to_exchange(credentials) else {
+    let Some(federation) = credentials.anthropic_federation.as_ref() else {
         return Ok(());
     };
-
-    if resource_from_path && !is_anthropic_api(&credentials.base_url) {
-        return Err(Error::BadRequest(format!(
-            "Workload Identity Federation through a resource picked by path only works against {ANTHROPIC_API_BASE_URL}; this resource sets base_url to {}",
-            credentials.base_url
-        )));
-    }
 
     let cache_key = (w_id.to_string(), federation.clone(), authed.email.clone());
     let token = match ANTHROPIC_FEDERATED_TOKEN_CACHE
@@ -1576,14 +1570,7 @@ async fn proxy(
 
     #[cfg(feature = "bedrock")]
     resolve_bedrock_oidc_credentials(&db, &w_id, &authed, &mut credentials).await?;
-    resolve_anthropic_federated_credentials(
-        &db,
-        &w_id,
-        &authed,
-        &mut credentials,
-        is_user_specified_resource,
-    )
-    .await?;
+    resolve_anthropic_federated_credentials(&db, &w_id, &authed, &mut credentials).await?;
 
     // Free tier: pin the model and clamp max_tokens server-side before forwarding,
     // since the request body is otherwise client-controlled.
@@ -1796,6 +1783,29 @@ mod tests {
             platform: AIPlatform::Standard,
             custom_headers: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn only_a_federation_rule_makes_a_resource_anthropic_federated() {
+        let federated = serde_json::json!({
+            "federation_rule_id": "fdrl_x",
+            "organization_id": "00000000-0000-0000-0000-000000000000",
+            "service_account_id": "svac_x",
+            "workspace_id": ""
+        });
+        assert!(matches!(
+            serde_json::from_value::<AIResource>(federated),
+            Ok(AIResource::AnthropicFederated(
+                AIAnthropicFederatedResource { workspace_id: None, .. }
+            ))
+        ));
+
+        // `organization_id` is also the OpenAI organization of a standard resource.
+        let standard = serde_json::json!({"api_key": "k", "organization_id": "org-x"});
+        assert!(matches!(
+            serde_json::from_value::<AIResource>(standard),
+            Ok(AIResource::Standard(_))
+        ));
     }
 
     #[test]

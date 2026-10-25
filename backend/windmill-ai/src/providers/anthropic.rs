@@ -2,7 +2,7 @@ use super::{anthropic_model_rejects_sampling_params, REASONING_OFF_SENTINEL};
 use crate::{
     ai_google::parse_data_url,
     ai_providers::{AIPlatform, AIProvider, DISABLE_ANTHROPIC_PROMPT_CACHING},
-    credentials::{AnthropicFederation, ProviderCredentials},
+    credentials::AnthropicFederation,
     image_handler::prepare_messages_for_api,
     proxy::{
         add_user_to_body, common_outbound_headers, credential_header, ProxyBuildArgs, ProxyRequest,
@@ -840,12 +840,6 @@ impl QueryBuilder for AnthropicQueryBuilder {
 
 pub const ANTHROPIC_API_BASE_URL: &str = "https://api.anthropic.com/v1";
 
-/// Whether `base_url` is Anthropic's own API, with or without its `/v1`.
-pub fn is_anthropic_api(base_url: &str) -> bool {
-    AIProvider::build_anthropic_api_url(base_url, "")
-        == AIProvider::build_anthropic_api_url(ANTHROPIC_API_BASE_URL, "")
-}
-
 /// Audience of the OIDC token Windmill presents in an Anthropic token exchange,
 /// which a federation rule can pin with its `audience` matcher.
 pub const ANTHROPIC_OIDC_AUDIENCE: &str = "https://api.anthropic.com";
@@ -862,23 +856,6 @@ pub const ANTHROPIC_OIDC_TOKEN_LIFETIME_SECS: i64 = 1800;
 /// margin longer than that would exchange again on every request.
 const FEDERATED_TOKEN_REFRESH_MARGIN: std::time::Duration = std::time::Duration::from_secs(300);
 
-/// The federation settings to exchange for an access token, if this request
-/// should federate: an API key set on the resource wins, and Vertex AI has its
-/// own Google credentials.
-pub fn federation_to_exchange(credentials: &ProviderCredentials) -> Option<&AnthropicFederation> {
-    if credentials.provider != AIProvider::Anthropic
-        || credentials.platform != AIPlatform::Standard
-        || credentials
-            .api_key
-            .as_deref()
-            .is_some_and(|key| !key.is_empty())
-        || credentials.access_token.is_some()
-    {
-        return None;
-    }
-    credentials.anthropic_federation.as_ref()
-}
-
 /// A short-lived Anthropic access token minted by a federated token exchange.
 #[derive(Clone, Debug)]
 pub struct FederatedAccessToken {
@@ -888,6 +865,9 @@ pub struct FederatedAccessToken {
 
 impl FederatedAccessToken {
     fn new(access_token: String, lifetime: std::time::Duration) -> Self {
+        // Anthropic mints tokens for at most a day; the clamp keeps an out-of-range
+        // `expires_in` from overflowing the clock arithmetic.
+        let lifetime = lifetime.min(std::time::Duration::from_secs(86400));
         let margin = FEDERATED_TOKEN_REFRESH_MARGIN.min(lifetime / 2);
         Self { access_token, refresh_at: std::time::SystemTime::now() + lifetime - margin }
     }
@@ -994,39 +974,6 @@ mod tests {
             platform,
             custom_headers: HashMap::new(),
         }
-    }
-
-    #[test]
-    fn federation_only_without_a_key_on_the_standard_platform() {
-        let federation = AnthropicFederation {
-            federation_rule_id: "fdrl_x".to_string(),
-            organization_id: "org".to_string(),
-            service_account_id: "svac_x".to_string(),
-            workspace_id: None,
-        };
-        let mut creds = credentials(AIPlatform::Standard);
-        creds.anthropic_federation = Some(federation.clone());
-        assert!(federation_to_exchange(&creds).is_none(), "an API key wins");
-
-        creds.api_key = None;
-        assert_eq!(federation_to_exchange(&creds), Some(&federation));
-
-        creds.platform = AIPlatform::GoogleVertexAi;
-        assert!(
-            federation_to_exchange(&creds).is_none(),
-            "Vertex has its own auth"
-        );
-    }
-
-    #[test]
-    fn only_anthropic_own_api_counts_as_anthropic_api() {
-        assert!(is_anthropic_api("https://api.anthropic.com"));
-        assert!(is_anthropic_api("https://api.anthropic.com/v1/"));
-        assert!(!is_anthropic_api(
-            "https://api.anthropic.com.evil.example/v1"
-        ));
-        assert!(!is_anthropic_api("http://api.anthropic.com/v1"));
-        assert!(!is_anthropic_api("https://gateway.example/v1"));
     }
 
     const SYSTEM_PROMPT: &str = "You are a helpful assistant";
