@@ -154,7 +154,7 @@
 	}
 </script>
 
-<div class="flex flex-col h-full">
+<div class="flex flex-col flex-1 min-h-0">
 	<!-- Header section -->
 	{#if header}
 		<div class="bg-surface">
@@ -196,7 +196,7 @@
 
 	{#if items.length > 0}
 		<!-- Items list -->
-		<div class="overflow-y-auto">
+		<div class="flex-1 min-h-0 overflow-y-auto">
 			<div class="border rounded-md bg-surface-tertiary">
 				{#each groups as group (group.key)}
 					{#if showGroupHeaders}
