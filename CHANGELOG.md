@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.849.0](https://github.com/windmill-labs/windmill/compare/v1.848.3...v1.849.0) (2026-10-25)
+
+
+### Features
+
+* per-user Anthropic Workload Identity Federation for Windmill AI ([#11998](https://github.com/windmill-labs/windmill/issues/11998)) ([6c8fd6c](https://github.com/windmill-labs/windmill/commit/6c8fd6cfe2057f2822230bdf9ad2058f537df996))
+
 ## [1.848.3](https://github.com/windmill-labs/windmill/compare/v1.848.2...v1.848.3) (2026-10-25)
 
 
