@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.848.3](https://github.com/windmill-labs/windmill/compare/v1.848.2...v1.848.3) (2026-10-25)
+
+
+### Bug Fixes
+
+* pin node to 24.22.1 in the worker image for CVE-2026-111497 ([#11995](https://github.com/windmill-labs/windmill/issues/11995)) ([0e79e93](https://github.com/windmill-labs/windmill/commit/0e79e934b6342150ee31de08a19400de482b1969))
+
 ## [1.848.2](https://github.com/windmill-labs/windmill/compare/v1.848.1...v1.848.2) (2026-10-24)
 
 
