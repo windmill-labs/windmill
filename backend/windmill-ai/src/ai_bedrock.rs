@@ -372,7 +372,7 @@ pub async fn refresh_bedrock_oidc_credentials<'a>(
         // A worker holds no OIDC signing key, so it asks the API to mint the
         // token for this job; the session name carries the job into CloudTrail.
         let id_token = client
-            .get_id_token(AWS_OIDC_AUDIENCE)
+            .get_id_token(AWS_OIDC_AUDIENCE, None)
             .await
             .map_err(|e| Error::internal_err(format!("Failed to get OIDC token: {}", e)))?;
         // The whole UUID: "windmill-ai-job-" plus 32 hex is 48 characters, well

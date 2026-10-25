@@ -9,6 +9,7 @@
 	} from './copilot/lib'
 	import type { AIProvider, ProviderConfig } from '$lib/gen'
 	import ResourcePicker from './ResourcePicker.svelte'
+	import { aiResourceProvider } from './copilot/aiResourceProvider'
 	import Toggle from './Toggle.svelte'
 	import { saveConfig, removeConfig, isSameAsStoredConfig } from './aiProviderStorage'
 	import AIReasoningEffortPicker from './AIReasoningEffortPicker.svelte'
@@ -57,7 +58,11 @@
 	const offeredProviders = Object.keys(
 		untrack(() => decision) ? DECISION_AI_PROVIDERS : AI_PROVIDERS
 	)
-	const providerResourceTypes = offeredProviders.join(',')
+	// Federated Anthropic resources authenticate the anthropic provider without a key of their own.
+	const providerResourceTypes = [
+		...offeredProviders,
+		...(offeredProviders.includes('anthropic') ? ['anthropic_federated'] : [])
+	].join(',')
 
 	if (!_uncheckedValue) {
 		_uncheckedValue = {
@@ -143,13 +148,14 @@
 	function onResourcePicked(_path: string | undefined, type: string | undefined) {
 		// An empty type is the placeholder the picker keeps for a saved path it could not find. It
 		// says nothing about the provider, so the kind stands.
-		if (!value || !type || !offeredProviders.includes(type)) {
+		const provider = aiResourceProvider(type)
+		if (!value || !provider || !offeredProviders.includes(provider)) {
 			return
 		}
-		if (value.kind === type) {
+		if (value.kind === provider) {
 			return
 		}
-		value.kind = type as AIProvider
+		value.kind = provider
 		// Models are per provider, and a reasoning token is per model.
 		value.model = ''
 		value.reasoning_effort = undefined

@@ -19,7 +19,7 @@ pub struct McpToolSource {
 use crate::{
     ai_google::sanitize_schema_for_google,
     ai_providers::{empty_string_as_none, AIProvider},
-    credentials::ProviderCredentials,
+    credentials::{AnthropicFederation, ProviderCredentials},
 };
 use windmill_common::{db::DB, error::Error, flow_status::AgentAction, flows::FlowModule};
 use windmill_parser::Typ;
@@ -271,9 +271,15 @@ pub struct ProviderResource {
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub token_url: Option<String>,
     /// Set only by `anthropic_federated` resources, which authenticate through
-    /// Workload Identity Federation with an OIDC token only the API can mint.
+    /// Workload Identity Federation with an OIDC token minted for the job.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub federation_rule_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub organization_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub service_account_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    pub workspace_id: Option<String>,
     /// The API token of a `cloudflare` resource, which names it `token` rather than `api_key`.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub token: Option<String>,
@@ -327,8 +333,13 @@ impl ProviderWithResource {
     /// Callers must only pass resources that were already authorized for the
     /// current job/workspace; this helper does not perform access checks.
     pub async fn to_provider_credentials(&self, db: &DB) -> Result<ProviderCredentials, Error> {
+        let anthropic_federation = self.anthropic_federation()?;
         let base_url = if self.kind == AIProvider::AWSBedrock {
             String::new()
+        } else if anthropic_federation.is_some() {
+            // The exchanged token is the job's identity, so it only ever goes to
+            // Anthropic: a resource cannot point it at another host.
+            crate::providers::anthropic::ANTHROPIC_API_BASE_URL.to_string()
         } else {
             self.get_base_url(db).await?
         };
@@ -352,10 +363,38 @@ impl ProviderWithResource {
             aws_secret_access_key: self.resource.aws_secret_access_key.clone(),
             aws_session_token: self.resource.aws_session_token.clone(),
             oidc_role_arn: self.resource.oidc_role_arn.clone(),
-            anthropic_federation: None,
+            anthropic_federation,
             platform: self.resource.platform.clone(),
             custom_headers: self.resource.headers.clone(),
         })
+    }
+
+    /// The federation settings of an `anthropic_federated` resource, which only
+    /// `federation_rule_id` identifies; the other required fields are checked here.
+    fn anthropic_federation(&self) -> Result<Option<AnthropicFederation>, Error> {
+        let resource = &self.resource;
+        let Some(federation_rule_id) = resource.federation_rule_id.clone() else {
+            return Ok(None);
+        };
+        if self.kind != AIProvider::Anthropic {
+            return Err(Error::ExecutionErr(format!(
+                "An anthropic_federated resource can only be used with the Anthropic provider, not {:?}",
+                self.kind
+            )));
+        }
+        let required = |value: &Option<String>, name: &str| {
+            value.clone().ok_or_else(|| {
+                Error::ExecutionErr(format!(
+                    "The anthropic_federated resource needs {name} to be set"
+                ))
+            })
+        };
+        Ok(Some(AnthropicFederation {
+            federation_rule_id,
+            organization_id: required(&resource.organization_id, "organization_id")?,
+            service_account_id: required(&resource.service_account_id, "service_account_id")?,
+            workspace_id: resource.workspace_id.clone(),
+        }))
     }
 
     #[cfg(feature = "bedrock")]
@@ -987,6 +1026,47 @@ pub struct S3ObjectWithType {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_federated_resource_resolves_its_federation_and_names_a_missing_field() {
+        let provider = |kind: &str, resource: &str| -> ProviderWithResource {
+            serde_json::from_str(&format!(
+                r#"{{"kind":"{kind}","model":"m","resource":{resource}}}"#
+            ))
+            .unwrap()
+        };
+        let federated = r#"{"federation_rule_id":"fdrl_x","organization_id":"org","service_account_id":"svac_x","workspace_id":""}"#;
+
+        assert_eq!(
+            provider("anthropic", federated)
+                .anthropic_federation()
+                .unwrap(),
+            Some(AnthropicFederation {
+                federation_rule_id: "fdrl_x".to_string(),
+                organization_id: "org".to_string(),
+                service_account_id: "svac_x".to_string(),
+                workspace_id: None,
+            })
+        );
+        let incomplete = provider(
+            "anthropic",
+            r#"{"federation_rule_id":"fdrl_x","organization_id":"org"}"#,
+        );
+        assert!(incomplete
+            .anthropic_federation()
+            .unwrap_err()
+            .to_string()
+            .contains("service_account_id"));
+        assert!(provider("openai", federated)
+            .anthropic_federation()
+            .is_err());
+        assert_eq!(
+            provider("anthropic", r#"{"api_key":"k","organization_id":"org"}"#)
+                .anthropic_federation()
+                .unwrap(),
+            None
+        );
+    }
 
     /// The schema is part of the prompt prefix the provider caches on, so its keys must
     /// serialize in the same order on every request.
