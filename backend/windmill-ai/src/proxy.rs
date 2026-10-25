@@ -598,6 +598,35 @@ mod tests {
     }
 
     #[test]
+    fn custom_ai_request_overrides_reach_chat_requests_only() {
+        use crate::providers::create_query_builder;
+
+        let mut creds = credentials(AIProvider::CustomAI, "https://llm.example.com/v1");
+        creds.request_overrides = serde_json::from_value(serde_json::json!({
+            "*": { "body": { "top_k": 20 } }
+        }))
+        .unwrap();
+        let builder = create_query_builder(&creds, "qwen");
+        let headers = HeaderMap::new();
+        let body = br#"{"model":"qwen","messages":[]}"#;
+        let proxied = |method: &Method, path: &str| {
+            let request = builder
+                .build_proxy_request(&ProxyBuildArgs {
+                    method,
+                    path,
+                    headers: &headers,
+                    body,
+                    credentials: &creds,
+                })
+                .unwrap();
+            serde_json::from_slice::<serde_json::Value>(&request.body).unwrap()
+        };
+
+        assert_eq!(proxied(&Method::POST, "chat/completions")["top_k"], 20);
+        assert!(proxied(&Method::POST, "embeddings").get("top_k").is_none());
+    }
+
+    #[test]
     fn foundry_routes_claude_to_anthropic_messages_api() {
         use crate::providers::create_query_builder;
         use crate::types::OutputType;
