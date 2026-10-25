@@ -270,8 +270,8 @@ pub struct ProviderResource {
     /// credentials exchange this crate does not perform.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub token_url: Option<String>,
-    /// Set only by Anthropic resources that authenticate through Workload Identity
-    /// Federation, whose OIDC token only the API can mint.
+    /// Set only by `anthropic_federated` resources, which authenticate through
+    /// Workload Identity Federation with an OIDC token only the API can mint.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub federation_rule_id: Option<String>,
     /// The API token of a `cloudflare` resource, which names it `token` rather than `api_key`.

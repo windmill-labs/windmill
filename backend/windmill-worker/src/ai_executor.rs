@@ -1809,9 +1809,9 @@ pub async fn run_agent(
                         && args.provider.resource.federation_rule_id.is_some()
                     {
                         return Err(Error::ExecutionErr(
-                            "The Anthropic resource authenticates through Workload Identity \
-                             Federation, which only Windmill AI chat supports. Set an API key on \
-                             the resource to use it in an AI agent step."
+                            "An anthropic_federated resource authenticates through Workload \
+                             Identity Federation, which only Windmill AI chat supports. Use an \
+                             anthropic resource with an API key in an AI agent step."
                                 .to_string(),
                         ));
                     }
