@@ -24,16 +24,25 @@
 	)
 	let model = $derived(typeof providerConfig === 'object' ? providerConfig?.model : undefined)
 
+	// Custom AI fronts any OpenAI-compatible endpoint, so the registry knows none of its
+	// models: offer the standard `reasoning_effort` tokens, which the resource's
+	// `request_overrides` can translate into the endpoint's own fields.
+	let customAi = $derived(provider === 'customai' && !!model)
+
 	let capability = $derived(
-		provider && model
-			? getReasoningCapability(provider, model)
-			: { supported: false, levels: [], canDisable: false, known: false }
+		customAi
+			? { supported: true, levels: ['low', 'medium', 'high'], canDisable: true, known: false }
+			: provider && model
+				? getReasoningCapability(provider, model)
+				: { supported: false, levels: [], canDisable: false, known: false }
 	)
 
 	// The token that turns reasoning off on a model that reasons by default
 	// (e.g. Gemini/OpenAI 'none'). Undefined means omission already disables it,
 	// so leaving the effort unset is itself off.
-	let offToken = $derived(provider && model ? explicitOffToken(provider, model) : undefined)
+	let offToken = $derived(
+		customAi ? 'none' : provider && model ? explicitOffToken(provider, model) : undefined
+	)
 
 	// When the model reasons only on request (Anthropic/Bedrock), an unset effort
 	// already means off, so the default choice is labelled "off". Models that

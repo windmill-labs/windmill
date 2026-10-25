@@ -286,6 +286,9 @@ pub struct ProviderResource {
     /// The account of a `cloudflare` resource, which its Workers AI URL is built from.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     pub account_id: Option<String>,
+    /// See [`crate::request_overrides::RequestOverrides`].
+    #[serde(default)]
+    pub request_overrides: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -366,6 +369,9 @@ impl ProviderWithResource {
             anthropic_federation,
             platform: self.resource.platform.clone(),
             custom_headers: self.resource.headers.clone(),
+            request_overrides: crate::request_overrides::parse_request_overrides(
+                self.resource.request_overrides.as_ref(),
+            )?,
         })
     }
 

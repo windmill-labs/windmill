@@ -225,6 +225,10 @@ pub fn create_query_builder(
         AIProvider::TypeSafe | AIProvider::Cloudflare => {
             Box::new(OtherQueryBuilder::new(credentials.provider.clone()))
         }
+        AIProvider::CustomAI => Box::new(
+            OtherQueryBuilder::new(AIProvider::CustomAI)
+                .with_request_overrides(credentials.request_overrides.clone()),
+        ),
         _ => Box::new(OtherQueryBuilder::new(credentials.provider.clone())),
     }
 }
@@ -373,6 +377,7 @@ mod parity_tests {
             anthropic_federation: None,
             platform: kase.platform.clone(),
             custom_headers: HashMap::new(),
+            request_overrides: Default::default(),
         }
     }
 

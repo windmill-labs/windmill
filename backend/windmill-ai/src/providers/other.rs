@@ -4,6 +4,7 @@ use crate::{
     image_handler::prepare_messages_for_api,
     proxy::{build_openai_compatible_proxy_request, ProxyBuildArgs, ProxyRequest},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
+    request_overrides::{apply_request_overrides_to_str, RequestOverrides},
     sse::{OpenAISSEParser, SSEParser},
     types::*,
     utils::should_use_structured_output_tool,
@@ -88,11 +89,17 @@ fn provider_reasoning_fields<'a>(
 /// (Mistral, DeepSeek, Groq, TogetherAI, CustomAI, etc.)
 pub struct OtherQueryBuilder {
     provider_kind: AIProvider,
+    request_overrides: RequestOverrides,
 }
 
 impl OtherQueryBuilder {
     pub fn new(provider_kind: AIProvider) -> Self {
-        Self { provider_kind }
+        Self { provider_kind, request_overrides: RequestOverrides::new() }
+    }
+
+    pub fn with_request_overrides(mut self, request_overrides: RequestOverrides) -> Self {
+        self.request_overrides = request_overrides;
+        self
     }
 
     /// Build both request variants (with and without stream_options) to enable retry on incompatible providers
@@ -188,6 +195,8 @@ impl OtherQueryBuilder {
             .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))?;
         let without_usage = serde_json::to_string(&request_without_usage)
             .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))?;
+        let with_usage = apply_request_overrides_to_str(with_usage, &self.request_overrides)?;
+        let without_usage = apply_request_overrides_to_str(without_usage, &self.request_overrides)?;
 
         Ok(BuiltRequests { with_usage, without_usage })
     }
@@ -239,7 +248,18 @@ impl QueryBuilder for OtherQueryBuilder {
     }
 
     fn build_proxy_request(&self, args: &ProxyBuildArgs<'_>) -> Result<ProxyRequest, Error> {
-        build_openai_compatible_proxy_request(args)
+        let is_chat = *args.method == http::Method::POST
+            && args
+                .path
+                .trim_end_matches('/')
+                .ends_with("chat/completions");
+        if !is_chat || self.request_overrides.is_empty() {
+            return build_openai_compatible_proxy_request(args);
+        }
+        let body = std::str::from_utf8(args.body)
+            .map_err(|e| Error::BadRequest(format!("Request body is not UTF-8: {e}")))?;
+        let body = apply_request_overrides_to_str(body.to_string(), &self.request_overrides)?;
+        build_openai_compatible_proxy_request(&ProxyBuildArgs { body: body.as_bytes(), ..*args })
     }
 
     async fn parse_image_response(

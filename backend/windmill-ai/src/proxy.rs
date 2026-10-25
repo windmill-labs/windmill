@@ -288,6 +288,7 @@ mod tests {
             anthropic_federation: None,
             platform: AIPlatform::Standard,
             custom_headers: HashMap::new(),
+            request_overrides: Default::default(),
         }
     }
 
