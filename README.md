@@ -194,11 +194,12 @@ back to the database is ~50ms. A typical lightweight deno job will take around
 
 ## Architecture
 
-<p align="center">
+Stateless API servers and workers share a PostgreSQL database that holds the job queue and all workspace state (remote agent workers go through the API servers instead). Workers pull jobs by tag, so each worker group can run in its own network, for example dev workers that only reach dev systems and prod workers that only run reviewed code.
 
-<img src="./imgs/diagram.svg">
-
-</p>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./imgs/architecture-dark.svg">
+  <img alt="Windmill architecture: business teams and engineers build through stateless API servers into workspaces, where changes move from dev and forks to prod after review. PostgreSQL holds the job queue and state. Worker groups for dev and prod, native workers and remote agent workers pull jobs by tag and reach your databases, APIs and AI model providers." src="./imgs/architecture-light.svg">
+</picture>
 
 ## How to self-host
 

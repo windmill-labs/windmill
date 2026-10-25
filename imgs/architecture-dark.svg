@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+<title>Windmill architecture</title>
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker><marker id="arg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#34d399"/></marker></defs>
+<rect width="1200" height="700" rx="16" fill="#0d1117"/>
+<rect x="24" y="24" width="300" height="652" rx="14" fill="#111827" stroke="#1f2937"/>
+<text x="44" y="56" font-size="13" font-weight="700" fill="#94a3b8" text-anchor="start">BUILD AND TRIGGER</text>
+<rect x="44" y="72" width="260" height="112" rx="10" fill="#0b1220" stroke="#334155"/>
+<text x="60" y="100" font-size="16" font-weight="600" fill="#e5e7eb" text-anchor="start">Business teams</text>
+<text x="60" y="124" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Build with AI in AI sessions,</text>
+<text x="60" y="145" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">in the Windmill UI, in a fork</text>
+<text x="60" y="166" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">or a dev workspace</text>
+<rect x="44" y="200" width="260" height="112" rx="10" fill="#0b1220" stroke="#334155"/>
+<text x="60" y="228" font-size="16" font-weight="600" fill="#e5e7eb" text-anchor="start">Engineers</text>
+<text x="60" y="252" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Code in 20+ languages,</text>
+<text x="60" y="273" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">CLI, VS Code, coding agents,</text>
+<text x="60" y="294" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Git sync and CI</text>
+<rect x="44" y="328" width="260" height="328" rx="10" fill="#0b1220" stroke="#334155"/>
+<text x="60" y="356" font-size="16" font-weight="600" fill="#e5e7eb" text-anchor="start">Triggers and callers</text>
+<text x="60" y="380" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">HTTP routes and webhooks</text>
+<text x="60" y="401" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Schedules</text>
+<text x="60" y="422" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Kafka, NATS, SQS, MQTT</text>
+<text x="60" y="443" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Postgres CDC, email, WebSocket</text>
+<text x="60" y="464" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Apps and auto-generated UIs</text>
+<text x="60" y="485" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Your services, via the REST API</text>
+<text x="60" y="506" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">MCP clients</text>
+<rect x="352" y="24" width="440" height="652" rx="14" fill="#111827" stroke="#1f2937"/>
+<text x="372" y="56" font-size="13" font-weight="700" fill="#94a3b8" text-anchor="start">WINDMILL CONTROL PLANE</text>
+<rect x="372" y="72" width="400" height="92" rx="10" fill="#1e3a8a" stroke="#3b82f6"/>
+<text x="388" y="100" font-size="16" font-weight="600" fill="#60a5fa" text-anchor="start">API servers and web UI</text>
+<text x="388" y="124" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Stateless, scale horizontally:</text>
+<text x="388" y="145" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">editor, AI sessions, apps, REST API</text>
+<rect x="372" y="180" width="400" height="244" rx="10" fill="#0b1220" stroke="#334155" stroke-dasharray="6 4"/>
+<text x="388" y="208" font-size="16" font-weight="600" fill="#e5e7eb" text-anchor="start">Workspaces</text>
+<rect x="388" y="224" width="160" height="84" rx="10" fill="#0b1220" stroke="#334155"/>
+<text x="404" y="252" font-size="16" font-weight="600" fill="#e5e7eb" text-anchor="start">dev / forks</text>
+<text x="404" y="276" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">AI-built and new</text>
+<text x="404" y="297" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">changes land here</text>
+<rect x="596" y="224" width="160" height="84" rx="10" fill="#0b1220" stroke="#334155"/>
+<text x="612" y="252" font-size="16" font-weight="600" fill="#e5e7eb" text-anchor="start">prod</text>
+<text x="612" y="276" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Locked: deploys</text>
+<text x="612" y="297" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">only after review</text>
+<line x1="548" y1="266" x2="594" y2="266" stroke="#34d399" stroke-width="2" marker-end="url(#arg)"/>
+<rect x="398" y="326" width="348" height="82" rx="8" fill="#064e3b"/>
+<text x="414" y="352" font-size="15" font-weight="600" fill="#34d399" text-anchor="start">Review and promotion</text>
+<text x="414" y="374" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Protection rulesets, Compare &amp; Deploy,</text>
+<text x="414" y="394" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Git pull requests, CI tests, audit logs</text>
+<rect x="372" y="440" width="400" height="116" rx="10" fill="#1e3a8a" stroke="#3b82f6"/>
+<text x="388" y="468" font-size="16" font-weight="600" fill="#60a5fa" text-anchor="start">PostgreSQL</text>
+<text x="388" y="492" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Job queue, workspaces, scripts, flows,</text>
+<text x="388" y="513" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">apps, resources, encrypted secrets,</text>
+<text x="388" y="534" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">run history and audit logs</text>
+<rect x="372" y="572" width="400" height="84" rx="10" fill="#0b1220" stroke="#334155"/>
+<text x="388" y="600" font-size="16" font-weight="600" fill="#e5e7eb" text-anchor="start">Object storage (optional)</text>
+<text x="388" y="624" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">S3, Azure Blob or GCS: large logs,</text>
+<text x="388" y="645" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">dependency cache, pipeline data</text>
+<rect x="820" y="24" width="356" height="652" rx="14" fill="#111827" stroke="#1f2937"/>
+<text x="840" y="56" font-size="13" font-weight="700" fill="#94a3b8" text-anchor="start">EXECUTION ON YOUR INFRA</text>
+<rect x="840" y="72" width="316" height="104" rx="10" fill="#0b1220" stroke="#334155"/>
+<text x="856" y="100" font-size="16" font-weight="600" fill="#e5e7eb" text-anchor="start">Worker group: dev</text>
+<text x="856" y="124" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Runs jobs from dev and forks,</text>
+<text x="856" y="145" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">in a network that only reaches</text>
+<text x="856" y="166" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">dev systems</text>
+<rect x="840" y="192" width="316" height="84" rx="10" fill="#0b1220" stroke="#334155"/>
+<text x="856" y="220" font-size="16" font-weight="600" fill="#e5e7eb" text-anchor="start">Worker group: prod</text>
+<text x="856" y="244" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Runs reviewed code only,</text>
+<text x="856" y="265" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">next to production systems</text>
+<rect x="840" y="292" width="316" height="64" rx="10" fill="#0b1220" stroke="#334155"/>
+<text x="856" y="320" font-size="16" font-weight="600" fill="#e5e7eb" text-anchor="start">Native workers</text>
+<text x="856" y="344" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">SQL, REST and GraphQL jobs</text>
+<rect x="840" y="372" width="316" height="84" rx="10" fill="#451a03" stroke="#334155"/>
+<text x="856" y="400" font-size="16" font-weight="600" fill="#fbbf24" text-anchor="start">Agent workers</text>
+<text x="856" y="424" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Remote, connect over HTTP,</text>
+<text x="856" y="445" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">no direct database access</text>
+<rect x="840" y="504" width="316" height="152" rx="10" fill="#0b1220" stroke="#334155"/>
+<text x="856" y="532" font-size="16" font-weight="600" fill="#e5e7eb" text-anchor="start">Your systems</text>
+<text x="856" y="556" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Databases and warehouses</text>
+<text x="856" y="577" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">Internal APIs and SaaS</text>
+<text x="856" y="598" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">AI model providers you</text>
+<text x="856" y="619" font-size="14" font-weight="400" fill="#94a3b8" text-anchor="start">configure, local models included</text>
+<line x1="304" y1="128" x2="370" y2="112" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+<line x1="304" y1="256" x2="370" y2="124" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+<line x1="304" y1="400" x2="370" y2="140" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+<path d="M774 498 H806 V124 H838" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#ar)" marker-start="url(#ar)"/>
+<line x1="806" y1="234" x2="838" y2="234" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+<line x1="806" y1="324" x2="838" y2="324" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+<text x="814" y="486" font-size="13" font-weight="500" fill="#94a3b8" text-anchor="start">pull jobs from the queue, by tag</text>
+<path d="M838 414 H792 V150 H774" fill="none" stroke="#64748b" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#ar)"/>
+<text x="830" y="406" font-size="13" font-weight="500" fill="#94a3b8" text-anchor="end">HTTP</text>
+<path d="M1166 124 V580 H1158" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#ar)"/>
+<line x1="1156" y1="124" x2="1166" y2="124" stroke="#64748b" stroke-width="2"/>
+<line x1="1156" y1="234" x2="1166" y2="234" stroke="#64748b" stroke-width="2"/>
+<line x1="1156" y1="324" x2="1166" y2="324" stroke="#64748b" stroke-width="2"/>
+<line x1="1156" y1="414" x2="1166" y2="414" stroke="#64748b" stroke-width="2"/>
+</svg>
