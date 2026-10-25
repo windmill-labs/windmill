@@ -54,6 +54,7 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import type { NativeConnect } from './triggers/native/utils'
+	import { AI_RESOURCE_TYPE_ALTERNATIVES } from './copilot/aiResourceProvider'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -259,6 +260,16 @@
 	}
 
 	/** The static registry declares this provider supports client credentials */
+	let resourceTypeAlternative = $derived(AI_RESOURCE_TYPE_ALTERNATIVES[resourceType])
+
+	function switchToResourceType(rt: string) {
+		connectClient = rt
+		resourceType = rt
+		linkedSecrets = []
+		args = {}
+		getResourceTypeInfo()
+	}
+
 	function registryCcCapable(): boolean {
 		return registryCcCapableFor(connectClient, resourceType)
 	}
@@ -1475,6 +1486,14 @@
 					class="text-xs font-normal text-accent w-fit -mt-4"
 				>
 					Acquire the token automatically via client credentials instead
+				</button>
+			{/if}
+			{#if resourceTypeAlternative}
+				<button
+					onclick={() => switchToResourceType(resourceTypeAlternative.resourceType)}
+					class="text-xs font-normal text-accent w-fit -mt-4"
+				>
+					{resourceTypeAlternative.label}
 				</button>
 			{/if}
 			<!-- The form is a section of its own, not just the next field: it needs more of a break
