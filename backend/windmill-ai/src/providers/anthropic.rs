@@ -903,6 +903,21 @@ pub async fn exchange_federated_token(
     federation: &AnthropicFederation,
     assertion: &str,
 ) -> Result<FederatedAccessToken, Error> {
+    let exchanged = request_federated_token(client, base_url, federation, assertion).await;
+    windmill_common::feature_usage::log_feature_usage(
+        "anthropic_federation",
+        "token_exchange",
+        if exchanged.is_ok() { "ok" } else { "failed" },
+    );
+    exchanged
+}
+
+async fn request_federated_token(
+    client: &reqwest::Client,
+    base_url: &str,
+    federation: &AnthropicFederation,
+    assertion: &str,
+) -> Result<FederatedAccessToken, Error> {
     let url = AIProvider::build_anthropic_api_url(base_url, "oauth/token");
     let response = client
         .post(url)
@@ -946,6 +961,44 @@ pub async fn exchange_federated_token(
         token.access_token,
         std::time::Duration::from_secs(token.expires_in),
     ))
+}
+
+/// The access token of a federated resource for a job, reusing `cached` while it
+/// is still fresh, so the agent loop exchanges once per job rather than per turn.
+/// Returns `None` for a resource that does not federate.
+pub async fn refresh_federated_access_token<'a>(
+    credentials: &crate::credentials::ProviderCredentials,
+    cached: &'a mut Option<FederatedAccessToken>,
+    client: &AuthedClient,
+) -> Result<Option<&'a str>, Error> {
+    let Some(federation) = credentials.anthropic_federation.as_ref() else {
+        return Ok(None);
+    };
+    if !cached.as_ref().is_some_and(FederatedAccessToken::is_fresh) {
+        // A worker holds no OIDC signing key, so it asks the API to mint the token for this job.
+        let assertion = client
+            .get_id_token_expiring_in(
+                ANTHROPIC_OIDC_AUDIENCE,
+                Some(ANTHROPIC_OIDC_TOKEN_LIFETIME_SECS),
+            )
+            .await
+            .map_err(|e| Error::ExecutionErr(format!("Failed to get an OIDC token: {e}")))?;
+        let http_client = crate::utils::pinned_ai_client_for(&credentials.base_url).await?;
+        *cached = Some(
+            exchange_federated_token(&http_client, &credentials.base_url, federation, &assertion)
+                .await?,
+        );
+    }
+    Ok(cached.as_ref().map(|token| token.access_token.as_str()))
+}
+
+/// Headers authenticating a request with a federated access token, which Anthropic
+/// takes as a bearer token in place of `x-api-key`.
+pub fn federated_auth_headers(access_token: &str) -> Vec<(&'static str, String)> {
+    vec![
+        ("Authorization", format!("Bearer {access_token}")),
+        ("anthropic-version", ANTHROPIC_VERSION_STANDARD.to_string()),
+    ]
 }
 
 #[cfg(test)]
