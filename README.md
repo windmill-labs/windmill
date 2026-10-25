@@ -61,7 +61,6 @@ https://github.com/user-attachments/assets/d80de1d9-64de-4d89-aacd-6df23fa81fc4
     - [Integrations](#integrations)
   - [Environment Variables](#environment-variables)
   - [Contributing](#contributing)
-  - [Contributors](#contributors)
   - [Copyright](#copyright)
 
 ## Build with AI, ship with review
@@ -305,12 +304,6 @@ welcome, and small, trivially-verified PRs that fix a problem are still accepted
 [CONTRIBUTING.md](./CONTRIBUTING.md) for the full policy.
 
 To run Windmill from source, see [frontend/README_DEV.md](./frontend/README_DEV.md).
-
-## Contributors
-
-<a href="https://github.com/windmill-labs/windmill/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=windmill-labs/windmill" />
-</a>
 
 ## Copyright
 
