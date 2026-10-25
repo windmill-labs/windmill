@@ -61,7 +61,7 @@ jobs:
           bun-version: 1.4.4
       - uses: actions/setup-node@v7
         with:
-          node-version: "26"
+          node-version: "24"
       - uses: astral-sh/setup-uv@v7
         with:
           version: "0.13.4"

@@ -56,7 +56,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     cargo build --release -p windmill_duckdb_ffi_internal
 
-FROM node:26-alpine as frontend
+FROM node:24-alpine as frontend
 
 # install dependencies
 WORKDIR /frontend
@@ -144,6 +144,9 @@ ARG KUBECTL_VERSION=1.37.1
 ARG HELM_VERSION=3.21.4
 # NOTE: If changing, also change go version in workspace dependencies template at WorkspaceDependenciesEditor.svelte
 ARG GO_VERSION=1.27.1
+# Pinned to the patch: an unpinned install is cached by the image build and stops picking up
+# security releases.
+ARG NODE_VERSION=24.22.1
 ARG APP=/usr/src/app
 ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
@@ -252,8 +255,8 @@ RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_r
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $NEW_INSTANCE_PY --compile-bytecode
 
 
-RUN curl -sL https://deb.nodesource.com/setup_26.x | bash -
-RUN apt-get -y update && apt-get install -y --no-install-recommends curl procps nodejs awscli && apt-get clean \
+RUN curl -sL https://deb.nodesource.com/setup_${NODE_VERSION%%.*}.x | bash -
+RUN apt-get -y update && apt-get install -y --no-install-recommends curl procps nodejs=${NODE_VERSION}-1nodesource1 awscli && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # The npm bundled with nodejs is replaced by a pinned one: it is what `//npm` scripts install with
