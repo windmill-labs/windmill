@@ -3,7 +3,7 @@
 </p>
 
 <p align=center>
-Open-source, self-hostable code-first platform for workflows, apps and AI agents, running on the fastest self-hostable orchestrator. Engineers write code in 20+ languages and sync it with Git. Business teams build on the same platform with AI, while review, promotion between environments and isolated workers keep engineers in control of what ships. Self-hostable alternative to Retool, Pipedream, Superblocks and a simplified Temporal.
+Open-source, self-hostable code-first platform for workflows, apps and AI agents, running on the fastest self-hostable orchestrator. Engineers write code in 20+ languages and sync it with Git. Business teams build on the same platform with AI, while review, promotion between environments and isolated workers keep engineers in control of what ships. Self-hostable alternative to Lovable, Retool, Pipedream and a simplified Temporal.
 
 <p align=center>
 Scripts are turned into sharable UIs, APIs and cron jobs automatically, and can be composed together into flows, data pipelines, AI agents or full-code React and Svelte apps. Supported languages: Python, TypeScript, Go, Bash, SQL, GraphQL, PowerShell, Rust, and more.
