@@ -60,9 +60,6 @@ https://github.com/user-attachments/assets/d80de1d9-64de-4d89-aacd-6df23fa81fc4
     - [License](#license)
     - [Integrations](#integrations)
   - [Environment Variables](#environment-variables)
-  - [Run a local dev setup](#run-a-local-dev-setup)
-    - [Frontend only](#frontend-only)
-    - [Backend + Frontend](#backend--frontend)
   - [Contributing](#contributing)
   - [Contributors](#contributors)
   - [Copyright](#copyright)
@@ -301,55 +298,13 @@ On self-hosted instances, you might want to import all the approved resource typ
 | RUN_UPDATE_CA_CERTIFICATE_PATH      | /usr/sbin/update-ca-certificates | Path to the CA certificate update command/script to run when RUN_UPDATE_CA_CERTIFICATE_AT_START is true                                                                                            | All                   |
 | GOOGLE_APPLICATION_CREDENTIALS      | None                             | (ee only) Credentials file for GCP Pub/Sub triggers that authenticate as the instance rather than through a `gcloud` resource (workspace admins only). Application default credentials also resolve the gcloud well-known file and the GCE metadata server. Workload Identity Federation files work with the `file`, `url` and `aws` credential sources; the `executable` source is not supported. | Server                |
 
-## Run a local dev setup
-
-We recommend using [Nix](./frontend/README_DEV.md#nix). See [./frontend/README_DEV.md](./frontend/README_DEV.md) for all options.
-
-### Frontend only
-
-Uses the backend of <https://app.windmill.dev> with local frontend (hot-reload):
-
-```bash
-cd frontend
-npm install
-npm run generate-backend-client  # or generate-backend-client-mac on Mac
-npm run dev
-```
-
-Windmill available at `http://localhost/`
-
-### Backend + Frontend
-
-See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all
-running options.
-
-1. Start a local Postgres database using for instance the `start-dev-db.sh` script which will make a database available at `postgres://postgres:changeme@localhost:5432/windmill`
-   Then run the migrations using the following command:
-   ```
-   cargo install sqlx-cli
-   env DATABASE_URL=<YOUR_DATABASE_URL> sqlx migrate run
-   ```
-   This will also avoid compile time issue with sqlx's `query!` macro.
-2. (optional, linux only) Install [nsjail](https://github.com/google/nsjail) and have it accessible in
-   your PATH
-3. Install bun and python3 (+ any languages you want to use), have the bins at `/usr/bin/bun` and
-   `/usr/local/bin/python3` or set the corresponding environment variables.
-4. (optional) Install the [lld linker](https://lld.llvm.org/)
-5. Go to `frontend/`:
-   1. `npm install`, `npm run generate-backend-client` then `REMOTE=http://localhost:8000 npm run dev`
-   2. You might need to set some extra heap space for the node runtime
-      `export NODE_OPTIONS="--max-old-space-size=4096"`
-   3. Create an empty `frontend/build` folder using `mkdir frontend/build`
-6. Go to `backend/`:
-   1. `env DATABASE_URL=<YOUR_DATABASE_URL> RUST_LOG=info cargo run`
-   2. You can specify any feature flag you want to enable, for example `cargo run --features python` to enable the python executor.
-7. Windmill should be available at `http://localhost:3000`
-
 ## Contributing
 
 At this time, we are not seeking outside contribution. Bug reports and feature requests remain very
 welcome, and small, trivially-verified PRs that fix a problem are still accepted. See
 [CONTRIBUTING.md](./CONTRIBUTING.md) for the full policy.
+
+To run Windmill from source, see [frontend/README_DEV.md](./frontend/README_DEV.md).
 
 ## Contributors
 
