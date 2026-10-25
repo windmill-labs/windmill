@@ -620,9 +620,15 @@ async fn resolve_anthropic_federated_credentials(
         None => {
             let assertion = mint_anthropic_oidc_token(db, w_id, authed).await?;
             let client = pinned_ai_client_for(&credentials.base_url).await?;
-            let token =
+            let exchanged =
                 exchange_federated_token(&client, &credentials.base_url, federation, &assertion)
-                    .await?;
+                    .await;
+            windmill_common::feature_usage::log_feature_usage(
+                "anthropic_federation",
+                "token_exchange",
+                if exchanged.is_ok() { "ok" } else { "failed" },
+            );
+            let token = exchanged?;
             ANTHROPIC_FEDERATED_TOKEN_CACHE.insert(cache_key, token.clone());
             token
         }
