@@ -45,8 +45,9 @@ https://github.com/user-attachments/assets/d80de1d9-64de-4d89-aacd-6df23fa81fc4
 - [Windmill - Code-first platform for workflows, apps and AI agents](#windmill---code-first-platform-for-workflows-apps-and-ai-agents)
   - [Build with AI, ship with review](#build-with-ai-ship-with-review)
   - [Main Concepts](#main-concepts)
-  - [Show me some actual script code](#show-me-some-actual-script-code)
-  - [Local Development](#local-development)
+  - [What the code looks like](#what-the-code-looks-like)
+  - [Data: data tables, DuckDB and DuckLake](#data-data-tables-duckdb-and-ducklake)
+  - [Develop locally or in the browser](#develop-locally-or-in-the-browser)
   - [Stack](#stack)
   - [Fastest Self-Hostable Workflow Engine](#fastest-self-hostable-workflow-engine)
   - [Security](#security)
@@ -99,54 +100,93 @@ Scripts and flows can be triggered by [schedules](https://www.windmill.dev/docs/
 
 Build your entire infra on top of Windmill!
 
-## Show me some actual script code
+## What the code looks like
+
+A script is a plain function. Its typed arguments become a generated form, an HTTP endpoint and a CLI command:
 
 ```typescript
-//import any dependency  from npm
 import * as wmill from "windmill-client";
-import * as cowsay from "cowsay@1.5.0";
-
-// fill the type, or use the +Resource type to get a type-safe reference to a resource
-type Postgresql = {
-  host: string;
-  port: number;
-  user: string;
-  dbname: string;
-  sslmode: string;
-  password: string;
-};
+import dayjs from "dayjs"; // any npm package, resolved and pinned automatically
 
 export async function main(
-  a: number,
-  b: "my" | "enum",
-  c: Postgresql,
-  d = "inferred type string from default arg",
-  e = { nested: "object" }
-  //f: wmill.Base64
+  customerId: string,
+  plan: "starter" | "pro", // a union of strings becomes a dropdown
+  trialDays = 14 // defaults infer the type
 ) {
-  const email = process.env["WM_EMAIL"];
-  // variables are permissioned and by path
-  let variable = await wmill.getVariable("f/company-folder/my_secret");
-  const lastTimeRun = await wmill.getState();
-  // logs are printed and always inspectable
-  console.log(cowsay.say({ text: "hello " + email + " " + lastTimeRun }));
-  await wmill.setState(Date.now());
+  const trialEnd = dayjs().add(trialDays, "day").toISOString();
 
-  // return is serialized as JSON
-  return { foo: d, variable };
+  // a data table: the workspace's Postgres, queried without a connection string
+  const sql = wmill.datatable();
+  await sql`INSERT INTO trials (customer_id, plan, trial_end) VALUES (${customerId}, ${plan}, ${trialEnd})`.fetch();
+
+  // secrets are permissioned by path
+  const slackToken = await wmill.getVariable("f/sales/slack_token");
+  await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${slackToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ channel: "#sales", text: `New ${plan} trial: ${customerId}` }),
+  });
+
+  console.log(`Trial started for ${customerId}`); // logs stream live in the UI
+  return { customerId, plan, trialEnd }; // returned as JSON
 }
 ```
 
-## Local Development
+Workflows are code too. Each task runs as its own job with its own logs, and waiting for an approval releases the worker:
 
-Windmill supports multiple ways to develop locally and sync with your instance:
+```typescript
+import { task, waitForApproval, workflow } from "windmill-client";
+
+async function plan(env: string) {
+  return { env, changes: 3 };
+}
+
+async function apply(plan: { env: string; changes: number }) {
+  return `applied ${plan.changes} changes to ${plan.env}`;
+}
+
+export const main = workflow(async (env: string) => {
+  const changes = await task(plan)(env);
+  const approval = await waitForApproval({ timeout: 3600 });
+  if (!approval.approved) {
+    return `rejected by ${approval.approver}`;
+  }
+  return await task(apply)(changes);
+});
+```
+
+Flows can also be built in the visual [flow editor](https://www.windmill.dev/docs/flows/flow_editor) or as YAML, with scripts like the first one as steps. See [workflows as code](https://www.windmill.dev/docs/core_concepts/workflows_as_code).
+
+## Data: data tables, DuckDB and DuckLake
+
+- [Data tables](https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables) give each workspace managed Postgres tables, queried with type-checked SQL from TypeScript, Python and DuckDB scripts without exposing a connection string.
+- [DuckDB](https://www.windmill.dev/docs/integrations/duckdb) scripts query S3 and Azure Blob files (CSV, Parquet, JSON), data tables, Postgres, MySQL and BigQuery in SQL, on your workers.
+- [DuckLake](https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake) stores large datasets as lakehouse tables in your workspace object storage, queried in plain SQL.
+- [Pipelines](https://www.windmill.dev/docs/core_concepts/pipelines) (alpha) wire scripts by the data they read and write instead of a hand-drawn DAG. This script runs whenever `events` is materialized, and materializes its own table:
+
+```sql
+-- pipeline
+-- on ducklake://main/events
+-- materialize ducklake://main/events_by_kind
+ATTACH 'ducklake://main' AS dl;
+SELECT kind, count(*) AS n
+FROM dl.events
+GROUP BY kind;
+```
+
+Existing [dbt projects](https://www.windmill.dev/docs/getting_started/scripts_quickstart/dbt) run unmodified as scripts. See the [pipelines quickstart](https://www.windmill.dev/docs/getting_started/pipeline_quickstart).
+
+## Develop locally or in the browser
+
+Engineers work from their editor and coding agent, business teams build with AI in the browser, and both land in the same workspace:
 
 | Tool | Description |
 |------|-------------|
-| **[CLI](https://www.windmill.dev/docs/advanced/cli)** | Sync scripts from local files or GitHub, run scripts/flows from the command line |
-| **[VS Code Extension](https://www.windmill.dev/docs/cli_local_dev/vscode-extension)** | Edit and test scripts & flows directly from VS Code / Cursor with full IDE support |
-| **[Git Sync](https://www.windmill.dev/docs/advanced/git_sync)** | Two-way sync between Windmill and your Git repository |
-| **[Claude Code](https://www.windmill.dev/docs/core_concepts/ai_generation)** | AI-assisted development with Claude for scripts, flows, and apps |
+| **[CLI](https://www.windmill.dev/docs/advanced/cli)** | Sync a workspace with local files and Git, run scripts and flows from the command line. `wmill init` generates `AGENTS.md` and [skill files](https://www.windmill.dev/docs/misc/guides/local_dev_with_ai) for Claude Code, Cursor and other AI tools |
+| **[VS Code extension](https://www.windmill.dev/docs/cli_local_dev/vscode-extension)** | Edit and test scripts and flows from VS Code or Cursor with full IDE support |
+| **[Git sync](https://www.windmill.dev/docs/advanced/git_sync)** | Two-way sync between a workspace and your Git repository |
+| **[MCP server](https://www.windmill.dev/docs/core_concepts/mcp)** | Let coding agents and AI clients run scripts, manage resources and monitor jobs in a workspace |
+| **[AI sessions](https://www.windmill.dev/docs/core_concepts/ai_sessions)** | The same agent loop in the browser, with nothing to install: plan mode, skills and MCP servers, a live preview, and a diff to review before deploying, in a fork of the workspace |
 
 https://github.com/user-attachments/assets/c541c326-e9ae-4602-a09a-1989aaded1e9
 
@@ -240,15 +280,11 @@ Configure OAuth and SSO (Google Workspace, Microsoft/Azure, Okta) directly from 
 
 ### License
 
-The Community Edition is free to use internally. For commercial redistribution or managed services, contact <sales@windmill.dev>. See [LICENSE](./LICENSE) and [Pricing](https://www.windmill.dev/pricing) for details.
+- Using the Community Edition as is, internally or through its APIs, is free and needs no commercial license, within the limits and quotas set in the software.
+- Selling, reselling or serving the Community Edition as a managed service, modifying or wrapping it, or re-exposing it to your users as a feature of your product (iframed public apps excepted) requires a commercial license: contact <sales@windmill.dev>.
+- The binary built from this repository without the `enterprise` feature flag is open source under [AGPLv3](./LICENSE-AGPL): the same uses are then allowed under the AGPLv3 terms, or with a commercial license. The API clients and the OpenAPI spec are [Apache 2.0](./LICENSE-APACHE).
 
-The "Community Edition" of Windmill available in the docker images hosted under ghcr.io/windmill-labs/windmill and the github binary releases contains the files under the AGPLv3 and Apache 2 sources but also includes proprietary and non-public code and features which are not open source and under the following terms: Windmill Labs, Inc. grants a right to use all the features of the "Community Edition" for free without restrictions other than the limits and quotas set in the software and a right to distribute the community edition as is but not to sell, resell, serve Windmill as a managed service, modify or wrap under any form without an explicit agreement.
-
-The binary compilable from source code in this repository without the "enterprise" feature flag is open-source under the [LICENSE-AGPLv3](https://github.com/windmill-labs/windmill/blob/main/LICENSE-AGPL) License terms and conditions.
-
-To [re-expose directly any Windmill parts to your users](https://www.windmill.dev/docs/misc/white_labelling) as a feature of your product, with the exception of iframed public Windmill "apps", or to build a feature on top of "Windmill Community Edition" that you sell commercially or embed in a distributable product or binary, you must get a commercial license. Contact us at <sales@windmill.dev> if you have any questions. To do the same from the binary compiled from the source code in this repository without the "enterprise" feature flag, you must comply with the AGPLv3 license terms and conditions or get a commercial license from Windmill Labs, Inc.
-
-To use Windmill "Community Edition" as is internally in your organization, or to use its APIs as is, you do NOT need a commercial license.
+See [LICENSE](./LICENSE) for the full terms and [Pricing](https://www.windmill.dev/pricing) for plans.
 
 ### Integrations
 
@@ -259,44 +295,17 @@ On self-hosted instances, you might want to import all the approved resource typ
 
 ## Environment Variables
 
-| Environment Variable name           | Default                          | Description                                                                                                                                                                                        | Api Server/Worker/All |
-| ----------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| DATABASE_URL                        |                                  | The Postgres database url.                                                                                                                                                                         | All                   |
-| WORKER_GROUP                        | default                          | The worker group the worker belongs to and get its configuration pulled from                                                                                                                       | Worker                |
-| MODE                                | standalone                       | The mode if the binary. Possible values: standalone, worker, server, agent                                                                                                                         | All                   |
-| METRICS_ADDR                        | None                             | (ee only) The socket addr at which to expose Prometheus metrics at the /metrics path. Set to "true" to expose it on port 8001                                                                      | All                   |
-| JSON_FMT                            | false                            | Output the logs in json format instead of logfmt                                                                                                                                                   | All                   |
-| BASE_URL                            | http://localhost:8000            | The base url that is exposed publicly to access your instance. Is overriden by the instance settings if any.                                                                                       | Server                |
-| ZOMBIE_JOB_TIMEOUT                  | 30                               | The timeout after which a job is considered to be zombie if the worker did not send pings about processing the job (every server check for zombie jobs every 30s)                                  | Server                |
-| RESTART_ZOMBIE_JOBS                 | true                             | If true then a zombie job is restarted (in-place with the same uuid and some logs), if false the zombie job is failed                                                                              | Server                |
-| NATIVE_MODE                         | false                            | Enable native mode: sets NUM_WORKERS=8, rejects non-native jobs (nativets, postgresql, mysql, etc.)                                                                                                | Worker                |
-| SLEEP_QUEUE                         | 50                               | The number of ms to sleep in between the last check for new jobs in the DB. It is multiplied by NUM_WORKERS such that in average, for one worker instance, there is one pull every SLEEP_QUEUE ms. | Worker                |
-| KEEP_JOB_DIR                        | false                            | Keep the job directory after the job is done. Useful for debugging.                                                                                                                                | Worker                |
-| EXIT_AFTER_N_JOBS                   | None                             | Exit the worker process after it has executed that many jobs, so that a supervisor restarts it and no process runs more than that many, bar the steps of a same-worker flow it has started, which it always finishes (set it to 1 for a process per job; jobs handed to a dedicated worker, and the worker's own init and periodic scripts, do not count). Not counting the init and periodic scripts means they run again on every restart: an init script's runtime is added to the latency of every batch of that many jobs, and a periodic script fires once per process start whatever its interval says. The worker's shell in the workers page also starts backed off rather than after the two minutes it otherwise takes, since a process due to be recycled cannot count on living that long: the first command of a session can wait up to 15s, later ones are immediate. For deployments that isolate executions by process lifetime rather than with nsjail; note that a container restart resets the process, not the container filesystem, so caches and `/tmp` survive it. The worker name is then derived from the hostname instead of being random, so the restarted worker keeps its row in the workers list (an agent worker keeps the row but restarts its job count). Use one worker per process: workers of one process share its environment, so the first to reach the limit shuts the others down too. | Worker                |
-| WORKER_SUFFIX                       | None                             | Pins the last part of the worker name, which is otherwise random, so that a restarted worker keeps its row in the workers list. Only needed when several worker processes of the same worker group run on one host, since the name is derived from the hostname: give each of them a distinct value, as two processes sharing one must never happen. At most 64 letters, digits and underscores; anything else is refused at startup. | Worker                |
-| LICENSE_KEY (EE only)               | None                             | License key checked at startup for the Enterprise Edition of Windmill                                                                                                                              | Worker                |
-| SLACK_SIGNING_SECRET                | None                             | The signing secret of your Slack app. See [Slack documentation](https://api.slack.com/authentication/verifying-requests-from-slack)                                                                | Server                |
-| COOKIE_DOMAIN                       | None                             | The domain of the cookie. If not set, the cookie will be set by the browser based on the full origin                                                                                               | Server                |
-| DENO_PATH                           | /usr/bin/deno                    | The path to the deno binary.                                                                                                                                                                       | Worker                |
-| PYTHON_PATH                         |                                  | The path to the python binary if wanting to not have it managed by uv.                                                                                                                             | Worker                |
-| GO_PATH                             | /usr/bin/go                      | The path to the go binary.                                                                                                                                                                         | Worker                |
-| GOPRIVATE                           |                                  | The GOPRIVATE env variable to use private go modules                                                                                                                                               | Worker                |
-| GOPROXY                             |                                  | The GOPROXY env variable to use                                                                                                                                                                    | Worker                |
-| NETRC                               |                                  | The netrc content to use a private go registry                                                                                                                                                     | Worker                |
-| PY_CONCURRENT_DOWNLOADS             | 20                               | Sets the maximum number of in-flight concurrent python downloads that windmill will perform at any given time.                                                                                     | Worker                |
-| PATH                                | None                             | The path environment variable, usually inherited                                                                                                                                                   | Worker                |
-| HOME                                | None                             | The home directory to use for Go and Bash , usually inherited                                                                                                                                      | Worker                |
-| DATABASE_CONNECTIONS                | 50 (Server)/3 (Worker)           | The max number of connections in the database connection pool                                                                                                                                      | All                   |
-| SUPERADMIN_SECRET                   | None                             | A token that would let the caller act as a virtual superadmin superadmin@windmill.dev                                                                                                              | Server                |
-| TIMEOUT_WAIT_RESULT                 | 20                               | The number of seconds to wait before timeout on the 'run_wait_result' endpoint                                                                                                                     | Worker                |
-| QUEUE_LIMIT_WAIT_RESULT             | None                             | The number of max jobs in the queue before rejecting immediately the request in 'run_wait_result' endpoint. Takes precedence on the query arg. If none is specified, there are no limit.           | Worker                |
-| DENO_AUTH_TOKENS                    | None                             | Custom DENO_AUTH_TOKENS to pass to worker to allow the use of private modules                                                                                                                      | Worker                |
-| DISABLE_RESPONSE_LOGS               | false                            | Disable response logs                                                                                                                                                                              | Server                |
-| CREATE_WORKSPACE_REQUIRE_SUPERADMIN | true                             | If true, only superadmins can create new workspaces                                                                                                                                                | Server                |
-| MIN_FREE_DISK_SPACE_MB              | 15000                            | Minimum amount of free space on worker. Sends critical alert if worker has less free space.                                                                                                        | Worker                |
-| RUN_UPDATE_CA_CERTIFICATE_AT_START  | false                            | If true, runs CA certificate update command at startup before other initialization                                                                                                                 | All                   |
-| RUN_UPDATE_CA_CERTIFICATE_PATH      | /usr/sbin/update-ca-certificates | Path to the CA certificate update command/script to run when RUN_UPDATE_CA_CERTIFICATE_AT_START is true                                                                                            | All                   |
-| GOOGLE_APPLICATION_CREDENTIALS      | None                             | (ee only) Credentials file for GCP Pub/Sub triggers that authenticate as the instance rather than through a `gcloud` resource (workspace admins only). Application default credentials also resolve the gcloud well-known file and the GCE metadata server. Workload Identity Federation files work with the `file`, `url` and `aws` credential sources; the `executable` source is not supported. | Server                |
+The variables most deployments set:
+
+| Environment Variable name | Default               | Description                                                                                                  | Api Server/Worker/All |
+| ------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------- |
+| DATABASE_URL              |                       | The Postgres database url.                                                                                   | All                   |
+| MODE                      | standalone            | The mode of the binary: standalone, server, worker, agent (EE), indexer (EE image, full-text search), mcp    | All                   |
+| WORKER_GROUP              | default               | The worker group the worker belongs to and gets its configuration pulled from                                | Worker                |
+| BASE_URL                  | http://localhost:8000 | The base url that is exposed publicly to access your instance. Is overriden by the instance settings if any. | Server                |
+| LICENSE_KEY (EE only)     | None                  | License key checked at startup for the Enterprise Edition of Windmill                                        | Worker                |
+
+All other variables (database pool, queue, runtimes, private registries, certificates, zombie jobs and more) are documented in the [environment variables reference](https://www.windmill.dev/docs/core_concepts/environment_variables).
 
 ## Contributing
 
