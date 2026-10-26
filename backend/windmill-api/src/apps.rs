@@ -5260,7 +5260,7 @@ async fn execute_component(
         };
         let run_query = RunJobQuery { memory_id: Some(memory_id), ..Default::default() };
         if let Some(key) = run_query.memory_key(&w_id, run_path) {
-            crate::jobs::set_flow_memory_id(&mut tx, uuid, key).await?;
+            crate::jobs::set_flow_memory_id(&mut tx, &w_id, uuid, key).await?;
         }
         crate::jobs::file_chat_turn(
             &mut tx,
