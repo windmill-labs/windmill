@@ -606,7 +606,6 @@ pub async fn process_result(
     duration: Option<i64>,
     has_stream: bool,
     flow_runners: Option<Arc<FlowRunners>>,
-    parent_runnable_path: Option<&str>,
 ) -> error::Result<crate::worker::JobOutcome> {
     let resource_usage = Some(JobResourceUsage { worker_group: WORKER_GROUP.clone(), cpu_time_ms });
     match result {
@@ -677,7 +676,6 @@ pub async fn process_result(
                     exit_code: None,
                 }),
             };
-            let error_value = with_job_context(error_value, &job, parent_runnable_path);
 
             // Use the structured error message that was just extracted (the
             // user-facing script error) rather than the generic Error string.
@@ -2157,27 +2155,6 @@ pub async fn handle_job_error(
     if let Some(f) = update_job_future {
         let _ = f().await;
     }
-}
-
-/// Fills in `job_id`, `step_id` and `flow_path` on an error object that lacks them. The
-/// language wrappers set these from the job's env, but executors that run in-process
-/// (nativets, SQL, ...) or whose wrapper does not (go, rust, ...) only reach this point.
-fn with_job_context(
-    error_value: Box<RawValue>,
-    job: &MiniCompletedJob,
-    flow_path: Option<&str>,
-) -> Box<RawValue> {
-    let Ok(Value::Object(mut err)) = serde_json::from_str::<Value>(error_value.get()) else {
-        return error_value;
-    };
-    if let Some(step_id) = &job.flow_step_id {
-        err.entry("step_id").or_insert_with(|| json!(step_id));
-    }
-    err.entry("job_id").or_insert_with(|| json!(job.id));
-    if let Some(flow_path) = flow_path.filter(|p| !p.is_empty()) {
-        err.entry("flow_path").or_insert_with(|| json!(flow_path));
-    }
-    to_raw_value(&err)
 }
 
 #[derive(Debug, Serialize)]

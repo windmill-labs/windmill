@@ -5337,7 +5337,7 @@ pub async fn handle_queued_job(
                     preview_data,
                     conn,
                     client,
-                    parent_runnable_path.clone(),
+                    parent_runnable_path,
                     job_dir,
                     worker_dir,
                     &mut mem_peak,
@@ -5423,7 +5423,6 @@ pub async fn handle_queued_job(
             Some(started.elapsed().as_millis() as i64),
             has_stream,
             flow_runners,
-            parent_runnable_path.as_deref(),
         )
         .await
     }
@@ -6696,7 +6695,8 @@ pub async fn run_language_executor(
             occupancy_metrics,
             has_stream,
         ))
-        .await?;
+        .await
+        .map_err(|e| crate::js_eval::with_step_context(e, &reserved_variables))?;
         return Ok(result);
     }
 
