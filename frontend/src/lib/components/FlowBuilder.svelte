@@ -84,6 +84,7 @@
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
+	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import type { Trigger } from './triggers/utils'
 	import { deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
@@ -117,13 +118,14 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 	import { getEditorStoragePath, setEditorStoragePath } from './editorStoragePathContext'
-	import { useEditRights, useOperatorBuilderFlows, useTriggerLock } from '$lib/operatorWriteRights'
+	import { useEditRights, useRoleCapabilities, useTriggerLock } from '$lib/operatorWriteRights'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	const triggerLock = useTriggerLock()
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const roleCaps = useRoleCapabilities()
 	const editRights = useEditRights()
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -133,8 +135,8 @@
 	let {
 		initialPath = $bindable(''),
 		/** The draft row's own path (the URL path). Unlike `initialPath`, which the
-		 *  route re-seeds from `draft_path` so the topbar shows the pending name,
-		 *  this stays where the item actually is. */
+		 *  route re-seeds from a draft-only flow's `draft_path` so the topbar shows
+		 *  the pending name, this stays where the item actually is. */
 		userDraftPath = '',
 		onTakeLatest = undefined,
 		pathStoreInit = undefined,
@@ -512,8 +514,7 @@
 			// the draft's `draft_path` so the topbar shows the pending name, which after
 			// someone renames the item still names the old location. Comparing against
 			// that fetches the row left behind there instead of the live one.
-			path: userDraftPath || initialPath,
-			withStarredInfo: true
+			path: userDraftPath || initialPath
 		})
 		// A superseded opening must not write these: the current one would then render
 		// and offer Take latest against the older head.
@@ -561,11 +562,12 @@
 				const user =
 					(await getUserExt(opWorkspace ?? '')) ??
 					(opWorkspace === $workspaceStore ? $userStore : undefined)
-				const operatorSettings = $userWorkspaces.find(
-					(w) => w.id === opWorkspace
-				)?.operator_settings
+				const caps = capabilitiesIn(
+					user,
+					$userWorkspaces.find((w) => w.id === opWorkspace)
+				)
 				agentCanWrite = Object.fromEntries(
-					draftAgents.map((a) => [a.path, agentDraftCanWrite(a, user, operatorSettings)])
+					draftAgents.map((a) => [a.path, agentDraftCanWrite(a, user, caps)])
 				)
 				// The path is passed, so a draft that renames the agent is refused here too: a rename is
 				// the agent editor's to deploy, and this dialog lists the agent under the path the flow
@@ -906,6 +908,9 @@
 	// falling back to `$pathStore` in drawer mounts that carry no storage path.
 	const sessionTargetPath = $derived(liveEditorDraftStoragePath || $pathStore)
 
+	const aiBuilderShown = $derived(!disableAi && customUi?.topBar?.aiBuilder != false)
+	const showFlowAiButton = $derived(aiBuilderShown && $roleCaps.flows !== 'compose')
+
 	const sessionOpen = $derived(
 		sessionTargetPath
 			? {
@@ -915,6 +920,7 @@
 				}
 			: undefined
 	)
+	const headerSessionOpen = $derived(aiBuilderShown ? sessionOpen : undefined)
 
 	// Reaches the AI entry point in a step's inline-editor toolbar, which the
 	// recursive module wrapper sits too deep under to be handed a prop. `selected`
@@ -1429,18 +1435,17 @@
 			readFieldsRecursively(flowStore.val)
 		}
 	})
-	// Sync `$pathStore` from `flowStore.val.path` (which `initFlow` populates
-	// from the loaded flow — including the draft's rename, when there is one).
-	// This effect only tracks `flowStore.val.path`, so popover edits that go
-	// straight to `$pathStore` don't trigger it and aren't overwritten.
-	// Replaces the previous `$pathStore = initialPath` push (added in #2536 for
-	// the VSCode extension), which silently dropped any draft-renamed path
-	// because `initialPath` is the URL, not the loaded path.
+	// Sync `$pathStore` from the loaded flow: its staged `draft_path` when the
+	// draft has one, else its `path`. Seeding from `path` alone would make the
+	// effect below drop a staged move on every reload, and deploy would then
+	// create at a taken path. Only `flowStore.val.path` is tracked, so popover
+	// edits that go straight to `$pathStore` aren't overwritten.
 	$effect.pre(() => {
 		// `flowStore.val` is typed `OpenFlow` here but `initFlow` actually puts a
 		// `Flow` (with `path`) in it.
-		const p = (flowStore.val as Flow | undefined)?.path
-		if (p) untrack(() => ($pathStore = p))
+		const flow = flowStore.val as (Flow & { draft_path?: string }) | undefined
+		const p = flow?.path
+		if (p) untrack(() => ($pathStore = flow?.draft_path || p))
 	})
 
 	// Persist the user-typed path into the draft JSON as `draft_path`
@@ -1609,6 +1614,7 @@
 								: undefined
 					}}
 					actions={flowHeaderActions}
+					sessionSource={headerSessionOpen}
 					actionFolds={2}
 					contexts={headerContexts}
 					separator="none"
@@ -1791,6 +1797,7 @@
 					{@render previewButtons()}
 				{/if}
 
+				<OpenInSessionButton source={headerSessionOpen} />
 				<DeployButton
 					on:save={async ({ detail }) => await handleSaveFlow(detail)}
 					{loading}
@@ -1873,9 +1880,7 @@
 					{forceTestTab}
 					{highlightArg}
 					aiChatOpen={aiChatManager.open}
-					showFlowAiButton={!disableAi &&
-						customUi?.topBar?.aiBuilder != false &&
-						!$operatorBuilderFlows}
+					{showFlowAiButton}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
 					{sessionOpen}
 					onOpenPreview={flowPreviewButtons?.openPreview}

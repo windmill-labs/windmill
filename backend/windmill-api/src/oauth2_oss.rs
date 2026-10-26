@@ -22,8 +22,6 @@ use hmac::Mac;
 use itertools::Itertools;
 #[cfg(not(feature = "private"))]
 use serde::{Deserialize, Serialize};
-#[cfg(not(feature = "private"))]
-use sqlx::{Postgres, Transaction};
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
 use windmill_common::more_serde::maybe_number_opt;
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
@@ -84,6 +82,7 @@ pub async fn build_oauth_clients(
         logins: HashMap::default(),
         connects: HashMap::default(),
         slack: None,
+        slack_signing_secret: None,
     });
 }
 
@@ -133,12 +132,12 @@ async fn list_connects() -> windmill_common::error::JsonResult<Vec<String>> {
 }
 
 #[cfg(not(feature = "private"))]
-pub async fn _refresh_token<'c>(
-    _tx: Transaction<'c, Postgres>,
+pub async fn _refresh_token(
     _path: &str,
     _w_id: &str,
     _id: i32,
     _db: &DB,
+    _force: bool,
 ) -> error::Result<String> {
     // Implementation is not open source
     Err(error::Error::BadRequest(

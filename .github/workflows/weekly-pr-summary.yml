@@ -39,9 +39,10 @@ jobs:
                - This gives you the exact 7-day window (store these in variables for use in commands)
 
             2. **Fetch ONLY Merged PRs from Past Week**:
-               - Command: `gh pr list --repo ${{ github.repository }} --state merged --search "merged:>=$CUTOFF_DATE" --limit 100 --json number,title,author,mergedAt,url`
+               - Command: `gh pr list --repo ${{ github.repository }} --state merged --search "merged:>=$CUTOFF_DATE" --limit 100 --json number,title,author,mergedAt,url,body --jq '[.[] | select((.body // "") | contains("[skip-ai-review]") | not) | del(.body)]'`
                - This returns ONLY PRs that were merged in the last 7 days
                - The --search flag filters by merge date using GitHub's search syntax
+               - The --jq filter drops PRs whose body contains `[skip-ai-review]`; never fetch or mention those PRs
                - **FILTER OUT** any PRs with titles starting with "chore: release" or "chore(release)"
 
             3. **Categorize PRs**: Group PRs into three categories by analyzing titles and labels:

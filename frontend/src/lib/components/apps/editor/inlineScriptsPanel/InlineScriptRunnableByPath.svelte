@@ -2,7 +2,7 @@
 	import { createBubbler, stopPropagation } from 'svelte/legacy'
 
 	const bubble = createBubbler()
-	import { Button, Drawer, DrawerContent } from '$lib/components/common'
+	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
@@ -18,7 +18,7 @@
 		CtxAppInput
 	} from '../../inputType'
 	import type { AppViewerContext } from '../../types'
-	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { createEventDispatcher } from 'svelte'
 	import { deepEqual } from 'fast-equals'
 	import { computeFields } from './utils'
@@ -32,12 +32,16 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import ScriptEditorDrawer from '$lib/components/flows/content/ScriptEditorDrawer.svelte'
 	import FlowEditorDrawer from '$lib/components/flows/content/FlowEditorDrawer.svelte'
-	import { FlowService, ScriptService, type OpenFlow } from '$lib/gen'
+	import { FlowService, ResourceService, ScriptService, type OpenFlow } from '$lib/gen'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import { summarizeAgentBrain, type AgentTool } from '$lib/components/flows/agentResourceUtils'
+	import { agentRunnableSchema } from '$lib/components/raw_apps/agentRunnable'
+	import { agentMemoryMode } from '$lib/components/flows/agentFormFields'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatorBuilderApps = useOperatorBuilderApps()
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		runnable: RunnableByPath
@@ -149,6 +153,47 @@
 		}
 	}
 
+	let agentInfo:
+		| {
+				description?: string
+				rows: { label: string; value: string }[]
+				tools: string[]
+				memoryOff: boolean
+		  }
+		| undefined = $state()
+
+	async function refreshAgent(runnable: RunnableByPath) {
+		hubFlowPreview = undefined
+		try {
+			const agent = await ResourceService.getResource({
+				workspace: $operatingWorkspace ?? '',
+				path: runnable.path
+			})
+			const config = agent.value as any
+			agentInfo = {
+				description: agent.description ?? undefined,
+				rows: summarizeAgentBrain(config),
+				tools: ((config?.tools ?? []) as AgentTool[]).map(
+					(t) => t.summary || t.value?.tool_type || t.id
+				),
+				memoryOff: agentMemoryMode(config?.memory) === 'off'
+			}
+			const schema = agentRunnableSchema(config?.memory)
+			if (!deepEqual(runnable.schema, schema)) runnable.schema = schema
+			// Every input of a turn comes from its caller: a static one would be pinned by the
+			// deployed policy, answering every viewer's message with the same one.
+			if (
+				Object.values(fields ?? {}).some((f) => f?.type !== 'user') ||
+				!deepEqual(Object.keys(fields ?? {}).sort(), Object.keys(schema.properties).sort())
+			) {
+				fields = computeFields(schema, true, {})
+			}
+		} catch (e) {
+			notFound = true
+			console.error(e)
+		}
+	}
+
 	async function fork(path: string) {
 		let { content, language, schema } = await getScriptByPath(path)
 		if (!schema || typeof schema == 'string' || Object.keys(schema).length == 0) {
@@ -205,6 +250,8 @@
 			refreshScript(runnable)
 		} else if (runnable.runType == 'flow') {
 			refreshFlow(runnable)
+		} else if (runnable.runType == 'agent') {
+			refreshAgent(runnable)
 		} else {
 			hubFlowPreview = undefined
 		}
@@ -352,6 +399,17 @@
 					Details
 				</Button>
 			{/if}
+		{:else if runnable.runType == 'agent'}
+			<Button
+				variant="default"
+				unifiedSize="md"
+				startIcon={{ icon: Pen }}
+				endIcon={{ icon: ExternalLink }}
+				target="_blank"
+				href="/agents/edit/{runnable.path}?workspace={$operatingWorkspace}"
+			>
+				Edit
+			</Button>
 		{:else}
 			<Button
 				size="xs"
@@ -363,7 +421,7 @@
 			>
 				Edit
 			</Button>
-			{#if !$operatorBuilderApps}
+			{#if $roleCaps.apps !== 'compose'}
 				<Button
 					size="xs"
 					variant="default"
@@ -376,45 +434,47 @@
 				</Button>
 			{/if}
 		{/if}
-		<Popover
-			floatingConfig={{
-				middleware: [
-					autoPlacement({
-						allowedPlacements: [
-							'bottom-start',
-							'bottom-end',
-							'top-start',
-							'top-end',
-							'top',
-							'bottom'
-						]
-					})
-				]
-			}}
-			closeButton
-			contentClasses="block text-primary text-xs p-4 w-[20vh]"
-		>
-			{#snippet trigger()}
-				<Button
-					nonCaptureEvent={true}
-					btnClasses={'bg-surface text-primay hover:bg-hover'}
-					variant="default"
-					size="xs"
-				>
-					Cache
-				</Button>
-			{/snippet}
-			{#snippet content()}
-				{#if runnable.runType == 'flow' && isHubFlowPath(runnable.path)}
-					Since this is a reference to a hub flow, cache settings are managed from the flow after
-					you fork it into your workspace.
-				{:else}
-					Since this is a reference to a workspace {runnable.runType}, set the cache in the
-					{runnable.runType} settings directly by editing it. The cache will be shared by any app or
-					flow that uses this {runnable.runType}.
-				{/if}
-			{/snippet}
-		</Popover>
+		{#if runnable.runType != 'agent'}
+			<Popover
+				floatingConfig={{
+					middleware: [
+						autoPlacement({
+							allowedPlacements: [
+								'bottom-start',
+								'bottom-end',
+								'top-start',
+								'top-end',
+								'top',
+								'bottom'
+							]
+						})
+					]
+				}}
+				closeButton
+				contentClasses="block text-primary text-xs p-4 w-[20vh]"
+			>
+				{#snippet trigger()}
+					<Button
+						nonCaptureEvent={true}
+						btnClasses={'bg-surface text-primay hover:bg-hover'}
+						variant="default"
+						size="xs"
+					>
+						Cache
+					</Button>
+				{/snippet}
+				{#snippet content()}
+					{#if runnable.runType == 'flow' && isHubFlowPath(runnable.path)}
+						Since this is a reference to a hub flow, cache settings are managed from the flow after
+						you fork it into your workspace.
+					{:else}
+						Since this is a reference to a workspace {runnable.runType}, set the cache in the
+						{runnable.runType} settings directly by editing it. The cache will be shared by any app or
+						flow that uses this {runnable.runType}.
+					{/if}
+				{/snippet}
+			</Popover>
+		{/if}
 
 		<input
 			onkeydown={stopPropagation(bubble('keydown'))}
@@ -454,6 +514,36 @@
 				{:else}
 					<FlowPathViewer path={runnable.path} fillAvailableHeight />
 				{/if}
+			{:else if runnable.runType == 'agent'}
+				<div class="flex flex-col gap-2 p-2">
+					{#if agentInfo?.memoryOff}
+						<Alert type="info" size="xs" title="Managed memory is off">
+							Each call is answered on its own inputs, so a chat would forget every turn. Pass
+							<code>previous_messages</code> to give it the history.
+						</Alert>
+					{/if}
+					{#if agentInfo?.description}
+						<p class="text-xs text-secondary">{agentInfo.description}</p>
+					{/if}
+					<dl class="flex flex-col gap-1">
+						{#each agentInfo?.rows ?? [] as row (row.label)}
+							<div class="flex items-baseline gap-2 text-2xs">
+								<dt class="text-tertiary shrink-0 w-28">{row.label}</dt>
+								<dd class="text-secondary truncate" title={row.value}>{row.value}</dd>
+							</div>
+						{/each}
+						{#if agentInfo?.tools.length}
+							<div class="flex items-baseline gap-2 text-2xs">
+								<dt class="text-tertiary shrink-0 w-28">Tools</dt>
+								<dd class="flex flex-wrap gap-1">
+									{#each agentInfo.tools as tool, i (i)}
+										<Badge color="gray">{tool}</Badge>
+									{/each}
+								</dd>
+							</div>
+						{/if}
+					</dl>
+				</div>
 			{:else}
 				Unrecognized runType {runnable.runType}
 			{/if}

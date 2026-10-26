@@ -286,6 +286,13 @@ pub fn sanitize_db_error(e: sqlx::Error) -> Error {
         Some("23514") if db_err.constraint() == Some("variable_value_length") => {
             Error::BadRequest("A field exceeds its maximum length".to_string())
         }
+        Some("23514") if db_err.constraint() == Some("variable_oauth_no_value_expiry") => {
+            Error::BadRequest(
+                "A variable linked to an OAuth account cannot have a value expiry: Windmill \
+                 refreshes its token"
+                    .to_string(),
+            )
+        }
         // check_violation — `proper_id` / `proper_name` and friends
         Some("23514") => Error::BadRequest(
             "Invalid path or name: it does not match the required format".to_string(),

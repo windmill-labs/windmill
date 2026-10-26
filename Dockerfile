@@ -144,6 +144,9 @@ ARG KUBECTL_VERSION=1.37.1
 ARG HELM_VERSION=3.21.4
 # NOTE: If changing, also change go version in workspace dependencies template at WorkspaceDependenciesEditor.svelte
 ARG GO_VERSION=1.27.1
+# Pinned to the patch: an unpinned install is cached by the image build and stops picking up
+# security releases.
+ARG NODE_VERSION=24.22.1
 ARG APP=/usr/src/app
 ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
@@ -166,8 +169,12 @@ ENV UV_TOOL_DIR=/usr/local/uv
 
 ENV PATH /usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
-
-RUN apt-get update \
+# The build cache keeps the apt layer while the base image digest and this line are unchanged, so
+# Debian security updates are not picked up by later builds. Bump to force a fresh apt-get upgrade;
+# bump it in docker/DockerfileSlim and docker/DockerfileSlimEe too.
+ARG APT_REFRESH=1
+RUN echo "apt refresh ${APT_REFRESH}" \
+    && apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 tini gnupg libargon2-1 \
     && if echo "$features" | grep -q "ee"; then apt-get install -y --no-install-recommends libsasl2-modules-gssapi-mit krb5-user; fi \
@@ -241,7 +248,7 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.13.0/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.13.4/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Preinstall python runtimes to temp build location (will copy with world-writable perms later)
 # --compile-bytecode precompiles the stdlib to .pyc so jobs don't recompile it on every run
@@ -252,8 +259,8 @@ RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_r
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $NEW_INSTANCE_PY --compile-bytecode
 
 
-RUN curl -sL https://deb.nodesource.com/setup_24.x | bash -
-RUN apt-get -y update && apt-get install -y --no-install-recommends curl procps nodejs awscli && apt-get clean \
+RUN curl -sL https://deb.nodesource.com/setup_${NODE_VERSION%%.*}.x | bash -
+RUN apt-get -y update && apt-get install -y --no-install-recommends curl procps nodejs=${NODE_VERSION}-1nodesource1 awscli && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # The npm bundled with nodejs is replaced by a pinned one: it is what `//npm` scripts install with
@@ -293,7 +300,7 @@ COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 # DuckDB jobs run in this binary, which the worker looks for next to its own.
 COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/target/release/windmill_duckdb_runner ${APP}/windmill_duckdb_runner
 
-COPY --from=oven/bun:1.4.0 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.4.4 /usr/local/bin/bun /usr/bin/bun
 
 # Install windmill CLI
 RUN bun install -g windmill-cli \
@@ -304,9 +311,6 @@ RUN bun install -g windmill-cli \
 # Copy it to /usr/bin/claude so it's accessible inside nsjail sandbox (which mounts /usr but not /root)
 RUN curl -fsSL https://claude.ai/install.sh | bash \
     && cp /root/.local/share/claude/versions/* /usr/bin/claude
-
-COPY --from=php:8.3.33-cli-trixie /usr/local/bin/php /usr/bin/php
-COPY --from=composer:2.9.5 /usr/bin/composer /usr/bin/composer
 
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:29-dind /usr/local/bin/docker /usr/local/bin/

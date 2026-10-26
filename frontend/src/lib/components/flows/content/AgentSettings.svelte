@@ -11,6 +11,7 @@
 	import AgentSlackSettings from './AgentSlackSettings.svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import { userStore } from '$lib/stores'
+	import { useActingUser } from '$lib/actingUser.svelte'
 	import type { AgentDraftHandle, AgentRunAs } from '../agentDraft.svelte'
 
 	/** An agent's own settings, laid out as the top of the resource editor: what it is saved as
@@ -27,6 +28,7 @@
 	}
 
 	let { draft, path, workspace, error = $bindable(), onRunAsChange = undefined }: Props = $props()
+	const acting = useActingUser(() => workspace)
 
 	let readOnly = $derived(!draft.canWrite)
 	// As the deploy resolves it: the deployer, unless one who may keep another picked them.
@@ -130,8 +132,11 @@
 				{/if}
 			</div>
 		</Section>
-		<Section label="Slack">
-			<AgentSlackSettings {draft} {path} {workspace} {nextRunAs} />
-		</Section>
+		<!-- Operators cannot share agents in Slack, builder rights or not (slack_agents.rs). -->
+		{#if acting.current?.operator === false}
+			<Section label="Slack">
+				<AgentSlackSettings {draft} {path} {workspace} {nextRunAs} />
+			</Section>
+		{/if}
 	</div>
 {/if}

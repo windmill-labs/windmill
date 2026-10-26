@@ -3,13 +3,17 @@
 	import { createEventDispatcher, onDestroy, untrack, type Snippet } from 'svelte'
 	import ResizeTransitionWrapper from '$lib/components/common/ResizeTransitionWrapper.svelte'
 
-	import { ChevronDown, ChevronUp, Folder, FolderTree, User } from 'lucide-svelte'
+	import { Eye, Folder, FolderTree, Pen, User } from 'lucide-svelte'
+	import { userStore } from '$lib/stores'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
+	import TreeOwnerRow from './TreeOwnerRow.svelte'
 	import PipelineRow from '../common/table/PipelineRow.svelte'
 	import Item from './Item.svelte'
 	import { countLeaves, type FolderItem, type ItemType, type UserItem } from './treeViewUtils'
-	import { twMerge } from 'tailwind-merge'
 	import { pluralize } from '$lib/utils'
 	import { Button } from '$lib/components/common'
+	import { inUnruledList, rowRule } from '../common/table/unruledList'
+	import type { TreeOpenMemory } from './treeViewState.svelte'
 
 	interface Props {
 		item: ItemType | FolderItem | UserItem
@@ -51,6 +55,12 @@
 		// Renders a leaf in place of the home page's `<Item>`, for lists whose rows are not
 		// scripts/flows/apps. Receives the leaf and its visual depth.
 		leaf?: Snippet<[ItemType, number]>
+		// Remembers which nodes the user opened by hand, so they reopen on the next visit
+		// while expand/collapse-all is in its collapsed state.
+		openMemory?: TreeOpenMemory
+		// Adds a "Manage folder" menu ("View folder" for a non-owner) to top-level folder rows.
+		// Subfolders are path segments, not folders with permissions of their own, so get none.
+		onManageFolder?: (folderName: string) => void
 	}
 
 	let {
@@ -69,8 +79,12 @@
 		parentPrefix,
 		ancestorHasMore = false,
 		indent = 0,
-		leaf
+		leaf,
+		openMemory,
+		onManageFolder
 	}: Props = $props()
+
+	const unruled = inUnruledList()
 
 	let visualDepth = $derived(depth + indent)
 
@@ -205,7 +219,8 @@
 				ownerKey != undefined &&
 				ownerLoad != undefined &&
 				rootIndex >= EXPAND_ALL_LOAD_LIMIT
-			const shouldOpen = expandAll && !cappedOwner
+			const remembered = !expandAll && nodePrefix != undefined && !!openMemory?.isOpen(nodePrefix)
+			const shouldOpen = (expandAll && !cappedOwner) || remembered
 			opened = shouldOpen
 			if (ownerKey == undefined) return
 			if (shouldOpen) {
@@ -241,6 +256,7 @@
 		if (now - lastToggle < 300) return
 		lastToggle = now
 		opened = !opened
+		if (nodePrefix != undefined) openMemory?.setOpen(nodePrefix, opened)
 		if (opened) {
 			// A top-level owner loads on expand. A subfolder's rows come from an ancestor's
 			// pages, so opening one must not fire a request per subfolder — its own "Load
@@ -260,58 +276,56 @@
 	}
 </script>
 
+{#snippet manageFolderMenu()}
+	{#if isFolder(item)}
+		{@const folderName = item.folderName}
+		<!-- The Folders page's write rule. A non-owner's drawer opens read-only. -->
+		{@const canWrite =
+			$userStore?.is_admin ||
+			$userStore?.is_super_admin ||
+			$userStore?.folders_owners.includes(folderName)}
+		<Dropdown
+			size="xs"
+			fixedHeight={false}
+			placement="bottom-start"
+			items={[
+				{
+					displayName: canWrite ? 'Manage folder' : 'View folder',
+					icon: canWrite ? Pen : Eye,
+					action: () => onManageFolder?.(folderName)
+				}
+			]}
+		/>
+	{/if}
+{/snippet}
+
 {#if isFolder(item) || isUser(item)}
 	<div>
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div
-			onclick={toggleOwner}
-			class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
+		<TreeOwnerRow
+			icon={isUser(item) ? User : depth === 0 ? Folder : FolderTree}
+			name={isUser(item) ? `u/${item.username}` : `${depth === 0 ? 'f/' : ''}${item.folderName}`}
+			{opened}
+			onToggle={toggleOwner}
+			indent={visualDepth * 16}
+			actions={onManageFolder && depth === 0 && isFolder(item) ? manageFolderMenu : undefined}
 		>
-			<div
-				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
-				style={visualDepth > 0 ? `padding-left: ${visualDepth * 16}px;` : ''}
-			>
-				<div class="flex justify-center items-center">
-					{#if isUser(item)}
-						<User size={16} class="text-secondary" />
-					{:else if depth === 0}
-						<Folder size={16} class="text-secondary" />
-					{:else}
-						<FolderTree size={16} class="text-secondary" />
-					{/if}
-				</div>
-
-				<div>
-					<span class="whitespace-nowrap text-xs text-emphasis font-semibold">
-						{#if isUser(item)}u/{item.username}{:else}{#if depth === 0}f/{/if}{item.folderName}{/if}
-					</span>
-					<div class="text-2xs font-normal text-secondary whitespace-nowrap">
-						{#if ownerCount != undefined}
-							({pluralize(ownerCount, ' item')})
-						{:else if isLazyOwner && !ownerState?.loaded}
-							<!-- Lazy owner not expanded yet and no count for it: its true item count
-							     is unknown until loaded, so showing "(0 items)" would be misleading. -->
-							&nbsp;
-						{:else if nodeHasMore}
-							<!-- Partial: this node still has pages to load (its own once it has been
-							     loaded directly, otherwise its ancestor's), so what is grouped under
-							     it is only what has arrived so far. -->
-							({loadedHere}+ items)
-						{:else}
-							({pluralize(loadedHere, ' item')})
-						{/if}
-					</div>
-				</div>
-			</div>
-			<button class="w-full flex flex-row-reverse">
-				{#if opened}
-					<ChevronUp size={16} />
+			{#snippet detail()}
+				{#if ownerCount != undefined}
+					({pluralize(ownerCount, ' item')})
+				{:else if isLazyOwner && !ownerState?.loaded}
+					<!-- Lazy owner not expanded yet and no count for it: its true item count
+					     is unknown until loaded, so showing "(0 items)" would be misleading. -->
+					&nbsp;
+				{:else if nodeHasMore}
+					<!-- Partial: this node still has pages to load (its own once it has been
+					     loaded directly, otherwise its ancestor's), so what is grouped under
+					     it is only what has arrived so far. -->
+					({loadedHere}+ items)
 				{:else}
-					<ChevronDown size={16} />
+					({pluralize(loadedHere, ' item')})
 				{/if}
-			</button>
-		</div>
+			{/snippet}
+		</TreeOwnerRow>
 		<!-- ResizeObserver, not a slide: a freshly-opened owner fetches its rows, so its height
 		     changes twice (open-empty, then rows land) and a slide would only animate the first. -->
 		<ResizeTransitionWrapper vertical innerClass="w-full">
@@ -336,6 +350,7 @@
 							{onCollapseOwner}
 							parentPrefix={nodePrefix}
 							ancestorHasMore={nodeHasMore}
+							{openMemory}
 							on:scriptChanged
 							on:flowChanged
 							on:appChanged
@@ -346,11 +361,14 @@
 							depth={depth + 1}
 							{indent}
 							{leaf}
+							{onManageFolder}
 						/>
 					{/each}
 					{#if effectiveMax < item.items.length}
 						<div
-							class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+							class="px-4 py-2 {rowRule(
+								unruled
+							)} flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 							style="padding-left: {(visualDepth + 1) * 16}px;"
 						>
 							<!-- Rows, not items: this slices the node's own entries, where a subfolder
@@ -387,7 +405,9 @@
 						     is the point: without them this reads as an optional extra rather than
 						     as rows still missing. -->
 							<div
-								class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+								class="px-4 py-2 {rowRule(
+									unruled
+								)} flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 								style="padding-left: {(visualDepth + 1) * 16}px;"
 							>
 								<span class="text-xs text-secondary">

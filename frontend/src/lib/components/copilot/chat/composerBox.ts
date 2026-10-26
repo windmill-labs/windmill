@@ -22,6 +22,60 @@ export function composerBoxClass(disabled: boolean = false): string {
 	}`
 }
 
+/** Added to a usable box that opens a session (Home, an empty session). Focus shows as the
+ * base box's border colour alone: the brand has no focus ring. */
+export const HERO_BOX_CLASS = 'rounded-[10px]'
+
 /** Applied to the field inside the box; without it the field draws a second border. */
 export const COMPOSER_FIELD_RESET =
 	'!border-transparent !bg-transparent !shadow-none focus:!border-transparent focus:!ring-0 disabled:cursor-not-allowed disabled:placeholder:text-disabled'
+
+/** The placeholder of a composer that opens a session. */
+export const STARTER_PLACEHOLDER = 'Ask about this workspace, or describe what to build…'
+
+/** The same, for a session held in Use, which builds nothing. */
+export const USE_STARTER_PLACEHOLDER = 'Ask about this workspace, or run what it holds…'
+
+/** A caret or selected range in the composer's text. */
+export type ComposerSelection = { start: number; end: number }
+
+const GLOBAL_PLACEHOLDER_SUGGESTIONS = [
+	'Write a hello-world flow',
+	'Create a script that lists files in an S3 bucket',
+	'Build a CRUD app for a customer table',
+	'Schedule a daily cleanup of old runs',
+	'Wrap an existing script into a flow with retries',
+	'Add an HTTP trigger to an existing script',
+	'Generate a report from a SQL query and email it',
+	'Create a Postgres resource and a script that queries it',
+	'Refactor a script to add error handling',
+	'List my workspace flows and scripts'
+]
+// An operator authors nothing, so nothing above is theirs to ask for; one with the
+// workspace's builder right can compose flows out of deployed scripts as well.
+const OPERATOR_PLACEHOLDER_SUGGESTIONS = [
+	'List my workspace flows and scripts',
+	'Show the runs that failed today and why',
+	'Find the script that sends a report and run it',
+	'Rerun the last failed run of a flow'
+]
+const BUILDER_PLACEHOLDER_SUGGESTIONS = [
+	...OPERATOR_PLACEHOLDER_SUGGESTIONS,
+	'Compose a flow that chains two deployed scripts'
+]
+
+/**
+ * The global-mode composer's placeholder: one suggestion the user may ask for. `pick` is a
+ * number in [0, 1) the caller draws once, so the text does not shuffle while it is read.
+ */
+export function globalComposerSuggestion(
+	pick: number,
+	canOpenEditor: (kind: string) => boolean
+): string {
+	const pool = canOpenEditor('script')
+		? GLOBAL_PLACEHOLDER_SUGGESTIONS
+		: canOpenEditor('flow')
+			? BUILDER_PLACEHOLDER_SUGGESTIONS
+			: OPERATOR_PLACEHOLDER_SUGGESTIONS
+	return pool[Math.floor(pick * pool.length)]
+}

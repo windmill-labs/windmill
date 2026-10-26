@@ -36,12 +36,13 @@ use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     format_completed_job_result, format_result, is_safe_log_file_path, is_valid_entrypoint_name,
-    DynamicInput, ENTRYPOINT_OVERRIDE,
+    sanitize_untrusted_args, DynamicInput, ENTRYPOINT_OVERRIDE,
 };
 #[cfg(feature = "run_inline")]
 use windmill_common::jobs::{
     InlineScriptTarget, RunInlinePreviewScriptFnParams, RunInlineScriptFnParams,
 };
+use windmill_common::roles::AuthorLevel;
 use windmill_common::runnable_settings::{
     ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
 };
@@ -7058,7 +7059,7 @@ async fn batch_rerun_handle_job(
             )
             .await;
             if let Ok((uuid, _, _, _)) = result {
-                resolve_batch_rerun_source(authed, user_db, w_id, job.id, uuid).await;
+                resolve_batch_rerun_source(authed, db, user_db, w_id, job.id, uuid).await;
                 return Ok(uuid.to_string());
             }
         }
@@ -7092,7 +7093,7 @@ async fn batch_rerun_handle_job(
                 .map(|r| r.0)
             };
             if let Ok(uuid) = result {
-                resolve_batch_rerun_source(authed, user_db, w_id, job.id, uuid).await;
+                resolve_batch_rerun_source(authed, db, user_db, w_id, job.id, uuid).await;
                 return Ok(uuid.to_string());
             }
         }
@@ -7109,12 +7110,13 @@ async fn batch_rerun_handle_job(
 /// re-run, which is already queued: a source that cannot be resolved is logged and left as is.
 async fn resolve_batch_rerun_source(
     authed: &ApiAuthed,
+    db: &DB,
     user_db: &UserDB,
     w_id: &str,
     source: Uuid,
     rerun: Uuid,
 ) {
-    if authed.is_operator {
+    if !role_can_code(db, w_id, authed).await.unwrap_or(false) {
         return;
     }
     let result: error::Result<()> = async {
@@ -8989,14 +8991,24 @@ async fn operator_may_run_datatable_query(
     .unwrap_or(false))
 }
 
-/// The refusal an operator gets from a preview route. Inside a job the caller never ran a
-/// preview themselves, so name the one thing the job's token may do.
+/// Whether the caller's role may run code of its own: previews, dependency jobs, inline dynamic
+/// selects, resolving jobs.
+async fn role_can_code(db: &DB, w_id: &str, authed: &ApiAuthed) -> error::Result<bool> {
+    Ok(
+        windmill_common::roles::caller_capabilities(db, w_id, authed)
+            .await?
+            .code,
+    )
+}
+
+/// The refusal a member whose role cannot code gets from a preview route. Inside a job the caller
+/// never ran a preview themselves, so name the one thing the job's token may do.
 fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
     let reason = if job_id.is_some() {
-        "Operators cannot run preview jobs for security reasons: from inside a job, an \
-         operator may only run a wmill.datatable() query while that job is running"
+        "Your role cannot run preview jobs in this workspace: from inside a job, a member \
+         whose role cannot code may only run a wmill.datatable() query while that job is running"
     } else {
-        "Operators cannot run preview jobs for security reasons"
+        "Your role cannot run preview jobs in this workspace"
     };
     // 403, not 401: the frontend reads a 401 as a dead session and logs the user out, and the
     // flow editor builders open reaches this route.
@@ -9023,7 +9035,9 @@ pub(crate) async fn preview_on_behalf_of(
     if requested == own || requested == authed.email {
         return Ok(None);
     }
-    if authed.is_operator || !windmill_common::can_preserve_on_behalf_of(authed) {
+    if !role_can_code(db, w_id, authed).await?
+        || !windmill_common::can_preserve_on_behalf_of(authed)
+    {
         return Err(Error::PermissionDenied(
             "Only admins and members of wm_deployers can run a preview on behalf of another user"
                 .to_string(),
@@ -9119,7 +9133,7 @@ async fn run_preview_script(
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
-    if authed.is_operator {
+    if !role_can_code(&db, &w_id, &authed).await? {
         // A deferred run would outlive the running job the exemption keys off.
         if run_query.get_scheduled_for(&db).await?.is_some()
             || !operator_may_run_datatable_query(
@@ -9250,7 +9264,7 @@ async fn run_inline_preview_script(
     // Same arbitrary-code class as run_preview_script, and every worker and standalone
     // server exposes this route, so an operator is refused on the same terms. A
     // narrowly-scoped token must not escape its scope through inline preview either.
-    if authed.is_operator
+    if !role_can_code(&db, &w_id, &authed).await?
         && !operator_may_run_datatable_query(
             &db,
             &w_id,
@@ -9556,10 +9570,8 @@ async fn run_bundle_preview_script(
     Query(run_query): Query<RunJobQuery>,
     mut multipart: axum::extract::Multipart,
 ) -> error::Result<(StatusCode, String)> {
-    if authed.is_operator {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot run preview jobs for security reasons".to_string(),
-        ));
+    if !role_can_code(&db, &w_id, &authed).await? {
+        return Err(operator_preview_refusal(None));
     }
     // Bundle preview runs arbitrary, request-supplied code; require the broad jobs:run
     // scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
@@ -9766,9 +9778,9 @@ async fn push_dependencies_job(
     req: RunDependenciesRequest,
 ) -> error::Result<Uuid> {
     check_dependencies_scope(authed, &req.entrypoint)?;
-    if authed.is_operator {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot run dependencies jobs for security reasons".to_string(),
+    if !role_can_code(db, w_id, authed).await? {
+        return Err(error::Error::PermissionDenied(
+            "Your role cannot run dependencies jobs in this workspace".to_string(),
         ));
     }
 
@@ -9889,10 +9901,10 @@ async fn push_flow_dependencies_job(
     req: RunFlowDependenciesRequest,
 ) -> error::Result<Uuid> {
     check_dependencies_scope(authed, &req.path)?;
-    check_operator_can_build(
+    let flows_level = check_operator_can_build(
         db,
         w_id,
-        authed.is_operator,
+        authed,
         BuilderKind::Flows,
         "run dependencies jobs",
     )
@@ -9900,7 +9912,7 @@ async fn push_flow_dependencies_job(
     // The dependency job locks whatever inline code this request carries, on a worker. A
     // composition-only flow has none, so validating here costs a builder nothing and keeps the
     // lock step from becoming the way to run code the write path refuses.
-    if authed.is_operator {
+    if flows_level == AuthorLevel::Compose {
         validate_operator_composed_flow(&req.flow_value, &None, authed, db, user_db, w_id).await?;
         // The job rewrites bookkeeping stored under `req.path` (dependency map, asset usages,
         // lock error) even with `skip_flow_update`, so a builder must be able to write there.
@@ -10316,14 +10328,9 @@ async fn run_preview_flow_job(
     Query(run_query): Query<RunJobQuery>,
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
-    check_operator_can_build(
-        &db,
-        &w_id,
-        authed.is_operator,
-        BuilderKind::Flows,
-        "run preview jobs",
-    )
-    .await?;
+    let flows_level =
+        check_operator_can_build(&db, &w_id, &authed, BuilderKind::Flows, "run preview jobs")
+            .await?;
     // Flow preview runs an arbitrary, request-supplied flow definition; require the broad
     // jobs:run scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
     check_scopes(&authed, || format!("jobs:run"))?;
@@ -10337,7 +10344,7 @@ async fn run_preview_flow_job(
     }
     // A builder must be able to test what it composes, but the submitted value is not the stored
     // one: without this the preview is a way to run inline code the write path refuses.
-    if authed.is_operator {
+    if flows_level == AuthorLevel::Compose {
         validate_operator_composed_flow(
             &raw_flow.value,
             &raw_flow.tag,
@@ -10481,7 +10488,7 @@ async fn run_dynamic_select(
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(run_query): Query<RunJobQuery>,
-    Json(request): Json<DynamicSelectRequest>,
+    Json(mut request): Json<DynamicSelectRequest>,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -10489,7 +10496,7 @@ async fn run_dynamic_select(
     if matches!(
         request.runnable_ref,
         DynamicSelectRunnableRef::Inline { .. }
-    ) && authed.is_operator
+    ) && !role_can_code(&db, &w_id, &authed).await?
     {
         return Err(operator_preview_refusal(None));
     }
@@ -10501,6 +10508,20 @@ async fn run_dynamic_select(
              not starting with a digit)",
             request.entrypoint_function
         )));
+    }
+
+    // The dyn-select code is the runnable's, not necessarily the caller's: a deployed flow
+    // has no deployed runnable for it, so it runs as a `JobKind::Preview` job, and the
+    // executors honor `_TEMP_SCRIPT_REFS` on every preview — it resolves the code's
+    // workspace imports from the temporary script store, which any workspace member can
+    // write. A caller of this route (an operator, for a deployed flow) only fills in that
+    // code's inputs; the function to call is taken from `entrypoint_function`, validated
+    // above and inserted server-side below, never from the args. So the reserved control
+    // keys are dropped here, in the spellings `push` would store them under. Nothing
+    // server-side puts them in `args`: the request has no `temp_script_refs` field, and the
+    // run form does not send them.
+    if let Some(args) = request.args.as_mut() {
+        sanitize_untrusted_args(args);
     }
 
     // Deployed scripts keep their normal deployed-run path (a `script` job, resolved below by
@@ -12572,14 +12593,16 @@ fn resolution_attribution<'a>(
     (None, None)
 }
 
-fn check_resolution_request(
+async fn check_resolution_request(
     authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
     job_ids: &[Uuid],
     note: Option<&str>,
 ) -> error::Result<()> {
-    if authed.is_operator {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot resolve jobs".to_string(),
+    if !role_can_code(db, w_id, authed).await? {
+        return Err(error::Error::PermissionDenied(
+            "Your role cannot resolve jobs in this workspace".to_string(),
         ));
     }
     if job_ids.len() > MAX_RESOLUTION_BATCH {
@@ -12604,11 +12627,12 @@ fn check_resolution_request(
 /// absent rather than an error, so a bulk selection never fails as a whole.
 async fn resolve_completed_jobs(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(req): Json<ResolveJobsRequest>,
 ) -> error::JsonResult<Vec<Uuid>> {
-    check_resolution_request(&authed, &req.job_ids, req.note.as_deref())?;
+    check_resolution_request(&authed, &db, &w_id, &req.job_ids, req.note.as_deref()).await?;
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed);
     let (resolved_by, typed_note) = resolution_attribution(&authed, req.note.as_deref());
@@ -12690,11 +12714,12 @@ async fn resolve_completed_jobs(
 
 async fn unresolve_completed_jobs(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(req): Json<ResolveJobsRequest>,
 ) -> error::JsonResult<Vec<Uuid>> {
-    check_resolution_request(&authed, &req.job_ids, None)?;
+    check_resolution_request(&authed, &db, &w_id, &req.job_ids, None).await?;
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed);
     let unresolved = sqlx::query_scalar!(

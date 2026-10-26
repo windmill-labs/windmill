@@ -28,7 +28,7 @@
 	import PocketIdIcon from '$lib/components/icons/PocketIdIcon.svelte'
 
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
-	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
+	import { usersWorkspaceStore, workspaceStore, userStore, roleCapabilities } from '$lib/stores'
 	import { emptyString, escapeHtml, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
@@ -337,7 +337,7 @@
 				workspaceStore.set(allWorkspaces[0].id)
 				$userStore = await getUserExt($workspaceStore!)
 
-				if (!$userStore?.is_super_admin && $userStore?.operator) {
+				if (!$roleCapabilities.code) {
 					let defaultApp = await WorkspaceService.getWorkspaceDefaultApp({
 						workspace: $workspaceStore!
 					})
@@ -350,9 +350,10 @@
 				} else {
 					goto(resolvedRd ?? '/')
 				}
-				// See (root)/+layout.svelte for why /projects/import skips the picker.
+				// See (root)/+layout.svelte for why these skip the picker.
 			} else if (
 				resolvedRd?.startsWith('/user/workspaces') ||
+				resolvedRd?.startsWith('/oauth/mcp_authorize') ||
 				resolvedRd?.startsWith('/projects/import')
 			) {
 				goto(resolvedRd)

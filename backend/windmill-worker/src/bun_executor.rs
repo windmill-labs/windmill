@@ -1961,6 +1961,32 @@ async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCode
     Ok(PulledCodebase { is_esm })
 }
 
+/// Unpack a codebase tar into the job dir, refusing anything but regular files and
+/// directories.
+///
+/// The archive comes from the caller (`preview_bundle`, `create_snapshot`) and lands next to
+/// the files the worker writes and nsjail bind-mounts by name (`args.json`, `result.json`,
+/// `node_modules`, ...). A symlink or hard link entry with one of those names would redirect
+/// the write, or the mount, to an arbitrary host path: `tar::Archive::unpack` keeps entry
+/// names inside the destination but creates links with whatever target they carry. The
+/// archives the CLI and the frontend build contain regular files only.
+fn extract_codebase_tar(tar: &[u8], job_dir: &str) -> Result<()> {
+    let mut ar = tar::Archive::new(tar);
+    for entry in ar.entries()? {
+        let mut entry = entry?;
+        let kind = entry.header().entry_type();
+        if !(kind.is_file() || kind.is_dir()) {
+            return Err(error::Error::ExecutionErr(format!(
+                "codebase archive entry {} is a {:?}, only regular files and directories are allowed",
+                entry.path()?.display(),
+                kind
+            )));
+        }
+        entry.unpack_in(job_dir)?;
+    }
+    Ok(())
+}
+
 fn extract_saved_codebase(
     job_dir: &str,
     bun_cache_path: &String,
@@ -1968,10 +1994,8 @@ fn extract_saved_codebase(
     dst: &str,
     copy: bool,
 ) -> Result<()> {
-    use crate::global_cache::extract_tar;
-
     Ok(if is_tar {
-        extract_tar(fs::read(bun_cache_path)?.into(), job_dir)?;
+        extract_codebase_tar(&fs::read(bun_cache_path)?, job_dir)?;
     } else {
         if copy {
             std::fs::copy(bun_cache_path, dst)?;
@@ -2828,6 +2852,14 @@ try {{
     if (step_id) {{
         err["step_id"] = step_id;
     }}
+    let job_id = process.env.WM_JOB_ID;
+    if (job_id) {{
+        err["job_id"] = job_id;
+    }}
+    let flow_path = process.env.WM_FLOW_PATH;
+    if (flow_path) {{
+        err["flow_path"] = flow_path;
+    }}
     const extra = {{}};
     Object.getOwnPropertyNames(e).forEach((key) => {{
         if (['line', 'name', 'stack', 'column', 'message', 'sourceURL', 'originalLine', 'originalColumn'].includes(key)) {{
@@ -2893,6 +2925,14 @@ try {{
     let step_id = process.env.WM_FLOW_STEP_ID;
     if (step_id) {{
         err["step_id"] = step_id;
+    }}
+    let job_id = process.env.WM_JOB_ID;
+    if (job_id) {{
+        err["job_id"] = job_id;
+    }}
+    let flow_path = process.env.WM_FLOW_PATH;
+    if (flow_path) {{
+        err["flow_path"] = flow_path;
     }}
     const extra = {{}};
     Object.getOwnPropertyNames(e).forEach((key) => {{
@@ -3130,7 +3170,8 @@ try {{
                     None,
                     has_stream,
                 )
-                .await?;
+                .await
+                .map_err(|e| crate::js_eval::with_step_context(e, &reserved_variables))?;
 
                 let preprocessed: HashMap<String, Box<RawValue>> =
                     serde_json::from_str(pre_result.get()).map_err(|e| {
@@ -3162,7 +3203,8 @@ try {{
                     stream_notifier,
                     has_stream,
                 )
-                .await?;
+                .await
+                .map_err(|e| crate::js_eval::with_step_context(e, &reserved_variables))?;
                 tracing::info!(
                     "Executed native code (with preprocessor) in {}ms",
                     started_at.elapsed().as_millis()
@@ -3190,7 +3232,8 @@ try {{
                 stream_notifier,
                 has_stream,
             )
-            .await?;
+            .await
+            .map_err(|e| crate::js_eval::with_step_context(e, &reserved_variables))?;
             tracing::info!(
                 "Executed native code in {}ms",
                 started_at.elapsed().as_millis()
@@ -4142,6 +4185,42 @@ pub async fn handle_wac_v2_output(
                 job_ids: serde_json::Map::new(),
             });
 
+            // Generate resume URLs for the inline approval buttons. The resume_id
+            // is derived from the step key so each waitForApproval() in the same
+            // workflow gets a unique resume_job record, and so URLs the workflow
+            // minted for this step ahead of time (getApprovalUrls) address the
+            // same one.
+            let resume_id: u32 = windmill_common::wac::approval_resume_id(&key);
+            // Read before the tx: it holds the queue row lock, and a pool checkout under it
+            // waits on the connections every other suspending parent is holding.
+            let wkey = windmill_common::variables::get_workspace_key(&job.workspace_id, db).await?;
+            let approval_token =
+                windmill_common::variables::approval_token_from_key(&wkey, job.id)?;
+
+            let (resume_url, cancel_url, approval_page_url) = {
+                use hmac::{Hmac, Mac};
+                use sha2::Sha256;
+                let mut mac = Hmac::<Sha256>::new_from_slice(wkey.as_bytes())
+                    .map_err(|e| error::Error::internal_err(format!("HMAC key error: {e}")))?;
+                mac.update(job.id.as_bytes());
+                mac.update(resume_id.to_be_bytes().as_ref());
+                let signature = hex::encode(mac.finalize().into_bytes());
+
+                let base_url = (**windmill_common::BASE_URL.load()).clone();
+                let w_id = &job.workspace_id;
+                let job_id = &job.id;
+
+                let resume = format!(
+                    "{base_url}/api/w/{w_id}/jobs_u/resume/{job_id}/{resume_id}/{signature}"
+                );
+                let cancel = format!(
+                    "{base_url}/api/w/{w_id}/jobs_u/cancel/{job_id}/{resume_id}/{signature}"
+                );
+                let approval_page =
+                    format!("{base_url}/approve/{w_id}/{job_id}?token={approval_token}");
+                (resume, cancel, approval_page)
+            };
+
             let mut tx = db.begin().await?;
 
             // Park first: the queue row is locked before the status row, the order every
@@ -4215,44 +4294,6 @@ pub async fn handle_wac_v2_output(
                     })?;
                 }
             }
-
-            // Generate resume URLs for the inline approval buttons. The resume_id
-            // is derived from the step key so each waitForApproval() in the same
-            // workflow gets a unique resume_job record, and so URLs the workflow
-            // minted for this step ahead of time (getApprovalUrls) address the
-            // same one.
-            let resume_id: u32 = windmill_common::wac::approval_resume_id(&key);
-            // Generate stateless approval token using shared utility
-            let approval_token =
-                windmill_common::variables::generate_approval_token(&job.workspace_id, job.id, db)
-                    .await?;
-
-            let (resume_url, cancel_url, approval_page_url) = {
-                use hmac::{Hmac, Mac};
-                use sha2::Sha256;
-                use windmill_common::variables::get_workspace_key;
-
-                let wkey = get_workspace_key(&job.workspace_id, db).await?;
-                let mut mac = Hmac::<Sha256>::new_from_slice(wkey.as_bytes())
-                    .map_err(|e| error::Error::internal_err(format!("HMAC key error: {e}")))?;
-                mac.update(job.id.as_bytes());
-                mac.update(resume_id.to_be_bytes().as_ref());
-                let signature = hex::encode(mac.finalize().into_bytes());
-
-                let base_url = (**windmill_common::BASE_URL.load()).clone();
-                let w_id = &job.workspace_id;
-                let job_id = &job.id;
-
-                let resume = format!(
-                    "{base_url}/api/w/{w_id}/jobs_u/resume/{job_id}/{resume_id}/{signature}"
-                );
-                let cancel = format!(
-                    "{base_url}/api/w/{w_id}/jobs_u/cancel/{job_id}/{resume_id}/{signature}"
-                );
-                let approval_page =
-                    format!("{base_url}/approve/{w_id}/{job_id}?token={approval_token}");
-                (resume, cancel, approval_page)
-            };
 
             // Store approval form metadata for the approval page endpoint
             let mut approval_meta = serde_json::json!({
@@ -5501,5 +5542,57 @@ export function main(x: number) { return x; }"#;
         // An absent map and an empty one are the same script, so they share a slot.
         assert_eq!(key_for(None).await, key_for(Some(&HashMap::new())).await);
         assert_ne!(key_for(None).await, attacker);
+    }
+
+    /// Build a codebase tar in memory; `link` adds a symlink entry named after a file the
+    /// worker writes and nsjail bind-mounts.
+    fn codebase_tar(link: Option<(&str, &str)>) -> Vec<u8> {
+        let mut builder = tar::Builder::new(Vec::new());
+        let main = b"export async function main() {}\n";
+        let mut header = tar::Header::new_gnu();
+        header.set_size(main.len() as u64);
+        header.set_mode(0o644);
+        header.set_path("main.js").unwrap();
+        header.set_cksum();
+        builder.append(&header, &main[..]).unwrap();
+        if let Some((name, target)) = link {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(0);
+            header.set_mode(0o777);
+            header.set_entry_type(tar::EntryType::Symlink);
+            header.set_path(name).unwrap();
+            header.set_link_name(target).unwrap();
+            header.set_cksum();
+            builder.append(&header, &[][..]).unwrap();
+        }
+        builder.into_inner().unwrap()
+    }
+
+    #[test]
+    fn extract_codebase_tar_unpacks_regular_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let job_dir = dir.path().to_str().unwrap();
+
+        extract_codebase_tar(&codebase_tar(None), job_dir).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("main.js")).unwrap(),
+            "export async function main() {}\n"
+        );
+    }
+
+    #[test]
+    fn extract_codebase_tar_refuses_links() {
+        let dir = tempfile::tempdir().unwrap();
+        let job_dir = dir.path().to_str().unwrap();
+
+        let err = extract_codebase_tar(&codebase_tar(Some(("args.json", "/etc/passwd"))), job_dir)
+            .unwrap_err();
+
+        assert!(err.to_string().contains("args.json"), "{err}");
+        assert!(
+            std::fs::symlink_metadata(dir.path().join("args.json")).is_err(),
+            "the link must not be created"
+        );
     }
 }

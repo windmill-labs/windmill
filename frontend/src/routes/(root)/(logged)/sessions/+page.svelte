@@ -1,3 +1,13 @@
+<script module lang="ts">
+	import { preloadComponent } from '$lib/utils/preloadComponent.svelte'
+
+	// The preview tabs render whole items, through most of AIChat's code (Monaco among it):
+	// loaded beside the page, not as part of it, so the page shows without waiting on them.
+	const previewTabHostComponent = preloadComponent(
+		() => import('$lib/components/sessions/PreviewTabHost.svelte')
+	)
+</script>
+
 <script lang="ts">
 	import { onDestroy, onMount, tick, untrack } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
@@ -25,10 +35,9 @@
 		type Scope
 	} from '$lib/components/sessions/PreviewRouterPicker.svelte'
 	import { goto } from '$lib/navigation'
-	import { resource } from 'runed'
-	import { WorkspaceService } from '$lib/gen'
+	import { useWorkspaceAiHidden } from '$lib/components/copilot/workspaceAiHidden.svelte'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
-	import PreviewTabHost from '$lib/components/sessions/PreviewTabHost.svelte'
+	import type PreviewTabHost from '$lib/components/sessions/PreviewTabHost.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 	import {
 		createSession,
@@ -44,7 +53,12 @@
 	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 	import { enterSessionMode } from '$lib/components/sessions/sessionSwitch.svelte'
 	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
-	import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import {
+		roleCapabilities,
+		userWorkspaces,
+		usersWorkspaceStore,
+		workspaceStore
+	} from '$lib/stores'
 	import {
 		getOrCreateRuntime,
 		getRuntime,
@@ -205,7 +219,7 @@
 	// load. `recovering` also guards re-entry: recovery mutates the session list
 	// this effect tracks, while the URL that would stop it only updates on `goto`.
 	$effect(() => {
-		if (embedded || !globalEnabled || !sessionsAllowedFor($userStore?.operator)) return
+		if (embedded || !globalEnabled || !sessionsAllowedFor(!$roleCapabilities.code)) return
 		if (!sessionState.hydrated || recovering) return
 		// A deliberate delete removes the open session ahead of its own navigation.
 		// Claiming that gap would take over the URL and tell the user the session
@@ -324,35 +338,16 @@
 		(activeSession ? getEffectiveWorkspaceId(activeSession) : undefined) ?? $workspaceStore
 	)
 
-	// Whether that workspace hid the AI assistant (`ai_config.copilot_disabled`). Read
-	// directly rather than from `copilotInfo`: that store holds whichever workspace loaded
-	// last, and the gate below unmounts the session wrapper that would refresh it, so a
-	// hidden verdict would stick across session and workspace switches. Tagged with its
-	// workspace and guarded against a superseded response like the protection-rules
-	// resource: runed keeps the previous `current` while a new source loads, so a switch
-	// would otherwise be judged on the previous workspace's verdict. A failed read leaves
-	// the page usable, as an unloaded config does everywhere else.
-	const workspaceAiHidden = resource(
-		() => previewWorkspace,
-		async (workspace, _prev, { signal }) => {
-			if (!workspace) return { workspace, hidden: false }
-			let hidden = false
-			try {
-				hidden = (await WorkspaceService.getCopilotInfo({ workspace })).copilot_disabled === true
-			} catch (e) {
-				console.error(`Failed to read the AI config of workspace ${workspace}:`, e)
-			}
-			// The generated client can't take an abort signal, so drop a superseded response here.
-			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
-			return { workspace, hidden }
-		}
+	// Whether that workspace hid the AI assistant. The gate below unmounts the session wrapper
+	// that would refresh `copilotInfo`, so the verdict is read for the workspace itself.
+	const workspaceAiHidden = useWorkspaceAiHidden(() => previewWorkspace)
+	const aiHiddenVerdict = $derived(workspaceAiHidden.hidden)
+	// The full loader is for the page's first verdict only. Later, picking another workspace in
+	// "Acting on" leaves the session on screen, inert until its verdict lands: covering it for
+	// a request reads as the page reloading.
+	const firstVerdictPending = $derived(
+		aiHiddenVerdict === undefined && !workspaceAiHidden.settledOnce
 	)
-	// Only a verdict for the workspace currently judged counts; `undefined` means it has not
-	// landed yet.
-	const aiHiddenVerdict = $derived.by(() => {
-		const current = workspaceAiHidden.current
-		return current && current.workspace === previewWorkspace ? current.hidden : undefined
-	})
 
 	// Lazy-mount gate: a tab's content only renders once its key lands here (on
 	// first activation) — so restoring a session with N saved tabs boots just
@@ -857,13 +852,16 @@
 	// cell reactively, so the editor mirrors the name onto the tab model). Before
 	// that, the workspace listing names it. Falls back to the plain location label
 	// for summary-less items and non-item pages.
-	function tabLabelFor(tab: SessionPreviewTab, workspace: string): string {
+	function tabNameFor(tab: SessionPreviewTab, workspace: string): string {
 		const listed = listedItemFor(tab, workspace)
-		const name =
+		return (
 			tab.friendlyLabel ??
 			(listed && itemDisplayName(listed.path, listed.draftPath, listed.summary)) ??
 			previewLocationLabel(tab.loc)
-		return name + sideSuffix(tab.url)
+		)
+	}
+	function tabLabelFor(tab: SessionPreviewTab, workspace: string): string {
+		return tabNameFor(tab, workspace) + sideSuffix(tab.url)
 	}
 
 	// Hover title for a tab. A summary label is free text the strip truncates, and
@@ -1023,11 +1021,11 @@
 				}}>Open sessions</Button
 			>
 		</div>
-	{:else if !sessionsAllowedFor($userStore?.operator)}
-		<!-- Operators without the opt-in keep the legacy docked chat (see `gate.ts`); a direct
-		     URL must not bypass that. -->
+	{:else if !sessionsAllowedFor(!$roleCapabilities.code)}
+		<!-- A role that cannot code keeps the legacy docked chat without the opt-in (see `gate.ts`);
+		     a direct URL must not bypass that. -->
 		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
-			<p class="text-primary font-medium">AI Sessions are not available for operators</p>
+			<p class="text-primary font-medium">AI Sessions are not available for your role</p>
 			<p>Use the Ask AI chat instead.</p>
 			<Button
 				unifiedSize="xs"
@@ -1119,7 +1117,13 @@
 										: 'z-0 opacity-0 pointer-events-none'}"
 									aria-hidden={s.id !== activeSession?.id}
 								>
-									<SessionWrapper sessionId={s.id} headerInPage={s.id === activeSession?.id} />
+									<SessionWrapper
+										sessionId={s.id}
+										headerInPage={s.id === activeSession?.id}
+										covered={aiHiddenVerdict !== false}
+										previewTabName={(tab) =>
+											tabNameFor(tab, getEffectiveWorkspaceId(s) ?? $workspaceStore ?? '')}
+									/>
 								</div>
 							{/each}
 						</div>
@@ -1195,32 +1199,35 @@
 								     content-gated by the shared mount MRU. Each host renders a
 								     live editor (script/flow/raw_app target) or an iframe fallback. -->
 								<div class="relative flex-1 min-h-0">
-									{#each warmSessions as s (s.id)}
-										{@const rt = getRuntime(s.id)}
-										{@const tabs = rt?.previewTabs}
-										{#each tabs?.tabs ?? [] as tab (tab.id)}
-											<!-- tabHosts is an imperative ref-bag (only tabHosts[key]?.reload() in
+									{#if previewTabHostComponent.current}
+										{@const TabHost = previewTabHostComponent.current}
+										{#each warmSessions as s (s.id)}
+											{@const rt = getRuntime(s.id)}
+											{@const tabs = rt?.previewTabs}
+											{#each tabs?.tabs ?? [] as tab (tab.id)}
+												<!-- tabHosts is an imperative ref-bag (only tabHosts[key]?.reload() in
 										     reloadTabs); it is intentionally a plain object so component
 										     instances aren't proxied. Nothing reads it reactively, so the
 										     non-reactive binding is fine. -->
-											<!-- svelte-ignore binding_property_non_reactive -->
-											<PreviewTabHost
-												bind:this={tabHosts[tabKey(s.id, tab.id)]}
-												{tab}
-												session={s}
-												runtime={rt}
-												active={s.id === activeSession?.id && tab.id === tabs?.activeId}
-												collapsed={(tabs?.collapsed ?? false) && !fullscreen}
-												mounted={mountedTabKeys.has(tabKey(s.id, tab.id))}
-												label={tabLabelFor(tab, s.workspace_id ?? '')}
-												darkMode={isDarkMode.val}
-												{fullscreen}
-												onNavigate={navigateEditorTo}
-												onSeeDetails={seeDetailsInPreview}
-												onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
-											/>
+												<!-- svelte-ignore binding_property_non_reactive -->
+												<TabHost
+													bind:this={tabHosts[tabKey(s.id, tab.id)]}
+													{tab}
+													session={s}
+													runtime={rt}
+													active={s.id === activeSession?.id && tab.id === tabs?.activeId}
+													collapsed={(tabs?.collapsed ?? false) && !fullscreen}
+													mounted={mountedTabKeys.has(tabKey(s.id, tab.id))}
+													label={tabLabelFor(tab, s.workspace_id ?? '')}
+													darkMode={isDarkMode.val}
+													{fullscreen}
+													onNavigate={navigateEditorTo}
+													onSeeDetails={seeDetailsInPreview}
+													onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
+												/>
+											{/each}
 										{/each}
-									{/each}
+									{/if}
 									{#if (owner?.tabs.length ?? 0) === 0}
 										<!-- New session with nothing to preview: an empty state with a
 										     picker to open one, instead of defaulting to the home page. -->
@@ -1256,6 +1263,7 @@
 													<PreviewRouterPicker
 														workspaceId={previewWorkspace}
 														artifacts={sessionArtifacts}
+														chat={activeRuntime?.manager}
 														onPick={(t) => {
 															emptyStateNewTabOpen = false
 															openInNewTab(t)
@@ -1271,15 +1279,16 @@
 					</Pane>
 				</Splitpanes>
 			</div>
-			{#if aiHiddenVerdict === undefined}
+			{#if firstVerdictPending}
 				<div class="absolute inset-0 z-20 flex items-center justify-center bg-surface">
 					<Loader2 class="animate-spin" />
 				</div>
 			{:else if aiHiddenVerdict}
 				<!-- The workspace hid the assistant, and the sidebar switch with it, so only a
 				     direct URL or a session acting on such a workspace lands here. -->
+				<!-- Centred like the loader above: the page header overlays this pane's top edge. -->
 				<div
-					class="absolute inset-0 z-20 bg-surface p-8 flex flex-col items-start gap-3 text-secondary text-sm"
+					class="absolute inset-0 z-20 bg-surface p-8 flex flex-col items-center justify-center gap-3 text-secondary text-sm text-center"
 				>
 					<p class="text-primary font-medium">AI Sessions are hidden in this workspace</p>
 					<p>A workspace admin hid AI sessions in the workspace settings.</p>
@@ -1390,6 +1399,7 @@
 									{currentItem}
 									workspaceId={previewWorkspace}
 									artifacts={sessionArtifacts}
+									chat={activeRuntime?.manager}
 									onPick={(t) => {
 										activeTabPickerOpen = false
 										navigatePreviewTo(t)
@@ -1421,6 +1431,7 @@
 						<PreviewRouterPicker
 							workspaceId={previewWorkspace}
 							artifacts={sessionArtifacts}
+							chat={activeRuntime?.manager}
 							onPick={(t) => {
 								newTabOpen = false
 								openInNewTab(t)

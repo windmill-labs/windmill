@@ -185,6 +185,10 @@ async fn list_scripts(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListScriptQuery>,
 ) -> JsonResult<Vec<ListableScript>> {
+    // A role that cannot write code lists only what it can run: no libraries, no drafts.
+    let cannot_code = !windmill_common::roles::caller_capabilities(&db, &w_id, &authed)
+        .await?
+        .code;
     let (per_page, offset) = paginate_without_limits(pagination);
     let mut sqlb = SqlBuilder::select_from("script as o")
         .fields(&[
@@ -255,7 +259,7 @@ async fn list_scripts(
             .as_ref()
             .map(|x| !x.contains(&"preprocessor".to_string()))
             .unwrap_or(true))
-        || authed.is_operator
+        || cannot_code
     {
         // only include scripts that have a runnable entrypoint. Use a
         // deny-list: anything that isn't a 'lib' (library script without
@@ -305,14 +309,14 @@ async fn list_scripts(
     }
     if let Some(label) = &lq.label {
         for l in label.split(',') {
+            // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
             sqlb.and_where(
                 "(o.labels @> ARRAY[?] OR folder_labels(o.workspace_id, o.path) @> ARRAY[?])"
-                    .bind(&l.trim())
-                    .bind(&l.trim()),
+                    .binds(&[&l.trim()]),
             );
         }
     }
-    if authed.is_operator {
+    if cannot_code {
         sqlb.and_where_eq("kind", quote("script"));
     } else if let Some(lowercased_kinds) = lowercased_kinds {
         let safe_kinds = lowercased_kinds
@@ -360,7 +364,7 @@ async fn list_scripts(
     // `include_draft_only` so picker callers stay deployed-only (home page opts in);
     // skipped past page 0 or under any narrowing filter to keep pagination clean.
     if lq.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
+        && !cannot_code
         && offset == 0
         && lq.path_start.is_none()
         && lq.path_exact.is_none()
@@ -1248,7 +1252,7 @@ async fn validate_dbt_relation(
 /// The schema the editor would have derived from `content`, for a deploy that sends
 /// none (MCP, a bare API call). `None` for a language whose parser this build lacks,
 /// or code that does not parse.
-fn infer_main_schema(
+pub fn infer_main_schema(
     language: &ScriptLang,
     kind: Option<&ScriptKind>,
     content: &str,
@@ -1352,11 +1356,7 @@ async fn create_script_internal<'c>(
     Option<PostCommitDeploy>,
     Vec<MovedNativeTrigger>,
 )> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot create scripts for security reasons".to_string(),
-        ));
-    }
+    windmill_common::workspaces::check_role_can_code(&db, &w_id, &authed, "create scripts").await?;
     check_scopes(&authed, || format!("scripts:write:{}", ns.path))?;
 
     // Normalize positive-only settings so a `<= 0` value (e.g. a CLI-pushed `0`) persists as
@@ -4086,11 +4086,8 @@ async fn archive_script_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<()> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot archive scripts for security reasons".to_string(),
-        ));
-    }
+    windmill_common::workspaces::check_role_can_code(&db, &w_id, &authed, "archive scripts")
+        .await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -4182,11 +4179,8 @@ async fn archive_script_by_hash(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<Script<ScriptRunnableSettingsInline>> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot archive scripts for security reasons".to_string(),
-        ));
-    }
+    windmill_common::workspaces::check_role_can_code(&db, &w_id, &authed, "archive scripts")
+        .await?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),

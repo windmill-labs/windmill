@@ -7,6 +7,7 @@
  */
 
 pub mod auth;
+pub mod composed;
 #[cfg(feature = "private")]
 pub mod ee;
 pub mod ee_oss;
@@ -590,7 +591,9 @@ pub fn ensure_scopes_within_caller(
 
         for requested in requested_restrictions {
             if requested.starts_with("mcp:") {
-                if !caller_mcp.contains(requested.as_str()) {
+                // `mcp:session` (windmill_mcp's SESSION_SCOPE) grants nothing: it only picks
+                // the toolset an `mcp:all` token gets, and `mcp:all` is matched here itself.
+                if requested != "mcp:session" && !caller_mcp.contains(requested.as_str()) {
                     return Err(Error::PermissionDenied(format!(
                         "A scope-restricted token cannot grant MCP scope '{requested}' unless the \
                          caller holds the same scope verbatim"
@@ -943,7 +946,7 @@ pub async fn gate_operator_writes(
     let w_id = params.get("workspace_id").ok_or_else(|| {
         Error::internal_err("operator write gate layered outside a workspaced router".to_string())
     })?;
-    check_operator_can_manage(&db, w_id, authed.is_operator, kind).await?;
+    check_operator_can_manage(&db, w_id, &authed, kind).await?;
 
     Ok(next.run(Request::from_parts(parts, body)).await)
 }
@@ -1963,6 +1966,11 @@ mod tests {
             opt_scopes(Some(vec!["mcp:scripts:*"])).as_deref()
         )
         .is_err());
+        assert!(ensure_scopes_within_caller(
+            &mcp_all,
+            opt_scopes(Some(vec!["mcp:all", "mcp:session"])).as_deref()
+        )
+        .is_ok());
     }
 
     #[test]

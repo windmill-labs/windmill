@@ -252,8 +252,8 @@ pub async fn resolve_modules(
 /// modules, every branch, and the `tools` of an AI agent step.
 ///
 /// Returns what the caller still has to authorize against its own permissions, which this
-/// value-only walk cannot: every runnable the steps reference, the worker tags they pin, and the
-/// `(path, hash)` pairs of version-pinned steps. See [`ComposedFlowRefs`] for why each one is not
+/// value-only walk cannot: every runnable and linked agent the steps reference, the worker tags
+/// they pin, and the `(path, hash)` pairs of version-pinned steps. See [`ComposedFlowRefs`] for why each one is not
 /// already settled by the walk.
 pub fn check_flow_is_composition_only(value: &FlowValue) -> Result<ComposedFlowRefs, Error> {
     let mut refs = ComposedFlowRefs::default();
@@ -276,6 +276,65 @@ pub struct ComposedFlowRefs {
     pub runnables: Vec<(bool, String)>,
     /// Version-pinned script steps, as `(path, hash)`.
     pub pinned_scripts: Vec<(String, ScriptHash)>,
+    /// The `ai_agent` resources that agent steps link.
+    pub agents: Vec<LinkedAgent>,
+}
+
+/// An agent step's link, with the tool inputs the step binds, keyed by tool id.
+pub struct LinkedAgent {
+    pub path: String,
+    pub bound_inputs: Vec<(String, Vec<String>)>,
+}
+
+/// A builder's step may bind only the tool inputs its linked agent leaves open, passing them what
+/// it could pass a deployed runnable's inputs. An input the agent fills is part of what its author
+/// wrote, and the step's binding would replace it at run time. Every tool sharing an id is
+/// checked, as the overlay binds them all.
+pub fn check_bound_agent_inputs_are_open(
+    agent: &str,
+    tools: &[AgentTool],
+    bound_inputs: &[(String, Vec<String>)],
+) -> Result<(), Error> {
+    for (tool_id, keys) in bound_inputs {
+        for tool in tools.iter().filter(|t| &t.id == tool_id) {
+            check_tool_inputs_are_open(agent, tool_id, &tool.value, keys)?;
+        }
+    }
+    Ok(())
+}
+
+fn check_tool_inputs_are_open(
+    agent: &str,
+    tool_id: &str,
+    value: &ToolValue,
+    keys: &[String],
+) -> Result<(), Error> {
+    let ToolValue::FlowModule(value) = value else {
+        return Ok(());
+    };
+    let input_transforms = match value {
+        FlowModuleValue::Script { input_transforms, .. }
+        | FlowModuleValue::RawScript { input_transforms, .. }
+        | FlowModuleValue::FlowScript { input_transforms, .. }
+        | FlowModuleValue::AIAgent { input_transforms, .. }
+        | FlowModuleValue::AIDecision { input_transforms, .. } => input_transforms,
+        // Fail closed on any other kind, as the worker's `overlay_tool_inputs` skips them.
+        _ => {
+            return Err(Error::PermissionDenied(format!(
+                "Tool {tool_id} of agent {agent} takes no inputs a builder can set"
+            )))
+        }
+    };
+    match keys
+        .iter()
+        .find(|k| input_transforms.get(*k).is_some_and(|t| t.is_completed()))
+    {
+        Some(key) => Err(Error::PermissionDenied(format!(
+            "Input {key} of tool {tool_id} is set by agent {agent}, so a builder cannot \
+             change it. Bind only the inputs the agent leaves to the model."
+        ))),
+        None => Ok(()),
+    }
 }
 
 fn check_module_is_composition_only(
@@ -343,12 +402,20 @@ fn check_module_value_is_composition_only(
         FlowModuleValue::BranchAll { branches, .. } => {
             check_branches_are_composition_only(branches, id, refs)?
         }
-        FlowModuleValue::AIAgent { tools, tag, agent, .. } => {
-            // A linked agent resolves its tools from an `ai_agent` resource at run time, and
-            // operators may write resources, so those tools are outside this check: the list can
-            // be swapped for a raw script after the flow is deployed.
-            if agent.is_some() {
-                return refuse("links an AI agent resource, whose tools live outside the flow");
+        FlowModuleValue::AIAgent { tools, tag, agent, tool_inputs, .. } => {
+            // A linked agent's tools are resolved from its resource at run time, outside this
+            // walk. That is safe only because an operator's every write of an agent passes this
+            // same check (`validate_operator_agent`), as a developer's agent is code they wrote.
+            if let Some(agent) = agent {
+                let path = agent
+                    .trim_start_matches("$res:")
+                    .trim_start_matches("res://");
+                let bound_inputs = tool_inputs
+                    .iter()
+                    .map(|(tool, inputs)| (tool.clone(), inputs.keys().cloned().collect()))
+                    .collect();
+                refs.agents
+                    .push(LinkedAgent { path: path.to_string(), bound_inputs });
             }
             push_tag(tag);
             for tool in tools {
@@ -477,15 +544,48 @@ mod tests {
 
     #[test]
     fn composition_check_rejects_code_reachable_through_an_ai_agent() {
-        for value in [
-            serde_json::json!({"modules": [{"id": "a", "value": {"type": "aiagent",
-                "input_transforms": {}, "tools": [{"id": "t", "value": {"tool_type": "flowmodule",
-                    "type": "rawscript", "content": "x", "language": "bun"}}]}}]}),
-            serde_json::json!({"modules": [{"id": "a", "value": {"type": "aiagent",
-                "input_transforms": {}, "tools": [], "agent": "$res:f/x/agent"}}]}),
-        ] {
-            assert!(check_flow_is_composition_only(&flow(value)).is_err());
-        }
+        let value = serde_json::json!({"modules": [{"id": "a", "value": {"type": "aiagent",
+            "input_transforms": {}, "tools": [{"id": "t", "value": {"tool_type": "flowmodule",
+                "type": "rawscript", "content": "x", "language": "bun"}}]}}]});
+        assert!(check_flow_is_composition_only(&flow(value)).is_err());
+    }
+
+    /// A builder may link only an agent they can read, which the walk cannot know: it has to
+    /// surface the path for the caller to check.
+    #[test]
+    fn composition_check_reports_linked_agents() {
+        let refs = check_flow_is_composition_only(&flow(serde_json::json!({"modules": [{
+            "id": "a", "value": {"type": "aiagent", "input_transforms": {}, "tools": [],
+                "agent": "$res:f/x/agent", "tool_inputs": {"t": {}}}}]})))
+        .unwrap();
+        assert_eq!(refs.agents[0].path, "f/x/agent");
+        assert_eq!(refs.agents[0].bound_inputs, vec![("t".to_string(), vec![])]);
+    }
+
+    #[test]
+    fn bound_agent_inputs_must_be_left_to_the_model() {
+        // Two tools share the id: the overlay binds both, so the second's `query` counts.
+        let tools: Vec<AgentTool> = serde_json::from_value(serde_json::json!([
+            {"id": "t", "value": {"tool_type": "flowmodule", "type": "rawscript", "content": "x",
+                "language": "bun", "input_transforms": {}}},
+            {"id": "t", "value": {"tool_type": "flowmodule", "type": "rawscript", "content": "x",
+                "language": "bun", "input_transforms": {
+                    "query": {"type": "static", "value": "SELECT 1"},
+                    "limit": {"type": "ai"},
+                    "note": {"type": "static", "value": null}}}}]))
+        .unwrap();
+        let bind = |keys: &[&str]| {
+            check_bound_agent_inputs_are_open(
+                "f/x/agent",
+                &tools,
+                &[(
+                    "t".to_string(),
+                    keys.iter().map(|k| k.to_string()).collect(),
+                )],
+            )
+        };
+        assert!(bind(&["limit", "note", "absent"]).is_ok());
+        assert!(bind(&["limit", "query"]).is_err());
     }
 
     #[test]

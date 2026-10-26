@@ -7,7 +7,7 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
-	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -32,12 +32,15 @@
 		Archive,
 		Copy,
 		Eye,
-		HistoryIcon
+		HistoryIcon,
+		Clock
 	} from 'lucide-svelte'
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 	import ChatFlowBadge from '$lib/components/flows/ChatFlowBadge.svelte'
-	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
-	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
+	import RowLabels from './RowLabels.svelte'
+	import AskAiRowButton from './AskAiRowButton.svelte'
+	import { cachedDeployUiSettings, warmDeployUiSettings } from '$lib/components/home/deploy_ui'
+	import { menuGroups, submenu } from './menuGroups'
 	import { editInForkAllowed, editInForkLabel, onEditInForkClick } from '$lib/utils/editInFork'
 	import EditInForkButton from './EditInForkButton.svelte'
 	import { isCloudHosted } from '$lib/cloud'
@@ -84,6 +87,8 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
+
+	warmDeployUiSettings()
 
 	async function archiveFlow(path: string, archived: boolean): Promise<void> {
 		try {
@@ -159,6 +164,7 @@
 			<Badge color="red" baseClass="border">archived</Badge>
 		{/if}
 		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
+		<RowLabels labels={flow.labels} inherited={flow.inherited_labels} />
 		<DraftBadge
 			is_draft={flow.is_draft}
 			draft_only={flow.draft_only}
@@ -169,35 +175,15 @@
 			path={flow.path}
 			onMigrated={() => dispatch('change')}
 		/>
-		{#if flow.labels?.length}
-			<div class="flex items-center gap-0.5">
-				{#each flow.labels.slice(0, 3) as label}
-					<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
-				{/each}
-				{#if flow.labels.length > 3}
-					<Badge
-						color="blue"
-						small
-						class="px-1"
-						title={flow.labels
-							.slice(3)
-							.map((l) => 'Label: ' + l)
-							.join('\n')}>+{flow.labels.length - 3}</Badge
-					>
-				{/if}
-			</div>
-		{/if}
-		<InheritedLabels labels={flow.inherited_labels} />
-		<div class="w-8 center-center"></div>
 	{/snippet}
 	{#snippet actions()}
-		<span class="hidden md:inline-flex gap-x-1">
+		<span class="hidden md:inline-flex">
+			<AskAiRowButton kind="flow" path={flow.path} summary={flow.summary} />
 			{#if !hideForOperator && showEditButton && flow.canWrite && !flow.archived}
 				<div>
 					<Button
 						variant="subtle"
-						wrapperClasses="w-20"
-						unifiedSize="md"
+						unifiedSize="sm"
 						startIcon={{ icon: Pen }}
 						href="/flows/edit/{flow.path}"
 						aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
@@ -207,34 +193,163 @@
 					</Button>
 				</div>
 			{/if}
-			<!-- Hidden from every operator, builder rights included. -->
-			{#if !$userStore?.operator && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !flow.canWrite)}
+			<!-- Hidden from every role without code, flow composers included. -->
+			{#if $roleCapabilities.code && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !flow.canWrite)}
 				<EditInForkButton itemType="flow" path={flow.path} />
 			{/if}
 		</span>
 
 		<Dropdown
+			size="sm"
 			aiId={`flow-row-dropdown-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 			aiDescription={`Open dropdown for flow ${flow.summary?.length > 0 ? flow.summary : flow.path} options`}
-			items={async () => {
+			items={() => {
 				let { draft_only, path, archived } = flow
 				let owner = isOwner(path, $userStore, $workspaceStore)
 				const canEdit = flow.canWrite && showEditButton
 				if (draft_only) {
-					return [
-						...selectMenuItems(rowSelection),
+					return menuGroups(
+						selectMenuItems(rowSelection),
+						[
+							{
+								displayName: 'Move/Rename',
+								icon: FolderOpen,
+								action: () => {
+									// Addressed by the generated path its draft row sits at, but
+									// named by the path typed in the editor.
+									moveDrawer.openDrawer((flow as any).draft_path ?? path, flow.summary, 'flow', {
+										storagePath: path
+									})
+								},
+								disabled: !showEditButton,
+								hide: hideForOperator
+							}
+						],
+						[
+							{
+								displayName: 'Delete',
+								icon: Trash,
+								action: (event) => {
+									// @ts-ignore
+									if (event?.shiftKey) {
+										deleteFlow(path)
+									} else {
+										deleteConfirmedCallback = () => {
+											deleteFlow(path)
+										}
+									}
+								},
+								type: 'delete',
+								// A draft-only row is always the authed user's own draft (the
+								// list endpoint only surfaces own/legacy draft-only rows), so
+								// discarding it never requires write permission on the path.
+								disabled: !showEditButton,
+								hide: hideForOperator
+							}
+						]
+					)
+				}
+				return menuGroups(
+					selectMenuItems(rowSelection),
+					[
+						{
+							displayName: 'View runs',
+							icon: List,
+							href: `/runs/${path}`
+						},
+						submenu('History', Clock, [
+							{
+								displayName: 'Versions',
+								icon: HistoryIcon,
+								action: () => {
+									flowHistory?.open()
+								},
+								hide: hideForOperator
+							},
+							{
+								displayName: 'Audit logs',
+								icon: Eye,
+								href: `/audit_logs?resource=${path}`,
+								hide: !$roleCapabilities.code || !$roleCapabilities.visibility.audit_logs
+							}
+						])
+					],
+					[
+						{
+							displayName: 'Duplicate/Fork',
+							icon: GitFork,
+							href: `/flows/add?template=${path}`,
+							disabled: !showEditButton,
+							hide: hideForOperator
+						},
+						{
+							displayName: editInForkLabel($workspaceStore, $userWorkspaces),
+							icon: Pen,
+							// No `href`: the handler resolves the destination asynchronously, and a melt
+							// menu item's anchor navigates before a delegated onclick can preventDefault it.
+							action: (e) => onEditInForkClick(e, 'flow', path),
+							hide:
+								!$roleCapabilities.code ||
+								isCloudHosted() ||
+								!editInForkAllowed($workspaceStore, $userWorkspaces)
+						},
+						{
+							displayName: 'Copy path',
+							icon: Copy,
+							action: () => {
+								copyToClipboard(path)
+							}
+						}
+					],
+					[
 						{
 							displayName: 'Move/Rename',
 							icon: FolderOpen,
 							action: () => {
-								// Addressed by the generated path its draft row sits at, but
-								// named by the path typed in the editor.
-								moveDrawer.openDrawer((flow as any).draft_path ?? path, flow.summary, 'flow', {
-									storagePath: path
-								})
+								moveDrawer.openDrawer(path, flow.summary, 'flow')
 							},
-							disabled: !showEditButton,
-							hide: $userStore?.operator
+							disabled: !owner || archived || !canEdit,
+							hide: hideForOperator
+						},
+						{
+							displayName: 'Schedule',
+							icon: Calendar,
+							action: () => {
+								scheduleEditor?.openNew(true, path)
+							},
+							disabled: archived,
+							hide: hideForOperator || !$roleCapabilities.manage_schedules
+						},
+						{
+							displayName: 'Permissions',
+							icon: Shield,
+							action: () => {
+								shareModal.openDrawer && shareModal.openDrawer(path, 'flow')
+							},
+							hide: hideForOperator
+						},
+						{
+							displayName: 'Deploy to staging/prod',
+							icon: ChevronUpSquare,
+							action: () => {
+								deploymentDrawer.openDrawer(path, 'flow')
+							},
+							disabled: archived,
+							hide:
+								$roleCapabilities.flows !== 'full' ||
+								!isDeployable('flow', path, cachedDeployUiSettings())
+						}
+					],
+					[
+						{
+							displayName: archived ? 'Unarchive' : 'Archive',
+							icon: Archive,
+							action: () => {
+								path && archiveFlow(path, !archived)
+							},
+							type: 'delete',
+							disabled: !owner || !canEdit,
+							hide: hideForOperator
 						},
 						{
 							displayName: 'Delete',
@@ -250,127 +365,11 @@
 								}
 							},
 							type: 'delete',
-							// A draft-only row is always the authed user's own draft (the
-							// list endpoint only surfaces own/legacy draft-only rows), so
-							// discarding it never requires write permission on the path.
-							disabled: !showEditButton,
+							disabled: !owner || !canEdit,
 							hide: hideForOperator
 						}
 					]
-				}
-				return [
-					...selectMenuItems(rowSelection),
-					{
-						displayName: 'View runs',
-						icon: List,
-						href: `/runs/${path}`
-					},
-					{
-						displayName: 'Duplicate/Fork',
-						icon: GitFork,
-						href: `/flows/add?template=${path}`,
-						disabled: !showEditButton,
-						hide: hideForOperator
-					},
-					{
-						displayName: editInForkLabel($workspaceStore, $userWorkspaces),
-						icon: Pen,
-						// No `href`: the handler resolves the destination asynchronously, and a melt
-						// menu item's anchor navigates before a delegated onclick can preventDefault it.
-						action: (e) => onEditInForkClick(e, 'flow', path),
-						hide:
-							$userStore?.operator ||
-							isCloudHosted() ||
-							!editInForkAllowed($workspaceStore, $userWorkspaces)
-					},
-					{
-						displayName: 'Audit logs',
-						icon: Eye,
-						href: `/audit_logs?resource=${path}`,
-						hide: $userStore?.operator
-					},
-					{
-						displayName: 'Move/Rename',
-						icon: FolderOpen,
-						action: () => {
-							moveDrawer.openDrawer(path, flow.summary, 'flow')
-						},
-						disabled: !owner || archived || !canEdit,
-						hide: hideForOperator
-					},
-					{
-						displayName: 'Copy path',
-						icon: Copy,
-						action: () => {
-							copyToClipboard(path)
-						}
-					},
-					...(isDeployable('flow', path, await getDeployUiSettings())
-						? [
-								{
-									displayName: 'Deploy to staging/prod',
-									icon: ChevronUpSquare,
-									action: () => {
-										deploymentDrawer.openDrawer(path, 'flow')
-									},
-									disabled: archived,
-									hide: $userStore?.operator
-								}
-							]
-						: []),
-					{
-						displayName: 'Deployments',
-						icon: HistoryIcon,
-						action: () => {
-							flowHistory?.open()
-						},
-						hide: hideForOperator
-					},
-					{
-						displayName: 'Schedule',
-						icon: Calendar,
-						action: () => {
-							scheduleEditor?.openNew(true, path)
-						},
-						disabled: archived,
-						hide: hideForOperator
-					},
-					{
-						displayName: 'Permissions',
-						icon: Shield,
-						action: () => {
-							shareModal.openDrawer && shareModal.openDrawer(path, 'flow')
-						},
-						hide: hideForOperator
-					},
-					{
-						displayName: archived ? 'Unarchive' : 'Archive',
-						icon: Archive,
-						action: () => {
-							path && archiveFlow(path, !archived)
-						},
-						type: 'delete',
-						disabled: !owner || !canEdit,
-						hide: hideForOperator
-					},
-					{
-						displayName: 'Delete',
-						icon: Trash,
-						action: (event) => {
-							// @ts-ignore
-							if (event?.shiftKey) {
-								deleteFlow(path)
-							} else {
-								deleteConfirmedCallback = () => {
-									deleteFlow(path)
-								}
-							}
-						},
-						type: 'delete',
-						disabled: !owner || !canEdit,
-						hide: hideForOperator
-					}
-				]
+				)
 			}}
 			on:open={() => {
 				menuOpen = true

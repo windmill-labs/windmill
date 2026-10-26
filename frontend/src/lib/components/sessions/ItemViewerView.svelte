@@ -64,7 +64,10 @@
 		untrack(() => runtime.manager)
 	)
 
-	const permissions = useSessionPermissions(() => workspaceId)
+	const permissions = useSessionPermissions(
+		() => workspaceId,
+		() => runtime.manager
+	)
 	const canEdit = $derived(permissions.canOpenEditor(kind))
 
 	// This reads the deployed version over the API rather than from the editor cell the

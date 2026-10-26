@@ -77,8 +77,8 @@ pub mod flows;
 pub mod fork_storage;
 pub mod folders;
 pub mod global_settings;
-pub mod hub_resource_types;
 pub mod guest_jwt;
+pub mod hub_resource_types;
 pub mod indexer;
 pub mod instance_config;
 pub mod job_metrics;
@@ -128,6 +128,7 @@ pub mod query_builders;
 pub mod queue;
 pub mod queue_metrics;
 pub mod result_stream;
+pub mod roles;
 pub mod runnable_job_stats;
 pub mod runnable_settings;
 pub mod runnables;
@@ -174,7 +175,13 @@ pub const DEFAULT_AI_SHARED_ARTIFACT_RETENTION_SECS: i64 = 60 * 60 * 24 * 30;
 pub const WM_DEPLOYERS_GROUP: &str = "wm_deployers";
 /// Groups Windmill creates lazily (`ON CONFLICT DO NOTHING`) and grants permissions to before
 /// they exist; a member who created one first would inherit those grants.
-pub const RESERVED_GROUP_NAMES: &[&str] = &["error_handler", "success_handler", "slack", "teams"];
+pub const RESERVED_GROUP_NAMES: &[&str] = &[
+    "error_handler",
+    "success_handler",
+    "variable_expiration_handler",
+    "slack",
+    "teams",
+];
 
 /// A century. Every consumer has to survive `now - retention`, and the ceilings are much lower
 /// than an `i64`: `DateTime` subtraction panics past year 262143, and the `(<n> s)::interval`
@@ -837,6 +844,50 @@ mod validate_dbname_tests {
 }
 
 #[cfg(test)]
+mod validate_dbname_not_option_like_tests {
+    use super::validate_dbname_not_option_like;
+
+    /// A source is any database a user already has, so everything `validate_dbname` refuses but
+    /// Postgres accepts has to keep working.
+    #[test]
+    fn accepts_every_name_that_is_not_an_option() {
+        for name in [
+            "mydb",
+            "My-Db_1",
+            "2024_archive",
+            "my.db",
+            "db with spaces",
+            "Grüße",
+            "host=elsewhere port=5433",
+            "",
+            "a-dash-inside--it",
+        ] {
+            assert!(
+                validate_dbname_not_option_like(name).is_ok(),
+                "refused the legitimate name {name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_a_name_that_an_argument_vector_would_read_as_an_option() {
+        for name in [
+            "--file=/tmp/x",
+            "--restrict-key=k",
+            "-f",
+            "-",
+            "   --file=/tmp/x",
+            "\t-f",
+        ] {
+            let err = validate_dbname_not_option_like(name)
+                .expect_err(&format!("accepted the option-like name {name:?}"))
+                .to_string();
+            assert!(err.contains("cannot start with '-'"), "{err}");
+        }
+    }
+}
+
+#[cfg(test)]
 mod pg_tls_tests {
     use super::PgDatabase;
 
@@ -960,6 +1011,13 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
             .contains("sslmode=disable"));
         assert!(pg(Some("allow"), None).to_uri().contains("sslmode=prefer"));
         assert!(pg(None, None).to_uri().contains("sslmode=prefer"));
+    }
+
+    #[test]
+    fn to_uri_sslmode_cannot_add_parameters() {
+        let uri = pg(Some("disable&hostaddr=127.0.0.2"), None).to_uri();
+        assert!(uri.ends_with("?sslmode=disable%26hostaddr%3D127.0.0.2"));
+        assert!(uri.parse::<tokio_postgres::Config>().is_err());
     }
 
     #[test]
@@ -1101,7 +1159,9 @@ impl PgDatabase {
         let sslmode = match self.sslmode.as_deref() {
             Some("allow") => "prefer".to_string(),
             Some("require") | Some("verify-ca") | Some("verify-full") => "require".to_string(),
-            Some(s) => s.to_string(),
+            // Encoded like the other fields: a raw '&' would append parameters (`hostaddr`, `host`,
+            // `port`) that send the connection somewhere else than the host this struct names.
+            Some(s) => urlencoding::encode(s).into_owned(),
             None => "prefer".to_string(),
         };
         // Encode host/dbname too: an unencoded '@', '/', '?' or '&' would otherwise
@@ -1156,6 +1216,14 @@ impl PgDatabase {
                     let on_local_cluster = local.host == self.host
                         && local.port.unwrap_or(5432) == self.port.unwrap_or(5432);
                     if let Some(db) = main_db.filter(|_| on_local_cluster) {
+                        // Only a connection Windmill built carries the stored password (and the
+                        // role's has drifted from it). Anything else is a resource whose author
+                        // named this role and host: retrying it would log them in with a
+                        // credential they were never given, and rotate it on their say-so.
+                        let stored_pwd = crate::utils::get_custom_pg_instance_password(db).await?;
+                        if self.password.as_deref() != Some(stored_pwd.as_str()) {
+                            return Err(e);
+                        }
                         tracing::warn!(
                             "custom_instance_user password auth failed, refreshing and retrying..."
                         );
@@ -1583,6 +1651,26 @@ pub fn validate_dbname(dbname: &str) -> error::Result<()> {
         return Err(error::Error::BadRequest(
             "Database name must contain only alphanumeric characters, underscores, or hyphens"
                 .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// The one restriction on the name of a database Windmill only *reads from*: it may not look like
+/// a command-line option.
+///
+/// [`validate_dbname`] is the rule for a name Windmill creates or interpolates into SQL, and is
+/// far too narrow here: a source is any Postgres resource a user already has, and an existing
+/// database may legitimately be named `2024_archive`, `my.db`, `Grüße` or anything else Postgres
+/// accepts as a quoted identifier. Refusing those would break working resources. A name opening
+/// with `-` is the one shape that is never a database and always a mistake or an attempt to smuggle
+/// an option into a `pg_dump`/`psql` argument vector, so it is refused wherever a source is
+/// resolved — the commands themselves pass the name through `PGDATABASE` and never on the command
+/// line, and this keeps a future caller that forgets from re-opening that door.
+pub fn validate_dbname_not_option_like(dbname: &str) -> error::Result<()> {
+    if dbname.trim_start().starts_with('-') {
+        return Err(error::Error::BadRequest(
+            "Database name cannot start with '-'".to_string(),
         ));
     }
     Ok(())
@@ -2338,13 +2426,13 @@ pub async fn legacy_on_behalf_of_email(
 
 /// Shared by [`ScriptHashInfo::on_behalf_of`] and [`FlowVersionInfo::on_behalf_of`].
 ///
-/// Reads identity data through the non-RLS pool and enforces nothing itself: it answers who a
-/// row already says it runs as. Callers must have authorized `w_id` — and the row they read it
+/// Reads identity tables, which carry no RLS (a user transaction reads them as the pool does),
+/// and enforces nothing itself: it answers who a row already says it runs as. Callers must have authorized `w_id` — and the row they read it
 /// from — before dispatching a job with what it returns.
-pub async fn on_behalf_of_from_permissioned_as(
+pub async fn on_behalf_of_from_permissioned_as<'c>(
     permissioned_as: Option<&str>,
     w_id: &str,
-    db: &DB,
+    db: impl sqlx::PgExecutor<'c>,
 ) -> error::Result<Option<jobs::OnBehalfOf>> {
     let Some(permissioned_as) = permissioned_as else {
         return Ok(None);
@@ -2443,6 +2531,10 @@ pub fn get_latest_deployed_hash_for_path<'e>(
                             ScriptHash(hash),
                         );
                     } else {
+                        // Release the user-db connection first: holding it while taking a
+                        // second one from the same pool starves the pool under a burst of
+                        // requests for paths the caller cannot see.
+                        drop(conn);
                         let mut conn = db2.acquire().await?;
                         let exists = get_latest_script_hash(&mut *conn, script_path, w_id)
                             .await?
@@ -2847,6 +2939,7 @@ where
                             CachedFlowPath(path.to_string()),
                         );
                     } else {
+                        drop(conn);
                         let mut conn = db.acquire().await?;
                         let exists = get_latest_flow_version_for_path(&mut *conn, w_id, path)
                             .await?
@@ -3029,9 +3122,8 @@ async fn get_latest_flow_version_for_path<'e, E: sqlx::PgExecutor<'e>>(
     Ok(version)
 }
 
-pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
-    db: E,
-    db2: &DB,
+pub async fn get_latest_hash_for_path(
+    db: &mut sqlx::PgConnection,
     w_id: &str,
     script_path: &str,
     require_locked: bool,
@@ -3062,13 +3154,13 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
             w_id,
             require_locked
         )
-        .fetch_optional(db)
+        .fetch_optional(&mut *db)
         .await?;
 
     let script = utils::not_found_if_none(r_o, "script", script_path)?;
 
     let on_behalf_of =
-        on_behalf_of_from_permissioned_as(script.on_behalf_of.as_deref(), w_id, db2).await?;
+        on_behalf_of_from_permissioned_as(script.on_behalf_of.as_deref(), w_id, db).await?;
 
     Ok((
         scripts::ScriptHash(script.hash),

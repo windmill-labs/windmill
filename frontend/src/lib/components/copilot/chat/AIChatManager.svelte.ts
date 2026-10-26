@@ -97,7 +97,7 @@ import { untrack } from 'svelte'
 import { fromStore, get } from 'svelte/store'
 import type { ProviderToolSummary } from './agentContext'
 import { BROWSER } from 'esm-env'
-import { workspaceStore, type DBSchemas } from '$lib/stores'
+import { roleCapabilities, workspaceStore, type DBSchemas } from '$lib/stores'
 import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
@@ -119,6 +119,7 @@ import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import {
 	closeInterruptedToolBatch,
 	runChatLoop,
+	type ChatLoopConfig,
 	sendsWebSearch,
 	truncateToToolPairedPrefix
 } from './chatLoop'
@@ -138,8 +139,23 @@ import {
 } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
 import { resolveSessionAccess } from './global/sessionAccess'
-import type { SessionAccess } from './sessionCapabilities'
-import { filterSessionTools } from './global/sessionToolset'
+import {
+	canBuild,
+	isReadOnlyAccess,
+	USE_MODE_ACCESS,
+	type SessionAccess,
+	type SessionTool
+} from './sessionCapabilities'
+import {
+	AIWorkMode,
+	ENTER_BUILD_MODE_TOOL,
+	ENTER_USE_MODE_TOOL,
+	isWorkModeSwitchTool,
+	WORK_MODE_SWITCH_TARGET,
+	type WorkModeSwitchTool
+} from './workMode'
+import { workModeSwitchTools } from './workModeSwitch'
+import { filterSessionTools, sessionToolAllowed } from './global/sessionToolset'
 import {
 	listFolderInstructions,
 	type FolderInstruction,
@@ -173,11 +189,6 @@ import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRout
 import { appendAttachedFilesRoster } from './files/fileTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from './planMode'
 import { PlanModeController, type PlanModeHost } from './planModeController.svelte'
-import {
-	navigationOperatorBuilderApps,
-	navigationOperatorBuilderFlows,
-	navigationOperatorBuilderRights
-} from '$lib/operatorWriteRights'
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -273,7 +284,6 @@ export enum AIMode {
 }
 
 export enum AIAutonomyMode {
-	PLAN = 'plan',
 	DEFAULT = 'default',
 	ACCEPT_EDIT = 'acceptedit',
 	YOLO = 'yolo'
@@ -310,9 +320,7 @@ export function supportsPlanMode(mode: AIMode): boolean {
 	return PLAN_MODES.has(mode)
 }
 
-const isOperatorBuilder = fromStore(navigationOperatorBuilderRights)
-const isOperatorBuilderFlows = fromStore(navigationOperatorBuilderFlows)
-const isOperatorBuilderApps = fromStore(navigationOperatorBuilderApps)
+const navCapabilities = fromStore(roleCapabilities)
 
 export function isAIModeVisible(mode: AIMode): boolean {
 	return mode !== AIMode.GLOBAL || isGlobalAiEnabled()
@@ -338,7 +346,7 @@ function getPersistedAutonomyMode(): AIAutonomyMode {
 		return AIAutonomyMode.ACCEPT_EDIT
 	}
 	const persistedMode = getLocalSetting(key)
-	if (isAIAutonomyMode(persistedMode) && persistedMode !== AIAutonomyMode.PLAN) {
+	if (isAIAutonomyMode(persistedMode)) {
 		return persistedMode
 	}
 	// No stored preference: default to auto-accepting edits (tool calls still
@@ -351,11 +359,6 @@ function getPersistedAutonomyMode(): AIAutonomyMode {
 }
 
 function persistAutonomyMode(mode: AIAutonomyMode) {
-	// Plan is session-only: persisting it would re-block a later session where the
-	// picker never offered Plan. The stored pre-plan baseline is what a reload restores.
-	if (mode === AIAutonomyMode.PLAN) {
-		return
-	}
 	const key = scopedKey(AI_AUTONOMY_MODE_STORAGE_KEY)
 	if (!BROWSER || !key) {
 		return
@@ -472,8 +475,8 @@ function planModeHostFor(m: AIChatManager): PlanModeHost {
 			return m.artifacts
 		},
 		openArtifact: (id, name, version) => m.openArtifact?.(id, name, version),
-		enter: () => m.setAutonomyMode(AIAutonomyMode.PLAN),
-		restore: () => m.setAutonomyMode(m.prePlanAutonomyMode ?? AIAutonomyMode.DEFAULT)
+		enter: () => m.setWorkMode(AIWorkMode.PLAN),
+		build: () => m.setWorkMode(AIWorkMode.BUILD)
 	}
 }
 
@@ -767,12 +770,48 @@ export class AIChatManager implements ChatViewHost {
 				this.autonomyMode === AIAutonomyMode.YOLO)
 	)
 	autoAcceptToolConfirmationsAvailable = $derived(supportsAutoAcceptToolConfirmations(this.mode))
+	/** Use, Plan or Build. A session keeps its own: the runtime seeds it from the session record
+	 * and stores each change through `onWorkModeChanged`. */
+	workMode = $state<AIWorkMode>(AIWorkMode.BUILD)
+	onWorkModeChanged: ((mode: AIWorkMode) => void) | undefined = undefined
+	workModesAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
+	/** Use is the only mode: the workspace is protected, or the user's role builds nothing in it. */
+	#useOnly = $derived(this.workModesAvailable && !canBuild(this.sessionAccess))
+	// A plan ends in edits, which neither case allows. The user's own Use mode leaves Plan open:
+	// it is one click away from Build anyway.
+	planModeAvailable = $derived(this.workModesAvailable && !this.#useOnly)
+	planModeActive = $derived(this.workMode === AIWorkMode.PLAN && this.planModeAvailable)
+	// Not while planning: approving the plan is the user's to do, and Yolo applies once they have.
 	autoAcceptToolConfirmationsActive = $derived(
-		this.autonomyMode === AIAutonomyMode.YOLO && this.autoAcceptToolConfirmationsAvailable
+		this.autonomyMode === AIAutonomyMode.YOLO &&
+			this.autoAcceptToolConfirmationsAvailable &&
+			!this.planModeActive
 	)
-	planModeAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
-	planModeActive = $derived(this.autonomyMode === AIAutonomyMode.PLAN && this.planModeAvailable)
-	prePlanAutonomyMode = $state<AIAutonomyMode | undefined>(undefined)
+	/** The chat is in Use, by the user's pick or because Use is the only mode. */
+	useModeActive = $derived(
+		this.workModesAvailable && (this.workMode === AIWorkMode.USE || this.#useOnly)
+	)
+	/** Why the chat is in Use; undefined in Plan and Build. A protected workspace's access builds
+	 * nothing too, so it is told apart from the role first. */
+	#useReason = $derived.by((): 'protected' | 'role' | 'chosen' | undefined => {
+		if (!this.useModeActive) return undefined
+		if (isReadOnlyAccess(this.sessionAccess)) return 'protected'
+		return this.#useOnly ? 'role' : 'chosen'
+	})
+	#workModeSwitches: Record<WorkModeSwitchTool, SessionTool<any>> = workModeSwitchTools({
+		offers: (tool) => this.workModeSwitchOffered === tool,
+		setWorkMode: (mode) => this.setWorkMode(mode)
+	})
+	/** The switch the current mode offers between Use and Use & build. None from Plan, which
+	 * leaves through its plan's approval, from a session held in Use, or while confirmations are
+	 * auto-accepted: the switch is the user's answer, which that posture would give for them. */
+	workModeSwitchOffered = $derived.by((): WorkModeSwitchTool | undefined => {
+		if (!this.workModesAvailable || this.autoAcceptToolConfirmationsActive) return undefined
+		if (this.#useReason === 'chosen') return ENTER_BUILD_MODE_TOOL
+		return this.useModeActive || this.planModeActive ? undefined : ENTER_USE_MODE_TOOL
+	})
+	/** What the tools and the prompt are built for. */
+	#toolAccess = $derived(this.useModeActive ? USE_MODE_ACCESS : this.sessionAccess)
 	// The posture's own state — its two tools, the plan document and the planning round.
 	// Everything it needs from this manager goes through the host above.
 	planMode = new PlanModeController(planModeHostFor(this))
@@ -789,15 +828,33 @@ export class AIChatManager implements ChatViewHost {
 	/** Both views narrow the same way — concatenate every source, then filter — so a tool
 	 * reaching either one can never arrive unfiltered. A session withholds what its user's
 	 * capabilities do not cover; elsewhere `sessionAccess` is unset and nothing is dropped. */
-	#shipped = (planTools: Tool<any>[]): Tool<any>[] =>
-		filterSessionTools([...this.#assembledTools, ...planTools], this.sessionAccess)
-	/** What the request carries: the assembled tools plus the plan-mode transition the current
+	#shipped = (modeTools: Tool<any>[]): Tool<any>[] =>
+		filterSessionTools([...this.#assembledTools, ...modeTools], this.#toolAccess)
+	/** What the request carries: the assembled tools plus the mode transitions the current
 	 * posture offers. Read by the request path and by the YOLO disclosure. */
-	tools: Tool<any>[] = $derived(this.#shipped(this.planMode.tools))
+	tools: Tool<any>[] = $derived(
+		this.#shipped([
+			...this.planMode.tools,
+			...(this.workModeSwitchOffered ? [this.#workModeSwitches[this.workModeSwitchOffered]] : [])
+		])
+	)
 	/** What the assistant can call in this session, posture-independent: both plan-mode
-	 * transitions, whichever one is offered right now. A reference answer, so flipping the
-	 * autonomy picker must not change it. */
-	availableTools: Tool<any>[] = $derived(this.#shipped(this.planMode.availableTools))
+	 * transitions and both switches, whichever one is offered right now. A reference answer, so
+	 * flipping the autonomy picker must not change it. */
+	availableTools: Tool<any>[] = $derived(
+		this.#shipped([
+			...this.planMode.availableTools,
+			...(this.workModesAvailable && !this.#useOnly ? Object.values(this.#workModeSwitches) : [])
+		])
+	)
+	/** Whether a tool the call was made with is no longer shipped: a switch to Use withdraws
+	 * every write while its card waits. The mode transitions are not assembled, so never are. */
+	isToolWithdrawn = (toolName: string): boolean => {
+		const access = this.#toolAccess
+		if (!access) return false
+		const tool = this.#assembledTools.find((t) => t.def.function.name === toolName)
+		return !!tool && !sessionToolAllowed(tool, access)
+	}
 	#copilotInfo = fromStore(copilotInfo)
 	#sessionModel = fromStore(copilotSessionModel)
 	/** Capabilities the provider runs on its own servers, attached by the adapter at send
@@ -1486,23 +1543,22 @@ export class AIChatManager implements ChatViewHost {
 			.map((s) => ({ ...s, kind: 'skill' as const }))
 	])
 
-	// The flow, app and script builders all write code, which the backend refuses from an
-	// operator with builder rights: leaving them reachable would only produce work that cannot be
-	// deployed.
+	// The flow, app and script builders all write code, which the backend refuses from a role
+	// that only composes: leaving them reachable would only produce work that cannot be deployed.
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script:
 			this.flowAiChatHelpers === undefined &&
 			this.scriptEditorOptions !== undefined &&
 			!this.disabledModes.script &&
-			!isOperatorBuilder.current,
+			navCapabilities.current.code,
 		flow:
 			this.flowAiChatHelpers !== undefined &&
 			!this.disabledModes.flow &&
-			!isOperatorBuilderFlows.current,
+			navCapabilities.current.flows === 'full',
 		app:
 			this.appAiChatHelpers !== undefined &&
 			!this.disabledModes.app &&
-			!isOperatorBuilderApps.current,
+			navCapabilities.current.apps === 'full',
 		navigator: !this.disabledModes.navigator,
 		ask: !this.disabledModes.ask,
 		API: !this.disabledModes.API,
@@ -1727,8 +1783,15 @@ export class AIChatManager implements ChatViewHost {
 	 * Returns true on success. Returns false — caller falls back to drop-oldest —
 	 * when summarization isn't worthwhile or fails (user abort, empty summary, or
 	 * the circuit breaker being tripped).
+	 *
+	 * `inFlightTokens` is the running turn's output, which is not in `messages` but
+	 * rides on every request after it: the tail shrinks by that much, or the next
+	 * tool result re-triggers at once and drop-oldest discards this summary.
 	 */
-	private summarizeAndCompact = async (contextWindow: number): Promise<boolean> => {
+	private summarizeAndCompact = async (
+		contextWindow: number,
+		inFlightTokens = 0
+	): Promise<boolean> => {
 		if (this.consecutiveCompactionFailures >= MAX_CONSECUTIVE_COMPACTION_FAILURES) {
 			return false
 		}
@@ -1737,13 +1800,14 @@ export class AIChatManager implements ChatViewHost {
 			return false
 		}
 
-		const tailBudget =
+		const historyBudget =
 			contextWindow * COMPACTION_TARGET_RATIO -
 			SUMMARY_OUTPUT_RESERVE_TOKENS -
 			this.estimateOverheadTokens()
-		if (tailBudget <= 0) {
+		if (historyBudget <= 0) {
 			return false
 		}
+		const tailBudget = historyBudget - inFlightTokens
 
 		const last = this.messages.length - 1
 		if (last < 1) {
@@ -1777,7 +1841,10 @@ export class AIChatManager implements ChatViewHost {
 
 		const prefix = this.messages.slice(0, keepFrom)
 		const tail = this.messages.slice(keepFrom)
-		if (prefix.length < MIN_PREFIX_MESSAGES_TO_SUMMARIZE || tail.length === 0) {
+		// Mid-turn, drop-oldest would cut context the running turn may rely on, so any
+		// prefix beyond a lone previous summary is worth the round-trip.
+		const minPrefix = inFlightTokens > 0 ? 2 : MIN_PREFIX_MESSAGES_TO_SUMMARIZE
+		if (prefix.length < minPrefix || tail.length === 0) {
 			return false
 		}
 
@@ -1808,6 +1875,65 @@ export class AIChatManager implements ChatViewHost {
 			this.consecutiveCompactionFailures++
 		}
 		return false
+	}
+
+	/**
+	 * Automatic compaction trigger, checked when a turn is sent and again before
+	 * each tool-loop iteration, since one turn's tool results can carry the request
+	 * past the window on their own. Rewrites the stored history (not the turn in
+	 * flight) once `projectedTokens` reaches the trigger ratio of `model`'s window.
+	 * Returns whether it rewrote; callers persist. An unrecognized model still gets
+	 * the conservative assumed window rather than no limit: without one the context
+	 * grows unbounded until the provider (or a proxy in front of it) times out.
+	 * Guessing low only compacts earlier, which is always recoverable.
+	 */
+	private compactIfOverTrigger = async (
+		projectedTokens: number,
+		model: ChatLoopConfig['modelProvider'] | undefined,
+		inFlightTokens = 0
+	): Promise<boolean> => {
+		const contextWindow = model
+			? getEffectiveModelContextWindow(
+					model.provider,
+					model.model,
+					get(copilotInfo).contextWindowPerModel
+				)
+			: undefined
+		if (contextWindow === undefined || projectedTokens < contextWindow * COMPACTION_TRIGGER_RATIO) {
+			return false
+		}
+		// Preferred path: summarize the older prefix, keep the recent tail.
+		const summarized = await this.summarizeAndCompact(contextWindow, inFlightTokens)
+		// A Stop during the in-flight summary aborts this turn's controller;
+		// summarizeAndCompact then returns false without touching history. Skip
+		// the drop-oldest fallback — it would destructively compact a conversation
+		// the user only meant to cancel, and the request can't run on an aborted
+		// controller anyway. The cancel path rolls the turn back cleanly on its own.
+		if (this.abortController?.signal.aborted) {
+			return false
+		}
+		if (!summarized) {
+			// Fallback when summarization isn't worthwhile or fails: drop the
+			// oldest messages. A report stays meaningful only debited by what
+			// was dropped; the estimate path needs no bookkeeping — the next
+			// read re-estimates the compacted history. chars/4 can
+			// underestimate the freed tokens, which errs toward compacting
+			// again — never toward overflowing.
+			const lengthBefore = this.messages.length
+			const freed = this.compactOldestMessages(
+				projectedTokens - contextWindow * COMPACTION_TARGET_RATIO
+			)
+			if (this.messages.length === lengthBefore) {
+				return false
+			}
+			if (this.contextUsage !== undefined) {
+				this.contextUsage = Math.max(0, this.contextUsage - freed)
+			}
+		}
+		// Reconcile file registrations with the compacted transcript — the
+		// summary message carries the folded-away turns' files forward.
+		this.#syncMessageFiles()
+		return true
 	}
 
 	/**
@@ -1901,8 +2027,10 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	/** enter_plan_mode never qualifies: YOLO means "stop asking and run it", and a research
-	 * posture inverts that. Every accept path asks here rather than carrying its own copy. */
-	private autoAcceptsTool = (toolName: string | undefined) => toolName !== ENTER_PLAN_MODE_TOOL
+	 * posture inverts that. Nor does a switch between Use and Use & build, which only the user
+	 * picks. Every accept path asks here rather than carrying its own copy. */
+	private autoAcceptsTool = (toolName: string | undefined) =>
+		toolName !== ENTER_PLAN_MODE_TOOL && !isWorkModeSwitchTool(toolName)
 
 	/** Asked before the confirmation wait is skipped, so a tool the posture will not answer
 	 * for still gets a card rather than running unasked. */
@@ -1942,7 +2070,7 @@ export class AIChatManager implements ChatViewHost {
 		}
 	}
 
-	private resolvePendingPlanCard = (toolName: string, confirmed: boolean) => {
+	private resolvePendingModeCard = (toolName: string, confirmed: boolean) => {
 		for (const [toolId, cb] of this.confirmationCallbacks) {
 			if (cb.toolName === toolName) {
 				cb.resolve(confirmed)
@@ -1952,29 +2080,47 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	setAutonomyMode = (mode: AIAutonomyMode) => {
-		const enteringPlan = mode === AIAutonomyMode.PLAN && this.autonomyMode !== AIAutonomyMode.PLAN
-		const leavingPlan = mode !== AIAutonomyMode.PLAN && this.autonomyMode === AIAutonomyMode.PLAN
-		if (enteringPlan) {
-			this.prePlanAutonomyMode = this.autonomyMode
-			this.planMode.startRound()
-		} else if (mode !== AIAutonomyMode.PLAN) {
-			this.prePlanAutonomyMode = undefined
-			this.planMode.resetBlocks()
-		}
 		this.autonomyMode = mode
 		persistAutonomyMode(mode)
-
-		if (enteringPlan) {
-			this.resolvePendingPlanCard(ENTER_PLAN_MODE_TOOL, true)
-		} else if (leavingPlan) {
-			// Opting into YOLO means "run it"; leaving plan mode any other way is not a sign-off.
-			this.resolvePendingPlanCard(EXIT_PLAN_MODE_TOOL, mode === AIAutonomyMode.YOLO)
-		}
 		if (this.autoAcceptToolConfirmationsActive) {
 			this.acceptPendingToolConfirmations()
 		}
 		if (this.autoAcceptEditsActive) {
 			this.acceptPendingFlowEdits()
+		}
+	}
+
+	setWorkMode = (mode: AIWorkMode) => {
+		const enteringPlan = mode === AIWorkMode.PLAN && this.workMode !== AIWorkMode.PLAN
+		const leavingPlan = mode !== AIWorkMode.PLAN && this.workMode === AIWorkMode.PLAN
+		const useChanges = (mode === AIWorkMode.USE) !== (this.workMode === AIWorkMode.USE)
+		if (enteringPlan) {
+			this.planMode.startRound()
+		} else if (mode !== AIWorkMode.PLAN) {
+			this.planMode.resetBlocks()
+		}
+		this.workMode = mode
+		this.onWorkModeChanged?.(mode)
+
+		if (enteringPlan) {
+			this.resolvePendingModeCard(ENTER_PLAN_MODE_TOOL, true)
+		} else if (leavingPlan) {
+			// Building under Yolo means "run it"; leaving plan mode any other way is not a sign-off.
+			this.resolvePendingModeCard(
+				EXIT_PLAN_MODE_TOOL,
+				mode === AIWorkMode.BUILD && this.autonomyMode === AIAutonomyMode.YOLO
+			)
+		}
+		// A switch card the picker answered: accepted when the picker went where the card asked.
+		for (const tool of [ENTER_BUILD_MODE_TOOL, ENTER_USE_MODE_TOOL] as const) {
+			this.resolvePendingModeCard(tool, mode === WORK_MODE_SWITCH_TARGET[tool])
+		}
+		if (this.autoAcceptToolConfirmationsActive) {
+			this.acceptPendingToolConfirmations()
+		}
+		// The helpers and the system prompt are built for one access; the tool list follows alone.
+		if (useChanges && this.mode === AIMode.GLOBAL) {
+			this.configureGlobalMode()
 		}
 	}
 
@@ -1991,7 +2137,6 @@ export class AIChatManager implements ChatViewHost {
 	hydrateUserScopedAutonomy = () => {
 		migrateLegacyAutonomyKeys()
 		this.autonomyMode = getPersistedAutonomyMode()
-		this.prePlanAutonomyMode = undefined
 		this.planMode.resetRound()
 	}
 
@@ -2256,8 +2401,12 @@ export class AIChatManager implements ChatViewHost {
 		)
 	}
 
-	setAiChatInput(aiChatInput: AIChatInput | null) {
+	setAiChatInput(aiChatInput: AIChatInput) {
 		this.aiChatInput = aiChatInput
+	}
+
+	releaseAiChatInput(aiChatInput: AIChatInput) {
+		if (this.aiChatInput === aiChatInput) this.aiChatInput = null
 	}
 
 	/** Queue the message typed while a turn is streaming. There is only ever
@@ -2400,12 +2549,12 @@ export class AIChatManager implements ChatViewHost {
 	 *
 	 * Gated on `sendInFlight` as well as `loading`: `loading` only rises after a
 	 * send's attachment upkeep, so between the two a click would slip past. */
-	sendOrQueue(text: string) {
+	sendOrQueue(text: string, context?: ContextElement[]) {
 		if (this.loading || this.sendInFlight || this.sendPending) {
-			this.queueMessage(text)
+			this.queueMessage(text, [], context)
 			return
 		}
-		void this.sendRequest({ instructions: text })
+		void this.sendRequest({ instructions: text, contextOverride: context })
 	}
 
 	/** Remove the queued message and put it back into the input, images included. */
@@ -2620,7 +2769,7 @@ export class AIChatManager implements ChatViewHost {
 						sessionId: this.sessionId,
 						operatingWorkspace: this.operatingWorkspace,
 						artifacts: this.artifacts,
-						access: this.sessionAccess,
+						access: this.#toolAccess,
 						getChatId: () => this.historyManager.getCurrentChatId(),
 						openArtifact: this.openArtifact
 					}
@@ -2659,10 +2808,18 @@ export class AIChatManager implements ChatViewHost {
 		skills: this.globalSkills,
 		folderInstructions: this.globalFolderInstructions,
 		mcpServers: this.mcpServers,
-		access: this.sessionAccess,
-		sessionContext: this.sessionContextResolver?.(),
+		access: this.#toolAccess,
+		sessionContext: this.#sessionPromptContext(),
 		pipelineFolders: this.#pipelineFolders()
 	})
+
+	#sessionPromptContext = (): SessionPromptContext | undefined => {
+		const ctx = this.sessionContextResolver?.()
+		const reason = this.#useReason
+		// A protected workspace needs no reason here: the prompt's own read-only line names it.
+		if (!ctx || !reason || reason === 'protected') return ctx
+		return { ...ctx, useMode: reason }
+	}
 
 	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
 	// the system message so the next chat-loop iteration advertises them. Ignore
@@ -3163,7 +3320,8 @@ export class AIChatManager implements ChatViewHost {
 		callbacks,
 		addedMessages,
 		systemMessage: systemMessageOverride,
-		onWebSearchUnavailable
+		onWebSearchUnavailable,
+		onBeforeIteration
 	}: {
 		messages: ChatCompletionMessageParam[]
 		abortController: AbortController
@@ -3175,6 +3333,7 @@ export class AIChatManager implements ChatViewHost {
 		addedMessages?: ChatCompletionMessageParam[]
 		systemMessage?: ChatCompletionSystemMessageParam
 		onWebSearchUnavailable?: () => void
+		onBeforeIteration?: ChatLoopConfig['onBeforeIteration']
 	}) => {
 		// Fresh batch for this turn — drop any images an aborted prior turn left buffered.
 		this.pendingToolImages.clear()
@@ -3277,8 +3436,9 @@ export class AIChatManager implements ChatViewHost {
 						console.error('Failed to record AI usage', e)
 					}
 				},
-				onBeforeIteration: async (modelProvider) => {
+				onBeforeIteration: async (modelProvider, lastIterationUsage) => {
 					this.lastIterationModel = modelProvider
+					await onBeforeIteration?.(modelProvider, lastIterationUsage)
 				}
 			})
 			if (this.isSessionChat && this.sessionId && result.tokenUsage.total > 0) {
@@ -3661,7 +3821,10 @@ export class AIChatManager implements ChatViewHost {
 						options.images ?? [],
 						options.files ?? []
 					) === true
-				if (taken) this.#restoreMentionContext(options.contextOverride, requestedMode)
+				if (taken) {
+					this.#restoreDomContext(options.contextOverride, true)
+					this.#restoreMentionContext(options.contextOverride, requestedMode)
+				}
 			}
 			return false
 		}
@@ -3771,7 +3934,10 @@ export class AIChatManager implements ChatViewHost {
 					// mentions on that draft and every turn after it.
 					const taken =
 						this.aiChatInput?.restoreInstructions(this.instructions, pastes, images, files) === true
-					if (taken) this.#restoreMentionContext(options.contextOverride, requestedMode)
+					if (taken) {
+						this.#restoreDomContext(options.contextOverride, true)
+						this.#restoreMentionContext(options.contextOverride, requestedMode)
+					}
 				}
 				sendUserToast(
 					`Could not prepare the session before sending: ${
@@ -3821,7 +3987,10 @@ export class AIChatManager implements ChatViewHost {
 				// text, only if the composer took it.
 				const taken =
 					this.aiChatInput?.restoreInstructions(this.instructions, pastes, images, files) === true
-				if (taken) this.#restoreMentionContext(options.contextOverride, requestedMode)
+				if (taken) {
+					this.#restoreDomContext(options.contextOverride, true)
+					this.#restoreMentionContext(options.contextOverride, requestedMode)
+				}
 			}
 			return true
 		}
@@ -3971,10 +4140,24 @@ export class AIChatManager implements ChatViewHost {
 					workspace: this.operatingWorkspace
 				})
 				logFeatureUsage('ai_session', 'autonomy', {
-					key: this.autonomyMode,
+					// Planning keeps its own key, `plan`, so the series still tells it apart.
+					key: this.planModeActive ? AIWorkMode.PLAN : this.autonomyMode,
 					entityId: this.sessionId,
 					workspace: this.operatingWorkspace
 				})
+				if (this.workModesAvailable) {
+					// Keyed by the mode the message runs in, not `workMode`, which a held session keeps.
+					// Held Use has its own keys, so `use_chosen` counts only sessions that could build.
+					logFeatureUsage('ai_session', 'work_mode', {
+						key: this.#useReason
+							? `use_${this.#useReason}`
+							: this.planModeActive
+								? AIWorkMode.PLAN
+								: AIWorkMode.BUILD,
+						entityId: this.sessionId,
+						workspace: this.operatingWorkspace
+					})
+				}
 			}
 
 			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {
@@ -4121,61 +4304,24 @@ export class AIChatManager implements ChatViewHost {
 			this.currentReasoningActive = false
 			this.resetReasoningTiming()
 
-			// Compaction trigger. An unrecognized model still gets the conservative
-			// assumed window rather than no limit: without one the context grows
-			// unbounded until the provider (or a proxy in front of it) times out.
-			// Guessing low only compacts earlier, which is always recoverable.
-			const contextWindow = model
-				? getEffectiveModelContextWindow(
-						model.provider,
-						model.model,
-						get(copilotInfo).contextWindowPerModel
-					)
-				: undefined
-			if (
-				contextWindow !== undefined &&
-				projectedContextTokens >= contextWindow * COMPACTION_TRIGGER_RATIO
-			) {
-				// Preferred path: summarize the older prefix, keep the recent tail.
-				const summarized = await this.summarizeAndCompact(contextWindow)
-				// A Stop during the in-flight summary aborts this turn's controller;
-				// summarizeAndCompact then returns false without touching history. Skip
-				// the drop-oldest fallback (and its save) — it would destructively
-				// compact a conversation the user only meant to cancel, and the request
-				// can't run on an aborted controller anyway. The cancel path below rolls
-				// the pushed turn back cleanly on its own.
-				if (!this.abortController?.signal.aborted) {
-					if (!summarized) {
-						// Fallback when summarization isn't worthwhile or fails: drop the
-						// oldest messages. A report stays meaningful only debited by what
-						// was dropped; the estimate path needs no bookkeeping — the next
-						// read re-estimates the compacted history. chars/4 can
-						// underestimate the freed tokens, which errs toward compacting
-						// again — never toward overflowing.
-						const freed = this.compactOldestMessages(
-							projectedContextTokens - contextWindow * COMPACTION_TARGET_RATIO
-						)
-						if (this.contextUsage !== undefined) {
-							this.contextUsage = Math.max(0, this.contextUsage - freed)
-						}
-					}
-					// Reconcile file registrations with the compacted transcript — the
-					// summary message carries the folded-away turns' files forward.
-					this.#syncMessageFiles()
-					await this.historyManager.saveChat(
-						this.displayMessages,
-						this.messages,
-						this.contextUsage,
-						this.modifiedItems ? [...this.modifiedItems] : undefined
-					)
-				}
+			if (await this.compactIfOverTrigger(projectedContextTokens, model)) {
+				await this.historyManager.saveChat(
+					this.displayMessages,
+					this.messages,
+					this.contextUsage,
+					this.modifiedItems ? [...this.modifiedItems] : undefined
+				)
 			}
 			// Rollback anchors for restoreUnsentTurn: captured after compaction so
 			// they index into the (possibly compacted) stored history. The summary
 			// path shrinks displayMessages too, so the display anchor must also be
 			// read here, not before compaction.
+			// Mid-turn compaction leaves these stale, but it runs only once the turn has
+			// tool-paired output, which keeps the turn off the restore path.
 			const modelLenAfterUser = this.messages.length
 			const displayLenAfterUser = this.displayMessages.length
+			// Set when a mid-turn compaction makes the latest provider report stale.
+			let usageBeforeCompaction: ChatTokenUsage | null = null
 
 			const params: {
 				messages: ChatCompletionMessageParam[]
@@ -4275,6 +4421,7 @@ export class AIChatManager implements ChatViewHost {
 					shouldAutoAcceptToolConfirmations: this.shouldAutoAcceptTool,
 					isPlanModeActive: () => this.planModeActive,
 					onToolBlockedByPlanMode: this.planMode.noteBlockedTool,
+					isToolWithdrawn: this.isToolWithdrawn,
 					requestUserQuestion: this.requestUserQuestion,
 					requestRunArgs: this.requestRunArgs,
 					markRunFormStarted: this.markRunFormStarted,
@@ -4303,6 +4450,46 @@ export class AIChatManager implements ChatViewHost {
 				addedMessages: collectedMessages,
 				onWebSearchUnavailable: () => {
 					webSearchUnavailable = true
+				},
+				onBeforeIteration: async (iterationModel, lastIterationUsage) => {
+					// The first iteration sends exactly what the send-time check measured.
+					if (collectedMessages.length === 0) return
+					// The last report's prompt covers everything before its assistant message.
+					// That message counts as its `completion` only on Anthropic, which replays
+					// its thinking verbatim (`_anthropicContent`); other providers bill reasoning
+					// the next request does not replay, so it is estimated. The estimate is
+					// the floor in case a later iteration's report never arrived. A report
+					// from before a compaction measured the history it replaced.
+					const lastAssistant = collectedMessages.findLastIndex((m) => m.role === 'assistant')
+					const replaysOutput = !!(collectedMessages[lastAssistant] as any)?._anthropicContent
+					const reported =
+						lastIterationUsage && lastIterationUsage !== usageBeforeCompaction
+							? lastIterationUsage.prompt +
+								(replaysOutput ? lastIterationUsage.completion : 0) +
+								this.estimateMessagesTokens(
+									collectedMessages.slice(replaysOutput ? lastAssistant + 1 : lastAssistant)
+								)
+							: 0
+					const historyTokens = this.estimateWholeContextTokens()
+					// Whatever the report sees beyond the stored history is the turn's, replayed
+					// thinking included, so the summary leaves room for it.
+					const inFlightTokens = Math.max(
+						this.estimateMessagesTokens(collectedMessages),
+						reported - historyTokens
+					)
+					const projected = Math.max(reported, historyTokens + inFlightTokens)
+					if (await this.compactIfOverTrigger(projected, iterationModel, inFlightTokens)) {
+						usageBeforeCompaction = lastIterationUsage
+						// The loop sends from this array, which mirrors the stored history
+						// plus the turn so far.
+						params.messages.splice(
+							0,
+							params.messages.length,
+							...this.messages,
+							...collectedMessages
+						)
+						await checkpointTurn(true)
+					}
 				}
 			})
 			stopCheckpoints()
@@ -4324,9 +4511,10 @@ export class AIChatManager implements ChatViewHost {
 				// stored history it was sent with (the kept partial tail is a small
 				// undercount the trigger headroom absorbs). Without one, clear the
 				// stale value — readers estimate via contextTokens.
-				this.contextUsage = result?.lastIterationUsage
-					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
-					: undefined
+				this.contextUsage =
+					result?.lastIterationUsage && result.lastIterationUsage !== usageBeforeCompaction
+						? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
+						: undefined
 				await this.historyManager.saveChat(
 					this.displayMessages,
 					this.messages,
@@ -4395,9 +4583,10 @@ export class AIChatManager implements ChatViewHost {
 				// stored — no anchoring or index bookkeeping needed. Without a
 				// report, clear the now-stale value — readers estimate via
 				// contextTokens.
-				this.contextUsage = result?.lastIterationUsage
-					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
-					: undefined
+				this.contextUsage =
+					result?.lastIterationUsage && result.lastIterationUsage !== usageBeforeCompaction
+						? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
+						: undefined
 				if (this.autoAcceptEditsActive) {
 					this.acceptPendingFlowEdits()
 				}

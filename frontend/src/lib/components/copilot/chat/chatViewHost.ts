@@ -1,5 +1,6 @@
 import { getContext, setContext } from 'svelte'
 import type { AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import type { AIWorkMode } from './workMode'
 import { getAiChatManager } from './aiChatManagerContext'
 import type { DisplayMessage, Tool } from './shared'
 import type { ContextElement } from './context'
@@ -72,7 +73,11 @@ export interface ChatViewHost {
 	/** Resolves to whether the draft was consumed as a turn. */
 	sendRequest: (options?: ChatSendRequestOptions) => Promise<boolean | undefined>
 	cancel: (reason?: string) => void
-	setAiChatInput: (aiChatInput: AIChatInput | null) => void
+	setAiChatInput: (aiChatInput: AIChatInput) => void
+	/** Unregisters `aiChatInput` if it is still the registered one. A host's chat can remount
+	 * elsewhere (Home hands its session to /sessions), and the new composer may register before
+	 * the old one's teardown runs. */
+	releaseAiChatInput: (aiChatInput: AIChatInput) => void
 	readonly queuedMessage: string
 	queuedContext: ContextElement[] | undefined
 	readonly queuedImages: AttachedImage[]
@@ -156,6 +161,10 @@ export interface ChatViewHost {
 	readonly tools: readonly Tool<any>[]
 	autonomyMode: AIAutonomyMode
 	setAutonomyMode: (mode: AIAutonomyMode) => void
+	/** Use, Plan or Build: offered by a session chat only. */
+	readonly workModesAvailable: boolean
+	workMode: AIWorkMode
+	setWorkMode: (mode: AIWorkMode) => void
 	readonly autoAcceptEditsActive: boolean
 	readonly autoAcceptEditsAvailable: boolean
 	readonly autoAcceptToolConfirmationsAvailable: boolean

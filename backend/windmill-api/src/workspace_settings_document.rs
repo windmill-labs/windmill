@@ -60,6 +60,7 @@ struct SettingsRow {
     webhook: Option<String>,
     error_handler: Option<Value>,
     success_handler: Option<Value>,
+    variable_expiration_handler: Option<Value>,
     ai_config: Option<Value>,
     large_file_storage: Option<Value>,
     git_sync: Option<Value>,
@@ -298,7 +299,8 @@ pub async fn load_settings_document(
 ) -> Result<Map<String, Value>> {
     let row = sqlx::query_as::<_, SettingsRow>(
         r#"SELECT
-             auto_invite, webhook, error_handler, success_handler, ai_config, large_file_storage,
+             auto_invite, webhook, error_handler, success_handler, variable_expiration_handler,
+             ai_config, large_file_storage,
              git_sync, default_app, default_scripts, workspace.name AS name, mute_critical_alerts,
              color, operator_settings, datatable, slack_team_id, slack_name, slack_command_script,
              slack_oauth_client_id, slack_oauth_client_secret, ducklake, dbt_warehouses, deploy_ui,
@@ -341,18 +343,28 @@ pub async fn load_settings_document(
     };
     let datatable_permissions = datatable_permissions_document(row.datatable.as_ref(), &role_names);
     let protection_rules = protection_rules_document(&mut *conn, w_id).await?;
+    let git_sync = redact_git_sync(row.git_sync);
+    let git_sync = match fork_parent(&mut *conn, w_id).await? {
+        Some(parent) => fork_git_sync_document(git_sync, parent.git_sync),
+        None => git_sync,
+    };
 
     // In the order `wmill sync pull` has always written settings.yaml. A key that predates the
     // document and is not marked `always` is written only when set, as it always was; a key
     // added since is always written, so a pulled file states it and from then on manages it.
-    let entries: [(&str, Option<Value>, bool); 31] = [
+    let entries: [(&str, Option<Value>, bool); 32] = [
         ("auto_invite", row.auto_invite, false),
         ("webhook", row.webhook.map(Value::String), false),
         ("error_handler", row.error_handler, true),
         ("success_handler", row.success_handler, true),
+        (
+            "variable_expiration_handler",
+            row.variable_expiration_handler,
+            true,
+        ),
         ("ai_config", row.ai_config, false),
         ("large_file_storage", row.large_file_storage, false),
-        ("git_sync", redact_git_sync(row.git_sync), false),
+        ("git_sync", git_sync, false),
         ("default_app", row.default_app.map(Value::String), false),
         ("default_scripts", row.default_scripts, false),
         ("name", Some(json!(row.name.unwrap_or_default())), true),
@@ -675,6 +687,7 @@ const KNOWN_KEYS: &[&str] = &[
     "webhook",
     "error_handler",
     "success_handler",
+    "variable_expiration_handler",
     "ai_config",
     "large_file_storage",
     "git_sync",
@@ -859,17 +872,183 @@ fn normalize_protection_rules(v: &Value, warnings: &mut Vec<String>) -> Result<V
     Ok(Value::Object(out))
 }
 
-async fn plan(db: &DB, w_id: &str, desired: Map<String, Value>, replace: bool) -> Result<Plan> {
-    let current = {
+async fn plan(db: &DB, w_id: &str, mut desired: Map<String, Value>, replace: bool) -> Result<Plan> {
+    let (mut current, fork) = {
         let mut conn = db.acquire().await?;
-        load_settings_document(&mut conn, db, w_id, SecretMode::Plain).await?
+        let current = load_settings_document(&mut conn, db, w_id, SecretMode::Plain).await?;
+        (current, fork_parent(&mut conn, w_id).await?)
     };
+    if let Some(fork) = fork {
+        // Diff against what the fork stores, not the parent's view the document shows it.
+        let own: Option<Value> =
+            sqlx::query_scalar("SELECT git_sync FROM workspace_settings WHERE workspace_id = $1")
+                .bind(w_id)
+                .fetch_optional(db)
+                .await?
+                .flatten();
+        let own = redact_git_sync(own);
+        // A malformed value is left for the endpoint to refuse.
+        let stated = match desired.get("git_sync") {
+            Some(v) if v.is_object() || v.is_null() => Some(v),
+            Some(_) => None,
+            None => replace.then_some(&Value::Null),
+        };
+        if let Some(stated) = stated {
+            let applied = fork_git_sync_to_apply(stated, own.as_ref(), fork.is_dev)?;
+            desired.insert("git_sync".to_string(), applied);
+        }
+        match own {
+            Some(own) => current.insert("git_sync".to_string(), own),
+            None => current.remove("git_sync"),
+        };
+    }
     let mc = build_crypt(db, w_id).await?;
     let names = match desired.get("datatable_permissions") {
         Some(v) if !v.is_null() => DatatableNames::load(db, w_id, v).await?,
         _ => DatatableNames::default(),
     };
     plan_document(current, desired, replace, &mc, &names)
+}
+
+/// A fork's parent, read for its `git_sync`.
+struct ForkParent {
+    /// As the parent's own document states it: a fork of a fork shares the root's file too.
+    git_sync: Option<Value>,
+    /// Of the fork itself.
+    is_dev: bool,
+}
+
+/// `Some` when `w_id` is a fork, by the same test as
+/// `reject_parent_only_git_sync_settings_on_fork`.
+async fn fork_parent(conn: &mut PgConnection, w_id: &str) -> Result<Option<ForkParent>> {
+    // The workspace itself, then its ancestors nearest first; the depth bound only guards
+    // against a cycle.
+    let mut chain: Vec<(bool, Option<Value>)> = sqlx::query_as(
+        "WITH RECURSIVE chain AS (
+             SELECT id, parent_workspace_id, is_dev_workspace, 0 AS depth
+             FROM workspace WHERE id = $1
+             UNION ALL
+             SELECT w.id, w.parent_workspace_id, w.is_dev_workspace, c.depth + 1 FROM workspace w
+             JOIN chain c ON w.id = c.parent_workspace_id WHERE c.depth < 32
+         )
+         SELECT c.is_dev_workspace, s.git_sync FROM chain c
+         LEFT JOIN workspace_settings s ON s.workspace_id = c.id
+         ORDER BY c.depth",
+    )
+    .bind(w_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let is_dev = !chain.is_empty() && chain.remove(0).0;
+    if chain.is_empty() && !w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) {
+        return Ok(None);
+    }
+    let git_sync = chain.into_iter().rev().fold(None, |above, (_, own)| {
+        fork_git_sync_document(redact_git_sync(own), above)
+    });
+    Ok(Some(ForkParent { git_sync, is_dev }))
+}
+
+// A fork shares its parent's settings.yaml (the CLI maps `wm-fork/<branch>/<id>` to the parent's
+// entry), so its `git_sync` there is the parent's. Of it, a fork applies only what selects the
+// items synced, on the repos it carries: the keys listed here, and a repo's `settings` when
+// neither side uses workspace-level filters. Auto-pull, fork PRs and promotion mode are not a
+// fork's to take (`reject_parent_only_git_sync_settings_on_fork`), and any other field stays the
+// fork's own. The fork's document is the parent's block with the fork's values for the same keys,
+// the inverse of the apply, so a merge of the fork's branch changes only them in the parent.
+const FORK_SYNCED_REPO_KEYS: [&str; 2] = ["exclude_types_override", "group_by_folder"];
+
+fn repos(git_sync: Option<&Value>) -> &[Value] {
+    git_sync
+        .and_then(|g| g.get("repositories"))
+        .and_then(Value::as_array)
+        .map_or(&[], Vec::as_slice)
+}
+
+fn same_repo<'a>(repos: &'a [Value], repo: &Value) -> Option<&'a Value> {
+    let path = repo.get("git_repo_resource_path")?;
+    repos
+        .iter()
+        .find(|r| r.get("git_repo_resource_path") == Some(path))
+}
+
+/// Whether repos fall back to the workspace-level filters, where an empty or missing `settings`
+/// list means "use the workspace's". A repo's filters cross only when neither side does, as
+/// that layout cannot state some of what the other can. Only these two are fallen back to on
+/// their own (`exclude_path`/`extra_include_path` only beside `include_path`), and the save
+/// leaves the other two behind once every repo has migrated.
+fn uses_workspace_filters(git_sync: &Value) -> bool {
+    ["include_path", "include_type"]
+        .iter()
+        .any(|k| !is_null(git_sync.get(*k)))
+}
+
+/// An unset key and a null one are left as they are: stored blobs differ in which they write, and
+/// swapping one for the other would show in settings.yaml as a change.
+fn copy_keys(onto: &mut Map<String, Value>, from: &Value, keys: &[&str]) {
+    for key in keys {
+        if is_null(from.get(*key)) && is_null(onto.get(*key)) {
+            continue;
+        }
+        match from.get(*key) {
+            Some(v) => onto.insert(key.to_string(), v.clone()),
+            None => onto.remove(*key),
+        };
+    }
+}
+
+/// Sets `onto` to `from`'s values for the synced keys, on each repo `from` also lists.
+fn copy_synced_keys(onto: &mut Value, from: &Value) {
+    let filters = !uses_workspace_filters(onto) && !uses_workspace_filters(from);
+    let from_repos = repos(Some(from));
+    let Some(repos) = onto.get_mut("repositories").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for repo in repos {
+        let Some(src) = same_repo(from_repos, repo) else {
+            continue;
+        };
+        if let Some(repo) = repo.as_object_mut() {
+            copy_keys(repo, src, &FORK_SYNCED_REPO_KEYS);
+            if filters {
+                copy_keys(repo, src, &["settings"]);
+            }
+        }
+    }
+}
+
+/// The fork's `git_sync` as its settings.yaml states it.
+fn fork_git_sync_document(own: Option<Value>, parent: Option<Value>) -> Option<Value> {
+    let Some(mut doc) = parent else {
+        return own;
+    };
+    if let Some(own) = &own {
+        copy_synced_keys(&mut doc, own);
+    }
+    Some(doc)
+}
+
+/// What a fork applies of the `git_sync` its settings.yaml states. Only a dev workspace may hold
+/// a promotion repo, and one detached from dev still stores its own: it is dropped so the write
+/// passes the save's check.
+fn fork_git_sync_to_apply(stated: &Value, own: Option<&Value>, is_dev: bool) -> Result<Value> {
+    if stated.get("repositories").is_some_and(|r| !r.is_array()) {
+        return Err(Error::BadRequest(
+            "git_sync.repositories must be a list".to_string(),
+        ));
+    }
+    let Some(mut applied) = own.cloned() else {
+        return Ok(Value::Null);
+    };
+    copy_synced_keys(&mut applied, stated);
+    if !is_dev {
+        if let Some(repos) = applied
+            .get_mut("repositories")
+            .and_then(Value::as_array_mut)
+        {
+            repos.retain(|r| r.get("use_individual_branch") != Some(&Value::Bool(true)));
+        }
+    }
+    Ok(applied)
 }
 
 fn plan_document(
@@ -888,7 +1067,12 @@ fn plan_document(
     if !unknown.is_empty() {
         warnings.push(format!("Ignored unknown settings: {}", unknown.join(", ")));
     }
-    for key in ["auto_invite", "error_handler", "success_handler"] {
+    for key in [
+        "auto_invite",
+        "error_handler",
+        "success_handler",
+        "variable_expiration_handler",
+    ] {
         if desired
             .get(key)
             .is_some_and(|v| !v.is_null() && !v.is_object())
@@ -951,6 +1135,24 @@ fn plan_document(
             Value::is_boolean,
             "a boolean",
         ),
+        (
+            "variable_expiration_handler",
+            "muted_on_user_path",
+            Value::is_boolean,
+            "a boolean",
+        ),
+        (
+            "variable_expiration_handler",
+            "notify_before_secs",
+            |v: &Value| v.as_u64().is_some_and(|n| n <= u32::MAX as u64),
+            "a non-negative number of seconds",
+        ),
+        (
+            "variable_expiration_handler",
+            "remind_every_secs",
+            |v: &Value| v.as_u64().is_some_and(|n| n <= u32::MAX as u64),
+            "a non-negative number of seconds",
+        ),
     ] {
         let v = desired.get(parent).and_then(|p| p.get(key));
         typed(&format!("{parent}.{key}"), v, ok, ty)?;
@@ -964,14 +1166,19 @@ fn plan_document(
         let v = normalize_protection_rules(v, &mut warnings)?;
         desired.insert("protection_rules".to_string(), v);
     }
-    // The endpoint stores an omitted mute flag as `false`.
-    if let Some(handler) = desired
-        .get_mut("error_handler")
-        .and_then(Value::as_object_mut)
-    {
-        for key in ["muted_on_cancel", "muted_on_user_path"] {
-            if is_null(handler.get(key)) {
-                handler.insert(key.to_string(), Value::Bool(false));
+    // The endpoints store an omitted mute flag as `false`.
+    for (handler, keys) in [
+        (
+            "error_handler",
+            &["muted_on_cancel", "muted_on_user_path"][..],
+        ),
+        ("variable_expiration_handler", &["muted_on_user_path"][..]),
+    ] {
+        if let Some(handler) = desired.get_mut(handler).and_then(Value::as_object_mut) {
+            for key in keys {
+                if is_null(handler.get(*key)) {
+                    handler.insert(key.to_string(), Value::Bool(false));
+                }
             }
         }
     }
@@ -1116,6 +1323,23 @@ fn plan_document(
         success_handler,
         Target::Edit(SettingsEdit::SuccessHandler),
         |v| json!({ "path": v.get("path"), "extra_args": v.get("extra_args") }),
+    );
+
+    // Managed only when stated, like every key added after the document.
+    let variable_expiration_handler = p.managed("variable_expiration_handler");
+    p.simple(
+        "variable_expiration_handler",
+        variable_expiration_handler,
+        Target::Edit(SettingsEdit::VariableExpirationHandler),
+        |v| {
+            json!({
+                "path": v.get("path"),
+                "extra_args": v.get("extra_args"),
+                "muted_on_user_path": v.get("muted_on_user_path").and_then(Value::as_bool).unwrap_or(false),
+                "notify_before_secs": v.get("notify_before_secs"),
+                "remind_every_secs": v.get("remind_every_secs"),
+            })
+        },
     );
 
     let lfs = p.legacy("large_file_storage");
@@ -1839,6 +2063,29 @@ mod tests {
         assert!(p.changes.is_empty(), "{:?}", keys(&p));
     }
 
+    #[test]
+    fn variable_expiration_handler_is_managed_only_when_stated() {
+        let mc = WorkspaceCrypt::new("k");
+        let names = DatatableNames::default();
+        let mut cur = current();
+        cur.insert(
+            "variable_expiration_handler".into(),
+            json!({ "path": "script/f/x", "muted_on_user_path": false }),
+        );
+        let omitted = doc(json!({ "webhook": "https://b" }));
+        let p = plan_document(cur.clone(), omitted, true, &mc, &names).unwrap();
+        assert!(!keys(&p).contains(&"variable_expiration_handler"));
+
+        let same = doc(json!({ "variable_expiration_handler": { "path": "script/f/x" } }));
+        let p = plan_document(cur.clone(), same, false, &mc, &names).unwrap();
+        assert!(p.changes.is_empty(), "{:?}", keys(&p));
+
+        let cleared = doc(json!({ "variable_expiration_handler": null }));
+        let p = plan_document(cur, cleared, false, &mc, &names).unwrap();
+        assert_eq!(keys(&p), ["variable_expiration_handler"]);
+        assert_eq!(p.writes[0].body["path"], Value::Null);
+    }
+
     #[cfg(all(feature = "private", feature = "enterprise"))]
     #[test]
     fn datatable_roles_are_named_in_the_document_and_written_by_id() {
@@ -1946,5 +2193,100 @@ mod tests {
             Target::Edit(SettingsEdit::DeleteProtectionRule)
         ));
         assert_eq!(p.warnings.len(), 1);
+    }
+
+    #[test]
+    fn a_fork_applies_only_the_synced_keys_of_the_repos_it_carries() {
+        let parent = json!({ "repositories": [
+            { "git_repo_resource_path": "f/r", "settings": { "include_path": ["f/**"] },
+              "auto_pull": { "enabled": true, "sync_forks": true }, "fork_open_prs": true },
+            { "git_repo_resource_path": "f/promo", "use_individual_branch": true },
+        ] });
+        // A dev workspace's promotion repo is the repo the parent syncs normally.
+        let fork = json!({ "repositories": [
+            { "git_repo_resource_path": "f/own" },
+            { "git_repo_resource_path": "f/r", "settings": { "include_path": ["u/**"] },
+              "use_individual_branch": true, "auto_pull": { "enabled": false } },
+        ] });
+        assert_eq!(
+            fork_git_sync_to_apply(&parent, Some(&fork), true).unwrap(),
+            json!({ "repositories": [
+                { "git_repo_resource_path": "f/own" },
+                { "git_repo_resource_path": "f/r", "settings": { "include_path": ["f/**"] },
+                  "use_individual_branch": true, "auto_pull": { "enabled": false } },
+            ] })
+        );
+
+        // The fork's document is the parent's block with the fork's synced keys, and applying it
+        // back to the fork is a no-op.
+        let shown = fork_git_sync_document(Some(fork.clone()), Some(parent.clone())).unwrap();
+        assert_eq!(
+            shown,
+            json!({ "repositories": [
+                { "git_repo_resource_path": "f/r", "settings": { "include_path": ["u/**"] },
+                  "auto_pull": { "enabled": true, "sync_forks": true }, "fork_open_prs": true },
+                { "git_repo_resource_path": "f/promo", "use_individual_branch": true },
+            ] })
+        );
+        assert_eq!(
+            fork_git_sync_to_apply(&shown, Some(&fork), true).unwrap(),
+            fork
+        );
+
+        // Detached from dev, the fork may no longer hold its promotion repo.
+        assert_eq!(
+            fork_git_sync_to_apply(&parent, Some(&fork), false).unwrap(),
+            json!({ "repositories": [{ "git_repo_resource_path": "f/own" }] })
+        );
+
+        // Filters cross only between two sides on per-repo settings: with workspace-level ones on
+        // either side, the fork keeps its own and the document keeps the parent's.
+        let legacy_parent = json!({ "include_path": ["f/**"], "include_type": ["script"],
+                                    "repositories": [{ "git_repo_resource_path": "f/r" }] });
+        let migrated = json!({ "repositories": [{ "git_repo_resource_path": "f/r",
+            "settings": { "include_path": ["u/**"], "include_type": [] } }] });
+        assert_eq!(
+            fork_git_sync_to_apply(&legacy_parent, Some(&migrated), false).unwrap(),
+            migrated
+        );
+        let shown =
+            fork_git_sync_document(Some(migrated.clone()), Some(legacy_parent.clone())).unwrap();
+        assert_eq!(shown, legacy_parent);
+        assert_eq!(
+            fork_git_sync_to_apply(&shown, Some(&migrated), false).unwrap(),
+            migrated
+        );
+        let legacy_fork = json!({ "include_path": ["u/**"], "include_type": ["flow"],
+                                  "repositories": [{ "git_repo_resource_path": "f/r" }] });
+        let migrated_parent = json!({ "repositories": [{ "git_repo_resource_path": "f/r",
+            "settings": { "include_path": ["f/**"], "include_type": ["script"] } }] });
+        assert_eq!(
+            fork_git_sync_document(Some(legacy_fork.clone()), Some(migrated_parent.clone())),
+            Some(migrated_parent.clone())
+        );
+        assert_eq!(
+            fork_git_sync_to_apply(&migrated_parent, Some(&legacy_fork), false).unwrap(),
+            legacy_fork
+        );
+        assert_eq!(
+            fork_git_sync_to_apply(&Value::Null, Some(&legacy_fork), false).unwrap(),
+            legacy_fork
+        );
+        // An `exclude_path` the save leaves behind after migrating is no fallback.
+        let mut leftover = migrated.clone();
+        leftover["exclude_path"] = json!(["x/**"]);
+        assert_eq!(
+            fork_git_sync_to_apply(&migrated_parent, Some(&leftover), false).unwrap()
+                ["repositories"][0]["settings"],
+            migrated_parent["repositories"][0]["settings"]
+        );
+
+        assert!(
+            fork_git_sync_to_apply(&json!({ "repositories": null }), Some(&fork), true).is_err()
+        );
+        assert_eq!(
+            fork_git_sync_to_apply(&parent, None, true).unwrap(),
+            Value::Null
+        );
     }
 }

@@ -1,8 +1,8 @@
 # Operator builder rights
 
 Two workspace settings, `operator_settings.builder_flows` and `operator_settings.builder_apps`,
-that let every operator of that workspace compose flows and full-code apps out of runnables that
-already exist. Neither lets them author backend code or run arbitrary code on a worker, the
+that let every operator of that workspace compose flows (and AI agents, under the flow right) and
+full-code apps out of runnables that already exist. Neither lets them author backend code or run arbitrary code on a worker, the
 boundary the operator role draws. The app right does let them write the app's frontend code,
 which runs in the viewer's browser and is why that right rests on sandbox isolation.
 
@@ -14,12 +14,12 @@ without the second, so **never gate on "either"**: a gate that does authorizes t
 workspace never granted, which is the whole point of the split. `BuilderKind` exists to make each
 call site say which one it means.
 
-These are write rights, unlike the visibility flags beside them, and unlike the withdrawable
-rights in `docs/operator-write-rights.md` they are granted on request and cost a seat. Read them
-with `windmill_common::workspaces::operator_builder_rights` (60s cache, shared with the
-withdrawable rights), which returns an `OperatorBuilderRights { flows, apps }`, and gate a write
-with `check_operator_can_build`, naming the `BuilderKind`. `.any()` is only for surfaces that are
-genuinely not per-kind: the seat a membership costs, and listing drafts.
+These rights are now the `compose` level of a role's `flows` and `apps` capabilities
+(`docs/workspace-roles.md`): `builder_flows` / `builder_apps` in the legacy operator settings set
+the `operator` role to it. Gate a write with `check_operator_can_build`, naming the `BuilderKind`:
+it refuses `none` and returns the level held, and the caller MUST run the composition-only checks
+below at `compose` and may skip them only at `full`. `OperatorBuilderRights::any()` is only for
+surfaces that are genuinely not per-kind, such as listing drafts.
 
 ## What the check has to cover
 
@@ -32,12 +32,23 @@ anything that carries code. Three of its rules exist because the obvious walk mi
   past it.
 - **An AI agent step's `tools`.** `ToolValue::FlowModule` wraps a whole `FlowModuleValue`, so a
   tool can be a raw script.
-- **An AI agent step's `agent` link.** A linked agent resolves its tools from an `ai_agent`
-  resource at run time, and operators may write resources, so the tool list is outside this check
-  and can be swapped for a raw script after the flow is approved.
-
 It also returns what a value-only walk cannot authorize, for the caller to check against its own
 permissions:
+
+- **every agent a step links**. A linked agent resolves its tools from its `ai_agent` resource at
+  run time, outside this walk, so the link is allowed only to an agent the builder can read. That
+  is safe because of the agent rule below: an agent's tools are either a developer's code or
+  passed this same check when an operator saved them. Two things keep it safe:
+  - The step's `tool_inputs` replace a tool's inputs at run time, including the ones the agent's
+    author set. A builder's step may bind only the inputs the agent leaves open
+    (`check_bound_agent_inputs_are_open`, on `InputTransform::is_completed`), and the flow editor
+    lets a builder edit only those, showing the rest read-only. What it binds there, a `$var:` or
+    a JavaScript expression included, is what its own steps may already pass a deployed runnable; an input the author set
+    stays theirs. The check runs on the flow's write, so a tool or input the agent gains later is
+    open to a binding written before it, like the retyped path below.
+  - The worker refuses a linked path whose resource is no longer an `ai_agent`
+    (`get_agent_value`). Only writes of an agent are checked, so a path retyped, or recreated as
+    another type, after the link was approved would otherwise run whatever `tools` it now holds.
 
 - **the worker tags the steps pin**, or a builder routes a job onto a privileged worker group;
 - **every runnable a step references**. `script_to_payload` resolves a step's path with the root DB
@@ -61,12 +72,27 @@ Call it on every write **and** every preview: `run_preview_flow_job` and
 it the way to run what the write path refuses. A flow draft goes through `validate_operator_flow`
 too: a developer who loads a builder's draft in the editor runs its code as themselves.
 
+## Agents
+
+An agent is an `ai_agent` resource, and operators may write resources, so the `flows` capability
+is also the right to build agents. Without it a restricted role writes no agent at all. Its tools run in the
+agent's own runs, which take only inputs and run what is stored, and in every flow step linking
+it. So `validate_operator_agent` holds an operator's agent to the composed-flow rules by checking
+its tools as the tools of a one-step flow. It is called from `resolve_agent_on_behalf_of`, which
+every write of an agent's value passes through: create, update, retype, update-value and version
+restore. An operator's resource draft is checked the same way when it names `ai_agent` **or** an
+agent is deployed at its path, whatever type the draft names: deploying a draft from the resource
+editor keeps the row's type. A draft saved before an agent is created at its path is not
+re-checked when someone else deploys it. A new route that writes an agent's value must go through
+that function.
+
 The same reasoning applies to a builder-authored app, with one extra step. `execute_component`
 resolves the runnable it runs on the root handle, so `validate_operator_composed_app` checks every
 referenced path under the caller's RLS and refuses hub ones. For a script it checks the version a
 run would pick: grants are per version, and a path reused after its versions were archived starts
 with none while the archived ones keep theirs. But it has to check **two** surfaces,
-because they are not the same list: the policy's `script/<path>` and `flow/<path>` triggerables,
+because they are not the same list: the policy's `script/<path>`, `flow/<path>` and
+`agent/<path>` triggerables (an agent is checked as an `ai_agent` resource the caller can read),
 and the by-path entries of the app value's `runnables` map, which is what the editor resolves a
 `runnable_id` against and sends. Read only that map, and refuse an entry whose `type`, `path` or
 `runType` is not text.
@@ -77,8 +103,8 @@ at run time for `component = "a:b"`. Every colon is a possible split, so the che
 suffix that parses as a runnable rather than guessing which one a request will use.
 
 What makes those checks bind is that **`ExecutionMode::Viewer` is refused for a builder app**. In
-Viewer mode `execute_component` falls back to a default triggerable for any `script/`/`flow/`
-path, so the policy stops being the list of what the app may invoke, and the job runs as the
+Viewer mode `execute_component` falls back to a default triggerable for any `script/`/`flow/`/
+`agent/` path, so the policy stops being the list of what the app may invoke, and the job runs as the
 *viewer*: an admin who merely opened the app would run anything in the workspace as themselves.
 `Publisher`, `Guest` and `Anonymous` have no such fallback; all three run as the publisher. If you ever relax the Viewer refusal, the
 deploy-time path checks above stop being an authorization boundary.
@@ -103,12 +129,19 @@ ignored into `inlineScript`.
 
 `update_app` takes a builder too, but settings only: the deploy panel saves a deployed full-code
 app's access and frontend scopes through it with no value. It reaches the same check, so a builder
-can no more switch the sandbox off there than on deploy.
+can no more switch the sandbox off there than on deploy. A change of `execution_mode` alone runs
+`check_operator_composed_app` on the deployed policy under the row lock, but not the readability
+check, which resolves script versions on a second pool connection. It is therefore refused when
+the app runs as anyone but the builder, `wm_deployers` or not: what an app running as its builder
+invokes runs as that builder, who can already run it as themselves by opening the app. It is also
+refused on an app whose stored policy is not sandboxed: the check would fill in the sandbox, and a
+change of the mode alone keeps every other field of the policy.
 
 A builder's **draft** goes through the same `check_operator_composed_app` as its deploy, with
 `BuilderAppWrite::Draft`: an admin may open it in the editor or deploy it as it stands, so any
 rule added for deploys must hold for drafts too. Where the two differ, `write` decides: a deploy
-fills in an omitted sandbox or mode, since it stores the policy it checked, while a draft skips
+fills in an omitted sandbox, since it stores the policy it checked, and an omitted mode inherits the
+deployed one, except that `Viewer` becomes `Publisher`, while a draft skips
 `triggerables_v2` and must not name another user's run identity. Every frontend writer of a
 builder draft must conform the policy first with `conformBuilderAppPolicy`, since a policy loaded
 from someone else's app breaks these rules: the raw-app editor component does, which covers both
@@ -146,16 +179,13 @@ artifacts, and there is no half-author, so granting both costs no more than gran
 introduce per-right pricing — it turns one boolean into a capability matrix that billing, the cap
 check and the displayed count would each have to agree on.
 
-`consumes_operator_seat` is the seat-role helper; the EE counting queries share
-`OPERATOR_SEAT_SQL` so the displayed, enforced and reported numbers agree. The one exception is
-`get_user_usage` in `stats_ee.rs`: it is a compile-checked `query!`, which cannot interpolate the
-constant, so it spells the predicate out. Change both together. On cloud, `billable_seats` applies
-the same rule; see its doc for the out-of-repo invoice it must match.
+Every count reads the role's author flag from `role_seat` through `AUTHOR_SEAT_SQL`; see
+`docs/workspace-roles.md`. On cloud, `billable_seats` applies the same rule; see its doc for the
+out-of-repo invoice it must match.
 
-Granting the first right runs `check_seat_cap_for_operator_builder`, which prices the change by
-counting seats twice rather than by counting the workspace's operators: an operator who already
-authors elsewhere must not be charged again. Adding the second right later, or re-saving settings
-that already have one on, is a zero delta and never blocks.
+A role change runs `check_seat_cap_for_role_change` inside the transaction that writes it, which
+prices the change by counting seats twice rather than by counting the role's members: a member who
+already authors elsewhere must not be charged again. A change that adds no seat never blocks.
 
 ## Accepted risks
 
@@ -186,7 +216,6 @@ that already have one on, is a zero delta and never blocks.
   carries none makes the deployer its run identity, as any deploy does. An admin deploying such a
   draft, from the editor or Compare & Deploy, therefore publishes the builder's code running as
   that admin; the deploy is the admin's explicit act, as it is for a developer's draft.
-- All-or-nothing per workspace: there is no per-user builder role.
 - `operator_settings` is git-synced, so a pull can flip every operator's class in a workspace and
   the billed seat count with it.
 - A builder writes JavaScript expressions: step inputs, branch predicates, `stop_after_if` and

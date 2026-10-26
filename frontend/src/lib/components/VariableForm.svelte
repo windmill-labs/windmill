@@ -3,17 +3,19 @@
 	import LabelsInput from './LabelsInput.svelte'
 	import Toggle from './Toggle.svelte'
 	import Alert from './common/alert/Alert.svelte'
-	import { Button } from './common'
+	import { Button, Section } from './common'
 	import Tooltip from './Tooltip.svelte'
 	import Label from './Label.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { Loader2, RotateCcw } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
-	import { type UserExt } from '$lib/stores'
+	import { type UserExt, userWorkspaces } from '$lib/stores'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 	import { isOwner } from '$lib/utils'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import EncryptedDraftField from './EncryptedDraftField.svelte'
+	import DateTimeInput from './DateTimeInput.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -31,6 +33,7 @@
 		variable: Variable
 		labels: string[] | undefined
 		wsSpecific: boolean
+		valueValidUntil: string | undefined
 		deployTo: string | undefined
 		can_write: boolean
 		edit: boolean
@@ -46,6 +49,8 @@
 		 * refuses, rather than answering with the navigation user's rights in another
 		 * workspace. */
 		actingUser: UserExt | null
+		/** Linked to an OAuth account, whose token Windmill refreshes on its own. */
+		oauthLinked?: boolean
 	}
 
 	let {
@@ -55,6 +60,7 @@
 		variable = $bindable(),
 		labels = $bindable(),
 		wsSpecific = $bindable(),
+		valueValidUntil = $bindable(),
 		deployTo,
 		can_write,
 		edit,
@@ -62,10 +68,26 @@
 		onSecretChange,
 		deployedSecret = false,
 		workspace = undefined,
-		actingUser
+		actingUser,
+		oauthLinked = false
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $operatingWorkspace)
+	let caps = $derived(
+		capabilitiesIn(
+			actingUser ?? undefined,
+			$userWorkspaces.find((w) => w.id === ws)
+		)
+	)
+
+	// Enabling seeds a date: an empty DateTimeInput still shows 12:00, which reads as set.
+	const DEFAULT_EXPIRY_DAYS = 90
+
+	function defaultValueExpiry(): string {
+		const d = new Date()
+		d.setDate(d.getDate() + DEFAULT_EXPIRY_DAYS)
+		return d.toISOString()
+	}
 
 	// Loading the deployed secret overwrites the draft row this form shares with the AI
 	// chat, so every path that would trigger it has to be blocked while that row stages a
@@ -115,9 +137,9 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 			on:change={(e) => onSecretChange?.(e.detail)}
 			bind:checked={variable.is_secret}
 			disabled={unsecureNeedsLoad ||
-				(edit && (!actingUser || actingUser.operator || isEncryptedDraftValue(variable.value)))}
+				(edit && (!actingUser || !caps.code || isEncryptedDraftValue(variable.value)))}
 		/>
-		{#if unsecureNeedsLoad && can_write && !actingUser?.operator}
+		{#if unsecureNeedsLoad && can_write && caps.code}
 			<span class="text-2xs text-secondary">
 				Load the secret value or enter a new one to make it non-secret
 			</span>
@@ -163,8 +185,8 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 				>
 					Reset
 				</Button>
-			{:else if actingUser?.operator}
-				<div class="p-2 border">Operators cannot load secret value</div>
+			{:else if !caps.code}
+				<div class="p-2 border">Your role cannot load secret values</div>
 			{:else}
 				<Button size="xs" variant="default" on:click={() => onLoadSecret?.()}>
 					Load secret value<Tooltip>Will generate an audit log</Tooltip>
@@ -236,3 +258,44 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 	<textarea rows="4" use:autosize bind:value={variable.description} placeholder="Used for X"
 	></textarea>
 </label>
+
+{#if !oauthLinked}
+	<Section label="Advanced" small collapsable initiallyCollapsed={!valueValidUntil}>
+		<Label
+			label="Value expiration"
+			tooltip="When the value stored here stops working, such as the expiry date of an API key. Ahead of it (1 day by default), Windmill runs the workspace's variable expiration handler if one is set, so the value can be rotated. The variable itself is never deleted."
+		>
+			<Toggle
+				size="sm"
+				checked={Boolean(valueValidUntil)}
+				disabled={!can_write}
+				on:change={() => (valueValidUntil = valueValidUntil ? undefined : defaultValueExpiry())}
+				options={{ right: 'Set a date on which this value expires' }}
+			/>
+			{#if valueValidUntil}
+				<span class="text-xs font-semibold text-emphasis leading-none mt-2">Expires on</span>
+				<!-- Unbound: DateTimeInput writes `null` when emptied, which reads as an edit,
+			so empty states become `undefined`. Not `clearable`: the toggle means "no expiry". -->
+				<DateTimeInput
+					value={valueValidUntil}
+					useDropdown
+					disabled={!can_write}
+					on:change={(e) => (valueValidUntil = e.detail ?? undefined)}
+				/>
+				<span class="text-2xs font-normal text-hint">
+					{#if new Date(valueValidUntil).getTime() <= Date.now()}
+						This date has passed. Set a new one once the value is rotated.
+					{:else}
+						Runs the workspace's <a
+							href="/workspace_settings?tab=variable_expiration&workspace={ws}"
+							>variable expiration handler</a
+						>
+						ahead of this date, if the workspace has one{path.startsWith('u/')
+							? ' and does not skip u/ paths'
+							: ''}.
+					{/if}
+				</span>
+			{/if}
+		</Label>
+	</Section>
+{/if}

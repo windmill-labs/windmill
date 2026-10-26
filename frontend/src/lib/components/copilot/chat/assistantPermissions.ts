@@ -1,10 +1,10 @@
-import type { OperatorSettings } from '$lib/gen'
-import type { UserExt } from '$lib/stores'
+import type { RoleCapabilities } from '$lib/gen'
+import type { UserExt, UserWorkspace } from '$lib/stores'
 import { roleCanAuthor, type EditKind } from '$lib/editRights'
 import { capabilitiesForRole } from './global/sessionAccess'
 import type { SessionAccess } from './sessionCapabilities'
 
-/** Where a workspace admin changes what operators may do. Named in the prompt and the
+/** Where a workspace admin changes what a role may do. Named in the prompt and the
  * permissions section alike, so the two send the user to the same place. */
 export const OPERATOR_SETTINGS_LOCATION = 'Workspace settings → Users → Operator settings'
 
@@ -25,35 +25,35 @@ const ROWS: PermissionRow[] = [
 	{ kind: 'variable', label: 'Variables', assistant: (a) => a.has('write_variable_draft') }
 ]
 
-export type RoleName = 'admin' | 'developer' | 'operator'
-
+/** `admin`, or the member's workspace role. A server that predates roles names none, and its
+ * role is then `operator` or `developer` from the legacy flag. */
 export function roleName(
-	user: Pick<UserExt, 'operator' | 'is_admin' | 'is_super_admin'>
-): RoleName {
+	user: Pick<UserExt, 'operator' | 'is_admin' | 'is_super_admin'>,
+	workspace: Pick<UserWorkspace, 'role'> | undefined
+): string {
 	if (user.is_admin || user.is_super_admin) return 'admin'
-	return user.operator ? 'operator' : 'developer'
+	return workspace?.role ?? (user.operator ? 'operator' : 'developer')
 }
 
 /**
  * Per item kind, whether the user's role lets them create and edit it themselves, and whether
  * the chat can for them. Both act with the user's rights, but the user's column follows the
  * item handlers (`roleCanAuthor`) and the chat's the draft endpoint every write tool goes
- * through (`capabilitiesForRole`), which refuses operators more than the handlers do.
+ * through (`capabilitiesForRole`), which refuses a restricted role more than the handlers do.
  */
 export function permissionRows(
-	user: Pick<UserExt, 'operator' | 'is_admin' | 'is_super_admin'>,
-	operatorSettings: OperatorSettings | null | undefined
+	user: Pick<UserExt, 'is_admin' | 'is_super_admin'>,
+	caps: RoleCapabilities
 ): { label: string; user: boolean; assistant: boolean }[] {
 	const access = capabilitiesForRole({
 		isAdmin: !!user.is_admin || !!user.is_super_admin,
-		operator: !!user.operator,
 		// Deploy rules gate deploying, not the drafts these rows are about.
 		deployRulesPass: true,
-		operatorSettings
+		capabilities: caps
 	})
 	return ROWS.map((row) => ({
 		label: row.label,
-		user: roleCanAuthor(row.kind, user, operatorSettings),
+		user: roleCanAuthor(row.kind, caps),
 		assistant: row.assistant(access)
 	}))
 }

@@ -9,7 +9,8 @@
 		noDate?: boolean
 		isRecent?: boolean
 		noSeconds?: boolean
-		/** Single-unit form ("2m", "3h", "5d") for rows too narrow for "2 mins ago". */
+		/** Single-unit form ("2m", "3h", "5d") for rows too narrow for "2 mins ago". With
+		 * `noSeconds`, the first minute reads "1m" rather than counting seconds. */
 		compact?: boolean
 	}
 
@@ -71,7 +72,9 @@
 		const secs = secondsAgo(new Date(dateString))
 		const left =
 			secs < 60
-				? 1
+				? compact && noSeconds
+					? 60 - secs
+					: 1
 				: secs < 3600
 					? 60 - (secs % 60)
 					: secs < 86_400
@@ -125,7 +128,7 @@
 			// (PipelineEventLog, PipelineActivityPanel, IndexerMemorySettings): seconds stay
 			// meaningful right up to the minute mark.
 			const secs = secondsAgo(date)
-			if (secs < 60) return `${secs}s`
+			if (secs < 60) return noSeconds ? '1m' : `${secs}s`
 			const mins = minutesAgo(date)
 			if (mins < 60) return `${mins}m`
 			const hours = hoursAgo(date)

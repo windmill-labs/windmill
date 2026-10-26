@@ -426,3 +426,46 @@ input[type='time']::-webkit-calendar-picker-indicator {
 .svelte-flow__edges {
 	z-index: -10;
 }
+
+/* The composer's glide, defined once: the Home ↔ AI Sessions view transition below and the
+   in-page move on a session's first message (the spacer under AIChatDisplay's composer) both
+   read it. */
+:root {
+	--composer-glide-duration: 380ms;
+	--composer-glide-easing: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Home ↔ AI Sessions (homeSessionsTransition.svelte.ts). The composer glides from where it
+   was to where it lands; everything else, Home's list and the session's greeting included, is
+   the page cross-fading, kept short. The pseudo-elements hang off :root itself, so no space
+   before `::view-transition-*`: with one, the selector looks for a descendant and never
+   matches. */
+:root[data-home-sessions-transition]::view-transition-group(composer) {
+	animation-duration: var(--composer-glide-duration);
+	animation-timing-function: var(--composer-glide-easing);
+}
+:root[data-home-sessions-transition]::view-transition-old(root),
+:root[data-home-sessions-transition]::view-transition-new(root) {
+	animation-duration: 150ms;
+}
+/* The session's greeting sits above where the composer lands, so it waits for the composer:
+   shown while the composer is still gliding, it reads as text placed in mid-air. It starts as
+   the composer settles and rises into place on the same easing, so the two read as one motion.
+   Leaving, it goes with the page. */
+:root[data-home-sessions-transition='enter']::view-transition-new(greeting) {
+	animation: greeting-in 260ms var(--composer-glide-easing)
+		calc(var(--composer-glide-duration) * 0.6) both;
+}
+:root[data-home-sessions-transition]::view-transition-old(greeting) {
+	animation-duration: 150ms;
+}
+@keyframes greeting-in {
+	from {
+		opacity: 0;
+		transform: translateY(4px);
+		filter: blur(2px);
+	}
+}
+:root[data-home-sessions-transition='fade'] * {
+	view-transition-name: none !important;
+}

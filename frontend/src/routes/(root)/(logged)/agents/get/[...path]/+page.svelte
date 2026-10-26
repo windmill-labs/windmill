@@ -18,12 +18,14 @@
 	import AgentEditorHost from '$lib/components/flows/content/AgentEditorHost.svelte'
 	import AgentConfigModal from '$lib/components/flows/content/AgentConfigModal.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
-	import { Alert } from '$lib/components/common'
+	import { Alert, Tab, Tabs } from '$lib/components/common'
 	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
 	import { agentMenuItems, deleteAgent } from '$lib/components/flows/agentActions'
 	import AgentHistory from '$lib/components/flows/AgentHistory.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { sendUserToast } from '$lib/toast'
 
 	/**
@@ -40,7 +42,23 @@
 	let testPane = $derived(host?.testPaneHandle())
 	let config = $derived(agent?.state?.args)
 	let chatAvailable = $derived(keepsManagedMemory(config?.memory))
-	let canEdit = $derived(config != undefined && (agent?.canWrite ?? false) && !$userStore?.operator)
+	const editRights = useEditRights()
+	let canAuthor = $derived(editRights.roleCanAuthor('agent'))
+	let canCode = $derived(editRights.capabilities.code)
+	let canEdit = $derived(config != undefined && (agent?.canWrite ?? false) && canAuthor)
+
+	// Recorded once the agent is in: a path with nothing deployed never loads one.
+	let loaded = $derived(config != undefined)
+	$effect(() => {
+		if (ws && loaded) {
+			recentItems.record(ws, {
+				kind: 'agent',
+				path,
+				summary: agent?.state?.description,
+				via: 'view'
+			})
+		}
+	})
 
 	let configModal: AgentConfigModal | undefined = $state(undefined)
 	let shareModal: ShareModal | undefined = $state(undefined)
@@ -49,6 +67,10 @@
 	let deleteOpen = $state(false)
 	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
 	let clientWidth = $state(window.innerWidth)
+	let pickedMobileTab = $state('agent')
+	// The page is reused across agents, and an agent without managed memory has no Slack tab.
+	let mobileTab = $derived(pickedMobileTab === 'slack' && !chatAvailable ? 'api' : pickedMobileTab)
+	let wide = $derived(clientWidth >= 1024)
 
 	const slack = resource(
 		() => ({ workspace: ws, path }),
@@ -62,7 +84,7 @@
 	// while the chat shows, and the chat's composer owns the key then.
 	function onKeyDown(event: KeyboardEvent) {
 		if (event.defaultPrevented || event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) return
-		if (!runForm || testPane?.mode === 'chat') return
+		if (!runForm || testPane?.mode === 'chat' || (!wide && mobileTab !== 'agent')) return
 		if (isValid) {
 			event.preventDefault()
 			runForm.run()
@@ -80,12 +102,13 @@
 		() => ws,
 		() => getDeployUiSettings()
 	)
-	// Operators get no menu, as on a flow's or a script's page.
+	// A role that cannot build agents gets no menu, as on a flow's page.
 	let menuItems = $derived(
-		config != undefined && !$userStore?.operator
+		config != undefined && canAuthor
 			? agentMenuItems({
 					path,
 					canWrite: canEdit,
+					noCode: !canCode,
 					wsSpecific: agent?.state?.wsSpecific,
 					deployUiSettings: deployUiSettings.current,
 					onPermissions: () => shareModal?.openDrawer?.(path, 'resource'),
@@ -141,8 +164,9 @@
 				}
 			: undefined}
 		mainButtons={[
-			// Evaluating an agent builds datasets and runs against it: authoring, as editing is.
-			...(canEdit
+			// Evaluating an agent builds datasets and runs against it: authoring, as editing is, and
+			// eval datasets are refused to a role without `code` whatever its flows right.
+			...(canEdit && canCode
 				? [
 						{
 							label: 'Evals',
@@ -153,7 +177,11 @@
 								title: 'Run this agent against a dataset of cases',
 								onClick: () => evalsModal?.openModal()
 							}
-						},
+						}
+					]
+				: []),
+			...(canEdit
+				? [
 						{
 							label: 'Edit',
 							buttonProps: {
@@ -207,66 +235,96 @@
 			{/if}
 		{/snippet}
 	</DetailPageHeader>
-	<div class="flex-1 min-h-0" bind:clientWidth>
+	<!-- Below `lg` the split would squeeze the chat, so the panel's sections become tabs of the
+	     page, as on a script's or a flow's page. They cover the agent rather than replacing it:
+	     unmounting the host destroys the chat and any turn in flight, so the agent pane keeps one
+	     parent at every width. -->
+	{#if !wide && ws && config}
+		<Tabs
+			bind:selected={() => mobileTab, (t) => (pickedMobileTab = t)}
+			wrapperClass="flex-none no-scrollbar"
+		>
+			<Tab value="agent" label={testPane?.mode === 'chat' ? 'Chat' : 'Run form'} />
+			<Tab value="api" label="API" />
+			{#if chatAvailable}
+				<Tab value="slack" label="Slack" />
+			{/if}
+		</Tabs>
+	{/if}
+	<div class="relative flex-1 min-h-0" bind:clientWidth>
 		<Splitpanes>
-			<Pane size={65} minSize={50}>
-				{#key `${ws}:${path}:${reloaded}`}
-					<AgentEditorHost
-						bind:this={host}
-						{path}
-						workspace={ws}
-						enableAi={$copilotInfo.enabled}
-						view
-						onOpenConfig={() => configModal?.open()}
-					>
-						{#snippet viewForm({ schema, run, loading, actions })}
-							{#if config && !chatAvailable}
-								<Alert type="info" size="xs" title="Managed memory is off" class="mb-4">
-									Each run is answered on its own inputs, so this agent has no chat. That suits
-									reusing it as a step in a flow.{canEdit
-										? ' Turn on managed memory in its configuration to chat with it.'
-										: ''}
-								</Alert>
-							{/if}
-							<RunForm
-								runnable={{ schema, path }}
-								runAction={run}
-								schedulable={false}
-								detailed={false}
-								autofocus
-								{loading}
-								{actions}
-								bind:isValid
-								bind:this={runForm}
-							/>
-						{/snippet}
-					</AgentEditorHost>
-				{/key}
+			<Pane size={wide ? 65 : 100} minSize={50}>
+				<div class="h-full" inert={!wide && mobileTab !== 'agent'}>
+					{@render agentPane()}
+				</div>
 			</Pane>
-			<!-- ponytail: no panel below `lg`, where the split would squeeze the chat; give it a tab
-			     there, as a script's page does, once people use it from small screens. -->
-			{#if ws && config && clientWidth >= 1024}
+			{#if wide && ws && config}
 				<Pane size={35} minSize={15}>
-					<AgentUsePanel
-						agentPath={path}
-						workspace={ws}
-						isAdmin={!!($userStore?.is_admin || $userStore?.is_super_admin)}
-						chat={chatAvailable}
-						slackLoading={slack.loading && !slack.current}
-						slackTeamName={slack.current?.slack_team_name}
-						botName={slack.current?.bot_name}
-						missingScopes={slack.current?.missing_scopes ?? []}
-						signingSecretSet={slack.current?.signing_secret_set ?? true}
-						runsAs={slack.current?.runs_as}
-						anyone={slack.current?.anyone ?? false}
-						canShare={slack.current?.can_share ?? false}
-						channels={slack.current?.channels ?? []}
-					/>
+					{@render usePane(ws)}
 				</Pane>
 			{/if}
 		</Splitpanes>
+		{#if !wide && ws && config}
+			<div class={['absolute inset-0 z-10 bg-surface', mobileTab === 'agent' && 'hidden']}>
+				{@render usePane(ws, mobileTab === 'slack' ? 'slack' : 'api')}
+			</div>
+		{/if}
 	</div>
 </main>
+
+{#snippet agentPane()}
+	{#key `${ws}:${path}:${reloaded}`}
+		<AgentEditorHost
+			bind:this={host}
+			{path}
+			workspace={ws}
+			enableAi={$copilotInfo.enabled}
+			view
+			onOpenConfig={() => configModal?.open()}
+		>
+			{#snippet viewForm({ schema, run, loading, actions })}
+				{#if config && !chatAvailable}
+					<Alert type="info" size="xs" title="Managed memory is off" class="mb-4">
+						Each run is answered on its own inputs, so this agent has no chat. That suits reusing it
+						as a step in a flow.{canEdit
+							? ' Turn on managed memory in its configuration to chat with it.'
+							: ''}
+					</Alert>
+				{/if}
+				<RunForm
+					runnable={{ schema, path }}
+					runAction={run}
+					schedulable={false}
+					detailed={false}
+					autofocus
+					{loading}
+					{actions}
+					bind:isValid
+					bind:this={runForm}
+				/>
+			{/snippet}
+		</AgentEditorHost>
+	{/key}
+{/snippet}
+
+{#snippet usePane(ws: string, section?: 'api' | 'slack')}
+	<AgentUsePanel
+		agentPath={path}
+		workspace={ws}
+		isAdmin={!!($userStore?.is_admin || $userStore?.is_super_admin)}
+		chat={chatAvailable}
+		slackLoading={slack.loading && !slack.current}
+		slackTeamName={slack.current?.slack_team_name}
+		botName={slack.current?.bot_name}
+		missingScopes={slack.current?.missing_scopes ?? []}
+		signingSecretSet={slack.current?.signing_secret_set ?? true}
+		runsAs={slack.current?.runs_as}
+		anyone={slack.current?.anyone ?? false}
+		canShare={slack.current?.can_share ?? false}
+		channels={slack.current?.channels ?? []}
+		{section}
+	/>
+{/snippet}
 
 {#if ws}
 	<AgentEvalsModal bind:this={evalsModal} agentPath={path} workspace={ws} />

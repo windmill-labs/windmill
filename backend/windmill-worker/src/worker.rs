@@ -1055,6 +1055,7 @@ enum NsjailProbeError {
 fn probe_nsjail(nsjail_path: &str) -> Result<std::process::Output, NsjailProbeError> {
     // A fresh private directory: the worker runs what this config says, as itself.
     let dir = std::env::temp_dir().join(format!("windmill-nsjail-probe-{}", uuid::Uuid::new_v4()));
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
@@ -1195,6 +1196,21 @@ pub fn nsjail_clone_newnet(no_network: bool) -> &'static str {
         "true"
     } else {
         "false"
+    }
+}
+
+/// Whether job runs get the worker's proxy settings. Dependency installs always do: they read
+/// [`PROXY_ENVS`] directly, so a group that turns the proxy off for jobs still installs through it.
+pub fn passes_proxy_to_jobs() -> bool {
+    !WORKER_CONFIG.load().disable_job_proxy
+}
+
+/// [`PROXY_ENVS`] as a job run sees them; see [`passes_proxy_to_jobs`].
+pub fn job_proxy_envs() -> Vec<(&'static str, String)> {
+    if passes_proxy_to_jobs() {
+        PROXY_ENVS.clone()
+    } else {
+        vec![]
     }
 }
 
@@ -1371,12 +1387,12 @@ pub async fn get_proxy_envs_for_lang(
     {
         envs = get_otel_tracing_proxy_envs(job_id, w_id, conn).await?;
     } else {
-        envs = PROXY_ENVS.clone();
+        envs = job_proxy_envs();
     }
     #[cfg(not(all(feature = "private", feature = "enterprise")))]
     {
         let _ = (lang, job_kind, w_id, conn);
-        envs = PROXY_ENVS.clone();
+        envs = job_proxy_envs();
     }
     envs.extend(get_otel_context_envs(job_id));
     Ok(envs)
@@ -1398,7 +1414,7 @@ async fn get_otel_tracing_proxy_envs(
                 This job's HTTP requests will not be traced.";
             tracing::warn!("{}", reason);
             append_logs(job_id, w_id, format!("\n[warning] {reason}\n"), conn).await;
-            return Ok(PROXY_ENVS.clone());
+            return Ok(job_proxy_envs());
         }
     };
     let proxy_url = format!("http://127.0.0.1:{}", port);
@@ -2874,14 +2890,6 @@ pub async fn run_worker(
     killpill_tx: KillpillSender,
     base_internal_url: &str,
 ) {
-    #[cfg(not(feature = "enterprise"))]
-    if is_sandboxing_enabled() {
-        tracing::warn!(
-            worker = %worker_name, hostname = %hostname,
-            "NSJAIL to sandbox process in untrusted environments is an enterprise feature but allowed to be used for testing purposes"
-        );
-    }
-
     // Force UNSHARE_PATH and NSJAIL_AVAILABLE initialization now for clear startup logging
     let _ = &*UNSHARE_PATH;
     let _ = &*NSJAIL_AVAILABLE;
@@ -5439,8 +5447,8 @@ pub fn build_envs(
         hm
     };
 
-    for (k, v) in PROXY_ENVS.iter() {
-        envs.insert(k.to_string(), v.clone());
+    for (k, v) in job_proxy_envs() {
+        envs.insert(k.to_string(), v);
     }
 
     Ok(envs)
@@ -6687,7 +6695,8 @@ pub async fn run_language_executor(
             occupancy_metrics,
             has_stream,
         ))
-        .await?;
+        .await
+        .map_err(|e| crate::js_eval::with_step_context(e, &reserved_variables))?;
         return Ok(result);
     }
 

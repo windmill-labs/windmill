@@ -8,6 +8,7 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 import type { DisplayMessage } from './shared'
 import type { AttachedImage } from './imageUtils'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import { AIWorkMode, USE_MODE_WITHDRAWN } from './workMode'
 import { makePasteToken } from './pasteTokens'
 import { chatState } from './sharedChatState.svelte'
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
@@ -51,9 +52,12 @@ vi.mock('monaco-editor', () => ({
 vi.mock('$lib/utils/featureUsage', () => ({ logFeatureUsage: vi.fn() }))
 
 vi.mock('$lib/gen', () => ({
-	WorkspaceService: {},
+	WorkspaceService: {
+		listProtectionRules: vi.fn(async () => [])
+	},
 	ResourceService: {
-		listResource: mocks.listResource
+		listResource: mocks.listResource,
+		listResourceTypeNames: vi.fn(async () => [])
 	},
 	ScriptService: {},
 	FlowService: {},
@@ -114,7 +118,16 @@ vi.mock('$lib/stores', () => {
 		// non-membership once this has resolved.
 		usersWorkspaceStore: readable({ workspaces: [] as unknown[] }),
 		NON_MEMBER_USERNAME: 'superadmin',
-		enterpriseLicense: readable(undefined)
+		enterpriseLicense: readable(undefined),
+		// The admin above holds every role capability.
+		roleCapabilities: readable({
+			code: true,
+			flows: 'full',
+			apps: 'full',
+			manage_schedules: true,
+			manage_triggers: true,
+			visibility: {}
+		})
 	}
 })
 
@@ -977,13 +990,11 @@ describe('AIChatManager autonomy mode', () => {
 })
 
 // The posture's own behaviour lives in planModeController.test.ts. What is left here is the
-// wiring only the manager owns: which pending confirmation cards a change of autonomy mode
-// answers, and with what.
+// wiring only the manager owns: which pending confirmation cards a change of work mode or of
+// autonomy mode answers, and with what.
 describe('AIChatManager plan mode posture', () => {
 	beforeEach(() => {
 		localStorage.clear()
-		// Plan mode is never the persisted posture, so a case starts from the one it is
-		// entered from and hands back to.
 		localStorage.setItem(`ai-chat-autonomy-mode::${TEST_EMAIL}`, AIAutonomyMode.DEFAULT)
 		vi.clearAllMocks()
 	})
@@ -996,7 +1007,7 @@ describe('AIChatManager plan mode posture', () => {
 		return manager
 	}
 
-	it('enters plan mode through the tool and remembers the posture to hand back to', async () => {
+	it('enters plan mode through the tool and leaves the confirmations setting alone', async () => {
 		const manager = sessionManager(AIAutonomyMode.ACCEPT_EDIT)
 
 		await manager.planMode.enterTool.fn({
@@ -1008,12 +1019,12 @@ describe('AIChatManager plan mode posture', () => {
 		})
 
 		expect(manager.planModeActive).toBe(true)
-		expect(manager.prePlanAutonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
 	})
 
 	it('refuses to move a session chat out of GLOBAL, so the gate cannot lift under it', () => {
 		const manager = sessionManager(AIAutonomyMode.ACCEPT_EDIT)
-		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		manager.setWorkMode(AIWorkMode.PLAN)
 		expect(manager.planModeActive).toBe(true)
 		// Without a configured model changeMode returns early on SCRIPT, and the case would pass
 		// against the very guard it is meant to pin.
@@ -1074,20 +1085,73 @@ describe('AIChatManager plan mode posture', () => {
 	it('answers a pending plan card the way the picker was moved', async () => {
 		const entering = sessionManager()
 		const enterPending = entering.requestConfirmation('call_enter', 'enter_plan_mode')
-		entering.setAutonomyMode(AIAutonomyMode.PLAN)
+		entering.setWorkMode(AIWorkMode.PLAN)
 		expect(await enterPending).toBe(true)
 
 		// Leaving plan mode any other way is not a sign-off on the plan on the card.
-		const leaving = sessionManager(AIAutonomyMode.PLAN)
+		const leaving = sessionManager()
+		leaving.setWorkMode(AIWorkMode.PLAN)
 		const exitPending = leaving.requestConfirmation('call_exit', 'exit_plan_mode')
-		leaving.setAutonomyMode(AIAutonomyMode.DEFAULT)
+		leaving.setWorkMode(AIWorkMode.BUILD)
 		expect(await exitPending).toBe(false)
 
-		// Opting into YOLO does mean "run it".
-		const yolo = sessionManager(AIAutonomyMode.PLAN)
+		// Building under YOLO does mean "run it".
+		const yolo = sessionManager(AIAutonomyMode.YOLO)
+		yolo.setWorkMode(AIWorkMode.PLAN)
 		const yoloPending = yolo.requestConfirmation('call_exit', 'exit_plan_mode')
-		yolo.setAutonomyMode(AIAutonomyMode.YOLO)
+		yolo.setWorkMode(AIWorkMode.BUILD)
 		expect(await yoloPending).toBe(true)
+	})
+
+	it('waits for the user on a plan card while planning under YOLO', async () => {
+		// YOLO is the posture an approved plan is carried out in; the approval itself is not its
+		// to give, or a plan no card ever showed would be run.
+		const manager = sessionManager()
+		manager.setWorkMode(AIWorkMode.PLAN)
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+		let settled = false
+		void manager.requestConfirmation('call_exit', 'exit_plan_mode').then(() => (settled = true))
+		await Promise.resolve()
+		expect(settled).toBe(false)
+		expect(manager.planMode.tools.map((t) => t.def.function.name)).toEqual(['exit_plan_mode'])
+	})
+
+	// The call was made with Build's tools; approving its card after the switch to Use must not
+	// run the write the session no longer ships.
+	it('does not run a write approved after the session switched to Use', async () => {
+		const { processToolCall } = await import('./shared')
+		const manager = sessionManager()
+		manager.configureGlobalMode()
+		const write = manager.availableTools.find((t) => t.def.function.name === 'write_script')!
+		const fn = vi.fn(async () => 'written')
+		let asked = false
+		const result = processToolCall({
+			tools: [{ ...write, fn, requiresConfirmation: true }] as any,
+			toolCall: {
+				id: 'call_write',
+				type: 'function',
+				function: { name: 'write_script', arguments: '{}' }
+			} as any,
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				requestConfirmation: (id: string, name?: string) => {
+					asked = true
+					return manager.requestConfirmation(id, name)
+				},
+				shouldAutoAcceptToolConfirmations: manager.shouldAutoAcceptTool,
+				isToolWithdrawn: manager.isToolWithdrawn
+			} as any
+		})
+		await vi.waitFor(() => expect(asked).toBe(true))
+
+		manager.setWorkMode(AIWorkMode.USE)
+		manager.handleToolConfirmation('call_write', true)
+
+		expect((await result).content).toBe(USE_MODE_WITHDRAWN.result)
+		expect(fn).not.toHaveBeenCalled()
 	})
 })
 
@@ -2882,6 +2946,26 @@ describe('AIChatManager queued messages', () => {
 		expect(manager.contextManager.getSelectedContext()).toEqual([mention])
 	})
 
+	// A hand-off's chip only ever lived in contextOverride, never in the selection.
+	it('restores a DOM chip carried only by contextOverride when the preflight is cancelled', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const chip = {
+			type: 'app_dom_selector' as const,
+			selector: 'h1',
+			appPath: 'f/app',
+			tagName: 'h1'
+		}
+		manager.contextManager.setSelectedContext([])
+		manager.beforeSend = vi.fn().mockImplementation(async () => {
+			manager.cancel('user_cancelled')
+		})
+
+		await manager.sendRequest({ instructions: 'make this bigger', contextOverride: [chip] })
+
+		expect(manager.contextManager.getSelectedContext()).toMatchObject([{ selector: 'h1' }])
+	})
+
 	// The gate, and the reason the restore is not unconditional: an occupied
 	// composer declines the dead draft's text, and its mentions would then ride the
 	// draft the user is writing now and every turn after it.
@@ -3393,6 +3477,186 @@ describe('AIChatManager context compaction', () => {
 		]
 		manager.instructions = 'next question'
 	}
+
+	it('compacts between tool iterations once tool results carry the turn over the trigger', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.getStreamedCompletionText
+			.mockResolvedValueOnce('<summary>SUMMARY ONE</summary>')
+			.mockResolvedValueOnce('<summary>SUMMARY TWO</summary>')
+		const step = (id: string, chars: number) => [
+			{
+				role: 'assistant' as const,
+				content: '',
+				tool_calls: [{ id, type: 'function', function: { name: 'x', arguments: '{}' } }]
+			},
+			{ role: 'tool' as const, tool_call_id: id, content: 'r'.repeat(chars) }
+		]
+		// ~25k estimated tokens: enough to push a ~60% history past the 0.8 * 128k trigger.
+		const first = step('t1', 100_000)
+		// ~70k more: crosses the trigger again within the same turn.
+		const second = step('t2', 280_000)
+		let secondIteration: any[] = []
+		let thirdIteration: any[] = []
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const push = (ms: any[]) => {
+				for (const m of ms) {
+					config.messages.push(m)
+					config.addedMessages.push(m)
+				}
+			}
+			await config.onBeforeIteration(gpt4oModel, null)
+			push(first)
+			await config.onBeforeIteration(gpt4oModel, null)
+			secondIteration = [...config.messages]
+			push(second)
+			await config.onBeforeIteration(gpt4oModel, null)
+			thirdIteration = [...config.messages]
+			const reply = { role: 'assistant' as const, content: 'done' }
+			push([reply])
+			return {
+				addedMessages: [...first, ...second, reply],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				lastIterationUsage: null,
+				hitMaxIterations: false
+			}
+		})
+		const manager = new AIChatManager()
+		// ~80k estimated tokens over ten messages: under the trigger at send time.
+		manager.messages = Array.from({ length: 10 }, (_, i) => ({
+			role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+			content: `m${i}` + 'x'.repeat(32_000)
+		}))
+		manager.displayMessages = manager.messages.map((m, i) =>
+			m.role === 'user'
+				? { role: 'user', content: `m${i}`, index: i }
+				: { role: 'assistant', content: `m${i}` }
+		)
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		// Not at send time (under the trigger), only once the tool result landed.
+		expect(secondIteration[0].content).toContain('SUMMARY ONE')
+		expect(secondIteration.slice(-2)).toEqual(first)
+		// The second trigger folds the first summary into a new one instead of
+		// dropping it to make room for the turn.
+		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(2)
+		expect(mocks.getStreamedCompletionText.mock.calls[1][0][0].content).toContain('SUMMARY ONE')
+		expect(thirdIteration[0].content).toContain('SUMMARY TWO')
+		expect(thirdIteration.slice(-4)).toEqual([...first, ...second])
+		expect(manager.messages[0].content).toContain('SUMMARY TWO')
+		expect(manager.displayMessages[0].role).toBe('summary')
+	})
+
+	it('compacts mid-turn off the provider report, then stops trusting the report it replaced', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.getStreamedCompletionText.mockResolvedValue('<summary>SUMMARY ONE</summary>')
+		const step = (id: string) => [
+			{
+				role: 'assistant' as const,
+				content: '',
+				tool_calls: [{ id, type: 'function', function: { name: 'x', arguments: '{}' } }]
+			},
+			{ role: 'tool' as const, tool_call_id: id, content: 'r'.repeat(8_000) }
+		]
+		// The provider counts far more than chars/4 sees: over the 0.8 * 128k trigger.
+		const report = { prompt: 101_000, completion: 1_000, total: 102_000 }
+		let thirdIteration: any[] = []
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const push = (ms: any[]) => {
+				for (const m of ms) {
+					config.messages.push(m)
+					config.addedMessages.push(m)
+				}
+			}
+			await config.onBeforeIteration(gpt4oModel, null)
+			push(step('t1'))
+			await config.onBeforeIteration(gpt4oModel, report)
+			push(step('t2'))
+			// The iteration after the compaction reported nothing, so the loop hands the
+			// pre-compaction report back.
+			await config.onBeforeIteration(gpt4oModel, report)
+			thirdIteration = [...config.messages]
+			const reply = { role: 'assistant' as const, content: 'done' }
+			push([reply])
+			return {
+				addedMessages: [...step('t1'), ...step('t2'), reply],
+				tokenUsage: report,
+				lastIterationUsage: report,
+				hitMaxIterations: false
+			}
+		})
+		const manager = new AIChatManager()
+		// ~75k estimated tokens: under the trigger by the estimate alone.
+		manager.messages = Array.from({ length: 10 }, (_, i) => ({
+			role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+			content: `m${i}` + 'x'.repeat(30_000)
+		}))
+		manager.displayMessages = manager.messages.map((m, i) =>
+			m.role === 'user'
+				? { role: 'user', content: `m${i}`, index: i }
+				: { role: 'assistant', content: `m${i}` }
+		)
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(1)
+		expect(thirdIteration[0].content).toContain('SUMMARY ONE')
+		// Nor does the stale report become the stored usage at commit.
+		expect(manager.contextUsage).toBeUndefined()
+	})
+
+	it('counts replayed Anthropic thinking toward the mid-turn projection', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.getStreamedCompletionText.mockResolvedValue('<summary>SUMMARY ONE</summary>')
+		// Under the 0.8 * 128k trigger without the thinking the next request replays.
+		const report = { prompt: 80_000, completion: 25_000, total: 105_000 }
+		let historyAfter: any[] = []
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			await config.onBeforeIteration(gpt4oModel, null)
+			const assistant = {
+				role: 'assistant' as const,
+				content: '',
+				tool_calls: [{ id: 't1', type: 'function', function: { name: 'x', arguments: '{}' } }],
+				_anthropicContent: [{ type: 'thinking', thinking: '...', signature: 'sig' }]
+			}
+			const tool = { role: 'tool' as const, tool_call_id: 't1', content: 'r'.repeat(4_000) }
+			for (const m of [assistant, tool]) {
+				config.messages.push(m)
+				config.addedMessages.push(m)
+			}
+			await config.onBeforeIteration(gpt4oModel, report)
+			historyAfter = config.messages.slice(0, -2)
+			return {
+				addedMessages: [assistant, tool],
+				tokenUsage: report,
+				lastIterationUsage: report,
+				hitMaxIterations: false
+			}
+		})
+		const manager = new AIChatManager()
+		manager.messages = Array.from({ length: 10 }, (_, i) => ({
+			role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+			content: `m${i}` + 'x'.repeat(30_000)
+		}))
+		manager.displayMessages = manager.messages.map((m, i) =>
+			m.role === 'user'
+				? { role: 'user', content: `m${i}`, index: i }
+				: { role: 'assistant', content: `m${i}` }
+		)
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(1)
+		// The kept history leaves room for the replayed thinking within the 0.5 target.
+		const keptTokens = historyAfter.reduce((acc, m) => acc + String(m.content).length / 4, 0)
+		expect(keptTokens + report.completion).toBeLessThan(128_000 * 0.5)
+	})
 
 	it('summarizes the older prefix and keeps the recent tail verbatim', async () => {
 		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
@@ -4738,6 +5002,26 @@ describe('AIChatManager tool views', () => {
 		expect(manager.systemMessage.content).not.toContain('write_script')
 	})
 
+	// Use is the user's own pick, so no profile resolves for it: the switch alone has to strip
+	// the writes from the tools and the prompt, and hand them back on Build.
+	it('ships only reads and runs in Use, and the writes again in Build', () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.configureGlobalMode()
+		const names = () => manager.availableTools.map((t) => t.def.function.name)
+		expect(names()).toContain('write_script')
+
+		manager.setWorkMode(AIWorkMode.USE)
+		expect(names()).toEqual(expect.arrayContaining(['list_workspace_items', 'run_script']))
+		expect(names()).not.toContain('write_script')
+		expect(manager.systemMessage.content).not.toContain('write_script')
+
+		manager.setWorkMode(AIWorkMode.BUILD)
+		expect(names()).toContain('write_script')
+		expect(manager.systemMessage.content).toContain('write_script')
+	})
+
 	// Which transition each posture offers is planModeController.test.ts's; what this pins is
 	// that only `tools` follows the picker. `isSessionChat` is what offers plan mode at all.
 	it('holds availableTools steady across the autonomy picker', async () => {
@@ -4753,5 +5037,57 @@ describe('AIChatManager tool views', () => {
 		manager.setAutonomyMode(AIAutonomyMode.YOLO)
 		expect(names(manager.tools)).not.toContain('enter_plan_mode')
 		expect(names(manager.availableTools)).toEqual(before)
+	})
+
+	it('offers the switch out of the mode the session is in, and switches only once called', async () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.configureGlobalMode()
+		// The posture is persisted, and the test above leaves it on Yolo.
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+		const shipped = () => manager.tools.map((t) => t.def.function.name)
+		expect(shipped()).toContain('enter_use_mode')
+		expect(shipped()).not.toContain('enter_build_mode')
+
+		// Plan leaves through its plan's approval, and Yolo would answer the card for the user.
+		manager.setWorkMode(AIWorkMode.PLAN)
+		expect(shipped()).not.toContain('enter_use_mode')
+		expect(shipped()).not.toContain('enter_build_mode')
+		manager.setWorkMode(AIWorkMode.USE)
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+		expect(shipped()).not.toContain('enter_build_mode')
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+
+		const enterBuild = manager.tools.find((t) => t.def.function.name === 'enter_build_mode')
+		expect(manager.workMode).toBe(AIWorkMode.USE)
+		await enterBuild?.fn({} as any)
+		expect(manager.workMode).toBe(AIWorkMode.BUILD)
+		expect(manager.systemMessage.content).toContain('write_script')
+	})
+
+	// The card is the only consent the switch has: the picker can answer it by going where it
+	// asked, and turning on Yolo must not approve it.
+	it('resolves a pending switch card from the picker, and never from Yolo', async () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.configureGlobalMode()
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+		manager.setWorkMode(AIWorkMode.USE)
+
+		const toPlan = manager.requestConfirmation('a', 'enter_build_mode')
+		manager.setWorkMode(AIWorkMode.PLAN)
+		await expect(toPlan).resolves.toBe(false)
+
+		manager.setWorkMode(AIWorkMode.USE)
+		const toBuild = manager.requestConfirmation('b', 'enter_build_mode')
+		manager.setWorkMode(AIWorkMode.BUILD)
+		await expect(toBuild).resolves.toBe(true)
+
+		manager.setWorkMode(AIWorkMode.USE)
+		const underYolo = manager.requestConfirmation('c', 'enter_build_mode')
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+		await expect(underYolo).resolves.toBe(false)
 	})
 })

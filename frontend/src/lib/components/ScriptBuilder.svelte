@@ -22,6 +22,10 @@
 	} from '$lib/script_helpers'
 	import { isWorkflowAsCode } from './graph/wacToFlow'
 	import AIFormSettings from './copilot/AIFormSettings.svelte'
+	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/script/core'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from './sessions/OpenInSessionButton.svelte'
 	import {
 		defaultScripts,
 		enterpriseLicense,
@@ -212,9 +216,13 @@
 	const compactTopbar = $derived(
 		ownsPageHeader ? pageHeader.actionFold >= 1 : topbarWidth > 0 && topbarWidth < 900
 	)
-	// The second fold holds the trail and one button. Diff and Settings join the menu that compact
+	// In the page header no fold drops a button's label: what does not fit goes into the menu. The
+	// second fold holds the trail and one button. Diff and Settings join the menu that compact
 	// already shows, and Deploy stays out: it is what this page is for.
 	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
+	// The third fold leaves the autosave indicator as its icon, so the AI session button still fits
+	// right before Deploy on a phone.
+	const narrowTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 3)
 
 	// The workspace this editor operates on: deploy, save-draft, trigger loading
 	// and the AutosaveIndicator all target it. Falls back to the full-page
@@ -685,8 +693,7 @@
 			// the user has typed, so after someone renames the item it still names
 			// the old location and this would compare against the archived row left
 			// there. Resolving by the row is what lets the diff show the rename.
-			path: userDraftPath || initialPath,
-			withStarredInfo: true
+			path: userDraftPath || initialPath
 		})
 
 		// A superseded opening must not write these: the current one would then render
@@ -913,6 +920,24 @@
 		if (opWorkspace && userDraftPath && savedScript?.no_deployed === true) {
 			await UserDraft.forcePersist('script', userDraftPath, { workspace: opWorkspace })
 		}
+	}
+
+	const sessionOpen: OpenInSessionSource | undefined = $derived(
+		userDraftPath
+			? {
+					// URL draft path the editor loads/saves by, not the friendly
+					// `script.path` (a new script's has no row → "not found").
+					target: { kind: 'script', path: userDraftPath },
+					workspaceId: opWorkspace ?? undefined,
+					beforeOpen: persistDraftForSession
+				}
+			: undefined
+	)
+	// The header's button, gated like the code editor's AI entry point it stands in for.
+	function headerSessionOpen(): OpenInSessionSource | undefined {
+		if (disableAi || customUi?.editorBar?.aiGen == false) return undefined
+		if (!SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(script?.language ?? '')) return undefined
+		return sessionOpen
 	}
 
 	// Inside an AI session pane (which injects an aiChatManager via context) the
@@ -2323,7 +2348,8 @@
 				}}
 				afterName={scriptMarks}
 				actions={scriptHeaderActions}
-				actionFolds={2}
+				sessionSource={headerSessionOpen()}
+				actionFolds={3}
 				separator="none"
 			/>
 		{:else}
@@ -2481,6 +2507,7 @@
 					{loadedFromDraft}
 					{othersDraftsCount}
 					{onOpenOthersDrafts}
+					compact={narrowTopbar}
 				/>
 			{/if}
 		{/snippet}
@@ -2510,7 +2537,7 @@
 						unifiedSize={headerBtnSize}
 						on:click={() => (metadataOpen = true)}
 						startIcon={{ icon: Settings }}
-						iconOnly={compactTopbar}
+						iconOnly={compactTopbar && !ownsPageHeader}
 						title="Settings"
 					>
 						<span> Settings </span>
@@ -2534,7 +2561,7 @@
 							on:click={() => openDiffDrawer()}
 							disabled={diffDisabled}
 							btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
-							iconOnly={compactTopbar}
+							iconOnly={compactTopbar && !ownsPageHeader}
 							title={diffTitle}
 							startIcon={{ icon: DiffIcon }}
 						>
@@ -2580,6 +2607,9 @@
 				{@render settingsButton()}
 			{/if}
 
+			{#if ownsPageHeader}
+				<OpenInSessionButton source={headerSessionOpen()} />
+			{/if}
 			<DeployButton
 				loading={!fullyLoaded}
 				{loadingSave}
@@ -2652,15 +2682,7 @@
 					script.on_behalf_of_email
 				)}
 				workspaceOverride={opWorkspace}
-				sessionOpen={userDraftPath
-					? {
-							// URL draft path the editor loads/saves by, not the friendly
-							// `script.path` (a new script's has no row → "not found").
-							target: { kind: 'script', path: userDraftPath },
-							workspaceId: opWorkspace ?? undefined,
-							beforeOpen: persistDraftForSession
-						}
-					: undefined}
+				{sessionOpen}
 				bind:selectedTab={selectedInputTab}
 				{customUi}
 				{onTestJob}

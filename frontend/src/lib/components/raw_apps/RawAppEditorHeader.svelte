@@ -51,6 +51,7 @@
 	import AppEditorHeaderDeploy from '../apps/editor/AppEditorHeaderDeploy.svelte'
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
+	import { saveRawAppFork } from './forkRawApp.svelte'
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { getContext } from 'svelte'
 
@@ -188,6 +189,9 @@
 		/** `Exit & see details`: leaves the editor for the app's deployed page. A session hosts that
 		 *  page itself, so it flips the tab there rather than navigating out of the session. */
 		onDetails?: (e: { path: string }) => void
+		/** Opens the draft `Fork` saved. Without it, the fork opens in a new browser tab; a
+		 *  session opens it as one of its own tabs instead. */
+		onOpenFork?: (path: string) => void
 		onResetToDeployed?: () => void | Promise<void>
 		// See ScriptBuilderProps — same semantics for the raw-app editor's
 		// indicator.
@@ -239,6 +243,7 @@
 		onDeploy = undefined,
 		pendingDraftPath = $bindable(undefined),
 		onDetails,
+		onOpenFork,
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
@@ -256,6 +261,21 @@
 	// session's (workspace, path), else the full-page editor's own values.
 	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
+
+	async function forkApp() {
+		if (!opWorkspace || !files) return
+		const workspace = opWorkspace
+		// Opened before the save: a tab opened after an await is no longer tied to the
+		// click, and browsers block it as a popup.
+		const tab = onOpenFork ? undefined : window.open('', '_blank')
+		const forkPath = await saveRawAppFork(workspace, { files, runnables, data, policy })
+		if (!forkPath) {
+			tab?.close()
+			return
+		}
+		if (onOpenFork) onOpenFork(forkPath)
+		else if (tab) tab.location.href = `/apps_raw/edit/${forkPath}?workspace=${workspace}`
+	}
 
 	$effect(() => {
 		const typed = newEditedPath
@@ -323,10 +343,19 @@
 	const compactTopbar = $derived(
 		ownsPageHeader ? pageHeader.actionFold >= 1 : topbarWidth > 0 && topbarWidth < 720
 	)
-	// The second fold keeps the trail, the file sidebar's toggle, Diff and Deploy. AI stands down —
-	// the sidebar's own Ask AI is the way in at that width — while Jobs and the export are already
-	// in the menu, Jobs from `compactTopbar` (true at the second fold too) and the export always.
+	// In the page header no fold drops a button's label: what does not fit goes into the menu.
+	// The second fold keeps the trail, the file sidebar's toggle and Deploy; Diff joins the menu.
+	// The docked-chat AI toggle stands down — the sidebar's own Ask AI is the way in at that
+	// width — while Jobs and the
+	// export are already in the menu, Jobs from `compactTopbar` (true at the second fold too) and
+	// the export always.
 	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
+	// The third fold leaves the autosave indicator as its icon, so the AI session button still fits
+	// right before Deploy on a phone.
+	const narrowTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 3)
+	// The last fold, for the narrowest phones: the file sidebar's toggle joins the menu, which is
+	// then the way back to a collapsed sidebar.
+	const sidebarToggleInMenu = $derived(ownsPageHeader && pageHeader.actionFold >= 4)
 
 	// Top-bar button size + bar height. Condensed (session preview) uses the
 	// smallest well-supported unified size (`sm`) so the bar is thinner.
@@ -450,8 +479,7 @@
 	async function syncWithDeployed(opening?: number) {
 		const deployedApp = await AppService.getAppByPath({
 			workspace: opWorkspace!,
-			path: appPath!,
-			withStarredInfo: true
+			path: appPath!
 		})
 
 		// A superseded opening must not write these: the current one would then render
@@ -704,6 +732,26 @@
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	let moreItems = $derived([
+		...(sidebarToggleInMenu && onToggleSidebar
+			? [
+					{
+						displayName: `${sidebarCollapsed ? 'Expand' : 'Collapse'} file sidebar`,
+						icon: sidebarCollapsed ? PanelLeft : PanelLeftClose,
+						action: () => onToggleSidebar?.(),
+						shortcut: `${mod}B`
+					}
+				]
+			: []),
+		...(phoneTopbar
+			? [
+					{
+						displayName: 'Diff',
+						icon: DiffIcon,
+						action: () => openDiffDrawer(),
+						disabled: !savedApp || newApp || savedApp?.no_deployed === true
+					}
+				]
+			: []),
 		...(compactTopbar
 			? [
 					{
@@ -956,7 +1004,8 @@
 			pathTrigger: rawAppPathTrigger
 		}}
 		actions={rawAppHeaderActions}
-		actionFolds={2}
+		sessionSource={sessionOpen}
+		actionFolds={4}
 		contexts={headerContexts}
 		separator="none"
 	/>
@@ -996,7 +1045,7 @@
 {/if}
 
 {#snippet sidebarToggle()}
-	{#if onToggleSidebar}
+	{#if onToggleSidebar && !sidebarToggleInMenu}
 		<Button
 			unifiedSize="sm"
 			variant="subtle"
@@ -1019,6 +1068,7 @@
 			{loadedFromDraft}
 			{othersDraftsCount}
 			{onOpenOthersDrafts}
+			compact={narrowTopbar}
 		/>
 	{/if}
 {/snippet}
@@ -1075,7 +1125,8 @@
 {#snippet rawAppHeaderActions()}
 	<!-- The bar's own order kept: the file sidebar, how the draft is doing, who else is here, then
 	     what to do with the app. The sidebar's toggle is the only way back once it is folded — the
-	     collapsed sidebar renders nothing of its own — so it stays on the bar at every width. -->
+	     collapsed sidebar renders nothing of its own — so it stays on the bar until the last fold,
+	     which moves it into the ⋮ menu rather than dropping it. -->
 	{@render sidebarToggle()}
 	{@render autosaveIndicator()}
 	{@render awarenessMark()}
@@ -1102,9 +1153,11 @@
 		title={newApp || savedApp?.no_deployed === true
 			? 'Deploy this app once to compare against the deployed version'
 			: 'Diff'}
-		class={!savedApp || newApp || savedApp?.no_deployed === true
-			? 'flex cursor-not-allowed'
-			: 'flex'}
+		class={phoneTopbar
+			? 'hidden'
+			: !savedApp || newApp || savedApp?.no_deployed === true
+				? 'flex cursor-not-allowed'
+				: 'flex'}
 	>
 		<Button
 			variant="default"
@@ -1114,7 +1167,7 @@
 			btnClasses={!savedApp || newApp || savedApp?.no_deployed === true
 				? 'pointer-events-none'
 				: undefined}
-			iconOnly={compactTopbar}
+			iconOnly={compactTopbar && !ownsPageHeader}
 			title={newApp || savedApp?.no_deployed === true
 				? 'Deploy this app once to compare against the deployed version'
 				: 'Diff'}
@@ -1145,9 +1198,11 @@
 	<!-- Draws nothing in the bar: it is the export drawer, opened from the menu's Export entry
 	     through this instance. -->
 	<AppExportButton bind:this={appExport} />
-	{#if !phoneTopbar}
-		<OpenInSessionButton source={sessionOpen}>
-			{#snippet fallback()}
+	<!-- Right before Deploy at every fold; only the opted-out docked-chat toggle gives way on a
+	     phone. -->
+	<OpenInSessionButton source={sessionOpen}>
+		{#snippet fallback()}
+			{#if !phoneTopbar}
 				<Button
 					unifiedSize={headerBtnSize}
 					variant="default"
@@ -1158,9 +1213,9 @@
 				>
 					AI
 				</Button>
-			{/snippet}
-		</OpenInSessionButton>
-	{/if}
+			{/if}
+		{/snippet}
+	</OpenInSessionButton>
 	<Button
 		loading={loading.save}
 		startIcon={{ icon: Save }}
@@ -1181,9 +1236,7 @@
 							]),
 					{
 						label: 'Fork',
-						onClick: () => {
-							window.open(`/apps/add?template=${appPath}`)
-						}
+						onClick: forkApp
 					},
 					...(!isCloudHosted() && editInForkAllowed(opWorkspace, $userWorkspaces)
 						? [

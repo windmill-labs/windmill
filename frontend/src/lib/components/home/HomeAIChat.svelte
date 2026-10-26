@@ -1,73 +1,39 @@
 <script lang="ts" module>
-	/** Example prompts: the short `label` is shown as a clickable tag under the chat,
-	 * the `prompt` is what rotates through the placeholder / gets dropped into the input. */
-	export const homeAIExamples: { label: string; prompt: string }[] = [
-		{
-			label: 'Sync Salesforce',
-			prompt: 'Sync new Salesforce leads into a postgres table every hour'
-		},
-		{
-			label: 'Ban Discord users',
-			prompt:
-				'Build a workflow that triggers on a Discord message, checks for offensive language using an LLM, and possibly block them'
-		},
-		{
-			label: 'Weekly Slack report',
-			prompt: 'Generate a weekly sales report from postgres and post it to Slack every Monday'
-		}
-	]
+	import type HomeSessionStarterComponent from '../sessions/HomeSessionStarter.svelte'
 
-	/** An operator's session can run what is deployed, read runs and call MCP servers, but
-	 * cannot author scripts or apps. It composes flows only where the workspace grants
-	 * `operator_settings.builder_flows`, so none of these asks it to build anything. */
-	export const homeAIOperatorExamples: { label: string; prompt: string }[] = [
-		{
-			label: 'Run a flow',
-			prompt: 'Find the flow that onboards a new employee and run it for Jane Doe, starting Monday'
-		},
-		{
-			label: 'Rerun failed jobs',
-			prompt: 'List the jobs that failed today, tell me why, and rerun the ones that timed out'
-		},
-		{
-			label: 'Summarize GitHub issues',
-			prompt: "Read this week's open GitHub issues and summarize the ones that mention billing"
-		}
-	]
+	// The starter is a full AIChat, which reaches monaco, and the build refuses monaco in Home's
+	// static imports. Kept once loaded, so a return to Home renders it in its first frame: the
+	// AI Sessions → Home view transition snapshots that frame.
+	let loadedStarter: typeof HomeSessionStarterComponent | undefined
+	function loadStarter() {
+		return import('../sessions/HomeSessionStarter.svelte').then((m) => (loadedStarter = m.default))
+	}
 </script>
 
 <script lang="ts">
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import {
-		ArrowUp,
-		ExternalLink,
-		Globe2,
-		KeyRound,
-		PlugZap,
-		Settings,
-		WandSparkles
-	} from 'lucide-svelte'
+	import { ExternalLink, Globe2, PinOff, PlugZap } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import { Badge } from '../common'
 	import CloseButton from '../common/CloseButton.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
-	import { startSessionWithPrompt } from '../sessions/sessionSwitch.svelte'
-	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
-	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
-	import { aiUserDisabled, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import { hubBaseUrlStore, roleCapabilities, workspaceStore } from '$lib/stores'
+	import { sessionState } from '../sessions/sessionState.svelte'
+	import { currentWorkspaceRootId } from '../sessions/sessionScope.svelte'
 	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { BROWSER } from 'esm-env'
-	import AIChatModelSettings from '../copilot/chat/AIChatModelSettings.svelte'
 	import HomeConnectDrawer from './HomeConnectDrawer.svelte'
-	import { USER_SETTINGS_HASH } from '../sidebar/settings'
+	import HomeComposerSkeleton, {
+		composerHeight,
+		rememberComposerHeight
+	} from './HomeComposerSkeleton.svelte'
 	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
-	import { onboardingProfile } from '$lib/onboardingProfile'
+	import { prefetchComposerSignals } from '../copilot/chat/starter/starterPrompts.svelte'
+	import { useWorkspaceAiHidden } from '../copilot/workspaceAiHidden.svelte'
+	import { homeQuickAccessSettings } from './homeQuickAccessSettings.svelte'
 
 	const COLLAPSED_SETTING = 'home-ai-composer-collapsed'
 
@@ -76,290 +42,98 @@
 	 *  labelled buttons without the trail starting to truncate. Below it they fold back. */
 	const BAR_FITS_SIDE_TRIPS = 1024
 	const sideTripsInBar = $derived(pageHeader.barWidth >= BAR_FITS_SIDE_TRIPS)
-	const hubOffered = $derived(!$userStore?.operator && HOME_SHOW_HUB)
+	const hubOffered = $derived($roleCapabilities.code && HOME_SHOW_HUB)
 
-	let value = $state('')
-	// The stock examples for the reader's role, unless the invite that brought this person here wrote prompts for
-	// them — those replace the set outright rather than joining it, since a prompt written
-	// for someone's own stack next to "Ban Discord users" reads as the generic one.
-	let invitePrompts: { label: string; prompt: string }[] | undefined = $state(undefined)
-	void onboardingProfile().then((p) => {
-		if (!p?.starter_prompts?.length) return
-		invitePrompts = p.starter_prompts
-		promptIndex = 0
-	})
-	let examples = $derived(
-		invitePrompts ?? ($userStore?.operator ? homeAIOperatorExamples : homeAIExamples)
-	)
-	let placeholderVisible = $state(true)
 	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
 
-	// How much of the home page this reader wants the composer to take, so it lives per browser
-	// rather than per workspace or account.
-	let collapsed = $state(BROWSER && getLocalSetting(COLLAPSED_SETTING) === 'true')
-	function setCollapsed(next: boolean) {
-		collapsed = next
+	// Whether this reader wants the composer on the home page at all, so it lives per browser
+	// rather than per workspace or account. It has nothing to do with the composer's one-line
+	// state despite the key's name; renaming the key would reset every reader's choice.
+	let removed = $state(BROWSER && getLocalSetting(COLLAPSED_SETTING) === 'true')
+	function setRemoved(next: boolean) {
+		removed = next
 		storeLocalSetting(COLLAPSED_SETTING, next ? 'true' : undefined)
 	}
 
 	// Removing puts the composer away rather than throwing it out, and the way back is one item in
 	// the band's menu — so the ellipsis flashes as it appears, in a corner nobody is watching while
-	// the hero collapses in the middle of the page.
+	// the composer leaves the page.
 	//
-	// A keyframe animation, not a transition: this mounts in the same flush that collapses the
-	// hero, so the frame that would paint it at rest is the frame it is already told to leave, and
+	// A keyframe animation, not a transition: this mounts in the same flush that removes the
+	// composer, so the frame that would paint it at rest is the frame it is already told to leave, and
 	// one `requestAnimationFrame` is not reliably past that paint. The flash then goes straight to
 	// invisible without ever being drawn. Mounted only while pulsing, so each removal replays it.
 	const PULSE_MS = 1000
+	const reducedMotion = useReducedMotion()
 	let pulsing = $state(false)
 	let pulseEndTimer: ReturnType<typeof setTimeout> | undefined
 
-	// `no_ai` is the overlay's button, shown only while AI is unusable here.
-	function removeComposer(source: 'close' | 'no_ai') {
-		logFeatureUsage('home', 'ai_hero_remove', { key: source })
-		setCollapsed(true)
+	function removeComposer() {
+		// The `close` key keeps these events in the series they have always been counted in.
+		logFeatureUsage('home', 'ai_hero_remove', { key: 'close' })
+		setRemoved(true)
 		if (reducedMotion.val) return
 		clearTimeout(pulseEndTimer)
 		pulsing = true
 		pulseEndTimer = setTimeout(() => (pulsing = false), PULSE_MS)
 	}
 
-	// In global-AI mode the layout's chat panel is disabled and never loads the copilot
-	// config, so the home chat loads it for the current workspace itself.
-	$effect(() => {
-		if ($workspaceStore) {
-			loadCopilot($workspaceStore)
-		}
-	})
+	let HomeSessionStarter = $state(loadedStarter)
+	if (!loadedStarter) void loadStarter().then((c) => (HomeSessionStarter = c))
+	// The starter waits on the workspace's item count before it mounts, and its suggestions on
+	// the other signals; asked alongside its code rather than once the code has loaded, they
+	// are no extra wait.
+	if ($workspaceStore) prefetchComposerSignals($workspaceStore)
 
-	// Whether the copilot config has actually loaded for the current workspace.
-	let configLoaded = $derived($copilotWorkspace === $workspaceStore)
-	// No usable model (no provider configured, or AI disabled): the input is blurred and an overlay
-	// explains why and links to the fix. Gate on `configLoaded` so the initial (unloaded) state
-	// doesn't flash the overlay while a provider is in fact configured.
-	let disabled = $derived(configLoaded && !$copilotInfo.enabled)
-	// Submission is stricter than the overlay: block it until the config is loaded AND
-	// enabled. Submitting during the unknown-config window hands the prompt to a session
-	// that only sends once `copilotInfo.enabled` flips true — on an unconfigured/disabled
-	// workspace that never happens and the prompt is silently lost.
-	let canSend = $derived(configLoaded && $copilotInfo.enabled)
+	// Whether Home's own workspace hides the assistant, read for that workspace: once the block
+	// shows, the shared copilot config is the draft's, so a draft acting on a workspace that hides
+	// AI would otherwise take the whole block, and the picker that could undo it, off Home.
+	const homeAiHidden = useWorkspaceAiHidden(() => $workspaceStore ?? undefined)
 
-	// The input alone: what the overlay covers and the one part a missing provider makes unusable.
-	let blurClass = $derived(disabled ? 'blur-sm pointer-events-none select-none' : '')
-
-	// Disabled because the user spent their free Windmill AI grant, not because AI was never
-	// set up — the two look identical otherwise, and the "configure AI" copy would be a lie.
-	let freeTierExhausted = $derived($copilotInfo.freeTier?.exhausted === true)
-
-	// A workspace locked against direct deployment is run, not authored in, so its home page drops
-	// the composer and the button to reopen it. This is about the workspace, not the caller:
-	// `createSession` would steer a prompt into the paired dev workspace and an admin bypasses the
-	// lock outright, yet neither makes prod the place to start one. Unresolved rules read as
-	// unlocked, so the far commoner unlocked workspace never pops the composer in mid-load.
-	let runOnlyWorkspace = $derived(isRuleActive('DisableDirectDeployment'))
-
-	// The composer hands off to /sessions, which refuses operators and users opted out of the
-	// sessions beta — so hide it from them (the prompt would be silently dropped) while the
+	// The composer hands off to /sessions, which refuses roles that cannot code and users opted out
+	// of the sessions beta — so hide it from them (the prompt would be silently dropped) while the
 	// AI-independent CLI/MCP row below stays.
 	let showComposer = $derived(
-		prefersSessionHandoff($userStore?.operator) &&
-			!runOnlyWorkspace &&
-			!$copilotInfo.workspaceDisabled
+		prefersSessionHandoff(!$roleCapabilities.code) && !homeAiHidden.hidden
 	)
 
-	// The hero's margins and centered column are for the full block. The lone button row left
-	// by a collapsed, opted-out, run-only or hidden-assistant view is a hint line and should
-	// cost the page almost nothing: no top margin, and the content column's full width so it
-	// hugs the right edge instead of floating centered in empty space.
-	let hero = $derived(showComposer && !collapsed)
-	let outerSpacing = $derived(hero ? 'mt-20 mb-16' : 'mt-0 mb-1')
-
-	let starting = $state(false)
-	async function start() {
-		if (!canSend || starting || !value.trim()) return
-		starting = true
-		try {
-			await startSessionWithPrompt(value, { autoSend: true })
-		} finally {
-			starting = false
-		}
-	}
-
-	// Enter starts the session; Shift+Enter keeps inserting a newline.
-	function onKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter' && !e.shiftKey) {
-			e.preventDefault()
-			start()
-		}
-	}
-
-	let prompts = $derived(examples.map((e) => e.prompt))
-
-	const CYCLE_MS = 7_000
-	// Must match the `duration-*` class on the placeholder overlay: the swap happens once the
-	// fade-out has finished, and Tailwind only emits classes it finds written out in full.
-	const FADE_MS = 600
-
-	// Rotate the example prompt every CYCLE_MS: fade the placeholder out, swap it, fade it back in.
-	// Only while the composer is shown — otherwise it would loop forever driving an
-	// unrendered input — and not under reduced motion, where the first prompt simply stays put.
-	// The index lives outside the effect so re-showing the composer resumes the rotation from the
-	// prompt currently displayed rather than restarting it.
-	const reducedMotion = useReducedMotion()
-	let promptIndex = $state(0)
-	let placeholder = $derived(prompts[promptIndex % prompts.length])
-	$effect(() => {
-		if (!showComposer || collapsed || reducedMotion.val) return
-		let timer: ReturnType<typeof setTimeout>
-
-		function next() {
-			placeholderVisible = false
-			timer = setTimeout(() => {
-				promptIndex = (promptIndex + 1) % prompts.length
-				placeholderVisible = true
-				timer = setTimeout(next, CYCLE_MS)
-			}, FADE_MS)
-		}
-
-		timer = setTimeout(next, CYCLE_MS)
-		return () => {
-			clearTimeout(timer)
-			// Torn down mid-fade, the input would otherwise remount with an invisible placeholder.
-			placeholderVisible = true
-		}
-	})
+	let hero = $derived(showComposer && !removed)
 </script>
 
-<div class="w-full flex justify-center {outerSpacing}">
-	<div class="{hero ? 'max-w-[40rem]' : ''} grow relative group">
-		{#if showComposer && !collapsed}
-			{#if !disabled}
-				<!-- The one dismiss control while the composer is usable; the overlay below carries its
-				     own once it takes over, so the two never show at the same time. -->
-				<div class="absolute right-0 top-0 z-20">
-					<CloseButton
-						small
-						noBg
-						title="Remove session chat"
-						onClick={() => removeComposer('close')}
+<div class="w-full {hero ? 'mt-2' : 'mb-1'}">
+	<div class="relative group/composer">
+		{#if hero}
+			<!-- In the page's side padding, clear of the composer's own controls at its right end,
+			     and centred on the composer's first row: the one-line box's middle, and where that
+			     row stays once the box opens downward. Shown on hover; the container starts at the
+			     composer's edge so the pointer reaches the unpin button without leaving the hovered
+			     zone. Below `sm` there is no side padding to hold it, so unpinning is in the band's
+			     menu instead. -->
+			<div
+				class="hidden sm:block absolute top-4 left-full pl-1 z-20 transition-opacity opacity-0 group-hover/composer:opacity-100 focus-within:opacity-100"
+			>
+				<CloseButton small noBg Icon={PinOff} title="Unpin from Home" onClick={removeComposer} />
+			</div>
+			<!-- The block is a session's chat, so it waits for the sessions it might reuse. Keyed on
+			     the workspace family, not the workspace: another family needs its own draft, but a
+			     fork shares its parent's, and remounting for it only flashes the block. -->
+			{#if HomeSessionStarter && sessionState.hydrated}
+				{#key $currentWorkspaceRootId}
+					<HomeSessionStarter
+						{placeholder}
+						onSettled={(height) => rememberComposerHeight($workspaceStore ?? undefined, height)}
 					/>
-				</div>
+				{/key}
+			{:else}
+				{@render placeholder()}
 			{/if}
-			<div class="flex items-center justify-center gap-2 mb-4">
-				<p class="text-center font-regular text-3xl">
-					{$userStore?.operator ? 'Run with AI' : 'Build with AI'}
-				</p>
-				<Badge color="blue" small>Beta</Badge>
-			</div>
-			<!-- Anchors the send button / model settings to the input, not to the whole block — the row
-			     below would otherwise push them down. The inner wrapper stays `relative` in both
-			     states: `blur-sm` is a filter, which makes an element the containing block for its
-			     absolutely positioned children, so those two would shift when the blur turns on. -->
-			<div class="relative">
-				<div class="relative {blurClass}" inert={disabled}>
-					<TextInput
-						bind:value
-						class="resize-none px-4 py-3 pb-9 shadow-sm border-accent"
-						underlyingInputEl="textarea"
-						inputProps={{
-							rows: 4,
-							'aria-label': $userStore?.operator
-								? 'Describe what you want to do'
-								: 'Describe what you want to build',
-							onkeydown: onKeydown
-						}}
-					/>
-					{#if !value}
-						<!-- Drawn over the textarea instead of set as its `placeholder`: WebKit and Gecko do
-						     not run transitions on `::placeholder`, so the fade would be a hard cut there.
-						     The 1px margin is the textarea's border, so the text sits where typing starts. -->
-						<span
-							aria-hidden="true"
-							class="pointer-events-none absolute inset-x-4 top-3 m-px text-xs text-hint transition-opacity duration-[600ms] ease-in-out {placeholderVisible
-								? 'opacity-100'
-								: 'opacity-0'}"
-						>
-							{placeholder}
-						</span>
-					{/if}
-					<Button
-						endIcon={starting ? {} : { icon: ArrowUp }}
-						wrapperClasses="absolute right-2 bottom-3.5"
-						variant={value.trim() ? 'accent' : 'subtle'}
-						iconOnly
-						loading={starting}
-						disabled={!value.trim() || starting || !canSend}
-						onclick={start}
-					></Button>
-					<div class="absolute left-3 bottom-4 flex items-center gap-1.5 px-0.5">
-						<AIChatModelSettings />
-					</div>
-				</div>
-				{#if disabled}
-					<!-- Covers the input alone: the title, the example prompts and the CLI/MCP row are all
-					     still legible and usable without a provider. Static, not hover-gated, so keyboard
-					     and touch users see it too. -->
-					<div
-						class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-md bg-surface/70"
-					>
-						<p class="text-sm text-secondary">
-							{#if $aiUserDisabled}
-								Windmill AI is disabled in your account settings
-							{:else if freeTierExhausted}
-								You have used all of your free Windmill AI tokens
-							{:else}
-								No AI provider is configured
-							{/if}
-						</p>
-						<div class="flex items-center gap-2">
-							{#if $aiUserDisabled}
-								<!-- The fix lives in account settings (a hash-opened drawer, not a route), so link
-								     the hash the sidebar's Account menu uses rather than the workspace AI settings. -->
-								<Button
-									unifiedSize="sm"
-									variant="accent"
-									startIcon={{ icon: Settings }}
-									href={USER_SETTINGS_HASH}
-								>
-									Open account settings
-								</Button>
-							{:else}
-								<Button
-									unifiedSize="sm"
-									variant="accent"
-									startIcon={{ icon: freeTierExhausted ? KeyRound : Settings }}
-									href="/workspace_settings?tab=ai"
-								>
-									{freeTierExhausted ? 'Add your own API key' : 'Configure AI'}
-								</Button>
-							{/if}
-							<Button unifiedSize="sm" variant="default" onClick={() => removeComposer('no_ai')}
-								>Remove</Button
-							>
-						</div>
-					</div>
-				{/if}
-			</div>
 		{/if}
-
-		<div class="flex items-center justify-between gap-2 pt-2">
-			{#if showComposer && !collapsed}
-				<div class="flex flex-row flex-wrap items-center gap-1.5">
-					{#each examples as example (example.label)}
-						<Button
-							variant="default"
-							unifiedSize="xs"
-							btnClasses="!rounded-full !text-2xs !text-hint"
-							onClick={() => (value = example.prompt)}
-						>
-							{example.label}
-						</Button>
-					{/each}
-				</div>
-			{/if}
-		</div>
 	</div>
 </div>
+
+{#snippet placeholder()}
+	<HomeComposerSkeleton height={composerHeight($workspaceStore ?? undefined)} />
+{/snippet}
 
 <HomeConnectDrawer bind:this={homeConnectDrawer} />
 
@@ -406,9 +180,9 @@
 		<!-- Nothing left to hold once the side trips stand in the bar and the composer is on the
 		     page: an ellipsis that opens an empty menu is a button that does nothing. -->
 		<!-- No menu while the hero is on the page and its side trips are in the bar: the hero's own
-		     cross removes it, so an ellipsis holding a second way to do that is a button whose only
+		     unpin button removes it, so an ellipsis holding a second way to do that is a button whose only
 		     item is a duplicate. -->
-		{#if !sideTripsInBar || (showComposer && collapsed)}
+		{#if !sideTripsInBar || (showComposer && removed) || homeQuickAccessSettings.hidden}
 			<!-- The flash rides the ellipsis itself, not the row: with the side trips beside it the
 			     row is three controls wide, and marking all three names none of them. -->
 			<span class="relative inline-flex">
@@ -421,19 +195,40 @@
 						class="pointer-events-none absolute -inset-1 rounded-lg bg-blue-500/30 opacity-0 animate-fade-out"
 					></span>
 				{/if}
+				<!-- The same flash for hiding the favorites & recent section. It rests at opacity 0, so
+				     it can stay mounted; the key replays it on each hide. -->
+				{#if homeQuickAccessSettings.hideCount > 0 && !reducedMotion.val}
+					{#key homeQuickAccessSettings.hideCount}
+						<span
+							aria-hidden="true"
+							class="pointer-events-none absolute -inset-1 rounded-lg bg-blue-500/30 opacity-0 animate-fade-out"
+						></span>
+					{/key}
+				{/if}
 				<DropdownV2
 					placement="bottom-end"
 					size="sm"
+					customWidth={240}
 					items={[
-						...(showComposer && collapsed
+						// Every phone gets the menu, and there the composer has no room for its own unpin
+						// button. The menu can also hold the section's pin, so the label names the session.
+						...(hero ? [{ displayName: 'Unpin session from Home', action: removeComposer }] : []),
+						...(showComposer && removed
 							? [
 									{
 										displayName: 'Pin session hero to homepage',
-										icon: WandSparkles,
 										action: () => {
 											logFeatureUsage('home', 'ai_hero_pin')
-											setCollapsed(false)
+											setRemoved(false)
 										}
+									}
+								]
+							: []),
+						...(homeQuickAccessSettings.hidden
+							? [
+									{
+										displayName: 'Pin favorites & recent to homepage',
+										action: () => homeQuickAccessSettings.setHidden(false)
 									}
 								]
 							: []),
@@ -442,14 +237,12 @@
 							: [
 									{
 										displayName: 'CLI / MCP',
-										icon: PlugZap,
 										action: () => homeConnectDrawer?.openDrawer?.()
 									},
 									...(hubOffered
 										? [
 												{
 													displayName: 'Hub',
-													icon: Globe2,
 													href: $hubBaseUrlStore,
 													hrefTarget: '_blank' as const
 												}

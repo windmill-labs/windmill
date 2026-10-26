@@ -135,7 +135,7 @@ pub(crate) async fn change_workspace_id(
     // Duplicate workspace settings (keep copy in old workspace for reference)
     info!("Duplicating workspace_settings table");
     sqlx::query!(
-        "INSERT INTO workspace_settings (workspace_id, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, teams_command_script, teams_team_id, teams_team_name, git_app_installations, git_credentials, ducklake, dbt_warehouses, slack_oauth_client_id, slack_oauth_client_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler, public_app_execution_limit_per_minute, error_handler_fallback_to_instance_alerts, guest_access_enabled, guest_jwt_public_key, guest_jwt_jwks_url, add_admins_and_developers_to_forks, remote_deploy_target, remote_deploy_target_changed_at) SELECT $1, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, teams_command_script, teams_team_id, teams_team_name, git_app_installations, git_credentials, ducklake, dbt_warehouses, slack_oauth_client_id, slack_oauth_client_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler, public_app_execution_limit_per_minute, error_handler_fallback_to_instance_alerts, guest_access_enabled, guest_jwt_public_key, guest_jwt_jwks_url, add_admins_and_developers_to_forks, remote_deploy_target, remote_deploy_target_changed_at FROM workspace_settings WHERE workspace_id = $2",
+        "INSERT INTO workspace_settings (workspace_id, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, role_overrides, teams_command_script, teams_team_id, teams_team_name, git_app_installations, git_credentials, ducklake, dbt_warehouses, slack_oauth_client_id, slack_oauth_client_secret, slack_signing_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler, public_app_execution_limit_per_minute, error_handler_fallback_to_instance_alerts, guest_access_enabled, guest_jwt_public_key, guest_jwt_jwks_url, add_admins_and_developers_to_forks, remote_deploy_target, remote_deploy_target_changed_at, variable_expiration_handler) SELECT $1, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, role_overrides, teams_command_script, teams_team_id, teams_team_name, git_app_installations, git_credentials, ducklake, dbt_warehouses, slack_oauth_client_id, slack_oauth_client_secret, slack_signing_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler, public_app_execution_limit_per_minute, error_handler_fallback_to_instance_alerts, guest_access_enabled, guest_jwt_public_key, guest_jwt_jwks_url, add_admins_and_developers_to_forks, remote_deploy_target, remote_deploy_target_changed_at, variable_expiration_handler FROM workspace_settings WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -219,6 +219,14 @@ pub(crate) async fn change_workspace_id(
     info!("Updating workspace_invite table");
     sqlx::query!(
         "UPDATE workspace_invite SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE role_seat SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -856,7 +864,7 @@ pub(crate) async fn change_workspace_id(
 
     info!("Duplicating usr table");
     sqlx::query!(
-        "INSERT INTO usr SELECT $1, username, email, is_admin, created_at, operator, disabled, role FROM usr WHERE workspace_id = $2",
+        "INSERT INTO usr (workspace_id, username, email, is_admin, created_at, operator, disabled, role, workspace_role) SELECT $1, username, email, is_admin, created_at, operator, disabled, role, workspace_role FROM usr WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -1255,6 +1263,10 @@ pub(crate) async fn delete_workspace(
     .await?;
 
     sqlx::query!("DELETE FROM usr WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM role_seat WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
 

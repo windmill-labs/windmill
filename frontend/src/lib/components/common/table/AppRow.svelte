@@ -5,14 +5,15 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { AppService, type ListableApp } from '$lib/gen'
-	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
-	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
+	import { roleCapabilities, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { roleCanAuthor } from '$lib/editRights'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
 	import { selectMenuItems, type RowSelection } from './rowSelection'
-	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
+	import RowLabels from './RowLabels.svelte'
+	import AskAiRowButton from './AskAiRowButton.svelte'
 	import Badge from '../badge/Badge.svelte'
 	import {
 		ExternalLink,
@@ -34,7 +35,8 @@
 	import { copyToClipboard } from '$lib/utils'
 	import AppDeploymentHistory from '$lib/components/apps/editor/AppDeploymentHistory.svelte'
 	import { isDeployable } from '$lib/utils_deployable'
-	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
+	import { cachedDeployUiSettings, warmDeployUiSettings } from '$lib/components/home/deploy_ui'
+	import { menuGroups } from './menuGroups'
 	import { editInForkAllowed, editInForkLabel, onEditInForkClick } from '$lib/utils/editInFork'
 	import EditInForkButton from './EditInForkButton.svelte'
 	import { isCloudHosted } from '$lib/cloud'
@@ -68,7 +70,11 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
-	const operatorBuilderApps = useOperatorBuilderApps()
+
+	warmDeployUiSettings()
+	// A compose-only app role authors full-code apps, never low-code ones.
+	const canAuthorApp = $derived(roleCanAuthor(app.raw_app ? 'raw_app' : 'app', $roleCapabilities))
+	const fullApps = $derived($roleCapabilities.apps === 'full')
 
 	let appExport: { open: (path: string, rawApp?: boolean) => void } | undefined = $state(undefined)
 	let appDeploymentHistory: AppDeploymentHistory | undefined = $state(undefined)
@@ -127,6 +133,7 @@
 			<Badge small icon={{ icon: FileJson }}>Raw</Badge>
 		{/if}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
+		<RowLabels labels={app.labels} inherited={app.inherited_labels} />
 		<DraftBadge
 			is_draft={app.is_draft}
 			draft_only={app.draft_only}
@@ -137,36 +144,17 @@
 			path={app.path}
 			onMigrated={() => dispatch('change')}
 		/>
-		{#if app.labels?.length}
-			<div class="flex items-center gap-0.5">
-				{#each app.labels.slice(0, 3) as label}
-					<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
-				{/each}
-				{#if app.labels.length > 3}
-					<Badge
-						color="blue"
-						small
-						class="px-1"
-						title={app.labels
-							.slice(3)
-							.map((l) => 'Label: ' + l)
-							.join('\n')}>+{app.labels.length - 3}</Badge
-					>
-				{/if}
-			</div>
-		{/if}
-		<InheritedLabels labels={app.inherited_labels} />
-		<div class="w-8 center-center"></div>
 	{/snippet}
 	{#snippet actions()}
-		<span class="hidden md:inline-flex gap-x-1">
+		<span class="hidden md:inline-flex">
+			<AskAiRowButton kind="app" path={app.path} summary={app.summary} rawApp={!!app.raw_app} />
 			{#if showEditButton && app.canWrite}
 				<div>
 					<Button
 						aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
 						aiDescription={`Edits the app ${app.summary?.length > 0 ? app.summary : app.path}`}
 						variant="subtle"
-						wrapperClasses="w-20"
+						unifiedSize="sm"
 						startIcon={{ icon: Pen }}
 						href="/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}"
 					>
@@ -174,34 +162,163 @@
 					</Button>
 				</div>
 			{/if}
-			{#if !$userStore?.operator && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !app.canWrite)}
+			{#if $roleCapabilities.code && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !app.canWrite)}
 				<EditInForkButton itemType={app.raw_app ? 'raw_app' : 'app'} path={app.path} />
 			{/if}
 		</span>
 		<Dropdown
+			size="sm"
 			aiId={`app-row-dropdown-${app.summary?.length > 0 ? app.summary : app.path}`}
 			aiDescription={`Open dropdown for app ${app.summary?.length > 0 ? app.summary : app.path} options`}
-			items={async () => {
+			items={() => {
 				let { draft_only, canWrite, summary, execution_mode, path } = app
 
 				const canEdit = canWrite && showEditButton
 				if (draft_only) {
-					return [
-						...selectMenuItems(rowSelection),
+					return menuGroups(
+						selectMenuItems(rowSelection),
+						[
+							{
+								displayName: fullApps ? 'View/Edit JSON' : 'View JSON',
+								icon: File,
+								action: () => {
+									loadAppJson()
+								}
+							},
+							{
+								displayName: 'Move/Rename',
+								icon: FolderOpen,
+								action: () => {
+									// Addressed by the generated path its draft row sits at, but
+									// named by the path typed in the editor.
+									moveDrawer.openDrawer((app as any).draft_path ?? path, summary, 'app', {
+										storagePath: path,
+										rawApp: !!app.raw_app
+									})
+								},
+								disabled: !showEditButton,
+								hide: !fullApps
+							}
+						],
+						[
+							{
+								displayName: 'Delete',
+								icon: Trash,
+								action: async (event) => {
+									// TODO
+									// @ts-ignore
+									if (event?.shiftKey) {
+										await deleteApp(path)
+										dispatch('change')
+									} else {
+										deleteConfirmedCallback = async () => {
+											await deleteApp(path)
+											dispatch('change')
+										}
+									}
+								},
+								type: 'delete',
+								// A draft-only row is always the authed user's own draft (the
+								// list endpoint only surfaces own/legacy draft-only rows), so
+								// discarding it never requires write permission on the path. The server
+								// lets one's own draft go without authoring rights; only a legacy one needs them.
+								disabled: !showEditButton,
+								hide:
+									!canAuthorApp &&
+									app.draft_users?.length === 1 &&
+									app.draft_users[0]?.username == null
+							}
+						]
+					)
+				}
+				return menuGroups(
+					selectMenuItems(rowSelection),
+					[
+						{
+							displayName: fullApps ? 'View/Edit JSON' : 'View JSON',
+							icon: FileJson,
+							action: () => {
+								loadAppJson()
+							}
+						},
+						{
+							displayName: 'Go to public page',
+							icon: ExternalLink,
+							action: async () => {
+								let secretUrl = await AppService.getPublicSecretOfApp({
+									workspace: $workspaceStore ?? '',
+									path
+								})
+								let url =
+									page.url.protocol +
+									'//' +
+									`${page.url.hostname}/public/${$workspaceStore}/${secretUrl}`
+								gotoUrl(url)
+							},
+							hide: execution_mode != 'anonymous'
+						},
+						{
+							displayName: 'Versions',
+							icon: History,
+							action: () => appDeploymentHistory?.open(),
+							hide: !canAuthorApp
+						}
+					],
+					[
+						{
+							displayName: 'Duplicate/Fork',
+							icon: GitFork,
+							href: `/apps${app.raw_app ? '_raw' : ''}/add?template=${path}`,
+							disabled: !showEditButton,
+							hide: !fullApps
+						},
+						{
+							displayName: editInForkLabel($workspaceStore, $userWorkspaces),
+							icon: Pen,
+							// No `href`: the handler resolves the destination asynchronously, and a melt
+							// menu item's anchor navigates before a delegated onclick can preventDefault it.
+							action: (e) => onEditInForkClick(e, app.raw_app ? 'raw_app' : 'app', path),
+							hide:
+								!$roleCapabilities.code ||
+								isCloudHosted() ||
+								!editInForkAllowed($workspaceStore, $userWorkspaces)
+						},
+						{
+							displayName: 'Copy path',
+							icon: Copy,
+							action: () => {
+								copyToClipboard(path)
+							}
+						}
+					],
+					[
 						{
 							displayName: 'Move/Rename',
 							icon: FolderOpen,
 							action: () => {
-								// Addressed by the generated path its draft row sits at, but
-								// named by the path typed in the editor.
-								moveDrawer.openDrawer((app as any).draft_path ?? path, summary, 'app', {
-									storagePath: path,
-									rawApp: !!app.raw_app
-								})
+								moveDrawer.openDrawer(path, summary, 'app')
 							},
-							disabled: !showEditButton,
-							hide: $userStore?.operator
+							disabled: !canEdit,
+							hide: !fullApps
 						},
+						{
+							displayName: 'Permissions',
+							icon: Shield,
+							action: () => {
+								shareModal.openDrawer && shareModal.openDrawer(path, 'app')
+							},
+							hide: !canAuthorApp
+						},
+						{
+							displayName: 'Deploy to staging/prod',
+							icon: ChevronUpSquare,
+							action: () => {
+								deploymentDrawer.openDrawer(path, 'app')
+							},
+							hide: !fullApps || !isDeployable('app', path, cachedDeployUiSettings())
+						}
+					],
+					[
 						{
 							displayName: 'Delete',
 							icon: Trash,
@@ -219,130 +336,11 @@
 								}
 							},
 							type: 'delete',
-							// A draft-only row is always the authed user's own draft (the
-							// list endpoint only surfaces own/legacy draft-only rows), so
-							// discarding it never requires write permission on the path.
-							disabled: !showEditButton,
-							hide: $userStore?.operator && !($operatorBuilderApps && app.raw_app)
-						},
-						{
-							displayName: $userStore?.operator ? 'View JSON' : 'View/Edit JSON',
-							icon: File,
-							action: () => {
-								loadAppJson()
-							}
+							disabled: !canEdit,
+							hide: !canAuthorApp
 						}
 					]
-				}
-				return [
-					...selectMenuItems(rowSelection),
-					{
-						displayName: 'Duplicate/Fork',
-						icon: GitFork,
-						href: `/apps${app.raw_app ? '_raw' : ''}/add?template=${path}`,
-						disabled: !showEditButton,
-						hide: $userStore?.operator
-					},
-					{
-						displayName: editInForkLabel($workspaceStore, $userWorkspaces),
-						icon: Pen,
-						// No `href`: the handler resolves the destination asynchronously, and a melt
-						// menu item's anchor navigates before a delegated onclick can preventDefault it.
-						action: (e) => onEditInForkClick(e, app.raw_app ? 'raw_app' : 'app', path),
-						hide:
-							$userStore?.operator ||
-							isCloudHosted() ||
-							!editInForkAllowed($workspaceStore, $userWorkspaces)
-					},
-					{
-						displayName: 'Move/Rename',
-						icon: FolderOpen,
-						action: () => {
-							moveDrawer.openDrawer(path, summary, 'app')
-						},
-						disabled: !canEdit,
-						hide: $userStore?.operator
-					},
-					...(isDeployable('app', path, await getDeployUiSettings())
-						? [
-								{
-									displayName: 'Deploy to staging/prod',
-									icon: ChevronUpSquare,
-									action: () => {
-										deploymentDrawer.openDrawer(path, 'app')
-									},
-									hide: $userStore?.operator
-								}
-							]
-						: []),
-					{
-						displayName: $userStore?.operator ? 'View JSON' : 'View/Edit JSON',
-						icon: FileJson,
-						action: () => {
-							loadAppJson()
-						}
-					},
-					{
-						displayName: 'Deployments',
-						icon: History,
-						action: () => appDeploymentHistory?.open(),
-						hide: $userStore?.operator && !($operatorBuilderApps && app.raw_app)
-					},
-					{
-						displayName: 'Permissions',
-						icon: Shield,
-						action: () => {
-							shareModal.openDrawer && shareModal.openDrawer(path, 'app')
-						},
-						hide: $userStore?.operator && !($operatorBuilderApps && app.raw_app)
-					},
-					{
-						displayName: 'Copy path',
-						icon: Copy,
-						action: () => {
-							copyToClipboard(path)
-						}
-					},
-					...(execution_mode == 'anonymous'
-						? [
-								{
-									displayName: 'Go to public page',
-									icon: ExternalLink,
-									action: async () => {
-										let secretUrl = await AppService.getPublicSecretOfApp({
-											workspace: $workspaceStore ?? '',
-											path
-										})
-										let url =
-											page.url.protocol +
-											'//' +
-											`${page.url.hostname}/public/${$workspaceStore}/${secretUrl}`
-										gotoUrl(url)
-									}
-								}
-							]
-						: []),
-					{
-						displayName: 'Delete',
-						icon: Trash,
-						action: async (event) => {
-							// TODO
-							// @ts-ignore
-							if (event?.shiftKey) {
-								await deleteApp(path)
-								dispatch('change')
-							} else {
-								deleteConfirmedCallback = async () => {
-									await deleteApp(path)
-									dispatch('change')
-								}
-							}
-						},
-						type: 'delete',
-						disabled: !canEdit,
-						hide: $userStore?.operator && !($operatorBuilderApps && app.raw_app)
-					}
-				]
+				)
 			}}
 			on:open={() => {
 				menuOpen = true

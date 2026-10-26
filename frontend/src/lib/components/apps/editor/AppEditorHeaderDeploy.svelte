@@ -3,7 +3,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Badge from '$lib/components/Badge.svelte'
 	import { enterpriseLicense, userStore } from '$lib/stores'
-	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { AlertTriangle, Loader2 } from 'lucide-svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -34,7 +34,9 @@
 	const operatingWorkspaceStore = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
-	const operatorBuilderApps = useOperatorBuilderApps()
+	const roleCaps = useRoleCapabilities()
+	// The server forces a composed app into sandbox isolation.
+	const composeOnlyApps = $derived($roleCaps.apps === 'compose')
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 
@@ -383,7 +385,7 @@
 				rightTooltip:
 					"Controls what the app's browser-side code can reach in each viewer's browser, separately from who its runnables run as. A sandboxed app gets a narrowly scoped token on every surface, public URL and in-workspace. On by default for new apps. Turn it off only if the app needs IndexedDB, third-party sign-in or OAuth redirects."
 			}}
-			checked={$operatorBuilderApps || policy.sandbox == true}
+			checked={composeOnlyApps || policy.sandbox == true}
 			on:change={(e) => {
 				policy.sandbox = e.detail || undefined
 				// Counted where the toggle is flipped rather than where the policy is
@@ -406,19 +408,19 @@
 					setPublishState(e.detail ? 'Sandbox isolation enabled' : 'Sandbox isolation disabled')
 				}
 			}}
-			disabled={!savedApp || $operatorBuilderApps}
+			disabled={!savedApp || composeOnlyApps}
 		/>
-		{#if $operatorBuilderApps || newApp}
+		{#if composeOnlyApps || newApp}
 			<div class="text-2xs text-secondary mt-1">
-				{#if $operatorBuilderApps}
-					Required for apps built by operators, and cannot be turned off.
+				{#if composeOnlyApps}
+					Required for apps composed by your role, and cannot be turned off.
 				{/if}
 				{#if newApp}
 					Takes effect when you first deploy this app.
 				{/if}
 			</div>
 		{/if}
-		{#if !$operatorBuilderApps && policy.sandbox != true}
+		{#if !composeOnlyApps && policy.sandbox != true}
 			<div class="mt-3">
 				<Alert type="warning" title="Not isolated" size="xs">
 					The app's frontend code runs with each viewer's full Windmill permissions. A future

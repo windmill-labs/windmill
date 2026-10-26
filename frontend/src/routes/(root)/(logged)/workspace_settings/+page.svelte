@@ -3,7 +3,7 @@
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, SecondsInput, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
@@ -18,6 +18,10 @@
 		type HandlerDraft
 	} from '$lib/components/handlerDraft.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { WORKSPACE_SETTINGS_PATH } from '$lib/components/sessions/previewPaths'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -50,10 +54,13 @@
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { ExternalLink, Slack, Target } from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import SlackChannelAgents from '$lib/components/workspaceSettings/SlackChannelAgents.svelte'
 
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
@@ -73,6 +80,9 @@
 	import Trashbin from '$lib/components/settings/Trashbin.svelte'
 	import { untrack } from 'svelte'
 	import { resource } from 'runed'
+	import NativeOAuthCallback from '$lib/components/triggers/native/NativeOAuthCallback.svelte'
+	import { nativeOAuthRedirectUri } from '$lib/components/triggers/native/utils'
+	import type { NativeServiceName } from '$lib/gen'
 	import DbtSettings, {
 		convertDbtSettingsFromBackend,
 		type DbtSettingsType
@@ -91,6 +101,7 @@
 	} from '$lib/components/sessions/sessionState.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import CollapseLink from '$lib/components/CollapseLink.svelte'
+	import SlackAppSetup from '$lib/components/common/slack/SlackAppSetup.svelte'
 	import { validateWebhookUrl, validateEncryptionKey } from '$lib/validators/workspaceSettings'
 	import DataTableSettings, {
 		convertDataTableSettingsFromBackend,
@@ -174,11 +185,12 @@
 	// links here with `agents=true`.
 	let slackAgents = $state($page.url.searchParams.get('agents') === 'true')
 	let slackAppType: 'instance' | 'workspace' = $state('instance')
-	// Agents verify Slack's requests with the server's signing secret, which only the instance's
-	// Slack app is signed with, so the toggle is offered for that app alone.
-	let slackAgentsScopes = $derived(slackAgents && slackAppType === 'instance')
+	// Agents answer only once Windmill can verify Slack's requests with the signing secret of the
+	// app the workspace connects through.
+	let slackSigningSecret: string = $state('')
+	let slackSigningSecretSet: boolean = $state(false)
 	const slackAgentsStatus = resource(
-		() => (slackAgentsScopes ? $workspaceStore : undefined),
+		() => (slackAgents ? $workspaceStore : undefined),
 		async (workspace) =>
 			workspace ? await SlackAgentsService.getSlackAgentsStatus({ workspace }) : undefined
 	)
@@ -211,6 +223,21 @@
 	let errorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let errorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
 	let successHandlerScriptPath: string | undefined = $state(undefined)
+	const noVariableExpirationHandler = handlerDraftFromStored('variableExpiration', undefined)
+	let variableExpirationDraft: HandlerDraft = $state(cloneHandlerDraft(noVariableExpirationHandler))
+	let variableExpirationMutedOnUserPath: boolean = $state(false)
+	// The sweep's default when the stored handler has no `notify_before_secs`.
+	const defaultNotifyBeforeSecs = 24 * 3600
+	let variableExpirationNotifyBeforeSecs: number = $state(defaultNotifyBeforeSecs)
+	let variableExpirationRemindEverySecs: number | undefined = $state(undefined)
+	// The sweep runs every 5 minutes, so shorter intervals count as 5 minutes.
+	let variableExpirationRuns = $derived(
+		variableExpirationRemindEverySecs
+			? Math.ceil(
+					variableExpirationNotifyBeforeSecs / Math.max(variableExpirationRemindEverySecs, 300)
+				)
+			: 1
+	)
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let publicAppRateLimitPerMinute: number | undefined = $state(undefined)
@@ -280,6 +307,14 @@
 	// Track initial success handler for unsaved changes detection
 	let initialSuccessHandlerScriptPath: string | undefined = $state(undefined)
 
+	// Track initial variable expiration handler for unsaved changes detection
+	let initialVariableExpirationDraft: HandlerDraft = $state(
+		cloneHandlerDraft(noVariableExpirationHandler)
+	)
+	let initialVariableExpirationMutedOnUserPath: boolean = $state(false)
+	let initialVariableExpirationNotifyBeforeSecs: number = $state(defaultNotifyBeforeSecs)
+	let initialVariableExpirationRemindEverySecs: number | undefined = $state(undefined)
+
 	let s3ResourceSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
 		resourcePath: undefined,
@@ -334,6 +369,43 @@
 		return hasUnsavedChanges(
 			{ successHandlerScriptPath: initialSuccessHandlerScriptPath },
 			{ successHandlerScriptPath: successHandlerScriptPath }
+		)
+	})
+
+	// The mute flag is stored inside the handler setting, which saving with no handler
+	// clears, so the toggle is gated on having one.
+	let variableExpirationHasHandler = $derived(!!handlerDraftToStored(variableExpirationDraft).path)
+
+	// The stored handler is nested because `hasUnsavedChanges` drops a top-level `path`.
+	function variableExpirationSettingsValue(
+		draft: HandlerDraft,
+		mutedOnUserPath: boolean,
+		notifyBeforeSecs: number,
+		remindEverySecs: number | undefined
+	) {
+		return {
+			handler: handlerDraftToStored(draft),
+			mutedOnUserPath,
+			notifyBeforeSecs,
+			remindEverySecs: remindEverySecs || undefined
+		}
+	}
+
+	let hasVariableExpirationChanges = $derived.by(() => {
+		if (tab !== 'variable_expiration') return false
+		return hasUnsavedChanges(
+			variableExpirationSettingsValue(
+				initialVariableExpirationDraft,
+				initialVariableExpirationMutedOnUserPath,
+				initialVariableExpirationNotifyBeforeSecs,
+				initialVariableExpirationRemindEverySecs
+			),
+			variableExpirationSettingsValue(
+				variableExpirationDraft,
+				variableExpirationMutedOnUserPath,
+				variableExpirationNotifyBeforeSecs,
+				variableExpirationRemindEverySecs
+			)
 		)
 	})
 
@@ -399,6 +471,13 @@
 	// The deploy filters configure what may be promoted into the parent, so they only mean
 	// something for a fork. A root workspace deploys nowhere by lineage.
 	const showDeployToTab = $derived(Boolean(currentWorkspace?.parent_workspace_id))
+	// The page native trigger OAuth providers redirect to. Anyone can connect an account, so the
+	// callback is handled before the admin gate.
+	const nativeOAuthService = $derived(
+		$page.url.searchParams.get('tab') === 'native_triggers' && $page.url.searchParams.has('state')
+			? ($page.url.searchParams.get('service') as NativeServiceName | null)
+			: null
+	)
 	const canAdmin = $derived(($userStore?.is_admin ?? false) || Boolean($superadmin))
 	let yamlMode = $state(false)
 	// A workspace where the user is not an admin hides the toggle, so it must not stay in YAML mode.
@@ -473,6 +552,7 @@
 			| 'dev_workspace'
 			| 'error_handler'
 			| 'success_handler'
+			| 'variable_expiration'
 			| 'critical_alerts'
 			| 'ai'
 			| 'windmill_data_tables'
@@ -791,6 +871,20 @@
 			| { path?: string; extra_args?: any }
 			| undefined
 		successHandlerScriptPath = (successHandler?.path ?? '').split('/').slice(1).join('/')
+		const variableExpirationHandler = settings.variable_expiration_handler
+		const [variableExpirationKind, ...variableExpirationPath] = (
+			variableExpirationHandler?.path ?? ''
+		).split('/')
+		variableExpirationDraft = handlerDraftFromStored(
+			'variableExpiration',
+			variableExpirationPath.join('/'),
+			variableExpirationKind === 'flow' ? 'flow' : 'script',
+			variableExpirationHandler?.extra_args
+		)
+		variableExpirationMutedOnUserPath = variableExpirationHandler?.muted_on_user_path ?? false
+		variableExpirationNotifyBeforeSecs =
+			variableExpirationHandler?.notify_before_secs ?? defaultNotifyBeforeSecs
+		variableExpirationRemindEverySecs = variableExpirationHandler?.remind_every_secs || undefined
 		workspaceDefaultAppPath = settings.default_app
 		initialWorkspaceDefaultAppPath = settings.default_app
 
@@ -842,6 +936,12 @@
 		// Store initial success handler state for unsaved changes detection
 		initialSuccessHandlerScriptPath = successHandlerScriptPath
 
+		// Store initial variable expiration handler state for unsaved changes detection
+		initialVariableExpirationDraft = cloneHandlerDraft(variableExpirationDraft)
+		initialVariableExpirationMutedOnUserPath = variableExpirationMutedOnUserPath
+		initialVariableExpirationNotifyBeforeSecs = variableExpirationNotifyBeforeSecs
+		initialVariableExpirationRemindEverySecs = variableExpirationRemindEverySecs
+
 		loadedSettings = true
 	}
 
@@ -857,6 +957,7 @@
 			slackOAuthClientId = config.slack_oauth_client_id || ''
 			slackOAuthClientSecret = config.slack_oauth_client_secret || ''
 			slackOAuthConfigLoaded = !!config.slack_oauth_client_id
+			slackSigningSecretSet = !!config.slack_signing_secret
 		} catch (e) {
 			console.error('Failed to load Slack OAuth config:', e)
 		}
@@ -892,11 +993,34 @@
 					slack_oauth_client_secret: slackOAuthClientSecret
 				}
 			})
+			if (slackSigningSecret.trim()) {
+				await WorkspaceService.setWorkspaceSlackSigningSecret({
+					workspace: $workspaceStore,
+					requestBody: { slack_signing_secret: slackSigningSecret }
+				})
+			}
 
 			// Redirect to OAuth flow
-			window.location.href = `/api/oauth/connect_slack?workspace=${$workspaceStore}`
+			window.location.href = `/api/oauth/connect_slack?workspace=${$workspaceStore}${slackAgents ? '&agents=true' : ''}`
 		} catch (e) {
 			sendUserToast('Failed to save Slack OAuth configuration', true)
+			console.error(e)
+		}
+	}
+
+	async function saveSlackSigningSecret(): Promise<void> {
+		if (!$workspaceStore) return
+		const secret = slackSigningSecret.trim() || null
+		try {
+			await WorkspaceService.setWorkspaceSlackSigningSecret({
+				workspace: $workspaceStore,
+				requestBody: { slack_signing_secret: secret }
+			})
+			slackSigningSecret = ''
+			slackSigningSecretSet = !!secret
+			sendUserToast(secret ? 'Signing secret saved' : 'Signing secret removed')
+		} catch (e) {
+			sendUserToast('Failed to save the signing secret', true)
 			console.error(e)
 		}
 	}
@@ -918,6 +1042,7 @@
 			slackOAuthClientId = ''
 			slackOAuthClientSecret = ''
 			slackOAuthConfigLoaded = false
+			slackSigningSecretSet = false
 			await loadSettings()
 			sendUserToast('Workspace Slack app deleted')
 		} catch (e) {
@@ -1021,6 +1146,46 @@
 		)
 		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
 		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
+	}
+
+	async function editVariableExpirationHandler() {
+		const handler = handlerDraftToStored(variableExpirationDraft)
+		await WorkspaceService.editVariableExpirationHandler({
+			workspace: $workspaceStore!,
+			requestBody: {
+				path: handler.path ? `${handler.kind}/${handler.path}` : undefined,
+				extra_args: handler.args,
+				muted_on_user_path: variableExpirationMutedOnUserPath,
+				notify_before_secs: variableExpirationNotifyBeforeSecs,
+				remind_every_secs: variableExpirationRemindEverySecs || undefined
+			}
+		})
+		sendUserToast(
+			handler.path
+				? `Variable expiration handler set to ${handler.path}`
+				: handlerDraftToStored(initialVariableExpirationDraft).path
+					? 'Variable expiration handler removed'
+					: 'Variable expiration settings saved'
+		)
+
+		// Rebuilt from what was stored, so Discard also drops the other tabs' unsaved edits.
+		initialVariableExpirationDraft = handlerDraftFromStored(
+			'variableExpiration',
+			handler.path,
+			handler.kind,
+			handler.args,
+			{ emptySelected: variableExpirationDraft.selected }
+		)
+		initialVariableExpirationMutedOnUserPath = variableExpirationMutedOnUserPath
+		initialVariableExpirationNotifyBeforeSecs = variableExpirationNotifyBeforeSecs
+		initialVariableExpirationRemindEverySecs = variableExpirationRemindEverySecs
+	}
+
+	function discardVariableExpirationChanges() {
+		variableExpirationDraft = cloneHandlerDraft(initialVariableExpirationDraft)
+		variableExpirationMutedOnUserPath = initialVariableExpirationMutedOnUserPath
+		variableExpirationNotifyBeforeSecs = initialVariableExpirationNotifyBeforeSecs
+		variableExpirationRemindEverySecs = initialVariableExpirationRemindEverySecs
 	}
 
 	async function editSuccessHandler() {
@@ -1287,6 +1452,21 @@
 					}
 				}
 			}
+			case 'variable_expiration':
+				return {
+					savedValue: variableExpirationSettingsValue(
+						initialVariableExpirationDraft,
+						initialVariableExpirationMutedOnUserPath,
+						initialVariableExpirationNotifyBeforeSecs,
+						initialVariableExpirationRemindEverySecs
+					),
+					modifiedValue: variableExpirationSettingsValue(
+						variableExpirationDraft,
+						variableExpirationMutedOnUserPath,
+						variableExpirationNotifyBeforeSecs,
+						variableExpirationRemindEverySecs
+					)
+				}
 			case 'critical_alerts':
 				return {
 					savedValue: { criticalAlertUIMuted: initialCriticalAlertUIMuted },
@@ -1330,6 +1510,9 @@
 			case 'error_handler':
 				discardErrorHandlerSettingsChanges()
 				successHandlerScriptPath = initialSuccessHandlerScriptPath
+				break
+			case 'variable_expiration':
+				discardVariableExpirationChanges()
 				break
 			case 'critical_alerts':
 				criticalAlertUIMuted = initialCriticalAlertUIMuted
@@ -1439,6 +1622,13 @@
 					isEE: true
 				},
 				{
+					id: 'variable_expiration',
+					label: 'Variable expiration',
+					aiId: 'workspace-settings-variable-expiration',
+					aiDescription:
+						'Runnable executed when a variable value is about to expire, so the value can be rotated'
+				},
+				{
 					id: 'critical_alerts',
 					label: 'Critical alerts',
 					aiId: 'workspace-settings-critical-alerts',
@@ -1544,10 +1734,19 @@
 	const tabLabel = $derived(
 		navigationGroups.flatMap((g) => g.items).find((i) => i.id === tab)?.label
 	)
+
+	const sessionSource: OpenInSessionSource = $derived({
+		// Read at click time: the tab lives in the query, so the preview opens on the tab being
+		// viewed. YAML mode is component state and does not carry over.
+		page: () => WORKSPACE_SETTINGS_PATH + window.location.search,
+		workspaceId: $workspaceStore ?? undefined
+	})
 </script>
 
 <CenteredPage wrapperClasses="pb-0 h-full" handleOverflow={false} class="flex flex-col h-full">
-	{#if canAdmin || isForkOwner}
+	{#if nativeOAuthService}
+		<NativeOAuthCallback redirectUri={nativeOAuthRedirectUri(nativeOAuthService)} />
+	{:else if canAdmin || isForkOwner}
 		<!-- No title of its own: the band already says which workspace's settings these are, and the
 		     two controls that sat beside the title are the page's actions. The panes below scroll
 		     inside themselves, so the bar keeps its edge at rest rather than only under a scroll. -->
@@ -1558,6 +1757,8 @@
 					? { parent: 'Workspace settings', label: tabLabel }
 					: undefined}
 			actions={settingsActions}
+			{sessionSource}
+			actionFolds={1}
 			separator="always"
 		/>
 
@@ -1733,7 +1934,7 @@
 											}
 										}}
 										onSelect={editSlackCommand}
-										connectHref="/api/oauth/connect_slack{slackAgentsScopes ? '?agents=true' : ''}"
+										connectHref="/api/oauth/connect_slack{slackAgents ? '?agents=true' : ''}"
 										createScriptHref="/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
 										createFlowHref="/flows/add?hub=28"
 										documentationLink="https://www.windmill.dev/docs/integrations/slack"
@@ -1763,27 +1964,24 @@
 															{/snippet}
 														</ToggleButtonGroup>
 														<div class="text-2xs text-hint"
-															>Use the Slack app configured at the instance level if you want to use
-															the same Slack app for all workspaces. Configure your Slack app here
-															if you want to use a specific Slack app for this workspace.</div
+															>The instance app is shared by all workspaces. A workspace app is your
+															own, for this workspace only.</div
 														>
 													</div>
-													{#if slackAppType === 'instance'}
-														<Toggle
-															size="xs"
-															bind:checked={slackAgents}
-															options={{
-																right: 'Let AI agents answer in Slack',
-																rightTooltip:
-																	'Lets editors share agents in Slack channels, where people ask them by mentioning the bot. Needs users:read, users:read.email and channels:read on the Slack app.'
-															}}
-														/>
-														{#if slackAgentsStatus.current?.signing_secret_set === false}
-															<Alert type="warning" size="xs" title="Agents won't answer yet">
-																An instance admin needs to set the Slack app's signing secret as the
-																<code>SLACK_SIGNING_SECRET</code> environment variable.
-															</Alert>
-														{/if}
+													<Toggle
+														size="xs"
+														bind:checked={slackAgents}
+														options={{
+															right: 'Let AI agents answer in Slack',
+															rightTooltip:
+																'Lets editors share agents in Slack channels, where people ask them by mentioning the bot. Needs users:read, users:read.email and channels:read on the Slack app.'
+														}}
+													/>
+													{#if slackAppType === 'instance' && slackAgentsStatus.current?.signing_secret_set === false}
+														<Alert type="warning" size="xs" title="Agents won't answer yet">
+															An instance admin needs to set the Slack app's signing secret in the
+															instance settings.
+														</Alert>
 													{/if}
 												</div>
 											{/if}
@@ -1800,6 +1998,32 @@
 													/>
 													<div class="text-2xs text-hint"
 														>Client ID for the Slack app configured at the workspace level</div
+													>
+												</div>
+												<div class="flex flex-col gap-1">
+													<div class="text-xs text-primary font-normal">Signing secret</div>
+													<div class="flex gap-2">
+														<TextInput
+															inputProps={{
+																type: 'password',
+																placeholder: slackSigningSecretSet
+																	? '••••••••••••••••••••••••••••••••'
+																	: 'Enter signing secret'
+															}}
+															bind:value={slackSigningSecret}
+														/>
+														<Button
+															unifiedSize="md"
+															variant="default"
+															onclick={saveSlackSigningSecret}
+															disabled={!slackSigningSecret.trim() && !slackSigningSecretSet}
+														>
+															{slackSigningSecret.trim() || !slackSigningSecretSet ? 'Save' : 'Remove'}
+														</Button>
+													</div>
+													<div class="text-2xs text-hint"
+														>Lets Windmill check that requests come from Slack. Required for AI
+														agents; recommended for <code>/windmill</code> commands.</div
 													>
 												</div>
 											{:else if slackAppType === 'workspace'}
@@ -1826,21 +2050,23 @@
 														/>
 													</label>
 
+													<label class="flex flex-col gap-1">
+														<span class="text-primary font-semibold text-xs">Signing secret</span>
+														<TextInput
+															inputProps={{
+																type: 'password',
+																placeholder: 'Enter signing secret'
+															}}
+															bind:value={slackSigningSecret}
+														/>
+														<span class="text-2xs text-hint"
+															>Lets Windmill check that requests come from Slack. Required for AI
+															agents; recommended for <code>/windmill</code> commands.</span
+														>
+													</label>
+
 													<CollapseLink text="Instructions">
-														<div class="text-xs text-secondary">
-															Create a Slack app at{' '}
-															<a
-																href="https://api.slack.com/apps"
-																target="_blank"
-																rel="noopener noreferrer"
-																class="text-blue-600 dark:text-blue-400 hover:underline"
-															>
-																Slack API
-															</a>. Set the redirect URI to:{' '}
-															<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
-																{window.location.origin}/oauth/callback_slack
-															</code>
-														</div>
+														<SlackAppSetup />
 													</CollapseLink>
 
 													<div class="pt-2">
@@ -1848,7 +2074,9 @@
 															size="xs"
 															variant="accent"
 															onclick={saveAndConnectSlack}
-															disabled={!slackOAuthClientId || !slackOAuthClientSecret}
+															disabled={!slackOAuthClientId ||
+																!slackOAuthClientSecret ||
+																(slackAgents && !slackSigningSecret.trim())}
 															startIcon={{ icon: Slack }}
 															btnClasses="w-fit"
 														>
@@ -2212,6 +2440,125 @@ export async function main(
 									disabled={!$enterpriseLicense}
 								/>
 							</Section>
+						{:else if tab == 'variable_expiration'}
+							<SettingsPageHeader
+								title="Variable expiration handler"
+								description="Run a script or flow ahead of the date the value of a workspace variable expires, so it can be rotated before it stops working."
+								link="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
+							/>
+
+							{#if !$enterpriseLicense && variableExpirationDraft.selected !== 'custom'}
+								<Alert type="warning" title="Slack and Teams handlers are an EE feature">
+									Connecting a workspace to Slack or Teams is a Windmill EE feature.
+								</Alert>
+							{/if}
+
+							<Section label="Handler">
+								<div class="flex flex-col gap-6">
+									<ErrorOrRecoveryHandler
+										noMargin
+										isEditable={true}
+										errorOrRecovery="variableExpiration"
+										customRequiresEE={false}
+										toggleText="Notify when a variable is about to expire"
+										bind:draft={variableExpirationDraft}
+										customScriptTemplate="/scripts/add?hub=hub%2F30050%2Fwindmill%2Fworkspace_variable_expiration_handler_template"
+									/>
+
+									<SettingCard
+										label="Notify before expiry"
+										description="How long before a variable's value expires the handler runs"
+										class="gap-2"
+									>
+										<SecondsInput
+											bind:seconds={variableExpirationNotifyBeforeSecs}
+											disabled={!variableExpirationHasHandler}
+											hideSeconds
+											hideTotal
+										/>
+										<div class="flex flex-col gap-1 mt-4">
+											<span class="text-xs font-semibold text-emphasis">Remind every</span>
+											<span class="text-xs text-secondary">
+												Run the handler again at this interval until the value expires. Expiries are
+												checked every 5 minutes, so shorter intervals act as 5 minutes. Leave empty
+												or at 0 for a single notice.
+											</span>
+											<SecondsInput
+												bind:seconds={variableExpirationRemindEverySecs}
+												disabled={!variableExpirationHasHandler}
+												clearable
+												hideSeconds
+												hideTotal
+											/>
+											{#if variableExpirationRemindEverySecs && variableExpirationRemindEverySecs >= variableExpirationNotifyBeforeSecs}
+												<span class="text-xs text-yellow-600 dark:text-yellow-400">
+													No reminder will be sent: the interval must be shorter than Notify before
+													expiry.
+												</span>
+											{:else if variableExpirationRuns >= 24}
+												<span class="text-xs text-yellow-600 dark:text-yellow-400">
+													This runs the handler up to {variableExpirationRuns} times before the value
+													expires.
+												</span>
+											{/if}
+										</div>
+									</SettingCard>
+
+									<SettingCard class="gap-2">
+										<!-- `w-fit`: the trigger is a flex item of the card, so it would otherwise
+										stretch the full width and anchor the popup away from the toggle. -->
+										<Popover
+											notClickable
+											disablePopup={variableExpirationHasHandler}
+											placement="bottom-start"
+											class="w-fit"
+										>
+											<Toggle
+												bind:checked={variableExpirationMutedOnUserPath}
+												disabled={!variableExpirationHasHandler}
+												options={{
+													right: 'Do not run the handler for variables in u/ paths'
+												}}
+											/>
+											{#snippet text()}
+												Select a handler first
+											{/snippet}
+										</Popover>
+									</SettingCard>
+
+									<Alert type="info" title="Runs as g/variable_expiration_handler">
+										{#if variableExpirationDraft.selected === 'custom'}
+											The handler is executed by the automatically created group
+											g/variable_expiration_handler. Rotating a variable means writing to it, so
+											grant that group write access to the variables it is meant to rotate. It
+											starts with none. A script that carries an on-behalf-of identity is the
+											exception: it runs as that user, with their permissions rather than the
+											group's.
+										{:else}
+											The handler is executed by the automatically created group
+											g/variable_expiration_handler. It only posts a message, so it needs no access
+											to your variables: it is given the path and the expiry date, never the value.
+											{#if variableExpirationDraft.selected === 'slack'}
+												Access to the Slack bot token is granted for you.
+											{/if}
+										{/if}
+									</Alert>
+									<span class="text-xs text-secondary">
+										If the handler fails to start, a critical alert is raised once and the handler
+										is tried again at every check. The alert is resolved as soon as it starts.
+									</span>
+								</div>
+
+								<SettingsFooter
+									class="mt-6"
+									inline
+									hasUnsavedChanges={hasVariableExpirationChanges}
+									onSave={editVariableExpirationHandler}
+									onDiscard={discardVariableExpirationChanges}
+									saveLabel="Save variable expiration handler"
+									disabled={!$enterpriseLicense && variableExpirationDraft.selected !== 'custom'}
+								/>
+							</Section>
 						{:else if tab == 'critical_alerts'}
 							<SettingsPageHeader
 								title="Workspace critical alerts"
@@ -2561,10 +2908,21 @@ export async function main(
 		{/key}
 	{/if}
 	{#if $superadmin}
-		<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>
-			Instance settings
-		</Button>
+		<!-- Goes into a menu on a phone, where the AI session button that ends the row would
+		     otherwise squeeze the breadcrumb under these controls. -->
+		{#if pageHeader.actionFold >= 1}
+			<DropdownV2
+				size="sm"
+				items={[{ displayName: 'Instance settings', action: () => goto('#superadmin-settings') }]}
+			/>
+		{:else}
+			<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>
+				Instance settings
+			</Button>
+		{/if}
 	{/if}
+	<!-- No main action on this page: the session button ends the row. -->
+	<OpenInSessionButton source={sessionSource} />
 {/snippet}
 
 <style>

@@ -36,7 +36,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import type { ContextualVariable, ListableVariable, WorkspaceDeployUISettings } from '$lib/gen'
-	import { enterpriseLicense, userWorkspaces } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { isOwner, truncate } from '$lib/utils'
 	import { useEditRights } from '$lib/operatorWriteRights'
@@ -50,6 +50,7 @@
 		Shield,
 		Trash,
 		Building,
+		CalendarClock,
 		DollarSign,
 		EyeOff,
 		Circle,
@@ -60,11 +61,13 @@
 	import { useHostedPage } from '$lib/components/hostedPage'
 	import {
 		useOperatingWorkspace,
-		useOperatingUser
+		useOperatingUser,
+		useReadOnlyWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
+	const readOnly = useReadOnlyWorkspace()
 	const editRights = useEditRights()
 	const hosted = useHostedPage()
 
@@ -317,10 +320,10 @@
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 
-{#if operatingUser.current?.operator && $operatingWorkspace && !$userWorkspaces.find((_) => _.id === $operatingWorkspace)?.operator_settings?.variables}
+{#if $operatingWorkspace && !editRights.capabilities.visibility.variables}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+		<p>Page not available for your role</p>
 	</div>
 {:else}
 	<CenteredPage>
@@ -439,7 +442,7 @@
 								</tr>
 							</Head>
 							<tbody class="divide-y">
-								{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+								{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels, inherited_labels, ws_specific, draft_only, is_draft, value_valid_until }}
 									{@const hasDraft =
 										getLocalDraftHint($operatingWorkspace, 'variable', path) ?? is_draft}
 									<Row>
@@ -516,6 +519,21 @@
 															<div>
 																This variable is linked with a resource of the same path. They are
 																deleted and renamed together.
+															</div>
+														{/snippet}
+													</Popover>
+												{/if}
+												{#if value_valid_until}
+													{@const expired = new Date(value_valid_until).getTime() <= Date.now()}
+													<Popover notClickable>
+														<CalendarClock
+															size={16}
+															class={expired ? 'text-red-600' : 'text-secondary'}
+														/>
+														{#snippet text()}
+															<div>
+																The value {expired ? 'expired' : 'expires'} on
+																{new Date(value_valid_until).toLocaleString()}.
 															</div>
 														{/snippet}
 													</Popover>
@@ -694,8 +712,8 @@
 								headers={['Name', 'Value']}
 								data={contextualVariables.filter((x) => x.is_custom)}
 								keys={['name', 'value']}
-								getRowActions={operatingUser.current?.is_admin ||
-								operatingUser.current?.is_super_admin
+								getRowActions={!readOnly($operatingWorkspace) &&
+								(operatingUser.current?.is_admin || operatingUser.current?.is_super_admin)
 									? (row) => {
 											return [
 												{

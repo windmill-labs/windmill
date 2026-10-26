@@ -20,6 +20,7 @@ import type {
 } from '$lib/components/copilot/chat/chatViewHost'
 import type { DisplayMessage, WebSearchResult } from '$lib/components/copilot/chat/shared'
 import type { AIAutonomyMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
+import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 import { isPlanCardTool } from '$lib/components/copilot/chat/planMode'
 import { AttachedFilesStore } from '$lib/components/copilot/chat/files/attachedFiles.svelte'
 import { SessionArtifactsStore } from '$lib/components/copilot/chat/artifacts/artifactsState.svelte'
@@ -570,7 +571,7 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	}
 	// Typed off the interface: a Svelte component's own type resolves differently
 	// across import specifiers, and the two would then not be assignable.
-	#aiChatInput: Parameters<ChatViewHost['setAiChatInput']>[0] = null
+	#aiChatInput: Parameters<ChatViewHost['setAiChatInput']>[0] | null = null
 	setAiChatInput: ChatViewHost['setAiChatInput'] = (aiChatInput) =>
 		// Called from the composer's mount effect, and taking what a turn handed back reads the
 		// draft it writes: tracked, that would rerun the effect and hand it back again.
@@ -578,6 +579,9 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 			this.#aiChatInput = aiChatInput
 			this.#takeReturned()
 		})
+	releaseAiChatInput: ChatViewHost['releaseAiChatInput'] = (aiChatInput) => {
+		if (this.#aiChatInput === aiChatInput) this.#aiChatInput = null
+	}
 
 	/** Whether a composer showing this conversation holds something not sent — text, an
 	 * attachment, a file still being read. Its panel stays mounted for as long as one does:
@@ -734,6 +738,9 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	// runtime: its unit test would otherwise load the manager and the editor it pulls in.
 	autonomyMode = 'default' as AIAutonomyMode.DEFAULT
 	setAutonomyMode = () => {}
+	workModesAvailable = false
+	workMode = AIWorkMode.BUILD
+	setWorkMode = () => {}
 	autoAcceptEditsActive = false
 	autoAcceptEditsAvailable = false
 	autoAcceptToolConfirmationsAvailable = false

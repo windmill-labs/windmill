@@ -4,9 +4,9 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
+	import RowLabels from './RowLabels.svelte'
 	import type { ListableResource } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import { Pen } from 'lucide-svelte'
 	import Button from '../button/Button.svelte'
@@ -14,7 +14,7 @@
 	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
 	import { agentMenuItems, deleteAgent } from '$lib/components/flows/agentActions'
 	import AgentHistory from '$lib/components/flows/AgentHistory.svelte'
-	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
+	import { cachedDeployUiSettings, warmDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import Row from './Row.svelte'
 	import { selectMenuItems, type RowSelection } from './rowSelection'
 
@@ -47,6 +47,8 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
+
+	warmDeployUiSettings()
 
 	async function remove(path: string) {
 		if (await deleteAgent($workspaceStore!, path)) dispatch('change')
@@ -84,6 +86,7 @@
 >
 	{#snippet badges()}
 		<SharedBadge canWrite={agent.canWrite} extraPerms={agent.extra_perms} />
+		<RowLabels inherited={agent.inherited_labels} />
 		<DraftBadge
 			is_draft={agent.is_draft}
 			draft_only={agent.draft_only}
@@ -93,33 +96,27 @@
 			path={agent.path}
 			onMigrated={() => dispatch('change')}
 		/>
-		<InheritedLabels labels={agent.inherited_labels} />
 	{/snippet}
 
 	{#snippet actions()}
 		{#if agent.canWrite}
 			<span class="hidden md:inline-flex">
-				<Button
-					variant="subtle"
-					wrapperClasses="w-20"
-					unifiedSize="md"
-					startIcon={{ icon: Pen }}
-					href={editHref}
-				>
+				<Button variant="subtle" unifiedSize="sm" startIcon={{ icon: Pen }} href={editHref}>
 					Edit
 				</Button>
 			</span>
 		{/if}
 		<Dropdown
-			items={async () => [
+			size="sm"
+			items={() => [
 				...selectMenuItems(rowSelection),
 				...agentMenuItems({
-					deployUiSettings: await getDeployUiSettings(),
+					deployUiSettings: cachedDeployUiSettings(),
 					path: agent.path,
 					canWrite: agent.canWrite,
 					draftOnly: Boolean(agent.draft_only),
 					wsSpecific: agent.ws_specific,
-					operator: $userStore?.operator,
+					noCode: !$roleCapabilities.code,
 					onPermissions: () => shareModal.openDrawer?.(agent.path, 'resource'),
 					onDeploy: () => deploymentDrawer.openDrawer(agent.path, 'resource'),
 					onHistory: () => history?.open(),
