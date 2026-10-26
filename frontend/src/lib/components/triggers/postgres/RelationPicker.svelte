@@ -17,18 +17,22 @@
 		can_write?: boolean
 		disabled?: boolean
 		pg14?: boolean
+		transaction_to_track?: string[]
 	}
 
 	let {
 		relations = $bindable(undefined),
 		can_write = true,
 		disabled = false,
-		pg14 = $bindable(false)
+		pg14 = $bindable(false),
+		transaction_to_track
 	}: Props = $props()
 
-	let hasRowFilter = $derived(
-		relations?.some((r) => r.table_to_track.some((t) => !emptyStringTrimmed(t.where_clause))) ??
-			false
+	// Postgres only rewrites filter-crossing UPDATEs into INSERT/DELETE when updates are published
+	let showRowFilterAlert = $derived(
+		(transaction_to_track?.some((t) => t.toLowerCase() === 'update') ?? true) &&
+			(relations?.some((r) => r.table_to_track.some((t) => !emptyStringTrimmed(t.where_clause))) ??
+				false)
 	)
 	let selected = $derived(relations && relations.length > 0 ? 'specific' : 'all')
 
@@ -304,7 +308,7 @@
 			{/each}
 		</div>
 	{/if}
-	{#if hasRowFilter}
+	{#if showRowFilterAlert}
 		<Alert
 			title="Updates can arrive as inserts or deletes"
 			type="info"
