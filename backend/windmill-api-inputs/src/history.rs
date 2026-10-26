@@ -190,9 +190,10 @@ fn own_category(prefix: &str) -> String {
 
 /// Whether the run `s`, whose parent `p` has the same path, is listed through that parent: a
 /// single-step-flow wrapper's inner run, or a task of a workflow-as-code run or editor preview
-/// of the script. An inline task re-runs the script with a checkpoint key its parent seeds; a
-/// call the script makes to itself through the SDK has none and is listed. A flow or an agent
-/// may share the path and is another runnable.
+/// of the script. An inline task re-runs the script with the checkpoint its parent seeds as its
+/// workflow-as-code status; a call a plain script makes to itself through the SDK has no status
+/// and is listed. Only the column's nullness is read: the checkpoint holds every earlier step's
+/// result. A flow or an agent may share the path and is another runnable.
 fn listed_through_parent(runnable_type: &RunnableType) -> &'static str {
     match runnable_type {
         RunnableType::FlowPath => "p.kind = 'singlestepflow'",
@@ -200,9 +201,9 @@ fn listed_through_parent(runnable_type: &RunnableType) -> &'static str {
             "CASE WHEN p.kind = 'singlestepflow' THEN true \
                   WHEN p.kind IN ('script', 'preview') THEN \
                        EXISTS (SELECT 1 FROM v2_job_status w WHERE w.id = s.id \
-                               AND w.workflow_as_code_status->'_checkpoint' ? '_executing_key') \
+                               AND w.workflow_as_code_status IS NOT NULL) \
                        OR EXISTS (SELECT 1 FROM v2_job_completed w WHERE w.id = s.id \
-                               AND w.workflow_as_code_status->'_checkpoint' ? '_executing_key') \
+                               AND w.workflow_as_code_status IS NOT NULL) \
                   ELSE false END"
         }
     }

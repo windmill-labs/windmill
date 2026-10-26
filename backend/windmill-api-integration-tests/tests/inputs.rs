@@ -194,8 +194,8 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
         .bind(retry)
         .execute(&db)
         .await?;
-    // Under a run of the same script: a workflow-as-code task, which its checkpoint key marks,
-    // is hidden; a call the script makes to itself through the SDK is a script call.
+    // Under a run of the same script: a workflow-as-code task, which its seeded checkpoint
+    // marks, is hidden; a call the script makes to itself through the SDK is a script call.
     let wac_task = insert_run(
         &db,
         Run { path: STEP, parent_job: Some(manual), at: 4, ..Run::default() },
