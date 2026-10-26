@@ -1117,8 +1117,16 @@
 		canKeepEmptyFolders &&
 			(!hideEmptyFolders || ((workspaceItemCount ?? 0) === 0 && visiblePipelineFolders.size === 0))
 	)
+	// With empty folders hidden the tree still holds the non-empty ones, whose items can all sit
+	// past the loaded window; the "no items" state must not replace them. The counts omit
+	// empty owners, so any `f/` key there is a non-empty folder.
 	let treeShowsFolders = $derived(
-		treeLazyMode && !archived && keepEmptyFolders && (folderNamesRes.current?.length ?? 0) > 0
+		treeLazyMode &&
+			!archived &&
+			canKeepEmptyFolders &&
+			(keepEmptyFolders
+				? (folderNamesRes.current?.length ?? 0) > 0
+				: keptFolders.length > 0 || countOwners('f').length > 0)
 	)
 
 	type KindOption = {
