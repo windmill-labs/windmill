@@ -29,6 +29,7 @@
 	import InstancePgSettings from './instanceSettings/InstancePgSettings.svelte'
 	import GhesAppSettings from './instanceSettings/GhesAppSettings.svelte'
 	import WebhookBaseUrlSetting from './instanceSettings/WebhookBaseUrlSetting.svelte'
+	import ApiBaseUrlSetting from './instanceSettings/ApiBaseUrlSetting.svelte'
 	import WsConnectivityTest from './instanceSettings/WsConnectivityTest.svelte'
 	import InstanceBannerSetting from './instanceSettings/InstanceBannerSetting.svelte'
 	import AccentColorSetting from './instanceSettings/AccentColorSetting.svelte'
@@ -885,6 +886,12 @@
 					<InstancePgSettings {values} {markSettingSaved} disabled={loading} />
 				{:else if setting.fieldType == 'github_enterprise_app'}
 					<GhesAppSettings {values} disabled={loading || !$enterpriseLicense} />
+				{:else if setting.fieldType == 'api_base_url'}
+					<ApiBaseUrlSetting
+						{values}
+						placeholder={setting.placeholder}
+						disabled={loading || !$enterpriseLicense}
+					/>
 				{:else if setting.fieldType == 'webhook_base_url'}
 					<WebhookBaseUrlSetting {values} disabled={loading || !$enterpriseLicense} />
 				{:else if setting.fieldType == 'ws_connectivity'}
