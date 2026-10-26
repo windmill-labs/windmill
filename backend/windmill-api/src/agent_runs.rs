@@ -29,7 +29,8 @@ use crate::ai_evals::run::config_to_draft;
 use crate::ai_evals::subject::AgentDraft;
 use crate::db::{ApiAuthed, DB};
 use crate::jobs::{
-    handle_chat_conversation_messages, run_end_user_email, set_flow_memory_id, RunJobQuery,
+    handle_chat_conversation_messages, run_end_user_email, set_flow_memory_id,
+    take_over_memory_turn, RunJobQuery,
 };
 
 /// The id the agent's step carries in the run, as the editor's chat names it. A token scoped to
@@ -72,6 +73,7 @@ pub(crate) async fn run_agent_as(
     let AgentTurn { flow_value, run_path, agent_obo } =
         agent_turn(authed, user_db, w_id, path, chat).await?;
 
+    take_over_memory_turn(db, authed, w_id, &run_path, run_query).await?;
     let on_behalf_of =
         windmill_common::on_behalf_of_from_permissioned_as(agent_obo.as_deref(), w_id, db).await?;
     // As `run_flow` picks the identity of a deployed flow: the agent's own when it has one, the
@@ -144,9 +146,6 @@ pub(crate) async fn run_agent_as(
     )
     .await?;
 
-    if let Some(memory_id) = run_query.memory_key(w_id, &run_path) {
-        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
-    }
     if chat {
         // The caller's conversation, whoever the agent runs as, and a real one: this is the
         // agent as deployed, not a draft under test.
@@ -162,6 +161,9 @@ pub(crate) async fn run_agent_as(
             args,
         )
         .await?;
+    }
+    if let Some(memory_id) = run_query.memory_key(w_id, &run_path) {
+        set_flow_memory_id(&mut tx, w_id, uuid, memory_id).await?;
     }
     tx.commit().await?;
 
