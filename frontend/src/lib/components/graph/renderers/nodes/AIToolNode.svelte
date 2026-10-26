@@ -1,5 +1,10 @@
 <script module lang="ts">
-	import { getToolNameError, type AgentTool } from '$lib/components/flows/agentToolUtils'
+	import {
+		BUILTIN_TOOLS,
+		builtinToolType,
+		getToolNameError,
+		type AgentTool
+	} from '$lib/components/flows/agentToolUtils'
 
 	export const AI_TOOL_BASE_OFFSET = 5
 	export const AI_TOOL_ROW_OFFSET = 30
@@ -9,6 +14,8 @@
 	export const AI_MCP_TOOL_CALL_PREFIX = '_wm_ai_mcp_tool_call'
 	export const AI_TOOL_MESSAGE_PREFIX = '_wm_ai_agent_message'
 	export const AI_WEBSEARCH_PREFIX = '_wm_ai_websearch'
+	export const AI_APPROVAL_PREFIX = '_wm_ai_approval'
+	export const AI_QUESTION_PREFIX = '_wm_ai_question'
 
 	const ROW_WIDTH = 275
 	const NEW_TOOL_NODE_WIDTH = 50
@@ -48,6 +55,8 @@
 				return action.module_id === tool.moduleId
 			case 'web_search':
 				return tool.type === 'websearch'
+			case 'question':
+				return tool.type === 'question'
 			case 'mcp_tool_call':
 				// One MCP node stands for a whole server and many function names, so the server path
 				// is the only join that holds. The worker strips `$res:` before building the action,
@@ -56,6 +65,8 @@
 					tool.type === 'mcp' &&
 					bareResourcePath(action.resource_path) === bareResourcePath(tool.resourcePath)
 				)
+			// The calls it holds are decorated by their own actions once they run.
+			case 'approval':
 			case 'message':
 				return false
 		}
@@ -76,6 +87,10 @@
 				return AI_MCP_TOOL_CALL_PREFIX + '-' + agentModuleId + '-' + idx
 			case 'web_search':
 				return AI_WEBSEARCH_PREFIX + '-' + agentModuleId + '-' + idx
+			case 'approval':
+				return AI_APPROVAL_PREFIX + '-' + agentModuleId + '-' + idx
+			case 'question':
+				return AI_QUESTION_PREFIX + '-' + agentModuleId + '-' + idx
 			case 'message':
 				return getToolCallId(idx, agentModuleId)
 		}
@@ -156,15 +171,13 @@
 				stateType?: GraphModuleState['type']
 				resourcePath?: string
 			}[] = sourceTools.map((t, idx) => {
-				// Handle FlowModule, MCP, and Websearch tools
+				// Handle FlowModule, MCP, and built-in tools
 				const toolType =
-					t.value.tool_type === 'mcp'
-						? 'mcp'
-						: t.value.tool_type === 'websearch'
-							? 'websearch'
-							: t.value.tool_type === 'flowmodule'
-								? t.value.type
-								: undefined
+					t.value.tool_type === 'mcp' || builtinToolType(t)
+						? t.value.tool_type
+						: t.value.tool_type === 'flowmodule'
+							? t.value.type
+							: undefined
 				return {
 					id: t.id,
 					name: t.summary ?? '',
@@ -183,7 +196,12 @@
 					if (a.type === 'tool_call' || a.type === 'mcp_tool_call') {
 						return { id, name: a.function_name }
 					} else if (a.type === 'web_search') {
-						return { id, name: 'Web Search', type: 'websearch' }
+						return { id, name: 'Web search', type: 'websearch' }
+					} else if (a.type === 'approval') {
+						const names = a.calls.map((call) => call.function_name).join(', ')
+						return { id, name: `Approval: ${names}`, type: 'approval' }
+					} else if (a.type === 'question') {
+						return { id, name: BUILTIN_TOOLS.question.label, type: 'question' }
 					} else {
 						return { id, name: 'Message' }
 					}
@@ -304,7 +322,18 @@
 		NewAiToolN,
 		NodeLayout
 	} from '../../graphBuilder.svelte'
-	import { Bot, Globe, MessageCircle, Play, Plug, Scale, Wrench, X } from 'lucide-svelte'
+	import {
+		Bot,
+		Globe,
+		MessageCircle,
+		MessageCircleQuestion,
+		Play,
+		Plug,
+		Scale,
+		UserCheck,
+		Wrench,
+		X
+	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { Edge, Node } from '@xyflow/svelte'
 
@@ -403,6 +432,10 @@
 					<Play size={16} class="ml-1 shrink-0" />
 				{:else if data.type === 'websearch'}
 					<Globe size={16} class="ml-1 shrink-0" />
+				{:else if data.type === 'approval'}
+					<UserCheck size={16} class="ml-1 shrink-0" />
+				{:else if data.type === 'question'}
+					<MessageCircleQuestion size={16} class="ml-1 shrink-0" />
 				{:else if data.type === 'mcp'}
 					<Plug size={16} class="ml-1 shrink-0" />
 				{:else if data.type === 'aiagent'}

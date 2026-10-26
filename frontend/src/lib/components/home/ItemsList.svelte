@@ -820,12 +820,56 @@
 		storeLocalSetting(FLAT_LIST_SETTING_NAME, v ? 'true' : undefined)
 	}
 
+	// Unfiltered, the tree lists every folder, empty ones too, so a workspace holding only
+	// folders is not empty: its first folder is created from here and managed from its row.
+	// A role without the Folders page gets no folder menu, so empty rows would be noise.
+	let keepEmptyFolders = $derived(itemKind === 'all' && $roleCapabilities.visibility.folders)
+	// Only drops rows inside the tree. Whether the tree shows at all, rather than the "no items"
+	// or empty-workspace state, must not depend on it: either state can take down the settings
+	// menu, or replace owners whose items sit past the loaded window.
+	const HIDE_EMPTY_FOLDERS_SETTING_NAME = 'homeHideEmptyFolders'
+	let hideEmptyFolders = $state(getLocalSetting(HIDE_EMPTY_FOLDERS_SETTING_NAME) == 'true')
+	function setHideEmptyFolders(v: boolean) {
+		hideEmptyFolders = v
+		storeLocalSetting(HIDE_EMPTY_FOLDERS_SETTING_NAME, v ? 'true' : undefined)
+	}
+	// A folder created here starts empty; hiding it would read as a failed create. It stays
+	// listed until the page reloads.
+	let createdFolders = $state<{ workspace: string; name: string }[]>([])
+	let keptFolders = $derived(
+		createdFolders.filter((f) => f.workspace === $workspaceStore).map((f) => f.name)
+	)
+
+	// Reload from the server whenever an input the endpoint resolves changes: order,
+	// archived/library scope, kind, the selected owner/folder, or entering/leaving
+	// search (see the reload effect below). Only the label filter and fuzzy ranking
+	// stay client-side over the loaded pages, so they don't reload here.
+	let searching = $derived(filter !== '')
+	// Lazy owner tree is active only in the tree when browsing all (no owner selected, no
+	// search, no label filter): every folder AND user shows as a top-level node and paginates
+	// on expand, its items coming from the separate `treeOwnerItems` store. In the flat list,
+	// or with a selected owner / active search / label filter, the lazy store is unused
+	// (reloadItems must not touch it), so this is false and the view reads the global loaded
+	// window instead.
+	let treeLazyMode = $derived(
+		!flatList && !searching && ownerFilter == undefined && labelFilter == undefined
+	)
+
 	let listSettingsItems: MenuItem[] = $derived([
 		{
 			displayName: 'Flat list',
 			description: 'List items without grouping them by folder',
 			toggle: flatList,
 			action: () => setFlatList(!flatList)
+		},
+		{
+			displayName: 'Hide empty folders',
+			description:
+				'Folders with no scripts, flows, apps, agents or data pipelines. They may still hold resources, variables or schedules.',
+			toggle: hideEmptyFolders,
+			// Only the unfiltered tree lists folders it holds no rows of.
+			hide: !treeLazyMode || archived || !keepEmptyFolders,
+			action: () => setHideEmptyFolders(!hideEmptyFolders)
 		},
 		{
 			displayName: 'Show library scripts',
@@ -1037,24 +1081,6 @@
 				})
 		)
 	})
-	// Reload from the server whenever an input the endpoint resolves changes: order,
-	// archived/library scope, kind, the selected owner/folder, or entering/leaving
-	// search (see the reload effect below). Only the label filter and fuzzy ranking
-	// stay client-side over the loaded pages, so they don't reload here.
-	let searching = $derived(filter !== '')
-	// Lazy owner tree is active only in the tree when browsing all (no owner selected, no
-	// search, no label filter): every folder AND user shows as a top-level node and paginates
-	// on expand, its items coming from the separate `treeOwnerItems` store. In the flat list,
-	// or with a selected owner / active search / label filter, the lazy store is unused
-	// (reloadItems must not touch it), so this is false and the view reads the global loaded
-	// window instead.
-	let treeLazyMode = $derived(
-		!flatList && !searching && ownerFilter == undefined && labelFilter == undefined
-	)
-	// Unfiltered, the tree lists every folder, empty ones too, so a workspace holding only
-	// folders is not empty: its first folder is created from here and managed from its row.
-	// A role without the Folders page gets no folder menu, so empty rows would be noise.
-	let keepEmptyFolders = $derived(itemKind === 'all' && $roleCapabilities.visibility.folders)
 	let treeShowsFolders = $derived(
 		treeLazyMode && !archived && keepEmptyFolders && (folderNamesRes.current?.length ?? 0) > 0
 	)
@@ -1895,6 +1921,7 @@
 			// the server only resends on the next whoami. The creator is the folder's owner.
 			$userStore?.folders.push(name)
 			$userStore?.folders_owners.push(name)
+			if ($workspaceStore) createdFolders.push({ workspace: $workspaceStore, name })
 			await folderNamesRes.refetch()
 		}
 		await reloadItemsAndCounts()
@@ -2209,7 +2236,8 @@
 						onManageFolder={$roleCapabilities.visibility.folders
 							? (name) => folderEditorDrawer?.initEdit(name)
 							: undefined}
-						{keepEmptyFolders}
+						keepEmptyFolders={keepEmptyFolders && !hideEmptyFolders}
+						{keptFolders}
 					/>
 				{/key}
 			{/if}

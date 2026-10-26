@@ -4211,6 +4211,9 @@ pub async fn monitor_db(
                 if let Err(e) = cleanup_flow_iterator_data_orphaned_jobs(&db).await {
                     tracing::error!("Error cleaning up flow_iterator_data: {:?}", e);
                 }
+                if let Err(e) = cleanup_ai_agent_checkpoint_orphaned_jobs(&db).await {
+                    tracing::error!("Error cleaning up ai_agent_checkpoint: {:?}", e);
+                }
             }
         }
     };
@@ -7764,6 +7767,22 @@ async fn cleanup_job_result_stream_orphaned_jobs(db: &DB) -> error::Result<()> {
     if total > 0 {
         tracing::info!("Cleaned up {total} orphaned job_result_stream_v2 rows");
         vacuum_after_sweep(db, "job_result_stream_v2").await;
+    }
+    Ok(())
+}
+
+/// A parked agent cancelled from outside, or a worker that died mid-segment, never deletes its
+/// checkpoint itself.
+async fn cleanup_ai_agent_checkpoint_orphaned_jobs(db: &DB) -> error::Result<()> {
+    let deleted = sqlx::query(
+        "DELETE FROM ai_agent_checkpoint c
+         WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = c.job_id)",
+    )
+    .execute(db)
+    .await?
+    .rows_affected();
+    if deleted > 0 {
+        tracing::info!("Cleaned up {deleted} orphaned ai_agent_checkpoint rows");
     }
     Ok(())
 }

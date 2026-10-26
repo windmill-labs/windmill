@@ -693,8 +693,7 @@
 			// the user has typed, so after someone renames the item it still names
 			// the old location and this would compare against the archived row left
 			// there. Resolving by the row is what lets the diff show the rename.
-			path: userDraftPath || initialPath,
-			withStarredInfo: true
+			path: userDraftPath || initialPath
 		})
 
 		// A superseded opening must not write these: the current one would then render
