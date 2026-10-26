@@ -85,7 +85,8 @@ or `websearch` for web search (`{ "tool_type": "websearch" }`, summary `Web Sear
 - A flow cannot be a tool: a run offered one fails with `Unsupported tool`. Wrap it in a script
   that runs the flow
 - A flowmodule tool's `summary` is the name the agent calls it by: letters, numbers and underscores
-  only, unique among the agent's tools. Put the explanation in `description`, which tells the agent
+  only, unique among the agent's tools, and neither a reserved step id (a JavaScript keyword, `ctx`,
+  `state`, `bg`) nor `__wm_web_search`. Put the explanation in `description`, which tells the agent
   when to call it
 - Each argument of a tool is either the model's or fixed. `{ "type": "ai" }` (or no value) lets the
   model fill it; a static value fixes it and hides it from the model. Fix what the model must not
