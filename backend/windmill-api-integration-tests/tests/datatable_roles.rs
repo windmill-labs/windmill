@@ -1701,8 +1701,9 @@ async fn an_operator_neither_writes_nor_runs_a_migration(db: Pool<Postgres>) -> 
     )
     .execute(&db)
     .await?;
-    // A token of its own: the auth cache is process-wide, and the other tests here authenticate
-    // `SECRET_TOKEN_3` in this workspace as a non-operator.
+    // A token of its own and a fresh role lookup: the auth and member role caches are
+    // process-wide, and the other tests here act as `test-user-3` in this workspace as a
+    // non-operator.
     sqlx::raw_sql(
         "UPDATE usr SET operator = true, role = 'Operator'
          WHERE workspace_id = 'test-workspace' AND username = 'test-user-3';
@@ -1712,6 +1713,7 @@ async fn an_operator_neither_writes_nor_runs_a_migration(db: Pool<Postgres>) -> 
     )
     .execute(&db)
     .await?;
+    windmill_common::roles::invalidate_member_role_cache("test-workspace", "test-user-3");
     let server = ApiServer::start(db.clone()).await?;
     let base = format!(
         "http://localhost:{}/api/w/test-workspace/workspaces",
