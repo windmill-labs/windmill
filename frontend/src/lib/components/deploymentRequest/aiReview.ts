@@ -1,4 +1,4 @@
-import type { WorkspaceItemDiff } from '$lib/gen'
+import type { AIProviderModel, WorkspaceItemDiff } from '$lib/gen'
 import { getNonStreamingCompletion } from '$lib/components/copilot/lib'
 import { getItemValue } from '$lib/utils_workspace_deploy'
 import type { Kind } from '$lib/utils_deployable'
@@ -131,7 +131,9 @@ export async function reviewDeployment(
 	diffs: WorkspaceItemDiff[],
 	forkWorkspaceId: string,
 	parentWorkspaceId: string,
-	abortController: AbortController
+	abortController: AbortController,
+	/** Defaults to the chat's current model. */
+	model?: AIProviderModel
 ): Promise<AiReviewResult> {
 	const included: string[] = []
 	const omitted: string[] = []
@@ -169,7 +171,7 @@ export async function reviewDeployment(
 			{ role: 'user', content: user }
 		],
 		abortController,
-		{ maxTokensCap: MAX_OUTPUT_TOKENS }
+		{ maxTokensCap: MAX_OUTPUT_TOKENS, forceModelProvider: model }
 	)
 	return { ...parseReviewAnswer(answer ?? '', diffs), omitted, unreadable }
 }
