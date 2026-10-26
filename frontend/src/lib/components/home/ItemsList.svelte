@@ -828,6 +828,12 @@
 		hideEmptyFolders = v
 		storeLocalSetting(HIDE_EMPTY_FOLDERS_SETTING_NAME, v ? 'true' : undefined)
 	}
+	// A folder created here starts empty; hiding it would read as a failed create. It stays
+	// listed until the page reloads.
+	let createdFolders = $state<{ workspace: string; name: string }[]>([])
+	let keptFolders = $derived(
+		createdFolders.filter((f) => f.workspace === $workspaceStore).map((f) => f.name)
+	)
 
 	let listSettingsItems: MenuItem[] = $derived([
 		{
@@ -838,7 +844,8 @@
 		},
 		{
 			displayName: 'Hide empty folders',
-			description: 'Folders holding no scripts, flows or apps',
+			description:
+				'Folders with no scripts, flows or apps, even if they hold resources or variables',
 			toggle: hideEmptyFolders,
 			hide: flatList || !canKeepEmptyFolders,
 			action: () => setHideEmptyFolders(!hideEmptyFolders)
@@ -1914,6 +1921,7 @@
 			// the server only resends on the next whoami. The creator is the folder's owner.
 			$userStore?.folders.push(name)
 			$userStore?.folders_owners.push(name)
+			if ($workspaceStore) createdFolders.push({ workspace: $workspaceStore, name })
 			await folderNamesRes.refetch()
 		}
 		await reloadItemsAndCounts()
@@ -2229,6 +2237,7 @@
 							? (name) => folderEditorDrawer?.initEdit(name)
 							: undefined}
 						{keepEmptyFolders}
+						{keptFolders}
 					/>
 				{/key}
 			{/if}

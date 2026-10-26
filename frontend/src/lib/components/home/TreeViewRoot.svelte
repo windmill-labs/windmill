@@ -58,6 +58,8 @@
 		// Inject folders `ownerCounts` calls empty, as "0 items". Off under a kind filter,
 		// where those counts are per kind and every folder lacking that kind would show.
 		keepEmptyFolders?: boolean
+		// Folders injected even when empty and `keepEmptyFolders` is off.
+		keptFolders?: string[]
 	}
 
 	let {
@@ -83,7 +85,8 @@
 		leaf,
 		openMemory,
 		onManageFolder,
-		keepEmptyFolders = false
+		keepEmptyFolders = false,
+		keptFolders
 	}: Props = $props()
 
 	const unruled = inUnruledList()
@@ -111,6 +114,7 @@
 		ownerCounts
 		selfUsername
 		keepEmptyFolders
+		keptFolders
 		untrack(() => {
 			// While searching, `items` is already relevance-ranked and the sort
 			// selector is disabled, so keep that order: a no-op leaf comparator
@@ -137,7 +141,7 @@
 				)
 				// Once counts are in, a user space holding nothing the user can see is dropped
 				// rather than injected — the member list is mostly noise in the tree otherwise.
-				// Empty folders are dropped too unless `keepEmptyFolders`. Pipeline folders are
+				// Empty folders are dropped too unless `keepEmptyFolders` or `keptFolders`. Pipeline folders are
 				// exempt: their entry is the pipeline, whose scripts the count folds out.
 				const isEmptyOwner = (prefix: string) => ownerCounts != undefined && !ownerCounts[prefix]
 				const missingFolders: { folderName: string; items: [] }[] = []
@@ -146,6 +150,7 @@
 					if (
 						!keepEmptyFolders &&
 						!pipelineFolders?.has(folderName) &&
+						!keptFolders?.includes(folderName) &&
 						isEmptyOwner(`f/${folderName}`)
 					)
 						continue
