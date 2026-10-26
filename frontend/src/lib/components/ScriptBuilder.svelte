@@ -1164,15 +1164,15 @@
 		initialPath: string,
 		savedScript: ((Script | NewScript) & { no_deployed?: boolean }) | undefined
 	) {
-		let dropdownItems: { label: string; onClick: () => void }[] =
+		let dropdownItems: { label: string; onClick: (deploymentMsg: string) => void }[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [
 						...(!inSessionPane
 							? [
 									{
 										label: 'Deploy & Stay here',
-										onClick: () => {
-											handleEditScript(true)
+										onClick: (deploymentMsg) => {
+											handleEditScript(true, deploymentMsg)
 										}
 									},
 									{
