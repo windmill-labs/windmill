@@ -157,7 +157,12 @@
 		</Popover>
 		<!-- Outside the popover: the badge reads as plain text, so a bypass behind it goes unfound. -->
 		{#if canBypass && !sessionReadOnly}
-			<Toggle size="xs" bind:checked={overrideChecked} options={{ right: 'Bypass restriction' }} />
+			<Toggle
+				size="2xs"
+				color="red"
+				bind:checked={overrideChecked}
+				options={{ right: 'Bypass restriction' }}
+			/>
 		{/if}
 	</div>
 {/if}
