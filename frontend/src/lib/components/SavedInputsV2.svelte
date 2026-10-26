@@ -12,6 +12,9 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
+	import RunHistoryFilter from './RunHistoryFilter.svelte'
+	import { availableCategories, parseCategories, TOP_LEVEL_CATEGORIES } from './runHistory'
+	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	const dispatch = createEventDispatcher()
 
 	interface Props {
@@ -72,6 +75,17 @@
 
 	let emptySearchArgs = $derived(Object.keys(appliedSearchArgs).length === 0)
 
+	// One choice for every script and flow page in this browser.
+	const storedStartedBy = useLocalStorageValue(
+		'run_history_started_by',
+		TOP_LEVEL_CATEGORIES.join(','),
+		'string'
+	)
+	let storedSelection = $derived(parseCategories(storedStartedBy.val))
+	let startedBy = $derived(
+		storedSelection.filter((c) => availableCategories(runnableType).includes(c))
+	)
+
 	let filteredSchema = $derived({
 		properties: Object.fromEntries(
 			Object.entries(schema?.properties ?? {}).filter(([key]) => searchArgsFields.includes(key))
@@ -84,7 +98,20 @@
 		<Pane class="px-4 py-4 h-full" size={65}>
 			<Section label="History" wrapperClass="h-full" small={true}>
 				{#snippet action()}
-					<div class="flex space-x-2">
+					<div class="flex items-center space-x-2">
+						{#if runnableType !== 'ScriptHash'}
+							<!-- The whole stored choice: a flow page hides AI agent tools but must
+							     not drop them from the choice script pages share. -->
+							<RunHistoryFilter
+								selected={storedSelection}
+								{runnableType}
+								onChange={async (selected) => {
+									storedStartedBy.val = selected.join(',')
+									await tick()
+									historicInputs?.refresh(true)
+								}}
+							/>
+						{/if}
 						<Popover
 							class="w-fit"
 							usePointerDownOutside
@@ -175,6 +202,7 @@
 						selectArgs(e.detail?.args, e.detail ? 'history' : undefined)
 					}}
 					searchArgs={emptySearchArgs ? undefined : appliedSearchArgs}
+					{startedBy}
 					showAuthor
 					placement="top-end"
 				/>

@@ -28,6 +28,9 @@ use windmill_common::{
     utils::{not_found_if_none, paginate, Pagination},
     worker::CLOUD_HOSTED,
 };
+
+mod history;
+
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/history", get(get_input_history))
@@ -99,6 +102,34 @@ pub struct Input {
     success: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     is_preview: bool,
+    #[serde(flatten)]
+    #[sqlx(skip)]
+    run: Option<history::RunDetails>,
+}
+
+impl Input {
+    fn history_entry(
+        id: Uuid,
+        time: DateTime<Utc>,
+        created_by: String,
+        success: bool,
+        is_preview: bool,
+        run: history::RunDetails,
+    ) -> Self {
+        Self {
+            id,
+            name: format!("{} {}", time.format("%H:%M %-d/%-m"), created_by),
+            created_at: time,
+            args: sqlx::types::Json(
+                serde_json::value::RawValue::from_string("null".to_string()).unwrap(),
+            ),
+            created_by,
+            is_public: true,
+            success,
+            is_preview,
+            run: Some(run),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -116,6 +147,32 @@ struct GetInputHistory {
     include_preview: Option<bool>,
     args: Option<String>,
     include_non_root: Option<bool>,
+    started_by: Option<String>,
+    top_run: Option<Uuid>,
+}
+
+/// A scheduled runnable with a dynamic-skip handler is wrapped in a synthetic
+/// `singlestepflow`, so its runs land under that kind rather than `flow`/`script` (see
+/// windmill-queue schedule.rs). Such a wrapper holds either a script or a flow, and the two may
+/// share a runnable_path, so match only the wrapped kind that belongs to the queried runnable.
+/// The wrapped type lives in raw_flow.modules[id in ('a','main')].value.type (mirrors the
+/// projection in windmill-api jobs.rs). runnable_id is NULL on these rows, so ScriptHash never
+/// matches.
+fn singlestepflow_filter(runnable_type: &RunnableType) -> &'static str {
+    match runnable_type {
+        RunnableType::FlowPath => {
+            "AND (kind <> 'singlestepflow' OR EXISTS (\
+                SELECT 1 FROM jsonb_array_elements(v2_job.raw_flow->'modules') m \
+                WHERE m->>'id' IN ('a', 'main') AND m->'value'->>'type' = 'flow'))"
+        }
+        RunnableType::ScriptPath => {
+            "AND (kind <> 'singlestepflow' OR EXISTS (\
+                SELECT 1 FROM jsonb_array_elements(v2_job.raw_flow->'modules') m \
+                WHERE m->>'id' IN ('a', 'main') \
+                  AND COALESCE(m->'value'->>'type', 'script') <> 'flow'))"
+        }
+        RunnableType::ScriptHash => "",
+    }
 }
 
 async fn get_input_history(
@@ -132,6 +189,40 @@ async fn get_input_history(
     } else {
         per_page
     };
+
+    // An archived script version's history is read by hash, which no index on runs inside
+    // other runs covers: it keeps the plain list below.
+    let started_by = g
+        .started_by
+        .as_deref()
+        .filter(|_| !matches!(r.runnable_type, RunnableType::ScriptHash));
+    if let Some(started_by) = started_by {
+        let started_by = history::parse_started_by(started_by)?;
+        let args = match &g.args {
+            Some(args) => match serde_json::from_str::<serde_json::Value>(args) {
+                Ok(v) => Some(v),
+                Err(_) => return Ok(Json(vec![])),
+            },
+            None => None,
+        };
+        let q = history::HistoryQuery {
+            w_id: &w_id,
+            path: &r.runnable_id,
+            runnable_type: &r.runnable_type,
+            started_by: &started_by,
+            args,
+        };
+        let mut tx = user_db.begin(&authed).await?;
+        // Row estimates for the windows and the walk down a run's children sit far above the
+        // rows actually read, and JIT-compiling the plan costs more than running it.
+        sqlx::query("SET LOCAL jit = off").execute(&mut *tx).await?;
+        let inputs = match g.top_run {
+            Some(top_run) => history::list_inside(&mut tx, &q, top_run).await?,
+            None => history::list(&mut tx, &q, per_page, offset).await?,
+        };
+        tx.commit().await?;
+        return Ok(Json(inputs));
+    }
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -151,27 +242,7 @@ async fn get_input_history(
         "AND parent_job IS NULL"
     };
 
-    // A scheduled runnable with a dynamic-skip handler (or a scheduled script with
-    // native retry) is wrapped in a synthetic `singlestepflow`, so its runs land under
-    // that kind rather than `flow`/`script` (see windmill-queue schedule.rs). Such a
-    // wrapper holds either a script or a flow, and the two may share a runnable_path, so
-    // match only the wrapped kind that belongs to the queried runnable. The wrapped type
-    // lives in raw_flow.modules[id in ('a','main')].value.type (mirrors the projection in
-    // windmill-api jobs.rs). runnable_id is NULL on these rows, so ScriptHash never matches.
-    let singlestepflow_filter = match r.runnable_type {
-        RunnableType::FlowPath => {
-            "AND (kind <> 'singlestepflow' OR EXISTS (\
-                SELECT 1 FROM jsonb_array_elements(v2_job.raw_flow->'modules') m \
-                WHERE m->>'id' IN ('a', 'main') AND m->'value'->>'type' = 'flow'))"
-        }
-        RunnableType::ScriptPath => {
-            "AND (kind <> 'singlestepflow' OR EXISTS (\
-                SELECT 1 FROM jsonb_array_elements(v2_job.raw_flow->'modules') m \
-                WHERE m->>'id' IN ('a', 'main') \
-                  AND COALESCE(m->'value'->>'type', 'script') <> 'flow'))"
-        }
-        RunnableType::ScriptHash => "",
-    };
+    let singlestepflow_filter = singlestepflow_filter(&r.runnable_type);
 
     // Two-step approach: first fetch 2*(per_page+offset) rows using created_at ordering
     // (which leverages the ix_job_root_job_index_by_path_2 index on v2_job), then sort
@@ -257,6 +328,7 @@ async fn get_input_history(
             is_public: true,
             success: row.success,
             is_preview: row.is_preview,
+            run: None,
         });
     }
 
@@ -357,6 +429,7 @@ async fn list_saved_inputs(
             is_public: row.is_public,
             success: true,
             is_preview: false,
+            run: None,
         })
     }
 
