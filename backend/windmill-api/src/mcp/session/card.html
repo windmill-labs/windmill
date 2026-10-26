@@ -91,6 +91,7 @@
   button.summary-row { width: 100%; min-height: 0; border: 0; border-radius: 0; background: transparent; font: inherit; color: inherit; text-align: left; }
   button.summary-row:hover { background: var(--bg-2); }
   .summary-row .grow { flex: 1; min-width: 0; font: 12px var(--mono); overflow-wrap: anywhere; }
+  .summary-row .why { flex-basis: 100%; font-size: 12px; color: var(--fg-2); }
   .add-count { color: var(--ok-fg); font: 12px var(--mono); }
   .del-count { color: var(--bad-fg); font: 12px var(--mono); }
   .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-3); }
@@ -669,13 +670,16 @@
       const [added, removed] = lineCounts(item.patch);
       state = el('span', {}, el('span', { class: 'add-count' }, `+${added}`), ' ', el('span', { class: 'del-count' }, `-${removed}`));
     } else state = el('span', { class: 'dim' }, item.error ? 'Cannot be diffed' : 'Not deployable here');
+    // A draft the card cannot deploy says why, under its link to Windmill.
+    const why = item.patch == null && !item.deployed ? el('span', { class: 'why' }, item.error ?? item.note ?? '') : null;
     return el(item.url ? 'button' : 'div', {
       class: 'summary-row', type: item.url ? 'button' : null, title: item.url ? (item.editor ? 'Open in editor' : 'Open in Windmill') : null,
       onclick: item.url ? () => openLink(item.url) : null
     },
       el('span', { class: 'grow' }, item.name ?? item.path, item.url ? el('span', { class: 'dim' }, ' \u2197') : null),
       el('span', { class: 'dim' }, typeLabel(item)),
-      state);
+      state,
+      why);
   }
 
   // Inline the review is a summary: whole diffs would outgrow the height hosts give an
