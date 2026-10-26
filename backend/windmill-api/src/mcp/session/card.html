@@ -465,8 +465,8 @@
     if (run?.logs) {
       children.push(...disclosure('logs', 'Logs', () => {
         const lines = run.logs.split('\n');
-        // A log cut to its end starts mid-line.
-        if (run.logs_cut) lines.shift();
+        // A log cut to its end starts mid-line, unless that line is all there is.
+        if (run.logs_cut && lines.length > 1) lines.shift();
         const shown = fullscreen() ? lines : lines.slice(-LOG_LINES_INLINE);
         const hidden = lines.length - shown.length;
         // The server sends a log's end: earlier lines are only on the run page.

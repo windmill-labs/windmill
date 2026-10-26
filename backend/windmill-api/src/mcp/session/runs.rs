@@ -1716,10 +1716,11 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         details.insert("step_list".into(), card_steps(entries).into());
         if let Ok(logs) = &logs {
             if !logs.trim().is_empty() {
-                details.insert("logs".into(), js_tail(logs, CARD_LOG_CHARS).into());
-                if logs.chars().count() > CARD_LOG_CHARS {
+                let tail = js_tail(logs, CARD_LOG_CHARS);
+                if tail.len() < logs.len() {
                     details.insert("logs_cut".into(), true.into());
                 }
+                details.insert("logs".into(), tail.into());
             }
         }
         report_run(ctx, id, Some(job), details);
@@ -1835,10 +1836,11 @@ fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
             .map(String::from)
             .or_else(|| result.map(|r| format_result(Some(r))))
         {
-            run.insert("result".into(), js_head(&text, CARD_RESULT_CHARS).into());
-            if text.chars().count() > CARD_RESULT_CHARS {
+            let head = js_head(&text, CARD_RESULT_CHARS);
+            if head.len() < text.len() {
                 run.insert("result_cut".into(), true.into());
             }
+            run.insert("result".into(), head.into());
         }
         // 1-based, of how many: `step` already points past the last module once it is done.
         let status = &job["flow_status"];
@@ -2173,5 +2175,9 @@ mod tests {
 
         // Not read yet: still running, by id alone.
         assert_eq!(run_card("j", None)["status"], "running");
+
+        // Cut by UTF-16 units: 800 emoji are 1,600 of them, past the head's 1,500.
+        let emoji = json!({ "type": "CompletedJob", "success": true, "result": "😀".repeat(800) });
+        assert_eq!(run_card("j", Some(&emoji))["result_cut"], true);
     }
 }
