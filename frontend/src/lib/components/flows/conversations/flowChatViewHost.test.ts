@@ -177,6 +177,51 @@ describe('toDisplayMessages', () => {
 		expect(notCitations).toMatchObject({ toolName: 'websearch', result: { hits: 3 } })
 	})
 
+	it('puts a pending request on the card of the call it holds, or adds one when none streamed', () => {
+		const approval = {
+			type: 'approval' as const,
+			call_id: 'c1',
+			calls: [{ function_name: 'delete_database', arguments: { name: 'staging' } }],
+			expires_at: '2026-09-16T10:30:00Z'
+		}
+		const turn = [
+			message({ role: 'user', content: 'delete staging' }),
+			message({ role: 'tool', pending: true, tool: { name: 'list_databases', status: 'success' } }),
+			message({ role: 'tool', pending: true, tool: { name: 'delete_database', status: 'running' } })
+		]
+		const held = toDisplayMessages(turn, true, new Set(), { request: approval })
+		expect(held).toHaveLength(3)
+		expect(held[1]).not.toHaveProperty('needsConfirmation')
+		expect(held[2]).toMatchObject({
+			needsConfirmation: true,
+			isLoading: true,
+			parameters: { name: 'staging' }
+		})
+
+		const twice = {
+			...approval,
+			calls: [...approval.calls, { function_name: 'delete_database', arguments: { name: 'prod' } }]
+		}
+		const added = toDisplayMessages(turn.slice(0, 1), true, new Set(), { request: twice })
+		expect(added.slice(1).map((m) => (m as { parameters?: unknown }).parameters)).toEqual([
+			{ name: 'staging' },
+			{ name: 'prod' }
+		])
+
+		const question = {
+			type: 'question' as const,
+			call_id: 'c2',
+			question: 'Which one?',
+			expires_at: '2026-09-16T10:30:00Z'
+		}
+		const unstreamed = toDisplayMessages(turn.slice(0, 1), true, new Set(), { request: question })
+		expect(unstreamed[1]).toMatchObject({
+			role: 'tool',
+			isLoading: true,
+			userQuestion: { question: 'Which one?', choices: [] }
+		})
+	})
+
 	it('shows a call the turn finished without as an error, not as still running', () => {
 		const display = toDisplayMessages([
 			message({ role: 'user', content: 'hi' }),

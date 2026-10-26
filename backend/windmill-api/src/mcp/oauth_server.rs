@@ -19,7 +19,7 @@ use windmill_common::{
 
 use crate::db::ApiAuthed;
 use windmill_api_auth::forbid_elevated_job_token;
-use windmill_mcp::parse_mcp_scopes;
+use windmill_mcp::{common::SESSION_SCOPE, parse_mcp_scopes};
 
 /// Token expiration for MCP OAuth tokens (1 week in seconds)
 const MCP_OAUTH_TOKEN_EXPIRATION_SECS: u64 = 7 * 24 * 60 * 60;
@@ -225,17 +225,25 @@ struct RefreshTokenRow {
     revoked: bool,
 }
 
-fn supported_scopes() -> Vec<String> {
-    vec![
-        "mcp:all".to_string(),
-        "mcp:favorites".to_string(),
-        "mcp:scripts:*".to_string(),
-        "mcp:flows:*".to_string(),
-        "mcp:endpoints:*".to_string(),
-        "mcp:read_only".to_string(),
-        "mcp:read_run".to_string(),
-        "mcp:runnables_as_tools".to_string(),
+/// The scopes that grant access. A protected resource advertises only these: MCP clients
+/// that request every listed scope must not pick up a narrowing, which would make the
+/// consent page start from a narrower access than they meant to ask for.
+fn granting_scopes() -> Vec<String> {
+    [
+        "mcp:all",
+        "mcp:favorites",
+        "mcp:scripts:*",
+        "mcp:flows:*",
+        "mcp:endpoints:*",
     ]
+    .map(String::from)
+    .to_vec()
+}
+
+fn supported_scopes() -> Vec<String> {
+    let mut scopes = granting_scopes();
+    scopes.extend(["mcp:read_only", "mcp:read_run", "mcp:runnables_as_tools"].map(String::from));
+    scopes
 }
 
 /// GET /.well-known/oauth-authorization-server/api/w/:workspace_id/mcp/oauth/server
@@ -263,7 +271,7 @@ fn build_protected_resource_metadata(
     ProtectedResourceMetadata {
         resource: format!("{}{}", base_url, resource_path),
         authorization_servers: vec![format!("{}{}", base_url, oauth_prefix)],
-        scopes_supported: Some(supported_scopes()),
+        scopes_supported: Some(granting_scopes()),
         bearer_methods_supported: Some(vec!["header".to_string()]),
     }
 }
@@ -873,11 +881,14 @@ async fn oauth_approve_inner(
 
     let code = format!("mcp-code-{}", rd_string(32));
 
-    let scopes: Vec<String> = form
+    let mut scopes: Vec<String> = form
         .scope
         .split_whitespace()
         .map(|s| s.to_string())
         .collect();
+    if scopes.iter().any(|s| s == "mcp:all") && !scopes.iter().any(|s| s == SESSION_SCOPE) {
+        scopes.push(SESSION_SCOPE.to_string());
+    }
 
     // The approver's own token bounds what it may grant: a scope-restricted MCP
     // token must not approve a broader one (e.g. mcp:scripts:f/x -> mcp:all). An
