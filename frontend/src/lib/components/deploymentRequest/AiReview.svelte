@@ -32,6 +32,16 @@
 	let postingId = $state<string | undefined>(undefined)
 	let abortController: AbortController | undefined
 
+	// `diffs` can change under a finished or running review (a selection is edited, the
+	// comparison refreshes), so the result is tied to the items it actually covered.
+	const itemsKey = (ds: WorkspaceItemDiff[]) =>
+		ds
+			.map((d) => `${d.kind}:${d.path}`)
+			.sort()
+			.join('\n')
+	let reviewed = $state<{ key: string; count: number } | undefined>(undefined)
+	let stale = $derived(reviewed != undefined && reviewed.key !== itemsKey(diffs))
+
 	const modelKey = (m: AIProviderModel) => `${m.provider}:${m.model}`
 	// Local to this review: picking a model here must not change the chat's own selection,
 	// which is only the default until something is picked.
@@ -48,6 +58,7 @@
 		running = true
 		error = undefined
 		result = undefined
+		reviewed = { key: itemsKey(diffs), count: diffs.length }
 		logFeatureUsage('deployment_request', 'ai_review', { key: source })
 		try {
 			const review = await reviewDeployment(diffs, forkWorkspaceId, parentWorkspaceId, controller, {
@@ -124,7 +135,7 @@
 			</Button>
 			<span class="flex items-center gap-1 text-xs text-secondary">
 				<Loader2 size={12} class="animate-spin" />
-				Reviewing {diffs.length} changed item{diffs.length === 1 ? '' : 's'}…
+				Reviewing {reviewed?.count} changed item{reviewed?.count === 1 ? '' : 's'}…
 			</span>
 		{:else}
 			<Button
@@ -159,6 +170,11 @@
 
 	{#if result}
 		<div class="flex flex-col gap-2 border rounded-md p-2 bg-surface-secondary">
+			{#if stale}
+				<Alert type="warning" title="Out of date" size="xs">
+					The items have changed since this review. Review again to cover the current ones.
+				</Alert>
+			{/if}
 			{#if result.summary}
 				<div class="text-xs text-secondary">{result.summary}</div>
 			{/if}
