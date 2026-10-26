@@ -42,7 +42,7 @@ export function useSessionReadOnly(workspace: () => string | undefined) {
 }
 
 /** The session chat whose work mode the session UI follows. */
-type WorkModeHost = { readonly workMode: AIWorkMode }
+type WorkModeHost = { readonly workMode: AIWorkMode; readonly moving?: boolean }
 
 /**
  * What the session UI may offer in `workspace`. Its editors save drafts, so it reads
@@ -51,7 +51,7 @@ type WorkModeHost = { readonly workMode: AIWorkMode }
  * resolves: hiding every editor from a developer while `whoami` is in flight is the worse
  * mistake, and the server refuses an operator anyway. A session held in Use opens no editor: one
  * in a protected workspace, one whose role builds nothing there, or one whose chat is in Use
- * mode — the chat `chat` returns, else the `aiChatManager` context's.
+ * mode — the chat `chat` returns, else the `aiChatManager` context's — and one moving into a fork.
  * Reads context and registers an effect: call during component initialisation.
  */
 export function useSessionPermissions(
@@ -62,10 +62,12 @@ export function useSessionPermissions(
 	const rights = useEditRights(workspace)
 	const user = useActingUser(workspace)
 	const protectedWorkspace = useSessionReadOnly(workspace)
+	const host = $derived(chat?.() ?? contextChat)
 	const readOnly = $derived(
 		protectedWorkspace.current ||
 			!buildsAnything(rights.capabilities) ||
-			(chat?.() ?? contextChat)?.workMode === AIWorkMode.USE
+			host?.workMode === AIWorkMode.USE ||
+			!!host?.moving
 	)
 	const workspaces = fromStore(userWorkspaces)
 	const entry = $derived(workspaces.current.find((w) => w.id === workspace()))

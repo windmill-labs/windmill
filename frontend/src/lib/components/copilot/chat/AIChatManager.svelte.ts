@@ -785,6 +785,9 @@ export class AIChatManager implements ChatViewHost {
 	/** Use, Plan or Build. A session keeps its own: the runtime seeds it from the session record
 	 * and stores each change through `onWorkModeChanged`. */
 	workMode = $state<AIWorkMode>(AIWorkMode.BUILD)
+	/** The session is moving into a fork. Its editors stay closed meanwhile: an edit would save a
+	 * draft in the workspace being left, after the move listed what it brings along. */
+	moving = $state(false)
 	onWorkModeChanged: ((mode: AIWorkMode) => void) | undefined = undefined
 	workModesAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
 	/** Use is the only mode: the workspace is protected, or the user's role builds nothing in it. */
