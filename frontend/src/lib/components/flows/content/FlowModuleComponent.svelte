@@ -71,7 +71,7 @@
 		signDebugRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
-	import { Bug, Hand, Terminal } from 'lucide-svelte'
+	import { Bug, Hand, Hourglass, Terminal } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
@@ -136,6 +136,8 @@
 		toolDescription?: string | undefined
 		/** The tool's `requires_approval` setting; only an agent tool has one. */
 		toolRequiresApproval?: boolean
+		/** The tool's `background` setting; only an agent tool has one. */
+		toolBackground?: boolean
 		siblingToolNames?: string[]
 	}
 
@@ -157,6 +159,7 @@
 		flowModuleSchemaMap = undefined,
 		toolDescription = $bindable(undefined),
 		toolRequiresApproval = $bindable(),
+		toolBackground = $bindable(),
 		siblingToolNames = undefined
 	}: Props = $props()
 
@@ -1156,12 +1159,20 @@
 										{#if isAgentTool}
 											<Tab value="tool_settings" label="Tool settings">
 												{#snippet extra()}
-													{#if toolRequiresApproval}
+													{#if toolRequiresApproval || toolBackground}
 														<div class="flex flex-row items-center gap-1 text-secondary">
-															<Popover notClickable>
-																<Hand size={12} />
-																{#snippet text()}Require approval · On{/snippet}
-															</Popover>
+															{#if toolRequiresApproval}
+																<Popover notClickable>
+																	<Hand size={12} />
+																	{#snippet text()}Require approval · On{/snippet}
+																</Popover>
+															{/if}
+															{#if toolBackground}
+																<Popover notClickable>
+																	<Hourglass size={12} />
+																	{#snippet text()}Run in background · On{/snippet}
+																</Popover>
+															{/if}
 														</div>
 													{/if}
 												{/snippet}
@@ -1414,7 +1425,7 @@
 											</Section>
 										</div>
 									{:else if visibleSelected === 'tool_settings' && isAgentTool}
-										<div class="flex-1 overflow-auto p-4">
+										<div class="flex flex-1 flex-col gap-6 overflow-auto p-4">
 											<Section label="Approval">
 												<Toggle
 													size="xs"
@@ -1427,6 +1438,19 @@
 														right: 'Require approval',
 														rightTooltip:
 															'Each call waits for someone to approve or reject it from the run page or the chat, without holding a worker. Other calls in the same turn run right away. A rejected call is reported to the agent as not run. An agent used as a tool of another agent cannot wait, so it leaves such tools out.'
+													}}
+												/>
+											</Section>
+											<Section label="Background">
+												<Toggle
+													size="xs"
+													textClass="text-xs font-normal text-primary"
+													disabled={noEditor}
+													bind:checked={() => toolBackground ?? false, (v) => (toolBackground = v)}
+													options={{
+														right: 'Run in background',
+														rightTooltip:
+															'The agent is answered as soon as the job starts and keeps working. The result reaches it in a later message. If it finishes its answer first, it waits for the result without holding a worker.'
 													}}
 												/>
 											</Section>

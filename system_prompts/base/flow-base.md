@@ -71,7 +71,11 @@ object with an extra `value.tool_type`: `flowmodule` for a script/flow tool, `mc
 tool, `websearch` for web search, `question` for a built-in `ask_question` tool (the agent stops,
 without holding a worker, until someone answers from the run page or the chat; optional
 `value.timeout` in seconds, default 1800). Set `requires_approval: true` on a `flowmodule` or `mcp`
-tool to have a person approve or reject each of its calls before it runs.
+tool to have a person approve or reject each of its calls before it runs. Set `background: true` on
+a `flowmodule` tool that runs long: the agent is answered as soon as its job starts and keeps
+working, and gets the result in a later message, waiting for it without holding a worker if it
+finishes its answer first. Prefer it to having the agent start jobs through a script or
+`runScriptByPath`, whose results it cannot wait on.
 
 ```json
 {

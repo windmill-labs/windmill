@@ -1021,6 +1021,9 @@ components:
         requires_approval:
           type: boolean
           description: "Flowmodule and mcp tools only. Each call waits for a person to approve or reject it from the flow's run page or chat, without the agent holding a worker. Calls in the same turn that do not require approval run right away. A rejected call, or one nobody answers within 30 minutes, is reported to the AI as not run."
+        background:
+          type: boolean
+          description: "Flowmodule tools only. The agent is answered as soon as the tool's job starts and keeps working; the job's result reaches it in a later message. If the agent finishes its answer first, it stops without holding a worker until the job is done, then continues with the result."
         value:
           $ref: '#/components/schemas/ToolValue'
       required:
@@ -1574,6 +1577,8 @@ components:
                   - type
         agent_actions_success:
           type: array
+          description: The outcome of each agent action, by position. null while a background tool call is still running.
           items:
             type: boolean
+            nullable: true
       required: [type]
