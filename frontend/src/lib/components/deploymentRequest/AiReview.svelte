@@ -83,17 +83,34 @@
 		if (result) result.findings = result.findings.filter((f) => f.id !== finding.id)
 	}
 
-	async function post(finding: AiReviewFinding) {
-		if (!onPost) return
+	async function post(finding: AiReviewFinding): Promise<boolean> {
+		if (!onPost) return false
 		postingId = finding.id
 		try {
 			await onPost(finding)
 			logFeatureUsage('deployment_request', 'ai_finding_posted', { key: finding.severity })
 			dismiss(finding)
+			return true
 		} catch (e: any) {
 			sendUserToast(`Failed to post comment: ${e?.body || e?.message}`, true)
+			return false
 		} finally {
 			postingId = undefined
+		}
+	}
+
+	let postingAll = $state(false)
+
+	// One at a time, in the listed order, stopping at the first failure: posted findings leave
+	// the list, so a retry posts only what is left.
+	async function postAll() {
+		postingAll = true
+		try {
+			for (const f of [...(result?.findings ?? [])]) {
+				if (!(await post(f))) break
+			}
+		} finally {
+			postingAll = false
 		}
 	}
 
@@ -189,7 +206,7 @@
 				</div>
 			{/if}
 			{#if result.findings.length > 1}
-				<div class="self-start">
+				<div class="flex gap-2 self-start">
 					<OpenInSessionButton
 						source={fixSource(result.findings)}
 						btnClasses={AIBtnClasses('default')}
@@ -197,6 +214,18 @@
 						tooltip="Open an AI session in the fork and fix every issue listed"
 						btnProps={{ iconOnly: false, unifiedSize: 'xs', startIcon: { icon: WandSparkles } }}
 					/>
+					{#if onPost}
+						<Button
+							variant="default"
+							unifiedSize="xs"
+							startIcon={{ icon: MessageSquarePlus }}
+							disabled={postingId != undefined || postingAll}
+							loading={postingAll}
+							onclick={postAll}
+						>
+							Post all as comments
+						</Button>
+					{/if}
 				</div>
 			{/if}
 			{#if result.findings.length === 0}
@@ -228,7 +257,7 @@
 								variant="default"
 								unifiedSize="xs"
 								startIcon={{ icon: MessageSquarePlus }}
-								disabled={postingId != undefined}
+								disabled={postingId != undefined || postingAll}
 								loading={postingId === f.id}
 								onclick={() => post(f)}
 							>
