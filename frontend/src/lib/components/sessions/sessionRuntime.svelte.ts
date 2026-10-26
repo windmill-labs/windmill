@@ -1472,6 +1472,9 @@ export function resetSessionPreviewTabs(sessionId: string, seedUrl: string): voi
 	const rt = runtimes.get(sessionId)
 	if (rt) {
 		rt.previewTabs.reset(tabs, 'session')
+		// Written to the record now, not after the owner's debounce: the sessions page judges
+		// the arrival by the record's tabs, and a draft without any opens on Home instead.
+		rt.previewTabs.flushNow()
 	} else {
 		setSessionTabs(sessionId, tabs, 'session')
 		setSessionPreviewCollapsed(sessionId, false)
