@@ -26,7 +26,13 @@ export function itemContextElement(item: {
 	return { type, path: item.path, title: item.path, summary: item.summary, deletable: true }
 }
 
-type Registration = { attach: Attach; focus: () => void; runtime: SessionRuntime }
+type Registration = {
+	attach: Attach
+	focus: () => void
+	/** Back to one line, unless it holds a draft, and out of the caret's way. */
+	fold: () => void
+	runtime: SessionRuntime
+}
 
 // Raw: the runtime is shared with the session page and must stay the same object there.
 let registered = $state.raw<Registration | undefined>(undefined)
@@ -50,6 +56,9 @@ export const homeComposerContext = {
 	},
 	focus(): void {
 		registered?.focus()
+	},
+	fold(): void {
+		registered?.fold()
 	},
 	/** Returns the unregister, which only clears its own registration: a remount registers
 	 * the new composer before the old one is destroyed. */

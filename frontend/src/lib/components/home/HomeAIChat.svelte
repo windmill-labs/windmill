@@ -17,7 +17,6 @@
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { hubBaseUrlStore, roleCapabilities, workspaceStore } from '$lib/stores'
 	import { homeDraft, sessionState } from '../sessions/sessionState.svelte'
-	import { homeListsSessions, homeSidebarList } from '../sessions/sidebarList.svelte'
 	import { currentWorkspaceRootId } from '../sessions/sessionScope.svelte'
 	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { homeComposerPin, setHomeComposerRemoved } from './homeComposerPin.svelte'
@@ -93,10 +92,6 @@
 	)
 
 	let hero = $derived(showComposer && !removed)
-
-	// Beside the session list Home is the AI side's page: the composer rests open there. Beside
-	// the workspace nav it rests on one line.
-	const sessionsListed = $derived(homeListsSessions())
 </script>
 
 <div class="w-full {hero ? 'mt-2' : 'mb-1'}">
@@ -118,19 +113,14 @@
 			     fork shares its parent's, and remounting for it only flashes the block. Also keyed
 			     on the asks for another draft (New session, a draft picked in the session list). -->
 			{#if HomeSessionStarter && sessionState.hydrated}
-				<!-- Going into the composer is going to the AI side, so the sidebar lists sessions,
-				     where the one sent from here opens. Nothing may focus the composer unasked (Home's
-				     search holds the page's first focus), or every visit would flip the list. -->
-				<div class="contents" onfocusin={() => (homeSidebarList.val = 'sessions')}>
-					{#key `${$currentWorkspaceRootId}:${homeDraft.requests}`}
-						<HomeSessionStarter
-							{placeholder}
-							onSettled={(height) =>
-								rememberComposerHeight($workspaceStore ?? undefined, sessionsListed, height)}
-							restsOpen={sessionsListed}
-						/>
-					{/key}
-				</div>
+				<!-- Home is the same page beside either sidebar list. The switch only opens the
+				     composer (AI Sessions) or folds it (Workspace); a focus moves nothing. -->
+				{#key `${$currentWorkspaceRootId}:${homeDraft.requests}`}
+					<HomeSessionStarter
+						{placeholder}
+						onSettled={(height) => rememberComposerHeight($workspaceStore ?? undefined, height)}
+					/>
+				{/key}
 			{:else}
 				{@render placeholder()}
 			{/if}
@@ -139,7 +129,7 @@
 </div>
 
 {#snippet placeholder()}
-	<HomeComposerSkeleton height={composerHeight($workspaceStore ?? undefined, sessionsListed)} />
+	<HomeComposerSkeleton height={composerHeight($workspaceStore ?? undefined)} />
 {/snippet}
 
 <HomeConnectDrawer bind:this={homeConnectDrawer} />

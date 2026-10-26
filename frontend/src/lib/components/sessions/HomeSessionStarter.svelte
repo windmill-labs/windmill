@@ -29,17 +29,14 @@
 	// Picked once; the parent remounts this on a workspace family switch and whenever
 	// another draft is asked for (New session, a draft picked in the session list).
 	// `placeholder` stands in while the chat waits on its config; `onSettled` reports the height
-	// the chat first took, for the next placeholder to take. `restsOpen` keeps the composer open
-	// at rest whatever the workspace holds; a workspace small enough that the composer is the
-	// page's main way in keeps it open anyway.
+	// the chat first took, for the next placeholder to take. A workspace small enough that the
+	// composer is the page's main way in keeps it open at rest.
 	let {
 		placeholder,
-		onSettled,
-		restsOpen = false
+		onSettled
 	}: {
 		placeholder?: Snippet
 		onSettled?: (height: number) => void
-		restsOpen?: boolean
 	} = $props()
 
 	const initialSession = homeStarterSession()
@@ -92,6 +89,7 @@
 				await aiChat?.attachContext(element)
 			},
 			focus: () => aiChat?.focusInput(),
+			fold: () => aiChat?.foldComposer(),
 			runtime
 		})
 	})
@@ -114,7 +112,7 @@
 			onAttachmentsChange={(a) => setSessionDraftAttachments(sessionId, a)}
 			starter={{
 				suggestions: starterPrompts.suggestions,
-				restsOpen: restsOpen || starterPrompts.fewItems
+				restsOpen: starterPrompts.fewItems
 			}}
 			viewTransitionNames
 			{onSent}

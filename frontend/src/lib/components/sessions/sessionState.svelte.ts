@@ -1171,13 +1171,12 @@ function newTransientSession(): Session {
 
 /** Whether a session opens in Home's composer rather than on a page of its own: unsent, not
  * archived (its page holds the way back), and neither about an item (it carries preview tabs,
- * which need the session page's panel), armed to send itself on arrival, nor already sending.
- * Tabs opened from Home's own panel keep its draft there. */
+ * which need the session page's panel), armed to send itself on arrival, nor already sending. */
 export function opensOnHome(s: Session): boolean {
 	return (
 		!s.workspace_id &&
 		!s.archived &&
-		(!s.previewTabs?.length || s.id === homeDraft.id) &&
+		!s.previewTabs?.length &&
 		!autoSendIsFresh(s) &&
 		!sendUnderWay(s.id)
 	)

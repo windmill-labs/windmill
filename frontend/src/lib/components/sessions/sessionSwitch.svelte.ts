@@ -27,6 +27,7 @@ import {
 } from '../sidebar/workspaceSwitchUrl'
 import { pinHomeComposer } from '../home/homeComposerPin.svelte'
 import { homeComposerContext } from './homeComposerContext.svelte'
+import { swapHomeSide } from './homeSessionsTransition.svelte'
 // Type-only: erased at compile time, so the component graph stays out of this
 // navigation seam (see the dynamic import in openEditorInSession).
 import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
@@ -64,13 +65,15 @@ export function noteArrival(url: URL): void {
 	if (homeSidebarList.val === 'workspace') rememberWorkspacePage(url.pathname + url.search)
 }
 
-/** The switch on Home, which belongs to both lists: it swaps the list and stays. */
+/** The switch on Home, which belongs to both lists: it swaps the list and stays. Home is the
+ * same page beside either; the switch only opens its composer, for AI Sessions, or folds it.
+ * Both after the click has played out, or the switch button it landed on takes focus back. */
 export function swapHomeList(list: SidebarList, homeHref: string): void {
-	homeSidebarList.val = list
-	if (list === 'workspace') rememberWorkspacePage(homeHref)
-	// The AI side of Home is its composer: going there puts the caret in it. After the click
-	// has played out, or the switch button it landed on takes focus back.
-	else setTimeout(() => homeComposerContext.focus(), 0)
+	const swapped = swapHomeSide(list, () => (homeSidebarList.val = list))
+	if (list === 'workspace') {
+		rememberWorkspacePage(homeHref)
+		void swapped.then(() => homeComposerContext.fold())
+	} else void swapped.then(() => homeComposerContext.focus())
 }
 
 // The session last opened, else the family's most recently used one. Scoped to the

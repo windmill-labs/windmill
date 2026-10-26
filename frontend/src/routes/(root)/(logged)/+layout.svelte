@@ -324,8 +324,7 @@
 	// The /sessions page has its own gate for direct navigation.
 	const globalAiEnabled = isGlobalAiEnabled()
 	// A workspace that hid the assistant (`ai_config.copilot_disabled`) loses both entry
-	// points: the Workspace ⇄ AI Sessions switch and the legacy Ask-AI button. Home lays
-	// itself out by the same gate (`homeListsSessions`).
+	// points: the Workspace ⇄ AI Sessions switch and the legacy Ask-AI button.
 	const switchRowShown = $derived(sessionsSwitchShown())
 	// The page picks the list: a session's page lists sessions and a workspace page shows
 	// the workspace nav. Home keeps the list you came from. Where the switch is hidden, so
@@ -1280,7 +1279,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 		{#if sidebarListsSessions}
 			<!-- The session list owns the column. A session's page shows workspace pages in
 			     its preview side panel (the iframe renders its own nav). -->
-			<div class="px-2 py-2 flex flex-col gap-1 flex-1 min-h-0 overflow-y-auto">
+			<div class="wm-vt-sidebar-list px-2 py-2 flex flex-col gap-1 flex-1 min-h-0 overflow-y-auto">
 				<SessionPicker isCollapsed={collapsed} embedded collapsible={false} />
 			</div>
 			{@render settingsMenu(collapsed)}
@@ -1289,7 +1288,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			     overflow fade hint. The three sections (Runs + Favorites + Search /
 			     workspace items / instance settings) are spaced by the scroll area's
 			     gap rather than each scrolling on its own. -->
-			<SidebarScrollArea color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
+			<SidebarScrollArea class="wm-vt-sidebar-list" color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
 				<!-- Section 1: Runs + Favorites + Search. -->
 				<div class="px-2 flex flex-col gap-1 pt-1">
 					{@render quickLinks(collapsed)}

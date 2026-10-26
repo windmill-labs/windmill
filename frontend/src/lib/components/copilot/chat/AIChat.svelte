@@ -130,6 +130,10 @@
 		await aiChatDisplay?.attachContext(element)
 	}
 
+	export function foldComposer() {
+		aiChatDisplay?.foldComposer()
+	}
+
 	const historyManager = aiChatManager.historyManager
 
 	let aiChatDisplay: AIChatDisplay | undefined = $state(undefined)

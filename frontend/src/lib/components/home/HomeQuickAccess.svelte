@@ -40,7 +40,7 @@
 	import HomeSectionLabel from './HomeSectionLabel.svelte'
 	import HomeSectionCount from './HomeSectionCount.svelte'
 	import { QUICK_ACCESS_ROWS, homeQuickAccessSettings } from './homeQuickAccessSettings.svelte'
-	import { homeListsSessions } from '$lib/components/sessions/sidebarList.svelte'
+	import { sessionsSwitchShown } from '$lib/components/sessions/sidebarList.svelte'
 	import {
 		getEffectiveWorkspaceId,
 		homeDraft,
@@ -77,6 +77,24 @@
 	}
 
 	const RECENT_COUNT = 6
+
+	// The workspace's last sessions, one row of them: sent ones and drafts with text, not Home's
+	// own draft, which is the composer above. The session list holds the rest.
+	const CONTINUE_COUNT = 3
+	let continueSessions = $derived(
+		sessionsSwitchShown()
+			? sessionState.sessions
+					.filter(
+						(s) =>
+							!s.archived &&
+							s.id !== homeDraft.id &&
+							(!!s.workspace_id || !!s.draftPrompt?.trim()) &&
+							getEffectiveWorkspaceId(s) === workspace
+					)
+					.sort((a, b) => sessionLastActivityAt(b) - sessionLastActivityAt(a))
+					.slice(0, CONTINUE_COUNT)
+			: []
+	)
 
 	// The way back from Hide from Home is in the header menu HomeAIChat adds, which Home mounts
 	// only with the AI sessions beta on. Without it the section can't be hidden, and one hidden
@@ -198,25 +216,6 @@
 		]
 	}
 
-	// Beside the session list the workspace's last sessions take the favorites' place: sent ones
-	// and drafts with text, not Home's own draft, which is the composer above.
-	const sessionsSide = $derived(homeListsSessions())
-	const showFavorites = $derived(homeQuickAccessSettings.showFavorites && !sessionsSide)
-	let recentSessions = $derived(
-		sessionsSide
-			? sessionState.sessions
-					.filter(
-						(s) =>
-							!s.archived &&
-							s.id !== homeDraft.id &&
-							(!!s.workspace_id || !!s.draftPrompt?.trim()) &&
-							getEffectiveWorkspaceId(s) === workspace
-					)
-					.sort((a, b) => sessionLastActivityAt(b) - sessionLastActivityAt(a))
-					.slice(0, RECENT_COUNT)
-			: []
-	)
-
 	// Assets are favorites too, but they open in the database manager rather than at a page,
 	// so they stay in the sidebar's menu.
 	let favorites: Entry[] = $derived(
@@ -227,7 +226,7 @@
 	// Favorites first, then what was opened lately; a starred item is listed once, as a favorite.
 	// With the favorites turned off, a starred item opened lately shows among the recent ones.
 	let recentAll: Entry[] = $derived.by(() => {
-		const { showRecent } = homeQuickAccessSettings
+		const { showFavorites, showRecent } = homeQuickAccessSettings
 		const starred = new Set(
 			showFavorites ? favorites.map((f) => `${asStarKind(f.kind)}/${f.path}`) : []
 		)
@@ -246,7 +245,7 @@
 	let recentLimit = $state(RECENT_COUNT)
 	let recentMore = $derived(Math.max(0, recentAll.length - recentLimit))
 	let entries: { item: Entry; favorite: boolean }[] = $derived([
-		...(showFavorites ? favorites : []).map((item) => ({
+		...(homeQuickAccessSettings.showFavorites ? favorites : []).map((item) => ({
 			item,
 			favorite: true
 		})),
@@ -257,9 +256,11 @@
 	// (the only way to turn the list back on) would leave with it.
 	let emptiedBySettings = $derived(
 		entries.length === 0 &&
-			recentSessions.length === 0 &&
-			((!showFavorites && favorites.length > 0) ||
+			((!homeQuickAccessSettings.showFavorites && favorites.length > 0) ||
 				(!homeQuickAccessSettings.showRecent && recentItems.list(workspace).length > 0))
+	)
+	let favoritesShown = $derived(
+		favoriteManager.loadedFor === workspace && (entries.length > 0 || emptiedBySettings) && !hidden
 	)
 
 	// Read when the pointer reaches the time, so the tooltip is current however long the
@@ -281,7 +282,7 @@
 	}
 
 	// Everything the lists hold, the recent ones not loaded yet included.
-	let favoriteCount = $derived(showFavorites ? favorites.length : 0)
+	let favoriteCount = $derived(homeQuickAccessSettings.showFavorites ? favorites.length : 0)
 	let recentCount = $derived(recentAll.length)
 
 	// The cards fill one screen at a time, row by row, and the next screen scrolls in from the
@@ -289,7 +290,7 @@
 	// whole columns. The column counts follow the `auto-cols` breakpoints below.
 	let innerWidth = $state(1280)
 	let cols = $derived(innerWidth >= 1024 ? 3 : innerWidth >= 640 ? 2 : 1)
-	let cellCount = $derived(recentSessions.length + entries.length + (recentMore > 0 ? 1 : 0))
+	let cellCount = $derived(entries.length + (recentMore > 0 ? 1 : 0))
 	// Fewer rows when there aren't enough cards to fill a screen.
 	let rows = $derived(Math.min(homeQuickAccessSettings.rows, Math.ceil(cellCount / cols)))
 
@@ -431,19 +432,46 @@
 	</div>
 {/snippet}
 
+{#if continueSessions.length > 0}
+	<section class="flex flex-col gap-2 px-4 sm:px-0 pb-[30px]">
+		<HomeSectionLabel>Continue last session</HomeSectionLabel>
+		<div class="grid gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+			{#each continueSessions as session (session.id)}
+				<!-- Opened in place: an unsent draft goes to the composer above rather than bouncing
+				     off the session page. A modified click opens the link as usual. -->
+				<a
+					href={sessionPageHref(session.id)}
+					class="w-full flex items-center gap-2 rounded-md border border-light bg-surface-tertiary hover:bg-surface-hover transition-colors min-w-0 px-2.5 py-2"
+					onclick={(e) => {
+						if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+						e.preventDefault()
+						void openSession(session)
+					}}
+				>
+					<MessagesSquare size={14} class="shrink-0 text-ai" />
+					<span class="flex-1 text-2xs font-normal text-primary truncate"
+						>{session.summary ?? 'Untitled session'}</span
+					>
+					<span class="shrink-0 text-2xs text-secondary">
+						<TimeAgo
+							date={new Date(sessionLastActivityAt(session)).toISOString()}
+							compact
+							noSeconds
+						/>
+					</span>
+				</a>
+			{/each}
+		</div>
+	</section>
+{/if}
+
 <!-- Held back until the favorites are in: the recent cards are ready first, and the favorites
      landing in front of them would push every card over. -->
-{#if favoriteManager.loadedFor === workspace && (entries.length > 0 || recentSessions.length > 0 || emptiedBySettings) && !hidden}
+{#if favoritesShown}
 	<!-- 30px under the cards: the gap from the composer down to this section's heading text. -->
 	<section class="flex flex-col gap-2 px-4 sm:px-0 pb-[30px]">
 		<div class="flex items-center gap-1 -my-1">
 			<HomeSectionLabel>
-				{#if recentSessions.length > 0}
-					Sessions <HomeSectionCount count={recentSessions.length} />
-				{/if}
-				{#if recentSessions.length > 0 && (favoriteCount > 0 || recentCount > 0)}
-					<span class="text-hint">·</span>
-				{/if}
 				{#if favoriteCount > 0}
 					Favorites <HomeSectionCount count={favoriteCount} />
 				{/if}
@@ -458,9 +486,9 @@
 				<DropdownV2 items={sectionMenu} size="xs" fixedHeight={false} />
 			</div>
 		</div>
-		{#if entries.length === 0 && recentSessions.length === 0}
+		{#if entries.length === 0}
 			<p class="text-2xs text-hint">
-				{showFavorites
+				{homeQuickAccessSettings.showFavorites
 					? 'No favorites yet. Star a script, flow or app to keep it here.'
 					: 'Nothing opened lately in this browser.'}
 			</p>
@@ -477,43 +505,15 @@
 				class="grid gap-2 overflow-x-auto no-scrollbar px-px -mx-px auto-cols-[85%] sm:auto-cols-[calc((100%_-_0.5rem)/2)] lg:auto-cols-[calc((100%_-_1rem)/3)]"
 				style:grid-template-rows="repeat({rows}, auto)"
 			>
-				{#each recentSessions as session, i (session.id)}
-					{@const at = cellPosition(i)}
-					<div class="min-w-0" style:grid-row={at.row} style:grid-column={at.column}>
-						<!-- Opened in place: an unsent draft goes to the composer above rather than
-						     bouncing off the session page. A modified click opens the link as usual. -->
-						<a
-							href={sessionPageHref(session.id)}
-							class="w-full flex items-center gap-2 rounded-md border border-light bg-surface-tertiary hover:bg-surface-hover transition-colors min-w-0 px-2.5 py-2"
-							onclick={(e) => {
-								if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-								e.preventDefault()
-								void openSession(session)
-							}}
-						>
-							<MessagesSquare size={14} class="shrink-0 text-ai" />
-							<span class="flex-1 text-2xs font-normal text-primary truncate"
-								>{session.summary ?? 'Untitled session'}</span
-							>
-							<span class="shrink-0 text-2xs text-secondary">
-								<TimeAgo
-									date={new Date(sessionLastActivityAt(session)).toISOString()}
-									compact
-									noSeconds
-								/>
-							</span>
-						</a>
-					</div>
-				{/each}
 				{#each entries as { item, favorite }, i (item.kind + '/' + item.path)}
-					{@const at = cellPosition(recentSessions.length + i)}
+					{@const at = cellPosition(i)}
 					<div class="min-w-0" style:grid-row={at.row} style:grid-column={at.column}>
 						{@render card(item, favorite)}
 					</div>
 				{/each}
 				{#if recentMore > 0}
 					{@const next = Math.min(recentMore, RECENT_COUNT)}
-					{@const at = cellPosition(recentSessions.length + entries.length)}
+					{@const at = cellPosition(entries.length)}
 					<div class="min-w-0" style:grid-row={at.row} style:grid-column={at.column}>
 						<Button
 							variant="subtle"
@@ -536,6 +536,8 @@
 			{/if}
 		</div>
 	</section>
+{/if}
+{#if favoritesShown || continueSessions.length > 0}
 	<HomeSectionLabel class="px-4 sm:px-0 pb-1">
 		Workspace items
 		{#if itemCount != undefined}

@@ -314,6 +314,14 @@
 		aiChatInput?.focusInput(selection)
 	}
 
+	/** A starter composer back on one line, as a press outside it does: not while it holds a
+	 * draft, which is never hidden. Takes the caret out, or the next keypress reopens it. */
+	export function foldComposer() {
+		closeComposer()
+		if (!composerOpened && composerEl?.contains(document.activeElement))
+			(document.activeElement as HTMLElement).blur()
+	}
+
 	/** Mention a workspace item in the draft, as "+" → Mention file does, and hand the user
 	 * the caret after it. Focusing is what opens Home's one-line composer. */
 	export async function attachContext(element: ContextElement) {

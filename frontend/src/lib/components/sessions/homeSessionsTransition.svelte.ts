@@ -1,4 +1,5 @@
 import type { OnNavigate } from '@sveltejs/kit'
+import { tick } from 'svelte'
 
 // A send from Home keeps the composer in sight: the browser snapshots the page before and
 // after the navigation to the session the send started, and glides the element that carries
@@ -49,4 +50,33 @@ export function homeSessionsTransition(navigation: OnNavigate): Promise<void> | 
 		}
 		void transition.finished.then(done, done)
 	})
+}
+
+/** For the Workspace ⇄ AI Sessions switch on Home, which stays on the page: runs `swap` as a
+ * view transition in which the sidebar's list comes in from the side of the button pressed.
+ * The name and timing live in app.css, keyed on `data-home-side-transition`: set only for the
+ * switch, so a move to a session page does not pick the name up.
+ *
+ * Resolves once the swap is on the page and the click that asked for it has played out. */
+export function swapHomeSide(to: 'workspace' | 'sessions', swap: () => void): Promise<void> {
+	if (
+		typeof document === 'undefined' ||
+		!document.startViewTransition ||
+		window.matchMedia('(prefers-reduced-motion: reduce)').matches
+	) {
+		swap()
+		return new Promise((resolve) => setTimeout(resolve, 0))
+	}
+	const root = document.documentElement
+	root.dataset.homeSideTransition = to
+	const transition = document.startViewTransition(async () => {
+		swap()
+		await tick()
+	})
+	const done = () => delete root.dataset.homeSideTransition
+	void transition.finished.then(done, done)
+	return transition.updateCallbackDone.then(
+		() => undefined,
+		() => undefined
+	)
 }

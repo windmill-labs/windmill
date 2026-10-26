@@ -443,3 +443,65 @@ input[type='time']::-webkit-calendar-picker-indicator {
 :root[data-home-sessions-transition='fade'] * {
 	view-transition-name: none !important;
 }
+
+/* Home's Workspace ⇄ AI Sessions switch (swapHomeSide in homeSessionsTransition.svelte.ts).
+   Home is the same page beside either list, so only the sidebar's list moves. The page shows
+   its new state at once, live, which lets the composer's own opening or folding play; named,
+   the composer would be held to the size it had when the switch began. The list's name exists
+   only while the switch runs: carried at all times, a send's move to the session page would
+   animate it too. */
+:root[data-home-side-transition] .wm-vt-sidebar-list {
+	view-transition-name: home-sidebar-list;
+}
+:root[data-home-side-transition] [data-session-composer] {
+	view-transition-name: none !important;
+}
+:root[data-home-side-transition]::view-transition-old(root) {
+	display: none;
+}
+:root[data-home-side-transition]::view-transition-new(root) {
+	animation: none;
+}
+/* The list comes in from the side of the button pressed: AI Sessions is the right one. */
+:root[data-home-side-transition]::view-transition-old(home-sidebar-list),
+:root[data-home-side-transition]::view-transition-new(home-sidebar-list) {
+	animation-duration: 260ms;
+	animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+	animation-fill-mode: both;
+}
+:root[data-home-side-transition='sessions']::view-transition-old(home-sidebar-list) {
+	animation-name: wm-side-out-left;
+}
+:root[data-home-side-transition='sessions']::view-transition-new(home-sidebar-list) {
+	animation-name: wm-side-in-right;
+}
+:root[data-home-side-transition='workspace']::view-transition-old(home-sidebar-list) {
+	animation-name: wm-side-out-right;
+}
+:root[data-home-side-transition='workspace']::view-transition-new(home-sidebar-list) {
+	animation-name: wm-side-in-left;
+}
+@keyframes wm-side-out-left {
+	to {
+		opacity: 0;
+		transform: translateX(-28px);
+	}
+}
+@keyframes wm-side-in-right {
+	from {
+		opacity: 0;
+		transform: translateX(28px);
+	}
+}
+@keyframes wm-side-out-right {
+	to {
+		opacity: 0;
+		transform: translateX(28px);
+	}
+}
+@keyframes wm-side-in-left {
+	from {
+		opacity: 0;
+		transform: translateX(-28px);
+	}
+}

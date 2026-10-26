@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AppService, FlowService, ScriptService, type OpenFlow, type Script } from '$lib/gen'
+	import { AppService, FlowService, type OpenFlow, type Script } from '$lib/gen'
 	import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
 	import { HOME_COLUMN_WIDTH } from '$lib/consts'
 	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
@@ -29,10 +29,6 @@
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { z } from 'zod'
 	import HomeAIChat from '$lib/components/home/HomeAIChat.svelte'
-	import HomePreviewPanel from '$lib/components/home/HomePreviewPanel.svelte'
-	import { homeListsSessions } from '$lib/components/sessions/sidebarList.svelte'
-	import { homeComposerContext } from '$lib/components/sessions/homeComposerContext.svelte'
-	import { parsePreviewItemRoute } from '$lib/components/sessions/previewPaths'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { onMount, untrack } from 'svelte'
 	import OperatorTour from '$lib/components/tutorials/OperatorTour.svelte'
@@ -154,41 +150,6 @@
 		if (await hasSeenOperatorTour()) return
 		startTour()
 	})
-
-	// Beside the session list, a script, flow or app opens in the preview beside Home, as the
-	// draft's own tab, instead of taking Home's place. A modified click still opens it as a page,
-	// and a control inside the link (a row's star) acts on its own.
-	function openItemInPreview(e: MouseEvent) {
-		if (!homeListsSessions()) return
-		if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-		const owner = homeComposerContext.runtime?.previewTabs
-		const workspace = $workspaceStore
-		const target = e.target as Element | null
-		const link = target?.closest('a[href]')
-		const href = link?.getAttribute('href')
-		const route = href ? parsePreviewItemRoute(href) : null
-		if (!owner || !workspace || !link || !href || !route) return
-		const control = target?.closest('button, input, label, [role="button"]')
-		if (control && link.contains(control)) return
-		e.preventDefault()
-		e.stopPropagation()
-		const open = (path: string) =>
-			owner.open({
-				type: 'item',
-				item: { kind: route.kind, raw_app: route.raw_app, path, summary: '' },
-				mode: route.mode
-			})
-		// A deployed script's row links its hash, and a tab is keyed by the script's path. Every
-		// script path has a slash, so a segment without one is a hash.
-		if (route.kind === 'script' && !route.itemPath.includes('/')) {
-			ScriptService.getScriptByHash({ workspace, hash: route.itemPath }).then(
-				(script) => open(script.path),
-				() => goto(href)
-			)
-			return
-		}
-		open(route.itemPath)
-	}
 </script>
 
 <Drawer bind:this={codeViewer} size="900px">
@@ -329,119 +290,111 @@
 	<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 {/snippet}
 
-<div class="flex flex-row w-full h-full min-h-0">
-	<div
-		bind:this={pageEl}
-		class="{fadeIn
-			? 'wm-page-in'
-			: ''} flex flex-col flex-1 min-w-0 h-full overflow-y-auto items-center"
-		style="scrollbar-gutter: stable both-edges;"
-		onclickcapture={openItemInPreview}
-	>
-		<!-- Where edits to this workspace are made is a fact about the workspace, so it sits in the
+<div
+	bind:this={pageEl}
+	class="{fadeIn ? 'wm-page-in' : ''} flex flex-col w-full h-full overflow-y-auto items-center"
+	style="scrollbar-gutter: stable both-edges;"
+>
+	<!-- Where edits to this workspace are made is a fact about the workspace, so it sits in the
 	     header with the workspace's own name rather than above the list. -->
-		<PageHeaderContent actions={editRuleBadge} />
+	<PageHeaderContent actions={editRuleBadge} />
 
-		<ForkWorkspaceBanner />
-		<WorkspaceDraftsBanner />
-		<div class="{HOME_COLUMN_WIDTH} px-4 sm:px-8 md:px-8 h-fit w-full mb-6 shrink-0">
-			<!-- HomeAIChat carries both the AI composer and the AI-independent CLI/MCP connect row,
+	<ForkWorkspaceBanner />
+	<WorkspaceDraftsBanner />
+	<div class="{HOME_COLUMN_WIDTH} px-4 sm:px-8 md:px-8 h-fit w-full mb-6 shrink-0">
+		<!-- HomeAIChat carries both the AI composer and the AI-independent CLI/MCP connect row,
 		     so it shows whenever the sessions beta is on; the composer itself is gated on the
 		     workspace inside the component, which owns its own vertical spacing
 		     because the hero and the bare connect row want different amounts of it. -->
-			{#if isGlobalAiEnabled()}
-				<HomeAIChat />
-			{/if}
+		{#if isGlobalAiEnabled()}
+			<HomeAIChat />
+		{/if}
 
-			{#if $workspaceStore == 'admins'}
-				<Alert title="Admins workspace">
-					The Admins workspace is for admins only and contains scripts whose purpose is to manage
-					your Windmill instance, such as keeping resource types up to date.
-				</Alert>
-				<div class="my-4"></div>
-			{/if}
+		{#if $workspaceStore == 'admins'}
+			<Alert title="Admins workspace">
+				The Admins workspace is for admins only and contains scripts whose purpose is to manage your
+				Windmill instance, such as keeping resource types up to date.
+			</Alert>
+			<div class="my-4"></div>
+		{/if}
 
-			{#if tab == 'hub'}
-				<div class="flex flex-col gap-y-16">
-					<div class="flex flex-col pb-8">
-						{#snippet toggleKinds()}
-							<ToggleButtonGroup
-								bind:selected={subtab}
-								onSelected={(v) => {
-									setQuery('kind', v, window.location.hash)
-								}}
-								noWFull
-							>
-								{#snippet children({ item })}
-									<ToggleButton value="script" label="Scripts" icon={Code} {item} />
-									<ToggleButton
-										value="flow"
-										label="Flows"
-										icon={FlowIcon}
-										selectedColor="#14b8a6"
-										{item}
-									/>
-									<ToggleButton
-										value="app"
-										label="Apps"
-										icon={LayoutDashboard}
-										selectedColor="#fb923c"
-										{item}
-									/>
-								{/snippet}
-							</ToggleButtonGroup>
-							<Button
-								startIcon={{ icon: ExternalLink }}
-								target="_blank"
-								href={$hubBaseUrlStore}
-								variant="default"
-							>
-								Hub
-							</Button>
-						{/snippet}
+		{#if tab == 'hub'}
+			<div class="flex flex-col gap-y-16">
+				<div class="flex flex-col pb-8">
+					{#snippet toggleKinds()}
+						<ToggleButtonGroup
+							bind:selected={subtab}
+							onSelected={(v) => {
+								setQuery('kind', v, window.location.hash)
+							}}
+							noWFull
+						>
+							{#snippet children({ item })}
+								<ToggleButton value="script" label="Scripts" icon={Code} {item} />
+								<ToggleButton
+									value="flow"
+									label="Flows"
+									icon={FlowIcon}
+									selectedColor="#14b8a6"
+									{item}
+								/>
+								<ToggleButton
+									value="app"
+									label="Apps"
+									icon={LayoutDashboard}
+									selectedColor="#fb923c"
+									{item}
+								/>
+							{/snippet}
+						</ToggleButtonGroup>
+						<Button
+							startIcon={{ icon: ExternalLink }}
+							target="_blank"
+							href={$hubBaseUrlStore}
+							variant="default"
+						>
+							Hub
+						</Button>
+					{/snippet}
 
-						{#if subtab == 'script'}
-							<PickHubScript
-								syncQuery
-								bind:filter={getFilter, setFilter}
-								on:pick={(e) => viewCode(e.detail)}
-							>
-								{#snippet children()}
-									{@render toggleKinds?.()}
-								{/snippet}
-							</PickHubScript>
-						{:else if subtab == 'flow'}
-							<PickHubFlow
-								syncQuery
-								bind:filter={getFilter, setFilter}
-								on:pick={(e) => viewFlow(e.detail)}
-							>
-								{#snippet children()}
-									{@render toggleKinds?.()}
-								{/snippet}
-							</PickHubFlow>
-						{:else if subtab == 'app'}
-							<PickHubApp
-								syncQuery
-								bind:filter={getFilter, setFilter}
-								on:pick={(e) => viewApp(e.detail)}
-							>
-								{#snippet children()}
-									{@render toggleKinds?.()}
-								{/snippet}
-							</PickHubApp>
-						{/if}
-					</div>
+					{#if subtab == 'script'}
+						<PickHubScript
+							syncQuery
+							bind:filter={getFilter, setFilter}
+							on:pick={(e) => viewCode(e.detail)}
+						>
+							{#snippet children()}
+								{@render toggleKinds?.()}
+							{/snippet}
+						</PickHubScript>
+					{:else if subtab == 'flow'}
+						<PickHubFlow
+							syncQuery
+							bind:filter={getFilter, setFilter}
+							on:pick={(e) => viewFlow(e.detail)}
+						>
+							{#snippet children()}
+								{@render toggleKinds?.()}
+							{/snippet}
+						</PickHubFlow>
+					{:else if subtab == 'app'}
+						<PickHubApp
+							syncQuery
+							bind:filter={getFilter, setFilter}
+							on:pick={(e) => viewApp(e.detail)}
+						>
+							{#snippet children()}
+								{@render toggleKinds?.()}
+							{/snippet}
+						</PickHubApp>
+					{/if}
 				</div>
-			{/if}
-		</div>
-
-		{#if tab == 'workspace'}
-			<ItemsList bind:subtab showEditButtons={showCreateButtons} />
+			</div>
 		{/if}
 	</div>
-	{#if homeListsSessions()}
-		<HomePreviewPanel />
+
+	{#if tab == 'workspace'}
+		<ItemsList bind:subtab showEditButtons={showCreateButtons} />
 	{/if}
 </div>
 
