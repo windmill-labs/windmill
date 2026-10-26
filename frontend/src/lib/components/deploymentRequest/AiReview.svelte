@@ -103,6 +103,11 @@
 			{#if result.summary}
 				<div class="text-xs text-secondary">{result.summary}</div>
 			{/if}
+			{#if result.unreadable.length > 0}
+				<Alert type="warning" title="Not reviewed" size="xs">
+					Could not load the contents of: {result.unreadable.join(', ')}
+				</Alert>
+			{/if}
 			{#if result.omitted.length > 0}
 				<div class="text-2xs text-secondary">
 					Reviewed by name only, too large to include: {result.omitted.join(', ')}

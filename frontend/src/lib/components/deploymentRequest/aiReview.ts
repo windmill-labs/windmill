@@ -18,6 +18,8 @@ export type AiReviewResult = {
 	findings: AiReviewFinding[]
 	/** Changed items whose contents did not fit in the prompt and were reviewed by name only. */
 	omitted: string[]
+	/** Changed items whose contents failed to load, so the model did not review them. */
+	unreadable: string[]
 }
 
 // A variable's value is read decrypted and a resource's value holds credentials, so neither may
@@ -26,6 +28,7 @@ const VALUE_WITHHELD_KINDS = new Set(['variable', 'resource'])
 
 const PER_SIDE_CHAR_CAP = 20_000
 const TOTAL_CHAR_BUDGET = 160_000
+const FETCH_BATCH = 6
 // Under the Anthropic SDK's non-streaming pre-flight max_tokens limit.
 const MAX_OUTPUT_TOKENS = 8_000
 
@@ -51,11 +54,11 @@ function changeType(diff: WorkspaceItemDiff): 'added' | 'deleted' | 'modified' {
 
 function render(value: unknown): string {
 	if (value == null) return '(none)'
-	if (typeof value === 'object' && value && 'lock' in value) {
-		const { lock: _, ...rest } = value as Record<string, unknown>
-		value = rest
-	}
-	const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+	// Flows and apps nest their inline scripts' lockfiles, so they are dropped at any depth.
+	const text =
+		typeof value === 'string'
+			? value
+			: JSON.stringify(value, (key, v) => (key === 'lock' ? undefined : v), 2)
 	return text.length > PER_SIDE_CHAR_CAP
 		? `${text.slice(0, PER_SIDE_CHAR_CAP)}\n… (truncated, ${text.length - PER_SIDE_CHAR_CAP} more characters)`
 		: text
@@ -65,24 +68,35 @@ async function itemSection(
 	diff: WorkspaceItemDiff,
 	forkWorkspaceId: string,
 	parentWorkspaceId: string
-): Promise<string> {
+): Promise<{ text: string; unreadable: boolean }> {
 	const change = changeType(diff)
 	const header = `### ${diff.kind} ${diff.path} (${change})`
 	if (VALUE_WITHHELD_KINDS.has(diff.kind)) {
-		return `${header}\nValue withheld from review.`
+		return { text: `${header}\nValue withheld from review.`, unreadable: false }
 	}
 	const kind = diff.kind as Kind
 	const [parent, fork] = await Promise.all([
 		change === 'added' ? undefined : getItemValue(kind, diff.path, parentWorkspaceId),
 		change === 'deleted' ? undefined : getItemValue(kind, diff.path, forkWorkspaceId)
 	])
-	return `${header}\n#### Parent version\n${render(parent)}\n#### Fork version\n${render(fork)}`
+	// `getItemValue` answers `{}` when a read fails, which would pass as an emptied item.
+	if (isEmptyRead(parent) || isEmptyRead(fork)) {
+		return { text: `${header}\nContents could not be read.`, unreadable: true }
+	}
+	return {
+		text: `${header}\n#### Parent version\n${render(parent)}\n#### Fork version\n${render(fork)}`,
+		unreadable: false
+	}
+}
+
+function isEmptyRead(value: unknown): boolean {
+	return value != null && typeof value === 'object' && Object.keys(value as object).length === 0
 }
 
 export function parseReviewAnswer(
 	text: string,
 	diffs: WorkspaceItemDiff[]
-): Omit<AiReviewResult, 'omitted'> {
+): Omit<AiReviewResult, 'omitted' | 'unreadable'> {
 	const start = text.indexOf('{')
 	const end = text.lastIndexOf('}')
 	if (start === -1 || end <= start) {
@@ -119,20 +133,31 @@ export async function reviewDeployment(
 	parentWorkspaceId: string,
 	abortController: AbortController
 ): Promise<AiReviewResult> {
-	const sections = await Promise.all(
-		diffs.map((d) => itemSection(d, forkWorkspaceId, parentWorkspaceId))
-	)
 	const included: string[] = []
 	const omitted: string[] = []
+	const unreadable: string[] = []
 	let used = 0
-	sections.forEach((section, i) => {
-		if (used + section.length <= TOTAL_CHAR_BUDGET) {
-			included.push(section)
-			used += section.length
-		} else {
-			omitted.push(`${diffs[i].kind}:${diffs[i].path}`)
+	// Fetched a batch at a time so a large fork stops reading items once the budget is spent.
+	for (let i = 0; i < diffs.length; i += FETCH_BATCH) {
+		const batch = diffs.slice(i, i + FETCH_BATCH)
+		if (used >= TOTAL_CHAR_BUDGET) {
+			omitted.push(...batch.map((d) => `${d.kind}:${d.path}`))
+			continue
 		}
-	})
+		const sections = await Promise.all(
+			batch.map((d) => itemSection(d, forkWorkspaceId, parentWorkspaceId))
+		)
+		if (abortController.signal.aborted) throw new Error('aborted')
+		sections.forEach(({ text: section, unreadable: failed }, j) => {
+			if (failed) unreadable.push(`${batch[j].kind}:${batch[j].path}`)
+			if (used + section.length <= TOTAL_CHAR_BUDGET) {
+				included.push(section)
+				used += section.length
+			} else {
+				omitted.push(`${batch[j].kind}:${batch[j].path}`)
+			}
+		})
+	}
 	let user = `Fork workspace: ${forkWorkspaceId}\nParent workspace: ${parentWorkspaceId}\n\n${included.join('\n\n')}`
 	if (omitted.length > 0) {
 		user += `\n\nAlso changed, contents not shown for size:\n${omitted.map((o) => `- ${o}`).join('\n')}`
@@ -146,5 +171,5 @@ export async function reviewDeployment(
 		abortController,
 		{ maxTokensCap: MAX_OUTPUT_TOKENS }
 	)
-	return { ...parseReviewAnswer(answer ?? '', diffs), omitted }
+	return { ...parseReviewAnswer(answer ?? '', diffs), omitted, unreadable }
 }
