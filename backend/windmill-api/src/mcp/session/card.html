@@ -112,6 +112,7 @@
   .detail { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .back { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; min-height: 0; font-size: 13px; color: var(--fg-2); }
   .back:hover { background: none; color: var(--fg-em); }
+  /* Links and Show more read as text, as in Windmill: tinting on hover is for buttons. */
   .more-line { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; min-height: 0; font-size: 13px; color: var(--fg-2); }
   .more-line:hover { background: none; color: var(--fg-em); text-decoration: underline; }
   .empty { font-size: 13px; color: var(--fg-3); }
@@ -202,11 +203,11 @@
   .item + .item { border-top: 1px solid var(--line); padding-top: 12px; }
   .item-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .item-head .grow { flex: 1; min-width: 0; font: 600 13px var(--mono); color: var(--fg-em); overflow-wrap: anywhere; }
-  button.small { min-height: 28px; padding: 0 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
   .form-error { color: var(--bad-fg); font-size: 13px; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
   button { font: 500 13px var(--sans); min-height: 32px; padding: 0 12px; border-radius: var(--radius); cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--fg); }
-  button:hover:not(:disabled) { background: var(--bg-2); }
+  /* As weak as the base rule it follows, so a text-styled button's own hover wins. */
+  button:where(:hover:not(:disabled)) { background: var(--bg-2); }
   button.primary { background: var(--accent); color: #ffffff; border-color: transparent; }
   button.primary:hover:not(:disabled) { background: var(--accent-hover); }
   button.danger { display: inline-flex; align-items: center; gap: 6px; background: var(--danger); color: #ffffff; border-color: transparent; }
@@ -329,7 +330,7 @@
     return svg;
   }
   // A button that opens a Windmill page.
-  const linkButton = (label, url, style) => el('button', { class: 'small', type: 'button', style, onclick: () => openLink(url) }, label, icon('external'));
+  const linkButton = (label, url, style) => el('button', { class: 'more-line', type: 'button', style, onclick: () => openLink(url) }, label, icon('external'));
 
   const KINDS = { preview: 'script test', flowpreview: 'flow test', flowscript: 'flow step', flowdependencies: 'flow dependencies' };
   const kindLabel = (kind) => (kind ? KINDS[kind] ?? kind : '');
@@ -412,7 +413,7 @@
   // Windmill: grown inline it would pass the height hosts cap a card at.
   function moreButton(label, url) {
     if (canFullscreen()) {
-      return el('button', { class: 'small', type: 'button', style: 'margin-top: 8px', onclick: () => setDisplayMode('fullscreen') }, `Show ${label}`, icon('maximize'));
+      return el('button', { class: 'more-line', type: 'button', style: 'margin-top: 8px', onclick: () => setDisplayMode('fullscreen') }, `Show ${label}`, icon('maximize'));
     }
     if (!url) return null;
     return linkButton(`${label[0].toUpperCase()}${label.slice(1)} in Windmill`, url, 'margin-top: 8px');
