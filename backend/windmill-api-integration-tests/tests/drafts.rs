@@ -426,6 +426,19 @@ async fn test_transfer_drafts_to_fork(db: Pool<Postgres>) -> anyhow::Result<()> 
     assert_eq!(draft_count(&db, "u/test-user/a", "script", me).await, 0);
     assert_eq!(draft_count(&db, "u/test-user/b", "script", me).await, 0);
 
+    // With nothing left in the source to replace them, the fork's drafts stay.
+    let r = c
+        .post(&transfer_url)
+        .json(&json!({
+            "target_workspace": fork, "items": items,
+            "remove_from_source": true, "replace_existing": true
+        }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200);
+    assert_eq!(fork_count("u/test-user/a").await?, 1);
+    assert_eq!(fork_count("u/test-user/b").await?, 1);
+
     // Only a fork of the source is a valid target.
     let r = c
         .post(format!(

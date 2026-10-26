@@ -428,25 +428,21 @@
 		])
 	}
 
-	async function startMove(target: MoveTarget) {
-		const parent = actingWorkspaceId
-		if (!session || !parent || !canMoveToFork) return
-		if (target.kind === 'existing' && target.id === parent) return
-		const mask = sessionMask()
-		let items: MoveRequest['items']
-		let conflicts: DraftItemRef[] = []
-		// The list comes from the server, so an edit still debounced would be left out of it.
+	// The list comes from the server, so an edit still debounced would be left out of it.
+	async function listMoveItems(
+		parent: string,
+		target: MoveTarget
+	): Promise<Pick<MoveRequest, 'items' | 'conflicts'> | string> {
 		const unsaved = await flushPendingSaves(parent)
-		if (unsaved) {
-			sendUserToast(unsaved, true)
-			return
-		}
+		if (unsaved) return unsaved
+		const mask = sessionMask()
 		try {
 			// Only the user's own rows move; a legacy workspace-level draft is nobody's.
-			items = (await DraftService.listDrafts({ workspace: parent }))
+			const items = (await DraftService.listDrafts({ workspace: parent }))
 				.filter((r) => r.mine && !r.legacy_draft && maskHasDraftRow(mask, r))
 				.map((r) => ({ kind: r.kind, path: r.path, label: r.draft_path ?? r.path }))
-			if (target.kind === 'existing' && items.length > 0) {
+			let conflicts: DraftItemRef[] = []
+			if (target.kind === 'existing' && !target.replace && items.length > 0) {
 				const inFork = new Set(
 					(await DraftService.listDrafts({ workspace: target.id }))
 						.filter((r) => r.mine && !r.legacy_draft)
@@ -456,13 +452,31 @@
 					.filter((i) => inFork.has(`${i.kind}:${i.path}`))
 					.map(({ kind, path }) => ({ kind, path }))
 			}
+			return { items, conflicts }
 		} catch (e: any) {
-			sendUserToast(`Could not list the session's drafts: ${e?.body ?? e?.message ?? e}`, true)
+			return `Could not list the session's drafts: ${e?.body ?? e?.message ?? e}`
+		}
+	}
+
+	function itemKeys(items: DraftItemRef[]): string {
+		return items
+			.map((i) => `${i.kind}:${i.path}`)
+			.sort()
+			.join('\n')
+	}
+
+	async function startMove(target: MoveTarget) {
+		const parent = actingWorkspaceId
+		if (!session || !parent || !canMoveToFork) return
+		if (target.kind === 'existing' && target.id === parent) return
+		const listed = await listMoveItems(parent, target)
+		if (typeof listed === 'string') {
+			sendUserToast(listed, true)
 			return
 		}
 		moveRemoveFromParent = false
 		moveRequest = {
-			open: items.length > 0,
+			open: listed.items.length > 0,
 			parent,
 			parentName: $userWorkspaces.find((w) => w.id === parent)?.name ?? parent,
 			target,
@@ -470,10 +484,9 @@
 				target.kind === 'new'
 					? target.fork.name
 					: ($userWorkspaces.find((w) => w.id === target.id)?.name ?? target.id),
-			items,
-			conflicts
+			...listed
 		}
-		if (items.length === 0) await confirmMove()
+		if (listed.items.length === 0) await confirmMove()
 	}
 
 	async function confirmMove() {
@@ -486,6 +499,21 @@
 		const chatId = runtime?.manager.historyManager.getCurrentChatId()
 		if (chatId) localRunStarted(session.id, chatId)
 		try {
+			// A turn that ran while the dialog was open (a job's auto-resume, another tab) may have
+			// added drafts the list does not show. Now that no turn can start, it is re-read.
+			const listed = await listMoveItems(req.parent, req.target)
+			if (typeof listed === 'string' || itemKeys(listed.items) !== itemKeys(req.items)) {
+				moveRequest =
+					typeof listed === 'string'
+						? { ...req, open: true, error: listed }
+						: {
+								...req,
+								...listed,
+								open: true,
+								error: "This session's drafts changed. Check the list and confirm again."
+							}
+				return
+			}
 			const res = await moveSessionToFork(session.id, req.parent, req.target, {
 				items: req.items.map(({ kind, path }) => ({ kind, path })),
 				removeFromParent: moveRemoveFromParent,

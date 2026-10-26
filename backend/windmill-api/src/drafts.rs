@@ -1126,8 +1126,8 @@ async fn transfer_drafts(
                    AND (typ::text, path) IN (SELECT * FROM unnest($3::text[], $4::text[]))",
                 target,
                 &authed.email,
-                &kinds as &[&str],
-                &paths as &[&str],
+                &locked_kinds as &[&str],
+                &locked_paths as &[&str],
             )
             .execute(&mut *tx)
             .await?;
