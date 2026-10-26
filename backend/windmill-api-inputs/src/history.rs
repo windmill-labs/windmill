@@ -263,12 +263,14 @@ fn inline_args(alias: &str) -> String {
 
 /// When the run `{id}` started, or NULL before it does. Every run inside it is created after
 /// that, but a scheduled run is created a whole period before it starts, so its creation time
-/// is no bound. The queue and completed rows carry no row-level security: this also works for
-/// a run the viewer cannot read.
+/// is no bound. A queued workflow-as-code run's `started_at` is its current segment's; its first
+/// start is in `extras`. The queue and completed rows carry no row-level security: this also
+/// works for a run the viewer cannot read.
 fn run_start(id: &str) -> String {
     format!(
         "COALESCE(\
-            (SELECT started_at FROM v2_job_queue WHERE id = {id} AND workspace_id = $2), \
+            (SELECT COALESCE((extras->>'wac_first_started_at')::timestamptz, started_at) \
+             FROM v2_job_queue WHERE id = {id} AND workspace_id = $2), \
             (SELECT COALESCE(started_at, completed_at) FROM v2_job_completed \
              WHERE id = {id} AND workspace_id = $2))"
     )

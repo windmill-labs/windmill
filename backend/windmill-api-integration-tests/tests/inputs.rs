@@ -427,6 +427,25 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     sqlx::query("ANALYZE v2_job, v2_job_completed")
         .execute(&db)
         .await?;
+    // A workflow-as-code run in a later segment: its queue row's start is the segment's, and its
+    // first start is in extras. Opening its group must still find an earlier segment's task.
+    let workflow = insert_run(
+        &db,
+        Run { path: "f/test/workflow", running: true, at: 24, ..Run::default() },
+    )
+    .await?;
+    let task = insert_run(
+        &db,
+        Run { path: "f/test/task", parent_job: Some(workflow), at: 25, ..Run::default() },
+    )
+    .await?;
+    sqlx::query(
+        "UPDATE v2_job_queue SET started_at = started_at + interval '5 seconds', \
+         extras = jsonb_build_object('wac_first_started_at', started_at) WHERE id = $1",
+    )
+    .bind(workflow)
+    .execute(&db)
+    .await?;
     let mut late_calls = vec![];
     for at in [30, 31] {
         let run = Run {
@@ -541,6 +560,9 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     assert_eq!(retried[0]["group"]["retries"], 1);
     let opened = fetch("SECRET_TOKEN", format!("{manual}&top_run={failed_call}")).await?;
     assert_eq!(ids(&opened), [retried_call.to_string()]);
+    let calls = format!("&runnable_id=f/test/task&started_by=script_call&top_run={workflow}");
+    let opened = fetch("SECRET_TOKEN", calls).await?;
+    assert_eq!(ids(&opened), [task.to_string()]);
     let opened = fetch("SECRET_TOKEN", format!("{busy}&top_run={long_flow}")).await?;
     assert_eq!(
         ids(&opened),
