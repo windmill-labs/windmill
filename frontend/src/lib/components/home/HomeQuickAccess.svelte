@@ -13,10 +13,12 @@
 		Pen,
 		Star as StarIcon,
 		StarOff,
+		UserPlus,
 		X
 	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { roleCapabilities } from '$lib/stores'
 	import { AppService } from '$lib/gen'
@@ -111,6 +113,7 @@
 	// Only the role is checked: the cards don't carry the item's own permissions, and an
 	// editor opened without write access says so itself.
 	const editRights = useEditRights()
+	let shareModal: ShareModal | undefined = $state()
 
 	// A favorite app arrives as plain `app` (the layout lists apps without their subtype), and
 	// `/apps/edit` mounts the low-code editor whatever it opens, so the editor routes ask which
@@ -125,8 +128,8 @@
 		}
 	}
 
-	// The row menus' actions that need nothing but the kind and path. Moving, deleting,
-	// deploying and sharing need the full item and the row's own drawers, so they stay there.
+	// The row menus' actions that need nothing but the kind and path. Moving, deleting and
+	// deploying need the full item and the row's own drawers, so they stay there.
 	async function menuItems(item: Entry, favorite: boolean): Promise<Item[]> {
 		const kind = await editorKind(item)
 		const base = kind === 'raw_app' ? 'apps_raw' : `${kind}s`
@@ -155,6 +158,12 @@
 				icon: GitFork,
 				href: `/${base}/add?template=${item.path}`,
 				hide: !showEditButtons || !$roleCapabilities.code || kind === 'agent'
+			},
+			{
+				displayName: 'Share',
+				icon: UserPlus,
+				action: () => kind !== 'agent' && shareModal?.openDrawer(item.path, kind),
+				hide: kind === 'agent' || !editRights.roleCanAuthor(kind)
 			},
 			{
 				displayName: 'View runs',
@@ -479,3 +488,5 @@
 		{/if}
 	</HomeSectionLabel>
 {/if}
+
+<ShareModal bind:this={shareModal} />
