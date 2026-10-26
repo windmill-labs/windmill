@@ -110,6 +110,7 @@
 		allUsers
 		ownerCounts
 		selfUsername
+		keepEmptyFolders
 		untrack(() => {
 			// While searching, `items` is already relevance-ranked and the sort
 			// selector is disabled, so keep that order: a no-op leaf comparator

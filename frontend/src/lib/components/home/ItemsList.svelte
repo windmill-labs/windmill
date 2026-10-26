@@ -820,12 +820,26 @@
 		storeLocalSetting(FLAT_LIST_SETTING_NAME, v ? 'true' : undefined)
 	}
 
+	const HIDE_EMPTY_FOLDERS_SETTING_NAME = 'homeHideEmptyFolders'
+	let hideEmptyFolders = $state(getLocalSetting(HIDE_EMPTY_FOLDERS_SETTING_NAME) == 'true')
+	function setHideEmptyFolders(v: boolean) {
+		hideEmptyFolders = v
+		storeLocalSetting(HIDE_EMPTY_FOLDERS_SETTING_NAME, v ? 'true' : undefined)
+	}
+
 	let listSettingsItems: MenuItem[] = $derived([
 		{
 			displayName: 'Flat list',
 			description: 'List items without grouping them by folder',
 			toggle: flatList,
 			action: () => setFlatList(!flatList)
+		},
+		{
+			displayName: 'Hide empty folders',
+			description: 'Folders holding no scripts, flows or apps',
+			toggle: hideEmptyFolders,
+			hide: flatList || !canKeepEmptyFolders,
+			action: () => setHideEmptyFolders(!hideEmptyFolders)
 		},
 		{
 			displayName: 'Show library scripts',
@@ -1051,10 +1065,12 @@
 	let treeLazyMode = $derived(
 		!flatList && !searching && ownerFilter == undefined && labelFilter == undefined
 	)
-	// Unfiltered, the tree lists every folder, empty ones too, so a workspace holding only
-	// folders is not empty: its first folder is created from here and managed from its row.
+	// Unfiltered, the tree lists every folder, empty ones too unless the viewer hides them, so
+	// a workspace holding only folders is not empty: its first folder is created from here and
+	// managed from its row.
 	// A role without the Folders page gets no folder menu, so empty rows would be noise.
-	let keepEmptyFolders = $derived(itemKind === 'all' && $roleCapabilities.visibility.folders)
+	let canKeepEmptyFolders = $derived(itemKind === 'all' && $roleCapabilities.visibility.folders)
+	let keepEmptyFolders = $derived(canKeepEmptyFolders && !hideEmptyFolders)
 	let treeShowsFolders = $derived(
 		treeLazyMode && !archived && keepEmptyFolders && (folderNamesRes.current?.length ?? 0) > 0
 	)
