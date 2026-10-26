@@ -490,6 +490,8 @@
 	// Summary cache: stores summaries from both workspaces
 	type SummaryCache = Record<string, { current?: string; parent?: string; loading?: boolean }>
 	let summaryCache = $state<SummaryCache>({})
+	// Resource rows that are AI agents: titled by their summary and drawn as agents, as a script is.
+	let agentKeys = $state<Record<string, boolean>>({})
 	// What has already been asked for. Deliberately not `$state`: the fetchers below run inside an
 	// effect, and a guard that reads reactive state makes that effect depend on what it writes —
 	// which is a loop. A plain Set is also what tells "asked, and the answer was nothing" from
@@ -576,9 +578,9 @@
 	})
 
 	async function fetchSummaries(diffs: WorkspaceItemDiff[]) {
-		// Only fetch summaries for scripts, flows, and apps
+		// Only fetch summaries for scripts, flows, apps, and resources (for the agents among them)
 		const itemsToFetch = diffs.filter((diff) =>
-			['script', 'flow', 'app', 'raw_app', 'folder'].includes(diff.kind)
+			['script', 'flow', 'app', 'raw_app', 'folder', 'resource'].includes(diff.kind)
 		)
 		// Read once, so every request in this pass names the pair the pass was started for. Named
 		// the way the diff names the two sides: `exists_in_fork` is this workspace, `exists_in_source`
@@ -595,6 +597,22 @@
 			summariesRequested.add(key)
 
 			summaryCache[key] = { loading: true }
+
+			if (diff.kind === 'resource') {
+				const read = (ws: string) =>
+					ResourceService.getResource({ workspace: ws, path: diff.path }).catch(() => undefined)
+				const [current, parent] = await Promise.all([
+					diff.exists_in_fork ? read(forkWs) : undefined,
+					diff.exists_in_source ? read(sourceWs) : undefined
+				])
+				if (!alive) return
+				const agent = [current, parent].some((r) => r?.resource_type === 'ai_agent')
+				if (agent) agentKeys[key] = true
+				summaryCache[key] = agent
+					? { current: current?.description, parent: parent?.description, loading: false }
+					: { loading: false }
+				continue
+			}
 
 			// Only the sides that have the item. An item that is only ahead does not exist in the
 			// other workspace, so asking it there is a 404 by construction — a guaranteed-failing
@@ -1322,6 +1340,7 @@
 		<div class="bg-surface-tertiary p-4 rounded-md border">
 			<WorkspaceDeployLayout
 				items={deployableItems}
+				isAgent={(item) => !!agentKeys[item.key]}
 				{selectedItems}
 				{deploymentStatus}
 				{allSelected}
@@ -1646,10 +1665,10 @@
 					<!-- Point the edit link at the workspace the item actually lives in:
 					     a parent-only row (deleted/absent in the fork) would 404 if linked
 					     into the fork, so link it into the parent instead. -->
-					{@const editUrl = editUrlFor(
-						diff,
-						diff.exists_in_fork ? currentWorkspaceId : parentWorkspaceId
-					)}
+					{@const linkWs = diff.exists_in_fork ? currentWorkspaceId : parentWorkspaceId}
+					{@const editUrl = agentKeys[key]
+						? `/agents/edit/${diff.path}?workspace=${encodeURIComponent(linkWs)}`
+						: editUrlFor(diff, linkWs)}
 					{#if isTriggerOrScheduleKind(diff.kind)}
 						<span class="text-emphasis">
 							{KIND_DISPLAY_NAMES[diff.kind as string] ?? diff.kind}
