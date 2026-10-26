@@ -353,12 +353,52 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     )
     .await?;
 
-    // A long flow calls f/test/busy only after another run has called it 5,000 times: opening its
-    // group must still find the calls the list counts.
+    // f/test/busy is called 5,000 times by one run. Before that: a call still in progress inside
+    // another flow, and a failed top-level run with its retry; the list's window passes over
+    // both. After: two calls from a long flow, which started a while after it was created, as a
+    // scheduled run does. Opening each group must find the runs the list counts.
+    let running_flow = insert_run(
+        &db,
+        Run { kind: "flow", path: "f/test/running_flow", running: true, at: 22, ..Run::default() },
+    )
+    .await?;
+    let running_call = insert_run(
+        &db,
+        Run {
+            path: "f/test/busy",
+            parent_job: Some(running_flow),
+            innermost_root: Some(running_flow),
+            flow_step_id: Some("a"),
+            running: true,
+            at: 22,
+            ..Run::default()
+        },
+    )
+    .await?;
+    let failed_call = insert_run(
+        &db,
+        Run { path: "f/test/busy", failed: true, at: 22, ..Run::default() },
+    )
+    .await?;
+    let retried_call = insert_run(
+        &db,
+        Run { path: "f/test/busy", parent_job: Some(failed_call), at: 22, ..Run::default() },
+    )
+    .await?;
+    sqlx::query("INSERT INTO native_retry_attempt (job_id, attempt) VALUES ($1, 1)")
+        .bind(retried_call)
+        .execute(&db)
+        .await?;
     let long_flow = insert_run(
         &db,
         Run { kind: "flow", path: "f/test/long_flow", at: 22, ..Run::default() },
     )
+    .await?;
+    sqlx::query(
+        "UPDATE v2_job_completed SET started_at = started_at + interval '8 seconds' WHERE id = $1",
+    )
+    .bind(long_flow)
+    .execute(&db)
     .await?;
     let busy_flow = insert_run(
         &db,
@@ -488,8 +528,19 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
 
     let busy = "&runnable_id=f/test/busy&started_by=flow_step";
     let listed = fetch("SECRET_TOKEN", busy.to_string()).await?;
-    assert_eq!(listed[0]["top_run"]["id"], long_flow.to_string());
-    assert_eq!(listed[0]["group"]["runs"], 2);
+    assert_eq!(listed[0]["top_run"]["id"], running_flow.to_string());
+    assert_eq!(listed[0]["group"]["running"], 1);
+    assert_eq!(listed[1]["top_run"]["id"], long_flow.to_string());
+    assert_eq!(listed[1]["group"]["runs"], 2);
+    assert_eq!(listed[1]["group"]["complete"], true);
+    let opened = fetch("SECRET_TOKEN", format!("{busy}&top_run={running_flow}")).await?;
+    assert_eq!(ids(&opened), [running_call.to_string()]);
+    let manual = "&runnable_id=f/test/busy&started_by=manual";
+    let retried = fetch("SECRET_TOKEN", manual.to_string()).await?;
+    assert_eq!(ids(&retried), [failed_call.to_string()]);
+    assert_eq!(retried[0]["group"]["retries"], 1);
+    let opened = fetch("SECRET_TOKEN", format!("{manual}&top_run={failed_call}")).await?;
+    assert_eq!(ids(&opened), [retried_call.to_string()]);
     let opened = fetch("SECRET_TOKEN", format!("{busy}&top_run={long_flow}")).await?;
     assert_eq!(
         ids(&opened),
