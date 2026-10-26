@@ -4,7 +4,7 @@
 	/** Marks a selection, so the per-workspace URLs add no API endpoint tools to it. */
 	export const RUNNABLES_AS_TOOLS = 'mcp:runnables_as_tools'
 
-	/** Added by the server to an `mcp:all` sign-in so `/api/mcp/gateway` serves it the AI
+	/** Added by the server to an `mcp:all` sign-in so the tools server's URLs serve it the AI
 	 *  session's tools. Grants nothing, so it is never shown. */
 	export const MCP_SESSION = 'mcp:session'
 

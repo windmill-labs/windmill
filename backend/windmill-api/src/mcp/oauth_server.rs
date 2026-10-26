@@ -873,11 +873,14 @@ async fn oauth_approve_inner(
 
     let code = format!("mcp-code-{}", rd_string(32));
 
-    let scopes: Vec<String> = form
+    let mut scopes: Vec<String> = form
         .scope
         .split_whitespace()
         .map(|s| s.to_string())
         .collect();
+    if scopes.iter().any(|s| s == "mcp:all") && !scopes.iter().any(|s| s == SESSION_SCOPE) {
+        scopes.push(SESSION_SCOPE.to_string());
+    }
 
     // The approver's own token bounds what it may grant: a scope-restricted MCP
     // token must not approve a broader one (e.g. mcp:scripts:f/x -> mcp:all). An
@@ -1063,10 +1066,6 @@ pub async fn gateway_oauth_approve(
     Json(form): Json<GatewayApprovalForm>,
 ) -> Result<Json<ApprovalResponse>> {
     let mut scope = form.scope;
-    let granted = scope.split_whitespace().collect::<Vec<_>>();
-    if granted.contains(&"mcp:all") && !granted.contains(&SESSION_SCOPE) {
-        scope.push_str(&format!(" {SESSION_SCOPE}"));
-    }
     let mut workspace_ids = form.workspace_ids;
     if workspace_ids.is_empty() {
         workspace_ids.extend(form.workspace_id);

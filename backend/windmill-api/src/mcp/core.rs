@@ -504,13 +504,11 @@ fn scoped_to_selection(scopes: &[String]) -> bool {
     mcp.clone().next().is_some() && !mcp.any(|scope| scope == "mcp:all")
 }
 
-/// Set on a request whose token `/api/mcp/gateway` serves the session's toolset rather than
-/// the tools server: an `mcp:all` grant marked `mcp:session`, or narrowed by `mcp:read_only` /
-/// `mcp:read_run`, which leave the tools server only `list_workspaces` there.
-#[derive(Clone, Copy)]
-pub struct McpSessionGrant;
-
-fn serves_session_on_gateway(scopes: &[String]) -> bool {
+/// Whether the tools server's URLs (`/api/mcp/gateway`, `/api/mcp/w/{workspace}/mcp`) serve
+/// a token the session's toolset: an `mcp:all` grant marked `mcp:session`, or narrowed by
+/// `mcp:read_only` / `mcp:read_run`, which the consent page describes as session access.
+/// Every other token there keeps the tools server it was issued for.
+fn serves_session_toolset(scopes: &[String]) -> bool {
     scopes.iter().any(|scope| scope == "mcp:all")
         && scopes
             .iter()
@@ -647,12 +645,8 @@ pub async fn extract_workspace_from_token(
         .await
         {
             Ok(Some(row)) => {
-                let scopes = row.scopes.as_deref().unwrap_or_default();
-                if scoped_to_selection(scopes) {
+                if scoped_to_selection(row.scopes.as_deref().unwrap_or_default()) {
                     request.extensions_mut().insert(McpSelection);
-                }
-                if serves_session_on_gateway(scopes) {
-                    request.extensions_mut().insert(McpSessionGrant);
                 }
                 match row.workspace_id {
                     Some(workspace_id) => {
@@ -724,7 +718,7 @@ pub async fn setup_mcp_server(
     user_db: UserDB,
     base_internal_url: String,
     auth_cache: Arc<AuthCache>,
-) -> anyhow::Result<(Router, Router, Router, CancellationToken)> {
+) -> anyhow::Result<(Router, Router, CancellationToken)> {
     let cancellation_token = CancellationToken::new();
     let session_manager = Arc::new(LocalSessionManager::default());
 
@@ -759,10 +753,7 @@ pub async fn setup_mcp_server(
     let service =
         StreamableHttpService::new(move || Ok(runner.clone()), session_manager, service_config);
 
-    let router = Router::new().route_service("/", service.clone());
-    // `/api/mcp/gateway` keeps the tools server for every token it served before the
-    // session's toolset existed, and answers a `McpSessionGrant` with that toolset.
-    let gateway_router = Router::new().route(
+    let router = Router::new().route(
         "/",
         axum::routing::any({
             let (service, session_service) = (service.clone(), session_service.clone());
@@ -770,7 +761,10 @@ pub async fn setup_mcp_server(
                 let (service, session_service) = (service.clone(), session_service.clone());
                 async move {
                     use tower::ServiceExt;
-                    let response = if request.extensions().get::<McpSessionGrant>().is_some() {
+                    let session = request.extensions().get::<ApiAuthed>().is_some_and(|a| {
+                        serves_session_toolset(a.scopes.as_deref().unwrap_or_default())
+                    });
+                    let response = if session {
                         session_service.oneshot(request).await
                     } else {
                         service.oneshot(request).await
@@ -805,7 +799,7 @@ pub async fn setup_mcp_server(
             }
         }),
     );
-    Ok((router, gateway_router, session_router, cancellation_token))
+    Ok((router, session_router, cancellation_token))
 }
 
 /// HTTP handler to list MCP tools as JSON
@@ -857,7 +851,7 @@ pub fn toolset_service() -> Router {
 
 #[cfg(test)]
 mod tests {
-    use super::{scoped_to_selection, serves_session_on_gateway};
+    use super::{scoped_to_selection, serves_session_toolset};
 
     #[test]
     fn only_a_token_without_mcp_all_is_a_selection() {
@@ -878,9 +872,9 @@ mod tests {
     }
 
     #[test]
-    fn gateway_keeps_the_tools_server_for_unmarked_tokens() {
+    fn tools_server_urls_keep_unmarked_tokens() {
         let session = |scopes: &[&str]| {
-            serves_session_on_gateway(&scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+            serves_session_toolset(&scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>())
         };
         assert!(session(&["mcp:all", "mcp:session"]));
         assert!(session(&["mcp:all", "mcp:read_only"]));

@@ -161,7 +161,7 @@ fn pattern_covers(caller: &str, requested: &str) -> bool {
 /// URL, which an older selection, carrying none of the newer scopes, still does.
 pub const RUNNABLES_AS_TOOLS_SCOPE: &str = "mcp:runnables_as_tools";
 
-/// Added server-side to an `mcp:all` OAuth grant so `/api/mcp/gateway` serves it the AI
+/// Added server-side to an `mcp:all` OAuth grant so the tools server's URLs serve it the AI
 /// session's toolset. Grants nothing: an `mcp:all` token without it predates the session
 /// toolset there, and must keep the tools server's endpoint tools.
 pub const SESSION_SCOPE: &str = "mcp:session";
