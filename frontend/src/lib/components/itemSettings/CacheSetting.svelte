@@ -21,10 +21,7 @@
 		? 'https://www.windmill.dev/docs/flows/cache#cache-flows'
 		: 'https://www.windmill.dev/docs/core_concepts/caching'}
 	checked={ttl !== undefined && ttl > 0}
-	onchange={(on) => {
-		ttl = on ? 300 : undefined
-		if (!on) ignoreS3Path = undefined
-	}}
+	onchange={(on) => (ttl = on ? 300 : undefined)}
 >
 	<Label label="How long to keep cache valid">
 		<SecondsInput bind:seconds={ttl} />

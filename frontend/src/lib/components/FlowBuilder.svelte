@@ -66,7 +66,12 @@
 	} from './flows/flowState'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
-	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
+	import type {
+		ExtendedOpenFlow,
+		FlowEditorContext,
+		FlowInput,
+		FlowInputEditorState
+	} from './flows/types'
 	import { setFlowPanelPlacementTelemetry } from './flows/flowEditorTelemetry'
 	import { SelectionManager } from './graph/selectionUtils.svelte'
 	import { NoteEditor } from './graph/noteEditor.svelte'
@@ -75,7 +80,7 @@
 	import { cleanFlow } from './flows/utils.svelte'
 	import { DiffIcon, HistoryIcon, FileJson, Settings, Undo, Redo, Disc } from 'lucide-svelte'
 	import { muteErrorHandlerMenuItem } from './details/errorHandlerToggle'
-	import { useDeployedErrorHandlerMuted } from './details/deployedErrorHandlerMuted.svelte'
+	import { useDeployedItem } from './details/deployedItem.svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
@@ -205,12 +210,14 @@
 	let deployDialogOpen = $state(false)
 	let deployDialogMsg = $state('')
 
-	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously. A flow that runs
-	// on behalf of nobody has no email field at all, so its absence is synced too.
+	// Keep savedOnBehalfOfEmail in sync as the flow loads. Once deployed, the deployed row says
+	// who the flow runs as: `savedFlow` carries its draft's user. A flow that runs on behalf of
+	// nobody has no email field at all, so its absence is synced too.
 	$effect(() => {
-		if (savedFlow) {
-			savedOnBehalfOfEmail.set(savedFlow.on_behalf_of_email)
-			savedOnBehalfOfPermissionedAs.set(savedFlow.on_behalf_of)
+		const saved = deployedFlowPath ? deployedItem.current : savedFlow
+		if (saved) {
+			savedOnBehalfOfEmail.set(saved.on_behalf_of_email)
+			savedOnBehalfOfPermissionedAs.set(saved.on_behalf_of)
 		}
 	})
 
@@ -483,15 +490,21 @@
 	}
 
 	async function handleSaveFlow(deploymentMsg?: string) {
+		// Compares against the user deployed right now, which updates the saved stores; a failed
+		// lookup asks rather than trusting the draft's user.
+		const deployed = deployedFlowPath ? await deployedItem.refetch() : undefined
 		if (
+			(deployedFlowPath && !deployed) ||
 			// Asks while the folder default is loading: the backend would apply it unconfirmed.
 			folderDefault.loading ||
-			deployAsksOnBehalfOf(
-				'flow',
-				!!flowStore.val.on_behalf_of_email,
-				!isNewFlow && !!$savedOnBehalfOfEmail,
-				folderDefault.value
-			)
+			deployAsksOnBehalfOf('flow', {
+				user: actingUser,
+				email: flowStore.val.on_behalf_of_email,
+				permissionedAs: flowStore.val.on_behalf_of,
+				savedEmail: deployed?.on_behalf_of_email,
+				savedPermissionedAs: deployed?.on_behalf_of,
+				folderDefault: folderDefault.value
+			})
 		) {
 			deployDialogMsg = deploymentMsg ?? ''
 			deployDialogOpen = true
@@ -681,6 +694,7 @@
 						description: flow.description ?? '',
 						value: flow.value,
 						schema: flow.schema,
+						ws_error_handler_muted: flow.ws_error_handler_muted,
 						tag: flow.tag,
 						dedicated_worker: flow.dedicated_worker,
 						visible_to_runner_only: flow.visible_to_runner_only,
@@ -1404,25 +1418,27 @@
 				icon: Disc,
 				action: () => flowPreviewButtons?.openRecordingPreview()
 			},
-			...(deployedFlowPath
-				? [
-						muteErrorHandlerMenuItem({
-							kind: 'flow',
-							muted: deployedMute.muted,
-							hasEnterpriseLicense: !!$enterpriseLicense,
-							onToggle: () => deployedMute.toggle()
-						})
-					]
-				: [])
+			// Before the first deploy the switch edits the flow, and the create sends it.
+			muteErrorHandlerMenuItem({
+				kind: 'flow',
+				deployed: !!deployedFlowPath,
+				muted: deployedFlowPath ? deployedItem.muted : !!editedFlow().ws_error_handler_muted,
+				hasEnterpriseLicense: !!$enterpriseLicense,
+				onToggle: () => {
+					if (deployedFlowPath) deployedItem.toggle()
+					else editedFlow().ws_error_handler_muted = !editedFlow().ws_error_handler_muted
+				}
+			})
 		]
 	}
+	const editedFlow = () => flowStore.val as ExtendedOpenFlow
 	// The URL path: `initialPath` is the staged name once a draft that renames the flow reloads.
 	const deployedFlowPath = $derived(
 		!newFlow && savedFlow && savedFlow.no_deployed !== true
 			? userDraftPath || initialPath || undefined
 			: undefined
 	)
-	const deployedMute = useDeployedErrorHandlerMuted(
+	const deployedItem = useDeployedItem(
 		'flow',
 		() => opWorkspace,
 		() => deployedFlowPath

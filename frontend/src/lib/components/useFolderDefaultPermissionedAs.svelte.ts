@@ -1,16 +1,19 @@
 import { FolderService } from '$lib/gen'
 import { Minimatch } from 'minimatch'
 import { resource } from 'runed'
-import { workspaceStore, userStore } from '$lib/stores'
+import { fromStore } from 'svelte/store'
+import { workspaceStore } from '$lib/stores'
+import { useActingUser } from '$lib/actingUser.svelte'
+import { canPreserveOnBehalfOf } from './itemSettings/onBehalfOf'
 
 /**
  * Resolves the folder's `default_permissioned_as` rule that matches a given item path.
  * Returns `undefined` when the user is not admin/wm_deployer, the path is not under a
  * folder, the folder has no matching rules, or the fetch fails.
  *
- * Tracks workspace/user store changes reactively so the value refreshes on workspace
- * switch or permission change. Uses `runed`'s `resource()` which handles race conditions
- * and loading state automatically.
+ * The rights are the acting user's in the resolved workspace, as the backend checks them there:
+ * `$userStore` answers for the navigation workspace only. `loading` holds while that user is
+ * still being looked up. Call during component initialisation.
  */
 export function useFolderDefaultPermissionedAs(
 	pathGetter: () => string | undefined,
@@ -18,25 +21,14 @@ export function useFolderDefaultPermissionedAs(
 	// a forked session resolves the folder default from its own workspace.
 	wsGetter?: () => string | undefined
 ) {
-	// Subscribe to the stores so the effect re-runs on changes.
-	let navWorkspace = $state<string | undefined>(undefined)
-	let user = $state<any>(undefined)
-
-	$effect(() => {
-		const unsubWs = workspaceStore.subscribe((w) => (navWorkspace = w))
-		const unsubUser = userStore.subscribe((u) => (user = u))
-		return () => {
-			unsubWs()
-			unsubUser()
-		}
-	})
+	const navWorkspace = fromStore(workspaceStore)
+	const workspace = () => wsGetter?.() ?? navWorkspace.current
+	const acting = useActingUser(workspace)
 
 	const folderResource = resource(
-		() => ({ path: pathGetter(), workspace: wsGetter?.() ?? navWorkspace, user }),
+		() => ({ path: pathGetter(), workspace: workspace(), user: acting.current }),
 		async ({ path, workspace, user }) => {
-			const canPreserve =
-				user?.is_admin || user?.is_super_admin || (user?.groups ?? []).includes('wm_deployers')
-			if (!canPreserve || !workspace || !path?.startsWith('f/')) {
+			if (!canPreserveOnBehalfOf(user) || !workspace || !path?.startsWith('f/')) {
 				return undefined
 			}
 			const parts = path.split('/')
@@ -67,7 +59,11 @@ export function useFolderDefaultPermissionedAs(
 			return folderResource.current
 		},
 		get loading() {
-			return folderResource.loading
+			const ws = workspace()
+			return (
+				folderResource.loading ||
+				(!!ws && !!pathGetter()?.startsWith('f/') && !acting.resolved(ws))
+			)
 		}
 	}
 }

@@ -39,7 +39,7 @@
 			label="Custom timeout"
 			tooltip="Used instead of the instance timeout, which it cannot exceed."
 			documentationLink="https://www.windmill.dev/docs/script_editor/settings#timeout"
-			checked={script.timeout !== undefined}
+			checked={!!script.timeout}
 			onchange={(on) => (script.timeout = on ? defaultTimeout : undefined)}
 		>
 			<SecondsInput bind:seconds={script.timeout} />
@@ -100,7 +100,7 @@
 				checked={addingEnvs || (script.envs?.length ?? 0) > 0}
 				onchange={(on) => {
 					addingEnvs = on
-					script.envs = on ? [''] : undefined
+					script.envs = on ? [''] : []
 				}}
 			>
 				<Alert type="info" title="Not passed in previews" size="xs">

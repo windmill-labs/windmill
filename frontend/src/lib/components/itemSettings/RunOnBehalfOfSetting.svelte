@@ -69,11 +69,13 @@
 	// opens, and a choice that restarts empty lets the selector reselect the deployed user over
 	// the one picked.
 	let choice: OnBehalfOfChoice = $derived.by(() => {
+		// No user picked deploys the folder default, even over a deployed user: a script renamed
+		// into the folder is created at its new path.
+		if (!permissionedAs && !email && folderDefault) return 'custom'
 		const keepsSaved = savedPermissionedAs
 			? (permissionedAs ?? savedPermissionedAs) === savedPermissionedAs
 			: !!savedEmail && (email ?? savedEmail) === savedEmail
 		if (keepsSaved) return 'target'
-		if (!permissionedAs && !email && folderDefault) return 'custom'
 		const isMe = permissionedAs
 			? permissionedAs === myPermissionedAs
 			: !email || email === actingUser?.email

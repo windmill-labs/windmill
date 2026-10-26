@@ -34,30 +34,28 @@ export function deployedPermissionedAs(
 	return user?.username ? `u/${user.username}` : undefined
 }
 
-/** Whether a deploy asks first whose access the item will run with: every app deploy, since all
- *  its viewers use that access, and any flow or script deploy that leaves it running on behalf of
- *  someone or stops it doing so. */
+/** Whether a deploy asks first whose access the item will run with. A deploy asks when the item
+ *  starts running on behalf of someone, changes who, or stops: a deploy that keeps the deployed
+ *  user has nothing new to confirm. An app always runs on behalf of someone, so its first deploy
+ *  always asks. `saved*` are the deployed version's, unset before the first deploy. */
 export function deployAsksOnBehalfOf(
 	kind: 'flow' | 'script' | 'app',
-	holdsUser: boolean,
-	deployedHoldsUser: boolean,
-	folderDefault?: string
+	deploy: {
+		user: DeployingUser
+		email: string | undefined
+		permissionedAs: string | undefined
+		savedEmail: string | undefined
+		savedPermissionedAs: string | undefined
+		folderDefault?: string
+	}
 ): boolean {
-	return kind === 'app' || holdsUser || deployedHoldsUser || !!folderDefault
-}
-
-/** Writes into an app's policy the user its deploy will run on behalf of, so the request names
- *  it. The editor keeps the policy it sent as the deployed one, so it has to say what the backend
- *  stores, or the next deploy would see a change that already happened. */
-export function setDeployedOnBehalfOf(
-	policy: { on_behalf_of?: string; on_behalf_of_email?: string },
-	user: DeployingUser,
-	folderDefault?: string
-): void {
-	const runsAs = deployedPermissionedAs(user, policy.on_behalf_of, folderDefault)
-	if (!runsAs || runsAs === policy.on_behalf_of) return
-	policy.on_behalf_of = runsAs
-	policy.on_behalf_of_email = runsAs === `u/${user?.username}` ? user?.email : undefined
+	const deployedHoldsUser = !!(deploy.savedPermissionedAs ?? deploy.savedEmail)
+	if (kind !== 'app' && !deploy.email && !deploy.folderDefault) return deployedHoldsUser
+	if (!deployedHoldsUser) return true
+	return (
+		deployedPermissionedAs(deploy.user, deploy.permissionedAs, deploy.folderDefault) !==
+		deploy.savedPermissionedAs
+	)
 }
 
 /** What keeps lending the publisher's access to an app's viewers safe. */

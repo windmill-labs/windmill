@@ -78,7 +78,7 @@
 	import { parsePipelineAnnotations } from './assets/AssetGraph/parsePipelineAnnotations'
 	import DropdownV2 from './DropdownV2.svelte'
 	import { muteErrorHandlerMenuItem } from './details/errorHandlerToggle'
-	import { useDeployedErrorHandlerMuted } from './details/deployedErrorHandlerMuted.svelte'
+	import { useDeployedItem } from './details/deployedItem.svelte'
 	import { getLocalSetting, storeLocalSetting, type Item } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
@@ -246,22 +246,32 @@
 
 	const scriptIsDeployed = $derived(!!initialPath && !!savedScript && !savedScript.no_deployed)
 	// The URL path: `initialPath` is the staged name once a draft that renames the script reloads.
-	const deployedMute = useDeployedErrorHandlerMuted(
+	const deployedItem = useDeployedItem(
 		'script',
 		() => opWorkspace,
 		() => (scriptIsDeployed ? userDraftPath || initialPath : undefined)
 	)
+	// Who the deployed script runs as: `savedScript` carries its draft's user.
+	const savedRunAs = $derived(
+		scriptIsDeployed ? (deployedItem.current ?? savedScript) : savedScript
+	)
+	const offersMute = $derived(customUi?.settingsPanel?.metadata?.disableMute !== true)
 
 	function getMoreMenuItems(): Item[] {
 		return [
 			...(compactTopbar ? getCompactMenuItems() : []),
-			...(scriptIsDeployed && customUi?.settingsPanel?.metadata?.disableMute !== true
+			...(offersMute
 				? [
+						// Before the first deploy the switch edits the script, and the deploy sends it.
 						muteErrorHandlerMenuItem({
 							kind: 'script',
-							muted: deployedMute.muted,
+							deployed: scriptIsDeployed,
+							muted: scriptIsDeployed ? deployedItem.muted : !!script.ws_error_handler_muted,
 							hasEnterpriseLicense: !!$enterpriseLicense,
-							onToggle: () => deployedMute.toggle()
+							onToggle: () => {
+								if (scriptIsDeployed) deployedItem.toggle()
+								else script.ws_error_handler_muted = !script.ws_error_handler_muted
+							}
 						})
 					]
 				: [])
@@ -305,8 +315,9 @@
 	let hasPreprocessor = $state(false)
 	const isNewScript = $derived(initialPath == '' || savedScript?.no_deployed === true)
 	// Only the script's first deploy takes the folder's default user.
+	// A rename is a create at the new path, so the backend applies that path's folder default too.
 	const folderDefault = useFolderDefaultPermissionedAs(
-		() => (isNewScript ? script.path : undefined),
+		() => (isNewScript || script.path !== (userDraftPath || initialPath) ? script.path : undefined),
 		() => opWorkspace
 	)
 	let deployDialogOpen = $state(false)
@@ -649,15 +660,21 @@
 	}
 
 	async function handleEditScript(stay: boolean, deployMsg?: string): Promise<void> {
+		// Compares against the user deployed right now; a failed lookup asks rather than trusting
+		// the draft's user.
+		const deployed = scriptIsDeployed ? await deployedItem.refetch() : undefined
 		if (
+			(scriptIsDeployed && !deployed) ||
 			// Asks while the folder default is loading: the backend would apply it unconfirmed.
 			folderDefault.loading ||
-			deployAsksOnBehalfOf(
-				'script',
-				!!script.on_behalf_of_email,
-				!isNewScript && !!savedScript?.on_behalf_of_email,
-				folderDefault.value
-			)
+			deployAsksOnBehalfOf('script', {
+				user: actingUser,
+				email: script.on_behalf_of_email,
+				permissionedAs: script.on_behalf_of,
+				savedEmail: deployed?.on_behalf_of_email,
+				savedPermissionedAs: deployed?.on_behalf_of,
+				folderDefault: folderDefault.value
+			})
 		) {
 			deployDialogStay = stay
 			deployDialogMsg = deployMsg ?? ''
@@ -833,7 +850,7 @@
 			// Muting applies to the deployed script at once, from the editor menu or the script's
 			// page, and a new version without the value is unmuted: keep the one deployed now.
 			// The deployed row sits at the URL path: `initialPath` is the staged name after a reload.
-			const deployedMuted = initialPath
+			const deployedMuted = scriptIsDeployed
 				? await ScriptService.getScriptByPath({
 						workspace: opWorkspace!,
 						path: userDraftPath || initialPath
@@ -1442,8 +1459,8 @@
 	bind:message={deployDialogMsg}
 	bind:email={script.on_behalf_of_email}
 	bind:permissionedAs={script.on_behalf_of}
-	savedEmail={isNewScript ? undefined : savedScript?.on_behalf_of_email}
-	savedPermissionedAs={isNewScript ? undefined : savedScript?.on_behalf_of}
+	savedEmail={isNewScript ? undefined : savedRunAs?.on_behalf_of_email}
+	savedPermissionedAs={isNewScript ? undefined : savedRunAs?.on_behalf_of}
 	isNew={isNewScript}
 	folderDefault={folderDefault.value}
 	folderDefaultLoading={folderDefault.loading}
@@ -1861,8 +1878,8 @@
 										kind="script"
 										bind:email={script.on_behalf_of_email}
 										bind:permissionedAs={script.on_behalf_of}
-										savedEmail={savedScript?.on_behalf_of_email}
-										savedPermissionedAs={savedScript?.on_behalf_of}
+										savedEmail={savedRunAs?.on_behalf_of_email}
+										savedPermissionedAs={savedRunAs?.on_behalf_of}
 										targetWorkspace={opWorkspace ?? ''}
 										isNew={isNewScript}
 									/>
@@ -2182,7 +2199,7 @@
 					{@render settingsButton()}
 				{/if}
 			{:else}
-				{#if scriptIsDeployed}
+				{#if offersMute}
 					{@render moreMenu()}
 				{/if}
 				{@render diffButton()}

@@ -101,9 +101,6 @@
 		} else {
 			debounce_delay_s = undefined
 			debounce_key = undefined
-			selectedArg = ''
-			max_total_debouncing_time = undefined
-			max_total_debounces_amount = undefined
 		}
 	}}
 >

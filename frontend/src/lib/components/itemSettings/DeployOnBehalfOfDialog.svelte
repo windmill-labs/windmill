@@ -4,6 +4,7 @@
 	import RunOnBehalfOfSetting from './RunOnBehalfOfSetting.svelte'
 	import { appOnBehalfOfTooltip, deployedPermissionedAs } from './onBehalfOf'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+	import { AlertTriangle } from 'lucide-svelte'
 
 	interface Props {
 		open: boolean
@@ -61,6 +62,7 @@
 	)
 	const who = $derived(!runsAs ? 'you' : runsAs === me ? `${runsAs} (you)` : runsAs)
 	const unchanged = $derived(!isNew && !!savedPermissionedAs && runsAs === savedPermissionedAs)
+	const folderDefaultNotMe = $derived(!!folderDefault && runsAs === folderDefault && runsAs !== me)
 	let pickerOpen = $state(false)
 </script>
 
@@ -124,6 +126,15 @@
 				<!-- pl-9 lines it up under the switch's label, as SettingToggle indents its contents. -->
 				<div class={['text-2xs text-secondary', !required && 'pl-9']}>
 					Same as the deployed version.
+				</div>
+			{/if}
+			{#if folderDefaultNotMe}
+				<div class="flex items-start gap-1.5 text-2xs text-yellow-600 dark:text-yellow-400">
+					<AlertTriangle size={14} class="shrink-0 text-yellow-500" />
+					<span>
+						This folder's default user is <strong>{folderDefault}</strong>, so the {kind} won't run
+						with your access. Pick yourself above to change that.
+					</span>
 				</div>
 			{/if}
 		</div>

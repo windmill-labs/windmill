@@ -19,13 +19,12 @@ describe('getActiveScriptSettingsBadges', () => {
 		expect(keys).toEqual(['timeout', 'concurrency', 'cache', 'priority', 'tag'])
 	})
 
-	it('treats non-positive debounce as inactive, and priority 0 as set', () => {
+	it('treats a zero/absent priority and non-positive debounce as inactive', () => {
 		const keys = getActiveScriptSettingsBadges({
 			priority: 0,
 			debounce_delay_s: 0
 		}).map((b) => b.key)
-		// The queue orders by priority with nulls last, so 0 still runs ahead of no priority.
-		expect(keys).toEqual(['priority'])
+		expect(keys).toEqual([])
 	})
 
 	it('treats non-positive concurrency limits, timeouts and cache ttl as inactive (legacy zero rows)', () => {

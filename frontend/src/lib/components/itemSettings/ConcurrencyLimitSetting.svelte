@@ -40,8 +40,11 @@
 			limit = 1
 		} else {
 			limit = undefined
-			timeWindowS = undefined
-			concurrencyKey = undefined
+			// A flow keeps its window and key in its value when the limit goes; a script drops them.
+			if (kind === 'script') {
+				timeWindowS = undefined
+				concurrencyKey = undefined
+			}
 		}
 	}}
 >

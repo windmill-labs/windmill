@@ -1,5 +1,9 @@
 <script lang="ts">
-	import { setDeployedOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import {
+		fetchDeployedRunAs,
+		setDeployedOnBehalfOf
+	} from '$lib/components/apps/editor/appDeploy.svelte'
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
@@ -268,6 +272,7 @@
 		() => opWorkspace
 	)
 	let deployDialogOpen = $state(false)
+	let deployedRunAs: Awaited<ReturnType<typeof fetchDeployedRunAs>> = $state()
 
 	// The AutosaveIndicator watches these; in the sessions preview they're the
 	// session's (workspace, path), else the full-page editor's own values.
@@ -720,7 +725,26 @@
 			return
 		}
 		deploymentMsg = message
-		deployDialogOpen = true
+		// Compares against the user deployed right now; a failed lookup asks rather than trusting
+		// the loaded one.
+		deployedRunAs = isNewApp ? undefined : await fetchDeployedRunAs(opWorkspace!, appPath)
+		if (
+			(!isNewApp && !deployedRunAs) ||
+			// Asks while the folder default is loading: the backend would apply it unconfirmed.
+			folderDefault.loading ||
+			deployAsksOnBehalfOf('app', {
+				user: actingUser,
+				email: policy.on_behalf_of_email,
+				permissionedAs: policy.on_behalf_of,
+				savedEmail: deployedRunAs?.on_behalf_of_email,
+				savedPermissionedAs: deployedRunAs?.on_behalf_of,
+				folderDefault: folderDefault.value
+			})
+		) {
+			deployDialogOpen = true
+			return
+		}
+		await deployNow()
 	}
 
 	async function deployNow() {
@@ -876,8 +900,8 @@
 	bind:message={() => deploymentMsg ?? '', (v) => (deploymentMsg = v)}
 	bind:email={policy.on_behalf_of_email}
 	bind:permissionedAs={policy.on_behalf_of}
-	savedEmail={isNewApp ? undefined : savedApp?.policy?.on_behalf_of_email}
-	savedPermissionedAs={isNewApp ? undefined : savedApp?.policy?.on_behalf_of}
+	savedEmail={isNewApp ? undefined : deployedRunAs?.on_behalf_of_email}
+	savedPermissionedAs={isNewApp ? undefined : deployedRunAs?.on_behalf_of}
 	isNew={isNewApp}
 	folderDefault={folderDefault.value}
 	folderDefaultLoading={folderDefault.loading}
