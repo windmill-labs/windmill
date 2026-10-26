@@ -188,13 +188,23 @@ fn own_category(prefix: &str) -> String {
     )
 }
 
-/// Kinds of a parent whose runs of the same path are listed through it: a workflow-as-code
-/// script's tasks, under a run or an editor preview of the script, and a single-step-flow
-/// wrapper's inner run. A flow or an agent may share the path and is another runnable.
+/// Whether the run `s`, whose parent `p` has the same path, is listed through that parent: a
+/// single-step-flow wrapper's inner run, or a task of a workflow-as-code run or editor preview
+/// of the script. An inline task re-runs the script with a checkpoint key its parent seeds; a
+/// call the script makes to itself through the SDK has none and is listed. A flow or an agent
+/// may share the path and is another runnable.
 fn listed_through_parent(runnable_type: &RunnableType) -> &'static str {
     match runnable_type {
-        RunnableType::FlowPath => "('singlestepflow')",
-        _ => "('script', 'preview', 'singlestepflow')",
+        RunnableType::FlowPath => "p.kind = 'singlestepflow'",
+        _ => {
+            "CASE WHEN p.kind = 'singlestepflow' THEN true \
+                  WHEN p.kind IN ('script', 'preview') THEN \
+                       EXISTS (SELECT 1 FROM v2_job_status w WHERE w.id = s.id \
+                               AND w.workflow_as_code_status->'_checkpoint' ? '_executing_key') \
+                       OR EXISTS (SELECT 1 FROM v2_job_completed w WHERE w.id = s.id \
+                               AND w.workflow_as_code_status->'_checkpoint' ? '_executing_key') \
+                  ELSE false END"
+        }
     }
 }
 
@@ -219,8 +229,8 @@ fn classify_inside(runnable_type: &RunnableType) -> String {
                         WHEN p.kind = 'aiagent' THEN 'agent_tool' \
                         ELSE 'script_call' END AS started_by, \
                    ra.attempt IS NULL AND p.runnable_path IS NOT DISTINCT FROM $1 \
-                       AND p.kind IN {parent_kinds} \
-                       AND s.own_category IS DISTINCT FROM 'handler' AS hidden \
+                       AND s.own_category IS DISTINCT FROM 'handler' \
+                       AND {listed_through_parent} AS hidden \
             FROM (SELECT 1) one \
             LEFT JOIN v2_job p ON p.id = s.parent_job AND p.workspace_id = $2 \
             LEFT JOIN native_retry_attempt ra ON ra.job_id = s.id AND s.own_category IS NULL \
@@ -228,7 +238,7 @@ fn classify_inside(runnable_type: &RunnableType) -> String {
         ) x",
         parent_top_level = top_level_category("p."),
         parent_handler = is_handler("p."),
-        parent_kinds = listed_through_parent(runnable_type),
+        listed_through_parent = listed_through_parent(runnable_type),
     )
 }
 

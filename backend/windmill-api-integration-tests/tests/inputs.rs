@@ -194,8 +194,21 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
         .bind(retry)
         .execute(&db)
         .await?;
-    // A workflow-as-code task carries its script's path under a run of that script: hidden.
+    // Under a run of the same script: a workflow-as-code task, which its checkpoint key marks,
+    // is hidden; a call the script makes to itself through the SDK is a script call.
     let wac_task = insert_run(
+        &db,
+        Run { path: STEP, parent_job: Some(manual), at: 4, ..Run::default() },
+    )
+    .await?;
+    sqlx::query(
+        "UPDATE v2_job_completed SET workflow_as_code_status = \
+         '{\"_checkpoint\": {\"_executing_key\": \"step\"}}'::jsonb WHERE id = $1",
+    )
+    .bind(wac_task)
+    .execute(&db)
+    .await?;
+    let self_call = insert_run(
         &db,
         Run { path: STEP, parent_job: Some(manual), at: 4, ..Run::default() },
     )
@@ -498,9 +511,13 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     let all = history(format!("&started_by={everything}")).await?;
     assert_eq!(
         ids(&all),
-        [same_path_step, handler, call, flow, scheduled, manual].map(|id| id.to_string())
+        [same_path_step, handler, call, flow, manual, scheduled].map(|id| id.to_string())
     );
     assert!(!ids(&all).contains(&wac_task.to_string()));
+    assert_eq!(all[4]["group"]["runs"], 1);
+    let in_manual = history(format!("&started_by={everything}&top_run={manual}")).await?;
+    assert_eq!(ids(&in_manual), [self_call.to_string()]);
+    assert_eq!(in_manual[0]["started_by"], "script_call");
     assert_eq!(all[0]["started_by"], "flow_step");
     assert_eq!(all[0]["top_run"]["id"], same_path_flow.to_string());
     assert_eq!(all[1]["started_by"], "handler");
