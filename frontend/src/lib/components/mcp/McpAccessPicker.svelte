@@ -9,19 +9,24 @@
 	export const MCP_SESSION = 'mcp:session'
 
 	const ACCESS_SCOPES: Record<Exclude<McpAccess, 'selected'>, string[]> = {
-		read: ['mcp:all', 'mcp:read_only'],
-		read_run: ['mcp:all', 'mcp:read_run'],
+		read: ['mcp:read'],
+		read_run: ['mcp:run'],
 		full: ['mcp:all']
 	}
 
-	/** The access a token's MCP scopes give: `mcp:all` and how it is narrowed, or else a
+	/** The access a token's MCP scopes give: the highest access level it holds, or else a
 	 *  selection of scripts, flows and endpoints. */
 	export function mcpAccessOf(scopes: string[]): McpAccess {
 		scopes = scopes.filter((s) => s !== RUNNABLES_AS_TOOLS && s !== MCP_SESSION)
-		if (!scopes.includes('mcp:all')) return scopes.length > 0 ? 'selected' : 'full'
-		if (scopes.includes('mcp:read_only')) return 'read'
-		if (scopes.includes('mcp:read_run')) return 'read_run'
-		return 'full'
+		if (scopes.includes('mcp:all')) {
+			// Tokens issued before `mcp:read` / `mcp:run` narrow `mcp:all` with these instead.
+			if (scopes.includes('mcp:read_only')) return 'read'
+			if (scopes.includes('mcp:read_run')) return 'read_run'
+			return 'full'
+		}
+		if (scopes.includes('mcp:run')) return 'read_run'
+		if (scopes.includes('mcp:read')) return 'read'
+		return scopes.length > 0 ? 'selected' : 'full'
 	}
 </script>
 

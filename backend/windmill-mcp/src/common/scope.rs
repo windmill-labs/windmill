@@ -23,12 +23,14 @@ pub struct McpScopeConfig {
     /// The workspaces a token without a bound workspace may act in
     /// (`mcp:workspaces:a,b`); `None` is every workspace its owner belongs to.
     pub workspaces: Option<Vec<String>>,
-    /// `mcp:read_run`: reads, plus running deployed scripts and flows, and nothing else.
+    /// `mcp:run` (legacy: `mcp:all` + `mcp:read_run`): reads, plus running deployed scripts
+    /// and flows, and nothing else.
     pub read_run: bool,
-    /// `mcp:read_only`: reads alone, as the token's read-only flag does. An OAuth grant
-    /// carries scopes and no flag, so this is how a sign-in asks for read-only access.
+    /// `mcp:read` (legacy: `mcp:all` + `mcp:read_only`): reads alone, as the token's read-only
+    /// flag does. An OAuth grant carries scopes and no flag, so this is how a sign-in asks
+    /// for read-only access.
     pub read_only: bool,
-    /// No endpoint tools on any URL: set by `mcp:read_only`, `mcp:read_run` and
+    /// No endpoint tools on any URL: set by the read and run access levels and
     /// `mcp:runnables_as_tools`, and by the server on `/api/mcp` for a selection.
     pub no_endpoints: bool,
 }
@@ -169,6 +171,7 @@ pub const SESSION_SCOPE: &str = "mcp:session";
 /// Parse MCP scopes from token scope strings
 pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, String> {
     let mut config = McpScopeConfig::default();
+    let (mut read, mut run) = (false, false);
 
     for scope in scopes {
         if !scope.starts_with("mcp:") {
@@ -221,6 +224,18 @@ pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, String> {
             continue;
         }
 
+        if scope == "mcp:read" {
+            read = true;
+            continue;
+        }
+
+        if scope == "mcp:run" {
+            run = true;
+            continue;
+        }
+
+        // `mcp:read_run` and `mcp:read_only` narrow the `mcp:all` beside them: the access
+        // levels before `mcp:read` / `mcp:run`, still carried by tokens issued then.
         if scope == "mcp:read_run" {
             config.read_run = true;
             config.no_endpoints = true;
@@ -257,6 +272,21 @@ pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, String> {
         }
 
         tracing::warn!("Unrecognized MCP scope format: {}", scope);
+    }
+
+    // The access levels rank below `mcp:all`, so beside it they add nothing, and `mcp:run`
+    // covers `mcp:read`: a client requesting every level gets the highest one.
+    if (read || run) && !config.all {
+        config.all = true;
+        config.scripts.push("*".to_string());
+        config.flows.push("*".to_string());
+        config.endpoints.push("*".to_string());
+        config.no_endpoints = true;
+        if run {
+            config.read_run = true;
+        } else {
+            config.read_only = true;
+        }
     }
 
     config.granular = !config.all && !config.favorites;
@@ -501,6 +531,24 @@ mod tests {
         assert!(read_run.contains(&cfg(&["mcp:all", "mcp:read_only"])));
         let read_only = cfg(&["mcp:all", "mcp:read_only"]);
         assert!(!read_only.contains(&cfg(&["mcp:all", "mcp:read_run"])));
+    }
+
+    #[test]
+    fn test_access_levels_rank_and_match_legacy_scopes() {
+        let level = |scopes: &[&str]| {
+            let c = cfg(scopes);
+            (c.all, c.read_only, c.read_run, c.no_endpoints)
+        };
+        assert_eq!(level(&["mcp:read"]), level(&["mcp:all", "mcp:read_only"]));
+        assert_eq!(level(&["mcp:run"]), level(&["mcp:all", "mcp:read_run"]));
+        assert_eq!(level(&["mcp:read", "mcp:run"]), level(&["mcp:run"]));
+        assert_eq!(
+            level(&["mcp:all", "mcp:read", "mcp:run"]),
+            level(&["mcp:all"])
+        );
+        assert!(cfg(&["mcp:run"]).contains(&cfg(&["mcp:read"])));
+        assert!(!cfg(&["mcp:read"]).contains(&cfg(&["mcp:run"])));
+        assert!(cfg(&["mcp:all", "mcp:read_run"]).contains(&cfg(&["mcp:run"])));
     }
 
     #[test]

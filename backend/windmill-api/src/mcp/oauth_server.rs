@@ -231,6 +231,8 @@ struct RefreshTokenRow {
 fn granting_scopes() -> Vec<String> {
     [
         "mcp:all",
+        "mcp:run",
+        "mcp:read",
         "mcp:favorites",
         "mcp:scripts:*",
         "mcp:flows:*",
@@ -242,7 +244,7 @@ fn granting_scopes() -> Vec<String> {
 
 fn supported_scopes() -> Vec<String> {
     let mut scopes = granting_scopes();
-    scopes.extend(["mcp:read_only", "mcp:read_run", "mcp:runnables_as_tools"].map(String::from));
+    scopes.push("mcp:runnables_as_tools".to_string());
     scopes
 }
 
