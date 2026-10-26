@@ -12,6 +12,9 @@
 	}
 
 	let { kind, priority = $bindable() }: Props = $props()
+
+	// A priority of 0 reads as off, so emptying the field or typing 0 must not close it mid-edit.
+	let editing = $state(false)
 </script>
 
 <!-- Not available on the cloud, where the toggle could only ever be disabled. -->
@@ -27,8 +30,11 @@
 			: 'https://www.windmill.dev/docs/core_concepts/jobs#high-priority-jobs'}
 		eeOnly
 		disabled={!$enterpriseLicense}
-		checked={priority !== undefined && priority > 0}
-		onchange={(on) => (priority = on ? 100 : undefined)}
+		checked={editing || (priority != undefined && priority > 0)}
+		onchange={(on) => {
+			editing = on
+			priority = on ? 100 : undefined
+		}}
 	>
 		<Label label="Priority number">
 			{#snippet header()}
@@ -42,6 +48,7 @@
 					min: 0,
 					max: 100,
 					disabled: !$enterpriseLicense,
+					onfocus: () => (editing = true),
 					onchange: () => {
 						if (priority != undefined && priority > 100) priority = 100
 						else if (priority != undefined && priority < 0) priority = 0
