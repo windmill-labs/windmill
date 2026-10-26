@@ -1435,18 +1435,29 @@ pub(super) async fn show_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         _ => super::deploy::deployed_page(item_type, path, &Value::Null),
     };
     let url = |page: Option<String>| page.map(|page| ctx.page_url(&page));
+    let edit_url = url(edit_page(item_type, path, &item));
     ctx.set_view(
         "windmill/item",
         json!({
             "workspace": ctx.w_id,
             "item": item,
             "url": url(page),
-            "edit_url": url(draft_page(item_type, path, &Value::Null)),
+            "edit_url": edit_url,
         }),
     );
     Ok(format!(
         "Showing {item_type} \"{path}\" to the user as a card."
     ))
+}
+
+/// The editor an item's draft opens in. An app's is its own editor: its page shows only the
+/// deployed version, and a new app has none.
+fn edit_page(item_type: &str, path: &str, item: &Value) -> Option<String> {
+    match item_type {
+        "app" if truthy(item.get("rawApp")) => Some(format!("/apps_raw/edit/{path}")),
+        "app" => Some(format!("/apps/edit/{path}")),
+        _ => draft_page(item_type, path, &Value::Null),
+    }
 }
 
 async fn read_workspace_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
