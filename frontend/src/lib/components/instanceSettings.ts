@@ -354,6 +354,19 @@ export const settings: Record<string, Setting[]> = {
 			hideInQuickSetup: true
 		},
 		{
+			label: 'MCP public base url',
+			description:
+				"Url hosted MCP clients (such as claude.ai connectors) reach the MCP server on, for an instance whose base url is private. The MCP URL shown to users and the OAuth resource, issuer, token and registration endpoints use it; sign-in still opens on the base url, in the user's browser. That host must forward /api/mcp/* and /.well-known/oauth-*/api/mcp/* to Windmill. Leave empty to use the base url. Servers pick this up within a minute; dedicated MCP servers (MODE=mcp) apply it when they next restart.",
+			key: 'mcp_public_base_url',
+			fieldType: 'text',
+			placeholder: 'https://mcp.windmill.company.com',
+			storage: 'setting',
+			hideInQuickSetup: true,
+			error:
+				'MCP public base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, no shell metacharacters, and no trailing slash',
+			isValid: isValidWebhookBaseUrl
+		},
+		{
 			label: 'Announcement banner',
 			description:
 				'Message shown above every page of the instance, for maintenance windows and incidents.',

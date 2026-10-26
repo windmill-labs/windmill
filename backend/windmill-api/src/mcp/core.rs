@@ -667,7 +667,6 @@ pub async fn add_www_authenticate_header_gateway(
     next: Next,
 ) -> Response {
     use axum::http::StatusCode;
-    use windmill_common::BASE_URL;
 
     let endpoint = request
         .extensions()
@@ -677,8 +676,11 @@ pub async fn add_www_authenticate_header_gateway(
     let response = next.run(request).await;
 
     if response.status() == StatusCode::UNAUTHORIZED {
-        let base_url = BASE_URL.load();
-        let resource_url = format!("{}{}", base_url, endpoint);
+        let resource_url = format!(
+            "{}{}",
+            windmill_common::global_settings::mcp_public_base_url(),
+            endpoint
+        );
         let www_authenticate = format!("Bearer resource=\"{}\"", resource_url);
 
         let (mut parts, body) = response.into_parts();

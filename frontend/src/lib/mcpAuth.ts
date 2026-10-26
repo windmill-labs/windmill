@@ -11,6 +11,15 @@ import { SettingService } from '$lib/gen'
  * Throws rather than falling back, so the caller picks the safe default. Guessing `false`
  * here would mint a non-expiring token for a URL the server may refuse.
  */
+/**
+ * The `mcp_public_base_url` instance setting, when set: the host the server's MCP OAuth
+ * metadata names, which an MCP URL must be on for a client to accept that metadata.
+ */
+export async function mcpPublicBaseUrl(): Promise<string | undefined> {
+	const value = await SettingService.getGlobal({ key: 'mcp_public_base_url' })
+	return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
 export async function mcpTokenUrlDisabled(): Promise<boolean> {
 	return (
 		((await SettingService.getGlobal({

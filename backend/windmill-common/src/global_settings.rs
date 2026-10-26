@@ -117,6 +117,11 @@ pub const DISABLE_PASSWORD_LOGIN_SETTING: &str = "disable_password_login";
 /// in. A URL-borne credential ends up in browser history, proxy logs and referrers, so an
 /// instance that cares sends MCP clients through the OAuth flow instead.
 pub const MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING: &str = "mcp_disable_token_query_param";
+/// Base URL MCP clients reach the gateway on, when it differs from `base_url` (an instance
+/// kept private with only `/api/mcp` exposed to hosted clients). Read through
+/// [`mcp_public_base_url`]. Readable by any authenticated user: the token form builds the
+/// MCP URL from it, and the gateway's unauthenticated OAuth metadata publishes it anyway.
+pub const MCP_PUBLIC_BASE_URL_SETTING: &str = "mcp_public_base_url";
 /// Ceiling, in days, on how far ahead a token minted through `POST /users/tokens/create` or
 /// `POST /users/tokens/impersonate` may expire; a request asking for more, or for no
 /// expiration at all, is shortened to it rather than refused. On those routes only: server-side
@@ -520,10 +525,26 @@ lazy_static::lazy_static! {
     pub static ref HTTP_ROUTE_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);
     pub static ref DISABLE_PASSWORD_LOGIN: AtomicBool = AtomicBool::new(false);
     pub static ref MCP_DISABLE_TOKEN_QUERY_PARAM: AtomicBool = AtomicBool::new(false);
+    /// Empty means unset. See [`MCP_PUBLIC_BASE_URL_SETTING`].
+    pub static ref MCP_PUBLIC_BASE_URL: arc_swap::ArcSwap<String> =
+        arc_swap::ArcSwap::from_pointee(String::new());
     /// Origins HTTP routes allow cross-origin when they configure none of their
     /// own. Empty means unset, which keeps the historical `*`.
     pub static ref HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS: arc_swap::ArcSwap<Vec<String>> =
         arc_swap::ArcSwap::from_pointee(vec![]);
+}
+
+/// The base of every URL the MCP gateway hands a client to call: its resource identifier,
+/// the authorization server it names, and that server's issuer, token and registration
+/// endpoints. The authorization endpoint is not one of them: the user's browser opens it,
+/// and the consent page it redirects to is served on `base_url`.
+pub fn mcp_public_base_url() -> String {
+    let public = MCP_PUBLIC_BASE_URL.load();
+    if public.is_empty() {
+        crate::BASE_URL.load().to_string()
+    } else {
+        public.to_string()
+    }
 }
 
 /// Whether an allowlist places no restriction at all.

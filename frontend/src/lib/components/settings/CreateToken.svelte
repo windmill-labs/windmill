@@ -5,7 +5,7 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
 	import { SettingService, UserService, type NewToken } from '$lib/gen'
-	import { mcpTokenUrlDisabled } from '$lib/mcpAuth'
+	import { mcpPublicBaseUrl, mcpTokenUrlDisabled } from '$lib/mcpAuth'
 	import TokenDisplay from './TokenDisplay.svelte'
 	import ScopesPicker from './ScopesPicker.svelte'
 	import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
@@ -73,14 +73,21 @@
 	type McpUrlPolicy = 'loading' | 'token' | 'oauth'
 	let mcpUrlPolicy = $state<McpUrlPolicy>('loading')
 
+	let mcpBaseUrl = $state(window.location.origin)
+
 	async function loadMcpUrlPolicy() {
 		mcpUrlPolicy = 'loading'
-		try {
-			mcpUrlPolicy = (await mcpTokenUrlDisabled()) ? 'oauth' : 'token'
-		} catch (err) {
-			console.error('Failed to load the MCP token setting:', err)
+		const [disabled, publicBase] = await Promise.allSettled([
+			mcpTokenUrlDisabled(),
+			mcpPublicBaseUrl()
+		])
+		if (disabled.status === 'fulfilled') {
+			mcpUrlPolicy = disabled.value ? 'oauth' : 'token'
+		} else {
+			console.error('Failed to load the MCP token setting:', disabled.reason)
 			mcpUrlPolicy = 'oauth'
 		}
+		mcpBaseUrl = (publicBase.status === 'fulfilled' && publicBase.value) || window.location.origin
 	}
 
 	const DAY_SECS = 24 * 60 * 60
@@ -255,10 +262,11 @@
 			$operatingWorkspace ||
 			''
 	)
-	// On the browsing origin, not the API base url: the OAuth metadata the server
-	// publishes for this URL is built from `base_url`, and a client rejects a mismatch.
+	// On the MCP public base url, else the browsing origin, never the API base url: the
+	// OAuth metadata the server publishes for this URL is built from the former (falling
+	// back to `base_url`), and a client rejects a mismatch.
 	// One URL whatever the access: the token's scopes decide which tools it gets.
-	const mcpUrl = `${window.location.origin}/api/mcp`
+	const mcpUrl = $derived(`${mcpBaseUrl}/api/mcp`)
 	// Selected scripts and flows are listed per workspace: across several, a path could be two.
 	const selectionNeedsOneWorkspace = $derived(
 		mcpAccess === 'selected' && (mcpAllWorkspaces || mcpWorkspaces.length !== 1)
