@@ -1928,7 +1928,7 @@ pub(super) async fn show_runs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 /// Result head the run card shows; the full result is one click away on the run page.
 const CARD_RESULT_CHARS: usize = 1500;
 /// A loop's iterations the card lists, the latest ones: the rest are on the run page.
-const CARD_ITERATIONS: usize = 50;
+const CARD_ITERATIONS: usize = 10;
 /// Past this an image result is named and linked rather than drawn: every refresh of the
 /// card carries it again.
 const CARD_IMAGE_CHARS: usize = 1_000_000;

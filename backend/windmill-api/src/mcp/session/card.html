@@ -1489,7 +1489,10 @@
         for (const [key, label] of keys) {
           const shown = value[key];
           if (shown == null || shown === '' || (Array.isArray(shown) && !shown.length)) continue;
-          rows.push(row(label, key === 'http_method' ? String(shown).toUpperCase() : Array.isArray(shown) && shown.every((v) => typeof v === 'string') ? shown.join(', ') : display(shown)));
+          // A list reads as its names: MQTT's topics are `{ topic, qos }` objects.
+          const names = Array.isArray(shown) ? shown.map((v) => (typeof v === 'string' ? v : v?.topic)) : null;
+          rows.push(row(label, key === 'http_method' ? String(shown).toUpperCase()
+            : names?.every((n) => typeof n === 'string') ? names.join(', ') : display(shown)));
         }
         if (value.mode != null) rows.push(row('Mode', String(value.mode).replace(/^./, (c) => c.toUpperCase())));
         else if (value.enabled != null) rows.push(row('Status', value.enabled ? 'Enabled' : 'Disabled'));
