@@ -1960,8 +1960,26 @@ async fn parent_comparison_unavailable(ctx: &Ctx<'_>) -> String {
 
 /// Items `show_deploy_review` draws at most, each one diff.
 const MAX_REVIEW_ITEMS: usize = 10;
-/// A patch the review card shows whole, or not at all: past this it offers no Deploy.
+/// A patch the review card shows whole, or not at all: past this it shows the counts only.
 const MAX_REVIEW_PATCH_CHARS: usize = 60_000;
+
+/// Lines a patch adds and removes, as its hunks count them.
+fn changed_line_counts(patch: &str) -> (usize, usize) {
+    let mut in_hunk = false;
+    let (mut added, mut removed) = (0, 0);
+    for line in patch.lines() {
+        if line.starts_with("@@") {
+            in_hunk = true;
+        } else if line.starts_with("=== ") {
+            in_hunk = false;
+        } else if in_hunk && line.starts_with('+') {
+            added += 1;
+        } else if in_hunk && line.starts_with('-') {
+            removed += 1;
+        }
+    }
+    (added, removed)
+}
 
 /// The whole of a draft's diff as the user reviews it: unlike the model's `diff` text it
 /// is never paged, and a multi-file app's files are all in it.
@@ -1985,8 +2003,8 @@ fn review_patch(m: &Materialized) -> String {
 }
 
 /// Drafts with their diffs, each with a Deploy button the user presses: the card calls
-/// `deploy_workspace_item` itself, so that click is the confirmation. Deploy is offered
-/// only under a diff shown whole, and the card checks the draft is still the one shown.
+/// `deploy_workspace_item` itself, so that click is the confirmation. The card checks the
+/// draft is still the one it shows by the diff's digest, also for a diff too large to show.
 pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let (rows, _) = list_draft_rows(ctx).await?;
     let addressed = |row: &DraftRow| row.addressing.map(|(t, k)| (t, k.map(str::to_string)));
@@ -2049,8 +2067,12 @@ pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResul
             item["note"] = json!("The draft matches the deployed version: nothing to deploy.");
         } else {
             let patch = review_patch(&m);
+            let (added, removed) = changed_line_counts(&patch);
+            item["added"] = added.into();
+            item["removed"] = removed.into();
+            item["digest"] = super::apps::sha256_hex(&patch).into();
             if patch.chars().count() > MAX_REVIEW_PATCH_CHARS {
-                item["note"] = json!("This diff is too large to review here. Open it in Windmill to review and deploy it.");
+                item["too_large"] = true.into();
             } else {
                 item["patch"] = json!(patch);
             }
@@ -2064,7 +2086,7 @@ pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResul
     );
     let reviewable = items
         .iter()
-        .filter(|item| item.get("patch").is_some())
+        .filter(|item| item.get("digest").is_some())
         .count();
     ctx.set_view(
         "windmill/review",
@@ -2089,12 +2111,12 @@ pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResul
     }
     let rest: Vec<&str> = items
         .iter()
-        .filter(|item| item.get("patch").is_none())
+        .filter(|item| item.get("digest").is_none())
         .filter_map(|item| item.get("name").unwrap_or(&item["path"]).as_str())
         .collect();
     if !rest.is_empty() {
         text.push_str(&format!(
-            " No Deploy is offered for {} (no diff to show, or too large).",
+            " No Deploy is offered for {} (nothing to deploy, or not deployable from the card).",
             rest.join(", ")
         ));
     }
