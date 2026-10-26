@@ -1414,6 +1414,37 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     Ok(pretty(&Value::Array(results)))
 }
 
+/// The card of one workspace item: what `read_workspace_item` returns, under a one-line
+/// answer, with the item's page and the editor its draft opens in.
+pub(super) async fn show_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let item_type = item_type_arg(args)?;
+    let path = str_arg(args, "path")?;
+    let text = read_workspace_item(ctx, args).await?;
+    let item: Value = serde_json::from_str(&text).map_err(|_| text.clone())?;
+    if item.get("success") == Some(&Value::Bool(false)) {
+        return Err(item["error"].as_str().unwrap_or(&text).to_string());
+    }
+    // Triggers have no page of their own: their kind's list is where one is seen.
+    let page = match (item_type, opt_str_arg(args, "trigger_kind")) {
+        ("trigger", Some("http")) => Some("/routes".to_string()),
+        ("trigger", Some(kind)) => Some(format!("/{kind}_triggers")),
+        _ => super::deploy::deployed_page(item_type, path, &Value::Null),
+    };
+    let url = |page: Option<String>| page.map(|page| ctx.page_url(&page));
+    ctx.set_view(
+        "windmill/item",
+        json!({
+            "workspace": ctx.w_id,
+            "item": item,
+            "url": url(page),
+            "edit_url": url(draft_page(item_type, path, &Value::Null)),
+        }),
+    );
+    Ok(format!(
+        "Showing {item_type} \"{path}\" to the user as a card."
+    ))
+}
+
 async fn read_workspace_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     if let Some(access_type) = opt_str_arg(args, "type").filter(|t| ACCESS_TYPES.contains(t)) {
         return read_access_entity(ctx, access_type, str_arg(args, "path")?).await;

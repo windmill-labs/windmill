@@ -6,8 +6,9 @@
 <title>Windmill</title>
 <!--
   The MCP Apps view the session's show tools draw (`CARD_URI` in `mod.rs`, `views.rs`): a
-  run, a table of runs, or drafts to review before deploying, from whichever of
-  `_meta["windmill/run" | "windmill/runs" | "windmill/review"]` the result carries. It holds no credential: it acts by calling tools
+  run, a table of runs, drafts to review before deploying, or a workspace item, from
+  whichever of `_meta["windmill/run" | "windmill/runs" | "windmill/review" | "windmill/item"]`
+  the result carries. It holds no credential: it acts by calling tools
   through the host, as the user the connection belongs to. Everything it shows is set as
   text, never as markup: a run's result is whatever its script returned.
 -->
@@ -83,7 +84,6 @@
   .icon { flex: none; min-height: 28px; width: 28px; padding: 0; font-size: 15px; line-height: 1; }
   .disclosure { align-self: flex-start; border: 0; padding: 0; min-height: 0; background: none; font-size: 12px; font-weight: 600; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.04em; }
   .disclosure:hover { background: none; color: var(--fg); }
-  .disclosure:disabled { opacity: 1; }
   .disclosure::before { content: "\25B8  "; }
   .disclosure[aria-expanded="true"]::before { content: "\25BE  "; }
   .summary-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 10px; font-size: 13px; }
@@ -99,7 +99,7 @@
   .pill, .badge { flex: none; font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 6px; background: var(--info-bg); color: var(--info-fg); white-space: nowrap; }
   .pill { margin-left: auto; }
   .success, .pill.success { background: var(--ok-bg); color: var(--ok-fg); }
-  .failure, .canceled, .not_started, .pill.failure, .pill.canceled, .pill.not_started { background: var(--bad-bg); color: var(--bad-fg); }
+  .failure, .canceled, .not_started, .pill.failure, .pill.canceled, .pill.not_started, .pill.error { background: var(--bad-bg); color: var(--bad-fg); }
   .step { font-size: 13px; color: var(--fg-2); }
   .step code { font-family: var(--mono); }
   pre { margin: 0; padding: 10px 12px; border-radius: var(--radius); background: var(--bg-2); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -112,6 +112,7 @@
   .row .v { min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; }
   .row .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .dim { color: var(--fg-3); font-size: 12px; }
+  .row .k { color: var(--fg-3); min-width: 110px; }
   .row pre { flex-basis: 100%; padding: 6px 8px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; background: var(--info-fg); }
   .dot.success { background: var(--ok-fg); }
@@ -182,7 +183,7 @@
   const LABELS = {
     running: 'Running', queued: 'Queued', suspended: 'Waiting', success: 'Success',
     failure: 'Failed', canceled: 'Canceled', skipped: 'Skipped', not_started: 'Not started',
-    step: 'Step result', in_progress: 'Running'
+    step: 'Step result', in_progress: 'Running', error: 'Error'
   };
   const $ = (id) => document.getElementById(id);
 
@@ -247,15 +248,19 @@
     if (!url) return null;
     return el('button', { class: 'small', type: 'button', style: 'margin-top: 8px', onclick: () => openLink(url) }, `${label[0].toUpperCase()}${label.slice(1)} in Windmill \u2197`);
   }
-  // A section the user opened stays open across redraws; fullscreen opens them all.
+  // A section the user opened stays open across redraws. Fullscreen opens them all, and
+  // what is closed there is kept apart from what is open inline.
   const opened = new Set();
+  const closedFull = new Set();
 
   function disclosure(key, label, content) {
-    const open = fullscreen() || opened.has(key);
+    const full = fullscreen();
+    const open = full ? !closedFull.has(key) : opened.has(key);
     const toggle = el('button', {
-      class: 'disclosure', type: 'button', 'aria-expanded': String(open), disabled: fullscreen(),
+      class: 'disclosure', type: 'button', 'aria-expanded': String(open),
       onclick: () => {
-        if (opened.has(key)) opened.delete(key); else opened.add(key);
+        const set = full ? closedFull : opened;
+        if (set.has(key)) set.delete(key); else set.add(key);
         redraw();
       }
     }, label);
@@ -352,7 +357,7 @@
     const status = run?.status ?? 'running';
     const running = RUNNING.includes(status);
     setHeader({
-      path: run?.path ?? (run?.id ? `Run ${run.id.slice(0, 8)}` : 'Windmill run'),
+      path: run?.path ?? (run?.id ? `Run ${run.id.slice(0, 8)}` : toolArgs.path ?? 'Windmill'),
       ws: run?.workspace ?? toolArgs.workspace_id,
       kind: kindLabel(run?.job_kind),
       status,
@@ -371,7 +376,7 @@
     const records = status === 'success' ? recordsTable(run?.result) : null;
     result.hidden = running || run?.result == null || !!records;
     result.textContent = run?.result ?? '';
-    result.classList.toggle('error', status === 'failure' || status === 'not_started');
+    result.classList.toggle('error', ['failure', 'not_started', 'error'].includes(status));
     result.classList.toggle('clip', !fullscreen());
     // Rebuilt only for a new result, so a sort survives the card redrawing.
     const holder = $('result-table');
@@ -486,7 +491,7 @@
   // or a `get_run` drilling into one step.
   function renderText(result) {
     const inspected = toolArgs.id && !result.isError;
-    run = { status: inspected ? 'step' : 'not_started', result: textOf(result).slice(0, 1500) };
+    run = { status: inspected ? 'step' : result.isError ? 'error' : 'not_started', result: textOf(result).slice(0, 1500) };
     view = 'run';
     renderRun();
   }
@@ -729,6 +734,124 @@
     if (view === 'run' && run) renderRun();
     else if (view === 'review' && review) renderReview(review);
     else if (view === 'runs' && runsMeta) renderRuns(runsMeta);
+    else if (view === 'item' && itemMeta) renderItem(itemMeta);
+  }
+
+  // ---------------------------------------------------------------- item
+
+  const SENSITIVE = /pass|secret|token|key|private|credential/i;
+  const CODE_LINES_INLINE = 20;
+
+  function row(key, value) {
+    return el('div', { class: 'row' }, el('span', { class: 'k' }, key), el('span', { class: 'v' }, value));
+  }
+  function display(value) {
+    if (value == null) return '';
+    if (typeof value === 'string') return value;
+    return JSON.stringify(value);
+  }
+  function inputRows(schema) {
+    const properties = schema?.properties ?? {};
+    const required = new Set(schema?.required ?? []);
+    return Object.entries(properties).map(([name, prop]) =>
+      row(`${name}${required.has(name) ? ' *' : ''}`, [prop.type ?? 'any', prop.format, prop.description].filter(Boolean).join(' · ')));
+  }
+  function moduleRows(modules) {
+    return (modules ?? []).map((module) => el('div', { class: 'row' },
+      el('span', { class: 'v' }, module.id ?? ''),
+      el('span', { class: 'grow' }, module.summary || module.value?.path || ''),
+      el('span', { class: 'dim' }, module.value?.type ?? '')));
+  }
+  // Rows past the inline count open fullscreen, or the item in Windmill.
+  function capped(rows, noun, url) {
+    const shown = fullscreen() ? rows : rows.slice(0, ROWS_INLINE);
+    const hidden = rows.length - shown.length;
+    return el('div', {}, el('div', { class: 'rows' }, ...shown),
+      hidden > 0 ? moreButton(`${hidden} more ${noun}${hidden === 1 ? '' : 's'}`, url) : null);
+  }
+  const plural = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+
+  // Inline an item shows a few key settings; the rest are collapsed sections.
+  let itemMeta = null;
+
+  function renderItem(meta) {
+    view = 'item';
+    itemMeta = meta;
+    clearRun();
+    const item = meta.item;
+    const value = item.value ?? {};
+    const type = item.type;
+    const draft = !!item.isDraft;
+    const url = draft && meta.edit_url ? meta.edit_url : meta.url;
+    setHeader({
+      path: item.path, ws: meta.workspace, kind: item.triggerKind ? `${item.triggerKind} trigger` : type,
+      status: draft ? 'running' : null, label: draft ? 'Draft' : null, url
+    });
+    $('review').hidden = true;
+    const key = [];
+    const sections = [];
+    const target = value.script_path ? `${value.is_flow ? 'flow' : 'script'} ${value.script_path}` : null;
+    switch (type) {
+      case 'script': {
+        const code = typeof item.value === 'string' ? item.value.split('\n') : [];
+        const inputs = inputRows(item.schema);
+        key.push(row('Language', item.language ?? ''));
+        if (inputs.length) sections.push(...disclosure('item-inputs', plural(inputs.length, 'input'), () => capped(inputs, 'input', url)));
+        if (code.length) {
+          sections.push(...disclosure('item-code', 'Code', () => {
+            const shown = fullscreen() ? code : code.slice(0, CODE_LINES_INLINE);
+            const hidden = code.length - shown.length;
+            return el('div', {}, el('pre', {}, shown.join('\n')), hidden > 0 ? moreButton(`${hidden} more line${hidden === 1 ? '' : 's'}`, url) : null);
+          }));
+        }
+        break;
+      }
+      case 'flow': {
+        const steps = moduleRows(value.modules);
+        const inputs = inputRows(value.schema);
+        if (steps.length) sections.push(...disclosure('item-steps', plural(steps.length, 'step'), () => capped(steps, 'step', url)));
+        if (inputs.length) sections.push(...disclosure('item-inputs', plural(inputs.length, 'input'), () => capped(inputs, 'input', url)));
+        break;
+      }
+      case 'schedule':
+        key.push(row('Cron', value.schedule ?? ''), row('Timezone', value.timezone ?? ''));
+        if (target) key.push(row('Runs', target));
+        key.push(row('Enabled', String(value.enabled ?? '')));
+        if (value.args && Object.keys(value.args).length) {
+          sections.push(...disclosure('item-args', 'Arguments', () => el('pre', {}, JSON.stringify(value.args, null, 2))));
+        }
+        break;
+      case 'trigger': {
+        if (target) key.push(row('Runs', target));
+        if (value.mode != null) key.push(row('Mode', value.mode));
+        else if (value.enabled != null) key.push(row('Enabled', String(value.enabled)));
+        const shown = new Set(['path', 'summary', 'description', 'script_path', 'is_flow', 'mode', 'enabled', 'workspace_id', 'edited_by', 'edited_at', 'extra_perms', 'email', 'labels', 'permissioned_as', 'error', 'last_server_ping', 'server_id']);
+        const settings = Object.entries(value)
+          .filter(([k, v]) => !shown.has(k) && v != null && v !== '' && !(Array.isArray(v) && !v.length))
+          .map(([k, v]) => row(k, display(v)));
+        if (settings.length) sections.push(...disclosure('item-settings', 'Settings', () => capped(settings, 'setting', url)));
+        break;
+      }
+      case 'resource': {
+        key.push(row('Type', value.resource_type ?? ''));
+        const fields = value.value && typeof value.value === 'object' ? Object.entries(value.value) : [];
+        // Shown at a glance, so a secret-looking field is masked unless it only names one.
+        const rows = fields.map(([k, field]) => {
+          const reference = typeof field === 'string' && /^\$(var|res):/.test(field);
+          return row(k, SENSITIVE.test(k) && !reference ? '\u2022\u2022\u2022\u2022\u2022\u2022' : display(field));
+        });
+        if (rows.length) sections.push(...disclosure('item-fields', plural(rows.length, 'field'), () => capped(rows, 'field', url)));
+        break;
+      }
+      case 'variable':
+        key.push(row('Secret', item.isSecret ? 'yes' : 'no'), row('Value', 'Not shown here'));
+        break;
+    }
+    $('body').replaceChildren(
+      ...(item.summary ? [el('div', { class: 'step' }, item.summary)] : []),
+      ...(key.length ? [el('div', { class: 'rows' }, ...key)] : []),
+      ...sections.filter(Boolean));
+    $('expand').hidden = !canFullscreen() || fullscreen() || !sections.length;
   }
 
   // ---------------------------------------------------------------- dispatch
@@ -737,6 +860,7 @@
     const meta = result?._meta ?? {};
     if (meta['windmill/review']) return renderReview(meta['windmill/review']);
     if (meta['windmill/runs']) return renderRuns(meta['windmill/runs']);
+    if (meta['windmill/item']) return renderItem(meta['windmill/item']);
     if (meta['windmill/run']) return onRun(meta['windmill/run']);
     // A poll that failed (the job read erred) keeps the run's last state.
     if (!run?.id) renderText(result ?? {});

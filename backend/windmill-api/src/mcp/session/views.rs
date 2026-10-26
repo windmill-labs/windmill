@@ -5,22 +5,23 @@
 
 use serde_json::{json, Value};
 
-use super::{deploy, runs, Ctx, ToolResult};
+use super::{deploy, runs, workspace, Ctx, ToolResult};
 
-pub(super) const TOOLS: &[&str] = &["show_run", "show_runs", "show_deploy_review"];
+pub(super) const TOOLS: &[&str] = &["show_run", "show_runs", "show_deploy_review", "show_item"];
 
 pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult {
     match name {
         "show_run" => runs::show_run(ctx, args).await,
         "show_runs" => runs::show_runs(ctx, args).await,
         "show_deploy_review" => deploy::show_deploy_review(ctx, args).await,
+        "show_item" => workspace::show_item(ctx, args).await,
         _ => unreachable!("{name} is not a view tool"),
     }
 }
 
 /// Each tool as `(name, description, input schema)`. All only read: the review card's
 /// Deploy button calls `deploy_workspace_item`, which the token's own access gates.
-pub(super) fn definitions() -> [(&'static str, &'static str, Value); 3] {
+pub(super) fn definitions() -> [(&'static str, &'static str, Value); 4] {
     [
         (
             "show_run",
@@ -74,6 +75,20 @@ pub(super) fn definitions() -> [(&'static str, &'static str, Value); 3] {
                         }
                     }
                 },
+                "additionalProperties": false
+            }),
+        ),
+        (
+            "show_item",
+            "Show the user a workspace item as a card in the conversation: a script, flow, schedule, trigger, resource, variable or app, with its key settings and a link to it in Windmill (its editor, for a draft). A variable's value is never shown. Call it when the user asks to see an item; to read one yourself, use read_workspace_item.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "type": { "type": "string", "enum": ["script", "flow", "schedule", "trigger", "resource", "variable", "app"] },
+                    "path": { "type": "string", "description": "Workspace path of the item." },
+                    "trigger_kind": { "type": "string", "description": "Required when type is trigger.", "enum": ["http", "websocket", "kafka", "nats", "postgres", "mqtt", "amqp", "sqs", "gcp", "azure", "email"] }
+                },
+                "required": ["type", "path"],
                 "additionalProperties": false
             }),
         ),

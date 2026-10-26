@@ -474,7 +474,7 @@ fn mutation_result(
 }
 
 /// Where a deployed item is seen in Windmill.
-fn deployed_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
+pub(super) fn deployed_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
     Some(match item_type {
         "script" => format!("/scripts/get/{path}"),
         "flow" => format!("/flows/get/{path}"),
