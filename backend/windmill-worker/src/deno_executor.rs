@@ -277,7 +277,6 @@ async fn refuse_links_in_shared_dir(job_dir: &str) -> error::Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(level = "trace", skip_all)]
 // An admin may pass a config of their own, or --no-config, through DENO_FLAGS; deno
 // refuses --config next to --no-config or a second --config, so it then stands on its
 // own. `-c` also takes its value attached (`-c/path`, `-c=/path`).
@@ -287,6 +286,7 @@ fn deno_flags_choose_config(flags: &[String]) -> bool {
     })
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_deno_job(
     requirements_o: Option<&String>,
     mem_peak: &mut i32,
