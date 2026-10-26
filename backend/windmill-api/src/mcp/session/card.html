@@ -530,8 +530,10 @@
     const fresh = el('pre', { class: result.className, id: 'result', hidden: result.hidden }, result.textContent);
     slot.replaceChildren(fresh);
     if (!fresh.hidden) {
-      slot.replaceChildren(openable(fresh, !fullscreen() && fresh.scrollHeight > fresh.clientHeight + 1, run.url));
-      if (fullscreen() && run.result_cut) more.append(linkButton('Full result in Windmill', run.url));
+      const clipped = !fullscreen() && fresh.scrollHeight > fresh.clientHeight + 1;
+      slot.replaceChildren(openable(fresh, clipped, run.url));
+      // What the server cut is only whole on the run page, however much of it shows here.
+      if (run.result_cut && !(clipped && canFullscreen())) more.append(linkButton('Full result in Windmill', run.url));
     }
 
     $('cancel').hidden = !(running && run?.id);

@@ -1754,13 +1754,15 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 
 /// The end of a job's log, read without the rest of it: an offset past the end returns
 /// no log but where it ends, and a second read starts just before that. A step's log grows
-/// as long as it runs, and the card asks again on every refresh.
+/// as long as it runs, and the card asks again on every refresh. The result stream's offset
+/// is past its end too, or each read would carry the whole stream.
 async fn log_tail(ctx: &Ctx<'_>, job: &str) -> Option<String> {
     const TAIL_CHARS: i64 = 400;
     let update = |offset: i64| {
         ctx.ws(&format!(
-            "jobs_u/getupdate/{}?log_offset={offset}",
-            enc(job)
+            "jobs_u/getupdate/{}?log_offset={offset}&stream_offset={}",
+            enc(job),
+            i32::MAX
         ))
     };
     let end = ctx.get(&update(i32::MAX as i64)).await.ok()?["log_offset"].as_i64()?;
