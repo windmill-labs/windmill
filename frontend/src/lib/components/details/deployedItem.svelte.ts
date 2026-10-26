@@ -1,4 +1,5 @@
 import { FlowService, ScriptService } from '$lib/gen'
+import { sendUserToast } from '$lib/toast'
 import { resource } from 'runed'
 import { toggleWorkspaceErrorHandler } from './errorHandlerToggle'
 
@@ -45,14 +46,19 @@ export function useDeployedItem(
 		async toggle() {
 			const path = pathGetter()
 			if (!path) return
-			const next = await toggleWorkspaceErrorHandler(
-				workspaceGetter(),
-				kind,
-				path,
-				item.current?.ws_error_handler_muted
-			)
-			if (next !== undefined && item.current) {
-				item.mutate({ ...item.current, ws_error_handler_muted: next })
+			// A click asks for the opposite of what the switch shows. Without the row the switch
+			// shows "off" whatever is deployed, and would never show a muted item as muted: read
+			// the row first, and leave a flag already at the asked value as it is.
+			const muted = !item.current?.ws_error_handler_muted
+			const deployed = item.current ?? (await item.refetch())
+			if (!deployed) {
+				sendUserToast(`Could not read the deployed ${kind}, try again`, true)
+				return
+			}
+			if (!!deployed.ws_error_handler_muted === muted) return
+			const next = await toggleWorkspaceErrorHandler(workspaceGetter(), kind, path, !muted)
+			if (next !== undefined) {
+				item.mutate({ ...deployed, ws_error_handler_muted: next })
 			}
 		}
 	}

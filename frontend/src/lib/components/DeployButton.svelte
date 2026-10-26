@@ -51,7 +51,7 @@
 	variant="accent"
 	{unifiedSize}
 	{iconOnly}
-	title="Deploy"
+	title={iconOnly ? 'Deploy' : undefined}
 	startIcon={{ icon: Save }}
 	on:click={() => dispatch('save', deploymentMsg)}
 	dropdownItems={items}
