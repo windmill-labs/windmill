@@ -258,7 +258,7 @@
 			<div class="text-sm text-primary">Not deployed yet</div>
 			<div class="text-xs text-tertiary max-w-sm">
 				Nothing is deployed at <span class="font-mono">{path}</span>, so there is no deployed
-				version to view.{#if canEdit}
+				version to view.{#if canEdit}{' '}
 					Deploy it from the editor to see it here.{/if}
 			</div>
 			{#if canEdit}

@@ -171,7 +171,11 @@
 	}
 
 	async function remove() {
-		if (ws && (await deleteAgent(ws, path))) await onNavigate('/?kind=agent')
+		if (!ws || !(await deleteAgent(ws, path))) return
+		// Embedded, the host owns the tab: read again so it shows that nothing is deployed here,
+		// rather than opening Home beside a tab still showing the deleted agent.
+		if (embedded) reloaded++
+		else await onNavigate('/?kind=agent')
 	}
 
 	// The workspace's, so a path change never waits on it and a menu never outlives its path.

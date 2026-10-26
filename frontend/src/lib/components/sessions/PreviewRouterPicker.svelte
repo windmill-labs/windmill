@@ -338,6 +338,7 @@ section or the flat layout.
 						type: 'leaf' as const,
 						key: `agent:${a.path}`,
 						label: a.summary || a.path,
+						secondary: a.summary ? a.path : undefined,
 						icon: Bot,
 						data: a.draftOnly
 							? agentEditTarget(a.path)

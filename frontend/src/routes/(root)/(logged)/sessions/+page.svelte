@@ -95,6 +95,7 @@
 		viewerTabsToReload
 	} from '$lib/components/sessions/previewReload'
 	import { isPreviewListPath, barePath } from '$lib/components/sessions/previewPaths'
+	import { ResourceService } from '$lib/gen'
 	import {
 		leafKeyFor,
 		loadKind,
@@ -436,9 +437,11 @@
 	 * otherwise be two tabs with the same name. Only the editor is marked: the deployed
 	 * page is the item itself, and a page, artifact or pipeline has no second side to be
 	 * told apart from. */
-	function sideSuffix(tab: SessionPreviewTab): string {
+	function sideSuffix(tab: SessionPreviewTab, workspace: string): string {
 		// An agent's editor is a resource tab, beside the agent's own deployed page.
 		if (tab.agentEditor) return ' (edit)'
+		if (parsePageItemRoute(tab.loc) && listedAgentSummary(tab, workspace) !== undefined)
+			return ' (edit)'
 		const slot = resolvePreviewTab(tab.url)
 		return slot.kind === 'editor' && slot.editorKind !== 'pipeline' ? ' (edit)' : ''
 	}
@@ -837,6 +840,39 @@
 		}
 	})
 
+	// The same for agents, whose tabs are an agent's deployed page or a resource tab its
+	// editor took over: summaries by path, so an unvisited one is named and marked as the
+	// editor side before its editor stamps it.
+	const agentSummariesRequested = new Set<string>()
+	let agentSummaries = $state<Record<string, Record<string, string>>>({})
+	$effect(() => {
+		const ws = previewWorkspace
+		if (!ws || agentSummariesRequested.has(ws)) return
+		if (!(owner?.tabs ?? []).some((t) => agentTabPath(t) !== undefined)) return
+		agentSummariesRequested.add(ws)
+		ResourceService.listResource({ workspace: ws, resourceType: 'ai_agent', perPage: 1000 })
+			.then((rows) => {
+				agentSummaries = {
+					...agentSummaries,
+					[ws]: Object.fromEntries(rows.map((r) => [r.path, r.description ?? '']))
+				}
+			})
+			.catch((e) => {
+				agentSummariesRequested.delete(ws)
+				console.error('Failed to load workspace agents', e)
+			})
+	})
+	function agentTabPath(tab: SessionPreviewTab): string | undefined {
+		const get = barePath(tab.loc).match(/^\/agents\/get\/(.+)$/)
+		if (get) return decodeURIComponent(get[1])
+		const ref = parsePageItemRoute(tab.loc)
+		return ref?.kind === 'resource' ? ref.path : undefined
+	}
+	function listedAgentSummary(tab: SessionPreviewTab, workspace: string): string | undefined {
+		const path = agentTabPath(tab)
+		return path === undefined ? undefined : agentSummaries[workspace]?.[path]
+	}
+
 	// Keyed by the tab's OWN session workspace, never the active one: every warm
 	// session's tabs are labelled here, and two sessions on different forks can
 	// hold the same item path.
@@ -860,8 +896,9 @@
 		const name =
 			tab.friendlyLabel ??
 			(listed && itemDisplayName(listed.path, listed.draftPath, listed.summary)) ??
+			(listedAgentSummary(tab, workspace) || undefined) ??
 			previewLocationLabel(tab.loc)
-		return name + sideSuffix(tab)
+		return name + sideSuffix(tab, workspace)
 	}
 
 	// Hover title for a tab. A summary label is free text the strip truncates, and

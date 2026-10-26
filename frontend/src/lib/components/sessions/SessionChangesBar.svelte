@@ -237,7 +237,11 @@
 	function previewTargetFor(item: DeployItem): PreviewTarget | undefined {
 		// `done` means this session already deployed it, so there is a deployed
 		// version to show even though the row was built from a draft-only item.
-		return previewTargetForDeployKind(item.deployKind, item.path, item.draftOnly && !item.done)
+		const draftOnly = item.draftOnly && !item.done
+		if (isAgentRow(item) && !draftOnly) {
+			return { type: 'page', href: `/agents/get/${item.path}`, label: rowLabel(item) }
+		}
+		return previewTargetForDeployKind(item.deployKind, item.path, draftOnly)
 	}
 
 	// The row's primary action is the preview; kinds the panel can't host fall back
@@ -420,6 +424,7 @@
 		{parentWorkspaceId}
 		chatId={session.chatId}
 		keys={mask}
+		agentPaths={agentPaths.current}
 		onDataChanged={refreshDock}
 		onItemDeployed={(item) =>
 			void runtime?.manager.renameModifiedItem(item.draftKind, item.path, item.displayPath)}

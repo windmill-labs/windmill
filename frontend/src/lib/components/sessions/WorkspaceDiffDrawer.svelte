@@ -15,7 +15,9 @@
 		User
 	} from 'lucide-svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
-	import WorkspaceItemRow from '$lib/components/WorkspaceItemRow.svelte'
+	import WorkspaceItemRow, {
+		type WorkspaceItemRowKind
+	} from '$lib/components/WorkspaceItemRow.svelte'
 	import WorkspaceItemDiffViewer from '$lib/components/WorkspaceItemDiffViewer.svelte'
 	import {
 		rawAppDiffToItems,
@@ -50,6 +52,7 @@
 		model,
 		title,
 		editUrlFor = undefined,
+		iconKindFor = undefined,
 		titleExtra,
 		compareSessionHref,
 		workspaceLabel,
@@ -59,6 +62,8 @@
 		title: string
 		/** Editor URL for a row (opens in the workspace the item lives in). */
 		editUrlFor?: (item: DeployItem) => string | undefined
+		/** Icon kind for a row whose deploy kind doesn't name it, e.g. an agent's resource. */
+		iconKindFor?: (item: DeployItem) => WorkspaceItemRowKind | undefined
 		titleExtra?: Snippet
 		/** Display name of the workspace deploys land in — the deployed tick's
 		 *  hover reads "Deployed in <label>". */
@@ -783,7 +788,7 @@
 				</WorkspaceItemRow>
 			{:else}
 				<WorkspaceItemRow
-					kind={d.deployKind as any}
+					kind={(iconKindFor?.(d) ?? d.deployKind) as any}
 					iconPath={d.path}
 					baseClass="py-2 min-w-0 pr-1 pl-1 rounded-md"
 					singleLine
@@ -1027,7 +1032,11 @@
 											bind:clientHeight={cardHeaderH}
 											class="sticky top-0 z-30 bg-surface-tertiary rounded-t-md flex items-center gap-2 px-3 py-2 border-b border-transparent"
 										>
-											<RowIcon kind={d.deployKind as any} path={d.path} size={14} />
+											<RowIcon
+												kind={(iconKindFor?.(d) ?? d.deployKind) as any}
+												path={d.path}
+												size={14}
+											/>
 											<!-- flex+items-center so the path (a block div, or ExternalEditLink's
 											     inline-flex <a>) is centered by its box against the icon — an inline
 											     <a> would otherwise sit ~2px low on the line-box baseline. -->
