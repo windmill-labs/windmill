@@ -43,6 +43,7 @@ use windmill_ai::proxy::{
     fim::maybe_transform_fim_request, proxy_execution_mode, validate_proxy_path, ProxyBuildArgs,
     ProxyExecutionMode, ProxyRequest,
 };
+use windmill_ai::request_overrides::parse_request_overrides;
 use windmill_ai::retry::send_with_retries;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::db::UserDB;
@@ -249,6 +250,8 @@ struct AIStandardResource {
     /// The account of a `cloudflare` resource, which its Workers AI URL is built from.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     account_id: Option<String>,
+    #[serde(default)]
+    request_overrides: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -380,6 +383,7 @@ async fn resolve_provider_credentials(
                 anthropic_federation: None,
                 platform: resource.platform,
                 custom_headers: resource.headers,
+                request_overrides: parse_request_overrides(resource.request_overrides.as_ref())?,
             })
         }
         AIResource::AnthropicFederated(resource) => {
@@ -419,6 +423,7 @@ async fn resolve_provider_credentials(
                 }),
                 platform: AIPlatform::Standard,
                 custom_headers: HashMap::new(),
+                request_overrides: Default::default(),
             })
         }
         AIResource::OAuth(resource) => {
@@ -445,6 +450,7 @@ async fn resolve_provider_credentials(
                 anthropic_federation: None,
                 platform: AIPlatform::Standard,
                 custom_headers: HashMap::new(),
+                request_overrides: Default::default(),
             })
         }
     }
@@ -1272,6 +1278,7 @@ async fn global_proxy(
         anthropic_federation: None,
         platform: AIPlatform::Standard,
         custom_headers: HashMap::new(),
+        request_overrides: Default::default(),
     };
 
     let client = pinned_ai_client_for(&credentials.base_url).await?;
@@ -1788,6 +1795,7 @@ mod tests {
             anthropic_federation: None,
             platform: AIPlatform::Standard,
             custom_headers: HashMap::new(),
+            request_overrides: Default::default(),
         }
     }
 

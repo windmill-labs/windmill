@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::ai_providers::{AIPlatform, AIProvider};
+use crate::request_overrides::RequestOverrides;
 
 /// Resolved provider credentials shared by API proxy and worker execution.
 ///
@@ -38,6 +39,8 @@ pub struct ProviderCredentials {
     pub anthropic_federation: Option<AnthropicFederation>,
     pub platform: AIPlatform,
     pub custom_headers: HashMap<String, String>,
+    /// Read only for Custom AI, whose OpenAI-compatible endpoints differ in body fields.
+    pub request_overrides: RequestOverrides,
 }
 
 /// The identifiers a Claude Console federation rule needs in a token exchange.
