@@ -1791,9 +1791,28 @@ async fn big_image_result(
     let field = ctx.get(&route).await.ok()?;
     // The field alone must be the whole result, as `card_image` requires: a result with more
     // keys is no image, and keeps its marker. The length is the result's text, in characters.
-    let whole = format!("{{\"{kind}\": {}}}", serde_json::to_string(&field).ok()?);
-    (whole.chars().count() as u64 == root["result_length"].as_u64()?)
-        .then(|| json!({ kind: field }))
+    let whole = json!({ kind: field });
+    (jsonb_text_len(&whole) == root["result_length"].as_u64()?).then_some(whole)
+}
+
+/// The length in characters of a value as PostgreSQL prints a jsonb: `", "` between items
+/// and `": "` after keys. Key order, which jsonb changes, does not change it.
+fn jsonb_text_len(value: &Value) -> u64 {
+    let text = |v: &Value| serde_json::to_string(v).map_or(0, |t| t.chars().count() as u64);
+    let separators = |n: usize| 2 * n.saturating_sub(1) as u64;
+    match value {
+        Value::Array(items) => {
+            2 + separators(items.len()) + items.iter().map(jsonb_text_len).sum::<u64>()
+        }
+        Value::Object(map) => {
+            2 + separators(map.len())
+                + map
+                    .iter()
+                    .map(|(k, v)| text(&Value::String(k.clone())) + 2 + jsonb_text_len(v))
+                    .sum::<u64>()
+        }
+        _ => text(value),
+    }
 }
 
 /// The end of a job's log, read without the rest of it: an offset past the end returns
@@ -2502,6 +2521,18 @@ mod tests {
         // Cut by UTF-16 units: 800 emoji are 1,600 of them, past the head's 1,500.
         let emoji = json!({ "type": "CompletedJob", "success": true, "result": "😀".repeat(800) });
         assert_eq!(run_card("j", Some(&emoji))["result_cut"], true);
+    }
+
+    #[test]
+    fn jsonb_text_len_matches_postgres_printing() {
+        // As `select '{"png": {"content": "iVBO", "filename": "a.png"}}'::jsonb::text`.
+        let wrapped = json!({ "png": { "content": "iVBO", "filename": "a.png" } });
+        let printed = r#"{"png": {"content": "iVBO", "filename": "a.png"}}"#;
+        assert_eq!(jsonb_text_len(&wrapped), printed.chars().count() as u64);
+        assert_eq!(
+            jsonb_text_len(&json!([1, "a\"b"])),
+            r#"[1, "a\"b"]"#.len() as u64
+        );
     }
 
     #[test]
