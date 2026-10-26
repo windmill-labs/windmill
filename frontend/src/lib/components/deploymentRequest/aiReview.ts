@@ -37,7 +37,7 @@ const SYSTEM_PROMPT = `You review a Windmill deployment request: a set of change
 Report only issues a reviewer should act on before approving the merge:
 - bugs and logic errors introduced by the change
 - breaking changes: removed or renamed inputs, changed input types, changed outputs that callers may rely on
-- risky operational changes: schedules or triggers enabled, disabled or retimed, permissions, on-behalf-of identity, folder ownership, destructive migrations
+- risky operational changes: schedules retimed, triggers pointed at a different script or flow, folder owners or permissions, app policies, destructive migrations
 - hardcoded secrets or credentials
 - deletions that look unintended
 
@@ -135,7 +135,7 @@ export async function reviewDeployment(
 	options?: {
 		/** Defaults to the chat's current model. */
 		model?: AIProviderModel
-		/** The workspace's own review instructions, from its AI settings. */
+		/** The parent workspace's review instructions, from its AI settings. */
 		instructions?: string
 	}
 ): Promise<AiReviewResult> {
@@ -144,9 +144,11 @@ export async function reviewDeployment(
 	const unreadable: string[] = []
 	let used = 0
 	// Fetched a batch at a time so a large fork stops reading items once the budget is spent.
+	// The first section that does not fit spends it: `used` alone can stay under the cap forever.
+	let budgetSpent = false
 	for (let i = 0; i < diffs.length; i += FETCH_BATCH) {
 		const batch = diffs.slice(i, i + FETCH_BATCH)
-		if (used >= TOTAL_CHAR_BUDGET) {
+		if (budgetSpent) {
 			omitted.push(...batch.map((d) => `${d.kind}:${d.path}`))
 			continue
 		}
@@ -156,10 +158,11 @@ export async function reviewDeployment(
 		if (abortController.signal.aborted) throw new Error('aborted')
 		sections.forEach(({ text: section, unreadable: failed }, j) => {
 			if (failed) unreadable.push(`${batch[j].kind}:${batch[j].path}`)
-			if (used + section.length <= TOTAL_CHAR_BUDGET) {
+			if (!budgetSpent && used + section.length <= TOTAL_CHAR_BUDGET) {
 				included.push(section)
 				used += section.length
 			} else {
+				budgetSpent = true
 				omitted.push(`${batch[j].kind}:${batch[j].path}`)
 			}
 		})
@@ -174,13 +177,19 @@ export async function reviewDeployment(
 			{
 				role: 'system',
 				content: options?.instructions?.trim()
-					? `${SYSTEM_PROMPT}\n\nInstructions from this workspace's admins, which take precedence over the above where they conflict:\n${options.instructions.trim()}`
+					? `${SYSTEM_PROMPT}\n\nInstructions from the parent workspace's admins, which take precedence over the above where they conflict:\n${options.instructions.trim()}`
 					: SYSTEM_PROMPT
 			},
 			{ role: 'user', content: user }
 		],
 		abortController,
-		{ maxTokensCap: MAX_OUTPUT_TOKENS, forceModelProvider: options?.model }
+		// Bound to the fork: without `workspace` the call goes through whichever workspace the
+		// app has switched to by the time the item reads finish.
+		{
+			maxTokensCap: MAX_OUTPUT_TOKENS,
+			forceModelProvider: options?.model,
+			workspace: forkWorkspaceId
+		}
 	)
 	return { ...parseReviewAnswer(answer ?? '', diffs), omitted, unreadable }
 }

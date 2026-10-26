@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Alert, Badge, Button } from '$lib/components/common'
-	import type { AIProviderModel, WorkspaceItemDiff } from '$lib/gen'
+	import { WorkspaceService, type AIProviderModel, type WorkspaceItemDiff } from '$lib/gen'
 	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 	import Select from '$lib/components/select/Select.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -52,7 +52,7 @@
 		try {
 			const review = await reviewDeployment(diffs, forkWorkspaceId, parentWorkspaceId, controller, {
 				model: $copilotInfo.aiModels.find((m) => modelKey(m) === selectedModelKey),
-				instructions: $copilotInfo.customPrompts?.[DEPLOYMENT_REVIEW_PROMPT_KEY]
+				instructions: await parentInstructions()
 			})
 			if (!controller.signal.aborted) result = review
 		} catch (e: any) {
@@ -61,6 +61,19 @@
 			if (abortController === controller) running = false
 		}
 	}
+
+	// The approving side's instructions, never the fork's: the fork's admin is usually the author,
+	// who could otherwise tell the reviewer's review to find nothing. Unreadable means none.
+	async function parentInstructions(): Promise<string | undefined> {
+		try {
+			const config = await WorkspaceService.getCopilotInfo({ workspace: parentWorkspaceId })
+			return config.custom_prompts?.[DEPLOYMENT_REVIEW_PROMPT_KEY]
+		} catch {
+			return undefined
+		}
+	}
+
+	$effect(() => () => abortController?.abort())
 
 	function stop() {
 		abortController?.abort()

@@ -779,7 +779,7 @@
 			key: DEPLOYMENT_REVIEW_PROMPT_KEY,
 			label: 'Deployment review',
 			placeholder:
-				'Enter instructions for the AI review of deployment requests, such as what to check or ignore'
+				'Enter instructions for the AI review of changes deployed into this workspace from its forks, such as what to check or ignore'
 		}
 	]}
 />

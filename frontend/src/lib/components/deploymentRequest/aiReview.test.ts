@@ -1,18 +1,26 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorkspaceItemDiff } from '$lib/gen'
 
-const h = vi.hoisted(() => ({ prompt: '' }))
+const h = vi.hoisted(() => ({ prompt: '', workspace: '' as string | undefined, reads: 0 }))
 
 vi.mock('$lib/components/copilot/lib', () => ({
-	getNonStreamingCompletion: async (messages: { content: string }[]) => {
+	getNonStreamingCompletion: async (
+		messages: { content: string }[],
+		_abort: AbortController,
+		options?: { workspace?: string }
+	) => {
 		h.prompt = messages[1].content
+		h.workspace = options?.workspace
 		return '{"summary":"s","findings":[]}'
 	}
 }))
 // Mirrors the shared loader, which answers `{}` instead of throwing when a read fails.
 vi.mock('$lib/utils_workspace_deploy', () => ({
-	getItemValue: async (_kind: string, path: string) =>
-		path === 'f/a/unreadable' ? {} : { content: 'x' }
+	getItemValue: async (_kind: string, path: string) => {
+		h.reads++
+		if (path === 'f/a/unreadable') return {}
+		return { content: path.startsWith('f/big/') ? 'x'.repeat(30_000) : 'x' }
+	}
 }))
 
 const { parseReviewAnswer, reviewDeployment } = await import('./aiReview')
@@ -28,6 +36,10 @@ function diff(path: string): WorkspaceItemDiff {
 		exists_in_fork: true
 	}
 }
+
+beforeEach(() => {
+	h.reads = 0
+})
 
 describe('parseReviewAnswer', () => {
 	it('anchors only findings on items in the diff, and ranks by severity', () => {
@@ -59,5 +71,14 @@ describe('reviewDeployment', () => {
 		)
 		expect(result.unreadable).toEqual(['script:f/a/unreadable'])
 		expect(h.prompt).toContain('### script f/a/unreadable (modified)\nContents could not be read.')
+		expect(h.workspace).toBe('fork')
+	})
+
+	it('stops reading items once a section no longer fits the budget', async () => {
+		const diffs = Array.from({ length: 30 }, (_, i) => diff(`f/big/${i}`))
+		const result = await reviewDeployment(diffs, 'fork', 'parent', new AbortController())
+		// Only the first batch of 6 is read, both sides each.
+		expect(h.reads).toBe(12)
+		expect(result.omitted).toContain('script:f/big/29')
 	})
 })
