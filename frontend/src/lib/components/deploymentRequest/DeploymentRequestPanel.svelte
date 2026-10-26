@@ -261,7 +261,7 @@
 				</div>
 				{#if $copilotInfo.enabled}
 					<div class="border-t pt-2">
-						<AiReview {diffs} {forkWorkspaceId} {parentWorkspaceId} />
+						<AiReview {diffs} {forkWorkspaceId} {parentWorkspaceId} source="request_form" />
 					</div>
 				{/if}
 			</div>
@@ -293,7 +293,13 @@
 
 			<div class="border rounded-md bg-surface p-3 flex flex-col gap-3">
 				{#if $copilotInfo.enabled}
-					<AiReview {diffs} {forkWorkspaceId} {parentWorkspaceId} onPost={postAiFinding} />
+					<AiReview
+						{diffs}
+						{forkWorkspaceId}
+						{parentWorkspaceId}
+						source="open_request"
+						onPost={postAiFinding}
+					/>
 				{/if}
 				{#if topLevel.length === 0}
 					<div class="text-secondary text-xs">No comments yet. Be the first to leave feedback.</div>

@@ -18,11 +18,13 @@
 		diffs: WorkspaceItemDiff[]
 		forkWorkspaceId: string
 		parentWorkspaceId: string
+		/** Where the review runs: the items selected for deploy, the request form, or an open request. */
+		source: 'selection' | 'request_form' | 'open_request'
 		/** Absent before the request exists: findings are then only shown, for the author to act on. */
 		onPost?: (finding: AiReviewFinding) => Promise<void>
 	}
 
-	let { diffs, forkWorkspaceId, parentWorkspaceId, onPost }: Props = $props()
+	let { diffs, forkWorkspaceId, parentWorkspaceId, source, onPost }: Props = $props()
 
 	let running = $state(false)
 	let result = $state<AiReviewResult | undefined>(undefined)
@@ -46,9 +48,7 @@
 		running = true
 		error = undefined
 		result = undefined
-		logFeatureUsage('deployment_request', 'ai_review', {
-			key: onPost ? 'open_request' : 'before_request'
-		})
+		logFeatureUsage('deployment_request', 'ai_review', { key: source })
 		try {
 			const review = await reviewDeployment(diffs, forkWorkspaceId, parentWorkspaceId, controller, {
 				model: $copilotInfo.aiModels.find((m) => modelKey(m) === selectedModelKey)
@@ -146,7 +146,9 @@
 				</div>
 			{/if}
 			{#if diffs.length === 0}
-				<span class="text-xs text-secondary">No changes to review.</span>
+				<span class="text-xs text-secondary">
+					{source === 'selection' ? 'Select items to review.' : 'No changes to review.'}
+				</span>
 			{/if}
 		{/if}
 	</div>
@@ -183,7 +185,7 @@
 			{/if}
 			{#if result.findings.length === 0}
 				<div class="text-xs text-secondary">No issues left to review.</div>
-			{:else if !onPost}
+			{:else if source === 'request_form'}
 				<div class="text-2xs text-secondary">
 					Fix these in your fork before sending, or send as is. Reviewers can run their own review.
 				</div>
