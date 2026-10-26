@@ -10,6 +10,7 @@
 		type OpenInSessionSource
 	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
+	import { buildCompareUrl } from '$lib/components/copilot/chat/global/pageNavigation'
 	import type { SessionTarget } from '$lib/components/sessions/sessionState.svelte'
 	import { reviewDeployment, type AiReviewFinding, type AiReviewResult } from './aiReview'
 	import { DEPLOYMENT_REVIEW_PROMPT_KEY } from './reviewPromptKey'
@@ -121,7 +122,10 @@
 		if (one && SESSION_TARGET_KINDS.includes(one.kind)) {
 			return { ...common, target: { kind: one.kind as SessionTarget['kind'], path: one.path } }
 		}
-		return { ...common, page: () => '/forks/compare' }
+		return {
+			...common,
+			page: () => buildCompareUrl({ workspace_id: forkWorkspaceId, mode: 'fork' })
+		}
 	}
 </script>
 
