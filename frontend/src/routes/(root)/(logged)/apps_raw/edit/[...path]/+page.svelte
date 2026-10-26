@@ -12,6 +12,9 @@
 	import type { HiddenRunnable } from '$lib/components/apps/types'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
+	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
+	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
+	import { get } from 'svelte/store'
 	import { openEditorInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
@@ -558,6 +561,8 @@
 	async function handOffToSession(app: Omit<RawAppDraft, 'draft_path'>): Promise<boolean> {
 		const workspace = $workspaceStore
 		if (!prefersSessionHandoff(!$roleCaps.code) || !workspace) return false
+		if (get(copilotWorkspace) !== workspace) await loadCopilot(workspace)
+		if (get(copilotWorkspace) !== workspace || !get(copilotInfo).enabled) return false
 		// The session loads the app by path, so it is saved before it opens. `new_draft` tells
 		// it the app is still the starter template.
 		try {
