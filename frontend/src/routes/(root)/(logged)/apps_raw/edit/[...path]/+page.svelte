@@ -278,6 +278,10 @@
 				newPath = pathParam ?? ''
 				// Imported content is the starting state — skip the picker.
 				templatePicker = false
+				if (importRaw.openInAiSession && files) {
+					const app = { files, runnables, data, summary, policy }
+					void tick().then(() => handOffToSession(app))
+				}
 				return
 			}
 			// Seed the React 19 template so the editor has a usable state even if the
@@ -549,6 +553,36 @@
 		return composeOnlyApps ? {} : structuredClone(STARTER_RUNNABLES)
 	}
 
+	/** Opens the app in an AI session when sessions are how this user gets AI; false when the
+	 *  editor should keep it instead. */
+	async function handOffToSession(app: Omit<RawAppDraft, 'draft_path'>): Promise<boolean> {
+		const workspace = $workspaceStore
+		if (!prefersSessionHandoff(!$roleCaps.code) || !workspace) return false
+		// The session loads the app by path, so it is saved before it opens. `new_draft` tells
+		// it the app is still the starter template.
+		try {
+			draftSync.draft = {
+				...app,
+				...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
+			} as RawAppDraft
+			// The autosave this write queues would otherwise land after the session has
+			// read the draft, leaving it a baseline older than the row.
+			await tick()
+			await UserDraftDbSyncer.flush({ workspace, itemKind: 'raw_app', path })
+			await UserDraft.forcePersist('raw_app', path, { workspace })
+			// A failed save is recorded, not thrown, and the session would open on nothing.
+			const saved = UserDraftDbSyncer.getState({ workspace, itemKind: 'raw_app', path })
+			if (saved.state === 'failed') {
+				throw new Error(saved.failureMessage ?? 'the app could not be saved')
+			}
+			await openEditorInSession({ kind: 'raw_app', path }, workspace, { new_draft: 'true' })
+			return true
+		} catch (e) {
+			sendUserToast(`Could not open the AI session: ${e?.body ?? e?.message ?? e}`, true)
+			return false
+		}
+	}
+
 	async function onTemplatePickerStart(result: RawAppTemplatePickerResult, mode: RawAppBuildMode) {
 		const picked = {
 			files: { ...result.files },
@@ -557,31 +591,7 @@
 			summary: '',
 			policy: result.policy
 		}
-		const workspace = $workspaceStore
-		if (mode === 'ai' && prefersSessionHandoff(!$roleCaps.code) && workspace) {
-			// The session loads the app by path, so the picked setup is saved before it
-			// opens. `new_draft` tells it the app is still the starter template.
-			try {
-				draftSync.draft = {
-					...picked,
-					...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
-				} as RawAppDraft
-				// The autosave this write queues would otherwise land after the session has
-				// read the draft, leaving it a baseline older than the row.
-				await tick()
-				await UserDraftDbSyncer.flush({ workspace, itemKind: 'raw_app', path })
-				await UserDraft.forcePersist('raw_app', path, { workspace })
-				// A failed save is recorded, not thrown, and the session would open on nothing.
-				const saved = UserDraftDbSyncer.getState({ workspace, itemKind: 'raw_app', path })
-				if (saved.state === 'failed') {
-					throw new Error(saved.failureMessage ?? 'the app could not be saved')
-				}
-				await openEditorInSession({ kind: 'raw_app', path }, workspace, { new_draft: 'true' })
-				return
-			} catch (e) {
-				sendUserToast(`Could not open the AI session: ${e?.body ?? e?.message ?? e}`, true)
-			}
-		}
+		if (mode === 'ai' && (await handOffToSession(picked))) return
 		files = picked.files
 		runnables = picked.runnables
 		data = picked.data

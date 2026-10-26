@@ -5,6 +5,8 @@ import { react19Template, themeCss } from '$lib/components/raw_apps/templates'
  *  `sessionStorage.rawAppImport`). */
 export type RawAppImport = {
 	summary: string
+	/** Open it in an AI session where AI is used through sessions, rather than the bare editor. */
+	openInAiSession?: boolean
 	value: {
 		files: Record<string, string>
 		runnables: Record<string, any>
@@ -677,6 +679,7 @@ function createRawApp(opts: {
 
 	return {
 		summary: title,
+		openInAiSession: true,
 		value: {
 			files: {
 				...react19Template,
@@ -1116,6 +1119,7 @@ export function createRawAppFromAgent(path: string): RawAppImport {
 	const name = path.split('/').pop() ?? path
 	return {
 		summary: `Chat with ${name}`,
+		openInAiSession: true,
 		value: {
 			files: {
 				...react19Template,
