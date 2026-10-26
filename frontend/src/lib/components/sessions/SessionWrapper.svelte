@@ -119,17 +119,21 @@
 	// Whether the first message goes out in Use. Not `permissions.readOnly`: before that send a
 	// staged fork's session reads the workspace it forks, while the message builds in the fork.
 	const heldInUse = $derived(!!workModeLock.current || runtime?.manager.workMode === AIWorkMode.USE)
-	// The name of the item an unsent session opened on ("Open in AI session", or a tab opened
-	// before the first send): the chat reads the displayed tab with each message, so the empty
-	// chat asks about that item instead of greeting. What is on screen only: a collapsed panel
-	// hides it. The editor's summary, else the path it is staged under, else the tab's own path.
+	// The item an unsent session opened on ("Open in AI session", or a tab opened before the
+	// first send): the chat reads the displayed tab with each message, so the empty chat asks
+	// about that item instead of greeting. What is on screen only: a collapsed panel hides it.
+	// Named by the editor's summary, else the path it is staged under, else the tab's own path.
 	const previewedItem = $derived.by(() => {
 		if (!opensSession) return undefined
 		const tab = runtime?.previewTabs.displayedTab
 		if (!tab) return undefined
 		const slot = resolvePreviewTab(whereIs(tab))
 		if (slot.kind !== 'editor' && slot.kind !== 'viewer') return undefined
-		return tab.friendlyLabel?.trim() || tab.friendlyPath || slot.path
+		const kind = slot.kind === 'editor' ? slot.editorKind : slot.viewerKind
+		return {
+			kind: kind === 'raw_app' ? 'app' : kind,
+			name: tab.friendlyLabel?.trim() || tab.friendlyPath || slot.path
+		}
 	})
 	const greets = $derived(opensSession && !previewedItem)
 	const starterPrompts = new StarterPrompts(
@@ -421,8 +425,8 @@
 	const previewedItemPlaceholder = $derived(
 		previewedItem &&
 			(heldInUse
-				? `Ask about ${previewedItem}, or run it…`
-				: `Ask about ${previewedItem}, or describe a change…`)
+				? `Ask about the ${previewedItem.kind} ${previewedItem.name}, or run it…`
+				: `Ask about the ${previewedItem.kind} ${previewedItem.name}, or describe a change…`)
 	)
 </script>
 
