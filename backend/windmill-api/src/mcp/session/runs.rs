@@ -1713,7 +1713,10 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             .as_array()
             .map(Vec::as_slice)
             .unwrap_or_default();
-        details.insert("step_list".into(), card_steps(entries).into());
+        details.insert(
+            "step_list".into(),
+            card_steps(entries, job.get("raw_flow")).into(),
+        );
         if let Ok(logs) = &logs {
             if !logs.trim().is_empty() {
                 let tail = js_tail(logs, CARD_LOG_CHARS);
@@ -1914,11 +1917,77 @@ fn report_run(ctx: &Ctx<'_>, id: &str, job: Option<&Value>, extra: Map<String, V
 
 /// A flow run's top-level steps for the card's details, grouped as the model reads them:
 /// a loop as its iteration counts, a parallel step as its branches, a retry as its attempts.
-fn card_steps(entries: &[Value]) -> Vec<Value> {
+fn card_steps(entries: &[Value], flow: Option<&Value>) -> Vec<Value> {
     if entries.is_empty() {
         return Vec::new();
     }
-    RunTree::new(entries).shape_children(0, (CARD_STEP_RESULT_CHARS, CARD_STEP_RESULT_CHARS))
+    let mut steps =
+        RunTree::new(entries).shape_children(0, (CARD_STEP_RESULT_CHARS, CARD_STEP_RESULT_CHARS));
+    let mut modules = HashMap::new();
+    if let Some(flow) = flow {
+        collect_modules(flow, &mut modules);
+    }
+    name_steps(&mut steps, &modules);
+    steps
+}
+
+/// A flow's modules by id, at any depth, for the card to name its steps as Windmill's graph
+/// does: by summary, else by kind.
+fn collect_modules<'a>(value: &'a Value, out: &mut HashMap<&'a str, &'a Value>) {
+    let visit = |module: &'a Value, out: &mut HashMap<&'a str, &'a Value>| {
+        if let Some(id) = module["id"].as_str() {
+            out.insert(id, module);
+        }
+        collect_modules(&module["value"], out);
+    };
+    for key in ["modules", "default"] {
+        for module in value[key].as_array().into_iter().flatten() {
+            visit(module, out);
+        }
+    }
+    for branch in value["branches"].as_array().into_iter().flatten() {
+        collect_modules(branch, out);
+    }
+    for key in ["failure_module", "preprocessor_module"] {
+        if value[key].is_object() {
+            visit(&value[key], out);
+        }
+    }
+}
+
+/// Puts each step's summary and module kind on it, the steps of iterations and branches
+/// included; an iteration or a branch is named by its place, so it gets neither.
+fn name_steps(steps: &mut [Value], modules: &HashMap<&str, &Value>) {
+    for step in steps {
+        let id = step["step"].as_str().unwrap_or_default();
+        if let Some(module) = modules.get(id.rsplit('/').next().unwrap_or(id)) {
+            if let Some(summary) = module["summary"].as_str().filter(|s| !s.is_empty()) {
+                step["summary"] = summary.into();
+            }
+            let value = &module["value"];
+            step["module"] = json!({
+                "type": value["type"],
+                "language": value["language"],
+                "parallel": value["parallel"],
+            });
+        }
+        // `get_mut`: indexing a value mutably would add the keys it looks for.
+        for key in ["branches", "iterations_shown"] {
+            for part in step
+                .get_mut(key)
+                .and_then(Value::as_array_mut)
+                .into_iter()
+                .flatten()
+            {
+                if let Some(children) = part.get_mut("steps").and_then(Value::as_array_mut) {
+                    name_steps(children, modules);
+                }
+            }
+        }
+        if let Some(children) = step.get_mut("steps").and_then(Value::as_array_mut) {
+            name_steps(children, modules);
+        }
+    }
 }
 
 /// A result Windmill shows as a file, an image, a page or a map, named for the card: its
@@ -2426,5 +2495,29 @@ mod tests {
         // Cut by UTF-16 units: 800 emoji are 1,600 of them, past the head's 1,500.
         let emoji = json!({ "type": "CompletedJob", "success": true, "result": "😀".repeat(800) });
         assert_eq!(run_card("j", Some(&emoji))["result_cut"], true);
+    }
+
+    #[test]
+    fn steps_are_named_from_the_flow_at_any_depth() {
+        let flow = json!({ "modules": [{
+            "id": "loop", "summary": "Each customer",
+            "value": { "type": "forloopflow", "parallel": true, "modules": [
+                { "id": "inner", "value": { "type": "rawscript", "language": "python3" } }
+            ] }
+        }] });
+        let mut steps = vec![json!({
+            "step": "loop", "iterations": 1,
+            "iterations_shown": [{ "step": "loop", "iteration": 1, "steps": [{ "step": "loop/inner" }] }]
+        })];
+        let mut modules = HashMap::new();
+        collect_modules(&flow, &mut modules);
+        name_steps(&mut steps, &modules);
+        assert_eq!(steps[0]["summary"], "Each customer");
+        assert_eq!(steps[0]["module"]["parallel"], true);
+        // An iteration is named by its place, its steps by their module.
+        assert!(steps[0]["iterations_shown"][0].get("module").is_none());
+        assert!(steps[0].get("branches").is_none());
+        let inner = &steps[0]["iterations_shown"][0]["steps"][0];
+        assert_eq!(inner["module"]["language"], "python3");
     }
 }

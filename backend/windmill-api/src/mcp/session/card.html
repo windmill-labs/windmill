@@ -36,9 +36,26 @@
     --accent-hover: #5074f6;
     --danger: #ef4444;
     --danger-hover: #dc2626;
+    --warn-bg: var(--color-background-warning, #ffedd5);
+    --warn-fg: var(--color-text-warning, #9a3412);
+    /* Dots, progress and error text need a mid tone in both themes, where badge text is pale
+       in dark mode. */
+    --ok-strong: var(--color-text-success, #22c55e);
+    --bad-strong: var(--color-text-danger, #ef4444);
+    --info-strong: var(--color-text-info, #3b82f6);
+    --warn-strong: var(--color-text-warning, #f97316);
+    --ring: var(--color-ring-primary, #758ff8);
     --radius: var(--border-radius-md, 6px);
-    --sans: var(--font-sans, Inter, system-ui, -apple-system, sans-serif);
+    /* Both hosts require their own type: the fallback is the system stack, not Windmill's
+       Inter. Sizes default to Windmill's 11/12/14. */
+    --sans: var(--font-sans, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
     --mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    --t-xs: var(--font-text-xs-size, 11px);
+    --t-sm: var(--font-text-sm-size, 12px);
+    --t-md: var(--font-text-md-size, 14px);
+    --w-normal: var(--font-weight-normal, 400);
+    --w-medium: var(--font-weight-medium, 500);
+    --w-semibold: var(--font-weight-semibold, 600);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -55,6 +72,12 @@
       --ok-fg: var(--color-text-success, #dcfce7);
       --bad-bg: var(--color-background-danger, rgba(129, 56, 63, 0.4));
       --bad-fg: var(--color-text-danger, #fee2e2);
+      --warn-bg: var(--color-background-warning, rgba(154, 52, 18, 0.4));
+      --warn-fg: var(--color-text-warning, #fed7aa);
+      --ok-strong: var(--color-text-success, #4ade80);
+      --bad-strong: var(--color-text-danger, #f87171);
+      --info-strong: var(--color-text-info, #60a5fa);
+      --warn-strong: var(--color-text-warning, #fb923c);
       --accent: #7085db;
       --accent-hover: #5670d5;
       --danger: #dc2626;
@@ -75,18 +98,23 @@
     --ok-fg: var(--color-text-success, #dcfce7);
     --bad-bg: var(--color-background-danger, rgba(129, 56, 63, 0.4));
     --bad-fg: var(--color-text-danger, #fee2e2);
+    --warn-bg: var(--color-background-warning, rgba(154, 52, 18, 0.4));
+    --warn-fg: var(--color-text-warning, #fed7aa);
+    --ok-strong: var(--color-text-success, #4ade80);
+    --bad-strong: var(--color-text-danger, #f87171);
+    --info-strong: var(--color-text-info, #60a5fa);
+    --warn-strong: var(--color-text-warning, #fb923c);
     --accent: #7085db;
     --accent-hover: #5670d5;
     --danger: #dc2626;
     --danger-hover: #b91c1c;
   }
   html, body { margin: 0; background: transparent; }
-  body { font: 14px/1.4 var(--sans); color: var(--fg); }
+  body { font: var(--w-normal) var(--t-md)/1.4 var(--sans); color: var(--fg); }
   .card { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
   .head { display: flex; align-items: flex-start; gap: 12px; }
   .title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-  .subtitle { font: 12px var(--mono); color: var(--fg-2); overflow-wrap: anywhere; }
-  .path.named { font: 600 14px/1.3 var(--sans); }
+  .subtitle { font: var(--t-sm) var(--mono); color: var(--fg-2); overflow-wrap: anywhere; }
   .kind-icon { flex: none; width: 28px; height: 28px; border-radius: var(--radius); background: var(--bg-2); color: var(--fg-2); display: inline-flex; align-items: center; justify-content: center; }
   .kind-icon .lucide { width: 16px; height: 16px; color: inherit; }
   /* Blocks sit 12px apart; a section keeps its header 8px above what it opens. */
@@ -96,13 +124,14 @@
      there). Drawn as Windmill's own: an underlined strip, the selected tab marked by a bar
      and an emphasised label. */
   .tabs { display: flex; gap: 16px; border-bottom: 1px solid var(--line); }
-  .tab { min-height: 0; padding: 4px 0; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; font-size: 12px; font-weight: 400; color: var(--fg); }
-  .tab[aria-selected="true"] { border-bottom-color: var(--fg-3); color: var(--fg-em); font-weight: 600; }
+  .tab { min-height: 0; padding: 4px 0; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; font-size: var(--t-sm); font-weight: var(--w-normal); color: var(--fg); }
+  .tab[aria-selected="true"] { border-bottom-color: var(--fg-3); color: var(--fg-em); font-weight: var(--w-semibold); }
   .tab:hover:not([aria-selected="true"]) { background: none; border-bottom-color: var(--line); }
   .row.tree { flex-wrap: nowrap; align-items: center; gap: 8px; padding-top: 6px; padding-bottom: 6px; cursor: pointer; }
   .row.tree:hover, .row.tree[aria-selected="true"] { background: var(--bg-2); }
   .row.tree[aria-selected="true"] { box-shadow: inset 2px 0 var(--fg-3); }
   .row.tree .v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row.tree .grow { color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .row.tree .dim { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* Every row keeps the chevron's place, so a level's dots line up. */
   .chev { flex: none; width: 16px; display: inline-flex; justify-content: center; color: var(--fg-3); }
@@ -110,16 +139,17 @@
   .chev-toggle:hover:not(:disabled) { background: none; color: var(--fg-em); }
   .split { display: grid; grid-template-columns: minmax(220px, 2fr) 3fr; gap: 16px; align-items: start; }
   .detail { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-  .back { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; min-height: 0; font-size: 13px; color: var(--fg-2); }
+  .back { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; min-height: 0; font-size: var(--t-sm); color: var(--fg-2); }
   .back:hover { background: none; color: var(--fg-em); }
   /* Links and Show more read as text, as in Windmill: tinting on hover is for buttons. */
-  .more-line { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; min-height: 0; font-size: 13px; color: var(--fg-2); }
+  .more-line { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; min-height: 0; font-size: var(--t-sm); color: var(--fg-2); }
   .more-line:hover { background: none; color: var(--fg-em); text-decoration: underline; }
-  .empty { font-size: 13px; color: var(--fg-3); }
+  .empty { font-size: var(--t-sm); color: var(--fg-3); }
   /* An empty slot takes no gap in the card's rhythm. */
   #result-more:empty, #result-table:empty, #body:empty, #result-slot:not(:has(:not([hidden]))), .actions:not(:has(> :not([hidden]))) { display: none; }
-  .section-title { font-size: 13px; font-weight: 600; color: var(--fg-em); }
-  .path { font: 600 14px/1.3 var(--mono); color: var(--fg-em); overflow-wrap: anywhere; text-align: left; }
+  .section-title { font-size: var(--t-sm); font-weight: var(--w-semibold); color: var(--fg-em); }
+  /* Windmill sets titles in its sans, semibold; a path never goes bold. */
+  .path { font: var(--w-semibold) var(--t-md)/1.3 var(--sans); color: var(--fg-em); overflow-wrap: anywhere; text-align: left; }
   button.path { border: 0; padding: 0; min-height: 0; background: none; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
   button.path:hover { background: none; text-decoration: underline; }
   button.path:disabled { opacity: 1; cursor: default; text-decoration: none; }
@@ -127,50 +157,70 @@
   .lucide { width: 14px; height: 14px; flex: none; vertical-align: -2px; color: var(--fg-3); }
   button .lucide { color: inherit; }
   .icon { flex: none; min-height: 28px; width: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
-  .disclosure { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; border: 0; padding: 0; min-height: 0; background: none; font-size: 13px; font-weight: 600; color: var(--fg-em); }
+  .disclosure { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; border: 0; padding: 0; min-height: 0; background: none; font-size: var(--t-sm); font-weight: var(--w-semibold); color: var(--fg-em); }
   .disclosure:hover { background: none; text-decoration: underline; }
-  .summary-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 12px; font-size: 13px; }
+  .summary-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 12px; font-size: var(--t-sm); }
   .summary-row + .summary-row { border-top: 1px solid var(--line); }
   button.summary-row { width: 100%; min-height: 0; border: 0; border-radius: 0; background: transparent; font: inherit; color: inherit; text-align: left; }
   button.summary-row:hover { background: var(--bg-2); }
-  .summary-row .grow { flex: 1; min-width: 0; font: 12px var(--mono); color: var(--fg-em); overflow-wrap: anywhere; }
-  .summary-row .why { flex-basis: 100%; font-size: 12px; color: var(--fg-2); }
-  .add-count { color: var(--ok-fg); font: 12px var(--mono); }
-  .del-count { color: var(--bad-fg); font: 12px var(--mono); }
-  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-3); }
-  .ws { background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; color: var(--fg-2); font-weight: 500; }
-  .pill, .badge { flex: none; font-size: 12px; font-weight: 400; padding: 2px 8px; border-radius: 6px; background: var(--info-bg); color: var(--info-fg); white-space: nowrap; }
+  .summary-row .grow { flex: 1; min-width: 0; font: var(--t-sm) var(--mono); color: var(--fg-em); overflow-wrap: anywhere; }
+  .summary-row .why { flex-basis: 100%; font-size: var(--t-sm); color: var(--fg-2); }
+  .add-count { color: var(--ok-strong); font: var(--t-sm) var(--mono); }
+  .del-count { color: var(--bad-strong); font: var(--t-sm) var(--mono); }
+  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--t-sm); color: var(--fg-2); }
+  .ws { background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; color: var(--fg-2); font-weight: var(--w-medium); }
+  .pill, .badge { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: var(--t-sm); font-weight: var(--w-normal); padding: 2px 8px; border-radius: 6px; background: var(--info-bg); color: var(--info-fg); white-space: nowrap; }
   .success, .pill.success { background: var(--ok-bg); color: var(--ok-fg); }
-  .failure, .canceled, .not_started, .pill.failure, .pill.canceled, .pill.not_started, .pill.error { background: var(--bad-bg); color: var(--bad-fg); }
-  .step { font-size: 13px; color: var(--fg-2); }
+  .failure, .not_started, .pill.failure, .pill.not_started, .pill.error { background: var(--bad-bg); color: var(--bad-fg); }
+  /* As Windmill: queued and suspended wait (its orange and violet; hosts offer a warning
+     colour), canceled is neutral. */
+  .queued, .suspended, .pill.queued, .pill.suspended { background: var(--warn-bg); color: var(--warn-fg); }
+  .canceled, .pill.canceled, .skipped, .pill.skipped { background: var(--bg-2); color: var(--fg-2); }
+  .step { font-size: var(--t-sm); color: var(--fg-2); }
   .progress-block { display: flex; flex-direction: column; gap: 4px; }
-  .progress { display: flex; gap: 4px; }
-  .segment { flex: 1; height: 4px; border-radius: 2px; background: var(--line); }
-  .segment.success { background: var(--ok-fg); }
-  .segment.failure { background: var(--bad-fg); }
-  .segment.running { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+  /* As Windmill's progress bar: what ran in its blue, the running step pulsing, a failed one
+     red, in the host's own info and danger colours. */
+  .progress { display: flex; gap: 2px; }
+  .segment { flex: 1; height: 6px; border-radius: 3px; background: var(--line); }
+  .segment.success { background: var(--info-strong); }
+  .segment.failure { background: var(--bad-strong); }
+  .segment.running { background: var(--info-strong); animation: pulse 1.2s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: 0.45; } }
-  @media (prefers-reduced-motion: reduce) { .segment.running { animation: none; } }
-  .live-log { font: 12px var(--mono); color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .spin { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .segment.running, .spin { animation: none; } }
+  .pill .lucide, .badge .lucide { width: 12px; height: 12px; color: inherit; }
+  /* The basic terminal colours a log carries, as Windmill's log viewer draws them. */
+  .ansi-red { color: var(--bad-strong); }
+  .ansi-green { color: var(--ok-strong); }
+  .ansi-yellow { color: var(--warn-strong); }
+  .ansi-blue { color: var(--info-strong); }
+  .ansi-grey { color: var(--fg-3); }
+  .ansi-bold { font-weight: var(--w-semibold); }
+  .live-log { font: var(--t-sm) var(--mono); color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .step code { font-family: var(--mono); }
-  pre { margin: 0; padding: 8px 12px; border-radius: var(--radius); background: var(--bg-2); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+  pre { margin: 0; padding: 8px 12px; border-radius: var(--radius); background: var(--bg-2); font: var(--t-sm)/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
   pre.clip { max-height: 180px; overflow: hidden; }
+  /* A result in a bordered box, logs and code on the sunken surface, as on the run page. */
+  pre.result { background: none; border: 1px solid var(--line); }
   /* Error colour goes on text, as in Windmill: `name: message` in it, the stack plain. */
-  pre.error { color: var(--bad-fg); }
-  .error-line { color: var(--bad-fg); font-weight: 600; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  pre.stack { background: none; padding: 0; }
+  .openable > pre.stack { padding-right: 64px; }
+  .error-line { color: var(--bad-strong); font-weight: var(--w-semibold); font-size: var(--t-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
   .rows { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); }
-  .row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 12px; font-size: 13px; }
+  .row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 12px; font-size: var(--t-sm); }
   .row + .row { border-top: 1px solid var(--line); }
-  .row .v { min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; color: var(--fg-em); }
+  .row .v { min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: var(--t-sm); color: var(--fg-em); }
   .row .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-  .dim { color: var(--fg-3); font-size: 12px; }
-  .row .k { color: var(--fg-3); min-width: 110px; }
+  .dim { color: var(--fg-3); font-size: var(--t-sm); }
+  .row .k { color: var(--fg-2); min-width: 110px; }
   .row pre { flex-basis: 100%; padding: 4px 8px; }
   .row .step-link { min-height: 20px; width: 20px; border: 0; background: none; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; background: var(--info-fg); }
-  .dot.success { background: var(--ok-fg); }
-  .dot.failure, .dot.canceled { background: var(--bad-fg); }
-  .dot.skipped { background: var(--fg-3); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; background: var(--info-strong); }
+  .dot.success { background: var(--ok-strong); }
+  .dot.failure, .dot.not_started { background: var(--bad-strong); }
+  .dot.queued, .dot.suspended { background: var(--warn-strong); }
+  .dot.canceled, .dot.skipped { background: var(--fg-3); }
   .openable { position: relative; }
   .image-box { display: flex; justify-content: center; padding: 8px; border-radius: var(--radius); background: var(--bg-2); }
   .image-box img { max-width: 100%; height: auto; }
@@ -182,37 +232,44 @@
   .openable > pre { padding-right: 64px; }
   pre.cut { cursor: pointer; -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent); mask-image: linear-gradient(to bottom, #000 75%, transparent); }
   pre.cut.from-end { -webkit-mask-image: linear-gradient(to top, #000 75%, transparent); mask-image: linear-gradient(to top, #000 75%, transparent); }
-  .patch { font: 12px/1.45 var(--mono); padding: 6px 0; background: var(--bg-2); border-radius: var(--radius); overflow-wrap: anywhere; }
+  .patch { font: var(--t-sm)/1.45 var(--mono); padding: 6px 0; background: var(--bg-2); border-radius: var(--radius); overflow-wrap: anywhere; }
   .patch div { padding: 0 12px; white-space: pre-wrap; }
   .patch .add { background: var(--ok-bg); color: var(--ok-fg); }
   .patch .del { background: var(--bad-bg); color: var(--bad-fg); }
   .patch .hunk { color: var(--info-fg); }
-  .patch .file { font-weight: 600; color: var(--fg); padding-top: 8px; }
+  .patch .file { font-weight: var(--w-semibold); color: var(--fg); padding-top: 8px; }
   .patch .note { color: var(--fg-2); font-family: var(--sans); }
   /* As Windmill's tables: a light border, the header row on the secondary surface. */
-  .table { border: 1px solid var(--line); border-radius: var(--radius); overflow-x: auto; }
+  /* Inline a card never scrolls inside itself: cells wrap, and fullscreen may scroll. */
+  .table { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .table.scroll { overflow-x: auto; }
   thead tr { background: var(--bg-2); }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; font-size: 12px; font-weight: 400; color: var(--fg); padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer; white-space: nowrap; user-select: none; }
-  td { padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+  table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
+  th { text-align: left; font-size: var(--t-xs); font-weight: var(--w-normal); color: var(--fg); padding: 8px; border-bottom: 1px solid var(--line); cursor: pointer; white-space: nowrap; user-select: none; }
+  th .lucide { width: 12px; height: 12px; margin-left: 2px; }
+  td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
   tr:last-child td { border-bottom: 0; }
-  td.mono { font: 12px var(--mono); }
+  td.mono { font: var(--t-sm) var(--mono); }
+  td .lucide { margin-right: 6px; }
   tr.link { cursor: pointer; }
   tr.link:hover td { background: var(--bg-2); }
   .item { display: flex; flex-direction: column; gap: 6px; }
   .item + .item { border-top: 1px solid var(--line); padding-top: 12px; }
   .item-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-  .item-head .grow { flex: 1; min-width: 0; font: 600 13px var(--mono); color: var(--fg-em); overflow-wrap: anywhere; }
-  .form-error { color: var(--bad-fg); font-size: 13px; }
+  .item-head .grow { flex: 1; min-width: 0; font: var(--t-sm) var(--mono); color: var(--fg-em); overflow-wrap: anywhere; }
+  .form-error { color: var(--bad-strong); font-size: var(--t-sm); }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
-  button { font: 500 13px var(--sans); min-height: 32px; padding: 0 12px; border-radius: var(--radius); cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--fg); }
+  /* Windmill's small button: 28px, 12px, regular weight, its icon 8px from the label. */
+  button { font: var(--w-normal) var(--t-sm) var(--sans); min-height: 28px; padding: 0 12px; border-radius: var(--radius); cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--fg); }
   /* As weak as the base rule it follows, so a text-styled button's own hover wins. */
   button:where(:hover:not(:disabled)) { background: var(--bg-2); }
+  button.primary, button.danger { display: inline-flex; align-items: center; gap: 8px; }
   button.primary { background: var(--accent); color: #ffffff; border-color: transparent; }
   button.primary:hover:not(:disabled) { background: var(--accent-hover); }
-  button.danger { display: inline-flex; align-items: center; gap: 6px; background: var(--danger); color: #ffffff; border-color: transparent; }
+  button.danger { background: var(--danger); color: #ffffff; border-color: transparent; }
   button.danger:hover:not(:disabled) { background: var(--danger-hover); }
   button:disabled { opacity: 0.5; cursor: default; }
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -253,7 +310,7 @@
   const pollDelay = (age) => (age < 10_000 ? 2_000 : age < 60_000 ? 5_000 : 15_000);
   const RUNNING = ['running', 'queued', 'suspended'];
   const LABELS = {
-    running: 'Running', queued: 'Queued', suspended: 'Waiting', success: 'Success',
+    running: 'Running', queued: 'Queued', suspended: 'Suspended', success: 'Success',
     failure: 'Failed', canceled: 'Canceled', skipped: 'Skipped', not_started: 'Not started',
     step: 'Step result', in_progress: 'Running', error: 'Error'
   };
@@ -312,10 +369,18 @@
     schedule: [['path', { d: 'M8 2v4' }], ['path', { d: 'M16 2v4' }], ['rect', { width: '18', height: '18', x: '3', y: '4', rx: '2' }], ['path', { d: 'M3 10h18' }]],
     trigger: [['path', { d: 'M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z' }]],
     http: [['circle', { cx: '6', cy: '19', r: '3' }], ['path', { d: 'M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15' }], ['circle', { cx: '18', cy: '5', r: '3' }]],
-    resource: [['path', { d: 'M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z' }], ['path', { d: 'm3.3 7 8.7 5 8.7-5' }], ['path', { d: 'M12 22V12' }]],
+    resource: [['path', { d: 'M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z' }], ['path', { d: 'm7 16.5-4.74-2.85' }], ['path', { d: 'm7 16.5 5-3' }], ['path', { d: 'M7 16.5v5.17' }], ['path', { d: 'M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z' }], ['path', { d: 'm17 16.5-5-3' }], ['path', { d: 'm17 16.5 4.74-2.85' }], ['path', { d: 'M17 16.5v5.17' }], ['path', { d: 'M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z' }], ['path', { d: 'M12 8 7.26 5.15' }], ['path', { d: 'm12 8 4.74-2.85' }], ['path', { d: 'M12 13.5V8' }]],
     app: [['rect', { width: '7', height: '9', x: '3', y: '3', rx: '1' }], ['rect', { width: '7', height: '5', x: '14', y: '3', rx: '1' }], ['rect', { width: '7', height: '9', x: '14', y: '12', rx: '1' }], ['rect', { width: '7', height: '5', x: '3', y: '16', rx: '1' }]],
-    review: [['circle', { cx: '5', cy: '6', r: '3' }], ['path', { d: 'M12 6h5a2 2 0 0 1 2 2v7' }], ['path', { d: 'm15 9-3-3 3-3' }], ['circle', { cx: '19', cy: '18', r: '3' }], ['path', { d: 'M12 18H7a2 2 0 0 1-2-2V9' }], ['path', { d: 'm9 15 3 3-3 3' }]],
-    runs: [['path', { d: 'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8' }], ['path', { d: 'M3 3v5h5' }], ['path', { d: 'M12 7v5l4 2' }]]
+    review: [['path', { d: 'M12 3v14' }], ['path', { d: 'M5 10h14' }], ['path', { d: 'M5 21h14' }]],
+    runs: [['path', { d: 'M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z' }]],
+    websocket: [['path', { d: 'm19 5 3-3' }], ['path', { d: 'm2 22 3-3' }], ['path', { d: 'M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z' }], ['path', { d: 'M7.5 13.5 10 11' }], ['path', { d: 'M10.5 16.5 13 14' }], ['path', { d: 'm12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z' }]],
+    database: [['ellipse', { cx: '12', cy: '5', rx: '9', ry: '3' }], ['path', { d: 'M3 5V19A9 3 0 0 0 21 19V5' }], ['path', { d: 'M3 12A9 3 0 0 0 21 12' }]],
+    mail: [['path', { d: 'm22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7' }], ['rect', { x: '2', y: '4', width: '20', height: '16', rx: '2' }]],
+    expand: [['path', { d: 'm15 15 6 6' }], ['path', { d: 'm15 9 6-6' }], ['path', { d: 'M21 16v5h-5' }], ['path', { d: 'M21 8V3h-5' }], ['path', { d: 'M3 16v5h5' }], ['path', { d: 'm3 21 6-6' }], ['path', { d: 'M3 8V3h5' }], ['path', { d: 'M9 9 3 3' }]],
+    loader: [['path', { d: 'M21 12a9 9 0 1 1-6.219-8.56' }]],
+    save: [['path', { d: 'M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z' }], ['path', { d: 'M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7' }], ['path', { d: 'M7 3v4a1 1 0 0 0 1 1h7' }]],
+    arrowUp: [['path', { d: 'm5 12 7-7 7 7' }], ['path', { d: 'M12 19V5' }]],
+    arrowDown: [['path', { d: 'M12 5v14' }], ['path', { d: 'm19 12-7 7-7-7' }]]
   };
   function icon(name) {
     const ns = 'http://www.w3.org/2000/svg';
@@ -329,18 +394,99 @@
     }
     return svg;
   }
+  // Windmill's Loader2, turning while something runs (still under reduced motion).
+  function spinner() {
+    const svg = icon('loader');
+    svg.classList.add('spin');
+    return svg;
+  }
   // A button that opens a Windmill page.
   const linkButton = (label, url, style) => el('button', { class: 'more-line', type: 'button', style, onclick: () => openLink(url) }, label, icon('external'));
 
   const KINDS = { preview: 'script test', flowpreview: 'flow test', flowscript: 'flow step', flowdependencies: 'flow dependencies' };
   const kindLabel = (kind) => (kind ? KINDS[kind] ?? kind : '');
 
+  // As Windmill's `msToReadableTime(ms, 2)`.
   function formatMs(ms) {
     if (ms == null || ms < 0) return '';
-    if (ms < 1000) return `${Math.round(ms)}ms`;
-    const s = ms / 1000;
-    if (s < 60) return `${s.toFixed(1)}s`;
-    return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    if (days > 0) return `${days}d ${hours % 24}h ${minutes % 60}m ${seconds % 60}s`;
+    if (hours > 0) return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+    if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+    return `${Number((ms / 1000).toFixed(2))}s`;
+  }
+
+  // The names Windmill shows for a language, a trigger kind and a flow step's kind.
+  const LANGUAGES = {
+    python3: 'Python', deno: 'TypeScript', bun: 'TypeScript', bunnative: 'TypeScript', nativets: 'TypeScript',
+    go: 'Go', bash: 'Bash', powershell: 'PowerShell', graphql: 'GraphQL', postgresql: 'PostgreSQL',
+    bigquery: 'BigQuery', oracledb: 'Oracle Database', duckdb: 'DuckDB', snowflake: 'Snowflake', mysql: 'MySQL',
+    mssql: 'MS SQL Server', php: 'PHP', rust: 'Rust', ansible: 'Ansible', csharp: 'C#', nu: 'Nu', java: 'Java',
+    ruby: 'Ruby', rlang: 'R', dbt: 'dbt'
+  };
+  const languageLabel = (language) => LANGUAGES[language] ?? language;
+  const TRIGGERS = {
+    http: 'HTTP', websocket: 'WebSocket', ws: 'WebSocket', postgres: 'Postgres', kafka: 'Kafka', nats: 'NATS',
+    sqs: 'SQS', gcp: 'GCP Pub/Sub', azure: 'Azure Event Grid', mqtt: 'MQTT', amqp: 'AMQP', email: 'Email',
+    schedule: 'Schedule'
+  };
+  const triggerLabel = (kind) => TRIGGERS[kind] ?? kind;
+  const TRIGGER_ICONS = { http: 'http', websocket: 'websocket', ws: 'websocket', postgres: 'database', email: 'mail', schedule: 'schedule' };
+  // The icon an item of a kind takes; a trigger's follows its kind, as in Windmill.
+  function kindIconOf(type, triggerKind) {
+    if (type === 'trigger') return TRIGGER_ICONS[triggerKind] ?? 'trigger';
+    if (type === 'raw_app') return 'app';
+    return ICONS[type] ? type : null;
+  }
+  function stepKind(module) {
+    switch (module?.type) {
+      case 'identity': return 'Identity';
+      case 'forloopflow': return `For loop${module.parallel ? ' (parallel)' : ''}`;
+      case 'whileloopflow': return 'While loop';
+      case 'branchall': return `Run all branches${module.parallel ? ' (parallel)' : ''}`;
+      case 'branchone': return 'Run one branch';
+      case 'flow': return 'Inner flow';
+      case 'rawscript': return `Inline ${languageLabel(module.language)} script`;
+      case 'script': return 'Workspace script';
+      case 'aiagent': return 'AI Agent';
+      case 'aidecision': return 'AI Decision';
+      default: return null;
+    }
+  }
+
+  // Logs carry terminal colour codes: the basic colours and bold are drawn, as Windmill's
+  // log viewer does, and every other sequence is dropped. Each run of text is set as text.
+  const ANSI_COLOURS = { 31: 'red', 91: 'red', 32: 'green', 92: 'green', 33: 'yellow', 93: 'yellow', 34: 'blue', 94: 'blue', 35: 'blue', 95: 'blue', 36: 'blue', 96: 'blue', 90: 'grey' };
+  const stripAnsi = (text) => text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+  function ansiNodes(text) {
+    const nodes = [];
+    let colour = null;
+    let bold = false;
+    const push = (part) => {
+      if (!part) return;
+      const classes = [colour && `ansi-${colour}`, bold && 'ansi-bold'].filter(Boolean).join(' ');
+      nodes.push(classes ? el('span', { class: classes }, part) : part);
+    };
+    const clean = text.replace(/\x1b\[[0-9;?]*[A-Za-ln-z]/g, '');
+    let last = 0;
+    for (const match of clean.matchAll(/\x1b\[([0-9;]*)m/g)) {
+      push(clean.slice(last, match.index));
+      last = match.index + match[0].length;
+      for (const code of (match[1] || '0').split(';').map(Number)) {
+        // 256-colour and RGB forms carry their own numbers: the rest of the sequence is theirs.
+        if (code === 38 || code === 48) break;
+        if (code === 0) { colour = null; bold = false; }
+        else if (code === 1) bold = true;
+        else if (code === 22) bold = false;
+        else if (code === 39) colour = null;
+        else if (ANSI_COLOURS[code]) colour = ANSI_COLOURS[code];
+      }
+    }
+    push(clean.slice(last));
+    return nodes;
   }
 
   function canFullscreen() {
@@ -369,7 +515,7 @@
       block.title = canFullscreen() ? 'Show it all' : 'Open in Windmill';
       block.addEventListener('click', open);
       buttons.push(el('button', { class: 'icon', type: 'button', 'aria-label': block.title, title: block.title, onclick: open },
-        icon(canFullscreen() ? 'maximize' : 'external')));
+        icon(canFullscreen() ? 'expand' : 'external')));
     }
     if (!buttons.length) return block;
     return el('div', { class: 'openable' }, block, el('div', { class: 'corner' }, ...buttons));
@@ -413,7 +559,7 @@
   // Windmill: grown inline it would pass the height hosts cap a card at.
   function moreButton(label, url) {
     if (canFullscreen()) {
-      return el('button', { class: 'more-line', type: 'button', style: 'margin-top: 8px', onclick: () => setDisplayMode('fullscreen') }, `Show ${label}`, icon('maximize'));
+      return el('button', { class: 'more-line', type: 'button', style: 'margin-top: 8px', onclick: () => setDisplayMode('fullscreen') }, `Show ${label}`, icon('expand'));
     }
     if (!url) return null;
     return linkButton(`${label[0].toUpperCase()}${label.slice(1)} in Windmill`, url, 'margin-top: 8px');
@@ -480,7 +626,7 @@
     const pill = $('status');
     pill.hidden = !label;
     pill.className = `pill ${status ?? ''}`;
-    pill.textContent = label ?? '';
+    pill.replaceChildren(...(status === 'running' && label ? [spinner()] : []), label ?? '');
   }
   // ---------------------------------------------------------------- tables
 
@@ -506,19 +652,24 @@
       body.replaceChildren(...sorted.slice(0, limit).map((row) => el('tr', { class: onRow ? 'link' : null, onclick: onRow && (() => onRow(row)) },
         ...columns.map((column) => {
           const value = column.value(row);
-          return el('td', { class: column.mono ? 'mono' : null }, cellText(column.show ? column.show(value) : value));
+          return el('td', { class: column.mono ? 'mono' : null }, cellText(column.show ? column.show(value, row) : value));
         }))));
+      head.replaceChildren(...columns.map((column) => {
+        const sorted = sort?.column === column;
+        return el('th', {
+          'aria-sort': sorted ? (sort.dir > 0 ? 'ascending' : 'descending') : null,
+          onclick: () => {
+            sort = { column, dir: sorted ? -sort.dir : 1 };
+            draw();
+          }
+        }, column.label, sorted ? icon(sort.dir > 0 ? 'arrowUp' : 'arrowDown') : null);
+      }));
     };
-    const head = el('tr', {}, ...columns.map((column) => el('th', {
-      onclick: () => {
-        sort = { column, dir: sort?.column === column ? -sort.dir : 1 };
-        draw();
-      }
-    }, column.label)));
+    const head = el('tr');
     draw();
     const hidden = rows.length - Math.min(rows.length, limit);
     return el('div', {},
-      el('div', { class: 'table' }, el('table', {}, el('thead', {}, head), body)),
+      el('div', { class: fullscreen() ? 'table scroll' : 'table' }, el('table', {}, el('thead', {}, head), body)),
       hidden > 0 ? moreButton(`${hidden} more ${more.noun}${hidden === 1 ? '' : 's'}`, more.url) : null);
   }
 
@@ -583,7 +734,8 @@
       if (current) label.append(...nestedPath(current, true));
       parts.push(label);
     }
-    if (run.live_log) parts.push(el('div', { class: 'live-log', title: run.live_log }, run.live_log));
+    const line = run.live_log ? stripAnsi(run.live_log) : '';
+    if (line) parts.push(el('div', { class: 'live-log', title: line }, line));
     return parts;
   }
 
@@ -636,7 +788,7 @@
     // The result is clipped inline; a click on it opens it whole.
     const slot = $('result-slot');
     result.classList.remove('cut');
-    const fresh = el('pre', { class: result.className, id: 'result', hidden: result.hidden }, result.textContent);
+    const fresh = el('pre', { class: `${result.className} ${failed ? 'stack' : 'result'}`, id: 'result', hidden: result.hidden }, result.textContent);
     slot.replaceChildren(fresh);
     if (!fresh.hidden) {
       const clipped = !fullscreen() && fresh.scrollHeight > fresh.clientHeight + 1;
@@ -683,7 +835,7 @@
     const groups = steps.filter((s) => s.branches || s.iterations != null)
       .map((s) => s.branches ? `${s.step} ran ${plural(s.branches.length, 'branch')}` : `${s.step} ran ${plural(s.iterations, 'iteration')}`);
     const text = [plural(steps.length, 'step'), failedAt ? `failed at ${failedAt.step}` : 'all succeeded', ...groups].join(' \u00b7 ');
-    if (canFullscreen()) return el('button', { class: 'more-line', type: 'button', onclick: () => openTab('steps') }, text, icon('maximize'));
+    if (canFullscreen()) return el('button', { class: 'more-line', type: 'button', onclick: () => openTab('steps') }, text, icon('expand'));
     if (run.url) return el('button', { class: 'more-line', type: 'button', onclick: () => openLink(run.url) }, text, icon('external'));
     return el('div', { class: 'step' }, text);
   }
@@ -693,8 +845,8 @@
   const openNodes = new Set();
   const isGroup = (node) => !!node.branches || node.iterations != null;
   function childrenOf(node) {
-    if (node.branches) return node.branches.map((b, i) => ({ node: b, label: `branch ${i + 1}` }));
-    if (node.iterations != null) return (node.iterations_shown ?? []).map((p) => ({ node: p, label: `iteration ${p.iteration}` }));
+    if (node.branches) return node.branches.map((b, i) => ({ node: b, label: `Branch ${i + 1}`, place: `branch ${i + 1}` }));
+    if (node.iterations != null) return (node.iterations_shown ?? []).map((p) => ({ node: p, label: `Iteration ${p.iteration}`, place: `iteration ${p.iteration}` }));
     return (node.steps ?? []).map((s) => ({ node: s, label: s.step.split('/').pop() }));
   }
   const depthPad = (depth) => `padding-left: ${8 + depth * 16}px`;
@@ -721,7 +873,8 @@
         : null),
       el('span', { class: `dot ${status ?? ''}` }),
       el('span', { class: 'v' }, label),
-      el('span', { class: 'grow' }),
+      // Named as Windmill's graph names it: by summary, else by kind.
+      el('span', { class: 'grow' }, node.summary ?? stepKind(node.module) ?? ''),
       el('span', { class: 'dim' }, [note, LABELS[status] ?? status ?? '', formatMs(node.duration_ms)].filter(Boolean).join(' · '))));
     if (!open) return;
     kids.forEach((kid, i) => treeRows(kid.node, kid.label, `${key}>${i}`, depth + 1, last && status === 'failure' && i === kids.length - 1, rows));
@@ -760,7 +913,7 @@
     const count = node.branches ? parts.length : node.iterations;
     const ok = node.branches ? parts.filter((b) => b.status === 'success').length : node.ok;
     const rows = [
-      row('Kind', node.branches ? 'Branches' : node.type === 'whileloopflow' ? 'While loop' : 'For loop'),
+      row('Kind', stepKind(node.module) ?? (node.branches ? 'Run all branches' : node.type === 'whileloopflow' ? 'While loop' : 'For loop')),
       row(node.branches ? 'Branches' : 'Iterations', String(count)),
       row('Succeeded', String(ok))
     ];
@@ -783,7 +936,7 @@
       (r?.duration_ms ?? node.duration_ms) != null ? el('span', { class: 'dim' }, formatMs(r?.duration_ms ?? node.duration_ms)) : null,
       url ? linkButton('Open in Windmill', url) : null);
     if (!node.job_id) return [head, groupPane(node)];
-    if (!r) return [head, el('div', { class: 'empty' }, 'Loading…')];
+    if (!r) return [head, el('div', { class: 'empty' }, spinner(), ' Loading')];
     const active = selected.tab ?? 'result';
     return [head,
       tabBar([['result', 'Result'], ['logs', 'Logs'], ['inputs', 'Inputs']], active, (name) => { selected.tab = name; redraw(); }),
@@ -806,7 +959,7 @@
     if (isGroup(node) && !top) {
       const total = node.branches ? node.branches.length : node.iterations;
       const ok = node.branches ? node.branches.filter((b) => b.status === 'success').length : node.ok;
-      out.push(running.length === 1 ? `, ${running[0].label} of ${total}` : `, ${ok} of ${total} done`);
+      out.push(running.length === 1 ? `, ${running[0].place} of ${total}` : `, ${ok} of ${total} done`);
     }
     if (running.length !== 1) return out;
     if (!isGroup(node)) out.push(' \u203a ', el('code', {}, running[0].label));
@@ -841,7 +994,7 @@
       if (of.logs_cut && lines.length > 1) lines.shift();
       return el('div', { class: 'section' },
         of.logs_cut ? linkButton('Earlier lines in Windmill', url) : null,
-        openable(el('pre', {}, lines.join('\n')), false, url, null, lines.join('\n')));
+        openable(el('pre', {}, ...ansiNodes(lines.join('\n'))), false, url, null, stripAnsi(lines.join('\n'))));
     }
     if (name === 'inputs') {
       if (of.args_cut) return el('div', { class: 'section' }, el('div', { class: 'empty' }, 'Too large to show here.'), linkButton('Inputs in Windmill', url));
@@ -853,13 +1006,13 @@
     const parts = [];
     if (of.status === 'suspended') parts.push(el('div', { class: 'step' }, 'Waiting for an approval or another event.'), linkButton('Approve or cancel in Windmill', url));
     if (failed && of.result != null) parts.push(el('div', { class: 'error-line' }, of.result));
-    if (failed && of.stack) parts.push(openable(el('pre', {}, of.stack), false, url, null, errorText(of)));
+    if (failed && of.stack) parts.push(openable(el('pre', { class: 'stack' }, of.stack), false, url, null, errorText(of)));
     if (failed && of.result_cut) parts.push(linkButton('Full error in Windmill', url));
     if (!failed && of.image) parts.push(imageBox(of));
     else if (!failed && of.result_kind === 'file') parts.push(el('div', { class: 'step' }, of.result), linkButton('View it in Windmill', url));
     else if (!failed && of.result != null) {
       const records = of.status === 'success' ? recordsTable(of.result) : null;
-      parts.push(records ?? openable(el('pre', {}, of.result), false, url, null, of.result));
+      parts.push(records ?? openable(el('pre', { class: 'result' }, of.result), false, url, null, of.result));
       if (of.result_cut) parts.push(linkButton('Full result in Windmill', url));
     }
     if (!parts.length) parts.push(el('div', { class: 'empty' }, RUNNING.includes(of.status) ? 'No result yet.' : 'No result.'));
@@ -938,14 +1091,20 @@
     renderRun();
   }
 
+  // A busy button turns its icon into Windmill's spinner.
+  function setBusy(button, busy, iconName) {
+    button.disabled = busy;
+    button.firstChild.replaceWith(busy ? spinner() : icon(iconName));
+  }
+
   $('cancel').prepend(icon('timerOff'));
   $('cancel').addEventListener('click', async () => {
     const button = $('cancel');
-    button.disabled = true;
+    setBusy(button, true, 'timerOff');
     try {
       await callTool('cancel_job', { workspace_id: run.workspace, id: run.id });
     } catch {}
-    button.disabled = false;
+    setBusy(button, false, 'timerOff');
     window.clearTimeout(pollTimer);
     poll();
   });
@@ -975,13 +1134,28 @@
     setHeader({ summary: meta.runs.length === 1 ? '1 run' : `${meta.runs.length} runs`, ws: meta.workspace, url: meta.url, kindIcon: 'runs' });
     $('review').hidden = true;
     showExpand(fullscreen());
-    const time = (iso) => (iso ? new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '');
+    // As the runs page: when a run ended (or started, while it runs), relative for ten
+    // minutes, then its day and time.
+    const now = Date.now();
+    const when = (r) => {
+      const start = Date.parse(r.started_at ?? r.created_at ?? '');
+      return Number.isNaN(start) ? null : start + (r.duration_ms ?? 0);
+    };
+    const time = (t, r) => {
+      if (t == null) return '';
+      const age = now - t;
+      if (age >= 10 * 60 * 1000) return new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const ago = age < 60_000 ? `${Math.max(0, Math.floor(age / 1000))}s ago` : `${Math.floor(age / 60_000)}m ago`;
+      return `${r.duration_ms != null ? 'Ended' : 'Started'} ${ago}`;
+    };
     $('body').replaceChildren(table([
       { label: 'Status', value: (r) => r.status, show: (s) => el('span', { class: `badge ${s ?? ''}` }, LABELS[s] ?? s ?? '') },
-      { label: 'Path', value: (r) => r.path ?? r.id, mono: true },
-      { label: 'Kind', value: (r) => kindLabel(r.job_kind) },
+      { label: 'Time', value: when, show: time },
       { label: 'Duration', value: (r) => r.duration_ms, show: formatMs },
-      { label: 'Started', value: (r) => r.started_at ?? r.created_at, show: time }
+      {
+        label: 'Path', value: (r) => r.path ?? r.id, mono: true,
+        show: (p, r) => el('span', { title: kindLabel(r.job_kind) }, icon(/flow/.test(r.job_kind ?? '') ? 'flow' : 'script'), p)
+      }
     ], meta.runs, (r) => openLink(r.url), { noun: 'run', url: meta.url }));
   }
 
@@ -1017,17 +1191,21 @@
     return patchView(item.patch);
   }
 
-  const typeLabel = (item) => (item.trigger_kind ? `${item.trigger_kind} trigger` : item.type);
+  const typeLabel = (item) => (item.trigger_kind ? `${triggerLabel(item.trigger_kind)} trigger` : item.type === 'raw_app' ? 'app' : item.type);
+  const itemIcon = (item) => {
+    const name = kindIconOf(item.type, item.trigger_kind);
+    return name ? icon(name) : null;
+  };
 
   function reviewItem(workspace, item) {
     const done = el('span', { class: 'badge success', hidden: !item.deployed }, 'Deployed');
     const error = el('div', { class: 'form-error', hidden: true });
-    const deploy = el('button', { class: 'primary small', type: 'button', hidden: item.digest == null || item.deployed }, 'Deploy');
+    const deploy = el('button', { class: 'primary', type: 'button', hidden: item.digest == null || item.deployed }, icon('save'), 'Deploy');
     let body = reviewBody(item);
     const { type, path, trigger_kind } = item;
     const address = { type, path, ...(trigger_kind ? { trigger_kind } : {}) };
     deploy.onclick = async () => {
-      deploy.disabled = true;
+      setBusy(deploy, true, 'save');
       error.hidden = true;
       try {
         // The draft may have changed since it was shown: what would be deployed is read
@@ -1044,12 +1222,13 @@
           error.textContent = item.digest == null
             ? 'The draft changed since it was shown, and cannot be deployed from here.'
             : 'The draft changed since it was shown. Review the diff above, then press Deploy again.';
-          deploy.disabled = false;
+          setBusy(deploy, false, 'save');
           return;
         }
         const result = await callTool('deploy_workspace_item', { workspace_id: workspace, ...address });
         if (result?.isError) throw new Error(textOf(result));
         item.deployed = true;
+        setBusy(deploy, false, 'save');
         deploy.hidden = true;
         done.hidden = false;
         deployed.push(`${typeLabel(item)} ${item.name ?? item.path}`);
@@ -1059,11 +1238,12 @@
       } catch (e) {
         error.hidden = false;
         error.textContent = e?.message || 'The deploy failed.';
-        deploy.disabled = false;
+        setBusy(deploy, false, 'save');
       }
     };
     return el('section', { class: 'item' },
       el('div', { class: 'item-head' },
+        itemIcon(item),
         el('span', { class: 'grow' }, item.name ?? item.path),
         el('span', { class: 'dim' }, typeLabel(item)),
         done,
@@ -1085,7 +1265,7 @@
       class: 'summary-row', type: item.url ? 'button' : null, title: item.url ? (item.editor ? 'Open in editor' : 'Open in Windmill') : null,
       onclick: item.url ? () => openLink(item.url) : null
     },
-      el('span', { class: 'grow' }, item.name ?? item.path, ' ', item.url ? icon('external') : null),
+      el('span', { class: 'grow' }, itemIcon(item), ' ', item.name ?? item.path, ' ', item.url ? icon('external') : null),
       el('span', { class: 'dim' }, typeLabel(item)),
       state,
       why);
@@ -1146,7 +1326,7 @@
     return (modules ?? []).map((module) => el('div', { class: 'row' },
       el('span', { class: 'v' }, module.id ?? ''),
       el('span', { class: 'grow' }, module.summary || module.value?.path || ''),
-      el('span', { class: 'dim' }, module.value?.type ?? '')));
+      el('span', { class: 'dim' }, stepKind(module.value) ?? module.value?.type ?? '')));
   }
   // Rows past the inline count open fullscreen, or the item in Windmill.
   function capped(rows, noun, url) {
@@ -1170,9 +1350,9 @@
     const type = item.type;
     const draft = !!item.isDraft;
     const url = draft && meta.edit_url ? meta.edit_url : meta.url;
-    const kind = item.triggerKind ? `${item.triggerKind} trigger`
-      : type === 'script' && item.language ? `${item.language} script` : type;
-    const kindIcon = type === 'trigger' && item.triggerKind === 'http' ? 'http' : ICONS[type] ? type : null;
+    const kind = item.triggerKind ? `${triggerLabel(item.triggerKind)} trigger`
+      : type === 'script' && item.language ? `${languageLabel(item.language)} script` : type;
+    const kindIcon = kindIconOf(type, item.triggerKind);
     setHeader({
       path: item.path, ws: meta.workspace, kind, summary: item.summary, kindIcon,
       status: draft ? 'running' : null, label: draft ? 'Draft' : null, url
@@ -1214,7 +1394,7 @@
       case 'schedule': {
         const rows = [row('Cron', value.schedule ?? ''), row('Timezone', value.timezone ?? '')];
         if (target) rows.push(row('Runs', target));
-        rows.push(row('Enabled', String(value.enabled ?? '')));
+        if (value.enabled != null) rows.push(row('Status', value.enabled ? 'Enabled' : 'Disabled'));
         blocks.push(el('div', { class: 'rows' }, ...rows));
         if (value.args && Object.keys(value.args).length) {
           blocks.push(...section('item-args', 'Arguments', () => {
@@ -1228,8 +1408,8 @@
       case 'trigger': {
         const rows = [];
         if (target) rows.push(row('Runs', target));
-        if (value.mode != null) rows.push(row('Mode', value.mode));
-        else if (value.enabled != null) rows.push(row('Enabled', String(value.enabled)));
+        if (value.mode != null) rows.push(row('Mode', String(value.mode).replace(/^./, (c) => c.toUpperCase())));
+        else if (value.enabled != null) rows.push(row('Status', value.enabled ? 'Enabled' : 'Disabled'));
         if (rows.length) blocks.push(el('div', { class: 'rows' }, ...rows));
         const skip = new Set(['path', 'summary', 'description', 'script_path', 'is_flow', 'mode', 'enabled', 'workspace_id', 'edited_by', 'edited_at', 'extra_perms', 'email', 'labels', 'permissioned_as', 'error', 'last_server_ping', 'server_id']);
         const settings = Object.entries(value)
@@ -1251,7 +1431,7 @@
     }
     if (hiddenSections.length && (canFullscreen() || url)) {
       const open = canFullscreen() ? () => setDisplayMode('fullscreen') : () => openLink(url);
-      blocks.push(el('button', { class: 'more-line', type: 'button', onclick: open }, hiddenSections.join(' \u00b7 '), icon(canFullscreen() ? 'maximize' : 'external')));
+      blocks.push(el('button', { class: 'more-line', type: 'button', onclick: open }, hiddenSections.join(' \u00b7 '), icon(canFullscreen() ? 'expand' : 'external')));
     }
     $('body').replaceChildren(...blocks.filter(Boolean));
     showExpand(true);
