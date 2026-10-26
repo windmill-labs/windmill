@@ -128,6 +128,10 @@ pub fn workspaced_service() -> Router {
         .route("/edit_error_handler", post(edit_error_handler))
         .route("/edit_success_handler", post(edit_success_handler))
         .route(
+            "/edit_variable_expiration_handler",
+            post(edit_variable_expiration_handler),
+        )
+        .route(
             "/edit_large_file_storage_config",
             post(edit_large_file_storage_config),
         )
@@ -341,6 +345,8 @@ pub struct WorkspaceSettings {
     pub error_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub success_handler: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variable_expiration_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
     pub error_handler_fallback_to_instance_alerts: bool,
@@ -1203,6 +1209,7 @@ async fn get_settings(
             auto_invite,
             error_handler,
             success_handler,
+            variable_expiration_handler,
             public_app_execution_limit_per_minute,
             error_handler_fallback_to_instance_alerts,
             guest_access_enabled,
@@ -3359,6 +3366,10 @@ pub(crate) async fn resolve_pg_source_checked_with_kind(
 
     let pg: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+    // Checked here rather than at each caller: every source and target of a dump, restore or copy
+    // comes through this function, and `validate_dbname` only ever reaches a target. The check is
+    // deliberately the narrow one — see `validate_dbname_not_option_like`.
+    windmill_common::validate_dbname_not_option_like(&pg.dbname)?;
     Ok((pg, managed_kind))
 }
 
@@ -3448,21 +3459,20 @@ pub(crate) struct PgDumpOptions<'a> {
     pub(crate) no_acl: bool,
 }
 
-/// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
-/// Returns a DumpFile handle; the file is deleted when the handle is dropped.
-pub(crate) async fn pg_dump_database(
+/// A pg_dump invocation against `pg_db` writing to `dump_path`, carrying the connection settings
+/// the CLI reads from the environment. The returned file, when there is one, holds the root
+/// certificate the command points at and must outlive it.
+fn pg_dump_command(
     pg_db: &PgDatabase,
     opts: PgDumpOptions<'_>,
-) -> Result<DumpFile> {
-    let dump_file = DumpFile::new()?;
-
+    dump_path: &std::path::Path,
+) -> Result<(tokio::process::Command, Option<DumpFile>)> {
     let host = &pg_db.host;
     let port = pg_db.port.unwrap_or(5432).to_string();
     let user = pg_db.login_name();
-    let dbname = &pg_db.dbname;
 
     let mut cmd = tokio::process::Command::new("pg_dump");
-    cmd.arg("--format=plain").arg("--file").arg(&dump_file.path);
+    cmd.arg("--format=plain").arg("--file").arg(dump_path);
     if opts.schema_only {
         cmd.arg("--schema-only");
     }
@@ -3480,13 +3490,31 @@ pub(crate) async fn pg_dump_database(
         .arg("--port")
         .arg(&port)
         .arg("--username")
-        .arg(user)
-        .arg(dbname);
+        .arg(user);
+
+    // The name comes from a resource, so it never goes on the command line: as the positional
+    // argument a name starting with `-` is read as an option of pg_dump (`--file`,
+    // `--restrict-key`), and as `--dbname` a name holding `=` is expanded as a libpq connection
+    // string overriding the host, port and user set above. libpq takes the environment variable
+    // as a plain database name, neither parsed as an option nor expanded.
+    cmd.env("PGDATABASE", &pg_db.dbname);
 
     if let Some(ref password) = pg_db.password {
         cmd.env("PGPASSWORD", password);
     }
-    let _root_cert = apply_pg_tls_env(&mut cmd, pg_db)?;
+    let root_cert = apply_pg_tls_env(&mut cmd, pg_db)?;
+    Ok((cmd, root_cert))
+}
+
+/// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
+/// Returns a DumpFile handle; the file is deleted when the handle is dropped.
+pub(crate) async fn pg_dump_database(
+    pg_db: &PgDatabase,
+    opts: PgDumpOptions<'_>,
+) -> Result<DumpFile> {
+    let dump_file = DumpFile::new()?;
+
+    let (mut cmd, _root_cert) = pg_dump_command(pg_db, opts, &dump_file.path)?;
 
     let output = cmd
         .output()
@@ -3612,11 +3640,13 @@ fn psql_command(pg_db: &PgDatabase) -> Result<(tokio::process::Command, Option<D
         .arg(pg_db.port.unwrap_or(5432).to_string())
         .arg("--username")
         .arg(pg_db.login_name())
-        .arg("--dbname")
-        .arg(&pg_db.dbname)
         .arg("--no-psqlrc")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
+
+    // Not `--dbname`, which expands a name holding `=` as a libpq connection string overriding
+    // the host, port and user set above. See `pg_dump_command`.
+    cmd.env("PGDATABASE", &pg_db.dbname);
 
     if let Some(ref password) = pg_db.password {
         cmd.env("PGPASSWORD", password);
@@ -3705,6 +3735,97 @@ mod pg_tls_env_tests {
             root_cert_env("verify-ca").as_deref(),
             Some("system".as_ref())
         );
+    }
+}
+
+/// The database name of a resource reaches `pg_dump` and `psql` through `PGDATABASE`, never in
+/// their argument vector, so neither an option (`--file=`, `--restrict-key=`) nor a libpq
+/// connection string (`host=... port=...`) in that field is parsed as one.
+#[cfg(test)]
+mod pg_dbname_env_tests {
+    use super::{pg_dump_command, pg_dump_database, psql_command, DumpFile, PgDumpOptions};
+    use windmill_common::PgDatabase;
+
+    /// Nothing listens on that port.
+    fn pg_db(dbname: &str) -> PgDatabase {
+        PgDatabase {
+            host: "127.0.0.1".to_string(),
+            user: None,
+            password: None,
+            port: Some(1),
+            sslmode: None,
+            dbname: dbname.to_string(),
+            root_certificate_pem: None,
+            accept_invalid_certs: None,
+            use_iam_auth: None,
+            region: None,
+            options: None,
+        }
+    }
+
+    fn pgdatabase_of(cmd: &std::process::Command) -> Option<std::ffi::OsString> {
+        cmd.get_envs()
+            .find(|(k, _)| *k == "PGDATABASE")
+            .and_then(|(_, v)| v.map(|v| v.to_os_string()))
+    }
+
+    #[test]
+    fn pg_dump_takes_the_dbname_from_the_environment() {
+        let dump_file = DumpFile::new().unwrap();
+        let name = "--file=/tmp/written_by_the_caller";
+        let (cmd, _root_cert) =
+            pg_dump_command(&pg_db(name), PgDumpOptions::default(), &dump_file.path).unwrap();
+        let cmd = cmd.as_std();
+        assert!(
+            cmd.get_args().all(|arg| arg != name),
+            "the dbname is still in pg_dump's argument vector"
+        );
+        assert_eq!(pgdatabase_of(cmd).as_deref(), Some(name.as_ref()));
+        // The only `--file` pg_dump is given is still Windmill's own.
+        assert_eq!(
+            cmd.get_args()
+                .filter(|arg| arg.to_string_lossy().starts_with("--file"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn psql_takes_the_dbname_from_the_environment() {
+        let name = "host=elsewhere";
+        let (cmd, _root_cert) = psql_command(&pg_db(name)).unwrap();
+        let cmd = cmd.as_std();
+        assert!(
+            cmd.get_args().all(|arg| arg != name),
+            "the dbname is still in psql's argument vector"
+        );
+        assert_eq!(pgdatabase_of(cmd).as_deref(), Some(name.as_ref()));
+    }
+
+    /// The same, observed on the real binary: an option-shaped name must reach the connection
+    /// attempt rather than pg_dump's option parser. Skipped where pg_dump is not installed —
+    /// which is why the assertion also requires that pg_dump ran at all (our `pg_dump failed:`
+    /// prefix) instead of only that the option message is absent.
+    #[tokio::test]
+    async fn pg_dump_does_not_read_an_option_shaped_dbname_as_an_option() {
+        if std::process::Command::new("pg_dump")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!("skipped: pg_dump is not installed");
+            return;
+        }
+        let Err(err) = pg_dump_database(&pg_db("--no-such-option"), PgDumpOptions::default()).await
+        else {
+            panic!("pg_dump reached a server on 127.0.0.1:1");
+        };
+        let err = err.to_string();
+        assert!(
+            err.contains("pg_dump failed:"),
+            "pg_dump did not run: {err}"
+        );
+        assert!(!err.contains("unrecognized option"), "{err}");
     }
 }
 
@@ -4054,6 +4175,25 @@ fn ensure_copied_without_roles(governing: &GoverningDatatable) -> Result<()> {
     Ok(())
 }
 
+/// Gate for the endpoints that make the API server run `pg_dump`/`psql` against a database a
+/// request names.
+///
+/// Those two processes are children of the API server, outside any job sandbox and holding its
+/// environment, and the dump they exchange is a `psql` script assembled from strings the source
+/// server returns — so reaching them is close enough to running code on the server that the role
+/// which may not run code at all must not reach them either. `code` is the capability the data
+/// table migration endpoints next door already ask for (`datatable_migrations::ensure_not_operator`),
+/// and not admin: the database manager offers an export and an import of a user's own Postgres
+/// resource to every author, who can run the same `pg_dump` in a job anyway.
+async fn ensure_can_dump_databases(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    action: &str,
+) -> Result<()> {
+    windmill_common::workspaces::check_role_can_code(db, w_id, authed, action).await
+}
+
 /// Import (pg_dump/pg_import) from source to target
 async fn import_pg_database(
     authed: ApiAuthed,
@@ -4062,6 +4202,8 @@ async fn import_pg_database(
     Path(w_id): Path<String>,
     Json(req): Json<ImportPgDatabaseRequest>,
 ) -> Result<String> {
+    ensure_can_dump_databases(&db, &w_id, &authed, "import a database").await?;
+
     if req.fork_behavior == DataTableForkBehavior::KeepOriginal {
         return Ok("No action needed for KeepOriginal behavior".to_string());
     }
@@ -4178,6 +4320,8 @@ async fn export_pg_schema(
     Path(w_id): Path<String>,
     Json(req): Json<ExportPgSchemaRequest>,
 ) -> Result<String> {
+    ensure_can_dump_databases(&db, &w_id, &authed, "export a database schema").await?;
+
     let pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
     let dump_file = pg_dump_database(
         &pg,
@@ -6253,6 +6397,157 @@ async fn edit_error_handler(
     Ok(format!("Edit error_handler for workspace {}", &w_id))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EditVariableExpirationHandler {
+    pub path: Option<String>,
+    pub extra_args: Option<serde_json::Value>,
+    #[serde(default)]
+    pub muted_on_user_path: bool,
+    pub notify_before_secs: Option<u32>,
+    pub remind_every_secs: Option<u32>,
+}
+
+async fn edit_variable_expiration_handler(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(es): Json<EditVariableExpirationHandler>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = db.begin().await?;
+
+    // Created with no access: an admin grants it write access to each variable it rotates.
+    sqlx::query_as!(
+        Group,
+        "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        w_id,
+        "variable_expiration_handler",
+        "The group the variable expiration handler acts on behalf of",
+        serde_json::json!({username_to_permissioned_as(&authed.username): true})
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    if let Some(path) = &es.path {
+        if es
+            .extra_args
+            .as_ref()
+            .is_some_and(|extra_args| !extra_args.is_object())
+        {
+            return Err(Error::BadRequest(
+                "Field `extra_args` expected to be JSON object".to_string(),
+            ));
+        }
+
+        // Any hub script is left unchecked, so saving never needs the hub.
+        let exists = if let Some(p) = path.strip_prefix("script/") {
+            p.starts_with("hub/")
+                || sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2 AND archived = false AND deleted = false)",
+                    w_id,
+                    p
+                )
+                .fetch_one(&mut *tx)
+                .await?
+                .unwrap_or(false)
+        } else if let Some(p) = path.strip_prefix("flow/") {
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2 AND archived = false)",
+                w_id,
+                p
+            )
+            .fetch_one(&mut *tx)
+            .await?
+            .unwrap_or(false)
+        } else {
+            return Err(Error::BadRequest(format!(
+                "Field `path` must start with script/ or flow/ (got {path})"
+            )));
+        };
+        if !exists {
+            return Err(Error::BadRequest(format!(
+                "Variable expiration handler '{path}' not found. The handler must be an existing, non-archived script or flow."
+            )));
+        }
+
+        // Persisted even when false, like `error_handler`'s.
+        let mut variable_expiration_handler = serde_json::json!({
+            "path": path,
+            "muted_on_user_path": es.muted_on_user_path,
+        });
+        if let Some(extra_args) = &es.extra_args {
+            variable_expiration_handler["extra_args"] = extra_args.clone();
+        }
+        if let Some(notify_before_secs) = es.notify_before_secs {
+            variable_expiration_handler["notify_before_secs"] = notify_before_secs.into();
+        }
+        if let Some(remind_every_secs) = es.remind_every_secs {
+            variable_expiration_handler["remind_every_secs"] = remind_every_secs.into();
+        }
+
+        // A recorded failure is the sweep's: it ends at the handler's next start.
+        sqlx::query!(
+            "UPDATE workspace_settings SET variable_expiration_handler = $1 WHERE workspace_id = $2",
+            variable_expiration_handler,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE workspace_settings SET variable_expiration_handler = NULL WHERE workspace_id = $1",
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_variable_expiration_handler",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("variable_expiration_handler", &format!("{:?}", es.path)[..])].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Settings {
+            setting_type: "variable_expiration_handler".to_string(),
+        },
+        Some("Variable expiration handler configuration updated".to_string()),
+        false,
+        None,
+    )
+    .await?;
+
+    windmill_common::feature_usage::log_feature_usage(
+        "variable_expiration",
+        "handler_configured",
+        // By slug, not hub id, so a bumped hub version still counts as the built-in.
+        match es.path.as_deref() {
+            None => "cleared",
+            Some(p) if p.ends_with("/variable-expiration-handler-slack") => "slack",
+            Some(p) if p.ends_with("/variable-expiration-handler-teams") => "teams",
+            Some(_) => "custom",
+        },
+    );
+
+    Ok(format!(
+        "Edit variable_expiration_handler for workspace {}",
+        &w_id
+    ))
+}
+
 async fn edit_success_handler(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -7925,9 +8220,10 @@ async fn clone_variables(
     source_workspace_id: &str,
     target_workspace_id: &str,
 ) -> Result<()> {
+    // Dispatch markers are not copied, so the fork re-arms its own handler.
     sqlx::query!(
-        "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at)
-         SELECT $2, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_valid_until)
+         SELECT $2, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_valid_until
          FROM variable
          WHERE workspace_id = $1",
         source_workspace_id,
@@ -14503,7 +14799,7 @@ async fn compare_two_variables(
 
     // Get variable from each workspace
     let source_variable = sqlx::query!(
-        "SELECT value::text AS \"value!\", is_secret, description
+        "SELECT value::text AS \"value!\", is_secret, description, value_valid_until
          FROM variable
          WHERE workspace_id = $1 AND path = $2",
         source_workspace_id,
@@ -14513,7 +14809,7 @@ async fn compare_two_variables(
     .await?;
 
     let target_variable = sqlx::query!(
-        "SELECT value::text AS \"value!\", is_secret, description
+        "SELECT value::text AS \"value!\", is_secret, description, value_valid_until
          FROM variable
          WHERE workspace_id = $1 AND path = $2",
         fork_workspace_id,
@@ -14526,7 +14822,10 @@ async fn compare_two_variables(
 
     // Check metadata differences
     if let (Some(source), Some(target)) = (&source_variable, &target_variable) {
-        if source.is_secret != target.is_secret || source.description != target.description {
+        if source.is_secret != target.is_secret
+            || source.description != target.description
+            || source.value_valid_until != target.value_valid_until
+        {
             has_changes = true;
         } else if source.value != target.value
             || (source.is_secret && is_external_stored_value(&source.value))
@@ -15355,6 +15654,7 @@ pub enum SettingsEdit {
     InstanceGroups,
     ErrorHandler,
     SuccessHandler,
+    VariableExpirationHandler,
     LargeFileStorage,
     GitSync,
     DefaultScripts,
@@ -15407,6 +15707,9 @@ pub async fn apply_settings_edit(
         InstanceGroups => edit_instance_groups(a, d, p, settings_edit_body(edit, body)?).await?,
         ErrorHandler => edit_error_handler(a, d, p, settings_edit_body(edit, body)?).await?,
         SuccessHandler => edit_success_handler(a, d, p, settings_edit_body(edit, body)?).await?,
+        VariableExpirationHandler => {
+            edit_variable_expiration_handler(a, d, p, settings_edit_body(edit, body)?).await?
+        }
         LargeFileStorage => {
             edit_large_file_storage_config(a, d, p, settings_edit_body(edit, body)?).await?
         }

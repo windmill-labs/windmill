@@ -36,7 +36,7 @@ use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     format_completed_job_result, format_result, is_safe_log_file_path, is_valid_entrypoint_name,
-    DynamicInput, ENTRYPOINT_OVERRIDE,
+    sanitize_untrusted_args, DynamicInput, ENTRYPOINT_OVERRIDE,
 };
 #[cfg(feature = "run_inline")]
 use windmill_common::jobs::{
@@ -10488,7 +10488,7 @@ async fn run_dynamic_select(
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(run_query): Query<RunJobQuery>,
-    Json(request): Json<DynamicSelectRequest>,
+    Json(mut request): Json<DynamicSelectRequest>,
 ) -> error::Result<Response> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
@@ -10508,6 +10508,20 @@ async fn run_dynamic_select(
              not starting with a digit)",
             request.entrypoint_function
         )));
+    }
+
+    // The dyn-select code is the runnable's, not necessarily the caller's: a deployed flow
+    // has no deployed runnable for it, so it runs as a `JobKind::Preview` job, and the
+    // executors honor `_TEMP_SCRIPT_REFS` on every preview — it resolves the code's
+    // workspace imports from the temporary script store, which any workspace member can
+    // write. A caller of this route (an operator, for a deployed flow) only fills in that
+    // code's inputs; the function to call is taken from `entrypoint_function`, validated
+    // above and inserted server-side below, never from the args. So the reserved control
+    // keys are dropped here, in the spellings `push` would store them under. Nothing
+    // server-side puts them in `args`: the request has no `temp_script_refs` field, and the
+    // run form does not send them.
+    if let Some(args) = request.args.as_mut() {
+        sanitize_untrusted_args(args);
     }
 
     // Deployed scripts keep their normal deployed-run path (a `script` job, resolved below by

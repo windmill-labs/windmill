@@ -1666,6 +1666,9 @@ pub async fn run_agent(
     // re-assumed only near expiry, rather than on every model turn.
     #[cfg(feature = "bedrock")]
     let mut bedrock_assumed_role: Option<windmill_ai::ai_bedrock::AssumedRoleCredentials> = None;
+    let mut anthropic_federated_token: Option<
+        windmill_ai::providers::anthropic::FederatedAccessToken,
+    > = None;
 
     // Main agent loop
     for i in 0..max_iterations {
@@ -1804,6 +1807,15 @@ pub async fn run_agent(
                         )));
                     }
 
+                    let federated_token =
+                        windmill_ai::providers::anthropic::refresh_federated_access_token(
+                            &credentials,
+                            &mut anthropic_federated_token,
+                            client,
+                        )
+                        .await?
+                        .map(str::to_string);
+
                     let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
                         .await
                         .0;
@@ -1855,10 +1867,15 @@ pub async fn run_agent(
                         };
                         let endpoint =
                             query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
-                        let auth_headers = retain_effective_credentials(
-                            &credentials,
-                            query_builder.get_auth_headers(api_key, base_url, output_type),
-                        );
+                        let auth_headers = match federated_token.as_deref() {
+                            Some(token) => {
+                                windmill_ai::providers::anthropic::federated_auth_headers(token)
+                            }
+                            None => retain_effective_credentials(
+                                &credentials,
+                                query_builder.get_auth_headers(api_key, base_url, output_type),
+                            ),
+                        };
 
                         let resp = build_http_request(&endpoint, &auth_headers, request_body)
                             .send()

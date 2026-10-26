@@ -110,10 +110,13 @@ async fn test_run_mode_strips_caller_lock_and_modules(db: Pool<Postgres>) -> any
     .json(&json!({
         // The args map is the other injection channel: an inline run is a
         // `JobKind::Preview` job, so the worker/executors read `_MODULES` and
-        // `_TEMP_SCRIPT_REFS` back out of the job args. Both must be stripped.
+        // `_TEMP_SCRIPT_REFS` back out of the job args. Both must be stripped —
+        // including the NUL spellings, which `push` stores under the plain name.
         "args": {
             "_MODULES": { "m.py": { "content": "print('evil')\n", "language": "python3" } },
-            "_TEMP_SCRIPT_REFS": { "../evil": "deadbeef" }
+            "_MODULES\u{0}": { "m.py": { "content": "print('evil')\n", "language": "python3" } },
+            "_TEMP_SCRIPT_REFS": { "../evil": "deadbeef" },
+            "_TEMP_SCRIPT_REFS\u{0}": { "../evil": "deadbeef" }
         },
         "component": "comp",
         "raw_code": inline_raw_code(Some(CALLER_HASH), true)

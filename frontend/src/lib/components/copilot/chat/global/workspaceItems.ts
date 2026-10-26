@@ -108,6 +108,7 @@ export type VariableDraftState = {
 	account?: number
 	is_oauth?: boolean
 	expires_at?: string
+	value_valid_until?: string
 }
 
 export type WorkspaceItem = {

@@ -268,9 +268,10 @@ pub fn filter_list_queue_query(
 
     if let Some(bf) = &lq.broad_filter {
         let pat = format!("%{}%", escape_ilike_pattern(bf));
+        // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
         sqlb.and_where(
             "(runnable_path ILIKE ? OR v2_job.tag ILIKE ? OR trigger ILIKE ? OR trigger_kind::text ILIKE ?)"
-                .bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+                .binds(&[&pat]),
         );
     }
 
@@ -490,7 +491,7 @@ pub fn filter_list_completed_query(
     }
     if let Some(dt) = &lq.created_or_started_after {
         let ts = dt.to_rfc3339();
-        sqlb.and_where("(created_at >= ? OR started_at >= ?)".bind(&ts).bind(&ts));
+        sqlb.and_where("(created_at >= ? OR started_at >= ?)".binds(&[&ts]));
     }
 
     if let Some(dt) = &lq.created_before {
@@ -591,10 +592,11 @@ pub fn filter_list_completed_query(
 
     if let Some(bf) = &lq.broad_filter {
         let pat = format!("%{}%", escape_ilike_pattern(bf));
+        // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
         sqlb.and_where(
             "(runnable_path ILIKE ? OR v2_job.tag ILIKE ? OR trigger ILIKE ? OR trigger_kind::text ILIKE ? \
              OR EXISTS (SELECT 1 FROM unnest(v2_job.labels) lbl WHERE lbl ILIKE ?))"
-                .bind(&pat).bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+                .binds(&[&pat]),
         );
     }
 
@@ -945,6 +947,20 @@ mod tests {
         assert!(sql.contains("'schedule'"));
     }
 
+    #[test]
+    fn test_queue_broad_filter_with_question_mark() {
+        let lq = ListQueueQuery { broad_filter: Some("a?b".to_string()), ..empty_queue_query() };
+        let sqlb = filter_list_queue_query(
+            SqlBuilder::select_from("v2_job_queue").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert_eq!(sql.matches("ILIKE '%a?b%'").count(), 4);
+        assert!(!sql.contains("ILIKE ?"));
+    }
+
     // --- Completed query tests ---
 
     #[test]
@@ -1123,5 +1139,20 @@ mod tests {
         );
         let sql = build_sql(sqlb);
         assert!(sql.contains("result @>"));
+    }
+
+    #[test]
+    fn test_completed_broad_filter_with_question_mark() {
+        let lq =
+            ListCompletedQuery { broad_filter: Some("a?b".to_string()), ..empty_completed_query() };
+        let sqlb = filter_list_completed_query(
+            SqlBuilder::select_from("v2_job_completed").clone(),
+            &lq,
+            "ws",
+            false,
+        );
+        let sql = build_sql(sqlb);
+        assert_eq!(sql.matches("ILIKE '%a?b%'").count(), 5);
+        assert!(!sql.contains("ILIKE ?"));
     }
 }
