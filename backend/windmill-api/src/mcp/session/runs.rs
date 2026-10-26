@@ -207,7 +207,7 @@ pub(super) async fn finish_run(
                 run.insert("status".into(), "not_started".into());
                 run.insert("result".into(), message.clone().into());
                 run.insert("workspace".into(), ctx.w_id.into());
-                let _ = ctx.view.set(("windmill/run", Value::Object(run)));
+                ctx.set_view("windmill/run", Value::Object(run));
             }
             return Err(message);
         }
@@ -1800,6 +1800,90 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     ))
 }
 
+/// The card of one run, with the form that runs its script or flow again when it ran a
+/// deployed one: a test run's code lives only in the call that started it.
+pub(super) async fn show_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let id = str_arg(args, "id")?;
+    get_run(ctx, args).await?;
+    let Some((_, Value::Object(mut run))) = ctx.view.lock().unwrap().take() else {
+        return Err(format!("Run {id} could not be read."));
+    };
+    let deployed = match run.get("job_kind").and_then(Value::as_str) {
+        Some("script") => Some(("scripts/get/p", "run_script")),
+        Some("flow") => Some(("flows/get", "run_flow")),
+        _ => None,
+    };
+    let path = run.get("path").and_then(Value::as_str).map(str::to_string);
+    if let (Some((get, tool)), Some(path)) = (deployed, path) {
+        let job = ctx
+            .get(&ctx.ws(&format!("jobs_u/get/{}?no_logs=true&no_code=true", enc(id))))
+            .await?;
+        if let Ok(item) = ctx
+            .get(&ctx.ws(&format!("{get}/{}", path_enc(&path))))
+            .await
+        {
+            let job_args = job["args"].as_object().cloned().unwrap_or_default();
+            let schema = item.get("schema").filter(|s| !s.is_null());
+            run.insert("form".into(), run_form(tool, &path, schema, &job_args));
+        }
+    }
+    let status = run
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("running");
+    let text = format!("Showing run {id} ({status}) to the user as a live card.");
+    ctx.set_view("windmill/run", Value::Object(run));
+    Ok(text)
+}
+
+/// Runs `show_runs` draws at most: each is one job read.
+const MAX_RUNS_SHOWN: usize = 20;
+
+pub(super) async fn show_runs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let ids: Vec<&str> = args
+        .get("ids")
+        .and_then(Value::as_array)
+        .map(|ids| ids.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    if ids.is_empty() {
+        return Err("ids is required: the runs to show, from list_runs.".to_string());
+    }
+    let shown = &ids[..ids.len().min(MAX_RUNS_SHOWN)];
+    let routes: Vec<String> = shown
+        .iter()
+        .map(|id| ctx.ws(&format!("jobs_u/get/{}?no_logs=true&no_code=true", enc(id))))
+        .collect();
+    let jobs = futures::future::join_all(routes.iter().map(|route| ctx.get(route))).await;
+    let mut runs = Vec::new();
+    let mut missing = Vec::new();
+    for (id, job) in shown.iter().zip(jobs) {
+        match job {
+            Ok(job) => {
+                let mut run = run_card(id, Some(&job));
+                run.remove("result");
+                run.insert(
+                    "url".into(),
+                    ctx.page_url(&format!("/run/{}", enc(id))).into(),
+                );
+                runs.push(Value::Object(run));
+            }
+            Err(_) => missing.push(*id),
+        }
+    }
+    ctx.set_view(
+        "windmill/runs",
+        json!({ "workspace": ctx.w_id, "runs": runs, "url": ctx.page_url("/runs") }),
+    );
+    let mut text = format!("Showing {} run(s) to the user as a table.", runs.len());
+    if ids.len() > shown.len() {
+        text.push_str(&format!(" Only the first {MAX_RUNS_SHOWN} are shown."));
+    }
+    if !missing.is_empty() {
+        text.push_str(&format!(" Not found: {}.", missing.join(", ")));
+    }
+    Ok(text)
+}
+
 /// Result head the run card shows; the full result is one click away on the run page.
 const CARD_RESULT_CHARS: usize = 1500;
 const CARD_STEP_RESULT_CHARS: usize = 300;
@@ -1815,7 +1899,7 @@ fn report_run(ctx: &Ctx<'_>, id: &str, job: Option<&Value>, extra: Map<String, V
         "url".into(),
         ctx.page_url(&format!("/run/{}", enc(id))).into(),
     );
-    let _ = ctx.view.set(("windmill/run", Value::Object(run)));
+    ctx.set_view("windmill/run", Value::Object(run));
 }
 
 /// A flow run's top-level steps for the card's details, grouped as the model reads them:

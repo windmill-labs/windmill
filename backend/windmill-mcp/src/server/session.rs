@@ -50,6 +50,7 @@ const GET_WORKSPACE_CONTEXT: &str = "get_workspace_context";
 
 /// The MIME type of an MCP Apps view (the `io.modelcontextprotocol/ui` extension).
 const MCP_APP_MIME_TYPE: &str = "text/html;profile=mcp-app";
+const MCP_APPS_EXTENSION: &str = "io.modelcontextprotocol/ui";
 
 /// The views load nothing from outside their own page and reach Windmill only through
 /// tools, so they declare no domain; a host reviewing the declared policy holds them to it.
@@ -266,6 +267,21 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
                 .into_iter()
                 .map(with_workspace_id_arg),
         );
+        // A tool that only shows a card does nothing for a client that declares it draws
+        // none. Only a request's own capabilities count: a legacy client's are never seen
+        // (the transport keeps no session), and it keeps the tools.
+        let draws_cards = context.meta.client_capabilities().map(|caps| {
+            caps.extensions
+                .is_some_and(|e| e.contains_key(MCP_APPS_EXTENSION))
+        });
+        if draws_cards == Some(false) {
+            tools.retain(|tool| {
+                !tool.meta.as_ref().is_some_and(|m| {
+                    m.0.get("ui")
+                        .is_some_and(|ui| ui.get("resourceUri").is_some())
+                })
+            });
+        }
         // Without these a `2026-07-28` client rejects the whole listing.
         Ok(ListToolsResult::with_all_items(tools)
             .with_ttl_ms(LIST_TTL_MS)

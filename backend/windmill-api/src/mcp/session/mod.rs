@@ -52,6 +52,7 @@ mod items;
 mod misc;
 mod runs;
 mod settings;
+mod views;
 mod workspace;
 
 pub(super) use instructions::{
@@ -112,6 +113,14 @@ const DESTRUCTIVE: &[&str] = &[
     "set_workspace_settings",
 ];
 
+/// Destructive tools no card may call: a card acts as the user with no one confirming.
+/// Deploying is left to the review card, whose Deploy button the user presses.
+const MODEL_ONLY: &[&str] = &[
+    "delete_workspace_item",
+    "create_resource_type",
+    "set_workspace_settings",
+];
+
 /// Tools the session counts as reads that still start a job. A read-only token runs
 /// nothing on the tools server, so it runs nothing here either.
 const RUNS_A_JOB: &[&str] = &["get_db_schema"];
@@ -160,10 +169,6 @@ fn result_size_meta() -> MetaObject {
 /// the deployed card reads.
 pub(super) const CARD_URI: &str = "ui://windmill/card-v1";
 const CARD_HTML: &str = include_str!("card.html");
-/// Only the tools that start a run draw it: a host draws a view for every call, and the
-/// model calls `get_run` and its read tools over and over. The card still refreshes
-/// itself through `get_run`.
-const CARD_TOOLS: &[&str] = &["run_script", "run_flow", "test_run_script", "test_run_flow"];
 
 /// The `ui://` views the session's tools render in, as `(uri, html)`.
 pub(super) fn session_views() -> &'static [(&'static str, &'static str)] {
@@ -178,11 +183,7 @@ pub(super) fn session_tools(access: SessionAccess) -> Vec<Tool> {
         .map(|def| {
             let name = def.name.as_str();
             let mut meta = result_size_meta();
-            if CARD_TOOLS.contains(&name) {
-                meta.0
-                    .insert("ui".into(), json!({ "resourceUri": CARD_URI }));
-            } else if DESTRUCTIVE.contains(&name) {
-                // A view acts as the user with no one confirming, so none may deploy or delete.
+            if MODEL_ONLY.contains(&name) {
                 meta.0
                     .insert("ui".into(), json!({ "visibility": ["model"] }));
             }
@@ -198,6 +199,21 @@ pub(super) fn session_tools(access: SessionAccess) -> Vec<Tool> {
             )
             .with_meta(meta)
         })
+        .chain(
+            views::definitions()
+                .into_iter()
+                .map(|(name, description, schema)| {
+                    let mut meta = result_size_meta();
+                    meta.0
+                        .insert("ui".into(), json!({ "resourceUri": CARD_URI }));
+                    let Value::Object(schema) = schema else {
+                        unreachable!("a view tool's schema is an object")
+                    };
+                    Tool::new(name, description, schema)
+                        .with_annotations(ToolAnnotations::new().read_only(true).destructive(false))
+                        .with_meta(meta)
+                }),
+        )
         .collect()
 }
 
@@ -217,10 +233,15 @@ pub(super) struct Ctx<'a> {
     pub jwt: tokio::sync::OnceCell<String>,
     /// What the card draws of this call, as `(key, value)`: returned in the result's
     /// `_meta`, which the model never reads.
-    pub view: std::sync::OnceLock<(&'static str, Value)>,
+    pub view: std::sync::Mutex<Option<(&'static str, Value)>>,
 }
 
 impl Ctx<'_> {
+    /// Set what the card draws of this call, replacing what an inner step set.
+    pub fn set_view(&self, key: &'static str, value: Value) {
+        *self.view.lock().unwrap() = Some((key, value));
+    }
+
     /// Call the API as the caller. `path` follows `/api`; a non-2xx answer is the error.
     pub async fn request(&self, method: &str, path: &str, body: Option<Value>) -> ToolResult {
         let url = guarded_url(self.base_internal_url, self.w_id, method, path, self.access)?;
@@ -542,11 +563,8 @@ pub(super) fn matches_glob(subject: &str, glob: &str) -> bool {
     regex::Regex::new(&pattern).is_ok_and(|re| re.is_match(subject))
 }
 
-pub(super) async fn call_session_tool(
-    ctx: &Ctx<'_>,
-    name: &str,
-    args: Value,
-) -> BackendResult<CallToolResult> {
+/// A generated session tool, refused when the token's access does not cover it.
+async fn call_generated_tool(ctx: &Ctx<'_>, name: &str, args: &Value) -> BackendResult<ToolResult> {
     let Some(def) = TOOL_DEFS.iter().find(|def| def.name == name) else {
         return Err(ErrorData::invalid_params(
             format!("Unknown tool '{name}'"),
@@ -563,11 +581,24 @@ pub(super) async fn call_session_tool(
             None,
         ));
     }
-    let Some(result) = dispatch(ctx, name, &args).await else {
+    let Some(result) = dispatch(ctx, name, args).await else {
         return Err(ErrorData::invalid_params(
             format!("Tool '{name}' is not available on this server"),
             None,
         ));
+    };
+    Ok(result)
+}
+
+pub(super) async fn call_session_tool(
+    ctx: &Ctx<'_>,
+    name: &str,
+    args: Value,
+) -> BackendResult<CallToolResult> {
+    let result = if views::TOOLS.contains(&name) {
+        views::call(ctx, name, &args).await
+    } else {
+        call_generated_tool(ctx, name, &args).await?
     };
     windmill_common::feature_usage::log_feature_usage("mcp_workspace", "tool_call", name);
     let mut result = match result {
@@ -579,11 +610,8 @@ pub(super) async fn call_session_tool(
             CallToolResult::error(vec![ContentBlock::text(text.to_string())])
         }
     };
-    if let Some((key, view)) = ctx.view.get() {
-        result.meta = Some(MetaObject(Map::from_iter([(
-            key.to_string(),
-            view.clone(),
-        )])));
+    if let Some((key, view)) = ctx.view.lock().unwrap().take() {
+        result.meta = Some(MetaObject(Map::from_iter([(key.to_string(), view)])));
     }
     Ok(result)
 }
@@ -626,16 +654,13 @@ mod tests {
     }
 
     #[test]
-    fn no_view_can_call_a_destructive_tool() {
+    fn no_card_can_call_a_destructive_tool_but_deploy() {
         for tool in session_tools(SessionAccess::Full) {
-            if DESTRUCTIVE.contains(&tool.name.as_ref()) {
-                let meta = tool.meta.as_ref().map(|m| &m.0["ui"]);
-                assert_eq!(
-                    meta,
-                    Some(&json!({ "visibility": ["model"] })),
-                    "{}",
-                    tool.name
-                );
+            let name = tool.name.as_ref();
+            if DESTRUCTIVE.contains(&name) {
+                let ui = tool.meta.as_ref().and_then(|m| m.0.get("ui"));
+                let model_only = ui == Some(&json!({ "visibility": ["model"] }));
+                assert_eq!(model_only, name != "deploy_workspace_item", "{name}");
             }
         }
     }
@@ -650,10 +675,16 @@ mod tests {
                 "session tool `{name}` must be implemented here or listed in EDITOR_ONLY, not both"
             );
         }
-        for name in implemented.iter().chain(EDITOR_ONLY).chain(CARD_TOOLS) {
+        for name in implemented.iter().chain(EDITOR_ONLY).chain(MODEL_ONLY) {
             assert!(
                 TOOL_DEFS.iter().any(|def| def.name == *name),
                 "`{name}` is not a session tool any more"
+            );
+        }
+        for name in views::TOOLS {
+            assert!(
+                !TOOL_DEFS.iter().any(|def| def.name == *name),
+                "`{name}` is generated too"
             );
         }
     }

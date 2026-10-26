@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Windmill</title>
 <!--
-  The MCP Apps view of a run started through the session's tools (`CARD_URI` in `mod.rs`),
-  drawn from the result's `_meta["windmill/run"]`. It holds no credential: it acts by calling tools
+  The MCP Apps view the session's show tools draw (`CARD_URI` in `mod.rs`, `views.rs`): a
+  run, a table of runs, or drafts to review before deploying, from whichever of
+  `_meta["windmill/run" | "windmill/runs" | "windmill/review"]` the result carries. It holds no credential: it acts by calling tools
   through the host, as the user the connection belongs to. Everything it shows is set as
   text, never as markup: a run's result is whatever its script returned.
 -->
@@ -76,7 +77,8 @@
   .path { font: 600 14px/1.3 var(--mono); overflow-wrap: anywhere; }
   .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-3); }
   .ws { background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; color: var(--fg-2); font-weight: 500; }
-  .pill { margin-left: auto; flex: none; font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 6px; background: var(--info-bg); color: var(--info-fg); }
+  .pill, .badge { flex: none; font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 6px; background: var(--info-bg); color: var(--info-fg); white-space: nowrap; }
+  .pill { margin-left: auto; }
   .success, .pill.success { background: var(--ok-bg); color: var(--ok-fg); }
   .failure, .canceled, .not_started, .pill.failure, .pill.canceled, .pill.not_started { background: var(--bad-bg); color: var(--bad-fg); }
   .step { font-size: 13px; color: var(--fg-2); }
@@ -91,12 +93,30 @@
   .row.nested { padding-left: 28px; }
   .row .v { min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; }
   .row .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-  .row .dim { color: var(--fg-3); font-size: 12px; }
+  .dim { color: var(--fg-3); font-size: 12px; }
   .row pre { flex-basis: 100%; padding: 6px 8px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; background: var(--info-fg); }
   .dot.success { background: var(--ok-fg); }
   .dot.failure, .dot.canceled { background: var(--bad-fg); }
   .dot.skipped { background: var(--fg-3); }
+  .patch { font: 12px/1.45 var(--mono); padding: 6px 0; background: var(--bg-2); border-radius: var(--radius); overflow-wrap: anywhere; }
+  .patch div { padding: 0 12px; white-space: pre-wrap; }
+  .patch .add { background: var(--ok-bg); color: var(--ok-fg); }
+  .patch .del { background: var(--bad-bg); color: var(--bad-fg); }
+  .patch .hunk { color: var(--info-fg); }
+  .patch .note { color: var(--fg-2); font-family: var(--sans); }
+  .table { border: 1px solid var(--line); border-radius: var(--radius); overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 12px; font-weight: 600; color: var(--fg-3); padding: 6px 10px; cursor: pointer; white-space: nowrap; user-select: none; }
+  td { padding: 6px 10px; border-top: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+  td.mono { font: 12px var(--mono); }
+  tr.link { cursor: pointer; }
+  tr.link:hover td { background: var(--bg-2); }
+  .item { display: flex; flex-direction: column; gap: 6px; }
+  .item + .item { border-top: 1px solid var(--line); padding-top: 10px; }
+  .item-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .item-head .grow { flex: 1; min-width: 0; font: 600 13px var(--mono); overflow-wrap: anywhere; }
+  button.small { min-height: 26px; padding: 0 10px; font-size: 12px; }
   form { display: flex; flex-direction: column; gap: 10px; }
   label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; }
   label.check { flex-direction: row; align-items: center; gap: 8px; }
@@ -129,6 +149,8 @@
   <div class="step" id="step" hidden></div>
   <div class="step" id="stale" hidden>No longer refreshing here. Open it in Windmill for its live status.</div>
   <pre class="clip" id="result" hidden></pre>
+  <div id="result-table"></div>
+  <div id="body"></div>
   <section id="details" hidden></section>
   <form id="form" hidden></form>
   <div class="actions">
@@ -224,6 +246,52 @@
     open.dataset.url = url ?? '';
   }
 
+  // ---------------------------------------------------------------- tables
+
+  function cellText(value) {
+    if (value == null) return '';
+    if (value instanceof Node || typeof value === 'string') return value;
+    const json = JSON.stringify(value);
+    return json.length > 200 ? `${json.slice(0, 200)}…` : json;
+  }
+
+  // Columns are `{ label, value(row), show?(value), mono? }`; clicking a header sorts by it.
+  function table(columns, rows, onRow) {
+    let sort = null;
+    const key = (value) => (typeof value === 'number' ? value : String(cellText(value) ?? ''));
+    const body = el('tbody');
+    const draw = () => {
+      const sorted = !sort ? rows : [...rows].sort((a, b) => {
+        const [x, y] = [key(sort.column.value(a)), key(sort.column.value(b))];
+        return (x < y ? -1 : x > y ? 1 : 0) * sort.dir;
+      });
+      body.replaceChildren(...sorted.map((row) => el('tr', { class: onRow ? 'link' : null, onclick: onRow && (() => onRow(row)) },
+        ...columns.map((column) => {
+          const value = column.value(row);
+          return el('td', { class: column.mono ? 'mono' : null }, cellText(column.show ? column.show(value) : value));
+        }))));
+    };
+    const head = el('tr', {}, ...columns.map((column) => el('th', {
+      onclick: () => {
+        sort = { column, dir: sort?.column === column ? -sort.dir : 1 };
+        draw();
+      }
+    }, column.label)));
+    draw();
+    return el('div', { class: 'table' }, el('table', {}, el('thead', {}, head), body));
+  }
+
+  // A result that is a list of records reads better as a table. A result cut short is no
+  // longer JSON, and stays text.
+  function recordsTable(text) {
+    let rows;
+    try { rows = JSON.parse(text); } catch { return null; }
+    if (!Array.isArray(rows) || !rows.length || rows.length > 100) return null;
+    if (!rows.every((row) => row && typeof row === 'object' && !Array.isArray(row))) return null;
+    const keys = [...new Set(rows.flatMap(Object.keys))].slice(0, 8);
+    return table(keys.map((k) => ({ label: k, value: (row) => row[k] })), rows);
+  }
+
   // ---------------------------------------------------------------- run
 
   function elapsed() {
@@ -269,9 +337,16 @@
       if (run.step_id) step.append(' · ', el('code', {}, run.step_id));
     }
     const result = $('result');
-    result.hidden = running || run?.result == null;
+    const records = status === 'success' ? recordsTable(run?.result) : null;
+    result.hidden = running || run?.result == null || !!records;
     result.textContent = run?.result ?? '';
     result.classList.toggle('error', status === 'failure' || status === 'not_started');
+    // Rebuilt only for a new result, so a sort survives the card redrawing.
+    const holder = $('result-table');
+    if (holder.dataset.source !== (records ? run.result : '')) {
+      holder.dataset.source = records ? run.result : '';
+      holder.replaceChildren(...(records ? [records] : []));
+    }
 
     setOpen(run?.url);
     // Hosts cap an inline card at two actions: the run form lives in the details view.
@@ -297,14 +372,14 @@
 
   // A step as the server groups it: a parallel step as its branches, a loop as its iteration
   // counts (with the failed iterations and the last one shown), a retry as its last attempt.
-  function stepRows(step) {
+  function stepRows(step, last) {
     const parts = step.branches ?? step.iterations_shown ?? [];
-    // A failed iteration or branch fails the step only when it stopped the run: one set to
-    // skip failures carries on.
+    // A failed iteration or branch fails the step only when it stopped the run, which makes
+    // it the last step that ran: one set to skip failures carries on.
     const failed = step.failed_iterations || parts.some((p) => ['failure', 'canceled'].includes(p.status));
     const status = step.status
       ?? (step.unfinished || parts.some((p) => RUNNING.includes(p.status)) ? 'running'
-        : failed && ['failure', 'canceled'].includes(run.status) ? 'failure' : 'success');
+        : failed && last && ['failure', 'canceled'].includes(run.status) ? 'failure' : 'success');
     if (step.branches) {
       return [
         stepRow({ id: step.step, status, note: `${step.branches.length} branches` }),
@@ -334,7 +409,7 @@
     const details = $('details');
     const children = [];
     if (run.step_list?.length) {
-      children.push(el('h3', {}, 'Steps'), el('div', { class: 'rows' }, ...run.step_list.flatMap(stepRows)));
+      children.push(el('h3', {}, 'Steps'), el('div', { class: 'rows' }, ...run.step_list.flatMap((step, i, all) => stepRows(step, i === all.length - 1))));
     }
     if (run.logs) children.push(el('h3', {}, 'Logs (end)'), el('pre', {}, run.logs));
     if (!children.length) {
@@ -524,10 +599,123 @@
     if (!form.hidden) renderForm();
   });
 
+  // ---------------------------------------------------------------- runs and review
+
+  // A list view shows none of a run's parts.
+  function clearRun() {
+    window.clearTimeout(pollTimer);
+    window.clearInterval(tickTimer);
+    run = null;
+    for (const id of ['step', 'stale', 'result', 'details', 'form', 'cancel', 'toggle-details', 'toggle-form']) $(id).hidden = true;
+    $('duration').textContent = '';
+    $('result-table').replaceChildren();
+  }
+
+  function openLink(url) {
+    if (url) request('ui/open-link', { url }).catch(() => {});
+  }
+
+  function renderRuns(meta) {
+    view = 'runs';
+    clearRun();
+    setHeader({ path: meta.runs.length === 1 ? '1 run' : `${meta.runs.length} runs`, ws: meta.workspace });
+    setOpen(meta.url, 'Open runs in Windmill');
+    const time = (iso) => (iso ? new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '');
+    $('body').replaceChildren(table([
+      { label: 'Status', value: (r) => r.status, show: (s) => el('span', { class: `badge ${s ?? ''}` }, LABELS[s] ?? s ?? '') },
+      { label: 'Path', value: (r) => r.path ?? r.id, mono: true },
+      { label: 'Kind', value: (r) => r.job_kind?.replace(/preview$/, ' test') },
+      { label: 'Duration', value: (r) => r.duration_ms, show: formatMs },
+      { label: 'Started', value: (r) => r.started_at ?? r.created_at, show: time }
+    ], meta.runs, (r) => openLink(r.url)));
+  }
+
+  const PATCH_LINES_INLINE = 40;
+
+  // A diff's text with its patch lines coloured; the `---`/`+++` labels before the first
+  // hunk are dropped.
+  function patchView(text, limit) {
+    const lines = text.split('\n');
+    const shown = limit ? lines.slice(0, limit) : lines;
+    let inHunk = false;
+    const nodes = [];
+    for (const line of shown) {
+      if (line.startsWith('@@')) inHunk = true;
+      if (!inHunk && /^(--- |\+\+\+ |=+$)/.test(line)) continue;
+      const kind = line.startsWith('@@') ? 'hunk'
+        : !inHunk ? 'note'
+        : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : '';
+      nodes.push(el('div', { class: kind }, line || ' '));
+    }
+    const patch = el('div', { class: 'patch' }, ...nodes);
+    if (limit && lines.length > limit) {
+      patch.append(el('div', { class: 'note' }, el('button', {
+        type: 'button',
+        class: 'small',
+        onclick: () => {
+          patch.replaceWith(patchView(text));
+          setDisplayMode('fullscreen');
+        }
+      }, `Show all ${lines.length} lines`)));
+    }
+    return patch;
+  }
+
+  // The model hears of each deploy: a context update replaces the previous one, so it
+  // names every deploy made from this card.
+  const deployed = [];
+
+  function reviewItem(workspace, item) {
+    const done = el('span', { class: 'badge success', hidden: true }, 'Deployed');
+    const error = el('div', { class: 'form-error', hidden: true });
+    const deploy = el('button', { class: 'primary small', type: 'button', hidden: !!item.error }, 'Deploy');
+    deploy.onclick = async () => {
+      deploy.disabled = true;
+      error.hidden = true;
+      try {
+        const result = await callTool('deploy_workspace_item', {
+          workspace_id: workspace, type: item.type, path: item.path,
+          ...(item.trigger_kind ? { trigger_kind: item.trigger_kind } : {})
+        });
+        if (result?.isError) throw new Error(textOf(result));
+        deploy.hidden = true;
+        done.hidden = false;
+        deployed.push(`${item.trigger_kind ? `${item.trigger_kind} trigger` : item.type} ${item.path}`);
+        request('ui/update-model-context', {
+          content: [{ type: 'text', text: `From the review card, the user deployed: ${deployed.join(', ')}.` }]
+        }).catch(() => {});
+      } catch (e) {
+        error.hidden = false;
+        error.textContent = e?.message || 'The deploy failed.';
+        deploy.disabled = false;
+      }
+    };
+    return el('section', { class: 'item' },
+      el('div', { class: 'item-head' },
+        el('span', { class: 'grow' }, item.path),
+        el('span', { class: 'dim' }, item.trigger_kind ? `${item.trigger_kind} trigger` : item.type),
+        done,
+        item.url ? el('button', { class: 'small', type: 'button', onclick: () => openLink(item.url) }, 'Open in editor') : null,
+        deploy),
+      item.error ? el('pre', { class: 'error' }, item.error) : patchView(item.patch ?? '', PATCH_LINES_INLINE),
+      error);
+  }
+
+  function renderReview(meta) {
+    view = 'review';
+    clearRun();
+    const n = meta.items.length;
+    setHeader({ path: 'Review before deploying', ws: meta.workspace, kind: n === 1 ? '1 draft' : `${n} drafts` });
+    setOpen(null);
+    $('body').replaceChildren(...meta.items.map((item) => reviewItem(meta.workspace, item)));
+  }
+
   // ---------------------------------------------------------------- dispatch
 
   function onResult(result) {
     const meta = result?._meta ?? {};
+    if (meta['windmill/review']) return renderReview(meta['windmill/review']);
+    if (meta['windmill/runs']) return renderRuns(meta['windmill/runs']);
     if (meta['windmill/run']) return onRun(meta['windmill/run']);
     // A poll that failed (the job read erred) keeps the run's last state.
     if (!run?.id) renderText(result ?? {});

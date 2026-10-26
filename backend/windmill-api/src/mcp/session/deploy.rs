@@ -9,8 +9,8 @@ use serde_json::{json, Map, Value};
 use super::flows::drop_stale_step_locks;
 use super::workspace::{
     api_message, app_source_to_draft_value, delete_draft, deployed_item_exists, draft_kind,
-    get_deployed, get_draft_item, item_exists, item_type_arg, path_enc, service, unified_patch,
-    ITEM_TYPES, TRIGGER_KINDS,
+    draft_page, get_deployed, get_draft_item, item_exists, item_type_arg, path_enc, service,
+    unified_patch, ITEM_TYPES, TRIGGER_KINDS,
 };
 use super::{
     array, bool_arg, is_not_found, js_str, matches_glob, non_null, opt_str_arg, pretty, str_arg,
@@ -1956,6 +1956,88 @@ async fn parent_comparison_unavailable(ctx: &Ctx<'_>) -> String {
         ),
         _ => unavailable.to_string(),
     }
+}
+
+/// Items `show_deploy_review` draws at most, each one diff.
+const MAX_REVIEW_ITEMS: usize = 10;
+
+/// Drafts with their diffs, each with a Deploy button the user presses: the card calls
+/// `deploy_workspace_item` itself, so that click is the confirmation.
+pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let requested: Vec<(String, Option<String>, String)> =
+        match args.get("items").and_then(Value::as_array) {
+            Some(items) if !items.is_empty() => items
+                .iter()
+                .filter_map(|item| {
+                    Some((
+                        opt_str_arg(item, "type")?.to_string(),
+                        opt_str_arg(item, "trigger_kind").map(str::to_string),
+                        opt_str_arg(item, "path")?.to_string(),
+                    ))
+                })
+                .collect(),
+            _ => list_draft_rows(ctx)
+                .await?
+                .0
+                .into_iter()
+                .filter_map(|row| {
+                    let (item_type, trigger_kind) = row.addressing?;
+                    Some((
+                        item_type.to_string(),
+                        trigger_kind.map(str::to_string),
+                        row.display_path,
+                    ))
+                })
+                .collect(),
+        };
+    if requested.is_empty() {
+        return Ok("No drafts to review: nothing differs from the deployed state.".to_string());
+    }
+    let shown = &requested[..requested.len().min(MAX_REVIEW_ITEMS)];
+    let mut items = Vec::new();
+    for (item_type, trigger_kind, path) in shown {
+        let diff = diff_item(
+            ctx,
+            &json!({ "type": item_type, "path": path, "trigger_kind": trigger_kind }),
+        )
+        .await;
+        let page = draft_page(item_type, path, &Value::Null)
+            .or_else(|| deployed_page(item_type, path, &Value::Null));
+        items.push(json!({
+            "type": item_type,
+            "trigger_kind": trigger_kind,
+            "path": path,
+            "patch": diff.as_ref().ok(),
+            "error": diff.as_ref().err().map(|e| match api_message(e) { "" => e.as_str(), m => m }),
+            "url": page.map(|page| ctx.page_url(&page)),
+        }));
+    }
+    ctx.set_view(
+        "windmill/review",
+        json!({ "workspace": ctx.w_id, "items": items }),
+    );
+    let mut text = format!(
+        "Showing {} draft(s) to the user with their diffs. Nothing was deployed: the user deploys each from the card, and you are told when they do.",
+        items.len()
+    );
+    if requested.len() > shown.len() {
+        text.push_str(&format!(
+            " Only the first {MAX_REVIEW_ITEMS} of {} are shown.",
+            requested.len()
+        ));
+    }
+    let unreadable: Vec<&str> = items
+        .iter()
+        .filter(|item| !item["error"].is_null())
+        .filter_map(|item| item["path"].as_str())
+        .collect();
+    if !unreadable.is_empty() {
+        text.push_str(&format!(
+            " These could not be diffed and offer no Deploy: {}.",
+            unreadable.join(", ")
+        ));
+    }
+    Ok(text)
 }
 
 async fn diff(ctx: &Ctx<'_>, args: &Value) -> ToolResult {

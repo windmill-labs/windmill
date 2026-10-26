@@ -1023,7 +1023,7 @@ pub(super) fn is_agent(value: &Value) -> bool {
 }
 
 /// The editor that shows the user's draft: a detail page shows only the deployed version.
-fn draft_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
+pub(super) fn draft_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
     Some(match item_type {
         "script" => format!("/scripts/edit/{path}?nomenubar=true"),
         "flow" => format!("/flows/edit/{path}?nomenubar=true"),
