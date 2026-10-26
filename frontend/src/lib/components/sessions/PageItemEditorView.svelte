@@ -145,6 +145,12 @@
 			</p>
 			<Button variant="default" unifiedSize="sm" onClick={closeTab}>Close tab</Button>
 		</div>
+	{:else if permissions.moving}
+		<!-- Its edits are drafts, kept and shown again once the editor reopens in the fork. -->
+		<p class="p-4 text-sm text-secondary">
+			{pageItemKindLabel(item)} <span class="font-mono">{item.path}</span> reopens once the session has
+			moved to its fork.
+		</p>
 	{:else if permissions.readOnly}
 		<div class="flex flex-col items-start gap-3 p-4 text-sm text-secondary">
 			<p>
