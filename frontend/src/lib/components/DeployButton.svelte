@@ -5,7 +5,8 @@
 
 	type DropdownItem = {
 		label: string
-		onClick: () => void
+		/** Gets the message typed in the hover popover, for items that deploy. */
+		onClick: (deploymentMsg: string) => void
 	}
 
 	const {
@@ -28,6 +29,15 @@
 	let hideDropdown = $state(false)
 	let deploymentMsg = $state('')
 	let dropdownOpen = $state(false)
+
+	function withMessage(items: DropdownItem[]) {
+		return items.map((item) => ({ ...item, onClick: () => item.onClick(deploymentMsg) }))
+	}
+	let items = $derived(
+		typeof dropdownItems === 'function'
+			? () => withMessage(dropdownItems())
+			: dropdownItems && withMessage(dropdownItems)
+	)
 </script>
 
 <Button
@@ -38,8 +48,8 @@
 	{iconOnly}
 	title="Deploy"
 	startIcon={{ icon: Save }}
-	on:click={() => dispatch('save')}
-	{dropdownItems}
+	on:click={() => dispatch('save', deploymentMsg)}
+	dropdownItems={items}
 	tooltipPopover={{
 		placement: 'bottom-end',
 		openDelay: dropdownOpen ? 200 : 0,

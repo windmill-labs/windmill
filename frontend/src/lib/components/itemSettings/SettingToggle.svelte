@@ -32,7 +32,7 @@
 		label,
 		tooltip,
 		documentationLink,
-		checked = $bindable(),
+		checked,
 		onchange,
 		disabled = false,
 		eeOnly = false,
@@ -44,26 +44,32 @@
 	}: Props = $props()
 
 	// Hosts read `checked` from the value, and a value being typed passes through states that read
-	// as off (an emptied field, a 0, an empty expression). Once its parameters have focus, the row
-	// stays open until its toggle is clicked.
+	// as off (an emptied field, a 0, an empty expression). Once its parameters have focus, they
+	// stay open until the toggle is clicked; the toggle itself shows whether the value is set.
 	let editing = $state(false)
+	// Bumped each time the toggle turns the row on, so its parameters remount on the value the host
+	// just wrote even when the row was already open: an editor reads its code once, at mount.
+	let generation = $state(0)
 </script>
 
 <div class="flex flex-col gap-2" data-setting={setting}>
 	<Toggle
 		size="xs"
 		bind:checked={
-			() => checked || editing,
+			() => checked,
 			(v) => {
 				editing = false
-				checked = v
+				// The host writes the value here, before the row opens. A click runs microtasks between
+				// the input's listeners, so a `change` listener would come after the parameters mounted
+				// on the old value, and an editor that reads its code once at mount would open empty.
+				onchange?.(!!v)
+				if (v) generation++
 			}
 		}
 		{disabled}
 		{eeOnly}
 		{aiId}
 		{aiDescription}
-		on:change={(e) => onchange?.(e.detail)}
 		options={{ right: label, rightTooltip: tooltip, rightDocumentationLink: documentationLink }}
 	/>
 	{#if hint}
@@ -71,12 +77,14 @@
 		<div class="pl-9 text-2xs text-secondary">{@render hint()}</div>
 	{/if}
 	{#if (checked || editing) && children}
-		<div
-			class="flex flex-col gap-2 pl-9"
-			transition:slideDynamic
-			onfocusin={() => (editing = true)}
-		>
-			{@render children()}
+		<!-- The slide clamps this box's height. A flex column would shrink an `overflow` child (an
+		     editor) to fit the clamp, so the slide would measure it short and jump at the end. -->
+		<div transition:slideDynamic onfocusin={() => (editing = true)}>
+			{#key generation}
+				<div class="flex flex-col gap-2 pl-9">
+					{@render children()}
+				</div>
+			{/key}
 		</div>
 	{/if}
 </div>
