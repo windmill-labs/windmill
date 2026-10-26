@@ -498,6 +498,12 @@
 			sendUserToast('This session moved to another workspace meanwhile. Pick the fork again.', true)
 			return
 		}
+		// A turn started while the dialog was open (a job's auto-resume) owns the cross-tab hold
+		// below; the move would release it while that turn still runs.
+		if (!canMoveToFork) {
+			moveRequest = { ...req, open: true, error: 'A chat turn is running. Retry once it ends.' }
+			return
+		}
 		moving = true
 		const releaseAutoResume = runtime?.manager.holdAutoResume()
 		// Bracketed like a turn, so another tab on this session cannot send while its drafts
