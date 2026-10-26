@@ -695,7 +695,8 @@ export async function deployDraft(
 				})
 			}
 			// What shows a deployed agent reads it again on this, wherever the deploy came from.
-			if (!noop) markAgentWritten(workspace, d.path ?? path)
+			if (!noop && (d.resource_type ?? deployed?.resource_type) === 'ai_agent')
+				markAgentWritten(workspace, d.path ?? path)
 		} else if (kind === 'trigger_schedule') {
 			const { draft: d } = splitOverlay(await OVERLAY_GETTERS.trigger_schedule!(workspace, path))
 			// The schedule editor's draft IS the cfg shape `saveScheduleFromCfg`

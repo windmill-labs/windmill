@@ -95,7 +95,7 @@
 		viewerTabsToReload
 	} from '$lib/components/sessions/previewReload'
 	import { isPreviewListPath, barePath } from '$lib/components/sessions/previewPaths'
-	import { ResourceService } from '$lib/gen'
+	import { listWorkspaceAgents } from '$lib/components/sessions/workspaceAgents'
 	import {
 		leafKeyFor,
 		loadKind,
@@ -850,11 +850,11 @@
 		if (!ws || agentSummariesRequested.has(ws)) return
 		if (!(owner?.tabs ?? []).some((t) => agentTabPath(t) !== undefined)) return
 		agentSummariesRequested.add(ws)
-		ResourceService.listResource({ workspace: ws, resourceType: 'ai_agent', perPage: 1000 })
-			.then((rows) => {
+		listWorkspaceAgents(ws)
+			.then((agents) => {
 				agentSummaries = {
 					...agentSummaries,
-					[ws]: Object.fromEntries(rows.map((r) => [r.path, r.description ?? '']))
+					[ws]: Object.fromEntries(agents.map((a) => [a.path, a.summary]))
 				}
 			})
 			.catch((e) => {

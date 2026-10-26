@@ -88,10 +88,11 @@
 	let canCode = $derived(editRights.capabilities.code)
 	let canEdit = $derived(config != undefined && (agent?.canWrite ?? false) && canAuthor)
 
-	// Recorded once the agent is in: a path with nothing deployed never loads one.
+	// Recorded once the agent is in: a path with nothing deployed never loads one. Not from a
+	// session's tab, as a script's page in one records nothing either.
 	let loaded = $derived(config != undefined)
 	$effect(() => {
-		if (ws && loaded) {
+		if (ws && loaded && !embedded) {
 			recentItems.record(ws, {
 				kind: 'agent',
 				path,

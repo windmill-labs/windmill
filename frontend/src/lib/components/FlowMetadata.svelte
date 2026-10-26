@@ -18,6 +18,8 @@
 	}
 
 	let { job, scheduleEditor }: Props = $props()
+	// An agent's run is a flow preview, linked to the agent it ran.
+	const agentHref = $derived(job ? agentRunHref(job, $workspaceStore) : undefined)
 </script>
 
 <div
@@ -68,9 +70,7 @@
 					<Bot size={SMALL_ICON_SIZE} class="min-w-3.5" />
 					<span class="whitespace-nowrap">
 						Triggered by parent
-						<a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}>
-							{job.parent_job}</a
-						>
+						<a href={`/run/${job.parent_job}?workspace=${$workspaceStore}`}> {job.parent_job}</a>
 					</span>
 				</div>
 			{/if}
@@ -92,12 +92,12 @@
 			</div>
 		{/if}
 
-		{#if (job && job.job_kind == 'flow') || job?.job_kind == 'script'}
+		{#if (job && job.job_kind == 'flow') || job?.job_kind == 'script' || agentHref}
 			{@const stem = `${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = isScript
 				? `/${stem}/get/${job?.script_hash}`
-				: (agentRunHref(job ?? {}, $workspaceStore) ?? flowPathToHref(job?.script_path ?? ''))}
+				: (agentHref ?? flowPathToHref(job?.script_path ?? ''))}
 			<div class="flex flex-row gap-2 items-center">
 				{#if isScript}
 					<Code2 size={SMALL_ICON_SIZE} class="min-w-3.5" />

@@ -7,10 +7,6 @@ describe('toolReloadEffect', () => {
 	it('maps a non-item mutation to its own list page only', () => {
 		expect(toolReloadEffect('write_schedule', { path: 'u/me/s' }).pages).toEqual(['/schedules'])
 		expect(toolReloadEffect('write_resource', {}).pages).toEqual(['/resources'])
-		// An agent's editor follows the write live; reloading would end its test chat.
-		expect(
-			toolReloadEffect('write_resource', { resource_type: 'ai_agent', path: 'u/me/a' })
-		).toEqual({ pages: [], items: [], deployed: [] })
 		expect(toolReloadEffect('write_variable', {}).pages).toEqual(['/variables'])
 		expect(toolReloadEffect('create_folder', { name: 'f' }).pages).toEqual(['/folders'])
 		expect(toolReloadEffect('create_resource_type', { name: 'c_x' }).pages).toEqual(['/resources'])
@@ -100,6 +96,18 @@ describe('tabsToReload', () => {
 			scheduleTab,
 			resourceTab
 		])
+	})
+
+	it("reloads the resources list on an agent write but never the agent's own editor", () => {
+		const url = pageItemUrl({ kind: 'resource', path: 'u/me/a' })
+		const agentTab: SessionPreviewTab = { id: 'a', url, loc: url, agentEditor: true }
+		const { pages, items } = toolReloadEffect('write_resource', {
+			resource_type: 'ai_agent',
+			path: 'u/me/a'
+		})
+		expect(
+			tabsToReload([resourceTab, agentTab], new Set(pages), new Set(items.map(pageItemUrl)))
+		).toEqual([resourceTab])
 	})
 
 	it('is empty when no pages were touched', () => {

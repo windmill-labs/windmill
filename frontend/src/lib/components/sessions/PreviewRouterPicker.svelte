@@ -18,7 +18,8 @@ section or the flat layout.
 	import { untrack } from 'svelte'
 	import { Bot, Compass, FileText, NetworkIcon, Pen } from 'lucide-svelte'
 	import { resource } from 'runed'
-	import { AssetService, DraftService, ResourceService } from '$lib/gen'
+	import { AssetService } from '$lib/gen'
+	import { listWorkspaceAgents } from './workspaceAgents'
 	import { workspaceStore } from '$lib/stores'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import {
@@ -294,47 +295,27 @@ section or the flat layout.
 
 	// Agents are resources rather than workspace items, so they get a branch of their own. A
 	// deployed one lands on its page, as picking any item does; a draft-only one has only its
-	// editor. The draft listing does not say which resources are agents, so those are asked.
+	// editor, so it is offered only to a user who can open that.
 	const agentsResource = resource(
 		() => effectiveWorkspace,
-		async (ws) => {
-			if (!ws) return []
-			const [deployed, drafts] = await Promise.all([
-				ResourceService.listResource({ workspace: ws, resourceType: 'ai_agent', perPage: 1000 }),
-				DraftService.listDrafts({ workspace: ws }).catch(() => [])
-			])
-			const draftOnly = await Promise.all(
-				drafts
-					.filter((d) => d.kind === 'resource' && d.draft_only)
-					.map((d) =>
-						ResourceService.getResource({ workspace: ws, path: d.path, getDraft: true }).then(
-							(r) =>
-								r.resource_type === 'ai_agent'
-									? { path: d.path, summary: r.description ?? '', draftOnly: true }
-									: undefined,
-							() => undefined
-						)
-					)
-			)
-			return [
-				...deployed.map((r) => ({ path: r.path, summary: r.description ?? '', draftOnly: false })),
-				...draftOnly.filter((a) => a !== undefined)
-			]
-		}
+		(ws) => (ws ? listWorkspaceAgents(ws) : Promise.resolve([]))
 	)
 	const canEditAgents = $derived(permissions.canOpenEditor('agent'))
 	function agentEditTarget(path: string): PreviewTarget {
 		return { type: 'pageitem', ref: { kind: 'resource', path } }
 	}
+	const shownAgents = $derived(
+		(agentsResource.current ?? []).filter((a) => canEditAgents || !a.draftOnly)
+	)
 	const agentsBranch = $derived<DrillBranch<PreviewTarget> | undefined>(
-		agentsResource.current && agentsResource.current.length > 0
+		shownAgents.length > 0
 			? {
 					type: 'branch',
 					key: 'agents',
 					label: 'AI agents',
 					icon: Bot,
 					searchGroup: true,
-					children: agentsResource.current.map((a) => ({
+					children: shownAgents.map((a) => ({
 						type: 'leaf' as const,
 						key: `agent:${a.path}`,
 						label: a.summary || a.path,
@@ -418,7 +399,7 @@ section or the flat layout.
 	leafSecondary={(leaf, scope) =>
 		leaf.data.type === 'item'
 			? relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data.item), scope)
-			: agentPathOf(leaf)}
+			: undefined}
 	onScopeChange={(scope) => {
 		if (scope.length > 0) loader.ensureForScopeSegment(scope[0])
 	}}

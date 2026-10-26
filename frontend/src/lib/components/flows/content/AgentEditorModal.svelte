@@ -9,7 +9,10 @@
 	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import ResourceVersionHistory from '$lib/components/ResourceVersionHistory.svelte'
-	import { clearPageDrawerAnchor } from '$lib/components/sessions/pageDrawerSession'
+	import {
+		clearPageDrawerAnchor,
+		persistDraftForSession
+	} from '$lib/components/sessions/pageDrawerSession'
 	import { RESOURCES_PATH } from '$lib/components/sessions/previewPaths'
 	import EvalsPane from '$lib/components/aiEvals/EvalsPane.svelte'
 	import type { EvalsLocation } from '$lib/components/aiEvals/evalUtils'
@@ -36,6 +39,10 @@
 	import { emptyString } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { useEditRights } from '$lib/operatorWriteRights'
+	import { itemDisplayName } from '$lib/components/sessions/previewRouter'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -65,7 +72,8 @@
 		 *  for a host that shows several at once (a session's tabs). Navigating and closing then stay
 		 *  with this mount, and `owns` is not consulted. */
 		fixedTarget?: AgentEditorTarget
-		/** The agent's summary as it stands in the editor, edits included, for a host that names it. */
+		/** The agent's name as it stands in the editor, edits included, for a host that names it: its
+		 *  summary, or for a never-deployed agent parked at `draft_<uuid>`, the path it will deploy to. */
 		onSummary?: (summary: string | undefined) => void
 	}
 
@@ -110,6 +118,18 @@
 	})
 
 	let ws = $derived(target?.workspace ?? $operatingWorkspace)
+	// On its own route, the hand-off the script and flow editors have: a session on this agent's
+	// editor tab, opened once what is on screen is saved.
+	let sessionSource = $derived.by((): OpenInSessionSource | undefined => {
+		const path = target?.path
+		const workspace = ws
+		if (layout !== 'page' || !path || !workspace) return undefined
+		return {
+			page: () => `${RESOURCES_PATH}#/resource/${path}`,
+			workspaceId: workspace,
+			beforeOpen: () => persistDraftForSession(workspace, 'resource', path)
+		}
+	})
 	let host = $state<ReturnType<typeof AgentEditorHost> | undefined>(undefined)
 	let versionDrawer: Drawer | undefined = $state(undefined)
 	let settingsDrawer: Drawer | undefined = $state(undefined)
@@ -174,8 +194,8 @@
 	// Reported once loaded: a host takes the first report as the name for good, an empty one included.
 	$effect(() => {
 		if (!draft?.state) return
-		const summary = draft.state.description?.trim() || undefined
-		untrack(() => onSummary?.(summary))
+		const name = itemDisplayName(target?.path ?? '', draft.state.path, draft.state.description)
+		untrack(() => onSummary?.(name))
 	})
 
 	// Where the evals pane is within itself, so its levels extend this dialog's trail rather than
@@ -362,7 +382,7 @@
 			</Modal>
 		{:else if layout === 'pane'}
 			<div class="h-full min-h-0 flex flex-col">
-				<div class="flex items-center gap-2 px-4 py-2 border-b min-w-0 shrink-0">
+				<div class="flex items-center gap-2 px-4 sm:px-6 py-2 border-b min-w-0 shrink-0">
 					<div class="min-w-0 flex-1 flex items-center gap-1">
 						{@render agentSummary()}
 						{@render agentHint()}
@@ -388,6 +408,7 @@
 				}}
 				afterName={agentHint}
 				actions={settings}
+				{sessionSource}
 				separator="always"
 			/>
 			<div class="h-full min-h-0 flex flex-col">
@@ -575,6 +596,7 @@
 					title="Version history"
 					on:click={() => versionDrawer?.openDrawer()}
 				/>
+				<OpenInSessionButton source={sessionSource} />
 				<Button
 					unifiedSize="sm"
 					variant="accent"

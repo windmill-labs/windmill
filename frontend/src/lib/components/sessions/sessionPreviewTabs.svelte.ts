@@ -136,6 +136,7 @@ function retargetTab(tab: SessionPreviewTab, url: string): void {
 		tab.friendlyLabel = undefined
 		tab.friendlyPath = undefined
 		tab.editorNamed = undefined
+		tab.agentEditor = undefined
 	}
 	tab.url = url
 	tab.loc = url
