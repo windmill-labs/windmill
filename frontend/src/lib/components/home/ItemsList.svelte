@@ -1112,10 +1112,10 @@
 	// `hideEmptyFolders` yields there: hiding them would bring up the empty-workspace
 	// placeholder, which takes down the settings menu that turns the option back off.
 	// Pipeline members are left out of the counts, but a pipeline folder alone keeps the
-	// placeholder away.
+	// placeholder away. A failed count request leaves the count unknown, read as none.
 	let keepEmptyFolders = $derived(
 		canKeepEmptyFolders &&
-			(!hideEmptyFolders || (workspaceItemCount === 0 && visiblePipelineFolders.size === 0))
+			(!hideEmptyFolders || ((workspaceItemCount ?? 0) === 0 && visiblePipelineFolders.size === 0))
 	)
 	let treeShowsFolders = $derived(
 		treeLazyMode && !archived && keepEmptyFolders && (folderNamesRes.current?.length ?? 0) > 0
