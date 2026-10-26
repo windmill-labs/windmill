@@ -8,7 +8,6 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { roleCapabilities, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
-	import { useEditRights } from '$lib/operatorWriteRights'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
@@ -45,8 +44,6 @@
 	import EditInForkButton from './EditInForkButton.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 
-	const editRights = useEditRights()
-
 	interface Props {
 		flow: Flow & {
 			draft_only?: boolean
@@ -67,6 +64,8 @@
 		depth?: number
 		menuOpen?: boolean
 		showEditButton?: boolean
+		/** The acting role may author flows; an operator's row hides the authoring actions. */
+		canAuthor: boolean
 		keyboardSelected?: boolean
 		rowSelection?: RowSelection
 	}
@@ -82,6 +81,7 @@
 		depth = 0,
 		menuOpen = $bindable(false),
 		showEditButton = $bindable(true),
+		canAuthor,
 		keyboardSelected = false,
 		rowSelection = undefined
 	}: Props = $props()
@@ -129,7 +129,7 @@
 	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
 	let flowHistory: FlowHistory | undefined = $state(undefined)
 
-	let hideForOperator = $derived(!editRights.roleCanAuthor('flow'))
+	let hideForOperator = $derived(!canAuthor)
 </script>
 
 {#if menuOpen}
