@@ -12,6 +12,7 @@
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
 	import type { SessionTarget } from '$lib/components/sessions/sessionState.svelte'
 	import { reviewDeployment, type AiReviewFinding, type AiReviewResult } from './aiReview'
+	import { DEPLOYMENT_REVIEW_PROMPT_KEY } from './reviewPromptKey'
 
 	interface Props {
 		diffs: WorkspaceItemDiff[]
@@ -49,13 +50,10 @@
 			key: onPost ? 'open_request' : 'before_request'
 		})
 		try {
-			const review = await reviewDeployment(
-				diffs,
-				forkWorkspaceId,
-				parentWorkspaceId,
-				controller,
-				$copilotInfo.aiModels.find((m) => modelKey(m) === selectedModelKey)
-			)
+			const review = await reviewDeployment(diffs, forkWorkspaceId, parentWorkspaceId, controller, {
+				model: $copilotInfo.aiModels.find((m) => modelKey(m) === selectedModelKey),
+				instructions: $copilotInfo.customPrompts?.[DEPLOYMENT_REVIEW_PROMPT_KEY]
+			})
 			if (!controller.signal.aborted) result = review
 		} catch (e: any) {
 			if (!controller.signal.aborted) error = e?.message ?? String(e)

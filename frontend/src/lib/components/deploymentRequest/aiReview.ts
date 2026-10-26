@@ -132,8 +132,12 @@ export async function reviewDeployment(
 	forkWorkspaceId: string,
 	parentWorkspaceId: string,
 	abortController: AbortController,
-	/** Defaults to the chat's current model. */
-	model?: AIProviderModel
+	options?: {
+		/** Defaults to the chat's current model. */
+		model?: AIProviderModel
+		/** The workspace's own review instructions, from its AI settings. */
+		instructions?: string
+	}
 ): Promise<AiReviewResult> {
 	const included: string[] = []
 	const omitted: string[] = []
@@ -167,11 +171,16 @@ export async function reviewDeployment(
 
 	const answer = await getNonStreamingCompletion(
 		[
-			{ role: 'system', content: SYSTEM_PROMPT },
+			{
+				role: 'system',
+				content: options?.instructions?.trim()
+					? `${SYSTEM_PROMPT}\n\nInstructions from this workspace's admins, which take precedence over the above where they conflict:\n${options.instructions.trim()}`
+					: SYSTEM_PROMPT
+			},
 			{ role: 'user', content: user }
 		],
 		abortController,
-		{ maxTokensCap: MAX_OUTPUT_TOKENS, forceModelProvider: model }
+		{ maxTokensCap: MAX_OUTPUT_TOKENS, forceModelProvider: options?.model }
 	)
 	return { ...parseReviewAnswer(answer ?? '', diffs), omitted, unreadable }
 }

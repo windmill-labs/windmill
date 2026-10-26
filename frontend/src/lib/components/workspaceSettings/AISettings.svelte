@@ -41,6 +41,7 @@
 	import { backupSettingsChanged } from '$lib/components/sessions/sessionMirror.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import AIPromptsModal from '../settings/AIPromptsModal.svelte'
+	import { DEPLOYMENT_REVIEW_PROMPT_KEY } from '../deploymentRequest/reviewPromptKey'
 	import { Settings } from 'lucide-svelte'
 	import { untrack } from 'svelte'
 	import { slide } from 'svelte/transition'
@@ -773,6 +774,14 @@
 	onReset={resetPrompts}
 	hasChanges={hasPromptsChanges}
 	scope={promptScope}
+	extraPrompts={[
+		{
+			key: DEPLOYMENT_REVIEW_PROMPT_KEY,
+			label: 'Deployment review',
+			placeholder:
+				'Enter instructions for the AI review of deployment requests, such as what to check or ignore'
+		}
+	]}
 />
 
 <!-- Not gated on `showWorkspaceOverrideEditor`: a workspace on instance defaults still has
