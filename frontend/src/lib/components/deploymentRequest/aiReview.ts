@@ -2,6 +2,19 @@ import type { AIProviderModel, WorkspaceItemDiff } from '$lib/gen'
 import { getNonStreamingCompletion } from '$lib/components/copilot/lib'
 import { getItemValue } from '$lib/utils_workspace_deploy'
 import type { Kind } from '$lib/utils_deployable'
+import {
+	formatFolderInstructions,
+	instructionsCovering,
+	listFolderInstructions,
+	readFolderInstructionBody,
+	type FolderInstruction
+} from '$lib/components/copilot/chat/folderInstructions'
+
+/**
+ * Review instructions are resources of this type in the parent workspace: a markdown file
+ * resource whose `value.content` applies to every changed item under the directory it lives in.
+ */
+export const REVIEW_INSTRUCTIONS_RESOURCE_TYPE = 'ai_review_instruction'
 
 export type AiReviewSeverity = 'high' | 'medium' | 'low'
 
@@ -20,6 +33,10 @@ export type AiReviewResult = {
 	omitted: string[]
 	/** Changed items whose contents failed to load, so the model did not review them. */
 	unreadable: string[]
+	/** Review instructions of the parent that covered a changed item and were given to the model. */
+	instructions: string[]
+	/** Review instructions listed in the parent whose body failed to load. */
+	skippedInstructions: string[]
 }
 
 // A variable's value is read decrypted and a resource's value holds credentials, so neither may
@@ -45,6 +62,36 @@ Do not comment on style, naming, formatting or lockfiles, and do not praise. Do 
 
 Answer with JSON only, no prose around it, in this shape:
 {"summary": "<one or two sentences on what the change does and its overall risk>", "findings": [{"kind": "<item kind as given>", "path": "<item path as given>", "severity": "high" | "medium" | "low", "comment": "<the issue and what to do about it, under 80 words>"}]}`
+
+// Read from the parent, never the fork: the fork is the author's side, and its copy of an
+// instruction is itself one of the changes under review.
+async function reviewInstructions(
+	diffs: WorkspaceItemDiff[],
+	parentWorkspaceId: string
+): Promise<{ text: string; applied: string[]; skipped: string[] }> {
+	const covering = instructionsCovering(
+		await listFolderInstructions(parentWorkspaceId, REVIEW_INSTRUCTIONS_RESOURCE_TYPE),
+		diffs.map((d) => d.path)
+	)
+	const skipped: string[] = []
+	const blocks: { instruction: FolderInstruction; body: string }[] = []
+	for (const instruction of covering) {
+		try {
+			blocks.push({
+				instruction,
+				body: await readFolderInstructionBody(parentWorkspaceId, instruction.path)
+			})
+		} catch (e) {
+			console.error(`Failed to read review instructions ${instruction.path}`, e)
+			skipped.push(instruction.path)
+		}
+	}
+	const text =
+		blocks.length === 0
+			? ''
+			: `\n\nThe parent workspace gives the review instructions below, each for the changed items under the folder in its scope. For those items they take precedence over the instructions above, and a nested folder's over its parent folder's. They may ask you to check more, check less or weigh severity differently, but the answer is still the JSON above.\n\n${formatFolderInstructions(blocks)}`
+	return { text, applied: blocks.map((b) => b.instruction.path), skipped }
+}
 
 function changeType(diff: WorkspaceItemDiff): 'added' | 'deleted' | 'modified' {
 	if (!diff.exists_in_source) return 'added'
@@ -96,7 +143,7 @@ function isEmptyRead(value: unknown): boolean {
 export function parseReviewAnswer(
 	text: string,
 	diffs: WorkspaceItemDiff[]
-): Omit<AiReviewResult, 'omitted' | 'unreadable'> {
+): Pick<AiReviewResult, 'summary' | 'findings'> {
 	const start = text.indexOf('{')
 	const end = text.lastIndexOf('}')
 	if (start === -1 || end <= start) {
@@ -137,6 +184,8 @@ export async function reviewDeployment(
 		model?: AIProviderModel
 	}
 ): Promise<AiReviewResult> {
+	const instructions = await reviewInstructions(diffs, parentWorkspaceId)
+	if (abortController.signal.aborted) throw new Error('aborted')
 	const included: string[] = []
 	const omitted: string[] = []
 	const unreadable: string[] = []
@@ -172,7 +221,7 @@ export async function reviewDeployment(
 
 	const answer = await getNonStreamingCompletion(
 		[
-			{ role: 'system', content: SYSTEM_PROMPT },
+			{ role: 'system', content: SYSTEM_PROMPT + instructions.text },
 			{ role: 'user', content: user }
 		],
 		abortController,
@@ -184,5 +233,11 @@ export async function reviewDeployment(
 			workspace: forkWorkspaceId
 		}
 	)
-	return { ...parseReviewAnswer(answer ?? '', diffs), omitted, unreadable }
+	return {
+		...parseReviewAnswer(answer ?? '', diffs),
+		omitted,
+		unreadable,
+		instructions: instructions.applied,
+		skippedInstructions: instructions.skipped
+	}
 }
