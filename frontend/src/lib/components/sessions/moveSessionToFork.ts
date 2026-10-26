@@ -24,7 +24,14 @@ export type MoveTarget =
 export type MoveSessionResult =
 	| { ok: true; forkId: string; copied: number; removed: number }
 	// `retry` is the target to retry with once the fork exists, so a retry never creates it again.
-	| { ok: false; error: string; conflicts?: DraftItemRef[]; retry?: MoveTarget }
+	// `changed`: the session's drafts are no longer the ones listed, so the caller lists them again.
+	| {
+			ok: false
+			error: string
+			conflicts?: DraftItemRef[]
+			retry?: MoveTarget
+			changed?: boolean
+	  }
 
 /**
  * Send every debounced draft save for `workspace` to the server. Returns an error message
@@ -89,6 +96,8 @@ export async function moveSessionToFork(
 		removeFromParent: boolean
 		// A turn running in the parent keeps writing there while its drafts move away.
 		isBusy?: () => boolean
+		// Saves pending in the parent and tells whether the session's drafts differ from `items`.
+		itemsChanged?: () => Promise<boolean>
 	}
 ): Promise<MoveSessionResult> {
 	const unsaved = await flushPendingSaves(parent)
@@ -103,6 +112,16 @@ export async function moveSessionToFork(
 		fork = { kind: 'existing', id: made.id, replace: made.created }
 		// Creating the fork takes seconds, long enough for a job's auto-resume to start a turn.
 		if (opts.isBusy?.()) return { ok: false, error: busy, retry: fork }
+		// So does an edit in the session's preview: it lands in the parent, possibly as a draft the
+		// list did not have.
+		if (await opts.itemsChanged?.()) {
+			return {
+				ok: false,
+				error: "This session's drafts changed. Check the list and confirm again.",
+				retry: fork,
+				changed: true
+			}
+		}
 	} else {
 		fork = target
 		// An editor open in the fork may hold edits not yet saved. Saved now, they become the

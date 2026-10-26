@@ -117,4 +117,23 @@ describe('moveSessionToFork', () => {
 			})
 		}
 	)
+
+	it('stops before transferring when the drafts changed while the fork was created', async () => {
+		vi.mocked(materializeForkOutcome).mockResolvedValue({ id: 'wm-fork-new', created: true })
+		vi.mocked(DraftService.transferDrafts).mockClear()
+		const s = addSession()
+		const res = await moveSessionToFork(
+			s.id,
+			'root_ws',
+			{ kind: 'new', fork: { id: 'wm-fork-new', name: 'new', parent_workspace_id: 'root_ws' } },
+			{ items: [], removeFromParent: false, itemsChanged: async () => true }
+		)
+		expect(res).toMatchObject({
+			ok: false,
+			changed: true,
+			retry: { kind: 'existing', id: 'wm-fork-new', replace: true }
+		})
+		expect(DraftService.transferDrafts).not.toHaveBeenCalled()
+		expect(sessionState.sessions.find((x) => x.id === s.id)?.workspace_id).toBe('root_ws')
+	})
 })

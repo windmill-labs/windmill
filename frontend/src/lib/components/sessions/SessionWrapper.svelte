@@ -567,13 +567,26 @@
 				}
 				return
 			}
+			let relisted: Awaited<ReturnType<typeof listMoveItems>> | undefined
 			const res = await moveSessionToFork(session.id, req.parent, req.target, {
 				items: req.items.map(({ kind, path }) => ({ kind, path })),
 				removeFromParent: moveRemoveFromParent,
-				isBusy: () => !canMoveToFork
+				isBusy: () => !canMoveToFork,
+				itemsChanged: async () => {
+					relisted = await listMoveItems(req.parent, req.target)
+					return typeof relisted === 'string' || itemKeys(relisted.items) !== itemKeys(req.items)
+				}
 			})
 			if (!res.ok) {
-				if (!req.open) {
+				if (res.changed && relisted !== undefined) {
+					moveRequest = {
+						...req,
+						...(typeof relisted === 'string' ? {} : relisted),
+						target: res.retry ?? req.target,
+						open: true,
+						error: typeof relisted === 'string' ? relisted : res.error
+					}
+				} else if (!req.open) {
 					sendUserToast(res.error, true)
 					moveRequest = undefined
 				} else {
