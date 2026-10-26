@@ -222,6 +222,10 @@
   /* Error colour goes on text, as in Windmill: `name: message` in it, the stack plain. */
   pre.stack { background: none; padding: 0; }
   .openable > pre.stack { padding-right: 64px; }
+  .error-line .openable { padding-right: 32px; }
+  .openable > .table th:last-child { padding-right: 44px; }
+  .waiting { display: flex; flex-direction: column; gap: 4px; font-size: var(--t-sm); color: var(--fg); }
+  .waiting pre { padding: 4px 8px; }
   .error-line { color: var(--bad-strong); font-weight: var(--w-semibold); font-size: var(--t-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
   .rows { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); }
   .row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 12px; font-size: var(--t-sm); }
@@ -404,6 +408,7 @@
     database: [['ellipse', { cx: '12', cy: '5', rx: '9', ry: '3' }], ['path', { d: 'M3 5V19A9 3 0 0 0 21 19V5' }], ['path', { d: 'M3 12A9 3 0 0 0 21 12' }]],
     mail: [['path', { d: 'm22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7' }], ['rect', { x: '2', y: '4', width: '20', height: '16', rx: '2' }]],
     shrink: [['path', { d: 'm15 15 6 6m-6-6v4.8m0-4.8h4.8' }], ['path', { d: 'M9 19.8V15m0 0H4.2M9 15l-6 6' }], ['path', { d: 'M15 4.2V9m0 0h4.8M15 9l6-6' }], ['path', { d: 'M9 4.2V9m0 0H4.2M9 9 3 3' }]],
+    agent: [['path', { d: 'M12 8V4H8' }], ['rect', { width: '16', height: '12', x: '4', y: '8', rx: '2' }], ['path', { d: 'M2 14h2' }], ['path', { d: 'M20 14h2' }], ['path', { d: 'M15 13v2' }], ['path', { d: 'M9 13v2' }]],
     expand: [['path', { d: 'm15 15 6 6' }], ['path', { d: 'm15 9 6-6' }], ['path', { d: 'M21 16v5h-5' }], ['path', { d: 'M21 8V3h-5' }], ['path', { d: 'M3 16v5h5' }], ['path', { d: 'm3 21 6-6' }], ['path', { d: 'M3 8V3h5' }], ['path', { d: 'M9 9 3 3' }]],
     loader: [['path', { d: 'M21 12a9 9 0 1 1-6.219-8.56' }]],
     save: [['path', { d: 'M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z' }], ['path', { d: 'M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7' }], ['path', { d: 'M7 3v4a1 1 0 0 0 1 1h7' }]],
@@ -593,6 +598,28 @@
     const stack = /"stack":\s*"((?:[^"\\]|\\[^n])*)/.exec(text)?.[1];
     return stack || text;
   }
+  // What a suspended run waits on. An agent says it: the tool calls to approve or the question
+  // to answer, which are answered in Windmill (no tool answers them).
+  function waitingView(of) {
+    const waiting = of.waiting;
+    const url = of.url ?? run?.url;
+    if (waiting?.type === 'approval') {
+      const calls = (waiting.calls ?? []).map((c) => `${c.function_name}(${JSON.stringify(c.arguments ?? {})})`).join('\n');
+      return [el('div', { class: 'waiting' }, el('span', {}, `The agent waits for approval to run ${plural((waiting.calls ?? []).length, 'tool call')}:`), el('pre', {}, calls)),
+        linkButton('Approve or reject in Windmill', url)];
+    }
+    if (waiting?.type === 'question') {
+      return [el('div', { class: 'waiting' }, el('span', {}, 'The agent asks:'), el('strong', {}, waiting.question ?? ''),
+        waiting.choices?.length ? el('span', { class: 'dim' }, `Choices: ${waiting.choices.join(' \u00b7 ')}`) : null),
+        linkButton('Answer in Windmill', url)];
+    }
+    return [el('div', { class: 'step' }, 'Waiting for an approval or another event.'), linkButton('Approve or cancel in Windmill', url)];
+  }
+
+  // Under an agent's answer: what it took to give it.
+  const agentNote = (of) => el('div', { class: 'dim' },
+    [plural(of.agent_tool_calls, 'tool call'), of.agent_tokens != null ? plural(of.agent_tokens, 'token') : null].filter(Boolean).join(' \u00b7 '));
+
   // A stack usually opens with the message, which the error line already says.
   function stackBody(of) {
     if (!of?.stack) return null;
@@ -794,12 +821,13 @@
     setHeader({
       path: run?.path ?? (run?.id ? `Run ${run.id.slice(0, 8)}` : toolArgs.path ?? 'Windmill'),
       ws: run?.workspace ?? toolArgs.workspace_id,
-      kind: kindLabel(run?.job_kind),
-      status,
-      label: run ? (LABELS[status] ?? status) : 'Starting',
+      kind: run?.agent_run ? 'agent' : kindLabel(run?.job_kind),
+      // A running flow whose agent waits on a person reads as waiting, as Windmill colours it.
+      status: run?.waiting && status === 'running' ? 'suspended' : status,
+      label: run ? (LABELS[run.waiting && status === 'running' ? 'suspended' : status] ?? status) : 'Starting',
       url: run?.url,
       summary: run?.summary,
-      kindIcon: run?.job_kind && /flow/.test(run.job_kind) ? 'flow' : run?.job_kind ? 'script' : null
+      kindIcon: run?.agent_run ? 'agent' : run?.job_kind && /flow/.test(run.job_kind) ? 'flow' : run?.job_kind ? 'script' : null
     });
     $('duration').textContent = elapsed();
     if (!running) $('stale').hidden = true;
@@ -812,7 +840,9 @@
     const inline = !(fullscreen() && run?.id);
     const errorLine = $('error-line');
     errorLine.hidden = !inline || !failed || run?.result == null;
-    errorLine.textContent = failed ? run?.result ?? '' : '';
+    const errorText_ = failed ? run?.result ?? '' : '';
+    // With no stack under it, the error line carries the copy control itself.
+    errorLine.replaceChildren(errorText_ && !stackBody(run) ? openable(el('span', {}, errorText_), false, run?.url, null, errorText_) : errorText_);
     const described = run?.result_kind === 'file';
     const records = inline && status === 'success' && !described ? recordsTable(run?.result) : null;
     const shown = failed ? stackBody(run) : run?.result;
@@ -824,7 +854,7 @@
     const source = records ? `${fullscreen()}:${run.result}` : '';
     if (holder.dataset.source !== source) {
       holder.dataset.source = source;
-      holder.replaceChildren(...(records ? [records] : []));
+      holder.replaceChildren(...(records ? [openable(records, false, run.url, null, run.result)] : []));
     }
     // A long result is clipped inline; the server also cuts one past its own limit.
     const more = $('result-more');
@@ -833,7 +863,8 @@
     if (inline && run?.image && !running) more.append(openable(imageBox(run), true, run.url, 'result'));
     else if (inline && described && !running) more.append(el('div', { class: 'step' }, run.result), linkButton('File in Windmill', run.url, 'margin-top: 8px'));
     // A flow waiting on an approval or another event is resumed or canceled on its page.
-    if (inline && status === 'suspended') more.append(el('div', { class: 'step' }, 'Waiting for an approval or another event.'), linkButton('Approve or cancel in Windmill', run.url, 'margin-top: 8px'));
+    if (inline && (status === 'suspended' || run?.waiting)) more.append(...waitingView(run));
+    if (inline && !running && run?.agent_tool_calls != null) more.append(agentNote(run));
     // The result is clipped inline; a click on it opens it whole.
     const slot = $('result-slot');
     result.classList.remove('cut');
@@ -888,7 +919,8 @@
     const outcome = failedAt ? `failed at ${failedAt.step}`
       : run.status === 'success' ? 'all succeeded'
       : `${(LABELS[run.status] ?? run.status).toLowerCase()} after ${steps[lastRan].step}`;
-    const text = [plural(steps.length, 'step'), outcome, ...groups].join(' \u00b7 ');
+    // A saved agent's run is its tool calls.
+    const text = [plural(steps.length, run.agent_run ? 'tool call' : 'step'), outcome, ...groups].join(' \u00b7 ');
     if (canFullscreen()) return el('button', { class: 'more-line', type: 'button', onclick: () => openTab('steps') }, text, icon('expand'));
     if (run.url) return el('button', { class: 'more-line', type: 'button', onclick: () => openLink(run.url) }, text, icon('external'));
     return el('div', { class: 'step' }, text);
@@ -901,7 +933,7 @@
   function childrenOf(node) {
     if (node.branches) return node.branches.map((b, i) => ({ node: b, label: `Branch ${i + 1}`, place: `branch ${i + 1}` }));
     if (node.iterations != null) return (node.iterations_shown ?? []).map((p) => ({ node: p, label: `Iteration ${p.iteration}`, place: `iteration ${p.iteration}` }));
-    return (node.steps ?? []).map((s) => ({ node: s, label: s.step.split('/').pop() }));
+    return (node.steps ?? []).map((s) => ({ node: s, label: s.tool ?? (s.step.split('/').pop() || s.step) }));
   }
   const depthPad = (depth) => `padding-left: ${8 + depth * 16}px`;
 
@@ -945,6 +977,7 @@
   // Named as Windmill's graph names a step: by summary, else by kind; an inner flow by its path.
   function stepName(node) {
     if (node.summary) return node.summary;
+    if (node.tool) return 'Tool call';
     if (node.module?.type === 'flow' && node.module.path) return `Inner flow ${node.module.path}`;
     // A workspace script is told apart by the script it calls.
     if (node.module?.type === 'script' && node.module.path) return node.module.path;
@@ -1008,11 +1041,14 @@
     const { node, run: r, label } = selected;
     const status = r?.status ?? selected.status;
     const url = node.job_id ? stepUrl(node.job_id) : null;
-    const head = el('div', { class: 'item-head' },
-      el('span', { class: 'grow' }, label),
-      el('span', { class: `badge ${status ?? ''}` }, LABELS[status] ?? status ?? ''),
-      (r?.duration_ms ?? node.duration_ms) != null ? el('span', { class: 'dim' }, formatMs(r?.duration_ms ?? node.duration_ms)) : null,
-      url ? linkButton('Open in Windmill', url) : null);
+    const kind = stepName(node);
+    const head = el('div', { class: 'section' },
+      el('div', { class: 'item-head' },
+        el('span', { class: 'grow' }, label),
+        el('span', { class: `badge ${status ?? ''}` }, LABELS[status] ?? status ?? ''),
+        (r?.duration_ms ?? node.duration_ms) != null ? el('span', { class: 'dim' }, formatMs(r?.duration_ms ?? node.duration_ms)) : null,
+        url ? linkButton('Open in Windmill', url) : null),
+      kind ? el('div', { class: 'meta' }, node.summary && stepKind(node.module) ? `${node.summary} \u00b7 ${stepKind(node.module)}` : kind) : null);
     if (!node.job_id) return [head, groupPane(node, selected.key)];
     if (!r) return [head, el('div', { class: 'empty' }, spinner(), ' Loading')];
     const active = selected.tab ?? 'result';
@@ -1082,17 +1118,20 @@
     }
     // Result
     const parts = [];
-    if (of.status === 'suspended') parts.push(el('div', { class: 'step' }, 'Waiting for an approval or another event.'), linkButton('Approve or cancel in Windmill', url));
-    if (failed && of.result != null) parts.push(el('div', { class: 'error-line' }, of.result));
+    if (of.status === 'suspended' || of.waiting) parts.push(...waitingView(of));
+    if (failed && of.result != null) {
+      parts.push(el('div', { class: 'error-line' }, stackBody(of) ? of.result : openable(el('span', {}, of.result), false, url, null, of.result)));
+    }
     if (failed && stackBody(of)) parts.push(openable(el('pre', { class: 'stack' }, stackBody(of)), false, url, null, errorText(of)));
     if (failed && of.result_cut) parts.push(linkButton('Full error in Windmill', url));
     if (!failed && of.image) parts.push(imageBox(of));
     else if (!failed && of.result_kind === 'file') parts.push(el('div', { class: 'step' }, of.result), linkButton('File in Windmill', url));
     else if (!failed && of.result != null) {
       const records = of.status === 'success' ? recordsTable(of.result) : null;
-      parts.push(records ?? openable(el('pre', { class: 'result' }, of.result), false, url, null, of.result));
+      parts.push(openable(records ?? el('pre', { class: 'result' }, of.result), false, url, null, of.result));
       if (of.result_cut) parts.push(linkButton('Full result in Windmill', url));
     }
+    if (of.agent_tool_calls != null && !RUNNING.includes(of.status)) parts.push(agentNote(of));
     if (!parts.length) parts.push(el('div', { class: 'empty' }, RUNNING.includes(of.status) ? 'No result yet.' : 'No result.'));
     return el('div', { class: 'section' }, ...parts);
   }
@@ -1482,8 +1521,9 @@
     const url = draft && meta.edit_url ? meta.edit_url : meta.url;
     const kind = item.triggerKind ? `${triggerLabel(item.triggerKind)} trigger`
       : type === 'script' && item.language ? `${languageLabel(item.language)} script`
+      : type === 'resource' && value.resource_type === 'ai_agent' ? 'AI agent'
       : type === 'resource' && value.resource_type ? `${value.resource_type} resource` : type;
-    const kindIcon = kindIconOf(type, item.triggerKind);
+    const kindIcon = value.resource_type === 'ai_agent' ? 'agent' : kindIconOf(type, item.triggerKind);
     setHeader({
       path: item.path, ws: meta.workspace, kind, summary: item.summary, kindIcon,
       status: draft ? 'draft' : null, label: draft ? 'Draft' : null, url
@@ -1574,6 +1614,10 @@
         break;
       }
       case 'resource': {
+        if (value.resource_type === 'ai_agent' && value.value && typeof value.value === 'object') {
+          blocks.push(agentRows(value.value, url));
+          break;
+        }
         const fields = value.value && typeof value.value === 'object' ? Object.entries(value.value) : [];
         // Shown at a glance, so a secret-looking field is masked unless it only names one.
         const rows = [...fields.map(([k, field]) => {
@@ -1597,6 +1641,22 @@
     }
     // Offered when fullscreen shows more than this: a cut list, value or code block, a section.
     showExpand(fullscreen() || valueCut || !!$('body').querySelector('.more-line:not(.mono), .cut'));
+  }
+
+  // A saved agent: its model, tools and instructions inline, its other settings in fullscreen.
+  function agentRows(agent, url) {
+    const provider = agent.provider ?? {};
+    const tools = (agent.tools ?? []).map((t) => t.summary || t.id).filter(Boolean);
+    const rows = [];
+    if (provider.model || provider.kind) rows.push(row('Model', [provider.model, provider.kind].filter(Boolean).join(' \u00b7 ')));
+    rows.push(row('Tools', tools.length ? tools.join(', ') : 'None'));
+    if (agent.system_prompt) rows.push(row('Instructions', display(agent.system_prompt), true));
+    const rest = Object.entries(agent)
+      .filter(([k, v]) => !['provider', 'tools', 'system_prompt'].includes(k) && v != null && v !== '' && !SENSITIVE.test(k))
+      .map(([k, v]) => row(settingLabel(k), display(v)));
+    if (fullscreen()) rows.push(...rest);
+    else if (rest.length) rows.push(moreRow(plural(rest.length, 'more setting'), url));
+    return el('div', { class: 'rows' }, ...rows);
   }
 
   // A setting's field name as a label: words, the first capitalised, acronyms upper-case.

@@ -1729,7 +1729,9 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             .as_array()
             .map(Vec::as_slice)
             .unwrap_or_default();
-        details.insert("step_list".into(), card_steps(entries, job).into());
+        let mut steps = card_steps(entries, job);
+        details.extend(agent_card(job, &mut steps));
+        details.insert("step_list".into(), steps.into());
         if let Ok(logs) = &logs {
             if !logs.trim().is_empty() {
                 let tail = js_tail(logs, CARD_LOG_CHARS);
@@ -1992,6 +1994,66 @@ fn card_steps(entries: &[Value], job: &Value) -> Vec<Value> {
     steps
 }
 
+/// What the card says of a run's agents, from the flow's status: the tool each call ran, an
+/// approval or a question one of them waits on, and whether the run is a saved agent's.
+fn agent_card(job: &Value, steps: &mut Vec<Value>) -> Map<String, Value> {
+    let mut out = Map::new();
+    let mut tools = HashMap::new();
+    for status in job["flow_status"]["modules"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        let actions = status["agent_actions"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        for action in actions {
+            if let (Some(job), Some(name)) =
+                (action["job_id"].as_str(), action["function_name"].as_str())
+            {
+                tools.insert(job.to_string(), name.to_string());
+            }
+        }
+        // A request is answered once its `agent_actions_success` entry is written.
+        let answered = status["agent_actions_success"]
+            .as_array()
+            .map_or(0, Vec::len);
+        let waiting = actions.iter().enumerate().rev().find(|(i, a)| {
+            *i >= answered && matches!(a["type"].as_str(), Some("approval" | "question"))
+        });
+        if let Some((_, waiting)) = waiting {
+            out.entry("waiting").or_insert_with(|| waiting.clone());
+        }
+    }
+    name_tool_calls(steps, &tools);
+    let modules = job["raw_flow"]["modules"].as_array();
+    if modules.is_some_and(|m| m.len() == 1 && m[0]["id"] == crate::agent_runs::AGENT_NODE_ID) {
+        out.insert("agent_run".into(), true.into());
+        // Its one step is internal: the run's steps are its tool calls.
+        if let [root] = &mut steps[..] {
+            let calls = root.get_mut("steps").map(Value::take);
+            *steps = calls
+                .and_then(|c| serde_json::from_value(c).ok())
+                .unwrap_or_default();
+        }
+    }
+    out
+}
+
+fn name_tool_calls(steps: &mut [Value], tools: &HashMap<String, String>) {
+    for step in steps {
+        if let Some(name) = step["job_id"].as_str().and_then(|job| tools.get(job)) {
+            step["tool"] = name.clone().into();
+        }
+        for key in ["branches", "iterations_shown", "steps"] {
+            if let Some(children) = step.get_mut(key).and_then(Value::as_array_mut) {
+                name_tool_calls(children, tools);
+            }
+        }
+    }
+}
+
 /// A flow's modules by id, at any depth, for the card to name its steps as Windmill's graph
 /// does: by summary, else by kind.
 fn collect_modules<'a>(value: &'a Value, out: &mut HashMap<&'a str, &'a Value>) {
@@ -2124,6 +2186,17 @@ fn card_image(result: &Value) -> Option<Value> {
     }
 }
 
+/// The envelope an AI agent step returns (`AIAgentResult`): its answer and its conversation,
+/// and nothing a script would also return.
+fn is_agent_envelope(result: &Value) -> bool {
+    const KEYS: [&str; 5] = ["output", "messages", "usage", "wm_stream", "reasoning"];
+    result.as_object().is_some_and(|o| {
+        o.contains_key("output")
+            && o.get("messages").is_some_and(Value::is_array)
+            && o.keys().all(|k| KEYS.contains(&k.as_str()))
+    })
+}
+
 /// What the run card draws of a run: its summary, the head of its result (a failure's
 /// message alone), and a running flow's top-level step.
 fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
@@ -2133,6 +2206,19 @@ fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
     if let Some(job) = job {
         let too_big = job.get("result").is_some_and(|r| r == TOO_BIG);
         let result = job.get("result").filter(|r| !r.is_null() && !too_big);
+        // An agent returns its answer inside the envelope of its conversation: the card shows
+        // the answer, and how many tools it called and tokens it used.
+        let envelope = result.filter(|r| is_agent_envelope(r));
+        if let Some(envelope) = envelope {
+            let calls = envelope["messages"]
+                .as_array()
+                .map_or(0, |m| m.iter().filter(|m| m["role"] == "tool").count());
+            run.insert("agent_tool_calls".into(), calls.into());
+            if let Some(tokens) = envelope["usage"]["total_tokens"].as_u64() {
+                run.insert("agent_tokens".into(), tokens.into());
+            }
+        }
+        let result = envelope.map(|e| &e["output"]).or(result);
         if too_big {
             run.insert("result".into(), "Too large to show here.".into());
             run.insert("result_cut".into(), true.into());
@@ -2573,6 +2659,42 @@ mod tests {
         // Cut by UTF-16 units: 800 emoji are 1,600 of them, past the head's 1,500.
         let emoji = json!({ "type": "CompletedJob", "success": true, "result": "😀".repeat(800) });
         assert_eq!(run_card("j", Some(&emoji))["result_cut"], true);
+    }
+
+    #[test]
+    fn agent_card_names_tool_calls_and_says_what_waits() {
+        let job = json!({
+            "raw_flow": { "modules": [{ "id": crate::agent_runs::AGENT_NODE_ID }] },
+            "flow_status": { "modules": [{
+                "id": crate::agent_runs::AGENT_NODE_ID,
+                "agent_actions": [
+                    { "type": "tool_call", "job_id": "j1", "function_name": "lookup_order", "module_id": "t" },
+                    { "type": "question", "call_id": "c", "question": "Which region?", "expires_at": "x" }
+                ],
+                "agent_actions_success": [true]
+            }] }
+        });
+        let mut steps = vec![json!({
+            "step": crate::agent_runs::AGENT_NODE_ID,
+            "steps": [{ "step": "x/", "job_id": "j1" }]
+        })];
+        let card = agent_card(&job, &mut steps);
+        assert_eq!(card["agent_run"], true);
+        assert_eq!(card["waiting"]["question"], "Which region?");
+        // A saved agent's one internal step gives way to its tool calls, named.
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0]["tool"], "lookup_order");
+        // An answered request no longer waits.
+        let mut answered = job.clone();
+        answered["flow_status"]["modules"][0]["agent_actions_success"] = json!([true, true]);
+        assert!(agent_card(&answered, &mut vec![]).get("waiting").is_none());
+        // The agent's answer, out of its envelope.
+        assert!(is_agent_envelope(
+            &json!({ "output": "hi", "messages": [] })
+        ));
+        assert!(!is_agent_envelope(
+            &json!({ "output": "hi", "messages": [], "extra": 1 })
+        ));
     }
 
     #[test]
