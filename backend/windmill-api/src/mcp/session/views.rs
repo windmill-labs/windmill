@@ -80,11 +80,11 @@ pub(super) fn definitions() -> [(&'static str, &'static str, Value); 4] {
         ),
         (
             "show_item",
-            "Show the user a workspace item as a card in the conversation: a script, flow, schedule, trigger, resource, variable or app, with its key settings and a link to it in Windmill (its editor, for a draft). A variable's value is never shown. Call it when the user asks to see an item; to read one yourself, use read_workspace_item.",
+            "Show the user a workspace item as a card in the conversation: a script, flow, schedule, trigger, resource or app, with its key settings and a link to it in Windmill (its editor, for a draft). Call it when the user asks to see an item; to read one yourself, use read_workspace_item.",
             json!({
                 "type": "object",
                 "properties": {
-                    "type": { "type": "string", "enum": ["script", "flow", "schedule", "trigger", "resource", "variable", "app"] },
+                    "type": { "type": "string", "enum": ["script", "flow", "schedule", "trigger", "resource", "app"] },
                     "path": { "type": "string", "description": "Workspace path of the item." },
                     "trigger_kind": { "type": "string", "description": "Required when type is trigger.", "enum": ["http", "websocket", "kafka", "nats", "postgres", "mqtt", "amqp", "sqs", "gcp", "azure", "email"] }
                 },

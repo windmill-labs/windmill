@@ -1418,6 +1418,10 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 /// answer, with the item's page and the editor its draft opens in.
 pub(super) async fn show_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let item_type = item_type_arg(args)?;
+    // A variable's value never reaches a tool, which leaves its card nothing to show.
+    if item_type == "variable" {
+        return Err("show_item does not show variables.".to_string());
+    }
     let path = str_arg(args, "path")?;
     let text = read_workspace_item(ctx, args).await?;
     let item: Value = serde_json::from_str(&text).map_err(|_| text.clone())?;

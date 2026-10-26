@@ -1737,10 +1737,25 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 pub(super) async fn show_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let id = str_arg(args, "id")?;
     get_run(ctx, args).await?;
-    let status = match ctx.view.lock().unwrap().as_ref() {
-        Some((_, run)) => run["status"].as_str().unwrap_or("running").to_string(),
-        None => return Err(format!("Run {id} could not be read.")),
+    let Some((_, Value::Object(mut run))) = ctx.view.lock().unwrap().take() else {
+        return Err(format!("Run {id} could not be read."));
     };
+    // A run knows its path alone: the card names it as an item does, by its summary.
+    let get = match run.get("job_kind").and_then(Value::as_str) {
+        Some("script") => Some("scripts/get/p"),
+        Some("flow") => Some("flows/get"),
+        _ => None,
+    };
+    if let (Some(get), Some(path)) = (get, run.get("path").and_then(Value::as_str)) {
+        let route = ctx.ws(&format!("{get}/{}", path_enc(path)));
+        if let Ok(item) = ctx.get(&route).await {
+            if let Some(summary) = item["summary"].as_str().filter(|s| !s.is_empty()) {
+                run.insert("summary".into(), summary.into());
+            }
+        }
+    }
+    let status = run["status"].as_str().unwrap_or("running").to_string();
+    ctx.set_view("windmill/run", Value::Object(run));
     Ok(format!(
         "Showing run {id} ({status}) to the user as a live card."
     ))

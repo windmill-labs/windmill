@@ -420,7 +420,8 @@
       kind: kindLabel(run?.job_kind),
       status,
       label: run ? (LABELS[status] ?? status) : 'Starting',
-      url: run?.url
+      url: run?.url,
+      summary: run?.summary
     });
     $('duration').textContent = elapsed();
     if (!running) $('stale').hidden = true;
@@ -564,7 +565,8 @@
   }
 
   function onRun(next) {
-    run = next;
+    // A refresh reads the job alone: the summary `show_run` read stays.
+    run = { ...next, summary: next.summary ?? run?.summary };
     view = 'run';
     renderRun();
     if (RUNNING.includes(run.status)) schedulePoll();
@@ -802,10 +804,12 @@
   function row(key, value) {
     return el('div', { class: 'row' }, el('span', { class: 'k' }, key), el('span', { class: 'v' }, value));
   }
+  // A long value is cut inline, so a row stays one or two lines; fullscreen shows it whole.
+  const VALUE_CHARS_INLINE = 200;
   function display(value) {
     if (value == null) return '';
-    if (typeof value === 'string') return value;
-    return JSON.stringify(value);
+    const text = typeof value === 'string' ? value : JSON.stringify(value);
+    return fullscreen() || text.length <= VALUE_CHARS_INLINE ? text : `${text.slice(0, VALUE_CHARS_INLINE)}\u2026`;
   }
   function inputRows(schema) {
     const properties = schema?.properties ?? {};
@@ -885,7 +889,12 @@
         rows.push(row('Enabled', String(value.enabled ?? '')));
         blocks.push(el('div', { class: 'rows' }, ...rows));
         if (value.args && Object.keys(value.args).length) {
-          blocks.push(...disclosure('item-args', 'Arguments', () => el('pre', {}, JSON.stringify(value.args, null, 2))));
+          blocks.push(...disclosure('item-args', 'Arguments', () => {
+            const lines = JSON.stringify(value.args, null, 2).split('\n');
+            const shown = fullscreen() ? lines : lines.slice(0, CODE_LINES_INLINE);
+            const hidden = lines.length - shown.length;
+            return el('div', {}, el('pre', {}, shown.join('\n')), hidden > 0 ? moreButton(`${hidden} more line${hidden === 1 ? '' : 's'}`, url) : null);
+          }));
         }
         break;
       }
@@ -912,11 +921,6 @@
         blocks.push(capped(rows, 'field', url));
         break;
       }
-      case 'variable':
-        blocks.push(el('div', { class: 'rows' }, row('Secret', item.isSecret ? 'Yes' : 'No')));
-        // The session's tools never read a variable's value, so the card has none to show.
-        blocks.push(el('div', { class: 'step' }, 'Variable values stay in Windmill and never reach the chat: open it there to see this one.'));
-        break;
     }
     $('body').replaceChildren(...blocks.filter(Boolean));
     $('expand').hidden = !canFullscreen() || fullscreen() || !blocks.some((b) => b.classList?.contains('section'));
