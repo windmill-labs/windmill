@@ -3,7 +3,8 @@
 		scimSamlSetting,
 		settings,
 		settingsKeys,
-		instanceSettingsSaved
+		instanceSettingsSaved,
+		type Setting
 	} from './instanceSettings'
 	import { Alert, Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { SettingService, SettingsService } from '$lib/gen'
@@ -571,11 +572,16 @@
 		return dirtyCategories[category] ?? false
 	}
 
+	/** The global settings a field owns: its `key` and any companion keys it also writes. */
+	function settingKeys(s: Setting): string[] {
+		return [s.key, ...(s.companionKeys ?? [])]
+	}
+
 	export function discardCategory(category: string) {
 		const categorySettings = getSettingsForCategory(category)
-		for (const s of categorySettings) {
-			const v = initialValues[s.key]
-			$values[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
+		for (const key of categorySettings.flatMap(settingKeys)) {
+			const v = initialValues[key]
+			$values[key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 		}
 		if (category === 'Auth/OAuth/SAML') {
 			oauths = JSON.parse(JSON.stringify(initialOauths))
@@ -654,10 +660,18 @@
 				})
 		)
 
+		const companionKeys = categorySettings
+			.filter((x) => x.storage === 'setting')
+			.flatMap((x) => x.companionKeys ?? [])
+			.filter((key) => !deepEqual(initialValues?.[key], $values?.[key]))
+		for (const key of companionKeys) {
+			await SettingService.setGlobal({ key, requestBody: { value: $values?.[key] ?? null } })
+		}
+
 		// Update only the saved category's initial values
-		for (const s of categorySettings) {
-			const v = $values[s.key]
-			initialValues[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
+		for (const key of categorySettings.flatMap(settingKeys)) {
+			const v = $values[key]
+			initialValues[key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 		}
 		instanceSettingsSaved.update((n) => n + 1)
 		if (categorySettings.some((s) => s.key === 'base_url')) {
