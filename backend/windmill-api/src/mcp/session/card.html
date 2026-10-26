@@ -63,12 +63,12 @@
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: var(--color-background-primary, #2e3441);
-      --bg-2: var(--color-background-secondary, #272c35);
+      --bg-2: var(--color-background-secondary, rgba(255, 255, 255, 0.05));
       --fg: var(--color-text-primary, #d4d7dd);
       --fg-em: var(--color-text-primary, #eeeff2);
       --fg-2: var(--color-text-secondary, #a9b0ba);
       --fg-3: var(--color-text-tertiary, #8d93a1);
-      --line: var(--color-border-tertiary, #374457);
+      --line: var(--color-border-tertiary, rgba(255, 255, 255, 0.12));
       --info-bg: var(--color-background-info, rgba(24, 71, 210, 0.4));
       --info-fg: var(--color-text-info, #c7cefc);
       --ok-bg: var(--color-background-success, rgba(59, 122, 91, 0.4));
@@ -91,12 +91,12 @@
   }
   :root[data-theme="dark"] {
     --bg: var(--color-background-primary, #2e3441);
-    --bg-2: var(--color-background-secondary, #272c35);
+    --bg-2: var(--color-background-secondary, rgba(255, 255, 255, 0.05));
     --fg: var(--color-text-primary, #d4d7dd);
     --fg-em: var(--color-text-primary, #eeeff2);
     --fg-2: var(--color-text-secondary, #a9b0ba);
     --fg-3: var(--color-text-tertiary, #8d93a1);
-    --line: var(--color-border-tertiary, #374457);
+    --line: var(--color-border-tertiary, rgba(255, 255, 255, 0.12));
     --info-bg: var(--color-background-info, rgba(24, 71, 210, 0.4));
     --info-fg: var(--color-text-info, #c7cefc);
     --ok-bg: var(--color-background-success, rgba(59, 122, 91, 0.4));
@@ -158,6 +158,8 @@
   /* Windmill sets titles in its sans, semibold; a path never goes bold. */
   .path { font: var(--w-semibold) var(--t-md)/1.3 var(--sans); color: var(--fg-em); overflow-wrap: anywhere; text-align: left; }
   button.path { border: 0; padding: 0; min-height: 0; background: none; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+  /* A title that is a path reads as one: mono, not bold. */
+  .path:not(.named) { font: var(--w-normal) var(--t-md)/1.3 var(--mono); }
   button.path:hover { background: none; text-decoration: underline; }
   button.path:disabled { opacity: 1; cursor: default; text-decoration: none; }
   /* Lucide's line icons, as Windmill uses, in the host's text colour. */
@@ -169,6 +171,11 @@
   button.summary-row { width: 100%; min-height: 0; border: 0; border-radius: 0; background: transparent; font: inherit; font-size: var(--t-sm); color: inherit; text-align: left; }
   button.summary-row:hover { background: var(--bg-2); }
   .summary-row .grow { flex: 1; min-width: 0; font: var(--t-sm) var(--mono); color: var(--fg-em); overflow-wrap: anywhere; }
+  .summary-row .label { font-family: var(--mono); }
+  .summary-row .error-text { color: var(--bad-strong); font-family: var(--sans); }
+  .summary-row .dot { align-self: flex-start; margin-top: 5px; }
+  /* A result listed beside others keeps to two lines, as the tree keeps to one. */
+  .summary-row .clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .summary-row .why { flex-basis: 100%; font-size: var(--t-sm); color: var(--fg-2); }
   .add-count { color: var(--ok-strong); font: var(--t-sm) var(--mono); }
   .del-count { color: var(--bad-strong); font: var(--t-sm) var(--mono); }
@@ -209,6 +216,9 @@
   pre.clip { max-height: 180px; overflow: hidden; }
   /* A result in a bordered box, logs and code on the sunken surface, as on the run page. */
   pre.result { background: none; border: 1px solid var(--line); }
+  /* A cut result fades out: its box is drawn around it, so the fade leaves the border whole. */
+  .openable:has(> pre.result) { border: 1px solid var(--line); border-radius: var(--radius); }
+  .openable > pre.result { border: 0; }
   /* Error colour goes on text, as in Windmill: `name: message` in it, the stack plain. */
   pre.stack { background: none; padding: 0; }
   .openable > pre.stack { padding-right: 64px; }
@@ -219,7 +229,9 @@
   .row .v { min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: var(--t-sm); color: var(--fg-em); }
   .row .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .dim { color: var(--fg-3); font-size: var(--t-sm); }
-  .row .k { color: var(--fg-2); min-width: 110px; }
+  .row .k { flex: 0 0 140px; color: var(--fg-2); overflow-wrap: anywhere; }
+  .row .v.sans { font-family: var(--sans); font-size: var(--t-sm); }
+  .row:has(> .v > .more-line) { align-items: center; }
   .row pre { flex-basis: 100%; padding: 4px 8px; }
   .row > .openable { flex-basis: 100%; }
   .row .more-line.mono { font-family: var(--mono); color: var(--fg-em); }
@@ -253,17 +265,21 @@
   .table.scroll { overflow-x: auto; }
   thead tr { background: var(--bg-2); }
   table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
-  th { text-align: left; font-size: var(--t-xs); font-weight: var(--w-normal); color: var(--fg); padding: 8px; border-bottom: 1px solid var(--line); cursor: pointer; white-space: nowrap; user-select: none; }
+  th { text-align: left; font-size: var(--t-xs); font-weight: var(--w-normal); color: var(--fg); padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer; white-space: nowrap; user-select: none; }
   th .lucide { width: 12px; height: 12px; margin-left: 2px; }
-  td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
   tr:last-child td { border-bottom: 0; }
   tfoot td { border-top: 1px solid var(--line); }
   td.mono { font: var(--t-sm) var(--mono); }
   td .lucide { margin-right: 6px; }
   tr.link { cursor: pointer; }
   tr.link:hover td { background: var(--bg-2); }
-  .item { display: flex; flex-direction: column; gap: 6px; }
-  .item + .item { border-top: 1px solid var(--line); padding-top: 12px; }
+  /* The drafts in fullscreen sit in the same bordered box as inline. */
+  .items { border: 1px solid var(--line); border-radius: var(--radius); }
+  .item { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; }
+  .item + .item { border-top: 1px solid var(--line); }
+  .item-head input { accent-color: var(--fg-em); }
+  .zero { color: var(--fg-3); font: var(--t-sm) var(--mono); }
   .item-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .item-head input { margin: 0; }
   .item-head .grow { flex: 1; min-width: 0; font: var(--t-sm) var(--mono); color: var(--fg-em); overflow-wrap: anywhere; }
@@ -387,6 +403,7 @@
     websocket: [['path', { d: 'm19 5 3-3' }], ['path', { d: 'm2 22 3-3' }], ['path', { d: 'M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z' }], ['path', { d: 'M7.5 13.5 10 11' }], ['path', { d: 'M10.5 16.5 13 14' }], ['path', { d: 'm12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z' }]],
     database: [['ellipse', { cx: '12', cy: '5', rx: '9', ry: '3' }], ['path', { d: 'M3 5V19A9 3 0 0 0 21 19V5' }], ['path', { d: 'M3 12A9 3 0 0 0 21 12' }]],
     mail: [['path', { d: 'm22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7' }], ['rect', { x: '2', y: '4', width: '20', height: '16', rx: '2' }]],
+    shrink: [['path', { d: 'm15 15 6 6m-6-6v4.8m0-4.8h4.8' }], ['path', { d: 'M9 19.8V15m0 0H4.2M9 15l-6 6' }], ['path', { d: 'M15 4.2V9m0 0h4.8M15 9l6-6' }], ['path', { d: 'M9 4.2V9m0 0H4.2M9 9 3 3' }]],
     expand: [['path', { d: 'm15 15 6 6' }], ['path', { d: 'm15 9 6-6' }], ['path', { d: 'M21 16v5h-5' }], ['path', { d: 'M21 8V3h-5' }], ['path', { d: 'M3 16v5h5' }], ['path', { d: 'm3 21 6-6' }], ['path', { d: 'M3 8V3h5' }], ['path', { d: 'M9 9 3 3' }]],
     loader: [['path', { d: 'M21 12a9 9 0 1 1-6.219-8.56' }]],
     save: [['path', { d: 'M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z' }], ['path', { d: 'M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7' }], ['path', { d: 'M7 3v4a1 1 0 0 0 1 1h7' }]],
@@ -562,6 +579,26 @@
     return copied;
   }
 
+  // A failed step's result head as the error line says it, `name: message`; a head cut
+  // mid-JSON still gives its message.
+  function errorSummary(text) {
+    if (!text) return '';
+    try {
+      const error = JSON.parse(text)?.error;
+      if (error?.message) return error.name ? `${error.name}: ${error.message}` : error.message;
+    } catch {}
+    const message = /"message":\s*"((?:[^"\\]|\\.)*)"/.exec(text)?.[1];
+    if (message) return message.replace(/\\n/g, ' ');
+    // A stack opens with `name: message`, and may come first in a cut head.
+    const stack = /"stack":\s*"((?:[^"\\]|\\[^n])*)/.exec(text)?.[1];
+    return stack || text;
+  }
+  // A stack usually opens with the message, which the error line already says.
+  function stackBody(of) {
+    if (!of?.stack) return null;
+    if (!of.result || !of.stack.startsWith(of.result)) return of.stack;
+    return of.stack.slice(of.result.length).replace(/^\n/, '') || null;
+  }
   // A stack usually opens with the message: copied, it is said once.
   const errorText = (of) => (of.stack && of.result && !of.stack.startsWith(of.result) ? `${of.result}\n${of.stack}` : of.stack ?? of.result);
 
@@ -606,7 +643,7 @@
     button.dataset.full = String(full);
     button.title = label;
     button.setAttribute('aria-label', label);
-    button.replaceChildren(icon(full ? 'minimize' : 'maximize'));
+    button.replaceChildren(icon(full ? 'shrink' : 'expand'));
   }
 
   function setDisplayMode(mode) {
@@ -778,7 +815,7 @@
     errorLine.textContent = failed ? run?.result ?? '' : '';
     const described = run?.result_kind === 'file';
     const records = inline && status === 'success' && !described ? recordsTable(run?.result) : null;
-    const shown = failed ? run?.stack : run?.result;
+    const shown = failed ? stackBody(run) : run?.result;
     result.hidden = !inline || running || shown == null || !!records || described;
     result.textContent = shown ?? '';
     result.classList.toggle('clip', !fullscreen());
@@ -794,7 +831,7 @@
     more.replaceChildren();
     // A file, image, page or map is named here and shown on the run page.
     if (inline && run?.image && !running) more.append(openable(imageBox(run), true, run.url, 'result'));
-    else if (inline && described && !running) more.append(el('div', { class: 'step' }, run.result), linkButton('View it in Windmill', run.url, 'margin-top: 8px'));
+    else if (inline && described && !running) more.append(el('div', { class: 'step' }, run.result), linkButton('File in Windmill', run.url, 'margin-top: 8px'));
     // A flow waiting on an approval or another event is resumed or canceled on its page.
     if (inline && status === 'suspended') more.append(el('div', { class: 'step' }, 'Waiting for an approval or another event.'), linkButton('Approve or cancel in Windmill', run.url, 'margin-top: 8px'));
     // The result is clipped inline; a click on it opens it whole.
@@ -847,7 +884,11 @@
     const failedAt = steps.find((s, i) => groupStatus(s, i === lastRan) === 'failure');
     const groups = steps.filter((s) => s.branches || s.iterations != null)
       .map((s) => s.branches ? `${s.step} ran ${plural(s.branches.length, 'branch')}` : `${s.step} ran ${plural(s.iterations, 'iteration')}`);
-    const text = [plural(steps.length, 'step'), failedAt ? `failed at ${failedAt.step}` : 'all succeeded', ...groups].join(' \u00b7 ');
+    // "All succeeded" only for a run that did: one that timed out or was canceled says where.
+    const outcome = failedAt ? `failed at ${failedAt.step}`
+      : run.status === 'success' ? 'all succeeded'
+      : `${(LABELS[run.status] ?? run.status).toLowerCase()} after ${steps[lastRan].step}`;
+    const text = [plural(steps.length, 'step'), outcome, ...groups].join(' \u00b7 ');
     if (canFullscreen()) return el('button', { class: 'more-line', type: 'button', onclick: () => openTab('steps') }, text, icon('expand'));
     if (run.url) return el('button', { class: 'more-line', type: 'button', onclick: () => openLink(run.url) }, text, icon('external'));
     return el('div', { class: 'step' }, text);
@@ -870,7 +911,7 @@
     const open = openNodes.has(key);
     const note = node.branch_taken ? `Took ${node.branch_taken}`
       : node.branches ? plural(node.branches.length, 'branch')
-      : node.iterations != null ? [plural(node.iterations, 'iteration'), `${node.ok} ok`].join(' · ')
+      : node.iterations != null ? [plural(node.iterations, 'iteration'), `${node.ok} succeeded`].join(' · ')
       : node.attempts > 1 ? `${node.attempts} attempts` : '';
     const toggle = (e) => {
       e.stopPropagation();
@@ -936,11 +977,11 @@
     const count = node.branches ? parts.length : node.iterations;
     const ok = node.branches ? parts.filter((b) => b.status === 'success').length : node.ok;
     const rows = [
-      row('Kind', stepKind(node.module) ?? (node.branches ? 'Run all branches' : node.type === 'whileloopflow' ? 'While loop' : 'For loop')),
+      row('Kind', stepKind(node.module) ?? (node.branches ? 'Run all branches' : node.type === 'whileloopflow' ? 'While loop' : 'For loop'), true),
       row(node.branches ? 'Branches' : 'Iterations', String(count)),
       row('Succeeded', String(ok))
     ];
-    if (node.failed_iterations?.length) rows.push(row('Failed', node.failed_iterations.join(', ')));
+    if (node.failed_iterations?.length) rows.push(row('Failed iterations', node.failed_iterations.join(', ')));
     if (node.skipped) rows.push(row('Skipped', String(node.skipped)));
     if (node.unfinished) rows.push(row('Unfinished', String(node.unfinished)));
     const results = childrenOf(node).map((kid, i) => {
@@ -950,8 +991,8 @@
         onclick: () => select(`${key}>${i}`, kid.node, kid.label, childrenOf(kid.node).length > 0, status)
       },
         el('span', { class: `dot ${status ?? ''}` }),
-        el('span', {}, kid.label, kid.node.summary ? ` \u00b7 ${kid.node.summary}` : ''),
-        el('span', { class: 'grow' }, kid.node.result ?? ''),
+        el('span', { class: 'label' }, kid.label, kid.node.summary ? ` \u00b7 ${kid.node.summary}` : ''),
+        el('span', { class: ['failure', 'canceled'].includes(status) ? 'grow clamp error-text' : 'grow clamp' }, ['failure', 'canceled'].includes(status) ? errorSummary(kid.node.result) : kid.node.result ?? ''),
         el('span', { class: 'dim' }, formatMs(kid.node.duration_ms)));
     });
     return el('div', { class: 'section' },
@@ -1041,10 +1082,10 @@
     const parts = [];
     if (of.status === 'suspended') parts.push(el('div', { class: 'step' }, 'Waiting for an approval or another event.'), linkButton('Approve or cancel in Windmill', url));
     if (failed && of.result != null) parts.push(el('div', { class: 'error-line' }, of.result));
-    if (failed && of.stack) parts.push(openable(el('pre', { class: 'stack' }, of.stack), false, url, null, errorText(of)));
+    if (failed && stackBody(of)) parts.push(openable(el('pre', { class: 'stack' }, stackBody(of)), false, url, null, errorText(of)));
     if (failed && of.result_cut) parts.push(linkButton('Full error in Windmill', url));
     if (!failed && of.image) parts.push(imageBox(of));
-    else if (!failed && of.result_kind === 'file') parts.push(el('div', { class: 'step' }, of.result), linkButton('View it in Windmill', url));
+    else if (!failed && of.result_kind === 'file') parts.push(el('div', { class: 'step' }, of.result), linkButton('File in Windmill', url));
     else if (!failed && of.result != null) {
       const records = of.status === 'success' ? recordsTable(of.result) : null;
       parts.push(records ?? openable(el('pre', { class: 'result' }, of.result), false, url, null, of.result));
@@ -1168,7 +1209,7 @@
     clearRun();
     setHeader({ summary: meta.runs.length === 1 ? '1 run' : `${meta.runs.length} runs`, ws: meta.workspace, url: meta.url, kindIcon: 'runs' });
     $('review').hidden = true;
-    showExpand(fullscreen());
+    showExpand(fullscreen() || meta.runs.length > ROWS_INLINE);
     // As the runs page: when a run ended (or started, while it runs), relative for ten
     // minutes, then its day and time.
     const now = Date.now();
@@ -1189,7 +1230,7 @@
       { label: 'Duration', value: (r) => r.duration_ms, show: formatMs },
       {
         label: 'Path', value: (r) => r.path ?? r.id, mono: true,
-        show: (p, r) => el('span', { title: kindLabel(r.job_kind) }, icon(/flow/.test(r.job_kind ?? '') ? 'flow' : 'script'), p)
+        show: (p, r) => el('span', { title: kindLabel(r.job_kind) }, icon(/flow/.test(r.job_kind ?? '') ? 'flow' : 'script'), p, ' ', icon('external'))
       }
     ], meta.runs, (r) => openLink(r.url), { noun: 'run', url: meta.url }));
   }
@@ -1220,13 +1261,17 @@
   function reviewBody(item) {
     if (item.error) return el('div', { class: 'error-line' }, item.error);
     // Too large to draw here, but still deployable: its counts say what it changes.
-    if (item.too_large) return el('div', { class: 'step' }, `Too large to display here (+${item.added} -${item.removed} lines). Review it in Windmill before deploying.`);
+    if (item.too_large) return el('div', { class: 'step' }, `Too large to show here (+${item.added} -${item.removed} lines). Review it in Windmill before deploying.`);
     if (item.patch == null) return el('div', { class: 'step' }, item.note ?? '');
     // The diffs are drawn in fullscreen alone, which has the room for them whole.
     return patchView(item.patch);
   }
 
   const typeLabel = (item) => (item.trigger_kind ? `${triggerLabel(item.trigger_kind)} trigger` : item.type === 'raw_app' ? 'app' : item.type);
+  // Its +/- line counts, a zero in the hint colour.
+  const counts = (item) => el('span', {},
+    el('span', { class: item.added ? 'add-count' : 'zero' }, `+${item.added}`), ' ',
+    el('span', { class: item.removed ? 'del-count' : 'zero' }, `-${item.removed}`));
   const itemIcon = (item) => {
     const name = kindIconOf(item.type, item.trigger_kind);
     return name ? icon(name) : null;
@@ -1272,7 +1317,7 @@
         itemIcon(item),
         el('span', { class: 'grow' }, item.name ?? item.path),
         el('span', { class: 'dim' }, typeLabel(item)),
-        item.digest != null ? el('span', {}, el('span', { class: 'add-count' }, `+${item.added}`), ' ', el('span', { class: 'del-count' }, `-${item.removed}`)) : null,
+        item.digest != null ? counts(item) : null,
         state,
         item.url ? linkButton(item.editor ? 'Open in editor' : 'Open in Windmill', item.url) : null),
       hasDiff && !open ? null : reviewBody(item),
@@ -1333,7 +1378,7 @@
     let state;
     if (item.deployed) state = el('span', { class: 'badge success' }, 'Deployed');
     else if (item.digest != null) {
-      state = el('span', {}, el('span', { class: 'add-count' }, `+${item.added}`), ' ', el('span', { class: 'del-count' }, `-${item.removed}`));
+      state = counts(item);
     } else state = el('span', { class: 'dim' }, item.error ? 'Cannot be diffed' : 'Not deployable here');
     // A draft the card cannot deploy says why, under its link to Windmill.
     const why = item.digest == null && !item.deployed ? el('span', { class: 'why' }, item.error ?? item.note ?? '') : null;
@@ -1359,13 +1404,13 @@
     const n = meta.items.length;
     setHeader({ summary: 'Review before deploying', ws: meta.workspace, kind: n === 1 ? '1 draft' : `${n} drafts`, url: meta.url, kindIcon: 'review' });
     const full = fullscreen();
-    showExpand(full);
+    showExpand(full || n > 0);
     $('review').hidden = full || !canFullscreen() || !meta.items.some(deployable);
     showDeployButton(meta);
     $('body').replaceChildren(...(!n
-      ? [el('div', { class: 'step' }, 'No drafts differ from the deployed state.')]
+      ? [el('div', { class: 'empty' }, 'No drafts differ from the deployed state.')]
       : full
-        ? meta.items.map(reviewItem)
+        ? [el('div', { class: 'items' }, ...meta.items.map(reviewItem))]
         : [el('div', { class: 'rows' }, ...meta.items.map(summaryRow))]));
   }
 
@@ -1384,8 +1429,9 @@
   const SENSITIVE = /pass|secret|token|key|private|credential/i;
   const CODE_LINES_INLINE = 8;
 
-  function row(key, value) {
-    return el('div', { class: 'row' }, el('span', { class: 'k' }, key), el('span', { class: 'v' }, value));
+  // A value is mono, as Windmill shows values; `sans` for a word such as Enabled.
+  function row(key, value, sans = false) {
+    return el('div', { class: 'row' }, el('span', { class: 'k' }, key), el('span', { class: sans ? 'v sans' : 'v' }, value));
   }
   // A long value is cut inline, so a row stays one or two lines; fullscreen shows it whole.
   const VALUE_CHARS_INLINE = 200;
@@ -1403,8 +1449,8 @@
   function moduleRows(modules) {
     return (modules ?? []).map((module) => el('div', { class: 'row' },
       el('span', { class: 'v' }, module.id ?? ''),
-      el('span', { class: 'grow' }, module.summary || module.value?.path || ''),
-      el('span', { class: 'dim' }, stepKind(module.value) ?? module.value?.type ?? '')));
+      // As the run's step tree names it.
+      el('span', { class: 'grow' }, stepName({ summary: module.summary, module: module.value }) || module.value?.type || '')));
   }
   // Rows past the inline count open fullscreen, or the item in Windmill.
   function capped(rows, noun, url) {
@@ -1428,7 +1474,8 @@
     const draft = !!item.isDraft;
     const url = draft && meta.edit_url ? meta.edit_url : meta.url;
     const kind = item.triggerKind ? `${triggerLabel(item.triggerKind)} trigger`
-      : type === 'script' && item.language ? `${languageLabel(item.language)} script` : type;
+      : type === 'script' && item.language ? `${languageLabel(item.language)} script`
+      : type === 'resource' && value.resource_type ? `${value.resource_type} resource` : type;
     const kindIcon = kindIconOf(type, item.triggerKind);
     setHeader({
       path: item.path, ws: meta.workspace, kind, summary: item.summary, kindIcon,
@@ -1482,7 +1529,7 @@
       case 'schedule': {
         const rows = [row('Cron', value.schedule ?? ''), row('Timezone', value.timezone ?? '')];
         if (target) rows.push(row('Runs', target));
-        if (value.enabled != null) rows.push(row('Status', value.enabled ? 'Enabled' : 'Disabled'));
+        if (value.enabled != null) rows.push(row('Status', value.enabled ? 'Enabled' : 'Disabled', true));
         // Its arguments are a row: named inline, whole in fullscreen.
         const argCount = value.args ? Object.keys(value.args).length : 0;
         if (argCount && fullscreen()) {
@@ -1507,22 +1554,22 @@
           rows.push(row(label, key === 'http_method' ? String(shown).toUpperCase()
             : names?.every((n) => typeof n === 'string') ? names.join(', ') : display(shown)));
         }
-        if (value.mode != null) rows.push(row('Mode', String(value.mode).replace(/^./, (c) => c.toUpperCase())));
-        else if (value.enabled != null) rows.push(row('Status', value.enabled ? 'Enabled' : 'Disabled'));
-        const skip = new Set(['path', 'summary', 'description', 'script_path', 'is_flow', 'mode', 'enabled', 'workspace_id', 'edited_by', 'edited_at', 'extra_perms', 'email', 'labels', 'permissioned_as', 'error', 'last_server_ping', 'server_id', ...keys.map(([key]) => key)]);
+        if (value.mode != null) rows.push(row('Status', String(value.mode).replace(/^./, (c) => c.toUpperCase()), true));
+        else if (value.enabled != null) rows.push(row('Status', value.enabled ? 'Enabled' : 'Disabled', true));
+        const skip = new Set(['path', 'summary', 'description', 'script_path', 'is_flow', 'mode', 'enabled', 'workspace_id', 'edited_by', 'edited_at', 'extra_perms', 'email', 'labels', 'permissioned_as', 'error', 'last_server_ping', 'server_id', 'is_draft', 'route_path_key', ...keys.map(([key]) => key)]);
         const settings = Object.entries(value)
           .filter(([k, v]) => !skip.has(k) && v != null && v !== '' && !(Array.isArray(v) && !v.length))
-          .map(([k, v]) => row(k.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()), display(v)));
+          .map(([k, v]) => row(settingLabel(k), display(v)));
         // The rest of its settings join the table in fullscreen; inline its last row opens them.
         if (fullscreen()) rows.push(...settings);
-        else if (settings.length) rows.push(el('div', { class: 'row' }, openWhole(plural(settings.length, 'more setting'))));
+        else if (settings.length) rows.push(moreRow(plural(settings.length, 'more setting'), url));
         if (rows.length) blocks.push(el('div', { class: 'rows' }, ...rows));
         break;
       }
       case 'resource': {
         const fields = value.value && typeof value.value === 'object' ? Object.entries(value.value) : [];
         // Shown at a glance, so a secret-looking field is masked unless it only names one.
-        const rows = [row('Type', value.resource_type ?? ''), ...fields.map(([k, field]) => {
+        const rows = [...fields.map(([k, field]) => {
           const reference = typeof field === 'string' && /^\$(var|res):/.test(field);
           return row(k, SENSITIVE.test(k) && !reference ? '\u2022\u2022\u2022\u2022\u2022\u2022' : display(field));
         })];
@@ -1535,8 +1582,15 @@
       blocks.push(el('button', { class: 'more-line', type: 'button', onclick: open }, hiddenSections.join(' \u00b7 '), icon(canFullscreen() ? 'expand' : 'external')));
     }
     $('body').replaceChildren(...blocks.filter(Boolean));
-    showExpand(true);
+    // Offered when fullscreen shows more than this: a cut list, a cut code block, a section.
+    showExpand(fullscreen() || !!$('body').querySelector('.more-line:not(.mono), .cut'));
   }
+
+  // A setting's field name as a label: words, the first capitalised, acronyms upper-case.
+  const ACRONYMS = new Set(['url', 'id', 'http', 'api', 'sql', 'tls', 'ssl', 'aws', 'gcp']);
+  const settingLabel = (key) => key.split('_')
+    .map((word, i) => (ACRONYMS.has(word) ? word.toUpperCase() : i === 0 ? word[0].toUpperCase() + word.slice(1) : word))
+    .join(' ');
 
   // ---------------------------------------------------------------- dispatch
 
