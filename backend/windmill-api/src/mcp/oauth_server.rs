@@ -19,7 +19,7 @@ use windmill_common::{
 
 use crate::db::ApiAuthed;
 use windmill_api_auth::forbid_elevated_job_token;
-use windmill_mcp::parse_mcp_scopes;
+use windmill_mcp::{common::SESSION_SCOPE, parse_mcp_scopes};
 
 /// Token expiration for MCP OAuth tokens (1 week in seconds)
 const MCP_OAUTH_TOKEN_EXPIRATION_SECS: u64 = 7 * 24 * 60 * 60;
@@ -1063,6 +1063,10 @@ pub async fn gateway_oauth_approve(
     Json(form): Json<GatewayApprovalForm>,
 ) -> Result<Json<ApprovalResponse>> {
     let mut scope = form.scope;
+    let granted = scope.split_whitespace().collect::<Vec<_>>();
+    if granted.contains(&"mcp:all") && !granted.contains(&SESSION_SCOPE) {
+        scope.push_str(&format!(" {SESSION_SCOPE}"));
+    }
     let mut workspace_ids = form.workspace_ids;
     if workspace_ids.is_empty() {
         workspace_ids.extend(form.workspace_id);

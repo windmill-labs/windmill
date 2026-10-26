@@ -6,7 +6,7 @@
 	import Modal from '../common/modal/Modal.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import ScopesPicker from './ScopesPicker.svelte'
-	import McpAccessPicker, { mcpAccessOf } from '../mcp/McpAccessPicker.svelte'
+	import McpAccessPicker, { MCP_SESSION, mcpAccessOf } from '../mcp/McpAccessPicker.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -50,10 +50,12 @@
 	// user has used the picker; until then the token keeps exactly the scopes it had.
 	let mcpTouched = $state(false)
 	// Carried over as is, the picker knowing nothing of them: dropping the workspace list
-	// would widen the token to every workspace.
+	// would widen the token to every workspace, dropping `mcp:session` would move a sign-in
+	// on `/api/mcp/gateway` back to the endpoint tools.
 	const isWorkspaceList = (s: string) => s.startsWith('mcp:workspaces:')
 	const keptAside = (s: string) =>
-		isWorkspaceList(s) || (mcpAccessOf(mcpScopes) !== 'selected' && s.startsWith('mcp:hub:'))
+		isWorkspaceList(s) ||
+		(mcpAccessOf(mcpScopes) !== 'selected' && (s.startsWith('mcp:hub:') || s === MCP_SESSION))
 	const scopesToSave = $derived(
 		isMcp
 			? mcpTouched
