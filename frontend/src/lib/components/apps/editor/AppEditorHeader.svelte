@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
-	import { fetchDeployedRunAs, setDeployedOnBehalfOf } from './appDeploy.svelte'
+	import {
+		fetchDeployedAccessMode,
+		fetchDeployedRunAs,
+		setDeployedOnBehalfOf
+	} from './appDeploy.svelte'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
@@ -288,6 +292,7 @@
 		() => $workspaceStore
 	)
 	let deployDialogOpen = $state(false)
+	let deployButton: DeployButton | undefined = $state(undefined)
 	let deployedRunAs: Awaited<ReturnType<typeof fetchDeployedRunAs>> = $state()
 
 	// Top-bar responsive collapse — container width, not viewport.
@@ -346,6 +351,7 @@
 				labels: $state.snapshot(labels)
 			}
 			sendUserToast('App deployed successfully')
+			deployButton?.clearMessage()
 			// Remove the autosave at its canonical URL draft key, not the deploy
 			// `path` (they differ for new apps), or the real draft row orphans.
 			// stopSync-bracketed + flushed so AppEditor's mirror can't re-save.
@@ -458,6 +464,8 @@
 			}
 		})
 		invalidateWorkspacePaths($workspaceStore!)
+		const accessMode = await fetchDeployedAccessMode($workspaceStore!, npath)
+		if (accessMode) policy.execution_mode = accessMode
 		savedApp = {
 			summary: $summary,
 			value: structuredClone($state.snapshot($app)),
@@ -488,6 +496,7 @@
 		})
 
 		sendUserToast('App deployed successfully')
+		deployButton?.clearMessage()
 		// Canonical autosave key (the URL draft path), not `$appPath` — a
 		// rename leaves the autosave at the original key, so removing at
 		// `$appPath` would miss it. Bracketed + flushed (see createApp).
@@ -1418,6 +1427,7 @@
 			{/if}
 		{/if}
 		<DeployButton
+			bind:this={deployButton}
 			loadingSave={loading.save}
 			iconOnly={phoneTopbar}
 			unifiedSize={phoneTopbar ? 'sm' : 'md'}

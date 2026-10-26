@@ -15,6 +15,8 @@
 	import RunOnBehalfOfSetting from '$lib/components/itemSettings/RunOnBehalfOfSetting.svelte'
 	import { appOnBehalfOfTooltip } from '$lib/components/itemSettings/onBehalfOf'
 	import SettingToggle from '$lib/components/itemSettings/SettingToggle.svelte'
+	import SettingIcons from '$lib/components/itemSettings/SettingIcons.svelte'
+	import { getAppMetadataBadges, getAppPermissionBadges } from './appSettingsBadges'
 	import PathMoveNote from '$lib/components/itemSettings/PathMoveNote.svelte'
 	import { FRONTEND_SDK_SCOPES, sdkScopesToConfirm } from '$lib/components/raw_apps/sdkScopes'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
@@ -82,8 +84,18 @@
 	<DrawerContent noPadding title="Settings" on:close={() => (open = false)}>
 		<div class="flex flex-col h-full">
 			<Tabs bind:selected={tab} wrapperClass="flex-none w-full">
-				<Tab value="metadata" label="Metadata" />
-				<Tab value="permissions" label="Permissions" />
+				<Tab value="metadata" label="Metadata">
+					{#snippet extra()}
+						<SettingIcons badges={getAppMetadataBadges(labels)} />
+					{/snippet}
+				</Tab>
+				<Tab value="permissions" label="Permissions">
+					{#snippet extra()}
+						<SettingIcons
+							badges={getAppPermissionBadges(policy, composeOnlyApps || policy.sandbox == true)}
+						/>
+					{/snippet}
+				</Tab>
 
 				{#snippet content()}
 					<div class="min-h-0 grow overflow-y-auto">

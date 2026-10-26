@@ -267,6 +267,11 @@ function canonicalizeDraftDiffValue(kind: DraftKind, raw: any, isDraft: boolean)
 	return stripScheduleTriggerRuntime(raw)
 }
 
+/** What a draft-only app deploys with when its draft carries no policy, as a draft saved before
+ *  drafts carried one does: a new app's sandboxed policy, since an empty one deploys it
+ *  unsandboxed. The diff shows the same, or it would show a policy the deploy does not store. */
+const DRAFT_ONLY_APP_POLICY: Policy = { execution_mode: 'publisher', sandbox: true }
+
 /**
  * Fetch the deployed value and the draft value for an item, for the DiffDrawer
  * (`mode: 'simple'`, original = deployed, current = draft). For a `draft_only`
@@ -377,7 +382,7 @@ export async function getDraftDiffValues(
 				summary: draftParts.summary ?? r.summary ?? '',
 				value: draftParts.value,
 				path: draftParts.draftPath ?? r.path,
-				...draftOrDeployedSettings(draftParts, draftOnly ? {} : r)
+				...draftOrDeployedSettings(draftParts, draftOnly ? { policy: DRAFT_ONLY_APP_POLICY } : r)
 			},
 			hasDraft: r.draft != null,
 			noDeployed: r.no_deployed === true
@@ -595,11 +600,7 @@ export async function deployDraft(
 			// app row's columns.
 			const parts = classicAppDraftParts(r.draft ?? r.value ?? {})
 			const appValue = parts.value as App
-			const deployedPolicy = draftOnly
-				? ({ execution_mode: 'publisher', sandbox: true } as Policy)
-				: (r.policy as Policy)
-			// A draft saved before drafts carried the policy has none, so a draft-only app falls back
-			// to a new app's sandboxed policy: an empty one would deploy it unsandboxed.
+			const deployedPolicy = draftOnly ? DRAFT_ONLY_APP_POLICY : (r.policy as Policy)
 			const settings = draftOrDeployedSettings(parts, draftOnly ? { policy: deployedPolicy } : r)
 			// The runnable whitelist is rebuilt from the value being deployed: the deployed
 			// policy's whitelist describes the previous value. Loaded lazily, as it pulls in the

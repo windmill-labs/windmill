@@ -354,6 +354,7 @@
 	)
 	let deployDialogOpen = $state(false)
 	let deployDialogMsg = $state('')
+	let deployButton: DeployButton | undefined = $state(undefined)
 	let deployDialogStay = false
 
 	let metadataOpen = $state(
@@ -1033,6 +1034,7 @@
 			// Settings shows the deployed run-as user while the editor stays open, a session's
 			// included: read the version just written.
 			void deployedItem.refetch()
+			deployButton?.clearMessage()
 			// Always notify on a successful deploy; the consumer decides whether to
 			// navigate (route) or stay + sync the preview (session). Previously the
 			// stay/lib branch skipped onDeploy, so session previews didn't sync after
@@ -2311,6 +2313,7 @@
 				/>
 			{/if}
 			<DeployButton
+				bind:this={deployButton}
 				loading={!fullyLoaded}
 				{loadingSave}
 				unifiedSize={headerBtnSize}

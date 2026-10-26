@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { draftBaseIsStale, deployDraft } from './utils_draft_deploy'
+import { draftBaseIsStale, deployDraft, getDraftDiffValues } from './utils_draft_deploy'
 
 vi.mock('$lib/gen', () => ({
 	ScriptService: { getScriptByPath: vi.fn(), createScript: vi.fn() },
@@ -166,6 +166,16 @@ describe('deployDraft: draft-only classic app', () => {
 				})
 			})
 		)
+	})
+
+	it('shows the sandboxed policy it deploys in the diff', async () => {
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({ draft: { grid: [] } } as any)
+		vi.mocked(classicAppDraftParts)
+			.mockReturnValueOnce({ value: {} } as any)
+			.mockReturnValueOnce({ value: { grid: [] } } as any)
+
+		const { draft } = await getDraftDiffValues('app', 'u/alice/dash', 'ws', true)
+		expect(draft.policy).toEqual({ sandbox: true })
 	})
 })
 
