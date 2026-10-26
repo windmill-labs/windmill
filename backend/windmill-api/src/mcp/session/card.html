@@ -88,6 +88,8 @@
   .disclosure[aria-expanded="true"]::before { content: "\25BE  "; }
   .summary-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 10px; font-size: 13px; }
   .summary-row + .summary-row { border-top: 1px solid var(--line); }
+  button.summary-row { width: 100%; min-height: 0; border: 0; border-radius: 0; background: transparent; font: inherit; color: inherit; text-align: left; }
+  button.summary-row:hover { background: var(--bg-2); }
   .summary-row .grow { flex: 1; min-width: 0; font: 12px var(--mono); overflow-wrap: anywhere; }
   .add-count { color: var(--ok-fg); font: 12px var(--mono); }
   .del-count { color: var(--bad-fg); font: 12px var(--mono); }
@@ -233,6 +235,16 @@
     return (host.availableDisplayModes ?? []).includes('fullscreen');
   }
   const fullscreen = () => host.displayMode === 'fullscreen';
+
+  // What does not fit inline opens fullscreen, or on a host without it the page in
+  // Windmill: grown inline it would pass the height hosts cap a card at.
+  function moreButton(label, url) {
+    if (canFullscreen()) {
+      return el('button', { class: 'small', type: 'button', style: 'margin-top: 8px', onclick: () => setDisplayMode('fullscreen') }, `Show ${label}`);
+    }
+    if (!url) return null;
+    return el('button', { class: 'small', type: 'button', style: 'margin-top: 8px', onclick: () => openLink(url) }, `${label} in Windmill \u2197`);
+  }
   // A section the user opened stays open across redraws; fullscreen opens them all.
   const opened = new Set();
 
@@ -426,23 +438,28 @@
     const children = [];
     if (steps.length) {
       children.push(...disclosure('steps', steps.length === 1 ? '1 step' : `${steps.length} steps`, () => {
-        // Inline, a long flow shows its first steps and opens the rest fullscreen.
-        const all = fullscreen() || opened.has('all-steps');
-        const shown = all ? steps : steps.slice(0, STEPS_INLINE);
+        const shown = fullscreen() ? steps : steps.slice(0, STEPS_INLINE);
         const more = steps.length - shown.length;
         return el('div', {},
           el('div', { class: 'rows' }, ...shown.flatMap((step, i) => stepRows(step, i === lastRan))),
-          more > 0 ? el('button', {
-            class: 'small', type: 'button', style: 'margin-top: 8px',
-            onclick: () => {
-              if (canFullscreen()) return setDisplayMode('fullscreen');
-              opened.add('all-steps');
-              redraw();
-            }
-          }, `Show ${more} more step${more === 1 ? '' : 's'}`) : null);
+          more > 0 ? moreButton(`${more} more step${more === 1 ? '' : 's'}`, run.url) : null);
       }));
     }
-    if (run?.logs) children.push(...disclosure('logs', 'Logs (end)', () => el('pre', {}, run.logs)));
+    if (run?.logs) {
+      children.push(...disclosure('logs', 'Logs', () => {
+        const lines = run.logs.split('\n');
+        // A log cut to its end starts mid-line.
+        if (run.logs_cut) lines.shift();
+        const shown = fullscreen() ? lines : lines.slice(-LOG_LINES_INLINE);
+        const hidden = lines.length - shown.length;
+        // The server sends a log's end: earlier lines are only on the run page.
+        const earlier = run.logs_cut;
+        return el('div', {},
+          earlier && fullscreen() ? el('button', { class: 'small', type: 'button', style: 'margin-bottom: 8px', onclick: () => openLink(run.url) }, 'Earlier lines in Windmill \u2197') : null,
+          el('pre', {}, shown.join('\n')),
+          hidden > 0 || (earlier && !fullscreen()) ? moreButton(hidden > 0 ? `${hidden} earlier line${hidden === 1 ? '' : 's'}` : 'Earlier lines', run.url) : null);
+      }));
+    }
     if (run?.unreadable) children.push(el('div', { class: 'step' }, 'The details could not be read. Open the run in Windmill.'));
     details.hidden = !children.length;
     details.replaceChildren(...children.filter(Boolean));
@@ -535,6 +552,7 @@
 
   const PATCH_LINES_INLINE = 40;
   const STEPS_INLINE = 8;
+  const LOG_LINES_INLINE = 15;
 
   // A diff's text with its patch lines coloured; the `---`/`+++` labels before the first
   // hunk are dropped.
@@ -651,17 +669,19 @@
       const [added, removed] = lineCounts(item.patch);
       state = el('span', {}, el('span', { class: 'add-count' }, `+${added}`), ' ', el('span', { class: 'del-count' }, `-${removed}`));
     } else state = el('span', { class: 'dim' }, item.error ? 'Cannot be diffed' : 'Not deployable here');
-    return el('div', { class: 'summary-row' },
-      el('span', { class: 'grow' }, item.name ?? item.path),
+    return el(item.url ? 'button' : 'div', {
+      class: 'summary-row', type: item.url ? 'button' : null, title: item.url ? (item.editor ? 'Open in editor' : 'Open in Windmill') : null,
+      onclick: item.url ? () => openLink(item.url) : null
+    },
+      el('span', { class: 'grow' }, item.name ?? item.path, item.url ? el('span', { class: 'dim' }, ' \u2197') : null),
       el('span', { class: 'dim' }, typeLabel(item)),
       state);
   }
 
   // Inline the review is a summary: whole diffs would outgrow the height hosts give an
-  // inline card. They and their Deploy buttons open fullscreen, or inline on a host that
-  // has no fullscreen.
+  // inline card. They and their Deploy buttons open fullscreen; on a host without it each
+  // draft links to its editor, where it is deployed.
   let review = null;
-  let reviewOpen = false;
 
   function renderReview(meta) {
     view = 'review';
@@ -669,8 +689,8 @@
     clearRun();
     const n = meta.items.length;
     setHeader({ path: 'Review before deploying', ws: meta.workspace, kind: n === 1 ? '1 draft' : `${n} drafts` });
-    const full = fullscreen() || reviewOpen;
-    $('review').hidden = full || !meta.items.some((item) => item.patch != null && !item.deployed);
+    const full = fullscreen();
+    $('review').hidden = full || !canFullscreen() || !meta.items.some((item) => item.patch != null && !item.deployed);
     $('body').replaceChildren(...(!n
       ? [el('div', { class: 'step' }, 'No drafts differ from the deployed state.')]
       : full
@@ -678,11 +698,7 @@
         : [el('div', { class: 'rows' }, ...meta.items.map(summaryRow))]));
   }
 
-  $('review').addEventListener('click', () => {
-    if (canFullscreen()) return setDisplayMode('fullscreen');
-    reviewOpen = true;
-    redraw();
-  });
+  $('review').addEventListener('click', () => setDisplayMode('fullscreen'));
 
   function redraw() {
     if (view === 'run' && run) renderRun();
@@ -758,12 +774,15 @@
     }
   });
 
+  // The content's own height: the document's never drops below the frame it is in, so a
+  // card that shrinks would keep its old height.
+  const main = document.querySelector('main');
   new ResizeObserver(() => {
     post({
       method: 'ui/notifications/size-changed',
-      params: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight }
+      params: { width: document.documentElement.scrollWidth, height: Math.ceil(main.getBoundingClientRect().height) }
     });
-  }).observe(document.body);
+  }).observe(main);
 
   request('ui/initialize', {
     protocolVersion: '2026-01-26',

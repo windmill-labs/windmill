@@ -1717,6 +1717,9 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         if let Ok(logs) = &logs {
             if !logs.trim().is_empty() {
                 details.insert("logs".into(), js_tail(logs, CARD_LOG_CHARS).into());
+                if logs.chars().count() > CARD_LOG_CHARS {
+                    details.insert("logs_cut".into(), true.into());
+                }
             }
         }
         report_run(ctx, id, Some(job), details);
