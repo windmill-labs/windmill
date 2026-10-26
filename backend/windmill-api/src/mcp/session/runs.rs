@@ -1743,13 +1743,49 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                 details.insert("live_log".into(), js_head(line.trim(), 300).into());
             }
         }
-        report_run(ctx, id, Some(job), details);
+        match big_image_result(ctx, id, job, entries.first()).await {
+            Some(image) => {
+                let mut job = job.clone();
+                job["result"] = image;
+                report_run(ctx, id, Some(&job), details);
+            }
+            None => report_run(ctx, id, Some(job), details),
+        }
     }
     Ok(format!(
         "{}\n\nRun page: {}",
         shape_run(id, &job?, logs, &results),
         ctx.page_url(&format!("/run/{}", enc(id)))
     ))
+}
+
+/// The job read swaps a result past ~90 KB for a marker, so an image under the card's cap
+/// is read again by its one field. The step tree's head of the result says which it is.
+async fn big_image_result(
+    ctx: &Ctx<'_>,
+    id: &str,
+    job: &Value,
+    root: Option<&Value>,
+) -> Option<Value> {
+    if job.get("result")? != TOO_BIG {
+        return None;
+    }
+    let root = root?;
+    let kind = root["result_prefix"]
+        .as_str()?
+        .strip_prefix("{\"")?
+        .split('"')
+        .next()?;
+    if !["png", "jpeg", "gif", "svg"].contains(&kind)
+        || root["result_length"].as_u64()? > CARD_IMAGE_CHARS as u64 + 64
+    {
+        return None;
+    }
+    let route = ctx.ws(&format!(
+        "jobs/completed/get_result/{}?json_path={kind}",
+        enc(id)
+    ));
+    Some(json!({ kind: ctx.get(&route).await.ok()? }))
 }
 
 /// The end of a job's log, read without the rest of it: an offset past the end returns
@@ -1849,6 +1885,11 @@ pub(super) async fn show_runs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 
 /// Result head the run card shows; the full result is one click away on the run page.
 const CARD_RESULT_CHARS: usize = 1500;
+/// Past this an image result is named and linked rather than drawn: every refresh of the
+/// card carries it again.
+const CARD_IMAGE_CHARS: usize = 1_000_000;
+/// What the job read returns in place of a result too big to send.
+const TOO_BIG: &str = "WINDMILL_TOO_BIG";
 const CARD_STEP_RESULT_CHARS: usize = 300;
 const CARD_ARGS_CHARS: usize = 4000;
 const CARD_LOG_CHARS: usize = 3000;
@@ -1915,6 +1956,27 @@ fn describe_result(result: &Value) -> Option<String> {
     })
 }
 
+/// An image result as Windmill draws it, for the card to draw too: base64 for PNG, JPEG and
+/// GIF, the markup itself for SVG, either bare or as a file's `content`.
+fn card_image(result: &Value) -> Option<Value> {
+    let [(kind, value)] = result.as_object()?.iter().collect::<Vec<_>>()[..] else {
+        return None;
+    };
+    let data = value
+        .as_str()
+        .or_else(|| value.get("content").and_then(Value::as_str))
+        .filter(|d| !d.is_empty() && d.len() <= CARD_IMAGE_CHARS)?;
+    let base64 = |d: &str| {
+        d.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'=' | b'\n' | b'\r'))
+    };
+    match kind.as_str() {
+        "png" | "jpeg" | "gif" if base64(data) => Some(json!({ "type": kind, "data": data })),
+        "svg" => Some(json!({ "type": "svg", "data": data })),
+        _ => None,
+    }
+}
+
 /// What the run card draws of a run: its summary, the head of its result (a failure's
 /// message alone), and a running flow's top-level step.
 fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
@@ -1922,7 +1984,12 @@ fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
     run.insert("id".into(), id.into());
     run.entry("status").or_insert("running".into());
     if let Some(job) = job {
-        let result = job.get("result").filter(|r| !r.is_null());
+        let too_big = job.get("result").is_some_and(|r| r == TOO_BIG);
+        let result = job.get("result").filter(|r| !r.is_null() && !too_big);
+        if too_big {
+            run.insert("result".into(), "Too large to show here.".into());
+            run.insert("result_cut".into(), true.into());
+        }
         let error = result
             .map(|r| &r["error"])
             .filter(|e| e["message"].is_string() && job.get("success") == Some(&json!(false)));
@@ -1937,6 +2004,9 @@ fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
         if let Some(label) = &described {
             run.insert("result_kind".into(), "file".into());
             run.insert("result".into(), label.clone().into());
+            if let Some(image) = result.and_then(card_image) {
+                run.insert("image".into(), image);
+            }
         } else if let Some(text) = error
             .map(|e| match e["name"].as_str().filter(|n| !n.is_empty()) {
                 Some(name) => format!("{name}: {}", e["message"].as_str().unwrap_or_default()),
@@ -2057,7 +2127,7 @@ fn shape_run(id: &str, job: &Value, logs: Result<String, String>, results: &Valu
         }
     }
     if let Some(result) = job.get("result") {
-        if result == "WINDMILL_TOO_BIG" {
+        if result == TOO_BIG {
             run.insert("result_truncated".into(), true.into());
         } else {
             run.insert("result".into(), cap(&stringify(result), false).into());
@@ -2345,6 +2415,13 @@ mod tests {
             (&card["result_kind"], &card["result"]),
             (&json!("file"), &json!("PNG image"))
         );
+        assert_eq!(
+            card["image"],
+            json!({ "type": "png", "data": "iVBORw0KGgo" })
+        );
+        // Not base64: never put in a data URL.
+        let odd = json!({ "type": "CompletedJob", "success": true, "result": { "png": "a\"b" } });
+        assert!(run_card("j", Some(&odd)).get("image").is_none());
 
         // Cut by UTF-16 units: 800 emoji are 1,600 of them, past the head's 1,500.
         let emoji = json!({ "type": "CompletedJob", "success": true, "result": "😀".repeat(800) });

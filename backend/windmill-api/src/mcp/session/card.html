@@ -171,6 +171,10 @@
   .dot.failure, .dot.canceled { background: var(--bad-fg); }
   .dot.skipped { background: var(--fg-3); }
   .openable { position: relative; }
+  .image-box { display: flex; justify-content: center; padding: 8px; border-radius: var(--radius); background: var(--bg-2); }
+  .image-box img { max-width: 100%; height: auto; }
+  .image-box.cut { cursor: zoom-in; }
+  .image-box.cut img { max-height: 240px; }
   .openable .corner { position: absolute; top: 4px; right: 4px; min-height: 24px; width: 24px; background: var(--bg); }
   pre.cut { cursor: pointer; -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent); mask-image: linear-gradient(to bottom, #000 75%, transparent); }
   pre.cut.from-end { -webkit-mask-image: linear-gradient(to top, #000 75%, transparent); mask-image: linear-gradient(to top, #000 75%, transparent); }
@@ -291,6 +295,7 @@
   const ICONS = {
     timerOff: [['path', { d: 'M10 2h4' }], ['path', { d: 'M4.6 11a8 8 0 0 0 1.7 8.7 8 8 0 0 0 8.7 1.7' }], ['path', { d: 'M7.4 7.4a8 8 0 0 1 10.3 1 8 8 0 0 1 .9 10.2' }], ['path', { d: 'm2 2 20 20' }], ['path', { d: 'M12 12v-2' }]],
     external: [['path', { d: 'M15 3h6v6' }], ['path', { d: 'M10 14 21 3' }], ['path', { d: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6' }]],
+    minimize: [['polyline', { points: '4 14 10 14 10 20' }], ['polyline', { points: '20 10 14 10 14 4' }], ['line', { x1: '14', x2: '21', y1: '10', y2: '3' }], ['line', { x1: '3', x2: '10', y1: '21', y2: '14' }]],
     maximize: [['polyline', { points: '15 3 21 3 21 9' }], ['polyline', { points: '9 21 3 21 3 15' }], ['line', { x1: '21', x2: '14', y1: '3', y2: '10' }], ['line', { x1: '3', x2: '10', y1: '21', y2: '14' }]],
     right: [['path', { d: 'm9 18 6-6-6-6' }]],
     down: [['path', { d: 'm6 9 6 6 6-6' }]],
@@ -340,6 +345,14 @@
   // A text block cut to fit inline opens whole on a click anywhere on it, or on its corner
   // button: fullscreen, or the page in Windmill on a host without it. Shown whole, it is
   // plain text to select.
+  // An image result, drawn as Windmill draws it: the source is set as a property, so the
+  // data is never parsed as markup, and an SVG in an <img> runs no script.
+  function imageBox(of) {
+    const { type, data } = of.image;
+    const src = type === 'svg' ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(data)}` : `data:image/${type};base64,${data}`;
+    return el('div', { class: 'image-box' }, el('img', { src, alt: of.result ?? 'Image result' }));
+  }
+
   function openable(block, cut, url, tabName = null) {
     const open = canFullscreen() ? () => (tabName ? openTab(tabName) : setDisplayMode('fullscreen')) : url ? () => openLink(url) : null;
     if (!cut || !open) return block;
@@ -377,6 +390,20 @@
       }
     }, icon(open ? 'down' : 'right'), label);
     return [el('div', { class: 'section' }, toggle, open ? content() : null)];
+  }
+
+  // Fullscreen, the expand button turns into one that brings the card back inline, beside
+  // the host's own close control.
+  function showExpand(available) {
+    const button = $('expand');
+    const full = fullscreen();
+    button.hidden = !canFullscreen() || !available;
+    if (button.dataset.full === String(full)) return;
+    const label = full ? 'Exit full screen' : 'Full screen';
+    button.dataset.full = String(full);
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    button.replaceChildren(icon(full ? 'minimize' : 'maximize'));
   }
 
   function setDisplayMode(mode) {
@@ -557,7 +584,8 @@
     const more = $('result-more');
     more.replaceChildren();
     // A file, image, page or map is named here and shown on the run page.
-    if (inline && described && !running) more.append(el('div', { class: 'step' }, run.result), linkButton('View it in Windmill', run.url, 'margin-top: 8px'));
+    if (inline && run?.image && !running) more.append(openable(imageBox(run), true, run.url, 'result'));
+    else if (inline && described && !running) more.append(el('div', { class: 'step' }, run.result), linkButton('View it in Windmill', run.url, 'margin-top: 8px'));
     // A flow waiting on an approval or another event is resumed or canceled on its page.
     if (inline && status === 'suspended') more.append(el('div', { class: 'step' }, 'Waiting for an approval or another event.'), linkButton('Approve or cancel in Windmill', run.url, 'margin-top: 8px'));
     // The result is clipped inline; a click on it opens it whole.
@@ -574,7 +602,7 @@
 
     $('cancel').hidden = !(running && run?.id && run.can_cancel);
     $('review').hidden = true;
-    $('expand').hidden = !canFullscreen() || fullscreen() || !run?.id;
+    showExpand(!!run?.id);
     renderDetails();
     window.clearInterval(tickTimer);
     if (running && run?.started_at) tickTimer = window.setInterval(() => {
@@ -781,7 +809,8 @@
     if (failed && of.result != null) parts.push(el('div', { class: 'error-line' }, of.result));
     if (failed && of.stack) parts.push(el('pre', {}, of.stack));
     if (failed && of.result_cut) parts.push(linkButton('Full error in Windmill', url));
-    if (!failed && of.result_kind === 'file') parts.push(el('div', { class: 'step' }, of.result), linkButton('View it in Windmill', url));
+    if (!failed && of.image) parts.push(imageBox(of));
+    else if (!failed && of.result_kind === 'file') parts.push(el('div', { class: 'step' }, of.result), linkButton('View it in Windmill', url));
     else if (!failed && of.result != null) {
       const records = of.status === 'success' ? recordsTable(of.result) : null;
       parts.push(records ?? el('pre', {}, of.result));
@@ -899,6 +928,7 @@
     clearRun();
     setHeader({ summary: meta.runs.length === 1 ? '1 run' : `${meta.runs.length} runs`, ws: meta.workspace, url: meta.url, kindIcon: 'runs' });
     $('review').hidden = true;
+    showExpand(fullscreen());
     const time = (iso) => (iso ? new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '');
     $('body').replaceChildren(table([
       { label: 'Status', value: (r) => r.status, show: (s) => el('span', { class: `badge ${s ?? ''}` }, LABELS[s] ?? s ?? '') },
@@ -1027,6 +1057,7 @@
     const n = meta.items.length;
     setHeader({ summary: 'Review before deploying', ws: meta.workspace, kind: n === 1 ? '1 draft' : `${n} drafts`, url: meta.url, kindIcon: 'review' });
     const full = fullscreen();
+    showExpand(full);
     $('review').hidden = full || !canFullscreen() || !meta.items.some((item) => item.digest != null && !item.deployed);
     $('body').replaceChildren(...(!n
       ? [el('div', { class: 'step' }, 'No drafts differ from the deployed state.')]
@@ -1177,7 +1208,7 @@
       blocks.push(el('button', { class: 'more-line', type: 'button', onclick: open }, hiddenSections.join(' \u00b7 '), icon(canFullscreen() ? 'maximize' : 'external')));
     }
     $('body').replaceChildren(...blocks.filter(Boolean));
-    $('expand').hidden = !canFullscreen() || fullscreen();
+    showExpand(true);
   }
 
   // ---------------------------------------------------------------- dispatch
@@ -1211,8 +1242,7 @@
   }
 
   $('path').addEventListener('click', () => openLink($('path').dataset.url));
-  $('expand').append(icon('maximize'));
-  $('expand').addEventListener('click', () => setDisplayMode('fullscreen'));
+  $('expand').addEventListener('click', () => setDisplayMode(fullscreen() ? 'inline' : 'fullscreen'));
 
   window.addEventListener('message', (event) => {
     if (event.source !== window.parent) return;
