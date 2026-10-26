@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { RoleCapabilities } from '$lib/gen'
-import { capabilitiesIn, FULL_CAPABILITIES, hidesPages, isRestricted } from './roleCapabilities'
+import {
+	capabilitiesIn,
+	FULL_CAPABILITIES,
+	hidesPages,
+	isRestricted,
+	withoutBuilding
+} from './roleCapabilities'
 
 const scripter: RoleCapabilities = {
 	...FULL_CAPABILITIES,
@@ -39,8 +45,18 @@ describe('capabilitiesIn', () => {
 
 	// `RoleCapabilities::is_restricted` leaves visibility out, so a full author keeps forking.
 	it('does not restrict a full role that only hides pages', () => {
-		const hidden = { ...FULL_CAPABILITIES, visibility: { ...FULL_CAPABILITIES.visibility, workers: false } }
+		const hidden = {
+			...FULL_CAPABILITIES,
+			visibility: { ...FULL_CAPABILITIES.visibility, workers: false }
+		}
 		expect(isRestricted(hidden)).toBe(false)
 		expect(hidesPages(hidden)).toBe(true)
+	})
+})
+
+describe('withoutBuilding', () => {
+	// Gates read "no code but may fork" as an operator granted forking, so Use mode drops both.
+	it('takes forking away', () => {
+		expect(withoutBuilding(FULL_CAPABILITIES).fork).toBe(false)
 	})
 })

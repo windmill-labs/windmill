@@ -425,7 +425,7 @@
 			})
 		}
 
-		if (flow && !isCloudHosted() && editInForkAllowed(workspace, $userWorkspaces)) {
+		if (flow && !isCloudHosted() && editInForkAllowed(workspace, $userWorkspaces, caps)) {
 			buttons.push({
 				label: editInForkLabel(workspace, $userWorkspaces),
 				description: editInForkDescription('flow', workspace, $userWorkspaces),

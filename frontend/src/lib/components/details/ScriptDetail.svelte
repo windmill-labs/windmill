@@ -576,7 +576,7 @@
 			})
 		}
 
-		if (script && !isCloudHosted() && editInForkAllowed(workspace, $userWorkspaces)) {
+		if (script && !isCloudHosted() && editInForkAllowed(workspace, $userWorkspaces, caps)) {
 			buttons.push({
 				label: editInForkLabel(workspace, $userWorkspaces),
 				description: editInForkDescription('script', workspace, $userWorkspaces),

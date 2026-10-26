@@ -78,7 +78,8 @@ export function withoutBuilding(caps: RoleCapabilities): RoleCapabilities {
 		flows: 'none',
 		apps: 'none',
 		manage_schedules: false,
-		manage_triggers: false
+		manage_triggers: false,
+		fork: false
 	}
 }
 
