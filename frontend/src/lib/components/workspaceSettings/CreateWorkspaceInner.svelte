@@ -214,11 +214,20 @@
 		)
 	)
 	let availableDevLabels = $derived(DEV_WORKSPACE_LABELS.filter((l) => !chainTakenLabels.has(l)))
+	// The server requires admin of the base, which may not be the current workspace, and the
+	// workspace list's `role` does not say who is admin.
+	const baseAdminResource = resource(
+		() => (baseCanHostDev && !$superadmin ? baseWorkspaceId : undefined),
+		async (ws) => (ws ? (await UserService.whoami({ workspace: ws })).is_admin : undefined)
+	)
 	// Offer dev designation only once the server confirms there's no dev yet (returns null); stay
 	// conservative (no offer) while the check is loading (current is undefined). With every label
 	// taken the chain is full and there is nothing left to designate.
 	let canDesignateDevWorkspace = $derived(
-		baseCanHostDev && availableDevLabels.length > 0 && devWorkspaceResource.current === null
+		baseCanHostDev &&
+			availableDevLabels.length > 0 &&
+			devWorkspaceResource.current === null &&
+			(!!$superadmin || baseAdminResource.current === true)
 	)
 
 	let devWorkspaceLabel = $state<DevWorkspaceLabelKey>('dev')
