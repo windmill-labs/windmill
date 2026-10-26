@@ -69,6 +69,19 @@ export function isRestricted(caps: RoleCapabilities): boolean {
 	)
 }
 
+/** The role with nothing left to build and the same pages in view: what a session in Use mode
+ * acts as. */
+export function withoutBuilding(caps: RoleCapabilities): RoleCapabilities {
+	return {
+		...caps,
+		code: false,
+		flows: 'none',
+		apps: 'none',
+		manage_schedules: false,
+		manage_triggers: false
+	}
+}
+
 /** Whether the role hides any page. */
 export function hidesPages(caps: RoleCapabilities): boolean {
 	return VISIBILITY.some((k) => !caps.visibility[k])

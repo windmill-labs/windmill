@@ -4,11 +4,12 @@
 anonymous usage-stats payload. It answers "does anyone use this, and which variant do they pick"
 without any identifying data leaving the instance.
 
-It currently carries 64 registered actions across twenty-three features (`ai_session`, `ai_chat`,
+It currently carries 79 registered actions across thirty features (`ai_session`, `ai_chat`,
 `ai_fix`, `ai_agent`, `ai_decision`, `ai_agent_eval`, `app_sandbox`, `datatable`, `db_manager`, `flow_editor`,
-`flow_run`, `flow_step`, `home`, `run_form`, `debugger`, `trigger`, `command_script`,
+`flow_run`, `flow_step`, `home`, `header_nav`, `run_form`, `debugger`, `trigger`, `command_script`,
 `hub_script`, `usage_meter`, `sso_groups_claim`, `cloud_trial_offer`, `job_token_scopes`,
-`operator_fork`). Nearly all of the
+`worker_draining`, `worker_group`, `worker_resource_stats`, `dev_workspace_isolation`,
+`slack_agent`, `variable_expiration`, `operator_fork`). Nearly all of the
 product is uninstrumented, so new user-facing work is the opportunity to change that.
 
 ## When to instrument

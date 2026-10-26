@@ -24,6 +24,7 @@
 		onSent = undefined,
 		inputPreface,
 		actingOn,
+		workModeLock = undefined,
 		initialInstructions = undefined,
 		onDraftChange = undefined,
 		initialAttachments = undefined,
@@ -49,6 +50,7 @@
 		inputPreface?: import('svelte').Snippet
 		/** Forwarded to AIChatDisplay: where the session acts, first among the controls. */
 		actingOn?: import('svelte').Snippet
+		workModeLock?: import('./workMode').WorkModeLock
 		// Seed / observe the composer's draft (forwarded to AIChatDisplay).
 		initialInstructions?: string
 		onDraftChange?: (text: string) => void
@@ -224,6 +226,7 @@
 	{onSent}
 	{inputPreface}
 	{actingOn}
+	{workModeLock}
 	{initialInstructions}
 	{onDraftChange}
 	{initialAttachments}

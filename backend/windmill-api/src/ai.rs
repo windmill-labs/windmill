@@ -24,7 +24,10 @@ use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
 use windmill_ai::ai_types::{validate_token_limit, CONTEXT_WINDOWS, MAX_MODEL_RATE, OUTPUT_LIMITS};
-use windmill_ai::credentials::ProviderCredentials;
+use windmill_ai::credentials::{AnthropicFederation, ProviderCredentials};
+use windmill_ai::providers::anthropic::{
+    exchange_federated_token, FederatedAccessToken, ANTHROPIC_API_BASE_URL,
+};
 #[cfg(feature = "bedrock")]
 use windmill_ai::providers::bedrock::{
     handle_bedrock_proxy, BedrockProxyResponse, BedrockProxyResponseBody,
@@ -119,6 +122,10 @@ lazy_static::lazy_static! {
 
     pub static ref AI_REQUEST_CACHE: Cache<(String, AIProvider), ExpiringProviderCredentials> = Cache::new(500);
 
+    /// Anthropic access tokens from a federated exchange, keyed by (workspace,
+    /// federation settings, user email). Like BEDROCK_ASSUMED_ROLE_CACHE, an entry
+    /// is never handed to another user than the one the OIDC token named.
+    static ref ANTHROPIC_FEDERATED_TOKEN_CACHE: Cache<(String, AnthropicFederation, String), FederatedAccessToken> = Cache::new(500);
 }
 
 #[cfg(feature = "bedrock")]
@@ -132,6 +139,8 @@ lazy_static::lazy_static! {
 
 pub(crate) fn invalidate_ai_request_cache_for_workspace(workspace_id: &str) {
     AI_REQUEST_CACHE.retain(|(cached_workspace_id, _), _| cached_workspace_id != workspace_id);
+    ANTHROPIC_FEDERATED_TOKEN_CACHE
+        .retain(|(cached_workspace_id, _, _), _| cached_workspace_id != workspace_id);
     // Dropped alongside the credentials that named the role, so that changing a
     // workspace's AI settings does not leave a session assumed under the old ones
     // in play until STS expires it.
@@ -247,10 +256,33 @@ struct OAuthTokens {
     access_token: String,
 }
 
+/// An `anthropic_federated` resource: the Claude Console federation rule,
+/// organization, service account and (for a rule enabled in several workspaces)
+/// workspace to exchange the requesting user's OIDC token against.
+///
+/// It has no base URL on purpose. The exchanged token is the identity of whoever
+/// uses the resource, not of whoever wrote it, so a configurable host would let
+/// the resource's author collect other users' tokens.
+///
+/// Only `federation_rule_id` decides that a value is one: the other fields are
+/// optional here and checked afterwards, so a resource missing one is reported
+/// rather than read as a standard resource with no key.
+#[derive(Deserialize, Debug)]
+struct AIAnthropicFederatedResource {
+    federation_rule_id: String,
+    #[serde(default)]
+    organization_id: String,
+    #[serde(default)]
+    service_account_id: String,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
+    workspace_id: Option<String>,
+}
+
 #[derive(Deserialize, Debug)]
 #[serde(untagged)]
 enum AIResource {
     OAuth(AIOAuthResource),
+    AnthropicFederated(AIAnthropicFederatedResource),
     Standard(AIStandardResource),
 }
 
@@ -345,8 +377,48 @@ async fn resolve_provider_credentials(
                 aws_secret_access_key,
                 aws_session_token,
                 oidc_role_arn,
+                anthropic_federation: None,
                 platform: resource.platform,
                 custom_headers: resource.headers,
+            })
+        }
+        AIResource::AnthropicFederated(resource) => {
+            if *provider != AIProvider::Anthropic {
+                return Err(Error::BadRequest(format!(
+                    "An anthropic_federated resource can only be used for the Anthropic provider, not {provider:?}"
+                )));
+            }
+            let required = [
+                ("federation_rule_id", &resource.federation_rule_id),
+                ("organization_id", &resource.organization_id),
+                ("service_account_id", &resource.service_account_id),
+            ];
+            if let Some((field, _)) = required.iter().find(|(_, value)| value.is_empty()) {
+                return Err(Error::BadRequest(format!(
+                    "The anthropic_federated resource needs {field} to be set"
+                )));
+            }
+
+            Ok(ProviderCredentials {
+                provider: provider.clone(),
+                base_url: ANTHROPIC_API_BASE_URL.to_string(),
+                api_key: None,
+                access_token: None,
+                organization_id: None,
+                user: None,
+                region: None,
+                aws_access_key_id: None,
+                aws_secret_access_key: None,
+                aws_session_token: None,
+                oidc_role_arn: None,
+                anthropic_federation: Some(AnthropicFederation {
+                    federation_rule_id: resource.federation_rule_id,
+                    organization_id: resource.organization_id,
+                    service_account_id: resource.service_account_id,
+                    workspace_id: resource.workspace_id,
+                }),
+                platform: AIPlatform::Standard,
+                custom_headers: HashMap::new(),
             })
         }
         AIResource::OAuth(resource) => {
@@ -370,6 +442,7 @@ async fn resolve_provider_credentials(
                 aws_secret_access_key: None,
                 aws_session_token: None,
                 oidc_role_arn: None,
+                anthropic_federation: None,
                 platform: AIPlatform::Standard,
                 custom_headers: HashMap::new(),
             })
@@ -517,6 +590,73 @@ async fn assume_bedrock_role(
         let _ = (db, w_id, authed, role_arn, region, session_name);
         Err(Error::BadRequest(
             "Assuming an AWS role through Windmill's OIDC provider requires an enterprise license"
+                .to_string(),
+        ))
+    }
+}
+
+/// Exchange an OIDC token minted for the requesting user for an Anthropic access
+/// token, in place, when the resource is set up for Workload Identity Federation.
+///
+/// Runs after the workspace credential cache for the same reason the Bedrock
+/// exchange does: the token's `sub` names the user, and is what a federation rule
+/// matches and the Claude Console's authentication history records.
+async fn resolve_anthropic_federated_credentials(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    credentials: &mut ProviderCredentials,
+) -> Result<()> {
+    let Some(federation) = credentials.anthropic_federation.as_ref() else {
+        return Ok(());
+    };
+
+    let cache_key = (w_id.to_string(), federation.clone(), authed.email.clone());
+    let token = match ANTHROPIC_FEDERATED_TOKEN_CACHE
+        .get(&cache_key)
+        .filter(FederatedAccessToken::is_fresh)
+    {
+        Some(cached) => cached,
+        None => {
+            let assertion = mint_anthropic_oidc_token(db, w_id, authed).await?;
+            let client = pinned_ai_client_for(&credentials.base_url).await?;
+            let token =
+                exchange_federated_token(&client, &credentials.base_url, federation, &assertion)
+                    .await?;
+            ANTHROPIC_FEDERATED_TOKEN_CACHE.insert(cache_key, token.clone());
+            token
+        }
+    };
+
+    credentials.access_token = Some(token.access_token);
+    Ok(())
+}
+
+async fn mint_anthropic_oidc_token(db: &DB, w_id: &str, authed: &ApiAuthed) -> Result<String> {
+    #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+    {
+        use windmill_ai::providers::anthropic::{
+            ANTHROPIC_OIDC_AUDIENCE, ANTHROPIC_OIDC_TOKEN_LIFETIME_SECS,
+        };
+        use windmill_common::oidc_oss::{generate_id_token, OidcCaller, WorkspaceClaim};
+
+        let id_token = generate_id_token(
+            OidcCaller::Anthropic,
+            Some(db),
+            WorkspaceClaim { workspace: w_id.to_string() },
+            ANTHROPIC_OIDC_AUDIENCE,
+            format!("{}::{}", authed.email, w_id),
+            Some(authed.email.clone()),
+            Some(ANTHROPIC_OIDC_TOKEN_LIFETIME_SECS),
+        )
+        .await?;
+        Ok(id_token.to_string())
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "openidconnect", feature = "private")))]
+    {
+        let _ = (db, w_id, authed);
+        Err(Error::BadRequest(
+            "Anthropic Workload Identity Federation through Windmill's OIDC provider requires an enterprise license"
                 .to_string(),
         ))
     }
@@ -1129,6 +1269,7 @@ async fn global_proxy(
         aws_secret_access_key: None,
         aws_session_token: None,
         oidc_role_arn: None,
+        anthropic_federation: None,
         platform: AIPlatform::Standard,
         custom_headers: HashMap::new(),
     };
@@ -1435,6 +1576,7 @@ async fn proxy(
 
     #[cfg(feature = "bedrock")]
     resolve_bedrock_oidc_credentials(&db, &w_id, &authed, &mut credentials).await?;
+    resolve_anthropic_federated_credentials(&db, &w_id, &authed, &mut credentials).await?;
 
     // Free tier: pin the model and clamp max_tokens server-side before forwarding,
     // since the request body is otherwise client-controlled.
@@ -1643,9 +1785,39 @@ mod tests {
             aws_secret_access_key: None,
             aws_session_token: None,
             oidc_role_arn: None,
+            anthropic_federation: None,
             platform: AIPlatform::Standard,
             custom_headers: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn only_a_federation_rule_makes_a_resource_anthropic_federated() {
+        let federated = serde_json::json!({
+            "federation_rule_id": "fdrl_x",
+            "organization_id": "00000000-0000-0000-0000-000000000000",
+            "service_account_id": "svac_x",
+            "workspace_id": ""
+        });
+        assert!(matches!(
+            serde_json::from_value::<AIResource>(federated),
+            Ok(AIResource::AnthropicFederated(
+                AIAnthropicFederatedResource { workspace_id: None, .. }
+            ))
+        ));
+
+        let incomplete = serde_json::json!({"federation_rule_id": "fdrl_x"});
+        assert!(matches!(
+            serde_json::from_value::<AIResource>(incomplete),
+            Ok(AIResource::AnthropicFederated(_))
+        ));
+
+        // `organization_id` is also the OpenAI organization of a standard resource.
+        let standard = serde_json::json!({"api_key": "k", "organization_id": "org-x"});
+        assert!(matches!(
+            serde_json::from_value::<AIResource>(standard),
+            Ok(AIResource::Standard(_))
+        ));
     }
 
     #[test]

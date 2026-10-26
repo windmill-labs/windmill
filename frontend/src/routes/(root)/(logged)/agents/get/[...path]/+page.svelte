@@ -24,7 +24,8 @@
 	import AgentHistory from '$lib/components/flows/AgentHistory.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { recentItems } from '$lib/components/home/recentItems.svelte'
-	import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { sendUserToast } from '$lib/toast'
 
 	/**
@@ -41,9 +42,10 @@
 	let testPane = $derived(host?.testPaneHandle())
 	let config = $derived(agent?.state?.args)
 	let chatAvailable = $derived(keepsManagedMemory(config?.memory))
-	let canEdit = $derived(
-		config != undefined && (agent?.canWrite ?? false) && $roleCapabilities.code
-	)
+	const editRights = useEditRights()
+	let canAuthor = $derived(editRights.roleCanAuthor('agent'))
+	let canCode = $derived(editRights.capabilities.code)
+	let canEdit = $derived(config != undefined && (agent?.canWrite ?? false) && canAuthor)
 
 	// Recorded once the agent is in: a path with nothing deployed never loads one.
 	let loaded = $derived(config != undefined)
@@ -100,12 +102,13 @@
 		() => ws,
 		() => getDeployUiSettings()
 	)
-	// A role that cannot code gets no menu, as on a flow's or a script's page.
+	// A role that cannot build agents gets no menu, as on a flow's page.
 	let menuItems = $derived(
-		config != undefined && $roleCapabilities.code
+		config != undefined && canAuthor
 			? agentMenuItems({
 					path,
 					canWrite: canEdit,
+					noCode: !canCode,
 					wsSpecific: agent?.state?.wsSpecific,
 					deployUiSettings: deployUiSettings.current,
 					onPermissions: () => shareModal?.openDrawer?.(path, 'resource'),
@@ -161,8 +164,9 @@
 				}
 			: undefined}
 		mainButtons={[
-			// Evaluating an agent builds datasets and runs against it: authoring, as editing is.
-			...(canEdit
+			// Evaluating an agent builds datasets and runs against it: authoring, as editing is, and
+			// eval datasets are refused to a role without `code` whatever its flows right.
+			...(canEdit && canCode
 				? [
 						{
 							label: 'Evals',
@@ -173,7 +177,11 @@
 								title: 'Run this agent against a dataset of cases',
 								onClick: () => evalsModal?.openModal()
 							}
-						},
+						}
+					]
+				: []),
+			...(canEdit
+				? [
 						{
 							label: 'Edit',
 							buttonProps: {

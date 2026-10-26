@@ -16,7 +16,7 @@ code is `windmill_common::roles`.
 | Capability | Values | Enforced |
 |---|---|---|
 | `code` | bool | yes: scripts, previews, dependency jobs, dynamic selects, resolving jobs, data table migrations, eval datasets |
-| `flows` | `none` / `compose` / `full` | yes |
+| `flows` | `none` / `compose` / `full` | yes; also AI agents, whose tools are checked as composed steps |
 | `apps` | `none` / `compose` / `full` | yes; low-code apps and worker-built apps need `full` |
 | `manage_schedules`, `manage_triggers` | bool | yes, see `docs/operator-write-rights.md` |
 | `fork` | bool | yes: both fork endpoints, read with `caller_role_capabilities`; the forker is a developer in the fork, see `docs/operator-write-rights.md`. Like visibility, not part of `is_restricted` |

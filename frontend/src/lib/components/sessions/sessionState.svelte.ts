@@ -5,21 +5,16 @@ import { random_adj } from '$lib/components/random_positive_adjetive'
 import {
 	enterpriseLicense,
 	superadmin,
-	userStore,
 	userWorkspaces,
 	usersWorkspaceStore,
 	workspaceStore,
 	type UserWorkspace
 } from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
-import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
-import {
-	isRuleActive,
-	canUserBypassRuleKind,
-	protectionRulesState
-} from '$lib/workspaceProtectionRules.svelte'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { isReadOnlySessionWorkspace } from '../copilot/chat/global/sessionAccess'
+import { AIWorkMode } from '../copilot/chat/workMode'
 import { workspaceRootId } from './sessionScope.svelte'
 import { clearSessionRecovered } from './sessionRecoveryNotice.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
@@ -29,6 +24,7 @@ import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
 import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
 import type { DraftAttachments } from '../copilot/chat/messageDraft.svelte'
+import type { AppDomSelectorElement } from '../copilot/chat/context'
 import {
 	markSessionDirty,
 	markSessionRemoved,
@@ -102,6 +98,10 @@ export type Session = {
 	// deferred to first send (via commitSessionWorkspace) so cancelling
 	// the draft doesn't leave an orphan fork behind.
 	pending_fork?: PendingFork
+	// Home's draft: it acts on whatever workspace Home shows, so a switch made on another page
+	// moves it on Home's next mount. Cleared by a pick made on the session page, whose picker
+	// leaves the navigation workspace where it is.
+	followsHome?: boolean
 	// Stable root workspace id used only for sidebar grouping. Lifecycle follows
 	// workspace_id, not this field. Root sessions store the same id in both fields.
 	workspace_root_id?: string
@@ -158,6 +158,8 @@ export type Session = {
 	// Preview split size (preview pane %, 0-100) the user dragged for this session.
 	// Per-session so each session restores its own layout.
 	previewSize?: number
+	// Use or Build, as the chat's mode picker last left it. Absent reads as Build.
+	workMode?: AIWorkMode.USE | AIWorkMode.BUILD
 	// Unsent composer text for a pending (uncommitted) session, persisted with
 	// the record so each parallel draft restores its own typed-but-unsent prompt.
 	// Only tracked while unsent; cleared once the workspace commits at first send.
@@ -170,6 +172,10 @@ export type Session = {
 	// would otherwise leave a session armed forever and fire on some later visit.
 	// Consumed exactly once, by takeSessionAutoSend.
 	autoSendDraftAt?: number
+	// The element a preview pick hands over with the auto-sent prompt, sent as its
+	// chip. Lives and dies with `autoSendDraftAt`: a prompt like "make this bigger"
+	// must never go out without the element it names.
+	autoSendDomElement?: AppDomSelectorElement
 }
 
 // One preview tab: `url` is the URL we command the iframe to load, `loc` the
@@ -421,11 +427,17 @@ const AUTO_SEND_TTL_MS = 5 * 60_000
 // Mark this session's draft prompt for sending on arrival. Written straight to
 // the record (not via setSessionDraftPrompt's debounce) because the navigation
 // that follows must not outrun it.
-export function setSessionAutoSend(sessionId: string): void {
+export function setSessionAutoSend(sessionId: string, domElement?: AppDomSelectorElement): void {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (!s) return
 	s.autoSendDraftAt = Date.now()
+	s.autoSendDomElement = domElement
 	persistTouched(s)
+}
+
+// The element armed with the auto-send intent; read before takeSessionAutoSend clears both.
+export function getSessionAutoSendDomElement(sessionId: string): AppDomSelectorElement | undefined {
+	return sessionState.sessions.find((x) => x.id === sessionId)?.autoSendDomElement
 }
 
 function autoSendIsFresh(s: Session | undefined): boolean {
@@ -448,6 +460,7 @@ export function takeSessionAutoSend(sessionId: string): boolean {
 	if (!s?.autoSendDraftAt) return false
 	const fresh = autoSendIsFresh(s)
 	delete s.autoSendDraftAt
+	delete s.autoSendDomElement
 	persistTouched(s)
 	return fresh
 }
@@ -1087,6 +1100,9 @@ export function createSession(): Session {
 		(s) => isDiscardableDraft(s) && sessionInCurrentFamily(s)
 	)
 	if (reusable) {
+		// It may be Home's draft; asked for here, it is the session page's now, and callers
+		// park it on a workspace of their own that Home must not move it off.
+		delete reusable.followsHome
 		sessionState.currentSessionId = reusable.id
 		// The blank recovery just landed on is exactly what this reuses, so `+`
 		// would otherwise hand back a session still carrying the recovery notice:
@@ -1115,24 +1131,9 @@ function newTransientSession(): Session {
 	const discarded = sessionState.sessions.filter(isDiscardableDraft).map((s) => s.id)
 	sessionState.sessions = sessionState.sessions.filter((s) => !isDiscardableDraft(s))
 	if (discarded.length > 0) onDraftsDiscarded?.(discarded)
-	// Start in the workspace you're in. The one exception: a root you can't
-	// deploy to (locked, no bypass) steers to its dev, since a session there
-	// couldn't edit anything. The picker lets you switch.
-	const currentWs = get(workspaceStore)
-	const devOfCurrent = currentWs
-		? findCanonicalDevWorkspace(currentWs, get(userWorkspaces))?.id
-		: undefined
-	// Only trust the deploy check once the active workspace's rules have actually loaded: until then
-	// `isRuleActive` reads an empty ruleset and fails open, which would default a new session onto a
-	// locked prod. Treat "not yet loaded for currentWs" as not-deployable so we steer to the dev (always
-	// editable) when one exists; the picker still lets the user switch back once rules resolve.
-	const rulesLoadedForCurrent =
-		protectionRulesState.rulesets !== undefined && protectionRulesState.workspace === currentWs
-	const canDeployHere =
-		rulesLoadedForCurrent &&
-		(!isRuleActive('DisableDirectDeployment') ||
-			canUserBypassRuleKind('DisableDirectDeployment', get(userStore)))
-	const pending = devOfCurrent && !canDeployHere ? devOfCurrent : currentWs
+	// Start in the workspace you're in, a locked production root included: the session is then
+	// read-only, and points the user to a new session in the dev workspace for changes.
+	const pending = get(workspaceStore)
 	// Friendly default summary so the header reads like "Zippy session"
 	// rather than "Untitled session" — assigned at create time, the user
 	// can still rename it (or it gets overwritten by an editor target).
@@ -1155,22 +1156,31 @@ function newTransientSession(): Session {
 /** The unsent session Home's composer writes into, so a prompt half-typed on Home is the
  * one the empty session page shows, and the reverse. Never selects it: merely opening Home
  * must not change which session the AI Sessions switch resumes. A session opened on an
- * item (it carries preview tabs) is about that item, so Home starts its own instead. */
+ * item (it carries preview tabs) is about that item, and one the session page picked onto
+ * another workspace of the family is about that workspace: Home acts on the workspace it
+ * shows, so it starts its own instead of moving either. */
 export function homeStarterSession(): Session {
+	const homeWs = get(workspaceStore)
+	const homes = (s: Session) =>
+		(s.followsHome || s.pending_workspace_id === homeWs) && sessionInCurrentFamily(s)
 	const unsent = (s: Session) =>
-		!s.archived && !s.workspace_id && !s.previewTabs?.length && sessionInCurrentFamily(s)
+		!s.archived && !s.workspace_id && !s.previewTabs?.length && homes(s)
 	const current = sessionState.sessions.find((s) => s.id === sessionState.currentSessionId)
-	if (current && unsent(current)) return current
 	// Stored but never sent: a draft the user touched, by typing or by picking where it acts.
 	// Either is theirs to come back to, and leaving it would strand it in the sidebar.
 	const touched = sessionState.sessions
 		.filter((s) => unsent(s) && !s.transient)
 		.sort((a, b) => sessionLastActivityAt(b) - sessionLastActivityAt(a))[0]
-	return (
+	const draft =
+		(current && unsent(current) ? current : undefined) ??
 		touched ??
-		sessionState.sessions.find((s) => isDiscardableDraft(s) && sessionInCurrentFamily(s)) ??
+		sessionState.sessions.find((s) => isDiscardableDraft(s) && homes(s)) ??
 		newTransientSession()
-	)
+	if (!draft.followsHome) {
+		draft.followsHome = true
+		if (!draft.transient) void putSession(draft)
+	}
+	return draft
 }
 
 // Promote an in-memory transient session to a persisted IndexedDB record.
@@ -1192,6 +1202,13 @@ export function setSessionPendingWorkspace(id: string, workspace_id: string) {
 	// Picking an existing workspace cancels any pending fork intent.
 	s.pending_fork = undefined
 	if (changed) persistTouched(s)
+}
+
+export function stopFollowingHome(id: string) {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s?.followsHome) return
+	delete s.followsHome
+	if (!s.transient) void putSession(s)
 }
 
 // Park a just-created session on a workspace. Deliberately does not persist a
@@ -1283,12 +1300,16 @@ export async function commitSessionWorkspace(
 	// The draft prompt has been consumed as the first message.
 	delete s.draftPrompt
 	await putSession(s)
-	// A picked workspace can itself be an existing fork — classify by root.
-	logFeatureUsage('ai_session', 'created', {
-		key: ws === s.workspace_root_id ? 'root' : 'fork',
-		entityId: s.id,
-		workspace: ws
-	})
+	// A picked workspace can itself be an existing fork — classify by root. A read-only root is
+	// counted apart, to see whether production sessions are used.
+	const sessionId = s.id
+	void isReadOnlySessionWorkspace(ws).then((readOnly) =>
+		logFeatureUsage('ai_session', 'created', {
+			key: readOnly ? 'read_only' : ws === s.workspace_root_id ? 'root' : 'fork',
+			entityId: sessionId,
+			workspace: ws
+		})
+	)
 	// The global workspaceStore is intentionally left untouched (see the fork
 	// branch above): the session chat reads its committed workspace through the
 	// manager's workspace resolver, not the active workspaceStore.
@@ -1324,6 +1345,16 @@ export function setSessionPreviewSize(id: string, size: number): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || s.previewSize === size) return
 	s.previewSize = size
+	persistTouched(s)
+}
+
+// Persist the session's Use or Build choice (a touch). Plan is left out: a reload ends the
+// planning round, and the session reopens in the mode it was entered from.
+export function setSessionWorkMode(id: string, mode: AIWorkMode): void {
+	if (mode === AIWorkMode.PLAN) return
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s || (s.workMode ?? AIWorkMode.BUILD) === mode) return
+	s.workMode = mode
 	persistTouched(s)
 }
 
