@@ -1818,45 +1818,13 @@ fn report_run(ctx: &Ctx<'_>, id: &str, job: Option<&Value>, extra: Map<String, V
     let _ = ctx.view.set(("windmill/run", Value::Object(run)));
 }
 
-/// A flow run's top-level steps for the card's details, each as its last iteration or
-/// attempt, from the run tree `get_flow_all_results` lists.
+/// A flow run's top-level steps for the card's details, grouped as the model reads them:
+/// a loop as its iteration counts, a parallel step as its branches, a retry as its attempts.
 fn card_steps(entries: &[Value]) -> Vec<Value> {
     if entries.is_empty() {
         return Vec::new();
     }
-    let tree = RunTree::new(entries);
-    let mut steps: Vec<(&str, Map<String, Value>)> = Vec::new();
-    for &child in &tree.children[0] {
-        let entry = &entries[child];
-        let Some(id) = entry["flow_step_id"].as_str() else {
-            continue;
-        };
-        let mut step = Map::new();
-        step.insert("id".into(), id.into());
-        for key in ["label", "status", "duration_ms", "job_id"] {
-            if let Some(value) = entry.get(key).filter(|v| !v.is_null()) {
-                step.insert(key.into(), value.clone());
-            }
-        }
-        if let Some(prefix) = entry["result_prefix"].as_str() {
-            step.insert(
-                "result".into(),
-                js_head(prefix, CARD_STEP_RESULT_CHARS).into(),
-            );
-        }
-        match steps.iter_mut().find(|(seen, _)| *seen == id) {
-            Some((_, last)) => {
-                let runs = last.get("runs").and_then(Value::as_u64).unwrap_or(1) + 1;
-                step.insert("runs".into(), runs.into());
-                *last = step;
-            }
-            None => steps.push((id, step)),
-        }
-    }
-    steps
-        .into_iter()
-        .map(|(_, step)| Value::Object(step))
-        .collect()
+    RunTree::new(entries).shape_children(0, (CARD_STEP_RESULT_CHARS, CARD_STEP_RESULT_CHARS))
 }
 
 /// What the run card draws of a run: its summary, the head of its result (a failure's
@@ -2209,23 +2177,5 @@ mod tests {
 
         // Not read yet: still running, by id alone.
         assert_eq!(run_card("j", None)["status"], "running");
-    }
-
-    #[test]
-    fn card_steps_keep_each_steps_last_run() {
-        let entries = [
-            json!({ "depth": 0, "job_id": "root" }),
-            json!({ "depth": 1, "flow_step_id": "a", "status": "failure" }),
-            json!({ "depth": 2, "flow_step_id": "inner", "status": "success" }),
-            json!({ "depth": 1, "flow_step_id": "a", "status": "success" }),
-            json!({ "depth": 1, "flow_step_id": "b", "status": "running" }),
-        ];
-        let steps = card_steps(&entries);
-        assert_eq!(steps.len(), 2);
-        assert_eq!(
-            (&steps[0]["id"], &steps[0]["status"], &steps[0]["runs"]),
-            (&json!("a"), &json!("success"), &json!(2))
-        );
-        assert_eq!(steps[1]["status"], "running");
     }
 }

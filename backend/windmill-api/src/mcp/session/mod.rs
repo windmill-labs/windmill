@@ -160,15 +160,10 @@ fn result_size_meta() -> MetaObject {
 /// the deployed card reads.
 pub(super) const CARD_URI: &str = "ui://windmill/card-v1";
 const CARD_HTML: &str = include_str!("card.html");
-const CARD_TOOLS: &[&str] = &[
-    "run_script",
-    "run_flow",
-    "test_run_script",
-    "test_run_flow",
-    "get_run",
-    "diff",
-    "read_workspace_item",
-];
+/// Only the tools that start a run draw it: a host draws a view for every call, and the
+/// model calls `get_run` and its read tools over and over. The card still refreshes
+/// itself through `get_run`.
+const CARD_TOOLS: &[&str] = &["run_script", "run_flow", "test_run_script", "test_run_flow"];
 
 /// The `ui://` views the session's tools render in, as `(uri, html)`.
 pub(super) fn session_views() -> &'static [(&'static str, &'static str)] {

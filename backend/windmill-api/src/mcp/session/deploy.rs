@@ -9,8 +9,8 @@ use serde_json::{json, Map, Value};
 use super::flows::drop_stale_step_locks;
 use super::workspace::{
     api_message, app_source_to_draft_value, delete_draft, deployed_item_exists, draft_kind,
-    draft_page, get_deployed, get_draft_item, item_exists, item_type_arg, path_enc, service,
-    unified_patch, ITEM_TYPES, TRIGGER_KINDS,
+    get_deployed, get_draft_item, item_exists, item_type_arg, path_enc, service, unified_patch,
+    ITEM_TYPES, TRIGGER_KINDS,
 };
 use super::{
     array, bool_arg, is_not_found, js_str, matches_glob, non_null, opt_str_arg, pretty, str_arg,
@@ -268,11 +268,16 @@ async fn deploy_variable(
         || draft.get("is_oauth") == Some(&Value::Bool(true))
         || non_null(draft.get("account")).is_some();
     let keep_stored = protected && stages_no_value;
-    let body = if keep_stored {
+    let mut body = if keep_stored {
         without(draft, &["value"])
     } else {
         draft.clone()
     };
+    // The draft holds the full variable, so an absent expiry was cleared, while the update
+    // endpoint reads an absent one as unchanged.
+    if let Some(body) = body.as_object_mut() {
+        body.entry("value_valid_until").or_insert(Value::Null);
+    }
     ctx.post(
         &ctx.ws(&format!("variables/update/{}", path_enc(path))),
         body,
@@ -469,7 +474,7 @@ fn mutation_result(
 }
 
 /// Where a deployed item is seen in Windmill.
-pub(super) fn deployed_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
+fn deployed_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
     Some(match item_type {
         "script" => format!("/scripts/get/{path}"),
         "flow" => format!("/flows/get/{path}"),
@@ -1755,25 +1760,10 @@ async fn diff_index(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     } else {
         "No drafts in this workspace — nothing differs from the deployed state.".to_string()
     }];
-    let mut items = Vec::new();
     for entry in shown {
-        let line = index_line(entry);
-        lines.push(line.clone());
+        lines.push(index_line(entry));
         lines.extend(file_children_lines(entry));
-        if let Some((item_type, trigger_kind)) = entry.row.addressing {
-            let status = line.split_once(" — ").map_or("", |(_, status)| status);
-            items.push(json!({
-                "type": item_type,
-                "trigger_kind": trigger_kind,
-                "path": entry.row.display_path,
-                "status": status,
-            }));
-        }
     }
-    let _ = ctx.view.set((
-        "windmill/diff",
-        json!({ "workspace": ctx.w_id, "items": items }),
-    ));
     if total > shown.len() {
         lines.push(format!(
             "Showing {} of {total} drafts — narrow with types/path_prefix or raise limit.",
@@ -1976,22 +1966,6 @@ async fn diff(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         return Err(parent_comparison_unavailable(ctx).await);
     }
     if args.get("path").is_some_and(|p| !p.is_null()) {
-        let item_type = opt_str_arg(args, "type").unwrap_or_default();
-        let path = opt_str_arg(args, "path").unwrap_or_default();
-        let editor = draft_page(item_type, path, &Value::Null);
-        let has_editor = editor.is_some();
-        let page = editor.or_else(|| deployed_page(item_type, path, &Value::Null));
-        let _ = ctx.view.set((
-            "windmill/diff",
-            json!({
-                "workspace": ctx.w_id,
-                "type": item_type,
-                "trigger_kind": opt_str_arg(args, "trigger_kind"),
-                "path": path,
-                "url": page.map(|page| ctx.page_url(&page)),
-                "editor": has_editor,
-            }),
-        ));
         diff_item(ctx, args).await
     } else {
         diff_index(ctx, args).await

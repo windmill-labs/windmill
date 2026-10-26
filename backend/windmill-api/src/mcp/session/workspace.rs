@@ -22,10 +22,7 @@ pub(super) const TOOLS: &[&str] = &[
 pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult {
     match name {
         "list_workspace_items" => list_workspace_items(ctx, args).await,
-        "read_workspace_item" => {
-            report_item(ctx, args);
-            read_workspace_item(ctx, args).await
-        }
+        "read_workspace_item" => read_workspace_item(ctx, args).await,
         "write_script" => {
             write_script_draft(
                 ctx,
@@ -502,6 +499,7 @@ pub(super) fn draft_item(kind: &str, path: &str, draft: &Value) -> Option<Value>
             put(&mut value, "account", field("account"));
             put(&mut value, "is_oauth", field("is_oauth"));
             put(&mut value, "expires_at", field("expires_at"));
+            put(&mut value, "value_valid_until", field("value_valid_until"));
             put(&mut value, "labels", field("labels"));
             put(&mut value, "ws_specific", field("wsSpecific"));
             item.insert("value".into(), Value::Object(value));
@@ -1025,7 +1023,7 @@ pub(super) fn is_agent(value: &Value) -> bool {
 }
 
 /// The editor that shows the user's draft: a detail page shows only the deployed version.
-pub(super) fn draft_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
+fn draft_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
     Some(match item_type {
         "script" => format!("/scripts/edit/{path}?nomenubar=true"),
         "flow" => format!("/flows/edit/{path}?nomenubar=true"),
@@ -1414,29 +1412,6 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         })
         .collect();
     Ok(pretty(&Value::Array(results)))
-}
-
-/// The links the item card opens: the item's page, and the editor a draft opens in. The
-/// card draws the item itself from the result's text.
-fn report_item(ctx: &Ctx<'_>, args: &Value) {
-    let (Some(item_type), Some(path)) = (opt_str_arg(args, "type"), opt_str_arg(args, "path"))
-    else {
-        return;
-    };
-    let page = match (item_type, opt_str_arg(args, "trigger_kind")) {
-        ("trigger", Some("http")) => Some("/routes".to_string()),
-        ("trigger", Some(kind)) => Some(format!("/{kind}_triggers")),
-        _ => super::deploy::deployed_page(item_type, path, &Value::Null),
-    };
-    let url = |page: Option<String>| page.map(|page| ctx.page_url(&page));
-    let _ = ctx.view.set((
-        "windmill/item",
-        json!({
-            "workspace": ctx.w_id,
-            "url": url(page),
-            "edit_url": url(draft_page(item_type, path, &Value::Null)),
-        }),
-    ));
 }
 
 async fn read_workspace_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
@@ -1997,5 +1972,12 @@ mod tests {
             json!({ "type": "script", "path": "u/a/s", "summary": "s", "language": "bun", "value": "x", "parentHash": "h", "isDraft": true })
         );
         assert!(draft_item("app", "u/a/s", &draft).is_none());
+    }
+
+    #[test]
+    fn draft_item_carries_the_variable_expiry() {
+        let draft = json!({ "path": "u/a/v", "variable": { "value": "", "is_secret": true, "description": "" }, "value_valid_until": "2027-01-15T00:00:00Z" });
+        let item = draft_item("variable", "u/a/v", &draft).unwrap();
+        assert_eq!(item["value"]["value_valid_until"], "2027-01-15T00:00:00Z");
     }
 }

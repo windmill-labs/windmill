@@ -5,66 +5,68 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Windmill</title>
 <!--
-  The MCP Apps view of the session tools' results (`CARD_URI` in `mod.rs`): a run, a diff, or
-  a workspace item, from whichever of `_meta["windmill/run" | "windmill/diff" |
-  "windmill/item"]` the result carries. It holds no credential: it acts by calling tools
+  The MCP Apps view of a run started through the session's tools (`CARD_URI` in `mod.rs`),
+  drawn from the result's `_meta["windmill/run"]`. It holds no credential: it acts by calling tools
   through the host, as the user the connection belongs to. Everything it shows is set as
   text, never as markup: a run's result is whatever its script returned.
 -->
 <style>
+  /* Colours, fonts and radii come from the host's style variables when it sends them, so the
+     card reads as part of the host; the fallbacks are Windmill's palette. The accent stays
+     Windmill's: hosts allow a brand accent on the primary action only. */
   :root {
     color-scheme: light dark;
     --bg: var(--color-background-primary, #ffffff);
-    --bg-2: var(--color-background-secondary, #f5f4ed);
-    --fg: var(--color-text-primary, #141413);
-    --fg-2: var(--color-text-secondary, #3d3d3a);
-    --fg-3: var(--color-text-tertiary, #73726c);
-    --line: var(--color-border-tertiary, rgba(31, 30, 29, 0.15));
-    --info-bg: var(--color-background-info, #d6e4f6);
-    --info-fg: var(--color-text-info, #3266ad);
-    --ok-bg: var(--color-background-success, #e9f1dc);
-    --ok-fg: var(--color-text-success, #265b19);
-    --bad-bg: var(--color-background-danger, #f7ecec);
-    --bad-fg: var(--color-text-danger, #7f2c28);
-    --inv-bg: var(--color-background-inverse, #141413);
-    --inv-fg: var(--color-text-inverse, #ffffff);
-    --radius: var(--border-radius-md, 8px);
-    --sans: var(--font-sans, system-ui, -apple-system, sans-serif);
+    --bg-2: var(--color-background-secondary, #efeff4);
+    --fg: var(--color-text-primary, #1d2430);
+    --fg-2: var(--color-text-secondary, #3d4758);
+    --fg-3: var(--color-text-tertiary, #718096);
+    --line: var(--color-border-tertiary, #e5e7eb);
+    --info-bg: var(--color-background-info, #e9ecfe);
+    --info-fg: var(--color-text-info, #183faf);
+    --ok-bg: var(--color-background-success, #dcfce7);
+    --ok-fg: var(--color-text-success, #3b7a5b);
+    --bad-bg: var(--color-background-danger, #fee2e2);
+    --bad-fg: var(--color-text-danger, #693237);
+    --accent: #758ff8;
+    --accent-hover: #5074f6;
+    --radius: var(--border-radius-md, 6px);
+    --sans: var(--font-sans, Inter, system-ui, -apple-system, sans-serif);
     --mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: var(--color-background-primary, #30302e);
-      --bg-2: var(--color-background-secondary, #262624);
-      --fg: var(--color-text-primary, #faf9f5);
-      --fg-2: var(--color-text-secondary, #c2c0b6);
-      --fg-3: var(--color-text-tertiary, #9c9a92);
-      --line: var(--color-border-tertiary, rgba(222, 220, 209, 0.15));
-      --info-bg: var(--color-background-info, #253e5f);
-      --info-fg: var(--color-text-info, #80aadd);
-      --ok-bg: var(--color-background-success, #1b4614);
-      --ok-fg: var(--color-text-success, #7ab948);
-      --bad-bg: var(--color-background-danger, #602a28);
-      --bad-fg: var(--color-text-danger, #ee8884);
-      --inv-bg: var(--color-background-inverse, #faf9f5);
-      --inv-fg: var(--color-text-inverse, #141413);
+      --bg: var(--color-background-primary, #2e3441);
+      --bg-2: var(--color-background-secondary, #272c35);
+      --fg: var(--color-text-primary, #eeeff2);
+      --fg-2: var(--color-text-secondary, #d4d7dd);
+      --fg-3: var(--color-text-tertiary, #a9b0ba);
+      --line: var(--color-border-tertiary, #374457);
+      --info-bg: var(--color-background-info, rgba(24, 71, 210, 0.4));
+      --info-fg: var(--color-text-info, #c7cefc);
+      --ok-bg: var(--color-background-success, rgba(59, 122, 91, 0.4));
+      --ok-fg: var(--color-text-success, #dcfce7);
+      --bad-bg: var(--color-background-danger, rgba(129, 56, 63, 0.4));
+      --bad-fg: var(--color-text-danger, #fee2e2);
+      --accent: #7085db;
+      --accent-hover: #5670d5;
     }
   }
   :root[data-theme="dark"] {
-    --bg: var(--color-background-primary, #30302e);
-    --bg-2: var(--color-background-secondary, #262624);
-    --fg: var(--color-text-primary, #faf9f5);
-    --fg-2: var(--color-text-secondary, #c2c0b6);
-    --fg-3: var(--color-text-tertiary, #9c9a92);
-    --line: var(--color-border-tertiary, rgba(222, 220, 209, 0.15));
-    --info-bg: var(--color-background-info, #253e5f);
-    --info-fg: var(--color-text-info, #80aadd);
-    --ok-bg: var(--color-background-success, #1b4614);
-    --ok-fg: var(--color-text-success, #7ab948);
-    --bad-bg: var(--color-background-danger, #602a28);
-    --bad-fg: var(--color-text-danger, #ee8884);
-    --inv-bg: var(--color-background-inverse, #faf9f5);
-    --inv-fg: var(--color-text-inverse, #141413);
+    --bg: var(--color-background-primary, #2e3441);
+    --bg-2: var(--color-background-secondary, #272c35);
+    --fg: var(--color-text-primary, #eeeff2);
+    --fg-2: var(--color-text-secondary, #d4d7dd);
+    --fg-3: var(--color-text-tertiary, #a9b0ba);
+    --line: var(--color-border-tertiary, #374457);
+    --info-bg: var(--color-background-info, rgba(24, 71, 210, 0.4));
+    --info-fg: var(--color-text-info, #c7cefc);
+    --ok-bg: var(--color-background-success, rgba(59, 122, 91, 0.4));
+    --ok-fg: var(--color-text-success, #dcfce7);
+    --bad-bg: var(--color-background-danger, rgba(129, 56, 63, 0.4));
+    --bad-fg: var(--color-text-danger, #fee2e2);
+    --accent: #7085db;
+    --accent-hover: #5670d5;
   }
   html, body { margin: 0; background: transparent; }
   body { font: 14px/1.4 var(--sans); color: var(--fg); }
@@ -74,21 +76,19 @@
   .path { font: 600 14px/1.3 var(--mono); overflow-wrap: anywhere; }
   .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-3); }
   .ws { background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; color: var(--fg-2); font-weight: 500; }
-  .pill { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--info-bg); color: var(--info-fg); }
-  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .pill { margin-left: auto; flex: none; font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 6px; background: var(--info-bg); color: var(--info-fg); }
   .success, .pill.success { background: var(--ok-bg); color: var(--ok-fg); }
   .failure, .canceled, .not_started, .pill.failure, .pill.canceled, .pill.not_started { background: var(--bad-bg); color: var(--bad-fg); }
   .step { font-size: 13px; color: var(--fg-2); }
-  .step code, .mono { font-family: var(--mono); }
-  .summary { color: var(--fg-2); font-size: 13px; }
+  .step code { font-family: var(--mono); }
   pre { margin: 0; padding: 10px 12px; border-radius: var(--radius); background: var(--bg-2); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
   pre.clip { max-height: 180px; overflow: hidden; }
   pre.error { background: var(--bad-bg); color: var(--bad-fg); }
   h3 { margin: 4px 0 0; font-size: 12px; font-weight: 600; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.04em; }
   .rows { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); }
   .row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 10px; font-size: 13px; }
-  .row + .row, .row + .patch, .patch + .row { border-top: 1px solid var(--line); }
-  .row .k { color: var(--fg-3); min-width: 110px; }
+  .row + .row { border-top: 1px solid var(--line); }
+  .row.nested { padding-left: 28px; }
   .row .v { min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; }
   .row .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .row .dim { color: var(--fg-3); font-size: 12px; }
@@ -97,14 +97,6 @@
   .dot.success { background: var(--ok-fg); }
   .dot.failure, .dot.canceled { background: var(--bad-fg); }
   .dot.skipped { background: var(--fg-3); }
-  button.row { width: 100%; text-align: left; border: 0; border-radius: 0; background: transparent; font: inherit; font-size: 13px; color: inherit; min-height: 0; }
-  .patch { font: 12px/1.45 var(--mono); padding: 6px 0; background: var(--bg-2); border-radius: var(--radius); overflow-wrap: anywhere; }
-  .rows .patch { border-radius: 0; }
-  .patch div { padding: 0 12px; white-space: pre-wrap; }
-  .patch .add { background: var(--ok-bg); color: var(--ok-fg); }
-  .patch .del { background: var(--bad-bg); color: var(--bad-fg); }
-  .patch .hunk { color: var(--info-fg); }
-  .patch .note { color: var(--fg-2); font-family: var(--sans); }
   form { display: flex; flex-direction: column; gap: 10px; }
   label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; }
   label.check { flex-direction: row; align-items: center; gap: 8px; }
@@ -113,8 +105,10 @@
   textarea { font-family: var(--mono); min-height: 60px; resize: vertical; }
   .form-error { color: var(--bad-fg); font-size: 13px; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
-  button { font: 600 13px var(--sans); min-height: 32px; padding: 0 12px; border-radius: var(--radius); cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--fg); }
-  button.primary { background: var(--inv-bg); color: var(--inv-fg); border-color: transparent; }
+  button { font: 500 13px var(--sans); min-height: 32px; padding: 0 12px; border-radius: var(--radius); cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--fg); }
+  button:hover:not(:disabled) { background: var(--bg-2); }
+  button.primary { background: var(--accent); color: #ffffff; border-color: transparent; }
+  button.primary:hover:not(:disabled) { background: var(--accent-hover); }
   button:disabled { opacity: 0.5; cursor: default; }
   [hidden] { display: none !important; }
 </style>
@@ -132,11 +126,9 @@
     </div>
     <span class="pill" id="status" hidden></span>
   </div>
-  <div class="summary" id="summary" hidden></div>
   <div class="step" id="step" hidden></div>
   <div class="step" id="stale" hidden>No longer refreshing here. Open it in Windmill for its live status.</div>
   <pre class="clip" id="result" hidden></pre>
-  <div id="body"></div>
   <section id="details" hidden></section>
   <form id="form" hidden></form>
   <div class="actions">
@@ -158,7 +150,6 @@
     failure: 'Failed', canceled: 'Canceled', skipped: 'Skipped', not_started: 'Not started',
     step: 'Step result', in_progress: 'Running'
   };
-  const PATCH_LINES_INLINE = 60;
   const $ = (id) => document.getElementById(id);
 
   let nextId = 1;
@@ -197,16 +188,6 @@
     node.append(...children.filter((c) => c != null && c !== false));
     return node;
   }
-  function row(key, value) {
-    return el('div', { class: 'row' }, el('span', { class: 'k' }, key), el('span', { class: 'v' }, value));
-  }
-  function display(value) {
-    if (value == null) return '';
-    if (typeof value === 'string') return value;
-    const json = JSON.stringify(value);
-    return json.length > 300 ? `${json.slice(0, 300)}…` : json;
-  }
-
   function formatMs(ms) {
     if (ms == null || ms < 0) return '';
     if (ms < 1000) return `${Math.round(ms)}ms`;
@@ -293,9 +274,11 @@
     result.classList.toggle('error', status === 'failure' || status === 'not_started');
 
     setOpen(run?.url);
+    // Hosts cap an inline card at two actions: the run form lives in the details view.
+    const expanded = !$('details').hidden;
     $('cancel').hidden = !(running && run?.id);
-    $('toggle-details').hidden = !run?.id;
-    $('toggle-form').hidden = running || !formFields();
+    $('toggle-details').hidden = !run?.id || (running && !expanded);
+    $('toggle-form').hidden = running || !expanded || !formFields();
     if (!$('details').hidden) renderDetails();
     window.clearInterval(tickTimer);
     if (running && run?.started_at) tickTimer = window.setInterval(() => {
@@ -303,22 +286,55 @@
     }, 1000);
   }
 
+  function stepRow({ id, label, status, note, duration, result, nested }) {
+    return el('div', { class: nested ? 'row nested' : 'row' },
+      el('span', { class: `dot ${status ?? ''}` }),
+      el('span', { class: 'v' }, id),
+      el('span', { class: 'grow' }, label ?? ''),
+      el('span', { class: 'dim' }, [note, LABELS[status] ?? status ?? '', formatMs(duration)].filter(Boolean).join(' · ')),
+      result ? el('pre', { class: status === 'failure' ? 'error' : '' }, result) : null);
+  }
+
+  // A step as the server groups it: a parallel step as its branches, a loop as its iteration
+  // counts (with the failed iterations and the last one shown), a retry as its last attempt.
+  function stepRows(step) {
+    const parts = step.branches ?? step.iterations_shown ?? [];
+    // A failed iteration or branch fails the step only when it stopped the run: one set to
+    // skip failures carries on.
+    const failed = step.failed_iterations || parts.some((p) => ['failure', 'canceled'].includes(p.status));
+    const status = step.status
+      ?? (step.unfinished || parts.some((p) => RUNNING.includes(p.status)) ? 'running'
+        : failed && ['failure', 'canceled'].includes(run.status) ? 'failure' : 'success');
+    if (step.branches) {
+      return [
+        stepRow({ id: step.step, status, note: `${step.branches.length} branches` }),
+        ...step.branches.map((branch, i) => stepRow({
+          id: `branch ${i + 1}`, status: branch.status, duration: branch.duration_ms, result: branch.result, nested: true
+        }))
+      ];
+    }
+    if (step.iterations != null) {
+      const shown = parts.find((p) => p.status === 'failure') ?? parts.at(-1);
+      return [stepRow({
+        id: step.step, status, result: shown?.result,
+        note: [
+          `${step.iterations} iterations`, `${step.ok} ok`,
+          step.failed_iterations && `failed: ${step.failed_iterations.join(', ')}`
+        ].filter(Boolean).join(' · ')
+      })];
+    }
+    return [stepRow({
+      id: step.step, status, duration: step.duration_ms, result: step.result,
+      label: step.label?.startsWith(`Step ${step.step}`) ? '' : step.label,
+      note: step.attempts > 1 ? `${step.attempts} attempts` : ''
+    })];
+  }
+
   function renderDetails() {
     const details = $('details');
     const children = [];
     if (run.step_list?.length) {
-      children.push(el('h3', {}, 'Steps'), el('div', { class: 'rows' }, ...run.step_list.map((step) =>
-        el('div', { class: 'row' },
-          el('span', { class: `dot ${step.status ?? ''}` }),
-          el('span', { class: 'v' }, step.id),
-          el('span', { class: 'grow' }, [step.id, `Step ${step.id}`].includes(step.label) ? '' : step.label),
-          el('span', { class: 'dim' }, [
-            step.runs > 1 ? `${step.runs} runs` : '',
-            LABELS[step.status] ?? step.status ?? '',
-            formatMs(step.duration_ms)
-          ].filter(Boolean).join(' · ')),
-          step.result ? el('pre', { class: step.status === 'failure' ? 'error' : '' }, step.result) : null
-        ))));
+      children.push(el('h3', {}, 'Steps'), el('div', { class: 'rows' }, ...run.step_list.flatMap(stepRows)));
     }
     if (run.logs) children.push(el('h3', {}, 'Logs (end)'), el('pre', {}, run.logs));
     if (!children.length) children.push(el('div', { class: 'step' }, run.step_list ? 'Nothing more to show.' : 'Loading…'));
@@ -480,8 +496,13 @@
     const details = $('details');
     details.hidden = !details.hidden;
     $('toggle-details').textContent = details.hidden ? 'Details' : 'Hide details';
-    if (details.hidden) return setDisplayMode('inline');
-    renderDetails();
+    if (details.hidden) {
+      $('form').hidden = true;
+      $('toggle-form').textContent = 'Run with other inputs';
+      renderRun();
+      return setDisplayMode('inline');
+    }
+    renderRun();
     setDisplayMode('fullscreen');
     // A run reported by the call that started it has no steps or logs yet.
     if (!run.step_list && !run.logs && !RUNNING.includes(run.status)) poll();
@@ -493,195 +514,10 @@
     if (!form.hidden) renderForm();
   });
 
-  // ---------------------------------------------------------------- diff
-
-  // A tool's text with its unified patch lines coloured; `---`/`+++` labels are dropped.
-  function patchView(text, limit) {
-    const lines = text.split('\n');
-    const shown = limit ? lines.slice(0, limit) : lines;
-    let inHunk = false;
-    const nodes = [];
-    for (const line of shown) {
-      if (line.startsWith('@@')) inHunk = true;
-      if (!inHunk && /^(--- |\+\+\+ |=+$)/.test(line)) continue;
-      const kind = line.startsWith('@@') ? 'hunk'
-        : !inHunk ? 'note'
-        : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : '';
-      nodes.push(el('div', { class: kind }, line || ' '));
-    }
-    const patch = el('div', { class: 'patch' }, ...nodes);
-    if (limit && lines.length > limit) {
-      patch.append(el('div', { class: 'note' }, el('button', {
-        type: 'button',
-        onclick: () => {
-          patch.replaceWith(patchView(text));
-          setDisplayMode('fullscreen');
-        }
-      }, `Show all ${lines.length} lines`)));
-    }
-    return patch;
-  }
-
-  function renderDiff(meta, result) {
-    view = 'diff';
-    const text = textOf(result);
-    const body = $('body');
-    if (!meta.items) {
-      const label = meta.trigger_kind ? `${meta.trigger_kind} trigger` : meta.type;
-      setHeader({ path: meta.path, ws: meta.workspace, kind: label ? `Draft vs deployed · ${label}` : '' });
-      setOpen(result.isError ? null : meta.url, meta.editor ? 'Open in editor' : 'Open in Windmill');
-      body.replaceChildren(result.isError ? el('pre', { class: 'error' }, text) : patchView(text, PATCH_LINES_INLINE));
-      return;
-    }
-    setHeader({ path: 'Drafts vs deployed', ws: meta.workspace, kind: `${meta.items.length} item${meta.items.length === 1 ? '' : 's'}` });
-    setOpen(null);
-    const summary = $('summary');
-    summary.hidden = meta.items.length > 0;
-    summary.textContent = text.split('\n')[0];
-    body.replaceChildren(meta.items.length ? el('div', { class: 'rows' }, ...meta.items.map((item) => {
-      const label = item.trigger_kind ? `${item.trigger_kind} trigger` : item.type;
-      let open = null;
-      const button = el('button', { class: 'row', type: 'button' },
-        el('span', { class: 'v' }, item.path),
-        el('span', { class: 'dim grow' }, label),
-        el('span', { class: 'dim' }, item.status));
-      button.addEventListener('click', async () => {
-        if (open) {
-          open.remove();
-          open = null;
-          return;
-        }
-        button.disabled = true;
-        try {
-          const result = await callTool('diff', {
-            workspace_id: meta.workspace, type: item.type, path: item.path,
-            ...(item.trigger_kind ? { trigger_kind: item.trigger_kind } : {})
-          });
-          open = patchView(textOf(result), PATCH_LINES_INLINE);
-          button.after(open);
-        } catch {}
-        button.disabled = false;
-      });
-      return button;
-    })) : '');
-  }
-
-  // ---------------------------------------------------------------- item
-
-  const NOISE = new Set([
-    'workspace_id', 'path', 'summary', 'description', 'edited_by', 'edited_at', 'extra_perms',
-    'email', 'error', 'last_server_ping', 'server_id', 'created_by', 'created_at', 'value',
-    'is_flow', 'script_path', 'enabled', 'mode', 'labels', 'ws_specific', 'permissioned_as'
-  ]);
-  const SENSITIVE = /pass|secret|token|key|private|credential/i;
-
-  function inputsRows(schema) {
-    const properties = schema?.properties ?? {};
-    const required = new Set(schema?.required ?? []);
-    return Object.entries(properties).map(([name, prop]) =>
-      row(`${name}${required.has(name) ? ' *' : ''}`, [prop.type ?? 'any', prop.format, prop.description].filter(Boolean).join(' · ')));
-  }
-  function section(title, rows) {
-    return rows.length ? [el('h3', {}, title), el('div', { class: 'rows' }, ...rows)] : [];
-  }
-  function scalarRows(object, skip = NOISE) {
-    return Object.entries(object ?? {})
-      .filter(([key, value]) => !skip.has(key) && value != null && value !== '' && !(Array.isArray(value) && !value.length))
-      .map(([key, value]) => row(key, display(value)));
-  }
-  function moduleRows(modules) {
-    return (modules ?? []).map((module) => {
-      const value = module.value ?? {};
-      return el('div', { class: 'row' },
-        el('span', { class: 'v' }, module.id ?? ''),
-        el('span', { class: 'grow' }, module.summary || value.path || ''),
-        el('span', { class: 'dim' }, value.type ?? ''));
-    });
-  }
-
-  function renderItem(meta, result) {
-    view = 'item';
-    let item;
-    try {
-      item = JSON.parse(textOf(result));
-    } catch {}
-    const body = $('body');
-    if (!item || typeof item !== 'object' || item.success === false || result.isError) {
-      setHeader({ path: toolArgs.path, ws: meta.workspace, kind: toolArgs.type ?? '' });
-      body.replaceChildren(el('pre', { class: result.isError || item?.success === false ? 'error' : '' }, item?.error ?? textOf(result)));
-      return;
-    }
-    const type = item.type ?? toolArgs.type;
-    const kind = item.triggerKind ? `${item.triggerKind} trigger` : type;
-    setHeader({
-      path: item.path ?? toolArgs.path,
-      ws: meta.workspace,
-      kind: kind ?? '',
-      status: item.isDraft ? 'running' : null,
-      label: item.isDraft ? 'Draft' : null
-    });
-    setOpen(item.isDraft && meta.edit_url ? meta.edit_url : meta.url, item.isDraft && meta.edit_url ? 'Open in editor' : 'Open in Windmill');
-    const summary = $('summary');
-    summary.hidden = !item.summary;
-    summary.textContent = item.summary ?? '';
-    const value = item.value ?? {};
-    const parts = [];
-    const target = value.script_path
-      ? row('Runs', `${value.is_flow ? 'flow' : 'script'} ${value.script_path}`) : null;
-    switch (type) {
-      case 'script': {
-        const code = typeof item.value === 'string' ? item.value.split('\n') : [];
-        parts.push(...section('Script', [row('Language', item.language ?? '')]));
-        parts.push(...section('Inputs', inputsRows(item.schema)));
-        if (code.length) {
-          parts.push(el('h3', {}, 'Code'), el('pre', { class: 'clip' }, code.slice(0, 20).join('\n') + (code.length > 20 ? '\n…' : '')));
-        }
-        break;
-      }
-      case 'flow':
-        parts.push(...section('Steps', moduleRows(value.modules)));
-        parts.push(...section('Inputs', inputsRows(value.schema)));
-        break;
-      case 'schedule':
-        parts.push(...section('Schedule', [
-          row('Cron', value.schedule ?? ''),
-          row('Timezone', value.timezone ?? ''),
-          target,
-          row('Enabled', String(value.enabled ?? ''))
-        ].filter(Boolean)));
-        if (value.args && Object.keys(value.args).length) parts.push(el('h3', {}, 'Arguments'), el('pre', { class: 'clip' }, JSON.stringify(value.args, null, 2)));
-        break;
-      case 'trigger':
-        parts.push(...section('Trigger', [
-          target,
-          value.mode != null ? row('Mode', value.mode) : value.enabled != null ? row('Enabled', String(value.enabled)) : null,
-          ...scalarRows(value)
-        ].filter(Boolean)));
-        break;
-      case 'resource': {
-        const fields = value.value && typeof value.value === 'object' ? value.value : {};
-        parts.push(...section('Resource', [row('Type', value.resource_type ?? '')]));
-        parts.push(...section('Fields', Object.entries(fields).map(([key, field]) => {
-          const reference = typeof field === 'string' && /^\$(var|res):/.test(field);
-          return row(key, SENSITIVE.test(key) && !reference ? '••••••' : display(field));
-        })));
-        break;
-      }
-      case 'variable':
-        parts.push(...section('Variable', [row('Secret', item.isSecret ? 'yes' : 'no'), row('Value', 'Not shown here')]));
-        break;
-      default:
-        parts.push(...section('Details', scalarRows(typeof value === 'object' ? value : {}, new Set(['files', 'runnables']))));
-    }
-    body.replaceChildren(...parts);
-  }
-
   // ---------------------------------------------------------------- dispatch
 
   function onResult(result) {
     const meta = result?._meta ?? {};
-    if (meta['windmill/diff']) return renderDiff(meta['windmill/diff'], result);
-    if (meta['windmill/item']) return renderItem(meta['windmill/item'], result);
     if (meta['windmill/run']) return onRun(meta['windmill/run']);
     // A poll that failed (the job read erred) keeps the run's last state and tries again.
     if (!run?.id) renderText(result ?? {});
@@ -694,6 +530,12 @@
     if (context.theme) document.documentElement.dataset.theme = context.theme;
     for (const [name, value] of Object.entries(context.styles?.variables ?? {})) {
       if (value) document.documentElement.style.setProperty(name, value);
+    }
+    // The host's `@font-face` rules for the fonts its `--font-*` variables name.
+    const fonts = context.styles?.css?.fonts;
+    if (fonts) {
+      const style = document.getElementById('host-fonts') ?? document.head.appendChild(el('style', { id: 'host-fonts' }));
+      style.textContent = fonts;
     }
   }
 
