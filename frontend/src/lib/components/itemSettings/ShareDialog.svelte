@@ -350,7 +350,8 @@
 								open it.
 							{:else}
 								This app runs on behalf of {runAs}. Deploy it so it runs on behalf of you, then
-								change who can open it.
+								change who can open it. An admin or a member of <code>wm_deployers</code> can change
+								it without taking the app over.
 							{/if}
 						</span>
 					{/if}
