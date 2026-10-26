@@ -738,12 +738,14 @@
 							initialAttachments={armedAtInit ? undefined : getSessionDraftAttachments(sessionId)}
 							onAttachmentsChange={(a) => setSessionDraftAttachments(sessionId, a)}
 							placeholder={composerPlaceholder}
-							forceDisabled={isUnavailable || !!session.archived}
+							forceDisabled={isUnavailable || !!session.archived || moving}
 							forceDisabledMessage={isUnavailable
 								? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
 								: session.archived
 									? 'This session is archived. Unarchive it from the banner above to keep working.'
-									: ''}
+									: moving
+										? `Moving this session to ${moveRequest?.targetName ?? 'the fork'}…`
+										: ''}
 							starter={opensSession
 								? { where: 'session', suggestions: starterPrompts.suggestions }
 								: undefined}

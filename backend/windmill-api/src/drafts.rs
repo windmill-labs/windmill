@@ -1089,8 +1089,10 @@ async fn transfer_drafts(
 
     let mut tx = db.begin().await?;
     // Holds off a concurrent save of these rows, so the version removed below is the one copied.
+    // A requested key with no row takes no lock and a draft saved there meanwhile skips the
+    // checks below, so everything after this works on the locked keys only.
     let source_rows = sqlx::query!(
-        r#"SELECT typ AS "typ: UserDraftItemKind", value::text AS "value!" FROM draft
+        r#"SELECT typ AS "typ: UserDraftItemKind", path, value::text AS "value!" FROM draft
            WHERE workspace_id = $1 AND email = $2
              AND (typ::text, path) IN (SELECT * FROM unnest($3::text[], $4::text[]))
            FOR UPDATE"#,
@@ -1101,6 +1103,12 @@ async fn transfer_drafts(
     )
     .fetch_all(&mut *tx)
     .await?;
+    let locked: Vec<(UserDraftItemKind, String)> = source_rows
+        .iter()
+        .map(|r| (r.typ, r.path.clone()))
+        .collect();
+    let locked_kinds: Vec<&str> = locked.iter().map(|(k, _)| k.as_str()).collect();
+    let locked_paths: Vec<&str> = locked.iter().map(|(_, p)| p.as_str()).collect();
     let mut copied = vec![];
     if let (Some(target), Some(target_authed)) =
         (req.target_workspace.as_deref(), target_authed.as_ref())
@@ -1131,8 +1139,8 @@ async fn transfer_drafts(
                FOR UPDATE"#,
             target,
             &authed.email,
-            &kinds as &[&str],
-            &paths as &[&str],
+            &locked_kinds as &[&str],
+            &locked_paths as &[&str],
         )
         .fetch_all(&mut *tx)
         .await?;
@@ -1148,7 +1156,7 @@ async fn transfer_drafts(
             &w_id,
             target,
             &authed.email,
-            Some(&items),
+            Some(&locked),
         )
         .await?;
     }
@@ -1162,8 +1170,8 @@ async fn transfer_drafts(
                RETURNING typ AS "typ: UserDraftItemKind", path"#,
             &w_id,
             &authed.email,
-            &kinds as &[&str],
-            &paths as &[&str],
+            &locked_kinds as &[&str],
+            &locked_paths as &[&str],
         )
         .fetch_all(&mut *tx)
         .await?

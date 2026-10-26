@@ -93,15 +93,22 @@ export async function moveSessionToFork(
 ): Promise<MoveSessionResult> {
 	const unsaved = await flushPendingSaves(parent)
 	if (unsaved) return { ok: false, error: unsaved }
-	if (opts.isBusy?.()) return { ok: false, error: 'A chat turn is running. Retry once it ends.' }
+	const busy = 'A chat turn is running. Retry once it ends.'
+	if (opts.isBusy?.()) return { ok: false, error: busy }
 
 	let fork: Extract<MoveTarget, { kind: 'existing' }>
 	if (target.kind === 'new') {
 		const made = await materializeForkOutcome(target.fork)
 		if (!made) return { ok: false, error: 'Could not create the fork' }
 		fork = { kind: 'existing', id: made.id, replace: made.created }
+		// Creating the fork takes seconds, long enough for a job's auto-resume to start a turn.
+		if (opts.isBusy?.()) return { ok: false, error: busy, retry: fork }
 	} else {
 		fork = target
+		// An editor open in the fork may hold edits not yet saved. Saved now, they become the
+		// conflict they are; still parked, they would land on top of the moved draft later.
+		const unsavedThere = await flushPendingSaves(fork.id)
+		if (unsavedThere) return { ok: false, error: unsavedThere, retry: fork }
 	}
 
 	let copied = 0
