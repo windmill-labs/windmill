@@ -337,7 +337,20 @@
     "auth_url": "https://www.linkedin.com/oauth/v2/authorization",
     "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
     "grant_types": ["authorization_code", "client_credentials"],
-    "scopes": ["w_member_social", "r_liteprofile", "r_emailaddress"],
+    "scopes": ["openid", "profile", "email", "w_member_social"],
+    "scope_options": [
+      "openid",
+      "profile",
+      "email",
+      "w_member_social",
+      "r_member_social",
+      "w_organization_social",
+      "r_organization_social",
+      "r_organization_admin",
+      "rw_organization_admin",
+      "r_ads",
+      "r_basicprofile"
+    ],
     "req_body_auth": true
   },
   "quickbooks": {

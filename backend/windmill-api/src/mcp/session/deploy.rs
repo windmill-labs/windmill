@@ -268,11 +268,16 @@ async fn deploy_variable(
         || draft.get("is_oauth") == Some(&Value::Bool(true))
         || non_null(draft.get("account")).is_some();
     let keep_stored = protected && stages_no_value;
-    let body = if keep_stored {
+    let mut body = if keep_stored {
         without(draft, &["value"])
     } else {
         draft.clone()
     };
+    // The draft holds the full variable, so an absent expiry was cleared, while the update
+    // endpoint reads an absent one as unchanged.
+    if let Some(body) = body.as_object_mut() {
+        body.entry("value_valid_until").or_insert(Value::Null);
+    }
     ctx.post(
         &ctx.ws(&format!("variables/update/{}", path_enc(path))),
         body,

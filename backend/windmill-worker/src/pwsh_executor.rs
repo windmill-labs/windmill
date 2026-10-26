@@ -9,9 +9,7 @@ use windmill_common::error::Error;
 use windmill_common::scripts::ScriptLang;
 use windmill_common::worker::{to_raw_value, write_file, Connection};
 use windmill_common::workspace_dependencies::clean_lock_from_annotations;
-use windmill_queue::{
-    append_logs, CanceledBy, MiniPulledJob, INIT_SCRIPT_PATH_PREFIX, PERIODIC_SCRIPT_PATH_PREFIX,
-};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
@@ -690,15 +688,9 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
     let _ = write_file(job_dir, "result.out", "")?;
     let _ = write_file(job_dir, "result2.out", "")?;
 
-    // Check if this is a regular job (not init or periodic script)
-    // Init/periodic scripts need full system access without isolation
-    let is_regular_job = job
-        .runnable_path
-        .as_ref()
-        .map(|x| {
-            !x.starts_with(INIT_SCRIPT_PATH_PREFIX) && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
-        })
-        .unwrap_or(true);
+    // Init/periodic scripts need full system access without isolation; see
+    // `MiniPulledJob::is_worker_own_script`.
+    let is_regular_job = !job.is_worker_own_script();
 
     let nsjail = is_sandboxing_enabled() && is_regular_job;
     let child = if nsjail {
