@@ -83,9 +83,13 @@
 	})
 
 	let enabled = $derived(required || !!email)
-	let chosenUser = $derived(permissionedAs ?? email ?? 'the chosen user')
 	let deployPermissionedAs = $derived(
 		enabled ? deployedPermissionedAs(actingUser, permissionedAs, folderDefault) : undefined
+	)
+	// Whoever cannot keep another user's identity deploys the item as themselves.
+	let chosenUser = $derived(
+		(canPreserve ? (permissionedAs ?? email ?? folderDefault) : deployPermissionedAs) ??
+			'the chosen user'
 	)
 	let willChange = $derived(
 		!isNew &&

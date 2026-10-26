@@ -1030,6 +1030,9 @@
 				// the version we just wrote.
 				script.parent_hash = newHash
 			}
+			// Settings shows the deployed run-as user while the editor stays open, a session's
+			// included: read the version just written.
+			void deployedItem.refetch()
 			// Always notify on a successful deploy; the consumer decides whether to
 			// navigate (route) or stay + sync the preview (session). Previously the
 			// stay/lib branch skipped onDeploy, so session previews didn't sync after
