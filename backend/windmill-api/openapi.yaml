@@ -31550,6 +31550,12 @@ components:
           type: boolean
         success:
           type: boolean
+        args:
+          description: >
+            the run's args, or "WINDMILL_TOO_BIG" when too large to inline; set in the history
+            for a run in progress and for the runs of an opened group (`top_run`), null otherwise
+        is_preview:
+          type: boolean
         started_by:
           $ref: "#/components/schemas/RunStartedBy"
         trigger_kind:

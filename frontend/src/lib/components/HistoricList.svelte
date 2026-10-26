@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { InputService, type Job, type RunnableType, type RunStartedBy } from '$lib/gen'
+	import {
+		InputService,
+		type Input,
+		type Job,
+		type RunnableType,
+		type RunStartedBy
+	} from '$lib/gen'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { ChevronDown, ChevronRight, ExternalLink, Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -19,8 +25,7 @@
 		shortId,
 		shortPath,
 		startedByIcon,
-		topRunIcon,
-		type HistoryEntry
+		topRunIcon
 	} from './runHistory'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -92,7 +97,7 @@
 	}
 
 	/** What a refresh compares to tell that an entry changed, a running run finishing included. */
-	function summary(entry: HistoryEntry): string {
+	function summary(entry: Input): string {
 		const g = entry.group
 		const top = entry.top_run
 		return [
@@ -108,7 +113,7 @@
 		].join()
 	}
 
-	async function withPayload(input: HistoryEntry) {
+	async function withPayload(input: Input) {
 		if (isGroupEntry(input)) {
 			return input
 		}
@@ -155,7 +160,7 @@
 				includePreview: true,
 				startedBy: categorized ? startedBy?.join(',') : undefined,
 				args: searchArgs ? JSON.stringify(searchArgs) : undefined
-			})) as HistoryEntry[]
+			})) as Input[]
 
 			const inputsWithPayload = await Promise.all(inputs.map(withPayload))
 			for (const entry of inputs) {
@@ -171,7 +176,7 @@
 		infiniteList?.setLoader(loadInputsPageFn)
 	}
 
-	async function loadGroup(entry: HistoryEntry) {
+	async function loadGroup(entry: Input) {
 		openGroups[entry.id] = {
 			loading: true,
 			runs: openGroups[entry.id]?.runs ?? [],
@@ -185,7 +190,7 @@
 				startedBy: startedBy?.join(','),
 				topRun: entry.top_run?.id ?? entry.id,
 				args: searchArgs ? JSON.stringify(searchArgs) : undefined
-			})) as HistoryEntry[]
+			})) as Input[]
 			if (!openGroups[entry.id]) {
 				return
 			}
@@ -212,7 +217,7 @@
 		}
 	}
 
-	function toggleGroup(entry: HistoryEntry) {
+	function toggleGroup(entry: Input) {
 		if (openGroups[entry.id]) {
 			delete openGroups[entry.id]
 		} else {

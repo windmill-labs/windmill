@@ -4,8 +4,6 @@ import BarsStaggered from './icons/BarsStaggered.svelte'
 import { triggerDisplayNamesMap, triggerIconMapMono } from './triggers/utils'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 
-export type HistoryEntry = Input & { args?: unknown; is_preview?: boolean }
-
 export const TOP_LEVEL_CATEGORIES: RunStartedBy[] = [
 	'manual',
 	'api',
@@ -73,7 +71,7 @@ const HANDLER_LABELS: Record<string, string> = {
 
 /** Icon and tooltip for how a run started. Manual runs and previews have none: the first is
  * the common case and the second keeps its "P" badge. */
-export function startedByIcon(run: HistoryEntry): { icon: any; title: string } | undefined {
+export function startedByIcon(run: Input): { icon: any; title: string } | undefined {
 	switch (run.started_by) {
 		case 'api':
 			return { icon: triggerIconMapMono.webhook, title: 'Started through the API' }
@@ -114,7 +112,7 @@ export function topRunIcon(top: InputTopRun): { icon: any; title: string } | und
 }
 
 /** What an inner row shows where a top-level run shows its author. */
-export function innerRunLabel(run: HistoryEntry): string {
+export function innerRunLabel(run: Input): string {
 	if (run.retry != undefined) return `Retry ${run.retry}`
 	switch (run.started_by) {
 		case 'flow_step':
@@ -145,7 +143,7 @@ export function shortId(id: string): string {
 }
 
 /** Text for the runs an entry holds besides itself: "+2 retries", "+1 handler", "+3 runs". */
-export function innerRunsLabel(entry: HistoryEntry): string | undefined {
+export function innerRunsLabel(entry: Input): string | undefined {
 	const group = entry.group
 	if (!group || group.runs === 0) return undefined
 	const plus = group.complete ? '' : '+'
@@ -166,7 +164,7 @@ export function innerRunsLabel(entry: HistoryEntry): string | undefined {
 
 /** A history entry standing for several runs inside another top-level run, opened rather
  * than selected. */
-export function isGroupEntry(entry: HistoryEntry): boolean {
+export function isGroupEntry(entry: Input): boolean {
 	return !!entry.group && !!entry.top_run
 }
 
