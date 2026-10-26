@@ -113,7 +113,8 @@
 			return input
 		}
 		const isPreview = !!input.is_preview
-		if (cachedArgs[input.id]) {
+		// A preprocessor replaces the args of a run in progress: only a completed run's are cached.
+		if (!input.running && cachedArgs[input.id]) {
 			return { ...input, payloadData: cachedArgs[input.id] }
 		}
 		const payloadData = await loadArgsFromHistory(input.id, undefined, false, isPreview)
@@ -124,8 +125,15 @@
 				getFullPayload: () => loadArgsFromHistory(input.id, undefined, true, isPreview)
 			}
 		}
-		cachedArgs[input.id] = payloadData
+		if (!input.running) {
+			cachedArgs[input.id] = payloadData
+		}
 		return { ...input, payloadData }
+	}
+
+	/** A refresh replaces a row when this changes: its status, or the args of a run in progress. */
+	function rowKey(item: any): string {
+		return `${item.id}:${summary(item)}:${item.running ? JSON.stringify(item.payloadData) : ''}`
 	}
 
 	function initLoadInputs() {
@@ -186,7 +194,9 @@
 							getFullPayload: () => loadArgsFromHistory(run.id, undefined, true)
 						}
 					}
-					cachedArgs[run.id] = run.args
+					if (!run.running) {
+						cachedArgs[run.id] = run.args
+					}
 					return { ...run, payloadData: run.args }
 				})
 			}
@@ -253,7 +263,7 @@
 	bind:this={infiniteList}
 	bind:loading={listLoading}
 	selectedItemId={selected}
-	itemKey={(item) => `${item.id}:${summary(item)}`}
+	itemKey={rowKey}
 	on:error
 	on:select={(e) => onSelect(e.detail)}
 >
