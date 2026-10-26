@@ -948,6 +948,10 @@ pub struct AgentTool {
     /// Flow module and MCP tools only.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub requires_approval: bool,
+    /// The agent is answered as soon as the tool's job starts, and gets its result in a later
+    /// message once it finishes. Only a flow module tool can run in the background.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub background: bool,
     pub value: ToolValue,
 }
 
