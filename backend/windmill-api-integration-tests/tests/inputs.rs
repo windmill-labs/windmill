@@ -285,7 +285,8 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     .await?;
     insert_run(&db, Run { path: "f/test/long", at: 14, ..Run::default() }).await?;
 
-    // test-user-2 can read the runs of its own script, not the flow run they are steps of.
+    // test-user-2 can read the runs of its own script, not the flow run they are steps of nor
+    // that flow's loop container.
     let private_flow = insert_run(
         &db,
         Run { kind: "flow", path: "u/test-user/private_flow", at: 15, ..Run::default() },
@@ -301,6 +302,50 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
             innermost_root: Some(private_flow),
             flow_step_id: Some("a"),
             at: 16,
+            ..Run::default()
+        },
+    )
+    .await?;
+    let container = insert_run(
+        &db,
+        Run {
+            kind: "flownode",
+            path: "u/test-user/private_flow/loop-0",
+            parent_job: Some(private_flow),
+            innermost_root: Some(private_flow),
+            at: 17,
+            ..Run::default()
+        },
+    )
+    .await?;
+    let mut in_loop = vec![];
+    for at in [18, 19] {
+        let run = Run {
+            path: "u/test-user-2/helper",
+            permissioned_as: "u/test-user-2",
+            parent_job: Some(container),
+            innermost_root: Some(private_flow),
+            flow_step_id: Some("b"),
+            at,
+            ..Run::default()
+        };
+        in_loop.push(insert_run(&db, run).await?);
+    }
+
+    // A flow sharing the script's path: its step is a flow step, not a run the parent lists.
+    let same_path_flow = insert_run(
+        &db,
+        Run { kind: "flow", path: STEP, at: 20, ..Run::default() },
+    )
+    .await?;
+    let same_path_step = insert_run(
+        &db,
+        Run {
+            path: STEP,
+            parent_job: Some(same_path_flow),
+            innermost_root: Some(same_path_flow),
+            flow_step_id: Some("a"),
+            at: 21,
             ..Run::default()
         },
     )
@@ -346,15 +391,17 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     let all = history(format!("&started_by={everything}")).await?;
     assert_eq!(
         ids(&all),
-        [handler, call, flow, scheduled, manual].map(|id| id.to_string())
+        [same_path_step, handler, call, flow, scheduled, manual].map(|id| id.to_string())
     );
     assert!(!ids(&all).contains(&wac_task.to_string()));
-    assert_eq!(all[0]["started_by"], "handler");
-    assert_eq!(all[0]["top_run"]["id"], failing.to_string());
-    assert_eq!(all[1]["started_by"], "script_call");
-    assert_eq!(all[1]["parent_path"], "f/test/caller");
-    assert_eq!(all[2]["group"]["runs"], 2);
-    assert_eq!(all[2]["top_run"]["path"], "f/test/flow");
+    assert_eq!(all[0]["started_by"], "flow_step");
+    assert_eq!(all[0]["top_run"]["id"], same_path_flow.to_string());
+    assert_eq!(all[1]["started_by"], "handler");
+    assert_eq!(all[1]["top_run"]["id"], failing.to_string());
+    assert_eq!(all[2]["started_by"], "script_call");
+    assert_eq!(all[2]["parent_path"], "f/test/caller");
+    assert_eq!(all[3]["group"]["runs"], 2);
+    assert_eq!(all[3]["top_run"]["path"], "f/test/flow");
 
     let tools = history("&started_by=agent_tool".to_string()).await?;
     assert_eq!(ids(&tools), [tool.to_string()]);
@@ -378,14 +425,16 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     assert_eq!(ids(&first), [long_running.to_string()]);
     assert_eq!(first[0]["running"], true);
 
-    let steps = fetch(
-        "SECRET_TOKEN_2",
-        "&runnable_id=u/test-user-2/helper&started_by=flow_step".to_string(),
-    )
-    .await?;
-    assert_eq!(ids(&steps), [own_step.to_string()]);
-    assert_eq!(steps[0]["top_run"]["id"], private_flow.to_string());
+    let helper = "&runnable_id=u/test-user-2/helper&started_by=flow_step";
+    let steps = fetch("SECRET_TOKEN_2", helper.to_string()).await?;
+    assert_eq!(ids(&steps), [private_flow.to_string()]);
     assert!(steps[0]["top_run"].get("path").is_none());
+    assert_eq!(steps[0]["group"]["runs"], 3);
+    let opened = fetch("SECRET_TOKEN_2", format!("{helper}&top_run={private_flow}")).await?;
+    assert_eq!(
+        ids(&opened),
+        [own_step, in_loop[0], in_loop[1]].map(|id| id.to_string())
+    );
 
     Ok(())
 }

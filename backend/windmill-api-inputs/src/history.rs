@@ -15,6 +15,7 @@ use sqlx::{types::Uuid, FromRow, Postgres, Transaction};
 use windmill_common::{
     error::{Error, Result},
     jobs::JobKind,
+    DB,
 };
 
 use crate::{singlestepflow_filter, Input, RunnableType};
@@ -188,12 +189,21 @@ fn own_category(prefix: &str) -> String {
     )
 }
 
+/// Kinds of a parent whose runs of the same path are listed through it: a workflow-as-code
+/// script's tasks, under a run or an editor preview of the script, and a single-step-flow
+/// wrapper's inner run. A flow or an agent may share the path and is another runnable.
+fn listed_through_parent(runnable_type: &RunnableType) -> &'static str {
+    match runnable_type {
+        RunnableType::FlowPath => "('singlestepflow')",
+        _ => "('script', 'preview', 'singlestepflow')",
+    }
+}
+
 /// Lateral subquery `x` over the run `s` (with `s.own_category`): its full category, retry
-/// attempt, parent path, whether its first attempt is top-level, and whether it is hidden.
-/// A run whose parent shares its path is a workflow-as-code task or the inner run of a
-/// single-step-flow wrapper, both already listed through that parent. A parent that row-level
-/// security hides from the viewer reads as NULL, and the run must stay listed.
-fn classify_inside() -> String {
+/// attempt, parent path, whether its first attempt is top-level, and whether it is hidden
+/// because its parent lists it ([`listed_through_parent`]). A parent that row-level security
+/// hides from the viewer reads as NULL, and the run must stay listed.
+fn classify_inside(runnable_type: &RunnableType) -> String {
     format!(
         "CROSS JOIN LATERAL (\
             SELECT ra.attempt AS retry, p.runnable_path AS parent_path, \
@@ -210,6 +220,7 @@ fn classify_inside() -> String {
                         WHEN p.kind = 'aiagent' THEN 'agent_tool' \
                         ELSE 'script_call' END AS started_by, \
                    ra.attempt IS NULL AND p.runnable_path IS NOT DISTINCT FROM $1 \
+                       AND p.kind IN {parent_kinds} \
                        AND s.own_category IS DISTINCT FROM 'handler' AS hidden \
             FROM (SELECT 1) one \
             LEFT JOIN v2_job p ON p.id = s.parent_job AND p.workspace_id = $2 \
@@ -218,7 +229,29 @@ fn classify_inside() -> String {
         ) x",
         parent_top_level = top_level_category("p."),
         parent_handler = is_handler("p."),
+        parent_kinds = listed_through_parent(runnable_type),
     )
+}
+
+/// Joins `a1` to `a4` for the run `{first}`, the run a run inside others names first among its
+/// root, innermost root and parent: `a1` is that run, and each next one the run its predecessor
+/// names, as far as the viewer can read. The top-level run is the last one reached, or `{first}`
+/// when the viewer cannot read it.
+fn walk_up(first: &str) -> String {
+    let hop = |alias: &str, id: &str| {
+        format!(
+            "LEFT JOIN LATERAL (SELECT id, created_at, \
+                    COALESCE(root_job, flow_innermost_root_job, parent_job) AS nxt \
+                FROM v2_job WHERE id = {id} AND workspace_id = $2) {alias} ON true"
+        )
+    };
+    [
+        hop("a1", first),
+        hop("a2", "a1.nxt"),
+        hop("a3", "a2.nxt"),
+        hop("a4", "a3.nxt"),
+    ]
+    .join(" ")
 }
 
 /// Lateral subquery `st` over the run `{alias}`: completion or, while it runs, queue state.
@@ -453,14 +486,7 @@ async fn list_page(
         tops AS (\
             SELECT f.first, COALESCE(a4.id, a3.id, a2.id, a1.id, f.first) AS top, \
                    COALESCE(a4.created_at, a3.created_at, a2.created_at, a1.created_at) AS top_created_at \
-            FROM firsts f \
-            LEFT JOIN LATERAL (SELECT id, created_at, COALESCE(root_job, flow_innermost_root_job, parent_job) AS nxt \
-                               FROM v2_job WHERE id = f.first AND workspace_id = $2) a1 ON true \
-            LEFT JOIN LATERAL (SELECT id, created_at, COALESCE(root_job, flow_innermost_root_job, parent_job) AS nxt \
-                               FROM v2_job WHERE id = a1.nxt AND workspace_id = $2) a2 ON true \
-            LEFT JOIN LATERAL (SELECT id, created_at, COALESCE(root_job, flow_innermost_root_job, parent_job) AS nxt \
-                               FROM v2_job WHERE id = a2.nxt AND workspace_id = $2) a3 ON true \
-            LEFT JOIN LATERAL (SELECT id, created_at FROM v2_job WHERE id = a3.nxt AND workspace_id = $2) a4 ON true\
+            FROM firsts f {walk_up}\
         ), \
         inside_keyed AS (\
             SELECT r.*, t.top, t.top_created_at \
@@ -550,17 +576,22 @@ async fn list_page(
         root_state = run_state("j"),
         own_category = own_category(""),
         inside_kind = inside_kind(q.runnable_type),
-        classify = classify_inside(),
+        classify = classify_inside(q.runnable_type),
         inside_state = run_state("s"),
+        walk_up = walk_up("f.first"),
     );
 
+    // Entries are ordered by completion but the top-level window is read by creation: twice the
+    // runs a page needs, as the plain history reads, keeps a run that started before the newer
+    // ones and has just finished.
+    let root_window = 2 * needed;
     let rows = sqlx::query_as::<_, EntryRow>(&sql)
         .bind(q.path)
         .bind(q.w_id)
         .bind(root_kinds)
         .bind(root_categories.as_slice())
         .bind(inside_categories.as_slice())
-        .bind(needed)
+        .bind(root_window)
         .bind(inside_window)
         .bind(CAP)
         .bind(offset as i64)
@@ -677,19 +708,55 @@ struct InsideRow {
 }
 
 /// The runs of the runnable inside the top-level run `top_run`, in execution order, with their
-/// args (or `"WINDMILL_TOO_BIG"`), since an opened group shows them all at once.
+/// args (or `"WINDMILL_TOO_BIG"`), since an opened group shows them all at once. These are the
+/// runs [`list`] groups under `top_run`: the walk up from each ends there.
 pub(crate) async fn list_inside(
+    db: &DB,
     tx: &mut Transaction<'static, Postgres>,
     q: &HistoryQuery<'_>,
     top_run: Uuid,
 ) -> Result<Vec<Input>> {
+    // The walk down reads past row-level security: a loop container or subflow the viewer
+    // cannot read must not cut off the runs below it that the viewer can. Only ids come out
+    // of it; the runs are read below under the viewer's own permissions.
+    let mut admin_tx = db.begin().await?;
+    sqlx::query("SET LOCAL jit = off")
+        .execute(&mut *admin_tx)
+        .await?;
+    let ids = sqlx::query_scalar::<_, Uuid>(&format!(
+        "WITH RECURSIVE inside(id, created_at, candidate) AS (\
+            SELECT id, created_at, runnable_path = $3 AND kind = {inside_kind} \
+            FROM v2_job WHERE parent_job = $1 AND workspace_id = $2 \
+            UNION \
+            SELECT j.id, j.created_at, j.runnable_path = $3 AND j.kind = {inside_kind} \
+            FROM v2_job j JOIN inside i ON j.parent_job = i.id WHERE j.workspace_id = $2\
+        ) \
+        SELECT id FROM inside WHERE candidate ORDER BY created_at LIMIT $4",
+        inside_kind = inside_kind(q.runnable_type),
+    ))
+    .bind(top_run)
+    .bind(q.w_id)
+    .bind(q.path)
+    .bind(CAP)
+    .fetch_all(&mut *admin_tx)
+    .await?;
+    admin_tx.commit().await?;
+
     let categories: Vec<&str> = q.started_by.iter().map(|c| c.as_str()).collect();
     let sql = format!(
-        "WITH RECURSIVE inside(id, depth) AS (\
-            SELECT id, 1 FROM v2_job WHERE parent_job = $4 AND workspace_id = $2 \
-            UNION ALL \
-            SELECT j.id, i.depth + 1 FROM v2_job j JOIN inside i ON j.parent_job = i.id \
-            WHERE i.depth < 10 AND j.workspace_id = $2\
+        "WITH runs AS (\
+            SELECT id, created_at, created_by, trigger_kind, trigger, parent_job, root_job, \
+                   flow_innermost_root_job, flow_step_id, script_entrypoint_override, args, \
+                   {own_category} AS own_category \
+            FROM v2_job \
+            WHERE id = ANY($7) AND workspace_id = $2 AND runnable_path = $1 \
+              AND kind = {inside_kind}\
+        ), \
+        tops AS (\
+            SELECT f.first, COALESCE(a4.id, a3.id, a2.id, a1.id, f.first) AS top \
+            FROM (SELECT DISTINCT COALESCE(root_job, flow_innermost_root_job, parent_job) AS first \
+                  FROM runs) f \
+            {walk_up}\
         ) \
         SELECT s.id, s.created_by, s.trigger_kind::text AS trigger_kind, s.trigger, \
                s.flow_step_id, x.retry, \
@@ -698,25 +765,20 @@ pub(crate) async fn list_inside(
                COALESCE(st.completed_at, st.started_at, s.created_at) AS time, \
                CASE WHEN pg_column_size(s.args) < 40000 THEN COALESCE(s.args, '{{}}'::jsonb) \
                     ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END AS args \
-        FROM inside i \
-        JOIN (\
-            SELECT id, created_at, created_by, kind, runnable_path, trigger_kind, trigger, \
-                   parent_job, flow_innermost_root_job, flow_step_id, script_entrypoint_override, \
-                   args, {own_category} AS own_category \
-            FROM v2_job\
-        ) s ON s.id = i.id \
+        FROM runs s \
+        JOIN tops t ON t.first = COALESCE(s.root_job, s.flow_innermost_root_job, s.parent_job) \
         {classify} \
         {state} \
-        WHERE s.runnable_path = $1 AND s.kind = {inside_kind} \
-          AND s.script_entrypoint_override IS NULL \
+        WHERE t.top = $4 AND s.script_entrypoint_override IS NULL \
           AND ($6::jsonb IS NULL OR s.args @> $6::jsonb) \
           AND NOT x.hidden AND x.started_by = ANY($3) AND {STARTED} \
         ORDER BY s.created_at \
         LIMIT $5",
         own_category = own_category(""),
-        classify = classify_inside(),
-        state = run_state("s"),
         inside_kind = inside_kind(q.runnable_type),
+        walk_up = walk_up("f.first"),
+        classify = classify_inside(q.runnable_type),
+        state = run_state("s"),
     );
     let rows = sqlx::query_as::<_, InsideRow>(&sql)
         .bind(q.path)
@@ -725,6 +787,7 @@ pub(crate) async fn list_inside(
         .bind(top_run)
         .bind(INSIDE_RUNS_LIMIT)
         .bind(q.args.as_ref())
+        .bind(ids.as_slice())
         .fetch_all(&mut **tx)
         .await?;
     Ok(rows
