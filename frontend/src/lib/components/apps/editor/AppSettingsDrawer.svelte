@@ -518,7 +518,8 @@
 										<div class="text-xs text-secondary">
 											{#if runsAsAnotherForCaller}
 												This app runs on behalf of <strong>{deployedRunsAs}</strong>. Deploy it so
-												it runs on behalf of you, then change who can open it.
+												it runs on behalf of you, then change who can open it. An admin or a member
+												of <code>wm_deployers</code> can change it without taking the app over.
 											{:else}
 												This app is not sandboxed yet. Deploy it so it is sandboxed, then change who
 												can open it.
