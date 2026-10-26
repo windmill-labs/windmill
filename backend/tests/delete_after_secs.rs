@@ -90,3 +90,56 @@ async fn test_schedule_job_deletion_is_idempotent(db: Pool<Postgres>) -> anyhow:
 
     Ok(())
 }
+
+// A loop iteration's root_job is stored NULL, so this pins that the flow-level setting reaches
+// jobs nested below the flow, and that the flow's own result stays cleared.
+#[cfg(feature = "enterprise")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_level_delete_clears_every_job_of_the_run(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_common::jobs::JobPayload;
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let flow = serde_json::from_value(serde_json::json!({
+        "delete_after_secs": 0,
+        "modules": [{
+            "id": "loop",
+            "value": {
+                "type": "forloopflow",
+                "iterator": { "type": "static", "value": [1, 2] },
+                "skip_failures": false,
+                "parallel": false,
+                "modules": [{ "id": "inner", "value": { "type": "identity" } }]
+            }
+        }]
+    }))?;
+    let flow_job =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .arg("x", serde_json::json!("secret"))
+            .run_until_complete(&db, false, server.addr.port())
+            .await;
+
+    let kept = sqlx::query_scalar::<_, String>(
+        "WITH RECURSIVE run AS (
+            SELECT id FROM v2_job WHERE id = $1
+            UNION ALL
+            SELECT j.id FROM v2_job j JOIN run r ON j.parent_job = r.id
+        )
+        SELECT COALESCE(j.flow_step_id, 'flow') || ' ' || j.args::text || ' ' || c.result::text
+        FROM run JOIN v2_job j USING (id) JOIN v2_job_completed c USING (id)
+        WHERE j.args <> '{}'::jsonb OR c.result <> '{}'::jsonb",
+    )
+    .bind(flow_job.id)
+    .fetch_all(&db)
+    .await?;
+    let nb_jobs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM v2_job WHERE parent_job = $1")
+        .bind(flow_job.id)
+        .fetch_one(&db)
+        .await?;
+
+    assert!(nb_jobs > 0, "the flow should have run steps");
+    assert!(kept.is_empty(), "jobs that kept args or result: {kept:?}");
+    Ok(())
+}
