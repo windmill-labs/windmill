@@ -1850,6 +1850,7 @@ pub(super) async fn show_runs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 /// Result head the run card shows; the full result is one click away on the run page.
 const CARD_RESULT_CHARS: usize = 1500;
 const CARD_STEP_RESULT_CHARS: usize = 300;
+const CARD_ARGS_CHARS: usize = 4000;
 const CARD_LOG_CHARS: usize = 3000;
 
 /// Hand the run card the run `id`, read as `job` (`None` while it is still running), with
@@ -1956,6 +1957,18 @@ fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
                 run.insert("result_cut".into(), true.into());
             }
             run.insert("result".into(), head.into());
+        }
+        // The arguments it ran with, as the model reads them in `get_run`; past the card's
+        // size the run page has them.
+        if let Some(args) = job
+            .get("args")
+            .filter(|a| a.as_object().is_some_and(|o| !o.is_empty()))
+        {
+            if js_len(&args.to_string()) <= CARD_ARGS_CHARS {
+                run.insert("args".into(), args.clone());
+            } else {
+                run.insert("args_cut".into(), true.into());
+            }
         }
         // 1-based, of how many: `step` already points past the last module once it is done.
         let status = &job["flow_status"];
