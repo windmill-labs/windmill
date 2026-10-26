@@ -820,6 +820,13 @@
 		storeLocalSetting(FLAT_LIST_SETTING_NAME, v ? 'true' : undefined)
 	}
 
+	const HIDE_EMPTY_FOLDERS_SETTING_NAME = 'homeHideEmptyFolders'
+	let hideEmptyFolders = $state(getLocalSetting(HIDE_EMPTY_FOLDERS_SETTING_NAME) == 'true')
+	function setHideEmptyFolders(v: boolean) {
+		hideEmptyFolders = v
+		storeLocalSetting(HIDE_EMPTY_FOLDERS_SETTING_NAME, v ? 'true' : undefined)
+	}
+
 	let listSettingsItems: MenuItem[] = $derived([
 		{
 			displayName: 'Flat list',
@@ -851,6 +858,13 @@
 				if (filterUserFolders) delete filterValues.val.only_user_folders
 				else filterValues.val.only_user_folders = true
 			}
+		},
+		{
+			displayName: 'Hide empty folders',
+			description: 'Folders holding nothing you can see',
+			toggle: hideEmptyFolders,
+			hide: !$roleCapabilities.visibility.folders,
+			action: () => setHideEmptyFolders(!hideEmptyFolders)
 		},
 		...sortOptions.map((o, i) => ({
 			displayName: o.label,
@@ -985,6 +999,9 @@
 					: `only f/* and u/${$userStore?.username}`
 			)
 		if (!includeWithoutMain) f.push('library scripts hidden')
+		// Without it, a workspace holding only empty folders reads as empty, and that
+		// placeholder stands the toolbar down, cog menu included, so the toggle can't be undone.
+		if (hideEmptyFolders && treeHasFolders) f.push('empty folders hidden')
 		return f
 	})
 	// Pipeline folders qualify for a chip whenever a pipeline can render: the kind must admit
@@ -1051,13 +1068,16 @@
 	let treeLazyMode = $derived(
 		!flatList && !searching && ownerFilter == undefined && labelFilter == undefined
 	)
-	// Unfiltered, the tree lists every folder, empty ones too, so a workspace holding only
-	// folders is not empty: its first folder is created from here and managed from its row.
-	// A role without the Folders page gets no folder menu, so empty rows would be noise.
-	let keepEmptyFolders = $derived(itemKind === 'all' && $roleCapabilities.visibility.folders)
-	let treeShowsFolders = $derived(
-		treeLazyMode && !archived && keepEmptyFolders && (folderNamesRes.current?.length ?? 0) > 0
+	// Unfiltered, the tree lists every folder, empty ones too unless the user hides them, so a
+	// workspace holding only folders is not empty: its first folder is created from here and
+	// managed from its row. A role without the Folders page gets no folder menu, so empty rows
+	// would be noise.
+	let canShowEmptyFolders = $derived(itemKind === 'all' && $roleCapabilities.visibility.folders)
+	let keepEmptyFolders = $derived(canShowEmptyFolders && !hideEmptyFolders)
+	let treeHasFolders = $derived(
+		treeLazyMode && !archived && canShowEmptyFolders && (folderNamesRes.current?.length ?? 0) > 0
 	)
+	let treeShowsFolders = $derived(treeHasFolders && !hideEmptyFolders)
 	// How many runnables each owner (`f/<folder>` / `u/<user>`) holds for this user,
 	// in one request. It labels every tree node up front — a lazy owner's own count is
 	// unknown until it's expanded — and lets both the tree and the owner chips drop the
