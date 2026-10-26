@@ -1862,6 +1862,11 @@ fn report_run(ctx: &Ctx<'_>, id: &str, job: Option<&Value>, extra: Map<String, V
         "url".into(),
         ctx.page_url(&format!("/run/{}", enc(id))).into(),
     );
+    // `cancel_job` writes: a token that cannot call it gets no Cancel button.
+    run.insert(
+        "can_cancel".into(),
+        matches!(ctx.access, super::SessionAccess::Full).into(),
+    );
     ctx.set_view("windmill/run", Value::Object(run));
 }
 

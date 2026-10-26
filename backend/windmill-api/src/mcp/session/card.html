@@ -536,7 +536,7 @@
       if (run.result_cut && !(clipped && canFullscreen())) more.append(linkButton('Full result in Windmill', run.url));
     }
 
-    $('cancel').hidden = !(running && run?.id);
+    $('cancel').hidden = !(running && run?.id && run.can_cancel);
     $('review').hidden = true;
     $('expand').hidden = !canFullscreen() || fullscreen() || !(run?.step_list?.length || run?.logs);
     renderDetails();

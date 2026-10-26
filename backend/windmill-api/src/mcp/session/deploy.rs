@@ -2047,7 +2047,12 @@ pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResul
         // editor draft keeps apart from the name it is known by.
         let path = row.path.as_str();
         let m = materialize(ctx, &row.kind, path).await;
-        let editor = draft_page(item_type, path, &Value::Null);
+        // An app's draft opens in its own editor: its page shows only the deployed version.
+        let editor = match row.kind.as_str() {
+            "raw_app" => Some(format!("/apps_raw/edit/{path}")),
+            "app" => Some(format!("/apps/edit/{path}")),
+            _ => draft_page(item_type, path, &Value::Null),
+        };
         let has_editor = editor.is_some();
         let page = editor.or_else(|| deployed_page(item_type, &row.display_path, &Value::Null));
         let mut item = json!({

@@ -1432,7 +1432,8 @@ pub(super) async fn show_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let page = match (item_type, opt_str_arg(args, "trigger_kind")) {
         ("trigger", Some("http")) => Some("/routes".to_string()),
         ("trigger", Some(kind)) => Some(format!("/{kind}_triggers")),
-        _ => super::deploy::deployed_page(item_type, path, &Value::Null),
+        // The value tells an AI agent, which has pages of its own, from a resource.
+        _ => super::deploy::deployed_page(item_type, path, &item["value"]),
     };
     let url = |page: Option<String>| page.map(|page| ctx.page_url(&page));
     let edit_url = url(edit_page(item_type, path, &item));
@@ -1456,7 +1457,7 @@ fn edit_page(item_type: &str, path: &str, item: &Value) -> Option<String> {
     match item_type {
         "app" if truthy(item.get("rawApp")) => Some(format!("/apps_raw/edit/{path}")),
         "app" => Some(format!("/apps/edit/{path}")),
-        _ => draft_page(item_type, path, &Value::Null),
+        _ => draft_page(item_type, path, &item["value"]),
     }
 }
 
