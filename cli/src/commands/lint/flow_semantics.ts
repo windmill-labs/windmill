@@ -9,6 +9,12 @@
 // frontend/src/lib/components/flows/agentToolUtils.ts applies the same rules.
 const TOOL_NAME_REGEX = /^[a-zA-Z0-9_]+$/;
 const WEBSEARCH_ENABLED_NAME = "__wm_web_search";
+// The worker's `*_ENABLED_NAME`s: built-in tools, each named by its reserved name.
+const BUILTIN_ENABLED_NAMES = new Set([
+  WEBSEARCH_ENABLED_NAME,
+  "__wm_question",
+]);
+const BUILTIN_TOOL_TYPES = new Set(["websearch", "question"]);
 
 // `forbiddenIds` in frontend/src/lib/components/flows/idUtils.ts.
 const RESERVED_IDS = new Set([
@@ -134,10 +140,10 @@ function checkAgentTools(
   if (!Array.isArray(tools)) return;
   const seen = new Map<string, number>();
   tools.forEach((tool: any, i: number) => {
-    // An mcp entry exposes its server's own tool names and a websearch entry is
-    // named by `WEBSEARCH_ENABLED_NAME`; neither summary reaches the model.
+    // An mcp entry exposes its server's own tool names and a built-in entry is
+    // named by its reserved name; neither summary reaches the model.
     const kind = tool?.value?.tool_type;
-    if (kind === "mcp" || kind === "websearch") return;
+    if (kind === "mcp" || BUILTIN_TOOL_TYPES.has(kind)) return;
     const at = `${agent.pointer}/value/tools/${i}`;
     const name = tool?.summary;
     if (typeof name !== "string" || name.length === 0) {
@@ -152,9 +158,9 @@ function checkAgentTools(
       );
       return;
     }
-    if (name === WEBSEARCH_ENABLED_NAME) {
+    if (BUILTIN_ENABLED_NAMES.has(name)) {
       report.errors.push(
-        `${at} tool name '${name}' is reserved for enabling web search`,
+        `${at} tool name '${name}' is reserved for a built-in tool`,
       );
       return;
     }
