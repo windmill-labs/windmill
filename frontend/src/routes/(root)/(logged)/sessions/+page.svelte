@@ -663,7 +663,16 @@
 	// and the item paths whose deployed version changed. By workspace because a path names an
 	// item only within one: a write in one fork must not remount the same path's editor in a
 	// session on another.
-	let pending = new Map<string, { pages: Set<string>; items: Set<string>; deployed: Set<string> }>()
+	// `live` holds the items a write left to their editor; `forced` the ones another tool in the
+	// same round needs reloaded all the same (a discard after a write), which wins.
+	type ReloadScope = {
+		pages: Set<string>
+		items: Set<string>
+		deployed: Set<string>
+		live: Set<string>
+		forced: Set<string>
+	}
+	let pending = new Map<string, ReloadScope>()
 
 	// Reload the mounted tabs a chat round changed in each warm session acting on that
 	// workspace (a hidden preview would otherwise show pre-mutation content on return).
@@ -675,7 +684,12 @@
 			const owner = getRuntime(s.id)?.previewTabs
 			if (!scope || !owner) continue
 			const affected = [
-				...tabsToReload(owner.tabs, scope.pages, scope.items),
+				...tabsToReload(
+					owner.tabs,
+					scope.pages,
+					scope.items,
+					new Set([...scope.live].filter((u) => !scope.forced.has(u)))
+				),
 				...viewerTabsToReload(owner.tabs, scope.deployed)
 			]
 			for (const tab of affected) {
@@ -687,16 +701,28 @@
 	$effect(() => {
 		// Debounced so a burst of writes (the AI editing several files) reloads once.
 		setToolCompletionListener((name, args, workspace) => {
-			const { pages, items, deployed } = toolReloadEffect(name, args)
+			const { pages, items, deployed, live = [] } = toolReloadEffect(name, args)
 			if (pages.length === 0 && deployed.length === 0) return
 			let scope = pending.get(workspace)
 			if (!scope)
 				pending.set(
 					workspace,
-					(scope = { pages: new Set(), items: new Set(), deployed: new Set() })
+					(scope = {
+						pages: new Set(),
+						items: new Set(),
+						deployed: new Set(),
+						live: new Set(),
+						forced: new Set()
+					})
 				)
+			const liveUrls = new Set(live.map(pageItemUrl))
 			for (const p of pages) scope.pages.add(p)
-			for (const item of items) scope.items.add(pageItemUrl(item))
+			for (const item of items) {
+				const url = pageItemUrl(item)
+				scope.items.add(url)
+				if (liveUrls.has(url)) scope.live.add(url)
+				else scope.forced.add(url)
+			}
 			for (const d of deployed) scope.deployed.add(d)
 			clearTimeout(reloadHandle)
 			reloadHandle = setTimeout(flushReload, 500)

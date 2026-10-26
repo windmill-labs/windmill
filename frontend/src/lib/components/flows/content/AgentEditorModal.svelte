@@ -40,6 +40,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { itemDisplayName } from '$lib/components/sessions/previewRouter'
+	import { UserDraft } from '$lib/userDraft.svelte'
 	import OpenInSessionButton, {
 		type OpenInSessionSource
 	} from '$lib/components/sessions/OpenInSessionButton.svelte'
@@ -127,7 +128,12 @@
 		return {
 			page: () => `${RESOURCES_PATH}#/resource/${path}`,
 			workspaceId: workspace,
-			beforeOpen: () => persistDraftForSession(workspace, 'resource', path)
+			beforeOpen: async () => {
+				await persistDraftForSession(workspace, 'resource', path)
+				// A new agent has no draft row until an edit autosaves one, and the session reads the
+				// agent from the server. Only for one never deployed, which has no baseline to skip.
+				if (draftOnly) await UserDraft.forcePersist('resource', path, { workspace })
+			}
 		}
 	})
 	let host = $state<ReturnType<typeof AgentEditorHost> | undefined>(undefined)

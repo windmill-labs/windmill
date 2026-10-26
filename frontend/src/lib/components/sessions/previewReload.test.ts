@@ -98,16 +98,25 @@ describe('tabsToReload', () => {
 		])
 	})
 
-	it("reloads the resources list on an agent write but never the agent's own editor", () => {
+	it("reloads the resources list on an agent write but not the agent's editor, which a discard does", () => {
 		const url = pageItemUrl({ kind: 'resource', path: 'u/me/a' })
-		const agentTab: SessionPreviewTab = { id: 'a', url, loc: url, agentEditor: true }
-		const { pages, items } = toolReloadEffect('write_resource', {
-			resource_type: 'ai_agent',
-			path: 'u/me/a'
-		})
-		expect(
-			tabsToReload([resourceTab, agentTab], new Set(pages), new Set(items.map(pageItemUrl)))
-		).toEqual([resourceTab])
+		const agentTab: SessionPreviewTab = { id: 'a', url, loc: url }
+		const reloaded = (name: string, args: any) => {
+			const { pages, items, live = [] } = toolReloadEffect(name, args)
+			return tabsToReload(
+				[resourceTab, agentTab],
+				new Set(pages),
+				new Set(items.map(pageItemUrl)),
+				new Set(live.map(pageItemUrl))
+			)
+		}
+		expect(reloaded('write_resource', { resource_type: 'ai_agent', path: 'u/me/a' })).toEqual([
+			resourceTab
+		])
+		expect(reloaded('discard_local_draft', { type: 'resource', path: 'u/me/a' })).toEqual([
+			resourceTab,
+			agentTab
+		])
 	})
 
 	it('is empty when no pages were touched', () => {

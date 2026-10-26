@@ -33,7 +33,15 @@ import {
 // the chat, so a tool that changes what is deployed at a path has to name it here
 // or that tab keeps showing the previous deployment. Only tools that change the
 // deployed item belong in `deployed`; a draft write does not.
-export type ToolReloadEffect = { pages: string[]; items: PageItemRef[]; deployed: string[] }
+//
+// `live` names items whose open editor follows this tool's write on its own, so naming them
+// reloads their list page but leaves their tab alone.
+export type ToolReloadEffect = {
+	pages: string[]
+	items: PageItemRef[]
+	deployed: string[]
+	live?: PageItemRef[]
+}
 const NO_RELOAD: ToolReloadEffect = { pages: [], items: [], deployed: [] }
 
 export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
@@ -43,8 +51,13 @@ export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
 		case 'write_trigger':
 			// Its path sits in the trigger's own config, not beside `kind`.
 			return withItem(triggerPages(args?.kind), itemRef('trigger', args?.config, args?.kind))
-		case 'write_resource':
-			return withItem(['/resources'], itemRef('resource', args))
+		case 'write_resource': {
+			const item = itemRef('resource', args)
+			const effect = withItem(['/resources'], item)
+			// An agent's editor follows the chat's writes through the draft cell they share, so
+			// reloading its tab would only throw away where the reader was in it, a test chat included.
+			return args?.resource_type === 'ai_agent' && item ? { ...effect, live: [item] } : effect
+		}
 		case 'write_variable':
 			return withItem(['/variables'], itemRef('variable', args))
 		case 'create_folder':
@@ -126,13 +139,12 @@ function triggerPages(kind: unknown): string[] {
 export function tabsToReload(
 	tabs: SessionPreviewTab[],
 	pages: ReadonlySet<string>,
-	items: ReadonlySet<string> = new Set()
+	items: ReadonlySet<string> = new Set(),
+	live: ReadonlySet<string> = new Set()
 ): SessionPreviewTab[] {
 	if (pages.size === 0) return []
 	return tabs.filter((t) => {
-		// An agent's editor follows the chat's writes through the draft cell they share, as the
-		// live editors do: reloading it would only throw away where the reader was, a test chat included.
-		if (t.agentEditor) return false
+		if (live.has(t.url)) return false
 		const pageItem = parsePageItemRoute(t.url)
 		if (!pageItem) return pages.has(barePath(whereIs(t)))
 		const listPath = pageItemListPath(pageItem)
