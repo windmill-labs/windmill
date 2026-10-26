@@ -79,6 +79,8 @@
 	import { goto } from '$lib/navigation'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
 	import { StarterPrompts } from '$lib/components/copilot/chat/starter/starterPrompts.svelte'
+	import { resolvePreviewTab } from './previewRouter'
+	import { whereIs } from './sessionPreviewTabs.svelte'
 
 	let {
 		sessionId,
@@ -117,8 +119,21 @@
 	// Whether the first message goes out in Use. Not `permissions.readOnly`: before that send a
 	// staged fork's session reads the workspace it forks, while the message builds in the fork.
 	const heldInUse = $derived(!!workModeLock.current || runtime?.manager.workMode === AIWorkMode.USE)
+	// The name of the item an unsent session opened on ("Open in AI session", or a tab opened
+	// before the first send): the chat reads the displayed tab with each message, so the empty
+	// chat asks about that item instead of greeting. What is on screen only: a collapsed panel
+	// hides it. The editor's summary, else the path it is staged under, else the tab's own path.
+	const previewedItem = $derived.by(() => {
+		if (!opensSession) return undefined
+		const tab = runtime?.previewTabs.displayedTab
+		if (!tab) return undefined
+		const slot = resolvePreviewTab(whereIs(tab))
+		if (slot.kind !== 'editor' && slot.kind !== 'viewer') return undefined
+		return tab.friendlyLabel?.trim() || tab.friendlyPath || slot.path
+	})
+	const greets = $derived(opensSession && !previewedItem)
 	const starterPrompts = new StarterPrompts(
-		() => (opensSession ? (actingWorkspaceId ?? $workspaceStore ?? undefined) : undefined),
+		() => (greets ? (actingWorkspaceId ?? $workspaceStore ?? undefined) : undefined),
 		() => !heldInUse
 	)
 
@@ -402,6 +417,13 @@
 	// utilities on one element resolve by stylesheet order, not attribute order.
 	const bannerClass =
 		'flex flex-row items-center justify-between gap-2 py-2 px-3 text-xs border rounded-md'
+
+	const previewedItemPlaceholder = $derived(
+		previewedItem &&
+			(heldInUse
+				? `Ask about ${previewedItem}, or run it…`
+				: `Ask about ${previewedItem}, or describe a change…`)
+	)
 </script>
 
 {#if !session || !runtime}
@@ -409,7 +431,12 @@
 {:else}
 	<!-- A sent session whose transcript is still loading (or came back empty) shows nothing
 	     rather than the docked copilot's keyboard-shortcut hint, which means nothing here. -->
-	{#snippet sessionEmptyHint()}{/snippet}
+	{#snippet sessionEmptyHint()}
+		{#if previewedItem}
+			<!-- Holds the composer at the bottom, as in a session under way. -->
+			<div class="flex-1 min-h-0"></div>
+		{/if}
+	{/snippet}
 
 	{#snippet inputPreface()}
 		{#if showRecoveryNotice}
@@ -583,14 +610,14 @@
 							onDraftChange={(text) => setSessionDraftPrompt(sessionId, text)}
 							initialAttachments={armedAtInit ? undefined : getSessionDraftAttachments(sessionId)}
 							onAttachmentsChange={(a) => setSessionDraftAttachments(sessionId, a)}
-							placeholder={composerPlaceholder}
+							placeholder={previewedItemPlaceholder ?? composerPlaceholder}
 							forceDisabled={isUnavailable || !!session.archived}
 							forceDisabledMessage={isUnavailable
 								? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
 								: session.archived
 									? 'This session is archived. Unarchive it from the banner above to keep working.'
 									: ''}
-							starter={opensSession
+							starter={greets
 								? { where: 'session', suggestions: starterPrompts.suggestions }
 								: undefined}
 							viewTransitionNames={headerInPage && (opensSession || arrivingFromHomeSend())}
@@ -604,37 +631,37 @@
 						     its transcript area, its column, and its footer row's height; for a session
 						     that has never sent, the greeting above the centred composer. -->
 						<div
-							class="flex flex-col h-full {opensSession ? 'justify-center' : ''}"
+							class="flex flex-col h-full {greets ? 'justify-center' : ''}"
 							{@attach () => () =>
 								runtime.manager.setComposerHasDraft(PLACEHOLDER_DRAFT_KEY, false)}
 						>
-							{#if opensSession}
+							{#if greets}
 								<div class="flex-1 min-h-0 flex flex-col justify-end">
 									<div class="w-full max-w-3xl mx-auto px-7">
 										<SessionGreeting />
 									</div>
 								</div>
-							{:else if runtime.manager.displayMessages.length > 0}
+							{:else if previewedItem || runtime.manager.displayMessages.length > 0}
 								<div class="flex-1 min-h-0"></div>
 							{/if}
 							<div class="w-full max-w-3xl mx-auto px-7 pb-2">
 								{@render inputPreface()}
 								<ComposerPlaceholder
 									bind:value={() => draftText, setPlaceholderText}
-									toolbar={opensSession ? placeholderToolbar : undefined}
-									placeholder={opensSession
+									toolbar={greets ? placeholderToolbar : undefined}
+									placeholder={greets
 										? heldInUse
 											? USE_STARTER_PLACEHOLDER
 											: STARTER_PLACEHOLDER
 										: runtime.manager.displayMessages.length > 0
 											? 'Ask followup'
-											: composerPlaceholder}
+											: (previewedItemPlaceholder ?? composerPlaceholder)}
 									disabled={isUnavailable || !!session.archived}
 									autofocus={sessionState.currentSessionId === sessionId && !covered}
 									onSelectionChange={(selection) => (handoff = selection ?? null)}
 									onCompositionChange={(composing) => (placeholderComposing = composing)}
 								/>
-								{#if !opensSession}
+								{#if !greets}
 									<div class="mt-1 h-5"></div>
 								{:else if !isUnavailable && !session.archived && starterPrompts.suggestions.length > 0}
 									<div class="pt-2">
@@ -646,7 +673,7 @@
 									</div>
 								{/if}
 							</div>
-							{#if opensSession}
+							{#if greets}
 								<div class="flex-1 min-h-0"></div>
 							{/if}
 						</div>
