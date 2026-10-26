@@ -1830,10 +1830,20 @@ fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
     if let Some(job) = job {
         let result = job.get("result").filter(|r| !r.is_null());
         let error = result
-            .and_then(|r| r["error"]["message"].as_str())
-            .filter(|_| job.get("success") == Some(&json!(false)));
+            .map(|r| &r["error"])
+            .filter(|e| e["message"].is_string() && job.get("success") == Some(&json!(false)));
+        // An error reads as Windmill shows it: `name: message`, then its stack.
+        if let Some(stack) = error
+            .and_then(|e| e["stack"].as_str())
+            .filter(|s| !s.is_empty())
+        {
+            run.insert("stack".into(), js_head(stack, CARD_RESULT_CHARS).into());
+        }
         if let Some(text) = error
-            .map(String::from)
+            .map(|e| match e["name"].as_str().filter(|n| !n.is_empty()) {
+                Some(name) => format!("{name}: {}", e["message"].as_str().unwrap_or_default()),
+                None => e["message"].as_str().unwrap_or_default().to_string(),
+            })
             .or_else(|| result.map(|r| format_result(Some(r))))
         {
             let head = js_head(&text, CARD_RESULT_CHARS);
@@ -2160,7 +2170,7 @@ mod tests {
         });
         let card = run_card("j", Some(&failed));
         assert_eq!(card["status"], "failure");
-        assert_eq!(card["result"], "duplicate key");
+        assert_eq!(card["result"], "Error: duplicate key");
 
         let running = json!({
             "type": "QueuedJob", "running": true,

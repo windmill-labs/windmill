@@ -14,15 +14,17 @@
 -->
 <style>
   /* Colours, fonts and radii come from the host's style variables when it sends them, so the
-     card reads as part of the host; the fallbacks are Windmill's palette. The accent stays
-     Windmill's: hosts allow a brand accent on the primary action only. */
+     card reads as part of the host; the fallbacks are Windmill's palette, with its body and
+     emphasis text apart. The accent stays Windmill's: hosts allow a brand accent on the
+     primary action only. Spacing follows Windmill's 4px scale. */
   :root {
     color-scheme: light dark;
     --bg: var(--color-background-primary, #ffffff);
     --bg-2: var(--color-background-secondary, #efeff4);
-    --fg: var(--color-text-primary, #1d2430);
-    --fg-2: var(--color-text-secondary, #3d4758);
-    --fg-3: var(--color-text-tertiary, #718096);
+    --fg: var(--color-text-primary, #3d4758);
+    --fg-em: var(--color-text-primary, #1d2430);
+    --fg-2: var(--color-text-secondary, #718096);
+    --fg-3: var(--color-text-tertiary, #8d93a1);
     --line: var(--color-border-tertiary, #e5e7eb);
     --info-bg: var(--color-background-info, #e9ecfe);
     --info-fg: var(--color-text-info, #183faf);
@@ -40,9 +42,10 @@
     :root:not([data-theme="light"]) {
       --bg: var(--color-background-primary, #2e3441);
       --bg-2: var(--color-background-secondary, #272c35);
-      --fg: var(--color-text-primary, #eeeff2);
-      --fg-2: var(--color-text-secondary, #d4d7dd);
-      --fg-3: var(--color-text-tertiary, #a9b0ba);
+      --fg: var(--color-text-primary, #d4d7dd);
+      --fg-em: var(--color-text-primary, #eeeff2);
+      --fg-2: var(--color-text-secondary, #a9b0ba);
+      --fg-3: var(--color-text-tertiary, #8d93a1);
       --line: var(--color-border-tertiary, #374457);
       --info-bg: var(--color-background-info, rgba(24, 71, 210, 0.4));
       --info-fg: var(--color-text-info, #c7cefc);
@@ -57,9 +60,10 @@
   :root[data-theme="dark"] {
     --bg: var(--color-background-primary, #2e3441);
     --bg-2: var(--color-background-secondary, #272c35);
-    --fg: var(--color-text-primary, #eeeff2);
-    --fg-2: var(--color-text-secondary, #d4d7dd);
-    --fg-3: var(--color-text-tertiary, #a9b0ba);
+    --fg: var(--color-text-primary, #d4d7dd);
+    --fg-em: var(--color-text-primary, #eeeff2);
+    --fg-2: var(--color-text-secondary, #a9b0ba);
+    --fg-3: var(--color-text-tertiary, #8d93a1);
     --line: var(--color-border-tertiary, #374457);
     --info-bg: var(--color-background-info, rgba(24, 71, 210, 0.4));
     --info-fg: var(--color-text-info, #c7cefc);
@@ -72,48 +76,48 @@
   }
   html, body { margin: 0; background: transparent; }
   body { font: 14px/1.4 var(--sans); color: var(--fg); }
-  .card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
+  .card { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
   .head { display: flex; align-items: flex-start; gap: 12px; }
-  .title { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-  .path { font: 600 14px/1.3 var(--mono); overflow-wrap: anywhere; text-align: left; }
-  button.path { border: 0; padding: 0; min-height: 0; background: none; color: inherit; cursor: pointer; }
+  .title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .path { font: 600 14px/1.3 var(--mono); color: var(--fg-em); overflow-wrap: anywhere; text-align: left; }
+  button.path { border: 0; padding: 0; min-height: 0; background: none; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
   button.path:hover { background: none; text-decoration: underline; }
-  button.path::after { content: " \2197"; font-family: var(--sans); color: var(--fg-3); }
   button.path:disabled { opacity: 1; cursor: default; text-decoration: none; }
-  button.path:disabled::after { content: none; }
-  .icon { flex: none; min-height: 28px; width: 28px; padding: 0; font-size: 15px; line-height: 1; }
-  .disclosure { align-self: flex-start; border: 0; padding: 0; min-height: 0; background: none; font-size: 12px; font-weight: 600; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.04em; }
-  .disclosure:hover { background: none; color: var(--fg); }
-  .disclosure::before { content: "\25B8  "; }
-  .disclosure[aria-expanded="true"]::before { content: "\25BE  "; }
-  .summary-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 10px; font-size: 13px; }
+  /* Lucide's line icons, as Windmill uses, in the host's text colour. */
+  .lucide { width: 14px; height: 14px; flex: none; vertical-align: -2px; color: var(--fg-3); }
+  button .lucide { color: inherit; }
+  .icon { flex: none; min-height: 28px; width: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+  .disclosure { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; border: 0; padding: 0; min-height: 0; background: none; font-size: 13px; font-weight: 600; color: var(--fg-em); }
+  .disclosure:hover { background: none; text-decoration: underline; }
+  .summary-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 12px; font-size: 13px; }
   .summary-row + .summary-row { border-top: 1px solid var(--line); }
   button.summary-row { width: 100%; min-height: 0; border: 0; border-radius: 0; background: transparent; font: inherit; color: inherit; text-align: left; }
   button.summary-row:hover { background: var(--bg-2); }
-  .summary-row .grow { flex: 1; min-width: 0; font: 12px var(--mono); overflow-wrap: anywhere; }
+  .summary-row .grow { flex: 1; min-width: 0; font: 12px var(--mono); color: var(--fg-em); overflow-wrap: anywhere; }
   .summary-row .why { flex-basis: 100%; font-size: 12px; color: var(--fg-2); }
   .add-count { color: var(--ok-fg); font: 12px var(--mono); }
   .del-count { color: var(--bad-fg); font: 12px var(--mono); }
   .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-3); }
   .ws { background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; color: var(--fg-2); font-weight: 500; }
-  .pill, .badge { flex: none; font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 6px; background: var(--info-bg); color: var(--info-fg); white-space: nowrap; }
-  .pill { margin-left: auto; }
+  .pill, .badge { flex: none; font-size: 12px; font-weight: 400; padding: 2px 8px; border-radius: 6px; background: var(--info-bg); color: var(--info-fg); white-space: nowrap; }
   .success, .pill.success { background: var(--ok-bg); color: var(--ok-fg); }
   .failure, .canceled, .not_started, .pill.failure, .pill.canceled, .pill.not_started, .pill.error { background: var(--bad-bg); color: var(--bad-fg); }
   .step { font-size: 13px; color: var(--fg-2); }
   .step code { font-family: var(--mono); }
-  pre { margin: 0; padding: 10px 12px; border-radius: var(--radius); background: var(--bg-2); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+  pre { margin: 0; padding: 8px 12px; border-radius: var(--radius); background: var(--bg-2); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
   pre.clip { max-height: 180px; overflow: hidden; }
-  pre.error { background: var(--bad-bg); color: var(--bad-fg); }
+  /* Error colour goes on text, as in Windmill: `name: message` in it, the stack plain. */
+  pre.error { color: var(--bad-fg); }
+  .error-line { color: var(--bad-fg); font-weight: 600; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
   .rows { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); }
-  .row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 10px; font-size: 13px; }
+  .row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 12px; font-size: 13px; }
   .row + .row { border-top: 1px solid var(--line); }
   .row.nested { padding-left: 28px; }
-  .row .v { min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; }
+  .row .v { min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; color: var(--fg-em); }
   .row .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .dim { color: var(--fg-3); font-size: 12px; }
   .row .k { color: var(--fg-3); min-width: 110px; }
-  .row pre { flex-basis: 100%; padding: 6px 8px; }
+  .row pre { flex-basis: 100%; padding: 4px 8px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; background: var(--info-fg); }
   .dot.success { background: var(--ok-fg); }
   .dot.failure, .dot.canceled { background: var(--bad-fg); }
@@ -127,16 +131,16 @@
   .patch .note { color: var(--fg-2); font-family: var(--sans); }
   .table { border: 1px solid var(--line); border-radius: var(--radius); overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; font-size: 12px; font-weight: 600; color: var(--fg-3); padding: 6px 10px; cursor: pointer; white-space: nowrap; user-select: none; }
-  td { padding: 6px 10px; border-top: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+  th { text-align: left; font-size: 12px; font-weight: 600; color: var(--fg-2); padding: 8px 12px; cursor: pointer; white-space: nowrap; user-select: none; }
+  td { padding: 8px 12px; border-top: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
   td.mono { font: 12px var(--mono); }
   tr.link { cursor: pointer; }
   tr.link:hover td { background: var(--bg-2); }
   .item { display: flex; flex-direction: column; gap: 6px; }
-  .item + .item { border-top: 1px solid var(--line); padding-top: 10px; }
+  .item + .item { border-top: 1px solid var(--line); padding-top: 12px; }
   .item-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-  .item-head .grow { flex: 1; min-width: 0; font: 600 13px var(--mono); overflow-wrap: anywhere; }
-  button.small { min-height: 26px; padding: 0 10px; font-size: 12px; }
+  .item-head .grow { flex: 1; min-width: 0; font: 600 13px var(--mono); color: var(--fg-em); overflow-wrap: anywhere; }
+  button.small { min-height: 28px; padding: 0 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
   .form-error { color: var(--bad-fg); font-size: 13px; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
   button { font: 500 13px var(--sans); min-height: 32px; padding: 0 12px; border-radius: var(--radius); cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--fg); }
@@ -159,10 +163,11 @@
       </div>
     </div>
     <span class="pill" id="status" hidden></span>
-    <button class="icon" id="expand" type="button" title="Full screen" aria-label="Full screen" hidden>&#x2922;</button>
+    <button class="icon" id="expand" type="button" title="Full screen" aria-label="Full screen" hidden></button>
   </div>
   <div class="step" id="step" hidden></div>
   <div class="step" id="stale" hidden>No longer refreshing here. Open it in Windmill for its live status.</div>
+  <div class="error-line" id="error-line" hidden></div>
   <pre class="clip" id="result" hidden></pre>
   <div id="result-more"></div>
   <div id="result-table"></div>
@@ -223,6 +228,28 @@
     node.append(...children.filter((c) => c != null && c !== false));
     return node;
   }
+  // Lucide icons (as Windmill uses), built from constant shapes: no markup is parsed.
+  const ICONS = {
+    external: [['path', { d: 'M15 3h6v6' }], ['path', { d: 'M10 14 21 3' }], ['path', { d: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6' }]],
+    maximize: [['polyline', { points: '15 3 21 3 21 9' }], ['polyline', { points: '9 21 3 21 3 15' }], ['line', { x1: '21', x2: '14', y1: '3', y2: '10' }], ['line', { x1: '3', x2: '10', y1: '21', y2: '14' }]],
+    right: [['path', { d: 'm9 18 6-6-6-6' }]],
+    down: [['path', { d: 'm6 9 6 6 6-6' }]]
+  };
+  function icon(name) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    const attrs = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', class: 'lucide', 'aria-hidden': 'true' };
+    for (const [k, v] of Object.entries(attrs)) svg.setAttribute(k, v);
+    for (const [tag, shape] of ICONS[name]) {
+      const node = document.createElementNS(ns, tag);
+      for (const [k, v] of Object.entries(shape)) node.setAttribute(k, v);
+      svg.append(node);
+    }
+    return svg;
+  }
+  // A button that opens a Windmill page.
+  const linkButton = (label, url, style) => el('button', { class: 'small', type: 'button', style, onclick: () => openLink(url) }, label, icon('external'));
+
   const KINDS = { preview: 'script test', flowpreview: 'flow test', flowscript: 'flow step', flowdependencies: 'flow dependencies' };
   const kindLabel = (kind) => (kind ? KINDS[kind] ?? kind : '');
 
@@ -243,10 +270,10 @@
   // Windmill: grown inline it would pass the height hosts cap a card at.
   function moreButton(label, url) {
     if (canFullscreen()) {
-      return el('button', { class: 'small', type: 'button', style: 'margin-top: 8px', onclick: () => setDisplayMode('fullscreen') }, `Show ${label} \u2922`);
+      return el('button', { class: 'small', type: 'button', style: 'margin-top: 8px', onclick: () => setDisplayMode('fullscreen') }, `Show ${label}`, icon('maximize'));
     }
     if (!url) return null;
-    return el('button', { class: 'small', type: 'button', style: 'margin-top: 8px', onclick: () => openLink(url) }, `${label[0].toUpperCase()}${label.slice(1)} in Windmill \u2197`);
+    return linkButton(`${label[0].toUpperCase()}${label.slice(1)} in Windmill`, url, 'margin-top: 8px');
   }
   // A section the user opened stays open across redraws. Fullscreen opens them all, and
   // what is closed there is kept apart from what is open inline.
@@ -263,7 +290,7 @@
         if (set.has(key)) set.delete(key); else set.add(key);
         redraw();
       }
-    }, label);
+    }, icon(open ? 'down' : 'right'), label);
     return [toggle, open ? content() : null];
   }
 
@@ -279,7 +306,7 @@
   // The header names what the card shows and links to it in Windmill: opening a page is
   // neither a tool call nor a conversation turn, so it is no card action.
   function setHeader({ path, ws, kind = '', status = null, label = null, url = null }) {
-    $('path').textContent = path || 'Windmill';
+    $('path').replaceChildren(path || 'Windmill', ...(url ? [icon('external')] : []));
     $('path').disabled = !url;
     $('path').dataset.url = url ?? '';
     $('path').title = url ? 'Open in Windmill' : '';
@@ -373,10 +400,14 @@
       if (run.step_id) step.append(' · ', el('code', {}, run.step_id));
     }
     const result = $('result');
+    const failed = ['failure', 'not_started', 'error'].includes(status);
+    const errorLine = $('error-line');
+    errorLine.hidden = !failed || run?.result == null;
+    errorLine.textContent = failed ? run?.result ?? '' : '';
     const records = status === 'success' ? recordsTable(run?.result) : null;
-    result.hidden = running || run?.result == null || !!records;
-    result.textContent = run?.result ?? '';
-    result.classList.toggle('error', ['failure', 'not_started', 'error'].includes(status));
+    const shown = failed ? run?.stack : run?.result;
+    result.hidden = running || shown == null || !!records;
+    result.textContent = shown ?? '';
     result.classList.toggle('clip', !fullscreen());
     // Rebuilt only for a new result, so a sort survives the card redrawing.
     const holder = $('result-table');
@@ -390,7 +421,7 @@
     more.replaceChildren();
     if (!result.hidden) {
       if (!fullscreen() && result.scrollHeight > result.clientHeight + 1) more.append(moreButton('full result', run.url));
-      else if (run.result_cut) more.append(el('button', { class: 'small', type: 'button', onclick: () => openLink(run.url) }, 'Full result in Windmill \u2197'));
+      else if (run.result_cut) more.append(linkButton('Full result in Windmill', run.url));
     }
 
     $('cancel').hidden = !(running && run?.id);
@@ -477,7 +508,7 @@
         // The server sends a log's end: earlier lines are only on the run page.
         const earlier = run.logs_cut;
         return el('div', {},
-          earlier && fullscreen() ? el('button', { class: 'small', type: 'button', style: 'margin-bottom: 8px', onclick: () => openLink(run.url) }, 'Earlier lines in Windmill \u2197') : null,
+          earlier && fullscreen() ? linkButton('Earlier lines in Windmill', run.url, 'margin-bottom: 8px') : null,
           el('pre', {}, shown.join('\n')),
           hidden > 0 || (earlier && !fullscreen()) ? moreButton(hidden > 0 ? `${hidden} earlier line${hidden === 1 ? '' : 's'}` : 'Earlier lines', run.url) : null);
       }));
@@ -548,7 +579,7 @@
     window.clearTimeout(pollTimer);
     window.clearInterval(tickTimer);
     run = null;
-    for (const id of ['step', 'stale', 'result', 'details', 'cancel', 'expand']) $(id).hidden = true;
+    for (const id of ['step', 'stale', 'error-line', 'result', 'details', 'cancel', 'expand']) $(id).hidden = true;
     $('result-more').replaceChildren();
     $('duration').textContent = '';
     $('result-table').replaceChildren();
@@ -616,7 +647,7 @@
   const deployed = [];
 
   function reviewBody(item) {
-    if (item.error) return el('pre', { class: 'error' }, item.error);
+    if (item.error) return el('div', { class: 'error-line' }, item.error);
     if (item.patch == null) return el('div', { class: 'step' }, item.note ?? '');
     // Fullscreen has the room for a whole diff, and Deploy sits under it.
     return patchView(item.patch, fullscreen() ? 0 : PATCH_LINES_INLINE);
@@ -672,7 +703,7 @@
         el('span', { class: 'grow' }, item.name ?? item.path),
         el('span', { class: 'dim' }, typeLabel(item)),
         done,
-        item.url ? el('button', { class: 'small', type: 'button', onclick: () => openLink(item.url) }, item.editor ? 'Open in editor' : 'Open in Windmill') : null,
+        item.url ? linkButton(item.editor ? 'Open in editor' : 'Open in Windmill', item.url) : null,
         deploy),
       body,
       error);
@@ -702,7 +733,7 @@
       class: 'summary-row', type: item.url ? 'button' : null, title: item.url ? (item.editor ? 'Open in editor' : 'Open in Windmill') : null,
       onclick: item.url ? () => openLink(item.url) : null
     },
-      el('span', { class: 'grow' }, item.name ?? item.path, item.url ? el('span', { class: 'dim' }, ' \u2197') : null),
+      el('span', { class: 'grow' }, item.name ?? item.path, ' ', item.url ? icon('external') : null),
       el('span', { class: 'dim' }, typeLabel(item)),
       state,
       why);
@@ -885,6 +916,7 @@
   }
 
   $('path').addEventListener('click', () => openLink($('path').dataset.url));
+  $('expand').append(icon('maximize'));
   $('expand').addEventListener('click', () => setDisplayMode('fullscreen'));
 
   window.addEventListener('message', (event) => {
