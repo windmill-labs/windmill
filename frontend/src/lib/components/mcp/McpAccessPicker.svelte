@@ -19,8 +19,6 @@
 	export function mcpAccessOf(scopes: string[]): McpAccess {
 		scopes = scopes.filter((s) => s !== RUNNABLES_AS_TOOLS && s !== MCP_SESSION)
 		if (!scopes.includes('mcp:all')) return scopes.length > 0 ? 'selected' : 'full'
-		// Both narrowings at once is a client requesting every advertised scope, not a choice.
-		if (scopes.includes('mcp:read_only') && scopes.includes('mcp:read_run')) return 'full'
 		if (scopes.includes('mcp:read_only')) return 'read'
 		if (scopes.includes('mcp:read_run')) return 'read_run'
 		return 'full'
