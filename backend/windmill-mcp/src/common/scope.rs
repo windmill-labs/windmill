@@ -12,7 +12,8 @@ pub struct McpScopeConfig {
     pub flows: Vec<String>,
     /// Endpoint names/patterns allowed by this token
     pub endpoints: Vec<String>,
-    /// Whether this is a legacy "all" scope
+    /// The whole of MCP at some access level (`mcp:all`, `mcp:run` or `mcp:read`), rather
+    /// than a selection
     pub all: bool,
     /// Whether this is a "favorites" scope
     pub favorites: bool,

@@ -111,7 +111,7 @@ impl<B: McpBackend> SessionRunner<B> {
             .map_err(|e| ErrorData::internal_error(e, None))?;
         if !admits(auth.scopes().unwrap_or(&[]), scope.all) {
             return Err(ErrorData::invalid_request(
-                "This server needs an `mcp:all` token with no other route or path scope",
+                "This server needs an `mcp:all`, `mcp:run` or `mcp:read` token with no other route or path scope",
                 None,
             ));
         }

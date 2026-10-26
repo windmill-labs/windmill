@@ -18,15 +18,19 @@
 	 *  selection of scripts, flows and endpoints. */
 	export function mcpAccessOf(scopes: string[]): McpAccess {
 		scopes = scopes.filter((s) => s !== RUNNABLES_AS_TOOLS && s !== MCP_SESSION)
-		if (scopes.includes('mcp:all')) {
-			// Tokens issued before `mcp:read` / `mcp:run` narrow `mcp:all` with these instead.
-			if (scopes.includes('mcp:read_only')) return 'read'
-			if (scopes.includes('mcp:read_run')) return 'read_run'
-			return 'full'
-		}
-		if (scopes.includes('mcp:run')) return 'read_run'
-		if (scopes.includes('mcp:read')) return 'read'
-		return scopes.length > 0 ? 'selected' : 'full'
+		const level = scopes.includes('mcp:all')
+			? 'full'
+			: scopes.includes('mcp:run')
+				? 'read_run'
+				: scopes.includes('mcp:read')
+					? 'read'
+					: undefined
+		if (!level) return scopes.length > 0 ? 'selected' : 'full'
+		// Tokens issued before `mcp:read` / `mcp:run` narrow `mcp:all` with these instead; the
+		// server applies them beside any level, so they win here too.
+		if (scopes.includes('mcp:read_only')) return 'read'
+		if (scopes.includes('mcp:read_run') && level !== 'read') return 'read_run'
+		return level
 	}
 </script>
 
