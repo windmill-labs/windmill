@@ -842,9 +842,10 @@ pub async fn handle_delete_after_completion(
     Ok(())
 }
 
-/// Clears a flow job's own result once its synchronous caller has read it, when the flow's
-/// delete_after_secs is 0. The worker clears the rest of the run, but leaves this result so
-/// the caller can read it; for a delay above 0 the worker schedules the whole flow job.
+/// Clears a flow job's own result, and its early-return node's, once its synchronous caller
+/// has read them, when the flow's delete_after_secs is 0. The worker clears the rest of the
+/// run but leaves these for the caller; for a delay above 0 it schedules every job itself.
+/// No permission check: callers pass only the job they have just pushed.
 pub async fn delete_flow_result_after_read(db: &DB, job_uuid: Uuid) -> Result<(), Error> {
     #[cfg(feature = "enterprise")]
     {
@@ -868,6 +869,16 @@ pub async fn delete_flow_result_after_read(db: &DB, job_uuid: Uuid) -> Result<()
                 == Some(0)
             {
                 delete_job_metadata_after_use(db, job_uuid).await?;
+                if let Some(early_return) = flow_value.early_return.as_deref() {
+                    sqlx::query!(
+                        "UPDATE v2_job_completed SET result = '{}'::jsonb
+                        WHERE id IN (SELECT id FROM v2_job WHERE parent_job = $1 AND flow_step_id = $2)",
+                        job_uuid,
+                        early_return,
+                    )
+                    .execute(db)
+                    .await?;
+                }
             }
         }
     }

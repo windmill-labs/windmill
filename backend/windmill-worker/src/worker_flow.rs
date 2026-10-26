@@ -1991,7 +1991,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                 flow_value.delete_after_use,
                 flow_value.delete_after_secs,
             ) {
-                delete_flow_run_data(db, &flow_job, secs).await?;
+                delete_flow_run_data(db, &flow_job, secs, flow_value.early_return.as_deref())
+                    .await?;
             }
         }
 
@@ -2180,16 +2181,21 @@ pub async fn update_flow_status_after_job_completion_internal(
 
 /// Applies a flow's own delete_after_secs to the flow job and every job of its run.
 #[cfg(feature = "enterprise")]
-async fn delete_flow_run_data(db: &DB, flow_job: &MiniPulledJob, secs: i32) -> error::Result<()> {
+async fn delete_flow_run_data(
+    db: &DB,
+    flow_job: &MiniPulledJob,
+    secs: i32,
+    early_return: Option<&str>,
+) -> error::Result<()> {
     // Walks parent_job rather than reading root_job: root_job is stored NULL whenever it
     // equals the job's parent or innermost root, which is the case for most steps of a run.
-    let mut all_ids: Vec<Uuid> = sqlx::query_scalar!(
+    let run = sqlx::query!(
         r#"WITH RECURSIVE run AS (
-            SELECT id FROM v2_job WHERE parent_job = $1
+            SELECT id, parent_job, flow_step_id FROM v2_job WHERE parent_job = $1
             UNION ALL
-            SELECT j.id FROM v2_job j JOIN run r ON j.parent_job = r.id
+            SELECT j.id, j.parent_job, j.flow_step_id FROM v2_job j JOIN run r ON j.parent_job = r.id
         )
-        SELECT id AS "id!" FROM run"#,
+        SELECT id AS "id!", parent_job, flow_step_id FROM run"#,
         flow_job.id
     )
     .fetch_all(db)
@@ -2199,7 +2205,19 @@ async fn delete_flow_run_data(db: &DB, flow_job: &MiniPulledJob, secs: i32) -> e
             "error fetching child jobs for flow-level deletion: {e:#}"
         ))
     })?;
+    let mut all_ids: Vec<Uuid> = run.iter().map(|j| j.id).collect();
     all_ids.push(flow_job.id);
+    // A synchronous caller of an early-return flow reads the early-return node's result,
+    // possibly after the flow has completed; it clears that result once read, like the flow's.
+    let result_ids: Vec<Uuid> = run
+        .iter()
+        .filter(|j| {
+            j.parent_job != Some(flow_job.id)
+                || early_return.is_none()
+                || j.flow_step_id.as_deref() != early_return
+        })
+        .map(|j| j.id)
+        .collect();
 
     if secs == 0 {
         sqlx::query!(
@@ -2215,7 +2233,7 @@ async fn delete_flow_run_data(db: &DB, flow_job: &MiniPulledJob, secs: i32) -> e
         // synchronous caller clears it once it has read it (`delete_flow_result_after_read`).
         sqlx::query!(
             "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = ANY($1)",
-            &all_ids,
+            &result_ids,
         )
         .execute(db)
         .await

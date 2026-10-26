@@ -103,9 +103,10 @@ const FLOW_VERSION: i64 = 8_812_004;
 /// A sequential loop: its iterations are stored with a NULL root_job, so only a walk down
 /// parent_job reaches them.
 #[cfg(feature = "enterprise")]
-async fn deploy_loop_flow(db: &Pool<Postgres>) -> anyhow::Result<()> {
+async fn deploy_loop_flow(db: &Pool<Postgres>, early_return: Option<&str>) -> anyhow::Result<()> {
     let value = serde_json::json!({
         "delete_after_secs": 0,
+        "early_return": early_return,
         "modules": [{
             "id": "loop",
             "value": {
@@ -167,7 +168,7 @@ async fn test_flow_level_delete_clears_steps_and_keeps_flow_result(
     use windmill_common::jobs::JobPayload;
 
     initialize_tracing().await;
-    deploy_loop_flow(&db).await?;
+    deploy_loop_flow(&db, None).await?;
     let server = ApiServer::start(db.clone()).await?;
     let flow_job = RunJob::from(JobPayload::Flow {
         path: FLOW_PATH.to_string(),
@@ -205,7 +206,9 @@ async fn test_flow_level_delete_clears_flow_result_after_sync_read(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
-    deploy_loop_flow(&db).await?;
+    // Identity steps are fast, so the flow is usually complete by the time the caller polls the
+    // early-return node's result, which it must still get.
+    deploy_loop_flow(&db, Some("loop")).await?;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let response = in_test_worker(
@@ -224,7 +227,7 @@ async fn test_flow_level_delete_clears_flow_result_after_sync_read(
     .json::<serde_json::Value>()
     .await?;
 
-    assert_eq!(response.as_array().map(Vec::len), Some(2), "{response}");
+    assert_eq!(response[1]["x"], "secret", "{response}");
     let flow_id: uuid::Uuid =
         sqlx::query_scalar("SELECT id FROM v2_job WHERE runnable_path = $1 AND parent_job IS NULL")
             .bind(FLOW_PATH)
