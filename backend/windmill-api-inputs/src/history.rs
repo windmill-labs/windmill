@@ -15,7 +15,6 @@ use sqlx::{types::Uuid, FromRow, Postgres, Transaction};
 use windmill_common::{
     error::{Error, Result},
     jobs::JobKind,
-    DB,
 };
 
 use crate::{singlestepflow_filter, Input, RunnableType};
@@ -254,6 +253,14 @@ fn walk_up(first: &str) -> String {
     .join(" ")
 }
 
+/// The args of the run `{alias}`, or `"WINDMILL_TOO_BIG"` past the size the history inlines.
+fn inline_args(alias: &str) -> String {
+    format!(
+        "CASE WHEN pg_column_size({alias}.args) < 40000 THEN COALESCE({alias}.args, '{{}}'::jsonb) \
+              ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END"
+    )
+}
+
 /// Lateral subquery `st` over the run `{alias}`: completion or, while it runs, queue state.
 /// The LIMIT keeps it a per-row lookup, so the scan above it keeps its index order.
 fn run_state(alias: &str) -> String {
@@ -313,6 +320,9 @@ struct EntryRow {
     top_trigger: Option<String>,
     top_status: Option<String>,
     top_running: Option<bool>,
+    /// A run in progress's args: a preprocessor replaces them while it runs, so the panel reads
+    /// them on each refresh rather than once.
+    args: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
     window_bound: Option<DateTime<Utc>>,
     count_bound: Option<DateTime<Utc>>,
     above: i64,
@@ -549,7 +559,7 @@ async fn list_page(
                t.kind::text AS top_kind, t.runnable_path AS top_path, \
                t.trigger_kind::text AS top_trigger_kind, t.trigger AS top_trigger, \
                tc.status::text AS top_status, tq.running IS TRUE AS top_running, \
-               b.window_bound, b.count_bound \
+               ra.args, b.window_bound, b.count_bound \
         FROM bounds b \
         LEFT JOIN page e ON true \
         LEFT JOIN root_runs r ON e.top IS NULL AND r.id = e.run_id \
@@ -570,6 +580,9 @@ async fn list_page(
               AND CASE WHEN xc.status IS NOT NULL THEN xc.status <> 'skipped' \
                        ELSE xq.running IS TRUE END\
         ) rt ON e.top IS NULL \
+        LEFT JOIN LATERAL (\
+            SELECT {args} AS args FROM v2_job a WHERE a.id = e.run_id AND a.workspace_id = $2\
+        ) ra ON COALESCE(r.running, i.running) \
         ORDER BY e.latest DESC, e.latest_created DESC, COALESCE(e.top, e.run_id)",
         root_category = top_level_category(""),
         singlestepflow_filter = singlestepflow_filter(q.runnable_type),
@@ -579,6 +592,7 @@ async fn list_page(
         classify = classify_inside(q.runnable_type),
         inside_state = run_state("s"),
         walk_up = walk_up("f.first"),
+        args = inline_args("a"),
     );
 
     // Entries are ordered by completion but the top-level window is read by creation: twice the
@@ -611,7 +625,7 @@ fn entry_to_input(row: EntryRow) -> Input {
     let created_by = row.created_by.unwrap_or_default();
     let success = row.status.as_deref() == Some("success");
     let run = |run_id: Uuid, top_run: Option<TopRun>, group: Option<RunGroup>| {
-        Input::history_entry(
+        let mut input = Input::history_entry(
             run_id,
             time,
             created_by.clone(),
@@ -629,7 +643,11 @@ fn entry_to_input(row: EntryRow) -> Input {
                 top_run,
                 group,
             },
-        )
+        );
+        if let Some(args) = &row.args {
+            input.args = args.clone();
+        }
+        input
     };
 
     let Some(top) = row.top else {
@@ -709,48 +727,34 @@ struct InsideRow {
 
 /// The runs of the runnable inside the top-level run `top_run`, in execution order, with their
 /// args (or `"WINDMILL_TOO_BIG"`), since an opened group shows them all at once. These are the
-/// runs [`list`] groups under `top_run`: the walk up from each ends there.
+/// runs [`list`] groups under `top_run`: among the runnable's runs since `top_run` started (at
+/// most [`CAP`] of them), those the walk up from ends there.
+///
+/// Walking down from `top_run` instead would stop at a loop container or subflow the viewer
+/// cannot read, and its cost would grow with every job of the run, not only this runnable's.
 pub(crate) async fn list_inside(
-    db: &DB,
     tx: &mut Transaction<'static, Postgres>,
     q: &HistoryQuery<'_>,
     top_run: Uuid,
 ) -> Result<Vec<Input>> {
-    // The walk down reads past row-level security: a loop container or subflow the viewer
-    // cannot read must not cut off the runs below it that the viewer can. Only ids come out
-    // of it; the runs are read below under the viewer's own permissions.
-    let mut admin_tx = db.begin().await?;
-    sqlx::query("SET LOCAL jit = off")
-        .execute(&mut *admin_tx)
-        .await?;
-    let ids = sqlx::query_scalar::<_, Uuid>(&format!(
-        "WITH RECURSIVE inside(id, created_at, candidate) AS (\
-            SELECT id, created_at, runnable_path = $3 AND kind = {inside_kind} \
-            FROM v2_job WHERE parent_job = $1 AND workspace_id = $2 \
-            UNION \
-            SELECT j.id, j.created_at, j.runnable_path = $3 AND j.kind = {inside_kind} \
-            FROM v2_job j JOIN inside i ON j.parent_job = i.id WHERE j.workspace_id = $2\
-        ) \
-        SELECT id FROM inside WHERE candidate ORDER BY created_at LIMIT $4",
-        inside_kind = inside_kind(q.runnable_type),
-    ))
-    .bind(top_run)
-    .bind(q.w_id)
-    .bind(q.path)
-    .bind(CAP)
-    .fetch_all(&mut *admin_tx)
-    .await?;
-    admin_tx.commit().await?;
-
     let categories: Vec<&str> = q.started_by.iter().map(|c| c.as_str()).collect();
+    // A run inside another is created after it starts. The queue and completed rows have no
+    // row-level security, so they give that time for a top-level run the viewer cannot read.
     let sql = format!(
         "WITH runs AS (\
             SELECT id, created_at, created_by, trigger_kind, trigger, parent_job, root_job, \
                    flow_innermost_root_job, flow_step_id, script_entrypoint_override, args, \
                    {own_category} AS own_category \
             FROM v2_job \
-            WHERE id = ANY($7) AND workspace_id = $2 AND runnable_path = $1 \
-              AND kind = {inside_kind}\
+            WHERE workspace_id = $2 AND runnable_path = $1 AND parent_job IS NOT NULL \
+              AND kind = {inside_kind} \
+              AND created_at >= (SELECT COALESCE(\
+                  (SELECT created_at FROM v2_job WHERE id = $4 AND workspace_id = $2), \
+                  (SELECT created_at FROM v2_job_queue WHERE id = $4 AND workspace_id = $2), \
+                  (SELECT COALESCE(started_at, completed_at) FROM v2_job_completed \
+                   WHERE id = $4 AND workspace_id = $2))) \
+            ORDER BY created_at \
+            LIMIT $7\
         ), \
         tops AS (\
             SELECT f.first, COALESCE(a4.id, a3.id, a2.id, a1.id, f.first) AS top \
@@ -763,8 +767,7 @@ pub(crate) async fn list_inside(
                CASE WHEN x.started_by = 'script_call' THEN x.parent_path END AS parent_path, \
                x.started_by, st.status::text AS status, st.running, st.suspended, \
                COALESCE(st.completed_at, st.started_at, s.created_at) AS time, \
-               CASE WHEN pg_column_size(s.args) < 40000 THEN COALESCE(s.args, '{{}}'::jsonb) \
-                    ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END AS args \
+               {args} AS args \
         FROM runs s \
         JOIN tops t ON t.first = COALESCE(s.root_job, s.flow_innermost_root_job, s.parent_job) \
         {classify} \
@@ -779,6 +782,7 @@ pub(crate) async fn list_inside(
         walk_up = walk_up("f.first"),
         classify = classify_inside(q.runnable_type),
         state = run_state("s"),
+        args = inline_args("s"),
     );
     let rows = sqlx::query_as::<_, InsideRow>(&sql)
         .bind(q.path)
@@ -787,7 +791,7 @@ pub(crate) async fn list_inside(
         .bind(top_run)
         .bind(INSIDE_RUNS_LIMIT)
         .bind(q.args.as_ref())
-        .bind(ids.as_slice())
+        .bind(CAP)
         .fetch_all(&mut **tx)
         .await?;
     Ok(rows

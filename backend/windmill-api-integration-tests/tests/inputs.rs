@@ -426,6 +426,7 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     .await?;
     assert_eq!(ids(&first), [long_running.to_string()]);
     assert_eq!(first[0]["running"], true);
+    assert_eq!(first[0]["args"], serde_json::json!({}));
 
     let helper = "&runnable_id=u/test-user-2/helper&started_by=flow_step";
     let steps = fetch("SECRET_TOKEN_2", helper.to_string()).await?;

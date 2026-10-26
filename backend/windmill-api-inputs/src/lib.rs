@@ -27,7 +27,6 @@ use windmill_common::{
     scripts::to_i64,
     utils::{not_found_if_none, paginate, Pagination},
     worker::CLOUD_HOSTED,
-    DB,
 };
 
 mod history;
@@ -178,7 +177,6 @@ fn singlestepflow_filter(runnable_type: &RunnableType) -> &'static str {
 
 async fn get_input_history(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
@@ -219,7 +217,7 @@ async fn get_input_history(
         // rows actually read, and JIT-compiling the plan costs more than running it.
         sqlx::query("SET LOCAL jit = off").execute(&mut *tx).await?;
         let inputs = match g.top_run {
-            Some(top_run) => history::list_inside(&db, &mut tx, &q, top_run).await?,
+            Some(top_run) => history::list_inside(&mut tx, &q, top_run).await?,
             None => history::list(&mut tx, &q, per_page, offset).await?,
         };
         tx.commit().await?;

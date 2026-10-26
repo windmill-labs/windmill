@@ -113,11 +113,15 @@
 			return input
 		}
 		const isPreview = !!input.is_preview
-		// A preprocessor replaces the args of a run in progress: only a completed run's are cached.
-		if (!input.running && cachedArgs[input.id]) {
+		let payloadData: any
+		if (input.running && input.args != undefined) {
+			// A run in progress comes with its args, since a preprocessor may still replace them.
+			payloadData = filterPreviewArgs(input.args, isPreview)
+		} else if (cachedArgs[input.id]) {
 			return { ...input, payloadData: cachedArgs[input.id] }
+		} else {
+			payloadData = await loadArgsFromHistory(input.id, undefined, false, isPreview)
 		}
-		const payloadData = await loadArgsFromHistory(input.id, undefined, false, isPreview)
 		if (payloadData === 'WINDMILL_TOO_BIG') {
 			return {
 				...input,
