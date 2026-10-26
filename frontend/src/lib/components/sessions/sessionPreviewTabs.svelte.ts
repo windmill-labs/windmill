@@ -652,8 +652,9 @@ export class SessionPreviewTabs {
 	 * (an agent's deployed page); undefined falls back to the location's label. */
 	setTabFriendlyLabel(tabId: string, label: string | undefined): void {
 		const tab = this.#tabs.find((t) => t.id === tabId)
-		if (!tab || tab.friendlyLabel === label) return
+		if (!tab || (tab.editorNamed && tab.friendlyLabel === label)) return
 		tab.friendlyLabel = label
+		tab.editorNamed = true
 		this.#flush()
 	}
 
@@ -661,9 +662,10 @@ export class SessionPreviewTabs {
 	 * names the live editors' tabs; an undefined summary falls back to the path. */
 	stampAgentTab(ref: PageItemRef, summary: string | undefined): void {
 		const tab = this.#tabs.find((t) => t.url === pageItemUrl(ref))
-		if (!tab || (tab.agentEditor && tab.friendlyLabel === summary)) return
+		if (!tab || (tab.agentEditor && tab.editorNamed && tab.friendlyLabel === summary)) return
 		tab.agentEditor = true
 		tab.friendlyLabel = summary
+		tab.editorNamed = true
 		this.#flush()
 	}
 

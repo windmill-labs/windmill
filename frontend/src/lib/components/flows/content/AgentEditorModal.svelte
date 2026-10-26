@@ -171,8 +171,10 @@
 	// stored at a minted `draft_<uuid>` path and named by the path its first deploy will create,
 	// as the home list names it. Falls back to the target while the draft is still loading.
 	let shownPath = $derived(draft?.state?.path || target?.path)
+	// Reported once loaded: a host takes the first report as the name for good, an empty one included.
 	$effect(() => {
-		const summary = draft?.state?.description?.trim() || undefined
+		if (!draft?.state) return
+		const summary = draft.state.description?.trim() || undefined
 		untrack(() => onSummary?.(summary))
 	})
 

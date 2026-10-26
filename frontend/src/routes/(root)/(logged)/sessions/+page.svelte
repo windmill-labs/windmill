@@ -869,6 +869,7 @@
 		return ref?.kind === 'resource' ? ref.path : undefined
 	}
 	function listedAgentSummary(tab: SessionPreviewTab, workspace: string): string | undefined {
+		if (tab.editorNamed) return undefined
 		const path = agentTabPath(tab)
 		return path === undefined ? undefined : agentSummaries[workspace]?.[path]
 	}

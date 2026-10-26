@@ -100,8 +100,10 @@
 			})
 		}
 	})
+	// Reported once loaded: a host takes the first report as the name for good, an empty one included.
 	$effect(() => {
-		const summary = config ? agent?.state?.description?.trim() || undefined : undefined
+		if (!config) return
+		const summary = agent?.state?.description?.trim() || undefined
 		untrack(() => onSummary?.(summary))
 	})
 	$effect(() => {
