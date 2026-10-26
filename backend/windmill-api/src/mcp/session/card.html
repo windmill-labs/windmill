@@ -157,8 +157,6 @@
   .lucide { width: 14px; height: 14px; flex: none; vertical-align: -2px; color: var(--fg-3); }
   button .lucide { color: inherit; }
   .icon { flex: none; min-height: 28px; width: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
-  .disclosure { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; border: 0; padding: 0; min-height: 0; background: none; font-size: var(--t-sm); font-weight: var(--w-semibold); color: var(--fg-em); }
-  .disclosure:hover { background: none; text-decoration: underline; }
   .summary-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 12px; font-size: var(--t-sm); }
   .summary-row + .summary-row { border-top: 1px solid var(--line); }
   button.summary-row { width: 100%; min-height: 0; border: 0; border-radius: 0; background: transparent; font: inherit; font-size: var(--t-sm); color: inherit; text-align: left; }
@@ -566,25 +564,6 @@
     if (!url) return null;
     return linkButton(`${label[0].toUpperCase()}${label.slice(1)} in Windmill`, url, 'margin-top: 8px');
   }
-  // A section the user opened stays open across redraws. Fullscreen opens them all, and
-  // what is closed there is kept apart from what is open inline.
-  const opened = new Set();
-  const closedFull = new Set();
-
-  function disclosure(key, label, content) {
-    const full = fullscreen();
-    const open = full ? !closedFull.has(key) : opened.has(key);
-    const toggle = el('button', {
-      class: 'disclosure', type: 'button', 'aria-expanded': String(open),
-      onclick: () => {
-        const set = full ? closedFull : opened;
-        if (set.has(key)) set.delete(key); else set.add(key);
-        redraw();
-      }
-    }, icon(open ? 'down' : 'right'), label);
-    return [el('div', { class: 'section' }, toggle, open ? content() : null)];
-  }
-
   // Fullscreen, the expand button turns into one that brings the card back inline, beside
   // the host's own close control.
   function showExpand(available) {
@@ -1372,7 +1351,7 @@
   // ---------------------------------------------------------------- item
 
   const SENSITIVE = /pass|secret|token|key|private|credential/i;
-  const CODE_LINES_INLINE = 20;
+  const CODE_LINES_INLINE = 8;
 
   function row(key, value) {
     return el('div', { class: 'row' }, el('span', { class: 'k' }, key), el('span', { class: 'v' }, value));
@@ -1427,21 +1406,26 @@
     });
     $('review').hidden = true;
     const blocks = [];
-    // Sections are fullscreen's: inline a card is one view, so it names what is there.
+    // Sections are fullscreen's, shown whole under their titles: inline a card is one view,
+    // so it names what is there.
     const hiddenSections = [];
-    const section = (key, label, content) => (fullscreen() ? disclosure(key, label, content) : (hiddenSections.push(label), []));
+    const section = (label, content) => (fullscreen()
+      ? [el('div', { class: 'section' }, el('div', { class: 'section-title' }, label), content())]
+      : (hiddenSections.push(label), []));
     const target = value.script_path ? `${value.is_flow ? 'flow' : 'script'} ${value.script_path}` : null;
     switch (type) {
       case 'script': {
         const code = typeof item.value === 'string' ? item.value.split('\n') : [];
         const inputs = inputRows(item.schema);
-        if (inputs.length) blocks.push(...section('item-inputs', plural(inputs.length, 'input'), () => capped(inputs, 'input', url)));
-        if (code.length) {
-          blocks.push(...section('item-code', 'Code', () => {
-            const shown = fullscreen() ? code : code.slice(0, CODE_LINES_INLINE);
-            return openable(el('pre', {}, shown.join('\n')), shown.length < code.length, url, null, code.join('\n'));
-          }));
+        // A script is its code: inline its start fades out as a cut result does, and a click
+        // shows it whole.
+        if (code.length && fullscreen()) {
+          blocks.push(...section('Code', () => openable(el('pre', {}, code.join('\n')), false, url, null, code.join('\n'))));
+        } else if (code.length) {
+          const shown = code.slice(0, CODE_LINES_INLINE);
+          blocks.push(openable(el('pre', { class: 'clip' }, shown.join('\n')), shown.length < code.length, url, null, code.join('\n')));
         }
+        if (inputs.length) blocks.push(...section(plural(inputs.length, 'input'), () => capped(inputs, 'input', url)));
         break;
       }
       case 'flow': {
@@ -1456,7 +1440,7 @@
             el('div', { class: 'rows' }, ...shown),
             hidden > 0 ? moreButton(`${hidden} more step${hidden === 1 ? '' : 's'}`, url) : null));
         }
-        if (inputs.length) blocks.push(...section('item-inputs', plural(inputs.length, 'input'), () => capped(inputs, 'input', url)));
+        if (inputs.length) blocks.push(...section(plural(inputs.length, 'input'), () => capped(inputs, 'input', url)));
         break;
       }
       case 'schedule': {
@@ -1465,10 +1449,9 @@
         if (value.enabled != null) rows.push(row('Status', value.enabled ? 'Enabled' : 'Disabled'));
         blocks.push(el('div', { class: 'rows' }, ...rows));
         if (value.args && Object.keys(value.args).length) {
-          blocks.push(...section('item-args', 'Arguments', () => {
-            const lines = JSON.stringify(value.args, null, 2).split('\n');
-            const shown = fullscreen() ? lines : lines.slice(0, CODE_LINES_INLINE);
-            return openable(el('pre', {}, shown.join('\n')), shown.length < lines.length, url, null, lines.join('\n'));
+          blocks.push(...section('Arguments', () => {
+            const text = JSON.stringify(value.args, null, 2);
+            return openable(el('pre', {}, text), false, url, null, text);
           }));
         }
         break;
@@ -1483,7 +1466,7 @@
         const settings = Object.entries(value)
           .filter(([k, v]) => !skip.has(k) && v != null && v !== '' && !(Array.isArray(v) && !v.length))
           .map(([k, v]) => row(k, display(v)));
-        if (settings.length) blocks.push(...section('item-settings', 'Settings', () => capped(settings, 'setting', url)));
+        if (settings.length) blocks.push(...section('Settings', () => capped(settings, 'setting', url)));
         break;
       }
       case 'resource': {
