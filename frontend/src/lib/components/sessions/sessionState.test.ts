@@ -10,12 +10,14 @@ import {
 	homeStarterSession,
 	isForkSession,
 	isTearingDownOpenSession,
+	opensOnHome,
 	renameSession,
 	setDraftsDiscardedHandler,
 	sessionInCurrentFamily,
 	setGeneratedSessionSummary,
 	setSessionDraftAttachments,
 	setSessionDraftPrompt,
+	setSessionPendingWorkspace,
 	sessionState,
 	withOpenSessionTeardown,
 	type Session
@@ -635,7 +637,7 @@ describe('withOpenSessionTeardown — the gate that holds recovery off during a 
 
 describe('homeStarterSession', () => {
 	it("shows the family's stored draft, not the conversation in view, and selects nothing", () => {
-		const restore = withTwoFamilies('rootA')
+		const restore = withTwoFamilies('forkA')
 		const prevCurrent = sessionState.currentSessionId
 		const conversation = session({ id: 'conversation', workspace_id: 'rootA' })
 		// Stored, though it holds no text: it is the user's draft.
@@ -682,6 +684,30 @@ describe('homeStarterSession', () => {
 			sessionState.sessions = sessionState.sessions.filter(
 				(s) => !['recent-draft', 'held-draft'].includes(s.id)
 			)
+			restore()
+		}
+	})
+
+	it('lets go of its blank once a hand-off reuses it for an item', () => {
+		const restore = withTwoFamilies('forkA')
+		const prevCurrent = sessionState.currentSessionId
+		const ids: string[] = []
+		try {
+			ids.push(homeStarterSession().id)
+			holdHomeDraft(ids[0])
+			const reused = createSession()
+			expect(reused.id).toBe(ids[0])
+			setSessionPendingWorkspace(reused.id, 'rootA')
+			reused.previewTabs = [{ id: 'tab', url: '/flows/edit/f/x', loc: '/flows/edit/f/x' }]
+			// The item opens on the session page, and Home starts a draft of its own.
+			expect(opensOnHome(reused)).toBe(false)
+			ids.push(homeStarterSession().id)
+			expect(ids[1]).not.toBe(ids[0])
+			expect(reused.pending_workspace_id).toBe('rootA')
+		} finally {
+			homeDraft.id = undefined
+			sessionState.sessions = sessionState.sessions.filter((s) => !ids.includes(s.id))
+			sessionState.currentSessionId = prevCurrent
 			restore()
 		}
 	})

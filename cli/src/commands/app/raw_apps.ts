@@ -230,7 +230,8 @@ export async function loadRunnablesFromBackend(
       } else if (
         runnable?.type === "script" ||
         runnable?.type === "hubscript" ||
-        runnable?.type === "flow"
+        runnable?.type === "flow" ||
+        runnable?.type === "agent"
       ) {
         // For path-based runnables, convert from file format to API format
         // { type: "script" } -> { type: "path", runType: "script" }

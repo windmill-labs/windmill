@@ -244,6 +244,40 @@ pub async fn generate_deno_lock(
     }
 }
 
+/// SECURITY: a sandboxed deno job is not nsjail-wrapped; its confinement is
+/// `--allow-read=./` / `--allow-write=./`, which Deno checks against the path
+/// as written and then hands to the kernel, which follows symlinks. `./shared`
+/// is the worker's own link to the flow's shared directory, and every other
+/// step of a `same_worker` flow gets that directory bind-mounted read-write
+/// inside its jail. A link planted there (`ln -s / /tmp/shared/root` from a
+/// bash step) would let the following deno step read and write the whole
+/// worker host through `./shared/root/...`. Links pointing inside the
+/// directory are not safe either: Deno collapses `..` textually before the
+/// check while the kernel applies it to the resolved target. So nothing but
+/// regular files and directories may be in there when the job starts.
+/// `DirEntry::file_type` reports a link's own type without following it.
+async fn refuse_links_in_shared_dir(job_dir: &str) -> error::Result<()> {
+    let shared = format!("{job_dir}/shared");
+    let mut dirs = vec![std::path::PathBuf::from(&shared)];
+    while let Some(dir) = dirs.pop() {
+        let mut entries = tokio::fs::read_dir(&dir).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let file_type = entry.file_type().await?;
+            if file_type.is_dir() {
+                dirs.push(entry.path());
+            } else if !file_type.is_file() {
+                let path = entry.path();
+                return Err(error::Error::ExecutionErr(format!(
+                    "the flow's shared directory contains ./{}, which is not a regular file \
+                     or directory: a sandboxed deno step cannot run with it",
+                    path.strip_prefix(job_dir).unwrap_or(&path).display()
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_deno_job(
     requirements_o: Option<&String>,
@@ -264,6 +298,10 @@ pub async fn handle_deno_job(
 ) -> error::Result<Box<RawValue>> {
     ensure_deno_installed()?;
     let annotations = TypeScriptAnnotations::parse(inner_content);
+
+    if job.same_worker && (is_sandboxing_enabled() || annotations.sandbox) {
+        refuse_links_in_shared_dir(job_dir).await?;
+    }
 
     // let mut start = Instant::now();
     let mut logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
@@ -387,6 +425,14 @@ try {{
     if (step_id) {{
         err["step_id"] = step_id;
     }}
+    let job_id = Deno.env.get("WM_JOB_ID");
+    if (job_id) {{
+        err["job_id"] = job_id;
+    }}
+    let flow_path = Deno.env.get("WM_FLOW_PATH");
+    if (flow_path) {{
+        err["flow_path"] = flow_path;
+    }}
     await Deno.writeTextFile("result.json", JSON.stringify(err));
     Deno.exit(1);
 }}
@@ -445,6 +491,12 @@ try {{
         conn,
     )
     .await;
+    // The only deno.json deno may honour is the one the worker writes here. Script modules
+    // are written verbatim into the job dir, so without an explicit choice deno would
+    // discover a `deno.json(c)` the job shipped as a module, and a config is applied by
+    // the runtime itself, outside the --allow-* permissions: its `lock` key alone makes
+    // deno write a file wherever it points, past --allow-write.
+    let mut deno_config_path: Option<String> = None;
     if let Some(ref npmrc_content) = npmrc {
         if !npmrc_content.trim().is_empty() {
             write_file(job_dir, ".npmrc", npmrc_content)?;
@@ -453,8 +505,16 @@ try {{
             // routinely serve just-published versions, so the guard would break them.
             // Older Deno ignores the unknown field, so this is safe across versions.
             write_file(job_dir, "deno.json", r#"{"minimumDependencyAge":"0"}"#)?;
+            deno_config_path = Some(format!("{job_dir}/deno.json"));
         }
     }
+    // An admin may pass a config of their own through DENO_FLAGS; deno refuses it next
+    // to --no-config or a second --config, so it then stands on its own.
+    let config_in_deno_flags = DENO_FLAGS.as_ref().is_some_and(|flags| {
+        flags
+            .iter()
+            .any(|f| f == "-c" || f == "--config" || f.starts_with("--config="))
+    });
 
     //do not cache local dependencies
     let child = {
@@ -464,6 +524,15 @@ try {{
         let mut args = Vec::with_capacity(12);
         args.push("run");
         args.push("--no-check");
+        if !config_in_deno_flags {
+            match deno_config_path.as_deref() {
+                Some(config) => {
+                    args.push("--config");
+                    args.push(config);
+                }
+                None => args.push("--no-config"),
+            }
+        }
         args.push("--import-map");
         args.push(&import_map_path);
         args.push(&reload);

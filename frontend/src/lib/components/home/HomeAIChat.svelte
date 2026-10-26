@@ -21,7 +21,6 @@
 	import { currentWorkspaceRootId } from '../sessions/sessionScope.svelte'
 	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { homeComposerPin, setHomeComposerRemoved } from './homeComposerPin.svelte'
-	import { isRuleActive, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { BROWSER } from 'esm-env'
 	import HomeConnectDrawer from './HomeConnectDrawer.svelte'
@@ -33,7 +32,7 @@
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
-	import { prefetchItemCount } from '../copilot/chat/starter/starterPrompts.svelte'
+	import { prefetchComposerSignals } from '../copilot/chat/starter/starterPrompts.svelte'
 	import { useWorkspaceAiHidden } from '../copilot/workspaceAiHidden.svelte'
 	import { homeQuickAccessSettings } from './homeQuickAccessSettings.svelte'
 
@@ -73,27 +72,12 @@
 		pulseEndTimer = setTimeout(() => (pulsing = false), PULSE_MS)
 	}
 
-	// A workspace locked against direct deployment is run, not authored in, so its home page drops
-	// the composer and the button to reopen it. This is about the workspace, not the caller: an
-	// admin bypasses the lock outright, yet that does not make prod the place to start a session.
-	// Unresolved rules read as unlocked, so the far commoner unlocked workspace never pops the
-	// composer in mid-load.
-	let runOnlyWorkspace = $derived(isRuleActive('DisableDirectDeployment'))
-
-	// So the block waits for the rules before it mounts: mounted before them, a locked workspace
-	// would show its composer until they arrived. Once shown for a family it stays: switching to a
-	// fork resets the rules, and remounting would flash it.
-	let rulesReady = $derived(
-		protectionRulesState.rulesets !== undefined &&
-			protectionRulesState.workspace === $workspaceStore
-	)
-	let shownForRoot = $state<string>()
-
 	let HomeSessionStarter = $state(loadedStarter)
 	if (!loadedStarter) void loadStarter().then((c) => (HomeSessionStarter = c))
-	// The starter waits on the workspace's item count before it mounts; asked alongside its code
-	// rather than once the code has loaded, it is no extra wait.
-	if ($workspaceStore) prefetchItemCount($workspaceStore)
+	// The starter waits on the workspace's item count before it mounts, and its suggestions on
+	// the other signals; asked alongside its code rather than once the code has loaded, they
+	// are no extra wait.
+	if ($workspaceStore) prefetchComposerSignals($workspaceStore)
 
 	// Whether Home's own workspace hides the assistant, read for that workspace rather than from
 	// the shared copilot config, which still describes the last session's workspace for a moment
@@ -105,10 +89,7 @@
 	// be silently dropped) while the AI-independent CLI/MCP row below stays.
 	const inPreviewFrame = BROWSER && window.self !== window.top
 	let showComposer = $derived(
-		prefersSessionHandoff(!$roleCapabilities.code) &&
-			!inPreviewFrame &&
-			!runOnlyWorkspace &&
-			!homeAiHidden.hidden
+		prefersSessionHandoff(!$roleCapabilities.code) && !inPreviewFrame && !homeAiHidden.hidden
 	)
 
 	let hero = $derived(showComposer && !removed)
@@ -136,14 +117,13 @@
 			     the workspace family, not the workspace: another family needs its own draft, but a
 			     fork shares its parent's, and remounting for it only flashes the block. Also keyed
 			     on the asks for another draft (New session, a draft picked in the session list). -->
-			{#if HomeSessionStarter && sessionState.hydrated && (rulesReady || shownForRoot === $currentWorkspaceRootId)}
+			{#if HomeSessionStarter && sessionState.hydrated}
 				<!-- Going into the composer is going to the AI side, so the sidebar lists sessions,
 				     where the one sent from here opens. Nothing may focus the composer unasked (Home's
 				     search holds the page's first focus), or every visit would flip the list. -->
 				<div class="contents" onfocusin={() => (homeSidebarList.val = 'sessions')}>
 					{#key `${$currentWorkspaceRootId}:${homeDraft.requests}`}
 						<HomeSessionStarter
-							onShown={() => (shownForRoot = $currentWorkspaceRootId)}
 							{placeholder}
 							onSettled={(height) =>
 								rememberComposerHeight($workspaceStore ?? undefined, sessionsListed, height)}

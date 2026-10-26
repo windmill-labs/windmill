@@ -4,11 +4,13 @@
 	const HEIGHT_SETTING = 'home-composer-height:'
 	// The box's 4px top margin and the 8px under the block.
 	const BLOCK_MARGINS = 12
-	const ONE_LINE_HEIGHT = 48 + BLOCK_MARGINS
 	// The suggestion chips' row under an open box. A disabled composer has none, and its box,
 	// the shortest open one, is 78px.
 	const SUGGESTIONS_ROW = 36
 	const OPEN_BOX_MIN = 78
+	// The one-line box is 48px in Chromium but taller in Firefox, so the shape is told apart by
+	// the shortest open block: anything below it is one line, whatever the browser.
+	const OPEN_MIN_HEIGHT = OPEN_BOX_MIN + BLOCK_MARGINS
 
 	// The composer rests open beside the session list and on one line beside the workspace nav,
 	// so each side of the sidebar switch keeps its own height.
@@ -53,7 +55,7 @@
 	// handful of items rests in.
 	let { height }: { height?: number } = $props()
 
-	const open = $derived(height !== undefined && height > ONE_LINE_HEIGHT)
+	const open = $derived(height !== undefined && height >= OPEN_MIN_HEIGHT)
 	const suggestions = $derived(open && height! - BLOCK_MARGINS - SUGGESTIONS_ROW >= OPEN_BOX_MIN)
 	const boxClass = twMerge(composerBoxClass(), HERO_BOX_CLASS)
 </script>
@@ -68,7 +70,7 @@
 
 <div
 	class="w-full pb-2 flex flex-col"
-	style:height={open ? `${height}px` : undefined}
+	style:height={height !== undefined ? `${height}px` : undefined}
 	aria-busy="true"
 	aria-label="Loading the AI composer"
 >
@@ -102,7 +104,11 @@
 			</div>
 		{/if}
 	{:else}
-		<div class="mt-1 h-12 flex flex-row items-center {boxClass}">
+		<div
+			class="mt-1 {height !== undefined
+				? 'flex-1 min-h-0'
+				: 'h-12'} flex flex-row items-center {boxClass}"
+		>
 			<span class="flex items-center ml-4 shrink-0">
 				<MessagesSquare size={16} class="text-ai" />
 			</span>

@@ -19,6 +19,8 @@
 		setSessionDraftPrompt,
 		takeHomeDraftFocus
 	} from './sessionState.svelte'
+	import { useWorkModeLock } from './workModeLock.svelte'
+	import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 	import { composerSentFromHome } from './homeSessionsTransition.svelte'
 	import { homeComposerContext } from './homeComposerContext.svelte'
 
@@ -31,12 +33,10 @@
 	// at rest whatever the workspace holds; a workspace small enough that the composer is the
 	// page's main way in keeps it open anyway.
 	let {
-		onShown,
 		placeholder,
 		onSettled,
 		restsOpen = false
 	}: {
-		onShown?: () => void
 		placeholder?: Snippet
 		onSettled?: (height: number) => void
 		restsOpen?: boolean
@@ -49,8 +49,13 @@
 	setContext<AIChatManager>('aiChatManager', runtime.manager)
 
 	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
-	// The draft acts on the workspace the page header names: holdHomeDraft keeps it there.
-	const starterPrompts = new StarterPrompts(() => $workspaceStore ?? undefined)
+	// The draft acts on the workspace the page header names: holdHomeDraft keeps it there, so
+	// the lock's way out to a dev workspace switches the page.
+	const workModeLock = useWorkModeLock(() => session, true)
+	const starterPrompts = new StarterPrompts(
+		() => $workspaceStore ?? undefined,
+		() => !workModeLock.current && runtime.manager.workMode !== AIWorkMode.USE
+	)
 
 	// The turn is already running on the session's manager; the page it belongs to takes over.
 	function onSent() {
@@ -80,7 +85,6 @@
 		requestAnimationFrame(() => onSettled?.(wrapper.offsetHeight))
 	})
 	onMount(() => {
-		onShown?.()
 		// The rows' "Ask AI" lands here. Before the chat has mounted (its config still
 		// loading) there is nowhere to put the item, and the attach does nothing.
 		return homeComposerContext.register({
@@ -114,6 +118,7 @@
 			}}
 			viewTransitionNames
 			{onSent}
+			workModeLock={workModeLock.current}
 		/>
 	</div>
 {:else}

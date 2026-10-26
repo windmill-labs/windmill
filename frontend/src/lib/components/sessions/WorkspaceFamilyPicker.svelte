@@ -20,14 +20,8 @@
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
-	import { getUserExt } from '$lib/user'
 	import { WorkspaceService } from '$lib/gen'
-	import {
-		fetchProtectionRulesForWorkspace,
-		isRuleActiveInRulesets,
-		canUserBypassRuleKindInRulesets
-	} from '$lib/workspaceProtectionRules.svelte'
-	import { resource } from 'runed'
+	import { useSessionReadOnly } from './sessionPermissions.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -141,35 +135,9 @@
 		return depth > 0 ? `padding-left: ${12 + depth * 16}px` : undefined
 	}
 
-	// Judge the prod root off its OWN protection rules (fetched), not the active
-	// workspace's — so it reads correctly from a dev/fork too, the same way
-	// ParentWorkspaceProtectionAlert checks the parent. It's selectable when you
-	// can deploy to it, and "Fork from prod" shows when you can fork it.
-	const rootRulesetsResource = resource(
-		() => root?.id,
-		async (id) => (id ? await fetchProtectionRulesForWorkspace(id) : [])
-	)
-	const rootRulesets = $derived(rootRulesetsResource.current ?? [])
-	// Bypass must be judged with the user's identity IN THE ROOT (is_admin/groups are per-workspace),
-	// not the active workspace's `$userStore` — otherwise an admin of the dev/active workspace who is a
-	// non-admin of the root would get a false bypass. `getUserExt` returns undefined for a non-member,
-	// which `canUserBypassRuleKindInRulesets` treats as no bypass.
-	const rootUserInfoResource = resource(
-		() => root?.id,
-		async (id) => (id ? await getUserExt(id) : undefined)
-	)
-	const rootUserInfo = $derived(rootUserInfoResource.current)
-	const canDeployRoot = $derived(
-		!isRuleActiveInRulesets(rootRulesets, 'DisableDirectDeployment') ||
-			canUserBypassRuleKindInRulesets(rootRulesets, 'DisableDirectDeployment', rootUserInfo)
-	)
-	// A genuinely deploy-locked root (you can't deploy and can't bypass) is disabled regardless of
-	// whether a dev workspace exists to steer to — being deploy-locked is the gate, not dev presence.
-	// Roots with no rules resolve `canDeployRoot` to true, so ordinary families aren't affected. Kept
-	// disabled while either fetch is in flight (both default to the conservative locked state).
-	const rootDisabled = $derived(
-		rootRulesetsResource.loading || rootUserInfoResource.loading || !canDeployRoot
-	)
+	// Judged off the root's OWN rules, so it reads correctly from a dev workspace or a fork too.
+	// A locked root stays selectable: its session is read-only.
+	const rootReadOnly = useSessionReadOnly(() => root?.id)
 
 	// Structural gate: hidden in the admins workspace, or when the user can't fork; on cloud, forking
 	// is premium-only (backend caps it per paid seat). DisableWorkspaceForking on the active workspace
@@ -234,7 +202,7 @@
 		if (row.kind === 'create') {
 			requestCreateFork()
 		} else if (row.kind === 'root') {
-			if (!rootDisabled) void pick(row.id)
+			void pick(row.id)
 		} else if (row.kind === 'fork') {
 			void pick(row.id)
 		}
@@ -404,20 +372,19 @@
 					<div class="relative group shrink-0">
 						<button
 							type="button"
-							disabled={rootDisabled}
-							title={rootDisabled
-								? devOfRoot
-									? `${root.name} is locked. Run in its ${devLabelNoun(devOfRoot.dev_workspace_label)} instead.`
-									: `${root.name} is locked for direct deploys.`
+							title={rootReadOnly.known
+								? `Sessions in ${root.name} can read and run deployed items, but not edit. Pick ${
+										devOfRoot ? `its ${devLabelNoun(devOfRoot.dev_workspace_label)}` : 'a fork'
+									} to make changes.`
 								: undefined}
-							class={`${rowBase} pr-8 ${rootDisabled ? 'opacity-50 cursor-not-allowed' : ''} ${isSelected(root.id) && !pendingFork ? 'bg-surface-selected' : ''} ${!rootDisabled && keyArrowPos === rootIdx ? 'bg-surface-hover' : !rootDisabled ? 'hover:bg-surface-hover' : ''}`}
-							onmouseenter={() => !rootDisabled && (keyArrowPos = rootIdx)}
-							onclick={() => !rootDisabled && void pick(root.id)}
+							class={`${rowBase} pr-8 ${isSelected(root.id) && !pendingFork ? 'bg-surface-selected' : ''} ${keyArrowPos === rootIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}
+							onmouseenter={() => (keyArrowPos = rootIdx)}
+							onclick={() => void pick(root.id)}
 						>
 							<Building size={14} class="shrink-0 text-tertiary" />
 							<span class="truncate">{root.name}</span>
 							<span class="text-2xs text-tertiary shrink-0 ml-auto"
-								>{rootDisabled ? 'locked' : 'root'}</span
+								>{rootReadOnly.known ? 'read-only' : 'root'}</span
 							>
 							{#if isSelected(root.id) && !pendingFork}
 								<Check size={14} class="shrink-0 text-accent" />

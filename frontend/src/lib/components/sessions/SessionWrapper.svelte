@@ -18,6 +18,7 @@
 		type ComposerSelection
 	} from '$lib/components/copilot/chat/composerBox'
 	import { useSessionPermissions } from './sessionPermissions.svelte'
+	import { useWorkModeLock } from './workModeLock.svelte'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { Button } from '$lib/components/common'
@@ -45,6 +46,7 @@
 		getSessionDraftAttachments,
 		setSessionDraftAttachments,
 		peekSessionAutoSend,
+		getSessionAutoSendDomElement,
 		takeSessionAutoSend,
 		reconcileAfterWorkspaceChange,
 		renameSession,
@@ -82,6 +84,12 @@
 	// Reactive session reference (mutations to summary/target propagate via the $state proxy)
 	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
 
+	const permissions = useSessionPermissions(
+		() => runtime?.manager.operatingWorkspace,
+		() => runtime?.manager
+	)
+	const workModeLock = useWorkModeLock(() => session)
+
 	// Seed the composer with the unsent prompt a reload preserved on the session
 	// record (script-init: AIChatInput reads it once at mount).
 	const restoredDraftPrompt = getSessionDraftPrompt(sessionId)
@@ -114,7 +122,6 @@
 
 	// Drawn once, and shared by the placeholder and the real composer so the text survives the swap.
 	const suggestionPick = Math.random()
-	const permissions = useSessionPermissions(() => runtime?.manager.operatingWorkspace)
 	const composerPlaceholder = $derived(
 		globalComposerSuggestion(suggestionPick, permissions.canOpenEditor)
 	)
@@ -131,13 +138,14 @@
 		if (!session?.autoSendDraftAt || !runtime) return
 		untrack(() => {
 			const prompt = getSessionDraftPrompt(sessionId)
+			const domElement = getSessionAutoSendDomElement(sessionId)
 			// takeSessionAutoSend clears the intent whether or not it is still
 			// fresh, so this cannot re-enter on the next dependency change.
 			if (!takeSessionAutoSend(sessionId) || !prompt) return
 			// sendOrQueue, not sendRequest: a reused session may already be mid-turn.
 			// The runtime's beforeSend awaits loadCopilot for the committed
 			// workspace, so this cannot race the model config on a cold session.
-			runtime.manager.sendOrQueue(prompt)
+			runtime.manager.sendOrQueue(prompt, domElement ? [domElement] : undefined)
 		})
 	})
 
@@ -480,6 +488,7 @@
 							viewTransitionNames={headerInPage && arrivingFromHomeSend()}
 							emptyHint={sessionEmptyHint}
 							{inputPreface}
+							workModeLock={workModeLock.current}
 						/>
 					{:else}
 						<!-- AIChatDisplay's layout, so the composer stays put when the chat replaces it:

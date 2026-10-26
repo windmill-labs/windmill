@@ -7,6 +7,9 @@ use serde::Serialize;
 use crate::ServiceName;
 
 #[cfg(feature = "native_trigger")]
+use itertools::Itertools;
+
+#[cfg(feature = "native_trigger")]
 use crate::{
     decrypt_oauth_data, list_native_triggers, update_native_trigger_error,
     update_native_trigger_service_config, External, NativeTrigger,
@@ -238,38 +241,50 @@ pub async fn sync_workspace_triggers<T: External>(
     let mut synced = Vec::new();
     let mut errors = Vec::new();
 
-    // Use the integration service for OAuth lookup (e.g., GoogleDrive/GoogleCalendar -> Google)
-    let integration_service = T::SERVICE_NAME.integration_service();
+    // Maintenance runs per connection: each one's triggers are registered under its account, and
+    // Nextcloud reconciles against that account's own list of webhooks.
+    let by_connection = windmill_triggers
+        .into_iter()
+        .into_group_map_by(|t| t.connection_path.clone());
 
-    let oauth_data = {
-        match decrypt_oauth_data(db, workspace_id, integration_service).await {
+    for (connection_path, triggers) in by_connection {
+        let oauth_data = match decrypt_oauth_data(
+            db,
+            workspace_id,
+            T::SERVICE_NAME.integration_service(),
+            connection_path.as_deref(),
+        )
+        .await
+        {
             Ok(oauth_data) => oauth_data,
             Err(e) => {
                 tracing::error!(
-                    "Failed to get workspace integration OAuth data for {}: {}",
+                    "Failed to get the OAuth data of connection {:?} in {}: {}",
+                    connection_path,
                     workspace_id,
                     e
                 );
                 errors.push(SyncError {
-                    resource_path: format!("workspace:{}", workspace_id),
-                    error_message: format!("Failed to get workspace integration OAuth data: {}", e),
+                    resource_path: connection_path
+                        .unwrap_or_else(|| format!("workspace:{}", workspace_id)),
+                    error_message: format!("Failed to get connection OAuth data: {}", e),
                     error_type: "oauth_error".to_string(),
                 });
-                return Ok((Vec::new(), errors));
+                continue;
             }
-        }
-    };
+        };
 
-    handler
-        .maintain_triggers(
-            db,
-            workspace_id,
-            &windmill_triggers,
-            &oauth_data,
-            &mut synced,
-            &mut errors,
-        )
-        .await;
+        handler
+            .maintain_triggers(
+                db,
+                workspace_id,
+                &triggers,
+                &oauth_data,
+                &mut synced,
+                &mut errors,
+            )
+            .await;
+    }
 
     tracing::info!(
         "Sync completed for {} in workspace '{}'. Updated: {}, Errors: {}",
