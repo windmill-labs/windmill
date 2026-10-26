@@ -91,18 +91,20 @@ async fn test_schedule_job_deletion_is_idempotent(db: Pool<Postgres>) -> anyhow:
     Ok(())
 }
 
-// A loop iteration's root_job is stored NULL, so this pins that the flow-level setting reaches
-// jobs nested below the flow, and that the flow's own result stays cleared.
-#[cfg(feature = "enterprise")]
-#[sqlx::test(fixtures("base"))]
-async fn test_flow_level_delete_clears_every_job_of_the_run(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
-    use windmill_common::jobs::JobPayload;
+// ---------------------------------------------------------------------------
+// Integration: a flow's own delete_after_secs = 0
+// ---------------------------------------------------------------------------
 
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let flow = serde_json::from_value(serde_json::json!({
+#[cfg(feature = "enterprise")]
+const FLOW_PATH: &str = "u/test-user/delete_after_use_flow";
+#[cfg(feature = "enterprise")]
+const FLOW_VERSION: i64 = 8_812_004;
+
+/// A sequential loop: its iterations are stored with a NULL root_job, so only a walk down
+/// parent_job reaches them.
+#[cfg(feature = "enterprise")]
+async fn deploy_loop_flow(db: &Pool<Postgres>) -> anyhow::Result<()> {
+    let value = serde_json::json!({
         "delete_after_secs": 0,
         "modules": [{
             "id": "loop",
@@ -114,32 +116,127 @@ async fn test_flow_level_delete_clears_every_job_of_the_run(
                 "modules": [{ "id": "inner", "value": { "type": "identity" } }]
             }
         }]
-    }))?;
-    let flow_job =
-        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
-            .arg("x", serde_json::json!("secret"))
-            .run_until_complete(&db, false, server.addr.port())
-            .await;
+    });
+    sqlx::query(
+        "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at,
+            schema, extra_perms, versions)
+        VALUES ('test-workspace', $1, '', '', $2, 'test-user', now(), '{}', '{}', ARRAY[$3])",
+    )
+    .bind(FLOW_PATH)
+    .bind(&value)
+    .bind(FLOW_VERSION)
+    .execute(db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO flow_version (id, workspace_id, path, value, schema, created_by)
+        VALUES ($1, 'test-workspace', $2, $3, '{}', 'test-user')",
+    )
+    .bind(FLOW_VERSION)
+    .bind(FLOW_PATH)
+    .bind(&value)
+    .execute(db)
+    .await?;
+    Ok(())
+}
 
-    let kept = sqlx::query_scalar::<_, String>(
+/// `(flow_step_id, args, result)` of every job of the run, the flow job included as "flow".
+#[cfg(feature = "enterprise")]
+async fn run_data(
+    db: &Pool<Postgres>,
+    flow_id: uuid::Uuid,
+) -> anyhow::Result<Vec<(String, serde_json::Value, serde_json::Value)>> {
+    Ok(sqlx::query_as(
         "WITH RECURSIVE run AS (
             SELECT id FROM v2_job WHERE id = $1
             UNION ALL
             SELECT j.id FROM v2_job j JOIN run r ON j.parent_job = r.id
         )
-        SELECT COALESCE(j.flow_step_id, 'flow') || ' ' || j.args::text || ' ' || c.result::text
-        FROM run JOIN v2_job j USING (id) JOIN v2_job_completed c USING (id)
-        WHERE j.args <> '{}'::jsonb OR c.result <> '{}'::jsonb",
+        SELECT COALESCE(j.flow_step_id, 'flow'), j.args, c.result
+        FROM run JOIN v2_job j USING (id) JOIN v2_job_completed c USING (id)",
     )
-    .bind(flow_job.id)
-    .fetch_all(&db)
-    .await?;
-    let nb_jobs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM v2_job WHERE parent_job = $1")
-        .bind(flow_job.id)
-        .fetch_one(&db)
-        .await?;
+    .bind(flow_id)
+    .fetch_all(db)
+    .await?)
+}
 
-    assert!(nb_jobs > 0, "the flow should have run steps");
+#[cfg(feature = "enterprise")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_level_delete_clears_steps_and_keeps_flow_result(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use windmill_common::jobs::JobPayload;
+
+    initialize_tracing().await;
+    deploy_loop_flow(&db).await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let flow_job = RunJob::from(JobPayload::Flow {
+        path: FLOW_PATH.to_string(),
+        dedicated_worker: None,
+        apply_preprocessor: false,
+        version: FLOW_VERSION,
+        labels: None,
+        job_token_scopes: None,
+    })
+    .arg("x", serde_json::json!("secret"))
+    .run_until_complete(&db, false, server.addr.port())
+    .await;
+
+    let jobs = run_data(&db, flow_job.id).await?;
+    assert!(jobs.len() > 1, "the flow should have run steps: {jobs:?}");
+    for (step, args, result) in &jobs {
+        assert_eq!(args, &serde_json::json!({}), "{step} kept its args");
+        if step == "flow" {
+            // An async run has no caller to read the result, so the flow keeps it.
+            assert_ne!(
+                result,
+                &serde_json::json!({}),
+                "the flow's result was cleared"
+            );
+        } else {
+            assert_eq!(result, &serde_json::json!({}), "{step} kept its result");
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "enterprise")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_level_delete_clears_flow_result_after_sync_read(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    deploy_loop_flow(&db).await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let response = in_test_worker(
+        windmill_common::worker::Connection::Sql(db.clone()),
+        reqwest::Client::new()
+            .post(format!(
+                "http://localhost:{port}/api/w/test-workspace/jobs/run_wait_result/f/{FLOW_PATH}"
+            ))
+            .bearer_auth("SECRET_TOKEN")
+            .json(&serde_json::json!({ "x": "secret" }))
+            .send(),
+        port,
+    )
+    .await?
+    .error_for_status()?
+    .json::<serde_json::Value>()
+    .await?;
+
+    assert_eq!(response.as_array().map(Vec::len), Some(2), "{response}");
+    let flow_id: uuid::Uuid =
+        sqlx::query_scalar("SELECT id FROM v2_job WHERE runnable_path = $1 AND parent_job IS NULL")
+            .bind(FLOW_PATH)
+            .fetch_one(&db)
+            .await?;
+    let kept: Vec<_> = run_data(&db, flow_id)
+        .await?
+        .into_iter()
+        .filter(|(_, args, result)| {
+            args != &serde_json::json!({}) || result != &serde_json::json!({})
+        })
+        .collect();
     assert!(kept.is_empty(), "jobs that kept args or result: {kept:?}");
     Ok(())
 }

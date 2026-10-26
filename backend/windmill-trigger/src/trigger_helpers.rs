@@ -29,9 +29,10 @@ use windmill_api_auth::{check_scopes, ApiAuthed};
 use windmill_api_jobs::execution::check_license_key_valid;
 use windmill_api_jobs::{
     execution::{
-        check_tag_available_for_workspace, delete_job_metadata_after_use,
-        push_flow_job_by_path_into_queue, push_script_job_by_path_into_queue, result_to_response,
-        run_wait_result_internal, schedule_job_deletion,
+        check_tag_available_for_workspace, delete_flow_result_after_read,
+        delete_job_metadata_after_use, push_flow_job_by_path_into_queue,
+        push_script_job_by_path_into_queue, result_to_response, run_wait_result_internal,
+        schedule_job_deletion,
     },
     types::RunJobQuery,
 };
@@ -683,6 +684,9 @@ pub async fn trigger_runnable_and_wait_for_result(
         Some(secs) => schedule_job_deletion(&db, uuid, &workspace_id, secs).await?,
         None => {}
     }
+    if is_flow {
+        delete_flow_result_after_read(db, uuid).await?;
+    }
 
     result_to_response(result, success)
 }
@@ -743,6 +747,9 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
         Some(0) => delete_job_metadata_after_use(&db, uuid).await?,
         Some(secs) => schedule_job_deletion(&db, uuid, &workspace_id, secs).await?,
         None => {}
+    }
+    if is_flow {
+        delete_flow_result_after_read(db, uuid).await?;
     }
 
     Ok((result, success))

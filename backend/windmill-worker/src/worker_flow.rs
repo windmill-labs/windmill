@@ -1985,6 +1985,14 @@ pub async fn update_flow_status_after_job_completion_internal(
                     })?;
                 }
             }
+
+            let flow_value = flow_data.value();
+            if let Some(secs) = windmill_common::jobs::resolve_delete_after_secs(
+                flow_value.delete_after_use,
+                flow_value.delete_after_secs,
+            ) {
+                delete_flow_run_data(db, &flow_job, secs).await?;
+            }
         }
 
         if flow_job.is_canceled() {
@@ -2084,19 +2092,6 @@ pub async fn update_flow_status_after_job_completion_internal(
             flow_job_duration = flow_job
                 .started_at
                 .map(|x| FlowJobDuration { started_at: x, duration_ms: duration });
-        }
-
-        // Runs after the flow's completed row is written: clearing it earlier lets that
-        // write put the flow's result back.
-        #[cfg(feature = "enterprise")]
-        if flow_job.parent_job.is_none() {
-            let flow_value = flow_data.value();
-            if let Some(secs) = windmill_common::jobs::resolve_delete_after_secs(
-                flow_value.delete_after_use,
-                flow_value.delete_after_secs,
-            ) {
-                delete_flow_run_data(db, &flow_job, secs).await?;
-            }
         }
         true
     } else {
@@ -2216,6 +2211,8 @@ async fn delete_flow_run_data(db: &DB, flow_job: &MiniPulledJob, secs: i32) -> e
         .map_err(|e| {
             Error::internal_err(format!("error while cleaning up completed job args: {e:#}"))
         })?;
+        // The flow's own completed row is written after this, so its result is kept: a
+        // synchronous caller clears it once it has read it (`delete_flow_result_after_read`).
         sqlx::query!(
             "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = ANY($1)",
             &all_ids,
