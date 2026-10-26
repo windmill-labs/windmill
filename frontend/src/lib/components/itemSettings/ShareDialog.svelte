@@ -348,6 +348,10 @@
 							{#if modeRefusal === 'unsandboxed'}
 								This app is not sandboxed yet. Deploy it so it is sandboxed, then change who can
 								open it.
+							{:else if modeRefusal === 'builder_run_as'}
+								This app runs on behalf of {runAs}. Pick yourself in the editor's Settings ›
+								Permissions and deploy it, then change who can open it. An admin can change it
+								without taking the app over.
 							{:else}
 								This app runs on behalf of {runAs}. Deploy it so it runs on behalf of you, then
 								change who can open it. An admin or a member of <code>wm_deployers</code> can change
