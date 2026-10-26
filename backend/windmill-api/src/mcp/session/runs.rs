@@ -1821,6 +1821,41 @@ fn card_steps(entries: &[Value]) -> Vec<Value> {
     RunTree::new(entries).shape_children(0, (CARD_STEP_RESULT_CHARS, CARD_STEP_RESULT_CHARS))
 }
 
+/// A result Windmill shows as a file, an image, a page or a map, named for the card: its
+/// content (often base64) is no use cut to the card's head, and the run page shows it.
+fn describe_result(result: &Value) -> Option<String> {
+    let s3 = |value: &Value| value.get("s3").and_then(Value::as_str).map(str::to_string);
+    if let Some(items) = result.as_array().filter(|a| !a.is_empty()) {
+        return items
+            .iter()
+            .all(|item| s3(item).is_some())
+            .then(|| format!("{} files in object storage", items.len()));
+    }
+    let object = result.as_object()?;
+    if let Some(path) = s3(result) {
+        return Some(format!("File {path} in object storage"));
+    }
+    if let Some(name) = object
+        .get("filename")
+        .and_then(Value::as_str)
+        .filter(|_| object.contains_key("file"))
+    {
+        return Some(format!("File {name}"));
+    }
+    let [(key, _)] = object.iter().collect::<Vec<_>>()[..] else {
+        return None;
+    };
+    Some(match key.as_str() {
+        "png" | "jpeg" | "gif" => format!("{} image", key.to_uppercase()),
+        "svg" => "SVG image".to_string(),
+        "pdf" => "PDF document".to_string(),
+        "file" => "File".to_string(),
+        "html" => "HTML page".to_string(),
+        "map" => "Map".to_string(),
+        _ => return None,
+    })
+}
+
 /// What the run card draws of a run: its summary, the head of its result (a failure's
 /// message alone), and a running flow's top-level step.
 fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
@@ -1839,12 +1874,24 @@ fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
         {
             run.insert("stack".into(), js_head(stack, CARD_RESULT_CHARS).into());
         }
-        if let Some(text) = error
+        let described = result.filter(|_| error.is_none()).and_then(describe_result);
+        if let Some(label) = &described {
+            run.insert("result_kind".into(), "file".into());
+            run.insert("result".into(), label.clone().into());
+        } else if let Some(text) = error
             .map(|e| match e["name"].as_str().filter(|n| !n.is_empty()) {
                 Some(name) => format!("{name}: {}", e["message"].as_str().unwrap_or_default()),
                 None => e["message"].as_str().unwrap_or_default().to_string(),
             })
-            .or_else(|| result.map(|r| format_result(Some(r))))
+            .or_else(|| {
+                // Markdown is shown as its text.
+                let markdown = result
+                    .and_then(|r| r.get("markdown"))
+                    .and_then(Value::as_str);
+                markdown
+                    .map(String::from)
+                    .or_else(|| result.map(|r| format_result(Some(r))))
+            })
         {
             let head = js_head(&text, CARD_RESULT_CHARS);
             if head.len() < text.len() {
@@ -2185,6 +2232,14 @@ mod tests {
 
         // Not read yet: still running, by id alone.
         assert_eq!(run_card("j", None)["status"], "running");
+
+        let image =
+            json!({ "type": "CompletedJob", "success": true, "result": { "png": "iVBORw0KGgo" } });
+        let card = run_card("j", Some(&image));
+        assert_eq!(
+            (&card["result_kind"], &card["result"]),
+            (&json!("file"), &json!("PNG image"))
+        );
 
         // Cut by UTF-16 units: 800 emoji are 1,600 of them, past the head's 1,500.
         let emoji = json!({ "type": "CompletedJob", "success": true, "result": "😀".repeat(800) });

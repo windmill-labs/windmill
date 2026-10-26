@@ -358,11 +358,29 @@
       hidden > 0 ? moreButton(`${hidden} more ${more.noun}${hidden === 1 ? '' : 's'}`, more.url) : null);
   }
 
-  // A result that is a list of records reads better as a table. A result cut short is no
-  // longer JSON, and stays text.
+  // A result Windmill draws as a table reads as one here too: a list of records, a list of
+  // rows under a header row, or columns (each bare or under its `table-*` key). A result
+  // cut short is no longer JSON, and stays text.
   function recordsTable(text) {
-    let rows;
-    try { rows = JSON.parse(text); } catch { return null; }
+    let value;
+    try { value = JSON.parse(text); } catch { return null; }
+    let kind = null;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const keys = Object.keys(value);
+      if (keys.length === 1 && ['table-row', 'table-row-object', 'table-col'].includes(keys[0])) {
+        kind = keys[0];
+        value = value[kind];
+      }
+    }
+    let rows = value;
+    if (kind === 'table-col' && value && typeof value === 'object') {
+      const columns = Object.keys(value).filter((c) => Array.isArray(value[c]));
+      const length = Math.max(0, ...columns.map((c) => value[c].length));
+      rows = Array.from({ length }, (_, i) => Object.fromEntries(columns.map((c) => [c, value[c][i]])));
+    } else if (Array.isArray(value) && value.length > 1 && value.every(Array.isArray)) {
+      const [header, ...body] = value;
+      rows = body.map((cells) => Object.fromEntries(header.map((h, i) => [String(h), cells[i]])));
+    }
     if (!Array.isArray(rows) || !rows.length || rows.length > 100) return null;
     if (!rows.every((row) => row && typeof row === 'object' && !Array.isArray(row))) return null;
     const keys = [...new Set(rows.flatMap(Object.keys))].slice(0, 8);
@@ -404,9 +422,10 @@
     const errorLine = $('error-line');
     errorLine.hidden = !failed || run?.result == null;
     errorLine.textContent = failed ? run?.result ?? '' : '';
-    const records = status === 'success' ? recordsTable(run?.result) : null;
+    const described = run?.result_kind === 'file';
+    const records = status === 'success' && !described ? recordsTable(run?.result) : null;
     const shown = failed ? run?.stack : run?.result;
-    result.hidden = running || shown == null || !!records;
+    result.hidden = running || shown == null || !!records || described;
     result.textContent = shown ?? '';
     result.classList.toggle('clip', !fullscreen());
     // Rebuilt only for a new result, so a sort survives the card redrawing.
@@ -419,6 +438,10 @@
     // A long result is clipped inline; the server also cuts one past its own limit.
     const more = $('result-more');
     more.replaceChildren();
+    // A file, image, page or map is named here and shown on the run page.
+    if (described && !running) more.append(el('div', { class: 'step' }, run.result), linkButton('View it in Windmill', run.url, 'margin-top: 8px'));
+    // A flow waiting on an approval or another event is resumed or canceled on its page.
+    if (status === 'suspended') more.append(el('div', { class: 'step' }, 'Waiting for an approval or another event.'), linkButton('Approve or cancel in Windmill', run.url, 'margin-top: 8px'));
     if (!result.hidden) {
       if (!fullscreen() && result.scrollHeight > result.clientHeight + 1) more.append(moreButton('full result', run.url));
       else if (run.result_cut) more.append(linkButton('Full result in Windmill', run.url));
