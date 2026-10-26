@@ -5337,7 +5337,7 @@ pub async fn handle_queued_job(
                     preview_data,
                     conn,
                     client,
-                    parent_runnable_path,
+                    parent_runnable_path.clone(),
                     job_dir,
                     worker_dir,
                     &mut mem_peak,
@@ -5423,6 +5423,7 @@ pub async fn handle_queued_job(
             Some(started.elapsed().as_millis() as i64),
             has_stream,
             flow_runners,
+            parent_runnable_path.as_deref(),
         )
         .await
     }
