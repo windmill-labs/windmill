@@ -1372,7 +1372,7 @@
 	},
 	{
 		"name": "rebase_draft",
-		"description": "Discard a stale script, flow, or app draft and return your changes as a diff to re-apply on the latest deployed version. Use when deploy_workspace_item reports the draft was started from an older deployed version.",
+		"description": "Discard a stale script, flow, or app draft and return your changes as a diff to re-apply on the latest deployed version. Use when a deploy reports the draft was started from an older deployed version.",
 		"parameters": {
 			"type": "object",
 			"properties": {
@@ -1670,7 +1670,7 @@
 					"type": "string"
 				},
 				"account": {
-					"description": "The account identifier",
+					"description": "Ignored. A variable is linked to an OAuth account only when `createAccount` creates both.",
 					"type": "integer",
 					"minimum": -9007199254740991,
 					"maximum": 9007199254740991
