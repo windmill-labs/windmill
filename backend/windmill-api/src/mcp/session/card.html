@@ -245,7 +245,7 @@
       return el('button', { class: 'small', type: 'button', style: 'margin-top: 8px', onclick: () => setDisplayMode('fullscreen') }, `Show ${label} \u2922`);
     }
     if (!url) return null;
-    return el('button', { class: 'small', type: 'button', style: 'margin-top: 8px', onclick: () => openLink(url) }, `${label} in Windmill \u2197`);
+    return el('button', { class: 'small', type: 'button', style: 'margin-top: 8px', onclick: () => openLink(url) }, `${label[0].toUpperCase()}${label.slice(1)} in Windmill \u2197`);
   }
   // A section the user opened stays open across redraws; fullscreen opens them all.
   const opened = new Set();
