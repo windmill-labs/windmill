@@ -793,7 +793,8 @@
   // loop or branch progress, and the latest log line of what runs now.
   function progressView() {
     const parts = [];
-    if (run.steps) {
+    // A saved agent's run is one internal step: its tool calls are not steps of a flow.
+    if (run.steps && !run.agent_run) {
       // Only the steps that started have a status: the rest are still to come.
       // The count is the flow's modules: its preprocessor and error handler are not among them.
       const done = (run.step_list ?? []).filter((s) => s.step !== 'failure' && s.step !== 'preprocessor');
@@ -864,7 +865,8 @@
     else if (inline && described && !running) more.append(el('div', { class: 'step' }, run.result), linkButton('File in Windmill', run.url, 'margin-top: 8px'));
     // A flow waiting on an approval or another event is resumed or canceled on its page.
     if (inline && (status === 'suspended' || run?.waiting)) more.append(...waitingView(run));
-    if (inline && !running && run?.agent_tool_calls != null) more.append(agentNote(run));
+    // A saved agent says it once, on its steps line.
+    if (inline && !running && run?.agent_tool_calls != null && !run.agent_run) more.append(agentNote(run));
     // The result is clipped inline; a click on it opens it whole.
     const slot = $('result-slot');
     result.classList.remove('cut');
@@ -916,11 +918,13 @@
     const groups = steps.filter((s) => s.branches || s.iterations != null)
       .map((s) => s.branches ? `${s.step} ran ${plural(s.branches.length, 'branch')}` : `${s.step} ran ${plural(s.iterations, 'iteration')}`);
     // "All succeeded" only for a run that did: one that timed out or was canceled says where.
-    const outcome = failedAt ? `failed at ${failedAt.step}`
-      : run.status === 'success' ? 'all succeeded'
-      : `${(LABELS[run.status] ?? run.status).toLowerCase()} after ${steps[lastRan].step}`;
-    // A saved agent's run is its tool calls.
-    const text = [plural(steps.length, run.agent_run ? 'tool call' : 'step'), outcome, ...groups].join(' \u00b7 ');
+    const outcome = failedAt ? `failed at ${stepLabel(failedAt)}`
+      : run.status === 'success' ? (run.agent_run ? null : 'all succeeded')
+      : `${(LABELS[run.status] ?? run.status).toLowerCase()} after ${stepLabel(steps[lastRan])}`;
+    // A saved agent's run is its tool calls, and what they cost.
+    const text = (run.agent_run
+      ? [plural(steps.length, 'tool call'), run.agent_tokens != null ? plural(run.agent_tokens, 'token') : null, outcome]
+      : [plural(steps.length, 'step'), outcome, ...groups]).filter(Boolean).join(' \u00b7 ');
     if (canFullscreen()) return el('button', { class: 'more-line', type: 'button', onclick: () => openTab('steps') }, text, icon('expand'));
     if (run.url) return el('button', { class: 'more-line', type: 'button', onclick: () => openLink(run.url) }, text, icon('external'));
     return el('div', { class: 'step' }, text);
@@ -973,6 +977,9 @@
     }
     kids.forEach((kid, i) => treeRows(kid.node, kid.label, `${key}>${i}`, depth + 1, last && status === 'failure' && i === kids.length - 1, rows));
   }
+
+  // A step as the tree labels it: a tool call by the tool it called, anything else by its id.
+  const stepLabel = (step) => step.tool ?? step.step;
 
   // Named as Windmill's graph names a step: by summary, else by kind; an inner flow by its path.
   function stepName(node) {
@@ -1148,7 +1155,7 @@
       return [el('button', { class: 'back', type: 'button', onclick: () => { selected = null; redraw(); } }, icon('back'), 'Back to the steps'), ...stepDetail()];
     }
     const rows = [];
-    steps.forEach((step, i) => treeRows(step, step.step, step.step, 0, i === steps.length - 1, rows));
+    steps.forEach((step, i) => treeRows(step, stepLabel(step), step.step, 0, i === steps.length - 1, rows));
     const tree = el('div', { class: 'rows', role: 'tree', 'aria-label': 'Steps' }, ...rows);
     if (!split()) return [tabs, tree];
     return [tabs, el('div', { class: 'split' }, tree, el('div', { class: 'detail' },
