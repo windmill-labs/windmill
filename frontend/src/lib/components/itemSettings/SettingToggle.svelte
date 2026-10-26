@@ -42,12 +42,23 @@
 		hint,
 		children
 	}: Props = $props()
+
+	// Hosts read `checked` from the value, and a value being typed passes through states that read
+	// as off (an emptied field, a 0, an empty expression). Once its parameters have focus, the row
+	// stays open until its toggle is clicked.
+	let editing = $state(false)
 </script>
 
 <div class="flex flex-col gap-2" data-setting={setting}>
 	<Toggle
 		size="xs"
-		bind:checked
+		bind:checked={
+			() => checked || editing,
+			(v) => {
+				editing = false
+				checked = v
+			}
+		}
 		{disabled}
 		{eeOnly}
 		{aiId}
@@ -59,8 +70,12 @@
 		<!-- pl-9 lines everything under the label: an xs toggle is 28px wide plus its 8px gap. -->
 		<div class="pl-9 text-2xs text-secondary">{@render hint()}</div>
 	{/if}
-	{#if checked && children}
-		<div class="flex flex-col gap-2 pl-9" transition:slideDynamic>
+	{#if (checked || editing) && children}
+		<div
+			class="flex flex-col gap-2 pl-9"
+			transition:slideDynamic
+			onfocusin={() => (editing = true)}
+		>
 			{@render children()}
 		</div>
 	{/if}
