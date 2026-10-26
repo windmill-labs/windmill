@@ -20,16 +20,17 @@
 	let clientName = page.url.searchParams.get('client_name') || 'Unknown Client'
 	let redirectUri = page.url.searchParams.get('redirect_uri') || ''
 	// What the client asked for seeds the access picker; what is approved is the picker's.
-	// The legacy access scopes read as the levels that replaced them, so a client with older
-	// discovery that requests every scope starts from the highest level, as any client does.
-	const LEGACY_LEVELS: Record<string, string> = {
-		'mcp:read_only': 'mcp:read',
-		'mcp:read_run': 'mcp:run'
-	}
-	const requestedScopes = (page.url.searchParams.get('scope') || 'mcp:all')
+	const askedScopes = (page.url.searchParams.get('scope') || 'mcp:all')
 		.split(' ')
 		.filter((s) => s.startsWith('mcp:'))
-		.map((s) => LEGACY_LEVELS[s] ?? s)
+	// Both legacy narrowings at once is a client with older discovery requesting every scope it
+	// was offered, not a choice. One alone is a real request, which `mcpAccessOf` reads as such.
+	const requestedScopes =
+		askedScopes.includes('mcp:all') &&
+		askedScopes.includes('mcp:read_only') &&
+		askedScopes.includes('mcp:read_run')
+			? askedScopes.filter((s) => s !== 'mcp:read_only' && s !== 'mcp:read_run')
+			: askedScopes
 	let scopes = $state<string[]>([])
 	let access = $state<McpAccess>()
 	let oauthState = page.url.searchParams.get('state') || ''
