@@ -2022,7 +2022,9 @@ fn agent_card(job: &Value, steps: &mut Vec<Value>) -> Map<String, Value> {
         let waiting = actions.iter().enumerate().rev().find(|(i, a)| {
             *i >= answered && matches!(a["type"].as_str(), Some("approval" | "question"))
         });
-        if let Some((_, waiting)) = waiting {
+        // A run canceled or timed out while waiting keeps the request unanswered: only a run
+        // still going waits on it.
+        if let Some((_, waiting)) = waiting.filter(|_| job.get("success").is_none()) {
             out.entry("waiting").or_insert_with(|| waiting.clone());
         }
     }
@@ -2684,6 +2686,10 @@ mod tests {
         // A saved agent's one internal step gives way to its tool calls, named.
         assert_eq!(steps.len(), 1);
         assert_eq!(steps[0]["tool"], "lookup_order");
+        // A run that ended no longer waits, answered or not.
+        let mut ended = job.clone();
+        ended["success"] = json!(false);
+        assert!(agent_card(&ended, &mut vec![]).get("waiting").is_none());
         // An answered request no longer waits.
         let mut answered = job.clone();
         answered["flow_status"]["modules"][0]["agent_actions_success"] = json!([true, true]);

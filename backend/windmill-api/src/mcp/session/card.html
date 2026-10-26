@@ -864,7 +864,7 @@
     if (inline && run?.image && !running) more.append(openable(imageBox(run), true, run.url, 'result'));
     else if (inline && described && !running) more.append(el('div', { class: 'step' }, run.result), linkButton('File in Windmill', run.url, 'margin-top: 8px'));
     // A flow waiting on an approval or another event is resumed or canceled on its page.
-    if (inline && (status === 'suspended' || run?.waiting)) more.append(...waitingView(run));
+    if (inline && (status === 'suspended' || (running && run?.waiting))) more.append(...waitingView(run));
     // A saved agent says it once, on its steps line.
     if (inline && !running && run?.agent_tool_calls != null && !run.agent_run) more.append(agentNote(run));
     // The result is clipped inline; a click on it opens it whole.
@@ -1125,7 +1125,7 @@
     }
     // Result
     const parts = [];
-    if (of.status === 'suspended' || of.waiting) parts.push(...waitingView(of));
+    if (of.status === 'suspended' || (RUNNING.includes(of.status) && of.waiting)) parts.push(...waitingView(of));
     if (failed && of.result != null) {
       parts.push(el('div', { class: 'error-line' }, stackBody(of) ? of.result : openable(el('span', {}, of.result), false, url, null, of.result)));
     }
