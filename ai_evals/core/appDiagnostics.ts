@@ -567,9 +567,10 @@ function getRunnableSignature(
   runnable: AppDiagnosticRunnable | undefined,
   asyncMode: boolean,
 ): string {
-  const returnType = asyncMode ? "Promise<string>" : "Promise<any>";
   const parameter = getRunnableParameterSignature(runnable);
-  return `${parameter} => ${returnType}`;
+  if (!asyncMode) return `${parameter} => Promise<any>`;
+  const opts = "opts?: { memoryId?: string }";
+  return `${parameter === "()" ? `(${opts})` : parameter.replace(/\)$/, `, ${opts})`)} => Promise<string>`;
 }
 
 function getRunnableParameterSignature(
