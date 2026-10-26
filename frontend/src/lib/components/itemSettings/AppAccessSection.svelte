@@ -42,6 +42,18 @@
 		disabled = false
 	}: Props = $props()
 
+	// The toggle group keeps the option it was clicked to, so a change the server refuses would
+	// stay highlighted while `mode` never moved. Remounting it once each change settles makes it
+	// show the stored mode either way.
+	let toggleKey = $state(0)
+	async function selectMode(next: AppAccessMode) {
+		try {
+			await onModeChange(next)
+		} finally {
+			toggleKey++
+		}
+	}
+
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
 	let isAdmin = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin)
@@ -161,38 +173,40 @@
 	{/if}
 	<div class="flex flex-col gap-1">
 		<div>
-			<ToggleButtonGroup
-				selected={mode}
-				{disabled}
-				onSelected={(m) => {
-					if (m && m !== mode) onModeChange(m)
-				}}
-			>
-				{#snippet children({ item })}
-					<ToggleButton
-						label="Members"
-						value="publisher"
-						tooltip="Workspace members with read access on this app."
-						{item}
-					/>
-					<ToggleButton
-						label="Guests"
-						value="guest"
-						disabled={mode != 'guest' && (!guestsAvailable || !canSetGuest)}
-						tooltip={!guestsAvailable
-							? 'Not available on Windmill Cloud. Guests require a self-hosted instance or a dedicated Windmill Cloud deployment.'
-							: "Anyone your identity provider authenticates who has no Windmill account, plus workspace members. No membership, no seat up to the instance's allowance."}
-						{item}
-					/>
-					<ToggleButton
-						label="Public"
-						value="anonymous"
-						disabled={!canSetAnonymous && mode != 'anonymous'}
-						tooltip="Anyone with the secret URL. No login."
-						{item}
-					/>
-				{/snippet}
-			</ToggleButtonGroup>
+			{#key toggleKey}
+				<ToggleButtonGroup
+					selected={mode}
+					{disabled}
+					onSelected={(m) => {
+						if (m && m !== mode) selectMode(m as AppAccessMode)
+					}}
+				>
+					{#snippet children({ item })}
+						<ToggleButton
+							label="Members"
+							value="publisher"
+							tooltip="Workspace members with read access on this app."
+							{item}
+						/>
+						<ToggleButton
+							label="Guests"
+							value="guest"
+							disabled={mode != 'guest' && (!guestsAvailable || !canSetGuest)}
+							tooltip={!guestsAvailable
+								? 'Not available on Windmill Cloud. Guests require a self-hosted instance or a dedicated Windmill Cloud deployment.'
+								: "Anyone your identity provider authenticates who has no Windmill account, plus workspace members. No membership, no seat up to the instance's allowance."}
+							{item}
+						/>
+						<ToggleButton
+							label="Public"
+							value="anonymous"
+							disabled={!canSetAnonymous && mode != 'anonymous'}
+							tooltip="Anyone with the secret URL. No login."
+							{item}
+						/>
+					{/snippet}
+				</ToggleButtonGroup>
+			{/key}
 		</div>
 		<div class="text-xs text-secondary">
 			{#if mode == 'anonymous'}
