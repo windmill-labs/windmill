@@ -54,7 +54,7 @@
 	access = initialAccess
 	const initialSelection =
 		initialAccess === 'selected'
-			? initialScopes.filter((s) => s !== RUNNABLES_AS_TOOLS).join(' ')
+			? initialScopes.filter((s) => s !== RUNNABLES_AS_TOOLS && s !== MCP_SESSION).join(' ')
 			: undefined
 	let selection = $state(initialSelection ?? 'mcp:favorites')
 

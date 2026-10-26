@@ -51,11 +51,12 @@
 	let mcpTouched = $state(false)
 	// Carried over as is, the picker knowing nothing of them: dropping the workspace list
 	// would widen the token to every workspace, dropping `mcp:session` would move a sign-in
-	// on `/api/mcp/gateway` back to the endpoint tools.
+	// on `/api/mcp/gateway` back to the endpoint tools once it is given `mcp:all` again.
 	const isWorkspaceList = (s: string) => s.startsWith('mcp:workspaces:')
 	const keptAside = (s: string) =>
 		isWorkspaceList(s) ||
-		(mcpAccessOf(mcpScopes) !== 'selected' && (s.startsWith('mcp:hub:') || s === MCP_SESSION))
+		s === MCP_SESSION ||
+		(mcpAccessOf(mcpScopes) !== 'selected' && s.startsWith('mcp:hub:'))
 	const scopesToSave = $derived(
 		isMcp
 			? mcpTouched
