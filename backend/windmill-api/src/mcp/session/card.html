@@ -79,7 +79,10 @@
   .card { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
   .head { display: flex; align-items: flex-start; gap: 12px; }
   .title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-  .subtitle { font-size: 13px; color: var(--fg-2); }
+  .subtitle { font: 12px var(--mono); color: var(--fg-2); overflow-wrap: anywhere; }
+  .path.named { font: 600 14px/1.3 var(--sans); }
+  .kind-icon { flex: none; width: 28px; height: 28px; border-radius: var(--radius); background: var(--bg-2); color: var(--fg-2); display: inline-flex; align-items: center; justify-content: center; }
+  .kind-icon .lucide { width: 16px; height: 16px; color: inherit; }
   /* Blocks sit 12px apart; a section keeps its header 8px above what it opens. */
   #body, #details { display: flex; flex-direction: column; gap: 12px; }
   .section { display: flex; flex-direction: column; gap: 8px; }
@@ -178,6 +181,7 @@
 <body>
 <main class="card" aria-live="polite">
   <div class="head">
+    <span class="kind-icon" id="kind-icon" hidden></span>
     <div class="title">
       <button class="path" id="path" type="button" disabled>Windmill</button>
       <div class="subtitle" id="summary" hidden></div>
@@ -258,7 +262,17 @@
     external: [['path', { d: 'M15 3h6v6' }], ['path', { d: 'M10 14 21 3' }], ['path', { d: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6' }]],
     maximize: [['polyline', { points: '15 3 21 3 21 9' }], ['polyline', { points: '9 21 3 21 3 15' }], ['line', { x1: '21', x2: '14', y1: '3', y2: '10' }], ['line', { x1: '3', x2: '10', y1: '21', y2: '14' }]],
     right: [['path', { d: 'm9 18 6-6-6-6' }]],
-    down: [['path', { d: 'm6 9 6 6 6-6' }]]
+    down: [['path', { d: 'm6 9 6 6 6-6' }]],
+    // The kinds, as Windmill draws them (its flow icon is three staggered bars).
+    script: [['path', { d: 'm18 16 4-4-4-4' }], ['path', { d: 'm6 8-4 4 4 4' }], ['path', { d: 'm14.5 4-5 16' }]],
+    flow: [['path', { d: 'M3 6h13' }], ['path', { d: 'M8 12h13' }], ['path', { d: 'M3 18h13' }]],
+    schedule: [['path', { d: 'M8 2v4' }], ['path', { d: 'M16 2v4' }], ['rect', { width: '18', height: '18', x: '3', y: '4', rx: '2' }], ['path', { d: 'M3 10h18' }]],
+    trigger: [['path', { d: 'M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z' }]],
+    http: [['circle', { cx: '6', cy: '19', r: '3' }], ['path', { d: 'M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15' }], ['circle', { cx: '18', cy: '5', r: '3' }]],
+    resource: [['path', { d: 'M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z' }], ['path', { d: 'm3.3 7 8.7 5 8.7-5' }], ['path', { d: 'M12 22V12' }]],
+    app: [['rect', { width: '7', height: '9', x: '3', y: '3', rx: '1' }], ['rect', { width: '7', height: '5', x: '14', y: '3', rx: '1' }], ['rect', { width: '7', height: '9', x: '14', y: '12', rx: '1' }], ['rect', { width: '7', height: '5', x: '3', y: '16', rx: '1' }]],
+    review: [['circle', { cx: '5', cy: '6', r: '3' }], ['path', { d: 'M12 6h5a2 2 0 0 1 2 2v7' }], ['path', { d: 'm15 9-3-3 3-3' }], ['circle', { cx: '19', cy: '18', r: '3' }], ['path', { d: 'M12 18H7a2 2 0 0 1-2-2V9' }], ['path', { d: 'm9 15 3 3-3 3' }]],
+    runs: [['path', { d: 'M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8' }], ['path', { d: 'M3 3v5h5' }], ['path', { d: 'M12 7v5l4 2' }]]
   };
   function icon(name) {
     const ns = 'http://www.w3.org/2000/svg';
@@ -343,11 +357,16 @@
   }
 
   // The header names what the card shows and links to it in Windmill: opening a page is
-  // neither a tool call nor a conversation turn, so it is no card action.
-  function setHeader({ path, ws, kind = '', status = null, label = null, url = null, summary = null }) {
-    $('summary').hidden = !summary;
-    $('summary').textContent = summary ?? '';
-    $('path').replaceChildren(path || 'Windmill', ...(url ? [icon('external')] : []));
+  // neither a tool call nor a conversation turn, so it is no card action. A summary names
+  // it when there is one, with the path under it.
+  function setHeader({ path, ws, kind = '', status = null, label = null, url = null, summary = null, kindIcon = null }) {
+    const named = !!summary;
+    $('path').classList.toggle('named', named);
+    $('summary').hidden = !named || !path;
+    $('summary').textContent = named ? path ?? '' : '';
+    $('path').replaceChildren(named ? summary : path || 'Windmill', ...(url ? [icon('external')] : []));
+    $('kind-icon').hidden = !kindIcon;
+    $('kind-icon').replaceChildren(...(kindIcon ? [icon(kindIcon)] : []));
     $('path').disabled = !url;
     $('path').dataset.url = url ?? '';
     $('path').title = url ? 'Open in Windmill' : '';
@@ -472,7 +491,8 @@
       status,
       label: run ? (LABELS[status] ?? status) : 'Starting',
       url: run?.url,
-      summary: run?.summary
+      summary: run?.summary,
+      kindIcon: run?.job_kind && /flow/.test(run.job_kind) ? 'flow' : run?.job_kind ? 'script' : null
     });
     $('duration').textContent = elapsed();
     if (!running) $('stale').hidden = true;
@@ -689,7 +709,7 @@
     view = 'runs';
     runsMeta = meta;
     clearRun();
-    setHeader({ path: meta.runs.length === 1 ? '1 run' : `${meta.runs.length} runs`, ws: meta.workspace, url: meta.url });
+    setHeader({ summary: meta.runs.length === 1 ? '1 run' : `${meta.runs.length} runs`, ws: meta.workspace, url: meta.url, kindIcon: 'runs' });
     $('review').hidden = true;
     const time = (iso) => (iso ? new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '');
     $('body').replaceChildren(table([
@@ -819,7 +839,7 @@
     review = meta;
     clearRun();
     const n = meta.items.length;
-    setHeader({ path: 'Review before deploying', ws: meta.workspace, kind: n === 1 ? '1 draft' : `${n} drafts`, url: meta.url });
+    setHeader({ summary: 'Review before deploying', ws: meta.workspace, kind: n === 1 ? '1 draft' : `${n} drafts`, url: meta.url, kindIcon: 'review' });
     const full = fullscreen();
     $('review').hidden = full || !canFullscreen() || !meta.items.some((item) => item.digest != null && !item.deployed);
     $('body').replaceChildren(...(!n
@@ -889,8 +909,9 @@
     const url = draft && meta.edit_url ? meta.edit_url : meta.url;
     const kind = item.triggerKind ? `${item.triggerKind} trigger`
       : type === 'script' && item.language ? `${item.language} script` : type;
+    const kindIcon = type === 'trigger' && item.triggerKind === 'http' ? 'http' : ICONS[type] ? type : null;
     setHeader({
-      path: item.path, ws: meta.workspace, kind, summary: item.summary,
+      path: item.path, ws: meta.workspace, kind, summary: item.summary, kindIcon,
       status: draft ? 'running' : null, label: draft ? 'Draft' : null, url
     });
     $('review').hidden = true;
