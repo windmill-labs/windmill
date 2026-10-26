@@ -7712,8 +7712,7 @@ pub async fn get_args_and_trigger_metadata(
         };
         let native =
             prepare_native_trigger_args(service_name, db, w_id, &args.metadata.headers, body)
-                .await?
-                .map(windmill_queue::PushArgsOwned::omit_untrusted_interpolation);
+                .await?;
         (metadata, native)
     } else {
         (None, None)
@@ -7735,6 +7734,12 @@ pub async fn get_args_and_trigger_metadata(
             run_query.skip_preprocessor,
         )
         .await?
+    };
+    // A native trigger's payload is the provider's, whichever branch built the args.
+    let args = if run_query.service_name.is_some() {
+        args.omit_untrusted_interpolation()
+    } else {
+        args
     };
 
     Ok(WebhookRun::Run(args, trigger_metadata))
