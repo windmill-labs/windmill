@@ -353,6 +353,53 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     )
     .await?;
 
+    // A long flow calls f/test/busy only after another run has called it 5,000 times: opening its
+    // group must still find the calls the list counts.
+    let long_flow = insert_run(
+        &db,
+        Run { kind: "flow", path: "f/test/long_flow", at: 22, ..Run::default() },
+    )
+    .await?;
+    let busy_flow = insert_run(
+        &db,
+        Run { kind: "flow", path: "f/test/busy_flow", at: 23, ..Run::default() },
+    )
+    .await?;
+    sqlx::query(
+        "WITH jobs AS (\
+            INSERT INTO v2_job (id, workspace_id, tag, created_by, permissioned_as, \
+             permissioned_as_email, kind, runnable_path, parent_job, flow_innermost_root_job, \
+             flow_step_id, created_at, args, same_worker, visible_to_owner) \
+            SELECT gen_random_uuid(), 'test-workspace', 'deno', 'test-user', 'u/test-user', \
+             'test@windmill.dev', 'script', 'f/test/busy', $1, $1, 'a', \
+             now() - interval '1 hour' + make_interval(secs => 23 + i / 1000.0), '{}'::jsonb, \
+             false, true \
+            FROM generate_series(1, 5000) i \
+            RETURNING id, workspace_id, created_at) \
+         INSERT INTO v2_job_completed (id, workspace_id, duration_ms, deleted, status, \
+          started_at, completed_at) \
+         SELECT id, workspace_id, 1, false, 'success', created_at, created_at FROM jobs",
+    )
+    .bind(busy_flow)
+    .execute(&db)
+    .await?;
+    // Without statistics on these rows, the planner picks nested loops that take seconds.
+    sqlx::query("ANALYZE v2_job, v2_job_completed")
+        .execute(&db)
+        .await?;
+    let mut late_calls = vec![];
+    for at in [30, 31] {
+        let run = Run {
+            path: "f/test/busy",
+            parent_job: Some(long_flow),
+            innermost_root: Some(long_flow),
+            flow_step_id: Some("b"),
+            at,
+            ..Run::default()
+        };
+        late_calls.push(insert_run(&db, run).await?);
+    }
+
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let fetch = |token: &'static str, query: String| {
@@ -437,6 +484,19 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     assert_eq!(
         ids(&opened),
         [own_step, in_loop[0], in_loop[1]].map(|id| id.to_string())
+    );
+
+    let busy = "&runnable_id=f/test/busy&started_by=flow_step";
+    let listed = fetch("SECRET_TOKEN", busy.to_string()).await?;
+    assert_eq!(listed[0]["top_run"]["id"], long_flow.to_string());
+    assert_eq!(listed[0]["group"]["runs"], 2);
+    let opened = fetch("SECRET_TOKEN", format!("{busy}&top_run={long_flow}")).await?;
+    assert_eq!(
+        ids(&opened),
+        late_calls
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
     );
 
     Ok(())

@@ -727,8 +727,8 @@ struct InsideRow {
 
 /// The runs of the runnable inside the top-level run `top_run`, in execution order, with their
 /// args (or `"WINDMILL_TOO_BIG"`), since an opened group shows them all at once. These are the
-/// runs [`list`] groups under `top_run`: among the runnable's runs since `top_run` started (at
-/// most [`CAP`] of them), those the walk up from ends there.
+/// runs [`list`] groups under `top_run`: among the runnable's runs since `top_run` started, those
+/// the walk up from ends there.
 ///
 /// Walking down from `top_run` instead would stop at a loop container or subflow the viewer
 /// cannot read, and its cost would grow with every job of the run, not only this runnable's.
@@ -740,21 +740,33 @@ pub(crate) async fn list_inside(
     let categories: Vec<&str> = q.started_by.iter().map(|c| c.as_str()).collect();
     // A run inside another is created after it starts. The queue and completed rows have no
     // row-level security, so they give that time for a top-level run the viewer cannot read.
+    // Both ends are read, at most CAP runs each: the latest hold every run the list's window
+    // can count, the first the retries and handlers of an older run.
     let sql = format!(
-        "WITH runs AS (\
+        "WITH since AS (\
+            SELECT COALESCE(\
+                (SELECT created_at FROM v2_job WHERE id = $4 AND workspace_id = $2), \
+                (SELECT created_at FROM v2_job_queue WHERE id = $4 AND workspace_id = $2), \
+                (SELECT COALESCE(started_at, completed_at) FROM v2_job_completed \
+                 WHERE id = $4 AND workspace_id = $2)) AS t\
+        ), \
+        ids AS (\
+            (SELECT id FROM v2_job \
+             WHERE workspace_id = $2 AND runnable_path = $1 AND parent_job IS NOT NULL \
+               AND kind = {inside_kind} AND created_at >= (SELECT t FROM since) \
+             ORDER BY created_at LIMIT $7) \
+            UNION \
+            (SELECT id FROM v2_job \
+             WHERE workspace_id = $2 AND runnable_path = $1 AND parent_job IS NOT NULL \
+               AND kind = {inside_kind} AND created_at >= (SELECT t FROM since) \
+             ORDER BY created_at DESC LIMIT $7)\
+        ), \
+        runs AS (\
             SELECT id, created_at, created_by, trigger_kind, trigger, parent_job, root_job, \
                    flow_innermost_root_job, flow_step_id, script_entrypoint_override, args, \
                    {own_category} AS own_category \
             FROM v2_job \
-            WHERE workspace_id = $2 AND runnable_path = $1 AND parent_job IS NOT NULL \
-              AND kind = {inside_kind} \
-              AND created_at >= (SELECT COALESCE(\
-                  (SELECT created_at FROM v2_job WHERE id = $4 AND workspace_id = $2), \
-                  (SELECT created_at FROM v2_job_queue WHERE id = $4 AND workspace_id = $2), \
-                  (SELECT COALESCE(started_at, completed_at) FROM v2_job_completed \
-                   WHERE id = $4 AND workspace_id = $2))) \
-            ORDER BY created_at \
-            LIMIT $7\
+            WHERE id IN (SELECT id FROM ids) AND workspace_id = $2\
         ), \
         tops AS (\
             SELECT f.first, COALESCE(a4.id, a3.id, a2.id, a1.id, f.first) AS top \
