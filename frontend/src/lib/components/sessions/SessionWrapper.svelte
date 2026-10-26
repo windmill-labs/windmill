@@ -492,6 +492,12 @@
 	async function confirmMove() {
 		const req = moveRequest
 		if (!session || !req || moving) return
+		// Another tab moved the session while this dialog was open.
+		if (actingWorkspaceId !== req.parent) {
+			moveRequest = undefined
+			sendUserToast('This session moved to another workspace meanwhile. Pick the fork again.', true)
+			return
+		}
 		moving = true
 		const releaseAutoResume = runtime?.manager.holdAutoResume()
 		// Bracketed like a turn, so another tab on this session cannot send while its drafts
@@ -500,18 +506,23 @@
 		if (chatId) localRunStarted(session.id, chatId)
 		try {
 			// A turn that ran while the dialog was open (a job's auto-resume, another tab) may have
-			// added drafts the list does not show. Now that no turn can start, it is re-read.
+			// added drafts the list does not show, and the conflicts listed may have been discarded
+			// since. Now that no turn can start, both are re-read.
 			const listed = await listMoveItems(req.parent, req.target)
-			if (typeof listed === 'string' || itemKeys(listed.items) !== itemKeys(req.items)) {
-				moveRequest =
-					typeof listed === 'string'
-						? { ...req, open: true, error: listed }
-						: {
-								...req,
-								...listed,
-								open: true,
-								error: "This session's drafts changed. Check the list and confirm again."
-							}
+			if (typeof listed === 'string') {
+				moveRequest = { ...req, open: true, error: listed }
+				return
+			}
+			const changed = itemKeys(listed.items) !== itemKeys(req.items)
+			if (changed || listed.conflicts.length > 0) {
+				moveRequest = {
+					...req,
+					...listed,
+					open: true,
+					error: changed
+						? "This session's drafts changed. Check the list and confirm again."
+						: undefined
+				}
 				return
 			}
 			const res = await moveSessionToFork(session.id, req.parent, req.target, {

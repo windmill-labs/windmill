@@ -42,7 +42,6 @@
 	type="info"
 	alwaysPortal
 	{loading}
-	confirmDisabled={conflicts.length > 0}
 	{onConfirmed}
 	{onCanceled}
 >
@@ -79,7 +78,8 @@
 		</div>
 		{#if conflicts.length > 0}
 			<p class="text-xs text-red-600 dark:text-red-400">
-				You already have drafts of the highlighted items in {targetName}. Discard them there first.
+				You already have drafts of the highlighted items in {targetName}. Discard them there, then
+				move again.
 			</p>
 		{:else if error}
 			<p class="text-xs text-red-600 dark:text-red-400">{error}</p>
