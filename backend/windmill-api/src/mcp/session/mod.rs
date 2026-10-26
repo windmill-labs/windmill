@@ -156,7 +156,9 @@ fn result_size_meta() -> MetaObject {
 
 /// The MCP Apps view a client that renders them draws these tools' results in. It draws
 /// what the tool put in its result's `_meta` (`Ctx::view`), and acts by calling tools.
-pub(super) const CARD_URI: &str = "ui://windmill/card";
+/// Hosts cache a view by its URI: bump the version when a change breaks the `_meta` shape
+/// the deployed card reads.
+pub(super) const CARD_URI: &str = "ui://windmill/card-v1";
 const CARD_HTML: &str = include_str!("card.html");
 const CARD_TOOLS: &[&str] = &[
     "run_script",

@@ -17,9 +17,9 @@ use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, DiscoverResult,
     Implementation, InitializeRequestParams, InitializeResult, ListResourcesResult,
-    ListToolsResult, PaginatedRequestParams, ProtocolVersion, ReadResourceRequestParams,
-    ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ServerCapabilities,
-    ServerInfo, Tool, ToolAnnotations,
+    ListToolsResult, MetaObject, PaginatedRequestParams, ProtocolVersion,
+    ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource,
+    ResourceContents, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::ErrorData;
@@ -50,6 +50,16 @@ const GET_WORKSPACE_CONTEXT: &str = "get_workspace_context";
 
 /// The MIME type of an MCP Apps view (the `io.modelcontextprotocol/ui` extension).
 const MCP_APP_MIME_TYPE: &str = "text/html;profile=mcp-app";
+
+/// The views load nothing from outside their own page and reach Windmill only through
+/// tools, so they declare no domain; a host reviewing the declared policy holds them to it.
+fn mcp_app_meta() -> MetaObject {
+    let ui = serde_json::json!({
+        "prefersBorder": true,
+        "csp": { "connectDomains": [], "resourceDomains": [], "frameDomains": [] },
+    });
+    MetaObject(serde_json::Map::from_iter([("ui".to_string(), ui)]))
+}
 
 /// Workspaces named in the instructions before the rest are left to `list_workspaces`.
 const MAX_LISTED_WORKSPACES: usize = 40;
@@ -296,10 +306,12 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
                 None,
             ));
         };
-        Ok(ReadResourceResult::new(vec![
-            ResourceContents::text(*html, *uri).with_mime_type(MCP_APP_MIME_TYPE)
-        ])
-        .into())
+        Ok(
+            ReadResourceResult::new(vec![ResourceContents::text(*html, *uri)
+                .with_mime_type(MCP_APP_MIME_TYPE)
+                .with_meta(mcp_app_meta())])
+            .into(),
+        )
     }
 
     async fn call_tool(
