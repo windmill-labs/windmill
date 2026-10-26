@@ -16,6 +16,15 @@
 		'trigger_path'
 	]
 
+	/** Arguments the variable expiration sweep always sends. */
+	const variableExpirationHandlerArgs = [
+		'workspace_id',
+		'variable_path',
+		'description',
+		'value_valid_until',
+		'is_secret'
+	]
+
 	export const slackErrorHandlerHubPathEnding = '/workspace-or-schedule-error-handler-slack'
 </script>
 
@@ -78,6 +87,7 @@
 		/** Offer the instance critical alert channels as a destination. Workspace-level
 		 * error handling only: schedules and triggers have no such setting. */
 		showInstanceAlerts?: boolean
+		customRequiresEE?: boolean
 	}
 
 	let {
@@ -90,8 +100,14 @@
 		customTabTooltip,
 		noMargin = false,
 		workspace = undefined,
-		showInstanceAlerts = false
+		showInstanceAlerts = false,
+		customRequiresEE = true
 	}: Props = $props()
+
+	let isVariableExpiration = $derived(errorOrRecovery === 'variableExpiration')
+	let handlerArgs = $derived(
+		isVariableExpiration ? variableExpirationHandlerArgs : errorHandlerArgs
+	)
 
 	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace)
 	// Carry the workspace onto the "create from template" route, so the handler script is
@@ -156,7 +172,11 @@
 		let submitted_job = await testJobFunction({
 			workspace: effectiveWorkspace!,
 			requestBody: {
-				hub_script_path: draft[platform].path,
+				// Ours are not test-runnable presets; the error handler's checks the same
+				// token and channel.
+				hub_script_path: isVariableExpiration
+					? builtinHubPath('error', platform)
+					: draft[platform].path,
 				channel: channel,
 				test_msg: `This is a notification to test the connection between ${platform} and Windmill workspace '${effectiveWorkspace!}'`
 			}
@@ -250,7 +270,7 @@
 	$effect(() => {
 		const { path, kind } = draft.custom
 		path &&
-			loadHandlerScriptArgs(path, kind, errorHandlerArgs).then(
+			loadHandlerScriptArgs(path, kind, handlerArgs).then(
 				(schema) => (customHandlerSchema = schema)
 			)
 	})
@@ -258,7 +278,7 @@
 	$effect(() => {
 		const path = draft.slack.path
 		path &&
-			loadHandlerScriptArgs(path, 'script', [...errorHandlerArgs, 'slack']).then(
+			loadHandlerScriptArgs(path, 'script', [...handlerArgs, 'slack']).then(
 				(schema) => (slackHandlerSchema = schema)
 			)
 	})
@@ -269,7 +289,9 @@
 		{#snippet children({ item })}
 			<ToggleButton label="Slack" value="slack" {item} disabled={!isEditable} />
 			<ToggleButton label="Teams" value="teams" {item} disabled={!isEditable} />
-			<ToggleButton label="Email" value="email" {item} disabled={!isEditable} />
+			{#if !isVariableExpiration}
+				<ToggleButton label="Email" value="email" {item} disabled={!isEditable} />
+			{/if}
 			<ToggleButton
 				label="Custom"
 				value="custom"
@@ -294,7 +316,7 @@
 			<div class="flex flex-col gap-1">
 				<div class="flex flex-row">
 					<ScriptPicker
-						disabled={!isEditable || !$enterpriseLicense}
+						disabled={!isEditable || (customRequiresEE && !$enterpriseLicense)}
 						kinds={['script', 'failure']}
 						allowFlow={true}
 						bind:scriptPath={draft.custom.path}
@@ -343,7 +365,7 @@
 						/>
 					{/await}
 					{#if customHandlerSchema && customHandlerSchema.properties && Object.keys(customHandlerSchema.properties).length === 0}
-						<div class="text-xs text-secondary">This error handler takes no extra arguments</div>
+						<div class="text-xs text-secondary">This handler takes no extra arguments</div>
 					{/if}
 				</div>
 			{/if}
@@ -381,6 +403,7 @@
 							}}
 							bind:args={draft.slack.args}
 							shouldHideNoInputs
+							compact
 							className="text-xs"
 						/>
 					{/await}

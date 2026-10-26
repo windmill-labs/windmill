@@ -124,7 +124,7 @@
 					// Fires on every deploy (primary, "Deploy & Stay here", and lib — we
 					// ignore e.stay since the session always stays).
 					sendUserToast('Deployed')
-					runtime.itemDeployed(workspaceId, 'script', e.path)
+					runtime.itemDeployed(workspaceId, 'script', path, e.path)
 				}}
 			/>
 		{/if}

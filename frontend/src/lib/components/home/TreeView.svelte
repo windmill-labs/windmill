@@ -3,7 +3,9 @@
 	import { createEventDispatcher, onDestroy, untrack, type Snippet } from 'svelte'
 	import ResizeTransitionWrapper from '$lib/components/common/ResizeTransitionWrapper.svelte'
 
-	import { Folder, FolderTree, User } from 'lucide-svelte'
+	import { Eye, Folder, FolderTree, Pen, User } from 'lucide-svelte'
+	import { userStore } from '$lib/stores'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import TreeOwnerRow from './TreeOwnerRow.svelte'
 	import PipelineRow from '../common/table/PipelineRow.svelte'
 	import Item from './Item.svelte'
@@ -56,6 +58,9 @@
 		// Remembers which nodes the user opened by hand, so they reopen on the next visit
 		// while expand/collapse-all is in its collapsed state.
 		openMemory?: TreeOpenMemory
+		// Adds a "Manage folder" menu ("View folder" for a non-owner) to top-level folder rows.
+		// Subfolders are path segments, not folders with permissions of their own, so get none.
+		onManageFolder?: (folderName: string) => void
 	}
 
 	let {
@@ -75,7 +80,8 @@
 		ancestorHasMore = false,
 		indent = 0,
 		leaf,
-		openMemory
+		openMemory,
+		onManageFolder
 	}: Props = $props()
 
 	const unruled = inUnruledList()
@@ -270,6 +276,29 @@
 	}
 </script>
 
+{#snippet manageFolderMenu()}
+	{#if isFolder(item)}
+		{@const folderName = item.folderName}
+		<!-- The Folders page's write rule. A non-owner's drawer opens read-only. -->
+		{@const canWrite =
+			$userStore?.is_admin ||
+			$userStore?.is_super_admin ||
+			$userStore?.folders_owners.includes(folderName)}
+		<Dropdown
+			size="xs"
+			fixedHeight={false}
+			placement="bottom-start"
+			items={[
+				{
+					displayName: canWrite ? 'Manage folder' : 'View folder',
+					icon: canWrite ? Pen : Eye,
+					action: () => onManageFolder?.(folderName)
+				}
+			]}
+		/>
+	{/if}
+{/snippet}
+
 {#if isFolder(item) || isUser(item)}
 	<div>
 		<TreeOwnerRow
@@ -278,6 +307,7 @@
 			{opened}
 			onToggle={toggleOwner}
 			indent={visualDepth * 16}
+			actions={onManageFolder && depth === 0 && isFolder(item) ? manageFolderMenu : undefined}
 		>
 			{#snippet detail()}
 				{#if ownerCount != undefined}
@@ -331,6 +361,7 @@
 							depth={depth + 1}
 							{indent}
 							{leaf}
+							{onManageFolder}
 						/>
 					{/each}
 					{#if effectiveMax < item.items.length}

@@ -34,12 +34,21 @@ export interface SuccessHandlerConfig {
   extra_args?: any;
 }
 
+export interface VariableExpirationHandlerConfig {
+  path?: string;
+  extra_args?: any;
+  muted_on_user_path?: boolean;
+  notify_before_secs?: number;
+  remind_every_secs?: number;
+}
+
 export interface SimplifiedSettings {
   // Grouped format (current). Explicit `null` on error_handler / success_handler
   // signals "clear the remote value"; `undefined` means "not managed by git".
   auto_invite?: AutoInviteConfig;
   error_handler?: ErrorHandlerConfig | null;
   success_handler?: SuccessHandlerConfig | null;
+  variable_expiration_handler?: VariableExpirationHandlerConfig | null;
 
   // Other fields
   webhook?: string;
@@ -85,6 +94,7 @@ export const SETTINGS_MANAGED_ONLY_WHEN_PRESENT = [
   "guest_jwt_jwks_url",
   "error_handler_fallback_to_instance_alerts",
   "add_admins_and_developers_to_forks",
+  "variable_expiration_handler",
 ] as const;
 
 // Legacy settings interface for reading old settings.yaml files

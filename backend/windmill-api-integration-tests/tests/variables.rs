@@ -339,6 +339,74 @@ async fn test_variables_are_cached(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A draft-only row is built field by field, so a forgotten field is dropped silently.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_draft_only_row_carries_value_valid_until(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/drafts/update/variable/u/test-user/draft_var"
+    )))
+    .json(&json!({
+        "value": {
+            "path": "u/test-user/draft_var",
+            "variable": { "value": "x", "is_secret": true, "description": "" },
+            "wsSpecific": false,
+            "value_valid_until": "2027-03-15T08:00:00Z"
+        }
+    }))
+    .send()
+    .await?;
+
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/w/test-workspace/variables/list?include_draft_only=true"
+    )))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let rows = resp.json::<Vec<serde_json::Value>>().await?;
+
+    let row = rows
+        .iter()
+        .find(|v| v["path"] == "u/test-user/draft_var")
+        .expect("draft-only row is listed");
+    assert_eq!(row["draft_only"], true);
+    assert_eq!(row["value_valid_until"], "2027-03-15T08:00:00Z");
+
+    Ok(())
+}
+
+/// An expiry on an OAuth-linked variable is refused with a readable error, not a raw
+/// constraint violation.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_oauth_variable_refuses_value_expiry(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::query(
+        "WITH a AS (INSERT INTO account (workspace_id, expires_at, refresh_token, client)
+                    VALUES ('test-workspace', now() + interval '1 hour', 'r', 'github') RETURNING id)
+         INSERT INTO variable (workspace_id, path, value, is_secret, description, account, is_oauth)
+         SELECT 'test-workspace', 'u/test-user/oauth_var', 't', false, '', id, true FROM a",
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/variables/update/u/test-user/oauth_var"
+    )))
+    .json(&json!({ "value_valid_until": "2027-03-15T08:00:00Z" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400);
+    assert!(resp.text().await?.contains("OAuth"));
+
+    Ok(())
+}
+
 /// Reading a variable linked to an OAuth account refreshes through it and returns the fresh token,
 /// so the variable endpoints must not let a caller choose the link.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]

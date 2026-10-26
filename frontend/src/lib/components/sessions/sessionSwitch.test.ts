@@ -9,12 +9,14 @@ import {
 	takeNewSessionSeed
 } from './sessionSwitch.svelte'
 import {
+	getSessionAutoSendDomElement,
 	peekSessionAutoSend,
 	sessionState,
 	takeSessionAutoSend,
 	type Session
 } from './sessionState.svelte'
 import { usersWorkspaceStore, workspaceStore, type UserWorkspace } from '$lib/stores'
+import { createAppDomSelectorElement } from '../copilot/chat/context'
 
 vi.mock('$lib/navigation', () => ({ goto: vi.fn().mockResolvedValue(undefined) }))
 import { goto } from '$lib/navigation'
@@ -176,6 +178,31 @@ describe('auto-send intent', () => {
 		}
 	})
 
+	// A picked element names what the prompt is about ("make this bigger"): it must
+	// arrive with the prompt and be consumed with it, never outlive the intent.
+	it('carries a picked element with the prompt and clears it on claim', async () => {
+		const prevCurrent = sessionState.currentSessionId
+		let createdId: string | undefined
+		const el = createAppDomSelectorElement({
+			selector: 'main > h1',
+			appPath: 'u/me/app',
+			tagName: 'H1'
+		})
+		try {
+			await openSourceInSession(
+				{ target: { kind: 'raw_app', path: 'u/me/app' } },
+				{ seedPrompt: 'make this bigger', autoSend: true, seedDomElement: el }
+			)
+			createdId = sessionState.currentSessionId!
+			expect(getSessionAutoSendDomElement(createdId)).toEqual(el)
+			expect(takeSessionAutoSend(createdId)).toBe(true)
+			expect(getSessionAutoSendDomElement(createdId)).toBeUndefined()
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== createdId)
+			sessionState.currentSessionId = prevCurrent
+		}
+	})
+
 	// `goto` resolves even when a beforeNavigate cancels it, so an abandoned
 	// hand-off leaves the session armed. The claim must go stale rather than fire
 	// a turn at whatever the user is doing whenever that session next opens.
@@ -226,10 +253,9 @@ describe('startSessionWithPrompt', () => {
 		vi.mocked(goto).mockClear()
 	})
 
-	// The hand-off must not re-pick the workspace: createSession already steers off
-	// a root the user cannot deploy to onto its dev, and overwriting that with the
-	// raw current workspace lands the session somewhere it cannot edit.
-	it('seeds the composer and keeps createSession’s workspace choice', async () => {
+	// A question asked on prod is answered against prod, in a read-only session, even
+	// when a dev workspace exists to make changes in.
+	it('seeds the composer and starts in the current workspace', async () => {
 		const prevUsers = get(usersWorkspaceStore)
 		const prevWs = get(workspaceStore)
 		const prevCurrent = sessionState.currentSessionId
@@ -244,7 +270,7 @@ describe('startSessionWithPrompt', () => {
 			createdId = sessionState.currentSessionId
 			const created = sessionState.sessions.find((s) => s.id === createdId)
 			expect(created?.draftPrompt).toBe('list my flows')
-			expect(created?.pending_workspace_id).toBe('prod-dev')
+			expect(created?.pending_workspace_id).toBe('prod')
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== createdId)
 			sessionState.currentSessionId = prevCurrent

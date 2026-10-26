@@ -393,6 +393,7 @@ async fn validate_composed_draft(
     user_db: &UserDB,
     w_id: &str,
     kind: UserDraftItemKind,
+    path: &str,
     value: &str,
 ) -> Result<()> {
     let caps = windmill_common::roles::caller_capabilities(db, w_id, authed).await?;
@@ -418,6 +419,41 @@ async fn validate_composed_draft(
             w_id,
         )
         .await?;
+    }
+
+    // An agent draft is held to the rules of its deploy, as a flow draft is: a developer who
+    // tests it in the agent editor runs its tools as themselves.
+    if caps.flows != AuthorLevel::Full && kind == UserDraftItemKind::Resource {
+        #[derive(Deserialize)]
+        struct ResourceDraft {
+            #[serde(default)]
+            args: serde_json::Value,
+            resource_type: Option<String>,
+        }
+        let draft: ResourceDraft = serde_json::from_str(&strip_json_nul(value))
+            .map_err(|e| Error::BadRequest(format!("Invalid resource draft: {e}")))?;
+        // Whatever type the draft names, deploying it over a deployed agent keeps the row's type.
+        let is_agent = draft.resource_type.as_deref() == Some("ai_agent")
+            || sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent')",
+                w_id,
+                path,
+            )
+            .fetch_one(db)
+            .await?
+            .unwrap_or(false);
+        if is_agent {
+            let mut tx = user_db.clone().begin(authed).await?;
+            windmill_api_auth::composed::validate_operator_agent(
+                &draft.args,
+                authed,
+                db,
+                &mut tx,
+                w_id,
+            )
+            .await?;
+            tx.commit().await?;
+        }
     }
 
     // A raw-app draft carries the app value and its policy side by side.
@@ -535,7 +571,7 @@ async fn update_draft(
     }
 
     if let Some(value) = &req.value {
-        validate_composed_draft(&authed, &db, &user_db, &w_id, kind, value.0.get()).await?;
+        validate_composed_draft(&authed, &db, &user_db, &w_id, kind, path, value.0.get()).await?;
     }
 
     let applied = if let Some(value) = &req.value {
@@ -1116,8 +1152,16 @@ async fn transfer_drafts(
         // The copy is a save in the target, so a role that only composes there is held to the
         // rules a direct save would apply. Checked on the locked rows, the ones copied.
         for row in &source_rows {
-            validate_composed_draft(target_authed, &db, &user_db, target, row.typ, &row.value)
-                .await?;
+            validate_composed_draft(
+                target_authed,
+                &db,
+                &user_db,
+                target,
+                row.typ,
+                &row.path,
+                &row.value,
+            )
+            .await?;
         }
         if req.replace_existing {
             sqlx::query!(
