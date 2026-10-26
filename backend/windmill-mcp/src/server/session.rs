@@ -70,6 +70,8 @@ fn mcp_app_meta() -> MetaObject {
     let ui = serde_json::json!({
         "prefersBorder": true,
         "csp": { "connectDomains": [], "resourceDomains": [], "frameDomains": [] },
+        // The card's copy controls; a host that grants nothing leaves its fallback.
+        "permissions": { "clipboardWrite": {} },
     });
     MetaObject(serde_json::Map::from_iter([("ui".to_string(), ui)]))
 }

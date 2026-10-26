@@ -175,7 +175,10 @@
   .image-box img { max-width: 100%; height: auto; }
   .image-box.cut { cursor: zoom-in; }
   .image-box.cut img { max-height: 240px; }
-  .openable .corner { position: absolute; top: 4px; right: 4px; min-height: 24px; width: 24px; background: var(--bg); }
+  .openable .corner { position: absolute; top: 4px; right: 4px; display: flex; gap: 2px; }
+  .openable .corner button { min-height: 24px; width: 24px; border: 0; background: var(--bg-2); color: var(--fg-3); }
+  .openable .corner button:hover { background: var(--bg); color: var(--fg-em); }
+  .openable > pre { padding-right: 64px; }
   pre.cut { cursor: pointer; -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent); mask-image: linear-gradient(to bottom, #000 75%, transparent); }
   pre.cut.from-end { -webkit-mask-image: linear-gradient(to top, #000 75%, transparent); mask-image: linear-gradient(to top, #000 75%, transparent); }
   .patch { font: 12px/1.45 var(--mono); padding: 6px 0; background: var(--bg-2); border-radius: var(--radius); overflow-wrap: anywhere; }
@@ -294,6 +297,8 @@
   // Lucide icons (as Windmill uses), built from constant shapes: no markup is parsed.
   const ICONS = {
     timerOff: [['path', { d: 'M10 2h4' }], ['path', { d: 'M4.6 11a8 8 0 0 0 1.7 8.7 8 8 0 0 0 8.7 1.7' }], ['path', { d: 'M7.4 7.4a8 8 0 0 1 10.3 1 8 8 0 0 1 .9 10.2' }], ['path', { d: 'm2 2 20 20' }], ['path', { d: 'M12 12v-2' }]],
+    copy: [['rect', { width: '8', height: '4', x: '8', y: '2', rx: '1', ry: '1' }], ['path', { d: 'M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2' }], ['path', { d: 'M16 4h2a2 2 0 0 1 2 2v4' }], ['path', { d: 'M21 14H11' }], ['path', { d: 'm15 10-4 4 4 4' }]],
+    check: [['path', { d: 'M20 6 9 17l-5-5' }]],
     external: [['path', { d: 'M15 3h6v6' }], ['path', { d: 'M10 14 21 3' }], ['path', { d: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6' }]],
     minimize: [['polyline', { points: '4 14 10 14 10 20' }], ['polyline', { points: '20 10 14 10 14 4' }], ['line', { x1: '14', x2: '21', y1: '10', y2: '3' }], ['line', { x1: '3', x2: '10', y1: '21', y2: '14' }]],
     maximize: [['polyline', { points: '15 3 21 3 21 9' }], ['polyline', { points: '9 21 3 21 3 15' }], ['line', { x1: '21', x2: '14', y1: '3', y2: '10' }], ['line', { x1: '3', x2: '10', y1: '21', y2: '14' }]],
@@ -353,15 +358,54 @@
     return el('div', { class: 'image-box' }, el('img', { src, alt: of.result ?? 'Image result' }));
   }
 
-  function openable(block, cut, url, tabName = null) {
+  // A block's corner holds its copy control, as in Windmill, and when it is cut the control
+  // that opens it whole. Text in it stays selectable unless a click on it opens it.
+  function openable(block, cut, url, tabName = null, copy = null) {
     const open = canFullscreen() ? () => (tabName ? openTab(tabName) : setDisplayMode('fullscreen')) : url ? () => openLink(url) : null;
-    if (!cut || !open) return block;
-    block.classList.add('cut');
-    block.title = canFullscreen() ? 'Show it all' : 'Open in Windmill';
-    block.addEventListener('click', open);
-    const corner = el('button', { class: 'icon corner', type: 'button', 'aria-label': block.title, title: block.title, onclick: open },
-      icon(canFullscreen() ? 'maximize' : 'external'));
-    return el('div', { class: 'openable' }, block, corner);
+    const buttons = copy ? [copyButton(copy)] : [];
+    if (cut && open) {
+      block.classList.add('cut');
+      block.title = canFullscreen() ? 'Show it all' : 'Open in Windmill';
+      block.addEventListener('click', open);
+      buttons.push(el('button', { class: 'icon', type: 'button', 'aria-label': block.title, title: block.title, onclick: open },
+        icon(canFullscreen() ? 'maximize' : 'external')));
+    }
+    if (!buttons.length) return block;
+    return el('div', { class: 'openable' }, block, el('div', { class: 'corner' }, ...buttons));
+  }
+
+  // Sandboxed, the clipboard API may be refused even with the host's grant: a selected
+  // textarea copies within the click instead.
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {}
+    const area = el('textarea', { value: text, readOnly: true, style: 'position: fixed; left: -9999px' });
+    document.body.append(area);
+    area.select();
+    let copied = false;
+    try { copied = document.execCommand('copy'); } catch {}
+    area.remove();
+    return copied;
+  }
+
+  // A stack usually opens with the message: copied, it is said once.
+  const errorText = (of) => (of.stack && of.result && !of.stack.startsWith(of.result) ? `${of.result}\n${of.stack}` : of.stack ?? of.result);
+
+  function copyButton(text) {
+    const label = 'Copy to clipboard';
+    const button = el('button', { class: 'icon', type: 'button', 'aria-label': label, title: label }, icon('copy'));
+    let reset = 0;
+    button.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const copied = await copyText(text);
+      button.replaceChildren(icon(copied ? 'check' : 'copy'));
+      button.title = copied ? 'Copied' : 'Could not copy';
+      window.clearTimeout(reset);
+      reset = window.setTimeout(() => { button.replaceChildren(icon('copy')); button.title = label; }, 1500);
+    });
+    return button;
   }
 
   // What does not fit inline opens fullscreen, or on a host without it the page in
@@ -595,7 +639,8 @@
     slot.replaceChildren(fresh);
     if (!fresh.hidden) {
       const clipped = !fullscreen() && fresh.scrollHeight > fresh.clientHeight + 1;
-      slot.replaceChildren(openable(fresh, clipped, run.url, 'result'));
+      const copy = failed ? errorText(run) : run.result;
+      slot.replaceChildren(openable(fresh, clipped, run.url, 'result', copy));
       // What the server cut is only whole on the run page, however much of it shows here.
       if (run.result_cut && !(clipped && canFullscreen())) more.append(linkButton('Full result in Windmill', run.url));
     }
@@ -795,7 +840,7 @@
       if (of.logs_cut && lines.length > 1) lines.shift();
       return el('div', { class: 'section' },
         of.logs_cut ? linkButton('Earlier lines in Windmill', url) : null,
-        el('pre', {}, lines.join('\n')));
+        openable(el('pre', {}, lines.join('\n')), false, url, null, lines.join('\n')));
     }
     if (name === 'inputs') {
       if (of.args_cut) return el('div', { class: 'section' }, el('div', { class: 'empty' }, 'Too large to show here.'), linkButton('Inputs in Windmill', url));
@@ -807,13 +852,13 @@
     const parts = [];
     if (of.status === 'suspended') parts.push(el('div', { class: 'step' }, 'Waiting for an approval or another event.'), linkButton('Approve or cancel in Windmill', url));
     if (failed && of.result != null) parts.push(el('div', { class: 'error-line' }, of.result));
-    if (failed && of.stack) parts.push(el('pre', {}, of.stack));
+    if (failed && of.stack) parts.push(openable(el('pre', {}, of.stack), false, url, null, errorText(of)));
     if (failed && of.result_cut) parts.push(linkButton('Full error in Windmill', url));
     if (!failed && of.image) parts.push(imageBox(of));
     else if (!failed && of.result_kind === 'file') parts.push(el('div', { class: 'step' }, of.result), linkButton('View it in Windmill', url));
     else if (!failed && of.result != null) {
       const records = of.status === 'success' ? recordsTable(of.result) : null;
-      parts.push(records ?? el('pre', {}, of.result));
+      parts.push(records ?? openable(el('pre', {}, of.result), false, url, null, of.result));
       if (of.result_cut) parts.push(linkButton('Full result in Windmill', url));
     }
     if (!parts.length) parts.push(el('div', { class: 'empty' }, RUNNING.includes(of.status) ? 'No result yet.' : 'No result.'));
@@ -1145,7 +1190,7 @@
         if (code.length) {
           blocks.push(...section('item-code', 'Code', () => {
             const shown = fullscreen() ? code : code.slice(0, CODE_LINES_INLINE);
-            return openable(el('pre', {}, shown.join('\n')), shown.length < code.length, url);
+            return openable(el('pre', {}, shown.join('\n')), shown.length < code.length, url, null, code.join('\n'));
           }));
         }
         break;
@@ -1174,7 +1219,7 @@
           blocks.push(...section('item-args', 'Arguments', () => {
             const lines = JSON.stringify(value.args, null, 2).split('\n');
             const shown = fullscreen() ? lines : lines.slice(0, CODE_LINES_INLINE);
-            return openable(el('pre', {}, shown.join('\n')), shown.length < lines.length, url);
+            return openable(el('pre', {}, shown.join('\n')), shown.length < lines.length, url, null, lines.join('\n'));
           }));
         }
         break;
