@@ -1788,7 +1788,12 @@ async fn big_image_result(
         "jobs/completed/get_result/{}?json_path={kind}",
         enc(id)
     ));
-    Some(json!({ kind: ctx.get(&route).await.ok()? }))
+    let field = ctx.get(&route).await.ok()?;
+    // The field alone must be the whole result, as `card_image` requires: a result with more
+    // keys is no image, and keeps its marker. The length is the result's text, in characters.
+    let whole = format!("{{\"{kind}\": {}}}", serde_json::to_string(&field).ok()?);
+    (whole.chars().count() as u64 == root["result_length"].as_u64()?)
+        .then(|| json!({ kind: field }))
 }
 
 /// The end of a job's log, read without the rest of it: an offset past the end returns
@@ -1862,7 +1867,9 @@ pub(super) async fn show_runs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         match job {
             Ok(job) => {
                 let mut run = run_card(id, Some(&job));
+                // A table row draws neither: an image would ride along unseen.
                 run.remove("result");
+                run.remove("image");
                 run.insert(
                     "url".into(),
                     ctx.page_url(&format!("/run/{}", enc(id))).into(),
