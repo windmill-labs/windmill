@@ -337,7 +337,10 @@
       children.push(el('h3', {}, 'Steps'), el('div', { class: 'rows' }, ...run.step_list.flatMap(stepRows)));
     }
     if (run.logs) children.push(el('h3', {}, 'Logs (end)'), el('pre', {}, run.logs));
-    if (!children.length) children.push(el('div', { class: 'step' }, run.step_list ? 'Nothing more to show.' : 'Loading…'));
+    if (!children.length) {
+      children.push(el('div', { class: 'step' }, run.step_list ? 'Nothing more to show.'
+        : run.unreadable ? 'The details could not be read. Open the run in Windmill.' : 'Loading…'));
+    }
     details.replaceChildren(...children);
   }
 
@@ -478,8 +481,15 @@
       // The form may have started another run while this one was being read.
       if (run?.id === id) onResult(result);
     } catch {
-      if (run?.id === id && RUNNING.includes(run.status)) schedulePoll();
+      if (run?.id === id) refreshFailed();
     }
+  }
+
+  // A finished run's details are read once, so a failed read is said rather than waited on.
+  function refreshFailed() {
+    if (RUNNING.includes(run.status)) return schedulePoll();
+    run.unreadable = true;
+    renderRun();
   }
 
   $('cancel').addEventListener('click', async () => {
@@ -519,9 +529,9 @@
   function onResult(result) {
     const meta = result?._meta ?? {};
     if (meta['windmill/run']) return onRun(meta['windmill/run']);
-    // A poll that failed (the job read erred) keeps the run's last state and tries again.
+    // A poll that failed (the job read erred) keeps the run's last state.
     if (!run?.id) renderText(result ?? {});
-    else if (RUNNING.includes(run.status)) schedulePoll();
+    else refreshFailed();
   }
 
   function applyContext(context) {
