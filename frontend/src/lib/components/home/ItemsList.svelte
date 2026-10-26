@@ -820,8 +820,13 @@
 		storeLocalSetting(FLAT_LIST_SETTING_NAME, v ? 'true' : undefined)
 	}
 
+	// Unfiltered, the tree lists every folder, empty ones too, so a workspace holding only
+	// folders is not empty: its first folder is created from here and managed from its row.
 	// A role without the Folders page gets no folder menu, so empty rows would be noise.
-	let canKeepEmptyFolders = $derived(itemKind === 'all' && $roleCapabilities.visibility.folders)
+	let keepEmptyFolders = $derived(itemKind === 'all' && $roleCapabilities.visibility.folders)
+	// Only drops rows inside the tree. Whether the tree shows at all, rather than the "no items"
+	// or empty-workspace state, must not depend on it: either state can take down the settings
+	// menu, or replace owners whose items sit past the loaded window.
 	const HIDE_EMPTY_FOLDERS_SETTING_NAME = 'homeHideEmptyFolders'
 	let hideEmptyFolders = $state(getLocalSetting(HIDE_EMPTY_FOLDERS_SETTING_NAME) == 'true')
 	function setHideEmptyFolders(v: boolean) {
@@ -863,7 +868,7 @@
 				'Folders with no scripts, flows, apps, agents or data pipelines. They may still hold resources, variables or schedules.',
 			toggle: hideEmptyFolders,
 			// Only the unfiltered tree lists folders it holds no rows of.
-			hide: !treeLazyMode || archived || !canKeepEmptyFolders,
+			hide: !treeLazyMode || archived || !keepEmptyFolders,
 			action: () => setHideEmptyFolders(!hideEmptyFolders)
 		},
 		{
@@ -1076,6 +1081,9 @@
 				})
 		)
 	})
+	let treeShowsFolders = $derived(
+		treeLazyMode && !archived && keepEmptyFolders && (folderNamesRes.current?.length ?? 0) > 0
+	)
 	// How many runnables each owner (`f/<folder>` / `u/<user>`) holds for this user,
 	// in one request. It labels every tree node up front — a lazy owner's own count is
 	// unknown until it's expanded — and lets both the tree and the owner chips drop the
@@ -1106,27 +1114,6 @@
 	// Every path sits under a folder or a user, so the owners' counts add up to the workspace.
 	let workspaceItemCount = $derived(
 		ownerCounts == undefined ? undefined : Object.values(ownerCounts).reduce((sum, n) => sum + n, 0)
-	)
-	// Unfiltered, the tree lists every folder, empty ones too, so a workspace holding only
-	// folders is not empty: its first folder is created from here and managed from its row.
-	// `hideEmptyFolders` yields there: hiding them would bring up the empty-workspace
-	// placeholder, which takes down the settings menu that turns the option back off.
-	// Pipeline members are left out of the counts, but a pipeline folder alone keeps the
-	// placeholder away. A failed count request leaves the count unknown, read as none.
-	let keepEmptyFolders = $derived(
-		canKeepEmptyFolders &&
-			(!hideEmptyFolders || ((workspaceItemCount ?? 0) === 0 && visiblePipelineFolders.size === 0))
-	)
-	// With empty folders hidden the tree still holds the non-empty ones, whose items can all sit
-	// past the loaded window; the "no items" state must not replace them. The counts omit
-	// empty owners, so any `f/` key there is a non-empty folder.
-	let treeShowsFolders = $derived(
-		treeLazyMode &&
-			!archived &&
-			canKeepEmptyFolders &&
-			(keepEmptyFolders
-				? (folderNamesRes.current?.length ?? 0) > 0
-				: keptFolders.length > 0 || countOwners('f').length > 0)
 	)
 
 	type KindOption = {
@@ -2249,7 +2236,7 @@
 						onManageFolder={$roleCapabilities.visibility.folders
 							? (name) => folderEditorDrawer?.initEdit(name)
 							: undefined}
-						{keepEmptyFolders}
+						keepEmptyFolders={keepEmptyFolders && !hideEmptyFolders}
 						{keptFolders}
 					/>
 				{/key}
