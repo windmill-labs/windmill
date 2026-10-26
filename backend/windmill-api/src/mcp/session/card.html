@@ -1496,12 +1496,14 @@
         }
         if (value.mode != null) rows.push(row('Mode', String(value.mode).replace(/^./, (c) => c.toUpperCase())));
         else if (value.enabled != null) rows.push(row('Status', value.enabled ? 'Enabled' : 'Disabled'));
-        if (rows.length) blocks.push(el('div', { class: 'rows' }, ...rows));
         const skip = new Set(['path', 'summary', 'description', 'script_path', 'is_flow', 'mode', 'enabled', 'workspace_id', 'edited_by', 'edited_at', 'extra_perms', 'email', 'labels', 'permissioned_as', 'error', 'last_server_ping', 'server_id', ...keys.map(([key]) => key)]);
         const settings = Object.entries(value)
           .filter(([k, v]) => !skip.has(k) && v != null && v !== '' && !(Array.isArray(v) && !v.length))
-          .map(([k, v]) => row(k, display(v)));
-        if (settings.length) blocks.push(...section('Settings', () => capped(settings, 'setting', url)));
+          .map(([k, v]) => row(k.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase()), display(v)));
+        // The rest of its settings join the table in fullscreen; inline its last row opens them.
+        if (fullscreen()) rows.push(...settings);
+        else if (settings.length) rows.push(el('div', { class: 'row' }, openWhole(plural(settings.length, 'more setting'))));
+        if (rows.length) blocks.push(el('div', { class: 'rows' }, ...rows));
         break;
       }
       case 'resource': {
