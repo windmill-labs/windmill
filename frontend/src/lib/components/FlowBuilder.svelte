@@ -514,8 +514,7 @@
 			// the draft's `draft_path` so the topbar shows the pending name, which after
 			// someone renames the item still names the old location. Comparing against
 			// that fetches the row left behind there instead of the live one.
-			path: userDraftPath || initialPath,
-			withStarredInfo: true
+			path: userDraftPath || initialPath
 		})
 		// A superseded opening must not write these: the current one would then render
 		// and offer Take latest against the older head.
