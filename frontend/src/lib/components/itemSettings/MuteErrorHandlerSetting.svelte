@@ -34,7 +34,10 @@
 	label="Mute workspace error handler"
 	tooltip={`Failures of this ${kind} do not trigger the workspace error handler. Applies to the deployed ${kind} right away.`}
 	documentationLink="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler"
-	bind:checked={() => pending ?? !!muted, (v) => (pending = v)}
-	onchange={toggle}
+	checked={pending ?? !!muted}
+	onchange={(on) => {
+		pending = on
+		toggle()
+	}}
 	hint={$enterpriseLicense ? undefined : eeHint}
 />

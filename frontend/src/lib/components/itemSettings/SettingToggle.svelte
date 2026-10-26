@@ -32,7 +32,7 @@
 		label,
 		tooltip,
 		documentationLink,
-		checked = $bindable(),
+		checked,
 		onchange,
 		disabled = false,
 		eeOnly = false,
@@ -44,8 +44,8 @@
 	}: Props = $props()
 
 	// Hosts read `checked` from the value, and a value being typed passes through states that read
-	// as off (an emptied field, a 0, an empty expression). Once its parameters have focus, the row
-	// stays open until its toggle is clicked.
+	// as off (an emptied field, a 0, an empty expression). Once its parameters have focus, they
+	// stay open until the toggle is clicked; the toggle itself shows whether the value is set.
 	let editing = $state(false)
 </script>
 
@@ -53,17 +53,19 @@
 	<Toggle
 		size="xs"
 		bind:checked={
-			() => checked || editing,
+			() => checked,
 			(v) => {
 				editing = false
-				checked = v
+				// The host writes the value here, before the row opens. A click runs microtasks between
+				// the input's listeners, so a `change` listener would come after the parameters mounted
+				// on the old value, and an editor that reads its code once at mount would open empty.
+				onchange?.(!!v)
 			}
 		}
 		{disabled}
 		{eeOnly}
 		{aiId}
 		{aiDescription}
-		on:change={(e) => onchange?.(e.detail)}
 		options={{ right: label, rightTooltip: tooltip, rightDocumentationLink: documentationLink }}
 	/>
 	{#if hint}
