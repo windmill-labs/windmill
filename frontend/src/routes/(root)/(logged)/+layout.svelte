@@ -120,7 +120,7 @@
 		parsePreviewItemRoute,
 		barePath
 	} from '$lib/components/sessions/previewPaths'
-	import { sidebarListFor } from '$lib/components/sessions/sidebarList.svelte'
+	import { sessionsSwitchShown, sidebarListFor } from '$lib/components/sessions/sidebarList.svelte'
 	import { noteArrival } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { sessionState } from '$lib/components/sessions/sessionState.svelte'
 	import { restoreSessionBackups } from '$lib/components/sessions/sessionMirror.svelte'
@@ -315,9 +315,7 @@
 		const current = sessionState.sessions.find((s) => s.id === sessionState.currentSessionId)
 		return current?.workspace_id ?? $currentWorkspaceRootId ?? $workspaceStore ?? undefined
 	})
-	// Inside a preview iframe the rail still renders with the workspace nav, but the
-	// switch must not: listing sessions from within the preview would nest the
-	// whole experience. Hide it when embedded.
+	// Inside a session's preview iframe, whose rail keeps the workspace nav and no switch.
 	const embedded = BROWSER && window.self !== window.top
 
 	// AI sessions (beta) are on unless this browser opted out earlier (see
@@ -326,11 +324,9 @@
 	// The /sessions page has its own gate for direct navigation.
 	const globalAiEnabled = isGlobalAiEnabled()
 	// A workspace that hid the assistant (`ai_config.copilot_disabled`) loses both entry
-	// points: the Workspace ⇄ AI Sessions switch and the legacy Ask-AI button.
-	const sessionsSwitchShown = $derived(
-		globalAiEnabled && sessionsAllowed && !$copilotInfo.workspaceDisabled
-	)
-	const switchRowShown = $derived(!embedded && sessionsSwitchShown)
+	// points: the Workspace ⇄ AI Sessions switch and the legacy Ask-AI button. Home lays
+	// itself out by the same gate (`homeListsSessions`).
+	const switchRowShown = $derived(sessionsSwitchShown())
 	// The page picks the list: a session's page lists sessions and a workspace page shows
 	// the workspace nav. Home keeps the list you came from. Where the switch is hidden, so
 	// is the session list.

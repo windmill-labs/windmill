@@ -40,11 +40,12 @@
 	import HomeSectionLabel from './HomeSectionLabel.svelte'
 	import HomeSectionCount from './HomeSectionCount.svelte'
 	import { QUICK_ACCESS_ROWS, homeQuickAccessSettings } from './homeQuickAccessSettings.svelte'
-	import { homeSidebarList } from '$lib/components/sessions/sidebarList.svelte'
+	import { homeListsSessions } from '$lib/components/sessions/sidebarList.svelte'
 	import {
 		getEffectiveWorkspaceId,
 		homeDraft,
 		sessionLastActivityAt,
+		sessionPageHref,
 		sessionState
 	} from '$lib/components/sessions/sessionState.svelte'
 	import { openSession } from '$lib/components/sessions/sessionSwitch.svelte'
@@ -199,7 +200,7 @@
 
 	// Beside the session list the workspace's last sessions take the favorites' place: sent ones
 	// and drafts with text, not Home's own draft, which is the composer above.
-	const sessionsSide = $derived(homeSidebarList.val === 'sessions')
+	const sessionsSide = $derived(homeListsSessions())
 	const showFavorites = $derived(homeQuickAccessSettings.showFavorites && !sessionsSide)
 	let recentSessions = $derived(
 		sessionsSide
@@ -479,10 +480,16 @@
 				{#each recentSessions as session, i (session.id)}
 					{@const at = cellPosition(i)}
 					<div class="min-w-0" style:grid-row={at.row} style:grid-column={at.column}>
-						<button
-							type="button"
-							class="w-full flex items-center gap-2 rounded-md border border-light bg-surface-tertiary hover:bg-surface-hover transition-colors min-w-0 px-2.5 py-2 text-left"
-							onclick={() => openSession(session)}
+						<!-- Opened in place: an unsent draft goes to the composer above rather than
+						     bouncing off the session page. A modified click opens the link as usual. -->
+						<a
+							href={sessionPageHref(session.id)}
+							class="w-full flex items-center gap-2 rounded-md border border-light bg-surface-tertiary hover:bg-surface-hover transition-colors min-w-0 px-2.5 py-2"
+							onclick={(e) => {
+								if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+								e.preventDefault()
+								void openSession(session)
+							}}
 						>
 							<MessagesSquare size={14} class="shrink-0 text-ai" />
 							<span class="flex-1 text-2xs font-normal text-primary truncate"
@@ -495,7 +502,7 @@
 									noSeconds
 								/>
 							</span>
-						</button>
+						</a>
 					</div>
 				{/each}
 				{#each entries as { item, favorite }, i (item.kind + '/' + item.path)}

@@ -1,7 +1,32 @@
+import { BROWSER } from 'esm-env'
+import { fromStore } from 'svelte/store'
 import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
-import { clearSessionsBetaOptOut } from '$lib/components/copilot/chat/global/gate'
+import { roleCapabilities } from '$lib/stores'
+import { copilotInfo } from '$lib/aiStore'
+import {
+	clearSessionsBetaOptOut,
+	isGlobalAiEnabled,
+	sessionsAllowedFor
+} from '$lib/components/copilot/chat/global/gate'
 
 export type SidebarList = 'workspace' | 'sessions'
+
+const capabilities = fromStore(roleCapabilities)
+const copilot = fromStore(copilotInfo)
+// Listing sessions from within a session's preview frame would nest the whole experience.
+const embedded = BROWSER && window.self !== window.top
+
+/** Whether the sidebar offers AI sessions: the Workspace ⇄ AI Sessions switch and the session
+ * list. Not in a browser that opted out of them, for a role /sessions refuses, in a workspace
+ * that hid the assistant, nor inside a preview frame. */
+export function sessionsSwitchShown(): boolean {
+	return (
+		!embedded &&
+		isGlobalAiEnabled() &&
+		sessionsAllowedFor(!capabilities.current.code) &&
+		!copilot.current.workspaceDisabled
+	)
+}
 
 /** The list the sidebar shows while Home is open. Every other page decides its own (a
  * session's page lists sessions, any other page the workspace nav) and, on arrival, sets
@@ -14,10 +39,17 @@ export const homeSidebarList = useLocalStorageValue<SidebarList>(
 	'string'
 )
 
-/** The list the sidebar shows beside `pathname`. */
+/** The list the sidebar shows beside `pathname`, where it offers sessions. */
 export function sidebarListFor(pathname: string): SidebarList {
 	if (pathname.startsWith('/sessions')) return 'sessions'
 	return pathname === '/' ? homeSidebarList.val : 'workspace'
+}
+
+/** Whether Home is laid out for sessions: the session list is beside it. Where the sidebar
+ * offers none, Home is the workspace's whatever list it kept, or its creation menu and
+ * favorites would be gone with no switch to bring them back. */
+export function homeListsSessions(): boolean {
+	return homeSidebarList.val === 'sessions' && sessionsSwitchShown()
 }
 
 /** Turning AI Sessions back on asks to see them: Home, with the session list beside it. */

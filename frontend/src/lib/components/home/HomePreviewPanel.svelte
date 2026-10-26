@@ -123,15 +123,17 @@
 		<div
 			class="flex flex-col flex-1 min-h-0 overflow-hidden relative bg-surface rounded-md border border-light"
 		>
-			<button
-				type="button"
-				onclick={() => owner?.setCollapsed(true)}
-				title="Collapse preview"
-				aria-label="Collapse preview"
-				class="absolute top-1 left-1 z-30 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
-			>
-				<PanelRightClose size={14} />
-			</button>
+			<div class="absolute top-1.5 left-1.5 z-30">
+				<Button
+					variant="subtle"
+					unifiedSize="xs"
+					iconOnly
+					startIcon={{ icon: PanelRightClose }}
+					title="Collapse preview"
+					aria-label="Collapse preview"
+					onclick={() => owner?.setCollapsed(true)}
+				/>
+			</div>
 			<DraggableTabs
 				tabs={tabItems}
 				activeId={owner.activeId}

@@ -21,7 +21,10 @@ import {
 } from './sessionState.svelte'
 import { sessionTargetHref, withPreviewParams } from './sessionMode.svelte'
 import { homeSidebarList, type SidebarList } from './sidebarList.svelte'
-import { hrefAfterWorkspaceSwitch } from '../sidebar/workspaceSwitchUrl'
+import {
+	fixupUrlAfterWorkspaceSwitch,
+	hrefAfterWorkspaceSwitch
+} from '../sidebar/workspaceSwitchUrl'
 import { pinHomeComposer } from '../home/homeComposerPin.svelte'
 import { homeComposerContext } from './homeComposerContext.svelte'
 // Type-only: erased at compile time, so the component graph stays out of this
@@ -125,7 +128,12 @@ async function toHome(id: string, opts?: { replace?: boolean }): Promise<void> {
 export async function openNewSession(workspaceId?: string): Promise<void> {
 	// Home's current draft stays where it is: the switch below must not take it along.
 	homeDraft.id = undefined
-	if (workspaceId) syncWorkspaceTo(workspaceId)
+	if (workspaceId && workspaceId !== get(workspaceStore)) {
+		syncWorkspaceTo(workspaceId)
+		// Home may be open already, under a URL naming the workspace just left: a reload would
+		// switch back to it and take the new draft along.
+		await fixupUrlAfterWorkspaceSwitch(workspaceId)
+	}
 	await toHome(blankHomeDraft().id)
 }
 

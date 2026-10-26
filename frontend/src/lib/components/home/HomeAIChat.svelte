@@ -17,7 +17,7 @@
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { hubBaseUrlStore, roleCapabilities, workspaceStore } from '$lib/stores'
 	import { homeDraft, sessionState } from '../sessions/sessionState.svelte'
-	import { homeSidebarList } from '../sessions/sidebarList.svelte'
+	import { homeListsSessions, homeSidebarList } from '../sessions/sidebarList.svelte'
 	import { currentWorkspaceRootId } from '../sessions/sessionScope.svelte'
 	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { homeComposerPin, setHomeComposerRemoved } from './homeComposerPin.svelte'
@@ -96,7 +96,7 @@
 
 	// Beside the session list Home is the AI side's page: the composer rests open there. Beside
 	// the workspace nav it rests on one line.
-	const sessionsListed = $derived(homeSidebarList.val === 'sessions')
+	const sessionsListed = $derived(homeListsSessions())
 </script>
 
 <div class="w-full {hero ? 'mt-2' : 'mb-1'}">
