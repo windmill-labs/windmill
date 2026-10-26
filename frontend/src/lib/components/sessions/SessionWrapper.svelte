@@ -467,7 +467,7 @@
 
 	async function startMove(target: MoveTarget) {
 		const parent = actingWorkspaceId
-		if (!session || !parent || !canMoveToFork) return
+		if (!session || !parent || !canMoveToFork || moving) return
 		if (target.kind === 'existing' && target.id === parent) return
 		const listed = await listMoveItems(parent, target)
 		if (typeof listed === 'string') {
@@ -685,7 +685,7 @@
 					icon: GitFork,
 					// Before the first message, the "Run in" picker sets the workspace instead.
 					hide: !hasFirstUserMessage || isUnavailable || session.archived,
-					disabled: !canMoveToFork,
+					disabled: !canMoveToFork || moving,
 					action: () => (movePickerOpen = true)
 				},
 				...(session.archived
