@@ -429,7 +429,7 @@ fn note_unread_step_inputs(notes: &mut Vec<&'static str>, args: &AIAgentArgs) {
 /// an image prompt comes from the user message alone. An empty list is no conversation, except
 /// under a legacy `manual` memory, which ran on whatever list it held.
 fn has_prompt(
-    history: &HistorySource,
+    history: &HistorySource<'_>,
     has_user_message: bool,
     is_text_output: bool,
     legacy_list: bool,
@@ -1347,6 +1347,118 @@ pub async fn handle_ai_agent_job(
     result
 }
 
+/// Say in the job's logs when storage capacity cut what memory keeps.
+async fn log_memory_fit(
+    conn: &Connection,
+    job: &MiniPulledJob,
+    memory_to_save: Option<&[OpenAIMessage]>,
+    held: usize,
+) {
+    if memory_to_save.is_some_and(|tail| tail.len() < held) {
+        append_logs(&job.id, &job.workspace_id,
+            "AI agent memory exceeds storage capacity; saving only the newest complete exchanges. Older memory was dropped; the answer and run action results are preserved.\n".to_string(), conn).await;
+    } else if memory_to_save.is_none() {
+        append_logs(&job.id, &job.workspace_id,
+            "AI agent memory has no complete user-starting conversation that fits storage capacity and memory was not saved. The answer is preserved; the next run will load the previous saved memory.\n".to_string(), conn).await;
+    }
+}
+
+/// Write `memory_to_save` to the step's managed memory, if it keeps one.
+async fn persist_memory(
+    db: &DB,
+    conn: &Connection,
+    job: &MiniPulledJob,
+    history: &HistorySource<'_>,
+    effective_flow_step_id: Option<&str>,
+    memory_to_save: &[OpenAIMessage],
+) {
+    if let HistorySource::Managed { memory_id, bound } = history {
+        if let Some(step_id) = effective_flow_step_id {
+            if !memory_to_save.is_empty() {
+                let messages_to_persist = prepare_auto_memory_messages_for_persistence(
+                    memory_to_save,
+                    bound.messages_to_keep(),
+                );
+
+                match write_to_memory(
+                    db,
+                    &job.workspace_id,
+                    *memory_id,
+                    step_id,
+                    &messages_to_persist,
+                    matches!(bound, MemoryBound::LastMessages(_)),
+                )
+                .await
+                {
+                    // The conversation outgrew what the database holds and was cut
+                    // from its oldest message. Only the worker's own log says so
+                    // otherwise, so from the flow's side the agent simply starts the
+                    // next run having forgotten how this one began.
+                    Ok(dropped) if dropped > 0 => {
+                        append_logs(
+                            &job.id,
+                            &job.workspace_id,
+                            format!(
+                                "Memory does not fit the {}KB the database holds, so its \
+                                 {dropped} oldest messages were dropped. Configure instance \
+                                 object storage to keep the whole conversation.\n",
+                                MAX_MEMORY_SIZE_BYTES / 1000
+                            ),
+                            conn,
+                        )
+                        .await;
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to persist {} messages to memory for step {}: {}",
+                            messages_to_persist.len(),
+                            step_id,
+                            e
+                        );
+                        append_logs(&job.id, &job.workspace_id,
+                            "Agent memory could not be saved. The answer is preserved; the next run may load older memory.\n".to_string(), conn).await;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A stopped turn keeps what it reached instead of losing the whole exchange: every place it
+/// stops at has each tool call answered. No compaction runs here, since it would call the model
+/// while the cancel waits.
+async fn persist_memory_on_stop(
+    db: &DB,
+    conn: &Connection,
+    job: &MiniPulledJob,
+    history: &HistorySource<'_>,
+    effective_flow_step_id: Option<&str>,
+    output_type: &OutputType,
+    persist_capacity: Option<usize>,
+    messages: &AgentHistory,
+) -> Error {
+    if matches!(output_type, OutputType::Text) {
+        let memory_to_save = match persist_capacity {
+            Some(limit) => memory_within_capacity(messages.context(), limit),
+            None => Some(messages.context()),
+        };
+        log_memory_fit(conn, job, memory_to_save, messages.context().len()).await;
+        if let Some(memory_to_save) = memory_to_save {
+            persist_memory(
+                db,
+                conn,
+                job,
+                history,
+                effective_flow_step_id,
+                memory_to_save,
+            )
+            .await;
+        }
+    }
+    Error::ExecutionErr("Job cancelled".to_string())
+}
+
 /// Park the agent, as the error `run_agent` returns. `None` when a background job finished
 /// before the park was written, so the agent goes on instead; never for a park on an approval.
 async fn park_agent(
@@ -1915,8 +2027,19 @@ pub async fn run_agent(
     let mut i = first_iteration;
     while i < max_iterations {
         // Check if parent was canceled — stop iterating but let current tool calls finish
-        if *cancel_rx.borrow() {
-            return Err(Error::ExecutionErr("Job cancelled".to_string()));
+        let cancelled = *cancel_rx.borrow();
+        if cancelled {
+            return Err(persist_memory_on_stop(
+                db,
+                conn,
+                job,
+                &history,
+                effective_flow_step_id,
+                output_type,
+                persist_capacity,
+                &messages,
+            )
+            .await);
         }
 
         if !background.is_empty() {
@@ -2380,11 +2503,22 @@ pub async fn run_agent(
                     )
                     .await;
                     let mut cancelled = cancel_rx.clone();
-                    tokio::select! {
-                        _ = tokio::time::sleep(delay) => {}
-                        Ok(_) = cancelled.wait_for(|cancelled| *cancelled) => {
-                            return Err(Error::ExecutionErr("Job cancelled".to_string()));
-                        }
+                    let stopped = tokio::select! {
+                        _ = tokio::time::sleep(delay) => false,
+                        Ok(_) = cancelled.wait_for(|cancelled| *cancelled) => true,
+                    };
+                    if stopped {
+                        return Err(persist_memory_on_stop(
+                            db,
+                            conn,
+                            job,
+                            &history,
+                            effective_flow_step_id,
+                            output_type,
+                            persist_capacity,
+                            &messages,
+                        )
+                        .await);
                     }
                 }
             }
@@ -2712,8 +2846,19 @@ pub async fn run_agent(
                 }
 
                 // Check cancellation after tool calls complete to avoid a wasted LLM call
-                if *cancel_rx.borrow() {
-                    return Err(Error::ExecutionErr("Job cancelled".to_string()));
+                let cancelled = *cancel_rx.borrow();
+                if cancelled {
+                    return Err(persist_memory_on_stop(
+                        db,
+                        conn,
+                        job,
+                        &history,
+                        effective_flow_step_id,
+                        output_type,
+                        persist_capacity,
+                        &messages,
+                    )
+                    .await);
                 }
             }
             ParsedResponse::Image { base64_data } => {
@@ -2799,13 +2944,7 @@ pub async fn run_agent(
         Some(limit) => memory_within_capacity(messages.context(), limit),
         None => Some(messages.context()),
     };
-    if memory_to_save.is_some_and(|tail| tail.len() < messages.context().len()) {
-        append_logs(&job.id, &job.workspace_id,
-            "AI agent memory exceeds storage capacity after compaction; saving only the newest complete exchanges. Older memory was dropped; the answer and run action results are preserved.\n".to_string(), conn).await;
-    } else if memory_to_save.is_none() {
-        append_logs(&job.id, &job.workspace_id,
-            "AI agent memory has no complete user-starting conversation that fits storage capacity and memory was not saved. The answer is preserved; the next run will load the previous saved memory.\n".to_string(), conn).await;
-    }
+    log_memory_fit(conn, job, memory_to_save, messages.context().len()).await;
 
     // Return the final result
     let final_messages: Vec<Message> = messages
@@ -2854,57 +2993,15 @@ pub async fn run_agent(
     // Storage limits affect only the saved suffix, never the returned execution history.
     if let Some(memory_to_save) = memory_to_save.filter(|_| matches!(output_type, OutputType::Text))
     {
-        if let HistorySource::Managed { memory_id, bound } = &history {
-            if let Some(step_id) = effective_flow_step_id {
-                if !memory_to_save.is_empty() {
-                    let messages_to_persist = prepare_auto_memory_messages_for_persistence(
-                        memory_to_save,
-                        bound.messages_to_keep(),
-                    );
-
-                    match write_to_memory(
-                        db,
-                        &job.workspace_id,
-                        *memory_id,
-                        step_id,
-                        &messages_to_persist,
-                        matches!(bound, MemoryBound::LastMessages(_)),
-                    )
-                    .await
-                    {
-                        // The conversation outgrew what the database holds and was cut
-                        // from its oldest message. Only the worker's own log says so
-                        // otherwise, so from the flow's side the agent simply starts the
-                        // next run having forgotten how this one began.
-                        Ok(dropped) if dropped > 0 => {
-                            append_logs(
-                                &job.id,
-                                &job.workspace_id,
-                                format!(
-                                    "Memory does not fit the {}KB the database holds, so its \
-                                     {dropped} oldest messages were dropped. Configure instance \
-                                     object storage to keep the whole conversation.\n",
-                                    MAX_MEMORY_SIZE_BYTES / 1000
-                                ),
-                                conn,
-                            )
-                            .await;
-                        }
-                        Ok(_) => {}
-                        Err(e) => {
-                            tracing::error!(
-                                "Failed to persist {} messages to memory for step {}: {}",
-                                messages_to_persist.len(),
-                                step_id,
-                                e
-                            );
-                            append_logs(&job.id, &job.workspace_id,
-                                "Agent memory could not be saved. The answer is preserved; the next run may load older memory.\n".to_string(), conn).await;
-                        }
-                    }
-                }
-            }
-        }
+        persist_memory(
+            db,
+            conn,
+            job,
+            &history,
+            effective_flow_step_id,
+            memory_to_save,
+        )
+        .await;
     }
 
     Ok(to_raw_value(&AIAgentResult {
