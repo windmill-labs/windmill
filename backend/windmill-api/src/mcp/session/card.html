@@ -1146,20 +1146,22 @@
   function fullView() {
     const steps = flowSteps();
     const names = [['result', ['failure', 'error'].includes(run.status) ? 'Error' : 'Result'], ['logs', 'Logs'], ['inputs', 'Inputs']];
-    if (steps.length) names.push(['steps', 'Steps']);
+    // A saved agent's steps are its tool calls, and are named so.
+    const noun = run.agent_run ? 'tool call' : 'step';
+    if (steps.length) names.push(['steps', run.agent_run ? 'Tool calls' : 'Steps']);
     const active = names.some(([n]) => n === tab) ? tab
       : RUNNING.includes(run.status) ? (steps.length ? 'steps' : 'logs') : 'result';
     const tabs = tabBar(names, active, (name) => { tab = name; redraw(); });
     if (active !== 'steps') return [tabs, runPane(run, active)];
     if (selected && !split()) {
-      return [el('button', { class: 'back', type: 'button', onclick: () => { selected = null; redraw(); } }, icon('back'), 'Back to the steps'), ...stepDetail()];
+      return [el('button', { class: 'back', type: 'button', onclick: () => { selected = null; redraw(); } }, icon('back'), `Back to the ${noun}s`), ...stepDetail()];
     }
     const rows = [];
     steps.forEach((step, i) => treeRows(step, stepLabel(step), step.step, 0, i === steps.length - 1, rows));
-    const tree = el('div', { class: 'rows', role: 'tree', 'aria-label': 'Steps' }, ...rows);
+    const tree = el('div', { class: 'rows', role: 'tree', 'aria-label': run.agent_run ? 'Tool calls' : 'Steps' }, ...rows);
     if (!split()) return [tabs, tree];
     return [tabs, el('div', { class: 'split' }, tree, el('div', { class: 'detail' },
-      ...(selected ? stepDetail() : [el('div', { class: 'empty' }, 'Select a step to see its result, logs and inputs.')])))];
+      ...(selected ? stepDetail() : [el('div', { class: 'empty' }, `Select a ${noun} to see its result, logs and inputs.`)])))];
   }
 
   function renderDetails() {
