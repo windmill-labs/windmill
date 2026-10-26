@@ -1396,6 +1396,8 @@ struct Materialized {
     value_masked: bool,
     value_uncomparable: bool,
     no_deployed: bool,
+    /// The item is an AI agent, which has its own pages.
+    agent: bool,
     error: Option<String>,
 }
 
@@ -1414,6 +1416,8 @@ async fn materialize(ctx: &Ctx<'_>, kind: &str, path: &str) -> Materialized {
 }
 
 fn materialized_of(kind: &str, sides: DraftSides) -> Materialized {
+    let agent =
+        super::workspace::is_agent(&sides.draft) || super::workspace::is_agent(&sides.deployed);
     let mut before = (!sides.no_deployed).then_some(sides.deployed);
     let mut after = Some(sides.draft);
     let value_masked = kind == "variable";
@@ -1423,6 +1427,7 @@ fn materialized_of(kind: &str, sides: DraftSides) -> Materialized {
         value_masked,
         value_uncomparable,
         no_deployed: sides.no_deployed,
+        agent,
         error: None,
     }
 }
@@ -2047,14 +2052,19 @@ pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResul
         // editor draft keeps apart from the name it is known by.
         let path = row.path.as_str();
         let m = materialize(ctx, &row.kind, path).await;
+        let kind_value = if m.agent {
+            json!({ "resource_type": "ai_agent" })
+        } else {
+            Value::Null
+        };
         // An app's draft opens in its own editor: its page shows only the deployed version.
         let editor = match row.kind.as_str() {
             "raw_app" => Some(format!("/apps_raw/edit/{path}")),
             "app" => Some(format!("/apps/edit/{path}")),
-            _ => draft_page(item_type, path, &Value::Null),
+            _ => draft_page(item_type, path, &kind_value),
         };
         let has_editor = editor.is_some();
-        let page = editor.or_else(|| deployed_page(item_type, &row.display_path, &Value::Null));
+        let page = editor.or_else(|| deployed_page(item_type, &row.display_path, &kind_value));
         let mut item = json!({
             "type": item_type,
             "trigger_kind": trigger_kind,

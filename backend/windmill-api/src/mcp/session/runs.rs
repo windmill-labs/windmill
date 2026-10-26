@@ -1982,19 +1982,32 @@ fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
             if let Some(step_id) = modules.get(step).and_then(|m| m.get("id")) {
                 run.insert("step_id".into(), step_id.clone());
             }
-            // How far into its loop or its branches the current step is.
+            // How far into its loop or its branches the current step is. Run in parallel, its
+            // index only counts what started, so what finished is said instead.
             let module = modules.get(step).unwrap_or(&Value::Null);
             let iterator = &module["iterator"];
             let iterations = iterator["itered_len"]
                 .as_u64()
                 .or_else(|| iterator["itered"].as_array().map(|a| a.len() as u64));
-            let progress = match (iterator["index"].as_u64(), iterations) {
-                (Some(i), Some(n)) if n > 0 => Some(format!("iteration {} of {n}", (i + 1).min(n))),
+            let done = (module["parallel"] == Value::Bool(true)).then(|| {
+                module["flow_jobs_success"]
+                    .as_array()
+                    .map_or(0, |a| a.iter().filter(|v| !v.is_null()).count())
+            });
+            let progress = match (iterator["index"].as_u64(), iterations, done) {
+                (_, Some(n), Some(done)) if n > 0 => Some(format!("{done} of {n} iterations done")),
+                (Some(i), Some(n), None) if n > 0 => {
+                    Some(format!("iteration {} of {n}", (i + 1).min(n)))
+                }
                 _ => match (
                     module["branchall"]["branch"].as_u64(),
                     module["branchall"]["len"].as_u64(),
+                    done,
                 ) {
-                    (Some(b), Some(n)) if n > 0 => {
+                    (_, Some(n), Some(done)) if n > 0 => {
+                        Some(format!("{done} of {n} branches done"))
+                    }
+                    (Some(b), Some(n), None) if n > 0 => {
                         Some(format!("branch {} of {n}", (b + 1).min(n)))
                     }
                     _ => None,

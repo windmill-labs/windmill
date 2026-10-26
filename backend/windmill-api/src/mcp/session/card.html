@@ -34,6 +34,8 @@
     --bad-fg: var(--color-text-danger, #693237);
     --accent: #758ff8;
     --accent-hover: #5074f6;
+    --danger: #ef4444;
+    --danger-hover: #dc2626;
     --radius: var(--border-radius-md, 6px);
     --sans: var(--font-sans, Inter, system-ui, -apple-system, sans-serif);
     --mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
@@ -55,6 +57,8 @@
       --bad-fg: var(--color-text-danger, #fee2e2);
       --accent: #7085db;
       --accent-hover: #5670d5;
+      --danger: #dc2626;
+      --danger-hover: #b91c1c;
     }
   }
   :root[data-theme="dark"] {
@@ -73,6 +77,8 @@
     --bad-fg: var(--color-text-danger, #fee2e2);
     --accent: #7085db;
     --accent-hover: #5670d5;
+    --danger: #dc2626;
+    --danger-hover: #b91c1c;
   }
   html, body { margin: 0; background: transparent; }
   body { font: 14px/1.4 var(--sans); color: var(--fg); }
@@ -93,9 +99,17 @@
   .tab { min-height: 0; padding: 4px 0; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; font-size: 12px; font-weight: 400; color: var(--fg); }
   .tab[aria-selected="true"] { border-bottom-color: var(--fg-3); color: var(--fg-em); font-weight: 600; }
   .tab:hover:not([aria-selected="true"]) { background: none; border-bottom-color: var(--line); }
-  .row.open-step { cursor: pointer; }
-  .row.open-step:hover { background: var(--bg-2); }
-  .chev { display: inline-flex; color: var(--fg-3); }
+  .row.tree { flex-wrap: nowrap; align-items: center; gap: 8px; padding-top: 6px; padding-bottom: 6px; cursor: pointer; }
+  .row.tree:hover, .row.tree[aria-selected="true"] { background: var(--bg-2); }
+  .row.tree[aria-selected="true"] { box-shadow: inset 2px 0 var(--fg-3); }
+  .row.tree .v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row.tree .dim { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Every row keeps the chevron's place, so a level's dots line up. */
+  .chev { flex: none; width: 16px; display: inline-flex; justify-content: center; color: var(--fg-3); }
+  .chev-toggle { min-height: 16px; width: 16px; padding: 0; border: 0; background: none; color: inherit; display: inline-flex; }
+  .chev-toggle:hover:not(:disabled) { background: none; color: var(--fg-em); }
+  .split { display: grid; grid-template-columns: minmax(220px, 2fr) 3fr; gap: 16px; align-items: start; }
+  .detail { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
   .back { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; min-height: 0; font-size: 13px; color: var(--fg-2); }
   .back:hover { background: none; color: var(--fg-em); }
   .more-line { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; min-height: 0; font-size: 13px; color: var(--fg-2); }
@@ -146,7 +160,6 @@
   .rows { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); }
   .row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 12px; font-size: 13px; }
   .row + .row { border-top: 1px solid var(--line); }
-  .row.nested { padding-left: 28px; }
   .row .v { min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12px; color: var(--fg-em); }
   .row .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .dim { color: var(--fg-3); font-size: 12px; }
@@ -189,6 +202,8 @@
   button:hover:not(:disabled) { background: var(--bg-2); }
   button.primary { background: var(--accent); color: #ffffff; border-color: transparent; }
   button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+  button.danger { display: inline-flex; align-items: center; gap: 6px; background: var(--danger); color: #ffffff; border-color: transparent; }
+  button.danger:hover:not(:disabled) { background: var(--danger-hover); }
   button:disabled { opacity: 0.5; cursor: default; }
   [hidden] { display: none !important; }
 </style>
@@ -218,7 +233,7 @@
   <div id="body"></div>
   <section id="details" hidden></section>
   <div class="actions">
-    <button id="cancel" type="button" hidden>Cancel run</button>
+    <button class="danger" id="cancel" type="button" hidden>Cancel run</button>
     <button class="primary" id="review" type="button" hidden>Review and deploy</button>
   </div>
 </main>
@@ -274,6 +289,7 @@
   }
   // Lucide icons (as Windmill uses), built from constant shapes: no markup is parsed.
   const ICONS = {
+    timerOff: [['path', { d: 'M10 2h4' }], ['path', { d: 'M4.6 11a8 8 0 0 0 1.7 8.7 8 8 0 0 0 8.7 1.7' }], ['path', { d: 'M7.4 7.4a8 8 0 0 1 10.3 1 8 8 0 0 1 .9 10.2' }], ['path', { d: 'm2 2 20 20' }], ['path', { d: 'M12 12v-2' }]],
     external: [['path', { d: 'M15 3h6v6' }], ['path', { d: 'M10 14 21 3' }], ['path', { d: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6' }]],
     maximize: [['polyline', { points: '15 3 21 3 21 9' }], ['polyline', { points: '9 21 3 21 3 15' }], ['line', { x1: '21', x2: '14', y1: '3', y2: '10' }], ['line', { x1: '3', x2: '10', y1: '21', y2: '14' }]],
     right: [['path', { d: 'm9 18 6-6-6-6' }]],
@@ -491,6 +507,8 @@
       const label = el('div', { class: 'step' }, `Step ${run.step} of ${run.steps}`);
       if (run.step_id) label.append(' · ', el('code', {}, run.step_id));
       if (run.step_progress) label.append(`, ${run.step_progress}`);
+      const current = flowSteps().find((s) => s.step === run.step_id);
+      if (current) label.append(...nestedPath(current, true));
       parts.push(label);
     }
     if (run.live_log) parts.push(el('div', { class: 'live-log', title: run.live_log }, run.live_log));
@@ -596,71 +614,139 @@
     return el('div', { class: 'step' }, text);
   }
 
-  // A row of the Steps tab: compact, no result; a click opens the step itself.
-  function stepRow({ id, label, status, note, duration, job, nested, toggle, open }) {
-    const drill = job && !toggle ? () => openStep({ id, job }) : null;
-    return el('div', { class: `row${nested ? ' nested' : ''}${drill || toggle ? ' open-step' : ''}`, onclick: toggle ?? drill },
-      toggle ? el('span', { class: 'chev' }, icon(open ? 'down' : 'right')) : null,
+  // The Steps tab: the flow's steps as a tree, every level open in place. A loop or a
+  // parallel step opens onto its iterations or branches, and those onto their own steps.
+  const openNodes = new Set();
+  const isGroup = (node) => !!node.branches || node.iterations != null;
+  function childrenOf(node) {
+    if (node.branches) return node.branches.map((b, i) => ({ node: b, label: `branch ${i + 1}` }));
+    if (node.iterations != null) return (node.iterations_shown ?? []).map((p) => ({ node: p, label: `iteration ${p.iteration}` }));
+    return (node.steps ?? []).map((s) => ({ node: s, label: s.step.split('/').pop() }));
+  }
+  const depthPad = (depth) => `padding-left: ${8 + depth * 16}px`;
+
+  function treeRows(node, label, key, depth, last, rows) {
+    const status = groupStatus(node, last);
+    const kids = childrenOf(node);
+    const open = openNodes.has(key);
+    const note = node.branches ? plural(node.branches.length, 'branch')
+      : node.iterations != null ? [plural(node.iterations, 'iteration'), `${node.ok} ok`].join(' · ')
+      : node.attempts > 1 ? `${node.attempts} attempts` : '';
+    const toggle = (e) => {
+      e.stopPropagation();
+      if (open) openNodes.delete(key); else openNodes.add(key);
+      redraw();
+    };
+    rows.push(el('div', {
+      class: 'row tree', role: 'treeitem', style: depthPad(depth),
+      'aria-selected': String(selected?.key === key), 'aria-expanded': kids.length ? String(open) : null,
+      onclick: () => select(key, node, label, kids.length > 0, status)
+    },
+      el('span', { class: 'chev' }, kids.length
+        ? el('button', { class: 'chev-toggle', type: 'button', 'aria-label': open ? 'Collapse' : 'Expand', onclick: toggle }, icon(open ? 'down' : 'right'))
+        : null),
       el('span', { class: `dot ${status ?? ''}` }),
-      el('span', { class: 'v' }, id),
-      el('span', { class: 'grow' }, label ?? ''),
-      el('span', { class: 'dim' }, [note, LABELS[status] ?? status ?? '', formatMs(duration)].filter(Boolean).join(' \u00b7 ')));
+      el('span', { class: 'v' }, label),
+      el('span', { class: 'grow' }),
+      el('span', { class: 'dim' }, [note, LABELS[status] ?? status ?? '', formatMs(node.duration_ms)].filter(Boolean).join(' · '))));
+    if (!open) return;
+    kids.forEach((kid, i) => treeRows(kid.node, kid.label, `${key}>${i}`, depth + 1, last && status === 'failure' && i === kids.length - 1, rows));
+    // The server sends a loop's failed iterations and its last; the rest are on the run page.
+    if (node.iterations_elided && run.url) {
+      rows.push(el('div', { class: 'row tree', style: depthPad(depth + 1) },
+        el('span', { class: 'chev' }),
+        el('button', { class: 'more-line', type: 'button', onclick: () => openLink(run.url) },
+          `${plural(node.iterations_elided, 'other iteration')} in Windmill`, icon('external'))));
+    }
   }
 
-  // A loop or parallel step is one row that opens onto its iterations or branches.
-  const openGroups = new Set();
-  function stepRows(step, last) {
-    const status = groupStatus(step, last);
-    const parts = step.branches ?? (step.iterations != null ? step.iterations_shown ?? [] : null);
-    if (!parts) {
-      return [stepRow({
-        id: step.step, status, duration: step.duration_ms, job: step.job_id,
-        label: step.label?.startsWith(`Step ${step.step}`) ? '' : step.label,
-        note: step.attempts > 1 ? `${step.attempts} attempts` : ''
-      })];
+  // A step, iteration or branch is a run of its own, which `get_run` reads; a loop or a
+  // parallel step is not, so it shows its counts.
+  let selected = null;
+  async function select(key, node, label, expandable, status) {
+    if (expandable) openNodes.add(key);
+    if (selected?.key === key) return redraw();
+    const token = {};
+    selected = { key, node, label, status, run: null, tab: null, token };
+    redraw();
+    if (!node.job_id) return;
+    try {
+      const result = await callTool('get_run', { workspace_id: run.workspace, id: node.job_id });
+      if (selected?.token !== token) return;
+      selected.run = result?._meta?.['windmill/run'] ?? { status: 'error', result: textOf(result) };
+    } catch (e) {
+      if (selected?.token !== token) return;
+      selected.run = { status: 'error', result: e?.message ?? 'The step could not be read.' };
     }
-    const open = openGroups.has(step.step);
-    const note = step.branches ? plural(step.branches.length, 'branch')
-      : [plural(step.iterations, 'iteration'), `${step.ok} ok`, step.failed_iterations && `failed: ${step.failed_iterations.join(', ')}`].filter(Boolean).join(' \u00b7 ');
-    const toggle = () => { if (open) openGroups.delete(step.step); else openGroups.add(step.step); redraw(); };
-    const rows = [stepRow({ id: step.step, status, note, toggle, open })];
-    if (open) {
-      rows.push(...parts.map((p, i) => stepRow({
-        id: step.branches ? `branch ${i + 1}` : `iteration ${p.iteration}`,
-        status: p.status, duration: p.duration_ms, job: p.job_id, nested: true
-      })));
-      if (step.iterations_elided) {
-        rows.push(el('div', { class: 'row nested' }, el('span', { class: 'dim' }, `${plural(step.iterations_elided, 'other iteration')} on the run page`)));
-      }
+    redraw();
+  }
+
+  function groupPane(node) {
+    const parts = node.branches ?? [];
+    const count = node.branches ? parts.length : node.iterations;
+    const ok = node.branches ? parts.filter((b) => b.status === 'success').length : node.ok;
+    const rows = [
+      row('Kind', node.branches ? 'Branches' : node.type === 'whileloopflow' ? 'While loop' : 'For loop'),
+      row(node.branches ? 'Branches' : 'Iterations', String(count)),
+      row('Succeeded', String(ok))
+    ];
+    if (node.failed_iterations?.length) rows.push(row('Failed', node.failed_iterations.join(', ')));
+    if (node.skipped) rows.push(row('Skipped', String(node.skipped)));
+    if (node.unfinished) rows.push(row('Unfinished', String(node.unfinished)));
+    return el('div', { class: 'section' },
+      el('div', { class: 'rows' }, ...rows),
+      el('div', { class: 'dim' }, `Open ${node.branches ? 'a branch' : 'an iteration'} to see its result, logs and inputs.`),
+      run.url ? linkButton(`Every ${node.branches ? 'branch' : 'iteration'} in Windmill`, run.url) : null);
+  }
+
+  function stepDetail() {
+    const { node, run: r, label } = selected;
+    const status = r?.status ?? selected.status;
+    const url = node.job_id ? stepUrl(node.job_id) : null;
+    const head = el('div', { class: 'item-head' },
+      el('span', { class: 'grow' }, label),
+      el('span', { class: `badge ${status ?? ''}` }, LABELS[status] ?? status ?? ''),
+      (r?.duration_ms ?? node.duration_ms) != null ? el('span', { class: 'dim' }, formatMs(r?.duration_ms ?? node.duration_ms)) : null,
+      url ? linkButton('Open in Windmill', url) : null);
+    if (!node.job_id) return [head, groupPane(node)];
+    if (!r) return [head, el('div', { class: 'empty' }, 'Loading…')];
+    const active = selected.tab ?? 'result';
+    return [head,
+      tabBar([['result', 'Result'], ['logs', 'Logs'], ['inputs', 'Inputs']], active, (name) => { selected.tab = name; redraw(); }),
+      runPane(r, active)];
+  }
+
+  // Beside each other when the view is wide enough; otherwise a step opens in place of the tree.
+  const SPLIT_MIN_WIDTH = 640;
+  const split = () => window.innerWidth >= SPLIT_MIN_WIDTH;
+  let wasSplit = split();
+  window.addEventListener('resize', () => {
+    if (split() !== wasSplit) { wasSplit = split(); redraw(); }
+  });
+
+  // Where the running step is inside its loops and branches, as far down as one thing runs.
+  // The server's line already says how far into the top-level step the run is.
+  function nestedPath(node, top) {
+    const running = childrenOf(node).filter((k) => RUNNING.includes(groupStatus(k.node, false)));
+    const out = [];
+    if (isGroup(node) && !top) {
+      const total = node.branches ? node.branches.length : node.iterations;
+      const ok = node.branches ? node.branches.filter((b) => b.status === 'success').length : node.ok;
+      out.push(running.length === 1 ? `, ${running[0].label} of ${total}` : `, ${ok} of ${total} done`);
     }
-    return rows;
+    if (running.length !== 1) return out;
+    if (!isGroup(node)) out.push(' \u203a ', el('code', {}, running[0].label));
+    return out.concat(nestedPath(running[0].node, false));
   }
 
   // ---------------------------------------------------------------- fullscreen run view
 
   let tab = null;
-  let stepView = null;
 
   function openTab(name) {
     tab = name;
-    stepView = null;
+    selected = null;
     if (canFullscreen()) setDisplayMode('fullscreen');
-    redraw();
-  }
-
-  // A step drilled into is read as a run of its own: each step is one, and `get_run` reads it.
-  async function openStep({ id, job }) {
-    const token = {};
-    stepView = { id, job, run: null, tab: null, token };
-    redraw();
-    try {
-      const result = await callTool('get_run', { workspace_id: run.workspace, id: job });
-      if (stepView?.token !== token) return;
-      stepView.run = result?._meta?.['windmill/run'] ?? { status: 'error', result: textOf(result) };
-    } catch (e) {
-      if (stepView?.token !== token) return;
-      stepView.run = { status: 'error', result: e?.message ?? 'The step could not be read.' };
-    }
     redraw();
   }
 
@@ -694,6 +780,7 @@
     if (of.status === 'suspended') parts.push(el('div', { class: 'step' }, 'Waiting for an approval or another event.'), linkButton('Approve or cancel in Windmill', url));
     if (failed && of.result != null) parts.push(el('div', { class: 'error-line' }, of.result));
     if (failed && of.stack) parts.push(el('pre', {}, of.stack));
+    if (failed && of.result_cut) parts.push(linkButton('Full error in Windmill', url));
     if (!failed && of.result_kind === 'file') parts.push(el('div', { class: 'step' }, of.result), linkButton('View it in Windmill', url));
     else if (!failed && of.result != null) {
       const records = of.status === 'success' ? recordsTable(of.result) : null;
@@ -705,31 +792,22 @@
   }
 
   function fullView() {
-    if (stepView) {
-      const s = stepView.run;
-      const active = stepView.tab ?? 'result';
-      return [
-        el('button', { class: 'back', type: 'button', onclick: () => { stepView = null; redraw(); } }, icon('back'), `Back to ${run.summary ?? run.path ?? 'the run'}`),
-        el('div', { class: 'item-head' },
-          el('span', { class: 'grow' }, stepView.id),
-          s ? el('span', { class: `badge ${s.status ?? ''}` }, LABELS[s.status] ?? s.status ?? '') : null,
-          s?.duration_ms != null ? el('span', { class: 'dim' }, formatMs(s.duration_ms)) : null,
-          stepUrl(stepView.job) ? linkButton('Open in Windmill', stepUrl(stepView.job)) : null),
-        s ? tabBar([['result', 'Result'], ['logs', 'Logs'], ['inputs', 'Inputs']], active, (name) => { stepView.tab = name; redraw(); })
-          : el('div', { class: 'empty' }, 'Loading\u2026'),
-        s ? runPane(s, active) : null
-      ];
-    }
     const steps = flowSteps();
     const names = [['result', ['failure', 'error'].includes(run.status) ? 'Error' : 'Result'], ['logs', 'Logs'], ['inputs', 'Inputs']];
     if (steps.length) names.push(['steps', 'Steps']);
     const active = names.some(([n]) => n === tab) ? tab
       : RUNNING.includes(run.status) ? (steps.length ? 'steps' : 'logs') : 'result';
-    const lastRan = steps.length - 1;
-    const pane = active === 'steps'
-      ? el('div', { class: 'rows' }, ...steps.flatMap((step, i) => stepRows(step, i === lastRan)))
-      : runPane(run, active);
-    return [tabBar(names, active, (name) => { tab = name; redraw(); }), pane];
+    const tabs = tabBar(names, active, (name) => { tab = name; redraw(); });
+    if (active !== 'steps') return [tabs, runPane(run, active)];
+    if (selected && !split()) {
+      return [el('button', { class: 'back', type: 'button', onclick: () => { selected = null; redraw(); } }, icon('back'), 'Back to the steps'), ...stepDetail()];
+    }
+    const rows = [];
+    steps.forEach((step, i) => treeRows(step, step.step, step.step, 0, i === steps.length - 1, rows));
+    const tree = el('div', { class: 'rows', role: 'tree', 'aria-label': 'Steps' }, ...rows);
+    if (!split()) return [tabs, tree];
+    return [tabs, el('div', { class: 'split' }, tree, el('div', { class: 'detail' },
+      ...(selected ? stepDetail() : [el('div', { class: 'empty' }, 'Select a step to see its result, logs and inputs.')])))];
   }
 
   function renderDetails() {
@@ -785,6 +863,7 @@
     renderRun();
   }
 
+  $('cancel').prepend(icon('timerOff'));
   $('cancel').addEventListener('click', async () => {
     const button = $('cancel');
     button.disabled = true;
