@@ -59,7 +59,7 @@
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate, onNavigate } from '$app/navigation'
-	import { homeSessionsTransition } from '$lib/components/sessions/homeSessionsTransition.svelte'
+	import { recordComposerFocus } from '$lib/components/sessions/homeComposerFocus'
 	import { goto } from '$lib/navigation'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
 	import type UserSettings from '$lib/components/UserSettings.svelte'
@@ -450,7 +450,7 @@
 		return kind ? { kind, path: route.itemPath } : undefined
 	}
 
-	onNavigate(homeSessionsTransition)
+	onNavigate(recordComposerFocus)
 
 	beforeNavigate((navigation) => {
 		if (preserveMenuOnNextNav) {
