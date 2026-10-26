@@ -101,9 +101,6 @@
 		} else {
 			debounce_delay_s = undefined
 			debounce_key = undefined
-			selectedArg = ''
-			max_total_debouncing_time = undefined
-			max_total_debounces_amount = undefined
 		}
 	}}
 >
@@ -125,12 +122,16 @@
 				A list argument whose values are appended together across the debounced executions.
 			</Tooltip>
 		{/snippet}
+		<!-- A saved argument the schema no longer has stays listed, so it can still be cleared. -->
 		<Select
-			items={arrayArgs.map((arg) => ({ value: arg, label: arg }))}
+			items={(selectedArg && !arrayArgs.includes(selectedArg)
+				? [...arrayArgs, selectedArg]
+				: arrayArgs
+			).map((arg) => ({ value: arg, label: arg }))}
 			bind:value={() => selectedArg || undefined, (v) => (selectedArg = v ?? '')}
 			placeholder="None"
 			clearable
-			disabled={disabled || arrayArgs.length === 0}
+			disabled={disabled || (arrayArgs.length === 0 && !selectedArg)}
 		/>
 		{#if arrayArgs.length === 0}
 			<div class="text-2xs text-secondary">

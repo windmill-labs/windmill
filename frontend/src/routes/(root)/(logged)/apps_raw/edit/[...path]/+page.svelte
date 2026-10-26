@@ -464,6 +464,7 @@
 			data = v.data ?? { ...DEFAULT_DATA }
 			summary = v.summary ?? ''
 			policy = v.policy ?? {}
+			labels = v.labels ?? labels
 			// Their draft's own fork base: the bundle is rebuilt from these pieces, so
 			// leaving `parentVersion` on ours would deploy their content claiming a base
 			// it never had.

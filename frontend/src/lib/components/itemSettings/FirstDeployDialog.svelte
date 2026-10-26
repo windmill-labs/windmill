@@ -87,7 +87,14 @@
 	)
 	let asksRunAs = $derived(
 		runAsWorkspace !== undefined &&
-			deployAsksOnBehalfOf(runAsKind, !!runAsEmail, false, folderDefault.value)
+			deployAsksOnBehalfOf(runAsKind, {
+				user: operatingUser.current,
+				email: runAsEmail,
+				permissionedAs: runAsPermissionedAs,
+				savedEmail: undefined,
+				savedPermissionedAs: undefined,
+				folderDefault: folderDefault.value
+			})
 	)
 	let question = $derived(
 		deployOnBehalfOfQuestion(runAsKind, operatingUser.current, {
@@ -221,7 +228,9 @@
 			/>
 			<div class="flex flex-row justify-end gap-2">
 				<Button variant="default" unifiedSize="md" onclick={() => (step = 'details')}>Back</Button>
-				<Button variant="accent" unifiedSize="md" onclick={deploy}>Deploy</Button>
+				<Button variant="accent" unifiedSize="md" disabled={folderDefault.loading} onclick={deploy}
+					>Deploy</Button
+				>
 			</div>
 		</div>
 	{/if}
@@ -285,7 +294,13 @@
 
 		<div class="flex flex-row justify-end gap-2">
 			<Button variant="default" unifiedSize="md" onclick={() => finish(undefined)}>Cancel</Button>
-			<Button variant="accent" unifiedSize="md" disabled={!path || !!pathError} onclick={next}>
+			<!-- Whether a second step asks who it runs on behalf of waits on the folder default. -->
+			<Button
+				variant="accent"
+				unifiedSize="md"
+				disabled={!path || !!pathError || folderDefault.loading}
+				onclick={next}
+			>
 				{asksRunAs ? 'Next' : 'Deploy'}
 			</Button>
 		</div>

@@ -66,8 +66,8 @@ use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{to_anyhow, Error, JsonResult, Result},
     jobs::{
-        get_payload_tag_from_prefixed_path, resolve_delete_after_secs, schedule_job_deletion,
-        JobPayload, JobTriggerKind, RawCode,
+        get_payload_tag_from_prefixed_path, normalize_nul_in_args, resolve_delete_after_secs,
+        sanitize_untrusted_args, schedule_job_deletion, JobPayload, JobTriggerKind, RawCode,
     },
     scripts::ScriptLang,
     triggers::TriggerMetadata,
@@ -740,10 +740,10 @@ async fn list_apps(
 
     if let Some(label) = &lq.label {
         for l in label.split(',') {
+            // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
             sqlb.and_where(
                 "(app.labels @> ARRAY[?] OR folder_labels(app.workspace_id, app.path) @> ARRAY[?])"
-                    .bind(&l.trim())
-                    .bind(&l.trim()),
+                    .binds(&[&l.trim()]),
             );
         }
     }
@@ -4963,11 +4963,15 @@ async fn execute_component(
     let resolved_delete_secs =
         resolve_delete_after_secs(None, policy_triggerables.delete_after_secs);
 
-    // `_TEMP_SCRIPT_REFS` is a server-injected control key (into `extra`) that the
-    // worker reads back for a `Preview` job, which an inline run is. A caller
-    // supplying it in `args` would redirect relative-import resolution, unpinned, as
-    // the app identity. Drop it; the legitimate value rides in `extra`.
-    payload.args.remove("_TEMP_SCRIPT_REFS");
+    // The caller here is a viewer of the app, down to an anonymous visitor of a public one,
+    // and the job runs as the app's identity on code the policy pins. So the viewer fills in
+    // the runnable's inputs and nothing else: not the function called instead of `main`
+    // (which would reach helpers the app never exposes, as the publisher), not the module
+    // files written into the job directory, and not `_TEMP_SCRIPT_REFS`, which would
+    // redirect relative-import resolution, unpinned, as the app identity. The legitimate
+    // `_TEMP_SCRIPT_REFS` is server-injected into `extra` further below, which this leaves
+    // alone — as it does the policy's own `static_inputs`, which the publisher writes.
+    sanitize_untrusted_args(&mut payload.args);
 
     // An agent runnable takes the message and its files, plus optionally the conversation they
     // belong to, which names the agent's memory rather than an input of its run. Without it the
@@ -6639,6 +6643,16 @@ async fn build_args(
 ) -> Result<(PushArgsOwned, Option<Uuid>)> {
     let mut job_id: Option<Uuid> = None;
     let mut safe_args = HashMap::<String, Box<RawValue>>::new();
+
+    // Every check below matches an argument by name against the policy the publisher wrote,
+    // and `push` stores the args with their `\u0000` escapes removed, names included. So
+    // compare the names that will actually be stored: otherwise a viewer's `tenant\0` is
+    // never recognized as the `tenant` the policy pins in `static_inputs` (and is stored as
+    // `tenant`, winning over the pinned value), and `greeting\0` is never recognized as the
+    // `greeting` restricted by `one_of_inputs`, so neither list is enforced. Values are
+    // normalized along with the names, so the checks that look at a value see what the job
+    // will receive.
+    normalize_nul_in_args(&mut args);
 
     // Before anything reads `args`: a context input the runnable declares is never taken
     // from the request, or a viewer could name someone else as themselves.

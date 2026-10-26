@@ -439,9 +439,10 @@ async fn list_resources(
 
     if let Some(broad_filter) = &lq.broad_filter {
         let pat = format!("%{}%", escape_ilike_pattern(broad_filter));
+        // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
         sqlb.and_where(
             "(resource.path ILIKE ? OR resource.description ILIKE ? OR resource_type ILIKE ? OR resource.value::text ILIKE ?)"
-                .bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+                .binds(&[&pat]),
         );
     }
 
@@ -455,10 +456,10 @@ async fn list_resources(
 
     if let Some(label) = &lq.label {
         for l in label.split(',') {
+            // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
             sqlb.and_where(
                 "(resource.labels @> ARRAY[?] OR folder_labels(resource.workspace_id, resource.path) @> ARRAY[?])"
-                    .bind(&l.trim())
-                    .bind(&l.trim()),
+                    .binds(&[&l.trim()]),
             );
         }
     }
@@ -2189,7 +2190,7 @@ async fn update_resource(
 
             // Handle Vault secret rename if the linked variable is a Vault-stored secret
             let linked_var = sqlx::query!(
-                "SELECT value, is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
+                "SELECT value::text AS \"value!\", is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
                 path,
                 w_id
             )

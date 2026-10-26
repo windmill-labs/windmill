@@ -1372,6 +1372,40 @@ describe('global AI tools', () => {
 		expect(localStorageSnapshot()).not.toContain('new-secret-token')
 	})
 
+	// The draft has no null, so a cleared expiry must deploy as an explicit one.
+	it('clears a variable value expiry through to the deploy body', async () => {
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'f/secrets/api_key',
+			value: 'tok',
+			is_secret: false,
+			description: 'd',
+			value_valid_until: '2027-03-15T08:30:00Z'
+		} as any)
+
+		await callGlobalTool('write_variable', {
+			path: 'f/secrets/api_key',
+			value_valid_until: null
+		})
+
+		expect(
+			getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
+				?.value_valid_until
+		).toBeUndefined()
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'variable',
+			path: 'f/secrets/api_key'
+		})
+
+		expect(VariableService.updateVariable).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestBody: expect.objectContaining({ value_valid_until: null })
+			})
+		)
+	})
+
 	// '' means "no value staged", so there is nothing to create the secret with.
 	it('does not create a secret variable draft that stages no value', async () => {
 		seedBackendDraft(
@@ -4706,10 +4740,17 @@ describe('global AI tools', () => {
 		// anyone outside the deployers group — so the note must not name an identity.
 		expect(open.message).not.toContain('u/alice')
 
-		// A deploy keeps the deployed app's mode, so a draft naming a wider one discloses nothing.
+		// A deploy keeps the deployed app's mode, so the note follows the deployed row: a draft naming
+		// a wider mode discloses nothing, and one naming a narrower mode still discloses the wider one.
 		const kept = await deployApp('f/apps/kept', { execution_mode: 'anonymous' }, 'publisher')
 		expect(kept.success).toBe(true)
 		expect(kept.message).not.toContain('anyone with the URL')
+		const keptPublic = await deployApp(
+			'f/apps/kept_public',
+			{ execution_mode: 'publisher' },
+			'anonymous'
+		)
+		expect(keptPublic.message).toContain('anyone with the URL, without logging in')
 
 		// Guest is a real widening only where the deployment, the instance and the
 		// workspace all admit guests; stored below that, it is inert.

@@ -69,6 +69,14 @@ export function roleCanDraft(kind: EditKind, caps: RoleCapabilities): boolean {
 	return kind === 'group' ? false : roleCanAuthor(kind, caps)
 }
 
+/** Whether the role builds anything: code, flows, apps, schedules or triggers. Resources and
+ * variables do not count, since every role edits them. */
+export function buildsAnything(caps: RoleCapabilities): boolean {
+	return (['script', 'flow', 'raw_app', 'schedule', 'trigger'] as const).some((kind) =>
+		roleCanDraft(kind, caps)
+	)
+}
+
 /** `roleCanDraft` for the item at `path`, with its own permissions as in `canEditItem`. */
 export function canDraftItem(
 	kind: EditKind,

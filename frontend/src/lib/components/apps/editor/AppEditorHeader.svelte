@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { setDeployedOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import { fetchDeployedRunAs, setDeployedOnBehalfOf } from './appDeploy.svelte'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
@@ -287,6 +288,7 @@
 		() => $workspaceStore
 	)
 	let deployDialogOpen = $state(false)
+	let deployedRunAs: Awaited<ReturnType<typeof fetchDeployedRunAs>> = $state()
 
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
@@ -553,15 +555,39 @@
 			await deployNow()
 			return
 		}
+		// Compares against the user deployed right now; a failed lookup asks rather than trusting
+		// the loaded one.
+		deployedRunAs = newApp ? undefined : await fetchDeployedRunAs($workspaceStore!, $appPath!)
+		const asksRunAs =
+			(!newApp && !deployedRunAs) ||
+			// Asks while the folder default is loading: the backend would apply it unconfirmed.
+			folderDefault.loading ||
+			deployAsksOnBehalfOf('app', {
+				user: operatingUser.current,
+				email: policy.on_behalf_of_email,
+				permissionedAs: policy.on_behalf_of,
+				savedEmail: deployedRunAs?.on_behalf_of_email,
+				savedPermissionedAs: deployedRunAs?.on_behalf_of,
+				folderDefault: folderDefault.value
+			})
 		if (
 			shareDialog &&
 			$appPath &&
 			movesToAnotherOwner($appPath, newEditedPath) &&
-			!(await shareDialog.confirmMove('app', $appPath, newEditedPath, 'Next'))
+			!(await shareDialog.confirmMove(
+				'app',
+				$appPath,
+				newEditedPath,
+				asksRunAs ? 'Next' : 'Deploy'
+			))
 		) {
 			return
 		}
-		deployDialogOpen = true
+		if (asksRunAs) {
+			deployDialogOpen = true
+			return
+		}
+		await deployNow()
 	}
 
 	async function deployNow() {
@@ -813,7 +839,7 @@
 					workspace: $workspaceStore!,
 					path: $appPath!
 				})
-				window.open(computeSecretUrl(secretUrl), '_blank')
+				window.open(computeSecretUrl(secretUrl, $workspaceStore), '_blank')
 			}
 		},
 		{
@@ -948,10 +974,11 @@
 	bind:message={deploymentMsg}
 	bind:email={policy.on_behalf_of_email}
 	bind:permissionedAs={policy.on_behalf_of}
-	savedEmail={newApp ? undefined : savedApp?.policy?.on_behalf_of_email}
-	savedPermissionedAs={newApp ? undefined : savedApp?.policy?.on_behalf_of}
+	savedEmail={newApp ? undefined : deployedRunAs?.on_behalf_of_email}
+	savedPermissionedAs={newApp ? undefined : deployedRunAs?.on_behalf_of}
 	isNew={newApp}
 	folderDefault={folderDefault.value}
+	folderDefaultLoading={folderDefault.loading}
 	executionMode={policy.execution_mode}
 	targetWorkspace={$workspaceStore ?? ''}
 	onConfirmed={deployNow}
@@ -1400,7 +1427,7 @@
 						{
 							label: 'Fork',
 							onClick: () => {
-								window.open(`/apps/add?template=${$appPath}`)
+								window.open(`/apps/add?template=${encodeURIComponent($appPath)}`)
 							}
 						},
 						...(!isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)

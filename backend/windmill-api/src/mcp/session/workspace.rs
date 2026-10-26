@@ -517,6 +517,7 @@ pub(super) fn draft_item(kind: &str, path: &str, draft: &Value) -> Option<Value>
             put(&mut value, "account", field("account"));
             put(&mut value, "is_oauth", field("is_oauth"));
             put(&mut value, "expires_at", field("expires_at"));
+            put(&mut value, "value_valid_until", field("value_valid_until"));
             put(&mut value, "labels", field("labels"));
             put(&mut value, "ws_specific", field("wsSpecific"));
             item.insert("value".into(), Value::Object(value));
@@ -2008,5 +2009,12 @@ mod tests {
             normalize_app_draft(&draft).get("labels"),
             Some(&json!(["a"]))
         );
+    }
+
+    #[test]
+    fn draft_item_carries_the_variable_expiry() {
+        let draft = json!({ "path": "u/a/v", "variable": { "value": "", "is_secret": true, "description": "" }, "value_valid_until": "2027-01-15T00:00:00Z" });
+        let item = draft_item("variable", "u/a/v", &draft).unwrap();
+        assert_eq!(item["value"]["value_valid_until"], "2027-01-15T00:00:00Z");
     }
 }

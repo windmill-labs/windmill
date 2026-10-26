@@ -610,12 +610,24 @@ async fn summarize_prefix(
             request
                 .query_builder
                 .get_endpoint(base_url, request.model, &OutputType::Text);
-        let auth_headers = retain_effective_credentials(
+        // Summaries are rare enough that exchanging afresh costs less than threading
+        // the agent loop's cached token through.
+        let mut federated_token = None;
+        let auth_headers = match windmill_ai::providers::anthropic::refresh_federated_access_token(
             request.credentials,
-            request
-                .query_builder
-                .get_auth_headers(api_key, base_url, &OutputType::Text),
-        );
+            &mut federated_token,
+            request.client,
+        )
+        .await?
+        {
+            Some(token) => windmill_ai::providers::anthropic::federated_auth_headers(token),
+            None => retain_effective_credentials(
+                request.credentials,
+                request
+                    .query_builder
+                    .get_auth_headers(api_key, base_url, &OutputType::Text),
+            ),
+        };
 
         // As in the agent loop, `endpoint` derives from the user-controlled provider
         // base_url, so DNS is pinned to the SSRF-validated address.

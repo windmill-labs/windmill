@@ -1,5 +1,9 @@
 <script lang="ts">
-	import { setDeployedOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import {
+		fetchDeployedRunAs,
+		setDeployedOnBehalfOf
+	} from '$lib/components/apps/editor/appDeploy.svelte'
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
@@ -65,6 +69,7 @@
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
 	import { withoutSharedPolicySettings } from '../apps/editor/appDraftSettings'
+	import { saveRawAppFork } from './forkRawApp.svelte'
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { getContext } from 'svelte'
 
@@ -204,6 +209,9 @@
 		/** `Exit & see details`: leaves the editor for the app's deployed page. A session hosts that
 		 *  page itself, so it flips the tab there rather than navigating out of the session. */
 		onDetails?: (e: { path: string }) => void
+		/** Opens the draft `Fork` saved. Without it, the fork opens in a new browser tab; a
+		 *  session opens it as one of its own tabs instead. */
+		onOpenFork?: (path: string) => void
 		onResetToDeployed?: () => void | Promise<void>
 		// See ScriptBuilderProps — same semantics for the raw-app editor's
 		// indicator.
@@ -256,6 +264,7 @@
 		pendingDraftPath = $bindable(undefined),
 		pendingDraftSettings = $bindable(),
 		onDetails,
+		onOpenFork,
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
@@ -271,11 +280,27 @@
 		() => opWorkspace
 	)
 	let deployDialogOpen = $state(false)
+	let deployedRunAs: Awaited<ReturnType<typeof fetchDeployedRunAs>> = $state()
 
 	// The AutosaveIndicator watches these; in the sessions preview they're the
 	// session's (workspace, path), else the full-page editor's own values.
 	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
+
+	async function forkApp() {
+		if (!opWorkspace || !files) return
+		const workspace = opWorkspace
+		// Opened before the save: a tab opened after an await is no longer tied to the
+		// click, and browsers block it as a popup.
+		const tab = onOpenFork ? undefined : window.open('', '_blank')
+		const forkPath = await saveRawAppFork(workspace, { files, runnables, data, policy })
+		if (!forkPath) {
+			tab?.close()
+			return
+		}
+		if (onOpenFork) onOpenFork(forkPath)
+		else if (tab) tab.location.href = `/apps_raw/edit/${forkPath}?workspace=${workspace}`
+	}
 
 	$effect(() => {
 		const typed = newEditedPath
@@ -739,14 +764,38 @@
 			await deployNow()
 			return
 		}
+		// Compares against the user deployed right now; a failed lookup asks rather than trusting
+		// the loaded one.
+		deployedRunAs = isNewApp ? undefined : await fetchDeployedRunAs(opWorkspace!, appPath)
+		const asksRunAs =
+			(!isNewApp && !deployedRunAs) ||
+			// Asks while the folder default is loading: the backend would apply it unconfirmed.
+			folderDefault.loading ||
+			deployAsksOnBehalfOf('app', {
+				user: actingUser,
+				email: policy.on_behalf_of_email,
+				permissionedAs: policy.on_behalf_of,
+				savedEmail: deployedRunAs?.on_behalf_of_email,
+				savedPermissionedAs: deployedRunAs?.on_behalf_of,
+				folderDefault: folderDefault.value
+			})
 		if (
 			shareDialog &&
 			movesToAnotherOwner(appPath, newEditedPath) &&
-			!(await shareDialog.confirmMove('raw_app', appPath, newEditedPath, 'Next'))
+			!(await shareDialog.confirmMove(
+				'raw_app',
+				appPath,
+				newEditedPath,
+				asksRunAs ? 'Next' : 'Deploy'
+			))
 		) {
 			return
 		}
-		deployDialogOpen = true
+		if (asksRunAs) {
+			deployDialogOpen = true
+			return
+		}
+		await deployNow()
 	}
 
 	async function deployNow() {
@@ -921,10 +970,11 @@
 	bind:message={() => deploymentMsg ?? '', (v) => (deploymentMsg = v)}
 	bind:email={policy.on_behalf_of_email}
 	bind:permissionedAs={policy.on_behalf_of}
-	savedEmail={isNewApp ? undefined : savedApp?.policy?.on_behalf_of_email}
-	savedPermissionedAs={isNewApp ? undefined : savedApp?.policy?.on_behalf_of}
+	savedEmail={isNewApp ? undefined : deployedRunAs?.on_behalf_of_email}
+	savedPermissionedAs={isNewApp ? undefined : deployedRunAs?.on_behalf_of}
 	isNew={isNewApp}
 	folderDefault={folderDefault.value}
+	folderDefaultLoading={folderDefault.loading}
 	executionMode={policy.execution_mode}
 	targetWorkspace={opWorkspace ?? ''}
 	rawApp
@@ -1304,9 +1354,7 @@
 							]),
 					{
 						label: 'Fork',
-						onClick: () => {
-							window.open(`/apps/add?template=${appPath}`)
-						}
+						onClick: forkApp
 					},
 					...(!isCloudHosted() && editInForkAllowed(opWorkspace, $userWorkspaces)
 						? [

@@ -285,6 +285,7 @@ mod tests {
             aws_secret_access_key: None,
             aws_session_token: None,
             oidc_role_arn: None,
+            anthropic_federation: None,
             platform: AIPlatform::Standard,
             custom_headers: HashMap::new(),
         }

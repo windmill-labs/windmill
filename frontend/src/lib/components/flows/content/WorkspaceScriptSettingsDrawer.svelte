@@ -17,7 +17,7 @@
 
 	let drawer: Drawer | undefined = $state()
 	// cache_ignore_s3_path lives on NewScript but not the returned Script type;
-	// ScriptAdvancedSettings still edits it, so widen the local type to keep it.
+	// ScriptRuntimeSettings still edits it, so widen the local type to keep it.
 	let script: (Script & { cache_ignore_s3_path?: boolean }) | undefined = $state(undefined)
 	let loading = $state(false)
 	let loadError = $state<string | undefined>(undefined)

@@ -34,14 +34,17 @@
 		: 'https://www.windmill.dev/docs/core_concepts/concurrency_limits'}
 	eeOnly
 	{disabled}
-	checked={limit !== undefined}
+	checked={limit !== undefined && limit > 0}
 	onchange={(on) => {
 		if (on) {
 			limit = 1
 		} else {
 			limit = undefined
-			timeWindowS = undefined
-			concurrencyKey = undefined
+			// A flow keeps its window and key in its value when the limit goes; a script drops them.
+			if (kind === 'script') {
+				timeWindowS = undefined
+				concurrencyKey = undefined
+			}
 		}
 	}}
 >

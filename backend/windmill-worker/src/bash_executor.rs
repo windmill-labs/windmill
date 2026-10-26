@@ -21,9 +21,7 @@ use windmill_common::{
 #[cfg(feature = "dind")]
 use windmill_common::error::to_anyhow;
 
-use windmill_queue::{
-    append_logs, CanceledBy, MiniPulledJob, INIT_SCRIPT_PATH_PREFIX, PERIODIC_SCRIPT_PATH_PREFIX,
-};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 lazy_static::lazy_static! {
     pub static ref BIN_BASH: String = std::env::var("BASH_PATH").unwrap_or_else(|_| {
@@ -148,14 +146,9 @@ pub async fn handle_bash_job(
         ));
     }
 
-    // Init/periodic scripts need full system access without isolation
-    let is_regular_job = job
-        .runnable_path
-        .as_ref()
-        .map(|x| {
-            !x.starts_with(INIT_SCRIPT_PATH_PREFIX) && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
-        })
-        .unwrap_or(true);
+    // Init/periodic scripts need full system access without isolation; see
+    // `MiniPulledJob::is_worker_own_script`.
+    let is_regular_job = !job.is_worker_own_script();
 
     // Use nsjail if globally enabled OR if script has #sandbox annotation
     let nsjail = (is_sandboxing_enabled() || annotation.sandbox) && is_regular_job;

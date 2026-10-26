@@ -45,7 +45,7 @@
 	{#if kind === 'flow' && tag}
 		<Toggle
 			size="2xs"
-			bind:checked={() => preserveStepTags, (v) => (preserveStepTags = v || undefined)}
+			bind:checked={preserveStepTags}
 			options={{
 				right: 'Preserve step worker tags',
 				rightTooltip:

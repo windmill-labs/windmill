@@ -17,7 +17,8 @@
 	import { useScheduleLock, useTriggerLock } from '$lib/operatorWriteRights'
 	import {
 		useOperatingUser,
-		useOperatingWorkspace
+		useOperatingWorkspace,
+		useReadOnlyWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	import { byName, folderOfPath, inheritedAccess } from './inheritedAccess'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -49,6 +50,7 @@
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
+	const readOnly = useReadOnlyWorkspace()
 	const scheduleLock = useScheduleLock()
 	const triggerLock = useTriggerLock()
 
@@ -68,7 +70,9 @@
 		isOwnerOverride ??
 			(!!operatingUser.current && isOwner(path, operatingUser.current, $operatingWorkspace))
 	)
-	let canEdit = $derived(own && !restricted && !writeLock)
+	// A session can switch to Use while the list is open, so read-only is read live.
+	let inUseMode = $derived(readOnly($operatingWorkspace))
+	let canEdit = $derived(own && !inUseMode && !restricted && !writeLock)
 
 	let folder: Folder | undefined = $state()
 	let saved: Record<string, boolean> = $state({})
@@ -454,7 +458,11 @@
 		</tbody>
 	</DataTable>
 
-	{#if !own && operatingUser.current}
+	{#if inUseMode}
+		<span class="text-2xs text-secondary">
+			This session cannot change who has access while it is in Use mode.
+		</span>
+	{:else if !own && operatingUser.current}
 		<span class="text-2xs text-secondary">
 			Only its owner and workspace admins can change who has access.
 		</span>

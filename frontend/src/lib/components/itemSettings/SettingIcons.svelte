@@ -16,7 +16,8 @@
 		{#each badges as badge (badge.key)}
 			{@const Icon = badge.icon}
 			<Popover notClickable>
-				<Icon size={12} />
+				<Icon size={12} aria-hidden="true" />
+				<span class="sr-only">{badge.label}: {badge.detail}</span>
 				{#snippet text()}
 					<span class="font-semibold">{badge.label}</span> · {badge.detail}
 				{/snippet}

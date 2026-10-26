@@ -71,15 +71,32 @@ impl AuthedClient {
     }
 
     pub async fn get_id_token(&self, audience: &str) -> anyhow::Result<String> {
+        self.get_id_token_expiring_in(audience, None).await
+    }
+
+    /// `expires_in` caps the token's lifetime below the instance default, for
+    /// audiences that refuse long-lived assertions.
+    pub async fn get_id_token_expiring_in(
+        &self,
+        audience: &str,
+        expires_in: Option<i64>,
+    ) -> anyhow::Result<String> {
+        // An audience can be a URL, whose slashes would otherwise split the path segment.
         let url = format!(
             "{}/api/w/{}/oidc/token/{}",
-            self.base_internal_url, self.workspace, audience
+            self.base_internal_url,
+            self.workspace,
+            urlencoding::encode(audience)
         );
-        let response = self
+        let mut request = self
             .force_client
             .as_ref()
             .unwrap_or(&HTTP_CLIENT)
-            .post(&url)
+            .post(&url);
+        if let Some(expires_in) = expires_in {
+            request = request.query(&[("expires_in", expires_in)]);
+        }
+        let response = request
             .header(
                 reqwest::header::AUTHORIZATION,
                 reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))?,

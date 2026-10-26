@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET variable_expiration_failed_at = now()\n         WHERE workspace_id = $1 AND variable_expiration_failed_at IS NULL\n         RETURNING 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "eac25b9ce5df40a896687d2ba3f9279396ed7213da4598034332bb0ba6ce271c"
+}

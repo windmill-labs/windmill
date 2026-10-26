@@ -233,14 +233,15 @@ function stripScheduleTriggerRuntime(row: any): Record<string, unknown> {
 function canonicalizeDraftDiffValue(kind: DraftKind, raw: any, isDraft: boolean): unknown {
 	if (!raw || typeof raw !== 'object') return raw ?? {}
 	if (kind === 'variable') {
-		// draft: { variable: { value, is_secret, description }, labels, wsSpecific }
-		// deployed row: { value, is_secret, description, labels, ws_specific }
+		// draft: { variable: { value, is_secret, description }, value_valid_until, labels, wsSpecific }
+		// deployed row: { value, is_secret, description, value_valid_until, labels, ws_specific }
 		const v = isDraft ? (raw.variable ?? {}) : raw
 		const is_secret = !!v.is_secret
 		return {
 			value: is_secret ? '<secret>' : (v.value ?? ''),
 			is_secret,
 			description: v.description ?? '',
+			value_valid_until: raw.value_valid_until ?? undefined,
 			labels: raw.labels ?? undefined,
 			ws_specific: (isDraft ? raw.wsSpecific : raw.ws_specific) ?? undefined
 		}
@@ -471,6 +472,10 @@ async function deployDraftTriggers(
 	await deployTriggers(triggers, workspace, isAdmin, writable<string[]>([]), path, isNew)
 }
 
+function timeOf(date: string | null | undefined): number | undefined {
+	return date ? new Date(date).getTime() : undefined
+}
+
 /**
  * Promote a draft to deployed by replaying the editor's create/update call with
  * the stored draft value. The matching draft row is deleted server-side by the
@@ -519,8 +524,10 @@ export async function deployDraft(
 					...rest,
 					path: scriptPath,
 					parent_hash: r.hash,
-					// The deployed script's: muting applies at once, so a draft's copy is stale.
-					ws_error_handler_muted: draftOnly || r.no_deployed ? undefined : r.ws_error_handler_muted,
+					// The deployed script's: muting applies to it at once, so a draft's copy is stale.
+					// Before the first deploy the draft's is the only one.
+					ws_error_handler_muted:
+						draftOnly || r.no_deployed ? rest.ws_error_handler_muted : r.ws_error_handler_muted,
 					deployment_message: deploymentMessage,
 					// Deploy the draft's on-behalf-of as-is; the backend resets it to the
 					// deploying user without this flag, gated by can_preserve_on_behalf_of.
@@ -547,8 +554,10 @@ export async function deployDraft(
 				schema: d.schema,
 				tag: d.tag,
 				dedicated_worker: d.dedicated_worker,
-				// The deployed flow's: muting applies at once, so a draft's copy is stale.
-				ws_error_handler_muted: draftOnly ? undefined : r.ws_error_handler_muted,
+				// The deployed flow's: muting applies to it at once, so a draft's copy is stale.
+				// Before the first deploy the draft's is the only one.
+				ws_error_handler_muted:
+					draftOnly || r.no_deployed ? d.ws_error_handler_muted : r.ws_error_handler_muted,
 				visible_to_runner_only: d.visible_to_runner_only,
 				on_behalf_of_email: d.on_behalf_of_email,
 				on_behalf_of: d.on_behalf_of,
@@ -628,7 +637,7 @@ export async function deployDraft(
 		} else if (kind === 'variable') {
 			const { deployed, draft: d } = splitOverlay(await OVERLAY_GETTERS.variable!(workspace, path))
 			// VariableEditor's `VariableState` draft shape:
-			// { path, variable: { value, is_secret, description }, labels?, wsSpecific }
+			// { path, variable: { value, is_secret, description }, value_valid_until?, labels?, wsSpecific }
 			if (draftOnly) {
 				await VariableService.createVariable({
 					workspace,
@@ -637,6 +646,7 @@ export async function deployDraft(
 						value: d.variable?.value ?? '',
 						is_secret: !!d.variable?.is_secret,
 						description: d.variable?.description ?? '',
+						value_valid_until: d.value_valid_until,
 						labels: d.labels,
 						ws_specific: d.wsSpecific
 					}
@@ -651,12 +661,17 @@ export async function deployDraft(
 						value: d.variable?.value === '' ? undefined : d.variable?.value,
 						is_secret: d.variable?.is_secret,
 						description: d.variable?.description,
+						// `null` clears, absent keeps. Diffed against the deployed row by moment, since
+						// an absent date in the draft means "no expiry", not "unchanged".
+						value_valid_until:
+							timeOf(deployed.value_valid_until) !== timeOf(d.value_valid_until)
+								? (d.value_valid_until ?? null)
+								: undefined,
 						labels: d.labels,
 						ws_specific: d.wsSpecific
 					}
 				})
 			}
-			void deployed
 		} else if (kind === 'resource') {
 			const overlay = await OVERLAY_GETTERS.resource!(workspace, path)
 			// Adopt the row this promote is based on as the baseline for the delete below. Without one

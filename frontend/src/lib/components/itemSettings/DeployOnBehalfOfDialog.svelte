@@ -19,6 +19,8 @@
 		isNew: boolean
 		/** The folder's default for a new item's path, which the deploy takes when no user is held. */
 		folderDefault?: string
+		/** While it loads the dialog can't name who the deploy runs as, so it can't be confirmed. */
+		folderDefaultLoading?: boolean
 		targetWorkspace: string
 		/** Apps: who can open the app, which decides whether viewers are recorded at all. */
 		executionMode?: string
@@ -36,6 +38,7 @@
 		savedPermissionedAs,
 		isNew,
 		folderDefault,
+		folderDefaultLoading = false,
 		targetWorkspace,
 		executionMode,
 		rawApp = false,
@@ -61,6 +64,7 @@
 	type="info"
 	title={question.title}
 	confirmationText="Deploy"
+	confirmDisabled={folderDefaultLoading}
 	keyListen={!pickerOpen}
 	alwaysPortal
 	onConfirmed={() => {

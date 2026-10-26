@@ -2,6 +2,7 @@
 	import RunOnBehalfOfSetting from './RunOnBehalfOfSetting.svelte'
 	import { appOnBehalfOfTooltip, deployOnBehalfOfQuestion } from './onBehalfOf'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+	import { AlertTriangle } from 'lucide-svelte'
 
 	/** The body of a deploy's question about the user an item runs on behalf of, which the host
 	 *  titles with `deployOnBehalfOfQuestion`. */
@@ -94,6 +95,15 @@
 		<!-- pl-9 lines it up under the switch's label, as SettingToggle indents its contents. -->
 		<div class={['text-2xs text-secondary', !question.required && 'pl-9']}>
 			Same as the deployed version.
+		</div>
+	{/if}
+	{#if question.folderDefaultNotMe}
+		<div class="flex items-start gap-1.5 text-2xs text-yellow-600 dark:text-yellow-400">
+			<AlertTriangle size={14} class="shrink-0 text-yellow-500" />
+			<span>
+				This folder's default user is <strong>{folderDefault}</strong>, so the {kind} won't run with
+				your access. Pick yourself above to change that.
+			</span>
 		</div>
 	{/if}
 </div>
