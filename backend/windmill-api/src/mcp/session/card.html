@@ -84,7 +84,7 @@
   #body, #details { display: flex; flex-direction: column; gap: 12px; }
   .section { display: flex; flex-direction: column; gap: 8px; }
   /* An empty slot takes no gap in the card's rhythm. */
-  #result-more:empty, #result-table:empty, #body:empty, .actions:not(:has(> :not([hidden]))) { display: none; }
+  #result-more:empty, #result-table:empty, #body:empty, #result-slot:not(:has(:not([hidden]))), .actions:not(:has(> :not([hidden]))) { display: none; }
   .section-title { font-size: 13px; font-weight: 600; color: var(--fg-em); }
   .path { font: 600 14px/1.3 var(--mono); color: var(--fg-em); overflow-wrap: anywhere; text-align: left; }
   button.path { border: 0; padding: 0; min-height: 0; background: none; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
@@ -110,6 +110,15 @@
   .success, .pill.success { background: var(--ok-bg); color: var(--ok-fg); }
   .failure, .canceled, .not_started, .pill.failure, .pill.canceled, .pill.not_started, .pill.error { background: var(--bad-bg); color: var(--bad-fg); }
   .step { font-size: 13px; color: var(--fg-2); }
+  .progress-block { display: flex; flex-direction: column; gap: 4px; }
+  .progress { display: flex; gap: 4px; }
+  .segment { flex: 1; height: 4px; border-radius: 2px; background: var(--line); }
+  .segment.success { background: var(--ok-fg); }
+  .segment.failure { background: var(--bad-fg); }
+  .segment.running { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.45; } }
+  @media (prefers-reduced-motion: reduce) { .segment.running { animation: none; } }
+  .live-log { font: 12px var(--mono); color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .step code { font-family: var(--mono); }
   pre { margin: 0; padding: 8px 12px; border-radius: var(--radius); background: var(--bg-2); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
   pre.clip { max-height: 180px; overflow: hidden; }
@@ -125,10 +134,15 @@
   .dim { color: var(--fg-3); font-size: 12px; }
   .row .k { color: var(--fg-3); min-width: 110px; }
   .row pre { flex-basis: 100%; padding: 4px 8px; }
+  .row .step-link { min-height: 20px; width: 20px; border: 0; background: none; }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; background: var(--info-fg); }
   .dot.success { background: var(--ok-fg); }
   .dot.failure, .dot.canceled { background: var(--bad-fg); }
   .dot.skipped { background: var(--fg-3); }
+  .openable { position: relative; }
+  .openable .corner { position: absolute; top: 4px; right: 4px; min-height: 24px; width: 24px; background: var(--bg); }
+  pre.cut { cursor: pointer; -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent); mask-image: linear-gradient(to bottom, #000 75%, transparent); }
+  pre.cut.from-end { -webkit-mask-image: linear-gradient(to top, #000 75%, transparent); mask-image: linear-gradient(to top, #000 75%, transparent); }
   .patch { font: 12px/1.45 var(--mono); padding: 6px 0; background: var(--bg-2); border-radius: var(--radius); overflow-wrap: anywhere; }
   .patch div { padding: 0 12px; white-space: pre-wrap; }
   .patch .add { background: var(--ok-bg); color: var(--ok-fg); }
@@ -176,10 +190,10 @@
     <span class="pill" id="status" hidden></span>
     <button class="icon" id="expand" type="button" title="Full screen" aria-label="Full screen" hidden></button>
   </div>
-  <div class="step" id="step" hidden></div>
+  <div class="progress-block" id="step" hidden></div>
   <div class="step" id="stale" hidden>No longer refreshing here. Open it in Windmill for its live status.</div>
   <div class="error-line" id="error-line" hidden></div>
-  <pre class="clip" id="result" hidden></pre>
+  <div id="result-slot"><pre class="clip" id="result" hidden></pre></div>
   <div id="result-more"></div>
   <div id="result-table"></div>
   <div id="body"></div>
@@ -276,6 +290,20 @@
     return (host.availableDisplayModes ?? []).includes('fullscreen');
   }
   const fullscreen = () => host.displayMode === 'fullscreen';
+
+  // A text block cut to fit inline opens whole on a click anywhere on it, or on its corner
+  // button: fullscreen, or the page in Windmill on a host without it. Shown whole, it is
+  // plain text to select.
+  function openable(block, cut, url) {
+    const open = canFullscreen() ? () => setDisplayMode('fullscreen') : url ? () => openLink(url) : null;
+    if (!cut || !open) return block;
+    block.classList.add('cut');
+    block.title = canFullscreen() ? 'Show it all' : 'Open in Windmill';
+    block.addEventListener('click', open);
+    const corner = el('button', { class: 'icon corner', type: 'button', 'aria-label': block.title, title: block.title, onclick: open },
+      icon(canFullscreen() ? 'maximize' : 'external'));
+    return el('div', { class: 'openable' }, block, corner);
+  }
 
   // What does not fit inline opens fullscreen, or on a host without it the page in
   // Windmill: grown inline it would pass the height hosts cap a card at.
@@ -411,6 +439,28 @@
     return '';
   }
 
+  // A running flow's place: a segment per top-level step, the current one named with its
+  // loop or branch progress, and the latest log line of what runs now.
+  function progressView() {
+    const parts = [];
+    if (run.steps) {
+      // Only the steps that started have a status: the rest are still to come.
+      const done = (run.step_list ?? []).filter((s) => s.step !== 'failure');
+      const segment = (i) => i === run.step - 1 ? 'running'
+        : i < run.step - 1 ? (done[i]?.status === 'failure' ? 'failure' : 'success') : '';
+      parts.push(el('div', {
+        class: 'progress', role: 'progressbar', 'aria-label': 'Steps done',
+        'aria-valuemin': '0', 'aria-valuemax': String(run.steps), 'aria-valuenow': String(run.step - 1)
+      }, ...Array.from({ length: run.steps }, (_, i) => el('span', { class: `segment ${segment(i)}` }))));
+      const label = el('div', { class: 'step' }, `Step ${run.step} of ${run.steps}`);
+      if (run.step_id) label.append(' · ', el('code', {}, run.step_id));
+      if (run.step_progress) label.append(`, ${run.step_progress}`);
+      parts.push(label);
+    }
+    if (run.live_log) parts.push(el('div', { class: 'live-log', title: run.live_log }, run.live_log));
+    return parts;
+  }
+
   function renderRun() {
     const status = run?.status ?? 'running';
     const running = RUNNING.includes(status);
@@ -426,11 +476,8 @@
     $('duration').textContent = elapsed();
     if (!running) $('stale').hidden = true;
     const step = $('step');
-    step.hidden = !(running && run?.steps);
-    if (!step.hidden) {
-      step.textContent = `Step ${run.step} of ${run.steps}`;
-      if (run.step_id) step.append(' · ', el('code', {}, run.step_id));
-    }
+    step.hidden = !(running && (run?.steps || run?.live_log));
+    step.replaceChildren(...(step.hidden ? [] : progressView()));
     const result = $('result');
     const failed = ['failure', 'not_started', 'error'].includes(status);
     const errorLine = $('error-line');
@@ -456,9 +503,14 @@
     if (described && !running) more.append(el('div', { class: 'step' }, run.result), linkButton('View it in Windmill', run.url, 'margin-top: 8px'));
     // A flow waiting on an approval or another event is resumed or canceled on its page.
     if (status === 'suspended') more.append(el('div', { class: 'step' }, 'Waiting for an approval or another event.'), linkButton('Approve or cancel in Windmill', run.url, 'margin-top: 8px'));
-    if (!result.hidden) {
-      if (!fullscreen() && result.scrollHeight > result.clientHeight + 1) more.append(moreButton('full result', run.url));
-      else if (run.result_cut) more.append(linkButton('Full result in Windmill', run.url));
+    // The result is clipped inline; a click on it opens it whole.
+    const slot = $('result-slot');
+    result.classList.remove('cut');
+    const fresh = el('pre', { class: result.className, id: 'result', hidden: result.hidden }, result.textContent);
+    slot.replaceChildren(fresh);
+    if (!fresh.hidden) {
+      slot.replaceChildren(openable(fresh, !fullscreen() && fresh.scrollHeight > fresh.clientHeight + 1, run.url));
+      if (fullscreen() && run.result_cut) more.append(linkButton('Full result in Windmill', run.url));
     }
 
     $('cancel').hidden = !(running && run?.id);
@@ -471,12 +523,17 @@
     }, 1000);
   }
 
-  function stepRow({ id, label, status, note, duration, result, nested, total }) {
+  // A step's own run page, which has its arguments, logs and whole result.
+  const stepUrl = (jobId) => (jobId && run?.url && run?.id ? run.url.replace(run.id, jobId) : null);
+
+  function stepRow({ id, label, status, note, duration, result, nested, total, job }) {
+    const url = stepUrl(job);
     return el('div', { class: nested ? 'row nested' : 'row' },
       el('span', { class: `dot ${status ?? ''}` }),
       el('span', { class: 'v' }, id),
       el('span', { class: 'grow' }, label ?? ''),
       el('span', { class: 'dim' }, [note, LABELS[status] ?? status ?? '', formatMs(duration)].filter(Boolean).join(' · ')),
+      url ? el('button', { class: 'icon step-link', type: 'button', title: 'Open this step in Windmill', 'aria-label': 'Open this step in Windmill', onclick: () => openLink(url) }, icon('external')) : null,
       result ? el('pre', { class: status === 'failure' ? 'error' : '' }, total ? `${result}\u2026` : result) : null,
       // The server sends a step result's head; the run page has all of it.
       total ? el('span', { class: 'dim', style: 'flex-basis: 100%' }, `First ${result.length} of ${total} characters: the full result is on the run page.`) : null);
@@ -496,14 +553,14 @@
       return [
         stepRow({ id: step.step, status, note: `${step.branches.length} branches` }),
         ...step.branches.map((branch, i) => stepRow({
-          id: `branch ${i + 1}`, status: branch.status, duration: branch.duration_ms, result: branch.result, total: branch.result_total_chars, nested: true
+          id: `branch ${i + 1}`, status: branch.status, duration: branch.duration_ms, result: branch.result, total: branch.result_total_chars, nested: true, job: branch.job_id
         }))
       ];
     }
     if (step.iterations != null) {
       const shown = parts.find((p) => p.status === 'failure') ?? parts.at(-1);
       return [stepRow({
-        id: step.step, status, result: shown?.result, total: shown?.result_total_chars,
+        id: step.step, status, result: shown?.result, total: shown?.result_total_chars, job: shown?.job_id,
         note: [
           `${step.iterations} iterations`, `${step.ok} ok`,
           step.failed_iterations && `failed: ${step.failed_iterations.join(', ')}`
@@ -511,7 +568,7 @@
       })];
     }
     return [stepRow({
-      id: step.step, status, duration: step.duration_ms, result: step.result, total: step.result_total_chars,
+      id: step.step, status, duration: step.duration_ms, result: step.result, total: step.result_total_chars, job: step.job_id,
       label: step.label?.startsWith(`Step ${step.step}`) ? '' : step.label,
       note: step.attempts > 1 ? `${step.attempts} attempts` : ''
     })];
@@ -541,13 +598,11 @@
         // A log cut to its end starts mid-line, unless that line is all there is.
         if (run.logs_cut && lines.length > 1) lines.shift();
         const shown = fullscreen() ? lines : lines.slice(-LOG_LINES_INLINE);
-        const hidden = lines.length - shown.length;
         // The server sends a log's end: earlier lines are only on the run page.
-        const earlier = run.logs_cut;
-        return el('div', {},
-          earlier && fullscreen() ? linkButton('Earlier lines in Windmill', run.url, 'margin-bottom: 8px') : null,
-          el('pre', {}, shown.join('\n')),
-          hidden > 0 || (earlier && !fullscreen()) ? moreButton(hidden > 0 ? `${hidden} earlier line${hidden === 1 ? '' : 's'}` : 'Earlier lines', run.url) : null);
+        const pre = el('pre', { class: 'from-end' }, shown.join('\n'));
+        return el('div', { class: 'section' },
+          fullscreen() && run.logs_cut ? linkButton('Earlier lines in Windmill', run.url) : null,
+          openable(pre, !fullscreen() && (shown.length < lines.length || run.logs_cut), run.url));
       }));
     }
     if (run?.unreadable) children.push(el('div', { class: 'step' }, 'The details could not be read. Open the run in Windmill.'));
@@ -645,19 +700,16 @@
     ], meta.runs, (r) => openLink(r.url), { noun: 'run', url: meta.url }));
   }
 
-  const PATCH_LINES_INLINE = 40;
   const STEPS_INLINE = 8;
   const ROWS_INLINE = 8;
   const LOG_LINES_INLINE = 15;
 
   // A diff's text with its patch lines coloured; the `---`/`+++` labels before the first
   // hunk are dropped.
-  function patchView(text, limit) {
-    const lines = text.split('\n');
-    const shown = limit ? lines.slice(0, limit) : lines;
+  function patchView(text) {
     let inHunk = false;
     const nodes = [];
-    for (const line of shown) {
+    for (const line of text.split('\n')) {
       if (line.startsWith('@@')) inHunk = true;
       if (!inHunk && /^(--- |\+\+\+ |=+$)/.test(line)) continue;
       const kind = line.startsWith('=== ') ? 'file'
@@ -666,18 +718,7 @@
         : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : '';
       nodes.push(el('div', { class: kind }, line || ' '));
     }
-    const patch = el('div', { class: 'patch' }, ...nodes);
-    if (limit && lines.length > limit) {
-      patch.append(el('div', { class: 'note' }, el('button', {
-        type: 'button',
-        class: 'small',
-        onclick: () => {
-          patch.replaceWith(patchView(text));
-          setDisplayMode('fullscreen');
-        }
-      }, `Show all ${lines.length} lines`)));
-    }
-    return patch;
+    return el('div', { class: 'patch' }, ...nodes);
   }
 
   // The model hears of each deploy: a context update replaces the previous one, so it
@@ -689,8 +730,8 @@
     // Too large to draw here, but still deployable: its counts say what it changes.
     if (item.too_large) return el('div', { class: 'step' }, `Too large to display here (+${item.added} -${item.removed} lines). Review it in Windmill before deploying.`);
     if (item.patch == null) return el('div', { class: 'step' }, item.note ?? '');
-    // Fullscreen has the room for a whole diff, and Deploy sits under it.
-    return patchView(item.patch, fullscreen() ? 0 : PATCH_LINES_INLINE);
+    // The diffs are drawn in fullscreen alone, which has the room for them whole.
+    return patchView(item.patch);
   }
 
   const typeLabel = (item) => (item.trigger_kind ? `${item.trigger_kind} trigger` : item.type);
@@ -862,8 +903,7 @@
         if (code.length) {
           blocks.push(...disclosure('item-code', 'Code', () => {
             const shown = fullscreen() ? code : code.slice(0, CODE_LINES_INLINE);
-            const hidden = code.length - shown.length;
-            return el('div', {}, el('pre', {}, shown.join('\n')), hidden > 0 ? moreButton(`${hidden} more line${hidden === 1 ? '' : 's'}`, url) : null);
+            return openable(el('pre', {}, shown.join('\n')), shown.length < code.length, url);
           }));
         }
         break;
@@ -892,8 +932,7 @@
           blocks.push(...disclosure('item-args', 'Arguments', () => {
             const lines = JSON.stringify(value.args, null, 2).split('\n');
             const shown = fullscreen() ? lines : lines.slice(0, CODE_LINES_INLINE);
-            const hidden = lines.length - shown.length;
-            return el('div', {}, el('pre', {}, shown.join('\n')), hidden > 0 ? moreButton(`${hidden} more line${hidden === 1 ? '' : 's'}`, url) : null);
+            return openable(el('pre', {}, shown.join('\n')), shown.length < lines.length, url);
           }));
         }
         break;

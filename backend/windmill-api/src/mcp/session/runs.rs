@@ -1723,6 +1723,32 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                 details.insert("logs".into(), tail.into());
             }
         }
+        // While a run goes on, its latest log line says what it is doing: a flow's is in the
+        // deepest step still running, a script's in its own log.
+        if job.get("success").is_none() {
+            let running = entries
+                .iter()
+                .skip(1)
+                .filter(|e| e["status"] == "running")
+                .filter_map(|e| e["job_id"].as_str())
+                .last();
+            let live = match running {
+                Some(step) => {
+                    let route = ctx.ws(&format!(
+                        "jobs_u/get_logs/{}?remove_ansi_warnings=true",
+                        enc(step)
+                    ));
+                    ctx.request("GET", &route, None).await.ok()
+                }
+                None => logs.as_ref().ok().cloned(),
+            };
+            if let Some(line) = live
+                .as_deref()
+                .and_then(|l| l.lines().rev().find(|l| !l.trim().is_empty()))
+            {
+                details.insert("live_log".into(), js_head(line.trim(), 300).into());
+            }
+        }
         report_run(ctx, id, Some(job), details);
     }
     Ok(format!(
@@ -1925,6 +1951,27 @@ fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
             run.insert("step".into(), (step + 1).min(modules.len()).into());
             if let Some(step_id) = modules.get(step).and_then(|m| m.get("id")) {
                 run.insert("step_id".into(), step_id.clone());
+            }
+            // How far into its loop or its branches the current step is.
+            let module = modules.get(step).unwrap_or(&Value::Null);
+            let iterator = &module["iterator"];
+            let iterations = iterator["itered_len"]
+                .as_u64()
+                .or_else(|| iterator["itered"].as_array().map(|a| a.len() as u64));
+            let progress = match (iterator["index"].as_u64(), iterations) {
+                (Some(i), Some(n)) if n > 0 => Some(format!("iteration {} of {n}", (i + 1).min(n))),
+                _ => match (
+                    module["branchall"]["branch"].as_u64(),
+                    module["branchall"]["len"].as_u64(),
+                ) {
+                    (Some(b), Some(n)) if n > 0 => {
+                        Some(format!("branch {} of {n}", (b + 1).min(n)))
+                    }
+                    _ => None,
+                },
+            };
+            if let Some(progress) = progress {
+                run.insert("step_progress".into(), progress.into());
             }
         }
     }
