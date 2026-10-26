@@ -34,6 +34,7 @@
 	import SessionMoveModal from './SessionMoveModal.svelte'
 	import { flushPendingSaves, moveSessionToFork, type MoveTarget } from './moveSessionToFork'
 	import { maskHasDraftRow } from './modifiedItemsMask'
+	import { localRunEnded, localRunStarted } from './sessionSync.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
@@ -480,6 +481,10 @@
 		if (!session || !req || moving) return
 		moving = true
 		const releaseAutoResume = runtime?.manager.holdAutoResume()
+		// Bracketed like a turn, so another tab on this session cannot send while its drafts
+		// move, then re-reads the session (its new workspace, the model note) once it ends.
+		const chatId = runtime?.manager.historyManager.getCurrentChatId()
+		if (chatId) localRunStarted(session.id, chatId)
 		try {
 			const res = await moveSessionToFork(session.id, req.parent, req.target, {
 				items: req.items.map(({ kind, path }) => ({ kind, path })),
@@ -491,12 +496,17 @@
 					sendUserToast(res.error, true)
 					moveRequest = undefined
 				} else {
-					moveRequest = { ...req, error: res.error, conflicts: res.conflicts ?? [] }
+					moveRequest = {
+						...req,
+						target: res.retry ?? req.target,
+						error: res.error,
+						conflicts: res.conflicts ?? []
+					}
 				}
 				return
 			}
 			moveRequest = undefined
-			void runtime?.manager
+			await runtime?.manager
 				.queueModelNote(
 					`This session moved from workspace "${req.parent}" to its fork "${res.forkId}": every further tool call acts on "${res.forkId}". ` +
 						(res.copied > 0
@@ -508,10 +518,11 @@
 				.catch((e) => console.error('Failed to persist the move note', e))
 			runtime?.manager.rebuildGlobalSystemMessage()
 			sendUserToast(`Session moved to ${req.targetName}`)
-			if (res.warning) sendUserToast(res.warning, true)
 		} finally {
 			moving = false
 			releaseAutoResume?.()
+			if (chatId)
+				localRunEnded(session.id, runtime?.manager.historyManager.getCurrentChatId() ?? chatId)
 		}
 	}
 
@@ -833,7 +844,7 @@
 			open={moveRequest.open}
 			parentName={moveRequest.parentName}
 			targetName={moveRequest.targetName}
-			newFork={moveRequest.target.kind === 'new'}
+			newFork={moveRequest.target.kind === 'new' || !!moveRequest.target.replace}
 			items={moveRequest.items}
 			conflicts={moveRequest.conflicts}
 			error={moveRequest.error}

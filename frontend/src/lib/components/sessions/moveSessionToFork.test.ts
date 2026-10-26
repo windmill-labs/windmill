@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { get } from 'svelte/store'
 import { DraftService } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
-import { sessionState, type Session } from './sessionState.svelte'
+import { materializeForkOutcome, sessionState, type Session } from './sessionState.svelte'
 import { moveSessionToFork } from './moveSessionToFork'
 
 vi.mock('$lib/gen', async (orig) => {
@@ -11,6 +11,11 @@ vi.mock('$lib/gen', async (orig) => {
 		...actual,
 		DraftService: { ...actual.DraftService, transferDrafts: vi.fn() }
 	}
+})
+
+vi.mock('./sessionState.svelte', async (orig) => {
+	const actual = await orig<typeof import('./sessionState.svelte')>()
+	return { ...actual, materializeForkOutcome: vi.fn() }
 })
 
 const items = [{ kind: 'script' as const, path: 'u/a/s' }]
@@ -77,4 +82,39 @@ describe('moveSessionToFork', () => {
 			workspaceStore.set(prev)
 		}
 	})
+
+	it.each([
+		[true, true],
+		[false, false]
+	])(
+		're-copies into a new fork, overwriting the clone only when this move created it (created %s)',
+		async (created, replace) => {
+			vi.mocked(materializeForkOutcome).mockResolvedValue({ id: 'wm-fork-new', created })
+			vi.mocked(DraftService.transferDrafts).mockResolvedValue({
+				copied: items,
+				removed: items,
+				conflicts: []
+			})
+			const s = addSession()
+			const res = await moveSessionToFork(
+				s.id,
+				'root_ws',
+				{
+					kind: 'new',
+					fork: { id: 'wm-fork-new', name: 'new', parent_workspace_id: 'root_ws' }
+				},
+				{ items, removeFromParent: true }
+			)
+			expect(res).toMatchObject({ ok: true, forkId: 'wm-fork-new', copied: 1, removed: 1 })
+			expect(DraftService.transferDrafts).toHaveBeenLastCalledWith({
+				workspace: 'root_ws',
+				requestBody: {
+					target_workspace: 'wm-fork-new',
+					items,
+					remove_from_source: true,
+					replace_existing: replace
+				}
+			})
+		}
+	)
 })

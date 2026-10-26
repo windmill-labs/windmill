@@ -670,7 +670,8 @@ pub async fn delete_own_draft_for_path(
 /// there. Secret values are copied as encrypted, so the two workspaces must share a key.
 ///
 /// A plain INSERT: the caller guarantees the target holds none of the copied rows (an empty
-/// fork, or a conflict check under the same transaction), else `draft_pkey_with_user` aborts it.
+/// fork, or a conflict check or delete under the same transaction), else `draft_pkey_with_user`
+/// aborts it.
 /// `created_at` is preserved so the per-tab `last_sync` baseline the editor reads lines up with
 /// the source's timeline — otherwise the first save from an open editor would trip the conflict
 /// modal on every copied draft.

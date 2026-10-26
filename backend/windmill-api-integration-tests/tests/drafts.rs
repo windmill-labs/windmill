@@ -313,8 +313,8 @@ async fn test_cross_user_draft_privacy(db: Pool<Postgres>) -> anyhow::Result<()>
 }
 
 /// Moving a session's drafts into a fork is all-or-nothing: a draft the caller already has in
-/// the fork blocks the whole transfer rather than one side silently winning, and the source
-/// copy is removed only together with a successful copy.
+/// the fork blocks the whole transfer rather than one side silently winning, unless the caller
+/// asks to replace it, and the source copy is removed only together with a successful copy.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_transfer_drafts_to_fork(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -394,13 +394,19 @@ async fn test_transfer_drafts_to_fork(db: Pool<Postgres>) -> anyhow::Result<()> 
     assert_eq!(draft_count(&db, "u/test-user/a", "script", me).await, 1);
     assert_eq!(draft_count(&db, "u/test-user/b", "script", me).await, 1);
 
-    sqlx::query("DELETE FROM draft WHERE workspace_id = $1 AND path = 'u/test-user/a'")
-        .bind(fork)
-        .execute(&db)
+    // A save after the clone: replacing the clone's copy must carry it into the fork.
+    let r = c
+        .post(save_url(port, "script", "u/test-user/a"))
+        .json(&json!({ "value": { "content": "a2" } }))
+        .send()
         .await?;
+    assert_eq!(r.status(), 200);
     let body: serde_json::Value = c
         .post(&transfer_url)
-        .json(&json!({ "target_workspace": fork, "items": items, "remove_from_source": true }))
+        .json(&json!({
+            "target_workspace": fork, "items": items,
+            "remove_from_source": true, "replace_existing": true
+        }))
         .send()
         .await?
         .json()
@@ -410,6 +416,13 @@ async fn test_transfer_drafts_to_fork(db: Pool<Postgres>) -> anyhow::Result<()> 
     assert_eq!(body["removed"].as_array().unwrap().len(), 2);
     assert_eq!(fork_count("u/test-user/a").await?, 1);
     assert_eq!(fork_count("u/test-user/b").await?, 1);
+    let a_in_fork: String = sqlx::query_scalar(
+        "SELECT value->>'content' FROM draft WHERE workspace_id = $1 AND path = 'u/test-user/a'",
+    )
+    .bind(fork)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(a_in_fork, "a2");
     assert_eq!(draft_count(&db, "u/test-user/a", "script", me).await, 0);
     assert_eq!(draft_count(&db, "u/test-user/b", "script", me).await, 0);
 

@@ -1381,7 +1381,18 @@ export async function materializeFork(
 	fork: PendingFork,
 	onCreationStarted?: (creationId: string) => void
 ): Promise<string | undefined> {
-	if (get(userWorkspaces).some((w) => w.id === fork.id)) return fork.id
+	return (await materializeForkOutcome(fork, onCreationStarted))?.id
+}
+
+/**
+ * `materializeFork`, also telling whether this call created the fork. `created: false` is a
+ * fork that already existed under that id, whose drafts the clone never wrote.
+ */
+export async function materializeForkOutcome(
+	fork: PendingFork,
+	onCreationStarted?: (creationId: string) => void
+): Promise<{ id: string; created: boolean } | undefined> {
+	if (get(userWorkspaces).some((w) => w.id === fork.id)) return { id: fork.id, created: false }
 	try {
 		let resumed = false
 		if (fork.creation_id) {
@@ -1405,12 +1416,12 @@ export async function materializeFork(
 		}
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 		sendUserToast(`Created fork ${fork.name}`)
-		return fork.id
+		return { id: fork.id, created: true }
 	} catch (e: any) {
 		const msg = String(e?.body ?? e?.message ?? e)
 		if (msg.includes('is already being created') && (await forkJoinedWorkspaces(fork.id))) {
 			sendUserToast(`Created fork ${fork.name}`)
-			return fork.id
+			return { id: fork.id, created: false }
 		}
 		if (/workspace_pkey|duplicate key|already exists/i.test(msg)) {
 			// Self-heal: the create likely already succeeded. Refresh + adopt the
@@ -1420,7 +1431,8 @@ export async function materializeFork(
 			// it and propagate up through commitSessionWorkspace/beforeSend).
 			try {
 				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-				if (get(userWorkspaces).some((w) => w.id === fork.id)) return fork.id
+				if (get(userWorkspaces).some((w) => w.id === fork.id))
+					return { id: fork.id, created: false }
 			} catch (refreshErr) {
 				console.error('Failed to refresh workspaces during fork self-heal', refreshErr)
 			}
@@ -1459,6 +1471,30 @@ export async function moveSessionToWorkspace(id: string, newWorkspaceId: string)
 	delete s.pending_fork
 	s.workspace_root_id = workspaceRootId(newWorkspaceId, get(userWorkspaces)) ?? newWorkspaceId
 	await putSession(s)
+}
+
+/**
+ * Adopt the workspace another tab moved this session to. A tab acting on the session's
+ * previous workspace would otherwise keep writing drafts and running jobs there.
+ */
+export async function adoptStoredSessionWorkspace(id: string): Promise<boolean> {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!BROWSER || !s || s.transient) return false
+	const db = await sessionsDb.whenReady()
+	const stored = await db?.get('sessions', id).catch(() => undefined)
+	if (!stored?.workspace_id || stored.workspace_id === s.workspace_id) return false
+	// A fork created by that tab is missing from this tab's list, which would read the
+	// session's workspace as gone.
+	if (!get(userWorkspaces).some((w) => w.id === stored.workspace_id)) {
+		const listed = await WorkspaceService.listUserWorkspaces().catch(() => undefined)
+		if (listed) usersWorkspaceStore.set(listed)
+	}
+	s.workspace_id = stored.workspace_id
+	s.workspace_root_id = stored.workspace_root_id
+	s.moves = stored.moves
+	delete s.pending_workspace_id
+	delete s.pending_fork
+	return true
 }
 
 // Create a brand-new fork and re-assign a committed session to it. Used

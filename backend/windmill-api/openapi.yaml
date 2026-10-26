@@ -11283,7 +11283,7 @@ paths:
   /w/{workspace}/drafts/transfer:
     post:
       summary: copy the current user's drafts into a fork and/or remove them here
-      description: In one transaction, copies the authed user's own drafts of `items` into `target_workspace` (a direct fork of this workspace) and, with `remove_from_source`, deletes them here. Without `target_workspace` it only removes. If the user already has a draft of any item in the target, nothing is written and the items are returned in `conflicts`.
+      description: In one transaction, copies the authed user's own drafts of `items` into `target_workspace` (a direct fork of this workspace) and, with `remove_from_source`, deletes them here. Without `target_workspace` it only removes. If the user already has a draft of any item in the target, nothing is written and the items are returned in `conflicts`, unless `replace_existing` is set. A user who can only compose flows or apps in the target is held to the same rules as a direct draft save there.
       operationId: transferDrafts
       tags:
         - draft
@@ -11304,6 +11304,9 @@ paths:
                     $ref: "#/components/schemas/DraftItemRef"
                 remove_from_source:
                   type: boolean
+                replace_existing:
+                  type: boolean
+                  description: Overwrite the user's own drafts of `items` already in the target instead of returning them as conflicts.
               required: [items]
       responses:
         "200":
