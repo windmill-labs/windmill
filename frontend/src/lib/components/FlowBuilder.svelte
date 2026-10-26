@@ -780,6 +780,9 @@
 			} as Flow
 			setDraftTriggers([])
 			loadingSave = false
+			// Settings shows the deployed run-as user while the editor stays open, a session's
+			// included: read the version just written.
+			void deployedItem.refetch()
 			onDeploy?.({ path: $pathStore })
 		} catch (err) {
 			onDeployError?.({ error: err })
