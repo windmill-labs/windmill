@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import {
 		ScriptService,
 		type Script,
@@ -54,14 +51,13 @@
 	import ScriptEditor from './ScriptEditor.svelte'
 	import DbtEditor from './dbt/DbtEditor.svelte'
 	import { findModulePathClash } from './scriptModulePath'
-	import { Alert, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
+	import { Alert, Button, Drawer, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
-	import type { SupportedLanguage, Schema } from '$lib/common'
+	import type { SupportedLanguage } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import ErrorHandlerToggleButton from '$lib/components/details/ErrorHandlerToggleButton.svelte'
 	import {
 		Bug,
 		CheckCircle,
@@ -69,7 +65,6 @@
 		DiffIcon,
 		EllipsisVertical,
 		Network,
-		Plus,
 		Rocket,
 		Settings,
 		Shuffle,
@@ -83,9 +78,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import Awareness from './Awareness.svelte'
-	import { fade } from 'svelte/transition'
 	import Popover from './Popover.svelte'
-	import Toggle from './Toggle.svelte'
 	import JobTokenScopesSetting from './JobTokenScopesSetting.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import Section from './Section.svelte'
@@ -125,9 +118,16 @@
 	import type { ScriptBuilderProps } from './script_builder'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
 	import type { ButtonType } from './common/button/model'
-	import DebounceLimit from './flows/DebounceLimit.svelte'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
-	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
+	import type { OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
+	import RunOnBehalfOfSetting from './itemSettings/RunOnBehalfOfSetting.svelte'
+	import MuteErrorHandlerSetting from './itemSettings/MuteErrorHandlerSetting.svelte'
+	import SettingGroup from './itemSettings/SettingGroup.svelte'
+	import { keepsDeployedOnBehalfOf } from './itemSettings/onBehalfOf'
+	import ScriptRuntimeSettings from './itemSettings/ScriptRuntimeSettings.svelte'
+	import InvisibleRunsSetting from './itemSettings/InvisibleRunsSetting.svelte'
+	import SettingIcons from './itemSettings/SettingIcons.svelte'
+	import { getActivePermissionBadges, getActiveScriptSettingsBadges } from './scriptSettings'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -279,15 +279,23 @@
 	let selectedInputTab: 'main' | 'preprocessor' | 'diagram' = $state('main')
 	let hasPreprocessor = $state(false)
 	let preserveOnBehalfOf = $state(false)
-
-	const WM_DEPLOYERS_GROUP = 'wm_deployers'
-	let isDeployer = $derived(actingUser?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
-	let canPreserve = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin || isDeployer)
-	let originalOnBehalfOfEmail = $derived(savedScript?.on_behalf_of_email)
-	let originalOnBehalfOfPermissionedAs = $derived(savedScript?.on_behalf_of)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
-	let customOnBehalfOfEmail: string = $state('')
-	let myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
+	function keepDeployedOnBehalfOf() {
+		if (
+			!keepsDeployedOnBehalfOf(
+				actingUser,
+				onBehalfOfChoice,
+				script.on_behalf_of_email,
+				savedScript?.on_behalf_of_email
+			)
+		)
+			return
+		onBehalfOfChoice = 'target'
+		script.on_behalf_of_email = savedScript?.on_behalf_of_email
+		script.on_behalf_of = savedScript?.on_behalf_of
+		preserveOnBehalfOf = true
+	}
+	const isNewScript = $derived(initialPath == '' || savedScript?.no_deployed === true)
 
 	let metadataOpen = $state(
 		!untrack(() => neverShowMeta) &&
@@ -315,6 +323,7 @@
 				[
 					['metadata', customUi?.settingsPanel?.disableMetadata],
 					['runtime', customUi?.settingsPanel?.disableRuntime],
+					['permissions', customUi?.settingsPanel?.disableRuntime],
 					['triggers', customUi?.settingsPanel?.disableTriggers]
 				] as const
 			).find(([, disabled]) => disabled !== true)?.[0]
@@ -1187,7 +1196,7 @@
 	// (empty initialPath) but with a path the AI already picked.
 	let dirtyPath = $state(initialPathChosen)
 
-	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'triggers' = $state(
+	let selectedTab: 'metadata' | 'runtime' | 'permissions' | 'ui' | 'triggers' = $state(
 		(() => {
 			if (customUi?.settingsPanel?.disableMetadata !== true) {
 				// first option: either no custom UI or metadata is enabled
@@ -1381,6 +1390,18 @@
 <svelte:window onkeydown={onKeyDown} />
 {@render children?.()}
 
+{#snippet muteSetting()}
+	{#if customUi?.settingsPanel?.metadata?.disableMute !== true}
+		<SettingGroup label="Error handling" class="flex flex-col gap-6">
+			<MuteErrorHandlerSetting
+				kind="script"
+				path={script.path}
+				bind:muted={script.ws_error_handler_muted}
+			/>
+		</SettingGroup>
+	{/if}
+{/snippet}
+
 <DeployOverrideConfirmationModal
 	{deployedBy}
 	{confirmCallback}
@@ -1437,7 +1458,21 @@
 							aiId="script-builder-runtime"
 							aiDescription="Runtime settings"
 							label="Runtime"
-						/>
+						>
+							{#snippet extra()}
+								<SettingIcons badges={getActiveScriptSettingsBadges(script)} />
+							{/snippet}
+						</Tab>
+						<Tab
+							value="permissions"
+							aiId="script-builder-permissions"
+							aiDescription="Permissions settings: run on behalf of, runs visibility, job token"
+							label="Permissions"
+						>
+							{#snippet extra()}
+								<SettingIcons badges={getActivePermissionBadges(script)} />
+							{/snippet}
+						</Tab>
 					{/if}
 					<!-- Not for dbt: its run form is derived from the descriptor server-side
 					     (`dbt_arg_schema`), so anything refined here is overwritten by the
@@ -1477,86 +1512,78 @@
 					{#snippet content()}
 						<div class="min-h-0 grow overflow-y-auto">
 							<TabContent value="metadata">
-								<div class="flex flex-col gap-8 px-4 py-2 pb-12">
-									<Section label="Metadata">
-										{#snippet action()}
-											{#if customUi?.settingsPanel?.metadata?.disableMute !== true}
-												<div class="flex flex-row items-center gap-2">
-													<ErrorHandlerToggleButton
-														kind="script"
-														scriptOrFlowPath={script.path}
-														bind:errorHandlerMuted={script.ws_error_handler_muted}
-														iconOnly={false}
-													/>
-												</div>
+								<div class="flex flex-col gap-8 p-4 pb-8">
+									<div class="flex flex-col gap-6">
+										<Label label="Summary">
+											<MetadataGen
+												aiId="create-script-summary-input"
+												aiDescription="Summary / Title of the new script"
+												bind:content={script.summary}
+												code={script.content}
+												promptConfigName="summary"
+												generateOnAppear
+												onChange={() => onSummaryChange(script.summary)}
+												elementProps={{
+													type: 'text',
+													placeholder: 'Short summary to be displayed when listed'
+												}}
+											/>
+										</Label>
+										<LabelsInput bind:labels={script.labels} class="-mt-4" />
+										<Label label="Path">
+											{#snippet header()}
+												<Tooltip
+													documentationLink="https://www.windmill.dev/docs/core_concepts/roles_and_permissions#path"
+												>
+													The unique identifier of the script in the workspace that defines
+													permissions
+												</Tooltip>
+											{/snippet}
+											<Path
+												bind:this={path}
+												bind:error={pathError}
+												bind:path={script.path}
+												bind:dirty={dirtyPath}
+												{initialPath}
+												autofocus={false}
+												namePlaceholder="script"
+												kind="script"
+												workspaceOverride={opWorkspace}
+											/>
+											{#if initialPath && script.path && script.path !== initialPath}
+												<Alert
+													type="info"
+													size="xs"
+													title="Deploy the script to make the path change effective."
+													class="mt-2"
+												/>
 											{/if}
-										{/snippet}
-										<div class="flex flex-col gap-6">
-											<Label label="Summary">
-												<MetadataGen
-													aiId="create-script-summary-input"
-													aiDescription="Summary / Title of the new script"
-													bind:content={script.summary}
-													code={script.content}
-													promptConfigName="summary"
-													generateOnAppear
-													onChange={() => onSummaryChange(script.summary)}
-													elementProps={{
-														type: 'text',
-														placeholder: 'Short summary to be displayed when listed'
-													}}
-												/>
-											</Label>
-											<LabelsInput bind:labels={script.labels} class="-mt-4" />
-											<Label label="Path">
-												{#snippet header()}
-													<Tooltip
-														documentationLink="https://www.windmill.dev/docs/core_concepts/roles_and_permissions#path"
-													>
-														The unique identifier of the script in the workspace that defines
-														permissions
-													</Tooltip>
-												{/snippet}
-												<Path
-													bind:this={path}
-													bind:error={pathError}
-													bind:path={script.path}
-													bind:dirty={dirtyPath}
-													{initialPath}
-													autofocus={false}
-													namePlaceholder="script"
-													kind="script"
-													workspaceOverride={opWorkspace}
-												/>
-												{#if initialPath && script.path && script.path !== initialPath}
-													<Alert
-														type="info"
-														size="xs"
-														title="Deploy the script to make the path change effective."
-														class="mt-2"
-													/>
-												{/if}
-											</Label>
-											<Label label="Description">
-												<MetadataGen
-													bind:content={script.description}
-													code={script.content}
-													promptConfigName="description"
-													elementType="textarea"
-													elementProps={{
-														placeholder: 'What this script does and how to use it'
-													}}
-												/>
-											</Label>
-										</div>
-									</Section>
+										</Label>
+										<Label label="Description">
+											<MetadataGen
+												bind:content={script.description}
+												code={script.content}
+												promptConfigName="description"
+												elementType="textarea"
+												elementProps={{
+													placeholder: 'What this script does and how to use it'
+												}}
+											/>
+										</Label>
+										{#if script.schema && !disableAi && !customUi?.settingsPanel?.metadata?.disableAiFilling}
+											<AIFormSettings
+												bind:prompt={script.schema.prompt_for_ai as string | undefined}
+												type="script"
+											/>
+										{/if}
+									</div>
 									{#if !customUi?.settingsPanel?.metadata?.languages || customUi?.settingsPanel?.metadata?.languages?.length > 1}
 										<Section label="Language">
 											{#snippet action()}
 												<DefaultScripts />
 											{/snippet}
 											{#if lockedLanguage}
-												<div class="text-sm text-primary italic mb-2">
+												<div class="text-xs text-secondary mb-2">
 													As a forked script, the language '{script.language}' cannot be modified.
 												</div>
 											{/if}
@@ -1602,123 +1629,118 @@
 													</Popover>
 												{/each}
 											</div>
+											<div class="flex items-center gap-2 mt-4 flex-wrap">
+												<span class="text-2xs text-secondary">Template</span>
+												<Button
+													unifiedSize="xs"
+													variant="default"
+													startIcon={{
+														icon: LanguageIcon,
+														props: { lang: 'claudesandbox', width: 16, height: 16 }
+													} as ButtonType.Icon}
+													onclick={() => {
+														template = 'claudesandbox'
+														script.language = 'bun'
+														initContent('bun', script.kind, template)
+													}}
+												>
+													Claude Sandbox
+												</Button>
+												<Button
+													unifiedSize="xs"
+													variant="default"
+													startIcon={{
+														icon: LanguageIcon,
+														props: { lang: 'pisandbox', width: 16, height: 16 }
+													} as ButtonType.Icon}
+													onclick={() => {
+														template = 'pisandbox'
+														script.language = 'bun'
+														initContent('bun', script.kind, template)
+													}}
+												>
+													Pi Sandbox
+												</Button>
+												<span title="Workflow-as-Code">
+													<Button
+														unifiedSize="xs"
+														variant="default"
+														startIcon={{
+															icon: LanguageIcon,
+															props: { lang: 'bun', width: 16, height: 16 }
+														} as ButtonType.Icon}
+														onclick={() => {
+															template = 'wac_typescript'
+															script.language = 'bun'
+															script.modules = {
+																'helper.ts': {
+																	content:
+																		'export function main(a: string): string {\n  return `hello ${a}`\n}\n',
+																	language: 'bun'
+																}
+															}
+															initContent('bun', script.kind, template)
+														}}
+													>
+														WAC TypeScript
+													</Button>
+												</span>
+												<span title="Workflow-as-Code">
+													<Button
+														unifiedSize="xs"
+														variant="default"
+														startIcon={{
+															icon: LanguageIcon,
+															props: { lang: 'python3', width: 16, height: 16 }
+														} as ButtonType.Icon}
+														onclick={() => {
+															template = 'wac_python'
+															script.language = 'python3'
+															script.modules = {
+																'helper.py': {
+																	content: 'def main(a: str) -> str:\n    return f"hello {a}"\n',
+																	language: 'python3'
+																}
+															}
+															initContent('python3', script.kind, template)
+														}}
+													>
+														WAC Python
+													</Button>
+												</span>
+												<Button
+													unifiedSize="xs"
+													variant="default"
+													startIcon={{
+														icon: LanguageIcon,
+														props: { lang: 'bun', width: 16, height: 16 }
+													} as ButtonType.Icon}
+													onclick={() => {
+														template = 'ci_test_bun'
+														script.language = 'bun'
+														initContent('bun', script.kind, template)
+													}}
+												>
+													CI Test TypeScript
+												</Button>
+												<Button
+													unifiedSize="xs"
+													variant="default"
+													startIcon={{
+														icon: LanguageIcon,
+														props: { lang: 'python3', width: 16, height: 16 }
+													} as ButtonType.Icon}
+													onclick={() => {
+														template = 'ci_test_python'
+														script.language = 'python3'
+														initContent('python3', script.kind, template)
+													}}
+												>
+													CI Test Python
+												</Button>
+											</div>
 										</Section>
 									{/if}
-									<div class="flex items-center gap-2 mt-2 flex-wrap">
-										<span class="text-2xs text-secondary">Template</span>
-										<Button
-											size="xs2"
-											variant="border"
-											color="light"
-											startIcon={{
-												icon: LanguageIcon,
-												props: { lang: 'claudesandbox', width: 16, height: 16 }
-											} as ButtonType.Icon}
-											on:click={() => {
-												template = 'claudesandbox'
-												script.language = 'bun'
-												initContent('bun', script.kind, template)
-											}}
-										>
-											Claude Sandbox
-										</Button>
-										<Button
-											unifiedSize="xs"
-											variant="default"
-											startIcon={{
-												icon: LanguageIcon,
-												props: { lang: 'pisandbox', width: 16, height: 16 }
-											} as ButtonType.Icon}
-											onclick={() => {
-												template = 'pisandbox'
-												script.language = 'bun'
-												initContent('bun', script.kind, template)
-											}}
-										>
-											Pi Sandbox
-										</Button>
-										<span title="Workflow-as-Code">
-											<Button
-												size="xs2"
-												variant="border"
-												color="light"
-												startIcon={{
-													icon: LanguageIcon,
-													props: { lang: 'bun', width: 16, height: 16 }
-												} as ButtonType.Icon}
-												on:click={() => {
-													template = 'wac_typescript'
-													script.language = 'bun'
-													script.modules = {
-														'helper.ts': {
-															content:
-																'export function main(a: string): string {\n  return `hello ${a}`\n}\n',
-															language: 'bun'
-														}
-													}
-													initContent('bun', script.kind, template)
-												}}
-											>
-												WAC TypeScript
-											</Button>
-										</span>
-										<span title="Workflow-as-Code">
-											<Button
-												size="xs2"
-												variant="border"
-												color="light"
-												startIcon={{
-													icon: LanguageIcon,
-													props: { lang: 'python3', width: 16, height: 16 }
-												} as ButtonType.Icon}
-												on:click={() => {
-													template = 'wac_python'
-													script.language = 'python3'
-													script.modules = {
-														'helper.py': {
-															content: 'def main(a: str) -> str:\n    return f"hello {a}"\n',
-															language: 'python3'
-														}
-													}
-													initContent('python3', script.kind, template)
-												}}
-											>
-												WAC Python
-											</Button>
-										</span>
-										<Button
-											size="xs2"
-											variant="border"
-											color="light"
-											startIcon={{
-												icon: LanguageIcon,
-												props: { lang: 'bun', width: 16, height: 16 }
-											} as ButtonType.Icon}
-											on:click={() => {
-												template = 'ci_test_bun'
-												script.language = 'bun'
-												initContent('bun', script.kind, template)
-											}}
-										>
-											CI Test TypeScript
-										</Button>
-										<Button
-											size="xs2"
-											variant="border"
-											color="light"
-											startIcon={{
-												icon: LanguageIcon,
-												props: { lang: 'python3', width: 16, height: 16 }
-											} as ButtonType.Icon}
-											on:click={() => {
-												template = 'ci_test_python'
-												script.language = 'python3'
-												initContent('python3', script.kind, template)
-											}}
-										>
-											CI Test Python
-										</Button>
-									</div>
 									<!-- Not for dbt: each kind tags a script for a role in a flow that a project
 										     bundle cannot fill (approval, trigger, preprocessor), and the runtime only
 										     ever runs it as an action. -->
@@ -1766,521 +1788,44 @@
 										</Section>
 									{/if}
 									{#if customUi?.settingsPanel?.disableRuntime}
-										<Section label="Worker group tag (queue)">
+										<Section label="Worker group tag">
 											<WorkerTagPicker
 												bind:tag={script.tag}
 												placeholder={customUi?.tagSelectPlaceholder}
 											/>
 										</Section>
-									{/if}
-
-									{#if script.schema && !disableAi && !customUi?.settingsPanel?.metadata?.disableAiFilling}
-										<div class="mt-3">
-											<AIFormSettings
-												bind:prompt={script.schema.prompt_for_ai as string | undefined}
-												type="script"
-											/>
-										</div>
+										{@render muteSetting()}
 									{/if}
 								</div>
 							</TabContent>
 							<TabContent value="runtime">
-								<div class="flex flex-col gap-8 px-4 py-2 pb-12">
-									<Section label="Worker group tag (queue)">
-										{#snippet header()}
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
-											>
-												The script will be executed on a worker configured to listen to this worker
-												group tag (queue). For instance, you could setup an "highmem", or "gpu" tag.
-											</Tooltip>
-										{/snippet}
-										<WorkerTagPicker
-											bind:tag={script.tag}
-											placeholder={customUi?.tagSelectPlaceholder}
-										/>
-									</Section>
-
-									<Section label="Concurrency limits" eeOnly>
-										{#snippet header()}
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits"
-											>
-												Allowed concurrency within a given timeframe
-											</Tooltip>
-										{/snippet}
-										<Toggle
-											size="sm"
-											checked={Boolean(script.concurrent_limit)}
-											on:change={() => {
-												if (script.concurrent_limit && script.concurrent_limit != undefined) {
-													script.concurrent_limit = undefined
-													script.concurrency_time_window_s = undefined
-													script.concurrency_key = undefined
-												} else {
-													script.concurrent_limit = 1
-												}
-											}}
-											options={{
-												right: 'Concurrency limits'
-											}}
-										/>
-										{#if Boolean(script.concurrent_limit)}
-											<div class="flex flex-col gap-4 mt-2">
-												<Label label="Max number of executions within the time window">
-													<div class="flex flex-row gap-2 max-w-sm whitespace-nowrap">
-														<input
-															disabled={!$enterpriseLicense}
-															bind:value={script.concurrent_limit}
-															type="number"
-														/>
-													</div>
-												</Label>
-												{#if Boolean(script.concurrent_limit)}
-													<Label label="Time window in seconds">
-														<SecondsInput
-															disabled={!$enterpriseLicense}
-															bind:seconds={script.concurrency_time_window_s}
-														/>
-													</Label>
-													<Label label="Custom concurrency key (optional)">
-														{#snippet header()}
-															<Tooltip
-																documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits#custom-concurrency-key"
-															>
-																Concurrency keys are global, you can have them be workspace specific
-																using the variable `$workspace`. You can also use an argument's
-																value using `$args[name_of_arg]`</Tooltip
-															>
-														{/snippet}
-														<input
-															disabled={!$enterpriseLicense}
-															type="text"
-															autofocus
-															bind:value={script.concurrency_key}
-															placeholder={`$workspace/script/${script.path}-$args[foo]`}
-														/>
-													</Label>
-												{/if}
-											</div>
-										{/if}
-									</Section>
-									<Section label="Cache">
-										{#snippet header()}
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/core_concepts/caching"
-											>
-												Cache the results for each possible inputs
-											</Tooltip>
-										{/snippet}
-										<div class="flex gap-2 shrink flex-col">
-											<Toggle
-												size="sm"
-												bind:checked={
-													() => !!script.cache_ttl, (v) => (script.cache_ttl = v ? 300 : undefined)
-												}
-												options={{ right: 'Cache the results for each possible inputs' }}
-											/>
-											{#if script.cache_ttl}
-												<div class="text-2xs text-secondary">How long to keep the cache valid</div>
-												<SecondsInput bind:seconds={script.cache_ttl} />
-												<Toggle
-													size="2xs"
-													bind:checked={
-														() => script.cache_ignore_s3_path,
-														(v) => (script.cache_ignore_s3_path = v || undefined)
-													}
-													options={{
-														right: 'Ignore S3 Object paths for caching purposes',
-														rightTooltip:
-															'If two S3 objects passed as input have the same content, they will hit the same cache entry, regardless of their path.'
-													}}
-												/>
-											{/if}
-										</div>
-									</Section>
-									<Section label="Timeout">
-										{#snippet header()}
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/script_editor/settings#timeout"
-											>
-												Add a custom timeout for this script
-											</Tooltip>
-										{/snippet}
-										<div class="flex gap-2 shrink flex-col">
-											<Toggle
-												size="sm"
-												checked={Boolean(script.timeout)}
-												on:change={() => {
-													if (script.timeout && script.timeout != undefined) {
-														script.timeout = undefined
-													} else {
-														script.timeout = customUi?.defaultTimeout ?? 300
-													}
-												}}
-												options={{
-													right: 'Add a custom timeout for this script'
-												}}
-											/>
-											{#if Boolean(script.timeout)}
-												<span class="text-xs font-semibold text-emphasis leading-none mt-2">
-													Timeout duration
-												</span>
-												{#if script.timeout}
-													<SecondsInput bind:seconds={script.timeout} />
-												{:else}
-													<SecondsInput disabled />
-												{/if}
-											{/if}
-										</div>
-									</Section>
-									<Section label="Debouncing">
-										<DebounceLimit
-											size="sm"
-											bind:debounce_delay_s={script.debounce_delay_s}
-											bind:debounce_key={script.debounce_key}
-											bind:debounce_args_to_accumulate={script.debounce_args_to_accumulate}
-											bind:max_total_debouncing_time={script.max_total_debouncing_time}
-											bind:max_total_debounces_amount={script.max_total_debounces_amount}
-											schema={script.schema as Schema}
-											placeholder={`$workspace/script/${script.path}-$args[foo]`}
-										/>
-
-										{#snippet header()}
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/core_concepts/job_debouncing"
-											>
-												Debounce Jobs
-											</Tooltip>
-										{/snippet}
-									</Section>
-
-									<Section label="Perpetual script">
-										{#snippet header()}
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/script_editor/perpetual_scripts"
-											>
-												Restart the script upon ending unless cancelled
-											</Tooltip>
-										{/snippet}
-										<div class="flex gap-2 shrink flex-col">
-											<Toggle
-												size="sm"
-												checked={Boolean(script.restart_unless_cancelled)}
-												on:change={() => {
-													if (script.restart_unless_cancelled) {
-														script.restart_unless_cancelled = undefined
-													} else {
-														script.restart_unless_cancelled = true
-													}
-												}}
-												options={{
-													right: 'Restart upon ending unless cancelled'
-												}}
-											/>
-										</div>
-									</Section>
-									<Section label="Dedicated workers" eeOnly>
-										<Toggle
-											disabled={!$enterpriseLicense ||
-												isCloudHosted() ||
-												(script.language != 'bun' &&
-													script.language != 'bunnative' &&
-													script.language != 'python3' &&
-													script.language != 'deno')}
-											size="sm"
-											checked={Boolean(script.dedicated_worker)}
-											on:change={() => {
-												if (script.dedicated_worker) {
-													script.dedicated_worker = undefined
-												} else {
-													script.dedicated_worker = true
-												}
-											}}
-											options={{
-												right: 'Script is run on dedicated workers'
-											}}
-										/>
-										{#if script.dedicated_worker}
-											<div class="py-2">
-												<Alert type="info" title="Require dedicated workers">
-													A worker group needs to be configured to listen to this script. Select it
-													in the dedicated workers section of the worker group configuration.
-												</Alert>
-											</div>
-										{/if}
-										{#snippet header()}
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/core_concepts/dedicated_workers"
-											>
-												In this mode, the script is meant to be run on dedicated workers that run
-												the script at native speed. Can reach &gt;1500rps per dedicated worker. Only
-												available on enterprise edition and for Python3, Deno, Bun and Bunnative.
-												For other languages, the efficiency is already on par with dedicated workers
-												since they do not spawn a full runtime</Tooltip
-											>
-										{/snippet}
-									</Section>
-									<Section label="Delete after completion">
-										{#snippet header()}
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/script_editor/settings#delete-after-use"
-											>
-												WARNING: This settings ONLY applies to synchronous webhooks or when the
-												script is used within a flow. If used individually, this script must be
-												triggered using a synchronous endpoint to have the desired effect.
-												<br />
-												<br />
-												The logs, arguments and results of the job will be completely deleted from Windmill
-												after the specified delay once it is complete and the result has been returned.
-												Set to 0 for immediate deletion.
-												<br />
-												<br />
-												The deletion is irreversible.
-												{#if !$enterpriseLicense}
-													<br />
-													<br />
-													This option is only available on Windmill Enterprise Edition.
-												{/if}
-											</Tooltip>
-										{/snippet}
-										<div class="flex gap-2 shrink flex-col">
-											<Toggle
-												disabled={!$enterpriseLicense}
-												size="sm"
-												checked={script.delete_after_secs != null}
-												on:change={() => {
-													if (script.delete_after_secs != null) {
-														script.delete_after_secs = undefined
-													} else {
-														script.delete_after_secs = 0
-													}
-												}}
-												options={{
-													right: 'Delete logs, arguments and results after completion'
-												}}
-											/>
-											{#if script.delete_after_secs != null}
-												<SecondsInput
-													bind:seconds={script.delete_after_secs}
-													disabled={!$enterpriseLicense}
-												/>
-											{/if}
-										</div>
-									</Section>
-									{#if !isCloudHosted()}
-										<Section label="High priority script" eeOnly>
-											<Toggle
-												disabled={!$enterpriseLicense || isCloudHosted()}
-												size="sm"
-												checked={script.priority !== undefined && script.priority > 0}
-												on:change={() => {
-													if (script.priority) {
-														script.priority = undefined
-													} else {
-														script.priority = 100
-													}
-												}}
-												options={{
-													right: 'Label as high priority'
-												}}
-											>
-												{#snippet right()}
-													<input
-														type="number"
-														class="!w-16 ml-4"
-														disabled={script.priority === undefined}
-														bind:value={script.priority}
-														onfocus={bubble('focus')}
-														onchange={() => {
-															if (script.priority && script.priority > 100) {
-																script.priority = 100
-															} else if (script.priority && script.priority < 0) {
-																script.priority = 0
-															}
-														}}
-													/>
-												{/snippet}
-											</Toggle>
-											{#snippet header()}
-												<!-- TODO: Add EE-only badge when we have it -->
-												<Tooltip
-													documentationLink="https://www.windmill.dev/docs/core_concepts/jobs#high-priority-jobs"
-												>
-													Jobs from script labeled as high priority take precedence over the other
-													jobs when in the jobs queue.
-													{#if !$enterpriseLicense}This is a feature only available on enterprise
-														edition.{/if}
-												</Tooltip>
-											{/snippet}
-										</Section>
-									{/if}
-									<Section label="Runs visibility">
-										{#snippet header()}
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs#invisible-runs"
-											>
-												When this option is enabled, manual executions of this script are invisible
-												to users other than the user running it, including the owner(s). This
-												setting can be overridden when this script is run manually from the advanced
-												menu.
-											</Tooltip>
-										{/snippet}
-										<div class="flex gap-2 shrink flex-col">
-											<Toggle
-												size="sm"
-												checked={Boolean(script.visible_to_runner_only)}
-												on:change={() => {
-													if (script.visible_to_runner_only) {
-														script.visible_to_runner_only = undefined
-													} else {
-														script.visible_to_runner_only = true
-													}
-												}}
-												options={{
-													right: 'Make runs invisible to others'
-												}}
-											/>
-										</div>
-									</Section>
-									<Section label="Job token">
-										<JobTokenScopesSetting bind:value={script.job_token_scopes} kind="script" />
-									</Section>
-									<Section
-										label={canPreserve
-											? 'Run on behalf of a specified user'
-											: 'On behalf of last editor'}
-									>
-										{#snippet header()}
-											<Tooltip>
-												When this option is enabled, the script will be run with the permissions of
-												{canPreserve ? 'the specified user' : 'the last editor'}.
-											</Tooltip>
-										{/snippet}
-										<div class="flex gap-2 shrink flex-col">
-											<span class="inline-flex gap-2">
-												<Toggle
-													size="sm"
-													checked={Boolean(script.on_behalf_of_email)}
-													on:change={() => {
-														if (script.on_behalf_of_email) {
-															script.on_behalf_of_email = undefined
-															script.on_behalf_of = undefined
-															preserveOnBehalfOf = false
-															onBehalfOfChoice = undefined
-														} else {
-															script.on_behalf_of_email = $userStore?.email
-															script.on_behalf_of = myPermissionedAs
-														}
-													}}
-													options={{
-														right: `Run on behalf of ${canPreserve ? 'a specified user' : 'last editor'}`
-													}}
-												/>
-												{#if script.on_behalf_of_email && canPreserve}
-													&rarr; <OnBehalfOfSelector
-														targetWorkspace={opWorkspace ?? ''}
-														targetValue={originalOnBehalfOfEmail}
-														selected={onBehalfOfChoice}
-														onSelect={(choice, details) => {
-															onBehalfOfChoice = choice
-															if (choice === 'me') {
-																script.on_behalf_of_email = $userStore?.email
-																script.on_behalf_of = myPermissionedAs
-																customOnBehalfOfEmail = ''
-																preserveOnBehalfOf = false
-															} else if (choice === 'target') {
-																// Keep the saved pair. A script that has no recorded principal yet
-																// sends the email alone and the backend derives one from it.
-																script.on_behalf_of_email = originalOnBehalfOfEmail
-																script.on_behalf_of = originalOnBehalfOfPermissionedAs
-																customOnBehalfOfEmail = ''
-																preserveOnBehalfOf = true
-															} else if (choice === 'custom' && details) {
-																script.on_behalf_of_email = details.email
-																script.on_behalf_of = details.permissionedAs
-																customOnBehalfOfEmail = details.email
-																preserveOnBehalfOf = true
-															}
-														}}
-														kind="script"
-														{canPreserve}
-														customValue={customOnBehalfOfEmail}
-														isDeployment={false}
-													/>
-												{:else if script.on_behalf_of_email && !canPreserve}
-													<span class="text-xs text-tertiary">
-														Currently: <span class="font-medium"
-															>{originalOnBehalfOfEmail ?? script.on_behalf_of_email}</span
-														>. Will be set to <span class="font-medium">{$userStore?.email}</span> on
-														deploy (requires admin or wm_deployers group to override)
-													</span>
-												{/if}
-											</span>
-										</div>
-									</Section>
-									{#if !isCloudHosted()}
-										<Section label="Custom env variables">
-											{#snippet header()}
-												<Tooltip
-													documentationLink="https://www.windmill.dev/docs/script_editor/custom_environment_variables"
-												>
-													Additional static custom env variables to pass to the script.
-												</Tooltip>
-											{/snippet}
-											{#if script.envs && script.envs.length > 0}
-												<Alert type="warning" title="Not passed in previews" size="xs">
-													Static envs variables are not passed in preview but solely on deployed
-													scripts.
-												</Alert>
-											{/if}
-											<div class="w-full mt-2">
-												<span class="text-primary text-xs pb-2">Format is: `{'<KEY>=<VALUE>'}`</span
-												>
-												{#if Array.isArray(script.envs ?? [])}
-													{#each script.envs ?? [] as _v, i}
-														<div class="flex max-w-md mt-1 w-full items-center relative">
-															{#if script.envs}
-																<input
-																	type="text"
-																	bind:value={script.envs[i]}
-																	placeholder="<KEY>=<VALUE>"
-																/>
-															{/if}
-															<button
-																transition:fade|local={{ duration: 50 }}
-																class="rounded-full p-1 bg-surface/60 duration-200 hover:bg-gray-200 absolute right-2"
-																aria-label="Clear"
-																onclick={() => {
-																	script.envs && script.envs.splice(i, 1)
-																	script.envs = script.envs
-																}}
-															>
-																<X size={14} />
-															</button>
-														</div>
-													{/each}
-												{/if}
-											</div>
-											<div class="flex mt-2">
-												<Button
-													variant="default"
-													size="xs"
-													on:click={() => {
-														if (script.envs == undefined || !Array.isArray(script.envs)) {
-															script.envs = []
-														}
-														script.envs = script.envs.concat('')
-													}}
-												>
-													<div class="flex flex-row gap-1">
-														<Plus size="16" />
-														Add item
-													</div>
-												</Button>
-											</div>
-										</Section>
-									{/if}
+								<div class="flex flex-col gap-8 p-4 pb-8" {@attach keepDeployedOnBehalfOf}>
+									<ScriptRuntimeSettings
+										bind:script
+										tagPlaceholder={customUi?.tagSelectPlaceholder}
+										defaultTimeout={customUi?.defaultTimeout}
+									/>
+									{@render muteSetting()}
+								</div>
+							</TabContent>
+							<TabContent value="permissions">
+								<div class="flex flex-col gap-6 p-4 pb-8">
+									<RunOnBehalfOfSetting
+										kind="script"
+										bind:email={script.on_behalf_of_email}
+										bind:permissionedAs={script.on_behalf_of}
+										bind:preserve={preserveOnBehalfOf}
+										bind:choice={onBehalfOfChoice}
+										savedEmail={savedScript?.on_behalf_of_email}
+										savedPermissionedAs={savedScript?.on_behalf_of}
+										targetWorkspace={opWorkspace ?? ''}
+										isNew={isNewScript}
+									/>
+									<InvisibleRunsSetting
+										kind="script"
+										bind:visibleToRunnerOnly={script.visible_to_runner_only}
+									/>
+									<JobTokenScopesSetting bind:value={script.job_token_scopes} kind="script" />
 								</div>
 							</TabContent>
 							{#if !isDbt}
