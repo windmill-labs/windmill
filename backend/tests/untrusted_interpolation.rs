@@ -1,4 +1,4 @@
-//! Handler, public-app and agent tool jobs run with more rights than whoever wrote some of their
+//! Handler, trigger, public-app and agent tool jobs run with more rights than whoever wrote some of their
 //! arguments, so nothing in those arguments may be resolved by the worker with the job's identity.
 
 use axum::{routing::post, Json as AxumJson, Router};
@@ -297,6 +297,57 @@ async fn public_app_resolves_nothing_the_viewer_sent(db: Pool<Postgres>) -> anyh
         json!({"pipeline": [{"$match": {"currency": "$USD"}}]})
     );
     assert_eq!(out["d"]["key"], json!("$API_KEY"));
+    Ok(())
+}
+
+#[cfg(feature = "http_trigger")]
+#[sqlx::test(fixtures("base"))]
+#[serial_test::serial]
+async fn http_route_resolves_nothing_the_caller_sent(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    seed(&db).await?;
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/http_triggers/create"
+        ))
+        .bearer_auth("SECRET_TOKEN")
+        .json(&json!({
+            "path": "u/test-user/route",
+            "script_path": "f/handlers/h",
+            "is_flow": false,
+            "route_path": "untrusted",
+            "request_type": "async",
+            "authentication_method": "none",
+            "http_method": "post",
+            "is_static_website": false,
+            "workspaced_route": false,
+            "wrap_body": false,
+            "raw_string": false,
+        }))
+        .send()
+        .await?;
+    assert!(resp.status().is_success(), "{}", resp.text().await?);
+    // No credentials: the job still runs as the route's owner.
+    let resp = client
+        .post(format!("http://localhost:{port}/api/r/untrusted"))
+        .header("content-type", "application/json")
+        .body(
+            r#"{"error": "$var:u/test-user/secret", "leak": ["$WM_TOKEN", "$var:u/test-user/secret"],
+                "cfg": "$res:u/test-user/cfg", "price": "$10.00"}"#,
+        )
+        .send()
+        .await?;
+    assert!(resp.status().is_success(), "{}", resp.text().await?);
+    let id: Uuid = resp.text().await?.trim_matches('"').parse()?;
+    let out = run(&db, port, id).await;
+    assert!(!out.to_string().contains(SECRET), "{out}");
+    assert!(!out.to_string().contains("set_by"), "{out}");
+    assert_omitted(&out["error"]);
+    assert_omitted(&out["leak"][0]);
+    assert_eq!(out["price"], json!("$10.00"));
     Ok(())
 }
 

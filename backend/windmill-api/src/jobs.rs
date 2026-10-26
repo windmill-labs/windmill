@@ -5906,6 +5906,15 @@ async fn insert_resume_job<'c>(
     approved: bool,
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<()> {
+    // The approver, possibly anonymous, writes this payload, and later steps receive it as
+    // `resume`, interpolated with the flow's own token.
+    if windmill_common::variables::untrusted_arg_interpolates(&value.to_string()) {
+        return Err(Error::BadRequest(
+            "The resume payload cannot hold $var:, $jsonvar:, $res: or $encrypted: references, \
+             or a $WM_* variable name"
+                .to_string(),
+        ));
+    }
     sqlx::query!(
         r#"
             INSERT INTO resume_job
@@ -7703,7 +7712,8 @@ pub async fn get_args_and_trigger_metadata(
         };
         let native =
             prepare_native_trigger_args(service_name, db, w_id, &args.metadata.headers, body)
-                .await?;
+                .await?
+                .map(windmill_queue::PushArgsOwned::omit_untrusted_interpolation);
         (metadata, native)
     } else {
         (None, None)
