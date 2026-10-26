@@ -946,6 +946,8 @@
   function stepName(node) {
     if (node.summary) return node.summary;
     if (node.module?.type === 'flow' && node.module.path) return `Inner flow ${node.module.path}`;
+    // A workspace script is told apart by the script it calls.
+    if (node.module?.type === 'script' && node.module.path) return node.module.path;
     return stepKind(node.module) ?? '';
   }
 
@@ -1435,10 +1437,14 @@
   }
   // A long value is cut inline, so a row stays one or two lines; fullscreen shows it whole.
   const VALUE_CHARS_INLINE = 200;
+  // Set when a value was cut inline, which fullscreen then shows whole.
+  let valueCut = false;
   function display(value) {
     if (value == null) return '';
     const text = typeof value === 'string' ? value : JSON.stringify(value);
-    return fullscreen() || text.length <= VALUE_CHARS_INLINE ? text : `${text.slice(0, VALUE_CHARS_INLINE)}\u2026`;
+    if (fullscreen() || text.length <= VALUE_CHARS_INLINE) return text;
+    valueCut = true;
+    return `${text.slice(0, VALUE_CHARS_INLINE)}\u2026`;
   }
   function inputRows(schema) {
     const properties = schema?.properties ?? {};
@@ -1468,6 +1474,7 @@
     view = 'item';
     itemMeta = meta;
     clearRun();
+    valueCut = false;
     const item = meta.item;
     const value = item.value ?? {};
     const type = item.type;
@@ -1582,8 +1589,14 @@
       blocks.push(el('button', { class: 'more-line', type: 'button', onclick: open }, hiddenSections.join(' \u00b7 '), icon(canFullscreen() ? 'expand' : 'external')));
     }
     $('body').replaceChildren(...blocks.filter(Boolean));
-    // Offered when fullscreen shows more than this: a cut list, a cut code block, a section.
-    showExpand(fullscreen() || !!$('body').querySelector('.more-line:not(.mono), .cut'));
+    // A few long lines can still overflow a clipped block: it is cut, and opens whole.
+    for (const pre of $('body').querySelectorAll('pre.clip:not(.cut)')) {
+      if (pre.scrollHeight <= pre.clientHeight + 1 || !canFullscreen()) continue;
+      pre.classList.add('cut');
+      pre.addEventListener('click', () => setDisplayMode('fullscreen'));
+    }
+    // Offered when fullscreen shows more than this: a cut list, value or code block, a section.
+    showExpand(fullscreen() || valueCut || !!$('body').querySelector('.more-line:not(.mono), .cut'));
   }
 
   // A setting's field name as a label: words, the first capitalised, acronyms upper-case.
