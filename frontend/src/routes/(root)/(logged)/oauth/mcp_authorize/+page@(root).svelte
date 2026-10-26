@@ -25,7 +25,9 @@
 		.filter((s) => s.startsWith('mcp:'))
 	// Both narrowings at once is a client requesting every scope it was offered, not a choice.
 	const requestedScopes =
-		askedScopes.includes('mcp:read_only') && askedScopes.includes('mcp:read_run')
+		askedScopes.includes('mcp:all') &&
+		askedScopes.includes('mcp:read_only') &&
+		askedScopes.includes('mcp:read_run')
 			? askedScopes.filter((s) => s !== 'mcp:read_only' && s !== 'mcp:read_run')
 			: askedScopes
 	let scopes = $state<string[]>([])
