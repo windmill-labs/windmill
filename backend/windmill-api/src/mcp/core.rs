@@ -499,7 +499,7 @@ impl McpBackend for WindmillBackend {
 pub struct McpSelection;
 
 /// The scopes that give the whole of MCP at some access level, rather than a selection.
-const ACCESS_LEVELS: [&str; 3] = ["mcp:all", "mcp:run", "mcp:read"];
+pub(crate) const ACCESS_LEVELS: [&str; 3] = ["mcp:all", "mcp:run", "mcp:read"];
 
 /// MCP scopes without an access level: favorites, chosen scripts, flows, endpoints or hub apps.
 fn scoped_to_selection(scopes: &[String]) -> bool {

@@ -890,8 +890,9 @@ async fn oauth_approve_inner(
         .collect();
     // On every access level, so the grant keeps the session toolset if it is later raised to
     // `mcp:all`, which without the marker means the tools server on its URLs.
-    let access_level = ["mcp:all", "mcp:run", "mcp:read"];
-    if scopes.iter().any(|s| access_level.contains(&s.as_str()))
+    if scopes
+        .iter()
+        .any(|s| super::core::ACCESS_LEVELS.contains(&s.as_str()))
         && !scopes.iter().any(|s| s == SESSION_SCOPE)
     {
         scopes.push(SESSION_SCOPE.to_string());
