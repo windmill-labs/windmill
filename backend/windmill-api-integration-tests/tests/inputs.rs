@@ -75,8 +75,8 @@ async fn test_inputs_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-// A scheduled runnable with a dynamic-skip handler (or a scheduled script with native
-// retry) runs as a `singlestepflow`, not `flow`/`script` (see windmill-queue schedule.rs).
+// A scheduled runnable with a dynamic-skip handler runs as a `singlestepflow`, not
+// `flow`/`script` (see windmill-queue schedule.rs).
 // Both a flow's and a script's history must surface their own singlestepflow runs, but a
 // script and flow may share a path, so each side must match only the wrapped kind that
 // belongs to it — the other must not leak in.
@@ -166,75 +166,310 @@ async fn insert_singlestepflow(
     Ok(id)
 }
 
+// Each way a run of f/test/step can start, as the history lists it with `started_by`: top-level
+// runs by origin, and runs inside other runs grouped under the top-level run containing them.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_input_history_include_non_root(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
+    const STEP: &str = "f/test/step";
 
-    let parent = uuid::Uuid::new_v4();
-    let root_run = insert_script_run(&db, None).await?;
-    let step_run = insert_script_run(&db, Some(parent)).await?;
+    let manual = insert_run(&db, Run { path: STEP, at: 1, ..Run::default() }).await?;
+    let scheduled = insert_run(
+        &db,
+        Run { path: STEP, trigger_kind: Some("schedule"), failed: true, at: 2, ..Run::default() },
+    )
+    .await?;
+    let retry = insert_run(
+        &db,
+        Run {
+            path: STEP,
+            parent_job: Some(scheduled),
+            trigger_kind: Some("schedule"),
+            at: 3,
+            ..Run::default()
+        },
+    )
+    .await?;
+    sqlx::query("INSERT INTO native_retry_attempt (job_id, attempt) VALUES ($1, 1)")
+        .bind(retry)
+        .execute(&db)
+        .await?;
+    // A workflow-as-code task carries its script's path under a run of that script: hidden.
+    let wac_task = insert_run(
+        &db,
+        Run { path: STEP, parent_job: Some(manual), at: 4, ..Run::default() },
+    )
+    .await?;
+
+    let flow = insert_run(
+        &db,
+        Run { kind: "flow", path: "f/test/flow", at: 5, ..Run::default() },
+    )
+    .await?;
+    let step = insert_run(
+        &db,
+        Run {
+            path: STEP,
+            parent_job: Some(flow),
+            root_job: Some(flow),
+            innermost_root: Some(flow),
+            flow_step_id: Some("a"),
+            at: 6,
+            ..Run::default()
+        },
+    )
+    .await?;
+    let agent = insert_run(
+        &db,
+        Run {
+            kind: "aiagent",
+            path: "f/test/flow/b",
+            parent_job: Some(flow),
+            root_job: Some(flow),
+            innermost_root: Some(flow),
+            flow_step_id: Some("b"),
+            at: 7,
+            ..Run::default()
+        },
+    )
+    .await?;
+    let tool = insert_run(
+        &db,
+        Run {
+            path: STEP,
+            parent_job: Some(agent),
+            root_job: Some(agent),
+            innermost_root: Some(flow),
+            at: 8,
+            ..Run::default()
+        },
+    )
+    .await?;
+
+    let caller = insert_run(&db, Run { path: "f/test/caller", at: 9, ..Run::default() }).await?;
+    let call = insert_run(
+        &db,
+        Run {
+            path: STEP,
+            parent_job: Some(caller),
+            innermost_root: Some(caller),
+            trigger_kind: Some("webhook"),
+            at: 10,
+            ..Run::default()
+        },
+    )
+    .await?;
+    let failing = insert_run(
+        &db,
+        Run { path: "f/test/failing", failed: true, at: 11, ..Run::default() },
+    )
+    .await?;
+    let handler = insert_run(
+        &db,
+        Run {
+            path: STEP,
+            parent_job: Some(failing),
+            innermost_root: Some(failing),
+            created_by: "error_handler",
+            at: 12,
+            ..Run::default()
+        },
+    )
+    .await?;
+
+    // A run still in progress, older than the one page entry a newer run would fill.
+    let long_running = insert_run(
+        &db,
+        Run { path: "f/test/long", running: true, at: 13, ..Run::default() },
+    )
+    .await?;
+    insert_run(&db, Run { path: "f/test/long", at: 14, ..Run::default() }).await?;
+
+    // test-user-2 can read the runs of its own script, not the flow run they are steps of.
+    let private_flow = insert_run(
+        &db,
+        Run { kind: "flow", path: "u/test-user/private_flow", at: 15, ..Run::default() },
+    )
+    .await?;
+    let own_step = insert_run(
+        &db,
+        Run {
+            path: "u/test-user-2/helper",
+            permissioned_as: "u/test-user-2",
+            parent_job: Some(private_flow),
+            root_job: Some(private_flow),
+            innermost_root: Some(private_flow),
+            flow_step_id: Some("a"),
+            at: 16,
+            ..Run::default()
+        },
+    )
+    .await?;
 
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
-    let base = format!(
-        "http://localhost:{port}/api/w/test-workspace/inputs/history\
-         ?runnable_id=f/test/step&runnable_type=ScriptPath"
-    );
-
-    let history = |query: &'static str| {
-        let url = format!("{base}{query}");
+    let fetch = |token: &'static str, query: String| {
+        let url = format!(
+            "http://localhost:{port}/api/w/test-workspace/inputs/history\
+             ?runnable_type=ScriptPath{query}"
+        );
         async move {
-            let resp = authed(client().get(url)).send().await?;
+            let resp = client()
+                .get(url)
+                .header("Authorization", format!("Bearer {token}"))
+                .send()
+                .await?;
             let status = resp.status().as_u16();
             let body = resp.text().await?;
             assert_2xx(status, &body, "GET /inputs/history");
             anyhow::Ok(serde_json::from_str::<Vec<serde_json::Value>>(&body)?)
         }
     };
-    let ids = |inputs: &[serde_json::Value]| {
-        inputs
+    let history = |query: String| fetch("SECRET_TOKEN", format!("&runnable_id={STEP}{query}"));
+    let ids = |entries: &[serde_json::Value]| {
+        entries
             .iter()
-            .filter_map(|i| i["id"].as_str().map(String::from))
-            .collect::<std::collections::HashSet<_>>()
+            .map(|e| e["id"].as_str().unwrap_or_default().to_string())
+            .collect::<Vec<_>>()
     };
+    let top_level = "manual,api,schedule,app,trigger,preview";
+    let everything = format!("{top_level},flow_step,agent_tool,script_call,handler");
 
-    let default = history("").await?;
-    assert_eq!(ids(&default), [root_run.to_string()].into());
+    let default = history(format!("&started_by={top_level}")).await?;
+    assert_eq!(ids(&default), [scheduled.to_string(), manual.to_string()]);
+    assert_eq!(default[0]["group"]["retries"], 1);
+    assert!(
+        default[1].get("group").is_none(),
+        "the hidden task counts: {default:?}"
+    );
 
-    let all = history("&include_non_root=true").await?;
+    let all = history(format!("&started_by={everything}")).await?;
     assert_eq!(
         ids(&all),
-        [root_run.to_string(), step_run.to_string()].into()
+        [handler, call, flow, scheduled, manual].map(|id| id.to_string())
     );
-    for input in &all {
-        let expected = (input["id"] == step_run.to_string()).then(|| parent.to_string());
-        assert_eq!(input["parent_job"].as_str().map(String::from), expected);
-    }
+    assert!(!ids(&all).contains(&wac_task.to_string()));
+    assert_eq!(all[0]["started_by"], "handler");
+    assert_eq!(all[0]["top_run"]["id"], failing.to_string());
+    assert_eq!(all[1]["started_by"], "script_call");
+    assert_eq!(all[1]["parent_path"], "f/test/caller");
+    assert_eq!(all[2]["group"]["runs"], 2);
+    assert_eq!(all[2]["top_run"]["path"], "f/test/flow");
+
+    let tools = history("&started_by=agent_tool".to_string()).await?;
+    assert_eq!(ids(&tools), [tool.to_string()]);
+    assert_eq!(tools[0]["top_run"]["id"], flow.to_string());
+
+    let in_flow = history(format!("&started_by={everything}&top_run={flow}")).await?;
+    assert_eq!(ids(&in_flow), [step.to_string(), tool.to_string()]);
+    assert_eq!(in_flow[0]["flow_step_id"], "a");
+    assert_eq!(in_flow[1]["started_by"], "agent_tool");
+
+    let retries = history(format!("&started_by={everything}&top_run={scheduled}")).await?;
+    assert_eq!(ids(&retries), [retry.to_string()]);
+    assert_eq!(retries[0]["retry"], 1);
+    assert_eq!(retries[0]["started_by"], "schedule");
+
+    let first = fetch(
+        "SECRET_TOKEN",
+        format!("&runnable_id=f/test/long&started_by={top_level}&per_page=1"),
+    )
+    .await?;
+    assert_eq!(ids(&first), [long_running.to_string()]);
+    assert_eq!(first[0]["running"], true);
+
+    let steps = fetch(
+        "SECRET_TOKEN_2",
+        "&runnable_id=u/test-user-2/helper&started_by=flow_step".to_string(),
+    )
+    .await?;
+    assert_eq!(ids(&steps), [own_step.to_string()]);
+    assert_eq!(steps[0]["top_run"]["id"], private_flow.to_string());
+    assert!(steps[0]["top_run"].get("path").is_none());
 
     Ok(())
 }
 
-// Insert a completed script run at path f/test/step, as a flow step when `parent_job` is set.
-async fn insert_script_run(
-    db: &Pool<Postgres>,
+struct Run {
+    kind: &'static str,
+    path: &'static str,
     parent_job: Option<uuid::Uuid>,
-) -> anyhow::Result<uuid::Uuid> {
+    root_job: Option<uuid::Uuid>,
+    innermost_root: Option<uuid::Uuid>,
+    flow_step_id: Option<&'static str>,
+    trigger_kind: Option<&'static str>,
+    created_by: &'static str,
+    permissioned_as: &'static str,
+    failed: bool,
+    /// Started and not finished: a queue row instead of a completed one.
+    running: bool,
+    /// Seconds after a fixed start, so runs are ordered by insertion.
+    at: i32,
+}
+
+impl Default for Run {
+    fn default() -> Self {
+        Run {
+            kind: "script",
+            path: "",
+            parent_job: None,
+            root_job: None,
+            innermost_root: None,
+            flow_step_id: None,
+            trigger_kind: None,
+            created_by: "test-user",
+            permissioned_as: "u/test-user",
+            failed: false,
+            running: false,
+            at: 0,
+        }
+    }
+}
+
+async fn insert_run(db: &Pool<Postgres>, run: Run) -> anyhow::Result<uuid::Uuid> {
     let id = uuid::Uuid::new_v4();
     sqlx::query(
         "INSERT INTO v2_job (id, workspace_id, tag, created_by, permissioned_as, \
-         permissioned_as_email, kind, runnable_path, parent_job, same_worker, visible_to_owner) \
-         VALUES ($1, 'test-workspace', 'deno', 'test-user', 'u/test-user', \
-         'test@windmill.dev', 'script', 'f/test/step', $2, false, true)",
+         permissioned_as_email, kind, runnable_path, parent_job, root_job, \
+         flow_innermost_root_job, flow_step_id, trigger_kind, created_at, args, same_worker, \
+         visible_to_owner) \
+         VALUES ($1, 'test-workspace', 'deno', $2, $11, 'test@windmill.dev', \
+         $3::job_kind, $4, $5, $6, $7, $8, $9::job_trigger_kind, \
+         now() - interval '1 hour' + make_interval(secs => $10), '{}'::jsonb, false, true)",
     )
     .bind(id)
-    .bind(parent_job)
+    .bind(run.created_by)
+    .bind(run.kind)
+    .bind(run.path)
+    .bind(run.parent_job)
+    .bind(run.root_job)
+    .bind(run.innermost_root)
+    .bind(run.flow_step_id)
+    .bind(run.trigger_kind)
+    .bind(run.at as f64)
+    .bind(run.permissioned_as)
     .execute(db)
     .await?;
+    if run.running {
+        sqlx::query(
+            "INSERT INTO v2_job_queue (id, workspace_id, created_at, started_at, scheduled_for, \
+             running, tag) \
+             SELECT id, workspace_id, created_at, created_at, created_at, true, 'deno' \
+             FROM v2_job WHERE id = $1",
+        )
+        .bind(id)
+        .execute(db)
+        .await?;
+        return Ok(id);
+    }
     sqlx::query(
-        "INSERT INTO v2_job_completed (id, workspace_id, duration_ms, deleted, status) \
-         VALUES ($1, 'test-workspace', 1, false, 'success')",
+        "INSERT INTO v2_job_completed (id, workspace_id, duration_ms, deleted, status, \
+         started_at, completed_at) \
+         SELECT id, workspace_id, 1, false, $2::job_status, created_at, created_at \
+         FROM v2_job WHERE id = $1",
     )
     .bind(id)
+    .bind(if run.failed { "failure" } else { "success" })
     .execute(db)
     .await?;
     Ok(id)

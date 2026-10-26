@@ -18,6 +18,10 @@
 		neverShowLoader?: boolean
 		preventXOverflow?: boolean
 		customRow?: import('svelte').Snippet<[any]>
+		/** Rows rendered right after an item's row. */
+		afterRow?: import('svelte').Snippet<[any]>
+		/** What a refresh compares to tell whether an item changed; its id by default. */
+		itemKey?: (item: any) => string
 		columns?: import('svelte').Snippet
 		extra_row?: import('svelte').Snippet<[any]>
 		children?: import('svelte').Snippet<[any]>
@@ -40,6 +44,8 @@
 		neverShowLoader = false,
 		preventXOverflow = false,
 		customRow,
+		afterRow,
+		itemKey = (item) => item.id,
 		columns,
 		extra_row,
 		children,
@@ -90,7 +96,7 @@
 				items &&
 				items?.length > 0 &&
 				newItems.length === items?.length &&
-				newItems.every((i, index) => i.id === items?.[index]?.id)
+				newItems.every((i, index) => items?.[index] && itemKey(i) === itemKey(items[index]))
 			) {
 				return
 			}
@@ -206,6 +212,7 @@
 					{@render children?.({ item, hover })}
 				</Row>
 			{/if}
+			{@render afterRow?.({ item })}
 		{/each}
 	</tbody>
 

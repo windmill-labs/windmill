@@ -28,6 +28,9 @@ use windmill_common::{
     utils::{not_found_if_none, paginate, Pagination},
     worker::CLOUD_HOSTED,
 };
+
+mod history;
+
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/history", get(get_input_history))
@@ -99,8 +102,34 @@ pub struct Input {
     success: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     is_preview: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    parent_job: Option<Uuid>,
+    #[serde(flatten)]
+    #[sqlx(skip)]
+    run: Option<history::RunDetails>,
+}
+
+impl Input {
+    fn history_entry(
+        id: Uuid,
+        time: DateTime<Utc>,
+        created_by: String,
+        success: bool,
+        is_preview: bool,
+        run: history::RunDetails,
+    ) -> Self {
+        Self {
+            id,
+            name: format!("{} {}", time.format("%H:%M %-d/%-m"), created_by),
+            created_at: time,
+            args: sqlx::types::Json(
+                serde_json::value::RawValue::from_string("null".to_string()).unwrap(),
+            ),
+            created_by,
+            is_public: true,
+            success,
+            is_preview,
+            run: Some(run),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -111,7 +140,6 @@ pub struct CompletedJobMini {
     created_by: String,
     success: bool,
     is_preview: bool,
-    parent_job: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -119,6 +147,32 @@ struct GetInputHistory {
     include_preview: Option<bool>,
     args: Option<String>,
     include_non_root: Option<bool>,
+    started_by: Option<String>,
+    top_run: Option<Uuid>,
+}
+
+/// A scheduled runnable with a dynamic-skip handler is wrapped in a synthetic
+/// `singlestepflow`, so its runs land under that kind rather than `flow`/`script` (see
+/// windmill-queue schedule.rs). Such a wrapper holds either a script or a flow, and the two may
+/// share a runnable_path, so match only the wrapped kind that belongs to the queried runnable.
+/// The wrapped type lives in raw_flow.modules[id in ('a','main')].value.type (mirrors the
+/// projection in windmill-api jobs.rs). runnable_id is NULL on these rows, so ScriptHash never
+/// matches.
+fn singlestepflow_filter(runnable_type: &RunnableType) -> &'static str {
+    match runnable_type {
+        RunnableType::FlowPath => {
+            "AND (kind <> 'singlestepflow' OR EXISTS (\
+                SELECT 1 FROM jsonb_array_elements(v2_job.raw_flow->'modules') m \
+                WHERE m->>'id' IN ('a', 'main') AND m->'value'->>'type' = 'flow'))"
+        }
+        RunnableType::ScriptPath => {
+            "AND (kind <> 'singlestepflow' OR EXISTS (\
+                SELECT 1 FROM jsonb_array_elements(v2_job.raw_flow->'modules') m \
+                WHERE m->>'id' IN ('a', 'main') \
+                  AND COALESCE(m->'value'->>'type', 'script') <> 'flow'))"
+        }
+        RunnableType::ScriptHash => "",
+    }
 }
 
 async fn get_input_history(
@@ -136,6 +190,40 @@ async fn get_input_history(
         per_page
     };
 
+    // An archived script version's history is read by hash, which no index on runs inside
+    // other runs covers: it keeps the plain list below.
+    let started_by = g
+        .started_by
+        .as_deref()
+        .filter(|_| !matches!(r.runnable_type, RunnableType::ScriptHash));
+    if let Some(started_by) = started_by {
+        let started_by = history::parse_started_by(started_by)?;
+        let args = match &g.args {
+            Some(args) => match serde_json::from_str::<serde_json::Value>(args) {
+                Ok(v) => Some(v),
+                Err(_) => return Ok(Json(vec![])),
+            },
+            None => None,
+        };
+        let q = history::HistoryQuery {
+            w_id: &w_id,
+            path: &r.runnable_id,
+            runnable_type: &r.runnable_type,
+            started_by: &started_by,
+            args,
+        };
+        let mut tx = user_db.begin(&authed).await?;
+        // Row estimates for the windows and the walk down a run's children sit far above the
+        // rows actually read, and JIT-compiling the plan costs more than running it.
+        sqlx::query("SET LOCAL jit = off").execute(&mut *tx).await?;
+        let inputs = match g.top_run {
+            Some(top_run) => history::list_inside(&mut tx, &q, top_run).await?,
+            None => history::list(&mut tx, &q, per_page, offset).await?,
+        };
+        tx.commit().await?;
+        return Ok(Json(inputs));
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     let args_query = if let Some(args) = &g.args {
@@ -148,27 +236,13 @@ async fn get_input_history(
         "".to_string()
     };
 
-    // A scheduled runnable with a dynamic-skip handler (or a scheduled script with
-    // native retry) is wrapped in a synthetic `singlestepflow`, so its runs land under
-    // that kind rather than `flow`/`script` (see windmill-queue schedule.rs). Such a
-    // wrapper holds either a script or a flow, and the two may share a runnable_path, so
-    // match only the wrapped kind that belongs to the queried runnable. The wrapped type
-    // lives in raw_flow.modules[id in ('a','main')].value.type (mirrors the projection in
-    // windmill-api jobs.rs). runnable_id is NULL on these rows, so ScriptHash never matches.
-    let singlestepflow_filter = match r.runnable_type {
-        RunnableType::FlowPath => {
-            "AND (kind <> 'singlestepflow' OR EXISTS (\
-                SELECT 1 FROM jsonb_array_elements(v2_job.raw_flow->'modules') m \
-                WHERE m->>'id' IN ('a', 'main') AND m->'value'->>'type' = 'flow'))"
-        }
-        RunnableType::ScriptPath => {
-            "AND (kind <> 'singlestepflow' OR EXISTS (\
-                SELECT 1 FROM jsonb_array_elements(v2_job.raw_flow->'modules') m \
-                WHERE m->>'id' IN ('a', 'main') \
-                  AND COALESCE(m->'value'->>'type', 'script') <> 'flow'))"
-        }
-        RunnableType::ScriptHash => "",
+    let include_non_root = if g.include_non_root.unwrap_or(false) {
+        ""
+    } else {
+        "AND parent_job IS NULL"
     };
+
+    let singlestepflow_filter = singlestepflow_filter(&r.runnable_type);
 
     // Two-step approach: first fetch 2*(per_page+offset) rows using created_at ordering
     // (which leverages the ix_job_root_job_index_by_path_2 index on v2_job), then sort
@@ -176,37 +250,18 @@ async fn get_input_history(
     // are highly correlated.
     let inner_limit = 2 * (per_page + offset);
 
-    let recent = |parent_filter: &str| {
-        format!(
-            "(SELECT id, v2_job_completed.completed_at, created_by, 'null'::jsonb as args, \
+    let sql = &format!(
+        "SELECT id, completed_at, created_by, args, success, is_preview FROM (\
+            SELECT id, v2_job_completed.completed_at, created_by, 'null'::jsonb as args, \
             status = 'success' as success, \
-            kind IN ('preview', 'flowpreview') as is_preview, parent_job \
+            kind IN ('preview', 'flowpreview') as is_preview \
             FROM v2_job JOIN v2_job_completed USING (id) \
             WHERE v2_job.workspace_id = $3 AND {} = $1 AND kind = any($2) \
             AND v2_job.script_entrypoint_override IS NULL {singlestepflow_filter} \
-            {args_query} AND v2_job_completed.status != 'skipped' {parent_filter} \
-            ORDER BY v2_job.created_at DESC LIMIT $4)",
-            r.runnable_type.column_name(),
-        )
-    };
-
-    // Root and child runs are read separately: the runnable_path indexes on v2_job are each
-    // partial on one side of parent_job, so a single scan over both cannot walk created_at
-    // in index order and would sort every run of the path.
-    let inner = if g.include_non_root.unwrap_or(false) {
-        format!(
-            "{} UNION ALL {}",
-            recent("AND parent_job IS NULL"),
-            recent("AND parent_job IS NOT NULL")
-        )
-    } else {
-        recent("AND parent_job IS NULL")
-    };
-
-    let sql = &format!(
-        "SELECT id, completed_at, created_by, args, success, is_preview, parent_job FROM (\
-            {inner}\
+            {args_query} AND v2_job_completed.status != 'skipped' {include_non_root} \
+            ORDER BY v2_job.created_at DESC LIMIT $4\
         ) t ORDER BY completed_at DESC LIMIT $5 OFFSET $6",
+        r.runnable_type.column_name(),
     );
 
     let query = sqlx::query_as::<_, CompletedJobMini>(sql);
@@ -273,7 +328,7 @@ async fn get_input_history(
             is_public: true,
             success: row.success,
             is_preview: row.is_preview,
-            parent_job: row.parent_job,
+            run: None,
         });
     }
 
@@ -374,7 +429,7 @@ async fn list_saved_inputs(
             is_public: row.is_public,
             success: true,
             is_preview: false,
-            parent_job: None,
+            run: None,
         })
     }
 

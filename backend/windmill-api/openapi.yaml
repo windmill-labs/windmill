@@ -25094,11 +25094,22 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: include_non_root
+        - name: started_by
           in: query
-          description: also include runs of the runnable as a step of a flow
+          description: >-
+            comma-separated RunStartedBy values to list. Runs inside other runs are grouped by
+            the top-level run that contains them, and runs in progress are included. Ignored
+            for ScriptHash.
           schema:
-            type: boolean
+            type: string
+        - name: top_run
+          in: query
+          description: >-
+            with started_by, list instead the runs of the runnable inside this top-level run,
+            in execution order, with their args
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: Input history for completed jobs
@@ -31236,10 +31247,29 @@ components:
           type: boolean
         success:
           type: boolean
-        parent_job:
+        started_by:
+          $ref: "#/components/schemas/RunStartedBy"
+        trigger_kind:
+          $ref: "#/components/schemas/JobTriggerKind"
+        trigger:
           type: string
-          format: uuid
-          description: set when the run was a step of a flow
+          description: path of the schedule, app or trigger that started the run
+        running:
+          type: boolean
+        suspended:
+          type: boolean
+        flow_step_id:
+          type: string
+        retry:
+          type: integer
+          description: attempt number, when the run is a retry of an earlier attempt
+        parent_path:
+          type: string
+          description: path of the runnable that called this one, for a script call
+        top_run:
+          $ref: "#/components/schemas/InputTopRun"
+        group:
+          $ref: "#/components/schemas/InputRunGroup"
       required:
         - id
         - name
@@ -31247,6 +31277,73 @@ components:
         - created_by
         - created_at
         - is_public
+
+    RunStartedBy:
+      type: string
+      description: >-
+        how a run started: manual through trigger and preview for runs with no parent,
+        flow_step through handler for runs inside another run. A retry takes the category of
+        its first attempt.
+      enum:
+        - manual
+        - api
+        - schedule
+        - app
+        - trigger
+        - preview
+        - flow_step
+        - agent_tool
+        - script_call
+        - handler
+
+    InputTopRun:
+      type: object
+      description: the top-level run that a history entry's runs sit in
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+        path:
+          type: string
+        success:
+          type: boolean
+        running:
+          type: boolean
+        trigger_kind:
+          $ref: "#/components/schemas/JobTriggerKind"
+        trigger:
+          type: string
+      required:
+        - id
+
+    InputRunGroup:
+      type: object
+      description: >-
+        the runs a history entry stands for: the runs of the runnable inside its top_run, or
+        the retries and other runs of the runnable inside a top-level run listed as the entry
+      properties:
+        runs:
+          type: integer
+        failed:
+          type: integer
+        running:
+          type: integer
+        retries:
+          type: integer
+        handlers:
+          type: integer
+        complete:
+          type: boolean
+          description: false when more runs of the group may be older than the runs examined
+      required:
+        - runs
+        - failed
+        - running
+        - retries
+        - handlers
+        - complete
 
     CreateInput:
       type: object
