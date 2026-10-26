@@ -2005,10 +2005,7 @@ pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResul
                     continue;
                 };
                 let kind = opt_str_arg(item, "trigger_kind").map(str::to_string);
-                let row = rows.iter().find(|row| {
-                    addressed(row).is_some_and(|(t, k)| t == item_type && k == kind)
-                        && (row.display_path == path || row.path == path)
-                });
+                let row = find_draft(&rows, item_type, kind.as_deref(), path);
                 match (row, addressed_type(item_type)) {
                     (Some(row), Some(item_type)) => picked.push((row, item_type, kind)),
                     _ => missing.push(json!({
@@ -2099,6 +2096,28 @@ pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResul
     Ok(text)
 }
 
+/// The draft a tool names by path. An exact storage path wins over a display name, as in
+/// `diff`: a staged rename shows one draft under the path another is stored at.
+fn find_draft<'a>(
+    rows: &'a [DraftRow],
+    item_type: &str,
+    trigger_kind: Option<&str>,
+    path: &str,
+) -> Option<&'a DraftRow> {
+    let named = |row: &&DraftRow| {
+        row.addressing
+            .is_some_and(|(t, k)| t == item_type && k == trigger_kind)
+    };
+    rows.iter()
+        .filter(named)
+        .find(|row| row.path == path)
+        .or_else(|| {
+            rows.iter()
+                .filter(named)
+                .find(|row| row.display_path == path)
+        })
+}
+
 /// The item type a tool names, as the `'static` the draft listing addresses drafts by.
 fn addressed_type(item_type: &str) -> Option<&'static str> {
     ITEM_TYPES.iter().copied().find(|t| *t == item_type)
@@ -2121,6 +2140,28 @@ async fn diff(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_draft_is_found_by_its_storage_path_before_a_display_name() {
+        let row = |path: &str, display_path: &str| DraftRow {
+            kind: "script".into(),
+            path: path.into(),
+            display_path: display_path.into(),
+            addressing: Some(("script", None)),
+        };
+        // A rename of `x` to `y` is staged, and another draft is stored at `y`.
+        let rows = [row("u/a/x", "u/a/y"), row("u/a/y", "u/a/y")];
+        assert_eq!(
+            find_draft(&rows, "script", None, "u/a/y").unwrap().path,
+            "u/a/y"
+        );
+        assert_eq!(
+            find_draft(&rows[..1], "script", None, "u/a/y")
+                .unwrap()
+                .path,
+            "u/a/x"
+        );
+    }
 
     #[test]
     fn yaml_matches_the_session_emitter() {

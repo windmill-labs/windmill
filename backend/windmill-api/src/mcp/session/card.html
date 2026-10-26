@@ -83,6 +83,7 @@
   .icon { flex: none; min-height: 28px; width: 28px; padding: 0; font-size: 15px; line-height: 1; }
   .disclosure { align-self: flex-start; border: 0; padding: 0; min-height: 0; background: none; font-size: 12px; font-weight: 600; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.04em; }
   .disclosure:hover { background: none; color: var(--fg); }
+  .disclosure:disabled { opacity: 1; }
   .disclosure::before { content: "\25B8  "; }
   .disclosure[aria-expanded="true"]::before { content: "\25BE  "; }
   .summary-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 10px; font-size: 13px; }
@@ -238,7 +239,7 @@
   function disclosure(key, label, content) {
     const open = fullscreen() || opened.has(key);
     const toggle = el('button', {
-      class: 'disclosure', type: 'button', 'aria-expanded': String(open),
+      class: 'disclosure', type: 'button', 'aria-expanded': String(open), disabled: fullscreen(),
       onclick: () => {
         if (opened.has(key)) opened.delete(key); else opened.add(key);
         redraw();
@@ -249,7 +250,7 @@
 
   function setDisplayMode(mode) {
     if (mode === 'fullscreen' && !canFullscreen()) return;
-    if (mode === 'inline' && host.displayMode !== 'fullscreen') return;
+    if (mode === (host.displayMode ?? 'inline')) return;
     request('ui/request-display-mode', { mode }).then((result) => {
       if (result?.mode) host.displayMode = result.mode;
       redraw();
@@ -572,7 +573,8 @@
   function reviewBody(item) {
     if (item.error) return el('pre', { class: 'error' }, item.error);
     if (item.patch == null) return el('div', { class: 'step' }, item.note ?? '');
-    return patchView(item.patch, PATCH_LINES_INLINE);
+    // Fullscreen has the room for a whole diff, and Deploy sits under it.
+    return patchView(item.patch, fullscreen() ? 0 : PATCH_LINES_INLINE);
   }
 
   const typeLabel = (item) => (item.trigger_kind ? `${item.trigger_kind} trigger` : item.type);
