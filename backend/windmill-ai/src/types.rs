@@ -65,6 +65,8 @@ pub struct Tool {
     /// Set on the built-in question tool, which the worker answers by parking the agent until
     /// someone answers or this many seconds pass.
     pub question_timeout_secs: Option<u32>,
+    /// A flow module tool whose call is answered once its job starts; see `AgentTool::background`.
+    pub background: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]

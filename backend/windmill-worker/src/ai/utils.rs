@@ -307,12 +307,77 @@ pub async fn update_flow_status_module_with_actions_success(
     Ok(())
 }
 
-/// Record the outcome of the last of `action_count` actions, dropping any recorded past it.
-pub async fn set_flow_status_module_last_action_success(
+/// Record the outcome of the action at `index`, `None` while it runs. Outcomes are positional and
+/// a background call's comes after later actions' own, so it is set in place, padded with nulls.
+pub async fn set_flow_status_module_action_success_at(
     db: &DB,
     parent_job: &Uuid,
-    action_count: usize,
-    action_success: bool,
+    index: usize,
+    action_success: Option<bool>,
+) -> Result<(), Error> {
+    if let Step::Step { idx: step, .. } = get_step_of_flow_status(db, parent_job.to_owned()).await?
+    {
+        sqlx::query(
+            "UPDATE v2_job_status SET
+                flow_status = jsonb_set(
+                    flow_status,
+                    array['modules', $2::TEXT, 'agent_actions_success'],
+                    (
+                        SELECT jsonb_agg(CASE WHEN i = $3 THEN to_jsonb($4::bool) ELSE arr->i END ORDER BY i)
+                        FROM (SELECT COALESCE(
+                            flow_status->'modules'->$2->'agent_actions_success', '[]'::jsonb
+                        ) AS arr) a,
+                        generate_series(0, GREATEST(jsonb_array_length(arr) - 1, $3)) AS i
+                    )
+                )
+            WHERE id = $1",
+        )
+        .bind(parent_job)
+        .bind(step as i32)
+        .bind(index as i32)
+        .bind(action_success)
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Mark as failed the outcomes still `null`: background calls whose agent ended before they did,
+/// and whose jobs it cancels.
+pub async fn fail_unfinished_action_successes(db: &DB, parent_job: &Uuid) -> Result<(), Error> {
+    if let Step::Step { idx: step, .. } = get_step_of_flow_status(db, parent_job.to_owned()).await?
+    {
+        sqlx::query(
+            "UPDATE v2_job_status SET
+                flow_status = jsonb_set(
+                    flow_status,
+                    array['modules', $2::TEXT, 'agent_actions_success'],
+                    (
+                        SELECT jsonb_agg(CASE WHEN e = 'null'::jsonb THEN 'false'::jsonb ELSE e END
+                            ORDER BY i)
+                        FROM jsonb_array_elements(
+                            flow_status->'modules'->$2->'agent_actions_success'
+                        ) WITH ORDINALITY AS t(e, i)
+                    )
+                )
+            WHERE id = $1
+                AND flow_status->'modules'->$2->'agent_actions_success' @> '[null]'::jsonb",
+        )
+        .bind(parent_job)
+        .bind(step as i32)
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Keep the first `keep` action outcomes, dropping any recorded past them, then append `append`.
+/// A resumed segment calls it so that one replayed after its worker died records nothing twice.
+pub async fn reset_flow_status_module_action_successes(
+    db: &DB,
+    parent_job: &Uuid,
+    keep: usize,
+    append: Option<bool>,
 ) -> Result<(), Error> {
     if let Step::Step { idx: step, .. } = get_step_of_flow_status(db, parent_job.to_owned()).await?
     {
@@ -326,15 +391,16 @@ pub async fn set_flow_status_module_last_action_success(
                         FROM jsonb_array_elements(
                             flow_status->'modules'->$2->'agent_actions_success'
                         ) WITH ORDINALITY AS t(e, i)
-                        WHERE i < $3
-                    ), '[]'::jsonb) || to_jsonb(ARRAY[$4::bool])
+                        WHERE i <= $3
+                    ), '[]'::jsonb) || CASE WHEN $4::bool IS NULL THEN '[]'::jsonb
+                        ELSE to_jsonb(ARRAY[$4::bool]) END
                 )
             WHERE id = $1",
         )
         .bind(parent_job)
         .bind(step as i32)
-        .bind(action_count as i64)
-        .bind(action_success)
+        .bind(keep as i64)
+        .bind(append)
         .execute(db)
         .await?;
     }
@@ -441,6 +507,7 @@ fn convert_mcp_tools_to_windmill_tools(
                 }),
                 requires_approval: false,
                 question_timeout_secs: None,
+                background: false,
             })
         })
         .collect()
