@@ -18,8 +18,6 @@
 		scope?: 'user' | 'workspace' | 'instance'
 		// Restrict the editor to a subset of modes (defaults to all visible modes)
 		modes?: AIMode[]
-		// Prompts read by features outside the chat, listed after the chat modes
-		extraPrompts?: { key: string; label: string; placeholder: string }[]
 		// Render the prompts read-only: inputs disabled, no Save/Reset, empty modes hidden
 		readOnly?: boolean
 		// Custom explanation shown in the read-only Alert (overrides the default text)
@@ -40,7 +38,6 @@
 		hasChanges,
 		scope = 'user',
 		modes = undefined,
-		extraPrompts = [],
 		readOnly = false,
 		readOnlyReason = undefined,
 		title = 'Customize AI System Prompts',
@@ -69,20 +66,15 @@
 		[AIMode.ASK]: 'Ask Mode'
 	}
 
-	let entries = $derived([
-		...(modes ?? getVisibleAIModes()).map((mode) => ({
-			key: mode as string,
-			label: modeLabels[mode],
-			placeholder: placeholders[mode]
-		})),
-		...extraPrompts
-	])
+	let visibleModes = $derived(modes ?? getVisibleAIModes())
 	// In read-only mode, only show modes that actually have a prompt configured
-	let displayEntries = $derived(
-		readOnly ? entries.filter(({ key }) => (customPrompts[key] ?? '').trim().length > 0) : entries
+	let displayModes = $derived(
+		readOnly
+			? visibleModes.filter((mode) => (customPrompts[mode] ?? '').trim().length > 0)
+			: visibleModes
 	)
 	// A single prompt (e.g. the global-chat quick settings) doesn't need per-mode framing
-	let singleMode = $derived(displayEntries.length === 1)
+	let singleMode = $derived(displayModes.length === 1)
 
 	let saving = $state(false)
 
@@ -160,24 +152,24 @@
 				</div>
 			{/if}
 
-			{#if readOnly && displayEntries.length === 0}
+			{#if readOnly && displayModes.length === 0}
 				<div class="text-xs text-secondary">No workspace prompt configured.</div>
 			{/if}
-			{#each displayEntries as entry (entry.key)}
+			{#each displayModes as mode (mode)}
 				<div class="flex flex-col gap-2 pb-4 last:border-b-0">
 					<Label
-						label={entry.label}
-						for={`custom-prompt-${entry.key}`}
-						headless={displayEntries.length === 1}
+						label={modeLabels[mode]}
+						for={`custom-prompt-${mode}`}
+						headless={displayModes.length === 1}
 					>
 						<TextInput
-							bind:value={customPrompts[entry.key]}
+							bind:value={customPrompts[mode]}
 							underlyingInputEl="textarea"
 							inputProps={{
-								placeholder: entry.placeholder,
+								placeholder: placeholders[mode],
 								rows: 3,
 								maxlength: MAX_CUSTOM_PROMPT_LENGTH,
-								id: `custom-prompt-${entry.key}`,
+								id: `custom-prompt-${mode}`,
 								readonly: readOnly
 							}}
 							class="min-h-12 resize-y"
@@ -186,7 +178,7 @@
 						{#if !readOnly}
 							<div class="flex justify-end mt-1">
 								<span class="text-2xs text-hint">
-									{(customPrompts[entry.key] ?? '').length}/{MAX_CUSTOM_PROMPT_LENGTH} characters
+									{(customPrompts[mode] ?? '').length}/{MAX_CUSTOM_PROMPT_LENGTH} characters
 								</span>
 							</div>
 						{/if}

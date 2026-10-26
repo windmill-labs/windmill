@@ -135,8 +135,6 @@ export async function reviewDeployment(
 	options?: {
 		/** Defaults to the chat's current model. */
 		model?: AIProviderModel
-		/** The parent workspace's review instructions, from its AI settings. */
-		instructions?: string
 	}
 ): Promise<AiReviewResult> {
 	const included: string[] = []
@@ -174,12 +172,7 @@ export async function reviewDeployment(
 
 	const answer = await getNonStreamingCompletion(
 		[
-			{
-				role: 'system',
-				content: options?.instructions?.trim()
-					? `${SYSTEM_PROMPT}\n\nInstructions from the parent workspace's admins, which take precedence over the above where they conflict:\n${options.instructions.trim()}`
-					: SYSTEM_PROMPT
-			},
+			{ role: 'system', content: SYSTEM_PROMPT },
 			{ role: 'user', content: user }
 		],
 		abortController,

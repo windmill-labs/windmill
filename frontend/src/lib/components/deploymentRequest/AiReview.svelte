@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Alert, Badge, Button } from '$lib/components/common'
-	import { WorkspaceService, type AIProviderModel, type WorkspaceItemDiff } from '$lib/gen'
+	import type { AIProviderModel, WorkspaceItemDiff } from '$lib/gen'
 	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 	import Select from '$lib/components/select/Select.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -13,7 +13,6 @@
 	import { buildCompareUrl } from '$lib/components/copilot/chat/global/pageNavigation'
 	import type { SessionTarget } from '$lib/components/sessions/sessionState.svelte'
 	import { reviewDeployment, type AiReviewFinding, type AiReviewResult } from './aiReview'
-	import { DEPLOYMENT_REVIEW_PROMPT_KEY } from './reviewPromptKey'
 
 	interface Props {
 		diffs: WorkspaceItemDiff[]
@@ -52,25 +51,13 @@
 		})
 		try {
 			const review = await reviewDeployment(diffs, forkWorkspaceId, parentWorkspaceId, controller, {
-				model: $copilotInfo.aiModels.find((m) => modelKey(m) === selectedModelKey),
-				instructions: await parentInstructions()
+				model: $copilotInfo.aiModels.find((m) => modelKey(m) === selectedModelKey)
 			})
 			if (!controller.signal.aborted) result = review
 		} catch (e: any) {
 			if (!controller.signal.aborted) error = e?.message ?? String(e)
 		} finally {
 			if (abortController === controller) running = false
-		}
-	}
-
-	// The approving side's instructions, never the fork's: the fork's admin is usually the author,
-	// who could otherwise tell the reviewer's review to find nothing. Unreadable means none.
-	async function parentInstructions(): Promise<string | undefined> {
-		try {
-			const config = await WorkspaceService.getCopilotInfo({ workspace: parentWorkspaceId })
-			return config.custom_prompts?.[DEPLOYMENT_REVIEW_PROMPT_KEY]
-		} catch {
-			return undefined
 		}
 	}
 
