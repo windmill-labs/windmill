@@ -12485,6 +12485,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
 
       requestBody:
         description: script args
@@ -12502,9 +12507,10 @@ paths:
               schema: {}
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
   /w/{workspace}/jobs/run_wait_result/fv/{version}:
     post:
@@ -12530,6 +12536,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
 
       requestBody:
         description: script args
@@ -12547,9 +12558,10 @@ paths:
               schema: {}
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
     get:
       summary: run flow by version with GET and wait until completion
@@ -12575,6 +12587,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
 
       responses:
         "200":
@@ -12584,9 +12601,10 @@ paths:
               schema: {}
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
   /w/{workspace}/jobs/run_and_stream/f/{path}:
     post:
@@ -12606,6 +12624,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
         - name: poll_delay_ms
           description: delay between polling for job updates in milliseconds
           in: query
@@ -12630,9 +12653,10 @@ paths:
                 type: string
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
     get:
       summary: run flow by path with GET and stream updates via SSE
@@ -12652,6 +12676,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
         - name: poll_delay_ms
           description: delay between polling for job updates in milliseconds
           in: query
@@ -12668,9 +12697,10 @@ paths:
                 type: string
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
   /w/{workspace}/jobs/run_and_stream/fv/{version}:
     post:
@@ -12696,6 +12726,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
         - name: poll_delay_ms
           description: delay between polling for job updates in milliseconds
           in: query
@@ -12720,9 +12755,10 @@ paths:
                 type: string
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
     get:
       summary: run flow by version with GET and stream updates via SSE
@@ -12748,6 +12784,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
         - name: poll_delay_ms
           description: delay between polling for job updates in milliseconds
           in: query
@@ -12764,9 +12805,10 @@ paths:
                 type: string
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
   /w/{workspace}/jobs/run_and_stream/p/{path}:
     post:
@@ -16523,6 +16565,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
       requestBody:
         description: flow args
         required: true
@@ -16540,9 +16587,10 @@ paths:
                 format: uuid
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
   /w/{workspace}/jobs/run/fv/{version}:
     post:
@@ -16585,6 +16633,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
       requestBody:
         description: flow args
         required: true
@@ -16602,9 +16655,10 @@ paths:
                 format: uuid
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
   /w/{workspace}/jobs/run/batch_rerun_jobs:
     post:
@@ -17085,6 +17139,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
 
       requestBody:
         description: preview
@@ -17104,9 +17163,10 @@ paths:
                 format: uuid
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
   /w/{workspace}/jobs/run/agent/{path}:
     post:
@@ -17128,6 +17188,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
       requestBody:
         description: the run's inputs
         required: true
@@ -17169,6 +17234,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: take_over
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
+          in: query
+          schema:
+            type: boolean
 
       requestBody:
         description: preview
@@ -17186,9 +17256,10 @@ paths:
               schema: {}
         "409":
           description: >-
-            Chat-enabled flow only: the conversation named by `memory_id` is still answering
-            a message. The body is JSON: `{ "error": string, "running_turn": { "job_id",
-            "user_seq" } }`.
+            Another run with this `memory_id` is still running (for a chat-enabled flow, the
+            conversation is still answering a message). The body is JSON: `{ "error": string,
+            "running_turn": { "job_id", "user_seq"? } }`, `user_seq` for a chat conversation.
+            Pass `take_over=true` to stop it instead.
 
   /w/{workspace}/jobs/run/dynamic_select:
     post:
