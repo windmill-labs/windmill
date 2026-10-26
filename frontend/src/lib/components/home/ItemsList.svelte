@@ -66,7 +66,7 @@
 	import { tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import BulkActionsBar from './BulkActionsBar.svelte'
-	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
+	import { bulkKey, HomeSelection, setHomeSelection } from './homeSelection.svelte'
 	import HomeQuickAccess from './HomeQuickAccess.svelte'
 
 	const editRights = shareEditRights(useEditRights())
@@ -1839,10 +1839,7 @@
 				displayedItems[selectedIndex].type !== 'raw_app'
 			) {
 				e.preventDefault()
-				homeSelection.toggle(
-					toBulkItem(displayedItems[selectedIndex], $userStore, $workspaceStore),
-					e.shiftKey
-				)
+				homeSelection.toggle(bulkKey(displayedItems[selectedIndex]), e.shiftKey)
 			} else if (selectedIndex === loadMoreIndex && hasMore) {
 				e.preventDefault()
 				loadMoreAndPreselectFirstNew()

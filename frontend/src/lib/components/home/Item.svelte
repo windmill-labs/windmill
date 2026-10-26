@@ -78,7 +78,8 @@
 					key: bulkItem.key,
 					selected: homeSelection.has(bulkItem.key),
 					active: homeSelection.active,
-					onToggle: (e) => bulkItem && homeSelection.toggle(bulkItem, 'shiftKey' in e && e.shiftKey)
+					onToggle: (e) =>
+						bulkItem && homeSelection.toggle(bulkItem.key, 'shiftKey' in e && e.shiftKey)
 				}
 			: undefined
 	)
