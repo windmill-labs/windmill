@@ -37,6 +37,9 @@
     --danger: #ef4444;
     --danger-hover: #dc2626;
     --warn-bg: var(--color-background-warning, #ffedd5);
+    /* Windmill's draft badge is indigo, a hue hosts have no variable for. */
+    --draft-bg: #e0e7ff;
+    --draft-fg: #3730a3;
     --warn-fg: var(--color-text-warning, #9a3412);
     /* Dots, progress and error text need a mid tone in both themes, where badge text is pale
        in dark mode. */
@@ -73,6 +76,8 @@
       --bad-bg: var(--color-background-danger, rgba(129, 56, 63, 0.4));
       --bad-fg: var(--color-text-danger, #fee2e2);
       --warn-bg: var(--color-background-warning, rgba(154, 52, 18, 0.4));
+      --draft-bg: rgba(67, 56, 202, 0.4);
+      --draft-fg: #e0e7ff;
       --warn-fg: var(--color-text-warning, #fed7aa);
       --ok-strong: var(--color-text-success, #4ade80);
       --bad-strong: var(--color-text-danger, #f87171);
@@ -99,6 +104,8 @@
     --bad-bg: var(--color-background-danger, rgba(129, 56, 63, 0.4));
     --bad-fg: var(--color-text-danger, #fee2e2);
     --warn-bg: var(--color-background-warning, rgba(154, 52, 18, 0.4));
+    --draft-bg: rgba(67, 56, 202, 0.4);
+    --draft-fg: #e0e7ff;
     --warn-fg: var(--color-text-warning, #fed7aa);
     --ok-strong: var(--color-text-success, #4ade80);
     --bad-strong: var(--color-text-danger, #f87171);
@@ -174,6 +181,7 @@
      colour), canceled is neutral. */
   .queued, .suspended, .pill.queued, .pill.suspended { background: var(--warn-bg); color: var(--warn-fg); }
   .canceled, .pill.canceled, .skipped, .pill.skipped { background: var(--bg-2); color: var(--fg-2); }
+  .pill.draft { background: var(--draft-bg); color: var(--draft-fg); }
   .step { font-size: var(--t-sm); color: var(--fg-2); }
   .progress-block { display: flex; flex-direction: column; gap: 4px; }
   /* As Windmill's progress bar: what ran in its blue, the running step pulsing, a failed one
@@ -249,6 +257,7 @@
   th .lucide { width: 12px; height: 12px; margin-left: 2px; }
   td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
   tr:last-child td { border-bottom: 0; }
+  tfoot td { border-top: 1px solid var(--line); }
   td.mono { font: var(--t-sm) var(--mono); }
   td .lucide { margin-right: 6px; }
   tr.link { cursor: pointer; }
@@ -571,14 +580,20 @@
     return button;
   }
 
+  // The last row of a cut list, as a trigger's other settings are.
+  function moreRow(label, url) {
+    const button = moreButton(label, url);
+    return button ? el('div', { class: 'row' }, button) : null;
+  }
+
   // What does not fit inline opens fullscreen, or on a host without it the page in
   // Windmill: grown inline it would pass the height hosts cap a card at.
   function moreButton(label, url) {
     if (canFullscreen()) {
-      return el('button', { class: 'more-line', type: 'button', style: 'margin-top: 8px', onclick: () => setDisplayMode('fullscreen') }, `Show ${label}`, icon('expand'));
+      return el('button', { class: 'more-line', type: 'button', onclick: () => setDisplayMode('fullscreen') }, `Show ${label}`, icon('expand'));
     }
     if (!url) return null;
-    return linkButton(`${label[0].toUpperCase()}${label.slice(1)} in Windmill`, url, 'margin-top: 8px');
+    return linkButton(`${label[0].toUpperCase()}${label.slice(1)} in Windmill`, url);
   }
   // Fullscreen, the expand button turns into one that brings the card back inline, beside
   // the host's own close control.
@@ -665,9 +680,9 @@
     const head = el('tr');
     draw();
     const hidden = rows.length - Math.min(rows.length, limit);
-    return el('div', {},
-      el('div', { class: fullscreen() ? 'table scroll' : 'table' }, el('table', {}, el('thead', {}, head), body)),
-      hidden > 0 ? moreButton(`${hidden} more ${more.noun}${hidden === 1 ? '' : 's'}`, more.url) : null);
+    const button = hidden > 0 ? moreButton(plural(hidden, `more ${more.noun}`), more.url) : null;
+    return el('div', { class: fullscreen() ? 'table scroll' : 'table' }, el('table', {}, el('thead', {}, head), body,
+      button ? el('tfoot', {}, el('tr', {}, el('td', { colSpan: columns.length }, button))) : null));
   }
 
   // A result Windmill draws as a table reads as one here too: a list of records, a list of
@@ -1395,8 +1410,7 @@
   function capped(rows, noun, url) {
     const shown = fullscreen() ? rows : rows.slice(0, ROWS_INLINE);
     const hidden = rows.length - shown.length;
-    return el('div', {}, el('div', { class: 'rows' }, ...shown),
-      hidden > 0 ? moreButton(`${hidden} more ${noun}${hidden === 1 ? '' : 's'}`, url) : null);
+    return el('div', { class: 'rows' }, ...shown, hidden > 0 ? moreRow(plural(hidden, `more ${noun}`), url) : null);
   }
   const plural = (n, noun) => `${n} ${noun}${n === 1 ? '' : /(s|sh|ch|x)$/.test(noun) ? 'es' : 's'}`;
 
@@ -1418,7 +1432,7 @@
     const kindIcon = kindIconOf(type, item.triggerKind);
     setHeader({
       path: item.path, ws: meta.workspace, kind, summary: item.summary, kindIcon,
-      status: draft ? 'running' : null, label: draft ? 'Draft' : null, url
+      status: draft ? 'draft' : null, label: draft ? 'Draft' : null, url
     });
     $('review').hidden = true;
     const blocks = [];
@@ -1460,8 +1474,7 @@
           const hidden = steps.length - shown.length;
           blocks.push(el('div', { class: 'section' },
             el('div', { class: 'section-title' }, plural(steps.length, 'step')),
-            el('div', { class: 'rows' }, ...shown),
-            hidden > 0 ? moreButton(`${hidden} more step${hidden === 1 ? '' : 's'}`, url) : null));
+            el('div', { class: 'rows' }, ...shown, hidden > 0 ? moreRow(plural(hidden, 'more step'), url) : null)));
         }
         if (inputs.length) blocks.push(...section(plural(inputs.length, 'input'), () => capped(inputs, 'input', url)));
         break;
