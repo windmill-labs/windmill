@@ -30,6 +30,11 @@
 	let deploymentMsg = $state('')
 	let dropdownOpen = $state(false)
 
+	/** Call after a successful deploy: the next deploy from the same editor would store it again. */
+	export function clearMessage() {
+		deploymentMsg = ''
+	}
+
 	function withMessage(items: DropdownItem[]) {
 		return items.map((item) => ({ ...item, onClick: () => item.onClick(deploymentMsg) }))
 	}
