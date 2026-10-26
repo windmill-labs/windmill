@@ -33,11 +33,12 @@
 
 <HighlightTheme />
 
-<Section label="Webhooks" class="flex flex-col gap-4">
+<Section label={agent ? 'API' : 'Webhooks'} class="flex flex-col gap-4">
 	<Description link="https://www.windmill.dev/docs/core_concepts/webhooks">
 		{#if agent}
-			A webhook runs the agent from an HTTP request and answers with the run's id. You can secure it
-			with a token that can only run this agent.
+			Call the agent from your own code or app. Each request starts a run{chat
+				? ', and a memory_id keeps the conversation going'
+				: ''}. Secure it with a token that can only run this agent.
 		{:else}
 			Webhooks trigger scripts or flows via HTTP requests. Each webhook can be configured to run
 			synchronously or asynchronously. You can secure webhooks using tokens with specific

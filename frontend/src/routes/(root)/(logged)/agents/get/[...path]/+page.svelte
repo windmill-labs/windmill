@@ -231,10 +231,10 @@
 	{#if ws && config}
 		<Tabs bind:selected={() => tab, (t) => (pickedTab = t)} wrapperClass="flex-none no-scrollbar">
 			<Tab value="agent" label={testPane?.mode === 'chat' ? 'Chat' : 'Run form'} />
-			<Tab value="api" label="Webhook" />
+			<Tab value="api" label="API" />
 			{#if chatAvailable}
 				<Tab value="slack" label="Slack" />
-				<Tab value="app" label="App" />
+				<Tab value="app" label="Windmill app" />
 			{/if}
 		</Tabs>
 	{/if}
