@@ -74,7 +74,22 @@
   .card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
   .head { display: flex; align-items: flex-start; gap: 12px; }
   .title { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-  .path { font: 600 14px/1.3 var(--mono); overflow-wrap: anywhere; }
+  .path { font: 600 14px/1.3 var(--mono); overflow-wrap: anywhere; text-align: left; }
+  button.path { border: 0; padding: 0; min-height: 0; background: none; color: inherit; cursor: pointer; }
+  button.path:hover { background: none; text-decoration: underline; }
+  button.path::after { content: " \2197"; font-family: var(--sans); color: var(--fg-3); }
+  button.path:disabled { opacity: 1; cursor: default; text-decoration: none; }
+  button.path:disabled::after { content: none; }
+  .icon { flex: none; min-height: 28px; width: 28px; padding: 0; font-size: 15px; line-height: 1; }
+  .disclosure { align-self: flex-start; border: 0; padding: 0; min-height: 0; background: none; font-size: 12px; font-weight: 600; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.04em; }
+  .disclosure:hover { background: none; color: var(--fg); }
+  .disclosure::before { content: "\25B8  "; }
+  .disclosure[aria-expanded="true"]::before { content: "\25BE  "; }
+  .summary-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 10px; font-size: 13px; }
+  .summary-row + .summary-row { border-top: 1px solid var(--line); }
+  .summary-row .grow { flex: 1; min-width: 0; font: 12px var(--mono); overflow-wrap: anywhere; }
+  .add-count { color: var(--ok-fg); font: 12px var(--mono); }
+  .del-count { color: var(--bad-fg); font: 12px var(--mono); }
   .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-3); }
   .ws { background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; color: var(--fg-2); font-weight: 500; }
   .pill, .badge { flex: none; font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 6px; background: var(--info-bg); color: var(--info-fg); white-space: nowrap; }
@@ -86,7 +101,6 @@
   pre { margin: 0; padding: 10px 12px; border-radius: var(--radius); background: var(--bg-2); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
   pre.clip { max-height: 180px; overflow: hidden; }
   pre.error { background: var(--bad-bg); color: var(--bad-fg); }
-  h3 { margin: 4px 0 0; font-size: 12px; font-weight: 600; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.04em; }
   .rows { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); }
   .row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 7px 10px; font-size: 13px; }
   .row + .row { border-top: 1px solid var(--line); }
@@ -118,12 +132,6 @@
   .item-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .item-head .grow { flex: 1; min-width: 0; font: 600 13px var(--mono); overflow-wrap: anywhere; }
   button.small { min-height: 26px; padding: 0 10px; font-size: 12px; }
-  form { display: flex; flex-direction: column; gap: 10px; }
-  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 600; }
-  label.check { flex-direction: row; align-items: center; gap: 8px; }
-  label small { font-weight: 400; color: var(--fg-3); }
-  input, select, textarea { font: 13px var(--sans); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
-  textarea { font-family: var(--mono); min-height: 60px; resize: vertical; }
   .form-error { color: var(--bad-fg); font-size: 13px; }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
   button { font: 500 13px var(--sans); min-height: 32px; padding: 0 12px; border-radius: var(--radius); cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--fg); }
@@ -138,7 +146,7 @@
 <main class="card" aria-live="polite">
   <div class="head">
     <div class="title">
-      <div class="path" id="path">Windmill</div>
+      <button class="path" id="path" type="button" disabled>Windmill</button>
       <div class="meta">
         <span class="ws" id="ws" hidden></span>
         <span id="kind"></span>
@@ -146,19 +154,17 @@
       </div>
     </div>
     <span class="pill" id="status" hidden></span>
+    <button class="icon" id="expand" type="button" title="Full screen" aria-label="Full screen" hidden>&#x2922;</button>
   </div>
   <div class="step" id="step" hidden></div>
   <div class="step" id="stale" hidden>No longer refreshing here. Open it in Windmill for its live status.</div>
   <pre class="clip" id="result" hidden></pre>
   <div id="result-table"></div>
   <div id="body"></div>
-  <section id="details" hidden></section>
-  <form id="form" hidden></form>
+  <section class="card" id="details" style="padding: 0" hidden></section>
   <div class="actions">
-    <button class="primary" id="open" hidden>Open in Windmill</button>
-    <button id="cancel" hidden>Cancel run</button>
-    <button id="toggle-details" hidden>Details</button>
-    <button id="toggle-form" hidden>Run with other inputs</button>
+    <button id="cancel" type="button" hidden>Cancel run</button>
+    <button class="primary" id="review" type="button" hidden>Review and deploy</button>
   </div>
 </main>
 <script>
@@ -225,16 +231,38 @@
   function canFullscreen() {
     return (host.availableDisplayModes ?? []).includes('fullscreen');
   }
+  const fullscreen = () => host.displayMode === 'fullscreen';
+  // A section the user opened stays open across redraws; fullscreen opens them all.
+  const opened = new Set();
+
+  function disclosure(key, label, content) {
+    const open = fullscreen() || opened.has(key);
+    const toggle = el('button', {
+      class: 'disclosure', type: 'button', 'aria-expanded': String(open),
+      onclick: () => {
+        if (opened.has(key)) opened.delete(key); else opened.add(key);
+        redraw();
+      }
+    }, label);
+    return [toggle, open ? content() : null];
+  }
+
   function setDisplayMode(mode) {
     if (mode === 'fullscreen' && !canFullscreen()) return;
     if (mode === 'inline' && host.displayMode !== 'fullscreen') return;
     request('ui/request-display-mode', { mode }).then((result) => {
       if (result?.mode) host.displayMode = result.mode;
+      redraw();
     }).catch(() => {});
   }
 
-  function setHeader({ path, ws, kind = '', status = null, label = null }) {
+  // The header names what the card shows and links to it in Windmill: opening a page is
+  // neither a tool call nor a conversation turn, so it is no card action.
+  function setHeader({ path, ws, kind = '', status = null, label = null, url = null }) {
     $('path').textContent = path || 'Windmill';
+    $('path').disabled = !url;
+    $('path').dataset.url = url ?? '';
+    $('path').title = url ? 'Open in Windmill' : '';
     $('ws').hidden = !ws;
     $('ws').textContent = ws || '';
     $('kind').textContent = kind;
@@ -243,13 +271,6 @@
     pill.className = `pill ${status ?? ''}`;
     pill.textContent = label ?? '';
   }
-  function setOpen(url, label = 'Open in Windmill') {
-    const open = $('open');
-    open.hidden = !url;
-    open.textContent = label;
-    open.dataset.url = url ?? '';
-  }
-
   // ---------------------------------------------------------------- tables
 
   function cellText(value) {
@@ -307,30 +328,16 @@
     return '';
   }
 
-  // A form is offered for an input schema the card can fill: a file, at any depth, comes
-  // back as a size marker, and a secret not stored as a reference as `<hidden>`, either of
-  // which the form would send in place of the value.
-  function formFields() {
-    const schema = run?.form?.schema;
-    if (!schema || /"contentEncoding":\s*"base64"/.test(JSON.stringify(schema))) return null;
-    if (JSON.stringify(run.form.args ?? {}).includes('"<hidden>"')) return null;
-    const properties = schema.properties ?? {};
-    const fields = [...new Set([...(schema.order ?? []), ...Object.keys(properties)])]
-      .filter((name) => properties[name])
-      .map((name) => [name, properties[name]]);
-    // No declared field: the run's arguments are unknown to the card, and would be dropped.
-    return fields.length ? fields : null;
-  }
-
   function renderRun() {
     const status = run?.status ?? 'running';
     const running = RUNNING.includes(status);
     setHeader({
-      path: run?.path ?? run?.form?.path ?? toolArgs.path ?? (run?.id ? `Run ${run.id.slice(0, 8)}` : 'Windmill run'),
+      path: run?.path ?? (run?.id ? `Run ${run.id.slice(0, 8)}` : 'Windmill run'),
       ws: run?.workspace ?? toolArgs.workspace_id,
       kind: kindLabel(run?.job_kind),
       status,
-      label: run ? (LABELS[status] ?? status) : 'Starting'
+      label: run ? (LABELS[status] ?? status) : 'Starting',
+      url: run?.url
     });
     $('duration').textContent = elapsed();
     if (!running) $('stale').hidden = true;
@@ -345,6 +352,7 @@
     result.hidden = running || run?.result == null || !!records;
     result.textContent = run?.result ?? '';
     result.classList.toggle('error', status === 'failure' || status === 'not_started');
+    result.classList.toggle('clip', !fullscreen());
     // Rebuilt only for a new result, so a sort survives the card redrawing.
     const holder = $('result-table');
     if (holder.dataset.source !== (records ? run.result : '')) {
@@ -352,13 +360,10 @@
       holder.replaceChildren(...(records ? [records] : []));
     }
 
-    setOpen(run?.url);
-    // Hosts cap an inline card at two actions: the run form lives in the details view.
-    const expanded = !$('details').hidden;
     $('cancel').hidden = !(running && run?.id);
-    $('toggle-details').hidden = !run?.id || (running && !expanded);
-    $('toggle-form').hidden = running || !expanded || !formFields();
-    if (!$('details').hidden) renderDetails();
+    $('review').hidden = true;
+    $('expand').hidden = !canFullscreen() || fullscreen() || !(run?.step_list?.length || run?.logs);
+    renderDetails();
     window.clearInterval(tickTimer);
     if (running && run?.started_at) tickTimer = window.setInterval(() => {
       $('duration').textContent = elapsed();
@@ -409,120 +414,37 @@
     })];
   }
 
+  // Steps and logs are collapsed sections inline, so the card stays short; fullscreen shows
+  // them open.
   function renderDetails() {
     const details = $('details');
+    const steps = run?.step_list ?? [];
+    // A flow's error handler runs after the step that failed it: that step is the last
+    // one before the handler.
+    const lastRan = steps.findLastIndex((step) => step.step !== 'failure');
     const children = [];
-    if (run.step_list?.length) {
-      children.push(el('h3', {}, 'Steps'), el('div', { class: 'rows' }, ...run.step_list.flatMap((step, i, all) => stepRows(step, i === all.length - 1))));
+    if (steps.length) {
+      children.push(...disclosure('steps', steps.length === 1 ? '1 step' : `${steps.length} steps`, () => {
+        // Inline, a long flow shows its first steps and opens the rest fullscreen.
+        const all = fullscreen() || opened.has('all-steps');
+        const shown = all ? steps : steps.slice(0, STEPS_INLINE);
+        const more = steps.length - shown.length;
+        return el('div', {},
+          el('div', { class: 'rows' }, ...shown.flatMap((step, i) => stepRows(step, i === lastRan))),
+          more > 0 ? el('button', {
+            class: 'small', type: 'button', style: 'margin-top: 8px',
+            onclick: () => {
+              if (canFullscreen()) return setDisplayMode('fullscreen');
+              opened.add('all-steps');
+              redraw();
+            }
+          }, `Show ${more} more step${more === 1 ? '' : 's'}`) : null);
+      }));
     }
-    if (run.logs) children.push(el('h3', {}, 'Logs (end)'), el('pre', {}, run.logs));
-    if (!children.length) {
-      children.push(el('div', { class: 'step' }, run.step_list ? 'Nothing more to show.'
-        : run.unreadable ? 'The details could not be read. Open the run in Windmill.' : 'Loading…'));
-    }
-    details.replaceChildren(...children);
-  }
-
-  function renderForm() {
-    const form = $('form');
-    const fields = formFields() ?? [];
-    const args = run.form.args ?? {};
-    const required = new Set(run.form.schema?.required ?? []);
-    const asText = new Set();
-    const inputs = fields.map(([name, prop]) => {
-      const value = args[name] ?? prop.default;
-      const title = `${prop.title || name}${required.has(name) ? ' *' : ''}`;
-      const hint = prop.description ? el('small', {}, prop.description) : null;
-      let input;
-      // A reference stands for a value of any type; it is shown, and sent, as written.
-      const reference = typeof value === 'string' && /^\$(var|res|jsonvar):/.test(value);
-      if (reference && !prop.password) {
-        asText.add(name);
-        input = el('input', { type: 'text', name, value });
-        return el('label', {}, title, hint, input);
-      }
-      if (prop.type === 'boolean') {
-        input = el('input', { type: 'checkbox', name, checked: value === true });
-        return el('label', { class: 'check' }, input, title, hint);
-      }
-      if (Array.isArray(prop.enum)) {
-        input = el('select', { name },
-          required.has(name) ? null : el('option', { value: '' }, ''),
-          ...prop.enum.map((option) => el('option', { value: JSON.stringify(option), selected: option === value }, String(option))));
-      } else if (prop.type === 'number' || prop.type === 'integer') {
-        input = el('input', { type: 'number', name, step: prop.type === 'integer' ? '1' : 'any', value: value ?? '' });
-      } else if (prop.type === 'string' && prop.password) {
-        input = el('input', { type: 'password', name, placeholder: reference ? 'Unchanged' : '', value: reference ? '' : (value ?? '') });
-      } else if (prop.type === 'string') {
-        const long = typeof value === 'string' && value.includes('\n');
-        input = el(long ? 'textarea' : 'input', { name, value: value ?? '', type: long ? null : (prop.format === 'date' ? 'date' : 'text') });
-      } else {
-        input = el('textarea', { name, value: value === undefined ? '' : JSON.stringify(value, null, 2) });
-      }
-      return el('label', {}, title, hint, input);
-    });
-    const error = el('div', { class: 'form-error', hidden: true });
-    const submit = el('button', { class: 'primary', type: 'submit' }, 'Run');
-    form.replaceChildren(...inputs, error, el('div', { class: 'actions' }, submit));
-    // A field the user left alone is sent exactly as the run had it: a reference, an empty
-    // string, a null or an omission would not survive the round trip through an input.
-    const touched = new Set();
-    // Native validation would judge untouched fields by what their inputs can show.
-    form.noValidate = true;
-    form.oninput = form.onchange = (event) => touched.add(event.target.name);
-    form.onsubmit = async (event) => {
-      event.preventDefault();
-      const next = {};
-      try {
-        for (const [name, prop] of fields) {
-          const input = form.elements.namedItem(name);
-          if (!touched.has(name)) {
-            if (name in args) next[name] = args[name];
-          } else if (/^\$(var|res|jsonvar):/.test(input.value)) next[name] = input.value;
-          else if (asText.has(name)) {
-            // A reference replaced by a literal, typed as text whatever the field's type.
-            if (input.value !== '') next[name] = prop.type === 'string' ? input.value : JSON.parse(input.value);
-          } else if (prop.type === 'boolean') next[name] = input.checked;
-          else if (input.value === '') {
-            if (prop.password && args[name]) next[name] = args[name];
-          } else if (Array.isArray(prop.enum)) next[name] = JSON.parse(input.value);
-          else if (prop.type === 'number' || prop.type === 'integer') next[name] = Number(input.value);
-          else if (prop.type === 'string') next[name] = input.value;
-          else next[name] = JSON.parse(input.value);
-        }
-      } catch {
-        error.hidden = false;
-        error.textContent = 'A field holds invalid JSON.';
-        return;
-      }
-      const missing = fields.find(([name, prop]) => required.has(name) && prop.default === undefined
-        && (touched.has(name) ? next[name] === undefined || next[name] === '' : !(name in args)));
-      if (missing) {
-        error.hidden = false;
-        error.textContent = `Fill in ${missing[1].title || missing[0]}.`;
-        return;
-      }
-      submit.disabled = true;
-      const { tool, path } = run.form;
-      const workspace = run.workspace;
-      try {
-        const result = await callTool(tool, { workspace_id: workspace, path, args: next });
-        form.hidden = true;
-        $('toggle-form').textContent = 'Run with other inputs';
-        pollStarted = Date.now();
-        window.clearTimeout(pollTimer);
-        run = null;
-        onResult(result);
-        request('ui/update-model-context', {
-          // Only the server's redacted copy of the arguments: `next` may hold a typed secret.
-          content: [{ type: 'text', text: `The user ran ${path} again from the Windmill card (${tool})${run?.form?.args ? ` with arguments ${JSON.stringify(run.form.args)}` : ''}: run ${run?.id ?? 'not started'}, status ${run?.status ?? 'unknown'}.` }]
-        }).catch(() => {});
-      } catch (e) {
-        error.hidden = false;
-        error.textContent = e?.message ?? 'The run could not be started.';
-      }
-      submit.disabled = false;
-    };
+    if (run?.logs) children.push(...disclosure('logs', 'Logs (end)', () => el('pre', {}, run.logs)));
+    if (run?.unreadable) children.push(el('div', { class: 'step' }, 'The details could not be read. Open the run in Windmill.'));
+    details.hidden = !children.length;
+    details.replaceChildren(...children.filter(Boolean));
   }
 
   // A tool result without a run, shown as the model got it: a call that started nothing,
@@ -535,8 +457,7 @@
   }
 
   function onRun(next) {
-    // A refresh carries the run alone: what the starting call attached stays.
-    run = { ...next, form: next.form ?? run?.form };
+    run = next;
     view = 'run';
     renderRun();
     if (RUNNING.includes(run.status)) schedulePoll();
@@ -557,7 +478,6 @@
     if (!id) return;
     try {
       const result = await callTool('get_run', { workspace_id: run.workspace, id });
-      // The form may have started another run while this one was being read.
       if (run?.id === id) onResult(result);
     } catch {
       if (run?.id === id) refreshFailed();
@@ -581,28 +501,6 @@
     window.clearTimeout(pollTimer);
     poll();
   });
-  $('toggle-details').addEventListener('click', () => {
-    const details = $('details');
-    details.hidden = !details.hidden;
-    $('toggle-details').textContent = details.hidden ? 'Details' : 'Hide details';
-    if (details.hidden) {
-      $('form').hidden = true;
-      $('toggle-form').textContent = 'Run with other inputs';
-      renderRun();
-      return setDisplayMode('inline');
-    }
-    renderRun();
-    setDisplayMode('fullscreen');
-    // A run reported by the call that started it has no steps or logs yet.
-    if (!run.step_list && !run.logs && !RUNNING.includes(run.status)) poll();
-  });
-  $('toggle-form').addEventListener('click', () => {
-    const form = $('form');
-    form.hidden = !form.hidden;
-    $('toggle-form').textContent = form.hidden ? 'Run with other inputs' : 'Hide inputs';
-    if (!form.hidden) renderForm();
-  });
-
   // ---------------------------------------------------------------- runs and review
 
   // A list view shows none of a run's parts.
@@ -610,7 +508,7 @@
     window.clearTimeout(pollTimer);
     window.clearInterval(tickTimer);
     run = null;
-    for (const id of ['step', 'stale', 'result', 'details', 'form', 'cancel', 'toggle-details', 'toggle-form']) $(id).hidden = true;
+    for (const id of ['step', 'stale', 'result', 'details', 'cancel', 'expand']) $(id).hidden = true;
     $('duration').textContent = '';
     $('result-table').replaceChildren();
   }
@@ -622,8 +520,8 @@
   function renderRuns(meta) {
     view = 'runs';
     clearRun();
-    setHeader({ path: meta.runs.length === 1 ? '1 run' : `${meta.runs.length} runs`, ws: meta.workspace });
-    setOpen(meta.url, 'Open runs in Windmill');
+    setHeader({ path: meta.runs.length === 1 ? '1 run' : `${meta.runs.length} runs`, ws: meta.workspace, url: meta.url });
+    $('review').hidden = true;
     const time = (iso) => (iso ? new Date(iso).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '');
     $('body').replaceChildren(table([
       { label: 'Status', value: (r) => r.status, show: (s) => el('span', { class: `badge ${s ?? ''}` }, LABELS[s] ?? s ?? '') },
@@ -635,6 +533,7 @@
   }
 
   const PATCH_LINES_INLINE = 40;
+  const STEPS_INLINE = 8;
 
   // A diff's text with its patch lines coloured; the `---`/`+++` labels before the first
   // hunk are dropped.
@@ -676,23 +575,22 @@
     return patchView(item.patch, PATCH_LINES_INLINE);
   }
 
+  const typeLabel = (item) => (item.trigger_kind ? `${item.trigger_kind} trigger` : item.type);
+
   function reviewItem(workspace, item) {
-    const done = el('span', { class: 'badge success', hidden: true }, 'Deployed');
+    const done = el('span', { class: 'badge success', hidden: !item.deployed }, 'Deployed');
     const error = el('div', { class: 'form-error', hidden: true });
-    const deploy = el('button', { class: 'primary small', type: 'button', hidden: item.patch == null }, 'Deploy');
+    const deploy = el('button', { class: 'primary small', type: 'button', hidden: item.patch == null || item.deployed }, 'Deploy');
     let body = reviewBody(item);
-    const address = {
-      workspace_id: workspace, type: item.type, path: item.path,
-      ...(item.trigger_kind ? { trigger_kind: item.trigger_kind } : {})
-    };
+    const { type, path, trigger_kind } = item;
+    const address = { type, path, ...(trigger_kind ? { trigger_kind } : {}) };
     deploy.onclick = async () => {
       deploy.disabled = true;
       error.hidden = true;
       try {
         // The draft may have changed since it was shown: what would be deployed is read
         // again, and a different diff is shown in place of deploying it.
-        const { type, path, trigger_kind } = address;
-        const check = await callTool('show_deploy_review', { workspace_id: workspace, items: [{ type, path, ...(trigger_kind ? { trigger_kind } : {}) }] });
+        const check = await callTool('show_deploy_review', { workspace_id: workspace, items: [address] });
         const current = check?._meta?.['windmill/review']?.items?.[0];
         if (!current || current.patch !== item.patch) {
           Object.assign(item, { patch: undefined, note: undefined, error: undefined }, current ?? { error: 'The draft could not be read again.' });
@@ -707,11 +605,12 @@
           deploy.disabled = false;
           return;
         }
-        const result = await callTool('deploy_workspace_item', address);
+        const result = await callTool('deploy_workspace_item', { workspace_id: workspace, ...address });
         if (result?.isError) throw new Error(textOf(result));
+        item.deployed = true;
         deploy.hidden = true;
         done.hidden = false;
-        deployed.push(`${item.trigger_kind ? `${item.trigger_kind} trigger` : item.type} ${item.path}`);
+        deployed.push(`${typeLabel(item)} ${item.name ?? item.path}`);
         request('ui/update-model-context', {
           content: [{ type: 'text', text: `From the review card, the user deployed: ${deployed.join(', ')}.` }]
         }).catch(() => {});
@@ -723,8 +622,8 @@
     };
     return el('section', { class: 'item' },
       el('div', { class: 'item-head' },
-        el('span', { class: 'grow' }, item.path),
-        el('span', { class: 'dim' }, item.trigger_kind ? `${item.trigger_kind} trigger` : item.type),
+        el('span', { class: 'grow' }, item.name ?? item.path),
+        el('span', { class: 'dim' }, typeLabel(item)),
         done,
         item.url ? el('button', { class: 'small', type: 'button', onclick: () => openLink(item.url) }, item.editor ? 'Open in editor' : 'Open in Windmill') : null,
         deploy),
@@ -732,15 +631,60 @@
       error);
   }
 
+  function lineCounts(patch) {
+    let [added, removed, inHunk] = [0, 0, false];
+    for (const line of patch.split('\n')) {
+      if (line.startsWith('@@')) inHunk = true;
+      else if (line.startsWith('=== ')) inHunk = false;
+      else if (inHunk && line.startsWith('+')) added++;
+      else if (inHunk && line.startsWith('-')) removed++;
+    }
+    return [added, removed];
+  }
+
+  function summaryRow(item) {
+    let state;
+    if (item.deployed) state = el('span', { class: 'badge success' }, 'Deployed');
+    else if (item.patch != null) {
+      const [added, removed] = lineCounts(item.patch);
+      state = el('span', {}, el('span', { class: 'add-count' }, `+${added}`), ' ', el('span', { class: 'del-count' }, `-${removed}`));
+    } else state = el('span', { class: 'dim' }, item.error ? 'Cannot be diffed' : 'Not deployable here');
+    return el('div', { class: 'summary-row' },
+      el('span', { class: 'grow' }, item.name ?? item.path),
+      el('span', { class: 'dim' }, typeLabel(item)),
+      state);
+  }
+
+  // Inline the review is a summary: whole diffs would outgrow the height hosts give an
+  // inline card. They and their Deploy buttons open fullscreen, or inline on a host that
+  // has no fullscreen.
+  let review = null;
+  let reviewOpen = false;
+
   function renderReview(meta) {
     view = 'review';
+    review = meta;
     clearRun();
     const n = meta.items.length;
     setHeader({ path: 'Review before deploying', ws: meta.workspace, kind: n === 1 ? '1 draft' : `${n} drafts` });
-    setOpen(null);
-    $('body').replaceChildren(...(n
-      ? meta.items.map((item) => reviewItem(meta.workspace, item))
-      : [el('div', { class: 'step' }, 'No drafts differ from the deployed state.')]));
+    const full = fullscreen() || reviewOpen;
+    $('review').hidden = full || !meta.items.some((item) => item.patch != null && !item.deployed);
+    $('body').replaceChildren(...(!n
+      ? [el('div', { class: 'step' }, 'No drafts differ from the deployed state.')]
+      : full
+        ? meta.items.map((item) => reviewItem(meta.workspace, item))
+        : [el('div', { class: 'rows' }, ...meta.items.map(summaryRow))]));
+  }
+
+  $('review').addEventListener('click', () => {
+    if (canFullscreen()) return setDisplayMode('fullscreen');
+    reviewOpen = true;
+    redraw();
+  });
+
+  function redraw() {
+    if (view === 'run' && run) renderRun();
+    else if (view === 'review' && review) renderReview(review);
   }
 
   // ---------------------------------------------------------------- dispatch
@@ -757,7 +701,9 @@
 
   function applyContext(context) {
     if (!context) return;
+    const modeChanged = context.displayMode && context.displayMode !== host.displayMode;
     host = { ...host, ...context };
+    if (modeChanged) redraw();
     if (context.theme) document.documentElement.dataset.theme = context.theme;
     for (const [name, value] of Object.entries(context.styles?.variables ?? {})) {
       if (value) document.documentElement.style.setProperty(name, value);
@@ -770,10 +716,8 @@
     }
   }
 
-  $('open').addEventListener('click', () => {
-    const url = $('open').dataset.url;
-    if (url) request('ui/open-link', { url }).catch(() => {});
-  });
+  $('path').addEventListener('click', () => openLink($('path').dataset.url));
+  $('expand').addEventListener('click', () => setDisplayMode('fullscreen'));
 
   window.addEventListener('message', (event) => {
     if (event.source !== window.parent) return;

@@ -24,7 +24,7 @@ pub(super) fn definitions() -> [(&'static str, &'static str, Value); 3] {
     [
         (
             "show_run",
-            "Show a run to the user as a live card in the conversation: status, result, steps and logs, refreshing until it finishes, with buttons to open it in Windmill, cancel it, or run it again with other inputs. Call it after starting a run the user asked for, or when they ask to see one. Do not call it for runs you start to check your own work: read those with get_run.",
+            "Show a run to the user as a live card in the conversation: status, result, steps and logs, refreshing until it finishes, with a link to it in Windmill and a button to cancel it while it runs. Call it after starting a run the user asked for, or when they ask to see one. Do not call it for runs you start to check your own work: read those with get_run.",
             json!({
                 "type": "object",
                 "properties": {

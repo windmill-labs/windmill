@@ -2028,19 +2028,25 @@ pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResul
     let total = picked.len() + missing.len();
     let mut items = Vec::new();
     for (row, item_type, trigger_kind) in picked.into_iter().take(MAX_REVIEW_ITEMS) {
-        let path = row.display_path.as_str();
-        let m = materialize(ctx, &row.kind, &row.path).await;
+        // A draft is deployed by the path it is stored under, which a staged rename or a new
+        // editor draft keeps apart from the name it is known by.
+        let path = row.path.as_str();
+        let m = materialize(ctx, &row.kind, path).await;
         let editor = draft_page(item_type, path, &Value::Null);
         let has_editor = editor.is_some();
-        let page = editor.or_else(|| deployed_page(item_type, path, &Value::Null));
+        let page = editor.or_else(|| deployed_page(item_type, &row.display_path, &Value::Null));
         let mut item = json!({
             "type": item_type,
             "trigger_kind": trigger_kind,
             "path": path,
+            "name": row.display_path,
             "url": page.map(|page| ctx.page_url(&page)),
             "editor": has_editor,
         });
-        if let Some(error) = &m.error {
+        if row.kind == "app" {
+            // `deploy_workspace_item` deploys raw apps only.
+            item["note"] = json!("A classic app: deploy it from its editor in Windmill.");
+        } else if let Some(error) = &m.error {
             item["error"] = json!(format!("Could not diff it: {error}"));
         } else if !m.parts.has_changes && !m.value_uncomparable {
             item["note"] = json!("The draft matches the deployed version: nothing to deploy.");
@@ -2082,7 +2088,7 @@ pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResul
     let rest: Vec<&str> = items
         .iter()
         .filter(|item| item.get("patch").is_none())
-        .filter_map(|item| item["path"].as_str())
+        .filter_map(|item| item.get("name").unwrap_or(&item["path"]).as_str())
         .collect();
     if !rest.is_empty() {
         text.push_str(&format!(

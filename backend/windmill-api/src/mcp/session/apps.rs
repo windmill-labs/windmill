@@ -1042,7 +1042,7 @@ async fn test_run_app_runnable(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     // A path runnable aimed at a flow queues a flow job, whose steps are worth a look.
     let is_flow = text_of(runnable, "runType") == Some("flow");
     let label = format!("{path} / {key}");
-    finish_run(ctx, Ok(id), &label, is_flow, "test", args, None).await
+    finish_run(ctx, Ok(id), &label, is_flow, "test", args).await
 }
 
 #[cfg(test)]

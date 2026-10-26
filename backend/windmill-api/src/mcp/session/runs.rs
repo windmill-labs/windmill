@@ -187,7 +187,6 @@ pub(super) fn format_result_summary(job: &Value) -> String {
 /// Settle a just-queued job (`started` is the queueing call's answer) into a run
 /// tool's result: wait within the tool's budget, then the result summary or the
 /// background notice. `action` is `test` or `run`, `label` names the job in the notice.
-/// `form` is what the card's run form re-runs the tool with (`run_form`).
 pub(super) async fn finish_run(
     ctx: &Ctx<'_>,
     started: Result<String, String>,
@@ -195,27 +194,10 @@ pub(super) async fn finish_run(
     is_flow: bool,
     action: &str,
     tool_args: &Value,
-    form: Option<Value>,
 ) -> ToolResult {
-    let extra = Map::from_iter(form.map(|form| ("form".to_string(), form)));
-    let id = match started {
-        Ok(id) => id,
-        Err(e) => {
-            let message = format!("Failed to execute {action}: {}", api_message(&e));
-            if !extra.is_empty() {
-                let mut run = extra;
-                run.insert("status".into(), "not_started".into());
-                run.insert("result".into(), message.clone().into());
-                run.insert("workspace".into(), ctx.w_id.into());
-                ctx.set_view("windmill/run", Value::Object(run));
-            }
-            return Err(message);
-        }
-    };
+    let id = started.map_err(|e| format!("Failed to execute {action}: {}", api_message(&e)))?;
     let run_page = format!("\n\nRun page: {}", ctx.page_url(&format!("/run/{id}")));
-    let job = wait_job(ctx, &id, wait_budget(tool_args), true).await;
-    report_run(ctx, &id, job.as_ref(), extra);
-    let Some(job) = job else {
+    let Some(job) = wait_job(ctx, &id, wait_budget(tool_args), true).await else {
         return Ok(format!("{}{run_page}", backgrounded_summary(&id, label)));
     };
     let mut summary = format_result_summary(&job);
@@ -607,19 +589,9 @@ async fn conclude(
     label: &str,
     is_flow: bool,
     action: &str,
-    form: Option<Value>,
 ) -> ToolResult {
-    notes.push(finish_run(ctx, started, label, is_flow, action, tool_args, form).await?);
+    notes.push(finish_run(ctx, started, label, is_flow, action, tool_args).await?);
     Ok(notes.join("\n"))
-}
-
-/// What the card's run form needs to call `tool` on `path` again: the input schema and
-/// the arguments the run carried, as the model may read them (secrets as references,
-/// files as size markers, which the form leaves alone).
-fn run_form(tool: &str, path: &str, schema: Option<&Value>, args: &Map<String, Value>) -> Value {
-    let schema = schema.cloned().unwrap_or_else(|| json!({}));
-    let args = redact_args(args, &schema);
-    json!({ "tool": tool, "path": path, "schema": schema, "args": args })
 }
 
 // ============================================================================
@@ -635,7 +607,6 @@ async fn test_run_script(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             Ok(prepared) => prepared,
             Err(message) => return Ok(message),
         };
-    let form = run_form("test_run_script", path, schema.as_ref(), &prepared.args);
     let started = run_script_preview(
         ctx,
         Some(path),
@@ -644,17 +615,7 @@ async fn test_run_script(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         Value::Object(prepared.args),
     )
     .await;
-    conclude(
-        ctx,
-        args,
-        prepared.notes,
-        started,
-        path,
-        false,
-        "test",
-        Some(form),
-    )
-    .await
+    conclude(ctx, args, prepared.notes, started, path, false, "test").await
 }
 
 /// `run_script` and `run_flow`: the deployed item, whatever draft sits on top of it.
@@ -684,8 +645,6 @@ async fn run_deployed(ctx: &Ctx<'_>, args: &Value, is_flow: bool) -> ToolResult 
     } else {
         String::new()
     };
-    let tool = if is_flow { "run_flow" } else { "run_script" };
-    let form = run_form(tool, path, Some(&schema), &prepared.args);
     // The arguments fill the main input schema; a preprocessor would take them for a
     // trigger event.
     let started = ctx
@@ -698,17 +657,7 @@ async fn run_deployed(ctx: &Ctx<'_>, args: &Value, is_flow: bool) -> ToolResult 
         )
         .await
         .map(job_id);
-    conclude(
-        ctx,
-        args,
-        prepared.notes,
-        started,
-        path,
-        is_flow,
-        "run",
-        Some(form),
-    )
-    .await
+    conclude(ctx, args, prepared.notes, started, path, is_flow, "run").await
 }
 
 /// The flow value a preview runs, from a loaded `{value, schema, groups}`.
@@ -747,7 +696,6 @@ async fn test_run_flow(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let memory_id = memory_id.map(String::from).or_else(|| {
         truthy(value.get("chat_input_enabled")).then(|| uuid::Uuid::new_v4().to_string())
     });
-    let form = run_form("test_run_flow", path, Some(&schema), &prepared.args);
     let started = run_flow_preview(
         ctx,
         Some(path),
@@ -756,17 +704,7 @@ async fn test_run_flow(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         memory_id.as_deref(),
     )
     .await;
-    conclude(
-        ctx,
-        args,
-        prepared.notes,
-        started,
-        path,
-        true,
-        "test",
-        Some(form),
-    )
-    .await
+    conclude(ctx, args, prepared.notes, started, path, true, "test").await
 }
 
 // ============================================================================
@@ -1285,17 +1223,7 @@ async fn test_run_step(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             )
         }
     };
-    conclude(
-        ctx,
-        args,
-        prepared.notes,
-        started,
-        &label,
-        is_flow,
-        "test",
-        None,
-    )
-    .await
+    conclude(ctx, args, prepared.notes, started, &label, is_flow, "test").await
 }
 
 fn migrated_agent_value(value: &Value) -> Value {
@@ -1800,40 +1728,18 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     ))
 }
 
-/// The card of one run, with the form that runs its script or flow again when it ran a
-/// deployed one: a test run's code lives only in the call that started it.
+/// The card of one run: what `get_run` hands it, under a one-line answer, since the model
+/// shows a run it already read.
 pub(super) async fn show_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let id = str_arg(args, "id")?;
     get_run(ctx, args).await?;
-    let Some((_, Value::Object(mut run))) = ctx.view.lock().unwrap().take() else {
-        return Err(format!("Run {id} could not be read."));
+    let status = match ctx.view.lock().unwrap().as_ref() {
+        Some((_, run)) => run["status"].as_str().unwrap_or("running").to_string(),
+        None => return Err(format!("Run {id} could not be read.")),
     };
-    let deployed = match run.get("job_kind").and_then(Value::as_str) {
-        Some("script") => Some(("scripts/get/p", "run_script")),
-        Some("flow") => Some(("flows/get", "run_flow")),
-        _ => None,
-    };
-    let path = run.get("path").and_then(Value::as_str).map(str::to_string);
-    if let (Some((get, tool)), Some(path)) = (deployed, path) {
-        let job = ctx
-            .get(&ctx.ws(&format!("jobs_u/get/{}?no_logs=true&no_code=true", enc(id))))
-            .await?;
-        if let Ok(item) = ctx
-            .get(&ctx.ws(&format!("{get}/{}", path_enc(&path))))
-            .await
-        {
-            let job_args = job["args"].as_object().cloned().unwrap_or_default();
-            let schema = item.get("schema").filter(|s| !s.is_null());
-            run.insert("form".into(), run_form(tool, &path, schema, &job_args));
-        }
-    }
-    let status = run
-        .get("status")
-        .and_then(Value::as_str)
-        .unwrap_or("running");
-    let text = format!("Showing run {id} ({status}) to the user as a live card.");
-    ctx.set_view("windmill/run", Value::Object(run));
-    Ok(text)
+    Ok(format!(
+        "Showing run {id} ({status}) to the user as a live card."
+    ))
 }
 
 /// Runs `show_runs` draws at most: each is one job read.
