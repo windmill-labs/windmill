@@ -35,6 +35,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
+use windmill_mcp::common::SESSION_SCOPE;
 use windmill_mcp::server::{
     LocalSessionManager, McpToken, MultiWorkspaceMcp, NoEndpointTools, Runner, SessionRunner,
     StreamableHttpServerConfig, StreamableHttpService,
@@ -503,6 +504,17 @@ fn scoped_to_selection(scopes: &[String]) -> bool {
     mcp.clone().next().is_some() && !mcp.any(|scope| scope == "mcp:all")
 }
 
+/// Whether the tools server's URLs (`/api/mcp/gateway`, `/api/mcp/w/{workspace}/mcp`) serve
+/// a token the session's toolset: an `mcp:all` grant marked `mcp:session`, or narrowed by
+/// `mcp:read_only` / `mcp:read_run`, which the consent page describes as session access.
+/// Every other token there keeps the tools server it was issued for.
+fn serves_session_toolset(scopes: &[String]) -> bool {
+    scopes.iter().any(|scope| scope == "mcp:all")
+        && scopes
+            .iter()
+            .any(|scope| [SESSION_SCOPE, "mcp:read_only", "mcp:read_run"].contains(&scope.as_str()))
+}
+
 /// The path of a workspace-less MCP URL, when it is not the tools server's
 /// `/api/mcp/gateway`: each URL is its own OAuth protected resource.
 #[derive(Clone, Copy)]
@@ -517,6 +529,16 @@ pub async fn extract_and_store_workspace_id(
     let workspace_id = params;
     request.extensions_mut().insert(WorkspaceId(workspace_id));
     next.run(request).await
+}
+
+/// RFC 9728 challenge pointing at the endpoint's protected resource metadata. `scope` is what
+/// a client requests: without it, Claude requests every scope the metadata lists, read-only
+/// included, and the consent page would then default to read-only access.
+fn www_authenticate_value(base_url: &str, endpoint: &str) -> String {
+    format!(
+        "Bearer resource_metadata=\"{base_url}/.well-known/oauth-protected-resource{endpoint}\", \
+         scope=\"mcp:all\""
+    )
 }
 
 /// Middleware that adds WWW-Authenticate header to 401 responses
@@ -545,11 +567,8 @@ pub async fn add_www_authenticate_header(
     if response.status() == StatusCode::UNAUTHORIZED {
         let base_url = BASE_URL.load();
 
-        // RFC 9728: The resource parameter contains the protected resource URL.
-        // Clients derive the metadata URL by inserting /.well-known/oauth-protected-resource
-        // after the host, e.g., http://host/.well-known/oauth-protected-resource/api/mcp/w/test/mcp
-        let resource_url = format!("{}/api/mcp/w/{}/mcp", base_url, workspace_id);
-        let www_authenticate = format!("Bearer resource=\"{}\"", resource_url);
+        let www_authenticate =
+            www_authenticate_value(&base_url, &format!("/api/mcp/w/{}/mcp", workspace_id));
 
         // Reconstruct response with the new header
         let (mut parts, body) = response.into_parts();
@@ -678,8 +697,7 @@ pub async fn add_www_authenticate_header_gateway(
 
     if response.status() == StatusCode::UNAUTHORIZED {
         let base_url = BASE_URL.load();
-        let resource_url = format!("{}{}", base_url, endpoint);
-        let www_authenticate = format!("Bearer resource=\"{}\"", resource_url);
+        let www_authenticate = www_authenticate_value(&base_url, endpoint);
 
         let (mut parts, body) = response.into_parts();
         parts.headers.insert(
@@ -735,7 +753,30 @@ pub async fn setup_mcp_server(
     let service =
         StreamableHttpService::new(move || Ok(runner.clone()), session_manager, service_config);
 
-    let router = Router::new().route_service("/", service.clone());
+    let router = Router::new().route(
+        "/",
+        axum::routing::any({
+            let (service, session_service) = (service.clone(), session_service.clone());
+            move |request: Request<axum::body::Body>| {
+                let (service, session_service) = (service.clone(), session_service.clone());
+                async move {
+                    use tower::ServiceExt;
+                    let session = request.extensions().get::<ApiAuthed>().is_some_and(|a| {
+                        serves_session_toolset(a.scopes.as_deref().unwrap_or_default())
+                    });
+                    let response = if session {
+                        session_service.oneshot(request).await
+                    } else {
+                        service.oneshot(request).await
+                    };
+                    match response {
+                        Ok(response) => response.into_response(),
+                        Err(never) => match never {},
+                    }
+                }
+            }
+        }),
+    );
     // `/api/mcp` serves both servers: a token scoped to a selection of scripts, flows and
     // endpoints gets the tools server, any other the session's toolset. At `/mcp` itself,
     // beside the `/mcp/...` routes, so it is merged rather than nested.
@@ -810,7 +851,7 @@ pub fn toolset_service() -> Router {
 
 #[cfg(test)]
 mod tests {
-    use super::scoped_to_selection;
+    use super::{scoped_to_selection, serves_session_toolset};
 
     #[test]
     fn only_a_token_without_mcp_all_is_a_selection() {
@@ -828,5 +869,18 @@ mod tests {
         ]));
         assert!(!selection(&[]));
         assert!(!selection(&["variables:read"]));
+    }
+
+    #[test]
+    fn tools_server_urls_keep_unmarked_tokens() {
+        let session = |scopes: &[&str]| {
+            serves_session_toolset(&scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+        };
+        assert!(session(&["mcp:all", "mcp:session"]));
+        assert!(session(&["mcp:all", "mcp:read_only"]));
+        assert!(session(&["mcp:all", "mcp:read_run", "mcp:workspaces:a,b"]));
+        assert!(!session(&["mcp:all"]));
+        assert!(!session(&["mcp:favorites", "mcp:session"]));
+        assert!(!session(&["mcp:all:f/x/*", "mcp:read_only"]));
     }
 }
