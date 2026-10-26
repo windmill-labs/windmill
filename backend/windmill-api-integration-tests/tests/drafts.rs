@@ -439,6 +439,34 @@ async fn test_transfer_drafts_to_fork(db: Pool<Postgres>) -> anyhow::Result<()> 
     assert_eq!(fork_count("u/test-user/a").await?, 1);
     assert_eq!(fork_count("u/test-user/b").await?, 1);
 
+    // An app policy naming someone who is not a member of the fork is re-pointed at the user, as
+    // the fork's own clone does: a deploy in the fork rejects an identity that does not resolve.
+    let r = c
+        .post(save_url(port, "raw_app", "u/test-user/app"))
+        .json(&json!({ "value": { "policy": {
+            "on_behalf_of": "u/not-in-fork", "on_behalf_of_email": "ghost@windmill.dev"
+        } } }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "{}", r.text().await?);
+    let r = c
+        .post(&transfer_url)
+        .json(&json!({
+            "target_workspace": fork,
+            "items": [{ "kind": "raw_app", "path": "u/test-user/app" }]
+        }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "{}", r.text().await?);
+    let on_behalf_of: String = sqlx::query_scalar(
+        "SELECT value->'policy'->>'on_behalf_of' FROM draft
+         WHERE workspace_id = $1 AND path = 'u/test-user/app'",
+    )
+    .bind(fork)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(on_behalf_of, "u/test-user");
+
     // Only a fork of the source is a valid target.
     let r = c
         .post(format!(

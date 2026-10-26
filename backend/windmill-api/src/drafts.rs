@@ -1203,6 +1203,15 @@ async fn transfer_drafts(
             Some(&locked),
         )
         .await?;
+        // A copied app policy or trigger may name someone who is not a member of the fork, as a
+        // fork's own clone may; fork creation re-points those at the user, and so does this.
+        windmill_api_workspaces::workspaces::repoint_unresolvable_draft_identities(
+            &mut tx,
+            target,
+            target_authed,
+            Some(&copied),
+        )
+        .await?;
     }
 
     let mut removed = vec![];

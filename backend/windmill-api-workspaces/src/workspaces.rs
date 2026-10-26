@@ -8580,6 +8580,65 @@ fn principal_resolves_sql(principal: &str) -> String {
     )
 }
 
+/// The draft half of `repoint_unresolvable_cloned_identities`: an app policy or trigger in a draft
+/// copied into `target_workspace_id` that names nobody there is re-pointed at `authed`. `items`
+/// narrows it to `authed`'s own rows at those keys, for drafts copied into an existing workspace.
+pub async fn repoint_unresolvable_draft_identities(
+    tx: &mut Transaction<'_, Postgres>,
+    target_workspace_id: &str,
+    authed: &ApiAuthed,
+    items: Option<&[(windmill_common::user_drafts::UserDraftItemKind, String)]>,
+) -> Result<()> {
+    let principal = username_to_permissioned_as(&authed.username);
+    let kinds: Option<Vec<&str>> = items.map(|i| i.iter().map(|(k, _)| k.as_str()).collect());
+    let paths: Option<Vec<&str>> = items.map(|i| i.iter().map(|(_, p)| p.as_str()).collect());
+
+    // A draft holding a genuine NUL escape (the rule of `json_text_has_nul_escape`) is left as it
+    // is, since parsing it would abort the fork. The check must stay in a CASE: json `->>` raises on
+    // a NUL anywhere in the value, and Postgres reorders plain AND conditions.
+    let nul_escape = r"(^|[^\\])(\\\\)*\\u0000";
+    sqlx::query(&format!(
+        "UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value),
+             ARRAY['policy', 'on_behalf_of'], to_jsonb($2::text)),
+             ARRAY['policy', 'on_behalf_of_email'], to_jsonb($3::text)))
+         WHERE workspace_id = $1 AND typ IN ('app', 'raw_app')
+           AND ($5::text[] IS NULL OR (email = $7
+                AND (typ::text, path) IN (SELECT * FROM unnest($5::text[], $6::text[]))))
+           AND CASE WHEN value::text ~ $4 THEN false
+                    ELSE value->'policy'->>'on_behalf_of' IS NOT NULL AND NOT ({}) END",
+        principal_resolves_sql("(value->'policy'->>'on_behalf_of')")
+    ))
+    .bind(target_workspace_id)
+    .bind(&principal)
+    .bind(&authed.email)
+    .bind(nul_escape)
+    .bind(kinds.as_deref())
+    .bind(paths.as_deref())
+    .bind(&authed.email)
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query(&format!(
+        "UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value),
+             ARRAY['permissioned_as'], to_jsonb($2::text)))
+         WHERE workspace_id = $1 AND starts_with(typ::text, 'trigger_')
+           AND ($4::text[] IS NULL OR (email = $6
+                AND (typ::text, path) IN (SELECT * FROM unnest($4::text[], $5::text[]))))
+           AND CASE WHEN value::text ~ $3 THEN false
+                    ELSE value->>'permissioned_as' IS NOT NULL AND NOT ({}) END",
+        principal_resolves_sql("(value->>'permissioned_as')")
+    ))
+    .bind(target_workspace_id)
+    .bind(&principal)
+    .bind(nul_escape)
+    .bind(kinds.as_deref())
+    .bind(paths.as_deref())
+    .bind(&authed.email)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 /// Re-point the identities a fork clones verbatim at its creator when they name nobody in the fork,
 /// once its membership is final so copied members keep theirs. Unlike scripts and flows these
 /// cannot drop the identity: an app deploy rejects a preserved one that does not resolve, and
@@ -8604,39 +8663,7 @@ async fn repoint_unresolvable_cloned_identities(
     .execute(&mut **tx)
     .await?;
 
-    // A draft holding a genuine NUL escape (the rule of `json_text_has_nul_escape`) is left as it
-    // is, since parsing it would abort the fork. The check must stay in a CASE: json `->>` raises on
-    // a NUL anywhere in the value, and Postgres reorders plain AND conditions.
-    let nul_escape = r"(^|[^\\])(\\\\)*\\u0000";
-    sqlx::query(&format!(
-        "UPDATE draft SET value = to_json(jsonb_set(jsonb_set(to_jsonb(value),
-             ARRAY['policy', 'on_behalf_of'], to_jsonb($2::text)),
-             ARRAY['policy', 'on_behalf_of_email'], to_jsonb($3::text)))
-         WHERE workspace_id = $1 AND typ IN ('app', 'raw_app')
-           AND CASE WHEN value::text ~ $4 THEN false
-                    ELSE value->'policy'->>'on_behalf_of' IS NOT NULL AND NOT ({}) END",
-        principal_resolves_sql("(value->'policy'->>'on_behalf_of')")
-    ))
-    .bind(target_workspace_id)
-    .bind(&principal)
-    .bind(&authed.email)
-    .bind(nul_escape)
-    .execute(&mut **tx)
-    .await?;
-
-    sqlx::query(&format!(
-        "UPDATE draft SET value = to_json(jsonb_set(to_jsonb(value),
-             ARRAY['permissioned_as'], to_jsonb($2::text)))
-         WHERE workspace_id = $1 AND starts_with(typ::text, 'trigger_')
-           AND CASE WHEN value::text ~ $3 THEN false
-                    ELSE value->>'permissioned_as' IS NOT NULL AND NOT ({}) END",
-        principal_resolves_sql("(value->>'permissioned_as')")
-    ))
-    .bind(target_workspace_id)
-    .bind(&principal)
-    .bind(nul_escape)
-    .execute(&mut **tx)
-    .await?;
+    repoint_unresolvable_draft_identities(tx, target_workspace_id, authed, None).await?;
 
     let column_resolves = principal_resolves_sql("permissioned_as");
 
