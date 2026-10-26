@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
-	import { fetchDeployedRunAs, setDeployedOnBehalfOf } from './appDeploy.svelte'
+	import {
+		fetchDeployedAccessMode,
+		fetchDeployedRunAs,
+		setDeployedOnBehalfOf
+	} from './appDeploy.svelte'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
@@ -457,6 +461,8 @@
 			}
 		})
 		invalidateWorkspacePaths($workspaceStore!)
+		const accessMode = await fetchDeployedAccessMode($workspaceStore!, npath)
+		if (accessMode) policy.execution_mode = accessMode
 		savedApp = {
 			summary: $summary,
 			value: structuredClone($state.snapshot($app)),

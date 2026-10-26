@@ -1,4 +1,4 @@
-import { AppService } from '$lib/gen'
+import { AppService, type Policy } from '$lib/gen'
 import { deployedPermissionedAs } from '$lib/components/itemSettings/onBehalfOf'
 
 type RunAs = { on_behalf_of?: string; on_behalf_of_email?: string }
@@ -20,6 +20,20 @@ export async function fetchDeployedRunAs(
 			await AppService.getAppLiteByPath({ workspace, path })
 		).policy
 		return { on_behalf_of, on_behalf_of_email }
+	} catch {
+		return undefined
+	}
+}
+
+/** Who can open the app at `path` right now. An update deploy states no mode, so the server keeps
+ *  the deployed one, which someone may have changed since the editor loaded the app. Undefined
+ *  when the read fails. */
+export async function fetchDeployedAccessMode(
+	workspace: string,
+	path: string
+): Promise<Policy['execution_mode'] | undefined> {
+	try {
+		return (await AppService.getAppLiteByPath({ workspace, path })).policy.execution_mode
 	} catch {
 		return undefined
 	}

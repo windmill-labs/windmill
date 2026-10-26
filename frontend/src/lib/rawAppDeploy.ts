@@ -58,9 +58,6 @@ export async function deployRawAppValue({
 	// The value carries the runnables, so the policy's triggerables have to be
 	// recomputed from it or the deployed app can't call what it now contains.
 	const policy = (await updateRawAppPolicy(runnables, currentPolicy)) as Policy
-	if (!policy.execution_mode) {
-		policy.execution_mode = 'publisher'
-	}
 
 	const bundle = await bundleRawAppDraft({ workspace, files })
 
@@ -74,7 +71,7 @@ export async function deployRawAppValue({
 				// version can still carry the pre-`data` datatable shapes.
 				value: { files, runnables, data: normalizeRawAppData(plainValue) },
 				summary: summary ?? '',
-				policy,
+				policy: policyForUpdate(policy),
 				deployment_message: deploymentMessage,
 				// custom_path changes require admin (see deployRawAppDraft).
 				custom_path: isAdmin ? (customPath ?? '') : undefined,

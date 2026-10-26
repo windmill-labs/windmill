@@ -29,6 +29,12 @@
 		canPreserveOnBehalfOf
 	} from '$lib/components/itemSettings/onBehalfOf'
 	import SettingToggle from '$lib/components/itemSettings/SettingToggle.svelte'
+	import SettingIcons from '$lib/components/itemSettings/SettingIcons.svelte'
+	import {
+		getAppMetadataBadges,
+		getAppPermissionBadges,
+		getAppSharingBadges
+	} from './appSettingsBadges'
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 	import { FRONTEND_SDK_SCOPES, sdkScopesToConfirm } from '$lib/components/raw_apps/sdkScopes'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
@@ -294,9 +300,23 @@
 	<DrawerContent noPadding title="Settings" on:close={() => (open = false)}>
 		<div class="flex flex-col h-full">
 			<Tabs bind:selected={tab} wrapperClass="flex-none w-full">
-				<Tab value="metadata" label="Metadata" />
-				<Tab value="permissions" label="Permissions" />
-				<Tab value="sharing" label="Sharing" />
+				<Tab value="metadata" label="Metadata">
+					{#snippet extra()}
+						<SettingIcons badges={getAppMetadataBadges(labels)} />
+					{/snippet}
+				</Tab>
+				<Tab value="permissions" label="Permissions">
+					{#snippet extra()}
+						<SettingIcons
+							badges={getAppPermissionBadges(policy, composeOnlyApps || policy.sandbox == true)}
+						/>
+					{/snippet}
+				</Tab>
+				<Tab value="sharing" label="Sharing">
+					{#snippet extra()}
+						<SettingIcons badges={getAppSharingBadges(policy.execution_mode, customPath)} />
+					{/snippet}
+				</Tab>
 
 				{#snippet content()}
 					<div class="min-h-0 grow overflow-y-auto">
@@ -482,9 +502,10 @@
 										</Alert>
 									{/if}
 									<div>
+										<!-- Bound through accessors: given `selected` one way, the group keeps the
+										     choice it was clicked to, and a refused change would stay shown. -->
 										<ToggleButtonGroup
-											selected={accessMode}
-											on:selected={(e) => onAccessModeChange(e.detail)}
+											bind:selected={() => accessMode, (mode) => onAccessModeChange(mode)}
 											disabled={accessModePending || accessModeLocked}
 										>
 											{#snippet children({ item })}
@@ -518,8 +539,11 @@
 										<div class="text-xs text-secondary">
 											{#if runsAsAnotherForCaller}
 												This app runs on behalf of <strong>{deployedRunsAs}</strong>. Deploy it so
-												it runs on behalf of you, then change who can open it. An admin or a member
-												of <code>wm_deployers</code> can change it without taking the app over.
+												it runs on behalf of you, then change who can open it.
+												{#if !composeOnlyApps}
+													An admin or a member of <code>wm_deployers</code> can change it without taking
+													the app over.
+												{/if}
 											{:else}
 												This app is not sandboxed yet. Deploy it so it is sandboxed, then change who
 												can open it.

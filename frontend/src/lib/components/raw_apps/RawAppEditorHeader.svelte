@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
 	import {
+		fetchDeployedAccessMode,
 		fetchDeployedRunAs,
 		setDeployedOnBehalfOf
 	} from '$lib/components/apps/editor/appDeploy.svelte'
@@ -674,6 +675,8 @@
 		})
 		policy.triggerables_v2 = deployedPolicy.triggerables_v2
 		invalidateWorkspacePaths(opWorkspace!)
+		const accessMode = await fetchDeployedAccessMode(opWorkspace!, npath)
+		if (accessMode) policy.execution_mode = deployedPolicy.execution_mode = accessMode
 		savedApp = {
 			summary: summary,
 			value: structuredClone(stateSnapshot(app)),
