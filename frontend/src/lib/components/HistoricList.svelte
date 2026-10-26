@@ -156,7 +156,9 @@
 			const inputsWithPayload = await Promise.all(inputs.map(withPayload))
 			for (const entry of inputs) {
 				const open = openGroups[entry.id]
-				if (open && !open.loading && open.summary !== summary(entry)) {
+				// A run in progress may still have its args replaced, without the summary changing.
+				const stale = open?.summary !== summary(entry) || open?.runs.some((run) => run.running)
+				if (open && !open.loading && stale) {
 					loadGroup(entry)
 				}
 			}
