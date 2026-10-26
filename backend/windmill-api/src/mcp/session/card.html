@@ -87,11 +87,12 @@
   #body, #details { display: flex; flex-direction: column; gap: 12px; }
   .section { display: flex; flex-direction: column; gap: 8px; }
   /* Tabs, in fullscreen alone: inline a card is one view (OpenAI's guidelines rule out tabs
-     there), and fullscreen is where both hosts put detail. */
-  .tabs { display: inline-flex; align-self: flex-start; gap: 2px; padding: 2px; background: var(--bg-2); border-radius: var(--radius); }
-  .tab { min-height: 26px; padding: 0 12px; border: 0; border-radius: calc(var(--radius) - 2px); background: transparent; font-size: 12px; color: var(--fg-2); }
-  .tab[aria-selected="true"] { background: var(--bg); color: var(--fg-em); font-weight: 600; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
-  .tab:hover:not([aria-selected="true"]) { background: transparent; color: var(--fg-em); }
+     there). Drawn as Windmill's own: an underlined strip, the selected tab marked by a bar
+     and an emphasised label. */
+  .tabs { display: flex; gap: 16px; border-bottom: 1px solid var(--line); }
+  .tab { min-height: 0; padding: 4px 0; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; font-size: 12px; font-weight: 400; color: var(--fg); }
+  .tab[aria-selected="true"] { border-bottom-color: var(--fg-3); color: var(--fg-em); font-weight: 600; }
+  .tab:hover:not([aria-selected="true"]) { background: none; border-bottom-color: var(--line); }
   .row.open-step { cursor: pointer; }
   .row.open-step:hover { background: var(--bg-2); }
   .chev { display: inline-flex; color: var(--fg-3); }
