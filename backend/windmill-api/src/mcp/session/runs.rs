@@ -1836,6 +1836,9 @@ fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
             .or_else(|| result.map(|r| format_result(Some(r))))
         {
             run.insert("result".into(), js_head(&text, CARD_RESULT_CHARS).into());
+            if text.chars().count() > CARD_RESULT_CHARS {
+                run.insert("result_cut".into(), true.into());
+            }
         }
         // 1-based, of how many: `step` already points past the last module once it is done.
         let status = &job["flow_status"];

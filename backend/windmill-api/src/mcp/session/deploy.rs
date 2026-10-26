@@ -13,8 +13,8 @@ use super::workspace::{
     unified_patch, ITEM_TYPES, TRIGGER_KINDS,
 };
 use super::{
-    array, bool_arg, is_not_found, js_str, matches_glob, non_null, opt_str_arg, pretty, str_arg,
-    truthy, Ctx, ToolResult,
+    array, bool_arg, enc, is_not_found, js_str, matches_glob, non_null, opt_str_arg, pretty,
+    str_arg, truthy, Ctx, ToolResult,
 };
 
 pub(super) const TOOLS: &[&str] = &["deploy_workspace_item", "delete_workspace_item", "diff"];
@@ -2068,7 +2068,12 @@ pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResul
         .count();
     ctx.set_view(
         "windmill/review",
-        json!({ "workspace": ctx.w_id, "items": items }),
+        json!({
+            "workspace": ctx.w_id,
+            "items": items,
+            // Windmill's own "Review & deploy drafts" page.
+            "url": ctx.page_url(&format!("/forks/compare?workspace_id={}&mode=draft", enc(ctx.w_id))),
+        }),
     );
     if total == 0 {
         return Ok("No drafts to review: nothing differs from the deployed state.".to_string());

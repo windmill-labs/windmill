@@ -163,6 +163,7 @@
   <div class="step" id="step" hidden></div>
   <div class="step" id="stale" hidden>No longer refreshing here. Open it in Windmill for its live status.</div>
   <pre class="clip" id="result" hidden></pre>
+  <div id="result-more"></div>
   <div id="result-table"></div>
   <div id="body"></div>
   <section class="card" id="details" style="padding: 0" hidden></section>
@@ -295,7 +296,9 @@
   }
 
   // Columns are `{ label, value(row), show?(value), mono? }`; clicking a header sorts by it.
-  function table(columns, rows, onRow) {
+  // Inline it shows `ROWS_INLINE` rows, and `more` (the noun, the page in Windmill) the rest.
+  function table(columns, rows, onRow, more) {
+    const limit = fullscreen() ? Infinity : ROWS_INLINE;
     let sort = null;
     const key = (value) => (typeof value === 'number' ? value : String(cellText(value) ?? ''));
     const body = el('tbody');
@@ -304,7 +307,7 @@
         const [x, y] = [key(sort.column.value(a)), key(sort.column.value(b))];
         return (x < y ? -1 : x > y ? 1 : 0) * sort.dir;
       });
-      body.replaceChildren(...sorted.map((row) => el('tr', { class: onRow ? 'link' : null, onclick: onRow && (() => onRow(row)) },
+      body.replaceChildren(...sorted.slice(0, limit).map((row) => el('tr', { class: onRow ? 'link' : null, onclick: onRow && (() => onRow(row)) },
         ...columns.map((column) => {
           const value = column.value(row);
           return el('td', { class: column.mono ? 'mono' : null }, cellText(column.show ? column.show(value) : value));
@@ -317,7 +320,10 @@
       }
     }, column.label)));
     draw();
-    return el('div', { class: 'table' }, el('table', {}, el('thead', {}, head), body));
+    const hidden = rows.length - Math.min(rows.length, limit);
+    return el('div', {},
+      el('div', { class: 'table' }, el('table', {}, el('thead', {}, head), body)),
+      hidden > 0 ? moreButton(`${hidden} more ${more.noun}${hidden === 1 ? '' : 's'}`, more.url) : null);
   }
 
   // A result that is a list of records reads better as a table. A result cut short is no
@@ -328,7 +334,7 @@
     if (!Array.isArray(rows) || !rows.length || rows.length > 100) return null;
     if (!rows.every((row) => row && typeof row === 'object' && !Array.isArray(row))) return null;
     const keys = [...new Set(rows.flatMap(Object.keys))].slice(0, 8);
-    return table(keys.map((k) => ({ label: k, value: (row) => row[k] })), rows);
+    return table(keys.map((k) => ({ label: k, value: (row) => row[k] })), rows, null, { noun: 'row', url: run.url });
   }
 
   // ---------------------------------------------------------------- run
@@ -369,9 +375,17 @@
     result.classList.toggle('clip', !fullscreen());
     // Rebuilt only for a new result, so a sort survives the card redrawing.
     const holder = $('result-table');
-    if (holder.dataset.source !== (records ? run.result : '')) {
-      holder.dataset.source = records ? run.result : '';
+    const source = records ? `${fullscreen()}:${run.result}` : '';
+    if (holder.dataset.source !== source) {
+      holder.dataset.source = source;
       holder.replaceChildren(...(records ? [records] : []));
+    }
+    // A long result is clipped inline; the server also cuts one past its own limit.
+    const more = $('result-more');
+    more.replaceChildren();
+    if (!result.hidden) {
+      if (!fullscreen() && result.scrollHeight > result.clientHeight + 1) more.append(moreButton('full result', run.url));
+      else if (run.result_cut) more.append(el('button', { class: 'small', type: 'button', onclick: () => openLink(run.url) }, 'Full result in Windmill \u2197'));
     }
 
     $('cancel').hidden = !(running && run?.id);
@@ -384,13 +398,15 @@
     }, 1000);
   }
 
-  function stepRow({ id, label, status, note, duration, result, nested }) {
+  function stepRow({ id, label, status, note, duration, result, nested, total }) {
     return el('div', { class: nested ? 'row nested' : 'row' },
       el('span', { class: `dot ${status ?? ''}` }),
       el('span', { class: 'v' }, id),
       el('span', { class: 'grow' }, label ?? ''),
       el('span', { class: 'dim' }, [note, LABELS[status] ?? status ?? '', formatMs(duration)].filter(Boolean).join(' · ')),
-      result ? el('pre', { class: status === 'failure' ? 'error' : '' }, result) : null);
+      result ? el('pre', { class: status === 'failure' ? 'error' : '' }, total ? `${result}\u2026` : result) : null,
+      // The server sends a step result's head; the run page has all of it.
+      total ? el('span', { class: 'dim', style: 'flex-basis: 100%' }, `First ${result.length} of ${total} characters: the full result is on the run page.`) : null);
   }
 
   // A step as the server groups it: a parallel step as its branches, a loop as its iteration
@@ -407,14 +423,14 @@
       return [
         stepRow({ id: step.step, status, note: `${step.branches.length} branches` }),
         ...step.branches.map((branch, i) => stepRow({
-          id: `branch ${i + 1}`, status: branch.status, duration: branch.duration_ms, result: branch.result, nested: true
+          id: `branch ${i + 1}`, status: branch.status, duration: branch.duration_ms, result: branch.result, total: branch.result_total_chars, nested: true
         }))
       ];
     }
     if (step.iterations != null) {
       const shown = parts.find((p) => p.status === 'failure') ?? parts.at(-1);
       return [stepRow({
-        id: step.step, status, result: shown?.result,
+        id: step.step, status, result: shown?.result, total: shown?.result_total_chars,
         note: [
           `${step.iterations} iterations`, `${step.ok} ok`,
           step.failed_iterations && `failed: ${step.failed_iterations.join(', ')}`
@@ -422,7 +438,7 @@
       })];
     }
     return [stepRow({
-      id: step.step, status, duration: step.duration_ms, result: step.result,
+      id: step.step, status, duration: step.duration_ms, result: step.result, total: step.result_total_chars,
       label: step.label?.startsWith(`Step ${step.step}`) ? '' : step.label,
       note: step.attempts > 1 ? `${step.attempts} attempts` : ''
     })];
@@ -528,6 +544,7 @@
     window.clearInterval(tickTimer);
     run = null;
     for (const id of ['step', 'stale', 'result', 'details', 'cancel', 'expand']) $(id).hidden = true;
+    $('result-more').replaceChildren();
     $('duration').textContent = '';
     $('result-table').replaceChildren();
   }
@@ -536,8 +553,11 @@
     if (url) request('ui/open-link', { url }).catch(() => {});
   }
 
+  let runsMeta = null;
+
   function renderRuns(meta) {
     view = 'runs';
+    runsMeta = meta;
     clearRun();
     setHeader({ path: meta.runs.length === 1 ? '1 run' : `${meta.runs.length} runs`, ws: meta.workspace, url: meta.url });
     $('review').hidden = true;
@@ -548,11 +568,12 @@
       { label: 'Kind', value: (r) => kindLabel(r.job_kind) },
       { label: 'Duration', value: (r) => r.duration_ms, show: formatMs },
       { label: 'Started', value: (r) => r.started_at ?? r.created_at, show: time }
-    ], meta.runs, (r) => openLink(r.url)));
+    ], meta.runs, (r) => openLink(r.url), { noun: 'run', url: meta.url }));
   }
 
   const PATCH_LINES_INLINE = 40;
   const STEPS_INLINE = 8;
+  const ROWS_INLINE = 8;
   const LOG_LINES_INLINE = 15;
 
   // A diff's text with its patch lines coloured; the `---`/`+++` labels before the first
@@ -692,7 +713,7 @@
     review = meta;
     clearRun();
     const n = meta.items.length;
-    setHeader({ path: 'Review before deploying', ws: meta.workspace, kind: n === 1 ? '1 draft' : `${n} drafts` });
+    setHeader({ path: 'Review before deploying', ws: meta.workspace, kind: n === 1 ? '1 draft' : `${n} drafts`, url: meta.url });
     const full = fullscreen();
     $('review').hidden = full || !canFullscreen() || !meta.items.some((item) => item.patch != null && !item.deployed);
     $('body').replaceChildren(...(!n
@@ -707,6 +728,7 @@
   function redraw() {
     if (view === 'run' && run) renderRun();
     else if (view === 'review' && review) renderReview(review);
+    else if (view === 'runs' && runsMeta) renderRuns(runsMeta);
   }
 
   // ---------------------------------------------------------------- dispatch
