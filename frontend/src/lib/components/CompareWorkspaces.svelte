@@ -1885,6 +1885,7 @@
 					{parentWorkspaceId}
 					currentUsername={$userStore?.username ?? ''}
 					isAdmin={$userStore?.is_admin ?? false}
+					diffs={comparison?.diffs.filter((d) => diffActionableInDirection(d, true)) ?? []}
 					onStateChange={(open) => {
 						hasOpenDeploymentRequest = open
 					}}
