@@ -1370,6 +1370,9 @@ const LOGS_UNREADABLE: &str = "Logs could not be read for this run.";
 struct RunTree<'a> {
     entries: &'a [Value],
     children: Vec<Vec<usize>>,
+    /// The card lists a loop's latest iterations, up to this many, where the model reads
+    /// its failed ones and its last.
+    card_iterations: Option<usize>,
 }
 
 impl<'a> RunTree<'a> {
@@ -1386,7 +1389,7 @@ impl<'a> RunTree<'a> {
             }
             stack.push(i);
         }
-        RunTree { entries, children }
+        RunTree { entries, children, card_iterations: None }
     }
 
     fn status(&self, i: usize) -> &str {
@@ -1527,14 +1530,20 @@ impl<'a> RunTree<'a> {
         let skipped = count("skipped");
         // Skipped is terminal: only running, queued and suspended are unfinished.
         let unfinished = by_index.len() - ok - failed.len() - skipped;
-        let mut shown: Vec<usize> = failed
-            .iter()
-            .copied()
-            .take(MAX_FAILED_ITERATIONS_SHOWN)
-            .collect();
-        if !shown.contains(&last) {
-            shown.push(last);
-        }
+        let shown: Vec<usize> = match self.card_iterations {
+            Some(limit) => by_index[by_index.len().saturating_sub(limit)..].to_vec(),
+            None => {
+                let mut shown: Vec<usize> = failed
+                    .iter()
+                    .copied()
+                    .take(MAX_FAILED_ITERATIONS_SHOWN)
+                    .collect();
+                if !shown.contains(&last) {
+                    shown.push(last);
+                }
+                shown
+            }
+        };
 
         out.insert(
             "type".into(),
@@ -1713,10 +1722,7 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             .as_array()
             .map(Vec::as_slice)
             .unwrap_or_default();
-        details.insert(
-            "step_list".into(),
-            card_steps(entries, job.get("raw_flow")).into(),
-        );
+        details.insert("step_list".into(), card_steps(entries, job).into());
         if let Ok(logs) = &logs {
             if !logs.trim().is_empty() {
                 let tail = js_tail(logs, CARD_LOG_CHARS);
@@ -1914,6 +1920,8 @@ pub(super) async fn show_runs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 
 /// Result head the run card shows; the full result is one click away on the run page.
 const CARD_RESULT_CHARS: usize = 1500;
+/// A loop's iterations the card lists, the latest ones: the rest are on the run page.
+const CARD_ITERATIONS: usize = 50;
 /// Past this an image result is named and linked rather than drawn: every refresh of the
 /// card carries it again.
 const CARD_IMAGE_CHARS: usize = 1_000_000;
@@ -1943,17 +1951,37 @@ fn report_run(ctx: &Ctx<'_>, id: &str, job: Option<&Value>, extra: Map<String, V
 
 /// A flow run's top-level steps for the card's details, grouped as the model reads them:
 /// a loop as its iteration counts, a parallel step as its branches, a retry as its attempts.
-fn card_steps(entries: &[Value], flow: Option<&Value>) -> Vec<Value> {
+fn card_steps(entries: &[Value], job: &Value) -> Vec<Value> {
     if entries.is_empty() {
         return Vec::new();
     }
-    let mut steps =
-        RunTree::new(entries).shape_children(0, (CARD_STEP_RESULT_CHARS, CARD_STEP_RESULT_CHARS));
+    let mut tree = RunTree::new(entries);
+    tree.card_iterations = Some(CARD_ITERATIONS);
+    let mut steps = tree.shape_children(0, (CARD_STEP_RESULT_CHARS, CARD_STEP_RESULT_CHARS));
     let mut modules = HashMap::new();
-    if let Some(flow) = flow {
-        collect_modules(flow, &mut modules);
-    }
+    collect_modules(&job["raw_flow"], &mut modules);
     name_steps(&mut steps, &modules);
+    // Which branch a top-level branch-one step took, which only the flow's status says.
+    for status in job["flow_status"]["modules"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        let chosen = &status["branch_chosen"];
+        let Some(step) = steps.iter_mut().find(|s| s["step"] == status["id"]) else {
+            continue;
+        };
+        let taken = match (chosen["type"].as_str(), chosen["branch"].as_u64()) {
+            (Some("default"), _) => "Default branch".to_string(),
+            (Some("branch"), Some(i)) => modules
+                .get(status["id"].as_str().unwrap_or_default())
+                .and_then(|m| m["value"]["branches"][i as usize]["summary"].as_str())
+                .filter(|s| !s.is_empty())
+                .map_or_else(|| format!("Branch {}", i + 1), str::to_string),
+            _ => continue,
+        };
+        step["branch_taken"] = taken.into();
+    }
     steps
 }
 
@@ -1995,7 +2023,24 @@ fn name_steps(steps: &mut [Value], modules: &HashMap<&str, &Value>) {
                 "type": value["type"],
                 "language": value["language"],
                 "parallel": value["parallel"],
+                "path": value["path"],
             });
+            // A branch is named by its summary, as the graph names it.
+            for (part, branch) in step
+                .get_mut("branches")
+                .and_then(Value::as_array_mut)
+                .into_iter()
+                .flatten()
+                .zip(value["branches"].as_array().into_iter().flatten())
+            {
+                if let Some(summary) = branch["summary"].as_str().filter(|s| !s.is_empty()) {
+                    part["summary"] = summary.into();
+                }
+            }
+            // An inner flow's steps are its own flow's modules, which this one does not hold.
+            if value["type"] == "flow" {
+                continue;
+            }
         }
         // `get_mut`: indexing a value mutably would add the keys it looks for.
         for key in ["branches", "iterations_shown"] {

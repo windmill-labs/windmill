@@ -161,7 +161,7 @@
   .disclosure:hover { background: none; text-decoration: underline; }
   .summary-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 12px; font-size: var(--t-sm); }
   .summary-row + .summary-row { border-top: 1px solid var(--line); }
-  button.summary-row { width: 100%; min-height: 0; border: 0; border-radius: 0; background: transparent; font: inherit; color: inherit; text-align: left; }
+  button.summary-row { width: 100%; min-height: 0; border: 0; border-radius: 0; background: transparent; font: inherit; font-size: var(--t-sm); color: inherit; text-align: left; }
   button.summary-row:hover { background: var(--bg-2); }
   .summary-row .grow { flex: 1; min-width: 0; font: var(--t-sm) var(--mono); color: var(--fg-em); overflow-wrap: anywhere; }
   .summary-row .why { flex-basis: 100%; font-size: var(--t-sm); color: var(--fg-2); }
@@ -256,6 +256,7 @@
   .item { display: flex; flex-direction: column; gap: 6px; }
   .item + .item { border-top: 1px solid var(--line); padding-top: 12px; }
   .item-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .item-head input { margin: 0; }
   .item-head .grow { flex: 1; min-width: 0; font: var(--t-sm) var(--mono); color: var(--fg-em); overflow-wrap: anywhere; }
   .form-error { color: var(--bad-strong); font-size: var(--t-sm); }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -300,6 +301,7 @@
   <div class="actions">
     <button class="danger" id="cancel" type="button" hidden>Cancel run</button>
     <button class="primary" id="review" type="button" hidden>Review and deploy</button>
+    <button class="primary" id="deploy" type="button" hidden></button>
   </div>
 </main>
 <script>
@@ -800,6 +802,7 @@
 
     $('cancel').hidden = !(running && run?.id && run.can_cancel);
     $('review').hidden = true;
+    $('deploy').hidden = true;
     showExpand(!!run?.id);
     renderDetails();
     window.clearInterval(tickTimer);
@@ -855,7 +858,8 @@
     const status = groupStatus(node, last);
     const kids = childrenOf(node);
     const open = openNodes.has(key);
-    const note = node.branches ? plural(node.branches.length, 'branch')
+    const note = node.branch_taken ? `Took ${node.branch_taken}`
+      : node.branches ? plural(node.branches.length, 'branch')
       : node.iterations != null ? [plural(node.iterations, 'iteration'), `${node.ok} ok`].join(' · ')
       : node.attempts > 1 ? `${node.attempts} attempts` : '';
     const toggle = (e) => {
@@ -874,17 +878,24 @@
       el('span', { class: `dot ${status ?? ''}` }),
       el('span', { class: 'v' }, label),
       // Named as Windmill's graph names it: by summary, else by kind.
-      el('span', { class: 'grow' }, node.summary ?? stepKind(node.module) ?? ''),
+      el('span', { class: 'grow' }, stepName(node)),
       el('span', { class: 'dim' }, [note, LABELS[status] ?? status ?? '', formatMs(node.duration_ms)].filter(Boolean).join(' · '))));
     if (!open) return;
-    kids.forEach((kid, i) => treeRows(kid.node, kid.label, `${key}>${i}`, depth + 1, last && status === 'failure' && i === kids.length - 1, rows));
-    // The server sends a loop's failed iterations and its last; the rest are on the run page.
+    // The server sends a loop's latest iterations: the earlier ones come first, on the run page.
     if (node.iterations_elided && run.url) {
       rows.push(el('div', { class: 'row tree', style: depthPad(depth + 1) },
         el('span', { class: 'chev' }),
         el('button', { class: 'more-line', type: 'button', onclick: () => openLink(run.url) },
-          `${plural(node.iterations_elided, 'other iteration')} in Windmill`, icon('external'))));
+          `${plural(node.iterations_elided, 'earlier iteration')} in Windmill`, icon('external'))));
     }
+    kids.forEach((kid, i) => treeRows(kid.node, kid.label, `${key}>${i}`, depth + 1, last && status === 'failure' && i === kids.length - 1, rows));
+  }
+
+  // Named as Windmill's graph names a step: by summary, else by kind; an inner flow by its path.
+  function stepName(node) {
+    if (node.summary) return node.summary;
+    if (node.module?.type === 'flow' && node.module.path) return `Inner flow ${node.module.path}`;
+    return stepKind(node.module) ?? '';
   }
 
   // A step, iteration or branch is a run of its own, which `get_run` reads; a loop or a
@@ -908,7 +919,9 @@
     redraw();
   }
 
-  function groupPane(node) {
+  // A loop or parallel step is no run of its own: its counts, and as Windmill shows it, the
+  // result of each iteration or branch, each opening it.
+  function groupPane(node, key) {
     const parts = node.branches ?? [];
     const count = node.branches ? parts.length : node.iterations;
     const ok = node.branches ? parts.filter((b) => b.status === 'success').length : node.ok;
@@ -920,10 +933,22 @@
     if (node.failed_iterations?.length) rows.push(row('Failed', node.failed_iterations.join(', ')));
     if (node.skipped) rows.push(row('Skipped', String(node.skipped)));
     if (node.unfinished) rows.push(row('Unfinished', String(node.unfinished)));
+    const results = childrenOf(node).map((kid, i) => {
+      const status = groupStatus(kid.node, false);
+      return el('button', {
+        class: 'summary-row', type: 'button', title: `Open ${kid.place}`,
+        onclick: () => select(`${key}>${i}`, kid.node, kid.label, childrenOf(kid.node).length > 0, status)
+      },
+        el('span', { class: `dot ${status ?? ''}` }),
+        el('span', {}, kid.label, kid.node.summary ? ` \u00b7 ${kid.node.summary}` : ''),
+        el('span', { class: 'grow' }, kid.node.result ?? ''),
+        el('span', { class: 'dim' }, formatMs(kid.node.duration_ms)));
+    });
     return el('div', { class: 'section' },
       el('div', { class: 'rows' }, ...rows),
-      el('div', { class: 'dim' }, `Open ${node.branches ? 'a branch' : 'an iteration'} to see its result, logs and inputs.`),
-      run.url ? linkButton(`Every ${node.branches ? 'branch' : 'iteration'} in Windmill`, run.url) : null);
+      el('div', { class: 'section-title' }, node.branches ? 'Result of every branch' : 'Result of every iteration'),
+      node.iterations_elided && run.url ? linkButton(`${plural(node.iterations_elided, 'earlier iteration')} in Windmill`, run.url) : null,
+      results.length ? el('div', { class: 'rows' }, ...results) : el('div', { class: 'empty' }, 'None yet'));
   }
 
   function stepDetail() {
@@ -935,7 +960,7 @@
       el('span', { class: `badge ${status ?? ''}` }, LABELS[status] ?? status ?? ''),
       (r?.duration_ms ?? node.duration_ms) != null ? el('span', { class: 'dim' }, formatMs(r?.duration_ms ?? node.duration_ms)) : null,
       url ? linkButton('Open in Windmill', url) : null);
-    if (!node.job_id) return [head, groupPane(node)];
+    if (!node.job_id) return [head, groupPane(node, selected.key)];
     if (!r) return [head, el('div', { class: 'empty' }, spinner(), ' Loading')];
     const active = selected.tab ?? 'result';
     return [head,
@@ -1115,7 +1140,7 @@
     window.clearTimeout(pollTimer);
     window.clearInterval(tickTimer);
     run = null;
-    for (const id of ['step', 'stale', 'error-line', 'result', 'details', 'cancel', 'expand']) $(id).hidden = true;
+    for (const id of ['step', 'stale', 'error-line', 'result', 'details', 'cancel', 'expand', 'deploy']) $(id).hidden = true;
     $('result-more').replaceChildren();
     $('duration').textContent = '';
     $('result-table').replaceChildren();
@@ -1197,60 +1222,85 @@
     return name ? icon(name) : null;
   };
 
-  function reviewItem(workspace, item) {
-    const done = el('span', { class: 'badge success', hidden: !item.deployed }, 'Deployed');
-    const error = el('div', { class: 'form-error', hidden: true });
-    const deploy = el('button', { class: 'primary', type: 'button', hidden: item.digest == null || item.deployed }, icon('save'), 'Deploy');
-    let body = reviewBody(item);
-    const { type, path, trigger_kind } = item;
-    const address = { type, path, ...(trigger_kind ? { trigger_kind } : {}) };
-    deploy.onclick = async () => {
-      setBusy(deploy, true, 'save');
-      error.hidden = true;
-      try {
-        // The draft may have changed since it was shown: what would be deployed is read
-        // again, and a different diff is shown in place of deploying it.
-        const check = await callTool('show_deploy_review', { workspace_id: workspace, items: [address] });
-        const current = check?._meta?.['windmill/review']?.items?.[0];
-        if (!current || current.digest !== item.digest) {
-          Object.assign(item, { patch: undefined, note: undefined, error: undefined, digest: undefined, too_large: undefined }, current ?? { error: 'The draft could not be read again.' });
-          const next = reviewBody(item);
-          body.replaceWith(next);
-          body = next;
-          deploy.hidden = item.digest == null;
-          error.hidden = false;
-          error.textContent = item.digest == null
-            ? 'The draft changed since it was shown, and cannot be deployed from here.'
-            : 'The draft changed since it was shown. Review the diff above, then press Deploy again.';
-          setBusy(deploy, false, 'save');
-          return;
-        }
-        const result = await callTool('deploy_workspace_item', { workspace_id: workspace, ...address });
-        if (result?.isError) throw new Error(textOf(result));
-        item.deployed = true;
-        setBusy(deploy, false, 'save');
-        deploy.hidden = true;
-        done.hidden = false;
-        deployed.push(`${typeLabel(item)} ${item.name ?? item.path}`);
-        request('ui/update-model-context', {
-          content: [{ type: 'text', text: `From the review card, the user deployed: ${deployed.join(', ')}.` }]
-        }).catch(() => {});
-      } catch (e) {
-        error.hidden = false;
-        error.textContent = e?.message || 'The deploy failed.';
-        setBusy(deploy, false, 'save');
+  // As Windmill's Compare & Deploy page: every deployable draft is selected at first, and
+  // one button deploys the selected ones in turn, each showing how it went.
+  const itemKey = (item) => `${item.type}:${item.trigger_kind ?? ''}:${item.path}`;
+  const deployable = (item) => item.digest != null && !item.deployed;
+  const unselected = new Set();
+  let deploying = false;
+  const selectedDrafts = (meta) => meta.items.filter((item) => deployable(item) && !unselected.has(itemKey(item)));
+
+  function reviewItem(item) {
+    const key = itemKey(item);
+    const pick = deployable(item) ? el('input', {
+      type: 'checkbox', checked: !unselected.has(key), disabled: deploying, 'aria-label': `Deploy ${item.name ?? item.path}`,
+      // Only the button follows: a redraw would take the focus off the box.
+      onchange: (e) => {
+        if (e.target.checked) unselected.delete(key); else unselected.add(key);
+        showDeployButton(review);
       }
-    };
+    }) : null;
+    const state = item.deploying ? el('span', { class: 'badge running' }, spinner(), 'Deploying')
+      : item.deployed ? el('span', { class: 'badge success' }, 'Deployed') : null;
     return el('section', { class: 'item' },
       el('div', { class: 'item-head' },
+        pick,
         itemIcon(item),
         el('span', { class: 'grow' }, item.name ?? item.path),
         el('span', { class: 'dim' }, typeLabel(item)),
-        done,
-        item.url ? linkButton(item.editor ? 'Open in editor' : 'Open in Windmill', item.url) : null,
-        deploy),
-      body,
-      error);
+        state,
+        item.url ? linkButton(item.editor ? 'Open in editor' : 'Open in Windmill', item.url) : null),
+      reviewBody(item),
+      item.message ? el('div', { class: 'form-error' }, item.message) : null);
+  }
+
+  function showDeployButton(meta) {
+    const button = $('deploy');
+    const picked = selectedDrafts(meta).length;
+    button.hidden = !fullscreen() || !meta.items.some(deployable);
+    button.disabled = deploying || !picked;
+    button.replaceChildren(deploying ? spinner() : icon('save'), `Deploy ${plural(picked, 'draft')}`);
+  }
+
+  async function deploySelected(meta) {
+    deploying = true;
+    for (const item of selectedDrafts(meta)) {
+      item.deploying = true;
+      item.message = undefined;
+      redraw();
+      try {
+        await deployOne(meta.workspace, item);
+      } catch (e) {
+        item.message = e?.message || 'The deploy failed.';
+      }
+      item.deploying = false;
+      redraw();
+    }
+    deploying = false;
+    redraw();
+  }
+
+  async function deployOne(workspace, item) {
+    const { type, path, trigger_kind } = item;
+    const address = { type, path, ...(trigger_kind ? { trigger_kind } : {}) };
+    // The draft may have changed since it was shown: what would be deployed is read again,
+    // and a different diff is shown in place of deploying it.
+    const check = await callTool('show_deploy_review', { workspace_id: workspace, items: [address] });
+    const current = check?._meta?.['windmill/review']?.items?.[0];
+    if (!current || current.digest !== item.digest) {
+      Object.assign(item, { patch: undefined, note: undefined, error: undefined, digest: undefined, too_large: undefined }, current ?? { error: 'The draft could not be read again.' });
+      item.message = item.digest == null
+        ? 'The draft changed since it was shown, and cannot be deployed from here.'
+        : 'The draft changed since it was shown. Review the diff above, then deploy it again.';
+      return;
+    }
+    const result = await callTool('deploy_workspace_item', { workspace_id: workspace, ...address });
+    if (result?.isError) throw new Error(textOf(result));
+    item.deployed = true;
+    deployed.push(`${typeLabel(item)} ${item.name ?? item.path}`);
+    request('ui/update-model-context', {
+      content: [{ type: 'text', text: `From the review card, the user deployed: ${deployed.join(', ')}.` }]
+    }).catch(() => {});
   }
 
   function summaryRow(item) {
@@ -1284,15 +1334,17 @@
     setHeader({ summary: 'Review before deploying', ws: meta.workspace, kind: n === 1 ? '1 draft' : `${n} drafts`, url: meta.url, kindIcon: 'review' });
     const full = fullscreen();
     showExpand(full);
-    $('review').hidden = full || !canFullscreen() || !meta.items.some((item) => item.digest != null && !item.deployed);
+    $('review').hidden = full || !canFullscreen() || !meta.items.some(deployable);
+    showDeployButton(meta);
     $('body').replaceChildren(...(!n
       ? [el('div', { class: 'step' }, 'No drafts differ from the deployed state.')]
       : full
-        ? meta.items.map((item) => reviewItem(meta.workspace, item))
+        ? meta.items.map(reviewItem)
         : [el('div', { class: 'rows' }, ...meta.items.map(summaryRow))]));
   }
 
   $('review').addEventListener('click', () => setDisplayMode('fullscreen'));
+  $('deploy').addEventListener('click', () => { if (review && !deploying) deploySelected(review); });
 
   function redraw() {
     if (view === 'run' && run) renderRun();
