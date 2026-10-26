@@ -51,7 +51,8 @@ type WorkModeHost = { readonly workMode: AIWorkMode; readonly moving?: boolean }
  * resolves: hiding every editor from a developer while `whoami` is in flight is the worse
  * mistake, and the server refuses an operator anyway. A session held in Use opens no editor: one
  * in a protected workspace, one whose role builds nothing there, or one whose chat is in Use
- * mode — the chat `chat` returns, else the `aiChatManager` context's — and one moving into a fork.
+ * mode — the chat `chat` returns, else the `aiChatManager` context's. One moving into a fork opens
+ * no draft editor until the move ends, so nothing saves a draft in the workspace being left.
  * Reads context and registers an effect: call during component initialisation.
  */
 export function useSessionPermissions(
@@ -66,9 +67,9 @@ export function useSessionPermissions(
 	const readOnly = $derived(
 		protectedWorkspace.current ||
 			!buildsAnything(rights.capabilities) ||
-			host?.workMode === AIWorkMode.USE ||
-			!!host?.moving
+			host?.workMode === AIWorkMode.USE
 	)
+	const moving = $derived(!!host?.moving)
 	const workspaces = fromStore(userWorkspaces)
 	const entry = $derived(workspaces.current.find((w) => w.id === workspace()))
 
@@ -77,11 +78,16 @@ export function useSessionPermissions(
 		get readOnly() {
 			return readOnly
 		},
+		/** The session is moving into a fork: its draft editors stay closed until it ends. */
+		get moving() {
+			return moving
+		},
 		/** Whether this user can save the drafts the `kind` editor writes. */
-		canOpenEditor: (kind: string) => !readOnly && rights.roleCanDraft(kind),
+		canOpenEditor: (kind: string) => !readOnly && !moving && rights.roleCanDraft(kind),
 		/** The same, and this item's own permissions let them write it. */
 		canEditItem: (item: Pick<WorkspaceItem, 'kind' | 'raw_app' | 'path' | 'extraPerms'>) =>
 			!readOnly &&
+			!moving &&
 			rights.canDraftItem(item.raw_app ? 'raw_app' : item.kind, item.path, item.extraPerms),
 		/** Whether the page loads for this user rather than refusing them. */
 		pageAllowed: (page: PreviewPage) =>

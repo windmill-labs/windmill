@@ -424,9 +424,11 @@
 		{:else}
 			<!-- A pipeline has no deployed page, only its editor. -->
 			<div class="flex-1 flex items-center justify-center p-8 text-center text-sm text-secondary">
-				{permissions.readOnly
-					? 'The pipeline editor saves drafts, which a session in Use mode cannot do.'
-					: 'The pipeline editor saves drafts, which your role cannot do in this workspace.'}
+				{permissions.moving
+					? 'The pipeline editor reopens once the session has moved to its fork.'
+					: permissions.readOnly
+						? 'The pipeline editor saves drafts, which a session in Use mode cannot do.'
+						: 'The pipeline editor saves drafts, which your role cannot do in this workspace.'}
 			</div>
 		{/if}
 	</div>
