@@ -273,6 +273,7 @@
 		() => opWorkspace
 	)
 	let deployDialogOpen = $state(false)
+	let deployButton: DeployButton | undefined = $state(undefined)
 	let deployedRunAs: Awaited<ReturnType<typeof fetchDeployedRunAs>> = $state()
 
 	// The AutosaveIndicator watches these; in the sessions preview they're the
@@ -455,6 +456,7 @@
 				labels: $state.snapshot(labels)
 			}
 			sendUserToast('App deployed successfully')
+			deployButton?.clearMessage()
 			// Canonical autosave key (the URL slot `appPath`), NOT the
 			// just-typed deploy `path` — for a draft-only app they differ
 			// (`u/{user}/draft_{uuid}` vs the chosen path), so removing at
@@ -695,6 +697,7 @@
 		version = head?.version
 
 		sendUserToast('App deployed successfully')
+		deployButton?.clearMessage()
 		// Bracketed + flushed (see createApp).
 		if (!inSessionPane && $operatingWorkspace) {
 			discardDraftAfterDeploy({
@@ -1250,6 +1253,7 @@
 		{/snippet}
 	</OpenInSessionButton>
 	<DeployButton
+		bind:this={deployButton}
 		loadingSave={loading.save}
 		loading={app == undefined}
 		on:save={({ detail }) => deploy(detail)}

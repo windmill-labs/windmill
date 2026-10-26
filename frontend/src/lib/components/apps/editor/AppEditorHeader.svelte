@@ -285,6 +285,7 @@
 		() => $workspaceStore
 	)
 	let deployDialogOpen = $state(false)
+	let deployButton: DeployButton | undefined = $state(undefined)
 	let deployedRunAs: Awaited<ReturnType<typeof fetchDeployedRunAs>> = $state()
 
 	// Top-bar responsive collapse — container width, not viewport.
@@ -351,6 +352,7 @@
 				labels: $state.snapshot(labels)
 			}
 			sendUserToast('App deployed successfully')
+			deployButton?.clearMessage()
 			// Remove the autosave at its canonical URL draft key, not the deploy
 			// `path` (they differ for new apps), or the real draft row orphans.
 			// stopSync-bracketed + flushed so AppEditor's mirror can't re-save.
@@ -493,6 +495,7 @@
 		})
 
 		sendUserToast('App deployed successfully')
+		deployButton?.clearMessage()
 		// Canonical autosave key (the URL draft path), not `$appPath` — a
 		// rename leaves the autosave at the original key, so removing at
 		// `$appPath` would miss it. Bracketed + flushed (see createApp).
@@ -1336,6 +1339,7 @@
 			</div>
 		{/if}
 		<DeployButton
+			bind:this={deployButton}
 			loadingSave={loading.save}
 			iconOnly={phoneTopbar}
 			unifiedSize={phoneTopbar ? 'sm' : 'md'}
