@@ -1733,13 +1733,7 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                 .filter_map(|e| e["job_id"].as_str())
                 .last();
             let live = match running {
-                Some(step) => {
-                    let route = ctx.ws(&format!(
-                        "jobs_u/get_logs/{}?remove_ansi_warnings=true",
-                        enc(step)
-                    ));
-                    ctx.request("GET", &route, None).await.ok()
-                }
+                Some(step) => log_tail(ctx, step).await,
                 None => logs.as_ref().ok().cloned(),
             };
             if let Some(line) = live
@@ -1756,6 +1750,22 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         shape_run(id, &job?, logs, &results),
         ctx.page_url(&format!("/run/{}", enc(id)))
     ))
+}
+
+/// The end of a job's log, read without the rest of it: an offset past the end returns
+/// no log but where it ends, and a second read starts just before that. A step's log grows
+/// as long as it runs, and the card asks again on every refresh.
+async fn log_tail(ctx: &Ctx<'_>, job: &str) -> Option<String> {
+    const TAIL_CHARS: i64 = 400;
+    let update = |offset: i64| {
+        ctx.ws(&format!(
+            "jobs_u/getupdate/{}?log_offset={offset}",
+            enc(job)
+        ))
+    };
+    let end = ctx.get(&update(i32::MAX as i64)).await.ok()?["log_offset"].as_i64()?;
+    let tail = ctx.get(&update((end - TAIL_CHARS).max(0))).await.ok()?;
+    tail["new_logs"].as_str().map(str::to_string)
 }
 
 /// The card of one run: what `get_run` hands it, under a one-line answer, since the model

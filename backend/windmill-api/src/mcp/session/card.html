@@ -445,7 +445,8 @@
     const parts = [];
     if (run.steps) {
       // Only the steps that started have a status: the rest are still to come.
-      const done = (run.step_list ?? []).filter((s) => s.step !== 'failure');
+      // The count is the flow's modules: its preprocessor and error handler are not among them.
+      const done = (run.step_list ?? []).filter((s) => s.step !== 'failure' && s.step !== 'preprocessor');
       const segment = (i) => i === run.step - 1 ? 'running'
         : i < run.step - 1 ? (done[i]?.status === 'failure' ? 'failure' : 'success') : '';
       parts.push(el('div', {
