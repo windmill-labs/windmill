@@ -592,6 +592,7 @@
       .map((s) => s.branches ? `${s.step} ran ${plural(s.branches.length, 'branch')}` : `${s.step} ran ${plural(s.iterations, 'iteration')}`);
     const text = [plural(steps.length, 'step'), failedAt ? `failed at ${failedAt.step}` : 'all succeeded', ...groups].join(' \u00b7 ');
     if (canFullscreen()) return el('button', { class: 'more-line', type: 'button', onclick: () => openTab('steps') }, text, icon('maximize'));
+    if (run.url) return el('button', { class: 'more-line', type: 'button', onclick: () => openLink(run.url) }, text, icon('external'));
     return el('div', { class: 'step' }, text);
   }
 
@@ -1092,8 +1093,9 @@
         break;
       }
     }
-    if (hiddenSections.length && canFullscreen()) {
-      blocks.push(el('button', { class: 'more-line', type: 'button', onclick: () => setDisplayMode('fullscreen') }, hiddenSections.join(' \u00b7 '), icon('maximize')));
+    if (hiddenSections.length && (canFullscreen() || url)) {
+      const open = canFullscreen() ? () => setDisplayMode('fullscreen') : () => openLink(url);
+      blocks.push(el('button', { class: 'more-line', type: 'button', onclick: open }, hiddenSections.join(' \u00b7 '), icon(canFullscreen() ? 'maximize' : 'external')));
     }
     $('body').replaceChildren(...blocks.filter(Boolean));
     $('expand').hidden = !canFullscreen() || fullscreen();
