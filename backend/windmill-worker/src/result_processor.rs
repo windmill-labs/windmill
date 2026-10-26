@@ -676,6 +676,7 @@ pub async fn process_result(
                     exit_code: None,
                 }),
             };
+            let error_value = with_job_context(error_value, &job, conn).await;
 
             // Use the structured error message that was just extracted (the
             // user-facing script error) rather than the generic Error string.
@@ -2155,6 +2156,38 @@ pub async fn handle_job_error(
     if let Some(f) = update_job_future {
         let _ = f().await;
     }
+}
+
+/// Fills in `job_id`, `step_id` and `flow_path` on an error object that lacks them. The
+/// language wrappers set these from the job's env, but executors that run in-process
+/// (nativets, SQL, ...) or whose wrapper does not (go, rust, ...) only reach this point.
+async fn with_job_context(
+    error_value: Box<RawValue>,
+    job: &MiniCompletedJob,
+    conn: &Connection,
+) -> Box<RawValue> {
+    let Ok(Value::Object(mut err)) = serde_json::from_str::<Value>(error_value.get()) else {
+        return error_value;
+    };
+    if let Some(step_id) = &job.flow_step_id {
+        err.entry("step_id").or_insert_with(|| json!(step_id));
+    }
+    err.entry("job_id").or_insert_with(|| json!(job.id));
+    if let (false, Some(parent), Connection::Sql(db)) =
+        (err.contains_key("flow_path"), job.parent_job, conn)
+    {
+        let flow_path =
+            sqlx::query_scalar!("SELECT runnable_path FROM v2_job WHERE id = $1", parent)
+                .fetch_optional(db)
+                .await
+                .ok()
+                .flatten()
+                .flatten();
+        if let Some(flow_path) = flow_path {
+            err.insert("flow_path".to_string(), json!(flow_path));
+        }
+    }
+    to_raw_value(&err)
 }
 
 #[derive(Debug, Serialize)]
