@@ -835,6 +835,21 @@
 		createdFolders.filter((f) => f.workspace === $workspaceStore).map((f) => f.name)
 	)
 
+	// Reload from the server whenever an input the endpoint resolves changes: order,
+	// archived/library scope, kind, the selected owner/folder, or entering/leaving
+	// search (see the reload effect below). Only the label filter and fuzzy ranking
+	// stay client-side over the loaded pages, so they don't reload here.
+	let searching = $derived(filter !== '')
+	// Lazy owner tree is active only in the tree when browsing all (no owner selected, no
+	// search, no label filter): every folder AND user shows as a top-level node and paginates
+	// on expand, its items coming from the separate `treeOwnerItems` store. In the flat list,
+	// or with a selected owner / active search / label filter, the lazy store is unused
+	// (reloadItems must not touch it), so this is false and the view reads the global loaded
+	// window instead.
+	let treeLazyMode = $derived(
+		!flatList && !searching && ownerFilter == undefined && labelFilter == undefined
+	)
+
 	let listSettingsItems: MenuItem[] = $derived([
 		{
 			displayName: 'Flat list',
@@ -847,7 +862,8 @@
 			description:
 				'Folders with no scripts, flows, apps, agents or data pipelines. They may still hold resources, variables or schedules.',
 			toggle: hideEmptyFolders,
-			hide: flatList || !canKeepEmptyFolders,
+			// Only the unfiltered tree lists folders it holds no rows of.
+			hide: !treeLazyMode || archived || !canKeepEmptyFolders,
 			action: () => setHideEmptyFolders(!hideEmptyFolders)
 		},
 		{
@@ -1060,20 +1076,6 @@
 				})
 		)
 	})
-	// Reload from the server whenever an input the endpoint resolves changes: order,
-	// archived/library scope, kind, the selected owner/folder, or entering/leaving
-	// search (see the reload effect below). Only the label filter and fuzzy ranking
-	// stay client-side over the loaded pages, so they don't reload here.
-	let searching = $derived(filter !== '')
-	// Lazy owner tree is active only in the tree when browsing all (no owner selected, no
-	// search, no label filter): every folder AND user shows as a top-level node and paginates
-	// on expand, its items coming from the separate `treeOwnerItems` store. In the flat list,
-	// or with a selected owner / active search / label filter, the lazy store is unused
-	// (reloadItems must not touch it), so this is false and the view reads the global loaded
-	// window instead.
-	let treeLazyMode = $derived(
-		!flatList && !searching && ownerFilter == undefined && labelFilter == undefined
-	)
 	// How many runnables each owner (`f/<folder>` / `u/<user>`) holds for this user,
 	// in one request. It labels every tree node up front — a lazy owner's own count is
 	// unknown until it's expanded — and lets both the tree and the owner chips drop the
@@ -1109,8 +1111,11 @@
 	// folders is not empty: its first folder is created from here and managed from its row.
 	// `hideEmptyFolders` yields there: hiding them would bring up the empty-workspace
 	// placeholder, which takes down the settings menu that turns the option back off.
+	// Pipeline members are left out of the counts, but a pipeline folder alone keeps the
+	// placeholder away.
 	let keepEmptyFolders = $derived(
-		canKeepEmptyFolders && (!hideEmptyFolders || workspaceItemCount === 0)
+		canKeepEmptyFolders &&
+			(!hideEmptyFolders || (workspaceItemCount === 0 && visiblePipelineFolders.size === 0))
 	)
 	let treeShowsFolders = $derived(
 		treeLazyMode && !archived && keepEmptyFolders && (folderNamesRes.current?.length ?? 0) > 0
