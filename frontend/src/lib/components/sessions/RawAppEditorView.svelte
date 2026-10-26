@@ -100,7 +100,9 @@
 			files: { ...result.files },
 			runnables: {
 				...result.runnables,
-				...(capabilitiesInWorkspace(workspaceId).apps === 'compose' ? {} : structuredClone(STARTER_RUNNABLES))
+				...(capabilitiesInWorkspace(workspaceId).apps === 'compose'
+					? {}
+					: structuredClone(STARTER_RUNNABLES))
 			},
 			data: result.data,
 			policy: result.policy
@@ -148,11 +150,26 @@
 			if (dp !== undefined) {
 				surfacedDraftPath = true
 				if (val.draft_path !== dp) val.draft_path = dp
-			} else if (surfacedDraftPath && val.draft_path !== undefined) {
+			} else if (
+				surfacedDraftPath &&
+				val.draft_path !== undefined &&
+				// Equal to the saved path, it is not stale: a deploy just moved the app
+				// there. Clearing it would schedule a save of this cell at the old path
+				// that lands after the deploy discarded it, and the moved draft row
+				// would come back on the new path.
+				val.draft_path !== cell.saved.val?.path
+			) {
 				val.draft_path = undefined
 			}
 		})
 	})
+
+	function openFork(forkPath: string) {
+		runtime.previewTabs.open({
+			type: 'item',
+			item: { kind: 'app', raw_app: true, path: forkPath, summary: '' }
+		})
+	}
 
 	async function reloadDeployed() {
 		await runtime.loadRawApp(workspaceId, path, true, true)
@@ -372,6 +389,7 @@
 				{diffDrawer}
 				{onNavigate}
 				onDetails={onSeeDetails}
+				onOpenFork={openFork}
 				condensedHeader={true}
 				onResetToDeployed={reloadDeployed}
 				onDeploy={(e) => runtime.itemDeployed(workspaceId, 'raw_app', path, e.path)}

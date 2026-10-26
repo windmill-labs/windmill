@@ -135,8 +135,8 @@
 	let {
 		initialPath = $bindable(''),
 		/** The draft row's own path (the URL path). Unlike `initialPath`, which the
-		 *  route re-seeds from `draft_path` so the topbar shows the pending name,
-		 *  this stays where the item actually is. */
+		 *  route re-seeds from a draft-only flow's `draft_path` so the topbar shows
+		 *  the pending name, this stays where the item actually is. */
 		userDraftPath = '',
 		onTakeLatest = undefined,
 		pathStoreInit = undefined,
@@ -514,8 +514,7 @@
 			// the draft's `draft_path` so the topbar shows the pending name, which after
 			// someone renames the item still names the old location. Comparing against
 			// that fetches the row left behind there instead of the live one.
-			path: userDraftPath || initialPath,
-			withStarredInfo: true
+			path: userDraftPath || initialPath
 		})
 		// A superseded opening must not write these: the current one would then render
 		// and offer Take latest against the older head.
@@ -1436,18 +1435,17 @@
 			readFieldsRecursively(flowStore.val)
 		}
 	})
-	// Sync `$pathStore` from `flowStore.val.path` (which `initFlow` populates
-	// from the loaded flow — including the draft's rename, when there is one).
-	// This effect only tracks `flowStore.val.path`, so popover edits that go
-	// straight to `$pathStore` don't trigger it and aren't overwritten.
-	// Replaces the previous `$pathStore = initialPath` push (added in #2536 for
-	// the VSCode extension), which silently dropped any draft-renamed path
-	// because `initialPath` is the URL, not the loaded path.
+	// Sync `$pathStore` from the loaded flow: its staged `draft_path` when the
+	// draft has one, else its `path`. Seeding from `path` alone would make the
+	// effect below drop a staged move on every reload, and deploy would then
+	// create at a taken path. Only `flowStore.val.path` is tracked, so popover
+	// edits that go straight to `$pathStore` aren't overwritten.
 	$effect.pre(() => {
 		// `flowStore.val` is typed `OpenFlow` here but `initFlow` actually puts a
 		// `Flow` (with `path`) in it.
-		const p = (flowStore.val as Flow | undefined)?.path
-		if (p) untrack(() => ($pathStore = p))
+		const flow = flowStore.val as (Flow & { draft_path?: string }) | undefined
+		const p = flow?.path
+		if (p) untrack(() => ($pathStore = flow?.draft_path || p))
 	})
 
 	// Persist the user-typed path into the draft JSON as `draft_path`

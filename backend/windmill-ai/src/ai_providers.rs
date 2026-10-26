@@ -213,7 +213,9 @@ impl AIProvider {
             AIProvider::Groq => Ok("https://api.groq.com/openai/v1".to_string()),
             AIProvider::OpenRouter => Ok("https://openrouter.ai/api/v1".to_string()),
             AIProvider::TogetherAI => Ok("https://api.together.xyz/v1".to_string()),
-            AIProvider::Anthropic => Ok("https://api.anthropic.com/v1".to_string()),
+            AIProvider::Anthropic => {
+                Ok(crate::providers::anthropic::ANTHROPIC_API_BASE_URL.to_string())
+            }
             AIProvider::Mistral => Ok("https://api.mistral.ai/v1".to_string()),
             AIProvider::TypeSafe => Ok(TYPESAFE_BASE_URL.to_string()),
             AIProvider::Cloudflare => Err(Error::BadRequest(

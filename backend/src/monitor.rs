@@ -129,6 +129,7 @@ use windmill_object_store::reload_object_store_setting;
 use windmill_queue::{
     add_completed_job_error, cancel_job, canceled_result, get_queued_job_v2,
     schedule::{find_unarmed_schedules, rearm_schedule, RearmOutcome},
+    variable_expiration::dispatch_expiring_variables,
     CanceledBy, MiniCompletedJob, SameWorkerPayload,
 };
 use windmill_store::resources::MAX_RESOURCE_VERSIONS;
@@ -4171,6 +4172,9 @@ pub async fn monitor_db(
                 if let Err(e) = cleanup_flow_iterator_data_orphaned_jobs(&db).await {
                     tracing::error!("Error cleaning up flow_iterator_data: {:?}", e);
                 }
+                if let Err(e) = cleanup_ai_agent_checkpoint_orphaned_jobs(&db).await {
+                    tracing::error!("Error cleaning up ai_agent_checkpoint: {:?}", e);
+                }
             }
         }
     };
@@ -4411,6 +4415,15 @@ pub async fn monitor_db(
         }
     };
 
+    // Run every 5 minutes (10 iterations * 30s)
+    let dispatch_expiring_variables_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
+            if let Some(db) = conn.as_sql() {
+                dispatch_expiring_variables(&db).await;
+            }
+        }
+    };
+
     // run every hour (120 iterations * 30s = 3600s)
     let cleanup_stale_server_heartbeats_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
@@ -4617,6 +4630,7 @@ pub async fn monitor_db(
         native_triggers_sync_f,
         cleanup_notify_events_f,
         check_expiring_tokens_f,
+        dispatch_expiring_variables_f,
         cleanup_stale_server_heartbeats_f,
         manage_audit_partitions_f,
         export_audit_logs_to_object_store_f,
@@ -7714,6 +7728,22 @@ async fn cleanup_job_result_stream_orphaned_jobs(db: &DB) -> error::Result<()> {
     if total > 0 {
         tracing::info!("Cleaned up {total} orphaned job_result_stream_v2 rows");
         vacuum_after_sweep(db, "job_result_stream_v2").await;
+    }
+    Ok(())
+}
+
+/// A parked agent cancelled from outside, or a worker that died mid-segment, never deletes its
+/// checkpoint itself.
+async fn cleanup_ai_agent_checkpoint_orphaned_jobs(db: &DB) -> error::Result<()> {
+    let deleted = sqlx::query(
+        "DELETE FROM ai_agent_checkpoint c
+         WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = c.job_id)",
+    )
+    .execute(db)
+    .await?
+    .rows_affected();
+    if deleted > 0 {
+        tracing::info!("Cleaned up {deleted} orphaned ai_agent_checkpoint rows");
     }
     Ok(())
 }

@@ -104,7 +104,7 @@ pub(crate) async fn connection_snapshot(
                     continue;
                 }
                 let row: Option<(String, bool)> = sqlx::query_as(
-                    "SELECT value, is_secret FROM variable WHERE workspace_id = $1 AND path = $2",
+                    "SELECT value::text, is_secret FROM variable WHERE workspace_id = $1 AND path = $2",
                 )
                 .bind(w_id)
                 .bind(var)
