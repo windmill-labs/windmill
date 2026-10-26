@@ -261,10 +261,12 @@ fn inline_args(alias: &str) -> String {
     )
 }
 
-/// When the run `{id}` started, or NULL before it does. Every run inside it is created after
-/// that, but a scheduled run is created a whole period before it starts, so its creation time
-/// is no bound. A queued workflow-as-code run's `started_at` is its current segment's; its first
-/// start is in `extras`. The queue and completed rows carry no row-level security: this also
+/// When the run `{id}` started, or NULL before it does: a group's count is exact when its
+/// top-level run started after the oldest run the list's window read. Its creation time would
+/// leave a scheduled run's group inexact, since that run is created a whole period before it
+/// starts. A queued workflow-as-code run's `started_at` is its current segment's; its first
+/// start is in `extras`. After a zombie recovery it is the latest pull's, which can mark a
+/// group exact too early. The queue and completed rows carry no row-level security: this also
 /// works for a run the viewer cannot read.
 fn run_start(id: &str) -> String {
     format!(
@@ -790,7 +792,11 @@ pub(crate) async fn list_inside(
     top_run: Uuid,
 ) -> Result<Vec<Input>> {
     let categories: Vec<&str> = q.started_by.iter().map(|c| c.as_str()).collect();
-    // The latest CAP runs since `top_run` started hold every run the list's window can count.
+    // The latest CAP runs since `top_run` was created hold every run the list's window can
+    // count. Its creation time is the bound that holds whatever happened since: its start is
+    // stamped again after a zombie recovery and on each workflow-as-code segment. The queue row
+    // has no row-level security, for a queued run the viewer cannot read; a completed one leaves
+    // the read unbounded, which the LIMIT still caps.
     // Only a script run has native retries, and a flow can have a loop's worth of children.
     let retry_gate = match q.runnable_type {
         RunnableType::FlowPath => "AND false",
@@ -801,9 +807,10 @@ pub(crate) async fn list_inside(
             (SELECT id FROM v2_job \
              WHERE workspace_id = $2 AND runnable_path = $1 AND parent_job IS NOT NULL \
                AND kind = {inside_kind} \
-               AND created_at >= COALESCE({start}, \
+               AND created_at >= COALESCE(\
                    (SELECT created_at FROM v2_job WHERE id = $4 AND workspace_id = $2), \
-                   (SELECT created_at FROM v2_job_queue WHERE id = $4 AND workspace_id = $2)) \
+                   (SELECT created_at FROM v2_job_queue WHERE id = $4 AND workspace_id = $2), \
+                   '-infinity') \
              ORDER BY created_at DESC LIMIT $7) \
             UNION \
             SELECT x.id FROM v2_job x JOIN native_retry_attempt n ON n.job_id = x.id \
@@ -848,7 +855,6 @@ pub(crate) async fn list_inside(
         classify = classify_inside(q.runnable_type),
         state = run_state("s"),
         args = inline_args("s"),
-        start = run_start("$4"),
     );
     let rows = sqlx::query_as::<_, InsideRow>(&sql)
         .bind(q.path)
