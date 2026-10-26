@@ -12,7 +12,7 @@ use sqlx::FromRow;
 use windmill_common::{
     auth::{hash_token, TOKEN_PREFIX_LEN},
     error::{Error, Result},
-    global_settings::mcp_public_base_url,
+    global_settings::mcp_base_url,
     min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH,
     utils::rd_string,
     BASE_URL, DB,
@@ -1034,7 +1034,7 @@ pub async fn gateway_oauth_metadata() -> Json<AuthorizationMetadata> {
     Json(build_oauth_metadata(
         "/api/mcp/gateway/oauth/server",
         &base_url,
-        &mcp_public_base_url(),
+        &mcp_base_url(),
     ))
 }
 
@@ -1042,7 +1042,7 @@ pub async fn gateway_protected_resource_metadata() -> Json<ProtectedResourceMeta
     Json(build_protected_resource_metadata(
         "/api/mcp/gateway",
         "/api/mcp/gateway/oauth/server",
-        &mcp_public_base_url(),
+        &mcp_base_url(),
     ))
 }
 
@@ -1051,7 +1051,7 @@ pub async fn gateway_session_protected_resource_metadata() -> Json<ProtectedReso
     Json(build_protected_resource_metadata(
         "/api/mcp",
         "/api/mcp/gateway/oauth/server",
-        &mcp_public_base_url(),
+        &mcp_base_url(),
     ))
 }
 

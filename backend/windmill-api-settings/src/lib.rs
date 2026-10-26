@@ -63,18 +63,18 @@ use windmill_common::{
     error::{self, pg_error_message, JsonResult, Result},
     get_database_url,
     global_settings::{
-        ACCENT_COLOR_SETTING, AI_CONFIG_SETTING, API_BASE_URL_SETTING,
-        APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
+        ACCENT_COLOR_SETTING, AI_CONFIG_SETTING, API_BASE_URL_APPLIES_TO_SETTING,
+        API_BASE_URL_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS, EXTERNAL_INSTANCE_PG_SETTING,
         GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
         INSTANCE_BANNER_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
         MAX_TOKEN_EXPIRATION_DAYS_SETTING, MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING,
-        MCP_PUBLIC_BASE_URL_SETTING, RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING,
-        UNIQUE_ID_SETTING, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING,
-        WORKSPACE_FAIRNESS_ENABLED_SETTING, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING,
-        WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING, WORKSPACE_ROLES_SETTING, WS_BASE_URL_SETTING,
+        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING, UNIQUE_ID_SETTING,
+        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
+        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
+        WORKSPACE_ROLES_SETTING, WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
@@ -1247,9 +1247,7 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
-        GITHUB_APP_WEBHOOK_BASE_URL_SETTING
-        | API_BASE_URL_SETTING
-        | MCP_PUBLIC_BASE_URL_SETTING => {
+        GITHUB_APP_WEBHOOK_BASE_URL_SETTING | API_BASE_URL_SETTING => {
             // A bad webhook base yields a webhook GitHub can never deliver to, and the
             // failure only shows up much later as "falling back to polling" on a
             // repository; a bad API base puts an unreachable URL in front of every user.
@@ -1268,6 +1266,10 @@ async fn run_setting_pre_write_hook(
                     )));
                 }
             }
+        }
+        API_BASE_URL_APPLIES_TO_SETTING if !value.is_null() => {
+            windmill_common::global_settings::validate_api_base_url_applies_to(value)
+                .map_err(|e| error::Error::BadRequest(format!("{key}: {e}")))?;
         }
         MAX_TOKEN_EXPIRATION_DAYS_SETTING => {
             windmill_common::global_settings::parse_max_token_expiration_days(Some(value))
@@ -1484,7 +1486,6 @@ pub async fn get_global_setting(
         // would be refused, and they are usually not a superadmin. Not a secret: pointing
         // any MCP client at the instance discovers the same answer.
         && key != MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING
-        && key != MCP_PUBLIC_BASE_URL_SETTING
     {
         require_super_admin(&db, &authed).await?;
     }

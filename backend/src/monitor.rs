@@ -54,7 +54,8 @@ use windmill_common::{
     error,
     flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
-        get_or_create_jwt_secret, load_value_from_global_settings,
+        get_or_create_jwt_secret, load_value_from_global_settings, API_BASE_URL,
+        API_BASE_URL_APPLIES_TO_MCP, API_BASE_URL_APPLIES_TO_SETTING, API_BASE_URL_SETTING,
         AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
         BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CONCURRENCY_KEY_MAX_QUEUED_SETTING,
         CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
@@ -67,12 +68,12 @@ use windmill_common::{
         FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
         HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
-        MCP_DISABLE_TOKEN_QUERY_PARAM, MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING, MCP_PUBLIC_BASE_URL,
-        MCP_PUBLIC_BASE_URL_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPMRC_SETTING,
-        NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING,
-        NUGET_CONFIG_SETTING, OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING,
-        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
-        POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        MCP_DISABLE_TOKEN_QUERY_PARAM, MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+        NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING, NUGET_CONFIG_SETTING,
+        OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING, OTEL_TRACING_PROXY_SETTING,
+        PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
+        PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
         SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
@@ -310,8 +311,11 @@ pub async fn initial_load(
             false,
             |v| async move { apply_mcp_disable_token_query_param(v) },
         );
-        pass.setting(MCP_PUBLIC_BASE_URL_SETTING, false, |v| async move {
-            apply_mcp_public_base_url(v)
+        pass.setting(API_BASE_URL_SETTING, false, |v| async move {
+            apply_api_base_url(v)
+        });
+        pass.setting(API_BASE_URL_APPLIES_TO_SETTING, false, |v| async move {
+            apply_api_base_url_applies_to(v)
         });
         pass.setting(DEFAULT_TAGS_PER_WORKSPACE_SETTING, false, |v| async move {
             apply_tag_per_workspace_enabled(v)
@@ -1742,20 +1746,36 @@ pub fn apply_mcp_disable_token_query_param(value: Option<serde_json::Value>) {
     };
 }
 
-pub async fn load_mcp_public_base_url(db: &DB) {
-    match load_value_from_global_settings(db, MCP_PUBLIC_BASE_URL_SETTING).await {
-        Ok(v) => apply_mcp_public_base_url(v),
-        Err(e) => tracing::error!("Error loading mcp_public_base_url setting: {e:#}"),
+pub async fn load_api_base_url(db: &DB) {
+    match load_value_from_global_settings(db, API_BASE_URL_SETTING).await {
+        Ok(v) => apply_api_base_url(v),
+        Err(e) => tracing::error!("Error loading api_base_url setting: {e:#}"),
     };
 }
 
-pub fn apply_mcp_public_base_url(value: Option<serde_json::Value>) {
+pub fn apply_api_base_url(value: Option<serde_json::Value>) {
     let url = match value {
         Some(serde_json::Value::String(s)) => s.trim().trim_end_matches('/').to_string(),
         None => String::new(),
         _ => return,
     };
-    MCP_PUBLIC_BASE_URL.store(Arc::new(url));
+    API_BASE_URL.store(Arc::new(url));
+}
+
+pub async fn load_api_base_url_applies_to(db: &DB) {
+    match load_value_from_global_settings(db, API_BASE_URL_APPLIES_TO_SETTING).await {
+        Ok(v) => apply_api_base_url_applies_to(v),
+        Err(e) => tracing::error!("Error loading api_base_url_applies_to setting: {e:#}"),
+    };
+}
+
+pub fn apply_api_base_url_applies_to(value: Option<serde_json::Value>) {
+    let mcp = match value {
+        Some(serde_json::Value::Array(items)) => items.iter().any(|i| i.as_str() == Some("mcp")),
+        None => true,
+        _ => return,
+    };
+    API_BASE_URL_APPLIES_TO_MCP.store(mcp, Ordering::Relaxed);
 }
 
 struct LogFile {

@@ -502,9 +502,10 @@
 		const categorySettings = getSettingsForCategory(category)
 		const obj: Record<string, any> = {}
 		for (const s of categorySettings) {
-			const normalized = normalizeValue(vals[s.key], s.key)
-			if (normalized !== undefined) {
-				obj[s.key] = vals[s.key]
+			for (const key of [s.key, ...(s.companionKeys ?? [])]) {
+				if (normalizeValue(vals[key], key) !== undefined) {
+					obj[key] = vals[key]
+				}
 			}
 		}
 		if (category === 'Auth/OAuth/SAML') {

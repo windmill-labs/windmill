@@ -678,7 +678,7 @@ pub async fn add_www_authenticate_header_gateway(
     if response.status() == StatusCode::UNAUTHORIZED {
         let resource_url = format!(
             "{}{}",
-            windmill_common::global_settings::mcp_public_base_url(),
+            windmill_common::global_settings::mcp_base_url(),
             endpoint
         );
         let www_authenticate = format!("Bearer resource=\"{}\"", resource_url);

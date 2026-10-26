@@ -291,7 +291,7 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mcp_public_base_url: Option<String>,
+    pub api_base_url_applies_to: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email_domain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1474,7 +1474,7 @@ pub fn diff_worker_configs(
 }
 
 /// Declaratively replace the global settings, rejecting a
-/// `github_app_webhook_base_url`, `api_base_url`, `mcp_public_base_url` or
+/// `github_app_webhook_base_url`, `api_base_url`, `api_base_url_applies_to` or
 /// `http_route_default_allowed_origins` the API would reject.
 ///
 /// Every declarative writer (the `sync-config` CLI, the Kubernetes operator's
@@ -1505,7 +1505,6 @@ pub async fn sync_global_settings_declarative(
     for url_key in [
         crate::global_settings::GITHUB_APP_WEBHOOK_BASE_URL_SETTING,
         crate::global_settings::API_BASE_URL_SETTING,
-        crate::global_settings::MCP_PUBLIC_BASE_URL_SETTING,
     ] {
         // Non-string shapes are rejected rather than ignored: `as_str()` alone would let a
         // bool/number/object through as if the key were absent, and the diff below would
@@ -1533,6 +1532,13 @@ pub async fn sync_global_settings_declarative(
                 ));
             }
         }
+    }
+
+    let applies_to_key = crate::global_settings::API_BASE_URL_APPLIES_TO_SETTING;
+    match desired.get(applies_to_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(v) => crate::global_settings::validate_api_base_url_applies_to(v)
+            .map_err(|e| anyhow::anyhow!("{applies_to_key}: {e}"))?,
     }
 
     let banner_key = crate::global_settings::INSTANCE_BANNER_SETTING;

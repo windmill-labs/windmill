@@ -18,12 +18,3 @@ export async function mcpTokenUrlDisabled(): Promise<boolean> {
 		})) as boolean | null) ?? false
 	)
 }
-
-/**
- * The `mcp_public_base_url` instance setting, when set: the host the server's MCP OAuth
- * metadata names, which an MCP URL must be on for a client to accept that metadata.
- */
-export async function mcpPublicBaseUrl(): Promise<string | undefined> {
-	const value = await SettingService.getGlobal({ key: 'mcp_public_base_url' })
-	return typeof value === 'string' && value.trim() ? value.trim() : undefined
-}
