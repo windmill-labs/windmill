@@ -38,7 +38,7 @@
 	{iconOnly}
 	title="Deploy"
 	startIcon={{ icon: Save }}
-	on:click={() => dispatch('save')}
+	on:click={() => dispatch('save', deploymentMsg)}
 	{dropdownItems}
 	tooltipPopover={{
 		placement: 'bottom-end',
