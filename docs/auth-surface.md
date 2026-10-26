@@ -52,8 +52,9 @@ Symbols, not line numbers, are cited: they drift less.
   with that reader's permissions, outside the folder too. `ai_skill` bodies are likewise in play
   for every reader until turned off. An `ai_review_instruction` steers the AI review of every
   deployment request touching its folder, for anyone who can read it in the parent workspace
-  (`deploymentRequest/aiReview.ts`), up to the floor that secrets and unintended deletions are
-  always reported; a fork's own copy is never read. The resource ACL is the only
+  (`deploymentRequest/aiReview.ts`); a fork's own copy is never read. The prompt tells the model to
+  keep reporting secrets and unintended deletions whatever they say, but that is a request to the
+  model, not enforcement: an instruction body can still talk it out of them. The resource ACL is the only
   control, so granting write on a folder grants that influence.
 - **Restricted job tokens** (`job_token_scopes` on scripts and flows): a job's effective scopes
   are stored on its `job_perms` row at push and minted into its token
