@@ -369,9 +369,14 @@ export async function getDraftDiffValues(
 			throw new Error(`Draft diff not supported for kind ${kind}`)
 		}
 		const { deployed, draft, hasDraft, noDeployed } = splitOverlay(await getter(workspace, path))
+		// The agent editor's draft of a deployed agent omits its type, which deploying keeps.
+		const draftWithType =
+			kind === 'resource' && draft && !draft.resource_type && deployed?.resource_type
+				? { ...draft, resource_type: deployed.resource_type }
+				: draft
 		return {
 			deployed: draftOnly ? {} : canonicalizeDraftDiffValue(kind, deployed, false),
-			draft: canonicalizeDraftDiffValue(kind, draft, true),
+			draft: canonicalizeDraftDiffValue(kind, draftWithType, true),
 			hasDraft,
 			noDeployed
 		}
