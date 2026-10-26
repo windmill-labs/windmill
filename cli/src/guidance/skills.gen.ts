@@ -6842,7 +6842,7 @@ An app can be demoed by recording a session: every interaction becomes a step ca
 
 Apply it to customer data, internal notes and anything else a viewer of the demo should not see. It costs nothing when the app is never recorded.
 
-### Chat UIs over a flow in chat mode
+### Chat UIs over a flow in chat mode or a saved agent
 
 A flow deployed with chat mode on is a chat backend (streaming answer, tool calls, memory, conversation history). Do not drive it through a runnable: add \`@windmill-labs/chat-sdk\` to \`package.json\` and use it directly, it detects the app's Windmill and credential.
 
@@ -6855,9 +6855,31 @@ const chat = useWindmillChat({ flowPath: 'f/support/assistant' })
 
 \`@windmill-labs/chat-sdk/ai-sdk\` gives a \`ChatTransport\` for the Vercel AI SDK's \`useChat\`, \`@windmill-labs/chat-sdk/assistant-ui\` a runtime for assistant-ui. The flow must be deployed, not a draft. A sandboxed app needs \`jobs:run\` in its frontend SDK scopes, plus \`flow_conversations:write\` for the conversation sidebar; without them the chat keeps history in the browser.
 
+#### A saved agent: an \`agent\` runnable
+
+Chat with a saved AI agent (an \`ai_agent\` resource) through an \`agent\` runnable, a path runnable whose \`path\` is the agent's. Each call runs one turn of the agent's chat as the app, so a sandboxed app declares no frontend SDK scope, viewers get no consent prompt and need no access to the agent. Prefer it in every app, sandboxed or not:
+
+In \`raw_app.yaml\`:
+
+\`\`\`yaml
+runnables:
+  chat:
+    type: agent
+    path: f/support/agent
+\`\`\`
+
+\`\`\`tsx
+import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
+import * as wmill from './wmill'
+
+const chat = useWindmillChat({ wmill, runnable: 'chat' })
+\`\`\`
+
+\`runnable\` is the runnable's key; each runnable keeps its own conversations. The runnable takes \`user_message\` and \`memory_id\`, the conversation id, which the chat fills in: the agent remembers earlier turns of a conversation, and a signed-in viewer's conversations are theirs alone. Called directly as \`backend.<key>({ user_message })\` without \`memory_id\`, it is a single run with no conversation, for a one-off question. The chat needs an agent with managed memory. An agent whose memory is off keeps none: its runnable takes \`previous_messages\` (chat messages) instead of \`memory_id\`, and the app keeps the history itself. The chat keeps its transcript in the app's own storage. \`chat.stop()\` stops following without cancelling the turn, and a message sent while it still runs is refused with \`TurnRunningError\`. Attachments are not supported this way.
+
 ## Backend runnables
 
-Each runnable has a unique key (used to call it from the frontend) and one of four types:
+Each runnable has a unique key (used to call it from the frontend) and one of five types:
 
 | Type | What it is |
 |---|---|
@@ -6865,6 +6887,7 @@ Each runnable has a unique key (used to call it from the frontend) and one of fo
 | \`script\` | Reference to an existing workspace script by path. |
 | \`flow\` | Reference to an existing workspace flow by path. |
 | \`hubscript\` | Reference to a hub script by path. |
+| \`agent\` | Reference to a saved AI agent by path. Each call is one turn of its chat (see the chat section above). |
 
 ### Inline runnables
 
@@ -6906,9 +6929,9 @@ An inline runnable runs as an ordinary Windmill job. \`import * as wmill from 'w
 
 Use only \`wmill\` functions the SDK actually exports; for an endpoint none of them covers, the generated service classes (\`JobService\`, \`ScriptService\`, ...) are importable from \`windmill-client\`. What is not available is a name you guessed at: \`getBaseUrl\` and \`getWorkspaceToken\` are inventions, not API.
 
-### Path runnables (script / flow / hubscript)
+### Path runnables (script / flow / hubscript / agent)
 
-When \`type\` is \`script\`, \`flow\`, or \`hubscript\`, the runnable just stores a \`path\` to an existing workspace or hub item — no inline code. The referenced item's input/output schema becomes the runnable's surface.
+When \`type\` is \`script\`, \`flow\`, \`hubscript\` or \`agent\`, the runnable just stores a \`path\` to an existing workspace or hub item — no inline code. The referenced item's input/output schema becomes the runnable's surface; an agent's is \`user_message\` and \`user_attachments\`, plus \`memory_id\` when the agent keeps managed memory or \`previous_messages\` when its memory is off.
 
 Before writing an inline runnable, look for a workspace script or flow that already does the job, or a Hub script (a prebuilt integration at \`hub/<version>/<app>/<name>\`) for a third-party service, and reference it instead of copying its logic.
 
@@ -6917,7 +6940,7 @@ Before writing an inline runnable, look for a workspace script or flow that alre
 This decides whether an app works before anything is deployed:
 
 - **Inline runnables run the app's current code.** The editor sends the runnable's source with each request, so an inline runnable works in the preview with nothing deployed.
-- **Path runnables (\`script\` / \`flow\` / \`hubscript\`) run the DEPLOYED item at that path.** So do \`wmill.runFlow\`, \`wmill.runFlowAsync\` and \`wmill.runScriptByPath\` called from inside a runnable. A draft — including a draft you just created — does not exist for them.
+- **Path runnables (\`script\` / \`flow\` / \`hubscript\` / \`agent\`) run the DEPLOYED item at that path.** So do \`wmill.runFlow\`, \`wmill.runFlowAsync\` and \`wmill.runScriptByPath\` called from inside a runnable. A draft — including a draft you just created — does not exist for them.
 
 So an app wired to a flow you just wrote does nothing until **that flow is deployed**. The app itself does NOT have to be deployed for this: the preview runs the app's draft, so the referenced flow is the only thing that has to exist deployed.
 
@@ -7027,7 +7050,7 @@ def main(user_id: str):
 7. **Mark sensitive UI with \`data-wm-no-record\`** — it is what keeps that data out of a recorded demo; passwords are handled for you.
 8. **Reach for \`backendAsync\` + \`waitJob\`** for long work — never a hand-written job-polling runnable.
 9. **Deploy what a path runnable points at** — a path runnable aimed at a draft fails at runtime; tell the user what needs deploying.
-10. **Use \`@windmill-labs/chat-sdk\` for a chat over a chat-mode flow** — never a runnable that runs the flow and polls its stream.
+10. **Use \`@windmill-labs/chat-sdk\` for a chat over a chat-mode flow or a saved agent** — never hand-roll a runnable that runs it and polls its stream; a saved agent is an \`agent\` runnable passed as \`{ wmill, runnable }\`.
 `,
   "triggers": `---
 name: triggers
@@ -8344,7 +8367,7 @@ write a secret you were not given: keep the placeholder.
 | \`ai_config\` | Providers, default and completion models, custom prompts, \`copilot_disabled\`. |
 | \`large_file_storage\` | Workspace object storage: \`{ type, s3_resource_path \\| azure_blob_resource_path \\| gcs_resource_path, public_resource?, secondary_storage?, advanced_permissions? }\`. |
 | \`git_sync\` | \`{ repositories: [...] }\`, each with \`git_repo_resource_path\`, \`script_path\` and \`settings\` (include/exclude paths and types). Server-owned fields (webhook secrets, sync state, credentials) are never read nor written. |
-| \`datatable\` | \`{ datatables: { <name>: { database: { resource_type, resource_path? } } } }\`. Role permissions are \`datatable_permissions\`. |
+| \`datatable\` | \`{ datatables: { <name>: { database: { resource_type, resource_path } } } }\`, both required: \`resource_type: postgresql\` with \`resource_path\` a Postgres resource's path, or \`instance\`, or \`external_instance\` (Enterprise only), with \`resource_path\` the name of a database a superadmin set up. A fork's entry can instead be \`{ reference: { workspace_id, datatable } }\`, pointing at its parent's data table; keep it as is. \`main\` is the one scripts use by default. Role permissions are \`datatable_permissions\`. |
 | \`datatable_permissions\` | \`{ <data table>: { default_role, roles: { <role>: [tenants] } } }\`: who may connect to each data table as which role. Tenants are \`u/<user>\`, \`g/<group>\`, \`f/<folder>\` or \`*\`; \`admin\` is always a role, and \`default_role: null\` means no default. A data table the value omits is no longer under roles. Only a data table on a cluster Windmill manages can be. |
 | \`protection_rules\` | \`{ <rule name>: { rules: [...], bypass_groups: [...], bypass_users: [...] } }\`, rules among \`DisableDirectDeployment\`, \`DisableWorkspaceForking\`, \`RestrictDeployToDeployers\`, \`RestrictAnonymousAppDeployment\`, \`RestrictPublicRunSharing\`, \`RestrictGuestAppDeployment\`, \`RequireIsolatedForks\`. A rule the value omits is deleted. The dev workspace lock is not listed and cannot be set here. |
 | \`ducklake\` | \`{ ducklakes: { <name>: { catalog, storage, ... } } }\`. |

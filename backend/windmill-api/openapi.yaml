@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.846.1
+  version: 1.849.0
   title: Windmill API
 
   contact:
@@ -4366,6 +4366,8 @@ paths:
                     $ref: "#/components/schemas/ErrorHandlerConfig"
                   success_handler:
                     $ref: "#/components/schemas/SuccessHandlerConfig"
+                  variable_expiration_handler:
+                    $ref: "#/components/schemas/VariableExpirationHandlerConfig"
                   large_file_storage:
                     $ref: "#/components/schemas/LargeFileStorage"
                   ducklake:
@@ -5424,6 +5426,29 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/EditErrorHandler"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/edit_variable_expiration_handler:
+    post:
+      summary: edit variable expiration handler
+      operationId: editVariableExpirationHandler
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: WorkspaceVariableExpirationHandler
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditVariableExpirationHandler"
       responses:
         "200":
           description: status
@@ -8837,6 +8862,11 @@ paths:
                   type: string
                 state:
                   type: string
+                params:
+                  type: object
+                  description: The callback URL's other query params, which the provider's `connect_fields` may read (QuickBooks' `realmId`)
+                  additionalProperties:
+                    type: string
               required:
                 - code
                 - state
@@ -15741,6 +15771,10 @@ paths:
                 value: {}
                 policy:
                   $ref: "#/components/schemas/Policy"
+                execution_mode:
+                  type: string
+                  enum: [viewer, publisher, guest, anonymous]
+                  description: "Changes who may open the app and leaves the rest of the deployed policy, its run-as user included, as it is. Applied under the same lock as a deploy, so neither overwrites the other. Cannot be sent with `policy`, which states its own mode. When the app runs as another user, refused to a caller who is neither an admin nor in 'wm_deployers', and to an operator with builder rights even in 'wm_deployers'; they change the mode by deploying."
                 deployment_message:
                   type: string
                 custom_path:
@@ -17105,6 +17139,12 @@ paths:
                 user_message:
                   type: string
                 user_attachments:
+                  type: array
+                  items: {}
+                previous_messages:
+                  description: |
+                    The history to answer from, as chat messages, when the agent's memory is off.
+                    An agent with managed memory reads its conversation instead and ignores this.
                   type: array
                   items: {}
       responses:
@@ -24643,6 +24683,56 @@ paths:
                 items:
                   $ref: "#/components/schemas/AutoscalingEvent"
 
+  /configs/test_autoscaling/{worker_group}:
+    post:
+      summary: Run an autoscaling integration once for a worker group, without recording an autoscaling event
+      operationId: testAutoscaling
+      tags:
+        - config
+      parameters:
+        - name: worker_group
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                desired_workers:
+                  type: integer
+                  minimum: 0
+                integration:
+                  description: The integration to run, as in the worker group's autoscaling config
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      enum: [script, kubernetes, dryrun]
+                    path:
+                      type: string
+                    tag:
+                      type: string
+                  required:
+                    - type
+              required:
+                - desired_workers
+                - integration
+      responses:
+        "200":
+          description: The job queued for a script integration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                    nullable: true
+
   /configs/native_kubernetes_autoscaling_healthcheck:
     get:
       summary: Check Kubernetes autoscaling health for a worker group
@@ -29767,6 +29857,45 @@ components:
           type: boolean
           default: false
 
+    EditVariableExpirationHandler:
+      type: object
+      description: >
+        Request body for editing the workspace variable expiration handler. Omit
+        `path` (or send null) to unset the handler.
+      properties:
+        path:
+          type: string
+          nullable: true
+          description: Path to the variable expiration handler script or flow
+        extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        muted_on_user_path:
+          type: boolean
+          description: Do not run the handler for variables on a personal (u/) path
+        notify_before_secs:
+          type: integer
+          minimum: 0
+          description: How long before a variable's value expires the handler runs. 1 day when omitted.
+        remind_every_secs:
+          type: integer
+          minimum: 0
+          description: Run the handler again at this interval until the value expires. No reminders when omitted or 0.
+
+    VariableExpirationHandlerConfig:
+      type: object
+      description: Workspace variable expiration handler configuration
+      properties:
+        path:
+          type: string
+        extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        muted_on_user_path:
+          type: boolean
+        notify_before_secs:
+          type: integer
+        remind_every_secs:
+          type: integer
+
     EditSuccessHandler:
       description: Request body for editing the workspace success handler. Accepts both new grouped format and legacy flat format for backward compatibility.
       oneOf:
@@ -32548,6 +32677,10 @@ components:
         expires_at:
           type: string
           format: date-time
+        value_valid_until:
+          type: string
+          nullable: true
+          format: date-time
         labels:
           type: array
           items:
@@ -32624,7 +32757,18 @@ components:
           description: Whether the variable is an OAuth variable
         expires_at:
           type: string
-          description: The expiration date of the variable
+          description: >
+            When to garbage-collect the variable. Used for ephemeral secrets;
+            the variable is deleted once this is reached. Not the value's expiry
+            — see value_valid_until.
+          format: date-time
+        value_valid_until:
+          type: string
+          description: >
+            When the value stored in this variable stops working. Triggers the
+            workspace's variable expiration handler ahead of it, by the handler's
+            `notify_before_secs` (1 day by default); never causes the variable
+            to be deleted.
           format: date-time
         labels:
           type: array
@@ -32653,6 +32797,14 @@ components:
         description:
           type: string
           description: The new description of the variable
+        value_valid_until:
+          type: string
+          nullable: true
+          description: >
+            When the value stored in this variable stops working. Omit to leave
+            it unchanged; send null to clear it. Changing it re-arms the
+            workspace's variable expiration handler.
+          format: date-time
         labels:
           type: array
           items:
@@ -32760,6 +32912,7 @@ components:
             - "workspaces.edit_webhook"
             - "workspaces.edit_copilot_config"
             - "workspaces.edit_error_handler"
+            - "workspaces.edit_variable_expiration_handler"
             - "workspaces.create"
             - "workspaces.update"
             - "workspaces.archive"
@@ -37869,6 +38022,13 @@ components:
             type: string
         grant_type:
           type: string
+        resource_fields:
+          type: object
+          additionalProperties: {}
+          description: >
+            Resource fields the provider's `connect_fields` picked on connect
+            (Salesforce's instance_url, Docusign's account_id and base_uri,
+            QuickBooks' realmId), for the connect dialog to prefill.
 
       required:
         - access_token

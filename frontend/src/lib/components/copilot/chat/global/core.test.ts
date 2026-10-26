@@ -1370,6 +1370,40 @@ describe('global AI tools', () => {
 		expect(localStorageSnapshot()).not.toContain('new-secret-token')
 	})
 
+	// The draft has no null, so a cleared expiry must deploy as an explicit one.
+	it('clears a variable value expiry through to the deploy body', async () => {
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'f/secrets/api_key',
+			value: 'tok',
+			is_secret: false,
+			description: 'd',
+			value_valid_until: '2027-03-15T08:30:00Z'
+		} as any)
+
+		await callGlobalTool('write_variable', {
+			path: 'f/secrets/api_key',
+			value_valid_until: null
+		})
+
+		expect(
+			getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
+				?.value_valid_until
+		).toBeUndefined()
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'variable',
+			path: 'f/secrets/api_key'
+		})
+
+		expect(VariableService.updateVariable).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestBody: expect.objectContaining({ value_valid_until: null })
+			})
+		)
+	})
+
 	// '' means "no value staged", so there is nothing to create the secret with.
 	it('does not create a secret variable draft that stages no value', async () => {
 		seedBackendDraft(
@@ -2546,6 +2580,38 @@ describe('global AI tools', () => {
 		expect(asPath.type).toBe('path')
 		expect(asPath.runType).toBe('flow')
 		expect(asPath.inlineScript).toBeUndefined()
+	})
+
+	// A static input is pinned by the deployed policy: carried into an agent runnable, it would
+	// replace every viewer's message.
+	it('drops inherited static inputs when a runnable becomes an agent', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/agent_conv_app',
+			{ summary: 'Converted', files: {}, runnables: {}, data: { tables: [] } },
+			{ workspace: WORKSPACE }
+		)
+		await callGlobalTool('write_app_runnable', {
+			path: 'u/admin/agent_conv_app',
+			key: 'chat',
+			runnable: {
+				name: 'Run the flow',
+				type: 'flow',
+				path: 'u/admin/hello_flow',
+				staticInputs: { user_message: 'pinned' }
+			}
+		})
+		await callGlobalTool('write_app_runnable', {
+			path: 'u/admin/agent_conv_app',
+			key: 'chat',
+			runnable: { name: 'Chat', type: 'agent', path: 'u/admin/assistant' }
+		})
+
+		const asAgent = getBackendDraft<any>('raw_app', 'u/admin/agent_conv_app', {
+			workspace: WORKSPACE
+		}).runnables.chat
+		expect(asAgent.runType).toBe('agent')
+		expect(asAgent.fields).toEqual({})
 	})
 
 	it("resets a path runnable's schema when it is retargeted, and keeps it when it is not", async () => {

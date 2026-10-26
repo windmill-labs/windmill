@@ -50,6 +50,7 @@ section or the flat layout.
 		type PreviewTarget
 	} from './previewRouter'
 	import { useSessionPermissions } from './sessionPermissions.svelte'
+	import type { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 
 	type Kind = WorkspaceItemKind
 	type DrillPickerHandle = {
@@ -75,6 +76,9 @@ section or the flat layout.
 		// Session artifacts to surface as an "Artifacts" branch; omitted or empty
 		// hides the branch (non-session consumers, sessions without artifacts).
 		artifacts?: PersistedArtifact[]
+		/** The session chat, whose Use mode opens items in their viewer. Read from the
+		 * `aiChatManager` context when omitted. */
+		chat?: { readonly workMode: AIWorkMode }
 	}
 
 	let {
@@ -86,12 +90,16 @@ section or the flat layout.
 		autoFocus = true,
 		flush = false,
 		workspaceId,
-		artifacts
+		artifacts,
+		chat
 	}: Props = $props()
 
 	const kinds: Kind[] = ['flow', 'script', 'app']
 	const effectiveWorkspace = $derived(workspaceId ?? $workspaceStore)
-	const permissions = useSessionPermissions(() => effectiveWorkspace)
+	const permissions = useSessionPermissions(
+		() => effectiveWorkspace,
+		() => chat
+	)
 	const canEdit = (item: WorkspaceItem) => permissions.canEditItem(item)
 
 	let inner = $state<DrillPickerHandle | undefined>(undefined)

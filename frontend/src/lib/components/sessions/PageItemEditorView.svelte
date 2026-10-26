@@ -10,12 +10,15 @@
 	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import {
 		pageItemKindLabel,
+		pageItemPageHref,
 		pageItemUrl,
 		TRIGGER_PAGES,
 		type PageItemRef,
 		type TriggerKind
 	} from './previewPaths'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
+	import { useSessionPermissions } from './sessionPermissions.svelte'
+	import { withWorkspaceParam } from './sessionMode.svelte'
 
 	let {
 		runtime,
@@ -103,6 +106,13 @@
 			)
 	)
 
+	// These editors save on click, and a schedule or trigger save passes a production
+	// workspace's deploy rules, so a read-only session mounts none of them.
+	const permissions = useSessionPermissions(
+		() => workspaceId,
+		() => runtime.manager
+	)
+
 	function closeTab() {
 		const tab = runtime.previewTabs.tabs.find((t) => t.url === pageItemUrl(item))
 		if (tab) runtime.previewTabs.close(tab.id)
@@ -134,6 +144,21 @@
 				workspace.
 			</p>
 			<Button variant="default" unifiedSize="sm" onClick={closeTab}>Close tab</Button>
+		</div>
+	{:else if permissions.readOnly}
+		<div class="flex flex-col items-start gap-3 p-4 text-sm text-secondary">
+			<p>
+				{pageItemKindLabel(item)} <span class="font-mono">{item.path}</span> can't be edited while the
+				session is in Use mode.
+			</p>
+			<Button
+				variant="default"
+				unifiedSize="sm"
+				href={withWorkspaceParam(pageItemPageHref(item), workspaceId)}
+				target="_blank"
+			>
+				Open in workspace
+			</Button>
 		</div>
 	{:else}
 		{#key `${item.kind}:${triggerKey}:${item.path}:${workspaceId}:${reloadNonce}:${savedNonce}`}

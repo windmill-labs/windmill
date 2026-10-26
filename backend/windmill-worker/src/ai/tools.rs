@@ -2,8 +2,8 @@ use crate::ai::pause::{start_approval, start_question, PendingPause};
 use crate::ai::stream_event_processor::StreamEventProcessor;
 use crate::ai::utils::{
     add_message_to_conversation, execute_mcp_tool, get_step_name_from_flow,
-    is_completed_input_transform, update_flow_status_module_with_actions,
-    update_flow_status_module_with_actions_success, FlowContext,
+    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
+    FlowContext,
 };
 use crate::common::{get_root_job_id, OccupancyMetrics};
 use crate::result_processor::handle_non_flow_job_error;
@@ -582,7 +582,7 @@ async fn enqueue_windmill_tool(
     // Evaluate each input transform and merge with AI-provided args
     for (key, transform) in input_transforms.iter() {
         // We skip static empty / null values, those are the one the AI will fill in
-        if !is_completed_input_transform(transform) {
+        if !transform.is_completed() {
             continue;
         }
         let result = evaluate_input_transform::<Box<RawValue>>(

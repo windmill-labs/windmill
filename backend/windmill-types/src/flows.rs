@@ -844,6 +844,19 @@ impl InputTransform {
     pub fn new_javascript_expr(expr: &str) -> InputTransform {
         InputTransform::Javascript { expr: expr.to_owned() }
     }
+
+    /// Whether this transform fills its input. On an agent tool, an input it does not fill is
+    /// left to the model, which sees only those.
+    pub fn is_completed(&self) -> bool {
+        match self {
+            InputTransform::Static { value } => {
+                let val = value.get().trim();
+                !val.is_empty() && val != "null"
+            }
+            InputTransform::Javascript { expr } => !expr.trim().is_empty(),
+            InputTransform::Ai => false,
+        }
+    }
 }
 
 impl TryFrom<UntaggedInputTransform> for InputTransform {

@@ -476,14 +476,11 @@ async fn find_ai_agent_tool_module_in_parent_agent(
             .trim_start_matches("$res:")
             .trim_start_matches("res://");
         // Definitions only: resolving their defaults here would hit the same inaccessible resources.
-        let resource_value = client
-            .get_resource_value::<serde_json::Value>(agent_path)
-            .await
-            .map_err(|e| {
-                Error::internal_err(format!(
-                    "failed to load ai_agent resource {agent_path}: {e}"
-                ))
-            })?;
+        let resource_value = client.get_agent_value(agent_path).await.map_err(|e| {
+            Error::internal_err(format!(
+                "failed to load ai_agent resource {agent_path}: {e}"
+            ))
+        })?;
         match resource_value {
             serde_json::Value::Object(mut map) => match map.remove("tools") {
                 Some(t) => serde_json::from_value::<Vec<AgentTool>>(t).map_err(|e| {
@@ -832,14 +829,11 @@ pub async fn handle_ai_agent_job(
         // Read raw and interpolate only the brain below. Interpolating the whole resource would also
         // resolve each tool's default `$res:`/`$var:`, which a host flow may be overriding and which
         // may be unreadable to whoever runs this flow — an unused tool could then fail the agent.
-        let resource_value = client
-            .get_resource_value::<serde_json::Value>(agent_path)
-            .await
-            .map_err(|e| {
-                Error::internal_err(format!(
-                    "failed to load ai_agent resource {agent_path}: {e}"
-                ))
-            })?;
+        let resource_value = client.get_agent_value(agent_path).await.map_err(|e| {
+            Error::internal_err(format!(
+                "failed to load ai_agent resource {agent_path}: {e}"
+            ))
+        })?;
         let mut config = match resource_value {
             serde_json::Value::Object(map) => map,
             _ => {
@@ -1795,6 +1789,9 @@ pub async fn run_agent(
     // re-assumed only near expiry, rather than on every model turn.
     #[cfg(feature = "bedrock")]
     let mut bedrock_assumed_role: Option<windmill_ai::ai_bedrock::AssumedRoleCredentials> = None;
+    let mut anthropic_federated_token: Option<
+        windmill_ai::providers::anthropic::FederatedAccessToken,
+    > = None;
 
     if let Some((pending, answer, success)) = resumed_answer {
         if let Some(parent_job) = parent_job {
@@ -2006,6 +2003,15 @@ pub async fn run_agent(
                         )));
                     }
 
+                    let federated_token =
+                        windmill_ai::providers::anthropic::refresh_federated_access_token(
+                            &credentials,
+                            &mut anthropic_federated_token,
+                            client,
+                        )
+                        .await?
+                        .map(str::to_string);
+
                     let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
                         .await
                         .0;
@@ -2057,10 +2063,15 @@ pub async fn run_agent(
                         };
                         let endpoint =
                             query_builder.get_endpoint(base_url, args.provider.get_model(), output_type);
-                        let auth_headers = retain_effective_credentials(
-                            &credentials,
-                            query_builder.get_auth_headers(api_key, base_url, output_type),
-                        );
+                        let auth_headers = match federated_token.as_deref() {
+                            Some(token) => {
+                                windmill_ai::providers::anthropic::federated_auth_headers(token)
+                            }
+                            None => retain_effective_credentials(
+                                &credentials,
+                                query_builder.get_auth_headers(api_key, base_url, output_type),
+                            ),
+                        };
 
                         let resp = build_http_request(&endpoint, &auth_headers, request_body)
                             .send()

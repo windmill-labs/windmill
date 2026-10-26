@@ -24,6 +24,7 @@ import type {
 	WebSearchResult
 } from '$lib/components/copilot/chat/shared'
 import type { AIAutonomyMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
+import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 import { isPlanCardTool } from '$lib/components/copilot/chat/planMode'
 import { AttachedFilesStore } from '$lib/components/copilot/chat/files/attachedFiles.svelte'
 import { SessionArtifactsStore } from '$lib/components/copilot/chat/artifacts/artifactsState.svelte'
@@ -853,6 +854,9 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	// runtime: its unit test would otherwise load the manager and the editor it pulls in.
 	autonomyMode = 'default' as AIAutonomyMode.DEFAULT
 	setAutonomyMode = () => {}
+	workModesAvailable = false
+	workMode = AIWorkMode.BUILD
+	setWorkMode = () => {}
 	autoAcceptEditsActive = false
 	autoAcceptEditsAvailable = false
 	autoAcceptToolConfirmationsAvailable = false

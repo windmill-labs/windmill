@@ -1326,7 +1326,7 @@
 						{
 							label: 'Fork',
 							onClick: () => {
-								window.open(`/apps/add?template=${appPath}`)
+								window.open(`/apps/add?template=${encodeURIComponent($appPath)}`)
 							}
 						},
 						...(!isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)

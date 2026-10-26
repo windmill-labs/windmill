@@ -41,7 +41,8 @@ export interface EvalCaseRuntimeSpec {
   // refused until the model hands over a plan with exit_plan_mode.
   planMode?: boolean;
   // Global session chats: the user's rights in the workspace, as production resolves them for
-  // a session from a non-admin role. Unset means full access.
+  // a session from a non-admin role. Unset means full access. A role that builds nothing holds
+  // the session in Use, with the read-only toolset and the session section that says why.
   profile?: EvalCaseProfile;
 }
 
@@ -273,6 +274,12 @@ export interface EvalCase {
   assistantExpect?: AssistantValidationSpec;
   judgeChecklist?: string[];
   skipJudge?: boolean;
+  /**
+   * The judge also reads what the assistant said, for a case whose deliverable is the answer
+   * itself: the `global` judge otherwise sees only the drafts. Needs a mode whose runner
+   * reports `assistantText`.
+   */
+  judgeAssistantText?: boolean;
   runtime?: EvalCaseRuntimeSpec;
 }
 

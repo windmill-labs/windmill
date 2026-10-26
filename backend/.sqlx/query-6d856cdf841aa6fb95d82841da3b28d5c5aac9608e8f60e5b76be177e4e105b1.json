@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_diff\n         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)\n         VALUES\n         ('test-workspace', 'wm-fork-secrets', 'u/test-user/same', 'variable', 1, 1, NULL),\n         ('test-workspace', 'wm-fork-secrets', 'u/test-user/different', 'variable', 1, 1, NULL)\n         ON CONFLICT (source_workspace_id, fork_workspace_id, path, kind)\n         DO UPDATE SET ahead = 1, behind = 1, has_changes = NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "6d856cdf841aa6fb95d82841da3b28d5c5aac9608e8f60e5b76be177e4e105b1"
+}
