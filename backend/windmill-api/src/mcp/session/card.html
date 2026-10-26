@@ -1230,8 +1230,21 @@
   let deploying = false;
   const selectedDrafts = (meta) => meta.items.filter((item) => deployable(item) && !unselected.has(itemKey(item)));
 
+  // As on the Compare page, a draft's diff opens on demand; one that changed under the card
+  // opens by itself.
+  const openDiffs = new Set();
+
   function reviewItem(item) {
     const key = itemKey(item);
+    const hasDiff = item.patch != null;
+    const open = hasDiff && openDiffs.has(key);
+    const toggle = hasDiff ? el('button', {
+      class: 'chev-toggle', type: 'button', 'aria-expanded': String(open), 'aria-label': open ? 'Hide the diff' : 'Show the diff',
+      onclick: () => {
+        if (open) openDiffs.delete(key); else openDiffs.add(key);
+        redraw();
+      }
+    }, icon(open ? 'down' : 'right')) : el('span', { class: 'chev' });
     const pick = deployable(item) ? el('input', {
       type: 'checkbox', checked: !unselected.has(key), disabled: deploying, 'aria-label': `Deploy ${item.name ?? item.path}`,
       // Only the button follows: a redraw would take the focus off the box.
@@ -1244,13 +1257,15 @@
       : item.deployed ? el('span', { class: 'badge success' }, 'Deployed') : null;
     return el('section', { class: 'item' },
       el('div', { class: 'item-head' },
+        toggle,
         pick,
         itemIcon(item),
         el('span', { class: 'grow' }, item.name ?? item.path),
         el('span', { class: 'dim' }, typeLabel(item)),
+        item.digest != null ? el('span', {}, el('span', { class: 'add-count' }, `+${item.added}`), ' ', el('span', { class: 'del-count' }, `-${item.removed}`)) : null,
         state,
         item.url ? linkButton(item.editor ? 'Open in editor' : 'Open in Windmill', item.url) : null),
-      reviewBody(item),
+      hasDiff && !open ? null : reviewBody(item),
       item.message ? el('div', { class: 'form-error' }, item.message) : null);
   }
 
@@ -1289,6 +1304,7 @@
     const current = check?._meta?.['windmill/review']?.items?.[0];
     if (!current || current.digest !== item.digest) {
       Object.assign(item, { patch: undefined, note: undefined, error: undefined, digest: undefined, too_large: undefined }, current ?? { error: 'The draft could not be read again.' });
+      openDiffs.add(itemKey(item));
       item.message = item.digest == null
         ? 'The draft changed since it was shown, and cannot be deployed from here.'
         : 'The draft changed since it was shown. Review the diff above, then deploy it again.';
