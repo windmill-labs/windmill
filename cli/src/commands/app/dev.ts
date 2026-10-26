@@ -1155,7 +1155,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
           colors.cyan(`[WebSocket] Received: ${JSON.stringify(message)}`),
         );
 
-        const { type, reqId, runnable_id, v, jobId } = message;
+        const { type, reqId, runnable_id, v, jobId, memoryId } = message;
 
         // Helper to send response
         const respond = (responseType: string, result: any, error: boolean) => {
@@ -1230,6 +1230,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
                 v,
                 appTempRefs,
                 previewModules(runnables, runnable_id),
+                memoryId,
               );
               log.info(colors.gray(`[backendAsync] Job started: ${uuid}`));
 
@@ -1713,8 +1714,8 @@ export function buildWmillTs(
 
 /**
  * The inputs of an agent runnable, after the agent's memory (see the frontend's
- * `agentRunnableSchema`): `memory_id` when it keeps managed memory, `previous_messages` when it
- * is off, and neither for an older `manual` setting.
+ * `agentRunnableSchema`): `previous_messages` when it keeps no memory. The conversation of one
+ * that does is `backendAsync`'s `memoryId` option, not an input.
  */
 function agentRunnableSchema(memory: any) {
   const managed =
@@ -1723,13 +1724,7 @@ function agentRunnableSchema(memory: any) {
       Boolean(memory.context_length));
   const legacy = memory?.kind === "manual";
   const history: Record<string, any> = {};
-  if (managed) {
-    history.memory_id = {
-      type: "string",
-      description:
-        "The conversation the message belongs to: reuse it to continue one, or omit it for a single run",
-    };
-  } else if (!legacy) {
+  if (!managed && !legacy) {
     history.previous_messages = {
       type: "array",
       description:
@@ -1922,10 +1917,12 @@ async function executeRunnable(
   args: any,
   tempScriptRefs?: Record<string, string>,
   modules?: Record<string, { content: string; language: string }>,
+  memoryId?: string,
 ): Promise<string> {
   const requestBody: any = {
     component: runnableId,
     args: args ?? {},
+    ...(memoryId ? { run_query_params: { memory_id: memoryId } } : {}),
     force_viewer_static_fields: {},
     force_viewer_one_of_fields: {},
     force_viewer_allow_user_resources: [],

@@ -1,23 +1,15 @@
 import type { Schema, SchemaProperty } from '$lib/common'
-import { agentMemoryMode, keepsManagedMemory } from '$lib/components/flows/agentFormFields'
+import { agentMemoryMode } from '$lib/components/flows/agentFormFields'
 
 /**
- * The inputs of a raw app's agent runnable, after the agent's memory as its own page reads it: a
- * chat (`memory_id`, the conversation and memory key) when it keeps managed memory, single runs
- * answered from the history the app passes (`previous_messages`) when it is off, and neither for an
- * older `manual` setting (`memory_id` is the run's, which an older `auto` one keeps memory under).
- * The server accepts both either way (see `execute_component`), so a schema gone stale only
- * mistypes the inputs.
+ * The inputs of a raw app's agent runnable. An agent whose memory is off answers from the history
+ * the app passes (`previous_messages`); one keeping memory takes the conversation as
+ * `backendAsync`'s `memoryId` option, which is not an input. The server accepts
+ * `previous_messages` either way (see `execute_component`), so a schema gone stale only mistypes
+ * the inputs.
  */
 export function agentRunnableSchema(memory: unknown): Schema {
 	const history: Record<string, SchemaProperty> = {}
-	if (keepsManagedMemory(memory)) {
-		history.memory_id = {
-			type: 'string',
-			description:
-				'The conversation the message belongs to: reuse it to continue one, or omit it for a single run'
-		}
-	}
 	if (agentMemoryMode(memory) === 'off') {
 		history.previous_messages = {
 			type: 'array',
