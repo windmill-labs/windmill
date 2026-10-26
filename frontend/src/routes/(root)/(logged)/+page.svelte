@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AppService, FlowService, type OpenFlow, type Script } from '$lib/gen'
+	import { AppService, FlowService, ScriptService, type OpenFlow, type Script } from '$lib/gen'
 	import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
 	import { HOME_COLUMN_WIDTH } from '$lib/consts'
 	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
@@ -156,21 +156,38 @@
 	})
 
 	// Beside the session list, a script, flow or app opens in the preview beside Home, as the
-	// draft's own tab, instead of taking Home's place. A modified click still opens it as a page.
+	// draft's own tab, instead of taking Home's place. A modified click still opens it as a page,
+	// and a control inside the link (a row's star) acts on its own.
 	function openItemInPreview(e: MouseEvent) {
 		if (!homeListsSessions()) return
 		if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
 		const owner = homeComposerContext.runtime?.previewTabs
-		const href = (e.target as Element | null)?.closest('a[href]')?.getAttribute('href')
+		const workspace = $workspaceStore
+		const target = e.target as Element | null
+		const link = target?.closest('a[href]')
+		const href = link?.getAttribute('href')
 		const route = href ? parsePreviewItemRoute(href) : null
-		if (!owner || !route) return
+		if (!owner || !workspace || !link || !href || !route) return
+		const control = target?.closest('button, input, label, [role="button"]')
+		if (control && link.contains(control)) return
 		e.preventDefault()
 		e.stopPropagation()
-		owner.open({
-			type: 'item',
-			item: { kind: route.kind, raw_app: route.raw_app, path: route.itemPath, summary: '' },
-			mode: route.mode
-		})
+		const open = (path: string) =>
+			owner.open({
+				type: 'item',
+				item: { kind: route.kind, raw_app: route.raw_app, path, summary: '' },
+				mode: route.mode
+			})
+		// A deployed script's row links its hash, and a tab is keyed by the script's path. Every
+		// script path has a slash, so a segment without one is a hash.
+		if (route.kind === 'script' && !route.itemPath.includes('/')) {
+			ScriptService.getScriptByHash({ workspace, hash: route.itemPath }).then(
+				(script) => open(script.path),
+				() => goto(href)
+			)
+			return
+		}
+		open(route.itemPath)
 	}
 </script>
 

@@ -61,6 +61,7 @@ import {
 	setSessionPreviewSize,
 	setSessionTabs,
 	setDraftsDiscardedHandler,
+	setSendUnderWayCheck,
 	setSessionWorkMode,
 	type Session
 } from './sessionState.svelte'
@@ -1501,6 +1502,10 @@ export function removeSession(sessionId: string): void {
 }
 
 setDraftsDiscardedHandler((ids) => ids.forEach(disposeRuntime))
+setSendUnderWayCheck((id) => {
+	const m = runtimes.get(id)?.manager
+	return !!m && (m.loading || m.sendInFlight || m.sendPending)
+})
 
 // The chat calls a new item by its chosen name while its draft is stored at
 // `draft_<uuid>`; resolve the name the way the chat's write tools do.

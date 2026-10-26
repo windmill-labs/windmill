@@ -17,6 +17,7 @@ import {
 	setGeneratedSessionSummary,
 	setSessionDraftAttachments,
 	setSessionDraftPrompt,
+	setSendUnderWayCheck,
 	setSessionPendingWorkspace,
 	sessionState,
 	withOpenSessionTeardown,
@@ -632,6 +633,20 @@ describe('withOpenSessionTeardown — the gate that holds recovery off during a 
 			})
 		).rejects.toThrow('fork deletion failed')
 		expect(isTearingDownOpenSession()).toBe(false)
+	})
+})
+
+describe('opensOnHome', () => {
+	it('leaves an archived draft, and one whose first turn has started, to their own page', () => {
+		const draft = session({ id: 'typed-draft', draftPrompt: 'hi' })
+		expect(opensOnHome(draft)).toBe(true)
+		expect(opensOnHome({ ...draft, archived: true })).toBe(false)
+		setSendUnderWayCheck((id) => id === 'typed-draft')
+		try {
+			expect(opensOnHome(draft)).toBe(false)
+		} finally {
+			setSendUnderWayCheck(() => false)
+		}
 	})
 })
 

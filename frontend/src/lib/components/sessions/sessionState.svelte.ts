@@ -1135,6 +1135,14 @@ export function setDraftsDiscardedHandler(handler: (ids: string[]) => void): voi
 	onDraftsDiscarded = handler
 }
 
+// Whether a session's turn is under way, set by sessionRuntime the same way. A send commits
+// the workspace only once its pre-flight is through (the chat's ready gate, the attached files'
+// upkeep), so until then a draft whose first turn has started still reads as unsent.
+let sendUnderWay: (id: string) => boolean = () => false
+export function setSendUnderWayCheck(check: (id: string) => boolean): void {
+	sendUnderWay = check
+}
+
 function newTransientSession(): Session {
 	const discarded = sessionState.sessions.filter(isDiscardableDraft).map((s) => s.id)
 	sessionState.sessions = sessionState.sessions.filter((s) => !isDiscardableDraft(s))
@@ -1161,17 +1169,24 @@ function newTransientSession(): Session {
 	return session
 }
 
-/** Whether a session opens in Home's composer rather than on a page of its own: unsent, and
- * neither about an item (it carries preview tabs, which need the session page's panel) nor
- * armed to send itself on arrival. Tabs opened from Home's own panel keep its draft there. */
+/** Whether a session opens in Home's composer rather than on a page of its own: unsent, not
+ * archived (its page holds the way back), and neither about an item (it carries preview tabs,
+ * which need the session page's panel), armed to send itself on arrival, nor already sending.
+ * Tabs opened from Home's own panel keep its draft there. */
 export function opensOnHome(s: Session): boolean {
-	return !s.workspace_id && (!s.previewTabs?.length || s.id === homeDraft.id) && !autoSendIsFresh(s)
+	return (
+		!s.workspace_id &&
+		!s.archived &&
+		(!s.previewTabs?.length || s.id === homeDraft.id) &&
+		!autoSendIsFresh(s) &&
+		!sendUnderWay(s.id)
+	)
 }
 
 /** The unsent session Home's composer shows: the one Home last held, else the family's
  * most recent stored draft, else a blank. */
 export function homeStarterSession(): Session {
-	const unsent = (s: Session) => !s.archived && opensOnHome(s) && sessionInCurrentFamily(s)
+	const unsent = (s: Session) => opensOnHome(s) && sessionInCurrentFamily(s)
 	const held = sessionState.sessions.find((s) => s.id === homeDraft.id)
 	if (held && unsent(held)) return held
 	// Stored but never sent: a draft the user typed or attached something in. Leaving it
