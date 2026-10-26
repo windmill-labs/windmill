@@ -852,13 +852,16 @@
 	// cell reactively, so the editor mirrors the name onto the tab model). Before
 	// that, the workspace listing names it. Falls back to the plain location label
 	// for summary-less items and non-item pages.
-	function tabLabelFor(tab: SessionPreviewTab, workspace: string): string {
+	function tabNameFor(tab: SessionPreviewTab, workspace: string): string {
 		const listed = listedItemFor(tab, workspace)
-		const name =
+		return (
 			tab.friendlyLabel ??
 			(listed && itemDisplayName(listed.path, listed.draftPath, listed.summary)) ??
 			previewLocationLabel(tab.loc)
-		return name + sideSuffix(tab.url)
+		)
+	}
+	function tabLabelFor(tab: SessionPreviewTab, workspace: string): string {
+		return tabNameFor(tab, workspace) + sideSuffix(tab.url)
 	}
 
 	// Hover title for a tab. A summary label is free text the strip truncates, and
@@ -1118,6 +1121,8 @@
 										sessionId={s.id}
 										headerInPage={s.id === activeSession?.id}
 										covered={aiHiddenVerdict !== false}
+										previewTabName={(tab) =>
+											tabNameFor(tab, getEffectiveWorkspaceId(s) ?? $workspaceStore ?? '')}
 									/>
 								</div>
 							{/each}

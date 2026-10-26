@@ -81,17 +81,21 @@
 	import { StarterPrompts } from '$lib/components/copilot/chat/starter/starterPrompts.svelte'
 	import { resolvePreviewTab } from './previewRouter'
 	import { whereIs } from './sessionPreviewTabs.svelte'
+	import type { SessionPreviewTab } from './sessionState.svelte'
 
 	let {
 		sessionId,
 		headerInPage = false,
-		covered = false
+		covered = false,
+		previewTabName
 	}: {
 		sessionId: string
 		/** True for the session the page is showing: its header rides the page header bar. */
 		headerInPage?: boolean
 		/** True while the page holds this wrapper inert under an overlay, where nothing takes focus. */
 		covered?: boolean
+		/** The name the preview's tab strip shows for a tab, without its side marker. */
+		previewTabName: (tab: SessionPreviewTab) => string
 	} = $props()
 
 	// Parent keys by sessionId; this wrapper only mounts when the session exists.
@@ -122,7 +126,7 @@
 	// The item an unsent session opened on ("Open in AI session", or a tab opened before the
 	// first send): the chat reads the displayed tab with each message, so the empty chat asks
 	// about that item instead of greeting. What is on screen only: a collapsed panel hides it.
-	// Named by the editor's summary, else the path it is staged under, else the tab's own path.
+	// Named as its tab is, so a deployed item in View mode gets its summary from the listing.
 	const previewedItem = $derived.by(() => {
 		if (!opensSession) return undefined
 		const tab = runtime?.previewTabs.displayedTab
@@ -132,7 +136,7 @@
 		const kind = slot.kind === 'editor' ? slot.editorKind : slot.viewerKind
 		return {
 			kind: kind === 'raw_app' ? 'app' : kind,
-			name: tab.friendlyLabel?.trim() || tab.friendlyPath || slot.path
+			name: previewTabName(tab)
 		}
 	})
 	const greets = $derived(opensSession && !previewedItem)
