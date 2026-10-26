@@ -23,6 +23,7 @@ import { sessionTargetHref, withPreviewParams } from './sessionMode.svelte'
 import { homeSidebarList, type SidebarList } from './sidebarList.svelte'
 import { hrefAfterWorkspaceSwitch } from '../sidebar/workspaceSwitchUrl'
 import { pinHomeComposer } from '../home/homeComposerPin.svelte'
+import { homeComposerContext } from './homeComposerContext.svelte'
 // Type-only: erased at compile time, so the component graph stays out of this
 // navigation seam (see the dynamic import in openEditorInSession).
 import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
@@ -60,6 +61,9 @@ export function noteArrival(url: URL): void {
 export function swapHomeList(list: SidebarList, homeHref: string): void {
 	homeSidebarList.val = list
 	if (list === 'workspace') rememberWorkspacePage(homeHref)
+	// The AI side of Home is its composer: going there puts the caret in it. After the click
+	// has played out, or the switch button it landed on takes focus back.
+	else setTimeout(() => homeComposerContext.focus(), 0)
 }
 
 // The session last opened, else the family's most recently used one. Scoped to the
@@ -119,6 +123,13 @@ export async function openNewSession(workspaceId?: string): Promise<void> {
 	homeDraft.id = undefined
 	if (workspaceId) syncWorkspaceTo(workspaceId)
 	await toHome(blankHomeDraft().id)
+}
+
+/** A session picked from a list: an unsent draft in Home's composer, any other on its page. */
+export async function openSession(session: Session): Promise<void> {
+	if (opensOnHome(session)) return openDraftOnHome(session.id)
+	selectSession(session.id)
+	await goto(sessionPageHref(session.id))
 }
 
 /** An unsent draft, opened in Home's composer. `replace` for a redirect off the sessions

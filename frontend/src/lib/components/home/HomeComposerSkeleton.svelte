@@ -10,14 +10,30 @@
 	const SUGGESTIONS_ROW = 36
 	const OPEN_BOX_MIN = 78
 
-	/** The height Home's composer took when it last appeared in this workspace. */
-	export function composerHeight(workspace: string | undefined): number | undefined {
-		const stored = workspace ? Number(getLocalSetting(HEIGHT_SETTING + workspace)) : NaN
+	// The composer rests open beside the session list and on one line beside the workspace nav,
+	// so each side of the sidebar switch keeps its own height.
+	function heightSetting(workspace: string, sessionsListed: boolean): string {
+		return HEIGHT_SETTING + workspace + (sessionsListed ? ':sessions' : '')
+	}
+
+	/** The height Home's composer took when it last appeared in this workspace, beside this list. */
+	export function composerHeight(
+		workspace: string | undefined,
+		sessionsListed: boolean
+	): number | undefined {
+		const stored = workspace
+			? Number(getLocalSetting(heightSetting(workspace, sessionsListed)))
+			: NaN
 		return Number.isFinite(stored) && stored > 0 ? stored : undefined
 	}
 
-	export function rememberComposerHeight(workspace: string | undefined, height: number) {
-		if (workspace && height > 0) storeLocalSetting(HEIGHT_SETTING + workspace, String(height))
+	export function rememberComposerHeight(
+		workspace: string | undefined,
+		sessionsListed: boolean,
+		height: number
+	) {
+		if (workspace && height > 0)
+			storeLocalSetting(heightSetting(workspace, sessionsListed), String(height))
 	}
 </script>
 

@@ -1169,9 +1169,9 @@ function newTransientSession(pending: string | undefined): Session {
 
 /** Whether a session opens in Home's composer rather than on a page of its own: unsent, and
  * neither about an item (it carries preview tabs, which need the session page's panel) nor
- * armed to send itself on arrival. */
+ * armed to send itself on arrival. Tabs opened from Home's own panel keep its draft there. */
 export function opensOnHome(s: Session): boolean {
-	return !s.workspace_id && !s.previewTabs?.length && !autoSendIsFresh(s)
+	return !s.workspace_id && (!s.previewTabs?.length || s.id === homeDraft.id) && !autoSendIsFresh(s)
 }
 
 /** The unsent session Home's composer shows: the one Home last held, else the family's

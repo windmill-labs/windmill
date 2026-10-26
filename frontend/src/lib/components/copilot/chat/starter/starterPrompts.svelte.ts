@@ -145,5 +145,5 @@ async function fetchItemCount(workspace: string): Promise<number> {
 }
 
 /** What turns an empty chat into Home's block that starts a session, collapsed to one line at
- * rest unless `fewItems`. */
-export type ChatStarter = { suggestions: ComposerSuggestion[]; fewItems: boolean }
+ * rest unless `restsOpen`. */
+export type ChatStarter = { suggestions: ComposerSuggestion[]; restsOpen: boolean }

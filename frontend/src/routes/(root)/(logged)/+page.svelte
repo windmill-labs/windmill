@@ -29,6 +29,10 @@
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { z } from 'zod'
 	import HomeAIChat from '$lib/components/home/HomeAIChat.svelte'
+	import HomePreviewPanel from '$lib/components/home/HomePreviewPanel.svelte'
+	import { homeSidebarList } from '$lib/components/sessions/sidebarList.svelte'
+	import { homeComposerContext } from '$lib/components/sessions/homeComposerContext.svelte'
+	import { parsePreviewItemRoute } from '$lib/components/sessions/previewPaths'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { onMount, untrack } from 'svelte'
 	import OperatorTour from '$lib/components/tutorials/OperatorTour.svelte'
@@ -150,6 +154,24 @@
 		if (await hasSeenOperatorTour()) return
 		startTour()
 	})
+
+	// Beside the session list, a script, flow or app opens in the preview beside Home, as the
+	// draft's own tab, instead of taking Home's place. A modified click still opens it as a page.
+	function openItemInPreview(e: MouseEvent) {
+		if (homeSidebarList.val !== 'sessions') return
+		if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+		const owner = homeComposerContext.runtime?.previewTabs
+		const href = (e.target as Element | null)?.closest('a[href]')?.getAttribute('href')
+		const route = href ? parsePreviewItemRoute(href) : null
+		if (!owner || !route) return
+		e.preventDefault()
+		e.stopPropagation()
+		owner.open({
+			type: 'item',
+			item: { kind: route.kind, raw_app: route.raw_app, path: route.itemPath, summary: '' },
+			mode: route.mode
+		})
+	}
 </script>
 
 <Drawer bind:this={codeViewer} size="900px">
@@ -290,10 +312,12 @@
 	<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 {/snippet}
 
+<div class="flex flex-row w-full h-full min-h-0">
 <div
 	bind:this={pageEl}
-	class="{fadeIn ? 'wm-page-in' : ''} flex flex-col w-full h-full overflow-y-auto items-center"
+	class="{fadeIn ? 'wm-page-in' : ''} flex flex-col flex-1 min-w-0 h-full overflow-y-auto items-center"
 	style="scrollbar-gutter: stable both-edges;"
+	onclickcapture={openItemInPreview}
 >
 	<!-- Where edits to this workspace are made is a fact about the workspace, so it sits in the
 	     header with the workspace's own name rather than above the list. -->
@@ -396,6 +420,10 @@
 	{#if tab == 'workspace'}
 		<ItemsList bind:subtab showEditButtons={showCreateButtons} />
 	{/if}
+</div>
+{#if homeSidebarList.val === 'sessions'}
+	<HomePreviewPanel />
+{/if}
 </div>
 
 {#if !$roleCapabilities.code}

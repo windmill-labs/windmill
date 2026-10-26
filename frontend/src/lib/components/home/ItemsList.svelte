@@ -66,6 +66,7 @@
 	import BulkActionsBar from './BulkActionsBar.svelte'
 	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
 	import HomeQuickAccess from './HomeQuickAccess.svelte'
+	import { homeSidebarList } from '../sessions/sidebarList.svelte'
 
 	const editRights = useEditRights()
 
@@ -1982,7 +1983,8 @@
 				<!-- Same gate the old create actions used: hidden from operators and in workspaces
 			     whose direct-deploy protection cleared showEditButtons (NoDirectDeployAlert), since
 			     the menu itself does no permission check. -->
-				{#if canCreateHere}
+				<!-- Beside the session list items are made by asking the composer above. -->
+				{#if canCreateHere && homeSidebarList.val !== 'sessions'}
 					<!-- No hub entry where the instance has the hub turned off: the same setting the
 				     script and flow hub pickers observe. Nor for a builder: a hub project brings
 				     scripts and apps along. -->

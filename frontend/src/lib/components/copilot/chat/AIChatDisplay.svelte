@@ -590,8 +590,7 @@
 	let composerEl: HTMLDivElement | undefined = $state()
 	let composerOpened = $state(false)
 	// Anything the user has started (text, an attachment) or is in the middle of (they opened it
-	// and have not left) keeps it open, and so does a workspace small enough that the composer is
-	// the page's main way in.
+	// and have not left) keeps it open, and so does a host that has it rest open.
 	// Until the input is bound, the draft it starts with is the one it is seeded with: reading
 	// it as empty collapses a remounted composer that holds text for a frame, and the box then
 	// animates open as if the user had opened it.
@@ -605,7 +604,7 @@
 	const composerCollapsed = $derived(
 		starterLayout &&
 			!disabled &&
-			!starter?.fewItems &&
+			!starter?.restsOpen &&
 			!composerOpened &&
 			(aiChatInput ? aiChatInput.isDraftEmpty() : seededDraftEmpty)
 	)

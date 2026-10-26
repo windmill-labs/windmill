@@ -27,13 +27,20 @@
 	// Picked once; the parent remounts this on a workspace family switch and whenever
 	// another draft is asked for (New session, a draft picked in the session list).
 	// `placeholder` stands in while the chat waits on its config; `onSettled` reports the height
-	// the chat first took, for the next placeholder to take.
+	// the chat first took, for the next placeholder to take. `restsOpen` keeps the composer open
+	// at rest whatever the workspace holds; a workspace small enough that the composer is the
+	// page's main way in keeps it open anyway.
 	let {
 		onShown,
 		placeholder,
-		onSettled
-	}: { onShown?: () => void; placeholder?: Snippet; onSettled?: (height: number) => void } =
-		$props()
+		onSettled,
+		restsOpen = false
+	}: {
+		onShown?: () => void
+		placeholder?: Snippet
+		onSettled?: (height: number) => void
+		restsOpen?: boolean
+	} = $props()
 
 	const initialSession = homeStarterSession()
 	const sessionId = initialSession.id
@@ -76,8 +83,12 @@
 		onShown?.()
 		// The rows' "Ask AI" lands here. Before the chat has mounted (its config still
 		// loading) there is nowhere to put the item, and the attach does nothing.
-		return homeComposerContext.register(async (element) => {
-			await aiChat?.attachContext(element)
+		return homeComposerContext.register({
+			attach: async (element) => {
+				await aiChat?.attachContext(element)
+			},
+			focus: () => aiChat?.focusInput(),
+			runtime
 		})
 	})
 </script>
@@ -97,7 +108,10 @@
 			onDraftChange={(text) => setSessionDraftPrompt(sessionId, text)}
 			initialAttachments={getSessionDraftAttachments(sessionId)}
 			onAttachmentsChange={(a) => setSessionDraftAttachments(sessionId, a)}
-			starter={{ suggestions: starterPrompts.suggestions, fewItems: starterPrompts.fewItems }}
+			starter={{
+				suggestions: starterPrompts.suggestions,
+				restsOpen: restsOpen || starterPrompts.fewItems
+			}}
 			viewTransitionNames
 			{onSent}
 		/>

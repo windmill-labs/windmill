@@ -112,6 +112,10 @@
 	)
 
 	let hero = $derived(showComposer && !removed)
+
+	// Beside the session list Home is the AI side's page: the composer rests open there. Beside
+	// the workspace nav it rests on one line.
+	const sessionsListed = $derived(homeSidebarList.val === 'sessions')
 </script>
 
 <div class="w-full {hero ? 'mt-2' : 'mb-1'}">
@@ -141,7 +145,9 @@
 						<HomeSessionStarter
 							onShown={() => (shownForRoot = $currentWorkspaceRootId)}
 							{placeholder}
-							onSettled={(height) => rememberComposerHeight($workspaceStore ?? undefined, height)}
+							onSettled={(height) =>
+								rememberComposerHeight($workspaceStore ?? undefined, sessionsListed, height)}
+							restsOpen={sessionsListed}
 						/>
 					{/key}
 				</div>
@@ -153,7 +159,7 @@
 </div>
 
 {#snippet placeholder()}
-	<HomeComposerSkeleton height={composerHeight($workspaceStore ?? undefined)} />
+	<HomeComposerSkeleton height={composerHeight($workspaceStore ?? undefined, sessionsListed)} />
 {/snippet}
 
 <HomeConnectDrawer bind:this={homeConnectDrawer} />
