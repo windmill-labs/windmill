@@ -209,6 +209,7 @@
 	const isNewFlow = $derived(newFlow || initialPath == '')
 	let deployDialogOpen = $state(false)
 	let deployDialogMsg = $state('')
+	let deployButton: DeployButton | undefined = $state(undefined)
 
 	// Keep savedOnBehalfOfEmail in sync as the flow loads. Once deployed, the deployed row says
 	// who the flow runs as: `savedFlow` carries its draft's user. A flow that runs on behalf of
@@ -783,6 +784,7 @@
 			// Settings shows the deployed run-as user while the editor stays open, a session's
 			// included: read the version just written.
 			void deployedItem.refetch()
+			deployButton?.clearMessage()
 			onDeploy?.({ path: $pathStore })
 		} catch (err) {
 			onDeployError?.({ error: err })
@@ -1773,6 +1775,7 @@
 						{/if}
 
 						<DeployButton
+							bind:this={deployButton}
 							on:save={async ({ detail }) => await handleSaveFlow(detail)}
 							{loading}
 							{loadingSave}
@@ -1888,6 +1891,7 @@
 
 				<OpenInSessionButton source={headerSessionOpen} />
 				<DeployButton
+					bind:this={deployButton}
 					on:save={async ({ detail }) => await handleSaveFlow(detail)}
 					{loading}
 					{loadingSave}
