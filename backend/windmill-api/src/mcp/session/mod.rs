@@ -202,6 +202,8 @@ pub(super) fn session_tools(access: SessionAccess) -> Vec<Tool> {
         .chain(
             views::definitions()
                 .into_iter()
+                // Its card's one action deploys, which only a full token may do.
+                .filter(|(name, ..)| *name != "show_deploy_review" || access == SessionAccess::Full)
                 .map(|(name, description, schema)| {
                     let mut meta = result_size_meta();
                     meta.0

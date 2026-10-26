@@ -1960,84 +1960,142 @@ async fn parent_comparison_unavailable(ctx: &Ctx<'_>) -> String {
 
 /// Items `show_deploy_review` draws at most, each one diff.
 const MAX_REVIEW_ITEMS: usize = 10;
+/// A patch the review card shows whole, or not at all: past this it offers no Deploy.
+const MAX_REVIEW_PATCH_CHARS: usize = 60_000;
+
+/// The whole of a draft's diff as the user reviews it: unlike the model's `diff` text it
+/// is never paged, and a multi-file app's files are all in it.
+fn review_patch(m: &Materialized) -> String {
+    let mut out = String::new();
+    if m.value_masked {
+        out.push_str(if m.value_uncomparable {
+            SECRET_UNCOMPARABLE_NOTE
+        } else {
+            VARIABLE_MASKED_NOTE
+        });
+    }
+    if m.no_deployed {
+        out.push_str("No deployed version yet: the entire draft is new.\n\n");
+    }
+    out.push_str(&m.parts.patch);
+    for (name, file) in m.parts.files.iter().flatten() {
+        out.push_str(&format!("\n=== {name} ({})\n{}", file.status, file.patch));
+    }
+    out
+}
 
 /// Drafts with their diffs, each with a Deploy button the user presses: the card calls
-/// `deploy_workspace_item` itself, so that click is the confirmation.
+/// `deploy_workspace_item` itself, so that click is the confirmation. Deploy is offered
+/// only under a diff shown whole, and the card checks the draft is still the one shown.
 pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
-    let requested: Vec<(String, Option<String>, String)> =
-        match args.get("items").and_then(Value::as_array) {
-            Some(items) if !items.is_empty() => items
-                .iter()
-                .filter_map(|item| {
-                    Some((
-                        opt_str_arg(item, "type")?.to_string(),
-                        opt_str_arg(item, "trigger_kind").map(str::to_string),
-                        opt_str_arg(item, "path")?.to_string(),
-                    ))
-                })
-                .collect(),
-            _ => list_draft_rows(ctx)
-                .await?
-                .0
-                .into_iter()
-                .filter_map(|row| {
-                    let (item_type, trigger_kind) = row.addressing?;
-                    Some((
-                        item_type.to_string(),
-                        trigger_kind.map(str::to_string),
-                        row.display_path,
-                    ))
-                })
-                .collect(),
-        };
-    if requested.is_empty() {
-        return Ok("No drafts to review: nothing differs from the deployed state.".to_string());
+    let (rows, _) = list_draft_rows(ctx).await?;
+    let addressed = |row: &DraftRow| row.addressing.map(|(t, k)| (t, k.map(str::to_string)));
+    let mut picked: Vec<(&DraftRow, &'static str, Option<String>)> = Vec::new();
+    let mut missing: Vec<Value> = Vec::new();
+    match args
+        .get("items")
+        .and_then(Value::as_array)
+        .filter(|i| !i.is_empty())
+    {
+        Some(items) => {
+            for item in items {
+                let (Some(item_type), Some(path)) =
+                    (opt_str_arg(item, "type"), opt_str_arg(item, "path"))
+                else {
+                    continue;
+                };
+                let kind = opt_str_arg(item, "trigger_kind").map(str::to_string);
+                let row = rows.iter().find(|row| {
+                    addressed(row).is_some_and(|(t, k)| t == item_type && k == kind)
+                        && (row.display_path == path || row.path == path)
+                });
+                match (row, addressed_type(item_type)) {
+                    (Some(row), Some(item_type)) => picked.push((row, item_type, kind)),
+                    _ => missing.push(json!({
+                        "type": item_type,
+                        "trigger_kind": kind,
+                        "path": path,
+                        "error": format!("No draft of {item_type} \"{path}\" to deploy."),
+                    })),
+                }
+            }
+        }
+        None => picked.extend(rows.iter().filter_map(|row| {
+            let (item_type, kind) = addressed(row)?;
+            Some((row, item_type, kind))
+        })),
     }
-    let shown = &requested[..requested.len().min(MAX_REVIEW_ITEMS)];
+    let total = picked.len() + missing.len();
     let mut items = Vec::new();
-    for (item_type, trigger_kind, path) in shown {
-        let diff = diff_item(
-            ctx,
-            &json!({ "type": item_type, "path": path, "trigger_kind": trigger_kind }),
-        )
-        .await;
-        let page = draft_page(item_type, path, &Value::Null)
-            .or_else(|| deployed_page(item_type, path, &Value::Null));
-        items.push(json!({
+    for (row, item_type, trigger_kind) in picked.into_iter().take(MAX_REVIEW_ITEMS) {
+        let path = row.display_path.as_str();
+        let m = materialize(ctx, &row.kind, &row.path).await;
+        let editor = draft_page(item_type, path, &Value::Null);
+        let has_editor = editor.is_some();
+        let page = editor.or_else(|| deployed_page(item_type, path, &Value::Null));
+        let mut item = json!({
             "type": item_type,
             "trigger_kind": trigger_kind,
             "path": path,
-            "patch": diff.as_ref().ok(),
-            "error": diff.as_ref().err().map(|e| match api_message(e) { "" => e.as_str(), m => m }),
             "url": page.map(|page| ctx.page_url(&page)),
-        }));
+            "editor": has_editor,
+        });
+        if let Some(error) = &m.error {
+            item["error"] = json!(format!("Could not diff it: {error}"));
+        } else if !m.parts.has_changes && !m.value_uncomparable {
+            item["note"] = json!("The draft matches the deployed version: nothing to deploy.");
+        } else {
+            let patch = review_patch(&m);
+            if patch.chars().count() > MAX_REVIEW_PATCH_CHARS {
+                item["note"] = json!("This diff is too large to review here. Open it in Windmill to review and deploy it.");
+            } else {
+                item["patch"] = json!(patch);
+            }
+        }
+        items.push(item);
     }
+    items.extend(
+        missing
+            .into_iter()
+            .take(MAX_REVIEW_ITEMS.saturating_sub(items.len())),
+    );
+    let reviewable = items
+        .iter()
+        .filter(|item| item.get("patch").is_some())
+        .count();
     ctx.set_view(
         "windmill/review",
         json!({ "workspace": ctx.w_id, "items": items }),
     );
+    if total == 0 {
+        return Ok("No drafts to review: nothing differs from the deployed state.".to_string());
+    }
     let mut text = format!(
-        "Showing {} draft(s) to the user with their diffs. Nothing was deployed: the user deploys each from the card, and you are told when they do.",
+        "Showing {} draft(s) to the user, {reviewable} with a diff they can deploy from the card. Nothing was deployed: you are told when the user deploys one.",
         items.len()
     );
-    if requested.len() > shown.len() {
+    if total > items.len() {
         text.push_str(&format!(
-            " Only the first {MAX_REVIEW_ITEMS} of {} are shown.",
-            requested.len()
+            " Only the first {MAX_REVIEW_ITEMS} of {total} are shown."
         ));
     }
-    let unreadable: Vec<&str> = items
+    let rest: Vec<&str> = items
         .iter()
-        .filter(|item| !item["error"].is_null())
+        .filter(|item| item.get("patch").is_none())
         .filter_map(|item| item["path"].as_str())
         .collect();
-    if !unreadable.is_empty() {
+    if !rest.is_empty() {
         text.push_str(&format!(
-            " These could not be diffed and offer no Deploy: {}.",
-            unreadable.join(", ")
+            " No Deploy is offered for {} (no diff to show, or too large).",
+            rest.join(", ")
         ));
     }
     Ok(text)
+}
+
+/// The item type a tool names, as the `'static` the draft listing addresses drafts by.
+fn addressed_type(item_type: &str) -> Option<&'static str> {
+    ITEM_TYPES.iter().copied().find(|t| *t == item_type)
 }
 
 async fn diff(ctx: &Ctx<'_>, args: &Value) -> ToolResult {

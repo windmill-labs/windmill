@@ -104,6 +104,7 @@
   .patch .add { background: var(--ok-bg); color: var(--ok-fg); }
   .patch .del { background: var(--bad-bg); color: var(--bad-fg); }
   .patch .hunk { color: var(--info-fg); }
+  .patch .file { font-weight: 600; color: var(--fg); padding-top: 8px; }
   .patch .note { color: var(--fg-2); font-family: var(--sans); }
   .table { border: 1px solid var(--line); border-radius: var(--radius); overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -210,6 +211,9 @@
     node.append(...children.filter((c) => c != null && c !== false));
     return node;
   }
+  const KINDS = { preview: 'script test', flowpreview: 'flow test', flowscript: 'flow step', flowdependencies: 'flow dependencies' };
+  const kindLabel = (kind) => (kind ? KINDS[kind] ?? kind : '');
+
   function formatMs(ms) {
     if (ms == null || ms < 0) return '';
     if (ms < 1000) return `${Math.round(ms)}ms`;
@@ -324,7 +328,7 @@
     setHeader({
       path: run?.path ?? run?.form?.path ?? toolArgs.path ?? (run?.id ? `Run ${run.id.slice(0, 8)}` : 'Windmill run'),
       ws: run?.workspace ?? toolArgs.workspace_id,
-      kind: run?.job_kind ? run.job_kind.replace(/preview$/, ' test') : '',
+      kind: kindLabel(run?.job_kind),
       status,
       label: run ? (LABELS[status] ?? status) : 'Starting'
     });
@@ -624,7 +628,7 @@
     $('body').replaceChildren(table([
       { label: 'Status', value: (r) => r.status, show: (s) => el('span', { class: `badge ${s ?? ''}` }, LABELS[s] ?? s ?? '') },
       { label: 'Path', value: (r) => r.path ?? r.id, mono: true },
-      { label: 'Kind', value: (r) => r.job_kind?.replace(/preview$/, ' test') },
+      { label: 'Kind', value: (r) => kindLabel(r.job_kind) },
       { label: 'Duration', value: (r) => r.duration_ms, show: formatMs },
       { label: 'Started', value: (r) => r.started_at ?? r.created_at, show: time }
     ], meta.runs, (r) => openLink(r.url)));
@@ -642,7 +646,8 @@
     for (const line of shown) {
       if (line.startsWith('@@')) inHunk = true;
       if (!inHunk && /^(--- |\+\+\+ |=+$)/.test(line)) continue;
-      const kind = line.startsWith('@@') ? 'hunk'
+      const kind = line.startsWith('=== ') ? 'file'
+        : line.startsWith('@@') ? 'hunk'
         : !inHunk ? 'note'
         : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : '';
       nodes.push(el('div', { class: kind }, line || ' '));
@@ -665,18 +670,44 @@
   // names every deploy made from this card.
   const deployed = [];
 
+  function reviewBody(item) {
+    if (item.error) return el('pre', { class: 'error' }, item.error);
+    if (item.patch == null) return el('div', { class: 'step' }, item.note ?? '');
+    return patchView(item.patch, PATCH_LINES_INLINE);
+  }
+
   function reviewItem(workspace, item) {
     const done = el('span', { class: 'badge success', hidden: true }, 'Deployed');
     const error = el('div', { class: 'form-error', hidden: true });
-    const deploy = el('button', { class: 'primary small', type: 'button', hidden: !!item.error }, 'Deploy');
+    const deploy = el('button', { class: 'primary small', type: 'button', hidden: item.patch == null }, 'Deploy');
+    let body = reviewBody(item);
+    const address = {
+      workspace_id: workspace, type: item.type, path: item.path,
+      ...(item.trigger_kind ? { trigger_kind: item.trigger_kind } : {})
+    };
     deploy.onclick = async () => {
       deploy.disabled = true;
       error.hidden = true;
       try {
-        const result = await callTool('deploy_workspace_item', {
-          workspace_id: workspace, type: item.type, path: item.path,
-          ...(item.trigger_kind ? { trigger_kind: item.trigger_kind } : {})
-        });
+        // The draft may have changed since it was shown: what would be deployed is read
+        // again, and a different diff is shown in place of deploying it.
+        const { type, path, trigger_kind } = address;
+        const check = await callTool('show_deploy_review', { workspace_id: workspace, items: [{ type, path, ...(trigger_kind ? { trigger_kind } : {}) }] });
+        const current = check?._meta?.['windmill/review']?.items?.[0];
+        if (!current || current.patch !== item.patch) {
+          Object.assign(item, { patch: undefined, note: undefined, error: undefined }, current ?? { error: 'The draft could not be read again.' });
+          const next = reviewBody(item);
+          body.replaceWith(next);
+          body = next;
+          deploy.hidden = item.patch == null;
+          error.hidden = false;
+          error.textContent = item.patch == null
+            ? 'The draft changed since it was shown, and cannot be deployed from here.'
+            : 'The draft changed since it was shown. Review the diff above, then press Deploy again.';
+          deploy.disabled = false;
+          return;
+        }
+        const result = await callTool('deploy_workspace_item', address);
         if (result?.isError) throw new Error(textOf(result));
         deploy.hidden = true;
         done.hidden = false;
@@ -695,9 +726,9 @@
         el('span', { class: 'grow' }, item.path),
         el('span', { class: 'dim' }, item.trigger_kind ? `${item.trigger_kind} trigger` : item.type),
         done,
-        item.url ? el('button', { class: 'small', type: 'button', onclick: () => openLink(item.url) }, 'Open in editor') : null,
+        item.url ? el('button', { class: 'small', type: 'button', onclick: () => openLink(item.url) }, item.editor ? 'Open in editor' : 'Open in Windmill') : null,
         deploy),
-      item.error ? el('pre', { class: 'error' }, item.error) : patchView(item.patch ?? '', PATCH_LINES_INLINE),
+      body,
       error);
   }
 
@@ -707,7 +738,9 @@
     const n = meta.items.length;
     setHeader({ path: 'Review before deploying', ws: meta.workspace, kind: n === 1 ? '1 draft' : `${n} drafts` });
     setOpen(null);
-    $('body').replaceChildren(...meta.items.map((item) => reviewItem(meta.workspace, item)));
+    $('body').replaceChildren(...(n
+      ? meta.items.map((item) => reviewItem(meta.workspace, item))
+      : [el('div', { class: 'step' }, 'No drafts differ from the deployed state.')]));
   }
 
   // ---------------------------------------------------------------- dispatch
