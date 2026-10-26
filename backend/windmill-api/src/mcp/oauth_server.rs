@@ -225,17 +225,25 @@ struct RefreshTokenRow {
     revoked: bool,
 }
 
-fn supported_scopes() -> Vec<String> {
-    vec![
-        "mcp:all".to_string(),
-        "mcp:favorites".to_string(),
-        "mcp:scripts:*".to_string(),
-        "mcp:flows:*".to_string(),
-        "mcp:endpoints:*".to_string(),
-        "mcp:read_only".to_string(),
-        "mcp:read_run".to_string(),
-        "mcp:runnables_as_tools".to_string(),
+/// The scopes that grant access. A protected resource advertises only these: MCP clients
+/// that request every listed scope must not pick up a narrowing, which would make the
+/// consent page start from a narrower access than they meant to ask for.
+fn granting_scopes() -> Vec<String> {
+    [
+        "mcp:all",
+        "mcp:favorites",
+        "mcp:scripts:*",
+        "mcp:flows:*",
+        "mcp:endpoints:*",
     ]
+    .map(String::from)
+    .to_vec()
+}
+
+fn supported_scopes() -> Vec<String> {
+    let mut scopes = granting_scopes();
+    scopes.extend(["mcp:read_only", "mcp:read_run", "mcp:runnables_as_tools"].map(String::from));
+    scopes
 }
 
 /// GET /.well-known/oauth-authorization-server/api/w/:workspace_id/mcp/oauth/server
@@ -263,7 +271,7 @@ fn build_protected_resource_metadata(
     ProtectedResourceMetadata {
         resource: format!("{}{}", base_url, resource_path),
         authorization_servers: vec![format!("{}{}", base_url, oauth_prefix)],
-        scopes_supported: Some(supported_scopes()),
+        scopes_supported: Some(granting_scopes()),
         bearer_methods_supported: Some(vec!["header".to_string()]),
     }
 }
