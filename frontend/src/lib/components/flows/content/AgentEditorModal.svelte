@@ -197,7 +197,8 @@
 	// stored at a minted `draft_<uuid>` path and named by the path its first deploy will create,
 	// as the home list names it. Falls back to the target while the draft is still loading.
 	let shownPath = $derived(draft?.state?.path || target?.path)
-	// Reported once loaded: a host takes the first report as the name for good, an empty one included.
+	// Reported once loaded, then on every rename: from the first report on, the host names the tab by
+	// it rather than by its listing, an empty name included.
 	$effect(() => {
 		if (!draft?.state) return
 		const name = itemDisplayName(target?.path ?? '', draft.state.path, draft.state.description)

@@ -94,7 +94,11 @@
 		tabsToReload,
 		viewerTabsToReload
 	} from '$lib/components/sessions/previewReload'
-	import { isPreviewListPath, barePath } from '$lib/components/sessions/previewPaths'
+	import {
+		isPreviewListPath,
+		barePath,
+		agentPagePath
+	} from '$lib/components/sessions/previewPaths'
 	import { listWorkspaceAgents } from '$lib/components/sessions/workspaceAgents'
 	import {
 		leafKeyFor,
@@ -889,8 +893,8 @@
 			})
 	})
 	function agentTabPath(tab: SessionPreviewTab): string | undefined {
-		const get = barePath(tab.loc).match(/^\/agents\/get\/(.+)$/)
-		if (get) return decodeURIComponent(get[1])
+		const get = agentPagePath(tab.loc)
+		if (get !== undefined) return get
 		const ref = parsePageItemRoute(tab.loc)
 		return ref?.kind === 'resource' ? ref.path : undefined
 	}

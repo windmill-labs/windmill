@@ -512,6 +512,14 @@
 		return `${diff.kind}:${diff.path}`
 	}
 
+	// Drawn as an agent by the side being deployed, or by the target's when the source deletes it.
+	function isAgentRow(diff: WorkspaceItemDiff): boolean {
+		const sides = agentKeys[getItemKey(diff)]
+		if (!sides) return false
+		const fromCurrent = mergeIntoParent ? diff.exists_in_fork : !diff.exists_in_source
+		return fromCurrent ? sides.current : sides.parent
+	}
+
 	/** The two things a row needs from an item — the name it shows and who it runs as — are fields
 	 *  of the same object, so it is read once per item per workspace and awaited by both loops.
 	 *
@@ -601,7 +609,10 @@
 
 			if (diff.kind === 'resource') {
 				const read = (ws: string) =>
-					ResourceService.getResource({ workspace: ws, path: diff.path }).catch(() => undefined)
+					ResourceService.getResource({ workspace: ws, path: diff.path }).catch((error) => {
+						console.error(`Failed to fetch resource ${diff.path} in ${ws}`, error)
+						return undefined
+					})
 				const [current, parent] = await Promise.all([
 					diff.exists_in_fork ? read(forkWs) : undefined,
 					diff.exists_in_source ? read(sourceWs) : undefined
@@ -614,7 +625,11 @@
 				const agent = sides.current || sides.parent
 				if (agent) agentKeys[key] = sides
 				summaryCache[key] = agent
-					? { current: current?.description, parent: parent?.description, loading: false }
+					? {
+							current: sides.current ? current?.description : undefined,
+							parent: sides.parent ? parent?.description : undefined,
+							loading: false
+						}
 					: { loading: false }
 				continue
 			}
@@ -1345,7 +1360,7 @@
 		<div class="bg-surface-tertiary p-4 rounded-md border">
 			<WorkspaceDeployLayout
 				items={deployableItems}
-				isAgent={(item) => !!agentKeys[item.key]}
+				isAgent={(item) => isAgentRow(item.diff as WorkspaceItemDiff)}
 				{selectedItems}
 				{deploymentStatus}
 				{allSelected}

@@ -19,6 +19,7 @@ import {
 	RUNS_PATH,
 	SCHEDULES_PATH,
 	barePath,
+	agentPagePath,
 	VARIABLES_PATH,
 	WORKSPACE_SETTINGS_PATH,
 	triggerLabelForPath,
@@ -676,14 +677,8 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 		return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
 	}
 	// An agent's deployed page; its editor is the resource tab, which hosts it in process.
-	const agent = barePath(url).match(/^\/agents\/get\/(.+)$/)
-	if (agent) {
-		try {
-			return { kind: 'viewer', viewerKind: 'agent', path: decodeURIComponent(agent[1]) }
-		} catch {
-			return { kind: 'iframe' }
-		}
-	}
+	const agent = agentPagePath(url)
+	if (agent !== undefined) return { kind: 'viewer', viewerKind: 'agent', path: agent }
 	const item = parsePreviewItemRoute(url)
 	if (!item || parseHistoricalScriptEdit(url)) return { kind: 'iframe' }
 	const itemKind: SessionTargetKind | undefined =

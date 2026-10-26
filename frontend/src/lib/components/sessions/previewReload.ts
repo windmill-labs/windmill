@@ -6,6 +6,7 @@ import {
 	parsePageItemRoute,
 	parsePreviewItemRoute,
 	barePath,
+	agentPagePath,
 	TRIGGER_PAGES,
 	type PageItemRef,
 	type TriggerKind
@@ -164,8 +165,8 @@ export function viewerTabsToReload(
 	if (items.size === 0) return []
 	return tabs.filter((t) => {
 		const loc = whereIs(t)
-		const agent = barePath(loc).match(/^\/agents\/get\/(.+)$/)
-		if (agent) return items.has(decodeURIComponent(agent[1]))
+		const agent = agentPagePath(loc)
+		if (agent !== undefined) return items.has(agent)
 		const route = parsePreviewItemRoute(loc)
 		return route?.mode === 'view' && items.has(route.itemPath)
 	})

@@ -211,8 +211,12 @@ section or the flat layout.
 	// What the row says about the item's deploy state, in the review dock's words so
 	// the two never describe the same item differently.
 	function stateBadge(leaf: DrillLeaf<PreviewTarget>) {
-		if (agentPathOf(leaf) !== undefined && leaf.data.type === 'pageitem') {
-			return { label: 'Draft only', color: 'indigo' as const }
+		const agentPath = agentPathOf(leaf)
+		if (agentPath !== undefined) {
+			const agent = shownAgents.find((a) => a.path === agentPath)
+			if (agent?.draftOnly) return { label: 'Draft only', color: 'indigo' as const }
+			if (agent?.hasDraft) return { label: 'Draft', color: 'indigo' as const }
+			return undefined
 		}
 		const target = leaf.data
 		if (target.type !== 'item') return undefined
