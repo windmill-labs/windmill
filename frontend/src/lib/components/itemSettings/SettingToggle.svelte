@@ -73,12 +73,12 @@
 		<div class="pl-9 text-2xs text-secondary">{@render hint()}</div>
 	{/if}
 	{#if (checked || editing) && children}
-		<div
-			class="flex flex-col gap-2 pl-9"
-			transition:slideDynamic
-			onfocusin={() => (editing = true)}
-		>
-			{@render children()}
+		<!-- The slide clamps this box's height. A flex column would shrink an `overflow` child (an
+		     editor) to fit the clamp, so the slide would measure it short and jump at the end. -->
+		<div transition:slideDynamic onfocusin={() => (editing = true)}>
+			<div class="flex flex-col gap-2 pl-9">
+				{@render children()}
+			</div>
 		</div>
 	{/if}
 </div>
