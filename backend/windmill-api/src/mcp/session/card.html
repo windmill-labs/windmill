@@ -242,7 +242,7 @@
   // Windmill: grown inline it would pass the height hosts cap a card at.
   function moreButton(label, url) {
     if (canFullscreen()) {
-      return el('button', { class: 'small', type: 'button', style: 'margin-top: 8px', onclick: () => setDisplayMode('fullscreen') }, `Show ${label}`);
+      return el('button', { class: 'small', type: 'button', style: 'margin-top: 8px', onclick: () => setDisplayMode('fullscreen') }, `Show ${label} \u2922`);
     }
     if (!url) return null;
     return el('button', { class: 'small', type: 'button', style: 'margin-top: 8px', onclick: () => openLink(url) }, `${label} in Windmill \u2197`);
