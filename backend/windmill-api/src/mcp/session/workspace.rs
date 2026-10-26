@@ -1437,6 +1437,12 @@ pub(super) async fn show_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     };
     let url = |page: Option<String>| page.map(|page| ctx.page_url(&page));
     let edit_url = url(edit_page(item_type, path, &item));
+    // What a schedule or a trigger runs, on its own page.
+    let value = &item["value"];
+    let runs_url = url(value["script_path"].as_str().and_then(|target| {
+        let kind = if truthy(value.get("is_flow")) { "flow" } else { "script" };
+        super::deploy::deployed_page(kind, target, &Value::Null)
+    }));
     ctx.set_view(
         "windmill/item",
         json!({
@@ -1444,6 +1450,7 @@ pub(super) async fn show_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             "item": item,
             "url": url(page),
             "edit_url": edit_url,
+            "runs_url": runs_url,
         }),
     );
     Ok(format!(

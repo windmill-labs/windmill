@@ -213,6 +213,8 @@
   .dim { color: var(--fg-3); font-size: var(--t-sm); }
   .row .k { color: var(--fg-2); min-width: 110px; }
   .row pre { flex-basis: 100%; padding: 4px 8px; }
+  .row > .openable { flex-basis: 100%; }
+  .row .more-line.mono { font-family: var(--mono); color: var(--fg-em); }
   .row .step-link { min-height: 20px; width: 20px; border: 0; background: none; }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; background: var(--info-strong); }
   .dot.success { background: var(--ok-strong); }
@@ -434,6 +436,20 @@
     schedule: 'Schedule'
   };
   const triggerLabel = (kind) => TRIGGERS[kind] ?? kind;
+  // The settings that say what a trigger of each kind listens to.
+  const TRIGGER_SETTINGS = {
+    http: [['http_method', 'Method'], ['route_path', 'Route']],
+    websocket: [['url', 'URL']],
+    postgres: [['postgres_resource_path', 'Database'], ['publication_name', 'Publication']],
+    kafka: [['kafka_resource_path', 'Connection'], ['topics', 'Topics'], ['group_id', 'Group']],
+    nats: [['nats_resource_path', 'Connection'], ['subjects', 'Subjects']],
+    mqtt: [['mqtt_resource_path', 'Connection'], ['subscribe_topics', 'Topics']],
+    sqs: [['aws_resource_path', 'Connection'], ['queue_url', 'Queue']],
+    gcp: [['gcp_resource_path', 'Connection'], ['topic_id', 'Topic'], ['subscription_id', 'Subscription']],
+    azure: [['azure_resource_path', 'Connection'], ['topic_name', 'Topic']],
+    amqp: [['amqp_resource_path', 'Connection'], ['queue_name', 'Queue']],
+    email: [['local_part', 'Address']]
+  };
   const TRIGGER_ICONS = { http: 'http', websocket: 'websocket', ws: 'websocket', postgres: 'database', email: 'mail', schedule: 'schedule' };
   // The icon an item of a kind takes; a trigger's follows its kind, as in Windmill.
   function kindIconOf(type, triggerKind) {
@@ -865,7 +881,7 @@
       rows.push(el('div', { class: 'row tree', style: depthPad(depth + 1) },
         el('span', { class: 'chev' }),
         el('button', { class: 'more-line', type: 'button', onclick: () => openLink(run.url) },
-          `${plural(node.iterations_elided, 'earlier iteration')} in Windmill`, icon('external'))));
+          `${plural(node.iterations_elided, node.iterations_latest ? 'earlier iteration' : 'other iteration')} in Windmill`, icon('external'))));
     }
     kids.forEach((kid, i) => treeRows(kid.node, kid.label, `${key}>${i}`, depth + 1, last && status === 'failure' && i === kids.length - 1, rows));
   }
@@ -926,7 +942,7 @@
     return el('div', { class: 'section' },
       el('div', { class: 'rows' }, ...rows),
       el('div', { class: 'section-title' }, node.branches ? 'Result of every branch' : 'Result of every iteration'),
-      node.iterations_elided && run.url ? linkButton(`${plural(node.iterations_elided, 'earlier iteration')} in Windmill`, run.url) : null,
+      node.iterations_elided && run.url ? linkButton(`${plural(node.iterations_elided, node.iterations_latest ? 'earlier iteration' : 'other iteration')} in Windmill`, run.url) : null,
       results.length ? el('div', { class: 'rows' }, ...results) : el('div', { class: 'empty' }, 'None yet'));
   }
 
@@ -1412,7 +1428,14 @@
     const section = (label, content) => (fullscreen()
       ? [el('div', { class: 'section' }, el('div', { class: 'section-title' }, label), content())]
       : (hiddenSections.push(label), []));
-    const target = value.script_path ? `${value.is_flow ? 'flow' : 'script'} ${value.script_path}` : null;
+    // What a schedule or a trigger runs: its kind's icon and its path, opening its page.
+    const target = value.script_path
+      ? el('button', { class: 'more-line mono', type: 'button', title: `Open the ${value.is_flow ? 'flow' : 'script'} in Windmill`, disabled: !meta.runs_url, onclick: () => openLink(meta.runs_url) },
+        icon(value.is_flow ? 'flow' : 'script'), value.script_path, meta.runs_url ? icon('external') : null)
+      : null;
+    // Opens a value shown whole in fullscreen, or the item's page on a host without it.
+    const openWhole = (label) => el('button', { class: 'more-line', type: 'button', onclick: canFullscreen() ? () => setDisplayMode('fullscreen') : () => openLink(url) },
+      label, icon(canFullscreen() ? 'expand' : 'external'));
     switch (type) {
       case 'script': {
         const code = typeof item.value === 'string' ? item.value.split('\n') : [];
@@ -1447,22 +1470,31 @@
         const rows = [row('Cron', value.schedule ?? ''), row('Timezone', value.timezone ?? '')];
         if (target) rows.push(row('Runs', target));
         if (value.enabled != null) rows.push(row('Status', value.enabled ? 'Enabled' : 'Disabled'));
-        blocks.push(el('div', { class: 'rows' }, ...rows));
-        if (value.args && Object.keys(value.args).length) {
-          blocks.push(...section('Arguments', () => {
-            const text = JSON.stringify(value.args, null, 2);
-            return openable(el('pre', {}, text), false, url, null, text);
-          }));
+        // Its arguments are a row: named inline, whole in fullscreen.
+        const argCount = value.args ? Object.keys(value.args).length : 0;
+        if (argCount && fullscreen()) {
+          const text = JSON.stringify(value.args, null, 2);
+          rows.push(el('div', { class: 'row' }, el('span', { class: 'k' }, 'Arguments'), openable(el('pre', {}, text), false, url, null, text)));
+        } else if (argCount) {
+          rows.push(row('Arguments', openWhole(plural(argCount, 'argument'))));
         }
+        blocks.push(el('div', { class: 'rows' }, ...rows));
         break;
       }
       case 'trigger': {
         const rows = [];
         if (target) rows.push(row('Runs', target));
+        // What a trigger listens to, inline, as its kind's page lists it.
+        const keys = TRIGGER_SETTINGS[item.triggerKind] ?? [];
+        for (const [key, label] of keys) {
+          const shown = value[key];
+          if (shown == null || shown === '' || (Array.isArray(shown) && !shown.length)) continue;
+          rows.push(row(label, key === 'http_method' ? String(shown).toUpperCase() : Array.isArray(shown) && shown.every((v) => typeof v === 'string') ? shown.join(', ') : display(shown)));
+        }
         if (value.mode != null) rows.push(row('Mode', String(value.mode).replace(/^./, (c) => c.toUpperCase())));
         else if (value.enabled != null) rows.push(row('Status', value.enabled ? 'Enabled' : 'Disabled'));
         if (rows.length) blocks.push(el('div', { class: 'rows' }, ...rows));
-        const skip = new Set(['path', 'summary', 'description', 'script_path', 'is_flow', 'mode', 'enabled', 'workspace_id', 'edited_by', 'edited_at', 'extra_perms', 'email', 'labels', 'permissioned_as', 'error', 'last_server_ping', 'server_id']);
+        const skip = new Set(['path', 'summary', 'description', 'script_path', 'is_flow', 'mode', 'enabled', 'workspace_id', 'edited_by', 'edited_at', 'extra_perms', 'email', 'labels', 'permissioned_as', 'error', 'last_server_ping', 'server_id', ...keys.map(([key]) => key)]);
         const settings = Object.entries(value)
           .filter(([k, v]) => !skip.has(k) && v != null && v !== '' && !(Array.isArray(v) && !v.length))
           .map(([k, v]) => row(k, display(v)));

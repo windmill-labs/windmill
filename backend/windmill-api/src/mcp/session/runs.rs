@@ -1370,8 +1370,9 @@ const LOGS_UNREADABLE: &str = "Logs could not be read for this run.";
 struct RunTree<'a> {
     entries: &'a [Value],
     children: Vec<Vec<usize>>,
-    /// The card lists a loop's latest iterations, up to this many, where the model reads
-    /// its failed ones and its last.
+    /// The card lists a top-level loop's latest iterations, up to this many, where the model
+    /// reads its failed ones and its last. Nested loops keep the model's: at every depth the
+    /// listing would multiply.
     card_iterations: Option<usize>,
 }
 
@@ -1530,7 +1531,9 @@ impl<'a> RunTree<'a> {
         let skipped = count("skipped");
         // Skipped is terminal: only running, queued and suspended are unfinished.
         let unfinished = by_index.len() - ok - failed.len() - skipped;
-        let shown: Vec<usize> = match self.card_iterations {
+        let top_level = first["depth"].as_i64().is_some_and(|d| d <= 1);
+        let latest = self.card_iterations.filter(|_| top_level);
+        let shown: Vec<usize> = match latest {
             Some(limit) => by_index[by_index.len().saturating_sub(limit)..].to_vec(),
             None => {
                 let mut shown: Vec<usize> = failed
@@ -1576,6 +1579,10 @@ impl<'a> RunTree<'a> {
                 "iterations_elided".into(),
                 (by_index.len() - shown.len()).into(),
             );
+        }
+        if latest.is_some() {
+            // The ones left out all came before the ones listed.
+            out.insert("iterations_latest".into(), true.into());
         }
         out
     }
