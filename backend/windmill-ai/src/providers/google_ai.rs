@@ -808,6 +808,8 @@ mod tests {
             anthropic_federation: None,
             platform,
             custom_headers: HashMap::new(),
+            extra_body: None,
+            reasoning_effort_mapping: None,
         }
     }
 

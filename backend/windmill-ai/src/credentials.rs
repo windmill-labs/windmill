@@ -38,6 +38,8 @@ pub struct ProviderCredentials {
     pub anthropic_federation: Option<AnthropicFederation>,
     pub platform: AIPlatform,
     pub custom_headers: HashMap<String, String>,
+    pub extra_body: Option<serde_json::Value>,
+    pub reasoning_effort_mapping: Option<HashMap<String, serde_json::Value>>,
 }
 
 /// The identifiers a Claude Console federation rule needs in a token exchange.

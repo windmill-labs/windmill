@@ -184,9 +184,26 @@ impl OtherQueryBuilder {
             stream_options: None,
         };
 
-        let with_usage = serde_json::to_string(&request_with_usage)
+        let mut with_usage_val = serde_json::to_value(&request_with_usage)
             .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))?;
-        let without_usage = serde_json::to_string(&request_without_usage)
+        crate::body_overrides::apply_body_overrides(
+            &mut with_usage_val,
+            args.extra_body,
+            args.reasoning_effort,
+            args.reasoning_effort_mapping,
+        );
+        let with_usage = serde_json::to_string(&with_usage_val)
+            .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))?;
+
+        let mut without_usage_val = serde_json::to_value(&request_without_usage)
+            .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))?;
+        crate::body_overrides::apply_body_overrides(
+            &mut without_usage_val,
+            args.extra_body,
+            args.reasoning_effort,
+            args.reasoning_effort_mapping,
+        );
+        let without_usage = serde_json::to_string(&without_usage_val)
             .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))?;
 
         Ok(BuiltRequests { with_usage, without_usage })
@@ -365,5 +382,70 @@ mod tests {
         assert_eq!(effort, Some("high"));
         assert!(thinking.is_none());
         assert_eq!(temperature, Some(0.3));
+    }
+
+    #[tokio::test]
+    async fn other_builder_applies_extra_body_and_reasoning_mapping() {
+        let builder = OtherQueryBuilder::new(AIProvider::CustomAI);
+        let client = AuthedClient::new(
+            "http://localhost:8000".to_string(),
+            "test-workspace".to_string(),
+            "token".to_string(),
+            None,
+        );
+        let messages = vec![OpenAIMessage {
+            role: "user".to_string(),
+            content: Some(OpenAIContent::Text("hello".to_string())),
+            ..Default::default()
+        }];
+        let extra_body = serde_json::json!({
+            "chat_template_kwargs": {
+                "enable_thinking": true
+            },
+            "reasoning_effort_mapping": {
+                "medium": {
+                    "chat_template_kwargs": {
+                        "enable_thinking": true,
+                        "reasoning_effort": "medium"
+                    }
+                }
+            }
+        });
+        let args = BuildRequestArgs {
+            messages: &messages,
+            tools: None,
+            model: "qwen3.8-flash-next",
+            temperature: None,
+            reasoning_effort: Some("medium"),
+            max_tokens: None,
+            output_schema: None,
+            output_type: &OutputType::Text,
+            system_prompt: None,
+            user_message: "hello",
+            attachments: None,
+            has_websearch: false,
+            prompt_cache_key: None,
+            reasoning_summary: false,
+            extra_body: Some(&extra_body),
+            reasoning_effort_mapping: None,
+        };
+
+        let built = builder
+            .build_text_requests(&args, &client, "workspace")
+            .await
+            .unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&built.with_usage).unwrap();
+
+        assert_eq!(parsed["model"], "qwen3.8-flash-next");
+        // reasoning and reasoning_effort should be absent because mapping matched
+        assert!(parsed.get("reasoning").is_none());
+        assert!(parsed.get("reasoning_effort").is_none());
+        assert_eq!(
+            parsed["chat_template_kwargs"],
+            serde_json::json!({
+                "enable_thinking": true,
+                "reasoning_effort": "medium"
+            })
+        );
     }
 }

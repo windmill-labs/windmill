@@ -373,6 +373,8 @@ mod parity_tests {
             anthropic_federation: None,
             platform: kase.platform.clone(),
             custom_headers: HashMap::new(),
+            extra_body: None,
+            reasoning_effort_mapping: None,
         }
     }
 

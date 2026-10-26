@@ -75,6 +75,10 @@ pub struct BuildRequestArgs<'a> {
     /// Ask for a summary of the model's reasoning where the provider streams one.
     /// `false` once the provider refused summaries to these credentials.
     pub reasoning_summary: bool,
+    /// Optional provider-specific extra request body fields or overrides
+    pub extra_body: Option<&'a serde_json::Value>,
+    /// Optional map from reasoning effort token (e.g. none, low, medium, high) to request body overrides
+    pub reasoning_effort_mapping: Option<&'a std::collections::HashMap<String, serde_json::Value>>,
 }
 
 /// Response from AI provider
