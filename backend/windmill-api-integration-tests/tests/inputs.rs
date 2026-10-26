@@ -277,13 +277,15 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     )
     .await?;
 
-    // A run still in progress, older than the one page entry a newer run would fill.
+    // A run still in progress, older than the two runs a one-entry page reads by creation time.
     let long_running = insert_run(
         &db,
         Run { path: "f/test/long", running: true, at: 13, ..Run::default() },
     )
     .await?;
-    insert_run(&db, Run { path: "f/test/long", at: 14, ..Run::default() }).await?;
+    for at in [14, 15] {
+        insert_run(&db, Run { path: "f/test/long", at, ..Run::default() }).await?;
+    }
 
     // test-user-2 can read the runs of its own script, not the flow run they are steps of nor
     // that flow's loop container.
