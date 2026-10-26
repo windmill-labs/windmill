@@ -491,7 +491,8 @@
 	type SummaryCache = Record<string, { current?: string; parent?: string; loading?: boolean }>
 	let summaryCache = $state<SummaryCache>({})
 	// Resource rows that are AI agents: titled by their summary and drawn as agents, as a script is.
-	let agentKeys = $state<Record<string, boolean>>({})
+	// Per side, since a path can be an agent on one side and another resource type on the other.
+	let agentKeys = $state<Record<string, { current: boolean; parent: boolean }>>({})
 	// What has already been asked for. Deliberately not `$state`: the fetchers below run inside an
 	// effect, and a guard that reads reactive state makes that effect depend on what it writes —
 	// which is a loop. A plain Set is also what tells "asked, and the answer was nothing" from
@@ -606,8 +607,12 @@
 					diff.exists_in_source ? read(sourceWs) : undefined
 				])
 				if (!alive) return
-				const agent = [current, parent].some((r) => r?.resource_type === 'ai_agent')
-				if (agent) agentKeys[key] = true
+				const sides = {
+					current: current?.resource_type === 'ai_agent',
+					parent: parent?.resource_type === 'ai_agent'
+				}
+				const agent = sides.current || sides.parent
+				if (agent) agentKeys[key] = sides
 				summaryCache[key] = agent
 					? { current: current?.description, parent: parent?.description, loading: false }
 					: { loading: false }
@@ -1666,7 +1671,7 @@
 					     a parent-only row (deleted/absent in the fork) would 404 if linked
 					     into the fork, so link it into the parent instead. -->
 					{@const linkWs = diff.exists_in_fork ? currentWorkspaceId : parentWorkspaceId}
-					{@const editUrl = agentKeys[key]
+					{@const editUrl = agentKeys[key]?.[diff.exists_in_fork ? 'current' : 'parent']
 						? `/agents/edit/${diff.path}?workspace=${encodeURIComponent(linkWs)}`
 						: editUrlFor(diff, linkWs)}
 					{#if isTriggerOrScheduleKind(diff.kind)}
