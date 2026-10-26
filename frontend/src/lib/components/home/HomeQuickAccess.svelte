@@ -489,4 +489,4 @@
 	</HomeSectionLabel>
 {/if}
 
-<ShareModal bind:this={shareModal} />
+<ShareModal bind:this={shareModal} source="home" />

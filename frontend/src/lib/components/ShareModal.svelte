@@ -11,7 +11,7 @@
 
 	interface Props {
 		/** Where this is mounted, for the Share dialog's telemetry. */
-		source?: 'list' | 'detail'
+		source?: 'list' | 'detail' | 'home'
 	}
 
 	let { source = 'list' }: Props = $props()
