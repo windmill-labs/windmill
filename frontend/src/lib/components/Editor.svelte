@@ -120,7 +120,7 @@
 	import { MarkerSeverity } from 'monaco-editor'
 	import { resource, useDebounce, watch } from 'runed'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	import { trackPendingKeystrokes } from './editorKeystrokeFlush'
+	import { registerPendingEditor } from './pendingEditorFlush'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	// import EditorTheme from './EditorTheme.svelte'
@@ -495,10 +495,12 @@
 	}
 
 	// Same guards as the unmount flush below: only when a keystroke is actually pending.
-	const untrackKeystrokes = trackPendingKeystrokes(() => {
-		if (editor && timeoutModel !== undefined) flushPendingChanges()
+	const unregisterPending = registerPendingEditor({
+		flushPendingChanges: () => {
+			if (editor && timeoutModel !== undefined) flushPendingChanges()
+		}
 	})
-	onDestroy(untrackKeystrokes)
+	onDestroy(unregisterPending)
 
 	export function append(code: string): void {
 		if (editor) {

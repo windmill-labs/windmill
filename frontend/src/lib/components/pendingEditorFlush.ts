@@ -1,4 +1,4 @@
-// Every mounted `SimpleEditor`, so a caller can materialise what the user typed without
+// Every mounted code editor (`SimpleEditor`, `Editor`), so a caller can materialise what the user typed without
 // knowing which editors a page contains — a drawer nests them through SchemaForm and
 // ArgInput, so enumerating them from the container does not scale. Plain module rather
 // than the editor component: importing that pulls Monaco's side-effect imports into every

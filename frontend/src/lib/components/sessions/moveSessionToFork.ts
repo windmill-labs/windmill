@@ -5,7 +5,7 @@ import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { invalidateWorkspaceDiffCache } from '$lib/components/copilot/chat/global/diffSnapshot'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
-import { flushPendingKeystrokes } from '$lib/components/editorKeystrokeFlush'
+import { flushAllPendingEditorChanges } from '$lib/components/pendingEditorFlush'
 import { flushEditorSaves } from './useUserDraftSync.svelte'
 import {
 	materializeForkOutcome,
@@ -43,7 +43,7 @@ export type MoveSessionResult =
  * effect, hence the ticks.
  */
 export async function flushPendingSaves(workspace: string): Promise<string | undefined> {
-	flushPendingKeystrokes()
+	flushAllPendingEditorChanges()
 	await tick()
 	flushEditorSaves(workspace)
 	await tick()
