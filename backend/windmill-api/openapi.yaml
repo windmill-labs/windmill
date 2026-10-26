@@ -28423,6 +28423,13 @@ paths:
           description: folder scoping the Hub project source (`{workspace}:{folder}`)
           schema:
             type: string
+        - name: version
+          in: query
+          required: false
+          description: id of a reviewed project version to export instead of the current one (see the hub's `/projects/{slug}/versions`)
+          schema:
+            type: integer
+            minimum: 1
       responses:
         "200":
           description: raw Hub response body (status code is passed through from the Hub)
