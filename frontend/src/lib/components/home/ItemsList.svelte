@@ -845,7 +845,7 @@
 		{
 			displayName: 'Hide empty folders',
 			description:
-				'Folders with no scripts, flows or apps, even if they hold resources or variables',
+				'Folders with no scripts, flows, apps, agents or data pipelines. They may still hold resources, variables or schedules.',
 			toggle: hideEmptyFolders,
 			hide: flatList || !canKeepEmptyFolders,
 			action: () => setHideEmptyFolders(!hideEmptyFolders)
