@@ -162,7 +162,7 @@
 			{/if}
 			<div class="text-2xs text-secondary">
 				{#if result.instructions.length > 0}
-					Followed {result.instructions.length} review instruction{result.instructions.length === 1
+					Applied {result.instructions.length} review instruction{result.instructions.length === 1
 						? ''
 						: 's'} from {parentWorkspaceId}: {result.instructions.join(', ')}.
 				{:else}
@@ -170,6 +170,11 @@
 				{/if}
 				Only the ai_review_instruction resources you can read in {parentWorkspaceId} are used.
 			</div>
+			{#if result.instructionsUnavailable}
+				<Alert type="warning" title="Review instructions unavailable" size="xs">
+					Could not list the review instructions of {parentWorkspaceId}, so none were applied.
+				</Alert>
+			{/if}
 			{#if result.skippedInstructions.length > 0}
 				<Alert type="warning" title="Review instructions skipped" size="xs">
 					Could not load: {result.skippedInstructions.join(', ')}

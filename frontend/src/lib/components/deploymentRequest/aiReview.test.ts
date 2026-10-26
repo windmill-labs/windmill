@@ -6,7 +6,8 @@ const h = vi.hoisted(() => ({
 	system: '',
 	workspace: '' as string | undefined,
 	reads: 0,
-	instructionReads: [] as string[]
+	instructionReads: [] as string[],
+	listed: [] as string[]
 }))
 
 vi.mock('$lib/components/copilot/lib', () => ({
@@ -33,10 +34,13 @@ vi.mock('$lib/utils_workspace_deploy', () => ({
 vi.mock('$lib/gen', async (importOriginal) => ({
 	...(await importOriginal<typeof import('$lib/gen')>()),
 	ResourceService: {
-		listResource: async ({ workspace }: { workspace: string }) =>
-			workspace === 'parent'
+		listResource: async ({ workspace }: { workspace: string }) => {
+			h.listed.push(workspace)
+			if (workspace === 'offline') throw new Error('unreachable')
+			return workspace === 'parent'
 				? [{ path: 'f/a/REVIEW' }, { path: 'f/other/REVIEW' }, { path: 'f/a/gone' }]
-				: [{ path: 'f/a/FORK_REVIEW' }],
+				: [{ path: 'f/a/FORK_REVIEW' }]
+		},
 		getResourceValue: async ({ workspace, path }: { workspace: string; path: string }) => {
 			h.instructionReads.push(`${workspace}:${path}`)
 			if (path === 'f/a/gone') throw new Error('not found')
@@ -62,6 +66,7 @@ function diff(path: string): WorkspaceItemDiff {
 beforeEach(() => {
 	h.reads = 0
 	h.instructionReads = []
+	h.listed = []
 })
 
 describe('parseReviewAnswer', () => {
@@ -112,6 +117,13 @@ describe('reviewDeployment', () => {
 		expect(h.system).toContain('<folder_instructions path="f/a/REVIEW" scope="f/a/">')
 		expect(h.system).toContain('body of f/a/REVIEW')
 		expect(h.system).not.toContain('f/other/REVIEW')
+		expect(h.listed).toEqual(['parent'])
 		expect(h.instructionReads.every((r) => r.startsWith('parent:'))).toBe(true)
+	})
+
+	it('reviews without instructions when the parent cannot be listed', async () => {
+		const result = await reviewDeployment([diff('f/a/b')], 'fork', 'offline', new AbortController())
+		expect(result.instructionsUnavailable).toBe(true)
+		expect(result.instructions).toEqual([])
 	})
 })
