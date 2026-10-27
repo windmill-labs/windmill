@@ -315,7 +315,11 @@ async fn resolve_provider_credentials(
     let user_db = authed.map(|_| UserDB::new(db.clone()));
 
     match resource {
-        AIResource::Standard(resource) => {
+        AIResource::Standard(mut resource) => {
+            if let Some(base_url) = resource.base_url {
+                resource.base_url =
+                    Some(resolve_var(base_url, db, w_id, user_db.as_ref(), authed).await?);
+            }
             // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
             let base_url = if matches!(provider, AIProvider::AWSBedrock) {
                 String::new()
