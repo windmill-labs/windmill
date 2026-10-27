@@ -1868,7 +1868,16 @@ async fn read_run(ctx: &Ctx<'_>, args: &Value, card: bool) -> ToolResult {
         let mut steps = card_steps(entries, job);
         details.extend(agent_card(job, &mut steps));
         details.insert("step_list".into(), steps.into());
-        let logs = log_tail(ctx, id, CARD_LOG_CHARS).await;
+        let mut logs = log_tail(ctx, id, CARD_LOG_CHARS).await;
+        // `getupdate` reads only what is still in the database, and archiving can leave
+        // little there. A finished run is not refreshed again, so it can afford the full read.
+        let short = |(tail, cut): &(String, bool)| *cut && js_len(tail) < CARD_LOG_CHARS as usize;
+        if job.get("success").is_some() && logs.as_ref().is_some_and(short) {
+            if let Ok(full) = ctx.request("GET", &logs_route, None).await {
+                let tail = js_tail(&full, CARD_LOG_CHARS as usize);
+                logs = Some((tail.to_string(), tail.len() < full.len()));
+            }
+        }
         if let Some((tail, cut)) = logs.as_ref().filter(|(tail, _)| !tail.trim().is_empty()) {
             if *cut {
                 details.insert("logs_cut".into(), true.into());
@@ -1978,11 +1987,12 @@ async fn log_tail(ctx: &Ctx<'_>, job: &str, chars: i64) -> Option<(String, bool)
         ))
     };
     let end = ctx.get(&update(i32::MAX as i64)).await.ok()?["log_offset"].as_i64()?;
-    let start = (end - chars).max(0);
+    // Offsets count from 1, and `end` is one past the last character.
+    let start = (end - chars).max(1);
     let tail = ctx.get(&update(start)).await.ok()?;
     tail["new_logs"]
         .as_str()
-        .map(|logs| (logs.to_string(), start > 0))
+        .map(|logs| (logs.to_string(), start > 1))
 }
 
 /// The card of one run: what `get_run` hands it, under a one-line answer, since the model
