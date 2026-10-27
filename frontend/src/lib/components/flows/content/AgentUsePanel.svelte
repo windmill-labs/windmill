@@ -2,7 +2,6 @@
 	import { Alert, Badge, Button, CopyButton, TabContent, Tabs } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { SlackAgentChannel } from '$lib/gen'
-	import ChatAppPanel from '$lib/components/details/ChatAppPanel.svelte'
 	import WebhooksPanel from '$lib/components/triggers/webhook/WebhooksPanel.svelte'
 
 	/**
@@ -11,7 +10,6 @@
 	 */
 	let {
 		agentPath,
-		workspace,
 		isAdmin,
 		chat,
 		slackLoading,
@@ -26,7 +24,6 @@
 		section
 	}: {
 		agentPath: string
-		workspace: string
 		isAdmin: boolean
 		/** Whether the agent keeps the conversation. Slack is offered only then: a thread is one. */
 		chat: boolean
@@ -48,7 +45,7 @@
 		canShare: boolean
 		channels: SlackAgentChannel[]
 		/** The section shown: the page offers them as its tabs. */
-		section: 'api' | 'slack' | 'app'
+		section: 'api' | 'slack'
 	} = $props()
 
 	let handle = $derived(`+${agentPath.split('/').pop()}`)
@@ -164,10 +161,6 @@
 							{/if}
 						</div>
 					{/if}
-				</TabContent>
-
-				<TabContent value="app">
-					<ChatAppPanel kind="agent" path={agentPath} {workspace} />
 				</TabContent>
 
 				<TabContent value="api" class="p-4">

@@ -15,6 +15,8 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import AgentEditorHost from '$lib/components/flows/content/AgentEditorHost.svelte'
+	import BuildChatAppCard from '$lib/components/details/BuildChatAppCard.svelte'
+	import { createChatRawApp } from '$lib/components/details/createRawAppFromScript'
 	import AgentConfigModal from '$lib/components/flows/content/AgentConfigModal.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import InputSelectedBadge from '$lib/components/schema/InputSelectedBadge.svelte'
@@ -85,6 +87,13 @@
 	const editRights = useEditRights(() => ws)
 	let canAuthor = $derived(editRights.roleCanAuthor('agent'))
 	let canCode = $derived(editRights.capabilities.code)
+
+	async function buildChatApp() {
+		const app = createChatRawApp({ path, runType: 'agent' })
+		// The raw app editor reads the payload from sessionStorage on mount.
+		sessionStorage.setItem('rawAppImport', JSON.stringify(app))
+		await goto('/apps_raw/add')
+	}
 	let canEdit = $derived(config != undefined && (agent?.canWrite ?? false) && canAuthor)
 
 	// Recorded once the agent is in: a path with nothing deployed never loads one. Not from a
@@ -132,8 +141,8 @@
 	let history: AgentHistory | undefined = $state(undefined)
 	let deleteOpen = $state(false)
 	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
-	let pickedTab = $state<'agent' | 'api' | 'slack' | 'app'>('agent')
-	// The page is reused across agents, and an agent without managed memory has no Slack or App tab.
+	let pickedTab = $state<'agent' | 'api' | 'slack'>('agent')
+	// The page is reused across agents, and an agent without managed memory has no Slack tab.
 	let tab = $derived(
 		pickedTab !== 'agent' && pickedTab !== 'api' && !chatAvailable ? 'api' : pickedTab
 	)
@@ -197,7 +206,9 @@
 					onPermissions: () => shareModal?.openDrawer?.(path, 'resource'),
 					onDeploy: () => deploymentDrawer?.openDrawer(path, 'resource'),
 					onHistory: () => history?.open(),
-					onDelete: () => (deleteOpen = true)
+					onDelete: () => (deleteOpen = true),
+					onBuildChatApp:
+						chatAvailable && editRights.roleCanAuthor('raw_app') ? buildChatApp : undefined
 				}).map((item) => ({
 					label: item.displayName,
 					Icon: item.icon,
@@ -326,7 +337,6 @@
 			<Tab value="api" label="API" />
 			{#if chatAvailable}
 				<Tab value="slack" label="Slack" />
-				<Tab value="app" label="Windmill app" />
 			{/if}
 		</Tabs>
 	{/if}
@@ -336,7 +346,7 @@
 		</div>
 		{#if ws && config}
 			<div class={['absolute inset-0 z-10 bg-surface', tab === 'agent' && 'hidden']}>
-				{@render usePane(ws, tab === 'agent' ? 'api' : tab)}
+				{@render usePane(tab === 'agent' ? 'api' : tab)}
 			</div>
 		{/if}
 	</div>
@@ -358,6 +368,9 @@
 			onOpenConfig={() => configModal?.open()}
 			onRunStarted={embedded || pendingRun ? runStarted : undefined}
 		>
+			{#snippet chatSidebarFooter({ expanded })}
+				<BuildChatAppCard kind="agent" {path} workspace={ws} {expanded} />
+			{/snippet}
 			{#snippet viewForm({ schema, run, loading, actions })}
 				{#if config && !chatAvailable}
 					<Alert type="info" size="xs" title="Managed memory is off" class="mb-4">
@@ -394,10 +407,9 @@
 	{/key}
 {/snippet}
 
-{#snippet usePane(ws: string, section: 'api' | 'slack' | 'app')}
+{#snippet usePane(section: 'api' | 'slack')}
 	<AgentUsePanel
 		agentPath={path}
-		workspace={ws}
 		isAdmin={!!(operatingUser.current?.is_admin || operatingUser.current?.is_super_admin)}
 		chat={chatAvailable}
 		slackLoading={slack.loading && !slack.current}

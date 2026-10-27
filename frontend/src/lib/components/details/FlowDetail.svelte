@@ -55,8 +55,11 @@
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
-	import { createRawAppFromFlow } from '$lib/components/details/createRawAppFromScript'
-	import ChatAppPanel from '$lib/components/details/ChatAppPanel.svelte'
+	import {
+		createChatRawApp,
+		createRawAppFromFlow
+	} from '$lib/components/details/createRawAppFromScript'
+	import BuildChatAppCard from '$lib/components/details/BuildChatAppCard.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
@@ -472,15 +475,23 @@
 		}
 
 		// Build app starts from the full template, not the builder one a compose-only role deploys.
-		// A chat-mode flow builds its chat app from its Windmill app tab instead.
-		if (caps.apps === 'full' && !flow.value?.chat_input_enabled) {
+		// A chat-mode flow gets the chat template rather than a form over its inputs.
+		if (caps.apps === 'full') {
+			const chat = !!flow.value?.chat_input_enabled
 			buttons.push({
-				label: 'Build app',
+				label: chat ? 'Build chat app' : 'Build app',
 				placement: 'menu',
 				alwaysPlaced: true,
 				buttonProps: {
 					onClick: async () => {
-						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
+						const app = chat
+							? createChatRawApp({
+									path: flow.path,
+									runType: 'flow',
+									summary: flow.summary,
+									schema: flow.schema
+								})
+							: createRawAppFromFlow(flow.path, flow.summary, flow.schema)
 						// The raw app editor reads the payload from sessionStorage on mount.
 						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
 						await onNavigate('/apps_raw/add')
@@ -682,7 +693,6 @@
 	isOperator={!caps.code}
 	forceSmallScreen={chatInputEnabled}
 	isChatMode={chatInputEnabled}
-	app={chatInputEnabled ? chatApp : undefined}
 	flow_json={{
 		value: flow?.value,
 		summary: flow?.summary,
@@ -860,7 +870,21 @@
 								flowModules={flow?.value?.modules}
 								wideLayout
 								frame="none"
-							/>
+							>
+								{#snippet sidebarFooter({ expanded })}
+									{#if workspace && flow}
+										<BuildChatAppCard
+											kind="flow"
+											path={flow.path}
+											{workspace}
+											{expanded}
+											summary={flow.summary}
+											schema={flow.schema}
+											{onNavigate}
+										/>
+									{/if}
+								{/snippet}
+							</FlowChat>
 						{:else}
 							{@const hasSchema =
 								flow.schema && Object.keys(flow.schema.properties ?? {}).length > 0}
@@ -1051,19 +1075,6 @@
 		{/if}
 	{/snippet}
 </DetailPageLayout>
-
-{#snippet chatApp()}
-	{#if flow && workspace}
-		<ChatAppPanel
-			kind="flow"
-			path={flow.path}
-			{workspace}
-			summary={flow.summary}
-			schema={flow.schema}
-			{onNavigate}
-		/>
-	{/if}
-{/snippet}
 
 <FlowAssetsHandler
 	modules={flow?.value.modules ?? []}

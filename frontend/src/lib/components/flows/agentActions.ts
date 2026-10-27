@@ -1,4 +1,4 @@
-import { Copy, Eye, FileUp, History, List, Shield, Trash } from 'lucide-svelte'
+import { Copy, Eye, FileUp, History, LayoutDashboard, List, Shield, Trash } from 'lucide-svelte'
 import { DraftService, ResourceService, type AiAgent, type OpenFlow } from '$lib/gen'
 import { mintDraftPath } from '$lib/mintDraftPath'
 import { keepsManagedMemory } from './agentFormFields'
@@ -94,6 +94,9 @@ export function agentMenuItems(agent: {
 	onDeploy: () => void
 	onHistory: () => void
 	onDelete: (event?: MouseEvent) => void
+	/** Set where a chat app can be built over the agent: it keeps a chat, and the user may author
+	 *  raw apps. */
+	onBuildChatApp?: () => void
 }): Item[] {
 	const deployable =
 		!agent.noCode &&
@@ -123,6 +126,9 @@ export function agentMenuItems(agent: {
 							]),
 					{ displayName: 'Copy path', icon: Copy, action: () => copyToClipboard(agent.path) }
 				]),
+		...(agent.onBuildChatApp
+			? [{ displayName: 'Build chat app', icon: LayoutDashboard, action: agent.onBuildChatApp }]
+			: []),
 		{
 			displayName: 'Permissions',
 			icon: Shield,

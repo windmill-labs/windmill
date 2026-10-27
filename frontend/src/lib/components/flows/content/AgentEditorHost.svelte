@@ -88,6 +88,8 @@
 		>
 		/** A hint pinned under the configuration, outside its scroll. */
 		configFooter?: import('svelte').Snippet
+		/** Pinned at the foot of the chat's conversations sidebar. */
+		chatSidebarFooter?: import('svelte').Snippet<[{ expanded: boolean }]>
 	}
 
 	let {
@@ -102,7 +104,8 @@
 		onOpenConfig = undefined,
 		onRunStarted = undefined,
 		viewForm = undefined,
-		configFooter = undefined
+		configFooter = undefined,
+		chatSidebarFooter = undefined
 	}: Props = $props()
 
 	/** The one module the editor edits. Standalone (no `agent` key) so `initFlowState` loads a
@@ -768,6 +771,7 @@
 							inputSchema={AGENT_CHAT_SCHEMA}
 							flowModules={chatModules}
 							composerSettings={onOpenConfig ? configButton : undefined}
+							sidebarFooter={chatSidebarFooter}
 						/>
 					</div>
 				</div>
