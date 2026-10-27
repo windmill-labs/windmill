@@ -534,30 +534,32 @@ done`
 
 	<!-- The chat SDK names every endpoint itself, so the HTTP settings live under their own tab. -->
 	{#if sdkOffered}
-		<Tabs bind:selected={surface}>
-			<Tab value="http" label="HTTP" />
-			<Tab value="sdk" label="Chat SDK" />
-			{#snippet content()}
-				<TabContent value="http">
-					{@render httpExamples()}
-				</TabContent>
-				<TabContent value="sdk" class="flex flex-col gap-2">
-					<span class="text-xs text-secondary">
-						Streams each answer and keeps the conversations, with any framework.
-					</span>
-					<ToggleButtonGroup bind:selected={sdkFlavor} noWFull>
-						{#snippet children({ item })}
-							<ToggleButton value="react" label="React" {item} small />
-							<ToggleButton value="any" label="Any framework" {item} small />
-						{/snippet}
-					</ToggleButtonGroup>
-					<CopyableCodeBlock
-						code={sdkFlavor === 'react' ? sdkReactExample(target) : sdkExample(target)}
-						language={typescript}
-					/>
-				</TabContent>
-			{/snippet}
-		</Tabs>
+		<div>
+			<Tabs bind:selected={surface}>
+				<Tab value="http" label="HTTP" />
+				<Tab value="sdk" label="Chat SDK" />
+				{#snippet content()}
+					<TabContent value="http" class="mt-4">
+						{@render httpExamples()}
+					</TabContent>
+					<TabContent value="sdk" class="flex flex-col gap-2 mt-4">
+						<span class="text-xs text-secondary">
+							Streams each answer and keeps the conversations, with any framework.
+						</span>
+						<ToggleButtonGroup bind:selected={sdkFlavor} noWFull>
+							{#snippet children({ item })}
+								<ToggleButton value="react" label="React" {item} small />
+								<ToggleButton value="any" label="Any framework" {item} small />
+							{/snippet}
+						</ToggleButtonGroup>
+						<CopyableCodeBlock
+							code={sdkFlavor === 'react' ? sdkReactExample(target) : sdkExample(target)}
+							language={typescript}
+						/>
+					</TabContent>
+				{/snippet}
+			</Tabs>
+		</div>
 	{:else}
 		{@render httpExamples()}
 	{/if}
