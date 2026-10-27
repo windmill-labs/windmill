@@ -14,6 +14,7 @@ import * as path from "node:path";
 let remoteFiles: Record<string, string> = {};
 let remoteUnreadable = false;
 let pushedFiles: Record<string, string> | undefined;
+let deployedApps: Record<string, { value: Record<string, unknown> }> = {};
 
 mockServices({
   getSharedUi: async (_args: { workspace: string }) => {
@@ -26,9 +27,15 @@ mockServices({
   }) => {
     pushedFiles = args.requestBody.files;
   },
+  getAppByPath: async (args: { workspace: string; path: string }) => {
+    const app = deployedApps[args.path];
+    if (!app) throw new Error("not found");
+    return app;
+  },
 });
 
-const { diffSharedUi, pushSharedUi } = await import(
+const { diffSharedUi, pushSharedUi, rawAppsStaleOnSharedUi, sharedUiHash } =
+  await import(
   "../src/commands/shared_ui.ts"
 );
 
@@ -146,5 +153,45 @@ describe("pushSharedUi with keepDeleted", () => {
     expect(pushedFiles!["extra.json"]).toEqual("1");
     expect(Object.getOwnPropertyDescriptor(pushedFiles!, "__proto__")?.value)
       .toEqual("keep me");
+  });
+});
+
+describe("rawAppsStaleOnSharedUi", () => {
+  let tmpDir: string;
+  let prevCwd: string;
+
+  beforeEach(() => {
+    prevCwd = process.cwd();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "wm-shared-ui-apps-"));
+    process.chdir(tmpDir);
+    fs.mkdirSync(path.join(tmpDir, "ui"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, "ui", "button.ts"), "v2", "utf-8");
+  });
+
+  afterEach(() => {
+    process.chdir(prevCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const app = (name: string, index: string) => ({
+    [path.join("f", `${name}.raw_app`, "raw_app.yaml")]: "summary: x",
+    [path.join("f", `${name}.raw_app`, "index.tsx")]: index,
+  });
+
+  test("queues an app importing ui/ only when its bundle was built from other ui/ content", async () => {
+    const hash = await sharedUiHash();
+    deployedApps = {
+      "f/stale": { value: { shared_ui_hash: "old" } },
+      "f/fresh": { value: { shared_ui_hash: hash } },
+      "f/plain": { value: {} },
+    };
+    const localMap = {
+      ...app("stale", `import { B } from "/ui/button"`),
+      ...app("fresh", `import { B } from "/ui/button"`),
+      ...app("plain", `import x from "./x"`),
+    };
+    expect(await rawAppsStaleOnSharedUi("ws", localMap, new Set())).toEqual([
+      path.join("f", "stale.raw_app", "raw_app.yaml"),
+    ]);
   });
 });

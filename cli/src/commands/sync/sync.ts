@@ -44,7 +44,12 @@ import {
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 import { runLint, printReport, checkMissingLocks } from "../lint/lint.ts";
-import { diffSharedUi, pullSharedUi, pushSharedUi } from "../shared_ui.ts";
+import {
+  diffSharedUi,
+  pullSharedUi,
+  pushSharedUi,
+  rawAppsStaleOnSharedUi,
+} from "../shared_ui.ts";
 import {
   pushMigrationFromDisk,
   offerToRunNewMigrations,
@@ -5189,6 +5194,30 @@ export async function push(
     );
   }
 
+  // A raw app inlines ui/ into its bundle, so ui/ content its deployed bundle
+  // was not built from makes it stale with no file of its own changed.
+  try {
+    const pushedApps = new Set(
+      changes
+        .map((c) => extractResourceName(c.path, "raw_app"))
+        .filter((n): n is string => !!n),
+    );
+    for (const metaPath of await rawAppsStaleOnSharedUi(
+      workspace.workspaceId,
+      localMap,
+      pushedApps,
+    )) {
+      changes.push({
+        name: "edited",
+        path: metaPath,
+        before: localMap[metaPath],
+        after: localMap[metaPath],
+      });
+    }
+  } catch (e) {
+    log.warn(`Could not check raw apps against the shared UI folder: ${e}`);
+  }
+
   // After the shared-lock pass, which reads a shared lockfile's deletion as the
   // signal that this checkout is not deduplicated — an advisory about the local
   // tree that holds whether or not remote items are being kept.
@@ -6748,7 +6777,8 @@ export async function push(
     try {
       await pushSharedUi(workspace.workspaceId, opts.keepDeleted);
     } catch (e) {
-      log.warn(`Failed to push shared UI folder: ${e}`);
+      log.error(colors.red(`Failed to push shared UI folder: ${e}`));
+      failedChanges.push({ path: "ui/", error: String(e) });
     }
     try {
       await offerToRunNewMigrations(
@@ -6784,7 +6814,9 @@ export async function push(
         );
       }
     }
-    const pushedCount = changes.length - failedChanges.length;
+    // ui/ is pushed outside `changes`, so its failure is not one of them.
+    const pushedCount =
+      changes.length - failedChanges.filter((f) => f.path !== "ui/").length;
     if (opts.jsonOutput) {
       const result = {
         success: failedChanges.length === 0,
@@ -6862,6 +6894,7 @@ export async function push(
     // Dry-run with no changes reaches here (a ui/ diff would have made changes
     // non-empty and returned above); never mutate the remote in that case.
     let sharedUiPushed = false;
+    let sharedUiError: string | undefined;
     if (!opts.dryRun) {
       try {
         sharedUiPushed = await pushSharedUi(
@@ -6869,7 +6902,9 @@ export async function push(
           opts.keepDeleted,
         );
       } catch (e) {
-        log.warn(`Failed to push shared UI folder: ${e}`);
+        sharedUiError = String(e);
+        log.error(colors.red(`Failed to push shared UI folder: ${e}`));
+        process.exitCode = 1;
       }
     }
     // No changes pushed, so no new datatable migrations to run.
@@ -6879,10 +6914,15 @@ export async function push(
       console.log(
         JSON.stringify(
           {
-            success: true,
-            message: sharedUiPushed
+            success: sharedUiError === undefined,
+            message: sharedUiError !== undefined
+              ? "Failed to push shared UI changes"
+              : sharedUiPushed
               ? "Pushed shared UI changes"
               : "No changes to push",
+            ...(sharedUiError !== undefined
+              ? { failed: [{ path: "ui/", error: sharedUiError }] }
+              : {}),
             total: 0,
           },
           null,
