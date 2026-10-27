@@ -99,11 +99,6 @@
 	// workspace: a remount would drop the list's own state and refetch what it is already loading.
 	let pageEl: HTMLDivElement | undefined = $state(undefined)
 
-	// Back from AI Sessions the view transition (homeSessionsTransition.svelte.ts) carries the arrival, so
-	// the page skips its own fade-in. Decided once at mount: gating the class on the attribute
-	// instead would start the fade from transparent the moment the transition removes it.
-	const fadeIn =
-		typeof document === 'undefined' || !document.documentElement.dataset.homeSessionsTransition
 	const reducedMotion = useReducedMotion()
 	let animatedWorkspace = $workspaceStore
 	$effect(() => {
@@ -292,7 +287,7 @@
 
 <div
 	bind:this={pageEl}
-	class="{fadeIn ? 'wm-page-in' : ''} flex flex-col w-full h-full overflow-y-auto items-center"
+	class="wm-page-in flex flex-col w-full h-full overflow-y-auto items-center"
 	style="scrollbar-gutter: stable both-edges;"
 >
 	<!-- Where edits to this workspace are made is a fact about the workspace, so it sits in the

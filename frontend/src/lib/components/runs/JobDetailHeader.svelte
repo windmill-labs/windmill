@@ -28,6 +28,7 @@
 		type FieldConfig
 	} from './JobDetailFieldConfig'
 	import { flowPathToHref } from '$lib/scripts'
+	import { agentRunHref } from '$lib/components/flows/conversations/agentEditorChat'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
@@ -473,7 +474,7 @@
 								{@const isScript = job.job_kind === 'script'}
 								{@const viewHref = isScript
 									? `/${stem}/get/${job?.script_hash}`
-									: flowPathToHref(job?.script_path ?? '')}
+									: (agentRunHref(job, $operatingWorkspace) ?? flowPathToHref(job?.script_path ?? ''))}
 								<a
 									href={viewHref}
 									target="_blank"

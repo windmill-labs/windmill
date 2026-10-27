@@ -29,6 +29,7 @@
 	import FlowModuleDebounce from './FlowModuleDebounce.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import JobTokenScopesSetting from '$lib/components/JobTokenScopesSetting.svelte'
+	import SettingGroup from '$lib/components/itemSettings/SettingGroup.svelte'
 	import WorkspaceScriptSettingInfo from './WorkspaceScriptSettingInfo.svelte'
 	import { slideDynamic } from '$lib/transitions'
 
@@ -117,21 +118,13 @@
 	)
 </script>
 
-{#snippet sectionHeader(title: string)}
-	<div class="text-[11px] font-medium uppercase tracking-[0.04em] text-hint">
-		{title}
-	</div>
-{/snippet}
-
 <div
 	bind:this={rootEl}
 	class="flex flex-col gap-8 {embedded ? '' : 'flex-1 min-h-0 overflow-auto p-4 pb-8'}"
 	style={embedded ? undefined : 'scrollbar-gutter: stable'}
 >
 	{#if !isFailure}
-		<section class="flex flex-col gap-3">
-			{@render sectionHeader('Flow control')}
-
+		<SettingGroup label="Flow control">
 			<div class="flex flex-col gap-6">
 				<div data-setting="skip">
 					<FlowModuleSkip bind:flowModule {parentModule} {previousModule} />
@@ -148,13 +141,11 @@
 				<div data-setting="sleep">
 					<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule {isAgentTool} />
 				</div>
-			</div></section
+			</div></SettingGroup
 		>
 	{/if}
 
-	<section class="flex flex-col gap-3">
-		{@render sectionHeader('Execution policy')}
-
+	<SettingGroup label="Execution policy">
 		<div class="flex flex-col gap-6">
 			{#if !loopSubset}
 				<div data-setting="retries">
@@ -348,48 +339,42 @@
 				</div>
 			{/if}
 
-			<div data-setting="job-token">
-				<JobTokenScopesSetting
-					bind:value={flowModule.job_token_scopes}
-					kind="step"
-					size="xs"
-					textClass="text-xs font-normal text-primary"
-				/>
-			</div>
-		</div></section
+			<JobTokenScopesSetting bind:value={flowModule.job_token_scopes} kind="step" />
+		</div></SettingGroup
 	>
 
 	{#if s3Language && onApplyS3Snippet && !isFailure}
-		<section class="flex flex-col gap-3" data-setting="s3">
-			{@render sectionHeader('S3 snippets')}
-			<p class="text-xs text-tertiary">
-				Read and write S3 objects, and use Polars or DuckDB to run efficient ETL processes.
-			</p>
-			<div class="flex flex-row items-center justify-between gap-2">
-				<ToggleButtonGroup bind:selected={s3Kind} class="w-auto">
-					{#snippet children({ item })}
-						{#if s3Language === 'deno'}
-							<ToggleButton value="s3_client" small label="S3 lite client" {item} />
-						{:else}
-							<ToggleButton value="s3_client" small label="Boto3" {item} />
-							<ToggleButton value="polars" small label="Polars" {item} />
-							<ToggleButton value="duckdb" small label="DuckDB" {item} />
-						{/if}
-					{/snippet}
-				</ToggleButtonGroup>
-				<Button
-					size="xs"
-					variant="default"
-					on:click={() => s3Snippet && onApplyS3Snippet?.(s3Snippet)}
-				>
-					Apply snippet
-				</Button>
-			</div>
-			{#if s3Snippet}
-				<div class="overflow-auto max-h-64 border rounded-md">
-					<HighlightCode language={s3Language} code={s3Snippet} />
+		<div data-setting="s3">
+			<SettingGroup label="S3 snippets" class="flex flex-col gap-3">
+				<p class="text-xs text-tertiary">
+					Read and write S3 objects, and use Polars or DuckDB to run efficient ETL processes.
+				</p>
+				<div class="flex flex-row items-center justify-between gap-2">
+					<ToggleButtonGroup bind:selected={s3Kind} class="w-auto">
+						{#snippet children({ item })}
+							{#if s3Language === 'deno'}
+								<ToggleButton value="s3_client" small label="S3 lite client" {item} />
+							{:else}
+								<ToggleButton value="s3_client" small label="Boto3" {item} />
+								<ToggleButton value="polars" small label="Polars" {item} />
+								<ToggleButton value="duckdb" small label="DuckDB" {item} />
+							{/if}
+						{/snippet}
+					</ToggleButtonGroup>
+					<Button
+						unifiedSize="xs"
+						variant="default"
+						on:click={() => s3Snippet && onApplyS3Snippet?.(s3Snippet)}
+					>
+						Apply snippet
+					</Button>
 				</div>
-			{/if}
-		</section>
+				{#if s3Snippet}
+					<div class="overflow-auto max-h-64 border rounded-md">
+						<HighlightCode language={s3Language} code={s3Snippet} />
+					</div>
+				{/if}
+			</SettingGroup>
+		</div>
 	{/if}
 </div>

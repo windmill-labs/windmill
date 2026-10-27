@@ -75,6 +75,7 @@
 				? 'flow'
 				: 'script')
 	)
+	const runnableNoun = $derived(runForm?.cardNoun ?? runnableKind)
 	// Declining the form, stopping the turn and cancelling the job all land here, and none
 	// of them is a failure: the run stopped because someone said so.
 	const canceled = $derived(
@@ -198,8 +199,8 @@
 	)
 	const cancelReason = $derived(
 		ran
-			? `This run was cancelled while the ${runnableKind} was running.`
-			: `This run was cancelled before the ${runnableKind} started.`
+			? `This run was cancelled while the ${runnableNoun} was running.`
+			: `This run was cancelled before the ${runnableNoun} started.`
 	)
 	// Streaming opens the tab early: the result is already arriving, and one that appeared
 	// only at the end would hide the thing the user is waiting to read.
@@ -449,13 +450,16 @@
 	// A conversational flow's page has no run form, so opening it is all it can offer: the
 	// run stays on this card, where there is one to confirm.
 	const carries = $derived(asDeployedPage && !runForm?.conversational)
+	const deployedNoun = $derived(
+		runForm?.agentPage ? 'agent' : runnableKind === 'flow' ? 'flow' : 'script'
+	)
 	const previewTitle = $derived(
 		previewTarget === 'form'
 			? `Open this form in the preview panel: ${path}`
 			: previewTarget === 'deployed'
 				? carries
-					? `Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'} and confirm this run there: ${path}`
-					: `Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'}: ${path}`
+					? `Open the deployed ${deployedNoun} and confirm this run there: ${path}`
+					: `Open the deployed ${deployedNoun}: ${path}`
 				: aiChatManager.openRunInPreview
 					? `Open this run in the preview panel: ${path || runnableName}`
 					: `Open this run in a new tab: ${path || runnableName}`
@@ -470,7 +474,7 @@
 		if (previewTarget === 'deployed') {
 			aiChatManager.openRunOnDeployedPage?.({
 				toolCallId: message.tool_call_id,
-				kind: runnableKind === 'flow' ? 'flow' : 'script',
+				kind: deployedNoun,
 				path,
 				summary: label,
 				carries
@@ -758,7 +762,7 @@
 					unifiedSize="sm"
 					destructive
 					startIcon={{ icon: TimerOff }}
-					title={`Cancel the ${runnableKind}`}
+					title={`Cancel the ${runnableNoun}`}
 					onClick={() => aiChatManager.cancelJob(chatJob.jobId)}
 				>
 					Cancel

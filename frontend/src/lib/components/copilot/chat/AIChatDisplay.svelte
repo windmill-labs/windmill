@@ -118,7 +118,6 @@
 		wideLayout = false,
 		emptyHint,
 		starter = undefined,
-		viewTransitionNames = false,
 		onSent = undefined,
 		inputPreface,
 		actingOn,
@@ -160,11 +159,6 @@
 		 * both mount it, so the two are one entry point rather than look-alikes. Replaces
 		 * `emptyHint`. */
 		starter?: ChatStarter
-		/** Names the composer for the view transition between Home and AI Sessions, so it
-		 * glides between its two places, a send from Home included: that lands it under the
-		 * session's first message. Only one chat on the page may carry the name: a duplicate
-		 * makes the browser skip the transition. */
-		viewTransitionNames?: boolean
 		/** After the composer hands a new turn to the host. */
 		onSent?: () => void
 		inputPreface?: Snippet
@@ -865,10 +859,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			     has none: there the composer is one control among the page's. -->
 			{#if centreComposer}
 				<div class="flex-1 min-h-0 flex flex-col justify-end">
-					<div
-						class={columnClass}
-						style:view-transition-name={viewTransitionNames ? 'greeting' : undefined}
-					>
+					<div class={columnClass}>
 						<SessionGreeting />
 					</div>
 				</div>
@@ -1003,7 +994,6 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		aria-label="Message composer"
 		bind:this={composerEl}
 		class="relative {columnClass} pb-2"
-		style:view-transition-name={viewTransitionNames ? 'composer' : undefined}
 		onfocusin={(e) => {
 			if (homeComposer && e.target instanceof HTMLTextAreaElement) composerOpened = true
 		}}
@@ -1450,7 +1440,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 	     Always mounted and shrunk on the first message rather than removed: flex-grow
 	     transitions, so the composer slides down to the bottom instead of jumping. -->
 	<div
-		class="min-h-0 basis-0 transition-[flex-grow] duration-[var(--composer-glide-duration)] ease-[var(--composer-glide-easing)] motion-reduce:transition-none {centreComposer
+		class="min-h-0 basis-0 transition-[flex-grow] duration-[380ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] motion-reduce:transition-none {centreComposer
 			? 'grow'
 			: 'grow-0'}"
 	></div>
