@@ -25,7 +25,9 @@ beforeAll(() => {
   // ui/ as a symlink, with the bare import one relative hop away: esbuild reaches
   // inner.ts by its real path, not through the link.
   write("shared/button.ts", `export { label } from "./inner";\n`);
-  write("shared/inner.ts", `import { who } from "pkg";\nexport const label = who;\n`);
+  write("shared/inner.ts", `import { who } from "pkg";\nimport "./styles.css";\nexport const label = who;\n`);
+  write("shared/styles.css", `@import "base.css";\n`);
+  write("shared/base.css", `.from-ui-css { color: red; }\n`);
   fs.symlinkSync(path.join(root, "shared"), path.join(root, "ui"));
   write("f/demo.raw_app/package.json", `{"name":"demo"}`);
   write("f/demo.raw_app/index.tsx", `import { label } from "/ui/button";\nconsole.log(label);\n`);
@@ -45,11 +47,12 @@ test("bare imports in ui/ resolve from the app's node_modules", async () => {
   const sharedUiDir = findSharedUiDir(appDir);
   expect(sharedUiDir).toBe(path.join(root, "ui"));
 
-  const { js } = await createBundle({
+  const { js, css } = await createBundle({
     entryPoint: path.join(appDir, "index.tsx"),
     minify: false,
     sharedUiDir,
   });
   expect(js).toContain("from-app");
   expect(js).not.toContain("from-root");
+  expect(css).toContain("from-ui-css");
 });
