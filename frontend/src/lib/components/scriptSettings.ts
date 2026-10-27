@@ -46,6 +46,10 @@ export type ScriptAdvancedSettingsFields = {
 export type ScriptSettingsBadge = {
 	key: string
 	label: string
+	/** The label in a word or two, for the Metadata tab's summary of active settings. */
+	short: string
+	/** The `data-setting` of the setting's row in its tab. */
+	setting: string
 	icon: any
 	detail: string
 }
@@ -90,6 +94,8 @@ export function getActiveScriptSettingsBadges(
 	if (settings.skip_expr) {
 		badges.push({
 			key: 'early_stop',
+			short: 'Stop if',
+			setting: 'early-stop',
 			label: 'Stop flow if',
 			icon: CircleStop,
 			detail: 'Stops early when the inputs match the expression'
@@ -98,6 +104,8 @@ export function getActiveScriptSettingsBadges(
 	if (settings.early_return) {
 		badges.push({
 			key: 'early_return',
+			short: 'Early return',
+			setting: 'early-return',
 			label: 'Early return',
 			icon: CornerDownLeft,
 			detail: `Sync webhooks return the result of step ${settings.early_return}`
@@ -108,6 +116,8 @@ export function getActiveScriptSettingsBadges(
 	if (settings.timeout != undefined && settings.timeout > 0) {
 		badges.push({
 			key: 'timeout',
+			short: 'Timeout',
+			setting: 'timeout',
 			label: 'Timeout',
 			icon: Timer,
 			detail: `${settings.timeout}s`
@@ -116,6 +126,8 @@ export function getActiveScriptSettingsBadges(
 	if (settings.concurrent_limit != undefined && settings.concurrent_limit > 0) {
 		badges.push({
 			key: 'concurrency',
+			short: 'Concurrency',
+			setting: 'concurrency',
 			label: 'Concurrency',
 			icon: Gauge,
 			detail: `Max ${settings.concurrent_limit} execution${
@@ -130,6 +142,8 @@ export function getActiveScriptSettingsBadges(
 	if (settings.debounce_delay_s != undefined && settings.debounce_delay_s > 0) {
 		badges.push({
 			key: 'debounce',
+			short: 'Debounce',
+			setting: 'debounce',
 			label: 'Debounce',
 			icon: Combine,
 			detail: `Debounced by ${settings.debounce_delay_s}s`
@@ -138,6 +152,8 @@ export function getActiveScriptSettingsBadges(
 	if (settings.cache_ttl != undefined && settings.cache_ttl > 0) {
 		badges.push({
 			key: 'cache',
+			short: 'Cache',
+			setting: 'cache',
 			label: 'Cache',
 			icon: Database,
 			detail: `Cached for ${settings.cache_ttl}s`
@@ -146,6 +162,8 @@ export function getActiveScriptSettingsBadges(
 	if (settings.priority != undefined && settings.priority > 0) {
 		badges.push({
 			key: 'priority',
+			short: 'Priority',
+			setting: 'priority',
 			label: 'High priority',
 			icon: ChevronsUp,
 			detail: `Priority ${settings.priority}`
@@ -154,6 +172,8 @@ export function getActiveScriptSettingsBadges(
 	if (settings.restart_unless_cancelled) {
 		badges.push({
 			key: 'perpetual',
+			short: 'Perpetual',
+			setting: 'perpetual',
 			label: 'Perpetual',
 			icon: Repeat,
 			detail: 'Restarts unless cancelled'
@@ -162,6 +182,8 @@ export function getActiveScriptSettingsBadges(
 	if (settings.delete_after_secs != undefined) {
 		badges.push({
 			key: 'delete_after_use',
+			short: 'Auto-delete',
+			setting: 'lifetime',
 			label: 'Delete after use',
 			icon: Trash2,
 			detail:
@@ -173,6 +195,8 @@ export function getActiveScriptSettingsBadges(
 	if (settings.tag) {
 		badges.push({
 			key: 'tag',
+			short: settings.tag,
+			setting: 'worker-group',
 			label: settings.tag,
 			icon: Tag,
 			detail: `Worker tag: ${settings.tag}`
@@ -181,6 +205,8 @@ export function getActiveScriptSettingsBadges(
 	if (settings.dedicated_worker) {
 		badges.push({
 			key: 'dedicated',
+			short: 'Dedicated',
+			setting: 'dedicated-worker',
 			label: 'Dedicated',
 			icon: Cpu,
 			detail: 'Runs on dedicated workers'
@@ -189,6 +215,8 @@ export function getActiveScriptSettingsBadges(
 	if (settings.same_worker) {
 		badges.push({
 			key: 'same_worker',
+			short: 'Shared dir',
+			setting: 'same-worker',
 			label: 'Shared directory',
 			icon: FolderOpen,
 			detail: 'Steps run on the same worker and share ./shared'
@@ -207,6 +235,8 @@ export function getActivePermissionBadges(settings: {
 	if (settings.on_behalf_of_email) {
 		badges.push({
 			key: 'on_behalf_of',
+			short: 'On behalf',
+			setting: 'on-behalf-of',
 			label: 'Run on behalf of',
 			icon: UserCog,
 			detail: settings.on_behalf_of_email
@@ -215,6 +245,8 @@ export function getActivePermissionBadges(settings: {
 	if (settings.visible_to_runner_only) {
 		badges.push({
 			key: 'invisible_runs',
+			short: 'Invisible',
+			setting: 'invisible-runs',
 			label: 'Invisible runs',
 			icon: EyeOff,
 			detail: 'Manual runs are visible only to whoever ran them'
@@ -223,6 +255,8 @@ export function getActivePermissionBadges(settings: {
 	if (settings.job_token_scopes != null) {
 		badges.push({
 			key: 'job_token',
+			short: 'Job token',
+			setting: 'job-token',
 			label: 'Restricted job token',
 			icon: KeyRound,
 			detail:

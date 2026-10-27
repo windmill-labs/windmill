@@ -414,12 +414,18 @@ input[type='time']::-webkit-calendar-picker-indicator {
 }
 
 /* Settings search highlight (used by both the drawer and the setup page) */
-[data-setting-key] {
+[data-setting-key],
+[data-setting] {
 	transition: outline 0.8s ease;
 	outline: 2px solid transparent;
 	outline-offset: -2px;
 }
-[data-setting-key].setting-highlight {
+[data-setting].setting-highlight {
+	outline-offset: 4px;
+	border-radius: 4px;
+}
+[data-setting-key].setting-highlight,
+[data-setting].setting-highlight {
 	outline: 2px solid rgb(var(--color-border-accent, 59 130 246));
 }
 

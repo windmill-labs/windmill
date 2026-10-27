@@ -127,6 +127,7 @@
 	import ScriptRuntimeSettings from './itemSettings/ScriptRuntimeSettings.svelte'
 	import InvisibleRunsSetting from './itemSettings/InvisibleRunsSetting.svelte'
 	import SettingIcons from './itemSettings/SettingIcons.svelte'
+	import ActiveSettingsSummary, { revealSetting } from './itemSettings/ActiveSettingsSummary.svelte'
 	import { getActivePermissionBadges, getActiveScriptSettingsBadges } from './scriptSettings'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -1215,6 +1216,16 @@
 		})()
 	)
 
+	let runtimeBadges = $derived(getActiveScriptSettingsBadges(script))
+	let permissionBadges = $derived(getActivePermissionBadges(script))
+	let settingsContent: HTMLElement | undefined = $state(undefined)
+	async function openSetting(tab: string, setting?: string) {
+		selectedTab = tab as typeof selectedTab
+		if (!setting) return
+		await tick()
+		revealSetting(settingsContent, setting)
+	}
+
 	setContext('disableTooltips', untrack(() => customUi)?.disableTooltips === true)
 
 	function langToLanguage(lang: SupportedLanguage | 'docker' | 'bunnative'): SupportedLanguage {
@@ -1460,7 +1471,7 @@
 							label="Runtime"
 						>
 							{#snippet extra()}
-								<SettingIcons badges={getActiveScriptSettingsBadges(script)} />
+								<SettingIcons badges={runtimeBadges} />
 							{/snippet}
 						</Tab>
 						<Tab
@@ -1470,7 +1481,7 @@
 							label="Permissions"
 						>
 							{#snippet extra()}
-								<SettingIcons badges={getActivePermissionBadges(script)} />
+								<SettingIcons badges={permissionBadges} />
 							{/snippet}
 						</Tab>
 					{/if}
@@ -1510,10 +1521,19 @@
 					{/if}
 
 					{#snippet content()}
-						<div class="min-h-0 grow overflow-y-auto">
+						<div class="min-h-0 grow overflow-y-auto" bind:this={settingsContent}>
 							<TabContent value="metadata">
 								<div class="flex flex-col gap-8 p-4 pb-8">
 									<div class="flex flex-col gap-6">
+										{#if customUi?.settingsPanel?.disableRuntime !== true}
+											<ActiveSettingsSummary
+												groups={[
+													{ tab: 'runtime', label: 'Runtime', badges: runtimeBadges },
+													{ tab: 'permissions', label: 'Permissions', badges: permissionBadges }
+												]}
+												onopen={openSetting}
+											/>
+										{/if}
 										<Label label="Summary">
 											<MetadataGen
 												aiId="create-script-summary-input"
