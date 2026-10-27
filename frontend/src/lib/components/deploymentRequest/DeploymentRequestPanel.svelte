@@ -8,21 +8,33 @@
 		WorkspaceService,
 		type DeploymentRequest,
 		type DeploymentRequestComment,
-		type DeploymentRequestEligibleDeployer
+		type DeploymentRequestEligibleDeployer,
+		type WorkspaceItemDiff
 	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { copilotInfo } from '$lib/aiStore'
 	import { Send, Plus, X, ArchiveX } from 'lucide-svelte'
+	import AiReview from './AiReview.svelte'
+	import type { AiReviewFinding } from './aiReview'
 
 	interface Props {
 		forkWorkspaceId: string
 		parentWorkspaceId: string
 		currentUsername: string
 		isAdmin: boolean
+		/** The changes the request would merge into the parent, for the AI review. */
+		diffs: WorkspaceItemDiff[]
 		onStateChange?: (hasOpenRequest: boolean) => void
 	}
 
-	let { forkWorkspaceId, parentWorkspaceId, currentUsername, isAdmin, onStateChange }: Props =
-		$props()
+	let {
+		forkWorkspaceId,
+		parentWorkspaceId,
+		currentUsername,
+		isAdmin,
+		diffs,
+		onStateChange
+	}: Props = $props()
 
 	let request = $state<DeploymentRequest | null>(null)
 	let loading = $state(true)
@@ -112,6 +124,20 @@
 		} catch (e: any) {
 			sendUserToast(`Failed to cancel: ${e.body || e.message}`, true)
 		}
+	}
+
+	async function postAiFinding(finding: AiReviewFinding): Promise<void> {
+		if (!request) return
+		const created = await WorkspaceService.createDeploymentRequestComment({
+			workspace: forkWorkspaceId,
+			id: request.id,
+			requestBody: {
+				body: finding.comment,
+				anchor_kind: finding.kind || undefined,
+				anchor_path: finding.path || undefined
+			}
+		})
+		request = { ...request, comments: [...request.comments, created] }
 	}
 
 	async function postComment(body: string, parentId?: number) {
@@ -233,6 +259,11 @@
 						Cancel
 					</Button>
 				</div>
+				{#if $copilotInfo.enabled}
+					<div class="border-t pt-2">
+						<AiReview {diffs} {forkWorkspaceId} {parentWorkspaceId} source="request_form" />
+					</div>
+				{/if}
 			</div>
 		{:else}
 			<div class="flex items-center justify-between flex-wrap gap-2 text-xs">
@@ -261,6 +292,15 @@
 			</div>
 
 			<div class="border rounded-md bg-surface p-3 flex flex-col gap-3">
+				{#if $copilotInfo.enabled}
+					<AiReview
+						{diffs}
+						{forkWorkspaceId}
+						{parentWorkspaceId}
+						source="open_request"
+						onPost={postAiFinding}
+					/>
+				{/if}
 				{#if topLevel.length === 0}
 					<div class="text-secondary text-xs">No comments yet. Be the first to leave feedback.</div>
 				{/if}

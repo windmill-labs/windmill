@@ -536,14 +536,26 @@ async fn publish_migrations(
     .await
 }
 
+#[derive(Deserialize)]
+struct ExportQuery {
+    version: Option<u32>,
+}
+
 // Export is owner-scoped only when re-exporting your own draft; approved
-// projects are public, so the folder scope is optional here.
+// projects are public, so the folder scope is optional here. `version` pins one
+// reviewed version instead of the current one; it is forwarded explicitly because
+// the hub request is rebuilt rather than proxied, so an unforwarded param would
+// silently export the current version instead.
 async fn get_project_export(
     ctx: HubPublishCtx,
     Path((_workspace, slug)): Path<(String, ProjectSlug)>,
+    Query(query): Query<ExportQuery>,
 ) -> Result<impl IntoResponse, Error> {
-    ctx.get_maybe_unscoped(&format!("/projects/{}/export", slug))
-        .await
+    let path = match query.version {
+        Some(v) => format!("/projects/{}/export?version={}", slug, v),
+        None => format!("/projects/{}/export", slug),
+    };
+    ctx.get_maybe_unscoped(&path).await
 }
 
 async fn get_project_by_source(ctx: HubPublishCtx) -> Result<impl IntoResponse, Error> {

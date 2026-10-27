@@ -74,6 +74,7 @@ export interface Setting {
 		| 'instance_pg'
 		| 'github_enterprise_app'
 		| 'webhook_base_url'
+		| 'api_base_url'
 		| 'ws_connectivity'
 		| 'retention_overrides'
 		| 'instance_banner'
@@ -86,6 +87,9 @@ export interface Setting {
 		onChange: (values: Record<string, any>) => Record<string, any>
 		checked: (values: Record<string, any>) => boolean
 	}
+	/** Other global settings the field reads and writes besides `key`, so the form tracks
+	 * their changes too. */
+	companionKeys?: string[]
 	hiddenIfNull?: boolean
 	hiddenIfEmpty?: boolean
 	hiddenInEe?: boolean
@@ -217,6 +221,7 @@ export const settings: Record<string, Setting[]> = {
 				label: 'The API is served on a different url than the UI',
 				onChange(values) {
 					values['api_base_url'] = values['api_base_url'] == null ? '' : null
+					if (values['api_base_url'] == null) values['api_base_url_applies_to'] = null
 					return values
 				},
 				checked: (values) => values['api_base_url'] != null
@@ -225,9 +230,10 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'API base url',
 			description:
-				'Base url shown to users for the endpoints external clients call (webhooks, HTTP routes, push trigger endpoints, the CLI remote), without trailing slash. Leave empty to show the url the UI is browsed on. Set it when the API is served on a separate domain or behind an API gateway. If that url does not also serve the UI, the CLI must authenticate with a token rather than the browser login.',
+				"Base url shown to users for the endpoints external clients call (webhooks, HTTP routes, push trigger endpoints, the CLI remote, the MCP server), without trailing slash. Leave empty to show the url the UI is browsed on. Set it when the API is served on a separate domain or behind an API gateway, and untick what that url does not serve: those keep the url the UI is browsed on. If it does not also serve the UI, the CLI must authenticate with a token rather than the browser login. MCP clients get their OAuth endpoints on it, except sign-in, which opens on the base url in the user's browser; a host serving only MCP must forward /api/mcp/* and /.well-known/oauth-*/api/mcp/*.",
 			key: 'api_base_url',
-			fieldType: 'text',
+			fieldType: 'api_base_url',
+			companionKeys: ['api_base_url_applies_to'],
 			placeholder: 'https://api.windmill.company.com',
 			storage: 'setting',
 			ee_only: '',

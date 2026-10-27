@@ -99,14 +99,13 @@
 	const editRights = useEditRights()
 	const hosted = useHostedPage()
 
-	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
-	type ResourceTypeW = ResourceType & { canWrite: boolean }
+	type ResourceW = ListableResource & { marked?: string }
 
 	let cacheResources: ResourceW[] | undefined = $state()
 	let stateResources: ResourceW[] | undefined = $state()
 	let themeResources: ResourceW[] | undefined = $state()
 	let resources: ResourceW[] | undefined = $state()
-	let resourceTypes: ResourceTypeW[] | undefined = $state()
+	let resourceTypes: ResourceType[] | undefined = $state()
 
 	// Collect unique paths, types, owners for filter autocomplete
 	let allPaths: string[] = $state([])
@@ -332,14 +331,7 @@
 			apiParams.label = currentFilters.label
 		}
 
-		const result = (await ResourceService.listResource(apiParams)).map((x) => {
-			return {
-				canWrite:
-					editRights.canEditItem('resource', x.path, x.extra_perms) &&
-					$operatingWorkspace! == x.workspace_id,
-				...x
-			}
-		})
+		const result = await ResourceService.listResource(apiParams)
 
 		// Extract unique values for autocomplete
 		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
@@ -357,12 +349,7 @@
 	async function loadResourceTypes(): Promise<void> {
 		const rows = await ResourceService.listResourceType({ workspace: $operatingWorkspace! })
 		setResourceTypeDisplayNames(rows)
-		resourceTypes = rows.map((x) => {
-			return {
-				canWrite: $operatingWorkspace! == x.workspace_id,
-				...x
-			}
-		})
+		resourceTypes = rows
 		loading.types = false
 	}
 
@@ -686,9 +673,11 @@
 		}
 	})
 	$effect(() => {
-		if ($operatingWorkspace && operatingUser.current) {
+		if ($operatingWorkspace) {
 			untrack(() => {
-				loadResources()
+				// The effect above loads the open tab only; the workspace list must not keep the
+				// previous workspace's rows behind another tab.
+				if (tab !== 'workspace') loadResources()
 				loadResourceTypes()
 			})
 		}
@@ -1194,9 +1183,12 @@
 							</Head>
 							<tbody class="divide-y bg-surface">
 								{#if filteredItems}
-									{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+									{#each filteredItems as { path, description, resource_type, extra_perms, workspace_id, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
 										{@const hasDraft =
 											getLocalDraftHint($operatingWorkspace, 'resource', path) ?? is_draft}
+										{@const canWrite =
+											editRights.canEditItem('resource', path, extra_perms) &&
+											workspace_id == $operatingWorkspace}
 										<Row>
 											<Cell first>
 												<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -1493,7 +1485,8 @@
 							</Head>
 							<tbody class="divide-y bg-surface">
 								{#if filteredResourceTypes}
-									{#each filteredResourceTypes as { name, description, schema, canWrite, format_extension, is_fileset }}
+									{#each filteredResourceTypes as { name, description, schema, workspace_id, format_extension, is_fileset }}
+										{@const canWrite = workspace_id == $operatingWorkspace}
 										<Row>
 											<Cell first>
 												<a

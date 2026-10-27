@@ -20,7 +20,6 @@
 		wideLayout = false,
 		emptyHint,
 		starter = undefined,
-		viewTransitionNames = false,
 		onSent = undefined,
 		inputPreface,
 		actingOn,
@@ -45,7 +44,6 @@
 		wideLayout?: boolean
 		emptyHint?: import('svelte').Snippet
 		starter?: import('./starter/starterPrompts.svelte').ChatStarter
-		viewTransitionNames?: boolean
 		onSent?: () => void
 		inputPreface?: import('svelte').Snippet
 		/** Forwarded to AIChatDisplay: where the session acts, first among the controls. */
@@ -222,7 +220,6 @@
 	{wideLayout}
 	{emptyHint}
 	{starter}
-	{viewTransitionNames}
 	{onSent}
 	{inputPreface}
 	{actingOn}

@@ -150,16 +150,22 @@ export class HomeSelection {
 		else this.anchor = undefined
 	}
 
-	toggle(item: BulkItem, range = false): void {
-		if (range && this.anchor != undefined && this.anchor !== item.key) {
-			if (this.selectRange(this.anchor, item.key)) return
+	/** Ticks a rendered row by key. The entry stored is the one the row registered, so a click
+	 * and a keyboard tick can never record different rights for the same row. */
+	toggle(key: string, range = false): void {
+		if (range && this.anchor != undefined && this.anchor !== key) {
+			if (this.selectRange(this.anchor, key)) return
 		}
-		if (this.selected.has(item.key)) this.selected.delete(item.key)
-		else this.selected.set(item.key, item)
+		if (this.selected.has(key)) this.selected.delete(key)
+		else {
+			const item = this.registry.get(key)
+			if (!item) return
+			this.selected.set(key, item)
+		}
 		// Unticking the last row ends selection mode, so the row it was on is not an
 		// anchor any more: the next shift-click would otherwise reach back and select
 		// everything between it and the row the user just started from.
-		this.anchor = this.selected.size === 0 ? undefined : item.key
+		this.anchor = this.selected.size === 0 ? undefined : key
 	}
 
 	/** Visual order is read back from the DOM: the tree nests rows and pages them

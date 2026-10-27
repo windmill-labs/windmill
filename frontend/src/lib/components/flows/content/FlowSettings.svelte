@@ -5,7 +5,7 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import JobTokenScopesSetting from '$lib/components/JobTokenScopesSetting.svelte'
 	import { Alert, Tab, TabContent, Tabs } from '$lib/components/common'
-	import { getContext } from 'svelte'
+	import { getContext, tick } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { schemaToObject } from '$lib/schema'
@@ -27,6 +27,9 @@
 	import RunOnBehalfOfSetting from '$lib/components/itemSettings/RunOnBehalfOfSetting.svelte'
 	import InvisibleRunsSetting from '$lib/components/itemSettings/InvisibleRunsSetting.svelte'
 	import SettingIcons from '$lib/components/itemSettings/SettingIcons.svelte'
+	import ActiveSettingChips, {
+		revealSetting
+	} from '$lib/components/itemSettings/ActiveSettingChips.svelte'
 	import {
 		flowRuntimeFields,
 		getActivePermissionBadges,
@@ -85,6 +88,15 @@
 		if (row) node.querySelector(`[data-setting="${row}"]`)?.scrollIntoView({ block: 'nearest' })
 	}
 
+	let runtimeBadges = $derived(getActiveScriptSettingsBadges(flowRuntimeFields(flowStore.val)))
+	let permissionBadges = $derived(getActivePermissionBadges(flowStore.val))
+	let tabsContent: HTMLElement | undefined = $state(undefined)
+	async function openSetting(target: string, setting: string) {
+		tab = target as FlowSettingsTab
+		await tick()
+		revealSetting(tabsContent, setting)
+	}
+
 	function asSchema(x: any) {
 		return x as Schema
 	}
@@ -112,25 +124,36 @@
 {/snippet}
 
 <div class="h-full flex flex-col">
-	<FlowCard {noEditor} title="Settings">
+	<FlowCard {noEditor}>
+		{#snippet header()}
+			<!-- The title is drawn here rather than through `title` so the chips sit beside it. -->
+			<div class="mr-auto flex min-w-0 items-center gap-3 pr-2">
+				<div class="shrink-0 text-sm font-semibold text-emphasis">Settings</div>
+				<ActiveSettingChips
+					groups={[
+						{ tab: 'runtime', badges: runtimeBadges },
+						{ tab: 'permissions', badges: permissionBadges }
+					]}
+					onopen={openSetting}
+				/>
+			</div>
+		{/snippet}
 		<div class="flex flex-col h-full">
 			<Tabs bind:selected={tab} wrapperClass="flex-none w-full">
 				<Tab value="metadata" label="Metadata" />
 				<Tab value="runtime" label="Runtime">
 					{#snippet extra()}
-						<SettingIcons
-							badges={getActiveScriptSettingsBadges(flowRuntimeFields(flowStore.val))}
-						/>
+						<SettingIcons badges={runtimeBadges} />
 					{/snippet}
 				</Tab>
 				<Tab value="permissions" label="Permissions">
 					{#snippet extra()}
-						<SettingIcons badges={getActivePermissionBadges(flowStore.val)} />
+						<SettingIcons badges={permissionBadges} />
 					{/snippet}
 				</Tab>
 
 				{#snippet content()}
-					<div class="min-h-0 grow overflow-y-auto">
+					<div class="min-h-0 grow overflow-y-auto" bind:this={tabsContent}>
 						<TabContent value="metadata">
 							<div class="flex flex-col gap-6 p-4 pb-8">
 								<Label label="Summary">
