@@ -48,17 +48,26 @@ async fn setup(ws: &str, flow_path: &str, chat: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn run(ws: &str, token: &str, flow_path: &str) -> anyhow::Result<reqwest::Response> {
-    Ok(authed(
-        reqwest::Client::new().post(format!("{ws}/apps_u/execute_component/{flow_path}_app")),
-        token,
-    )
-    .json(&json!({
+async fn run(
+    ws: &str,
+    token: &str,
+    flow_path: &str,
+    preview: bool,
+) -> anyhow::Result<reqwest::Response> {
+    let mut body = json!({
         "component": "run",
         "path": format!("flow/{flow_path}"),
         "args": { "user_message": "hi" },
         "run_query_params": { "memory_id": MEMORY_ID }
-    }))
+    });
+    if preview {
+        body["force_viewer_static_fields"] = json!({});
+    }
+    Ok(authed(
+        reqwest::Client::new().post(format!("{ws}/apps_u/execute_component/{flow_path}_app")),
+        token,
+    )
+    .json(&body)
     .send()
     .await?)
 }
@@ -78,7 +87,7 @@ async fn a_viewer_cannot_reach_anothers_flow_memory(db: Pool<Postgres>) -> anyho
     setup(&ws, plain, false).await?;
     let mut keys = vec![];
     for token in TOKENS {
-        let resp = run(&ws, token, plain).await?;
+        let resp = run(&ws, token, plain, false).await?;
         assert!(resp.status().is_success(), "{}", resp.text().await?);
         let job_id: uuid::Uuid = resp.text().await?.parse()?;
         let key: Option<String> =
@@ -99,15 +108,17 @@ async fn a_viewer_cannot_reach_anothers_flow_memory(db: Pool<Postgres>) -> anyho
 
     let chat = "u/test-user/chat";
     setup(&ws, chat, true).await?;
-    let resp = run(&ws, TOKENS[0], chat).await?;
+    // From the app editor's preview: the app still runs the deployed flow, so the
+    // conversation is the deployed flow's.
+    let resp = run(&ws, TOKENS[0], chat, true).await?;
     assert!(resp.status().is_success(), "{}", resp.text().await?);
-    let owner: String =
-        sqlx::query_scalar("SELECT created_by FROM flow_conversation WHERE id = $1::uuid")
+    let (owner, is_test): (String, bool) =
+        sqlx::query_as("SELECT created_by, is_test FROM flow_conversation WHERE id = $1::uuid")
             .bind(MEMORY_ID)
             .fetch_one(&db)
             .await?;
-    assert_eq!(owner, "test-user");
-    let resp = run(&ws, TOKENS[1], chat).await?;
+    assert_eq!((owner.as_str(), is_test), ("test-user", false));
+    let resp = run(&ws, TOKENS[1], chat, false).await?;
     // The first turn never runs here, so a refusal for the turn still running would pass too.
     let body = resp.text().await?;
     assert!(body.contains("belongs to another user"), "{body}");
