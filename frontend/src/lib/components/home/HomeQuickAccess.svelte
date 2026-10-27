@@ -10,7 +10,6 @@
 		GitFork,
 		LayoutGrid,
 		List,
-		MessagesSquare,
 		Pen,
 		Star as StarIcon,
 		StarOff,
@@ -40,15 +39,6 @@
 	import HomeSectionLabel from './HomeSectionLabel.svelte'
 	import HomeSectionCount from './HomeSectionCount.svelte'
 	import { QUICK_ACCESS_ROWS, homeQuickAccessSettings } from './homeQuickAccessSettings.svelte'
-	import { sessionsSwitchShown } from '$lib/components/sessions/sidebarList.svelte'
-	import {
-		getEffectiveWorkspaceId,
-		homeDraft,
-		sessionLastActivityAt,
-		sessionPageHref,
-		sessionState
-	} from '$lib/components/sessions/sessionState.svelte'
-	import { openSession } from '$lib/components/sessions/sessionSwitch.svelte'
 
 	interface Props {
 		workspace: string
@@ -77,24 +67,6 @@
 	}
 
 	const RECENT_COUNT = 6
-
-	// The workspace's last sessions, one row of them: sent ones and drafts with text, not Home's
-	// own draft, which is the composer above. The session list holds the rest.
-	const CONTINUE_COUNT = 3
-	let continueSessions = $derived(
-		sessionsSwitchShown()
-			? sessionState.sessions
-					.filter(
-						(s) =>
-							!s.archived &&
-							s.id !== homeDraft.id &&
-							(!!s.workspace_id || !!s.draftPrompt?.trim()) &&
-							getEffectiveWorkspaceId(s) === workspace
-					)
-					.sort((a, b) => sessionLastActivityAt(b) - sessionLastActivityAt(a))
-					.slice(0, CONTINUE_COUNT)
-			: []
-	)
 
 	// The way back from Hide from Home is in the header menu HomeAIChat adds, which Home mounts
 	// only with the AI sessions beta on. Without it the section can't be hidden, and one hidden
@@ -258,9 +230,6 @@
 		entries.length === 0 &&
 			((!homeQuickAccessSettings.showFavorites && favorites.length > 0) ||
 				(!homeQuickAccessSettings.showRecent && recentItems.list(workspace).length > 0))
-	)
-	let favoritesShown = $derived(
-		favoriteManager.loadedFor === workspace && (entries.length > 0 || emptiedBySettings) && !hidden
 	)
 
 	// Read when the pointer reaches the time, so the tooltip is current however long the
@@ -432,42 +401,9 @@
 	</div>
 {/snippet}
 
-{#if continueSessions.length > 0}
-	<section class="flex flex-col gap-2 px-4 sm:px-0 pb-[30px]">
-		<HomeSectionLabel>Continue last session</HomeSectionLabel>
-		<div class="grid gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-			{#each continueSessions as session (session.id)}
-				<!-- Opened in place: an unsent draft goes to the composer above rather than bouncing
-				     off the session page. A modified click opens the link as usual. -->
-				<a
-					href={sessionPageHref(session.id)}
-					class="w-full flex items-center gap-2 rounded-md border border-light bg-surface-tertiary hover:bg-surface-hover transition-colors min-w-0 px-2.5 py-2"
-					onclick={(e) => {
-						if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
-						e.preventDefault()
-						void openSession(session)
-					}}
-				>
-					<MessagesSquare size={14} class="shrink-0 text-ai" />
-					<span class="flex-1 text-2xs font-normal text-primary truncate"
-						>{session.summary ?? 'Untitled session'}</span
-					>
-					<span class="shrink-0 text-2xs text-secondary">
-						<TimeAgo
-							date={new Date(sessionLastActivityAt(session)).toISOString()}
-							compact
-							noSeconds
-						/>
-					</span>
-				</a>
-			{/each}
-		</div>
-	</section>
-{/if}
-
 <!-- Held back until the favorites are in: the recent cards are ready first, and the favorites
      landing in front of them would push every card over. -->
-{#if favoritesShown}
+{#if favoriteManager.loadedFor === workspace && (entries.length > 0 || emptiedBySettings) && !hidden}
 	<!-- 30px under the cards: the gap from the composer down to this section's heading text. -->
 	<section class="flex flex-col gap-2 px-4 sm:px-0 pb-[30px]">
 		<div class="flex items-center gap-1 -my-1">
@@ -536,8 +472,6 @@
 			{/if}
 		</div>
 	</section>
-{/if}
-{#if favoritesShown || continueSessions.length > 0}
 	<HomeSectionLabel class="px-4 sm:px-0 pb-1">
 		Workspace items
 		{#if itemCount != undefined}

@@ -140,13 +140,6 @@ export async function openNewSession(workspaceId?: string): Promise<void> {
 	await toHome(blankHomeDraft().id)
 }
 
-/** A session picked from a list: an unsent draft in Home's composer, any other on its page. */
-export async function openSession(session: Session): Promise<void> {
-	if (opensOnHome(session)) return openDraftOnHome(session.id)
-	selectSession(session.id)
-	await goto(sessionPageHref(session.id))
-}
-
 /** An unsent draft, opened in Home's composer. `replace` for a redirect off the sessions
  * page, where Back must not return to the URL that bounced here. */
 export async function openDraftOnHome(id: string, opts?: { replace?: boolean }): Promise<void> {
