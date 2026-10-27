@@ -17,6 +17,8 @@ pub(super) const TOOLS: &[&str] = &[
     "test_run_flow",
     "run_flow",
     "test_run_step",
+    "test_run_agent",
+    "run_agent",
     "list_runs",
     "get_run",
     "cancel_job",
@@ -29,6 +31,8 @@ pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult 
         "test_run_flow" => test_run_flow(ctx, args).await,
         "run_flow" => run_deployed(ctx, args, true).await,
         "test_run_step" => test_run_step(ctx, args).await,
+        "test_run_agent" => test_run_agent(ctx, args).await,
+        "run_agent" => run_agent(ctx, args).await,
         "list_runs" => list_runs(ctx, args).await,
         "get_run" => get_run(ctx, args).await,
         "cancel_job" => cancel_job(ctx, args).await,
@@ -705,6 +709,129 @@ async fn test_run_flow(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     )
     .await;
     conclude(ctx, args, prepared.notes, started, path, true, "test").await
+}
+
+// ============================================================================
+// Saved AI agents
+// ============================================================================
+
+/// What a run of an agent takes, as its editor's chat declares it.
+fn agent_run_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "user_message": { "type": "string", "description": "Message from user" },
+            "user_attachments": {
+                "type": "array",
+                "items": { "type": "object", "resourceType": "s3object" },
+                "description": "Images or PDFs for the agent to read"
+            }
+        },
+        "required": ["user_message"]
+    })
+}
+
+fn agent_memory_id(args: &Value) -> Result<Option<&str>, String> {
+    let memory_id = opt_str_arg(args, "memory_id");
+    if memory_id.is_some_and(|id| id.len() != 36 || uuid::Uuid::parse_str(id).is_err()) {
+        return Err("memory_id must be a UUID".to_string());
+    }
+    Ok(memory_id)
+}
+
+/// The agent's configuration a test runs: the user's draft when there is one, else the deployed
+/// resource. Refuses a path holding some other kind of resource.
+async fn load_agent_for_test(ctx: &Ctx<'_>, path: &str) -> Result<Value, String> {
+    let draft = get_draft(ctx, "resource", path).await?.map(|d| d.value);
+    // A draft records its type only when nothing is deployed at its path.
+    let (resource_type, config) = match draft {
+        Some(draft) if draft.get("resource_type").is_some() => {
+            (draft["resource_type"].clone(), draft["args"].clone())
+        }
+        draft => {
+            let deployed = ctx
+                .get(&ctx.ws(&format!("resources/get/{}", path_enc(path))))
+                .await?;
+            let config = match draft {
+                Some(draft) => draft["args"].clone(),
+                None => deployed["value"].clone(),
+            };
+            (deployed["resource_type"].clone(), config)
+        }
+    };
+    let resource_type = resource_type.as_str().unwrap_or_default();
+    if resource_type != "ai_agent" {
+        return Err(format!(
+            "\"{path}\" is a {resource_type} resource, not an AI agent."
+        ));
+    }
+    Ok(config)
+}
+
+async fn test_run_agent(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let path = str_arg(args, "path")?;
+    let memory_id = agent_memory_id(args)?;
+    let mut config = load_agent_for_test(ctx, path).await?;
+    // Who the agent runs as and who may ask it in Slack, not inputs: a test runs as its caller.
+    if let Some(map) = config.as_object_mut() {
+        for key in ["on_behalf_of", "run_on_behalf_of", "slack_anyone"] {
+            map.remove(key);
+        }
+    }
+    // The run the agent editor's chat makes of its draft, which keeps none of the inputs a flow
+    // step supplies (`agentChatFlow`).
+    let flow = crate::ai_evals::run::config_to_draft(config)
+        .and_then(|config| {
+            crate::agent_runs::agent_step_flow(
+                &config,
+                crate::agent_runs::AGENT_NODE_ID,
+                true,
+                &["memory_id", "previous_messages", "enabled_tools"],
+            )
+        })
+        .map_err(|e| e.to_string())?;
+    let flow = serde_json::to_value(flow).map_err(|e| e.to_string())?;
+    let schema = agent_run_schema();
+    let prepared = match prepare_args(ctx, path, proposed_args(args), Some(&schema), "agent").await
+    {
+        Ok(prepared) => prepared,
+        Err(message) => return Ok(message),
+    };
+    let memory_id = memory_id
+        .map(String::from)
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    // Filed where the agent editor's chat files its conversations.
+    let started = run_flow_preview(
+        ctx,
+        Some(&format!("{path}.chat")),
+        &flow,
+        Value::Object(prepared.args),
+        Some(&memory_id),
+    )
+    .await;
+    conclude(ctx, args, prepared.notes, started, path, true, "test").await
+}
+
+async fn run_agent(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let path = str_arg(args, "path")?;
+    let memory_id = agent_memory_id(args)?;
+    let schema = agent_run_schema();
+    let prepared = match prepare_args(ctx, path, proposed_args(args), Some(&schema), "agent").await
+    {
+        Ok(prepared) => prepared,
+        Err(message) => return Ok(message),
+    };
+    let query = memory_id
+        .map(|id| format!("?memory_id={}", enc(id)))
+        .unwrap_or_default();
+    let started = ctx
+        .post(
+            &ctx.ws(&format!("jobs/run/agent/{}{query}", path_enc(path))),
+            Value::Object(prepared.args),
+        )
+        .await
+        .map(job_id);
+    conclude(ctx, args, prepared.notes, started, path, true, "run").await
 }
 
 // ============================================================================

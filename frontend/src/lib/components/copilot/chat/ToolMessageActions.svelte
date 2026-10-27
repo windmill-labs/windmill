@@ -2,6 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import {
 		ArrowRight,
+		Bot,
 		Boxes,
 		Calendar,
 		Database,
@@ -38,7 +39,7 @@
 		actions: ToolDisplayAction[]
 	}
 
-	type ActionCardKey = 'schedule' | 'resource' | 'variable' | CreatedResourceTriggerKind
+	type ActionCardKey = 'schedule' | 'resource' | 'agent' | 'variable' | CreatedResourceTriggerKind
 	type ActionCardConfig = {
 		title: string
 		icon: any
@@ -51,6 +52,7 @@
 	const actionCardConfigs: Record<ActionCardKey, ActionCardConfig> = {
 		schedule: { title: 'Schedule', icon: Calendar },
 		resource: { title: 'Resource', icon: Package },
+		agent: { title: 'Agent', icon: Bot },
 		variable: { title: 'Variable', icon: KeyRound },
 		http: { title: 'HTTP trigger', icon: Route },
 		websocket: { title: 'WebSocket trigger', icon: Unplug },

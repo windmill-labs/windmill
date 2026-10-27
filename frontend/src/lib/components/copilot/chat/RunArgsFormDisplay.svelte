@@ -39,8 +39,9 @@
 	const draft = untrack(() => aiChatManager.runFormDraft(toolCallId, runForm))
 
 	const runnableKind = $derived(runForm.runnableKind ?? 'script')
+	const runnableNoun = $derived(runForm.cardNoun ?? runnableKind)
 	const staleFormToast = () =>
-		sendUserToast(`This run form is no longer active — ask again to run the ${runnableKind}.`, true)
+		sendUserToast(`This run form is no longer active — ask again to run the ${runnableNoun}.`, true)
 
 	const properties = $derived(draft.schema?.properties ?? {})
 	const hasArgs = $derived(Object.keys(properties).length > 0)
@@ -173,7 +174,7 @@
 						bind:args={draft.args}
 					/>
 				{:else}
-					<p class="text-xs text-secondary">This {runnableKind} takes no arguments.</p>
+					<p class="text-xs text-secondary">This {runnableNoun} takes no arguments.</p>
 				{/if}
 			</div>
 		</div>
@@ -210,7 +211,7 @@
 		{/if}
 		{#if runForm.resetKeys?.length}
 			<p class="text-2xs text-secondary">
-				Disabled by this {runnableKind}, so it will run with its default:
+				Disabled by this {runnableNoun}, so it will run with its default:
 				<span class="font-mono">{runForm.resetKeys.join(', ')}</span>
 			</p>
 		{/if}
