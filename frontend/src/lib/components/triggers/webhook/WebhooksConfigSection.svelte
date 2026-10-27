@@ -87,7 +87,8 @@
 		}
 	})
 
-	let selectedTab: string = $state('rest')
+	let surface = $state('http') as 'http' | 'sdk'
+	let example = $state('rest') as 'rest' | 'curl' | 'fetch'
 	let userSettings: UserSettings | undefined = $state()
 	let requestType = $state(DEFAULT_WEBHOOK_TYPE) as 'async' | 'sync' | 'sync_sse'
 	let callMethod = $state('post') as 'get' | 'post'
@@ -96,7 +97,7 @@
 
 	const sdkOffered = $derived(chat && kind !== 'script')
 	$effect(() => {
-		if (selectedTab === 'sdk' && !sdkOffered) selectedTab = 'rest'
+		if (surface === 'sdk' && !sdkOffered) surface = 'http'
 	})
 	$effect(() => {
 		if (requestType === 'async' && callMethod === 'get') {
@@ -380,11 +381,10 @@ done`
 			<CopyableCodeBlock code={integrationPrompt(target)} language={markdown} wrap />
 		</CollapseLink>
 	</div>
-	<div class="flex flex-col gap-6">
-		<!-- An agent has one endpoint: it starts a run, by path, and answers with its job id. The
-		     chat SDK names every endpoint itself. -->
-		{#if !agent && selectedTab !== 'sdk'}
-			<div class="flex flex-col gap-6">
+	{#snippet httpExamples()}
+		<div class="flex flex-col gap-6">
+			<!-- An agent has one endpoint: it starts a run, by path, and answers with its job id. -->
+			{#if !agent}
 				<Label label="Request type">
 					<ToggleButtonGroup bind:selected={requestType}>
 						{#snippet children({ item })}
@@ -454,104 +454,113 @@ done`
 						{/snippet}
 					</ToggleButtonGroup>
 				</Label>
-			</div>
-		{/if}
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div>
-			<Tabs bind:selected={selectedTab}>
-				<Tab value="rest" label="REST" />
-				{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
-					<Tab value="curl" label="Curl" />
-				{/if}
-				<Tab value="fetch" label="Fetch" />
-				{#if sdkOffered}
-					<Tab value="sdk" label="Chat SDK" />
-				{/if}
+			{/if}
+			<Label label="Example">
+				<ToggleButtonGroup bind:selected={example}>
+					{#snippet children({ item })}
+						<ToggleButton label="REST" value="rest" {item} />
+						{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
+							<ToggleButton label="Curl" value="curl" {item} />
+						{/if}
+						<ToggleButton label="Fetch" value="fetch" {item} />
+					{/snippet}
+				</ToggleButtonGroup>
+			</Label>
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			{#key token}
+				{#if example === 'rest'}
+					<div class="flex flex-col gap-6">
+						<Label label="Url">
+							<ClipboardPanel content={url} />
+						</Label>
 
-				{#snippet content()}
-					{#key token}
-						<TabContent value="rest" class="flex flex-col flex-1 h-full mt-2">
-							<div class="flex flex-col gap-6">
-								<Label label="Url">
-									<ClipboardPanel content={url} />
+						{#if callMethod !== 'get'}
+							<Label label="Body">
+								<ClipboardPanel content={JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)} />
+							</Label>
+						{/if}
+						{#key callMethod}
+							{#key tokenType}
+								<Label label="Headers">
+									<ClipboardPanel content={JSON.stringify(headers(), null, 2)} />
 								</Label>
-
-								{#if callMethod !== 'get'}
-									<Label label="Body">
-										<ClipboardPanel content={JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)} />
-									</Label>
-								{/if}
-								{#key callMethod}
-									{#key tokenType}
-										<Label label="Headers">
-											<ClipboardPanel content={JSON.stringify(headers(), null, 2)} />
-										</Label>
-									{/key}
-								{/key}
-							</div>
-						</TabContent>
-						<TabContent value="curl" class="flex flex-col flex-1 h-full mt-2">
-							<div class="relative">
-								{#key runnableArgs}
-									{#key callMethod}
-										{#key requestType}
-											{#key tokenType}
-												<div
-													class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
-													onclick={(e) => {
-														e.preventDefault()
-														copyToClipboard(curlCode())
-													}}
-												>
-													<Highlight language={bash} code={curlCode()} />
-													<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
-												</div>
-											{/key}
-										{/key}
-									{/key}
-								{/key}
-							</div>
-						</TabContent>
-						<TabContent value="fetch" class="mt-2">
-							{#key runnableArgs}
-								{#key callMethod}
-									{#key requestType}
-										{#key tokenType}
-											{#key token}
-												<div
-													class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
-													onclick={(e) => {
-														e.preventDefault()
-														copyToClipboard(fetchCode())
-													}}
-												>
-													<Highlight language={typescript} code={fetchCode()} />
-													<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
-												</div>
-											{/key}{/key}{/key}{/key}
 							{/key}
-						</TabContent>
+						{/key}
+					</div>
+				{:else if example === 'curl'}
+					<div class="relative">
+						{#key runnableArgs}
+							{#key callMethod}
+								{#key requestType}
+									{#key tokenType}
+										<div
+											class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
+											onclick={(e) => {
+												e.preventDefault()
+												copyToClipboard(curlCode())
+											}}
+										>
+											<Highlight language={bash} code={curlCode()} />
+											<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
+										</div>
+									{/key}
+								{/key}
+							{/key}
+						{/key}
+					</div>
+				{:else}
+					{#key runnableArgs}
+						{#key callMethod}
+							{#key requestType}
+								{#key tokenType}
+									{#key token}
+										<div
+											class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
+											onclick={(e) => {
+												e.preventDefault()
+												copyToClipboard(fetchCode())
+											}}
+										>
+											<Highlight language={typescript} code={fetchCode()} />
+											<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
+										</div>
+									{/key}{/key}{/key}{/key}
 					{/key}
-					<TabContent value="sdk" class="flex flex-col gap-2 mt-2">
-						<span class="text-xs text-secondary">
-							Streams each answer and keeps the conversations, with any framework.
-						</span>
-						<ToggleButtonGroup bind:selected={sdkFlavor} noWFull>
-							{#snippet children({ item })}
-								<ToggleButton value="react" label="React" {item} small />
-								<ToggleButton value="any" label="Any framework" {item} small />
-							{/snippet}
-						</ToggleButtonGroup>
-						<CopyableCodeBlock
-							code={sdkFlavor === 'react' ? sdkReactExample(target) : sdkExample(target)}
-							language={typescript}
-						/>
-					</TabContent>
-				{/snippet}
-			</Tabs>
+				{/if}
+			{/key}
 		</div>
-	</div>
+	{/snippet}
+
+	<!-- The chat SDK names every endpoint itself, so the HTTP settings live under their own tab. -->
+	{#if sdkOffered}
+		<Tabs bind:selected={surface}>
+			<Tab value="http" label="HTTP" />
+			<Tab value="sdk" label="Chat SDK" />
+			{#snippet content()}
+				<TabContent value="http">
+					{@render httpExamples()}
+				</TabContent>
+				<TabContent value="sdk" class="flex flex-col gap-2">
+					<span class="text-xs text-secondary">
+						Streams each answer and keeps the conversations, with any framework.
+					</span>
+					<ToggleButtonGroup bind:selected={sdkFlavor} noWFull>
+						{#snippet children({ item })}
+							<ToggleButton value="react" label="React" {item} small />
+							<ToggleButton value="any" label="Any framework" {item} small />
+						{/snippet}
+					</ToggleButtonGroup>
+					<CopyableCodeBlock
+						code={sdkFlavor === 'react' ? sdkReactExample(target) : sdkExample(target)}
+						language={typescript}
+					/>
+				</TabContent>
+			{/snippet}
+		</Tabs>
+	{:else}
+		{@render httpExamples()}
+	{/if}
 	{#if !agent}
 		<TriggerTokens bind:this={triggerTokens} {isFlow} {path} labelPrefix="webhook" />
 	{/if}
