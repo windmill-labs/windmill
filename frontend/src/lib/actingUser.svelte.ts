@@ -8,10 +8,10 @@ import { getWorkspaceRole, type RoleLookup } from '$lib/user'
  * The user acting in a workspace that is not necessarily the one the top nav points at — an AI
  * session or a workspace-specific variant acts on a workspace the nav deliberately is not on.
  *
- * `$userStore` answers for the navigation workspace at no cost, exactly as every permission check
- * in the app did before this hook existed — including when it holds nobody, which reads as unknown
- * and refuses. Every other workspace is looked up, and an unresolved user there is `undefined`: it
- * must never fall back to the navigation user, whose rights belong to another workspace.
+ * `$userStore` answers for the navigation workspace at no cost once it was fetched for it —
+ * including when it holds nobody, which reads as unknown and refuses. Every other workspace is
+ * looked up, and an unresolved user there is `undefined`: it must never fall back to the
+ * navigation user, whose rights belong to another workspace.
  * `canWrite`/`isOwner` refuse for an unknown user, which is the only safe answer. A caller that
  * must not render that refusal as a denial asks `resolved` first.
  */
