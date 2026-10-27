@@ -46,7 +46,7 @@ export type ScriptAdvancedSettingsFields = {
 export type ScriptSettingsBadge = {
 	key: string
 	label: string
-	/** The label in a word or two, for the Metadata tab's summary of active settings. */
+	/** The label in a word or two, for the chips in the settings header. */
 	short: string
 	/** The `data-setting` of the setting's row in its tab. */
 	setting: string
@@ -85,7 +85,7 @@ export function flowRuntimeFields(flow: {
 }
 
 // The active runtime settings of a script or flow, in the order their Runtime tab lists them,
-// for the at-a-glance badges of the editor top bar, the settings tabs and the flow drawers.
+// for the at-a-glance badges of the editor top bar, the settings header and the flow drawers.
 export function getActiveScriptSettingsBadges(
 	settings: (ScriptAdvancedSettingsFields & FlowOnlyRuntimeFields) | undefined
 ): ScriptSettingsBadge[] {

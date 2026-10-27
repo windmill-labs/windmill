@@ -28,10 +28,9 @@
 	import MuteErrorHandlerSetting from '$lib/components/itemSettings/MuteErrorHandlerSetting.svelte'
 	import type { OnBehalfOfChoice } from '$lib/components/OnBehalfOfSelector.svelte'
 	import InvisibleRunsSetting from '$lib/components/itemSettings/InvisibleRunsSetting.svelte'
-	import SettingIcons from '$lib/components/itemSettings/SettingIcons.svelte'
-	import ActiveSettingsSummary, {
+	import ActiveSettingChips, {
 		revealSetting
-	} from '$lib/components/itemSettings/ActiveSettingsSummary.svelte'
+	} from '$lib/components/itemSettings/ActiveSettingChips.svelte'
 	import {
 		flowRuntimeFields,
 		getActivePermissionBadges,
@@ -116,9 +115,8 @@
 	let runtimeBadges = $derived(getActiveScriptSettingsBadges(flowRuntimeFields(flowStore.val)))
 	let permissionBadges = $derived(getActivePermissionBadges(flowStore.val))
 	let tabsContent: HTMLElement | undefined = $state(undefined)
-	async function openSetting(target: string, setting?: string) {
+	async function openSetting(target: string, setting: string) {
 		tab = target as FlowSettingsTab
-		if (!setting) return
 		await tick()
 		revealSetting(tabsContent, setting)
 	}
@@ -150,32 +148,30 @@
 {/snippet}
 
 <div class="h-full flex flex-col">
-	<FlowCard {noEditor} title="Settings">
+	<FlowCard {noEditor}>
+		{#snippet header()}
+			<!-- The title is drawn here rather than through `title` so the chips sit beside it. -->
+			<div class="mr-auto flex min-w-0 items-center gap-3 pr-2">
+				<div class="shrink-0 text-sm font-semibold text-emphasis">Settings</div>
+				<ActiveSettingChips
+					groups={[
+						{ tab: 'runtime', badges: runtimeBadges },
+						{ tab: 'permissions', badges: permissionBadges }
+					]}
+					onopen={openSetting}
+				/>
+			</div>
+		{/snippet}
 		<div class="flex flex-col h-full">
 			<Tabs bind:selected={tab} wrapperClass="flex-none w-full">
 				<Tab value="metadata" label="Metadata" />
-				<Tab value="runtime" label="Runtime">
-					{#snippet extra()}
-						<SettingIcons badges={runtimeBadges} />
-					{/snippet}
-				</Tab>
-				<Tab value="permissions" label="Permissions">
-					{#snippet extra()}
-						<SettingIcons badges={permissionBadges} />
-					{/snippet}
-				</Tab>
+				<Tab value="runtime" label="Runtime" />
+				<Tab value="permissions" label="Permissions" />
 
 				{#snippet content()}
 					<div class="min-h-0 grow overflow-y-auto" bind:this={tabsContent}>
 						<TabContent value="metadata">
 							<div class="flex flex-col gap-6 p-4 pb-8">
-								<ActiveSettingsSummary
-									groups={[
-										{ tab: 'runtime', label: 'Runtime', badges: runtimeBadges },
-										{ tab: 'permissions', label: 'Permissions', badges: permissionBadges }
-									]}
-									onopen={openSetting}
-								/>
 								<Label label="Summary">
 									<MetadataGen
 										bind:content={flowStore.val.summary}

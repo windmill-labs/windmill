@@ -126,8 +126,7 @@
 	import { keepsDeployedOnBehalfOf } from './itemSettings/onBehalfOf'
 	import ScriptRuntimeSettings from './itemSettings/ScriptRuntimeSettings.svelte'
 	import InvisibleRunsSetting from './itemSettings/InvisibleRunsSetting.svelte'
-	import SettingIcons from './itemSettings/SettingIcons.svelte'
-	import ActiveSettingsSummary, { revealSetting } from './itemSettings/ActiveSettingsSummary.svelte'
+	import ActiveSettingChips, { revealSetting } from './itemSettings/ActiveSettingChips.svelte'
 	import { getActivePermissionBadges, getActiveScriptSettingsBadges } from './scriptSettings'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -1219,9 +1218,8 @@
 	let runtimeBadges = $derived(getActiveScriptSettingsBadges(script))
 	let permissionBadges = $derived(getActivePermissionBadges(script))
 	let settingsContent: HTMLElement | undefined = $state(undefined)
-	async function openSetting(tab: string, setting?: string) {
+	async function openSetting(tab: string, setting: string) {
 		selectedTab = tab as typeof selectedTab
-		if (!setting) return
 		await tick()
 		revealSetting(settingsContent, setting)
 	}
@@ -1452,6 +1450,17 @@
 			aiId="script-builder-settings"
 			aiDescription="Script builder settings"
 		>
+			{#snippet titleExtra()}
+				{#if customUi?.settingsPanel?.disableRuntime !== true}
+					<ActiveSettingChips
+						groups={[
+							{ tab: 'runtime', badges: runtimeBadges },
+							{ tab: 'permissions', badges: permissionBadges }
+						]}
+						onopen={openSetting}
+					/>
+				{/if}
+			{/snippet}
 			<!-- svelte-ignore a11y_autofocus -->
 			<div class="flex flex-col h-full">
 				<Tabs bind:selected={selectedTab} wrapperClass="flex-none w-full">
@@ -1469,21 +1478,13 @@
 							aiId="script-builder-runtime"
 							aiDescription="Runtime settings"
 							label="Runtime"
-						>
-							{#snippet extra()}
-								<SettingIcons badges={runtimeBadges} />
-							{/snippet}
-						</Tab>
+						/>
 						<Tab
 							value="permissions"
 							aiId="script-builder-permissions"
 							aiDescription="Permissions settings: run on behalf of, runs visibility, job token"
 							label="Permissions"
-						>
-							{#snippet extra()}
-								<SettingIcons badges={permissionBadges} />
-							{/snippet}
-						</Tab>
+						/>
 					{/if}
 					<!-- Not for dbt: its run form is derived from the descriptor server-side
 					     (`dbt_arg_schema`), so anything refined here is overwritten by the
@@ -1525,15 +1526,6 @@
 							<TabContent value="metadata">
 								<div class="flex flex-col gap-8 p-4 pb-8">
 									<div class="flex flex-col gap-6">
-										{#if customUi?.settingsPanel?.disableRuntime !== true}
-											<ActiveSettingsSummary
-												groups={[
-													{ tab: 'runtime', label: 'Runtime', badges: runtimeBadges },
-													{ tab: 'permissions', label: 'Permissions', badges: permissionBadges }
-												]}
-												onopen={openSetting}
-											/>
-										{/if}
 										<Label label="Summary">
 											<MetadataGen
 												aiId="create-script-summary-input"
