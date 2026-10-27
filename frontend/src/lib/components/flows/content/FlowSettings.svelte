@@ -25,8 +25,6 @@
 	import DedicatedWorkersSetting from '$lib/components/itemSettings/DedicatedWorkersSetting.svelte'
 	import DeleteAfterUseSetting from '$lib/components/itemSettings/DeleteAfterUseSetting.svelte'
 	import RunOnBehalfOfSetting from '$lib/components/itemSettings/RunOnBehalfOfSetting.svelte'
-	import MuteErrorHandlerSetting from '$lib/components/itemSettings/MuteErrorHandlerSetting.svelte'
-	import type { OnBehalfOfChoice } from '$lib/components/OnBehalfOfSelector.svelte'
 	import InvisibleRunsSetting from '$lib/components/itemSettings/InvisibleRunsSetting.svelte'
 	import SettingIcons from '$lib/components/itemSettings/SettingIcons.svelte'
 	import ActiveSettingChips, {
@@ -40,11 +38,7 @@
 	import { modulesWithRetryOrSleep, SAME_WORKER_INCOMPATIBLE_MSG } from '../utils.svelte'
 	import { earlyReturnCandidates } from '../earlyReturnCandidates'
 	import Select from '$lib/components/select/Select.svelte'
-	import {
-		useOperatingUser,
-		useOperatingWorkspace
-	} from '$lib/components/operatingWorkspace.svelte'
-	import { keepsDeployedOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -65,29 +59,10 @@
 		previewArgs,
 		pathStore,
 		customUi,
-		preserveOnBehalfOf,
 		savedOnBehalfOfEmail,
 		savedOnBehalfOfPermissionedAs,
 		opWorkspace
 	} = getContext<FlowEditorContext>('FlowEditorContext')
-
-	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
-	const operatingUser = useOperatingUser()
-	function keepDeployedOnBehalfOf() {
-		if (
-			!keepsDeployedOnBehalfOf(
-				operatingUser.current,
-				onBehalfOfChoice,
-				flowStore.val.on_behalf_of_email,
-				$savedOnBehalfOfEmail
-			)
-		)
-			return
-		onBehalfOfChoice = 'target'
-		flowStore.val.on_behalf_of_email = $savedOnBehalfOfEmail
-		flowStore.val.on_behalf_of = $savedOnBehalfOfPermissionedAs
-		$preserveOnBehalfOf = true
-	}
 
 	type FlowSettingsTab = 'metadata' | 'runtime' | 'permissions'
 
@@ -266,11 +241,7 @@
 
 						<!-- The rows, their wording and order are the script Runtime tab's; Flow control is flow-only. -->
 						<TabContent value="runtime">
-							<div
-								class="flex flex-col gap-8 p-4 pb-8"
-								{@attach scrollToSelectedRow}
-								{@attach keepDeployedOnBehalfOf}
-							>
+							<div class="flex flex-col gap-8 p-4 pb-8" {@attach scrollToSelectedRow}>
 								{#if customUi?.settingsTabs?.earlyStop != false || customUi?.settingsTabs?.earlyReturn != false}
 									<SettingGroup label="Flow control" class="flex flex-col gap-6">
 										{#if customUi?.settingsTabs?.earlyStop != false}
@@ -422,14 +393,6 @@
 										/>
 									{/if}
 								</SettingGroup>
-
-								<SettingGroup label="Error handling" class="flex flex-col gap-6">
-									<MuteErrorHandlerSetting
-										kind="flow"
-										path={$pathStore}
-										bind:muted={flowStore.val.ws_error_handler_muted}
-									/>
-								</SettingGroup>
 							</div>
 						</TabContent>
 
@@ -439,8 +402,6 @@
 									kind="flow"
 									bind:email={flowStore.val.on_behalf_of_email}
 									bind:permissionedAs={flowStore.val.on_behalf_of}
-									bind:preserve={$preserveOnBehalfOf}
-									bind:choice={onBehalfOfChoice}
 									savedEmail={$savedOnBehalfOfEmail}
 									savedPermissionedAs={$savedOnBehalfOfPermissionedAs}
 									targetWorkspace={opWorkspace?.() ?? $operatingWorkspace ?? ''}
