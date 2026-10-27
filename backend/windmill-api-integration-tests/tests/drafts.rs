@@ -493,6 +493,43 @@ async fn test_transfer_drafts_to_fork(db: Pool<Postgres>) -> anyhow::Result<()> 
     .await?;
     assert_eq!((parent_hash, base), (None, None));
 
+    // A version the fork has keeps its lineage. Its hash has the high bit set, so the match also
+    // holds for a negative i64, which serializes as 16 hex digits.
+    sqlx::query(
+        "INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by)
+         VALUES ($1, -1, 'u/test-user/lineage', '', '', 'l', 'test-user')",
+    )
+    .bind(fork)
+    .execute(&db)
+    .await?;
+    let r = c
+        .post(save_url(port, "script", "u/test-user/lineage"))
+        .json(&json!({ "value": { "content": "l2", "parent_hash": "ffffffffffffffff" } }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "{}", r.text().await?);
+    let r = c
+        .post(&transfer_url)
+        .json(&json!({
+            "target_workspace": fork,
+            "items": [{ "kind": "script", "path": "u/test-user/lineage" }],
+            "replace_existing": true
+        }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "{}", r.text().await?);
+    let (parent_hash, base): (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT value->>'parent_hash', base FROM draft
+         WHERE workspace_id = $1 AND path = 'u/test-user/lineage'",
+    )
+    .bind(fork)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        (parent_hash.as_deref(), base.as_deref()),
+        (Some("ffffffffffffffff"), Some("ffffffffffffffff"))
+    );
+
     // Only a fork of the source is a valid target.
     let r = c
         .post(format!(
