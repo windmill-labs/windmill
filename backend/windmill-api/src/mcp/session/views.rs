@@ -5,11 +5,22 @@
 
 use serde_json::{json, Value};
 
-use super::{deploy, runs, workspace, Ctx, ToolResult};
+use super::{deploy, runs, workspace, Ctx, SessionAccess, ToolResult};
 
 pub(super) const TOOLS: &[&str] = &["show_run", "show_runs", "show_deploy_review", "show_item"];
 
+/// The review card's one action deploys, which only a full token may do: such a token is
+/// neither offered the tool nor answered when it calls it by name.
+pub(super) fn allowed(name: &str, access: SessionAccess) -> bool {
+    name != "show_deploy_review" || access == SessionAccess::Full
+}
+
 pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult {
+    if !allowed(name, ctx.access) {
+        return Err(format!(
+            "{name} shows drafts to deploy, and this token cannot deploy."
+        ));
+    }
     match name {
         "show_run" => runs::show_run(ctx, args).await,
         "show_runs" => runs::show_runs(ctx, args).await,
@@ -93,4 +104,18 @@ pub(super) fn definitions() -> [(&'static str, &'static str, Value); 4] {
             }),
         ),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_full_token_gets_the_deploy_review() {
+        use SessionAccess::*;
+        assert!(allowed("show_deploy_review", Full));
+        assert!(!allowed("show_deploy_review", ReadAndRun));
+        assert!(!allowed("show_deploy_review", ReadOnly));
+        assert!(allowed("show_run", ReadOnly));
+    }
 }
