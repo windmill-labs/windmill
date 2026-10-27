@@ -23,7 +23,8 @@
 	const askedScopes = (page.url.searchParams.get('scope') || 'mcp:all')
 		.split(' ')
 		.filter((s) => s.startsWith('mcp:'))
-	// Both narrowings at once is a client requesting every scope it was offered, not a choice.
+	// Both legacy narrowings at once is a client with older discovery requesting every scope it
+	// was offered, not a choice. One alone is a real request, which `mcpAccessOf` reads as such.
 	const requestedScopes =
 		askedScopes.includes('mcp:all') &&
 		askedScopes.includes('mcp:read_only') &&

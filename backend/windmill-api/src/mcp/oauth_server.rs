@@ -232,6 +232,8 @@ struct RefreshTokenRow {
 fn granting_scopes() -> Vec<String> {
     [
         "mcp:all",
+        "mcp:run",
+        "mcp:read",
         "mcp:favorites",
         "mcp:scripts:*",
         "mcp:flows:*",
@@ -243,7 +245,7 @@ fn granting_scopes() -> Vec<String> {
 
 fn supported_scopes() -> Vec<String> {
     let mut scopes = granting_scopes();
-    scopes.extend(["mcp:read_only", "mcp:read_run", "mcp:runnables_as_tools"].map(String::from));
+    scopes.push("mcp:runnables_as_tools".to_string());
     scopes
 }
 
@@ -894,7 +896,13 @@ async fn oauth_approve_inner(
         .split_whitespace()
         .map(|s| s.to_string())
         .collect();
-    if scopes.iter().any(|s| s == "mcp:all") && !scopes.iter().any(|s| s == SESSION_SCOPE) {
+    // On every access level, so the grant keeps the session toolset if it is later raised to
+    // `mcp:all`, which without the marker means the tools server on its URLs.
+    if scopes
+        .iter()
+        .any(|s| super::core::ACCESS_LEVELS.contains(&s.as_str()))
+        && !scopes.iter().any(|s| s == SESSION_SCOPE)
+    {
         scopes.push(SESSION_SCOPE.to_string());
     }
 

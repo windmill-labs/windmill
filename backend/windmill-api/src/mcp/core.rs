@@ -494,25 +494,28 @@ impl McpBackend for WindmillBackend {
 }
 
 /// Set on a request whose token is scoped to a selection of scripts, flows and endpoints
-/// rather than `mcp:all`: on `/api/mcp`, the tools server answers it.
+/// rather than an access level: on `/api/mcp`, the tools server answers it.
 #[derive(Clone, Copy)]
 pub struct McpSelection;
 
-/// MCP scopes without `mcp:all`: favorites, chosen scripts, flows, endpoints or hub apps.
+/// The scopes that give the whole of MCP at some access level, rather than a selection.
+pub(crate) const ACCESS_LEVELS: [&str; 3] = ["mcp:all", "mcp:run", "mcp:read"];
+
+/// MCP scopes without an access level: favorites, chosen scripts, flows, endpoints or hub apps.
 fn scoped_to_selection(scopes: &[String]) -> bool {
     let mut mcp = scopes.iter().filter(|scope| scope.starts_with("mcp:"));
-    mcp.clone().next().is_some() && !mcp.any(|scope| scope == "mcp:all")
+    mcp.clone().next().is_some() && !mcp.any(|scope| ACCESS_LEVELS.contains(&scope.as_str()))
 }
 
 /// Whether the tools server's URLs (`/api/mcp/gateway`, `/api/mcp/w/{workspace}/mcp`) serve
-/// a token the session's toolset: an `mcp:all` grant marked `mcp:session`, or narrowed by
-/// `mcp:read_only` / `mcp:read_run`, which the consent page describes as session access.
-/// Every other token there keeps the tools server it was issued for.
+/// a token the session's toolset: `mcp:read` / `mcp:run`, which only exist for it, an
+/// `mcp:all` grant marked `mcp:session`, or one narrowed by the legacy `mcp:read_only` /
+/// `mcp:read_run`, which the consent page described as session access. Every other token
+/// there keeps the tools server it was issued for.
 fn serves_session_toolset(scopes: &[String]) -> bool {
-    scopes.iter().any(|scope| scope == "mcp:all")
-        && scopes
-            .iter()
-            .any(|scope| [SESSION_SCOPE, "mcp:read_only", "mcp:read_run"].contains(&scope.as_str()))
+    let has = |wanted: &[&str]| scopes.iter().any(|scope| wanted.contains(&scope.as_str()));
+    has(&["mcp:read", "mcp:run"])
+        || (has(&["mcp:all"]) && has(&[SESSION_SCOPE, "mcp:read_only", "mcp:read_run"]))
 }
 
 /// The path of a workspace-less MCP URL, when it is not the tools server's
@@ -861,6 +864,7 @@ mod tests {
         assert!(selection(&["mcp:scripts:f/x/*", "mcp:endpoints:listJobs"]));
         assert!(selection(&["mcp:all:f/x/*"]));
         assert!(!selection(&["mcp:all"]));
+        assert!(!selection(&["mcp:read", "mcp:workspaces:a"]));
         assert!(!selection(&[
             "mcp:all",
             "mcp:read_run",
@@ -876,6 +880,8 @@ mod tests {
             serves_session_toolset(&scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>())
         };
         assert!(session(&["mcp:all", "mcp:session"]));
+        assert!(session(&["mcp:read"]));
+        assert!(session(&["mcp:run", "mcp:workspaces:a,b"]));
         assert!(session(&["mcp:all", "mcp:read_only"]));
         assert!(session(&["mcp:all", "mcp:read_run", "mcp:workspaces:a,b"]));
         assert!(!session(&["mcp:all"]));
