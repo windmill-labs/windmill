@@ -39,6 +39,7 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { isOwner, truncate } from '$lib/utils'
+	import { latestRequest } from '$lib/utils/latestRequest'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 	import {
@@ -169,8 +170,12 @@
 		return items
 	})
 
+	const variableLoads = latestRequest()
+	const contextualLoads = latestRequest()
+
 	// If relative, the dropdown is positioned relative to its button
 	async function loadVariables(): Promise<void> {
+		const isLatest = variableLoads.start()
 		const currentFilters = filters.val
 
 		// Build API parameters from filters.
@@ -206,6 +211,7 @@
 		}
 
 		const result = await VariableService.listVariable(apiParams)
+		if (!isLatest()) return
 
 		// Extract unique values for autocomplete
 		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
@@ -240,9 +246,12 @@
 	getDeployUiSettings()
 
 	async function loadContextualVariables(): Promise<void> {
-		contextualVariables = await VariableService.listContextualVariables({
+		const isLatest = contextualLoads.start()
+		const result = await VariableService.listContextualVariables({
 			workspace: $operatingWorkspace!
 		})
+		if (!isLatest()) return
+		contextualVariables = result
 		loading.contextual = false
 	}
 

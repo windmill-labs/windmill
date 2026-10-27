@@ -53,6 +53,7 @@
 		truncate,
 		validateFileExtension
 	} from '$lib/utils'
+	import { latestRequest } from '$lib/utils/latestRequest'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import { convert } from '@redocly/json-to-json-schema'
@@ -174,7 +175,10 @@
 	let deleteIsLinked = $state(false)
 	let deletePath = $state('')
 	let loading = $state({
-		resources: true,
+		workspace: true,
+		cache: false,
+		states: false,
+		theme: false,
 		types: true
 	})
 
@@ -270,30 +274,42 @@
 			: [])
 	])
 
+	// One per list: shared, the workspace list loaded in the background would drop the reply of
+	// the tab being viewed.
+	const loads = {
+		workspace: latestRequest(),
+		cache: latestRequest(),
+		states: latestRequest(),
+		theme: latestRequest(),
+		types: latestRequest()
+	}
+
 	async function loadResources(): Promise<void> {
-		resources = await loadResourceInternal(undefined, 'cache,state,app_theme')
-		loading.resources = false
+		const result = await loadResourceInternal('workspace', undefined, 'cache,state,app_theme')
+		if (result) resources = result
 	}
 
 	async function loadCache(): Promise<void> {
-		cacheResources = await loadResourceInternal('cache', undefined)
-		loading.resources = false
+		const result = await loadResourceInternal('cache', 'cache', undefined)
+		if (result) cacheResources = result
 	}
 
 	async function loadState(): Promise<void> {
-		stateResources = await loadResourceInternal('state', undefined)
-		loading.resources = false
+		const result = await loadResourceInternal('states', 'state', undefined)
+		if (result) stateResources = result
 	}
 
 	async function loadTheme(): Promise<void> {
-		themeResources = await loadResourceInternal('app_theme', undefined)
-		loading.resources = false
+		const result = await loadResourceInternal('theme', 'app_theme', undefined)
+		if (result) themeResources = result
 	}
 
 	async function loadResourceInternal(
+		list: 'workspace' | 'cache' | 'states' | 'theme',
 		resourceType: string | undefined,
 		resourceTypeExclude: string | undefined
-	): Promise<ResourceW[]> {
+	): Promise<ResourceW[] | undefined> {
+		const isLatest = loads[list].start()
 		const currentFilters = filters.val
 
 		// Build API parameters from filters.
@@ -332,6 +348,7 @@
 		}
 
 		const result = await ResourceService.listResource(apiParams)
+		if (!isLatest()) return undefined
 
 		// Extract unique values for autocomplete
 		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
@@ -343,11 +360,14 @@
 			new Set(result.flatMap((x) => [...(x.labels ?? []), ...(x.inherited_labels ?? [])]))
 		).sort()
 
+		loading[list] = false
 		return result
 	}
 
 	async function loadResourceTypes(): Promise<void> {
+		const isLatest = loads.types.start()
 		const rows = await ResourceService.listResourceType({ workspace: $operatingWorkspace! })
+		if (!isLatest()) return
 		setResourceTypeDisplayNames(rows)
 		resourceTypes = rows
 		loading.types = false
@@ -514,24 +534,21 @@
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
 
 	async function reload() {
-		loading = {
-			resources: true,
-			types: true
-		}
+		loading.types = true
 		if (tab == 'cache') {
+			loading.cache = true
 			await loadCache()
 		} else if (tab == 'states') {
+			loading.states = true
 			await loadState()
 		} else if (tab == 'theme') {
+			loading.theme = true
 			await loadTheme()
 		} else {
+			loading.workspace = true
 			await loadResources()
 		}
 		await loadResourceTypes()
-		loading = {
-			resources: false,
-			types: false
-		}
 	}
 
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
@@ -1060,13 +1077,13 @@
 				bind:selected={tab}
 				on:selected={(e) => {
 					if (e.detail == 'cache') {
-						loading.resources = true
+						loading.cache = true
 						loadCache()
 					} else if (e.detail == 'states') {
-						loading.resources = true
+						loading.states = true
 						loadState()
 					} else if (e.detail == 'theme') {
-						loading.resources = true
+						loading.theme = true
 						loadTheme()
 					}
 				}}
@@ -1117,7 +1134,7 @@
 					onClick={reload}
 					startIcon={{
 						icon: RotateCw,
-						classes: loading.resources || loading.types ? 'animate-spin' : ''
+						classes: loading[tab] || loading.types ? 'animate-spin' : ''
 					}}
 				/>
 				{#if tab == 'types'}
@@ -1141,7 +1158,7 @@
 		<TabFade key={tab}>
 			{#if showTable}
 				<div class="overflow-x-auto pb-40 mt-4">
-					{#if loading.resources}
+					{#if loading[tab]}
 						<Skeleton layout={[0.5, [2], 1]} />
 						{#each new Array(6) as _}
 							<Skeleton layout={[[4], 0.7]} />

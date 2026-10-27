@@ -21,6 +21,7 @@
 		storeLocalSetting
 	} from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
+	import { latestRequest } from '$lib/utils/latestRequest'
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { enterpriseLicense, usedTriggerKinds, workspaceStore } from '$lib/stores'
 	import { goto, setQuery } from '$lib/navigation'
@@ -166,9 +167,13 @@
 			.catch(() => (globalHttpWorkspacedRoute = false))
 	}
 
+	const triggerLoads = latestRequest()
+
 	async function loadTriggers(): Promise<void> {
+		const isLatest = triggerLoads.start()
 		const workspace = $operatingWorkspace!
 		const listed = await config.list({ workspace, includeDraftOnly: true })
+		if (!isLatest()) return
 		triggers = listed
 		// The nav rail lists the trigger kinds of the navigation workspace only.
 		if (workspace === $workspaceStore) {
@@ -191,7 +196,10 @@
 	let interval: ReturnType<typeof setInterval> | undefined = untrack(() => config.status)
 		? setInterval(async () => {
 				try {
+					// Peeks, so that a refresh never drops the reply of a full list in flight.
+					const isLatestLoad = triggerLoads.peek()
 					const newTriggers = await config.list({ workspace: $operatingWorkspace! })
+					if (!isLatestLoad()) return
 					for (let i = 0; i < triggers.length; i++) {
 						const newTrigger = newTriggers.find((x) => x.path === triggers[i].path)
 						if (newTrigger) {
