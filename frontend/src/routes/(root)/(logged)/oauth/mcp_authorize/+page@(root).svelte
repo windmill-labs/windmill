@@ -212,15 +212,17 @@
 					<p class="text-xs font-semibold text-emphasis">Workspaces it may work in:</p>
 					{#if loadingWorkspaces}
 						<p class="text-xs text-secondary">Loading workspaces...</p>
-					{:else if workspaces.length === 0}
-						<p class="text-xs text-secondary">No workspaces available.</p>
 					{:else}
 						<Toggle
 							bind:checked={allWorkspaces}
 							options={{ right: 'All my workspaces, including ones I join later' }}
 							size="xs"
 						/>
-						{#if !allWorkspaces}
+						{#if workspaces.length === 0}
+							<p class="text-xs text-secondary">
+								You are not in any workspace yet. Turn this on to give it the ones you join later.
+							</p>
+						{:else if !allWorkspaces}
 							<MultiSelect
 								items={workspaces}
 								bind:value={pickedWorkspaces}

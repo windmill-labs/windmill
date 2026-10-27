@@ -276,6 +276,9 @@
   tfoot td { border-top: 1px solid var(--line); }
   td.mono { font: var(--t-sm) var(--mono); }
   td .lucide { margin-right: 6px; }
+  /* A leading icon stays beside its text when the text wraps. */
+  .with-icon { display: flex; align-items: flex-start; }
+  .with-icon > .lucide { margin-top: 2px; }
   tr.link { cursor: pointer; }
   tr.link:hover td { background: var(--bg-2); }
   /* The drafts in fullscreen sit in the same bordered box as inline. */
@@ -383,6 +386,8 @@
     node.append(...children.filter((c) => c != null && c !== false));
     return node;
   }
+  // A path breaks after a `/` first: `overflow-wrap: anywhere` alone cuts it mid-name.
+  const pathText = (path) => path.split('/').flatMap((part, i, parts) => (i < parts.length - 1 ? [`${part}/`, el('wbr')] : [part]));
   // Lucide icons (as Windmill uses), built from constant shapes: no markup is parsed.
   const ICONS = {
     timerOff: [['path', { d: 'M10 2h4' }], ['path', { d: 'M4.6 11a8 8 0 0 0 1.7 8.7 8 8 0 0 0 8.7 1.7' }], ['path', { d: 'M7.4 7.4a8 8 0 0 1 10.3 1 8 8 0 0 1 .9 10.2' }], ['path', { d: 'm2 2 20 20' }], ['path', { d: 'M12 12v-2' }]],
@@ -690,7 +695,7 @@
     $('path').classList.toggle('named', named);
     $('summary').hidden = !named || !path;
     $('summary').textContent = named ? path ?? '' : '';
-    $('path').replaceChildren(named ? summary : path || 'Windmill', ...(url ? [icon('external')] : []));
+    $('path').replaceChildren(el('span', {}, ...(named ? [summary] : path ? pathText(path) : ['Windmill'])), ...(url ? [icon('external')] : []));
     $('kind-icon').hidden = !kindIcon;
     $('kind-icon').replaceChildren(...(kindIcon ? [icon(kindIcon)] : []));
     $('path').disabled = !url;
@@ -1280,7 +1285,8 @@
       { label: 'Duration', value: (r) => r.duration_ms, show: formatMs },
       {
         label: 'Path', value: (r) => r.path ?? r.id, mono: true,
-        show: (p, r) => el('span', { title: kindLabel(r.job_kind) }, icon(/flow/.test(r.job_kind ?? '') ? 'flow' : 'script'), p, ' ', icon('external'))
+        show: (p, r) => el('span', { class: 'with-icon', title: kindLabel(r.job_kind) }, icon(/flow/.test(r.job_kind ?? '') ? 'flow' : 'script'),
+          el('span', {}, ...pathText(String(p)), ' ', icon('external')))
       }
     ], meta.runs, (r) => openLink(r.url), { noun: 'run', url: meta.url }));
   }
