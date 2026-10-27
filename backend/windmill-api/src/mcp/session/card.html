@@ -412,7 +412,6 @@
     websocket: [['path', { d: 'm19 5 3-3' }], ['path', { d: 'm2 22 3-3' }], ['path', { d: 'M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z' }], ['path', { d: 'M7.5 13.5 10 11' }], ['path', { d: 'M10.5 16.5 13 14' }], ['path', { d: 'm12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z' }]],
     database: [['ellipse', { cx: '12', cy: '5', rx: '9', ry: '3' }], ['path', { d: 'M3 5V19A9 3 0 0 0 21 19V5' }], ['path', { d: 'M3 12A9 3 0 0 0 21 12' }]],
     mail: [['path', { d: 'm22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7' }], ['rect', { x: '2', y: '4', width: '20', height: '16', rx: '2' }]],
-    shrink: [['path', { d: 'm15 15 6 6m-6-6v4.8m0-4.8h4.8' }], ['path', { d: 'M9 19.8V15m0 0H4.2M9 15l-6 6' }], ['path', { d: 'M15 4.2V9m0 0h4.8M15 9l6-6' }], ['path', { d: 'M9 4.2V9m0 0H4.2M9 9 3 3' }]],
     agent: [['path', { d: 'M12 8V4H8' }], ['rect', { width: '16', height: '12', x: '4', y: '8', rx: '2' }], ['path', { d: 'M2 14h2' }], ['path', { d: 'M20 14h2' }], ['path', { d: 'M15 13v2' }], ['path', { d: 'M9 13v2' }]],
     expand: [['path', { d: 'm15 15 6 6' }], ['path', { d: 'm15 9 6-6' }], ['path', { d: 'M21 16v5h-5' }], ['path', { d: 'M21 8V3h-5' }], ['path', { d: 'M3 16v5h5' }], ['path', { d: 'm3 21 6-6' }], ['path', { d: 'M3 8V3h5' }], ['path', { d: 'M9 9 3 3' }]],
     loader: [['path', { d: 'M21 12a9 9 0 1 1-6.219-8.56' }]],
@@ -664,18 +663,9 @@
     if (!url) return null;
     return linkButton(`${label[0].toUpperCase()}${label.slice(1)} in Windmill`, url);
   }
-  // Fullscreen, the expand button turns into one that brings the card back inline, beside
-  // the host's own close control.
+  // Inline only: fullscreen, the host's own close control brings the card back.
   function showExpand(available) {
-    const button = $('expand');
-    const full = fullscreen();
-    button.hidden = !canFullscreen() || !available;
-    if (button.dataset.full === String(full)) return;
-    const label = full ? 'Exit full screen' : 'Full screen';
-    button.dataset.full = String(full);
-    button.title = label;
-    button.setAttribute('aria-label', label);
-    button.replaceChildren(icon(full ? 'shrink' : 'expand'));
+    $('expand').hidden = !canFullscreen() || !available || fullscreen();
   }
 
   function setDisplayMode(mode) {
@@ -1264,7 +1254,7 @@
     clearRun();
     setHeader({ summary: meta.runs.length === 1 ? '1 run' : `${meta.runs.length} runs`, ws: meta.workspace, url: meta.url, kindIcon: 'runs' });
     $('review').hidden = true;
-    showExpand(fullscreen() || meta.runs.length > ROWS_INLINE);
+    showExpand(meta.runs.length > ROWS_INLINE);
     // As the runs page: when a run ended (or started, while it runs), relative for ten
     // minutes, then its day and time.
     const now = Date.now();
@@ -1460,7 +1450,7 @@
     const n = meta.items.length;
     setHeader({ summary: 'Review before deploying', ws: meta.workspace, kind: n === 1 ? '1 draft' : `${n} drafts`, url: meta.url, kindIcon: 'review' });
     const full = fullscreen();
-    showExpand(full || n > 0);
+    showExpand(n > 0);
     $('review').hidden = full || !canFullscreen() || !meta.items.some(deployable);
     showDeployButton(meta);
     $('body').replaceChildren(...(!n
@@ -1655,7 +1645,7 @@
       pre.addEventListener('click', () => setDisplayMode('fullscreen'));
     }
     // Offered when fullscreen shows more than this: a cut list, value or code block, a section.
-    showExpand(fullscreen() || valueCut || !!$('body').querySelector('.more-line:not(.mono), .cut'));
+    showExpand(valueCut || !!$('body').querySelector('.more-line:not(.mono), .cut'));
   }
 
   // A saved agent: its model, tools and instructions inline, its other settings in fullscreen.
@@ -1711,7 +1701,8 @@
   }
 
   $('path').addEventListener('click', () => openLink($('path').dataset.url));
-  $('expand').addEventListener('click', () => setDisplayMode(fullscreen() ? 'inline' : 'fullscreen'));
+  $('expand').append(icon('expand'));
+  $('expand').addEventListener('click', () => setDisplayMode('fullscreen'));
 
   window.addEventListener('message', (event) => {
     if (event.source !== window.parent) return;
