@@ -63,7 +63,12 @@ pub struct ProtectionRuleset {
     pub rules: ProtectionRules,
     pub bypass_groups: Vec<String>,
     pub bypass_users: Vec<String>,
+    /// Role a member of the workspace gets in a fork of it, keyed by the role it holds here.
+    /// Unmapped roles carry over unchanged.
+    pub fork_role_mapping: ForkRoleMapping,
 }
+
+pub type ForkRoleMapping = sqlx::types::Json<std::collections::BTreeMap<String, String>>;
 
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1185,7 +1190,8 @@ pub async fn get_protection_rules(
                 name,
                 rules as "rules: ProtectionRules",
                 bypass_groups,
-                bypass_users
+                bypass_users,
+                fork_role_mapping as "fork_role_mapping: ForkRoleMapping"
             FROM workspace_protection_rule
             WHERE workspace_id = $1
             ORDER BY name
@@ -1473,6 +1479,21 @@ pub async fn check_user_against_rule(
     }
 
     Ok(RuleCheckResult::Allowed)
+}
+
+/// The roles members of `workspace_id` get in a fork of it, merged across its rulesets: where two
+/// rulesets map the same role, the first by name wins. Unmapped roles carry over unchanged.
+pub async fn fork_role_mapping(
+    workspace_id: &str,
+    db: &DB,
+) -> Result<std::collections::BTreeMap<String, String>> {
+    let mut mapping = std::collections::BTreeMap::new();
+    for ruleset in get_protection_rules(workspace_id, db).await?.iter() {
+        for (from, to) in ruleset.fork_role_mapping.iter() {
+            mapping.entry(from.clone()).or_insert_with(|| to.clone());
+        }
+    }
+    Ok(mapping)
 }
 
 /// Check all deploy-gating protection rules at once.
