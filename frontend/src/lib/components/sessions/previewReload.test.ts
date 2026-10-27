@@ -98,6 +98,27 @@ describe('tabsToReload', () => {
 		])
 	})
 
+	it("reloads the resources list on an agent write but not the agent's editor, which a discard does", () => {
+		const url = pageItemUrl({ kind: 'resource', path: 'u/me/a' })
+		const agentTab: SessionPreviewTab = { id: 'a', url, loc: url }
+		const reloaded = (name: string, args: any) => {
+			const { pages, items, live = [] } = toolReloadEffect(name, args)
+			return tabsToReload(
+				[resourceTab, agentTab],
+				new Set(pages),
+				new Set(items.map(pageItemUrl)),
+				new Set(live.map(pageItemUrl))
+			)
+		}
+		expect(reloaded('write_resource', { resource_type: 'ai_agent', path: 'u/me/a' })).toEqual([
+			resourceTab
+		])
+		expect(reloaded('discard_local_draft', { type: 'resource', path: 'u/me/a' })).toEqual([
+			resourceTab,
+			agentTab
+		])
+	})
+
 	it('is empty when no pages were touched', () => {
 		expect(tabsToReload(tabs, new Set())).toEqual([])
 	})
@@ -125,6 +146,19 @@ describe('viewerTabsToReload', () => {
 		expect(viewerTabsToReload([viewTab, editTab, pageTab], new Set(['f/foo/bar']))).toEqual([
 			viewTab
 		])
+	})
+
+	it("refreshes an agent's deployed page when the chat deletes or deploys it", () => {
+		const agentTab: SessionPreviewTab = {
+			id: 'a',
+			url: '/agents/get/u/me/bot',
+			loc: '/agents/get/u/me/bot'
+		}
+		const { deployed } = toolReloadEffect('delete_workspace_item', {
+			type: 'resource',
+			path: 'u/me/bot'
+		})
+		expect(viewerTabsToReload([agentTab, viewTab], new Set(deployed))).toEqual([agentTab])
 	})
 
 	// The editor holds what the user is writing; refetching the deployed version over it
