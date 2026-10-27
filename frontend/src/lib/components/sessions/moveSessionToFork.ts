@@ -3,6 +3,7 @@ import { DraftService, type DraftItemRef } from '$lib/gen'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 import { invalidateWorkspaceDiffCache } from '$lib/components/copilot/chat/global/diffSnapshot'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import {
@@ -139,8 +140,8 @@ export async function moveSessionToFork(
 		if (opts.isBusy?.()) return { ok: false, error: busy, retry: fork }
 	}
 
-	let copied = 0
-	let removed = 0
+	let copied: DraftItemRef[] = []
+	let removed: DraftItemRef[] = []
 	if (opts.items.length > 0) {
 		try {
 			const res = await DraftService.transferDrafts({
@@ -160,16 +161,20 @@ export async function moveSessionToFork(
 					retry: fork
 				}
 			}
-			copied = res.copied.length
-			removed = res.removed.length
+			copied = res.copied
+			removed = res.removed
 		} catch (e: any) {
 			return { ok: false, error: String(e?.body ?? e?.message ?? e), retry: fork }
 		}
 	}
 
-	if (removed > 0) {
+	if (removed.length > 0) {
 		for (const it of opts.items) UserDraft.forgetLocal(it.kind, it.path, { workspace: parent })
 	}
+	// The transfer bypasses the syncer that keeps these hints, and lists prefer a hint over the
+	// server's flag, so a refetch alone would keep the parent's markers.
+	for (const it of removed) setLocalDraftHint(parent, it.kind, it.path, false)
+	for (const it of copied) setLocalDraftHint(fork.id, it.kind, it.path, true)
 	await reloadOpenEditors(fork.id, opts.items)
 	await moveSessionToWorkspace(sessionId, fork.id)
 	for (const ws of [parent, fork.id]) {
@@ -181,5 +186,5 @@ export async function moveSessionToFork(
 		entityId: sessionId,
 		workspace: fork.id
 	})
-	return { ok: true, forkId: fork.id, copied, removed }
+	return { ok: true, forkId: fork.id, copied: copied.length, removed: removed.length }
 }
