@@ -455,80 +455,84 @@ done`
 					</ToggleButtonGroup>
 				</Label>
 			{/if}
-			<Label label="Example">
-				<ToggleButtonGroup bind:selected={example}>
-					{#snippet children({ item })}
-						<ToggleButton label="REST" value="rest" {item} />
-						{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
-							<ToggleButton label="Curl" value="curl" {item} />
-						{/if}
-						<ToggleButton label="Fetch" value="fetch" {item} />
-					{/snippet}
-				</ToggleButtonGroup>
-			</Label>
-			<!-- svelte-ignore a11y_click_events_have_key_events -->
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			{#key token}
-				{#if example === 'rest'}
-					<div class="flex flex-col gap-6">
-						<Label label="Url">
-							<ClipboardPanel content={url} />
-						</Label>
-
-						{#if callMethod !== 'get'}
-							<Label label="Body">
-								<ClipboardPanel content={JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)} />
-							</Label>
-						{/if}
-						{#key callMethod}
-							{#key tokenType}
-								<Label label="Headers">
-									<ClipboardPanel content={JSON.stringify(headers(), null, 2)} />
+			<div class="rounded-md border border-light bg-surface-tertiary">
+				<div class="px-3 pt-3">
+					<ToggleButtonGroup bind:selected={example} noWFull>
+						{#snippet children({ item })}
+							<ToggleButton label="REST" value="rest" {item} small />
+							{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
+								<ToggleButton label="Curl" value="curl" {item} small />
+							{/if}
+							<ToggleButton label="Fetch" value="fetch" {item} small />
+						{/snippet}
+					</ToggleButtonGroup>
+				</div>
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="p-3">
+					{#key token}
+						{#if example === 'rest'}
+							<div class="flex flex-col gap-6">
+								<Label label="Url">
+									<ClipboardPanel content={url} />
 								</Label>
-							{/key}
-						{/key}
-					</div>
-				{:else if example === 'curl'}
-					<div class="relative">
-						{#key runnableArgs}
-							{#key callMethod}
-								{#key requestType}
+
+								{#if callMethod !== 'get'}
+									<Label label="Body">
+										<ClipboardPanel content={JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)} />
+									</Label>
+								{/if}
+								{#key callMethod}
 									{#key tokenType}
-										<div
-											class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
-											onclick={(e) => {
-												e.preventDefault()
-												copyToClipboard(curlCode())
-											}}
-										>
-											<Highlight language={bash} code={curlCode()} />
-											<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
-										</div>
+										<Label label="Headers">
+											<ClipboardPanel content={JSON.stringify(headers(), null, 2)} />
+										</Label>
 									{/key}
 								{/key}
+							</div>
+						{:else if example === 'curl'}
+							<div class="relative">
+								{#key runnableArgs}
+									{#key callMethod}
+										{#key requestType}
+											{#key tokenType}
+												<div
+													class="flex flex-row flex-1 h-full overflow-auto relative"
+													onclick={(e) => {
+														e.preventDefault()
+														copyToClipboard(curlCode())
+													}}
+												>
+													<Highlight language={bash} code={curlCode()} />
+													<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
+												</div>
+											{/key}
+										{/key}
+									{/key}
+								{/key}
+							</div>
+						{:else}
+							{#key runnableArgs}
+								{#key callMethod}
+									{#key requestType}
+										{#key tokenType}
+											{#key token}
+												<div
+													class="flex flex-row flex-1 h-full overflow-auto relative"
+													onclick={(e) => {
+														e.preventDefault()
+														copyToClipboard(fetchCode())
+													}}
+												>
+													<Highlight language={typescript} code={fetchCode()} />
+													<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
+												</div>
+											{/key}{/key}{/key}{/key}
 							{/key}
-						{/key}
-					</div>
-				{:else}
-					{#key runnableArgs}
-						{#key callMethod}
-							{#key requestType}
-								{#key tokenType}
-									{#key token}
-										<div
-											class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
-											onclick={(e) => {
-												e.preventDefault()
-												copyToClipboard(fetchCode())
-											}}
-										>
-											<Highlight language={typescript} code={fetchCode()} />
-											<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
-										</div>
-									{/key}{/key}{/key}{/key}
+						{/if}
 					{/key}
-				{/if}
-			{/key}
+				</div>
+			</div>
 		</div>
 	{/snippet}
 
