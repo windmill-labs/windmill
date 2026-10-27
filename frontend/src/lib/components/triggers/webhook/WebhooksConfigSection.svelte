@@ -88,6 +88,7 @@
 
 	let surface = $state('http') as 'http' | 'sdk'
 	let example = $state('rest') as 'rest' | 'curl' | 'fetch'
+	let promptOpen = $state(false)
 	let userSettings: UserSettings | undefined = $state()
 	let requestType = $state(DEFAULT_WEBHOOK_TYPE) as 'async' | 'sync' | 'sync_sse'
 	let callMethod = $state('post') as 'get' | 'post'
@@ -360,26 +361,29 @@ done`
 		</Label>
 	{/if}
 
-	<div class="flex flex-col items-start gap-2">
-		<span class="text-xs text-secondary">
-			Using a coding assistant? Share this prompt with it, after setting the token created above as <code
-				>WINDMILL_TOKEN</code
-			> in your project's environment.
-		</span>
-		<div>
-			<Button
-				variant="default"
-				unifiedSize="sm"
-				startIcon={{ icon: Copy }}
-				onClick={() => copyToClipboard(integrationPrompt(target))}
-			>
-				Copy prompt for AI
-			</Button>
+	<Label label="AI prompt">
+		<div class="flex flex-col gap-2">
+			<div class="flex items-center gap-4">
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					startIcon={{ icon: Copy }}
+					onClick={() => copyToClipboard(integrationPrompt(target))}
+				>
+					Copy prompt for AI
+				</Button>
+				<CollapseLink text="Show prompt" class="mb-0" bind:open={promptOpen} />
+			</div>
+			<span class="text-2xs text-hint">
+				Share it with your coding assistant, after setting the token above as <code
+					>WINDMILL_TOKEN</code
+				> in your project's environment.
+			</span>
+			{#if promptOpen}
+				<CopyableCodeBlock code={integrationPrompt(target)} language={markdown} wrap />
+			{/if}
 		</div>
-		<CollapseLink text="Show prompt">
-			<CopyableCodeBlock code={integrationPrompt(target)} language={markdown} wrap />
-		</CollapseLink>
-	</div>
+	</Label>
 	{#snippet httpExamples()}
 		<div class="flex flex-col gap-6">
 			<!-- An agent has one endpoint: it starts a run, by path, and answers with its job id. -->
@@ -455,7 +459,8 @@ done`
 				</Label>
 			{/if}
 			<div class="rounded-md border border-light bg-surface-tertiary">
-				<div class="px-3 pt-3">
+				<div class="flex items-center justify-between gap-2 px-3 pt-3">
+					<span class="text-sm font-semibold text-emphasis">Request</span>
 					<ToggleButtonGroup bind:selected={example} noWFull>
 						{#snippet children({ item })}
 							<ToggleButton label="REST" value="rest" {item} small />
@@ -512,13 +517,16 @@ done`
 						<span class="text-xs text-secondary">
 							Streams each answer and keeps the conversations, with any framework.
 						</span>
-						<div class="flex flex-col gap-2 rounded-md border border-light bg-surface-tertiary p-3">
-							<ToggleButtonGroup bind:selected={sdkFlavor} noWFull>
-								{#snippet children({ item })}
-									<ToggleButton value="react" label="React" {item} small />
-									<ToggleButton value="any" label="Any framework" {item} small />
-								{/snippet}
-							</ToggleButtonGroup>
+						<div class="flex flex-col gap-3 rounded-md border border-light bg-surface-tertiary p-3">
+							<div class="flex items-center justify-between gap-2">
+								<span class="text-sm font-semibold text-emphasis">Usage</span>
+								<ToggleButtonGroup bind:selected={sdkFlavor} noWFull>
+									{#snippet children({ item })}
+										<ToggleButton value="react" label="React" {item} small />
+										<ToggleButton value="any" label="Any framework" {item} small />
+									{/snippet}
+								</ToggleButtonGroup>
+							</div>
 							<CopyableCodeBlock
 								code={sdkFlavor === 'react' ? sdkReactExample(target) : sdkExample(target)}
 								language={typescript}
