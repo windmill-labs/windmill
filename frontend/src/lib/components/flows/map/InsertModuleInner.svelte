@@ -243,12 +243,22 @@
 						}}
 					/>
 					<TopLevelNode
-						label="Web Search"
+						label="Web search"
 						onSelect={() => {
 							dispatch('pickWebsearchTool')
 							dispatch('close')
 						}}
 					/>
+					<!-- A nested agent cannot park, so the worker drops it from its roster. -->
+					{#if !nestedAgent}
+						<TopLevelNode
+							label="Ask a question"
+							onSelect={() => {
+								dispatch('pickQuestionTool')
+								dispatch('close')
+							}}
+						/>
+					{/if}
 					<TopLevelNode
 						label="AI Agent"
 						chevron={false}

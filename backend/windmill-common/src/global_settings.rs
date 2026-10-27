@@ -188,11 +188,17 @@ pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
 /// from GitHub and a separate ingress fronts the API for inbound webhooks.
 pub const GITHUB_APP_WEBHOOK_BASE_URL_SETTING: &str = "github_app_webhook_base_url";
 /// Base URL the UI shows for the endpoints external clients call (webhooks, HTTP
-/// routes, push trigger endpoints, the CLI), instead of the origin the UI is browsed on.
-/// For deployments that serve the API on a separate domain or behind a gateway.
+/// routes, push trigger endpoints, the CLI, the MCP server), instead of the origin the UI is
+/// browsed on. For deployments that serve the API on a separate domain or behind a gateway.
+/// The server reads it too, through [`mcp_base_url`], for the MCP gateway's OAuth metadata.
 /// EE only. Readable by any authenticated user, like [`INSTANCE_BANNER_SETTING`]:
 /// every user is shown URLs built from it.
 pub const API_BASE_URL_SETTING: &str = "api_base_url";
+/// Which of [`API_BASE_URL_SURFACES`] [`API_BASE_URL_SETTING`] applies to; unset means all,
+/// so a surface added later follows the API base url until an admin narrows the list.
+/// Lets an instance expose a single surface (say, only MCP) on a public host.
+pub const API_BASE_URL_APPLIES_TO_SETTING: &str = "api_base_url_applies_to";
+pub const API_BASE_URL_SURFACES: [&str; 4] = ["webhooks", "push_triggers", "cli", "mcp"];
 /// Instance-wide announcement rendered above every page of the app (maintenance
 /// windows, incidents). Readable by any authenticated user, unlike most settings:
 /// the banner exists to be shown to everyone, so it must never hold anything the
@@ -341,6 +347,7 @@ pub struct InstanceUi {
     pub instance_banner: Option<serde_json::Value>,
     pub accent_color: Option<serde_json::Value>,
     pub api_base_url: Option<serde_json::Value>,
+    pub api_base_url_applies_to: Option<serde_json::Value>,
 }
 
 pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<InstanceUi> {
@@ -349,7 +356,8 @@ pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<InstanceUi> {
         &[
             INSTANCE_BANNER_SETTING,
             ACCENT_COLOR_SETTING,
-            API_BASE_URL_SETTING
+            API_BASE_URL_SETTING,
+            API_BASE_URL_APPLIES_TO_SETTING
         ] as &[&str]
     )
     .fetch_all(db)
@@ -360,10 +368,32 @@ pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<InstanceUi> {
             INSTANCE_BANNER_SETTING => ui.instance_banner = Some(row.value),
             ACCENT_COLOR_SETTING => ui.accent_color = Some(row.value),
             API_BASE_URL_SETTING => ui.api_base_url = Some(row.value),
+            API_BASE_URL_APPLIES_TO_SETTING => ui.api_base_url_applies_to = Some(row.value),
             _ => {}
         }
     }
     Ok(ui)
+}
+
+/// Validate an [`API_BASE_URL_APPLIES_TO_SETTING`] value: a list of
+/// [`API_BASE_URL_SURFACES`]. An unknown name is refused rather than ignored, since a
+/// misspelt `mcp` would silently leave the MCP server on `base_url`.
+pub fn validate_api_base_url_applies_to(value: &serde_json::Value) -> Result<(), String> {
+    let serde_json::Value::Array(items) = value else {
+        return Err("must be a list of surfaces".to_string());
+    };
+    for item in items {
+        match item.as_str() {
+            Some(s) if API_BASE_URL_SURFACES.contains(&s) => {}
+            _ => {
+                return Err(format!(
+                    "must only list surfaces among {}",
+                    API_BASE_URL_SURFACES.join(", ")
+                ))
+            }
+        }
+    }
+    Ok(())
 }
 
 const SHELL_ACTIVE_CHARS: [char; 16] = [
@@ -520,10 +550,35 @@ lazy_static::lazy_static! {
     pub static ref HTTP_ROUTE_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);
     pub static ref DISABLE_PASSWORD_LOGIN: AtomicBool = AtomicBool::new(false);
     pub static ref MCP_DISABLE_TOKEN_QUERY_PARAM: AtomicBool = AtomicBool::new(false);
+    /// Empty means unset. See [`API_BASE_URL_SETTING`].
+    pub static ref API_BASE_URL: arc_swap::ArcSwap<String> =
+        arc_swap::ArcSwap::from_pointee(String::new());
+    /// Whether [`API_BASE_URL_APPLIES_TO_SETTING`] includes `mcp`.
+    pub static ref API_BASE_URL_APPLIES_TO_MCP: AtomicBool = AtomicBool::new(true);
     /// Origins HTTP routes allow cross-origin when they configure none of their
     /// own. Empty means unset, which keeps the historical `*`.
     pub static ref HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS: arc_swap::ArcSwap<Vec<String>> =
         arc_swap::ArcSwap::from_pointee(vec![]);
+}
+
+/// [`API_BASE_URL_SETTING`] when it applies to MCP, else `base_url`. The MCP gateway builds every URL it hands a
+/// client to call from it: its resource identifier, the authorization server it names, and
+/// that server's issuer, token and registration endpoints. Not the authorization endpoint:
+/// the user's browser opens it, and the consent page it redirects to is served on `base_url`.
+///
+/// Enterprise only, like the UI that shows the MCP URL: an MCP client rejects metadata
+/// naming a host other than the URL it was given, so the two must agree.
+pub fn mcp_base_url() -> String {
+    #[cfg(feature = "enterprise")]
+    {
+        let configured = API_BASE_URL.load();
+        if !configured.is_empty()
+            && API_BASE_URL_APPLIES_TO_MCP.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return configured.to_string();
+        }
+    }
+    crate::BASE_URL.load().to_string()
 }
 
 /// Whether an allowlist places no restriction at all.
@@ -965,6 +1020,15 @@ pub fn workspace_integration_auth_endpoint(client_name: &str, base_url: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn api_base_url_applies_to_accepts_only_known_surfaces() {
+        use serde_json::json;
+        assert!(validate_api_base_url_applies_to(&json!(["mcp", "webhooks"])).is_ok());
+        assert!(validate_api_base_url_applies_to(&json!([])).is_ok());
+        assert!(validate_api_base_url_applies_to(&json!(["mpc"])).is_err());
+        assert!(validate_api_base_url_applies_to(&json!("mcp")).is_err());
+    }
 
     // `frontend/src/lib/tokenExpiration.test.ts` holds the same table for the token form's
     // parser; the two must stay in step.

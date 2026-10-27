@@ -10,6 +10,7 @@
 	import { getContext } from 'svelte'
 	import { getGraphContext } from '../../graphContext'
 	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
+	import { waitingRequest } from '$lib/components/agentRequest'
 
 	interface Props {
 		data: ModuleN['data']
@@ -22,9 +23,13 @@
 	const flowRunStatus = getFlowRunStatusContext()
 
 	let state = $derived.by(() => {
-		return data.testModuleState
+		const state = data.testModuleState
 			? (jobToGraphModuleState(data.testModuleState) ?? flowRunStatus?.getModuleState(data.id))
 			: flowRunStatus?.getModuleState(data.id)
+		// An agent waiting on a person reads like an approval step, though its job is running.
+		return state?.type === 'InProgress' && waitingRequest(state)
+			? { ...state, type: 'WaitingForEvents' as const }
+			: state
 	})
 
 	// A `message` is the one action with no tool node of its own, so the annotation is the only
@@ -33,6 +38,8 @@
 		{ type: 'tool_call', singular: 'tool call', plural: 'tool calls' },
 		{ type: 'mcp_tool_call', singular: 'MCP call', plural: 'MCP calls' },
 		{ type: 'web_search', singular: 'web search', plural: 'web searches' },
+		{ type: 'approval', singular: 'approval request', plural: 'approval requests' },
+		{ type: 'question', singular: 'question', plural: 'questions' },
 		{ type: 'message', singular: 'message', plural: 'messages' }
 	] as const
 

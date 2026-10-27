@@ -13,6 +13,7 @@
 	import { ArrowBigUp } from 'lucide-svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getHomeSelection, toBulkItem } from './homeSelection.svelte'
+	import { getSharedEditRights } from '$lib/operatorWriteRights'
 	import type { RowSelection } from '../common/table/rowSelection'
 
 	const dispatch = createEventDispatcher()
@@ -39,6 +40,20 @@
 		keyboardSelected = false
 	}: Props = $props()
 
+	const editRights = getSharedEditRights()
+	// Worked out per row rather than when the listing loads, so the rights follow the acting
+	// user as it resolves and the listing never has to reload for it.
+	let row = $derived({
+		...item,
+		canWrite:
+			editRights.canEditItem(
+				item.type === 'app' && item.raw_app ? 'raw_app' : item.type,
+				item.path,
+				item.extra_perms ?? {}
+			) &&
+			(item.type === 'script' || item.workspace_id == $workspaceStore)
+	})
+
 	// Read from context rather than threaded down: the tree renders items through
 	// several nested levels that have no other reason to know about selection.
 	const homeSelection = getHomeSelection()
@@ -48,7 +63,7 @@
 	// so it must not enter the selection either.
 	let bulkItem = $derived(
 		homeSelection?.available && item.type !== 'raw_app'
-			? toBulkItem(item, $userStore, $workspaceStore)
+			? toBulkItem(row, $userStore, $workspaceStore)
 			: undefined
 	)
 	$effect(() => {
@@ -63,7 +78,8 @@
 					key: bulkItem.key,
 					selected: homeSelection.has(bulkItem.key),
 					active: homeSelection.active,
-					onToggle: (e) => bulkItem && homeSelection.toggle(bulkItem, 'shiftKey' in e && e.shiftKey)
+					onToggle: (e) =>
+						bulkItem && homeSelection.toggle(bulkItem.key, 'shiftKey' in e && e.shiftKey)
 				}
 			: undefined
 	)
@@ -74,7 +90,7 @@
 		bind:deleteConfirmedCallback
 		marked={item.marked}
 		on:change={() => dispatch('scriptChanged')}
-		script={item}
+		script={row}
 		errorHandlerMuted={item.ws_error_handler_muted === undefined ||
 		item.ws_error_handler_muted === null
 			? false
@@ -94,7 +110,8 @@
 		bind:deleteConfirmedCallback
 		marked={item.marked}
 		on:change={() => dispatch('flowChanged')}
-		flow={item}
+		flow={row}
+		canAuthor={editRights.roleCanAuthor('flow')}
 		errorHandlerMuted={item.ws_error_handler_muted === undefined ||
 		item.ws_error_handler_muted === null
 			? false
@@ -113,7 +130,7 @@
 		bind:deleteConfirmedCallback
 		marked={item.marked}
 		on:change={() => dispatch('appChanged')}
-		app={item}
+		app={row}
 		{moveDrawer}
 		{shareModal}
 		{deploymentDrawer}
@@ -126,7 +143,7 @@
 {:else if item.type == 'raw_app'}
 	<RawAppRow
 		marked={item.marked}
-		app={item}
+		app={row}
 		{shareModal}
 		{deploymentDrawer}
 		{depth}
@@ -138,7 +155,7 @@
 		bind:deleteConfirmedCallback
 		marked={item.marked}
 		on:change={() => dispatch('reload')}
-		agent={item}
+		agent={row}
 		{shareModal}
 		{deploymentDrawer}
 		{depth}

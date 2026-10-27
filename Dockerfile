@@ -169,8 +169,12 @@ ENV UV_TOOL_DIR=/usr/local/uv
 
 ENV PATH /usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
-
-RUN apt-get update \
+# The build cache keeps the apt layer while the base image digest and this line are unchanged, so
+# Debian security updates are not picked up by later builds. Bump to force a fresh apt-get upgrade;
+# bump it in docker/DockerfileSlim and docker/DockerfileSlimEe too.
+ARG APT_REFRESH=1
+RUN echo "apt refresh ${APT_REFRESH}" \
+    && apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 tini gnupg libargon2-1 \
     && if echo "$features" | grep -q "ee"; then apt-get install -y --no-install-recommends libsasl2-modules-gssapi-mit krb5-user; fi \
