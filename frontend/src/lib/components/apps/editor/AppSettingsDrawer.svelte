@@ -347,7 +347,7 @@
 										bind:value={summary}
 									/>
 								</Label>
-								<LabelsInput bind:labels class="-mt-4" />
+								<div data-setting="labels" class="-mt-4"><LabelsInput bind:labels /></div>
 								<Label label="Path">
 									{#snippet header()}
 										<Tooltip
@@ -480,109 +480,111 @@
 								{#if sharingChanged}
 									<Alert type="info" size="xs" title="Deploy the app to apply these changes." />
 								{/if}
-								<Label label="Access">
-									{#if rulesetsLoaded && !canSetAnonymous && policy.execution_mode != 'anonymous'}
-										<Alert
-											type="warning"
-											title="Restricted by a workspace protection rule"
-											size="xs"
-										>
-											Opening this app to anyone with the link is restricted to workspace admins and
-											bypass users by a workspace protection rule
-										</Alert>
-									{/if}
-									{#if rulesetsLoaded && !canSetGuest && policy.execution_mode != 'guest' && guestsAvailable}
-										<Alert
-											type="warning"
-											title="Restricted by a workspace protection rule"
-											size="xs"
-										>
-											Opening this app to guests is restricted to workspace admins and bypass users
-											by a workspace protection rule
-										</Alert>
-									{/if}
-									<div>
-										<!-- Bound through accessors: given `selected` one way, the group keeps the
+								<div data-setting="access">
+									<Label label="Access">
+										{#if rulesetsLoaded && !canSetAnonymous && policy.execution_mode != 'anonymous'}
+											<Alert
+												type="warning"
+												title="Restricted by a workspace protection rule"
+												size="xs"
+											>
+												Opening this app to anyone with the link is restricted to workspace admins
+												and bypass users by a workspace protection rule
+											</Alert>
+										{/if}
+										{#if rulesetsLoaded && !canSetGuest && policy.execution_mode != 'guest' && guestsAvailable}
+											<Alert
+												type="warning"
+												title="Restricted by a workspace protection rule"
+												size="xs"
+											>
+												Opening this app to guests is restricted to workspace admins and bypass
+												users by a workspace protection rule
+											</Alert>
+										{/if}
+										<div>
+											<!-- Bound through accessors: given `selected` one way, the group keeps the
 										     choice it was clicked to, and a refused change would stay shown. -->
-										<ToggleButtonGroup
-											bind:selected={() => accessMode, (mode) => onAccessModeChange(mode)}
-											disabled={accessModePending || accessModeLocked}
-										>
-											{#snippet children({ item })}
-												<ToggleButton
-													label="Members"
-													value="publisher"
-													tooltip="Workspace members with read access on this app."
-													{item}
-												/>
-												<ToggleButton
-													label="Guests"
-													value="guest"
-													disabled={policy.execution_mode != 'guest' &&
-														(!guestsAvailable || !canSetGuest)}
-													tooltip={!guestsAvailable
-														? 'Not available on Windmill Cloud. Guests require a self-hosted instance or a dedicated Windmill Cloud deployment.'
-														: "Anyone your identity provider authenticates who has no Windmill account, plus workspace members. No membership, no seat up to the instance's allowance."}
-													{item}
-												/>
-												<ToggleButton
-													label="Public"
-													value="anonymous"
-													disabled={!canSetAnonymous && policy.execution_mode != 'anonymous'}
-													tooltip="Anyone with the secret URL. No login."
-													{item}
-												/>
-											{/snippet}
-										</ToggleButtonGroup>
-									</div>
-									{#if accessModeLocked}
+											<ToggleButtonGroup
+												bind:selected={() => accessMode, (mode) => onAccessModeChange(mode)}
+												disabled={accessModePending || accessModeLocked}
+											>
+												{#snippet children({ item })}
+													<ToggleButton
+														label="Members"
+														value="publisher"
+														tooltip="Workspace members with read access on this app."
+														{item}
+													/>
+													<ToggleButton
+														label="Guests"
+														value="guest"
+														disabled={policy.execution_mode != 'guest' &&
+															(!guestsAvailable || !canSetGuest)}
+														tooltip={!guestsAvailable
+															? 'Not available on Windmill Cloud. Guests require a self-hosted instance or a dedicated Windmill Cloud deployment.'
+															: "Anyone your identity provider authenticates who has no Windmill account, plus workspace members. No membership, no seat up to the instance's allowance."}
+														{item}
+													/>
+													<ToggleButton
+														label="Public"
+														value="anonymous"
+														disabled={!canSetAnonymous && policy.execution_mode != 'anonymous'}
+														tooltip="Anyone with the secret URL. No login."
+														{item}
+													/>
+												{/snippet}
+											</ToggleButtonGroup>
+										</div>
+										{#if accessModeLocked}
+											<div class="text-xs text-secondary">
+												{#if runsAsAnotherForCaller}
+													This app runs on behalf of <strong>{deployedRunsAs}</strong>. Deploy it so
+													it runs on behalf of you, then change who can open it.
+													{#if !composeOnlyApps}
+														An admin or a member of <code>wm_deployers</code> can change it without taking
+														the app over.
+													{/if}
+												{:else}
+													This app is not sandboxed yet. Deploy it so it is sandboxed, then change
+													who can open it.
+												{/if}
+											</div>
+										{/if}
 										<div class="text-xs text-secondary">
-											{#if runsAsAnotherForCaller}
-												This app runs on behalf of <strong>{deployedRunsAs}</strong>. Deploy it so
-												it runs on behalf of you, then change who can open it.
-												{#if !composeOnlyApps}
-													An admin or a member of <code>wm_deployers</code> can change it without taking
-													the app over.
+											{#if policy.execution_mode == 'anonymous'}
+												Anyone holding the secret URL below can open this app without signing in.
+											{:else if policy.execution_mode == 'guest'}
+												{#if !guestsAvailable}
+													Guests are not available on Windmill Cloud, so this app still admits
+													members only. They require a self-hosted instance or a dedicated Windmill
+													Cloud deployment.
+												{:else if guestUsage && !guestUsage.instance_enabled}
+													A superadmin has turned guests off for this instance, so this app still
+													admits members only.
+												{:else if guestAccessEnabled === undefined}
+													Checking whether this workspace allows guests…
+												{:else if guestAccessEnabled === false}
+													Guests are turned off for this workspace, so this app still admits members
+													only. A workspace admin can turn them on in the workspace settings.
+												{:else}
+													Anyone your identity provider authenticates can open this app without a
+													Windmill account. They join no workspace. Members of this workspace can
+													open it too.
+													{#if guestUsage}
+														{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used
+														across this instance in the last {guestUsage.window_days} days; beyond that,
+														{guestUsage.metered
+															? 'every four guests count as one seat'
+															: 'new guests are refused until the count drops'}.
+													{/if}
 												{/if}
 											{:else}
-												This app is not sandboxed yet. Deploy it so it is sandboxed, then change who
-												can open it.
+												Only workspace members with read access on this app can open it.
 											{/if}
 										</div>
-									{/if}
-									<div class="text-xs text-secondary">
-										{#if policy.execution_mode == 'anonymous'}
-											Anyone holding the secret URL below can open this app without signing in.
-										{:else if policy.execution_mode == 'guest'}
-											{#if !guestsAvailable}
-												Guests are not available on Windmill Cloud, so this app still admits members
-												only. They require a self-hosted instance or a dedicated Windmill Cloud
-												deployment.
-											{:else if guestUsage && !guestUsage.instance_enabled}
-												A superadmin has turned guests off for this instance, so this app still
-												admits members only.
-											{:else if guestAccessEnabled === undefined}
-												Checking whether this workspace allows guests…
-											{:else if guestAccessEnabled === false}
-												Guests are turned off for this workspace, so this app still admits members
-												only. A workspace admin can turn them on in the workspace settings.
-											{:else}
-												Anyone your identity provider authenticates can open this app without a
-												Windmill account. They join no workspace. Members of this workspace can open
-												it too.
-												{#if guestUsage}
-													{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used across
-													this instance in the last {guestUsage.window_days} days; beyond that,
-													{guestUsage.metered
-														? 'every four guests count as one seat'
-														: 'new guests are refused until the count drops'}.
-												{/if}
-											{/if}
-										{:else}
-											Only workspace members with read access on this app can open it.
-										{/if}
-									</div>
-								</Label>
+									</Label>
+								</div>
 
 								<Label
 									label="Secret URL"
