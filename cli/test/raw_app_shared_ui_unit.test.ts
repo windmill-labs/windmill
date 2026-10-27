@@ -26,7 +26,7 @@ beforeAll(() => {
   // inner.ts by its real path, not through the link.
   write("shared/button.ts", `export { label } from "./inner";\n`);
   write("shared/inner.ts", `import { who } from "pkg";\nimport "./styles.css";\nexport const label = who;\n`);
-  write("shared/styles.css", `@import "base.css";\n`);
+  write("shared/styles.css", `@import "base.css?theme";\n`);
   write("shared/base.css", `.from-ui-css { color: red; }\n`);
   fs.symlinkSync(path.join(root, "shared"), path.join(root, "ui"));
   write("f/demo.raw_app/package.json", `{"name":"demo"}`);

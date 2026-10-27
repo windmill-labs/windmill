@@ -345,15 +345,16 @@ export function createSharedUiPlugin(sharedUiDir: string, appDir: string): any {
           ],
         };
       });
-      build.onResolve({ filter: /^[^./]/ }, (args: any) => {
+      build.onResolve({ filter: /^[^./]/ }, async (args: any) => {
         if (!args.importer.startsWith(uiPrefix)) return undefined;
         // CSS reads `@import "base.css"` as relative first; keep that when the
-        // sibling exists, and only send package names to the app.
-        if (
-          (args.kind === "import-rule" || args.kind === "url-token") &&
-          fs.existsSync(path.join(args.resolveDir, args.path))
-        ) {
-          return undefined;
+        // sibling resolves, and only send package names to the app.
+        if (args.kind === "import-rule" || args.kind === "url-token") {
+          const sibling = await build.resolve("./" + args.path, {
+            resolveDir: args.resolveDir,
+            kind: args.kind,
+          });
+          if (sibling.errors.length === 0) return sibling;
         }
         // No importer is passed, so this nested resolve does not re-enter here.
         return build.resolve(args.path, { resolveDir, kind: args.kind });
