@@ -184,6 +184,7 @@
 			)
 		}
 		if (triggerKind === 'email') emailDomain = await getEmailDomain()
+		if (!isLatest()) return
 		loading = false
 	}
 
