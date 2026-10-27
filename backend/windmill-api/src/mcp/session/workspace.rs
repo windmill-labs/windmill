@@ -1440,7 +1440,11 @@ pub(super) async fn show_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     // What a schedule or a trigger runs, on its own page.
     let value = &item["value"];
     let runs_url = url(value["script_path"].as_str().and_then(|target| {
-        let kind = if truthy(value.get("is_flow")) { "flow" } else { "script" };
+        let kind = if truthy(value.get("is_flow")) {
+            "flow"
+        } else {
+            "script"
+        };
         super::deploy::deployed_page(kind, target, &Value::Null)
     }));
     ctx.set_view(

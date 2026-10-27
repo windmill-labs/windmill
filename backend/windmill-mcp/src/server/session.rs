@@ -89,7 +89,13 @@ fn get_workspace_context_tool() -> Tool {
              workspace.",
             Arc::new(schema.as_object().unwrap().clone()),
         )
-        .with_annotations(ToolAnnotations::new().read_only(true)),
+        .with_title("Get workspace context")
+        .with_annotations(
+            ToolAnnotations::with_title("Get workspace context")
+                .read_only(true)
+                .destructive(false)
+                .open_world(false),
+        ),
     )
 }
 

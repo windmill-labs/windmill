@@ -104,22 +104,67 @@ const EDITOR_ONLY: &[&str] = &[
     "read_file",
 ];
 
-/// Tools whose effect reaches the deployed workspace and cannot be undone by discarding
-/// a draft. Stands in for the session's confirmation card.
+/// Tools whose effect discarding a draft cannot undo: they reach the deployed workspace or a
+/// live datatable, run code, cancel a job, or delete work. Stands in for the session's
+/// confirmation card. The ChatGPT and Claude directories reject a write that deletes,
+/// cancels or cannot be taken back without this hint, even when it could be redone.
 const DESTRUCTIVE: &[&str] = &[
     "deploy_workspace_item",
     "delete_workspace_item",
     "create_resource_type",
     "set_workspace_settings",
+    "run_script",
+    "run_flow",
+    "run_agent",
+    "test_run_script",
+    "test_run_flow",
+    "test_run_agent",
+    "test_run_step",
+    "test_run_app_runnable",
+    "cancel_job",
+    "exec_datatable_sql",
+    "run_datatable_migrations",
+    "rollback_datatable_migration",
+    "discard_local_draft",
+    "rebase_draft",
+    "delete_app_file",
+    "delete_app_runnable",
 ];
 
-/// Destructive tools no card may call: a card acts as the user with no one confirming.
-/// Deploying is left to the review card, whose Deploy button the user presses.
-const MODEL_ONLY: &[&str] = &[
-    "delete_workspace_item",
-    "create_resource_type",
-    "set_workspace_settings",
+/// The destructive tools a card may call, each from a button the user presses. Every
+/// other destructive tool is hidden from cards: a card acts as the user with no one
+/// confirming.
+const CARD_ACTIONS: &[&str] = &["deploy_workspace_item", "cancel_job"];
+
+/// Tools that run code, which can reach any system the workspace reaches.
+const OPEN_WORLD: &[&str] = &[
+    "run_script",
+    "run_flow",
+    "run_agent",
+    "test_run_script",
+    "test_run_flow",
+    "test_run_agent",
+    "test_run_step",
+    "test_run_app_runnable",
+    "get_db_schema",
 ];
+
+/// A tool's display name, which Claude shows in its tool list and approval prompts.
+fn tool_title(name: &str) -> String {
+    let words: Vec<String> = name
+        .split('_')
+        .map(|word| match word {
+            "db" | "sql" | "json" => word.to_uppercase(),
+            _ => word.to_string(),
+        })
+        .collect();
+    let title = words.join(" ");
+    let mut chars = title.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
+}
 
 /// Tools the session counts as reads that still start a job. A read-only token runs
 /// nothing on the tools server, so it runs nothing here either.
@@ -183,19 +228,23 @@ pub(super) fn session_tools(access: SessionAccess) -> Vec<Tool> {
         .map(|def| {
             let name = def.name.as_str();
             let mut meta = result_size_meta();
-            if MODEL_ONLY.contains(&name) {
+            let destructive = DESTRUCTIVE.contains(&name);
+            if destructive && !CARD_ACTIONS.contains(&name) {
                 meta.0
                     .insert("ui".into(), json!({ "visibility": ["model"] }));
             }
+            let title = tool_title(name);
             Tool::new(
                 def.name.clone(),
                 def.description.clone(),
                 def.parameters.clone(),
             )
+            .with_title(title.clone())
             .with_annotations(
-                ToolAnnotations::new()
-                    .read_only(def.read_only)
-                    .destructive(DESTRUCTIVE.contains(&name)),
+                ToolAnnotations::with_title(title)
+                    .read_only(def.read_only && !RUNS_A_JOB.contains(&name))
+                    .destructive(destructive)
+                    .open_world(OPEN_WORLD.contains(&name)),
             )
             .with_meta(meta)
         })
@@ -210,8 +259,15 @@ pub(super) fn session_tools(access: SessionAccess) -> Vec<Tool> {
                     let Value::Object(schema) = schema else {
                         unreachable!("a view tool's schema is an object")
                     };
+                    let title = tool_title(name);
                     Tool::new(name, description, schema)
-                        .with_annotations(ToolAnnotations::new().read_only(true).destructive(false))
+                        .with_title(title.clone())
+                        .with_annotations(
+                            ToolAnnotations::with_title(title)
+                                .read_only(true)
+                                .destructive(false)
+                                .open_world(false),
+                        )
                         .with_meta(meta)
                 }),
         )
@@ -656,14 +712,34 @@ mod tests {
     }
 
     #[test]
-    fn no_card_can_call_a_destructive_tool_but_deploy() {
+    fn no_card_can_call_a_destructive_tool_but_deploy_and_cancel() {
         for tool in session_tools(SessionAccess::Full) {
             let name = tool.name.as_ref();
             if DESTRUCTIVE.contains(&name) {
                 let ui = tool.meta.as_ref().and_then(|m| m.0.get("ui"));
                 let model_only = ui == Some(&json!({ "visibility": ["model"] }));
-                assert_eq!(model_only, name != "deploy_workspace_item", "{name}");
+                assert_eq!(
+                    model_only,
+                    !matches!(name, "deploy_workspace_item" | "cancel_job"),
+                    "{name}"
+                );
             }
+        }
+    }
+
+    /// The ChatGPT directory wants every hint explicit, and Claude's a title on every tool.
+    #[test]
+    fn every_session_tool_has_a_title_and_explicit_hints() {
+        for tool in session_tools(SessionAccess::Full) {
+            let a = tool.annotations.as_ref().expect("annotations");
+            assert!(tool.title.is_some() && a.title.is_some(), "{}", tool.name);
+            assert!(
+                a.read_only_hint.is_some()
+                    && a.destructive_hint.is_some()
+                    && a.open_world_hint.is_some(),
+                "{}",
+                tool.name
+            );
         }
     }
 
@@ -677,7 +753,13 @@ mod tests {
                 "session tool `{name}` must be implemented here or listed in EDITOR_ONLY, not both"
             );
         }
-        for name in implemented.iter().chain(EDITOR_ONLY).chain(MODEL_ONLY) {
+        for name in implemented
+            .iter()
+            .chain(EDITOR_ONLY)
+            .chain(DESTRUCTIVE)
+            .chain(OPEN_WORLD)
+            .chain(RUNS_A_JOB)
+        {
             assert!(
                 TOOL_DEFS.iter().any(|def| def.name == *name),
                 "`{name}` is not a session tool any more"
