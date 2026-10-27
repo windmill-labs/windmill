@@ -44,9 +44,53 @@ pub(crate) struct AgentHistory {
     last_request: Option<(usize, usize)>,
 }
 
+/// An `AgentHistory` as a parked agent stores it. `OpenAIMessage` never serializes its
+/// `agent_action`, so each message carries it alongside: the result and the flow viewer index
+/// actions by it.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(crate) struct HistoryCheckpoint {
+    context: Vec<TaggedMessage>,
+    result: Vec<TaggedMessage>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct TaggedMessage {
+    #[serde(flatten)]
+    message: OpenAIMessage,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    agent_action: Option<windmill_common::flow_status::AgentAction>,
+}
+
+fn tag(messages: &[OpenAIMessage]) -> Vec<TaggedMessage> {
+    messages
+        .iter()
+        .map(|m| TaggedMessage { message: m.clone(), agent_action: m.agent_action.clone() })
+        .collect()
+}
+
+fn untag(messages: Vec<TaggedMessage>) -> Vec<OpenAIMessage> {
+    messages
+        .into_iter()
+        .map(|t| OpenAIMessage { agent_action: t.agent_action, ..t.message })
+        .collect()
+}
+
 impl AgentHistory {
     pub(crate) fn new(messages: Vec<OpenAIMessage>) -> Self {
         Self { result: messages.clone(), context: messages, last_request: None }
+    }
+
+    pub(crate) fn checkpoint(&self) -> HistoryCheckpoint {
+        HistoryCheckpoint { context: tag(&self.context), result: tag(&self.result) }
+    }
+
+    /// No usage measurement survives a park, so the next projection estimates the whole prompt.
+    pub(crate) fn from_checkpoint(checkpoint: HistoryCheckpoint) -> Self {
+        Self {
+            context: untag(checkpoint.context),
+            result: untag(checkpoint.result),
+            last_request: None,
+        }
     }
 
     pub(crate) fn context(&self) -> &[OpenAIMessage] {
@@ -676,6 +720,25 @@ async fn summarize_prefix(
 
 #[cfg(test)]
 mod tests {
+    // `OpenAIMessage` never serializes its action, and a parked agent's result and flow viewer
+    // index actions by it.
+    #[test]
+    fn checkpoint_keeps_agent_actions() {
+        use windmill_common::flow_status::AgentAction;
+        let mut tagged = message("assistant", "answer");
+        tagged.agent_action = Some(AgentAction::Message {});
+        let history = AgentHistory::new(vec![message("user", "question"), tagged]);
+        let json = serde_json::to_string(&history.checkpoint()).unwrap();
+        let restored = AgentHistory::from_checkpoint(serde_json::from_str(&json).unwrap());
+        let actions: Vec<bool> = restored
+            .result()
+            .iter()
+            .chain(restored.context())
+            .map(|m| m.agent_action.is_some())
+            .collect();
+        assert_eq!(actions, [false, true, false, true]);
+    }
+
     #[test]
     fn unusable_summaries_leave_context_and_usage_untouched() {
         let mut history = AgentHistory::new(vec![

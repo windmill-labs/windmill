@@ -21,28 +21,17 @@
 	import { untrack } from 'svelte'
 	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
 
-	type FolderW = Folder & { canWrite: boolean }
-
 	let restricted = $derived(
 		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
 	)
 
-	let folders: FolderW[] | undefined = $state(undefined)
+	let folders: Folder[] | undefined = $state(undefined)
 	let folderEditorDrawer: FolderEditorDrawer | undefined = $state()
 	let hubDrawer: Drawer | undefined = $state()
 	let publishFolderName: string = $state('')
 
 	async function loadFolders(): Promise<void> {
-		folders = (await FolderService.listFolders({ workspace: $workspaceStore! })).map((x) => {
-			return {
-				canWrite:
-					$userStore != undefined &&
-					($userStore?.is_admin ||
-						$userStore?.is_super_admin ||
-						$userStore?.folders_owners.includes(x.name)),
-				...x
-			}
-		})
+		folders = await FolderService.listFolders({ workspace: $workspaceStore! })
 	}
 
 	function onFolderSaved(name: string, created: boolean) {
@@ -53,7 +42,7 @@
 	}
 
 	$effect(() => {
-		if ($workspaceStore && $userStore) {
+		if ($workspaceStore) {
 			untrack(() => {
 				loadFolders()
 			})
@@ -164,7 +153,12 @@
 								</tr>
 							{/each}
 						{:else}
-							{#each folders as { name, extra_perms, owners, canWrite, summary, labels } (name)}
+							{#each folders as { name, extra_perms, owners, summary, labels } (name)}
+								{@const canWrite =
+									$userStore != undefined &&
+									($userStore.is_admin ||
+										$userStore.is_super_admin ||
+										$userStore.folders_owners.includes(name))}
 								<Row hoverable on:click={() => folderEditorDrawer?.initEdit(name)}>
 									<Cell first>
 										<span class="text-emphasis text-xs font-semibold">{name}</span>

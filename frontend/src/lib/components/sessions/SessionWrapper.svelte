@@ -54,7 +54,6 @@
 		X
 	} from 'lucide-svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
-	import { arrivingFromHomeSend } from './homeSessionsTransition.svelte'
 	import SessionChangesBar from './SessionChangesBar.svelte'
 	import SessionShareButton from './SessionShareButton.svelte'
 	import { clearSessionRecovered, isSessionRecovered } from './sessionRecoveryNotice.svelte'
@@ -857,7 +856,6 @@
 							starter={greets
 								? { where: 'session', suggestions: starterPrompts.suggestions }
 								: undefined}
-							viewTransitionNames={headerInPage && (opensSession || arrivingFromHomeSend())}
 							emptyHint={sessionEmptyHint}
 							{inputPreface}
 							actingOn={hasFirstUserMessage ? undefined : actingOn}

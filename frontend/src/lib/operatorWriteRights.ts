@@ -1,3 +1,4 @@
+import { getContext, setContext } from 'svelte'
 import { derived, fromStore, get, readable, toStore, type Readable } from 'svelte/store'
 import type { RoleCapabilities } from '$lib/gen'
 import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
@@ -47,6 +48,22 @@ export function useEditRights(workspace?: () => string | undefined) {
 		 *  its acting user (`forgetFailures`) must retry this one too, or it stays read-only. */
 		forgetFailures: () => user.forgetFailures()
 	}
+}
+
+type EditRights = ReturnType<typeof useEditRights>
+const EDIT_RIGHTS_KEY = Symbol('editRights')
+
+/** A list's rows all act as the same user in the same workspace, so they read the list's
+ *  `useEditRights` instance rather than each setting up their own. */
+export function shareEditRights(rights: EditRights): EditRights {
+	setContext(EDIT_RIGHTS_KEY, rights)
+	return rights
+}
+
+/** Only under a component that called `shareEditRights`: elsewhere there is no instance and the
+ *  first check throws. */
+export function getSharedEditRights(): EditRights {
+	return getContext<EditRights>(EDIT_RIGHTS_KEY)
 }
 
 /**

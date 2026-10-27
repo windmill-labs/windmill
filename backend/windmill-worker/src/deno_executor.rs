@@ -8,9 +8,8 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, deno_not_installed_error,
-        get_reserved_variables,
-        parse_npm_config, read_file, read_result, start_child_process, OccupancyMetrics,
-        StreamNotifier,
+        get_reserved_variables, parse_npm_config, read_file, read_result, start_child_process,
+        OccupancyMetrics, StreamNotifier,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -278,6 +277,15 @@ async fn refuse_links_in_shared_dir(job_dir: &str) -> error::Result<()> {
     Ok(())
 }
 
+// An admin may pass a config of their own, or --no-config, through DENO_FLAGS; deno
+// refuses --config next to --no-config or a second --config, so it then stands on its
+// own. `-c` also takes its value attached (`-c/path`, `-c=/path`).
+fn deno_flags_choose_config(flags: &[String]) -> bool {
+    flags.iter().any(|f| {
+        f.starts_with("-c") || f == "--config" || f.starts_with("--config=") || f == "--no-config"
+    })
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_deno_job(
     requirements_o: Option<&String>,
@@ -508,13 +516,9 @@ try {{
             deno_config_path = Some(format!("{job_dir}/deno.json"));
         }
     }
-    // An admin may pass a config of their own through DENO_FLAGS; deno refuses it next
-    // to --no-config or a second --config, so it then stands on its own.
-    let config_in_deno_flags = DENO_FLAGS.as_ref().is_some_and(|flags| {
-        flags
-            .iter()
-            .any(|f| f == "-c" || f == "--config" || f.starts_with("--config="))
-    });
+    let config_in_deno_flags = DENO_FLAGS
+        .as_ref()
+        .is_some_and(|flags| deno_flags_choose_config(flags));
 
     //do not cache local dependencies
     let child = {
@@ -898,4 +902,28 @@ pub async fn start_worker(
         concurrency_semaphore,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::deno_flags_choose_config;
+
+    fn flags(s: &str) -> Vec<String> {
+        s.split(' ').map(str::to_string).collect()
+    }
+
+    #[test]
+    fn deno_flags_config_detection() {
+        for f in [
+            "-A -c /etc/deno.json",
+            "-A -c/etc/deno.json",
+            "-A -c=/etc/deno.json",
+            "-A --config /etc/deno.json",
+            "-A --config=/etc/deno.json",
+            "-A --no-config",
+        ] {
+            assert!(deno_flags_choose_config(&flags(f)), "{f}");
+        }
+        assert!(!deno_flags_choose_config(&flags("-A --cached-only")));
+    }
 }

@@ -244,6 +244,7 @@ interface ChatState {
   history: 'server' | 'local' | 'none'
   loadingMessages: boolean
   hasMoreMessages: boolean
+  runningJobId?: string // the flow job the running turn follows
 }
 
 interface ChatMessage {

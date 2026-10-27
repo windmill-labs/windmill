@@ -1,8 +1,8 @@
 <script lang="ts">
 	/**
-	 * Badge for a workspace locked against direct edits, with the rule names, the route into the dev
-	 * workspace and the admin bypass in its popover. Renders nothing for operators, who have no edit
-	 * affordance for it to explain.
+	 * Badge for a workspace locked against direct edits, with the rule names and the route into the
+	 * dev workspace in its popover, and the admin bypass toggle beside it. Renders nothing for
+	 * operators, who have no edit affordance for it to explain.
 	 */
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { resource } from 'runed'
@@ -106,7 +106,7 @@
 </script>
 
 {#if ($roleCaps.code || $roleCaps.flows !== 'none' || $roleCaps.apps !== 'none') && activeDeployRulesets.length > 0}
-	<div class="my-2">
+	<div class="my-2 flex flex-wrap items-center gap-3">
 		<Popover
 			placement="bottom-start"
 			class={triggerClass}
@@ -152,15 +152,17 @@
 							{editAdvice}
 						</p>
 					{/if}
-					{#if canBypass && !sessionReadOnly}
-						<Toggle
-							size="xs"
-							bind:checked={overrideChecked}
-							options={{ right: 'Bypass restriction' }}
-						/>
-					{/if}
 				</div>
 			{/snippet}
 		</Popover>
+		<!-- Outside the popover: the badge reads as plain text, so a bypass behind it goes unfound. -->
+		{#if canBypass && !sessionReadOnly}
+			<Toggle
+				size="2xs"
+				color="red"
+				bind:checked={overrideChecked}
+				options={{ right: 'Bypass restriction' }}
+			/>
+		{/if}
 	</div>
 {/if}

@@ -65,6 +65,8 @@
 	import { deepEqual } from 'fast-equals'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import DeploymentRequestPanel from './deploymentRequest/DeploymentRequestPanel.svelte'
+	import AiReview from './deploymentRequest/AiReview.svelte'
+	import { copilotInfo } from '$lib/aiStore'
 	import { userStore } from '$lib/stores'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import CompareTargetPicker from './CompareTargetPicker.svelte'
@@ -430,6 +432,7 @@
 	)
 
 	let selectedItems = $state<string[]>([])
+	let selectedDiffs = $derived(selectableDiffs.filter((d) => selectedItems.includes(getItemKey(d))))
 
 	// Selected items that carry a pending draft. They're opt-in (excluded from the
 	// default selection), so a non-empty list means the user explicitly picked an
@@ -1807,8 +1810,18 @@
 
 				{#snippet footer()}
 					{#if !nothingToAct}
-						<div class="flex items-center justify-between">
-							<div></div>
+						<div class="flex items-start justify-between gap-4">
+							<div class="flex-1 min-w-0">
+								<!-- The request form and an open request carry their own review. -->
+								{#if mergeIntoParent && $copilotInfo.enabled && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
+									<AiReview
+										diffs={selectedDiffs}
+										forkWorkspaceId={currentWorkspaceId}
+										{parentWorkspaceId}
+										source="selection"
+									/>
+								{/if}
+							</div>
 
 							<div class="flex flex-col items-end gap-2">
 								<!-- Always show the deploy footer: only the items visible to the user are
@@ -1885,6 +1898,7 @@
 					{parentWorkspaceId}
 					currentUsername={$userStore?.username ?? ''}
 					isAdmin={$userStore?.is_admin ?? false}
+					diffs={comparison?.diffs.filter((d) => diffActionableInDirection(d, true)) ?? []}
 					onStateChange={(open) => {
 						hasOpenDeploymentRequest = open
 					}}
