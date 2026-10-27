@@ -2,9 +2,7 @@
 	import { Alert, Badge, Button, CopyButton, TabContent, Tabs } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { SlackAgentChannel } from '$lib/gen'
-	import { useEditRights } from '$lib/operatorWriteRights'
-	import { createRawAppFromAgent } from '$lib/components/details/createRawAppFromScript'
-	import { goto } from '$app/navigation'
+	import ChatAppPanel from '$lib/components/details/ChatAppPanel.svelte'
 	import WebhooksPanel from '$lib/components/triggers/webhook/WebhooksPanel.svelte'
 
 	/**
@@ -54,13 +52,6 @@
 	} = $props()
 
 	let handle = $derived(`+${agentPath.split('/').pop()}`)
-
-	const editRights = useEditRights(() => workspace)
-	async function buildApp() {
-		// The raw app editor reads the payload from sessionStorage on mount.
-		sessionStorage.setItem('rawAppImport', JSON.stringify(createRawAppFromAgent(agentPath)))
-		await goto('/apps_raw/add')
-	}
 </script>
 
 <div class="flex flex-col h-full">
@@ -175,25 +166,8 @@
 					{/if}
 				</TabContent>
 
-				<TabContent value="app" class="flex flex-col gap-4 p-4">
-					<span class="text-xs text-secondary">
-						A chat app for your team, built on Windmill's chat SDK. It runs the agent as the app, so
-						people need no access to the agent, and keeps their conversations in their browser. You
-						can shape it like any other app.
-					</span>
-					<div class="flex flex-col items-start gap-1">
-						<Button
-							unifiedSize="sm"
-							variant="default"
-							disabled={!editRights.roleCanAuthor('raw_app')}
-							onClick={buildApp}
-						>
-							Build an app for this agent
-						</Button>
-						{#if !editRights.roleCanAuthor('raw_app')}
-							<span class="text-2xs text-hint">Operators cannot build apps in this workspace.</span>
-						{/if}
-					</div>
+				<TabContent value="app">
+					<ChatAppPanel kind="agent" path={agentPath} {workspace} />
 				</TabContent>
 
 				<TabContent value="api" class="p-4">

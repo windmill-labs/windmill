@@ -22,6 +22,8 @@
 		flow_step?: import('svelte').Snippet<[{ onBack?: () => void }]>
 		triggers?: import('svelte').Snippet
 		flow_graph?: import('svelte').Snippet
+		/** A Windmill app tab, in the tabbed layout only: a chat-mode flow's page is always tabbed. */
+		app?: import('svelte').Snippet
 	}
 
 	let {
@@ -36,7 +38,8 @@
 		save_inputs,
 		flow_step,
 		triggers,
-		flow_graph
+		flow_graph,
+		app
 	}: Props = $props()
 
 	let mobileTab = $state('form')
@@ -121,6 +124,9 @@
 					{#if !isOperator}
 						<Tab value="triggers" label="Triggers" />
 					{/if}
+					{#if app}
+						<Tab value="app" label="Windmill app" />
+					{/if}
 					{#if flow_json}
 						<Tab value="raw" label="Export" />
 					{:else}
@@ -144,6 +150,9 @@
 							</TabContent>
 							<TabContent value="triggers" class="flex flex-col flex-1 h-full mt-[-2px]">
 								{@render triggers?.()}
+							</TabContent>
+							<TabContent value="app">
+								{@render app?.()}
 							</TabContent>
 							{#if flow_json}
 								<TabContent value="flow" class="flex flex-col flex-1 h-full">

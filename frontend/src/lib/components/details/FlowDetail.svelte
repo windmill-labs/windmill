@@ -56,6 +56,7 @@
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
 	import { createRawAppFromFlow } from '$lib/components/details/createRawAppFromScript'
+	import ChatAppPanel from '$lib/components/details/ChatAppPanel.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
@@ -471,7 +472,8 @@
 		}
 
 		// Build app starts from the full template, not the builder one a compose-only role deploys.
-		if (caps.apps === 'full') {
+		// A chat-mode flow builds its chat app from its Windmill app tab instead.
+		if (caps.apps === 'full' && !flow.value?.chat_input_enabled) {
 			buttons.push({
 				label: 'Build app',
 				placement: 'menu',
@@ -680,6 +682,7 @@
 	isOperator={!caps.code}
 	forceSmallScreen={chatInputEnabled}
 	isChatMode={chatInputEnabled}
+	app={chatInputEnabled ? chatApp : undefined}
 	flow_json={{
 		value: flow?.value,
 		summary: flow?.summary,
@@ -1048,6 +1051,19 @@
 		{/if}
 	{/snippet}
 </DetailPageLayout>
+
+{#snippet chatApp()}
+	{#if flow && workspace}
+		<ChatAppPanel
+			kind="flow"
+			path={flow.path}
+			{workspace}
+			summary={flow.summary}
+			schema={flow.schema}
+			{onNavigate}
+		/>
+	{/if}
+{/snippet}
 
 <FlowAssetsHandler
 	modules={flow?.value.modules ?? []}

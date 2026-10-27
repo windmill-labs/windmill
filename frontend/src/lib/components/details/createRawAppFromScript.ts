@@ -722,18 +722,16 @@ export function createRawAppFromFlow(
 	return createRawApp({ path, summary, schema, runType: 'flow' })
 }
 
-const agentChatTsx = (
-	agentName: string
-) => `import React, { useEffect, useRef, useState } from 'react'
+const chatAppTsx = (chatName: string) => `import React, { useEffect, useRef, useState } from 'react'
 import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
 import * as wmill from './wmill'
 import './index.css'
 
-const AGENT_NAME = ${JSON.stringify(agentName)}
-document.title = AGENT_NAME
+const CHAT_NAME = ${JSON.stringify(chatName)}
+document.title = CHAT_NAME
 
 export default function App() {
-  // Each turn runs the agent through the \`chat\` runnable, as this app. Conversations are
+  // Each turn runs through the \`chat\` runnable, as this app. Conversations are
   // kept in the viewer's browser.
   const chat = useWindmillChat({ wmill, runnable: 'chat' })
   const [input, setInput] = useState('')
@@ -788,13 +786,13 @@ export default function App() {
           <button className="menu" aria-label="Conversations" onClick={() => setShowList(true)}>
             ☰
           </button>
-          <h1>{AGENT_NAME}</h1>
+          <h1>{CHAT_NAME}</h1>
         </header>
 
         <div className="messages">
           <div className="thread">
             {chat.messages.length === 0 && (
-              <p className="empty">Ask {AGENT_NAME} anything.</p>
+              <p className="empty">Ask {CHAT_NAME} anything.</p>
             )}
             {chat.messages.map((m) =>
               m.tool ? (
@@ -830,7 +828,7 @@ export default function App() {
             <textarea
               value={input}
               rows={1}
-              placeholder={'Message ' + AGENT_NAME}
+              placeholder={'Message ' + CHAT_NAME}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -854,7 +852,7 @@ export default function App() {
 }
 `
 
-const agentChatCss = `${themeCss}
+const chatAppCss = `${themeCss}
 button {
   font: inherit;
   cursor: pointer;
@@ -1114,18 +1112,29 @@ textarea:focus {
 }
 `
 
-/** React chat over the saved AI agent at `path`, through an `agent` runnable. */
-export function createRawAppFromAgent(path: string): RawAppImport {
-	const name = path.split('/').pop() ?? path
+/** React chat over a saved AI agent, or a flow in chat mode, at `path`, through its `chat`
+ *  runnable. */
+export function createChatRawApp({
+	path,
+	runType,
+	summary,
+	schema
+}: {
+	path: string
+	runType: 'agent' | 'flow'
+	summary?: string
+	schema?: Record<string, any>
+}): RawAppImport {
+	const name = summary?.trim() || (path.split('/').pop() ?? path)
 	return {
 		summary: `Chat with ${name}`,
 		openInAiSession: true,
 		value: {
 			files: {
 				...react19Template,
-				'/App.tsx': agentChatTsx(name),
-				'/index.css': agentChatCss,
-				// The agent runnable transport (`{ wmill, runnable }`) needs 1.847.0.
+				'/App.tsx': chatAppTsx(name),
+				'/index.css': chatAppCss,
+				// The runnable transport (`{ wmill, runnable }`) needs 1.847.0.
 				'/package.json': JSON.stringify(
 					{
 						dependencies: {
@@ -1140,7 +1149,7 @@ export function createRawAppFromAgent(path: string): RawAppImport {
 				)
 			},
 			runnables: {
-				chat: { name, type: 'path', runType: 'agent', path, schema: {}, fields: {} }
+				chat: { name, type: 'path', runType, path, schema: schema ?? {}, fields: {} }
 			}
 		}
 	}
