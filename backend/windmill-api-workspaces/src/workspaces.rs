@@ -8154,14 +8154,16 @@ async fn copy_workspace_members(
 ) -> Result<()> {
     // Admins and developers, and a lone member, join as manual members: the fork does not inherit
     // the source's instance-group config, so a copied `instance_group` provenance would let the fork's
-    // reconciliation delete them and their data. A role the parent no longer defines is carried
-    // as is, and resolves to no capabilities in the fork as it does in the parent.
+    // reconciliation delete them and their data. The role is written by name even when unmapped:
+    // `operator` is recomputed from it, and a NULL role would then read as whatever that flag
+    // names. A role the parent no longer defines is carried as is, and resolves to no
+    // capabilities in the fork as it does in the parent.
     sqlx::query!(
         "WITH m AS (SELECT * FROM unnest($4::text[], $5::text[], $6::bool[]) AS m(from_role, to_role, to_operator))
          INSERT INTO usr (workspace_id, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via, workspace_role)
          SELECT $1, u.username, u.email, u.is_admin, u.created_at, COALESCE(m.to_operator, u.operator), u.disabled, u.role,
                 u.is_service_account, CASE WHEN $3 OR $7::text IS NOT NULL THEN NULL ELSE u.added_via END,
-                CASE WHEN m.to_role IS NULL OR m.to_role = m.from_role THEN u.workspace_role ELSE m.to_role END
+                COALESCE(m.to_role, u.workspace_role)
          FROM usr u
          LEFT JOIN m ON m.from_role = COALESCE(u.workspace_role, CASE WHEN u.operator THEN 'operator' ELSE 'developer' END)
          WHERE u.workspace_id = $2
@@ -10696,6 +10698,8 @@ async fn write_workspace_fork(
     copies: &[crate::datatable_clone::MadeCopy],
     progress: &ForkProgress,
 ) -> Result<String> {
+    // Read on the pool before the transaction holds a connection of its own.
+    let roles = fork_roles(&db, &parent_workspace_id).await?;
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
     // Held until this transaction ends: after an error, the copies' cleanup waits on it, so it reads
     // whether the fork exists only once a commit still being resolved has settled.
@@ -10768,7 +10772,6 @@ async fn write_workspace_fork(
     // intended. Dev creation is already admin-gated, so this is transitively admin-only too.
     // Independently, the parent's admins can have every fork of it start with its admins and
     // developers; the forker cannot opt out, since the point is that those admins can review it.
-    let roles = fork_roles(&db, &parent_workspace_id).await?;
     copy_workspace_roles(&mut tx, &parent_workspace_id, &forked_id).await?;
     if nw.copy_members && nw.is_dev_workspace {
         copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id, &roles, false, None)
@@ -11999,19 +12002,31 @@ async fn authorize_fork_owner_add_user(
         )));
     }
 
-    let parent_username = sqlx::query_scalar!(
-        "SELECT username FROM usr
-         WHERE workspace_id = $1 AND email = $2 AND NOT operator AND NOT disabled",
+    let member = sqlx::query!(
+        "SELECT username, workspace_role, operator FROM usr
+         WHERE workspace_id = $1 AND email = $2 AND NOT disabled",
         parent,
         nu.email,
     )
     .fetch_optional(db)
     .await?;
+    // The member's role in a fork, as creating the fork would give it: an owner may only seat
+    // those it makes developers, so a ruleset mapping a role down cannot be undone by re-adding.
+    let mut fork_role = None;
+    if let Some(m) = &member {
+        let role = windmill_common::roles::resolve_role_name(m.workspace_role.clone(), m.operator);
+        let mapping = windmill_common::workspaces::fork_role_mapping(&parent, db).await?;
+        fork_role = Some(mapping.get(&role).cloned().unwrap_or(role));
+    }
+    let parent_username = member
+        .filter(|_| fork_role.as_deref() == Some(windmill_common::roles::DEVELOPER_ROLE))
+        .map(|m| m.username);
 
     let Some(parent_username) = parent_username else {
         return Err(Error::PermissionDenied(format!(
-            "as the creator of fork {w_id} you can only add developers or admins of its parent \
-             workspace {parent}; {} is not one, so only an admin of {w_id} can add them",
+            "as the creator of fork {w_id} you can only add members of its parent workspace \
+             {parent} whose role in its forks is developer; {} is not one, so only an admin of \
+             {w_id} can add them",
             nu.email
         )));
     };

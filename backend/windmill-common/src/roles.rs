@@ -93,7 +93,8 @@ pub struct RoleCapabilities {
     pub manage_schedules: bool,
     pub manage_triggers: bool,
     /// Fork the workspace. Like visibility, it does not make a role restricted: it is read from
-    /// the role at the fork routes, never through [`caller_capabilities`]'s fast path.
+    /// the role at the fork routes, never through [`caller_capabilities`]'s fast path. Left unset
+    /// by every layer, it is granted exactly to an unrestricted role (see [`Self::resolve`]).
     pub fork: bool,
     pub visibility: RoleVisibility,
 }
@@ -168,6 +169,20 @@ impl RoleCapabilities {
             crate::workspaces::BuilderKind::Flows => self.flows,
             crate::workspaces::BuilderKind::Apps => self.apps,
         }
+    }
+
+    /// Role `name` with `patches` applied over [`Self::base_for`], bottom layer first. A `fork` no
+    /// layer sets follows [`Self::is_restricted`]: roles that predate the capability keep the
+    /// forking they had, which every unrestricted role held and no restricted one.
+    pub fn resolve(name: &str, patches: &[&RoleCapabilitiesPatch]) -> Self {
+        let mut caps = Self::base_for(name);
+        for p in patches {
+            caps.apply(p);
+        }
+        if patches.iter().all(|p| p.fork.is_none()) {
+            caps.fork = !caps.is_restricted();
+        }
+        caps
     }
 
     fn apply(&mut self, patch: &RoleCapabilitiesPatch) {
@@ -405,9 +420,7 @@ pub fn parse_instance_roles(value: &serde_json::Value) -> Result<Vec<RoleDefinit
         if !seen.insert(r.name.as_str()) {
             return Err(Error::BadRequest(format!("duplicate role `{}`", r.name)));
         }
-        let mut caps = RoleCapabilities::base_for(&r.name);
-        caps.apply(&r.capabilities);
-        caps.validate(&r.name)?;
+        RoleCapabilities::resolve(&r.name, &[&r.capabilities]).validate(&r.name)?;
     }
     Ok(roles)
 }
@@ -420,12 +433,10 @@ pub fn effective_roles(
 ) -> Result<Vec<EffectiveRole>> {
     let mut out = Vec::with_capacity(instance.len() + overrides.len());
     for def in instance {
-        let mut caps = RoleCapabilities::base_for(&def.name);
-        caps.apply(&def.capabilities);
         let ovr = overrides.get(&def.name);
-        if let Some(o) = ovr {
-            caps.apply(&o.capabilities);
-        }
+        let mut patches = vec![&def.capabilities];
+        patches.extend(ovr.map(|o| &o.capabilities));
+        let caps = RoleCapabilities::resolve(&def.name, &patches);
         out.push(EffectiveRole {
             label: ovr
                 .and_then(|o| o.label.clone())
@@ -444,8 +455,7 @@ pub fn effective_roles(
             .collect();
         extra.sort_by(|a, b| a.0.cmp(b.0));
         for (name, o) in extra {
-            let mut caps = RoleCapabilities::base_for(name);
-            caps.apply(&o.capabilities);
+            let caps = RoleCapabilities::resolve(name, &[&o.capabilities]);
             out.push(EffectiveRole {
                 name: name.clone(),
                 label: o.label.clone().unwrap_or_else(|| name.clone()),
@@ -1041,6 +1051,20 @@ mod tests {
         assert!(!op.capabilities.visibility.workers);
         assert!(op.capabilities.visibility.folders);
         assert!(op.capabilities.is_author());
+    }
+
+    #[test]
+    fn unset_fork_follows_restriction() {
+        let instance: Vec<RoleDefinition> = serde_json::from_value(serde_json::json!([
+            {"name": "developer"},
+            {"name": "operator"},
+            {"name": "maintainer", "capabilities": {"code": true, "flows": "full", "apps": "full"}},
+            {"name": "auditor", "capabilities": {"fork": true}}
+        ]))
+        .unwrap();
+        let roles = effective_roles(&instance, &RoleOverrides::new()).unwrap();
+        let fork: Vec<bool> = roles.iter().map(|r| r.capabilities.fork).collect();
+        assert_eq!(fork, [true, false, true, true]);
     }
 
     #[test]

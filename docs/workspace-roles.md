@@ -19,7 +19,7 @@ code is `windmill_common::roles`.
 | `flows` | `none` / `compose` / `full` | yes; also AI agents, whose tools are checked as composed steps |
 | `apps` | `none` / `compose` / `full` | yes; low-code apps and worker-built apps need `full` |
 | `manage_schedules`, `manage_triggers` | bool | yes, see `docs/operator-write-rights.md` |
-| `fork` | bool | yes, at both fork routes; `false` for `operator` and any role falling back to it |
+| `fork` | bool | yes, at both fork routes; unset by every layer, it is granted exactly to an unrestricted role |
 | `visibility.*` | bool per page | no, UI only |
 
 `compose` is the former operator builder right: the composition-only checks of
@@ -40,7 +40,9 @@ A member's role carries into a fork: the forker, and every member `copy_members`
 `add_admins_and_developers_to_forks` brings, joins the fork with the role they hold in the parent,
 and the fork gets the parent's `role_overrides` so the name means the same there. A protection
 ruleset's `fork_role_mapping` (`{ role here: role in the fork }`) replaces that role; where several
-rulesets map one role, the first by name wins. A role named by a mapping cannot be deleted.
+rulesets map one role, the first by name wins. A role named by a mapping cannot be deleted. A
+fork's non-admin creator may add a parent member only when the mapping makes them a developer, so
+re-adding cannot undo a mapping that restricts.
 
 `fork`, like `visibility`, does not make a role restricted: withdrawing it from `developer` must not
 turn every developer into an operator for the raw `is_operator` checks. So the fork routes read it

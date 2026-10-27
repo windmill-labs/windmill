@@ -75,7 +75,8 @@ async fn test_fork_adds_parent_admins_and_developers(db: Pool<Postgres>) -> anyh
 }
 
 /// A forker joins the fork with the role they hold in the parent, unless a ruleset of the parent
-/// maps it; a role without `fork` cannot fork at all. EE: CE caps the workspace count below the
+/// maps it; a role without `fork` cannot fork at all, and the fork's owner cannot seat a member
+/// as a developer the mapping makes something else. EE: CE caps the workspace count below the
 /// forks this creates.
 #[cfg(feature = "enterprise")]
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -91,7 +92,8 @@ async fn test_fork_carries_role_and_mapping(db: Pool<Postgres>) -> anyhow::Resul
              ('rf-ws', 'all', 'All users', '{}');
          INSERT INTO usr (workspace_id, email, username, is_admin, operator, role) VALUES
              ('rf-ws', 'test@windmill.dev', 'test-user', true, false, 'Admin'),
-             ('rf-ws', 'test2@windmill.dev', 'test-user-2', false, true, 'User')",
+             ('rf-ws', 'test2@windmill.dev', 'test-user-2', false, true, 'User'),
+             ('rf-ws', 'test3@windmill.dev', 'test-user-3', false, false, 'User')",
     )
     .execute(&db)
     .await?;
@@ -122,8 +124,10 @@ async fn test_fork_carries_role_and_mapping(db: Pool<Postgres>) -> anyhow::Resul
     let resp = fork("wm-fork-refused").await?;
     assert_eq!(resp.status(), 403, "operator lacks fork: {}", resp.text().await?);
 
+    // `code` makes the copy write `operator = false`: the legacy row's NULL role must not then
+    // read as developer.
     sqlx::query(
-        r#"UPDATE workspace_settings SET role_overrides = '{"operator": {"capabilities": {"fork": true}}}'
+        r#"UPDATE workspace_settings SET role_overrides = '{"operator": {"capabilities": {"fork": true, "code": true}}}'
            WHERE workspace_id = 'rf-ws'"#,
     )
     .execute(&db)
@@ -132,14 +136,18 @@ async fn test_fork_carries_role_and_mapping(db: Pool<Postgres>) -> anyhow::Resul
 
     let resp = fork("wm-fork-kept").await?;
     assert!(resp.status().is_success(), "{}", resp.text().await?);
-    assert_eq!(fork_role("wm-fork-kept").await?, (None, true), "stays an operator");
+    assert_eq!(
+        fork_role("wm-fork-kept").await?,
+        (Some("operator".to_string()), false),
+        "stays an operator"
+    );
 
     let resp = client
         .post(format!("{base_url}/protection_rules"))
         .header("Authorization", "Bearer SECRET_TOKEN")
         .json(&json!({
             "name": "forks", "rules": [], "bypass_groups": [], "bypass_users": [],
-            "fork_role_mapping": { "operator": "developer" }
+            "fork_role_mapping": { "operator": "developer", "developer": "operator" }
         }))
         .send()
         .await?;
@@ -151,6 +159,21 @@ async fn test_fork_carries_role_and_mapping(db: Pool<Postgres>) -> anyhow::Resul
         fork_role("wm-fork-mapped").await?,
         (Some("developer".to_string()), false),
         "mapped to developer"
+    );
+
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "http://localhost:{}/api/w/wm-fork-mapped/workspaces/add_user",
+            server.addr.port()
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN_2")
+        .json(&json!({ "email": "test3@windmill.dev", "is_admin": false, "operator": false }))
+        .send()
+        .await?;
+    let (status, text) = (resp.status(), resp.text().await?);
+    assert!(
+        status == 403 && text.contains("role in its forks"),
+        "a developer mapped to operator: {status} {text}"
     );
 
     Ok(())
