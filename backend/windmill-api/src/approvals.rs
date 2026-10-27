@@ -163,6 +163,7 @@ pub async fn handle_resume_action(
             authed,
             opt_tokened,
             Extension(db.clone()),
+            Extension(windmill_common::db::UserDB::new(db.clone())),
             Path((
                 w_id.to_string(),
                 job_uuid,
@@ -178,6 +179,7 @@ pub async fn handle_resume_action(
             authed,
             opt_tokened,
             Extension(db.clone()),
+            Extension(windmill_common::db::UserDB::new(db.clone())),
             Path((
                 w_id.to_string(),
                 job_uuid,

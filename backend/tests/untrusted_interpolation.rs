@@ -2,6 +2,7 @@
 //! arguments, so nothing in those arguments may be resolved by the worker with the job's identity.
 
 use axum::{routing::post, Json as AxumJson, Router};
+use futures::StreamExt;
 use serde_json::{json, value::RawValue, Value};
 use sqlx::{types::Json, Pool, Postgres};
 use std::time::Duration;
@@ -348,6 +349,100 @@ async fn http_route_resolves_nothing_the_caller_sent(db: Pool<Postgres>) -> anyh
     assert_omitted(&out["error"]);
     assert_omitted(&out["leak"][0]);
     assert_eq!(out["price"], json!("$10.00"));
+    Ok(())
+}
+
+/// The flow resolves the approver's payload with its own token, so a reference in it, as a resource
+/// field of the approval form sends, must be one the approver could read themselves.
+#[sqlx::test(fixtures("base"))]
+#[serial_test::serial]
+async fn resume_takes_only_references_the_approver_can_read(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    seed(&db).await?;
+    let flow: FlowValue = serde_json::from_value(json!({"modules": [
+        {"id": "a", "suspend": {"required_events": 1},
+         "value": {"type": "rawscript", "language": "bun", "input_transforms": {},
+                   "content": "export function main() { return 1 }"}},
+        {"id": "b",
+         "value": {"type": "rawscript", "language": "bun",
+                   "input_transforms": {"resume": {"type": "javascript", "expr": "resume"}},
+                   "content": "export function main(resume: any) { return resume }"}},
+    ]}))?;
+    let flow = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .push(&db)
+        .await;
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let db_ = db.clone();
+    let test = async move {
+        let db = db_;
+        let step = completed.next().await.unwrap();
+        while !sqlx::query_scalar::<_, bool>("SELECT suspend > 0 FROM v2_job_queue WHERE id = $1")
+            .bind(flow)
+            .fetch_one(&db)
+            .await
+            .unwrap()
+        {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let client = reqwest::Client::new();
+        let base = format!("http://localhost:{port}/api/w/test-workspace/jobs_u");
+        let payload = json!({"db": "$res:u/test-user/cfg", "note": "$5.00"});
+        let secret = client
+            .get(format!(
+                "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{step}/0"
+            ))
+            .bearer_auth("SECRET_TOKEN")
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        let anonymous = client
+            .post(format!("{base}/resume/{step}/0/{secret}"))
+            .json(&payload)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            anonymous.status(),
+            400,
+            "{}",
+            anonymous.text().await.unwrap()
+        );
+        let resume_as = |token: &'static str, payload: Value| {
+            client
+                .post(format!("{base}/flow/resume_suspended/{flow}"))
+                .bearer_auth(token)
+                .json(&json!({"payload": payload}))
+                .send()
+        };
+        let cannot_read = resume_as("SECRET_TOKEN_2", payload.clone()).await.unwrap();
+        assert_eq!(cannot_read.status(), 400);
+        let body = cannot_read.text().await.unwrap();
+        assert!(body.contains("the approver cannot read"), "{body}");
+        let token = resume_as("SECRET_TOKEN", json!({"t": "$WM_TOKEN"}))
+            .await
+            .unwrap();
+        assert_eq!(token.status(), 400, "{}", token.text().await.unwrap());
+        let can_read = resume_as("SECRET_TOKEN", payload).await.unwrap();
+        assert!(
+            can_read.status().is_success(),
+            "{}",
+            can_read.text().await.unwrap()
+        );
+        completed.find(&flow).await.unwrap();
+    };
+    tokio::time::timeout(Duration::from_secs(60), in_test_worker(&db, test, port))
+        .await
+        .expect("flow did not complete");
+    server.close().await?;
+    let out = completed_job(flow, &db).await.json_result().unwrap();
+    assert_eq!(out, json!({"db": {"set_by": "admin"}, "note": "$5.00"}));
     Ok(())
 }
 

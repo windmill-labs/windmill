@@ -5031,6 +5031,7 @@ async fn list_jobs(
 pub async fn resume_suspended_flow_as_owner(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, flow_id)): Path<(String, Uuid)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
@@ -5076,8 +5077,9 @@ pub async fn resume_suspended_flow_as_owner(
         job_id,
         &flow,
         value,
-        Some(authed.username),
+        Some(authed.username.clone()),
         true,
+        Some((&authed, &user_db, &db, &w_id)),
         &mut tx,
     )
     .await?;
@@ -5122,6 +5124,7 @@ struct ResumeSuspendedBody {
 async fn resume_suspended(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
     Json(body): Json<ResumeSuspendedBody>,
 ) -> error::Result<StatusCode> {
@@ -5224,6 +5227,9 @@ async fn resume_suspended(
         value,
         approver_value.clone(),
         approved,
+        opt_authed
+            .as_ref()
+            .map(|a| (a, &user_db, &db, w_id.as_str())),
         &mut tx,
     )
     .await?;
@@ -5692,6 +5698,7 @@ pub async fn resume_suspended_job(
     authed: Option<ApiAuthed>,
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, job_id, resume_id, secret)): Path<(String, Uuid, u32, String)>,
     Query(approver): Query<QueryApprover>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
@@ -5699,6 +5706,7 @@ pub async fn resume_suspended_job(
     resume_suspended_job_internal(
         value,
         db,
+        user_db,
         w_id,
         job_id,
         resume_id,
@@ -5714,6 +5722,7 @@ pub async fn resume_suspended_job(
 async fn resume_suspended_job_internal(
     value: Option<serde_json::Value>,
     db: sqlx::Pool<Postgres>,
+    user_db: UserDB,
     w_id: String,
     job_id: Uuid,
     resume_id: u32,
@@ -5778,6 +5787,7 @@ async fn resume_suspended_job_internal(
         value,
         approver_value.clone(),
         approved,
+        authed.as_ref().map(|a| (a, &user_db, &db, w_id.as_str())),
         &mut tx,
     )
     .await?;
@@ -5904,17 +5914,10 @@ async fn insert_resume_job<'c>(
     value: serde_json::Value,
     approver: Option<String>,
     approved: bool,
+    approver_authed: Option<(&ApiAuthed, &UserDB, &DB, &str)>,
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<()> {
-    // The approver, possibly anonymous, writes this payload, and later steps receive it as
-    // `resume`, interpolated with the flow's own token.
-    if windmill_common::variables::untrusted_arg_interpolates(&value.to_string()) {
-        return Err(Error::BadRequest(
-            "The resume payload cannot hold $var:, $jsonvar:, $res: or $encrypted: references, \
-             or a $WM_* variable name"
-                .to_string(),
-        ));
-    }
+    check_resume_payload(&value, approver_authed).await?;
     sqlx::query!(
         r#"
             INSERT INTO resume_job
@@ -5931,6 +5934,54 @@ async fn insert_resume_job<'c>(
     )
     .execute(&mut **tx)
     .await?;
+    Ok(())
+}
+
+/// The approver, possibly anonymous, writes this payload, and later steps receive it as `resume`,
+/// interpolated with the flow's own token. A reference, as a resource field of the form sends, is
+/// accepted only when the approver can resolve it with their own rights.
+async fn check_resume_payload(
+    value: &serde_json::Value,
+    approver_authed: Option<(&ApiAuthed, &UserDB, &DB, &str)>,
+) -> error::Result<()> {
+    if !windmill_common::variables::untrusted_arg_interpolates(&value.to_string()) {
+        return Ok(());
+    }
+    let Some(refs) = windmill_common::variables::checkable_references(value) else {
+        return Err(Error::BadRequest(
+            "The resume payload cannot hold $encrypted: values, a $WM_* variable name, or a \
+             reference inside a longer string"
+                .to_string(),
+        ));
+    };
+    let Some((authed, user_db, db, w_id)) = approver_authed else {
+        return Err(Error::BadRequest(
+            "The resume payload can hold $var:, $jsonvar: or $res: references only when the \
+             approver is logged in"
+                .to_string(),
+        ));
+    };
+    let db_with_authed = windmill_common::db::DbWithOptAuthed::from_authed(
+        authed,
+        db.clone(),
+        Some(user_db.clone()),
+    );
+    for r in refs {
+        windmill_store::resources::transform_json_value(
+            &db_with_authed,
+            w_id,
+            serde_json::Value::String(r.to_string()),
+            &None,
+            None,
+            0,
+        )
+        .await
+        .map_err(|e| {
+            Error::BadRequest(format!(
+                "The resume payload references {r}, which the approver cannot read: {e}"
+            ))
+        })?;
+    }
     Ok(())
 }
 
@@ -6077,6 +6128,7 @@ pub async fn cancel_suspended_job(
     authed: Option<ApiAuthed>,
     opt_tokened: OptTokened,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, job_id, resume_id, secret)): Path<(String, Uuid, u32, String)>,
     Query(approver): Query<QueryApprover>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
@@ -6084,6 +6136,7 @@ pub async fn cancel_suspended_job(
     resume_suspended_job_internal(
         value,
         db,
+        user_db,
         w_id,
         job_id,
         resume_id,
