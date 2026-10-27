@@ -1850,11 +1850,14 @@ async fn read_run(ctx: &Ctx<'_>, args: &Value, card: bool) -> ToolResult {
         enc(id)
     ));
     let tree_route = results_route(TREE_RESULT_HEAD_CHARS);
-    let (job, logs, results) = tokio::join!(
-        ctx.get(&job_route),
-        ctx.request("GET", &logs_route, None),
-        ctx.get(&tree_route),
-    );
+    // The card reads only the end of the log, below; the model's answer, the whole of it.
+    let logs = async {
+        match card {
+            true => Err(String::new()),
+            false => ctx.request("GET", &logs_route, None).await,
+        }
+    };
+    let (job, logs, results) = tokio::join!(ctx.get(&job_route), logs, ctx.get(&tree_route));
     let results = results.unwrap_or_else(|_| json!({ "entries": [] }));
     if let (true, Ok(job)) = (card, &job) {
         let mut details = Map::new();
@@ -1865,14 +1868,12 @@ async fn read_run(ctx: &Ctx<'_>, args: &Value, card: bool) -> ToolResult {
         let mut steps = card_steps(entries, job);
         details.extend(agent_card(job, &mut steps));
         details.insert("step_list".into(), steps.into());
-        if let Ok(logs) = &logs {
-            if !logs.trim().is_empty() {
-                let tail = js_tail(logs, CARD_LOG_CHARS);
-                if tail.len() < logs.len() {
-                    details.insert("logs_cut".into(), true.into());
-                }
-                details.insert("logs".into(), tail.into());
+        let logs = log_tail(ctx, id, CARD_LOG_CHARS).await;
+        if let Some((tail, cut)) = logs.as_ref().filter(|(tail, _)| !tail.trim().is_empty()) {
+            if *cut {
+                details.insert("logs_cut".into(), true.into());
             }
+            details.insert("logs".into(), tail.clone().into());
         }
         // While a run goes on, its latest log line says what it is doing: a flow's is in the
         // deepest step still running, a script's in its own log.
@@ -1884,8 +1885,8 @@ async fn read_run(ctx: &Ctx<'_>, args: &Value, card: bool) -> ToolResult {
                 .filter_map(|e| e["job_id"].as_str())
                 .last();
             let live = match running {
-                Some(step) => log_tail(ctx, step).await,
-                None => logs.as_ref().ok().cloned(),
+                Some(step) => log_tail(ctx, step, 400).await.map(|(tail, _)| tail),
+                None => logs.map(|(tail, _)| tail),
             };
             if let Some(line) = live
                 .as_deref()
@@ -1964,11 +1965,11 @@ fn jsonb_text_len(value: &Value) -> u64 {
 }
 
 /// The end of a job's log, read without the rest of it: an offset past the end returns
-/// no log but where it ends, and a second read starts just before that. A step's log grows
-/// as long as it runs, and the card asks again on every refresh. The result stream's offset
-/// is past its end too, or each read would carry the whole stream.
-async fn log_tail(ctx: &Ctx<'_>, job: &str) -> Option<String> {
-    const TAIL_CHARS: i64 = 400;
+/// no log but where it ends, and a second read starts just before that. A log grows as long
+/// as its job runs, and the card asks again on every refresh. The result stream's offset is
+/// past its end too, or each read would carry the whole stream. Also says whether the log
+/// goes back further.
+async fn log_tail(ctx: &Ctx<'_>, job: &str, chars: i64) -> Option<(String, bool)> {
     let update = |offset: i64| {
         ctx.ws(&format!(
             "jobs_u/getupdate/{}?log_offset={offset}&stream_offset={}",
@@ -1977,8 +1978,11 @@ async fn log_tail(ctx: &Ctx<'_>, job: &str) -> Option<String> {
         ))
     };
     let end = ctx.get(&update(i32::MAX as i64)).await.ok()?["log_offset"].as_i64()?;
-    let tail = ctx.get(&update((end - TAIL_CHARS).max(0))).await.ok()?;
-    tail["new_logs"].as_str().map(str::to_string)
+    let start = (end - chars).max(0);
+    let tail = ctx.get(&update(start)).await.ok()?;
+    tail["new_logs"]
+        .as_str()
+        .map(|logs| (logs.to_string(), start > 0))
 }
 
 /// The card of one run: what `get_run` hands it, under a one-line answer, since the model
@@ -2071,7 +2075,7 @@ const CARD_IMAGE_CHARS: usize = 1_000_000;
 const TOO_BIG: &str = "WINDMILL_TOO_BIG";
 const CARD_STEP_RESULT_CHARS: usize = 300;
 const CARD_ARGS_CHARS: usize = 4000;
-const CARD_LOG_CHARS: usize = 3000;
+const CARD_LOG_CHARS: i64 = 3000;
 
 /// Hand the run card the run `id`, read as `job` (`None` while it is still running), with
 /// `extra` fields beside it.

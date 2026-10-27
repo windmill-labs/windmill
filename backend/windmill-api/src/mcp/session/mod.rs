@@ -123,6 +123,7 @@ const DESTRUCTIVE: &[&str] = &[
     "test_run_app_runnable",
     "cancel_job",
     "exec_datatable_sql",
+    "create_datatable_migration",
     "run_datatable_migrations",
     "rollback_datatable_migration",
     "discard_local_draft",
@@ -136,7 +137,9 @@ const DESTRUCTIVE: &[&str] = &[
 /// confirming.
 const CARD_ACTIONS: &[&str] = &["deploy_workspace_item", "cancel_job"];
 
-/// Tools that run code, which can reach any system the workspace reaches.
+/// Tools that reach a system outside Windmill on the workspace's behalf: running code can
+/// reach any system the workspace can, and `get_db_schema` connects to a resource's
+/// database. Reading public reference data (hub, npm, docs) does not count.
 const OPEN_WORLD: &[&str] = &[
     "run_script",
     "run_flow",
