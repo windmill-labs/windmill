@@ -193,9 +193,9 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
         FROM lineage
         -- A deployed flow's dynamic select runs the code its schema stores as a parentless
         -- preview at the flow's path. `run/preview` takes the same shape from the caller, so
-        -- only content equal to a version's, with nothing else that changes what runs (a
-        -- hash runs that script instead, as does the path's dedicated worker; a lock,
-        -- modules, temp script refs), counts.
+        -- only content equal to a version's, with nothing else that changes what runs, counts:
+        -- a hash runs that script instead, as does a dedicated worker (any `<ws>:` tag, which
+        -- covers the hashed long form), and a lock, modules or temp script refs alter it.
         LEFT JOIN LATERAL (
             SELECT max(fv.id) AS version FROM v2_job j JOIN flow_version fv
                 ON fv.workspace_id = $2 AND fv.path = j.runnable_path
@@ -204,7 +204,7 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
                     AND replace(fv.schema->>'x-windmill-dyn-select-lang', 'bunnative', 'bun')
                         = replace(j.script_lang::text, 'bunnative', 'bun')
             WHERE j.id = lineage.id AND j.runnable_id IS NULL AND j.raw_lock IS NULL
-                AND j.tag <> $2 || ':' || j.runnable_path
+                AND NOT starts_with(j.tag, $2 || ':')
                 AND jsonb_typeof(j.args->'_MODULES') IS NULL
                 AND jsonb_typeof(j.args->'_TEMP_SCRIPT_REFS') IS NULL
         ) dyn_select ON lineage.kind = 'preview' AND lineage.parent_job IS NULL
