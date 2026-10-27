@@ -75,8 +75,9 @@ export async function rawAppsStaleOnSharedUi(
     if (!name || skip.has(name)) continue;
     if (!apps.has(name)) apps.set(name, { files: {} });
     const app = apps.get(name)!;
-    const rel = key.replaceAll("\\", "/").slice(extractFolderPath(key, "raw_app")!.length);
-    if (isRawAppFolderMetadataFile(key)) {
+    const posix = key.replaceAll("\\", "/");
+    const rel = posix.slice(extractFolderPath(key, "raw_app")!.length);
+    if (isRawAppFolderMetadataFile(posix)) {
       app.metaPath = key;
     } else if (!rel.startsWith(APP_BACKEND_FOLDER + "/")) {
       app.files[key] = content;
