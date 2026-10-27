@@ -329,10 +329,13 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
                 None,
             ));
         };
+        // Without these a `2026-07-28` client rejects the view and draws no card.
         Ok(
             ReadResourceResult::new(vec![ResourceContents::text(*html, *uri)
                 .with_mime_type(MCP_APP_MIME_TYPE)
                 .with_meta(mcp_app_meta())])
+            .with_ttl_ms(LIST_TTL_MS)
+            .with_cache_scope(LIST_CACHE_SCOPE)
             .into(),
         )
     }
