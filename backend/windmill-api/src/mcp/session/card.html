@@ -989,7 +989,7 @@
     return stepKind(node.module) ?? '';
   }
 
-  // A step, iteration or branch is a run of its own, which `get_run` reads; a loop or a
+  // A step, iteration or branch is a run of its own, which `show_run` reads; a loop or a
   // parallel step is not, so it shows its counts.
   let selected = null;
   async function select(key, node, label, expandable, status) {
@@ -1000,7 +1000,7 @@
     redraw();
     if (!node.job_id) return;
     try {
-      const result = await callTool('get_run', { workspace_id: run.workspace, id: node.job_id });
+      const result = await callTool('show_run', { workspace_id: run.workspace, id: node.job_id });
       if (selected?.token !== token) return;
       selected.run = result?._meta?.['windmill/run'] ?? { status: 'error', result: textOf(result) };
     } catch (e) {
@@ -1171,7 +1171,7 @@
   }
 
   // A tool result without a run, shown as the model got it: a call that started nothing,
-  // or a `get_run` drilling into one step.
+  // or a `show_run` drilling into one step.
   function renderText(result) {
     const inspected = toolArgs.id && !result.isError;
     run = { status: inspected ? 'step' : result.isError ? 'error' : 'not_started', result: textOf(result).slice(0, 1500) };
@@ -1201,7 +1201,7 @@
     const id = run?.id;
     if (!id) return;
     try {
-      const result = await callTool('get_run', { workspace_id: run.workspace, id });
+      const result = await callTool('show_run', { workspace_id: run.workspace, id });
       if (run?.id === id) onResult(result);
     } catch {
       if (run?.id === id) refreshFailed();

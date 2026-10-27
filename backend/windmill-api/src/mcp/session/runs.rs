@@ -1820,6 +1820,12 @@ fn stringify(value: &Value) -> String {
 }
 
 async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    read_run(ctx, args, false).await
+}
+
+/// `get_run`'s answer, and with `card` what the run card draws of it, which costs more reads
+/// than the model's answer: only `show_run`, the card's own refresh, asks for it.
+async fn read_run(ctx: &Ctx<'_>, args: &Value, card: bool) -> ToolResult {
     let id = str_arg(args, "id")?;
     let results_route = |max: usize| {
         ctx.ws(&format!(
@@ -1850,7 +1856,7 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         ctx.get(&tree_route),
     );
     let results = results.unwrap_or_else(|_| json!({ "entries": [] }));
-    if let Ok(job) = &job {
+    if let (true, Ok(job)) = (card, &job) {
         let mut details = Map::new();
         let entries = results["entries"]
             .as_array()
@@ -1979,7 +1985,7 @@ async fn log_tail(ctx: &Ctx<'_>, job: &str) -> Option<String> {
 /// shows a run it already read.
 pub(super) async fn show_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let id = str_arg(args, "id")?;
-    get_run(ctx, args).await?;
+    read_run(ctx, args, true).await?;
     let Some((_, Value::Object(mut run))) = ctx.view.lock().unwrap().take() else {
         return Err(format!("Run {id} could not be read."));
     };
