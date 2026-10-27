@@ -28,6 +28,7 @@
 	import MuteErrorHandlerSetting from '$lib/components/itemSettings/MuteErrorHandlerSetting.svelte'
 	import type { OnBehalfOfChoice } from '$lib/components/OnBehalfOfSelector.svelte'
 	import InvisibleRunsSetting from '$lib/components/itemSettings/InvisibleRunsSetting.svelte'
+	import SettingIcons from '$lib/components/itemSettings/SettingIcons.svelte'
 	import ActiveSettingChips, {
 		revealSetting
 	} from '$lib/components/itemSettings/ActiveSettingChips.svelte'
@@ -165,8 +166,16 @@
 		<div class="flex flex-col h-full">
 			<Tabs bind:selected={tab} wrapperClass="flex-none w-full">
 				<Tab value="metadata" label="Metadata" />
-				<Tab value="runtime" label="Runtime" />
-				<Tab value="permissions" label="Permissions" />
+				<Tab value="runtime" label="Runtime">
+					{#snippet extra()}
+						<SettingIcons badges={runtimeBadges} />
+					{/snippet}
+				</Tab>
+				<Tab value="permissions" label="Permissions">
+					{#snippet extra()}
+						<SettingIcons badges={permissionBadges} />
+					{/snippet}
+				</Tab>
 
 				{#snippet content()}
 					<div class="min-h-0 grow overflow-y-auto" bind:this={tabsContent}>

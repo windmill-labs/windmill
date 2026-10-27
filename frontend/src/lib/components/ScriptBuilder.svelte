@@ -126,6 +126,7 @@
 	import { keepsDeployedOnBehalfOf } from './itemSettings/onBehalfOf'
 	import ScriptRuntimeSettings from './itemSettings/ScriptRuntimeSettings.svelte'
 	import InvisibleRunsSetting from './itemSettings/InvisibleRunsSetting.svelte'
+	import SettingIcons from './itemSettings/SettingIcons.svelte'
 	import ActiveSettingChips, { revealSetting } from './itemSettings/ActiveSettingChips.svelte'
 	import { getActivePermissionBadges, getActiveScriptSettingsBadges } from './scriptSettings'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
@@ -1478,13 +1479,21 @@
 							aiId="script-builder-runtime"
 							aiDescription="Runtime settings"
 							label="Runtime"
-						/>
+						>
+							{#snippet extra()}
+								<SettingIcons badges={runtimeBadges} />
+							{/snippet}
+						</Tab>
 						<Tab
 							value="permissions"
 							aiId="script-builder-permissions"
 							aiDescription="Permissions settings: run on behalf of, runs visibility, job token"
 							label="Permissions"
-						/>
+						>
+							{#snippet extra()}
+								<SettingIcons badges={permissionBadges} />
+							{/snippet}
+						</Tab>
 					{/if}
 					<!-- Not for dbt: its run form is derived from the descriptor server-side
 					     (`dbt_arg_schema`), so anything refined here is overwritten by the

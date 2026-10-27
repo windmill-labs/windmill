@@ -85,7 +85,7 @@ export function flowRuntimeFields(flow: {
 }
 
 // The active runtime settings of a script or flow, in the order their Runtime tab lists them,
-// for the at-a-glance badges of the editor top bar, the settings header and the flow drawers.
+// for the at-a-glance badges of the editor top bar, the settings header and tabs, and the flow drawers.
 export function getActiveScriptSettingsBadges(
 	settings: (ScriptAdvancedSettingsFields & FlowOnlyRuntimeFields) | undefined
 ): ScriptSettingsBadge[] {
