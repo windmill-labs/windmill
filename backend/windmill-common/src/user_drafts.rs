@@ -695,10 +695,11 @@ pub async fn copy_drafts_to_workspace(
     // deploy time, which is the more accurate answer of the two.
     let rows = sqlx::query!(
         // A script hash is content-addressed and shared between a workspace and its forks, so
-        // a script draft's base still names a version the target can have. Flow and app ids
-        // are minted per workspace, so those drafts arrive with no base (staleness falls back
-        // to the timestamps), lineage field included, or the next autosave would re-derive the
-        // source id.
+        // a script draft keeps its base (and `parent_hash`) when the target has that version,
+        // which a fork's clone does; one deployed in the source after the fork was made is not
+        // there, and a deploy naming it as parent would be refused. Flow and app ids are minted
+        // per workspace, so those drafts arrive with no base (staleness falls back to the
+        // timestamps), lineage field included, or the next autosave would re-derive the source id.
         //
         // `clean` is `strip_json_nul`'s parity rule in SQL, so a pre-sanitizer U+0000 escape
         // cannot abort the copy on `to_jsonb` or arrive with its principal unstripped: escaped
@@ -706,15 +707,22 @@ pub async fn copy_drafts_to_workspace(
         // byte) so only a real NUL is removed, and chr(92) spells the backslash so no escape
         // sequence reaches this source file.
         r#"INSERT INTO draft (workspace_id, path, typ, value, created_at, email, base)
-         SELECT $2, path, typ,
+         SELECT $2::text, path, typ,
                 to_json(
                     CASE WHEN typ IN ('script', 'flow') THEN clean - 'on_behalf_of' ELSE clean END
                     - CASE WHEN typ = 'flow' THEN 'version_id'
                            WHEN typ IN ('app', 'raw_app') THEN 'parent_version'
                            ELSE '' END
+                    - CASE WHEN typ = 'script' AND NOT EXISTS (
+                               SELECT 1 FROM script sc WHERE sc.workspace_id::text = $2::text
+                                 AND lpad(to_hex(sc.hash), 16, '0') = clean->>'parent_hash')
+                           THEN 'parent_hash' ELSE '' END
                 ),
                 created_at, email,
-                CASE WHEN typ = 'script' THEN base END
+                CASE WHEN typ = 'script' AND EXISTS (
+                         SELECT 1 FROM script sc WHERE sc.workspace_id::text = $2::text
+                           AND lpad(to_hex(sc.hash), 16, '0') = base)
+                     THEN base END
          FROM (
              SELECT d.path, d.typ, d.created_at, d.email, d.base,
                     replace(replace(replace(d.value::text, chr(92) || chr(92), chr(1)), chr(92) || 'u0000', ''), chr(1), chr(92) || chr(92))::jsonb AS clean

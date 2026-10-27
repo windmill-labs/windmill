@@ -467,6 +467,32 @@ async fn test_transfer_drafts_to_fork(db: Pool<Postgres>) -> anyhow::Result<()> 
     .await?;
     assert_eq!(on_behalf_of, "u/test-user");
 
+    // A script version the fork does not have (deployed in the source after the fork was made)
+    // is no lineage there: a deploy naming it as parent would be refused.
+    let r = c
+        .post(save_url(port, "script", "u/test-user/lineage"))
+        .json(&json!({ "value": { "content": "l", "parent_hash": "0123456789abcdef" } }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "{}", r.text().await?);
+    let r = c
+        .post(&transfer_url)
+        .json(&json!({
+            "target_workspace": fork,
+            "items": [{ "kind": "script", "path": "u/test-user/lineage" }]
+        }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "{}", r.text().await?);
+    let (parent_hash, base): (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT value->>'parent_hash', base FROM draft
+         WHERE workspace_id = $1 AND path = 'u/test-user/lineage'",
+    )
+    .bind(fork)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!((parent_hash, base), (None, None));
+
     // Only a fork of the source is a valid target.
     let r = c
         .post(format!(
