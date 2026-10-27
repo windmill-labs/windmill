@@ -1525,9 +1525,9 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 				     In flow, the band spans the content beside the rail. With an inset, a page owns
 				     the right edge from the top (a session's side panel): the band floats, stopping
 				     where that column starts, and the page pads its own content to clear it.
-				     The rail offset is padding in both placements: carried by `left` in one and padding
-				     in the other, a switch between them (sessions with and without a side panel)
-				     eases the padding to or from zero and slides the whole breadcrumb across. -->
+				     The rail offset must be padding in both placements, never `left` in the floating one:
+				     a switch between placements (sessions with and without a side panel) would then ease
+				     the padding to or from zero and slide the whole breadcrumb across. -->
 				<div
 					class={classNames(
 						floatBand ? 'absolute top-0 left-0 z-30' : 'shrink-0',
