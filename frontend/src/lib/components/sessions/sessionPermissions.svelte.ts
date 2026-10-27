@@ -42,7 +42,11 @@ export function useSessionReadOnly(workspace: () => string | undefined) {
 }
 
 /** The session chat whose work mode the session UI follows. */
-type WorkModeHost = { readonly workMode: AIWorkMode; readonly moving?: boolean }
+type WorkModeHost = {
+	readonly workMode: AIWorkMode
+	readonly moving?: boolean
+	readonly moveStarted?: boolean
+}
 
 /**
  * What the session UI may offer in `workspace`. Its editors save drafts, so it reads
@@ -70,6 +74,7 @@ export function useSessionPermissions(
 			host?.workMode === AIWorkMode.USE
 	)
 	const moving = $derived(!!host?.moving)
+	const moveStarted = $derived(!!host?.moveStarted)
 	const workspaces = fromStore(userWorkspaces)
 	const entry = $derived(workspaces.current.find((w) => w.id === workspace()))
 
@@ -81,6 +86,12 @@ export function useSessionPermissions(
 		/** The session is moving into a fork: its draft editors stay closed until it ends. */
 		get moving() {
 			return moving
+		},
+		/** A move has started: the preview takes no more input, so what its editors hold can be
+		 * drained before `moving` closes them. A keystroke after the drain would be lost with the
+		 * editor. */
+		get moveStarted() {
+			return moveStarted
 		},
 		/** Whether this user can save the drafts the `kind` editor writes. */
 		canOpenEditor: (kind: string) => !readOnly && !moving && rights.roleCanDraft(kind),
