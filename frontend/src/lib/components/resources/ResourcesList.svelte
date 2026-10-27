@@ -107,12 +107,16 @@
 	let themeResources: ResourceW[] | undefined = $state()
 	let resources: ResourceW[] | undefined = $state()
 	let resourceTypes: ResourceType[] | undefined = $state()
-
-	// Collect unique paths, types, owners for filter autocomplete
-	let allPaths: string[] = $state([])
-	let allResourceTypes: string[] = $state([])
-	let allOwners: string[] = $state([])
-	let allLabels: string[] = $state([])
+	let tab = $state<'workspace' | 'types' | 'states' | 'cache' | 'theme'>('workspace')
+	let currentResources = $derived(
+		tab == 'cache'
+			? cacheResources
+			: tab == 'states'
+				? stateResources
+				: tab == 'theme'
+					? themeResources
+					: resources
+	)
 
 	let resourceTypeViewer: Drawer | undefined = $state(undefined)
 	let resourceTypeViewerObj = $state({
@@ -182,6 +186,21 @@
 		types: true
 	})
 
+	// Filter suggestions describe the list on screen, not whichever list answered last.
+	let suggestedFrom = $derived(currentResources ?? [])
+	let allPaths = $derived(Array.from(new Set(suggestedFrom.map((x) => x.path))).sort())
+	let allResourceTypes = $derived(
+		Array.from(new Set(suggestedFrom.map((x) => x.resource_type))).sort()
+	)
+	let allOwners = $derived(
+		Array.from(new Set(suggestedFrom.map((x) => x.path.split('/').slice(0, 2).join('/')))).sort()
+	)
+	let allLabels = $derived(
+		Array.from(
+			new Set(suggestedFrom.flatMap((x) => [...(x.labels ?? []), ...(x.inherited_labels ?? [])]))
+		).sort()
+	)
+
 	let showCreateButtons = $state(false)
 
 	// FilterSearchbar setup
@@ -221,7 +240,7 @@
 	let itemFolders = $derived(
 		Array.from(
 			new Set(
-				(resources ?? [])
+				suggestedFrom
 					.map((x) => x.path.split('/').slice(0, 2).join('/'))
 					.filter((x) => x.startsWith('f/'))
 			)
@@ -349,17 +368,6 @@
 
 		const result = await ResourceService.listResource(apiParams)
 		if (!isLatest()) return undefined
-
-		// Extract unique values for autocomplete
-		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
-		allResourceTypes = Array.from(new Set(result.map((x) => x.resource_type))).sort()
-		allOwners = Array.from(
-			new Set(result.map((x) => x.path.split('/').slice(0, 2).join('/')))
-		).sort()
-		allLabels = Array.from(
-			new Set(result.flatMap((x) => [...(x.labels ?? []), ...(x.inherited_labels ?? [])]))
-		).sort()
-
 		loading[list] = false
 		return result
 	}
@@ -508,12 +516,6 @@
 	}
 
 	let disableCustomPrefix = $state(false)
-	let tab: 'workspace' | 'types' | 'states' | 'cache' | 'theme' = $state('workspace') as
-		| 'workspace'
-		| 'types'
-		| 'states'
-		| 'cache'
-		| 'theme'
 
 	let inferrer: Drawer | undefined = $state(undefined)
 	let inferrerJson = $state('')
@@ -644,17 +646,6 @@
 	// Eagerly load the map
 	loadResourceNameToFileExtMap()
 
-	// Current resources based on tab
-	let currentResources = $derived(
-		tab == 'cache'
-			? cacheResources
-			: tab == 'states'
-				? stateResources
-				: tab == 'theme'
-					? themeResources
-					: resources
-	)
-
 	// Filter resources client-side for user folder filtering (admin feature)
 	let filteredItems = $derived.by(() => {
 		let items = currentResources
@@ -692,9 +683,22 @@
 	$effect(() => {
 		if ($operatingWorkspace) {
 			untrack(() => {
-				// The effect above loads the open tab only; the workspace list must not keep the
-				// previous workspace's rows behind another tab.
+				// The effect above loads the open tab only; no list may keep the previous
+				// workspace's rows behind another tab. The others reload when reopened, so they are
+				// emptied, and a load still in flight for them is superseded so it cannot refill them.
 				if (tab !== 'workspace') loadResources()
+				if (tab !== 'cache') {
+					loads.cache.start()
+					cacheResources = undefined
+				}
+				if (tab !== 'states') {
+					loads.states.start()
+					stateResources = undefined
+				}
+				if (tab !== 'theme') {
+					loads.theme.start()
+					themeResources = undefined
+				}
 				loadResourceTypes()
 			})
 		}
