@@ -96,6 +96,8 @@ struct LineageJob {
     permissioned_as: String,
     origin_verified: bool,
     current_version: bool,
+    /// A parentless preview running a deployed flow's dynamic select code, unaltered.
+    dyn_select: bool,
     restarted: bool,
     /// The job a restart rebuilt this one from.
     restarted_from: Option<String>,
@@ -143,7 +145,10 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
                     WHERE s.path = runnable_path AND s.workspace_id = $2 AND NOT s.deleted
                         AND s.lock IS NOT NULL AND s.lock_error_logs IS NULL
                     ORDER BY s.created_at DESC LIMIT 1)
+                WHEN 'preview' THEN dyn_select.version = (SELECT f.versions[array_upper(f.versions, 1)]
+                    FROM flow f WHERE f.path = runnable_path AND f.workspace_id = $2)
             END, false) AS "current_version!",
+            dyn_select.version IS NOT NULL AS "dyn_select!",
             EXISTS (SELECT 1 FROM v2_job_status st WHERE st.id = lineage.id
                     AND jsonb_typeof(st.flow_status->'restarted_from') = 'object')
                 OR EXISTS (SELECT 1 FROM v2_job_completed c WHERE c.id = lineage.id
@@ -185,7 +190,23 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
                         'lock', n.lock)
                     FROM flow_node n WHERE n.id = runnable_id AND n.workspace_id = $2)
             END END AS digest_source
-        FROM lineage ORDER BY depth"#,
+        FROM lineage
+        -- A deployed flow's dynamic select runs the code its schema stores as a parentless
+        -- preview at the flow's path. `run/preview` takes the same shape from the caller, so
+        -- only content equal to a version's, with nothing else that changes what runs (a
+        -- hash runs that script instead, a lock, modules, temp script refs), counts.
+        LEFT JOIN LATERAL (
+            SELECT max(fv.id) AS version FROM v2_job j JOIN flow_version fv
+                ON fv.workspace_id = $2 AND fv.path = j.runnable_path
+                    AND fv.schema->>'x-windmill-dyn-select-code' = j.raw_code
+                    -- `push` reconciles bun and bunnative from the code's `//native`.
+                    AND replace(fv.schema->>'x-windmill-dyn-select-lang', 'bunnative', 'bun')
+                        = replace(j.script_lang::text, 'bunnative', 'bun')
+            WHERE j.id = lineage.id AND j.runnable_id IS NULL AND j.raw_lock IS NULL
+                AND jsonb_typeof(j.args->'_MODULES') IS NULL
+                AND jsonb_typeof(j.args->'_TEMP_SCRIPT_REFS') IS NULL
+        ) dyn_select ON lineage.kind = 'preview' AND lineage.parent_job IS NULL
+        ORDER BY depth"#,
         job_id,
         w_id
     )
@@ -326,6 +347,7 @@ fn runs_current_version(job: &LineageJob) -> bool {
         // deployment's script cannot be told apart from the current one's.
         JobKind::AppScript => false,
         JobKind::Preview if job.app_stamped => false,
+        JobKind::Preview if job.dyn_select => job.current_version,
         // They run no code of their own beyond what checked jobs above them define, or
         // (hub) the path names the version.
         JobKind::Script_Hub
@@ -360,8 +382,8 @@ fn runs_stored_code(job: &LineageJob, parent: Option<(&LineageJob, bool)>) -> bo
         | JobKind::AIAgent => job.origin_verified,
         JobKind::AppScript => job.app_stamped,
         // A deployed app without `app_script` entries runs its inline scripts as previews
-        // of the content its policy pins.
-        JobKind::Preview if job.app_stamped => true,
+        // of the content its policy pins; a deployed flow runs its dynamic select code as one.
+        JobKind::Preview if job.app_stamped || job.dyn_select => true,
         // No API route takes a preview's code together with a parent (`restart_flow` drops
         // the parent of a restarted flow preview): a preview with a parent runs its parent's
         // own definition (a flow step, loop or branch body, agent tool, workflow-as-code
