@@ -46,7 +46,7 @@
 	const effective = $derived(applyCapabilitiesPatch(base, patch))
 	const error = $derived(capabilitiesError(effective))
 
-	type BoolKey = 'code' | 'manage_schedules' | 'manage_triggers'
+	type BoolKey = 'code' | 'manage_schedules' | 'manage_triggers' | 'fork'
 	type LevelKey = 'flows' | 'apps'
 
 	function boolValue(path: string): boolean {
@@ -115,6 +115,12 @@
 			key: 'manage_triggers',
 			label: 'Manage triggers',
 			description: 'Create, edit and delete triggers where folder permissions allow.'
+		},
+		{
+			key: 'fork',
+			label: 'Fork the workspace',
+			description:
+				'Create forks of this workspace. Their role in the fork is this one, unless a ruleset maps it.'
 		}
 	]
 </script>

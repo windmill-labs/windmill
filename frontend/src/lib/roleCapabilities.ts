@@ -32,6 +32,7 @@ export function legacyOperatorCapabilities(
 		apps: settings?.builder_apps === true ? 'compose' : 'none',
 		manage_schedules: settings?.manage_schedules !== false,
 		manage_triggers: settings?.manage_triggers !== false,
+		fork: false,
 		visibility
 	}
 }
@@ -55,9 +56,8 @@ export function capabilitiesIn(
 	return operator ? legacyOperatorCapabilities(workspace?.operator_settings) : FULL_CAPABILITIES
 }
 
-/** Whether the role is gated at all, as `RoleCapabilities::is_restricted`: visibility is left out,
- * since hiding a page must not cost a full author what restricted roles are refused, such as
- * forking. */
+/** Whether the role is gated at all, as `RoleCapabilities::is_restricted`: visibility and `fork`
+ * are left out, since neither may cost a full author what restricted roles are refused. */
 export function isRestricted(caps: RoleCapabilities): boolean {
 	return (
 		!caps.code ||
@@ -66,6 +66,12 @@ export function isRestricted(caps: RoleCapabilities): boolean {
 		!caps.manage_schedules ||
 		!caps.manage_triggers
 	)
+}
+
+/** Whether the role may fork the workspace. A server that predates the capability sends none, and
+ * then refused every restricted role in the UI. */
+export function canFork(caps: RoleCapabilities): boolean {
+	return caps.fork ?? !isRestricted(caps)
 }
 
 /** The role with nothing left to build and the same pages in view: what a session in Use mode

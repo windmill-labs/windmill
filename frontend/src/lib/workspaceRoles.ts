@@ -48,6 +48,7 @@ export const FULL_CAPABILITIES: RoleCapabilities = {
 	apps: 'full',
 	manage_schedules: true,
 	manage_triggers: true,
+	fork: true,
 	visibility: ALL_VISIBLE
 }
 
@@ -57,6 +58,7 @@ const OPERATOR_CAPABILITIES: RoleCapabilities = {
 	apps: 'none',
 	manage_schedules: true,
 	manage_triggers: true,
+	fork: false,
 	visibility: ALL_VISIBLE
 }
 
@@ -86,6 +88,7 @@ export function applyCapabilitiesPatch(
 	if (patch.apps != null) out.apps = patch.apps
 	if (patch.manage_schedules != null) out.manage_schedules = patch.manage_schedules
 	if (patch.manage_triggers != null) out.manage_triggers = patch.manage_triggers
+	if (patch.fork != null) out.fork = patch.fork
 	for (const { key } of VISIBILITY_KEYS) {
 		const v = patch.visibility?.[key]
 		if (v != null) out.visibility[key] = v

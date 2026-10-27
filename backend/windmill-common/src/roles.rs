@@ -92,6 +92,9 @@ pub struct RoleCapabilities {
     pub apps: AuthorLevel,
     pub manage_schedules: bool,
     pub manage_triggers: bool,
+    /// Fork the workspace. Like visibility, it does not make a role restricted: it is read from
+    /// the role at the fork routes, never through [`caller_capabilities`]'s fast path.
+    pub fork: bool,
     pub visibility: RoleVisibility,
 }
 
@@ -102,6 +105,7 @@ impl RoleCapabilities {
         apps: AuthorLevel::Full,
         manage_schedules: true,
         manage_triggers: true,
+        fork: true,
         visibility: RoleVisibility::ALL,
     };
 
@@ -113,6 +117,7 @@ impl RoleCapabilities {
         apps: AuthorLevel::None,
         manage_schedules: true,
         manage_triggers: true,
+        fork: false,
         visibility: RoleVisibility::ALL,
     };
 
@@ -124,6 +129,7 @@ impl RoleCapabilities {
         apps: AuthorLevel::None,
         manage_schedules: false,
         manage_triggers: false,
+        fork: false,
         visibility: RoleVisibility::NONE,
     };
 
@@ -141,7 +147,7 @@ impl RoleCapabilities {
     /// left out: it only hides pages, and must not turn a full author into an operator for the
     /// raw `is_operator` checks, job permissions and credential caches keyed on it.
     pub fn is_restricted(&self) -> bool {
-        Self { visibility: RoleVisibility::ALL, ..*self } != Self::FULL
+        Self { visibility: RoleVisibility::ALL, fork: true, ..*self } != Self::FULL
     }
 
     /// Whether the role authors deployable artifacts and so costs a full seat rather than half.
@@ -180,6 +186,9 @@ impl RoleCapabilities {
         if let Some(v) = patch.manage_triggers {
             self.manage_triggers = v;
         }
+        if let Some(v) = patch.fork {
+            self.fork = v;
+        }
         if let Some(v) = &patch.visibility {
             v.apply(&mut self.visibility);
         }
@@ -212,6 +221,8 @@ pub struct RoleCapabilitiesPatch {
     pub manage_schedules: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manage_triggers: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visibility: Option<RoleVisibilityPatch>,
 }
@@ -279,6 +290,7 @@ pub fn diff_capabilities(
         apps: d(base.apps, target.apps),
         manage_schedules: d(base.manage_schedules, target.manage_schedules),
         manage_triggers: d(base.manage_triggers, target.manage_triggers),
+        fork: d(base.fork, target.fork),
         visibility: (visibility != RoleVisibilityPatch::default()).then_some(visibility),
     }
 }
@@ -721,6 +733,36 @@ pub async fn caller_capabilities<A: Authable + ?Sized>(
     }
 }
 
+/// Whether the caller's role in `workspace_id` holds [`RoleCapabilities::fork`]. Read from the role
+/// even for an unrestricted caller, since withdrawing `fork` alone leaves a role unrestricted. A
+/// caller with no membership is left to the fork routes' other gates.
+pub async fn caller_can_fork<A: Authable + ?Sized>(
+    db: &DB,
+    workspace_id: &str,
+    authed: &A,
+) -> Result<bool> {
+    if authed.is_admin() {
+        return Ok(true);
+    }
+    // Not through `member_role`: its cache would then hold every forker, restricted or not.
+    let row = sqlx::query!(
+        "SELECT workspace_role, operator FROM usr WHERE workspace_id = $1 AND username = $2",
+        workspace_id,
+        authed.username()
+    )
+    .fetch_optional(db)
+    .await?;
+    match row {
+        Some(r) => {
+            let role = resolve_role_name(r.workspace_role, r.operator);
+            Ok(role_capabilities_by_name(db, workspace_id, &role)
+                .await?
+                .fork)
+        }
+        None => Ok(true),
+    }
+}
+
 pub fn invalidate_workspace_roles_cache(workspace_id: &str) {
     WORKSPACE_ROLES.remove(workspace_id);
 }
@@ -791,6 +833,21 @@ pub async fn ensure_role_unused(db: &DB, w_id: Option<&str>, name: &str) -> Resu
     if users + invites + settings > 0 {
         return Err(Error::BadRequest(format!(
             "role `{name}` is still held by {users} member(s) and {invites} pending invite(s), or named by {settings} workspace auto-invite or instance group mapping(s): reassign them first"
+        )));
+    }
+    let mapping_rulesets = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM workspace_protection_rule WHERE ($1::text IS NULL OR workspace_id = $1)
+            AND (fork_role_mapping ? $2
+                 OR EXISTS (SELECT 1 FROM jsonb_each_text(fork_role_mapping) m WHERE m.value = $2))",
+        w_id,
+        name
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+    if mapping_rulesets > 0 {
+        return Err(Error::BadRequest(format!(
+            "role `{name}` is named by the fork role mapping of {mapping_rulesets} protection ruleset(s): edit them first"
         )));
     }
     // An override left behind would silently re-base onto `base_for` instead of the instance

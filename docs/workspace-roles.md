@@ -19,6 +19,7 @@ code is `windmill_common::roles`.
 | `flows` | `none` / `compose` / `full` | yes; also AI agents, whose tools are checked as composed steps |
 | `apps` | `none` / `compose` / `full` | yes; low-code apps and worker-built apps need `full` |
 | `manage_schedules`, `manage_triggers` | bool | yes, see `docs/operator-write-rights.md` |
+| `fork` | bool | yes, at both fork routes; `false` for `operator` and any role falling back to it |
 | `visibility.*` | bool per page | no, UI only |
 
 `compose` is the former operator builder right: the composition-only checks of
@@ -32,6 +33,18 @@ other name). A role name no longer defined resolves to `NONE`, so deleting a rol
 deleting one that a member, invite, auto-invite or instance group mapping still names is refused,
 and so is deleting an instance role that a workspace still overrides (the override would fall onto
 `base_for` instead of the definition it was written against).
+
+## Forks
+
+A member's role carries into a fork: the forker, and every member `copy_members` or
+`add_admins_and_developers_to_forks` brings, joins the fork with the role they hold in the parent,
+and the fork gets the parent's `role_overrides` so the name means the same there. A protection
+ruleset's `fork_role_mapping` (`{ role here: role in the fork }`) replaces that role; where several
+rulesets map one role, the first by name wins. A role named by a mapping cannot be deleted.
+
+`fork`, like `visibility`, does not make a role restricted: withdrawing it from `developer` must not
+turn every developer into an operator for the raw `is_operator` checks. So the fork routes read it
+from the member's role (`caller_can_fork`), never through `caller_capabilities`' fast path.
 
 ## Who is restricted
 
