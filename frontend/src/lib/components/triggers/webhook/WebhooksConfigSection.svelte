@@ -11,7 +11,6 @@
 	import bash from 'svelte-highlight/languages/bash'
 	import { Tabs, Tab, TabContent, Button } from '$lib/components/common'
 	import { ArrowDownRight, ArrowUpRight, Copy } from 'lucide-svelte'
-	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import { copyToClipboard, isObject, readFieldsRecursively } from '$lib/utils'
@@ -467,8 +466,6 @@ done`
 						{/snippet}
 					</ToggleButtonGroup>
 				</div>
-				<!-- svelte-ignore a11y_click_events_have_key_events -->
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div class="p-3">
 					{#key token}
 						{#if example === 'rest'}
@@ -491,44 +488,9 @@ done`
 								{/key}
 							</div>
 						{:else if example === 'curl'}
-							<div class="relative">
-								{#key runnableArgs}
-									{#key callMethod}
-										{#key requestType}
-											{#key tokenType}
-												<div
-													class="flex flex-row flex-1 h-full overflow-auto relative"
-													onclick={(e) => {
-														e.preventDefault()
-														copyToClipboard(curlCode())
-													}}
-												>
-													<Highlight language={bash} code={curlCode()} />
-													<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
-												</div>
-											{/key}
-										{/key}
-									{/key}
-								{/key}
-							</div>
+							<CopyableCodeBlock code={curlCode()} language={bash} />
 						{:else}
-							{#key runnableArgs}
-								{#key callMethod}
-									{#key requestType}
-										{#key tokenType}
-											{#key token}
-												<div
-													class="flex flex-row flex-1 h-full overflow-auto relative"
-													onclick={(e) => {
-														e.preventDefault()
-														copyToClipboard(fetchCode())
-													}}
-												>
-													<Highlight language={typescript} code={fetchCode()} />
-													<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
-												</div>
-											{/key}{/key}{/key}{/key}
-							{/key}
+							<CopyableCodeBlock code={fetchCode()} language={typescript} />
 						{/if}
 					{/key}
 				</div>
@@ -550,16 +512,18 @@ done`
 						<span class="text-xs text-secondary">
 							Streams each answer and keeps the conversations, with any framework.
 						</span>
-						<ToggleButtonGroup bind:selected={sdkFlavor} noWFull>
-							{#snippet children({ item })}
-								<ToggleButton value="react" label="React" {item} small />
-								<ToggleButton value="any" label="Any framework" {item} small />
-							{/snippet}
-						</ToggleButtonGroup>
-						<CopyableCodeBlock
-							code={sdkFlavor === 'react' ? sdkReactExample(target) : sdkExample(target)}
-							language={typescript}
-						/>
+						<div class="flex flex-col gap-2 rounded-md border border-light bg-surface-tertiary p-3">
+							<ToggleButtonGroup bind:selected={sdkFlavor} noWFull>
+								{#snippet children({ item })}
+									<ToggleButton value="react" label="React" {item} small />
+									<ToggleButton value="any" label="Any framework" {item} small />
+								{/snippet}
+							</ToggleButtonGroup>
+							<CopyableCodeBlock
+								code={sdkFlavor === 'react' ? sdkReactExample(target) : sdkExample(target)}
+								language={typescript}
+							/>
+						</div>
 					</TabContent>
 				{/snippet}
 			</Tabs>
