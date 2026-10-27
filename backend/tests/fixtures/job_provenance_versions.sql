@@ -106,3 +106,7 @@ VALUES
     ('3bb0c0de-0000-4000-8000-000000000204', 'test-workspace', 'preview', 'f/t/agent', NULL, 'export function f() { return 2222222222 }', '{}', 'bun', NULL, 'test-user', 'u/test-user', 'test@windmill.dev'),
     ('3bb0c0de-0000-4000-8000-000000000205', 'test-workspace', 'preview', 'f/t/agent', NULL, 'export function f() { return 2222222222 }', NULL, 'bun', '{"_TEMP_SCRIPT_REFS": {}}', 'test-user', 'u/test-user', 'test@windmill.dev'),
     ('3bb0c0de-0000-4000-8000-000000000206', 'test-workspace', 'preview', 'f/t/agent', NULL, 'export function f() { return 1 }', NULL, 'bun', NULL, 'test-user', 'u/test-user', 'test@windmill.dev');
+
+-- The current code routed to the path's dedicated worker, which runs its own script.
+INSERT INTO v2_job (id, workspace_id, kind, runnable_path, raw_code, script_lang, tag, created_by, permissioned_as, permissioned_as_email)
+VALUES ('3bb0c0de-0000-4000-8000-000000000207', 'test-workspace', 'preview', 'f/t/agent', 'export function f() { return 2222222222 }', 'bun', 'test-workspace:f/t/agent', 'test-user', 'u/test-user', 'test@windmill.dev');

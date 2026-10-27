@@ -131,7 +131,7 @@ async fn dynamic_select_of_a_deployed_flow_is_deployed(db: Pool<Postgres>) {
     assert!(current.deployed && current.latest && current.claimed_paths.is_empty());
     let past = provenance(&db, "3bb0c0de-0000-4000-8000-000000000202").await;
     assert!(past.deployed && !past.latest);
-    for job in ["203", "204", "205", "206"] {
+    for job in ["203", "204", "205", "206", "207"] {
         assert_eq!(
             claims(&db, &format!("3bb0c0de-0000-4000-8000-000000000{job}")).await,
             [claim("f/t/agent", ClaimedItem::ScriptOrAppComponent)],
