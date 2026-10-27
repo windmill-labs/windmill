@@ -12,6 +12,7 @@ use sqlx::FromRow;
 use windmill_common::{
     auth::{hash_token, TOKEN_PREFIX_LEN},
     error::{Error, Result},
+    global_settings::mcp_base_url,
     min_version::MIN_VERSION_SUPPORTS_TOKEN_HASH,
     utils::rd_string,
     BASE_URL, DB,
@@ -247,12 +248,19 @@ fn supported_scopes() -> Vec<String> {
 }
 
 /// GET /.well-known/oauth-authorization-server/api/w/:workspace_id/mcp/oauth/server
-fn build_oauth_metadata(oauth_prefix: &str, base_url: &str) -> AuthorizationMetadata {
+///
+/// `client_base_url` serves what the MCP client calls itself, `base_url` the authorization
+/// endpoint the user's browser opens.
+fn build_oauth_metadata(
+    oauth_prefix: &str,
+    base_url: &str,
+    client_base_url: &str,
+) -> AuthorizationMetadata {
     AuthorizationMetadata {
-        issuer: format!("{}{}", base_url, oauth_prefix),
+        issuer: format!("{}{}", client_base_url, oauth_prefix),
         authorization_endpoint: format!("{}{}/authorize", base_url, oauth_prefix),
-        token_endpoint: format!("{}{}/token", base_url, oauth_prefix),
-        registration_endpoint: Some(format!("{}/api/mcp/oauth/server/register", base_url)),
+        token_endpoint: format!("{}{}/token", client_base_url, oauth_prefix),
+        registration_endpoint: Some(format!("{}/api/mcp/oauth/server/register", client_base_url)),
         scopes_supported: Some(supported_scopes()),
         response_types_supported: Some(vec!["code".to_string()]),
         grant_types_supported: Some(vec![
@@ -281,7 +289,7 @@ pub async fn workspaced_oauth_metadata(
 ) -> Json<AuthorizationMetadata> {
     let base_url = BASE_URL.load();
     let oauth_prefix = format!("/api/w/{}/mcp/oauth/server", workspace_id);
-    Json(build_oauth_metadata(&oauth_prefix, &base_url))
+    Json(build_oauth_metadata(&oauth_prefix, &base_url, &base_url))
 }
 
 /// GET /.well-known/oauth-protected-resource/api/mcp/w/:workspace_id/mcp
@@ -1037,25 +1045,24 @@ pub async fn gateway_oauth_metadata() -> Json<AuthorizationMetadata> {
     Json(build_oauth_metadata(
         "/api/mcp/gateway/oauth/server",
         &base_url,
+        &mcp_base_url(),
     ))
 }
 
 pub async fn gateway_protected_resource_metadata() -> Json<ProtectedResourceMetadata> {
-    let base_url = BASE_URL.load();
     Json(build_protected_resource_metadata(
         "/api/mcp/gateway",
         "/api/mcp/gateway/oauth/server",
-        &base_url,
+        &mcp_base_url(),
     ))
 }
 
 /// GET /.well-known/oauth-protected-resource/api/mcp
 pub async fn gateway_session_protected_resource_metadata() -> Json<ProtectedResourceMetadata> {
-    let base_url = BASE_URL.load();
     Json(build_protected_resource_metadata(
         "/api/mcp",
         "/api/mcp/gateway/oauth/server",
-        &base_url,
+        &mcp_base_url(),
     ))
 }
 
@@ -1170,7 +1177,32 @@ pub fn gateway_authed_service() -> Router {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_redirect_uri;
+    use super::{build_oauth_metadata, validate_redirect_uri};
+
+    #[test]
+    fn authorization_endpoint_stays_on_base_url() {
+        let m = build_oauth_metadata(
+            "/api/mcp/gateway/oauth/server",
+            "https://private.corp",
+            "https://mcp.example.com",
+        );
+        assert_eq!(
+            m.issuer,
+            "https://mcp.example.com/api/mcp/gateway/oauth/server"
+        );
+        assert_eq!(
+            m.token_endpoint,
+            "https://mcp.example.com/api/mcp/gateway/oauth/server/token"
+        );
+        assert_eq!(
+            m.registration_endpoint.as_deref(),
+            Some("https://mcp.example.com/api/mcp/oauth/server/register")
+        );
+        assert_eq!(
+            m.authorization_endpoint,
+            "https://private.corp/api/mcp/gateway/oauth/server/authorize"
+        );
+    }
 
     #[test]
     fn accepts_legitimate_redirect_uris() {

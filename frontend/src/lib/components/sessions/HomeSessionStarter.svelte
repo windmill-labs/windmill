@@ -25,7 +25,7 @@
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
 	import { useWorkModeLock } from './workModeLock.svelte'
 	import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
-	import { composerSentFromHome, takeComposerFocus } from './homeSessionsTransition.svelte'
+	import { takeComposerFocus } from './homeComposerFocus'
 	import { homeComposerContext } from './homeComposerContext.svelte'
 
 	// Home's block is the empty session's own chat, run by that session's manager: the
@@ -68,7 +68,6 @@
 
 	// The turn is already running on the session's manager; the page it belongs to takes over.
 	function onSent() {
-		composerSentFromHome()
 		selectSession(sessionId)
 		void goto(sessionPageHref(sessionId))
 	}
@@ -148,7 +147,6 @@
 				suggestions: starterPrompts.suggestions,
 				fewItems: starterPrompts.fewItems
 			}}
-			viewTransitionNames
 			{onSent}
 			{actingOn}
 			workModeLock={workModeLock.current}

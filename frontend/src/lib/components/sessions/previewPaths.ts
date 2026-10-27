@@ -166,6 +166,18 @@ export function barePath(path: string): string {
 	)
 }
 
+/** The agent a `/agents/get/<path>` location shows; undefined for any other location, a malformed
+ * encoding included, which `decodeURIComponent` would otherwise throw on mid-render. */
+export function agentPagePath(loc: string): string | undefined {
+	const m = barePath(loc).match(/^\/agents\/get\/(.+)$/)
+	if (!m) return undefined
+	try {
+		return decodeURIComponent(m[1])
+	} catch {
+		return undefined
+	}
+}
+
 /** Which side of an item a route addresses: `/edit/` builds it, `/get/` shows the
  * deployed version. The two are one tab in a session, switched by re-pointing its URL. */
 export type PreviewItemMode = 'edit' | 'view'

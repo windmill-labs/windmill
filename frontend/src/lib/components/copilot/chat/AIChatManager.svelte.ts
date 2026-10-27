@@ -170,7 +170,8 @@ import {
 	type ChatCommandItem,
 	type SessionPromptContext,
 	type GlobalToolHelpers,
-	type GlobalActivePreviewContext
+	type GlobalActivePreviewContext,
+	type GlobalActiveEditorContext
 } from './global/core'
 import {
 	assembleGlobalSystemMessage,
@@ -598,7 +599,7 @@ export class AIChatManager implements ChatViewHost {
 	 * control elsewhere. */
 	openRunOnDeployedPage?: (a: {
 		toolCallId: string
-		kind: 'script' | 'flow'
+		kind: 'script' | 'flow' | 'agent'
 		path: string
 		summary: string
 		carries: boolean
@@ -946,6 +947,8 @@ export class AIChatManager implements ChatViewHost {
 	// a page tab is an iframe in its own realm, so the tab model is the only place the
 	// chat can learn it. Undefined for a live editor — ACTIVE EDITOR covers those.
 	activePreviewResolver: (() => GlobalActivePreviewContext | undefined) | undefined = undefined
+	// An editor the draft registry does not cover, such as an agent's in a session tab.
+	activeEditorResolver: (() => GlobalActiveEditorContext | undefined) | undefined = undefined
 	// Resolves the workspace this chat operates on. Session chats set it to their
 	// own (possibly forked) workspace so the chat targets it WITHOUT switching the
 	// global workspaceStore. Undefined for the global side-panel chat, which
@@ -2234,7 +2237,7 @@ export class AIChatManager implements ChatViewHost {
 		if (form.kind === 'run' && form.path && !form.conversational) {
 			this.openRunOnDeployedPage?.({
 				toolCallId: toolId,
-				kind: form.runnableKind === 'flow' ? 'flow' : 'script',
+				kind: form.agentPage ? 'agent' : form.runnableKind === 'flow' ? 'flow' : 'script',
 				path: form.path,
 				summary: form.summary || form.path,
 				carries: true,
@@ -3422,6 +3425,7 @@ export class AIChatManager implements ChatViewHost {
 							{
 								workspace: this.operatingWorkspace,
 								activePreview: this.activePreviewResolver?.(),
+								activeEditor: this.activeEditorResolver?.(),
 								resourceTypeSync: this.resourceTypeSync
 							}
 						)
@@ -4268,6 +4272,7 @@ export class AIChatManager implements ChatViewHost {
 					userMessage = prepareGlobalUserMessage(modelInstructions, oldSelectedContext, {
 						workspace: this.operatingWorkspace,
 						activePreview: this.activePreviewResolver?.(),
+						activeEditor: this.activeEditorResolver?.(),
 						images: sentImages,
 						files: files,
 						resourceTypeSync: this.resourceTypeSync

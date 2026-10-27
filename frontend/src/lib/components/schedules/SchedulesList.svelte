@@ -78,11 +78,9 @@
 		else scheduleEditor?.openEdit(path, isFlow)
 	}
 
-	type ScheduleW = ScheduleWJobs & { canWrite: boolean }
-
 	const MISSED_VISIBLE_MS = 7 * 24 * 60 * 60 * 1000
 
-	let schedules: ScheduleW[] = $state([])
+	let schedules: ScheduleWJobs[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let loading = $state(true)
 	let loadingSchedulesWithJobStats = $state(true)
@@ -144,9 +142,7 @@
 			apiParams.label = currentFilters.label
 		}
 
-		const result = (await ScheduleService.listSchedules(apiParams)).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, operatingUser.current), ...x }
-		})
+		const result: ScheduleWJobs[] = await ScheduleService.listSchedules(apiParams)
 		if (generation !== loadGeneration) return
 
 		// Extract unique values for autocomplete
@@ -164,20 +160,16 @@
 		loadSchedulesWithJobStats(generation)
 	}
 
-	// One effect for every reason to reload (filters, workspace, user), so that mounting
-	// issues a single load rather than one per reason. Waits for the user lookup to settle,
-	// not for a user: a failed lookup still lists, read-only.
 	$effect(() => {
 		filters.val
-		operatingUser.current
-		if ($operatingWorkspace && operatingUser.resolved($operatingWorkspace)) {
+		if ($operatingWorkspace) {
 			untrack(() => loadSchedules())
 		}
 	})
 
 	async function loadSchedulesWithJobStats(generation: number): Promise<void> {
 		loadingSchedulesWithJobStats = true
-		let schedulesWithJobsByPath = new Map<string, ScheduleW>()
+		let schedulesWithJobsByPath = new Map<string, ScheduleWJobs>()
 		let schedulesWithJobsList = await ScheduleService.listSchedulesWithJobs({
 			workspace: $operatingWorkspace!
 		})
@@ -343,7 +335,7 @@
 	})
 
 	function filterItemsPathsBaseOnUserFilters(
-		item: ScheduleW,
+		item: ScheduleWJobs,
 		selectedFilterKind: 'schedule' | 'script_flow',
 		userFoldersOnly: boolean
 	) {
@@ -365,7 +357,7 @@
 	}
 
 	function filterItemsBasedOnEnabledDisabled(
-		item: ScheduleW,
+		item: ScheduleWJobs,
 		filterEnabledDisabled: 'all' | 'enabled' | 'disabled'
 	) {
 		// Draft-only rows have nothing deployed, so they read as disabled here
@@ -391,7 +383,7 @@
 	let items = $derived(filteredItems)
 </script>
 
-{#snippet scheduleRow(s: ScheduleW, inTree: boolean, depth: number)}
+{#snippet scheduleRow(s: ScheduleWJobs, inTree: boolean, depth: number)}
 	{@const {
 		path,
 		error,
@@ -404,7 +396,6 @@
 		script_path,
 		is_flow,
 		extra_perms,
-		canWrite,
 		jobs,
 		late_run_streak,
 		missed_occurrences,
@@ -493,7 +484,10 @@
 			</div>
 
 			<div class="hidden lg:flex flex-row gap-1 items-center">
-				<SharedBadge {canWrite} extraPerms={extra_perms} />
+				<SharedBadge
+					canWrite={canWrite(path, extra_perms!, operatingUser.current)}
+					extraPerms={extra_perms}
+				/>
 			</div>
 
 			<div class="w-10">
@@ -708,7 +702,7 @@
 {/snippet}
 
 {#snippet treeLeaf(item: ItemType, depth: number)}
-	{@render scheduleRow(item as unknown as ScheduleW, true, depth)}
+	{@render scheduleRow(item as unknown as ScheduleWJobs, true, depth)}
 {/snippet}
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
