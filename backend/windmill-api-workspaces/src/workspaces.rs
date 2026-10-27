@@ -10784,8 +10784,15 @@ async fn write_workspace_fork(
     // developers; the forker cannot opt out, since the point is that those admins can review it.
     copy_workspace_roles(&mut tx, &parent_workspace_id, &forked_id).await?;
     if nw.copy_members && nw.is_dev_workspace {
-        copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id, &roles, false, None)
-            .await?;
+        copy_workspace_members(
+            &mut tx,
+            &parent_workspace_id,
+            &forked_id,
+            &roles,
+            false,
+            None,
+        )
+        .await?;
     } else if sqlx::query_scalar!(
         "SELECT add_admins_and_developers_to_forks FROM workspace_settings WHERE workspace_id = $1",
         parent_workspace_id
@@ -10794,8 +10801,15 @@ async fn write_workspace_fork(
     .await?
     .unwrap_or(false)
     {
-        copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id, &roles, true, None)
-            .await?;
+        copy_workspace_members(
+            &mut tx,
+            &parent_workspace_id,
+            &forked_id,
+            &roles,
+            true,
+            None,
+        )
+        .await?;
     }
 
     // The creator joins with the role they hold in the parent, after its ruleset mappings, even
@@ -10817,7 +10831,8 @@ async fn write_workspace_fork(
     .fetch_optional(&mut *tx)
     .await?
     {
-        let role = windmill_common::roles::resolve_role_name(forker.workspace_role, forker.operator);
+        let role =
+            windmill_common::roles::resolve_role_name(forker.workspace_role, forker.operator);
         windmill_common::feature_usage::log_feature_usage(
             "fork_roles",
             "fork_created",
@@ -11999,8 +12014,10 @@ If you do not have an account on {}, login with SSO or ask an admin to create an
 /// - only on a fork they created, never on a root workspace;
 /// - only as a developer, so it can never mint an admin (nor an operator, which would need the
 ///   workspace's operator settings to be meaningful);
-/// - only for someone who is already a developer or admin of the parent, so pulling them into the
-///   fork cannot widen who can read the parent's data.
+/// - only for a member of the parent whose role in its forks, after the parent's ruleset
+///   mappings, is `developer`, so pulling them into the fork cannot widen who can read the
+///   parent's data nor undo a mapping. A custom role is refused even when unrestricted: the grant
+///   seats a developer, not that role.
 ///
 /// Anything outside those bounds stays an admin's call. Returns the username the new member must be
 /// given in the fork.
@@ -12035,8 +12052,6 @@ async fn authorize_fork_owner_add_user(
     )
     .fetch_optional(db)
     .await?;
-    // The member's role in a fork, as creating the fork would give it: an owner may only seat
-    // those it makes developers, so a ruleset mapping a role down cannot be undone by re-adding.
     let mut fork_role = None;
     if let Some(m) = &member {
         let role = windmill_common::roles::resolve_role_name(m.workspace_role.clone(), m.operator);

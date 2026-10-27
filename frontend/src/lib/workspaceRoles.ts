@@ -96,6 +96,38 @@ export function applyCapabilitiesPatch(
 	return out
 }
 
+/** `RoleCapabilities::is_restricted`: visibility and `fork` are left out. */
+export function capabilitiesRestricted(caps: RoleCapabilities): boolean {
+	return (
+		!caps.code ||
+		caps.flows !== 'full' ||
+		caps.apps !== 'full' ||
+		!caps.manage_schedules ||
+		!caps.manage_triggers
+	)
+}
+
+/**
+ * `patch` over `base` as `RoleCapabilities::resolve` does it: a `fork` that neither `patch` nor a
+ * layer under it sets is granted exactly to an unrestricted role. `forkSetBelow` says whether a
+ * layer `base` already includes sets it.
+ */
+export function resolveCapabilities(
+	base: RoleCapabilities,
+	patch: RoleCapabilitiesPatch | undefined,
+	forkSetBelow: boolean
+): RoleCapabilities {
+	const out = applyCapabilitiesPatch(base, patch)
+	if (patch?.fork == null && !forkSetBelow) out.fork = !capabilitiesRestricted(out)
+	return out
+}
+
+/** Whether a server-resolved role's `fork` was set by a layer rather than derived. The listing
+ * does not say, so a value the fallback would have given anyway reads as derived. */
+export function forkLooksSet(caps: RoleCapabilities): boolean {
+	return caps.fork !== !capabilitiesRestricted(caps)
+}
+
 /** The error the server raises for these capabilities, if any (`RoleCapabilities::validate`). */
 export function capabilitiesError(caps: RoleCapabilities): string | undefined {
 	if (!caps.code && (caps.flows === 'full' || caps.apps === 'full')) {

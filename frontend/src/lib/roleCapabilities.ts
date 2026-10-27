@@ -1,6 +1,6 @@
 import type { OperatorSettings, RoleCapabilities, RoleVisibility } from '$lib/gen'
 import type { UserExt, UserWorkspace } from '$lib/stores'
-import { FULL_CAPABILITIES, VISIBILITY_KEYS } from '$lib/workspaceRoles'
+import { capabilitiesRestricted, FULL_CAPABILITIES, VISIBILITY_KEYS } from '$lib/workspaceRoles'
 
 /**
  * What a member's workspace role lets them author, manage and see: the frontend's copy of
@@ -59,13 +59,7 @@ export function capabilitiesIn(
 /** Whether the role is gated at all, as `RoleCapabilities::is_restricted`: visibility and `fork`
  * are left out, since neither may cost a full author what restricted roles are refused. */
 export function isRestricted(caps: RoleCapabilities): boolean {
-	return (
-		!caps.code ||
-		caps.flows !== 'full' ||
-		caps.apps !== 'full' ||
-		!caps.manage_schedules ||
-		!caps.manage_triggers
-	)
+	return capabilitiesRestricted(caps)
 }
 
 /** Whether the role may fork the workspace. A server that predates the capability sends none, and
