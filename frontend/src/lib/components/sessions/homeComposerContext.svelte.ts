@@ -46,8 +46,8 @@ export const homeComposerContext = {
 	get available(): boolean {
 		return registered !== undefined
 	},
-	/** The runtime of the draft in Home's composer, whose preview tabs Home's panel shows. Read
-	 * from here because Home must not import the runtime's code (it reaches monaco). */
+	/** The runtime of the draft in Home's composer, whose chat manager the tree's folder badges
+	 * read. Read from here because Home must not import the runtime's code (it reaches monaco). */
 	get runtime(): SessionRuntime | undefined {
 		return registered?.runtime
 	},

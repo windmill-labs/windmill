@@ -1,4 +1,8 @@
-import { ResourceService } from '$lib/gen'
+import { get } from 'svelte/store'
+import { ResourceService, type ListableResource } from '$lib/gen'
+import { canEditItem } from '$lib/editRights'
+import { capabilitiesIn } from '$lib/roleCapabilities'
+import { userWorkspaces, type UserExt } from '$lib/stores'
 import { truncateForPrompt } from './skills/skillResources'
 
 /**
@@ -33,11 +37,9 @@ const PAGE_SIZE = 100
 /** Guard against a paging bug looping forever, not a product cap. */
 const MAX_PAGES = 20
 
-/** Every folder instruction the user can read in the workspace. Read access is the
- * resource's own ACL, so a folder's instructions reach exactly who can see them. */
-export async function listFolderInstructions(workspace: string): Promise<FolderInstruction[]> {
+async function listInstructionResources(workspace: string): Promise<ListableResource[]> {
 	if (!workspace) return []
-	const rows: FolderInstruction[] = []
+	const rows: ListableResource[] = []
 	for (let page = 1; page <= MAX_PAGES; page++) {
 		const resources = await ResourceService.listResource({
 			workspace,
@@ -45,10 +47,59 @@ export async function listFolderInstructions(workspace: string): Promise<FolderI
 			page,
 			perPage: PAGE_SIZE
 		})
-		rows.push(...resources.map((r) => ({ path: r.path, scope: folderInstructionScope(r.path) })))
+		rows.push(...resources)
 		if (resources.length < PAGE_SIZE) break
 	}
 	return rows
+}
+
+/** Every folder instruction the user can read in the workspace. Read access is the
+ * resource's own ACL, so a folder's instructions reach exactly who can see them. */
+export async function listFolderInstructions(workspace: string): Promise<FolderInstruction[]> {
+	const resources = await listInstructionResources(workspace)
+	return resources.map((r) => ({ path: r.path, scope: folderInstructionScope(r.path) }))
+}
+
+/** A folder instruction as Assistant settings lists it. `name` is the basename, which the
+ * folder tree shows under the folder that holds it. */
+export type FolderInstructionRow = FolderInstruction & { name: string; canWrite: boolean }
+
+/** `user` is the account the workspace is browsed as: it decides which rows offer Edit. */
+export async function listFolderInstructionRows(
+	workspace: string,
+	user: UserExt | undefined
+): Promise<FolderInstructionRow[]> {
+	const caps = capabilitiesIn(
+		user,
+		get(userWorkspaces).find((w) => w.id === workspace)
+	)
+	const resources = await listInstructionResources(workspace)
+	return resources.map((r) => ({
+		path: r.path,
+		scope: folderInstructionScope(r.path),
+		name: r.path.split('/').pop() ?? r.path,
+		canWrite: canEditItem('resource', r.path, r.extra_perms, user, caps)
+	}))
+}
+
+export async function saveFolderInstruction(
+	workspace: string,
+	path: string,
+	content: string,
+	{ create = false }: { create?: boolean } = {}
+): Promise<void> {
+	if (create) {
+		await ResourceService.createResource({
+			workspace,
+			requestBody: {
+				path,
+				value: { content },
+				resource_type: FOLDER_INSTRUCTIONS_RESOURCE_TYPE
+			}
+		})
+	} else {
+		await ResourceService.updateResource({ workspace, path, requestBody: { value: { content } } })
+	}
 }
 
 /** Workspace paths a tool call names: every string argument called `path` or

@@ -93,6 +93,16 @@
 			runtime
 		})
 	})
+	onMount(() => {
+		const manager = runtime.manager
+		// What the tree's folder badges count. The send path loads these, and Home has not sent.
+		if (!manager.loading && !manager.sendInFlight) {
+			void manager.refreshGlobalIdentity()
+			void manager.refreshGlobalFolderInstructions()
+			void manager.refreshGlobalSkills()
+			void manager.refreshMcpServers()
+		}
+	})
 </script>
 
 <!-- Until a config has loaded the chat reads "AI not configured" and would flash its disabled

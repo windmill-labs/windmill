@@ -221,6 +221,12 @@ export function scopeBadge(option: ScopeOption): string {
 	].join(' · ')
 }
 
+/** How a folder's instructions and skills reach the AI, in the one wording the picker and the
+ * tree badge share. */
+export function scopeRule(root: string): string {
+	return `Working in ${root} puts its instructions in the AI's prompt and keeps its skills on; skills from other folders are off. Outside it, the AI gets a folder's instructions the first time it touches that folder.`
+}
+
 export type ScopeKind = 'workspace' | 'none' | 'folder' | 'user_space' | 'several'
 export type ScopeSource = 'default' | 'preset' | 'manual'
 

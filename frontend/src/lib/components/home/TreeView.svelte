@@ -7,6 +7,7 @@
 	import { userStore } from '$lib/stores'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import TreeOwnerRow from './TreeOwnerRow.svelte'
+	import HomeFolderBadge from './HomeFolderBadge.svelte'
 	import PipelineRow from '../common/table/PipelineRow.svelte'
 	import Item from './Item.svelte'
 	import { countLeaves, type FolderItem, type ItemType, type UserItem } from './treeViewUtils'
@@ -98,6 +99,14 @@
 	const isFolderItem = (i: typeof item): i is FolderItem => i && 'folderName' in i
 	const isFolder = isFolderItem
 	const isUser = (i: typeof item): i is UserItem => i && 'username' in i
+	// A nested folder row is a path inside its parent's root, which carries the badge.
+	const badgeRoot = $derived(
+		isUser(item)
+			? `u/${item.username}`
+			: isFolder(item) && depth === 0
+				? `f/${item.folderName}`
+				: undefined
+	)
 
 	// Hidden while searching: pipelines aren't part of the text filter (the list
 	// view hides their rows on a query too), so a folder matching the search
@@ -276,6 +285,12 @@
 	}
 </script>
 
+{#snippet folderBadge()}
+	{#if badgeRoot}
+		<HomeFolderBadge root={badgeRoot} />
+	{/if}
+{/snippet}
+
 {#snippet manageFolderMenu()}
 	{#if isFolder(item)}
 		{@const folderName = item.folderName}
@@ -308,6 +323,7 @@
 			onToggle={toggleOwner}
 			indent={visualDepth * 16}
 			actions={onManageFolder && depth === 0 && isFolder(item) ? manageFolderMenu : undefined}
+			trailing={badgeRoot ? folderBadge : undefined}
 		>
 			{#snippet detail()}
 				{#if ownerCount != undefined}

@@ -239,9 +239,9 @@ callers that already know which section they mean, such as the "+" menu's Manage
 
 		<div class="grow min-w-0 flex flex-col min-h-0">
 			<!-- Every section stays mounted while the modal is open: the sidebar badges
-			     count what each one loaded, so hiding is display-only. Tools, Skills and MCP
-			     own their own scrolling — each is a list and a detail page laid over each
-			     other — so only Instructions scrolls here. -->
+			     count what each one loaded, so hiding is display-only. Tools, Skills,
+			     Instructions and MCP own their own scrolling — each is a list and a detail page
+			     laid over each other — so only Files and Permissions scroll here. -->
 			<div class="{section === 'tools' ? 'flex' : 'hidden'} grow min-h-0 flex-col overflow-hidden">
 				<AssistantToolsSection
 					{tools}
@@ -261,7 +261,9 @@ callers that already know which section they mean, such as the "+" menu's Manage
 				/>
 			</div>
 			<div
-				class="{section === 'instructions' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2"
+				class="{section === 'instructions'
+					? 'flex'
+					: 'hidden'} grow min-h-0 flex-col overflow-hidden"
 			>
 				<AssistantInstructionsSection
 					{ws}
