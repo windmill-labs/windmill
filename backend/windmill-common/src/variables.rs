@@ -42,45 +42,6 @@ pub fn untrusted_arg_interpolates(arg: &str) -> bool {
     may_reference(arg) && decoded(arg).map_or(true, |v| interpolates(&v))
 }
 
-/// The `$var:`, `$jsonvar:` and `$res:` references in `v`, keys included and at any depth, for a
-/// caller to resolve each with its own rights. `None` when `v` holds one no caller's rights can
-/// vouch for: an `$encrypted:` value, a `$WM_*` name, or a reference inside a longer string, which
-/// a later step could cut out.
-pub fn checkable_references(v: &serde_json::Value) -> Option<Vec<&str>> {
-    fn collect<'a>(s: &'a str, refs: &mut Vec<&'a str>) -> bool {
-        if reserved(s).is_some() {
-            return false;
-        }
-        match RE_RES_VAR.find_iter(s).count() {
-            0 => true,
-            1 if ["$var:", "$jsonvar:", "$res:"]
-                .iter()
-                .any(|p| s.starts_with(p)) =>
-            {
-                refs.push(s);
-                true
-            }
-            _ => false,
-        }
-    }
-    fn walk<'a>(v: &'a serde_json::Value, refs: &mut Vec<&'a str>) -> bool {
-        match v {
-            serde_json::Value::String(s) => collect(s, refs),
-            serde_json::Value::Array(a) => a.iter().all(|v| walk(v, refs)),
-            serde_json::Value::Object(m) => {
-                m.iter().all(|(k, v)| collect(k, refs) && walk(v, refs))
-            }
-            _ => true,
-        }
-    }
-    let mut refs = vec![];
-    walk(v, &mut refs).then(|| {
-        refs.sort_unstable();
-        refs.dedup();
-        refs
-    })
-}
-
 /// `args`, which an untrusted user controls on a job that runs as someone else, with every one the
 /// worker would interpolate rewritten so it no longer is. The others keep their exact text.
 pub fn omit_untrusted_interpolation(
