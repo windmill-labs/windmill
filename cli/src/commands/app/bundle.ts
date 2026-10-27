@@ -310,7 +310,9 @@ export function findSharedUiDir(appDir: string): string | undefined {
  * (two Reacts break hooks at runtime).
  */
 export function createSharedUiPlugin(sharedUiDir: string, appDir: string): any {
-  const uiPrefix = path.resolve(sharedUiDir) + path.sep;
+  // Real paths throughout: esbuild follows symlinks for relative imports, so a
+  // symlinked ui/ would otherwise give its files two different prefixes.
+  const uiPrefix = fs.realpathSync(sharedUiDir) + path.sep;
   const resolveDir = path.resolve(appDir);
   return {
     name: "wmill-shared-ui",
@@ -332,7 +334,7 @@ export function createSharedUiPlugin(sharedUiDir: string, appDir: string): any {
         for (const c of candidates) {
           const full = path.join(sharedUiDir, c);
           if (fs.existsSync(full)) {
-            return { path: full };
+            return { path: fs.realpathSync(full) };
           }
         }
         return {

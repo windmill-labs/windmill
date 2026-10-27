@@ -22,7 +22,11 @@ beforeAll(() => {
   originalCwd = process.cwd();
   root = fs.mkdtempSync(path.join(os.tmpdir(), "raw-app-shared-ui-"));
   write("wmill.yaml", "defaultTs: bun\n");
-  write("ui/button.ts", `import { who } from "pkg";\nexport const label = who;\n`);
+  // ui/ as a symlink, with the bare import one relative hop away: esbuild reaches
+  // inner.ts by its real path, not through the link.
+  write("shared/button.ts", `export { label } from "./inner";\n`);
+  write("shared/inner.ts", `import { who } from "pkg";\nexport const label = who;\n`);
+  fs.symlinkSync(path.join(root, "shared"), path.join(root, "ui"));
   write("f/demo.raw_app/package.json", `{"name":"demo"}`);
   write("f/demo.raw_app/index.tsx", `import { label } from "/ui/button";\nconsole.log(label);\n`);
   write("f/demo.raw_app/node_modules/pkg/index.js", `export const who = "from-app";\n`);
