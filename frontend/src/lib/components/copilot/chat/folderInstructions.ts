@@ -89,6 +89,8 @@ export function instructionsCovering(
 export type FolderInstructionsContext = {
 	list: () => readonly FolderInstruction[]
 	deliveredBy: Map<string, FolderInstructionsDelivery>
+	/** The ones the system prompt carries, the scoped folder's: never delivered again. */
+	inPrompt?: () => readonly string[]
 }
 
 /** Keyed by workspace too: the chat keeps its conversation across a switch of
@@ -139,7 +141,10 @@ export async function pendingFolderInstructions(
 	const paths = workspacePathsInArgs(args)
 	if (paths.length === 0) return undefined
 	const { read, thisBatch } = deliveredIn(ctx, messages, workspace)
-	const pending = instructionsCovering(ctx.list(), paths).filter((i) => !read.has(i.path))
+	const inPrompt = new Set(ctx.inPrompt?.() ?? [])
+	const pending = instructionsCovering(ctx.list(), paths).filter(
+		(i) => !read.has(i.path) && !inPrompt.has(i.path)
+	)
 	const inBatch = pending.filter((i) => thisBatch.has(i.path))
 	const blocks = (
 		await Promise.all(

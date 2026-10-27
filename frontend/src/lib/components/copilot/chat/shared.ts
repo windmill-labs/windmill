@@ -64,6 +64,16 @@ import { logFeatureUsage, logHubScriptPick } from '$lib/utils/featureUsage'
 import { forLater } from '$lib/forLater'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
+import {
+	isRunTool,
+	ownerRoot,
+	scopeAllowedNote,
+	scopeStoppedResult,
+	scopeVerb,
+	writtenPaths,
+	type ScopeDecision,
+	type WorkingScope
+} from './workingScope'
 import type { editor as meditor } from 'monaco-editor'
 import { pendingFolderInstructions, type FolderInstructionsContext } from './folderInstructions'
 import type { WebSearchSource } from './webSearchResult'
@@ -503,6 +513,8 @@ export type UserDisplayMessage = BaseDisplayMessage & {
 	// The client authored this turn itself (background-job auto-resume), not the
 	// user — ArrowUp recall must skip it.
 	synthetic?: boolean
+	// The scope the turn was sent in, `null` for the whole workspace; absent outside sessions.
+	workingIn?: string[] | null
 }
 
 export type CreatedResourceTriggerKind =
@@ -711,6 +723,17 @@ export type ToolDisplayMessage = {
 	blockedByPlanMode?: boolean
 	/** Held back until the model has read the folder instructions it was handed. */
 	heldForFolderInstructions?: boolean
+	/** A change or run in a folder that is not a working folder, stopped for the user to allow.
+	 * `decision` is set once they answer. */
+	/** `scope` is the scope as copy reads it: `f/a` or `f/a and f/b`. */
+	outOfScope?: {
+		path: string
+		/** The owner root of `path`, which "Allow writes in" adds. */
+		root: string
+		scope: string
+		verb: string
+		decision?: ScopeDecision
+	}
 	/** The user declined: the reject button, a Stop, or a posture switch. Set only there, so
 	 * a decision is distinguishable from every other way a call errors. */
 	declinedByUser?: boolean
@@ -823,7 +846,10 @@ export function pendingUserActionDetail(
 		if (isActiveRunForm(message)) {
 			return { action: 'confirmation', toolCallId: message.tool_call_id }
 		}
-		if (message.needsConfirmation && message.isLoading) {
+		if (
+			(message.needsConfirmation || (message.outOfScope && !message.outOfScope.decision)) &&
+			message.isLoading
+		) {
 			return { action: 'confirmation', toolCallId: message.tool_call_id }
 		}
 	}
@@ -1126,6 +1152,58 @@ export async function processToolCall<T>({
 			}
 		}
 
+		// Not a confirmation: YOLO never answers it, since the scope is a boundary the user set.
+		// Runs are the autonomy setting's alone. After the instructions hold, which sends the
+		// call back for a retry: asked before it, the user would answer twice.
+		const workingScope = toolCallbacks.workingScope
+		const writes =
+			!!tool &&
+			tool.planModeSafe !== true &&
+			!tool.viewOnly &&
+			!isRunTool(tool.def.function.name)
+		const scope = writes ? workingScope?.scope() : undefined
+		const outsidePath = scope?.outsidePath(args)
+		let scopeNote = ''
+		if (outsidePath && scope?.roots && workingScope && tool) {
+			const outOfScope = {
+				path: outsidePath,
+				// Always set: a path no owner root covers is never outside a scope.
+				root: ownerRoot(outsidePath) ?? outsidePath,
+				scope: scope.label,
+				verb: scopeVerb(tool.def.function.name)
+			}
+			toolCallbacks.setToolStatus(toolCall.id, {
+				parameters: args,
+				isLoading: true,
+				isQueued: false,
+				isStreamingArguments: false,
+				needsConfirmation: false,
+				outOfScope,
+				showDetails: tool.showDetails,
+				autoCollapseDetails: tool.autoCollapseDetails
+			})
+			const decision = await workingScope.requestDecision(toolCall.id)
+			if (!decision) {
+				logToolOutcome('declined')
+				toolCallbacks.setToolStatus(toolCall.id, {
+					content: `Stopped: ${outsidePath} is outside ${scope.label}`,
+					isLoading: false,
+					error: 'Nothing was changed.',
+					declinedByUser: true
+				})
+				return {
+					role: 'tool' as const,
+					tool_call_id: toolCall.id,
+					content: scopeStoppedResult(outsidePath, scope.label)
+				}
+			}
+			toolCallbacks.setToolStatus(toolCall.id, { outOfScope: { ...outOfScope, decision } })
+			if (decision === 'add') workingScope.add(outOfScope.root)
+			scopeNote = scopeAllowedNote(outsidePath, outOfScope.root, scope.label, decision)
+			const postDecisionBlock = planModeBlock() ?? withdrawnBlock()
+			if (postDecisionBlock) return postDecisionBlock
+		}
+
 		const requiresConfirmation = tool?.requiresConfirmation === true
 		// By name: skipping the wait is itself an answer on the user's behalf, and one tool
 		// must not be answered for.
@@ -1214,6 +1292,7 @@ export async function processToolCall<T>({
 				toolId: toolCall.id
 			})
 			logToolOutcome(settledInsideTool ?? 'ok')
+			if (writes && !settledInsideTool) workingScope?.recordWrite(writtenPaths(args))
 			toolCallbacks.setToolStatus(toolCall.id, {
 				isLoading: false,
 				isStreamingArguments: false
@@ -1232,7 +1311,7 @@ export async function processToolCall<T>({
 		const toAdd = {
 			role: 'tool' as const,
 			tool_call_id: toolCall.id,
-			content: folderInstructions ? `${result}\n\n${folderInstructions.text}` : result
+			content: [result, scopeNote, folderInstructions?.text].filter(Boolean).join('\n\n')
 		}
 		return toAdd
 	} catch (err) {
@@ -1312,6 +1391,9 @@ export interface Tool<T> {
 	schemaFor?: (helpers: any) => Promise<ChatCompletionFunctionTool>
 	/** Safe to run while plan mode is active. Absence fails closed. */
 	planModeSafe?: boolean
+	/** Shows an item without changing or running it, though not `planModeSafe`: working
+	 * folders never hold it, so the AI can show what it reads in any folder. */
+	viewOnly?: boolean
 	/** The arguments a plan-mode-safe tool still refuses while the posture holds — for a tool
 	 * that is admissible in general but not on every target. Consulted only once `planModeSafe`
 	 * is true. */
@@ -1477,6 +1559,16 @@ export interface ToolCallbacks {
 	onReasoningStart?: () => void
 	requestConfirmation?: (toolId: string, toolName?: string) => Promise<boolean>
 	shouldAutoAcceptToolConfirmations?: (toolName?: string) => boolean
+	/** The session's scope. Wired by session chats only. */
+	workingScope?: {
+		scope: () => WorkingScope | undefined
+		/** Parks the call on the card until the user answers; a Stop resolves undefined. */
+		requestDecision: (toolId: string) => Promise<ScopeDecision | undefined>
+		/** Allows writes in one more root, the running turn included. */
+		add: (root: string) => void
+		/** Counts a write that went through, for the folders-written counter. */
+		recordWrite: (paths: readonly string[]) => void
+	}
 	isPlanModeActive?: () => boolean
 	onToolBlockedByPlanMode?: () => void
 	/** Whether the session has stopped shipping this tool since the call was made, as a switch to

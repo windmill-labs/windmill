@@ -52,6 +52,7 @@
 	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import McpServerIcon from '$lib/components/mcp/McpServerIcon.svelte'
+	import OutOfScopeFooter from './OutOfScopeFooter.svelte'
 	import { resolveMcpServerMark } from '$lib/components/mcp/serverMark'
 
 	interface Props {
@@ -123,7 +124,14 @@
 
 	// Executing right now, as opposed to queued behind another tool or waiting on
 	// the user — the only state that gets the shimmer.
-	const isRunning = $derived(Boolean(message.isLoading && !message.needsConfirmation))
+	const pendingOutOfScope = $derived(
+		message.isLoading && message.outOfScope && !message.outOfScope.decision
+			? message.outOfScope
+			: undefined
+	)
+	const isRunning = $derived(
+		Boolean(message.isLoading && !message.needsConfirmation && !pendingOutOfScope)
+	)
 
 	// An errored tool must be expandable even if it never opted into details,
 	// otherwise the error set on its status would be invisible.
@@ -138,6 +146,7 @@
 	let toggled = $state<{ id: string | undefined; open: boolean } | undefined>(undefined)
 	const isExpanded = $derived(
 		Boolean(message.isLoading && message.needsConfirmation) ||
+			!!pendingOutOfScope ||
 			(toggled?.id === message.tool_call_id
 				? toggled.open
 				: Boolean(
@@ -356,7 +365,7 @@
 		class={message.isQueued && !message.error
 			? 'opacity-60 hover:opacity-100 transition-opacity'
 			: ''}
-		headerClass={message.needsConfirmation ? 'opacity-80' : ''}
+		headerClass={message.needsConfirmation || pendingOutOfScope ? 'opacity-80' : ''}
 		labelClass={showPreviewChip ? 'truncate' : ''}
 		contentClass="space-y-3"
 		headerRight={showPreviewChip ? previewChip : message.jobId ? jobLink : undefined}
@@ -376,8 +385,8 @@
 		{/snippet}
 
 		<!-- Parameters Section - show if we have parameters, or if confirmation is needed (even with empty params) -->
-		{#if hasParameters || message.needsConfirmation}
-			<div class={message.needsConfirmation ? 'opacity-80' : ''}>
+		{#if hasParameters || message.needsConfirmation || pendingOutOfScope}
+			<div class={message.needsConfirmation || pendingOutOfScope ? 'opacity-80' : ''}>
 				<ToolContentDisplay
 					title="Parameters"
 					content={message.parameters}
@@ -396,6 +405,14 @@
 				rejectDestructive
 				confirmLabel={confirmAction.label}
 				confirmIcon={confirmAction.icon}
+			/>
+		{:else if pendingOutOfScope}
+			<OutOfScopeFooter
+				toolCallId={message.tool_call_id}
+				path={pendingOutOfScope.path}
+				root={pendingOutOfScope.root}
+				scope={pendingOutOfScope.scope}
+				verb={pendingOutOfScope.verb}
 			/>
 
 			<!-- Logs and Result - hide while streaming -->
@@ -423,4 +440,13 @@
 			{/if}
 		{/if}
 	</ChatCollapsibleCard>
+{/if}
+
+<!-- An exception the user made stays on the record: the card itself is gone once answered. -->
+{#if message.outOfScope?.decision}
+	<p class="font-main text-2xs text-tertiary pl-1 pb-1">
+		{message.outOfScope.decision === 'once'
+			? `You allowed this ${message.outOfScope.verb} outside ${message.outOfScope.scope}.`
+			: `You allowed writes in ${message.outOfScope.root} for this session.`}
+	</p>
 {/if}

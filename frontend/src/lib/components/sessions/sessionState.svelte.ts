@@ -156,6 +156,11 @@ export type Session = {
 	previewSize?: number
 	// Use or Build, as the chat's mode picker last left it. Absent reads as Build.
 	workMode?: AIWorkMode.USE | AIWorkMode.BUILD
+	// The owner roots (`f/<folder>`, `u/<user>`) the AI changes items in, sorted. Empty: none,
+	// so every change asks. Absent: the whole workspace. Per browser, like workMode: the backup leaves it out.
+	workingIn?: string[]
+	// How the scope was set, for its usage counter. Absent: the default.
+	workingInSource?: 'preset' | 'manual'
 	// Unsent composer text for a pending (uncommitted) session, persisted with
 	// the record so each parallel draft restores its own typed-but-unsent prompt.
 	// Only tracked while unsent; cleared once the workspace commits at first send.
@@ -1346,6 +1351,21 @@ export function setSessionWorkMode(id: string, mode: AIWorkMode): void {
 	if (!s || (s.workMode ?? AIWorkMode.BUILD) === mode) return
 	s.workMode = mode
 	persistTouched(s)
+}
+
+/** Not a touch: picking a scope on Home's untouched draft must not keep it in the sidebar. */
+export function setSessionWorkingIn(
+	id: string,
+	roots: readonly string[] | undefined,
+	source: 'preset' | 'manual' | undefined
+): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	if (roots) s.workingIn = [...new Set(roots)].sort()
+	else delete s.workingIn
+	if (source) s.workingInSource = source
+	else delete s.workingInSource
+	if (!s.transient) void putSession(s)
 }
 
 export function selectSession(id: string) {

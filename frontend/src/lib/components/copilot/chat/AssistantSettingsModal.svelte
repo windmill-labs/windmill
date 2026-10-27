@@ -208,6 +208,11 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	{#snippet headerLeft()}
 		<p class="pl-3 pt-1 text-xs text-secondary truncate">
 			What the assistant can see and use in this session.
+			{#if aiChatManager.workingScope?.roots?.length === 0}
+				No folder selected: every change asks.
+			{:else if aiChatManager.workingScope?.roots}
+				Working in <span class="font-mono">{aiChatManager.workingScope.label}</span>.
+			{/if}
 		</p>
 	{/snippet}
 

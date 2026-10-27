@@ -700,6 +700,7 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	restartGeneration = () => {}
 	handleUserQuestionAnswer = () => false
 	handleToolConfirmation = () => {}
+	handleScopeDecision = () => {}
 	hasPendingRunForm = false
 	isRunFormPending = () => false
 

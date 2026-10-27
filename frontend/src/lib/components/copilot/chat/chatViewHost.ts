@@ -8,6 +8,7 @@ import type { AttachedBlob } from './blobUtils'
 import type { AttachedImage } from './imageUtils'
 import type { AttachedTextFile } from './textFileUtils'
 import type { PasteAttachment } from './pasteTokens'
+import type { ScopeDecision } from './workingScope'
 import type { AttachedFilesStore } from './files/attachedFiles.svelte'
 import type { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
@@ -110,6 +111,7 @@ export interface ChatViewHost {
 	) => void | Promise<void>
 	handleUserQuestionAnswer: (toolId: string, choices: string[]) => boolean
 	handleToolConfirmation: (toolId: string, confirmed: boolean) => void
+	handleScopeDecision: (toolId: string, decision: ScopeDecision) => void
 	/** A tool is waiting on a run form the user is filling in. Escape belongs to that form
 	 * then, not to the turn — see AIChatDisplay's window handler. */
 	readonly hasPendingRunForm: boolean

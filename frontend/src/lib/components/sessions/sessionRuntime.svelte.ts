@@ -63,6 +63,7 @@ import {
 	setDraftsDiscardedHandler,
 	setSendUnderWayCheck,
 	setSessionWorkMode,
+	setSessionWorkingIn,
 	type Session
 } from './sessionState.svelte'
 import {
@@ -437,6 +438,13 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.sessionId = session.id
 	manager.workMode = session.workMode ?? AIWorkMode.BUILD
 	manager.onWorkModeChanged = (mode) => setSessionWorkMode(session.id, mode)
+	manager.workingInResolver = () => {
+		const s = sessionState.sessions.find((x) => x.id === session.id)
+		// Read from the browser's store, so only a list counts.
+		const roots = Array.isArray(s?.workingIn) ? s.workingIn : undefined
+		return { roots, source: roots ? (s?.workingInSource ?? 'default') : 'default' }
+	}
+	manager.onWorkingInChanged = (roots, source) => setSessionWorkingIn(session.id, roots, source)
 	// Cross-tab awareness: heartbeat while this tab runs a turn, composer lock
 	// (and send refusal) while another tab does. The chat id is read at turn
 	// end, not captured at start — the turn may have rotated it, and the other

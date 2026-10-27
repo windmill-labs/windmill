@@ -114,6 +114,7 @@ function groupableCall(message: DisplayMessage): ToolDisplayMessage | undefined 
 	// row with its own card (run, question, diff, image, sources) is the content itself; a call
 	// held for folder instructions never ran, so it is not a change or a lookup.
 	if (message.needsConfirmation || message.blockedByPlanMode) return undefined
+	if (message.outOfScope && !message.outOfScope.decision) return undefined
 	if (message.heldForFolderInstructions) return undefined
 	if (message.runForm || message.inspectedRun || message.userQuestion) return undefined
 	// An app edit's diff covers one file of many, so it stays a row inside the app's group.

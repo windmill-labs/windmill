@@ -157,10 +157,21 @@ import {
 import { workModeSwitchTools } from './workModeSwitch'
 import { filterSessionTools, sessionToolAllowed } from './global/sessionToolset'
 import {
+	formatFolderInstructions,
+	instructionsCovering,
 	listFolderInstructions,
+	readFolderInstructionBody,
 	type FolderInstruction,
 	type FolderInstructionsDelivery
 } from './folderInstructions'
+import {
+	logWorkingScope,
+	ownerRoot,
+	scopeKind,
+	WorkingScope,
+	type ScopeDecision,
+	type ScopeSource
+} from './workingScope'
 import {
 	loadWorkspaceSkills,
 	resolveGlobalPromptIdentity,
@@ -913,6 +924,9 @@ export class AIChatManager implements ChatViewHost {
 		{ resolve: (value: boolean) => void; toolName?: string }
 	>()
 	private userQuestionCallbacks = new Map<string, (choices: string[] | undefined) => void>()
+	// Kept apart from confirmationCallbacks: YOLO answers those, and never answers these.
+	// Resolved undefined when the turn stops first.
+	private scopeCallbacks = new Map<string, (decision: ScopeDecision | undefined) => void>()
 	/**
 	 * One run form's whole life while it waits, so ending it is one delete and cannot end half
 	 * of it. Held here rather than in the form, which unmounts and remounts as it moves between
@@ -934,6 +948,96 @@ export class AIChatManager implements ChatViewHost {
 	// sessions modules — and re-read on every system-message rebuild; the send
 	// path rebuilds after beforeSend, so a fork committed there is picked up.
 	sessionContextResolver: (() => SessionPromptContext | undefined) | undefined = undefined
+	// The session's scope, read from its record (roots undefined for the whole workspace), and
+	// the write that stores a change the user makes. Same seam as above. Unset outside sessions,
+	// which always work in the whole workspace.
+	workingInResolver:
+		| (() => { roots: readonly string[] | undefined; source: ScopeSource })
+		| undefined = undefined
+	onWorkingInChanged:
+		| ((roots: readonly string[] | undefined, source: 'manual' | undefined) => void)
+		| undefined = undefined
+	/** The scope the picker shows: the session's, which the next turn takes. */
+	get workingIn(): readonly string[] | undefined {
+		return this.workingInResolver?.().roots
+	}
+	get supportsWorkingIn(): boolean {
+		return this.workingInResolver !== undefined
+	}
+	/** The scope the running turn took when it was sent: a change from the picker waits for the
+	 * next turn, so the prompt and the gate agree for the whole request. Undefined between turns. */
+	#turnScope: { roots: readonly string[] | undefined } | undefined = undefined
+	/** A pick in the picker; `fallback` for the scope dropped because the folder is not in the
+	 * workspace "Acting on" switched to, which leaves the default rather than a choice. */
+	setWorkingIn = (roots: readonly string[] | undefined, { fallback = false } = {}) => {
+		this.onWorkingInChanged?.(roots, fallback ? undefined : 'manual')
+		// Before the first send, that send counts the scope it goes out in.
+		if (this.#loggedScopeSet && !fallback) {
+			logWorkingScope(`scope:${scopeKind(roots)}:manual`, this.operatingWorkspace)
+		}
+		if (this.#turnScope) return
+		if (this.mode === AIMode.GLOBAL) {
+			void this.refreshGlobalFolderInstructions()
+			this.configureGlobalMode()
+		}
+	}
+	/** The card's "Allow writes in <root>": unlike the picker, it applies to the running turn. */
+	#addToScope = (root: string) => {
+		const roots = this.#turnScope ? this.#turnScope.roots : this.workingIn
+		if (!roots || roots.includes(root)) return
+		const next = [...roots, root]
+		this.onWorkingInChanged?.(next, 'manual')
+		if (this.#turnScope) this.#turnScope = { roots: next }
+	}
+	/** What a picker row badges: the instructions, skills and MCP servers under it. */
+	get scopeResources(): {
+		instructions: readonly { path: string }[]
+		skills: readonly { path: string }[]
+		mcpServers: readonly { path: string }[]
+	} {
+		return {
+			instructions: this.globalFolderInstructions,
+			skills: this.globalSkills,
+			mcpServers: this.mcpServers
+		}
+	}
+	get scopeIdentity(): GlobalPromptIdentity | undefined {
+		return this.globalIdentity
+	}
+	// Use writes nothing, so a scope there would only narrow listing and swap skills without
+	// guarding anything: the session works as if no folder were picked.
+	#workingScope = (): WorkingScope | undefined =>
+		this.mode === AIMode.GLOBAL && this.workingInResolver && !this.useModeActive
+			? new WorkingScope(
+					this.#turnScope ? this.#turnScope.roots : this.workingIn,
+					this.globalIdentity
+				)
+			: undefined
+	/** The scope in force: the running turn's, else the one the next turn takes. */
+	get workingScope(): WorkingScope | undefined {
+		return this.#workingScope()
+	}
+	// Skills saved in other folders are suspended while scoped, from every way in: the prompt's
+	// list, the `/` picker and a typed `/name`. read_skill refuses them on its own.
+	#loadedSkills = (): AiSkillListItem[] => {
+		const scope = this.#workingScope()
+		return scope ? this.globalSkills.filter((s) => scope.loadsSkill(s.path)) : this.globalSkills
+	}
+	/** The scoped folders' instructions, formatted for the system prompt, and the paths they
+	 * carry, which first-touch delivery then skips. `scope` is the label they were read for. */
+	#scopeInstructions: { scope: string; workspace: string; text: string; paths: string[] } | undefined =
+		undefined
+	/** Folders a whole-workspace session wrote to, for the `written:` counter. */
+	#writtenRoots = new Set<string>()
+	#loggedScopeSet = false
+	/** The scoped folders' instructions, while they were read for the scope and workspace in
+	 * force: a scope changed since keeps none until the next refresh rather than the old ones. */
+	#currentScopeInstructions = (scope = this.#workingScope()) => {
+		const held = this.#scopeInstructions
+		return held && held.scope === scope?.label && held.workspace === (this.operatingWorkspace ?? '')
+			? held
+			: undefined
+	}
 	// Whether another tab is running a turn on this session right now (sessions
 	// wiring, same seam as above). The composer locks on it, and sendRequest
 	// refuses on it — the refusal covers the send already in flight when the
@@ -1497,7 +1601,7 @@ export class AIChatManager implements ChatViewHost {
 	// The `ai_instruction` resources readable in the operating workspace, loaded
 	// alongside skills. The prompt names their folders; the tool loop delivers each
 	// one's body the first time a call touches its folder, recording which call did.
-	private globalFolderInstructions: FolderInstruction[] = []
+	private globalFolderInstructions = $state<FolderInstruction[]>([])
 	private globalFolderInstructionsRefreshId = 0
 	private folderInstructionsDeliveredBy = new Map<string, FolderInstructionsDelivery>()
 
@@ -1538,7 +1642,7 @@ export class AIChatManager implements ChatViewHost {
 	// those by path and the submit path declines to guess between them.
 	sessionCommands: ChatCommandItem[] = $derived([
 		...this.sessionBuiltinCommands,
-		...this.globalSkills
+		...this.#loadedSkills()
 			.filter((s) => !this.sessionBuiltinCommands.some((b) => b.name === s.name))
 			.map((s) => ({ ...s, kind: 'skill' as const }))
 	])
@@ -2046,6 +2150,33 @@ export class AIChatManager implements ChatViewHost {
 		return new Promise((resolve) => {
 			this.confirmationCallbacks.set(toolId, { resolve, toolName })
 		})
+	}
+
+	requestScopeDecision = (toolId: string): Promise<ScopeDecision | undefined> =>
+		new Promise((resolve) => {
+			this.scopeCallbacks.set(toolId, resolve)
+		})
+
+	handleScopeDecision = (toolId: string, decision: ScopeDecision) => {
+		const resolve = this.scopeCallbacks.get(toolId)
+		if (!resolve) return
+		this.scopeCallbacks.delete(toolId)
+		logWorkingScope(`block:${decision}`, this.operatingWorkspace)
+		resolve(decision)
+	}
+
+	/** Counts the folders a whole-workspace session's AI writes to: `1` on its first, `2+` on
+	 * its second, which is where a one-folder scope would have got in the way. */
+	#recordWrite = (paths: readonly string[]) => {
+		if (!this.workingInResolver || this.#workingScope()?.roots) return
+		const before = this.#writtenRoots.size
+		for (const path of paths) {
+			const root = ownerRoot(path)
+			if (root) this.#writtenRoots.add(root)
+		}
+		const after = this.#writtenRoots.size
+		if (before === 0 && after >= 1) logWorkingScope('written:1', this.operatingWorkspace)
+		if (before < 2 && after >= 2) logWorkingScope('written:2+', this.operatingWorkspace)
 	}
 
 	// Handle confirmation response for a specific tool
@@ -2802,16 +2933,21 @@ export class AIChatManager implements ChatViewHost {
 		this.syncArtifactsSession()
 	}
 
-	private globalAssemblyOpts = (): GlobalAssemblyOpts => ({
-		previewTools: this.isSessionChat,
-		user: this.globalIdentity,
-		skills: this.globalSkills,
-		folderInstructions: this.globalFolderInstructions,
-		mcpServers: this.mcpServers,
-		access: this.#toolAccess,
-		sessionContext: this.#sessionPromptContext(),
-		pipelineFolders: this.#pipelineFolders()
-	})
+	private globalAssemblyOpts = (): GlobalAssemblyOpts => {
+		const workingScope = this.#workingScope()
+		return {
+			previewTools: this.isSessionChat,
+			user: this.globalIdentity,
+			skills: this.#loadedSkills(),
+			folderInstructions: this.globalFolderInstructions,
+			mcpServers: this.mcpServers,
+			workingScope,
+			scopeInstructions: this.#currentScopeInstructions(workingScope)?.text,
+			access: this.#toolAccess,
+			sessionContext: this.#sessionPromptContext(),
+			pipelineFolders: this.#pipelineFolders()
+		}
+	}
 
 	#sessionPromptContext = (): SessionPromptContext | undefined => {
 		const ctx = this.sessionContextResolver?.()
@@ -2854,6 +2990,34 @@ export class AIChatManager implements ChatViewHost {
 		}
 		this.globalFolderInstructions =
 			workspace === (this.operatingWorkspace ?? '') ? instructions : []
+		const scope = this.#workingScope()
+		const covering = scope?.roots
+			? instructionsCovering(this.globalFolderInstructions, scope.roots)
+			: []
+		const blocks = (
+			await Promise.all(
+				covering.map(async (instruction) => {
+					try {
+						return { instruction, body: await readFolderInstructionBody(workspace, instruction.path) }
+					} catch (e) {
+						console.error(`Failed to read folder instructions ${instruction.path}`, e)
+						return undefined
+					}
+				})
+			)
+		).filter((b) => b !== undefined)
+		if (refreshId !== this.globalFolderInstructionsRefreshId) {
+			return
+		}
+		this.#scopeInstructions =
+			scope?.roots && blocks.length
+				? {
+						scope: scope.label,
+						workspace,
+						text: formatFolderInstructions(blocks),
+						paths: blocks.map((b) => b.instruction.path)
+					}
+				: undefined
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 		}
@@ -2958,8 +3122,9 @@ export class AIChatManager implements ChatViewHost {
 		}
 		// A path identifies one skill; a name shared by two would otherwise silently
 		// apply instructions the user did not choose, so it is left unexpanded.
-		const byPath = this.globalSkills.find((s) => s.path === match[1])
-		const matches = byPath ? [byPath] : this.globalSkills.filter((s) => s.name === match[1])
+		const skills = this.#loadedSkills()
+		const byPath = skills.find((s) => s.path === match[1])
+		const matches = byPath ? [byPath] : skills.filter((s) => s.name === match[1])
 		if (matches.length !== 1) {
 			return instructions
 		}
@@ -3891,6 +4056,11 @@ export class AIChatManager implements ChatViewHost {
 		// controller here that abort would hit nothing and the request would still fire
 		// once the pre-flight resolves; the pre-flight-cancel check after beforeSend honours it.
 		this.abortController = new AbortController()
+		// Taken once, with the message: the bubble records the scope it was sent in, and the
+		// prompt and gate keep it for the whole turn.
+		const sentScope =
+			this.mode === AIMode.GLOBAL && !this.useModeActive ? this.workingInResolver?.() : undefined
+		if (sentScope) this.#turnScope = { roots: sentScope.roots }
 		this.displayMessages = [
 			...this.displayMessages,
 			{
@@ -3902,6 +4072,7 @@ export class AIChatManager implements ChatViewHost {
 				images: images.length > 0 ? images : undefined,
 				files: files.length > 0 ? files : undefined,
 				synthetic: options.synthetic ? true : undefined,
+				workingIn: sentScope ? (sentScope.roots ? [...sentScope.roots] : null) : undefined,
 				index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 			}
 		]
@@ -3915,6 +4086,7 @@ export class AIChatManager implements ChatViewHost {
 			this.displayMessages = this.displayMessages.filter((_, i) => i !== optimisticIndex)
 			this.loading = false
 			this.loadingLabel = undefined
+			this.#turnScope = undefined
 		}
 		if (this.beforeSend) {
 			try {
@@ -3954,6 +4126,13 @@ export class AIChatManager implements ChatViewHost {
 		// keeps the prompt — the cached prefix of every iteration — stable for the whole
 		// request.
 		if (this.mode === AIMode.GLOBAL) {
+			if (sentScope && !this.#loggedScopeSet) {
+				this.#loggedScopeSet = true
+				logWorkingScope(
+					`scope:${scopeKind(sentScope.roots)}:${sentScope.source}`,
+					this.operatingWorkspace
+				)
+			}
 			await Promise.all([
 				this.refreshGlobalIdentity(this.operatingWorkspace ?? ''),
 				this.refreshGlobalSkills(this.operatingWorkspace ?? ''),
@@ -4404,7 +4583,14 @@ export class AIChatManager implements ChatViewHost {
 								onJobDetached: (jobId) => this.markJobDetached(jobId),
 								folderInstructions: {
 									list: () => this.globalFolderInstructions,
-									deliveredBy: this.folderInstructionsDeliveredBy
+									deliveredBy: this.folderInstructionsDeliveredBy,
+									inPrompt: () => this.#currentScopeInstructions()?.paths ?? []
+								},
+								workingScope: {
+									scope: this.#workingScope,
+									requestDecision: this.requestScopeDecision,
+									add: this.#addToScope,
+									recordWrite: this.#recordWrite
 								}
 							}
 						: {}),
@@ -4666,6 +4852,7 @@ export class AIChatManager implements ChatViewHost {
 			sendUserToast(getSendRequestErrorMessage(err, webSearchUnavailable), true)
 		} finally {
 			this.loading = false
+			this.#turnScope = undefined
 			// Backstop for the paths that leave the try without reaching either call
 			// above (a pre-flight throw, an aborted compaction).
 			stopCheckpoints()
@@ -4720,6 +4907,11 @@ export class AIChatManager implements ChatViewHost {
 			resolve(false)
 		}
 		this.confirmationCallbacks.clear()
+		for (const resolve of this.scopeCallbacks.values()) {
+			logWorkingScope('block:none', this.operatingWorkspace)
+			resolve(undefined)
+		}
+		this.scopeCallbacks.clear()
 		for (const resolveQuestion of this.userQuestionCallbacks.values()) {
 			resolveQuestion(undefined)
 		}

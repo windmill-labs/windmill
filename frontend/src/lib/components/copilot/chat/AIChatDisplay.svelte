@@ -35,6 +35,8 @@
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
 	import ScrollFade from '$lib/components/ScrollFade.svelte'
 	import AssistantSettingsModal from './AssistantSettingsModal.svelte'
+	import WorkingInPicker from './WorkingInPicker.svelte'
+	import { scopeLabel } from './workingScope'
 	import { SkillsMenu } from './skills/skillsMenu.svelte'
 	import { McpMenu } from '$lib/components/mcp/mcpMenu.svelte'
 	import ChatMode from './ChatMode.svelte'
@@ -646,6 +648,31 @@
 
 	const waitingForUserAction = $derived(chatHost.loading && !!pendingUserAction(messages))
 
+	// The out-of-scope card appears in the transcript without taking focus, so a screen reader
+	// hears about it from a live region that stays mounted and changes its text.
+	const outOfScopeAnnouncement = $derived.by(() => {
+		const held = [...messages]
+			.reverse()
+			.find((m) => m.role === 'tool' && m.isLoading && m.outOfScope && !m.outOfScope.decision)
+		if (held?.role !== 'tool' || !held.outOfScope) return ''
+		const { path, scope, verb } = held.outOfScope
+		return `This would ${verb} ${path}, outside ${scope}. Allow once, or allow writes in ${held.outOfScope.root}.`
+	})
+
+	// The turns sent in another scope than the turn before, with the scope they took.
+	const scopeChanges = $derived.by(() => {
+		const changes = new Map<number, string | null>()
+		let previous: string | undefined
+		messages.forEach((m, i) => {
+			// Read back from saved chats, so only a list or `null` counts.
+			if (m.role !== 'user' || (m.workingIn !== null && !Array.isArray(m.workingIn))) return
+			const label = m.workingIn ? scopeLabel(m.workingIn) : ''
+			if (previous !== undefined && label !== previous) changes.set(i, label || null)
+			previous = label
+		})
+		return changes
+	})
+
 	// Gated on `loading` because a card restored from history still looks parked:
 	// its resolver left with the old page, so the composer must not advertise an
 	// answer it cannot deliver.
@@ -887,6 +914,13 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						isLast: boolean,
 						inGroup: boolean
 					)}
+						{#if scopeChanges.has(messageIndex)}
+							{@const root = scopeChanges.get(messageIndex)}
+							<p class="mt-4 text-center text-2xs text-tertiary">
+								Now working in {#if root}<span class="font-mono">{root}</span>{:else}the whole
+									workspace{/if}
+							</p>
+						{/if}
 						<AIChatMessage
 							{message}
 							{messageIndex}
@@ -948,6 +982,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							/>
 						</div>
 					{/if}
+					<div class="sr-only" role="status">{outOfScopeAnnouncement}</div>
 				</div>
 			</div>
 			<!-- Sits below the scroll-to-latest button, which carries z-10. -->
@@ -1071,6 +1106,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				{onSent}
 			>
 				{#snippet collapsedControls()}
+					{#if chatHost.mode === AIMode.GLOBAL}
+						<WorkingInPicker ws={aiChatManager.operatingWorkspace ?? ''} onlyWhenScoped />
+					{/if}
 					{#if chatHost.supportsModelSettings}
 						<AIChatModelSettings promptSettings={false} />
 					{/if}
@@ -1313,6 +1351,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 											</div>
 										{/snippet}
 									</Tooltip>
+								{/if}
+								{#if chatHost.mode === AIMode.GLOBAL}
+									<WorkingInPicker ws={aiChatManager.operatingWorkspace ?? ''} />
 								{/if}
 								{#if chatHost.mode === AIMode.SCRIPT && hasDiff && !disabled}
 									<ChatQuickActions {askAi} {diffMode} />
