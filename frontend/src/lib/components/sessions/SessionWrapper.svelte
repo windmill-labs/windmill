@@ -540,13 +540,20 @@
 			return
 		}
 		moving = true
-		if (runtime) runtime.manager.moving = true
 		const releaseAutoResume = runtime?.manager.holdAutoResume()
 		// Bracketed like a turn, so another tab on this session cannot send while its drafts
 		// move, then re-reads the session (its new workspace, the model note) once it ends.
 		const chatId = runtime?.manager.historyManager.getCurrentChatId()
 		if (chatId) localRunStarted(session.id, chatId)
 		try {
+			// Closing the draft editors drops what they have not handed to their save yet, so they
+			// are drained while still mounted, then closed with no await in between.
+			const unsaved = await flushPendingSaves(req.parent)
+			if (unsaved) {
+				moveRequest = { ...req, open: true, error: unsaved }
+				return
+			}
+			if (runtime) runtime.manager.moving = true
 			// A turn that ran while the dialog was open (a job's auto-resume, another tab) may have
 			// added drafts the list does not show, and the conflicts listed may have been discarded
 			// since. Now that no turn can start, both are re-read.
