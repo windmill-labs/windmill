@@ -1645,12 +1645,14 @@
   }
 
   // A few long lines can still overflow a clipped block: it is cut, and opens whole. Wrapping
-  // depends on the width, so a narrower card checks again.
+  // depends on the width, so a resized card checks again. `wrap-cut` marks the blocks cut here,
+  // which a wider card uncuts; a block cut by its line count stays cut.
   function markItemCuts() {
-    for (const pre of $('body').querySelectorAll('pre.clip:not(.cut)')) {
-      if (pre.scrollHeight <= pre.clientHeight + 1 || !canFullscreen()) continue;
-      pre.classList.add('cut');
-      pre.addEventListener('click', () => setDisplayMode('fullscreen'));
+    for (const pre of $('body').querySelectorAll('pre.clip:not(.cut), pre.wrap-cut')) {
+      const cut = pre.scrollHeight > pre.clientHeight + 1 && canFullscreen();
+      pre.classList.toggle('cut', cut);
+      pre.classList.toggle('wrap-cut', cut);
+      pre.onclick = cut ? () => setDisplayMode('fullscreen') : null;
     }
     // Offered when fullscreen shows more than this: a cut list, value or code block, a section.
     showExpand(valueCut || !!$('body').querySelector('.more-line:not(.mono), .cut'));
