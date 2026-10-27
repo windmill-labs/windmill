@@ -5,7 +5,10 @@ import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { invalidateWorkspaceDiffCache } from '$lib/components/copilot/chat/global/diffSnapshot'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
-import { flushAllPendingEditorChanges } from '$lib/components/pendingEditorFlush'
+import {
+	anyEditorUnparseable,
+	flushAllPendingEditorChanges
+} from '$lib/components/pendingEditorFlush'
 import { flushEditorSaves } from './useUserDraftSync.svelte'
 import {
 	materializeForkOutcome,
@@ -44,6 +47,10 @@ export type MoveSessionResult =
  */
 export async function flushPendingSaves(workspace: string): Promise<string | undefined> {
 	flushAllPendingEditorChanges()
+	// Text that does not parse never reaches the draft, and the move closes the editor holding it.
+	if (anyEditorUnparseable()) {
+		return 'An editor has changes that are not valid JSON. Fix them before moving.'
+	}
 	await tick()
 	flushEditorSaves(workspace)
 	await tick()
