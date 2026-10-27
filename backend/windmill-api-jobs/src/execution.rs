@@ -871,8 +871,13 @@ pub async fn delete_flow_result_after_read(db: &DB, job_uuid: Uuid) -> Result<()
                 delete_job_metadata_after_use(db, job_uuid).await?;
                 if let Some(early_return) = flow_value.early_return.as_deref() {
                     sqlx::query!(
-                        "UPDATE v2_job_completed SET result = '{}'::jsonb
-                        WHERE id IN (SELECT id FROM v2_job WHERE parent_job = $1 AND flow_step_id = $2)",
+                        "WITH RECURSIVE run AS (
+                            SELECT id, flow_step_id FROM v2_job WHERE parent_job = $1
+                            UNION ALL
+                            SELECT j.id, j.flow_step_id FROM v2_job j JOIN run r ON j.parent_job = r.id
+                        )
+                        UPDATE v2_job_completed SET result = '{}'::jsonb
+                        WHERE id IN (SELECT id FROM run WHERE flow_step_id = $2)",
                         job_uuid,
                         early_return,
                     )

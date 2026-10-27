@@ -2189,13 +2189,16 @@ async fn delete_flow_run_data(
 ) -> error::Result<()> {
     // Walks parent_job rather than reading root_job: root_job is stored NULL whenever it
     // equals the job's parent or innermost root, which is the case for most steps of a run.
+    // Only completed jobs: a step can leave a job it spawned through the SDK queued for later,
+    // and that job still needs its args.
     let run = sqlx::query!(
         r#"WITH RECURSIVE run AS (
-            SELECT id, parent_job, flow_step_id FROM v2_job WHERE parent_job = $1
+            SELECT id FROM v2_job WHERE parent_job = $1
             UNION ALL
-            SELECT j.id, j.parent_job, j.flow_step_id FROM v2_job j JOIN run r ON j.parent_job = r.id
+            SELECT j.id FROM v2_job j JOIN run r ON j.parent_job = r.id
         )
-        SELECT id AS "id!", parent_job, flow_step_id FROM run"#,
+        SELECT j.id AS "id!", j.flow_step_id
+        FROM run JOIN v2_job j USING (id) JOIN v2_job_completed c USING (id)"#,
         flow_job.id
     )
     .fetch_all(db)
@@ -2209,13 +2212,10 @@ async fn delete_flow_run_data(
     all_ids.push(flow_job.id);
     // A synchronous caller of an early-return flow reads the early-return node's result,
     // possibly after the flow has completed; it clears that result once read, like the flow's.
+    // The node can sit at any depth, inside a branch for instance.
     let result_ids: Vec<Uuid> = run
         .iter()
-        .filter(|j| {
-            j.parent_job != Some(flow_job.id)
-                || early_return.is_none()
-                || j.flow_step_id.as_deref() != early_return
-        })
+        .filter(|j| early_return.is_none() || j.flow_step_id.as_deref() != early_return)
         .map(|j| j.id)
         .collect();
 

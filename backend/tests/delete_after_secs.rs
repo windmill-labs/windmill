@@ -99,11 +99,20 @@ async fn test_schedule_job_deletion_is_idempotent(db: Pool<Postgres>) -> anyhow:
 const FLOW_PATH: &str = "u/test-user/delete_after_use_flow";
 #[cfg(feature = "enterprise")]
 const FLOW_VERSION: i64 = 8_812_004;
+#[cfg(feature = "enterprise")]
+const EARLY_RETURN_FLOW_PATH: &str = "u/test-user/delete_after_use_early_return_flow";
+#[cfg(feature = "enterprise")]
+const EARLY_RETURN_FLOW_VERSION: i64 = 8_812_005;
 
 /// A sequential loop: its iterations are stored with a NULL root_job, so only a walk down
 /// parent_job reaches them.
 #[cfg(feature = "enterprise")]
-async fn deploy_loop_flow(db: &Pool<Postgres>, early_return: Option<&str>) -> anyhow::Result<()> {
+async fn deploy_loop_flow(
+    db: &Pool<Postgres>,
+    path: &str,
+    version: i64,
+    early_return: Option<&str>,
+) -> anyhow::Result<()> {
     let value = serde_json::json!({
         "delete_after_secs": 0,
         "early_return": early_return,
@@ -123,17 +132,17 @@ async fn deploy_loop_flow(db: &Pool<Postgres>, early_return: Option<&str>) -> an
             schema, extra_perms, versions)
         VALUES ('test-workspace', $1, '', '', $2, 'test-user', now(), '{}', '{}', ARRAY[$3])",
     )
-    .bind(FLOW_PATH)
+    .bind(path)
     .bind(&value)
-    .bind(FLOW_VERSION)
+    .bind(version)
     .execute(db)
     .await?;
     sqlx::query(
         "INSERT INTO flow_version (id, workspace_id, path, value, schema, created_by)
         VALUES ($1, 'test-workspace', $2, $3, '{}', 'test-user')",
     )
-    .bind(FLOW_VERSION)
-    .bind(FLOW_PATH)
+    .bind(version)
+    .bind(path)
     .bind(&value)
     .execute(db)
     .await?;
@@ -168,7 +177,7 @@ async fn test_flow_level_delete_clears_steps_and_keeps_flow_result(
     use windmill_common::jobs::JobPayload;
 
     initialize_tracing().await;
-    deploy_loop_flow(&db, None).await?;
+    deploy_loop_flow(&db, FLOW_PATH, FLOW_VERSION, None).await?;
     let server = ApiServer::start(db.clone()).await?;
     let flow_job = RunJob::from(JobPayload::Flow {
         path: FLOW_PATH.to_string(),
@@ -206,28 +215,47 @@ async fn test_flow_level_delete_clears_flow_result_after_sync_read(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
+    deploy_loop_flow(&db, FLOW_PATH, FLOW_VERSION, None).await?;
     // Identity steps are fast, so the flow is usually complete by the time the caller polls the
     // early-return node's result, which it must still get.
-    deploy_loop_flow(&db, Some("loop")).await?;
+    deploy_loop_flow(
+        &db,
+        EARLY_RETURN_FLOW_PATH,
+        EARLY_RETURN_FLOW_VERSION,
+        Some("loop"),
+    )
+    .await?;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
-    let response = in_test_worker(
-        windmill_common::worker::Connection::Sql(db.clone()),
+    let run_wait_result = |path: &str| {
         reqwest::Client::new()
             .post(format!(
-                "http://localhost:{port}/api/w/test-workspace/jobs/run_wait_result/f/{FLOW_PATH}"
+                "http://localhost:{port}/api/w/test-workspace/jobs/run_wait_result/f/{path}"
             ))
             .bearer_auth("SECRET_TOKEN")
             .json(&serde_json::json!({ "x": "secret" }))
-            .send(),
+            .send()
+    };
+    let (response, early_return_response) = in_test_worker(
+        windmill_common::worker::Connection::Sql(db.clone()),
+        async {
+            (
+                run_wait_result(FLOW_PATH).await,
+                run_wait_result(EARLY_RETURN_FLOW_PATH).await,
+            )
+        },
         port,
     )
-    .await?
-    .error_for_status()?
-    .json::<serde_json::Value>()
-    .await?;
+    .await;
 
-    assert_eq!(response[1]["x"], "secret", "{response}");
+    for response in [response?, early_return_response?] {
+        let response = response
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await?;
+        assert_eq!(response[1]["x"], "secret", "{response}");
+    }
+    // Only without early return is the flow sure to be complete when its caller reads it.
     let flow_id: uuid::Uuid =
         sqlx::query_scalar("SELECT id FROM v2_job WHERE runnable_path = $1 AND parent_job IS NULL")
             .bind(FLOW_PATH)

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE run AS (\n                            SELECT id, flow_step_id FROM v2_job WHERE parent_job = $1\n                            UNION ALL\n                            SELECT j.id, j.flow_step_id FROM v2_job j JOIN run r ON j.parent_job = r.id\n                        )\n                        UPDATE v2_job_completed SET result = '{}'::jsonb\n                        WHERE id IN (SELECT id FROM run WHERE flow_step_id = $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f64307bc2dd518e554461911f83abf1465d961326a18cbcf07cb8bb49d5a2486"
+}

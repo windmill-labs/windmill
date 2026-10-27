@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE run AS (\n            SELECT id FROM v2_job WHERE parent_job = $1\n            UNION ALL\n            SELECT j.id FROM v2_job j JOIN run r ON j.parent_job = r.id\n        )\n        SELECT j.id AS \"id!\", j.flow_step_id\n        FROM run JOIN v2_job j USING (id) JOIN v2_job_completed c USING (id)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "flow_step_id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "3674f638d7fc89ec11c4b8beb94c9e8cec2b12402bca723aa1d4a3762b540090"
+}
