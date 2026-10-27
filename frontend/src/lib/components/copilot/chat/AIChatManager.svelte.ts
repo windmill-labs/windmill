@@ -788,6 +788,9 @@ export class AIChatManager implements ChatViewHost {
 	/** The session is moving into a fork. Its editors stay closed meanwhile: an edit would save a
 	 * draft in the workspace being left, after the move listed what it brings along. */
 	moving = $state(false)
+	/** A move into a fork has started: no turn starts until it ends, retries and edits included.
+	 * Set before `moving`, which waits for the editors to hand over their pending edits. */
+	moveStarted = $state(false)
 	onWorkModeChanged: ((mode: AIWorkMode) => void) | undefined = undefined
 	workModesAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
 	/** Use is the only mode: the workspace is protected, or the user's role builds nothing in it. */
@@ -3646,7 +3649,9 @@ export class AIChatManager implements ChatViewHost {
 		// false`), and a copy here would double it. Paste tokens are expanded
 		// into the text, as the queue does, because the restore lanes carry no
 		// pastes.
-		if (this.runHeldElsewhere) {
+		// A move into a fork holds turns the same way: one started now would act on the
+		// workspace being left. The composer is locked then, but a retry or an edit is not.
+		if (this.runHeldElsewhere || this.moveStarted) {
 			if (options.synthetic) {
 				// Client-authored prompt (a job auto-resume), not user input: nothing
 				// to hand back and no toast. Releasing the staged text un-blocks the
@@ -3664,7 +3669,12 @@ export class AIChatManager implements ChatViewHost {
 						options.files
 					)
 				}
-				sendUserToast('This session is running in another tab. Your message was kept.', true)
+				sendUserToast(
+					this.moveStarted
+						? 'This session is moving to a fork. Your message was kept.'
+						: 'This session is running in another tab. Your message was kept.',
+					true
+				)
 			}
 			return false
 		}
@@ -4833,7 +4843,7 @@ export class AIChatManager implements ChatViewHost {
 		// nothing yet, so there is nothing to restore. Un-submitted context-chip
 		// edits are the one loss — the chips re-seed from the untouched message
 		// on the next edit.
-		if (this.runHeldElsewhere) {
+		if (this.runHeldElsewhere || this.moveStarted) {
 			if (newContent !== undefined) {
 				this.restoreToInput(
 					expanded(chatDraft(newContent, pastes ?? [])),
@@ -4842,7 +4852,12 @@ export class AIChatManager implements ChatViewHost {
 				)
 			}
 			// "Text", not "message": chip edits are the part that does not survive.
-			sendUserToast('This session is running in another tab. Your text was kept.', true)
+			sendUserToast(
+				this.moveStarted
+					? 'This session is moving to a fork. Your text was kept.'
+					: 'This session is running in another tab. Your text was kept.',
+				true
+			)
 			return
 		}
 

@@ -8583,6 +8583,11 @@ fn principal_resolves_sql(principal: &str) -> String {
 /// The draft half of `repoint_unresolvable_cloned_identities`: an app policy or trigger in a draft
 /// copied into `target_workspace_id` that names nobody there is re-pointed at `authed`. `items`
 /// narrows it to `authed`'s own rows at those keys, for drafts copied into an existing workspace.
+///
+/// **Authorizes nothing itself.** The caller must have checked that `authed` (loaded in
+/// `target_workspace_id`) may write those drafts there. `items = None` rewrites every draft in the
+/// workspace, other users' included, so it is only for a fork being created inside the same
+/// transaction, before anyone else has drafts in it.
 pub async fn repoint_unresolvable_draft_identities(
     tx: &mut Transaction<'_, Postgres>,
     target_workspace_id: &str,

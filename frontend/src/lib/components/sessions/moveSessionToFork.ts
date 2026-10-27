@@ -128,6 +128,7 @@ export async function moveSessionToFork(
 		// conflict they are; still parked, they would land on top of the moved draft later.
 		const unsavedThere = await flushPendingSaves(fork.id)
 		if (unsavedThere) return { ok: false, error: unsavedThere, retry: fork }
+		if (opts.isBusy?.()) return { ok: false, error: busy, retry: fork }
 	}
 
 	let copied = 0

@@ -540,6 +540,7 @@
 			return
 		}
 		moving = true
+		if (runtime) runtime.manager.moveStarted = true
 		const releaseAutoResume = runtime?.manager.holdAutoResume()
 		// Bracketed like a turn, so another tab on this session cannot send while its drafts
 		// move, then re-reads the session (its new workspace, the model note) once it ends.
@@ -621,7 +622,10 @@
 			sendUserToast(`Session moved to ${req.targetName}`)
 		} finally {
 			moving = false
-			if (runtime) runtime.manager.moving = false
+			if (runtime) {
+				runtime.manager.moving = false
+				runtime.manager.moveStarted = false
+			}
 			releaseAutoResume?.()
 			if (chatId)
 				localRunEnded(session.id, runtime?.manager.historyManager.getCurrentChatId() ?? chatId)
