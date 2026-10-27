@@ -33,9 +33,12 @@ async function readDirRecursive(
   return out;
 }
 
-/** Whether an app's own files import from the shared `/ui/` folder. */
+/**
+ * Whether an app's own files import from the shared `/ui/` folder. The `(`
+ * covers CSS's unquoted `@import url(/ui/theme.css)`.
+ */
 export function importsSharedUi(files: Record<string, string>): boolean {
-  return Object.values(files).some((c) => /["'`]\/ui\//.test(c));
+  return Object.values(files).some((c) => /["'`(]\s*\/ui\//.test(c));
 }
 
 /**
@@ -79,23 +82,25 @@ export async function rawAppsStaleOnSharedUi(
       app.files[key] = content;
     }
   }
-  const stale: string[] = [];
-  for (const [name, { metaPath, files }] of apps) {
-    if (!metaPath || !importsSharedUi(files)) continue;
-    let deployed: string | undefined;
-    try {
-      const app = await wmill.getAppByPath({
-        workspace,
-        path: name.replaceAll(path.sep, "/"),
-      });
-      deployed = (app.value as any)?.shared_ui_hash;
-    } catch {
-      // Not deployed yet: the file diff already queues it as added.
-      continue;
-    }
-    if (deployed !== hash) stale.push(metaPath);
-  }
-  return stale;
+  const stale = await Promise.all(
+    [...apps].map(async ([name, { metaPath, files }]) => {
+      if (!metaPath || !importsSharedUi(files)) return undefined;
+      try {
+        const app = await wmill.getAppByPath({
+          workspace,
+          path: name.replaceAll(path.sep, "/"),
+        });
+        return (app.value as any)?.shared_ui_hash === hash
+          ? undefined
+          : metaPath;
+      } catch (e: any) {
+        // Not deployed yet: the file diff already queues it as added.
+        if (e?.status === 404) return undefined;
+        throw e;
+      }
+    }),
+  );
+  return stale.filter((p): p is string => !!p);
 }
 
 /** The workspace's shared UI store, or undefined when it cannot be read. */

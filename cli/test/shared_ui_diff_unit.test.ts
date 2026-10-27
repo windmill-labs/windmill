@@ -29,7 +29,7 @@ mockServices({
   },
   getAppByPath: async (args: { workspace: string; path: string }) => {
     const app = deployedApps[args.path];
-    if (!app) throw new Error("not found");
+    if (!app) throw Object.assign(new Error("not found"), { status: 404 });
     return app;
   },
 });
@@ -184,14 +184,17 @@ describe("rawAppsStaleOnSharedUi", () => {
       "f/stale": { value: { shared_ui_hash: "old" } },
       "f/fresh": { value: { shared_ui_hash: hash } },
       "f/plain": { value: {} },
+      "f/css": { value: {} },
     };
     const localMap = {
       ...app("stale", `import { B } from "/ui/button"`),
       ...app("fresh", `import { B } from "/ui/button"`),
       ...app("plain", `import x from "./x"`),
+      ...app("css", `@import url(/ui/theme.css);`),
     };
     expect(await rawAppsStaleOnSharedUi("ws", localMap, new Set())).toEqual([
       path.join("f", "stale.raw_app", "raw_app.yaml"),
+      path.join("f", "css.raw_app", "raw_app.yaml"),
     ]);
   });
 });
