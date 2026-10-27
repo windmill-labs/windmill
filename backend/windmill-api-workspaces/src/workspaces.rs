@@ -8092,6 +8092,15 @@ struct ForkRoles {
     to_operator: Vec<bool>,
 }
 
+impl ForkRoles {
+    fn maps(&self, role: &str) -> bool {
+        self.from
+            .iter()
+            .zip(&self.to)
+            .any(|(from, to)| from == role && from != to)
+    }
+}
+
 async fn fork_roles(db: &DB, parent_workspace_id: &str) -> Result<ForkRoles> {
     let mapping = windmill_common::workspaces::fork_role_mapping(parent_workspace_id, db).await?;
     let roles = windmill_common::roles::workspace_roles(db, parent_workspace_id).await?;
@@ -9358,6 +9367,7 @@ async fn enforce_fork_allowed(db: &DB, authed: &ApiAuthed, w_id: &str) -> Result
         require_super_admin(db, authed).await?;
     }
     if !windmill_common::roles::caller_can_fork(db, w_id, authed).await? {
+        windmill_common::feature_usage::log_feature_usage("fork_roles", "fork_refused", "");
         return Err(Error::PermissionDenied(format!(
             "Your role in {w_id} cannot fork it"
         )));
@@ -10799,6 +10809,21 @@ async fn write_workspace_fork(
         Some(&authed.email),
     )
     .await?;
+    if let Some(forker) = sqlx::query!(
+        "SELECT workspace_role, operator FROM usr WHERE workspace_id = $1 AND email = $2",
+        parent_workspace_id,
+        authed.email,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    {
+        let role = windmill_common::roles::resolve_role_name(forker.workspace_role, forker.operator);
+        windmill_common::feature_usage::log_feature_usage(
+            "fork_roles",
+            "fork_created",
+            if roles.maps(&role) { "mapped" } else { "kept" },
+        );
+    }
 
     // The pointers this fork writes to the parent's data tables stay invisible until it commits, so
     // a rename of one of them cannot carry them. Holding the parent's settings row makes such a
@@ -13095,6 +13120,9 @@ async fn create_protection_rule(
     require_admin(authed.is_admin, &authed.username)?;
     reject_reserved_rule_name(&req.name)?;
     validate_fork_role_mapping(&db, &w_id, &req.fork_role_mapping).await?;
+    if !req.fork_role_mapping.is_empty() {
+        windmill_common::feature_usage::log_feature_usage("fork_roles", "mapping_saved", "create");
+    }
 
     let mut tx = db.begin().await?;
 
@@ -13194,6 +13222,13 @@ async fn update_protection_rule(
     }
     if let Some(mapping) = &req.fork_role_mapping {
         validate_fork_role_mapping(&db, &w_id, mapping).await?;
+        if !mapping.is_empty() {
+            windmill_common::feature_usage::log_feature_usage(
+                "fork_roles",
+                "mapping_saved",
+                "update",
+            );
+        }
     }
 
     let mut tx = db.begin().await?;
