@@ -22,6 +22,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { sessionState, type Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
+	import { useSessionPermissions } from './sessionPermissions.svelte'
 	import SessionDiffDrawer from './SessionDiffDrawer.svelte'
 	import { TOKEN_TRIGGER_CLASS } from './SessionStatusToken.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
@@ -30,6 +31,8 @@
 	import { previewTargetForDeployKind } from './sessionPreviewTabs.svelte'
 	import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
 	import type { PreviewTarget } from './previewRouter'
+	import { ResourceService } from '$lib/gen'
+	import { resource } from 'runed'
 	import JobsSegment from '$lib/components/copilot/chat/JobsSegment.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import ArtifactsSegment from '$lib/components/copilot/chat/artifacts/ArtifactsSegment.svelte'
@@ -69,10 +72,17 @@
 	// Same gate as the sidebar WorkspaceMenu / SessionWorkspaceBar. On cloud,
 	// forking is a premium-only feature (backend caps it per paid seat).
 	const forksAllowed = $derived(
-		(!isCloudHosted() || $maybePremium) && canCreateFork($userStore, $roleCapabilities) && $workspaceStore !== 'admins'
+		(!isCloudHosted() || $maybePremium) &&
+			canCreateFork($userStore, $roleCapabilities) &&
+			$workspaceStore !== 'admins'
 	)
 
 	const runtime = $derived(getRuntime(session.id))
+	// A session in Use deploys and discards nothing, as its chat does not.
+	const permissions = useSessionPermissions(
+		() => committedId,
+		() => runtime?.manager
+	)
 
 	// The chat's modified-items mask (`${UserDraftItemKind}:${storagePath}`).
 	// undefined = legacy/untracked chat → fall back to showing every draft.
@@ -155,6 +165,31 @@
 			: []
 	)
 	const dockCounts = $derived(badgeCounts(dockItems))
+	// An agent is a resource the draft list cannot tell apart, but it has an icon of its own.
+	// Keyed on the joined paths so a re-derived list doesn't re-fetch.
+	const resourcePaths = $derived(
+		dockItems
+			.filter((i) => i.deployKind === 'resource')
+			.map((i) => i.path)
+			.join('\n')
+	)
+	const agentPaths = resource(
+		() => [committedId, resourcePaths] as const,
+		async ([workspace, joined]) => {
+			if (!workspace || !joined) return new Set<string>()
+			const types = await Promise.all(
+				joined.split('\n').map((path) =>
+					ResourceService.getResource({ workspace, path, getDraft: true }).then(
+						(r) => (r.resource_type === 'ai_agent' ? path : undefined),
+						() => undefined
+					)
+				)
+			)
+			return new Set(types.filter((p) => p !== undefined))
+		}
+	)
+	const isAgentRow = (item: DeployItem) =>
+		item.deployKind === 'resource' && (agentPaths.current?.has(item.path) ?? false)
 
 	// Deletion-only fork chat: the mask has entries but every one failed the
 	// (resolved) existence check — the chat's edits were deletions, which have no
@@ -202,7 +237,11 @@
 	function previewTargetFor(item: DeployItem): PreviewTarget | undefined {
 		// `done` means this session already deployed it, so there is a deployed
 		// version to show even though the row was built from a draft-only item.
-		return previewTargetForDeployKind(item.deployKind, item.path, item.draftOnly && !item.done)
+		const draftOnly = item.draftOnly && !item.done
+		if (isAgentRow(item) && !draftOnly) {
+			return { type: 'page', href: `/agents/get/${item.path}`, label: rowLabel(item) }
+		}
+		return previewTargetForDeployKind(item.deployKind, item.path, draftOnly)
 	}
 
 	// The row's primary action is the preview; kinds the panel can't host fall back
@@ -323,7 +362,11 @@
 					maxHeightClass="max-h-[min(9rem,50vh)]"
 				>
 					{#snippet row(item)}
-						<RowIcon kind={item.deployKind} path={item.path} size={14} />
+						<RowIcon
+							kind={isAgentRow(item) ? 'agent' : item.deployKind}
+							path={item.path}
+							size={14}
+						/>
 						<span class="min-w-0 flex-1 truncate font-mono font-normal text-primary">
 							{rowLabel(item)}
 						</span>
@@ -381,14 +424,17 @@
 		{parentWorkspaceId}
 		chatId={session.chatId}
 		keys={mask}
+		agentPaths={agentPaths.current}
 		onDataChanged={refreshDock}
 		onItemDeployed={(item) =>
 			void runtime?.manager.renameModifiedItem(item.draftKind, item.path, item.displayPath)}
 		onItemDiscarded={(item) => {
 			void runtime?.manager.removeModifiedItem(item.draftKind, item.path)
 			const folder = pipelineFolderFromBundlePath(item.path)
-			if (item.draftKind === PIPELINE_DRAFT_KIND && folder) void runtime?.forgetPipelineDrafts(folder)
+			if (item.draftKind === PIPELINE_DRAFT_KIND && folder)
+				void runtime?.forgetPipelineDrafts(folder)
 		}}
 		deployPipeline={runtime?.deployPipeline}
+		readOnly={permissions.readOnly}
 	/>
 {/if}

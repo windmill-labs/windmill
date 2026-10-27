@@ -20,7 +20,9 @@
 		onDataChanged,
 		onItemDeployed,
 		onItemDiscarded,
-		deployPipeline
+		deployPipeline,
+		readOnly = false,
+		agentPaths
 	}: {
 		workspaceId: string
 		parentWorkspaceId?: string
@@ -39,6 +41,10 @@
 		onItemDiscarded?: (item: DeployItem) => void
 		/** Forwarded to the deploy model: deploys a pipeline folder's draft bundle. */
 		deployPipeline?: (folder: string) => Promise<DeployResult>
+		/** Forwarded to the deploy model: the session is in Use. */
+		readOnly?: boolean
+		/** Resource rows that are agents, which get the agent's icon and editor. */
+		agentPaths?: Set<string>
 	} = $props()
 
 	const isFork = $derived(!!parentWorkspaceId)
@@ -55,7 +61,8 @@
 		onDataChanged,
 		onItemDeployed,
 		onItemDiscarded,
-		deployPipeline
+		deployPipeline,
+		readOnly
 	}))
 
 	// Editor URL for a row (every item lives in the session workspace).
@@ -66,8 +73,12 @@
 		if (item.deployKind === 'script') return `/scripts/edit/${path}?workspace=${ws}`
 		if (item.deployKind === 'app') return `/apps/edit/${path}?workspace=${ws}`
 		if (item.deployKind === 'raw_app') return `/apps_raw/edit/${path}?workspace=${ws}`
+		if (isAgent(item)) return `/agents/edit/${path}?workspace=${ws}`
 		return undefined
 	}
+
+	const isAgent = (item: DeployItem) =>
+		item.deployKind === 'resource' && (agentPaths?.has(item.path) ?? false)
 
 	const title = 'Edited during session'
 
@@ -88,6 +99,7 @@
 	{model}
 	{title}
 	{editUrlFor}
+	iconKindFor={(item) => (isAgent(item) ? 'agent' : undefined)}
 	{compareSessionHref}
 	workspaceLabel={ws?.name ?? workspaceId}
 >
@@ -99,7 +111,11 @@
 					{ws?.name ?? workspaceId}
 				</span>
 				{#if ws?.is_dev_workspace}
-					<DevWorkspaceBadge label={ws.dev_workspace_label} color={ws.color} fallbackColor="indigo" />
+					<DevWorkspaceBadge
+						label={ws.dev_workspace_label}
+						color={ws.color}
+						fallbackColor="indigo"
+					/>
 				{/if}
 				<ArrowRight class="w-3 h-3 shrink-0 text-tertiary" />
 				<span class="font-medium truncate" title={parentWs?.name ?? parentWorkspaceId}>

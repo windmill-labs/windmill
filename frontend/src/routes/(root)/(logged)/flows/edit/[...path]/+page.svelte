@@ -339,7 +339,6 @@
 			v = undefined
 		}
 		if (tok !== loadFlowToken) return
-		version = v
 
 		const backendFlow = await FlowService.getFlowByPath({
 			workspace: $workspaceStore!,
@@ -376,6 +375,9 @@
 		// Layer the draft (`.draft`, if any) over the deployed payload at the field
 		// level. See /scripts/edit's loader for the rationale.
 		const { draft: draftFromBackend, ...deployedFlow } = backendFlow as any
+		// Set together with the base below: across the await above, a new head beside
+		// the previous load's base reads as stale, and the stale prompt latches open.
+		version = v
 		// The flow_version the draft forked from; undefined when editing the deployed
 		// flow directly (no draft) or for a draft never forked from a deploy.
 		draftBaseVersion = backendFlow.draft_base
@@ -395,13 +397,16 @@
 		deployedBaseline = backendFlow.no_deployed
 			? undefined
 			: (structuredClone($state.snapshot(deployedFlow)) as Flow)
-		// Surface the saved `draft_path` to the Path widget so the topbar shows the
-		// pending name, not the `draft_{uuid}` URL. Else the widget seeds from the
-		// URL, the first edit clobbers `draft_path`, and the friendly name is lost.
-		// Otherwise the URL, set on every load: this route instance is reused when the
-		// editor follows its draft to a moved item, and the path it opened on is where
-		// deploy would look for the flow.
-		const renderedDraftPath = (effectiveFlow as any).draft_path as string | undefined
+		// A draft-only flow surfaces its saved `draft_path` to the Path widget so the
+		// topbar shows the pending name, not the `draft_{uuid}` URL. Else the widget
+		// seeds from the URL, the first edit clobbers `draft_path`, and the friendly
+		// name is lost. A deployed flow keeps the URL even with a staged move: it is
+		// where deploy updates the flow and where its triggers live (FlowBuilder shows
+		// the staged path). Set on every load: this route instance is reused when the
+		// editor follows its draft to a moved item.
+		const renderedDraftPath = backendFlow.no_deployed
+			? ((effectiveFlow as any).draft_path as string | undefined)
+			: undefined
 		flowInitialPath = renderedDraftPath || (page.params.path ?? '')
 
 		// "Load another user's draft" handoff: render their value over the deployed

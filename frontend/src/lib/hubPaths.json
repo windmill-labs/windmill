@@ -1,6 +1,6 @@
 {
 	"gitSyncTest": "hub/28950/git-repo-test-read-write-windmill",
-	"gitInitRepo": "hub/29784/git-sync-init-repository-windmill",
+	"gitInitRepo": "hub/30051/git-sync-init-repository-windmill",
 	"slackErrorHandler": "hub/28794/workspace-or-schedule-error-handler-slack",
 	"emailErrorHandler": "hub/19795/workspace-or-error-handler-email",
 	"slackRecoveryHandler": "hub/28791/slack/schedule-recovery-handler-slack",
@@ -8,6 +8,8 @@
 	"teamsErrorHandler": "hub/19742/workspace-or-schedule-error-handler-teams",
 	"teamsRecoveryHandler": "hub/11593/schedule-recovery-handler-teams",
 	"teamsSuccessHandler": "hub/11596/schedule-success-handler-teams",
+	"slackVariableExpirationHandler": "hub/30049/variable-expiration-handler-slack",
+	"teamsVariableExpirationHandler": "hub/30048/variable-expiration-handler-teams",
 	"slackReport": "hub/28792/slack",
 	"discordReport": "hub/9085/discord",
 	"smtpReport": "hub/28242/smtp",

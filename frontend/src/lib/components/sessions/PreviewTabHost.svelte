@@ -22,6 +22,7 @@
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
 	import RunFormPreviewSlot from './RunFormPreviewSlot.svelte'
 	import { setOverlayHost } from '../common/overlayHost.svelte'
+	import { setReadOnlyWorkspace } from '../operatingWorkspace.svelte'
 
 	let {
 		tab,
@@ -80,7 +81,11 @@
 	const workspaceId = $derived(
 		session ? (getEffectiveWorkspaceId(session) ?? $workspaceStore ?? '') : ''
 	)
-	const permissions = useSessionPermissions(() => workspaceId || undefined)
+	const permissions = useSessionPermissions(
+		() => workspaceId || undefined,
+		() => runtime?.manager
+	)
+	setReadOnlyWorkspace((ws) => !!ws && ws === workspaceId && permissions.readOnly)
 	// Every route into an editor ends here, the breadcrumb and the chat's openers included, so
 	// this is where an editor the user cannot save is turned into the deployed page.
 	const mode = $derived(
@@ -419,7 +424,9 @@
 		{:else}
 			<!-- A pipeline has no deployed page, only its editor. -->
 			<div class="flex-1 flex items-center justify-center p-8 text-center text-sm text-secondary">
-				The pipeline editor saves drafts, which your role cannot do in this workspace.
+				{permissions.readOnly
+					? 'The pipeline editor saves drafts, which a session in Use mode cannot do.'
+					: 'The pipeline editor saves drafts, which your role cannot do in this workspace.'}
 			</div>
 		{/if}
 	</div>

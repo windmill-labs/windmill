@@ -63,8 +63,8 @@ use windmill_common::{
     error::{self, pg_error_message, JsonResult, Result},
     get_database_url,
     global_settings::{
-        ACCENT_COLOR_SETTING, AI_CONFIG_SETTING, API_BASE_URL_SETTING,
-        APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
+        ACCENT_COLOR_SETTING, AI_CONFIG_SETTING, API_BASE_URL_APPLIES_TO_SETTING,
+        API_BASE_URL_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS, EXTERNAL_INSTANCE_PG_SETTING,
         GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
@@ -1266,6 +1266,10 @@ async fn run_setting_pre_write_hook(
                     )));
                 }
             }
+        }
+        API_BASE_URL_APPLIES_TO_SETTING if !value.is_null() => {
+            windmill_common::global_settings::validate_api_base_url_applies_to(value)
+                .map_err(|e| error::Error::BadRequest(format!("{key}: {e}")))?;
         }
         MAX_TOKEN_EXPIRATION_DAYS_SETTING => {
             windmill_common::global_settings::parse_max_token_expiration_days(Some(value))

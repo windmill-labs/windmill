@@ -66,8 +66,8 @@ use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{to_anyhow, Error, JsonResult, Result},
     jobs::{
-        get_payload_tag_from_prefixed_path, resolve_delete_after_secs, schedule_job_deletion,
-        JobPayload, JobTriggerKind, RawCode,
+        get_payload_tag_from_prefixed_path, normalize_nul_in_args, resolve_delete_after_secs,
+        sanitize_untrusted_args, schedule_job_deletion, JobPayload, JobTriggerKind, RawCode,
     },
     scripts::ScriptLang,
     triggers::TriggerMetadata,
@@ -602,6 +602,11 @@ pub struct EditApp {
     pub summary: Option<String>,
     pub value: Option<sqlx::types::Json<Box<RawValue>>>,
     pub policy: Option<Policy>,
+    /// Changes only who may open the app: applied to the deployed policy under the row lock a
+    /// deploy takes, so it neither reverts a concurrent deploy's policy nor is reverted by it.
+    /// Exclusive with `policy`, which states its own mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_mode: Option<ExecutionMode>,
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
@@ -735,10 +740,10 @@ async fn list_apps(
 
     if let Some(label) = &lq.label {
         for l in label.split(',') {
+            // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
             sqlb.and_where(
                 "(app.labels @> ARRAY[?] OR folder_labels(app.workspace_id, app.path) @> ARRAY[?])"
-                    .bind(&l.trim())
-                    .bind(&l.trim()),
+                    .binds(&[&l.trim()]),
             );
         }
     }
@@ -2366,18 +2371,12 @@ fn check_operator_composed_app(
 
     // Viewer mode would make the triggerables collected above non-exhaustive (see the docs), and
     // the deploy panel shows it as members-only, so an admin deploying a draft would not see it.
-    // Pin an omitted mode on deploy: `update_app_internal` resolves it to the deployed app's, so a
-    // redeploy over an admin's viewer-mode app would otherwise inherit `Viewer`.
-    match policy.stated_execution_mode() {
-        Some(ExecutionMode::Viewer) => {
-            return Err(Error::PermissionDenied(format!(
-                "Operators with builder rights cannot {verb} an app that runs as its viewer"
-            )))
-        }
-        None if write == BuilderAppWrite::Deploy => {
-            policy.set_execution_mode(ExecutionMode::Publisher)
-        }
-        _ => {}
+    // An omitted mode is resolved by the deploy: create's default, or on update the deployed mode,
+    // which `update_app_internal` turns into `Publisher` for a builder when it is `Viewer`.
+    if policy.stated_execution_mode() == Some(ExecutionMode::Viewer) {
+        return Err(Error::PermissionDenied(format!(
+            "Operators with builder rights cannot {verb} an app that runs as its viewer"
+        )));
     }
 
     referenced.sort();
@@ -2473,15 +2472,7 @@ pub(crate) async fn validate_operator_composed_app(
     // docs/operator-builder-rights.md); a draft keeps whatever it names, which an admin's
     // one-click draft deploy preserves without showing it.
     if let (BuilderAppWrite::Draft, Some(policy)) = (write, policy.as_deref()) {
-        let names_another = policy
-            .on_behalf_of
-            .as_deref()
-            .is_some_and(|p| p != username_to_permissioned_as(&authed.username))
-            || policy
-                .on_behalf_of_email
-                .as_deref()
-                .is_some_and(|e| e != authed.email);
-        if names_another {
+        if policy_runs_as_another(policy, authed) {
             return Err(Error::PermissionDenied(
                 "Operators with builder rights cannot save an app that runs as someone else"
                     .to_string(),
@@ -2490,6 +2481,17 @@ pub(crate) async fn validate_operator_composed_app(
     }
     let referenced = check_operator_composed_app(write, raw_app, value, policy)?;
     require_runnables_readable(authed, db, user_db, w_id, referenced).await
+}
+
+fn policy_runs_as_another(policy: &Policy, authed: &ApiAuthed) -> bool {
+    policy
+        .on_behalf_of
+        .as_deref()
+        .is_some_and(|p| p != username_to_permissioned_as(&authed.username))
+        || policy
+            .on_behalf_of_email
+            .as_deref()
+            .is_some_and(|e| e != authed.email)
 }
 
 async fn require_runnables_readable(
@@ -3809,10 +3811,22 @@ async fn update_app_internal<'a>(
         }
     }
 
-    if caller_capabilities(&db, w_id, &authed).await?.apps == AuthorLevel::Compose {
+    if ns.policy.is_some() && ns.execution_mode.is_some() {
+        return Err(Error::BadRequest(
+            "Send execution_mode either inside the policy or alone, not both".to_string(),
+        ));
+    }
+    // The policy a mode-only change writes is only known under the row lock, so a builder's
+    // check on it runs there.
+    let mode_only = ns.policy.is_none() && ns.value.is_none() && ns.execution_mode.is_some();
+
+    let composes_only = caller_capabilities(&db, w_id, &authed).await?.apps == AuthorLevel::Compose;
+    if composes_only {
         // Restoring a full-code version always sends allow_kind_change. A builder converts
         // nothing, so drop it and let the locked kind check below refuse an actual conversion.
         ns.allow_kind_change = None;
+    }
+    if composes_only && !mode_only {
         validate_operator_composed_app(
             &authed,
             &db,
@@ -3890,6 +3904,7 @@ async fn update_app_internal<'a>(
         || ns.summary.is_some()
         || ns.custom_path.is_some()
         || ns.labels.is_some()
+        || ns.execution_mode.is_some()
         // A source deploy may send nothing but the value, and its runnables are
         // what the derived grants describe: skipping the UPDATE here would keep
         // the grants keyed to the sources this deploy just replaced.
@@ -3907,7 +3922,12 @@ async fn update_app_internal<'a>(
                 // that carries no policy keeps the deployed mode, read under the row
                 // lock so a policy update landing alongside cannot slip a guest app
                 // onto a path it cannot be scoped to.
-                let mode = match ns.policy.as_ref().and_then(|p| p.stated_execution_mode()) {
+                let stated = ns
+                    .policy
+                    .as_ref()
+                    .and_then(|p| p.stated_execution_mode())
+                    .or(ns.execution_mode);
+                let mode = match stated {
                     Some(mode) => mode,
                     None => sqlx::query_scalar::<_, Option<String>>(
                         "SELECT policy->>'execution_mode' FROM app
@@ -3987,12 +4007,13 @@ async fn update_app_internal<'a>(
         // no policy at all, in which case the rest of the deployed one carries
         // over. Either way a policy is about to be written wholesale.
         let caller_sent_policy = ns.policy.is_some();
-        if caller_sent_policy || derived_triggerables.is_some() {
+        if caller_sent_policy || derived_triggerables.is_some() || ns.execution_mode.is_some() {
             // One locked read serving everything below: the mode an omitted one
             // inherits, the already-anonymous check, and the policy a source
-            // deploy carries over. FOR UPDATE holds the row until this
-            // transaction's UPDATE commits, so a policy edit landing between the
-            // read and the write cannot be clobbered by this stale snapshot.
+            // deploy or a mode-only change carries over. FOR UPDATE holds the row
+            // until this transaction's UPDATE commits, so a policy edit landing
+            // between the read and the write cannot be clobbered by this stale
+            // snapshot.
             let deployed = sqlx::query_scalar!(
                 "SELECT policy FROM app WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
                 path,
@@ -4006,30 +4027,81 @@ async fn update_app_internal<'a>(
 
             let mut npolicy = match ns.policy.take() {
                 Some(npolicy) => npolicy,
+                None if deployed.is_none() => {
+                    return Err(Error::NotFound(format!("App {path} not found")))
+                }
                 // Carrying the deployed policy forward is only safe if all of it
                 // survived the round trip; a partial one would silently drop
                 // `on_behalf_of`, sandboxing or S3 rules.
                 None => deployed_policy.clone().ok_or_else(|| {
-                    Error::internal_err(format!(
-                        "app {path} has no readable policy to deploy its new sources under"
-                    ))
+                    Error::internal_err(format!("app {path} has no readable policy to update"))
                 })?,
             };
             if let Some(triggerables) = derived_triggerables {
                 npolicy.triggerables = None;
                 npolicy.triggerables_v2 = Some(triggerables);
             }
+            if let Some(mode) = ns.execution_mode {
+                // A policy write from someone who cannot keep the run-as user rebinds it
+                // to them, so the mode alone must not let them open an app running as
+                // someone else to a new audience. A builder who may keep it is refused too:
+                // its deploy checks the triggerables against its own RLS, which needs a
+                // second pool connection and so cannot run under this lock.
+                if policy_runs_as_another(&npolicy, &authed)
+                    && (composes_only || !windmill_common::can_preserve_on_behalf_of(&authed))
+                {
+                    let runs_as = npolicy
+                        .on_behalf_of_email
+                        .as_deref()
+                        .or(npolicy.on_behalf_of.as_deref())
+                        .unwrap_or("another user");
+                    return Err(Error::PermissionDenied(if composes_only {
+                        format!(
+                            "app {path} runs as {runs_as}: change who can open it by deploying it"
+                        )
+                    } else {
+                        format!(
+                            "app {path} runs as {runs_as}: only admins and members of \
+                             wm_deployers can change who can open it without deploying it, and a \
+                             deploy from you makes it run as you"
+                        )
+                    }));
+                }
+                npolicy.set_execution_mode(mode);
+                if composes_only {
+                    // The check below sandboxes an app whose policy leaves `sandbox` unset; a
+                    // mode-only change keeps every other field, so that is left to a deploy.
+                    if npolicy.sandbox != Some(true) {
+                        return Err(Error::PermissionDenied(format!(
+                            "app {path} is not sandboxed: change who can open it by deploying it"
+                        )));
+                    }
+                    check_operator_composed_app(
+                        BuilderAppWrite::Deploy,
+                        raw_app,
+                        None,
+                        Some(&mut npolicy),
+                    )?;
+                }
+            }
             validate_frontend_sdk_scopes(&npolicy)?;
             // The policy is written wholesale, so one that states no mode would
             // otherwise re-permission the app to the create-time default: a
             // `viewer` app would start running on the publisher's identity. Keep
-            // the deployed mode instead, and make the stored policy state it.
+            // the deployed mode instead, and make the stored policy state it. A
+            // builder may not deploy `Viewer` (see `check_operator_composed_app`),
+            // so a builder's redeploy over a viewer-mode app makes it `Publisher`.
             if npolicy.stated_execution_mode().is_none() {
+                let deployed_mode = deployed_policy
+                    .as_ref()
+                    .map(|d| d.execution_mode())
+                    .unwrap_or_default();
                 npolicy.set_execution_mode(
-                    deployed_policy
-                        .as_ref()
-                        .map(|d| d.execution_mode())
-                        .unwrap_or_default(),
+                    if composes_only && deployed_mode == ExecutionMode::Viewer {
+                        ExecutionMode::Publisher
+                    } else {
+                        deployed_mode
+                    },
                 );
             }
             refuse_unscopable_guest_app(
@@ -4155,7 +4227,8 @@ async fn update_app_internal<'a>(
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
     // path instead of wiping it as part of the deploy. Only wipe the deployer's
     // own draft (plus the legacy NULL-email row) — see create_app_internal.
-    if !ns.skip_draft_deletion.unwrap_or(false) {
+    // A mode-only change publishes nothing from the draft, so it keeps it.
+    if !ns.skip_draft_deletion.unwrap_or(false) && !mode_only {
         sqlx::query!(
             "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ IN ('app', 'raw_app') \
              AND (email = $3 OR email IS NULL)",
@@ -4890,41 +4963,38 @@ async fn execute_component(
     let resolved_delete_secs =
         resolve_delete_after_secs(None, policy_triggerables.delete_after_secs);
 
-    // `_TEMP_SCRIPT_REFS` is a server-injected control key (into `extra`) that the
-    // worker reads back for a `Preview` job, which an inline run is. A caller
-    // supplying it in `args` would redirect relative-import resolution, unpinned, as
-    // the app identity. Drop it; the legitimate value rides in `extra`.
-    payload.args.remove("_TEMP_SCRIPT_REFS");
+    // The caller here is a viewer of the app, down to an anonymous visitor of a public one,
+    // and the job runs as the app's identity on code the policy pins. So the viewer fills in
+    // the runnable's inputs and nothing else: not the function called instead of `main`
+    // (which would reach helpers the app never exposes, as the publisher), not the module
+    // files written into the job directory, and not `_TEMP_SCRIPT_REFS`, which would
+    // redirect relative-import resolution, unpinned, as the app identity. The legitimate
+    // `_TEMP_SCRIPT_REFS` is server-injected into `extra` further below, which this leaves
+    // alone — as it does the policy's own `static_inputs`, which the publisher writes.
+    sanitize_untrusted_args(&mut payload.args);
 
-    // An agent runnable takes the message and its files, plus optionally the conversation they
-    // belong to, which names the agent's memory rather than an input of its run. Without it the
-    // run is a single one, as on the direct agent endpoint.
+    // The conversation a turn belongs to, which names the runnable's memory rather than an input
+    // of its run. Without it an agent's run is a single one, as on the direct agent endpoint.
+    let memory_id = payload
+        .run_query_params
+        .as_ref()
+        .and_then(|q| q.memory_id.clone())
+        .filter(|m| !m.trim().is_empty());
+
+    // An agent runnable takes the message and its files.
     let agent_path = payload
         .path
         .as_deref()
         .and_then(|p| p.strip_prefix("agent/"))
         .map(str::to_string);
-    let agent_memory_id = if agent_path.is_some() {
-        let memory_id = payload
-            .args
-            .remove("memory_id")
-            .map(|v| {
-                serde_json::from_str::<Option<String>>(v.get())
-                    .map_err(|_| Error::BadRequest("memory_id must be a string".to_string()))
-            })
-            .transpose()?
-            .flatten()
-            .filter(|m| !m.trim().is_empty());
+    if agent_path.is_some() {
         payload.args.retain(|k, _| {
             matches!(
                 k.as_str(),
                 "user_message" | "user_attachments" | "previous_messages"
             )
         });
-        memory_id
-    } else {
-        None
-    };
+    }
 
     let (mut args, job_id) = build_args(
         policy,
@@ -4951,6 +5021,17 @@ async fn execute_component(
         .as_deref()
         .and_then(|path| path.strip_prefix("flow/"))
         .map(str::to_string);
+    // A chat-mode flow keeps its conversations as an agent does, and is scoped like one below.
+    let chat_flow_path = match (flow_path.as_deref(), &memory_id) {
+        (Some(p), Some(_)) if !p.starts_with("hub/") => {
+            windmill_common::get_latest_flow_version_info_for_path(None, &db, &w_id, p, true)
+                .await?
+                .chat_input_enabled
+                .unwrap_or(false)
+                .then(|| p.to_string())
+        }
+        _ => None,
+    };
 
     // Tag for inline-script jobs is read from the deployed policy in run mode;
     // only preview mode (editor) honors the client-supplied tag. This applies to
@@ -4985,7 +5066,7 @@ async fn execute_component(
         }
     }
     // Filed under the viewer, who must therefore be kept past the push below.
-    let agent_viewer = agent_path.as_ref().and(opt_authed.clone());
+    let conversation_viewer = memory_id.as_ref().and(opt_authed.clone());
     let mut agent_run_path = None;
 
     let component = payload.component.clone();
@@ -5008,7 +5089,7 @@ async fn execute_component(
                     &user_db,
                     &w_id,
                     agent,
-                    agent_memory_id.is_some(),
+                    memory_id.is_some(),
                 )
                 .await?;
                 agent_run_path = Some(turn.run_path.clone());
@@ -5162,14 +5243,19 @@ async fn execute_component(
         .await?;
     }
 
-    if let (Some(run_path), Some(memory_id)) = (agent_run_path.as_deref(), agent_memory_id) {
+    let conversation_path = agent_run_path.as_deref().or(chat_flow_path.as_deref());
+    if let (Some(run_path), Some(memory_id)) = (conversation_path, memory_id.as_deref()) {
         // A signed-in viewer's turn is filed under them: nobody else may continue their
         // conversation. An anonymous visitor's id is derived per app so that it can name no
         // signed-in user's conversation (a bare UUID is used as is). Either way the
         // conversation's row lock refuses a turn while one runs, and retention collects its
         // memory with its messages.
-        let (owner, is_admin, memory_id) = match agent_viewer.as_ref() {
-            Some(viewer) => (viewer.username.clone(), viewer.is_admin, memory_id),
+        let (owner, is_admin, memory_id) = match conversation_viewer.as_ref() {
+            Some(viewer) => (
+                viewer.username.clone(),
+                viewer.is_admin,
+                memory_id.to_string(),
+            ),
             None => (
                 windmill_common::flow_conversations::ANONYMOUS_CONVERSATION_OWNER.to_string(),
                 false,
@@ -5198,14 +5284,18 @@ async fn execute_component(
             &args.args,
         )
         .await?;
-    }
-
-    // Apply runnable query parameters if provided
-    if let Some(ref run_query) = payload.run_query_params {
-        if let Some(flow_path) = flow_path.as_deref() {
-            crate::jobs::process_flow_run_query_params(&mut tx, uuid, &w_id, flow_path, run_query)
-                .await?;
-        }
+    } else if let (Some(flow_path), Some(memory_id)) = (flow_path.as_deref(), memory_id) {
+        // A flow keeping no conversation has no row to own its memory, so the key itself is
+        // derived per app and viewer: no viewer can name another's memory.
+        let viewer = conversation_viewer
+            .as_ref()
+            .map_or("anonymous".to_string(), |v| format!("u/{}", v.username));
+        let key = windmill_common::flow_conversations::memory_key(
+            &w_id,
+            flow_path,
+            &format!("app:{path}:{viewer}:{memory_id}"),
+        );
+        crate::jobs::set_flow_memory_id(&mut tx, uuid, key).await?;
     }
 
     tx.commit().await?;
@@ -6566,6 +6656,16 @@ async fn build_args(
 ) -> Result<(PushArgsOwned, Option<Uuid>)> {
     let mut job_id: Option<Uuid> = None;
     let mut safe_args = HashMap::<String, Box<RawValue>>::new();
+
+    // Every check below matches an argument by name against the policy the publisher wrote,
+    // and `push` stores the args with their `\u0000` escapes removed, names included. So
+    // compare the names that will actually be stored: otherwise a viewer's `tenant\0` is
+    // never recognized as the `tenant` the policy pins in `static_inputs` (and is stored as
+    // `tenant`, winning over the pinned value), and `greeting\0` is never recognized as the
+    // `greeting` restricted by `one_of_inputs`, so neither list is enforced. Values are
+    // normalized along with the names, so the checks that look at a value see what the job
+    // will receive.
+    normalize_nul_in_args(&mut args);
 
     // Before anything reads `args`: a context input the runnable declares is never taken
     // from the request, or a viewer could name someone else as themselves.

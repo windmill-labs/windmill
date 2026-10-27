@@ -16,9 +16,10 @@ section or the flat layout.
 
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { Compass, FileText, NetworkIcon, Pen } from 'lucide-svelte'
+	import { Bot, Compass, FileText, NetworkIcon, Pen } from 'lucide-svelte'
 	import { resource } from 'runed'
 	import { AssetService } from '$lib/gen'
+	import { listWorkspaceAgents } from './workspaceAgents'
 	import { workspaceStore } from '$lib/stores'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import {
@@ -50,6 +51,7 @@ section or the flat layout.
 		type PreviewTarget
 	} from './previewRouter'
 	import { useSessionPermissions } from './sessionPermissions.svelte'
+	import type { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 
 	type Kind = WorkspaceItemKind
 	type DrillPickerHandle = {
@@ -75,6 +77,9 @@ section or the flat layout.
 		// Session artifacts to surface as an "Artifacts" branch; omitted or empty
 		// hides the branch (non-session consumers, sessions without artifacts).
 		artifacts?: PersistedArtifact[]
+		/** The session chat, whose Use mode opens items in their viewer. Read from the
+		 * `aiChatManager` context when omitted. */
+		chat?: { readonly workMode: AIWorkMode }
 	}
 
 	let {
@@ -86,12 +91,16 @@ section or the flat layout.
 		autoFocus = true,
 		flush = false,
 		workspaceId,
-		artifacts
+		artifacts,
+		chat
 	}: Props = $props()
 
 	const kinds: Kind[] = ['flow', 'script', 'app']
 	const effectiveWorkspace = $derived(workspaceId ?? $workspaceStore)
-	const permissions = useSessionPermissions(() => effectiveWorkspace)
+	const permissions = useSessionPermissions(
+		() => effectiveWorkspace,
+		() => chat
+	)
 	const canEdit = (item: WorkspaceItem) => permissions.canEditItem(item)
 
 	let inner = $state<DrillPickerHandle | undefined>(undefined)
@@ -178,6 +187,17 @@ section or the flat layout.
 	// draft-only ones a plain click already opens there: a row that drops the button to say
 	// "you were getting this anyway" reads as one that cannot be edited.
 	function editAction(leaf: DrillLeaf<PreviewTarget>) {
+		const agentPath = agentPathOf(leaf)
+		if (agentPath !== undefined) {
+			return canEditAgents
+				? {
+						icon: Pen,
+						label: 'Edit',
+						title: `Edit ${agentPath}`,
+						run: () => onPick(agentEditTarget(agentPath))
+					}
+				: undefined
+		}
 		const target = leaf.data
 		if (target.type !== 'item' || !canEdit(target.item)) return undefined
 		return {
@@ -191,6 +211,13 @@ section or the flat layout.
 	// What the row says about the item's deploy state, in the review dock's words so
 	// the two never describe the same item differently.
 	function stateBadge(leaf: DrillLeaf<PreviewTarget>) {
+		const agentPath = agentPathOf(leaf)
+		if (agentPath !== undefined) {
+			const agent = shownAgents.find((a) => a.path === agentPath)
+			if (agent?.draftOnly) return { label: 'Draft only', color: 'indigo' as const }
+			if (agent?.hasDraft) return { label: 'Draft', color: 'indigo' as const }
+			return undefined
+		}
 		const target = leaf.data
 		if (target.type !== 'item') return undefined
 		if (target.item.draftOnly) return { label: 'Draft only', color: 'indigo' as const }
@@ -270,11 +297,51 @@ section or the flat layout.
 			: undefined
 	)
 
+	// Agents are resources rather than workspace items, so they get a branch of their own. A
+	// deployed one lands on its page, as picking any item does; a draft-only one has only its
+	// editor, so it is offered only to a user who can open that.
+	const agentsResource = resource(
+		() => effectiveWorkspace,
+		(ws) => (ws ? listWorkspaceAgents(ws) : Promise.resolve([]))
+	)
+	const canEditAgents = $derived(permissions.canOpenEditor('agent'))
+	function agentEditTarget(path: string): PreviewTarget {
+		return { type: 'pageitem', ref: { kind: 'resource', path } }
+	}
+	const shownAgents = $derived(
+		(agentsResource.current ?? []).filter((a) => canEditAgents || !a.draftOnly)
+	)
+	const agentsBranch = $derived<DrillBranch<PreviewTarget> | undefined>(
+		shownAgents.length > 0
+			? {
+					type: 'branch',
+					key: 'agents',
+					label: 'AI agents',
+					icon: Bot,
+					searchGroup: true,
+					children: shownAgents.map((a) => ({
+						type: 'leaf' as const,
+						key: `agent:${a.path}`,
+						label: a.summary || a.path,
+						secondary: a.summary ? a.path : undefined,
+						icon: Bot,
+						data: a.draftOnly
+							? agentEditTarget(a.path)
+							: { type: 'page', href: `/agents/get/${a.path}`, label: a.summary || a.path }
+					}))
+				}
+			: undefined
+	)
+	function agentPathOf(leaf: DrillLeaf<PreviewTarget>): string | undefined {
+		return leaf.key.startsWith('agent:') ? leaf.key.slice('agent:'.length) : undefined
+	}
+
 	const tree = $derived<DrillNode<PreviewTarget>[]>([
 		// An operator's workspace may enable none of them.
 		...(pagesBranch.children.length > 0 ? [pagesBranch] : []),
 		...(artifactsBranch ? [artifactsBranch] : []),
 		...(pipelinesBranch ? [pipelinesBranch] : []),
+		...(agentsBranch ? [agentsBranch] : []),
 		...tagItems(
 			buildWorkspaceTree({
 				loaded: loader.loaded,

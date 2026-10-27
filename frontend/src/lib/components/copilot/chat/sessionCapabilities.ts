@@ -50,8 +50,39 @@ export type SessionCapability =
 	| 'manage_triggers'
 	/** Passes `require_admin`. */
 	| 'admin'
+	/** Held by every role. A read-only session, in a protected workspace or in Use mode, lacks it
+	 * and ships only the tools `readOnlyToolAllowed` admits. */
+	| 'modify_workspace'
 
 export type SessionAccess = ReadonlySet<SessionCapability>
+
+/** Whether `access` is a read-only session. `undefined` access answers false, as the toolset
+ * filter does. */
+export function isReadOnlyAccess(access: SessionAccess | undefined): boolean {
+	return !!access && !access.has('modify_workspace')
+}
+
+/** What a session in Use mode holds whatever the user's role: nothing, as in a protected
+ * workspace. Fixed rather than narrowed from the resolved access, so Use ships no write while
+ * that check is still in flight. */
+export const USE_MODE_ACCESS: SessionAccess = new Set()
+
+/** `buildsAnything`, read off a session's access. `undefined` access answers true, as the
+ * toolset filter does. */
+export function canBuild(access: SessionAccess | undefined): boolean {
+	return (
+		!access ||
+		(
+			[
+				'write_draft',
+				'write_flow_draft',
+				'write_app_draft',
+				'write_schedule_draft',
+				'write_trigger_draft'
+			] as const
+		).some((c) => access.has(c))
+	)
+}
 
 /**
  * The capabilities without which a tool's call cannot succeed — usually because the
@@ -97,4 +128,7 @@ export type SessionTool<T> = Tool<T> & {
 	 * tool is either too strict or too loose: what each kind's handler needs. A session is
 	 * offered only the kinds it can land, and the rest never appear in the schema it sees. */
 	kindRequires?: Readonly<Partial<Record<string, SessionToolPolicy>>>
+	/** Ships in a read-only session although it is not `planModeSafe`: a view tool that opens
+	 * no editor there, or a run of a deployed item, which a production workspace is for. */
+	readOnlySafe?: boolean
 }

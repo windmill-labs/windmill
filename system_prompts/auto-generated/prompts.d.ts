@@ -3,6 +3,7 @@
 export declare const SCRIPT_BASE: string;
 export declare const FLOW_BASE: string;
 export declare const RESOURCES_BASE: string;
+export declare const AGENT_BASE: string;
 export declare const RAW_APP_BASE: string;
 export declare const PIPELINE_BASE: string;
 export declare const DATATABLE_BASE: string;

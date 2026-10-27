@@ -515,6 +515,21 @@ describe('global AI tools', () => {
 		expect(result).not.toContain('Python Datatable API')
 	})
 
+	it('gives agent guidance only to a session that may also draft flows', async () => {
+		const resourcesOnly = await callGlobalTool(
+			'get_instructions',
+			{ subject: 'agent' },
+			toolCallbacks,
+			{ access: new Set(['write_resource_draft']) }
+		)
+		expect(resourcesOnly).not.toContain('Windmill agent authoring reference')
+		const builder = await callGlobalTool('get_instructions', { subject: 'agent' }, toolCallbacks, {
+			access: new Set(['write_resource_draft', 'write_flow_draft'])
+		})
+		expect(builder).toContain('Windmill agent authoring reference')
+		expect(builder).toContain('This user cannot write inline code')
+	})
+
 	it('returns only the requested language SDK for the datatable subject', async () => {
 		const ts = await callGlobalTool('get_instructions', { subject: 'datatable', language: 'bun' })
 		expect(ts).toContain('TypeScript Datatable API')
@@ -1368,6 +1383,40 @@ describe('global AI tools', () => {
 			getBackendDraft('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
 		).toBeUndefined()
 		expect(localStorageSnapshot()).not.toContain('new-secret-token')
+	})
+
+	// The draft has no null, so a cleared expiry must deploy as an explicit one.
+	it('clears a variable value expiry through to the deploy body', async () => {
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'f/secrets/api_key',
+			value: 'tok',
+			is_secret: false,
+			description: 'd',
+			value_valid_until: '2027-03-15T08:30:00Z'
+		} as any)
+
+		await callGlobalTool('write_variable', {
+			path: 'f/secrets/api_key',
+			value_valid_until: null
+		})
+
+		expect(
+			getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
+				?.value_valid_until
+		).toBeUndefined()
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'variable',
+			path: 'f/secrets/api_key'
+		})
+
+		expect(VariableService.updateVariable).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestBody: expect.objectContaining({ value_valid_until: null })
+			})
+		)
 	})
 
 	// '' means "no value staged", so there is nothing to create the secret with.

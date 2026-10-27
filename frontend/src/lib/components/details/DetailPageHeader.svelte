@@ -115,12 +115,18 @@
 
 	// The session's preview opens on this same deployed page (`/get/`), not the item's editor:
 	// someone here came to run the item, not to change it.
+	const sessionPage = $derived(
+		!path
+			? undefined
+			: errorHandlerKind
+				? `/${errorHandlerKind}s/get/${path}`
+				: itemKind === 'agent'
+					? `/agents/get/${path}`
+					: undefined
+	)
 	const sessionSource: OpenInSessionSource | undefined = $derived(
-		errorHandlerKind && path
-			? {
-					page: () => `/${errorHandlerKind}s/get/${path}`,
-					workspaceId: $operatingWorkspace ?? undefined
-				}
+		sessionPage
+			? { page: () => sessionPage, workspaceId: $operatingWorkspace ?? undefined }
 			: undefined
 	)
 

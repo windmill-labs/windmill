@@ -53,6 +53,13 @@
 		leaf?: Snippet<[ItemType, number]>
 		// See TreeView's `openMemory`.
 		openMemory?: TreeOpenMemory
+		// See TreeView's `onManageFolder`.
+		onManageFolder?: (folderName: string) => void
+		// Inject folders `ownerCounts` calls empty, as "0 items". Off under a kind filter,
+		// where those counts are per kind and every folder lacking that kind would show.
+		keepEmptyFolders?: boolean
+		// Folders injected even when empty and `keepEmptyFolders` is off.
+		keptFolders?: string[]
 	}
 
 	let {
@@ -76,7 +83,10 @@
 		framed = true,
 		groupOtherUsers = false,
 		leaf,
-		openMemory
+		openMemory,
+		onManageFolder,
+		keepEmptyFolders = false,
+		keptFolders
 	}: Props = $props()
 
 	const unruled = inUnruledList()
@@ -103,6 +113,8 @@
 		allUsers
 		ownerCounts
 		selfUsername
+		keepEmptyFolders
+		keptFolders
 		untrack(() => {
 			// While searching, `items` is already relevance-ranked and the sort
 			// selector is disabled, so keep that order: a no-op leaf comparator
@@ -127,15 +139,21 @@
 						.filter((g) => 'folderName' in g)
 						.map((g) => (g as { folderName: string }).folderName)
 				)
-				// Once counts are in, an owner holding nothing the user can see is dropped
-				// rather than injected — a workspace's folder list is mostly noise in the
-				// tree otherwise. Pipeline folders are exempt: their entry is the pipeline
-				// itself, whose member scripts are folded out of the runnable count.
+				// Once counts are in, a user space holding nothing the user can see is dropped
+				// rather than injected — the member list is mostly noise in the tree otherwise.
+				// Empty folders are dropped too unless `keepEmptyFolders` or `keptFolders`. Pipeline folders are
+				// exempt: their entry is the pipeline, whose scripts the count folds out.
 				const isEmptyOwner = (prefix: string) => ownerCounts != undefined && !ownerCounts[prefix]
 				const missingFolders: { folderName: string; items: [] }[] = []
 				for (const folderName of [...(pipelineFolders ?? []), ...allFolders]) {
 					if (presentFolders.has(folderName)) continue
-					if (!pipelineFolders?.has(folderName) && isEmptyOwner(`f/${folderName}`)) continue
+					if (
+						!keepEmptyFolders &&
+						!pipelineFolders?.has(folderName) &&
+						!keptFolders?.includes(folderName) &&
+						isEmptyOwner(`f/${folderName}`)
+					)
+						continue
 					presentFolders.add(folderName)
 					missingFolders.push({ folderName, items: [] })
 				}
@@ -276,6 +294,7 @@
 		{showEditButton}
 		{leaf}
 		{openMemory}
+		{onManageFolder}
 	/>
 {/snippet}
 

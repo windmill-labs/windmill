@@ -14,7 +14,13 @@
 	import { untrack } from 'svelte'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import { editUrlFor } from './sessions/forkEditUrl'
-	import { AppService, FlowService, ScriptService, type WorkspaceItemDiff } from '$lib/gen'
+	import {
+		AppService,
+		FlowService,
+		ResourceService,
+		ScriptService,
+		type WorkspaceItemDiff
+	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		getDraftDiffValues,
@@ -253,13 +259,45 @@
 	// side to diff the name against. Raw apps are fetched via the apps endpoint too
 	// (it auto-detects raw from the deployed row and overlays the raw_app draft).
 	const summaryCache = $state<
-		Record<string, { deployed?: string; draft?: string; stale?: boolean; loading?: boolean }>
+		Record<
+			string,
+			{
+				deployed?: string
+				draft?: string
+				stale?: boolean
+				loading?: boolean
+				/** A resource row that is an AI agent, and the path its draft names. */
+				agent?: boolean
+				draftPath?: string
+			}
+		>
 	>({})
 
 	async function fetchDraftSummary(item: Row) {
 		if (summaryCache[item.key]) return
 		summaryCache[item.key] = { loading: true }
 		try {
+			// The drafts list says neither which resources are agents nor where a never-named one
+			// will deploy, so an agent row is read for its summary and its draft's path.
+			if (item.draftKind === 'resource') {
+				const r = await ResourceService.getResource({
+					workspace: currentWorkspaceId,
+					path: item.path,
+					getDraft: true
+				})
+				const draft = r.draft as { path?: string; description?: string; resource_type?: string }
+				const agent = (draft?.resource_type ?? r.resource_type) === 'ai_agent'
+				summaryCache[item.key] = agent
+					? {
+							agent,
+							deployed: item.draft_only ? undefined : r.description,
+							draft: draft?.description ?? r.description,
+							draftPath: draft?.path,
+							loading: false
+						}
+					: { loading: false }
+				return
+			}
 			const r = (await (item.draftKind === 'script'
 				? ScriptService.getScriptByPath({
 						workspace: currentWorkspaceId,
@@ -296,8 +334,9 @@
 			for (const item of current) {
 				if (
 					item.mine &&
-					!item.draft_only &&
-					(['script', 'flow', 'app'].includes(item.draftKind) || item.raw_app) &&
+					((!item.draft_only &&
+						(['script', 'flow', 'app'].includes(item.draftKind) || item.raw_app)) ||
+						item.draftKind === 'resource') &&
 					!summaryCache[item.key]
 				) {
 					void fetchDraftSummary(item)
@@ -611,6 +650,9 @@
 				? `/pipeline/${encodeURIComponent(folder)}?workspace=${encodeURIComponent(currentWorkspaceId)}`
 				: undefined
 		}
+		if (summaryCache[d.key]?.agent) {
+			return `/agents/edit/${d.path}?workspace=${encodeURIComponent(currentWorkspaceId)}`
+		}
 		const listPage = LIST_PAGE_FOR_KIND[d.draftKind]
 		if (listPage) {
 			return `${listPage}?workspace=${encodeURIComponent(currentWorkspaceId)}#${d.path}`
@@ -668,6 +710,7 @@
 			{deploymentStatus}
 			{allSelected}
 			selectablePredicate={(item) => isDiscardable(item as unknown as Row)}
+			isAgent={(item) => !!summaryCache[item.key]?.agent}
 			selectBlockedReason={(item) => blockedReason(item as unknown as Row)}
 			onToggleItem={toggleItem}
 			onSelectAll={selectAll}
@@ -745,7 +788,7 @@
 				{@const oldSummary = cache?.deployed ?? draftItem.summary}
 				{@const newSummary = cache?.draft ?? draftItem.summary}
 				<WorkspaceDeployItemSummary
-					path={displayPath(draftItem)}
+					path={cache?.agent ? (cache.draftPath ?? draftItem.path) : displayPath(draftItem)}
 					{editUrl}
 					{oldSummary}
 					{newSummary}
@@ -758,7 +801,13 @@
 
 			{#snippet itemPath(item)}
 				{@const draftItem = item as unknown as Row}
-				{#if draftItem.kind === 'resource' || draftItem.kind === 'variable' || draftItem.kind === 'resource_type'}
+				{@const agent = summaryCache[draftItem.key]?.agent
+					? summaryCache[draftItem.key]
+					: undefined}
+				{#if agent}
+					<!-- Titled by its summary like a script; a summary-less one is titled by this path. -->
+					{#if agent.draft}{agent.draftPath ?? draftItem.path}{/if}
+				{:else if draftItem.kind === 'resource' || draftItem.kind === 'variable' || draftItem.kind === 'resource_type'}
 					<!-- drawer-only items show their path as the title; keep this line empty -->
 				{:else if !draftItem.draft_only && draftItem.draft_path && draftItem.draft_path !== draftItem.path}
 					<!-- Path rename: a *deployed* item's draft moves it to a new path. Strike
@@ -775,17 +824,21 @@
 			{#snippet itemActions(item)}
 				{@const draftItem = item as unknown as Row}
 				{@const others = otherDraftUsers(draftItem)}
-				<Badge color="gray" size="xs">{kindLabel(draftItem.draftKind)}</Badge>
-				<DraftBadge
-					is_draft={true}
-					draft_only={draftItem.draft_only}
-					draft_users={draftItem.draft_users ?? []}
-					{currentUsername}
-					workspace={currentWorkspaceId}
-					itemKind={draftItem.draftKind}
-					path={draftItem.path}
-					allowFork={false}
-				/>
+				<div class="flex items-center gap-1">
+					<Badge color="gray" size="xs">
+						{summaryCache[draftItem.key]?.agent ? 'agent' : kindLabel(draftItem.draftKind)}
+					</Badge>
+					<DraftBadge
+						is_draft={true}
+						draft_only={draftItem.draft_only}
+						draft_users={draftItem.draft_users ?? []}
+						{currentUsername}
+						workspace={currentWorkspaceId}
+						itemKind={draftItem.draftKind}
+						path={draftItem.path}
+						allowFork={false}
+					/>
+				</div>
 				{#if draftItem.mine && others.length > 0}
 					<Popover openOnHover debounceDelay={50}>
 						{#snippet trigger()}

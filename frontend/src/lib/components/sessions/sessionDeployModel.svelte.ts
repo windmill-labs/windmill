@@ -60,6 +60,13 @@ export interface SessionDeployModelArgs {
 	/** Deploys a pipeline folder's draft bundle, which no per-item deploy can: it
 	 *  expands into the folder's scripts and triggers. */
 	deployPipeline?: (folder: string) => Promise<DeployResult>
+	/** The session is in Use: its edits still show, but nothing deploys or discards. */
+	readOnly?: boolean
+}
+
+const USE_MODE_REFUSAL: DeployPermission = {
+	ok: false,
+	reason: 'A session in Use mode deploys nothing. Switch it to Use & build to deploy.'
 }
 
 export interface DiffValues {
@@ -258,6 +265,7 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	})
 
 	function permissionFor(kind: Kind): DeployPermission {
+		if (getArgs().readOnly) return USE_MODE_REFUSAL
 		const caps = capabilitiesInWorkspace(getArgs().workspaceId)
 		if (builder?.kinds.includes(kind)) return deployPermissionForKind(builder.perm, kind, caps)
 		return deployPermissionForKind(deployPerm, kind, caps)
@@ -305,7 +313,7 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	/** Deploy (or discard) a single item; returns whether it succeeded. */
 	async function deployOne(item: DeployItem, discard = false): Promise<boolean> {
 		const plan = discard ? discardPlanFor(item) : deployPlanFor(item)
-		if (!plan) return false
+		if (!plan || getArgs().readOnly) return false
 		// Snapshot before the await: the user may switch sessions while the
 		// deploy runs, and the event belongs to the initiating session.
 		const initiatingSessionId = sessionState.currentSessionId
@@ -409,6 +417,10 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		 */
 		deployPermissionForKind(kind: Kind): DeployPermission {
 			return permissionFor(kind)
+		},
+		/** The session is in Use, so discarding is refused as deploying is. */
+		get readOnly() {
+			return !!getArgs().readOnly
 		},
 		deployRow,
 		discardRow

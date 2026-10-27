@@ -17,6 +17,26 @@ export function agentChatPath(agentPath: string): string {
  *  scoping and the run's agent detection match on it, so it is only ever relabeled for display. */
 export const AGENT_STEP_ID = '__wm_agent_root'
 
+/**
+ * Where a run's path links when the run is an agent's, which is a flow preview filed under no flow:
+ * a test run (`.chat`) to the agent's editor, a run of the deployed agent to its page. Undefined
+ * for any other run.
+ */
+export function agentRunHref(
+	job: { job_kind?: string; script_path?: string; raw_flow?: { modules?: { id: string }[] } },
+	workspace: string | undefined
+): string | undefined {
+	const path = job.script_path
+	if (job.job_kind !== 'flowpreview' || !path) return undefined
+	const query = workspace ? `?workspace=${workspace}` : ''
+	if (path.endsWith('.chat')) return `/agents/edit/${path.slice(0, -'.chat'.length)}${query}`
+	const modules = job.raw_flow?.modules
+	if (modules?.length === 1 && modules[0].id === AGENT_STEP_ID) {
+		return `/agents/get/${path}${query}`
+	}
+	return undefined
+}
+
 /** What a run shows for that step: the agent it ran, read off the run's path. */
 export function agentStepLabel(runPath: string | undefined): string {
 	return runPath?.replace(/\.chat$/, '') || 'AI Agent'

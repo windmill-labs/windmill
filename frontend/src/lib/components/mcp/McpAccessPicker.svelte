@@ -4,6 +4,10 @@
 	/** Marks a selection, so the per-workspace URLs add no API endpoint tools to it. */
 	export const RUNNABLES_AS_TOOLS = 'mcp:runnables_as_tools'
 
+	/** Added by the server to an `mcp:all` sign-in so the tools server's URLs serve it the AI
+	 *  session's tools. Grants nothing, so it is never shown. */
+	export const MCP_SESSION = 'mcp:session'
+
 	const ACCESS_SCOPES: Record<Exclude<McpAccess, 'selected'>, string[]> = {
 		read: ['mcp:all', 'mcp:read_only'],
 		read_run: ['mcp:all', 'mcp:read_run'],
@@ -13,7 +17,7 @@
 	/** The access a token's MCP scopes give: `mcp:all` and how it is narrowed, or else a
 	 *  selection of scripts, flows and endpoints. */
 	export function mcpAccessOf(scopes: string[]): McpAccess {
-		scopes = scopes.filter((s) => s !== RUNNABLES_AS_TOOLS)
+		scopes = scopes.filter((s) => s !== RUNNABLES_AS_TOOLS && s !== MCP_SESSION)
 		if (!scopes.includes('mcp:all')) return scopes.length > 0 ? 'selected' : 'full'
 		if (scopes.includes('mcp:read_only')) return 'read'
 		if (scopes.includes('mcp:read_run')) return 'read_run'
@@ -50,7 +54,7 @@
 	access = initialAccess
 	const initialSelection =
 		initialAccess === 'selected'
-			? initialScopes.filter((s) => s !== RUNNABLES_AS_TOOLS).join(' ')
+			? initialScopes.filter((s) => s !== RUNNABLES_AS_TOOLS && s !== MCP_SESSION).join(' ')
 			: undefined
 	let selection = $state(initialSelection ?? 'mcp:favorites')
 
@@ -95,7 +99,7 @@
 					{item}
 					value="read_run"
 					label="Read and run"
-					tooltip="Explore, and run deployed scripts and flows. The client changes nothing itself; the scripts and flows it runs can."
+					tooltip="Explore, and run deployed scripts, flows and agents. The client changes nothing itself; what it runs can."
 				/>
 				<ToggleButton
 					{item}

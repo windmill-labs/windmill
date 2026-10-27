@@ -520,6 +520,9 @@
 											resourceType={provider === 'openai' && usingOpenaiClientCredentialsOauth
 												? 'openai_client_credentials_oauth'
 												: provider}
+											additionalResourceTypes={provider === 'anthropic'
+												? ['anthropic_federated']
+												: []}
 											initialValue={aiProviders[provider].resource_path}
 											bind:value={
 												() => aiProviders[provider].resource_path || undefined,

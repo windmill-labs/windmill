@@ -2890,14 +2890,6 @@ pub async fn run_worker(
     killpill_tx: KillpillSender,
     base_internal_url: &str,
 ) {
-    #[cfg(not(feature = "enterprise"))]
-    if is_sandboxing_enabled() {
-        tracing::warn!(
-            worker = %worker_name, hostname = %hostname,
-            "NSJAIL to sandbox process in untrusted environments is an enterprise feature but allowed to be used for testing purposes"
-        );
-    }
-
     // Force UNSHARE_PATH and NSJAIL_AVAILABLE initialization now for clear startup logging
     let _ = &*UNSHARE_PATH;
     let _ = &*NSJAIL_AVAILABLE;
@@ -6703,7 +6695,8 @@ pub async fn run_language_executor(
             occupancy_metrics,
             has_stream,
         ))
-        .await?;
+        .await
+        .map_err(|e| crate::js_eval::with_step_context(e, &reserved_variables))?;
         return Ok(result);
     }
 

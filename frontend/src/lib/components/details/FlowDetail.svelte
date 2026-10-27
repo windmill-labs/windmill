@@ -79,6 +79,7 @@
 	import {
 		setOperatingWorkspace,
 		useOperatingUser,
+		useReadOnlyWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
 	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
@@ -139,13 +140,16 @@
 	const operatingHref = useOperatingWorkspaceHref()
 	const actingUser = $derived(operatingUser.current)
 	const editRights = useEditRights()
+	const readOnly = useReadOnlyWorkspace()
 
 	let flow: Flow | undefined = $state()
 	// Derived, not assigned during the load: in a fork the acting user is looked up
 	// asynchronously, and a value read after `getFlowByPath` resolves can land before that
 	// lookup does. Assigned once, that leaves the page permanently read-only — `canWrite`
 	// refuses an unknown user — with nothing to recompute it.
-	const can_write = $derived(!!flow && canWrite(flow.path, flow.extra_perms!, actingUser))
+	const can_write = $derived(
+		!!flow && !readOnly(workspace) && canWrite(flow.path, flow.extra_perms!, actingUser)
+	)
 	const promptForAi = $derived((flow?.schema?.prompt_for_ai as string | undefined) ?? '')
 	let shareModal: ShareModal | undefined = $state()
 
@@ -699,7 +703,8 @@
 				}
 			}
 			scriptOrFlowPath={flow?.path ?? ''}
-			errorHandlerKind="flow"
+			itemKind="flow"
+			errorHandlerKind={readOnly(workspace) ? undefined : 'flow'}
 			tag={flow?.tag ?? ''}
 			labels={flow?.labels}
 			inheritedLabels={flow?.inherited_labels}

@@ -64,7 +64,7 @@
 	const operatingWorkspace = useOperatingWorkspace()
 	const wsId = $derived($operatingWorkspace)
 
-	const WEBHOOK_BASE_URL = $derived(`${apiBaseUrl()}/api/w/${wsId}/jobs`)
+	const WEBHOOK_BASE_URL = $derived(`${apiBaseUrl('webhooks')}/api/w/${wsId}/jobs`)
 
 	let baseWebhookUrl = $derived.by(() => {
 		let webhookUrlPath: string
@@ -125,7 +125,7 @@
 	}
 	let url: string = $derived(urlWith('<conversation id>'))
 	let target: WebhookTarget = $derived({
-		api: `${apiBaseUrl()}/api/w/${wsId}`,
+		api: `${apiBaseUrl('webhooks')}/api/w/${wsId}`,
 		kind,
 		path,
 		chat,
@@ -266,7 +266,7 @@ async function triggerJob() {
 function waitForJobCompletion(UUID) {
   return new Promise(async (resolve, reject) => {
     try {
-      const endpoint = \`${apiBaseUrl()}/api/w/${wsId}/jobs_u/completed/get_result_maybe/\${UUID}\`;
+      const endpoint = \`${apiBaseUrl('webhooks')}/api/w/${wsId}/jobs_u/completed/get_result_maybe/\${UUID}\`;
       const checkResponse = await fetch(endpoint, {
         method: 'GET',
         headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n\t\t\t\t')}
@@ -313,7 +313,7 @@ ${
 		? 'echo -E $RESULT | jq'
 		: requestType === 'async'
 			? `
-URL="${apiBaseUrl()}/api/w/${wsId}/jobs_u/completed/get_result_maybe/$UUID"
+URL="${apiBaseUrl('webhooks')}/api/w/${wsId}/jobs_u/completed/get_result_maybe/$UUID"
 while true; do
   curl -s -H "Authorization: Bearer $TOKEN" $URL -o res.json
   COMPLETED=$(cat res.json | jq .completed)

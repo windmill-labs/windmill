@@ -18,8 +18,13 @@ import type {
 	ChatSendRequestOptions,
 	ChatViewHost
 } from '$lib/components/copilot/chat/chatViewHost'
-import type { DisplayMessage, WebSearchResult } from '$lib/components/copilot/chat/shared'
+import type {
+	DisplayMessage,
+	ToolDisplayMessage,
+	WebSearchResult
+} from '$lib/components/copilot/chat/shared'
 import type { AIAutonomyMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
+import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 import { isPlanCardTool } from '$lib/components/copilot/chat/planMode'
 import { AttachedFilesStore } from '$lib/components/copilot/chat/files/attachedFiles.svelte'
 import { SessionArtifactsStore } from '$lib/components/copilot/chat/artifacts/artifactsState.svelte'
@@ -35,6 +40,11 @@ import { JobService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { attachmentLanes } from './messageAttachments'
 import type { AttachmentsTarget } from './agentAttachmentInput'
+import {
+	answerAgentRequest,
+	type AgentRequest,
+	type PendingAgentRequest
+} from '$lib/components/agentRequest'
 
 export type FlowChatViewHostOptions = {
 	/** The flow inputs sent next to `user_message` with every turn. */
@@ -54,6 +64,8 @@ export type FlowChatViewHostOptions = {
 	/** Flow inputs edited by a control beside the composer, such as the model button. A retry
 	 * takes their current value rather than the failed turn's. */
 	inputsShownInComposer?: () => string[]
+	/** The approval or question the running turn's agent step waits on. */
+	agentRequest?: () => PendingAgentRequest | undefined
 	/** Injectables for tests: the clock and scheduler behind the typewriter pacing. */
 	revealOptions?: Pick<TypewriterRevealOptions, 'instant' | 'now' | 'schedule' | 'cancel'>
 }
@@ -132,6 +144,57 @@ export type DisplayLookups = {
 	workspace?: string
 	/** How much of a pending assistant row the pacing has put on screen. */
 	revealed?: (message: ChatMessage) => Revealed | undefined
+	/** The approval or question the running turn's agent waits on. */
+	request?: AgentRequest
+}
+
+const QUESTION_CALL = /^ask_question(_\d+)?$/
+
+/** The calls a request holds, as the cards the copilot shows for a confirmation or a question.
+ * `row` is the streamed card of that call, if any: an agent that does not stream sends none. */
+function requestCard(
+	request: AgentRequest,
+	toolName: string,
+	row: ToolDisplayMessage
+): ToolDisplayMessage {
+	if (request.type === 'question') {
+		return {
+			...row,
+			content: 'Waiting for your answer',
+			isLoading: true,
+			userQuestion: {
+				question: request.question,
+				choices: request.choices ?? [],
+				multiSelect: request.multi_select
+			}
+		}
+	}
+	const call = request.calls.find((c) => c.function_name === toolName)
+	const others = request.calls.length - 1
+	return {
+		...row,
+		content:
+			`Waiting for approval to run ${toolName}` +
+			(others > 0 ? `, answered together with ${others} other call${others > 1 ? 's' : ''}` : ''),
+		parameters: row.parameters ?? call?.arguments,
+		showDetails: true,
+		isLoading: true,
+		needsConfirmation: true,
+		confirmAction: 'run'
+	}
+}
+
+function requestKey({ agentJobId, action }: PendingAgentRequest): string {
+	return `${agentJobId}:${action.call_id}`
+}
+
+function holds(request: AgentRequest, toolName: string | undefined): toolName is string {
+	return (
+		!!toolName &&
+		(request.type === 'question'
+			? QUESTION_CALL.test(toolName)
+			: request.calls.some((c) => c.function_name === toolName))
+	)
 }
 
 /**
@@ -195,7 +258,9 @@ export function toDisplayMessages(
 	for (let i = messages.length - 1; i >= 0 && latestUser < 0; i--) {
 		if (messages[i].role === 'user') latestUser = i
 	}
-	return messages.flatMap((message, i): DisplayMessage[] => {
+	const request = lookups.request
+	let requestShown = false
+	const shown = messages.flatMap((message, i): DisplayMessage[] => {
 		switch (message.role) {
 			case 'user': {
 				const index = userIndex++
@@ -252,7 +317,7 @@ export function toDisplayMessages(
 					!STRUCTURED_OUTPUT_CALL.test(message.tool.name)
 						? `${message.tool.name} did not finish`
 						: undefined
-				const call: DisplayMessage = {
+				let call: ToolDisplayMessage = {
 					role: 'tool',
 					tool_call_id: message.id,
 					// The card's header is the row's text, which the server only words once the
@@ -268,6 +333,10 @@ export function toDisplayMessages(
 					error: failed ? (toolErrorText(result) ?? message.content) : unfinished,
 					isLoading: message.pending && message.tool?.status === 'running',
 					jobId: message.jobId
+				}
+				if (request && i > latestUser && call.isLoading && holds(request, toolName)) {
+					call = requestCard(request, toolName, call)
+					requestShown = true
 				}
 				// The tool card has no thinking section: the thinking that led to the call reads
 				// as a card of its own, just before it.
@@ -307,6 +376,25 @@ export function toDisplayMessages(
 			}
 		}
 	})
+	if (!request || requestShown) return shown
+	// No streamed card to put it on: the agent does not stream, or the page was opened after
+	// the call was made.
+	const calls =
+		request.type === 'question'
+			? [{ function_name: 'ask_question', arguments: undefined }]
+			: request.calls
+	return [
+		...shown,
+		...calls.map((call, n) =>
+			requestCard(request, call.function_name, {
+				role: 'tool',
+				tool_call_id: `${request.call_id}:${n}`,
+				content: '',
+				toolName: call.function_name,
+				parameters: call.arguments
+			})
+		)
+	]
 }
 
 /** The two paced lanes of one streaming message, and how much of each has been fed in. */
@@ -449,9 +537,30 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	displayMessages = $derived.by(() =>
 		toDisplayMessages(this.#state.messages, isBusy(this.#state.status), this.#stoppedTurns, {
 			workspace: this.#options.workspace?.(),
-			revealed: (message) => this.#revealed[message.id]
+			revealed: (message) => this.#revealed[message.id],
+			request: this.#agentRequest?.action
 		})
 	)
+
+	/** The request answered here, by agent job and call id: its cards drop their buttons until
+	 * the flow's status catches up. */
+	#answeredRequest = $state<string | undefined>(undefined)
+	get #agentRequest(): PendingAgentRequest | undefined {
+		const request = this.#options.agentRequest?.()
+		return request && requestKey(request) === this.#answeredRequest ? undefined : request
+	}
+
+	#answer(approved: boolean, answer?: string | string[]): boolean {
+		const request = this.#agentRequest
+		const workspace = this.#options.workspace?.()
+		if (!request || !workspace) return false
+		this.#answeredRequest = requestKey(request)
+		answerAgentRequest(workspace, request, approved, answer).catch((e: any) => {
+			this.#answeredRequest = undefined
+			sendUserToast(e?.body ?? e?.message ?? 'Failed to answer the request', true)
+		})
+		return true
+	}
 	/** The user message of each turn stopped in this view, by message id and, once the chat has
 	 * read its row, row id: a reopened conversation or an older page rebuilds messages from rows,
 	 * so a turn left before its row was read is not recognised there. Only this session knows;
@@ -697,8 +806,16 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 		void this.#turns.send(composerDraft(message.content), replayInputs)
 	}
 	restartGeneration = () => {}
-	handleUserQuestionAnswer = () => false
-	handleToolConfirmation = () => {}
+	handleUserQuestionAnswer = (_toolId: string, choices: string[]) =>
+		this.#answer(
+			true,
+			this.#agentRequest?.action.type === 'question' && this.#agentRequest.action.multi_select
+				? choices
+				: choices[0]
+		)
+	handleToolConfirmation = (_toolId: string, confirmed: boolean) => {
+		this.#answer(confirmed)
+	}
 	hasPendingRunForm = false
 	isRunFormPending = () => false
 
@@ -737,6 +854,9 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	// runtime: its unit test would otherwise load the manager and the editor it pulls in.
 	autonomyMode = 'default' as AIAutonomyMode.DEFAULT
 	setAutonomyMode = () => {}
+	workModesAvailable = false
+	workMode = AIWorkMode.BUILD
+	setWorkMode = () => {}
 	autoAcceptEditsActive = false
 	autoAcceptEditsAvailable = false
 	autoAcceptToolConfirmationsAvailable = false

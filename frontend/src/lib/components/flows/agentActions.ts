@@ -86,7 +86,7 @@ export function agentMenuItems(agent: {
 	/** Never deployed: no resource yet to hold permissions or to deploy onward. */
 	draftOnly?: boolean
 	wsSpecific?: boolean
-	/** Hides what a role that cannot code has no page for, as on a flow's menu. */
+	/** Hides what a role that cannot code has no page or right for, as on a flow's menu. */
 	noCode?: boolean
 	/** Undefined until loaded, when nothing is offered for deploy. */
 	deployUiSettings: WorkspaceDeployUISettings | undefined
@@ -96,6 +96,7 @@ export function agentMenuItems(agent: {
 	onDelete: (event?: MouseEvent) => void
 }): Item[] {
 	const deployable =
+		!agent.noCode &&
 		!agent.wsSpecific &&
 		!agent.draftOnly &&
 		isDeployable('resource', agent.path, agent.deployUiSettings)

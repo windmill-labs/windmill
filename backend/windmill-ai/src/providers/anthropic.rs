@@ -2,6 +2,7 @@ use super::{anthropic_model_rejects_sampling_params, REASONING_OFF_SENTINEL};
 use crate::{
     ai_google::parse_data_url,
     ai_providers::{AIPlatform, AIProvider, DISABLE_ANTHROPIC_PROMPT_CACHING},
+    credentials::AnthropicFederation,
     image_handler::prepare_messages_for_api,
     proxy::{
         add_user_to_body, common_outbound_headers, credential_header, ProxyBuildArgs, ProxyRequest,
@@ -837,6 +838,169 @@ impl QueryBuilder for AnthropicQueryBuilder {
     }
 }
 
+pub const ANTHROPIC_API_BASE_URL: &str = "https://api.anthropic.com/v1";
+
+/// Audience of the OIDC token Windmill presents in an Anthropic token exchange,
+/// which a federation rule can pin with its `audience` matcher.
+pub const ANTHROPIC_OIDC_AUDIENCE: &str = "https://api.anthropic.com";
+
+/// Lifetime of that OIDC token. A federation issuer refuses a token that lives
+/// longer than its maximum (one hour by default), and Anthropic caps the access
+/// token at twice the assertion's remaining life, so 30 minutes still lets a rule
+/// mint its default one-hour token.
+pub const ANTHROPIC_OIDC_TOKEN_LIFETIME_SECS: i64 = 1800;
+
+/// Exchange again this long before the access token expires, so a long streamed
+/// response that starts on a reused token cannot outlive it. Capped at half the
+/// token's lifetime: a rule may mint tokens for as little as a minute, and a
+/// margin longer than that would exchange again on every request.
+const FEDERATED_TOKEN_REFRESH_MARGIN: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// A short-lived Anthropic access token minted by a federated token exchange.
+#[derive(Clone, Debug)]
+pub struct FederatedAccessToken {
+    pub access_token: String,
+    refresh_at: std::time::SystemTime,
+}
+
+impl FederatedAccessToken {
+    fn new(access_token: String, lifetime: std::time::Duration) -> Self {
+        // Anthropic mints tokens for at most a day; the clamp keeps an out-of-range
+        // `expires_in` from overflowing the clock arithmetic.
+        let lifetime = lifetime.min(std::time::Duration::from_secs(86400));
+        let margin = FEDERATED_TOKEN_REFRESH_MARGIN.min(lifetime / 2);
+        Self { access_token, refresh_at: std::time::SystemTime::now() + lifetime - margin }
+    }
+
+    pub fn is_fresh(&self) -> bool {
+        std::time::SystemTime::now() < self.refresh_at
+    }
+}
+
+#[derive(Serialize)]
+struct FederatedTokenRequest<'a> {
+    grant_type: &'static str,
+    assertion: &'a str,
+    federation_rule_id: &'a str,
+    organization_id: &'a str,
+    service_account_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workspace_id: Option<&'a str>,
+}
+
+#[derive(Deserialize)]
+struct FederatedTokenResponse {
+    access_token: String,
+    expires_in: u64,
+}
+
+/// Exchange an OIDC token for an Anthropic access token at `POST /v1/oauth/token`
+/// (RFC 7523 `jwt-bearer` grant). `client` must already be pinned to the
+/// validated address of `base_url`.
+pub async fn exchange_federated_token(
+    client: &reqwest::Client,
+    base_url: &str,
+    federation: &AnthropicFederation,
+    assertion: &str,
+) -> Result<FederatedAccessToken, Error> {
+    let exchanged = request_federated_token(client, base_url, federation, assertion).await;
+    windmill_common::feature_usage::log_feature_usage(
+        "anthropic_federation",
+        "token_exchange",
+        if exchanged.is_ok() { "ok" } else { "failed" },
+    );
+    exchanged
+}
+
+async fn request_federated_token(
+    client: &reqwest::Client,
+    base_url: &str,
+    federation: &AnthropicFederation,
+    assertion: &str,
+) -> Result<FederatedAccessToken, Error> {
+    let url = AIProvider::build_anthropic_api_url(base_url, "oauth/token");
+    let response = client
+        .post(url)
+        .header("anthropic-version", ANTHROPIC_VERSION_STANDARD)
+        .json(&FederatedTokenRequest {
+            grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            assertion,
+            federation_rule_id: &federation.federation_rule_id,
+            organization_id: &federation.organization_id,
+            service_account_id: &federation.service_account_id,
+            workspace_id: federation.workspace_id.as_deref(),
+        })
+        .send()
+        .await
+        .map_err(|e| Error::internal_err(format!("Anthropic token exchange failed: {e}")))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        // Anthropic answers every denied assertion with the same opaque 401; the
+        // reason is only recorded in the Console's authentication history.
+        let hint = if status == reqwest::StatusCode::UNAUTHORIZED {
+            " The reason the exchange was denied is in the authentication history of the Claude Console's Workload identity page."
+        } else {
+            ""
+        };
+        return Err(Error::BadRequest(format!(
+            "Anthropic token exchange failed with status {status}: {body}.{hint}"
+        )));
+    }
+
+    let token = response
+        .json::<FederatedTokenResponse>()
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to parse the Anthropic token exchange response: {e}"
+            ))
+        })?;
+    Ok(FederatedAccessToken::new(
+        token.access_token,
+        std::time::Duration::from_secs(token.expires_in),
+    ))
+}
+
+/// The access token of a federated resource for a job, reusing `cached` while it
+/// is still fresh, so the agent loop exchanges once per job rather than per turn.
+/// Returns `None` for a resource that does not federate.
+pub async fn refresh_federated_access_token<'a>(
+    credentials: &crate::credentials::ProviderCredentials,
+    cached: &'a mut Option<FederatedAccessToken>,
+    client: &AuthedClient,
+) -> Result<Option<&'a str>, Error> {
+    let Some(federation) = credentials.anthropic_federation.as_ref() else {
+        return Ok(None);
+    };
+    if !cached.as_ref().is_some_and(FederatedAccessToken::is_fresh) {
+        // A worker holds no OIDC signing key, so it asks the API to mint the token for this job.
+        let assertion = client
+            .get_id_token_expiring_in(
+                ANTHROPIC_OIDC_AUDIENCE,
+                Some(ANTHROPIC_OIDC_TOKEN_LIFETIME_SECS),
+            )
+            .await
+            .map_err(|e| Error::ExecutionErr(format!("Failed to get an OIDC token: {e}")))?;
+        let http_client = crate::utils::pinned_ai_client_for(&credentials.base_url).await?;
+        *cached = Some(
+            exchange_federated_token(&http_client, &credentials.base_url, federation, &assertion)
+                .await?,
+        );
+    }
+    Ok(cached.as_ref().map(|token| token.access_token.as_str()))
+}
+
+/// Headers authenticating a request with a federated access token, which Anthropic
+/// takes as a bearer token in place of `x-api-key`.
+pub fn federated_auth_headers(access_token: &str) -> Vec<(&'static str, String)> {
+    vec![
+        ("Authorization", format!("Bearer {access_token}")),
+        ("anthropic-version", ANTHROPIC_VERSION_STANDARD.to_string()),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -859,6 +1023,7 @@ mod tests {
             aws_secret_access_key: None,
             aws_session_token: None,
             oidc_role_arn: None,
+            anthropic_federation: None,
             platform,
             custom_headers: HashMap::new(),
         }

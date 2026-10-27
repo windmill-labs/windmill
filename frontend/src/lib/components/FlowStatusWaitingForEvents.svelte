@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { mergeSchema } from '$lib/common'
 	import { type Job, JobService } from '$lib/gen'
-	import { sendUserToast } from '$lib/toast'
-	import { ExternalLink, X } from 'lucide-svelte'
+	import { ExternalLink } from 'lucide-svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import Tooltip from './Tooltip.svelte'
-	import { Button } from './common'
+	import ApprovalActions from './approvals/ApprovalActions.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { untrack } from 'svelte'
@@ -54,7 +53,6 @@
 		default_payload = args
 
 		approvalPageUrl = job_result?.['approvalPage']
-		actionTaken = false
 		hide_cancel = job?.raw_flow?.modules?.[approvalStep]?.suspend?.hide_cancel ?? false
 		schema = mergeSchema(
 			job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? {},
@@ -62,31 +60,21 @@
 		)
 	}
 
-	let loading = $state(false)
-	let actionTaken = $state(false)
 	async function continu(approve: boolean) {
 		if (!workspaceId) {
-			sendUserToast('Cannot resume: the job has no workspace', true)
-			return
+			throw new Error('Cannot resume: the job has no workspace')
 		}
-		loading = true
-		try {
-			await JobService.resumeSuspended({
-				workspace: workspaceId,
-				jobId: job?.id ?? '',
-				requestBody: {
-					payload: approve ? (default_payload as any) : undefined,
-					approved: approve
-				}
-			})
-			actionTaken = true
-			onAction?.(approve)
-		} catch (e: any) {
-			sendUserToast(e?.body ?? e?.message ?? 'Failed', true)
-		} finally {
-			loading = false
-		}
+		await JobService.resumeSuspended({
+			workspace: workspaceId,
+			jobId: job?.id ?? '',
+			requestBody: {
+				payload: approve ? (default_payload as any) : undefined,
+				approved: approve
+			}
+		})
+		onAction?.(approve)
 	}
+
 	let approvalStep = $derived((job?.flow_status?.step ?? 1) - 1)
 	// Everything this panel shows (description, resume form enums, approval page) is
 	// fetched from the suspended job — a recording carries none of it — and Resume /
@@ -108,34 +96,16 @@
 			<DisplayResult {workspaceId} noControls result={description} language={job?.language} />
 			<div class="mt-2"></div>
 		{/if}
-		<div>
-			<div class={twMerge('flex gap-2 items-center', light ? 'flex-col' : 'flex-row ')}>
-				{#if !hide_cancel}
-					<div>
-						<Button
-							title="Cancel the step"
-							iconOnly
-							startIcon={{ icon: X }}
-							variant="default"
-							disabled={loading || actionTaken}
-							destructive
-							unifiedSize="md"
-							on:click={() => continu(false)}
-						/>
-					</div>
-				{/if}
-				<div>
-					<Button
-						variant="accent"
-						onClick={() => continu(true)}
-						disabled={loading || actionTaken}
-						unifiedSize="md"
-					>
-						Resume
-						<Tooltip class="text-white">Resume or approve this suspended step</Tooltip>
-					</Button>
-				</div>
-
+		<!-- A new approval step gets usable buttons again. -->
+		{#key job?.flow_status?.modules?.[approvalStep]?.job}
+			<ApprovalActions
+				approveLabel="Resume"
+				approveTooltip="Resume or approve this suspended step"
+				rejectTitle="Cancel the step"
+				hideReject={hide_cancel}
+				{light}
+				onAnswer={continu}
+			>
 				{#if approvalPageUrl}
 					<a
 						href={approvalPageUrl}
@@ -161,7 +131,7 @@
 						variable
 					</Tooltip>
 				{/if}
-			</div>
-		</div>
+			</ApprovalActions>
+		{/key}
 	</div>
 {/if}

@@ -25,13 +25,15 @@
 	import { useScheduleLock, useTriggerLock } from '$lib/operatorWriteRights'
 	import {
 		useOperatingWorkspace,
-		useOperatingUser
+		useOperatingUser,
+		useReadOnlyWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	const scheduleLock = useScheduleLock()
 	const triggerLock = useTriggerLock()
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
+	const readOnly = useReadOnlyWorkspace()
 
 	const dispatch = createEventDispatcher()
 
@@ -170,7 +172,9 @@
 		}
 	}
 
-	let own = $state(false)
+	let ownsItem = $state(false)
+	// A session can switch to Use while the drawer is open, so read-only is read live.
+	const own = $derived(ownsItem && !readOnly($operatingWorkspace))
 	export async function openDrawer(newPath: string, kind_l: Kind, isOwnerOverride?: boolean) {
 		path = newPath
 		kind = kind_l
@@ -181,7 +185,7 @@
 		loadLinkedVarPaths()
 		loadDefaultPerms()
 		if (isOwnerOverride !== undefined) {
-			own = isOwnerOverride
+			ownsItem = isOwnerOverride
 		} else {
 			loadOwner()
 		}
@@ -189,7 +193,7 @@
 	}
 
 	async function loadOwner() {
-		own = isOwner(path, operatingUser.current!, $operatingWorkspace!)
+		ownsItem = isOwner(path, operatingUser.current!, $operatingWorkspace!)
 	}
 
 	async function loadAcls() {
@@ -292,9 +296,15 @@
 					</div>
 				{/if}
 				{#if !own}
-					<Alert type="warning" title="Not owner"
-						>Since you do not own this item, you cannot modify its permission</Alert
-					>
+					{#if readOnly($operatingWorkspace)}
+						<Alert type="info" title="Use mode">
+							This session cannot change permissions while it is in Use mode.
+						</Alert>
+					{:else}
+						<Alert type="warning" title="Not owner"
+							>Since you do not own this item, you cannot modify its permission</Alert
+						>
+					{/if}
 				{/if}
 				<div>
 					{#if own && sharingDisabled}

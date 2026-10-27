@@ -1,8 +1,8 @@
 # Operator builder rights
 
 Two workspace settings, `operator_settings.builder_flows` and `operator_settings.builder_apps`,
-that let every operator of that workspace compose flows and full-code apps out of runnables that
-already exist. Neither lets them author backend code or run arbitrary code on a worker, the
+that let every operator of that workspace compose flows (and AI agents, under the flow right) and
+full-code apps out of runnables that already exist. Neither lets them author backend code or run arbitrary code on a worker, the
 boundary the operator role draws. The app right does let them write the app's frontend code,
 which runs in the viewer's browser and is why that right rests on sandbox isolation.
 
@@ -32,12 +32,23 @@ anything that carries code. Three of its rules exist because the obvious walk mi
   past it.
 - **An AI agent step's `tools`.** `ToolValue::FlowModule` wraps a whole `FlowModuleValue`, so a
   tool can be a raw script.
-- **An AI agent step's `agent` link.** A linked agent resolves its tools from an `ai_agent`
-  resource at run time, and operators may write resources, so the tool list is outside this check
-  and can be swapped for a raw script after the flow is approved.
-
 It also returns what a value-only walk cannot authorize, for the caller to check against its own
 permissions:
+
+- **every agent a step links**. A linked agent resolves its tools from its `ai_agent` resource at
+  run time, outside this walk, so the link is allowed only to an agent the builder can read. That
+  is safe because of the agent rule below: an agent's tools are either a developer's code or
+  passed this same check when an operator saved them. Two things keep it safe:
+  - The step's `tool_inputs` replace a tool's inputs at run time, including the ones the agent's
+    author set. A builder's step may bind only the inputs the agent leaves open
+    (`check_bound_agent_inputs_are_open`, on `InputTransform::is_completed`), and the flow editor
+    lets a builder edit only those, showing the rest read-only. What it binds there, a `$var:` or
+    a JavaScript expression included, is what its own steps may already pass a deployed runnable; an input the author set
+    stays theirs. The check runs on the flow's write, so a tool or input the agent gains later is
+    open to a binding written before it, like the retyped path below.
+  - The worker refuses a linked path whose resource is no longer an `ai_agent`
+    (`get_agent_value`). Only writes of an agent are checked, so a path retyped, or recreated as
+    another type, after the link was approved would otherwise run whatever `tools` it now holds.
 
 - **the worker tags the steps pin**, or a builder routes a job onto a privileged worker group;
 - **every runnable a step references**. `script_to_payload` resolves a step's path with the root DB
@@ -60,6 +71,20 @@ Call it on every write **and** every preview: `run_preview_flow_job` and
 `push_flow_dependencies_job` both take a request-supplied flow value, so leaving either out makes
 it the way to run what the write path refuses. A flow draft goes through `validate_operator_flow`
 too: a developer who loads a builder's draft in the editor runs its code as themselves.
+
+## Agents
+
+An agent is an `ai_agent` resource, and operators may write resources, so the `flows` capability
+is also the right to build agents. Without it a restricted role writes no agent at all. Its tools run in the
+agent's own runs, which take only inputs and run what is stored, and in every flow step linking
+it. So `validate_operator_agent` holds an operator's agent to the composed-flow rules by checking
+its tools as the tools of a one-step flow. It is called from `resolve_agent_on_behalf_of`, which
+every write of an agent's value passes through: create, update, retype, update-value and version
+restore. An operator's resource draft is checked the same way when it names `ai_agent` **or** an
+agent is deployed at its path, whatever type the draft names: deploying a draft from the resource
+editor keeps the row's type. A draft saved before an agent is created at its path is not
+re-checked when someone else deploys it. A new route that writes an agent's value must go through
+that function.
 
 The same reasoning applies to a builder-authored app, with one extra step. `execute_component`
 resolves the runnable it runs on the root handle, so `validate_operator_composed_app` checks every
@@ -104,12 +129,19 @@ ignored into `inlineScript`.
 
 `update_app` takes a builder too, but settings only: the deploy panel saves a deployed full-code
 app's access and frontend scopes through it with no value. It reaches the same check, so a builder
-can no more switch the sandbox off there than on deploy.
+can no more switch the sandbox off there than on deploy. A change of `execution_mode` alone runs
+`check_operator_composed_app` on the deployed policy under the row lock, but not the readability
+check, which resolves script versions on a second pool connection. It is therefore refused when
+the app runs as anyone but the builder, `wm_deployers` or not: what an app running as its builder
+invokes runs as that builder, who can already run it as themselves by opening the app. It is also
+refused on an app whose stored policy is not sandboxed: the check would fill in the sandbox, and a
+change of the mode alone keeps every other field of the policy.
 
 A builder's **draft** goes through the same `check_operator_composed_app` as its deploy, with
 `BuilderAppWrite::Draft`: an admin may open it in the editor or deploy it as it stands, so any
 rule added for deploys must hold for drafts too. Where the two differ, `write` decides: a deploy
-fills in an omitted sandbox or mode, since it stores the policy it checked, while a draft skips
+fills in an omitted sandbox, since it stores the policy it checked, and an omitted mode inherits the
+deployed one, except that `Viewer` becomes `Publisher`, while a draft skips
 `triggerables_v2` and must not name another user's run identity. Every frontend writer of a
 builder draft must conform the policy first with `conformBuilderAppPolicy`, since a policy loaded
 from someone else's app breaks these rules: the raw-app editor component does, which covers both

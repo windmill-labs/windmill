@@ -1422,7 +1422,8 @@ function replaceFalseWithUndefinedRec(obj: any) {
 // `hash` is the deployed version's identity, `assets` is re-derived from the
 // script content by the editor, and `inherited_labels` is computed at read time
 // from the parent folder — none is editable content, so all three are noise in a
-// fork/workspace or version diff.
+// fork/workspace or version diff. `starred` is the viewer's own favorite flag, and a
+// starred item's `starred: true` survives `replaceFalseWithUndefined`.
 //
 // `lock` and `extra_perms` are deliberately NOT in this set: both are legitimate,
 // user-meaningful fields in some diff contexts (lockfile changes in version-to-version
@@ -1447,7 +1448,8 @@ const CLEANED_VALUE_KEYS = new Set([
 	'edited_by',
 	'workspace_id',
 	'parent_hashes',
-	'lock_error_logs'
+	'lock_error_logs',
+	'starred'
 ])
 
 export function cleanValueProperties(obj: Value) {
@@ -1664,6 +1666,8 @@ export type Item = {
 	id?: string
 	tooltip?: string
 	separatorTop?: boolean
+	/** A heading above the row, opening a section of the menu. */
+	sectionTitle?: string
 	/** Renders an on/off switch at the end of the row, so `icon` keeps the leading
 	 * slot. Presentational: the row's own click is what flips it, so `action` must
 	 * apply the change. */

@@ -956,7 +956,7 @@ pub struct User2 {
 async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo>> {
     let user = sqlx::query_as!(
         User2,
-        "SELECT usr.*, COALESCE(password.super_admin, false) as \"super_admin!\", password.name FROM usr LEFT JOIN password ON usr.email = password.email Where usr.username = $1 AND workspace_id = $2
+        "SELECT usr.workspace_id, usr.email, usr.username, usr.is_admin, usr.created_at, usr.operator, usr.disabled, usr.role, usr.added_via, usr.is_service_account, usr.workspace_role, COALESCE(password.super_admin, false) as \"super_admin!\", password.name FROM usr LEFT JOIN password ON usr.email = password.email Where usr.username = $1 AND workspace_id = $2
         ",
         username,
         w_id

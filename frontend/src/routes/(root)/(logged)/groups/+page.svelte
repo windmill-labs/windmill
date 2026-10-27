@@ -22,22 +22,18 @@
 	import { Tooltip } from '$lib/components/meltComponents'
 	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
 
-	type GroupW = Group & { canWrite: boolean }
-
 	const editRights = useEditRights()
 
 	let restricted = $derived(
 		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
 	)
 
-	let groups: GroupW[] | undefined = $state(undefined)
+	let groups: Group[] | undefined = $state(undefined)
 	let instanceGroups: InstanceGroupWithWorkspaces[] | undefined = $state(undefined)
 	let groupEditorDrawer: GroupEditorDrawer | undefined = $state()
 
 	async function loadGroups(): Promise<void> {
-		groups = (await GroupService.listGroups({ workspace: $workspaceStore! })).map((x) => {
-			return { canWrite: editRights.canEditItem('group', x.name, x.extra_perms), ...x }
-		})
+		groups = await GroupService.listGroups({ workspace: $workspaceStore! })
 	}
 
 	async function loadInstanceGroups(): Promise<void> {
@@ -50,7 +46,7 @@
 
 	$effect(() => {
 		untrack(() => loadInstanceGroups())
-		if ($workspaceStore && $userStore) {
+		if ($workspaceStore) {
 			untrack(() => loadGroups())
 		}
 	})
@@ -127,7 +123,8 @@
 							</tr>
 						{/each}
 					{:else}
-						{#each groups as { name, summary, extra_perms, canWrite } (name)}
+						{#each groups as { name, summary, extra_perms } (name)}
+							{@const canWrite = editRights.canEditItem('group', name, extra_perms)}
 							<Row hoverable on:click={() => groupEditorDrawer?.initEdit(name)}>
 								<Cell first>
 									<div class="flex flex-row gap-2 justify-between">
