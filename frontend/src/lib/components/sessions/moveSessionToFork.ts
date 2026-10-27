@@ -47,11 +47,12 @@ export type MoveSessionResult =
  */
 export async function flushPendingSaves(workspace: string): Promise<string | undefined> {
 	flushAllPendingEditorChanges()
-	// Text that does not parse never reaches the draft, and the move closes the editor holding it.
-	if (anyEditorUnparseable()) {
-		return 'An editor has changes that are not valid JSON. Fix them before moving.'
-	}
 	await tick()
+	// Text that does not parse never reaches the draft, and the move closes the editor holding it.
+	// After the tick: the JSON editors parse what was just flushed in an effect.
+	if (anyEditorUnparseable()) {
+		return 'An editor in the preview has changes that are not valid JSON. Fix them before moving.'
+	}
 	flushEditorSaves(workspace)
 	await tick()
 	const unsaved = await UserDraftDbSyncer.flushWorkspace(workspace)
