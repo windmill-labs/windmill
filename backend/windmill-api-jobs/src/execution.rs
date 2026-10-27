@@ -870,16 +870,18 @@ pub async fn delete_flow_result_after_read(db: &DB, job_uuid: Uuid) -> Result<()
             {
                 delete_job_metadata_after_use(db, job_uuid).await?;
                 if let Some(early_return) = flow_value.early_return.as_deref() {
+                    let early_return_ids: Vec<Uuid> =
+                        windmill_common::jobs::completed_flow_run_jobs(db, job_uuid)
+                            .await?
+                            .into_iter()
+                            .filter(|j| {
+                                !j.in_subflow && j.flow_step_id.as_deref() == Some(early_return)
+                            })
+                            .map(|j| j.id)
+                            .collect();
                     sqlx::query!(
-                        "WITH RECURSIVE run AS (
-                            SELECT id, flow_step_id FROM v2_job WHERE parent_job = $1
-                            UNION ALL
-                            SELECT j.id, j.flow_step_id FROM v2_job j JOIN run r ON j.parent_job = r.id
-                        )
-                        UPDATE v2_job_completed SET result = '{}'::jsonb
-                        WHERE id IN (SELECT id FROM run WHERE flow_step_id = $2)",
-                        job_uuid,
-                        early_return,
+                        "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = ANY($1)",
+                        &early_return_ids,
                     )
                     .execute(db)
                     .await?;

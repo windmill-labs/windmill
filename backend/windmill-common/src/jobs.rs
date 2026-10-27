@@ -107,6 +107,40 @@ pub fn get_has_preprocessor_from_content_and_lang(
     Ok(has_preprocessor)
 }
 
+/// A job of a completed flow's run, as returned by [`completed_flow_run_jobs`].
+pub struct FlowRunJob {
+    pub id: uuid::Uuid,
+    pub flow_step_id: Option<String>,
+    /// Inside a nested flow, whose step ids are its own rather than the run's.
+    pub in_subflow: bool,
+}
+
+/// The jobs of a completed flow's run, at any depth. Walks `parent_job`, because `root_job`
+/// is stored NULL whenever it equals the job's parent or innermost root, which is the case
+/// for most steps. Descends through completed jobs only: once the flow has completed, a job
+/// still queued or running below it was launched by a step through the API, and that job and
+/// everything under it are a separate run.
+pub async fn completed_flow_run_jobs(
+    db: &DB,
+    flow_id: uuid::Uuid,
+) -> crate::error::Result<Vec<FlowRunJob>> {
+    Ok(sqlx::query_as!(
+        FlowRunJob,
+        r#"WITH RECURSIVE run AS (
+            SELECT j.id, j.flow_step_id, j.kind = 'flow' AS is_flow, false AS in_subflow
+            FROM v2_job j JOIN v2_job_completed c ON c.id = j.id
+            WHERE j.parent_job = $1
+            UNION ALL
+            SELECT j.id, j.flow_step_id, j.kind = 'flow', r.in_subflow OR r.is_flow
+            FROM v2_job j JOIN v2_job_completed c ON c.id = j.id JOIN run r ON j.parent_job = r.id
+        )
+        SELECT id AS "id!", flow_step_id, in_subflow AS "in_subflow!" FROM run"#,
+        flow_id
+    )
+    .fetch_all(db)
+    .await?)
+}
+
 pub async fn schedule_job_deletion(
     db: &DB,
     job_id: uuid::Uuid,
@@ -270,8 +304,9 @@ pub async fn get_payload_tag_from_prefixed_path(
                 None,
             )
         } else {
-            let FlowVersionInfo { dedicated_worker, tag, version, labels, job_token_scopes, .. } =
-                get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
+            let FlowVersionInfo {
+                dedicated_worker, tag, version, labels, job_token_scopes, ..
+            } = get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
             (
                 JobPayload::Flow {
                     path,
@@ -554,7 +589,10 @@ pub struct RunInlinePreviewScriptFnParams {
 
 pub enum InlineScriptTarget {
     /// A script addressed by path, pinned to the version the caller resolved and checked.
-    Path { path: String, hash: i64 },
+    Path {
+        path: String,
+        hash: i64,
+    },
     Hash(i64),
 }
 
