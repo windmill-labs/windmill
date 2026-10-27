@@ -505,6 +505,10 @@ export async function deployDraft(
 					...rest,
 					path: scriptPath,
 					parent_hash: r.hash,
+					// The deployed script's: muting applies to it at once, so a draft's copy is stale.
+					// Before the first deploy the draft's is the only one.
+					ws_error_handler_muted:
+						draftOnly || r.no_deployed ? rest.ws_error_handler_muted : r.ws_error_handler_muted,
 					deployment_message: deploymentMessage,
 					// Deploy the draft's on-behalf-of as-is; the backend resets it to the
 					// deploying user without this flag, gated by can_preserve_on_behalf_of.
@@ -531,7 +535,10 @@ export async function deployDraft(
 				schema: d.schema,
 				tag: d.tag,
 				dedicated_worker: d.dedicated_worker,
-				ws_error_handler_muted: d.ws_error_handler_muted,
+				// The deployed flow's: muting applies to it at once, so a draft's copy is stale.
+				// Before the first deploy the draft's is the only one.
+				ws_error_handler_muted:
+					draftOnly || r.no_deployed ? d.ws_error_handler_muted : r.ws_error_handler_muted,
 				visible_to_runner_only: d.visible_to_runner_only,
 				on_behalf_of_email: d.on_behalf_of_email,
 				on_behalf_of: d.on_behalf_of,

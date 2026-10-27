@@ -1,7 +1,8 @@
-//! Handler, public-app and agent tool jobs run with more rights than whoever wrote some of their
+//! Handler, trigger, public-app and agent tool jobs run with more rights than whoever wrote some of their
 //! arguments, so nothing in those arguments may be resolved by the worker with the job's identity.
 
 use axum::{routing::post, Json as AxumJson, Router};
+use futures::StreamExt;
 use serde_json::{json, value::RawValue, Value};
 use sqlx::{types::Json, Pool, Postgres};
 use std::time::Duration;
@@ -297,6 +298,116 @@ async fn public_app_resolves_nothing_the_viewer_sent(db: Pool<Postgres>) -> anyh
         json!({"pipeline": [{"$match": {"currency": "$USD"}}]})
     );
     assert_eq!(out["d"]["key"], json!("$API_KEY"));
+    Ok(())
+}
+
+#[cfg(feature = "http_trigger")]
+#[sqlx::test(fixtures("base"))]
+#[serial_test::serial]
+async fn http_route_resolves_nothing_the_caller_sent(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    seed(&db).await?;
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/http_triggers/create"
+        ))
+        .bearer_auth("SECRET_TOKEN")
+        .json(&json!({
+            "path": "u/test-user/route",
+            "script_path": "f/handlers/h",
+            "is_flow": false,
+            "route_path": "untrusted",
+            "request_type": "async",
+            "authentication_method": "none",
+            "http_method": "post",
+            "is_static_website": false,
+            "workspaced_route": false,
+            "wrap_body": false,
+            "raw_string": false,
+        }))
+        .send()
+        .await?;
+    assert!(resp.status().is_success(), "{}", resp.text().await?);
+    // No credentials: the job still runs as the route's owner.
+    let resp = client
+        .post(format!("http://localhost:{port}/api/r/untrusted"))
+        .header("content-type", "application/json")
+        .body(
+            r#"{"error": "$var:u/test-user/secret", "leak": ["$WM_TOKEN", "$var:u/test-user/secret"],
+                "cfg": "$res:u/test-user/cfg", "price": "$10.00"}"#,
+        )
+        .send()
+        .await?;
+    assert!(resp.status().is_success(), "{}", resp.text().await?);
+    let id: Uuid = resp.text().await?.trim_matches('"').parse()?;
+    let out = run(&db, port, id).await;
+    assert!(!out.to_string().contains(SECRET), "{out}");
+    assert!(!out.to_string().contains("set_by"), "{out}");
+    assert_omitted(&out["error"]);
+    assert_omitted(&out["leak"][0]);
+    assert_eq!(out["price"], json!("$10.00"));
+    Ok(())
+}
+
+/// The flow resolves the approver's payload with its own token, and an approver controls what a
+/// reference points to even when they can read it, so the payload may hold none.
+#[sqlx::test(fixtures("base"))]
+#[serial_test::serial]
+async fn resume_takes_no_reference(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    seed(&db).await?;
+    let flow: FlowValue = serde_json::from_value(json!({"modules": [
+        {"id": "a", "suspend": {"required_events": 1},
+         "value": {"type": "rawscript", "language": "bun", "input_transforms": {},
+                   "content": "export function main() { return 1 }"}},
+        {"id": "b",
+         "value": {"type": "rawscript", "language": "bun",
+                   "input_transforms": {"resume": {"type": "javascript", "expr": "resume"}},
+                   "content": "export function main(resume: any) { return resume }"}},
+    ]}))?;
+    let flow = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .push(&db)
+        .await;
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let db_ = db.clone();
+    let test = async move {
+        let db = db_;
+        completed.next().await.unwrap();
+        while !sqlx::query_scalar::<_, bool>("SELECT suspend > 0 FROM v2_job_queue WHERE id = $1")
+            .bind(flow)
+            .fetch_one(&db)
+            .await
+            .unwrap()
+        {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let resume = |payload: Value| {
+            reqwest::Client::new()
+                .post(format!(
+                    "http://localhost:{port}/api/w/test-workspace/jobs_u/flow/resume_suspended/{flow}"
+                ))
+                .bearer_auth("SECRET_TOKEN")
+                .json(&json!({"payload": payload}))
+                .send()
+        };
+        // An admin, who can read the resource.
+        let refused = resume(json!({"db": "$res:u/test-user/cfg"})).await.unwrap();
+        assert_eq!(refused.status(), 400, "{}", refused.text().await.unwrap());
+        let ok = resume(json!({"note": "$5.00"})).await.unwrap();
+        assert!(ok.status().is_success(), "{}", ok.text().await.unwrap());
+        completed.find(&flow).await.unwrap();
+    };
+    tokio::time::timeout(Duration::from_secs(60), in_test_worker(&db, test, port))
+        .await
+        .expect("flow did not complete");
+    server.close().await?;
+    let out = completed_job(flow, &db).await.json_result().unwrap();
+    assert_eq!(out, json!({"note": "$5.00"}));
     Ok(())
 }
 
