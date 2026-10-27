@@ -120,6 +120,9 @@ pub struct FlowRunJob {
 /// for most steps. Descends through completed jobs only: once the flow has completed, a job
 /// still queued or running below it was launched by a step through the API, and that job and
 /// everything under it are a separate run.
+///
+/// Authorization: checks nothing, and reads across workspaces. Callers MUST pass a flow job
+/// they already hold, like the worker completing it or the API that just pushed it.
 pub async fn completed_flow_run_jobs(
     db: &DB,
     flow_id: uuid::Uuid,

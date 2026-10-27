@@ -845,7 +845,8 @@ pub async fn handle_delete_after_completion(
 /// Clears a flow job's own result, and its early-return node's, once its synchronous caller
 /// has read them, when the flow's delete_after_secs is 0. The worker clears the rest of the
 /// run but leaves these for the caller; for a delay above 0 it schedules every job itself.
-/// No permission check: callers pass only the job they have just pushed.
+///
+/// Authorization: checks nothing. Callers MUST pass only a flow job they have just pushed.
 pub async fn delete_flow_result_after_read(db: &DB, job_uuid: Uuid) -> Result<(), Error> {
     #[cfg(feature = "enterprise")]
     {
