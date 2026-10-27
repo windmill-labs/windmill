@@ -386,6 +386,9 @@
     node.append(...children.filter((c) => c != null && c !== false));
     return node;
   }
+  // A saved agent's test run is filed under its path plus `.chat`, a suffix no flow path can
+  // carry; Windmill shows it as the agent's.
+  const runPath = (path) => path?.replace(/\.chat$/, '');
   // A path breaks after a `/` first: `overflow-wrap: anywhere` alone cuts it mid-name.
   const pathText = (path) => path.split('/').flatMap((part, i, parts) => (i < parts.length - 1 ? [`${part}/`, el('wbr')] : [part]));
   // Lucide icons (as Windmill uses), built from constant shapes: no markup is parsed.
@@ -815,7 +818,7 @@
     const status = run?.status ?? 'running';
     const running = RUNNING.includes(status);
     setHeader({
-      path: run?.path ?? (run?.id ? `Run ${run.id.slice(0, 8)}` : toolArgs.path ?? 'Windmill'),
+      path: runPath(run?.path) ?? (run?.id ? `Run ${run.id.slice(0, 8)}` : toolArgs.path ?? 'Windmill'),
       ws: run?.workspace ?? toolArgs.workspace_id,
       kind: run?.agent_run ? 'agent' : kindLabel(run?.job_kind),
       // A running flow whose agent waits on a person reads as waiting, as Windmill colours it.
@@ -1274,7 +1277,7 @@
       { label: 'Time', value: when, show: time },
       { label: 'Duration', value: (r) => r.duration_ms, show: formatMs },
       {
-        label: 'Path', value: (r) => r.path ?? r.id, mono: true,
+        label: 'Path', value: (r) => runPath(r.path) ?? r.id, mono: true,
         show: (p, r) => el('span', { class: 'with-icon', title: kindLabel(r.job_kind) }, icon(/flow/.test(r.job_kind ?? '') ? 'flow' : 'script'),
           el('span', {}, ...pathText(String(p)), ' ', icon('external')))
       }
