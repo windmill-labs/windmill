@@ -218,7 +218,7 @@
 							options={{ right: 'All my workspaces, including ones I join later' }}
 							size="xs"
 						/>
-						{#if workspaces.length === 0}
+						{#if workspaces.length === 0 && !allWorkspaces}
 							<p class="text-xs text-secondary">
 								You are not in any workspace yet. Turn this on to give it the ones you join later.
 							</p>

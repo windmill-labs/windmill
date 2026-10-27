@@ -1641,7 +1641,12 @@
       blocks.push(el('button', { class: 'more-line', type: 'button', onclick: open }, hiddenSections.join(' \u00b7 '), icon(canFullscreen() ? 'expand' : 'external')));
     }
     $('body').replaceChildren(...blocks.filter(Boolean));
-    // A few long lines can still overflow a clipped block: it is cut, and opens whole.
+    markItemCuts();
+  }
+
+  // A few long lines can still overflow a clipped block: it is cut, and opens whole. Wrapping
+  // depends on the width, so a narrower card checks again.
+  function markItemCuts() {
     for (const pre of $('body').querySelectorAll('pre.clip:not(.cut)')) {
       if (pre.scrollHeight <= pre.clientHeight + 1 || !canFullscreen()) continue;
       pre.classList.add('cut');
@@ -1650,6 +1655,7 @@
     // Offered when fullscreen shows more than this: a cut list, value or code block, a section.
     showExpand(valueCut || !!$('body').querySelector('.more-line:not(.mono), .cut'));
   }
+  window.addEventListener('resize', () => { if (view === 'item') markItemCuts(); });
 
   // A saved agent: its model, tools and instructions inline, its other settings in fullscreen.
   function agentRows(agent, url) {
