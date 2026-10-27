@@ -108,9 +108,8 @@ async fn a_viewer_cannot_reach_anothers_flow_memory(db: Pool<Postgres>) -> anyho
             .await?;
     assert_eq!(owner, "test-user");
     let resp = run(&ws, TOKENS[1], chat).await?;
-    assert!(
-        !resp.status().is_success(),
-        "another viewer's turn is refused"
-    );
+    // The first turn never runs here, so a refusal for the turn still running would pass too.
+    let body = resp.text().await?;
+    assert!(body.contains("belongs to another user"), "{body}");
     Ok(())
 }
