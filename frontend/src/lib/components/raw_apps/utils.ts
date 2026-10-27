@@ -434,15 +434,21 @@ export function genWmillTs(runnables: Record<string, Runnable>) {
 	return `// THIS FILE IS READ-ONLY
 // AND GENERATED AUTOMATICALLY FROM YOUR RUNNABLES
 
+/**
+ * \`memoryId\` names the conversation a turn of an agent or a chat-mode flow belongs to: a
+ * signed-in viewer's conversations are theirs alone.
+ */
 export declare const backend: {
 ${Object.entries(runnables)
-	.map(([k, v]) => `  ${k}: (args: ${hiddenRunnableToTsType(v)}) => Promise<any>;`)
+	.map(
+		([k, v]) =>
+			`  ${k}: (args: ${hiddenRunnableToTsType(v)}, opts?: { memoryId?: string }) => Promise<any>;`
+	)
 	.join('\n')}
 };
 
 /**
- * Start a runnable and resolve its job id. \`memoryId\` names the conversation a turn of an agent
- * or a chat-mode flow belongs to: a signed-in viewer's conversations are theirs alone.
+ * Start a runnable and resolve its job id. \`memoryId\` is as for \`backend\`.
  */
 export declare const backendAsync: {
 ${Object.entries(runnables)

@@ -568,9 +568,8 @@ function getRunnableSignature(
   asyncMode: boolean,
 ): string {
   const parameter = getRunnableParameterSignature(runnable);
-  if (!asyncMode) return `${parameter} => Promise<any>`;
   const opts = "opts?: { memoryId?: string }";
-  return `${parameter === "()" ? `(${opts})` : parameter.replace(/\)$/, `, ${opts})`)} => Promise<string>`;
+  return `${parameter === "()" ? `(${opts})` : parameter.replace(/\)$/, `, ${opts})`)} => Promise<${asyncMode ? "string" : "any"}>`;
 }
 
 function getRunnableParameterSignature(

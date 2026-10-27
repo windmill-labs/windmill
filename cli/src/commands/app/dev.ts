@@ -1166,6 +1166,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
         const runAndWaitForResult = async (
           runnableId: string,
           args: any,
+          memoryId?: string,
         ): Promise<{ uuid: string; result: any }> => {
           const runnables = await loadRunnables();
           const runnable = runnables[runnableId];
@@ -1182,6 +1183,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
             args,
             appTempRefs,
             previewModules(runnables, runnableId),
+            memoryId,
           );
           log.info(colors.gray(`[backend] Job started: ${uuid}`));
 
@@ -1194,7 +1196,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
             // Run a runnable synchronously and wait for result
             log.info(colors.blue(`[backend] Running runnable: ${runnable_id}`));
             try {
-              const { result } = await runAndWaitForResult(runnable_id, v);
+              const { result } = await runAndWaitForResult(runnable_id, v, memoryId);
               respond("backendRes", result, false);
             } catch (error: any) {
               log.error(colors.red(`[backend] Error: ${error.message}`));
