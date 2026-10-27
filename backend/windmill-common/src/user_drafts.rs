@@ -695,7 +695,8 @@ pub async fn copy_drafts_to_workspace(
     // deploy time, which is the more accurate answer of the two.
     let rows = sqlx::query!(
         // A script hash is content-addressed and shared between a workspace and its forks, so
-        // a script draft keeps its base (and `parent_hash`) when the target has that version,
+        // a script draft keeps its base (and `parent_hash`, both `ScriptHash`'s 16 hex digits,
+        // matched on the column so the lookup uses the key) when the target has that version,
         // which a fork's clone does; one deployed in the source after the fork was made is not
         // there, and a deploy naming it as parent would be refused. Flow and app ids are minted
         // per workspace, so those drafts arrive with no base (staleness falls back to the
@@ -713,16 +714,18 @@ pub async fn copy_drafts_to_workspace(
                     - CASE WHEN typ = 'flow' THEN 'version_id'
                            WHEN typ IN ('app', 'raw_app') THEN 'parent_version'
                            ELSE '' END
-                    - CASE WHEN typ = 'script' AND NOT EXISTS (
-                               SELECT 1 FROM script sc WHERE sc.workspace_id::text = $2::text
-                                 AND lpad(to_hex(sc.hash), 16, '0') = clean->>'parent_hash')
-                           THEN 'parent_hash' ELSE '' END
+                    - CASE WHEN typ <> 'script' THEN ''
+                           WHEN (clean->>'parent_hash' ~ '^[0-9a-f]{16}$') IS NOT TRUE THEN 'parent_hash'
+                           WHEN EXISTS (SELECT 1 FROM script sc WHERE sc.workspace_id = $2::text
+                                    AND sc.hash = ('x' || (clean->>'parent_hash'))::bit(64)::bigint)
+                           THEN '' ELSE 'parent_hash' END
                 ),
                 created_at, email,
-                CASE WHEN typ = 'script' AND EXISTS (
-                         SELECT 1 FROM script sc WHERE sc.workspace_id::text = $2::text
-                           AND lpad(to_hex(sc.hash), 16, '0') = base)
-                     THEN base END
+                CASE WHEN typ = 'script' AND base ~ '^[0-9a-f]{16}$' THEN
+                    CASE WHEN EXISTS (SELECT 1 FROM script sc WHERE sc.workspace_id = $2::text
+                                 AND sc.hash = ('x' || base)::bit(64)::bigint)
+                         THEN base END
+                END
          FROM (
              SELECT d.path, d.typ, d.created_at, d.email, d.base,
                     replace(replace(replace(d.value::text, chr(92) || chr(92), chr(1)), chr(92) || 'u0000', ''), chr(1), chr(92) || chr(92))::jsonb AS clean
