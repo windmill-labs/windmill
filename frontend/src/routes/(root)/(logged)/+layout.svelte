@@ -214,9 +214,7 @@
 	// which tracks the pointer. Easing that one leaves the band lying over the panel it is
 	// meant to stop beside — an empty strip across that panel's own header until it catches up.
 	let bandTransitionClass = $derived(
-		resizingSidebar && !sidebarSnapping
-			? ''
-			: 'transition-[left,padding-left] duration-200 ease-in-out'
+		resizingSidebar && !sidebarSnapping ? '' : 'transition-[padding-left] duration-200 ease-in-out'
 	)
 	// Set while a drag is live so it can be torn down if the layout unmounts
 	// mid-drag (otherwise the window listeners would leak).
@@ -1526,12 +1524,17 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 				     up into the gap and the workspace menu losing the trigger it hangs from.
 				     In flow, the band spans the content beside the rail. With an inset, a page owns
 				     the right edge from the top (a session's side panel): the band floats, stopping
-				     where that column starts, and the page pads its own content to clear it. -->
+				     where that column starts, and the page pads its own content to clear it.
+				     The rail offset is padding in both placements: carried by `left` in one and padding
+				     in the other, a switch between them (sessions with and without a side panel)
+				     eases the padding to or from zero and slides the whole breadcrumb across. -->
 				<div
-					class={classNames(floatBand ? 'absolute top-0 z-30' : 'shrink-0', bandTransitionClass)}
-					style:left={floatBand ? `${leftInset}rem` : undefined}
+					class={classNames(
+						floatBand ? 'absolute top-0 left-0 z-30' : 'shrink-0',
+						bandTransitionClass
+					)}
 					style:right={floatBand ? `${rightInset ?? 0}px` : undefined}
-					style:padding-left={floatBand ? undefined : `${leftInset}rem`}
+					style:padding-left="{leftInset}rem"
 				>
 					<PageHeaderBar navHidden={menuHidden} panelled={useDrawer} />
 				</div>
