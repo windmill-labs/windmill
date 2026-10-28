@@ -772,10 +772,15 @@
 		// programmatic value changes from the picker insertion path.
 		const prev = prevMentionedTitles
 		const cur = mentionedTitles
+		// Every entry with the title goes: two draft-only items can share the draft path
+		// that titles them, and one token names both.
 		for (const title of prev) {
 			if (cur.has(title)) continue
-			const entry = selectedContext.find((c) => c.title === title && c.deletable !== false)
-			if (entry) onRemoveContext?.(entry)
+			for (const entry of selectedContext.filter(
+				(c) => c.title === title && c.deletable !== false
+			)) {
+				onRemoveContext?.(entry)
+			}
 		}
 		prevMentionedTitles = cur
 	})
