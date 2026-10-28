@@ -3,6 +3,7 @@ import { goto } from '$lib/navigation'
 import { workspaceStore } from '$lib/stores'
 import {
 	createSession,
+	holdSessionUntilStarted,
 	selectSession,
 	sessionPageHref,
 	sessionInCurrentFamily,
@@ -10,6 +11,7 @@ import {
 	sessionState,
 	setSessionAutoSend,
 	setSessionDraftPrompt,
+	setNewSessionWorkspace,
 	setSessionPendingWorkspace,
 	type Session,
 	type SessionTarget
@@ -23,7 +25,14 @@ import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
 import type { AppDomSelectorElement } from '../copilot/chat/context'
 
 // `seedDomElement` rides only with `autoSend`: it is the chip of the prompt being sent.
-type SeedOpts = { seedPrompt?: string; autoSend?: boolean; seedDomElement?: AppDomSelectorElement }
+// `untilStarted` keeps the session out of storage until the user starts it, for an item that
+// is kept on its own (a new app's draft) and so loses nothing when the session goes.
+type SeedOpts = {
+	seedPrompt?: string
+	autoSend?: boolean
+	seedDomElement?: AppDomSelectorElement
+	untilStarted?: boolean
+}
 
 // The session/navigation switch turns the global rail into either the workspace
 // navigation (navigation mode) or the sessions sidebar (session mode). Session
@@ -222,7 +231,10 @@ async function sessionHrefFor(
 	// straight onto what the caller wants (resetSessionPreviewTabs also writes
 	// through a live runtime if one already exists for this id).
 	const session = createSession()
-	if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
+	if (opts?.untilStarted) {
+		holdSessionUntilStarted(session.id)
+		if (workspaceId) setNewSessionWorkspace(session.id, workspaceId)
+	} else if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
 	if (opts?.seedPrompt) {
 		setSessionDraftPrompt(session.id, opts.seedPrompt)
 		if (opts.autoSend) setSessionAutoSend(session.id, opts.seedDomElement)

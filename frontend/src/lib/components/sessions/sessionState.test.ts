@@ -7,6 +7,7 @@ import {
 	decideSessionLifecycle,
 	findEmptyLandingSession,
 	getSessionDraftAttachments,
+	holdSessionUntilStarted,
 	homeStarterSession,
 	isForkSession,
 	isTearingDownOpenSession,
@@ -16,6 +17,7 @@ import {
 	setGeneratedSessionSummary,
 	setSessionDraftAttachments,
 	setSessionDraftPrompt,
+	setSessionTabs,
 	sessionState,
 	withOpenSessionTeardown,
 	type Session
@@ -483,6 +485,35 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 			setSessionDraftAttachments('attachment-only', NO_ATTACHMENTS)
 			sessionState.sessions = sessionState.sessions.filter(
 				(s) => s.id !== 'attachment-only' && s.id !== createdId
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('keeps a session held until started in memory, and does not reuse it', () => {
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const held = session({
+			id: 'held-on-app',
+			name: 'session-905',
+			pending_workspace_id: 'forkA',
+			transient: true
+		})
+		sessionState.sessions.push(held)
+		let createdId: string | undefined
+		try {
+			holdSessionUntilStarted('held-on-app')
+			const tabs = [
+				{ id: 'session', url: '/apps_raw/edit/u/me/app', loc: '/apps_raw/edit/u/me/app' }
+			]
+			setSessionTabs('held-on-app', tabs, 'session')
+			expect(held.transient).toBe(true)
+			createdId = createSession().id
+			expect(createdId).not.toBe('held-on-app')
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== 'held-on-app' && s.id !== createdId
 			)
 			sessionState.currentSessionId = prevCurrent
 			restore()
