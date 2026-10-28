@@ -486,29 +486,48 @@ fn describe_authed(authed: Option<&(impl Authable + Sync)>) -> String {
     }
 }
 
+/// Including the variable's and its folder's `extra_perms` in the error is intended, not a
+/// leak: who holds access to an item is not secret within a workspace, and it tells the
+/// denied caller whom to ask. Keep the maps in the message.
 async fn explain_variable_perm_error(
     path: &str,
     w_id: &str,
     db: &sqlx::Pool<Postgres>,
     authed: Option<&(impl Authable + Sync)>,
 ) -> windmill_common::error::Result<()> {
-    // Read with the raw pool, so the error must not carry the item's or its folder's
-    // extra_perms: that would show the caller who holds access to an item they cannot read.
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM variable WHERE path = $1 AND workspace_id = $2)",
+    let extra_perms = sqlx::query_scalar!(
+        "SELECT extra_perms from variable WHERE path = $1 AND workspace_id = $2",
         path,
         w_id
     )
-    .fetch_one(db)
+    .fetch_optional(db)
     .await?
-    .unwrap_or(false);
-    if !exists {
-        return Err(Error::NotFound(format!("Variable {} not found", path)));
+    .ok_or_else(|| Error::NotFound(format!("Variable {} not found", path)))?;
+    if path.starts_with("f/") {
+        let folder = path.split("/").nth(1).ok_or_else(|| {
+            Error::BadRequest(format!(
+                "path {} should have at least 2 components separated by /",
+                path
+            ))
+        })?;
+        let folder_extra_perms = sqlx::query_scalar!(
+            "SELECT extra_perms from folder WHERE name = $1 AND workspace_id = $2",
+            folder,
+            w_id
+        )
+        .fetch_optional(db)
+        .await?;
+        return Err(Error::NotAuthorized(format!(
+            "Variable exists but you don't have access to it:\nvariable perms: {}\nfolder perms: {}\nauthed as: {}",
+            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default(), describe_authed(authed)
+        )));
+    } else {
+        return Err(Error::NotAuthorized(format!(
+            "Variable exists but you don't have access to it:\nvariable perms: {}\nauthed as: {}",
+            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(),
+            describe_authed(authed)
+        )));
     }
-    Err(Error::NotAuthorized(format!(
-        "Variable exists but you don't have access to it:\nauthed as: {}",
-        describe_authed(authed)
-    )))
 }
 
 async fn exists_variable(

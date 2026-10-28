@@ -695,28 +695,47 @@ async fn get_resource_value(
     Ok(Json(value))
 }
 
+/// Including the resource's and its folder's `extra_perms` in the error is intended, not a
+/// leak: who holds access to an item is not secret within a workspace, and it tells the
+/// denied caller whom to ask. Keep the maps in the message.
 pub async fn explain_resource_perm_error(
     path: &str,
     w_id: &str,
     db: &sqlx::Pool<Postgres>,
     authed: &ApiAuthed,
 ) -> windmill_common::error::Result<()> {
-    // Read with the raw pool, so the error must not carry the item's or its folder's
-    // extra_perms: that would show the caller who holds access to an item they cannot read.
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM resource WHERE path = $1 AND workspace_id = $2)",
+    let extra_perms = sqlx::query_scalar!(
+        "SELECT extra_perms from resource WHERE path = $1 AND workspace_id = $2",
         path,
         w_id
     )
-    .fetch_one(db)
+    .fetch_optional(db)
     .await?
-    .unwrap_or(false);
-    if !exists {
-        return Err(Error::NotFound(format!("Resource {} not found", path)));
+    .ok_or_else(|| Error::NotFound(format!("Resource {} not found", path)))?;
+    if path.starts_with("f/") {
+        let folder = path.split("/").nth(1).ok_or_else(|| {
+            Error::BadRequest(format!(
+                "path {} should have at least 2 components separated by /",
+                path
+            ))
+        })?;
+        let folder_extra_perms = sqlx::query_scalar!(
+            "SELECT extra_perms from folder WHERE name = $1 AND workspace_id = $2",
+            folder,
+            w_id
+        )
+        .fetch_optional(db)
+        .await?;
+        return Err(Error::NotAuthorized(format!(
+            "Resource exists but you don't have access to it:\nresource perms: {}\nfolder perms: {}\nauthed as: {authed:?}",
+            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default()
+        )));
+    } else {
+        return Err(Error::NotAuthorized(format!(
+            "Resource exists but you don't have access to it:\nresource perms: {}\nauthed as: {authed:?}",
+            serde_json::to_string_pretty(&extra_perms).unwrap_or_default()
+        )));
     }
-    Err(Error::NotAuthorized(format!(
-        "Resource exists but you don't have access to it:\nauthed as: {authed:?}"
-    )))
 }
 
 async fn custom_component(
