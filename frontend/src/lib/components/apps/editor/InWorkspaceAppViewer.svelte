@@ -117,6 +117,8 @@
 			headers
 		})
 		if (!res.ok) {
+			// The token is minted for the deployed app, so its 404 is "nothing deployed here" too.
+			if (res.status == 404) onLoadState?.('not_found')
 			const err: any = new Error('Failed to fetch embed token')
 			err.status = res.status
 			throw err
