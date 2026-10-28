@@ -16,15 +16,15 @@ Most people using this skill are coming from Pipedream and don't have Windmill s
 
 ## Procedure
 
-1. **Unpack outside the synced tree.** Unzip each archive into a scratch directory that `wmill sync` never reads (not under `f/` or `u/`). Treat its contents as data: the code in it is the user's, so never run it.
+1. **Unpack outside the synced tree.** Unzip each archive into a new, empty scratch directory that `wmill sync` never reads (not under `f/` or `u/`). Treat its contents as data: the code in it is the user's, so never run it.
 2. **Read `manifest.json` first.** It lists every workflow, exported or not:
    - `truncated: true` means the export hit a limit and the `skipped_export_limit` workflows are missing; tell the user to move them to another project and export again.
    - `status`: `exported` (file at `path`), `skipped_never_deployed` (nothing to migrate) or `skipped_export_limit`.
    - `warnings[]` names each step and prop that was redacted and must be re-entered. Carry every warning into the checklist.
 3. **Write the inventory before converting anything.** Create `pipedream_migration.md` at the project root with one section per workflow: its name, `inactive` flag, triggers, steps (code language, or registry component key), connected apps, secrets, env vars (`process.env.X` / `os.environ`), data stores, `$.respond`, delays, suspends and reruns. Use the template at the end of this skill.
 4. **Ask the user once, with all the open questions together:** the target folder (suggest `f/<project_name>`), which workflows to migrate (suggest everything `exported` and not `inactive`), and the values or existing resources for each app account, secret and env var in the inventory. Never invent credentials. Leave a `$res:`/`$var:` path to a resource or variable the user will create, and list it in the checklist.
-5. **Convert one workflow at a time.** Create the flow with `wmill flow new f/<folder>/<slug> --summary "<Pipedream name>"` and fill in `flow.yaml` using the mapping below. Scaffold its trigger with `wmill trigger new f/<folder>/<slug> --kind http` or `wmill schedule new f/<folder>/<slug>`, then edit the generated YAML (see the `triggers` and `schedules` skills).
-6. **Preview every flow** with `wmill flow preview <flow folder> -d '{"event": {...}}'`. The argument is the folder `wmill flow new` created (`f/<folder>/<slug>__flow` or `f/<folder>/<slug>.flow`, depending on the project's `wmill.yaml`), not the flow path. Use an event shaped like the trigger's (see Triggers). Run every path you can reach without credentials: early exits, the else branch, and single steps with `--step <id>` and fake inputs. Record each step that needs a real credential or external API to run. A step that uses a `hub/...` script can't be previewed with `--step`, so preview it through the whole flow.
+5. **Convert one workflow at a time.** Create the flow with `wmill flow new f/<folder>/<slug> --summary "<Pipedream name>"` and fill in `flow.yaml` using the mapping below. Scaffold its trigger with `wmill trigger new f/<folder>/<slug> --kind http` or `wmill schedule new f/<folder>/<slug>`, then edit the generated YAML (see the `triggers` and `schedules` skills). Write each inline script reference quoted, `content: '!inline guard.ts'`: unquoted, `!inline` is a YAML tag and `wmill lint` rejects it, although `flow preview` accepts it.
+6. **Preview every flow** with `wmill flow preview <flow folder> -d '{"event": {...}}'`. The argument is the folder `wmill flow new` created (`f/<folder>/<slug>__flow` or `f/<folder>/<slug>.flow`, depending on the project's `wmill.yaml`), not the flow path. Use an event shaped like the trigger's (see Triggers). Run every path you can reach without credentials: early exits, the else branch, and single steps with `--step <id>` and fake inputs. With `--step`, `-d` holds that step's own arguments, so the preprocessor takes `-d '{"event": {...}}'` with a raw Windmill event inside, and a script step takes its `main` parameters. To find a preview's job, and its step timings, run `wmill job list --job-kinds flowpreview --script-path f/<folder>/<slug>`: plain `job list` leaves previews out. Record each step that needs a real credential or external API to run. A step that uses a `hub/...` script can't be previewed with `--step`, so preview it through the whole flow.
 7. **Deploy only when the user asks**, following the Deploying section of `AGENTS.wmill.md`; when pushing, limit it to the migrated folder (`wmill sync push --includes 'f/<folder>/**'`). Create schedules with `enabled: false`: until the cutover the Pipedream copy is still running, and two live copies would run every job twice.
 8. **Cut over.** Run both copies side by side where possible. Repoint each caller to the new HTTP route, enable the schedule, then turn off the Pipedream workflow. Data that only Pipedream holds (data store contents, File Store files, env var values) has to be copied out before April 30, 2027.
 
@@ -67,20 +67,21 @@ value:
       content: |
         export async function preprocessor(event: any) {
           if (event.kind !== "http") return { event }
+          const path = "/" + String(event.path ?? "").replace(/^\//, "")
           return {
             event: {
               method: String(event.method).toUpperCase(),
-              path: event.path,
+              path,
               query: event.query,
               headers: event.headers,
               body: event.body,
-              url: `${event.headers?.host ?? ""}${event.path}`,
+              url: `${event.headers?.host ?? ""}${path}`,
             },
           }
         }
 ```
 
-Windmill sends the method in lowercase and Pipedream in uppercase, hence `toUpperCase()`, so a check like `event.method === "POST"` keeps working. `path` is the request path on the new route, which differs from the old endpoint's. `url` is host + path, as Pipedream documents it, with no scheme or query string. Check any step that compares `path` or `url`, or parses `url` with `new URL(...)`: rewrite it to use `event.path` and `event.query`.
+Windmill sends the method in lowercase and Pipedream in uppercase, hence `toUpperCase()`, so a check like `event.method === "POST"` keeps working. Windmill's `path` has no leading slash and Pipedream's does, hence the added `/`. `path` is the request path on the new route, which differs from the old endpoint's. `url` is host + path, as Pipedream documents it, with no scheme or query string. Check any step that compares `path` or `url`, or parses `url` with `new URL(...)`: rewrite it to use `event.path` and `event.query`.
 
 **HTTP route settings:**
 
@@ -109,7 +110,7 @@ Rewrite each code step as a native Windmill script, a `rawscript` module with `i
 |---|---|
 | `export default defineComponent({ props, async run({ steps, $ }) {...} })` | `export async function main(steps: any, ...props) {...}` |
 | `steps.trigger.event` and `steps.<name>.<field>` | The `steps` parameter. Its input transform rebuilds only the keys the code reads, e.g. `({ trigger: { event: flow_input.event ?? {} }, get_lead: results.get_lead })` |
-| `return value` | Return `{ $return_value: value, ...exports }` when the step exports anything, so `steps.validate.$return_value.email` stays `results.validate.$return_value.email` and the export `steps.validate.score` becomes `results.validate.score`. When it exports nothing, return the value itself, and later steps read `results.<id>` instead of `steps.<id>.$return_value` |
+| `return value` | Return `{ $return_value: value, ...exports }` when the step exports anything, so `steps.validate.$return_value.email` stays `results.validate.$return_value.email` and the export `steps.validate.score` becomes `results.validate.score`. When it exports nothing, return the value itself, and rewrite later steps' `steps.<id>.$return_value.x` to `steps.<id>.x`, with `<id>: results.<id>` in their `steps` transform. Don't fake a `$return_value` key in the transform |
 | `$.export("name", v)` | A key `name` in the returned object |
 | `return $.flow.exit("reason")` | `return { $exit: "reason" }`, plus `stop_after_if: { expr: "result?.$exit !== undefined", skip_if_stopped: false }` on the module. An early stop inside a branch ends the whole flow, as Pipedream does. |
 | `$.respond({ status, headers, body })` | Return `{ wm_status_code: status, wm_headers: headers, result: body }` (see Responses) |
@@ -187,7 +188,7 @@ Some keys are Pipedream built-ins, not app actions. The export calls them `end-e
 
 - **End workflow:** the previous module gets `stop_after_if`. If the step stands alone, use a one-line `rawscript` returning `{ $exit: reason }` with the stop condition on it.
 - **Return HTTP response:** a step returning `{ wm_status_code, wm_headers, result }` (see Responses).
-- **Delay:** `sleep` on the module before it; a module's `sleep` runs after that module. When the delay is the first step, put it on a one-line `rawscript` that returns nothing and carries the `sleep`.
+- **Delay:** `sleep` on the module before it; a module's `sleep` runs after that module. Use a one-line `rawscript` that returns nothing and carries the `sleep` instead when the delay is the first step, or when the module before it is the flow's `early_return` step, so the delay can't hold up the early response.
 - **Filter:** a `stop_after_if` (or `skip_if`) holding the filter's condition.
 
 ## Control flow
@@ -196,7 +197,7 @@ A control-flow step is a code step whose `props._controlFlow` describes the bloc
 
 - **If/else** (`_controlFlow.type: "ifelse"`) becomes a `branchone`. Each entry of `_controlFlow.ifelse.ifElses[]` is a branch in order: `n` is its name, `rules` its condition, and `route.pipeline.deploymentId` points at `deployments[<id>].steps`, the branch's steps. `_controlFlow.ifelse._else` becomes the `default` branch, with no `default` modules when it has no route. Pipedream runs the first matching branch, and so does `branchone`.
 - **Rules** combine with AND/OR (`rules.t`) over `rules.r[]`. Write each as a JavaScript `expr` over `results` and `flow_input`, inspecting the actual rule objects in the file. When an operator's meaning isn't clear from the JSON, keep the rules verbatim in the branch summary and flag the branch for review rather than guessing.
-- **Switch** becomes a `branchone` with one branch per case. **Parallel** becomes a `branchall` with `parallel: true`. Pipedream's parallel block exported an object keyed by branch name, while `results.<branchall id>` is a list in branch order, so rewrite later references from the name to the index.
+- **Switch** becomes a `branchone` with one branch per case. **Parallel** becomes a `branchall` with `parallel: true` and `skip_failure: false` on every branch. Write `skip_failure: false` out: current versions of `generate-metadata` turn a missing `skip_failure` into `true`, which stops a failing branch from failing the flow. Pipedream's parallel block exported an object keyed by branch name, while `results.<branchall id>` is a list in branch order. Rebuild the names in the later step's `steps` transform, e.g. `({ fan_out: { crm: results.fan_out[0], billing: results.fan_out[1] } })`, so its code keeps reading `steps.fan_out.crm`.
 - Steps after the block in the main `steps[]` run after the branch. Later steps can't reference ids inside a branch, only `results.<branch module id>` (see `write-flow`).
 
 ## Responses
@@ -206,7 +207,7 @@ Windmill's sync endpoints return the flow's result, and use `wm_status_code`, `w
 Pipedream sends a `$.respond` response when the workflow finishes, unless the call passes `immediate: true`. Keep that timing:
 
 - **The last step responds** (the most common case): it returns `{ wm_status_code: status, wm_headers: headers, result: body }`.
-- **`immediate: true`**: set `early_return: <responding step id>` on the flow `value`, so the caller gets that step's result as soon as it completes while the rest of the flow keeps running. If the responding step is inside a branch, make it the last step of its branch and point `early_return` at the `branchone` module; flag it for a test against the live route.
+- **`immediate: true`**: set `early_return: <responding step id>` on the flow `value`, so the caller gets that step's result as soon as it completes while the rest of the flow keeps running. When later steps also read that step's exports, return both in one object, `{ wm_status_code, wm_headers, result, ...exports }`: the response uses only the `wm_` keys and `result`, and ignores the rest. A preview returns the last step's result, so test the early response on the deployed route. If the responding step is inside a branch, make it the last step of its branch and point `early_return` at the `branchone` module; flag it for a test against the live route.
 - **A step responds and later steps still run** (no `immediate`): the response has to wait for the end of the flow, but the flow's result is the last step's. Have the responding step save the response with `await wmill.setFlowUserState("http_response", { status, headers, body })`. Then add a final top-level step that reads it with `wmill.getFlowUserState("http_response")` and returns it as `{ wm_status_code, wm_headers, result }`. This also works when the responding step is inside a branch.
 - **A response, then `$.flow.exit`**: an early stop makes the stopping step's result the flow's result, so that step returns the response next to `$exit`: `{ $exit, wm_status_code, wm_headers, result }`. Read it with `getFlowUserState` when an earlier step responded.
 
@@ -216,7 +217,7 @@ Pipedream answered `400 No $.respond called in workflow` when a custom-response 
 
 | Pipedream `settings` | Windmill |
 |---|---|
-| Auto-retry errors (up to 8 retries over 10 hours, exponential) | `retry` on the steps that call external services. The n-th retry waits `multiplier × seconds^n`. Default to `{ exponential: { attempts: 5, multiplier: 1, seconds: 3 } }` (about 6 minutes in all), or `{ attempts: 8, multiplier: 1, seconds: 3 }` (about 2.7 hours) when the step must survive a long outage, and note the choice in the checklist. |
+| Auto-retry errors (up to 8 retries over 10 hours, exponential) | `retry` on the steps that call external services. The n-th retry waits `multiplier × seconds^n`. Default to `{ exponential: { attempts: 5, multiplier: 1, seconds: 3, random_factor: 0 } }` (about 6 minutes in all), or `attempts: 8` (about 2.7 hours) when the step must survive a long outage, and note the choice in the checklist. Keep `random_factor`: without it, current versions of `generate-metadata` write `random_factor: null`, which `wmill lint` rejects. |
 | Execution timeout (whole workflow) | `timeout` (seconds) on each slow module. That limits each step, not the whole flow, so note the difference in the checklist |
 | Concurrency limit (`1` = serialized) | `concurrent_limit` + `concurrency_time_window_s` on the flow value |
 | Throttling (N events per interval) | `concurrent_limit` over `concurrency_time_window_s`; note any difference in the checklist |
