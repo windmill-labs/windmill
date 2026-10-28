@@ -37,7 +37,8 @@ export interface ImportPlan {
 /** 4 is the optional setup step, reached only when the import leaves work to do. */
 export type WizardStep = 1 | 2 | 3 | 4
 
-export const FOLDER_NAME_RE = /^[a-zA-Z_0-9-]+$/
+/** A base folder name, optionally followed by `/`-separated sub-path segments (`hub/billing`). */
+export const FOLDER_NAME_RE = /^[a-zA-Z_0-9-]+(\/[a-zA-Z_0-9-]+)*$/
 
 export function readPlan(url: URL): { plan: ImportPlan; step: WizardStep } {
 	const params = url.searchParams
@@ -119,7 +120,7 @@ export function planProblem(plan: ImportPlan): string | undefined {
 		return 'That is not a valid workspace id'
 	}
 	if (plan.folder && !FOLDER_NAME_RE.test(plan.folder)) {
-		return 'Folder: letters, digits, dashes and underscores'
+		return 'Folder: letters, digits, dashes and underscores, with / between sub-paths'
 	}
 	return undefined
 }

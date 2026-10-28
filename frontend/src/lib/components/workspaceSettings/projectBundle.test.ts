@@ -622,6 +622,15 @@ describe('retargetProjectExport', () => {
 		expect(out.triggers[1].config.kafka_resource_path).toBe('f/dest/db')
 	})
 
+	it('relocates into a nested destination folder', () => {
+		const out = retargetProjectExport(baseExport(), 'proj', 'hub/billing')
+		expect(out.scripts[0].path).toBe('f/hub/billing/hello')
+		expect(out.scripts[0].content).toContain('$res:f/hub/billing/db')
+		expect(out.flows[0].value.modules[0].value.path).toBe('f/hub/billing/hello')
+		expect(out.triggers[0].runnable_path).toBe('f/hub/billing/hello')
+		expect(out.triggers[1].config.kafka_resource_path).toBe('f/hub/billing/db')
+	})
+
 	it('leaves external and hub paths untouched', () => {
 		const bundle = baseExport()
 		bundle.scripts[0].content = 'const a = "$res:u/admin/db"; const b = "$res:hub/1/x"'

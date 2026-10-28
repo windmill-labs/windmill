@@ -364,7 +364,7 @@
 			/>
 			{#if folder.trim() && !folderValid}
 				<p class="mt-1 text-2xs font-normal text-red-500"
-					>Letters, digits, dashes and underscores only.</p
+					>Letters, digits, dashes and underscores, with / between sub-paths.</p
 				>
 			{/if}
 		</div>

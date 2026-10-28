@@ -57,12 +57,16 @@ struct HubScope {
     folder: Option<String>,
 }
 
+/// A base folder name, or one followed by `/`-separated sub-path segments
+/// (`hub/billing`): every segment non-empty, so no leading, trailing or doubled `/`.
 fn validate_folder(folder: &str) -> Result<(), Error> {
-    let ok = !folder.is_empty()
-        && folder.len() <= 255
-        && folder
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    let ok = folder.len() <= 255
+        && folder.split('/').all(|seg| {
+            !seg.is_empty()
+                && seg
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        });
     if ok {
         Ok(())
     } else {
@@ -740,7 +744,28 @@ async fn forward_to_hub<T: Serialize>(
 
 #[cfg(test)]
 mod tests {
-    use super::is_public_hub;
+    use super::{is_public_hub, validate_folder};
+
+    #[test]
+    fn folder_accepts_nested_sub_paths() {
+        for ok in ["hub", "my-folder_2", "hub/billing", "hub/billing/v-2"] {
+            assert!(validate_folder(ok).is_ok(), "{ok} should be valid");
+        }
+        let too_long = format!("a/{}", "b".repeat(254));
+        for bad in [
+            "",
+            "/hub",
+            "hub/",
+            "hub//billing",
+            "hub/../x",
+            "hub/./x",
+            "hub/bil ling",
+            "hub\\billing",
+            too_long.as_str(),
+        ] {
+            assert!(validate_folder(bad).is_err(), "{bad} should be rejected");
+        }
+    }
 
     #[test]
     fn public_hub_recognized_in_every_spelling() {

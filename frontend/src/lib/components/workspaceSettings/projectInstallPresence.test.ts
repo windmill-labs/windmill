@@ -32,6 +32,7 @@ vi.mock('../triggers/workspaceTriggersList', () => ({
 	triggerHandlerRefs: () => []
 }))
 
+import { FolderService } from '$lib/gen'
 import { installProject, presenceKey } from './projectInstall'
 
 const exportData = {
@@ -102,5 +103,27 @@ describe('installProject presence', () => {
 		const results = await run(new Set([presenceKey('trigger:http', 'f/calendly/nightly')]))
 		expect(created.triggers).toEqual(['schedule:f/calendly/nightly'])
 		expect(results).toContainEqual({ path: 'f/calendly/nightly', ok: true })
+	})
+})
+
+describe('installProject into a nested folder', () => {
+	// `hub/billing` is a path prefix inside folder `hub`: only the base is a folder object.
+	it('creates only the base folder and lands items under the full prefix', async () => {
+		created.triggers = []
+		const results: any[] = []
+		await installProject({
+			workspace: 'w',
+			exportData,
+			folder: 'hub/billing',
+			migrations: [],
+			hasEeLicense: true,
+			onResult: (r) => results.push(r)
+		})
+		expect(FolderService.createFolder).toHaveBeenLastCalledWith({
+			workspace: 'w',
+			requestBody: { name: 'hub' }
+		})
+		expect(created.triggers).toEqual(['schedule:f/hub/billing/nightly'])
+		expect(results).toContainEqual({ path: 'f/hub/billing/nightly', ok: true })
 	})
 })

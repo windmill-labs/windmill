@@ -156,6 +156,10 @@ describe('planProblem', () => {
 		const base: ImportPlan = { slug: 's', destination: { kind: 'existing', workspaceId: 'admins' } }
 		expect(planProblem({ ...base, folder: 'ok_folder-1' })).toBeUndefined()
 		expect(planProblem({ ...base, folder: 'not ok' })).toMatch(/Folder/)
+		expect(planProblem({ ...base, folder: 'hub/billing' })).toBeUndefined()
+		for (const bad of ['/hub', 'hub/', 'hub//billing', 'hub/../x']) {
+			expect(planProblem({ ...base, folder: bad })).toMatch(/Folder/)
+		}
 	})
 })
 

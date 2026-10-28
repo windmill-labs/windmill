@@ -272,12 +272,7 @@ export async function applyOneMigration(
  * called `f/cal/sync`. Flattening them to `trigger` would let whichever exists answer for
  * the other.
  */
-export type ImportedKind =
-	| 'script'
-	| 'flow'
-	| 'app'
-	| 'resource'
-	| `trigger:${string}`
+export type ImportedKind = 'script' | 'flow' | 'app' | 'resource' | `trigger:${string}`
 
 /**
  * The key `alreadyPresent` is built and read with. Kind and path together, because the kinds
@@ -351,8 +346,10 @@ export async function installProject(args: {
 		return true
 	}
 
+	// A nested destination (`hub/billing`) is a path prefix inside the base folder `hub`,
+	// which is the only folder that exists as an object.
 	try {
-		await FolderService.createFolder({ workspace, requestBody: { name: folder } })
+		await FolderService.createFolder({ workspace, requestBody: { name: folder.split('/')[0] } })
 	} catch {}
 
 	const proj = retargetProjectExport(exportData, exportData.project.slug, folder)
