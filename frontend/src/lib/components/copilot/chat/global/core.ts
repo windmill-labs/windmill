@@ -1549,15 +1549,15 @@ const listJoin = (items: (string | false)[], type: 'conjunction' | 'disjunction'
 
 // The prompt an external MCP client reads. A directory reviewer reads it as a description of
 // what the server does, so it names only the server's own tools and leaves how each one works
-// to its description and to get_instructions. Some clients keep only its first 4096
-// characters, so the rules come before the path conventions.
+// to its description and to get_instructions. OpenAI asks for the most important details in
+// the first 512 characters and some clients keep only the first 4096, so the drafts rule
+// opens and the rules come before the path conventions.
 function buildExternalPrompt(username: string, paths: string, skills: AiSkillListItem[]) {
-	return `You are working in a Windmill workspace through its MCP server. The current user's workspace username is "${username}".
-
-The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, a draft's editor (\`url\`), an app draft's editor with its live preview (\`preview_url\`), a deployed item's page. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves, give them the link.
+	return `This server works in a Windmill workspace as the user "${username}".
 
 Rules:
 - What you write is a per-user draft, saved server-side and visible only to this user. Nothing reaches the workspace until deploy_workspace_item deploys it, which you call only when the user asks.
+- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, a draft's editor (\`url\`), an app draft's editor with its live preview (\`preview_url\`), a deployed item's page. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves, give them the link.
 - Find items with list_workspace_items and read one with read_workspace_item before changing it.
 - Call get_instructions before writing a script, flow, agent, resource or app, a data pipeline or a datatable migration. For a script, pass its language.
 - After writing a script, flow, agent or app runnable, test it with test_run_script, test_run_flow, test_run_step, test_run_agent or test_run_app_runnable before saying it works. They run the draft, so nothing needs deploying.
