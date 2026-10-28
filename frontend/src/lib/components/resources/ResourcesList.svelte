@@ -53,6 +53,7 @@
 		truncate,
 		validateFileExtension
 	} from '$lib/utils'
+	import { latestRequest } from '$lib/utils/latestRequest'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import { convert } from '@redocly/json-to-json-schema'
@@ -106,12 +107,16 @@
 	let themeResources: ResourceW[] | undefined = $state()
 	let resources: ResourceW[] | undefined = $state()
 	let resourceTypes: ResourceType[] | undefined = $state()
-
-	// Collect unique paths, types, owners for filter autocomplete
-	let allPaths: string[] = $state([])
-	let allResourceTypes: string[] = $state([])
-	let allOwners: string[] = $state([])
-	let allLabels: string[] = $state([])
+	let tab = $state<'workspace' | 'types' | 'states' | 'cache' | 'theme'>('workspace')
+	let currentResources = $derived(
+		tab == 'cache'
+			? cacheResources
+			: tab == 'states'
+				? stateResources
+				: tab == 'theme'
+					? themeResources
+					: resources
+	)
 
 	let resourceTypeViewer: Drawer | undefined = $state(undefined)
 	let resourceTypeViewerObj = $state({
@@ -174,9 +179,27 @@
 	let deleteIsLinked = $state(false)
 	let deletePath = $state('')
 	let loading = $state({
-		resources: true,
+		workspace: true,
+		cache: false,
+		states: false,
+		theme: false,
 		types: true
 	})
+
+	// Filter suggestions describe the list on screen, not whichever list answered last.
+	let suggestedFrom = $derived(currentResources ?? [])
+	let allPaths = $derived(Array.from(new Set(suggestedFrom.map((x) => x.path))).sort())
+	let allResourceTypes = $derived(
+		Array.from(new Set(suggestedFrom.map((x) => x.resource_type))).sort()
+	)
+	let allOwners = $derived(
+		Array.from(new Set(suggestedFrom.map((x) => x.path.split('/').slice(0, 2).join('/')))).sort()
+	)
+	let allLabels = $derived(
+		Array.from(
+			new Set(suggestedFrom.flatMap((x) => [...(x.labels ?? []), ...(x.inherited_labels ?? [])]))
+		).sort()
+	)
 
 	let showCreateButtons = $state(false)
 
@@ -203,8 +226,8 @@
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => resourcesFilterSchema))
 	// A link can carry the user folders filter to someone it is not offered to, where it would sit
-	// set with no chip to clear it. Dropped only once a user is actually known: `resolved` holds for
-	// the navigation workspace even while its user is still loading.
+	// set with no chip to clear it. Dropped only once a user is actually known: `resolved` also
+	// holds for a lookup that came back with nobody.
 	$effect(() => {
 		if (!operatingUser.resolved($operatingWorkspace) || !operatingUser.current) return
 		if (userFoldersFilterType !== undefined) return
@@ -217,7 +240,7 @@
 	let itemFolders = $derived(
 		Array.from(
 			new Set(
-				(resources ?? [])
+				suggestedFrom
 					.map((x) => x.path.split('/').slice(0, 2).join('/'))
 					.filter((x) => x.startsWith('f/'))
 			)
@@ -270,30 +293,42 @@
 			: [])
 	])
 
+	// One per list: shared, the workspace list loaded in the background would drop the reply of
+	// the tab being viewed.
+	const loads = {
+		workspace: latestRequest(),
+		cache: latestRequest(),
+		states: latestRequest(),
+		theme: latestRequest(),
+		types: latestRequest()
+	}
+
 	async function loadResources(): Promise<void> {
-		resources = await loadResourceInternal(undefined, 'cache,state,app_theme')
-		loading.resources = false
+		const result = await loadResourceInternal('workspace', undefined, 'cache,state,app_theme')
+		if (result) resources = result
 	}
 
 	async function loadCache(): Promise<void> {
-		cacheResources = await loadResourceInternal('cache', undefined)
-		loading.resources = false
+		const result = await loadResourceInternal('cache', 'cache', undefined)
+		if (result) cacheResources = result
 	}
 
 	async function loadState(): Promise<void> {
-		stateResources = await loadResourceInternal('state', undefined)
-		loading.resources = false
+		const result = await loadResourceInternal('states', 'state', undefined)
+		if (result) stateResources = result
 	}
 
 	async function loadTheme(): Promise<void> {
-		themeResources = await loadResourceInternal('app_theme', undefined)
-		loading.resources = false
+		const result = await loadResourceInternal('theme', 'app_theme', undefined)
+		if (result) themeResources = result
 	}
 
 	async function loadResourceInternal(
+		list: 'workspace' | 'cache' | 'states' | 'theme',
 		resourceType: string | undefined,
 		resourceTypeExclude: string | undefined
-	): Promise<ResourceW[]> {
+	): Promise<ResourceW[] | undefined> {
+		const isLatest = loads[list].start()
 		const currentFilters = filters.val
 
 		// Build API parameters from filters.
@@ -332,22 +367,15 @@
 		}
 
 		const result = await ResourceService.listResource(apiParams)
-
-		// Extract unique values for autocomplete
-		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
-		allResourceTypes = Array.from(new Set(result.map((x) => x.resource_type))).sort()
-		allOwners = Array.from(
-			new Set(result.map((x) => x.path.split('/').slice(0, 2).join('/')))
-		).sort()
-		allLabels = Array.from(
-			new Set(result.flatMap((x) => [...(x.labels ?? []), ...(x.inherited_labels ?? [])]))
-		).sort()
-
+		if (!isLatest()) return undefined
+		loading[list] = false
 		return result
 	}
 
 	async function loadResourceTypes(): Promise<void> {
+		const isLatest = loads.types.start()
 		const rows = await ResourceService.listResourceType({ workspace: $operatingWorkspace! })
+		if (!isLatest()) return
 		setResourceTypeDisplayNames(rows)
 		resourceTypes = rows
 		loading.types = false
@@ -488,12 +516,6 @@
 	}
 
 	let disableCustomPrefix = $state(false)
-	let tab: 'workspace' | 'types' | 'states' | 'cache' | 'theme' = $state('workspace') as
-		| 'workspace'
-		| 'types'
-		| 'states'
-		| 'cache'
-		| 'theme'
 
 	let inferrer: Drawer | undefined = $state(undefined)
 	let inferrerJson = $state('')
@@ -514,24 +536,21 @@
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
 
 	async function reload() {
-		loading = {
-			resources: true,
-			types: true
-		}
+		loading.types = true
 		if (tab == 'cache') {
+			loading.cache = true
 			await loadCache()
 		} else if (tab == 'states') {
+			loading.states = true
 			await loadState()
 		} else if (tab == 'theme') {
+			loading.theme = true
 			await loadTheme()
 		} else {
+			loading.workspace = true
 			await loadResources()
 		}
 		await loadResourceTypes()
-		loading = {
-			resources: false,
-			types: false
-		}
 	}
 
 	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
@@ -627,17 +646,6 @@
 	// Eagerly load the map
 	loadResourceNameToFileExtMap()
 
-	// Current resources based on tab
-	let currentResources = $derived(
-		tab == 'cache'
-			? cacheResources
-			: tab == 'states'
-				? stateResources
-				: tab == 'theme'
-					? themeResources
-					: resources
-	)
-
 	// Filter resources client-side for user folder filtering (admin feature)
 	let filteredItems = $derived.by(() => {
 		let items = currentResources
@@ -675,9 +683,22 @@
 	$effect(() => {
 		if ($operatingWorkspace) {
 			untrack(() => {
-				// The effect above loads the open tab only; the workspace list must not keep the
-				// previous workspace's rows behind another tab.
+				// The effect above loads the open tab only; no list may keep the previous
+				// workspace's rows behind another tab. The others reload when reopened, so they are
+				// emptied, and a load still in flight for them is superseded so it cannot refill them.
 				if (tab !== 'workspace') loadResources()
+				if (tab !== 'cache') {
+					loads.cache.start()
+					cacheResources = undefined
+				}
+				if (tab !== 'states') {
+					loads.states.start()
+					stateResources = undefined
+				}
+				if (tab !== 'theme') {
+					loads.theme.start()
+					themeResources = undefined
+				}
 				loadResourceTypes()
 			})
 		}
@@ -1060,13 +1081,13 @@
 				bind:selected={tab}
 				on:selected={(e) => {
 					if (e.detail == 'cache') {
-						loading.resources = true
+						loading.cache = true
 						loadCache()
 					} else if (e.detail == 'states') {
-						loading.resources = true
+						loading.states = true
 						loadState()
 					} else if (e.detail == 'theme') {
-						loading.resources = true
+						loading.theme = true
 						loadTheme()
 					}
 				}}
@@ -1117,7 +1138,7 @@
 					onClick={reload}
 					startIcon={{
 						icon: RotateCw,
-						classes: loading.resources || loading.types ? 'animate-spin' : ''
+						classes: loading[tab] || loading.types ? 'animate-spin' : ''
 					}}
 				/>
 				{#if tab == 'types'}
@@ -1141,7 +1162,7 @@
 		<TabFade key={tab}>
 			{#if showTable}
 				<div class="overflow-x-auto pb-40 mt-4">
-					{#if loading.resources}
+					{#if loading[tab]}
 						<Skeleton layout={[0.5, [2], 1]} />
 						{#each new Array(6) as _}
 							<Skeleton layout={[[4], 0.7]} />

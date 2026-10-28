@@ -32,6 +32,7 @@ export const SKILLS: SkillMetadata[] = [
   { name: "triggers", description: "MUST use when configuring triggers." },
   { name: "schedules", description: "MUST use when configuring schedules." },
   { name: "resources", description: "MUST use when managing resources." },
+  { name: "agents", description: "MUST use when creating or changing an AI agent, the reusable `ai_agent` resource the Agents page lists." },
   { name: "write-workflow-as-code", description: "MUST use when writing or modifying Windmill Workflow-as-Code scripts using workflow, task, step, sleep, approvals, taskScript, taskFlow, task_script, or task_flow." },
   { name: "write-pipeline", description: "MUST use when creating or modifying a data pipeline, a set of scripts marked `pipeline` and wired together by `on` / `materialize` annotations." },
   { name: "datatables", description: "MUST use when changing a data table's schema, writing or running its migrations, or working with its roles and permissions." },
@@ -5911,11 +5912,12 @@ value:
 ## AI Agent Modules
 
 An \`aiagent\` module runs an LLM that can call tools. Each entry of \`value.tools\` is a module-shaped
-object with an extra \`value.tool_type\`: \`flowmodule\` for a script/flow tool, \`mcp\` for an MCP server
-tool, \`websearch\` for web search, \`question\` for a built-in \`ask_question\` tool (the agent stops,
-without holding a worker, until someone answers from the run page or the chat; optional
-\`value.timeout\` in seconds, default 1800). Set \`requires_approval: true\` on a \`flowmodule\` or \`mcp\`
-tool to have a person approve or reject each of its calls before it runs.
+object with an extra \`value.tool_type\`: \`flowmodule\` for a script or inline script tool (or a nested
+agent or AI decision), \`mcp\` for an MCP server tool, \`websearch\` for web search, \`question\` for a
+built-in \`ask_question\` tool (the agent stops, without holding a worker, until someone answers from
+the run page or the chat; optional \`value.timeout\` in seconds, default 1800). Set
+\`requires_approval: true\` on a \`flowmodule\` or \`mcp\` tool to have a person approve or reject each of
+its calls before it runs.
 
 \`\`\`json
 {
@@ -5942,7 +5944,7 @@ tool to have a person approve or reject each of its calls before it runs.
           "type": "rawscript",
           "language": "bun",
           "content": "export async function main(query: string) { return ['doc1', 'doc2']; }",
-          "input_transforms": { "query": { "type": "static", "value": "" } }
+          "input_transforms": { "query": { "type": "ai" } }
         }
       }
     ]
@@ -5950,6 +5952,11 @@ tool to have a person approve or reject each of its calls before it runs.
 }
 \`\`\`
 
+- A flow cannot be a tool: a run offered one fails with \`Unsupported tool\`. Wrap it in a script
+  that runs the flow
+- Each argument of a tool is either the model's or fixed. \`{ "type": "ai" }\` (or no value) lets the
+  model fill it; a static value, an empty string included, fixes it and hides it from the model. Fix
+  what the model must not choose, such as a resource, a table name or a limit
 - \`provider\` is an object, not a bare resource string: \`{ "kind": <provider kind>,
   "resource": "$res:<path>", "model": <model id> }\`. Required unless the module links to a saved
   agent through \`value.agent\`. Static is right for a flow run from a form; a chat flow wires its
@@ -6875,7 +6882,7 @@ import * as wmill from './wmill'
 const chat = useWindmillChat({ wmill, runnable: 'chat' })
 \`\`\`
 
-\`runnable\` is the runnable's key; each runnable keeps its own conversations. The runnable takes \`user_message\` and \`memory_id\`, the conversation id, which the chat fills in: the agent remembers earlier turns of a conversation, and a signed-in viewer's conversations are theirs alone. Called directly as \`backend.<key>({ user_message })\` without \`memory_id\`, it is a single run with no conversation, for a one-off question. The chat needs an agent with managed memory. An agent whose memory is off keeps none: its runnable takes \`previous_messages\` (chat messages) instead of \`memory_id\`, and the app keeps the history itself. The chat keeps its transcript in the app's own storage. \`chat.stop()\` stops following without cancelling the turn, and a message sent while it still runs is refused with \`TurnRunningError\`. Attachments are not supported this way.
+\`runnable\` is the runnable's key; each runnable keeps its own conversations. The runnable takes \`user_message\`; the chat passes the conversation id as \`backendAsync.<key>(args, { memoryId })\`: the agent remembers earlier turns of a conversation, and a signed-in viewer's conversations are theirs alone. Called directly as \`backend.<key>({ user_message })\`, it is a single run with no conversation, for a one-off question; \`backend.<key>(args, { memoryId })\` waits for the reply of a conversation turn. The chat needs an agent with managed memory. An agent whose memory is off keeps none: its runnable takes \`previous_messages\` (chat messages) instead, and the app keeps the history itself. The chat keeps its transcript in the app's own storage. \`chat.stop()\` stops following without cancelling the turn, and a message sent while it still runs is refused with \`TurnRunningError\`. Attachments are not supported this way.
 
 ## Backend runnables
 
@@ -6931,7 +6938,7 @@ Use only \`wmill\` functions the SDK actually exports; for an endpoint none of t
 
 ### Path runnables (script / flow / hubscript / agent)
 
-When \`type\` is \`script\`, \`flow\`, \`hubscript\` or \`agent\`, the runnable just stores a \`path\` to an existing workspace or hub item — no inline code. The referenced item's input/output schema becomes the runnable's surface; an agent's is \`user_message\` and \`user_attachments\`, plus \`memory_id\` when the agent keeps managed memory or \`previous_messages\` when its memory is off.
+When \`type\` is \`script\`, \`flow\`, \`hubscript\` or \`agent\`, the runnable just stores a \`path\` to an existing workspace or hub item — no inline code. The referenced item's input/output schema becomes the runnable's surface; an agent's is \`user_message\` and \`user_attachments\`, plus \`previous_messages\` when its memory is off.
 
 Before writing an inline runnable, look for a workspace script or flow that already does the job, or a Hub script (a prebuilt integration at \`hub/<version>/<app>/<name>\`) for a third-party service, and reference it instead of copying its logic.
 
@@ -7220,6 +7227,7 @@ Example: \`f/databases/postgres_prod.resource.json\`
 An agent, as the Agents page lists it, is a resource of type \`ai_agent\`. Its value holds the
 agent's provider, system prompt, tools and memory settings, and a flow step uses a saved agent by
 linking its path.
+Before writing one, use the \`agents\` skill.
 
 ## Variable References
 
@@ -7487,6 +7495,126 @@ wmill resource-type get postgresql
 # deploy via \`git push\` or \`wmill sync push\` (see the Deploying section in AGENTS.wmill.md).
 wmill sync push
 \`\`\`
+`,
+  "agents": `---
+name: agents
+description: MUST use when creating or changing an AI agent, the reusable \`ai_agent\` resource the Agents page lists.
+---
+
+# Windmill AI Agents
+
+An agent, as the Agents page lists it, is a saved LLM with its own system prompt, tools and
+memory, stored as a resource of type \`ai_agent\`. It is built once and used in several places: it is
+run from its own page (a chat, or a run form), a flow's AI agent step links to it by path, and it
+can be shared in Slack channels from its page. Build a standalone agent when the user wants an
+assistant they talk to or reuse. Build a flow when the agent is one step of a larger process.
+
+## File Format
+
+An agent is a resource file like any other, \`{path}.resource.yaml\` (or \`.resource.json\`), with
+\`resource_type: ai_agent\`.
+
+## Structure
+
+\`\`\`json
+{
+  "resource_type": "ai_agent",
+  "description": "Answers support questions from the product docs",
+  "value": {
+    "provider": { "kind": "openai", "resource": "$res:f/ai_providers/openai", "model": "gpt-4o" },
+    "system_prompt": "You are the support assistant for Acme. Answer from the docs; say so when they don't cover a question.",
+    "memory": { "kind": "compaction" },
+    "output_type": "text",
+    "tools": [
+      {
+        "id": "search_docs",
+        "summary": "search_documentation",
+        "description": "Search the product documentation. Use it whenever the user asks how a feature works.",
+        "value": {
+          "tool_type": "flowmodule",
+          "type": "script",
+          "path": "f/support/search_docs",
+          "input_transforms": {
+            "query": { "type": "ai" },
+            "index": { "type": "static", "value": "product_docs" }
+          }
+        }
+      }
+    ]
+  }
+}
+\`\`\`
+
+The agent's own settings are plain values, not the \`input_transforms\` an agent step in a flow uses:
+each is fixed when the agent is saved. Only a tool's arguments keep \`input_transforms\` (see Tools). \`$res:\` and \`$var:\` references inside it are resolved at run time.
+
+- \`provider\` (required): \`{ "kind", "resource": "$res:<path>", "model" }\`, plus an optional
+  \`reasoning_effort\`. \`resource\` names the workspace's AI provider resource of that kind
+- \`system_prompt\`: how the agent behaves. Write it for the agent's job: who it serves, what it may
+  do with its tools, and what it should refuse or hand back
+- \`memory\`: what lets the agent see earlier turns. \`{ "kind": "compaction" }\` keeps the whole
+  conversation, summarizing its older part as it nears the model's context window; it is what a new
+  agent starts with on its page. \`{ "kind": "off" }\` makes every run start from nothing, right for an
+  agent that handles one request per run
+- \`output_type\`: \`text\` (default) or \`image\`. Image output ignores tools and needs S3 storage on the
+  workspace
+- \`output_schema\`: a JSON schema the answer must follow, for an agent whose output a program reads
+- \`max_iterations\`: how many model and tool rounds a run may take, 1 to 1000 (default 10)
+- \`streaming\` (default on), \`temperature\`, \`max_completion_tokens\`: as their names say
+- \`run_on_behalf_of\`: runs from the agent's page take the identity the agent was deployed with
+  rather than the caller's, so people can use it without access to what its tools touch.
+  \`slack_anyone\` lets anyone in the Slack channels it is shared in ask it, and is kept only with
+  \`run_on_behalf_of\`. Set either only when the user asks: both widen who acts with the deployer's
+  rights
+- \`on_behalf_of\` is the identity itself. Deploying sets it, so never write it
+
+## Tools
+
+\`tools\` takes the same entries as a flow's AI agent step. \`value.tool_type\` is \`flowmodule\` for a
+script or inline script the agent calls (or a nested agent or AI decision), \`mcp\` for an MCP server
+(\`{ "tool_type": "mcp", "resource_path": "$res:<path>", "include_tools": [], "exclude_tools": [] }\`),
+or \`websearch\` for web search (\`{ "tool_type": "websearch" }\`, summary \`Web Search\`).
+
+- Write logic made for this agent as an inline \`rawscript\` tool, as a flow writes its steps. Point a
+  \`script\` tool at a deployed script (\`path\`) only when one already does the job: a run calls the
+  deployed version, so a script that exists only as a draft fails the run. An inline tool's
+  \`value\` is a flow's rawscript step:
+  \`{ "tool_type": "flowmodule", "type": "rawscript", "language": "bun", "content": "export async function main(query: string) { ... }", "input_transforms": { "query": { "type": "ai" } } }\`
+- A flow cannot be a tool: a run offered one fails with \`Unsupported tool\`. Wrap it in a script
+  that runs the flow
+- A flowmodule tool's \`summary\` is the name the agent calls it by: letters, numbers and underscores
+  only, unique among the agent's tools, and neither a reserved step id (a JavaScript keyword, \`ctx\`,
+  \`state\`, \`bg\`) nor \`__wm_web_search\`. Put the explanation in \`description\`, which tells the agent
+  when to call it
+- Each argument of a tool is either the model's or fixed. \`{ "type": "ai" }\` (or no value) lets the
+  model fill it; a static value fixes it and hides it from the model. Fix what the model must not
+  choose, such as a resource, a table name or a limit
+
+## Using It From a Flow
+
+An AI agent step links to a saved agent with \`value.agent\` instead of carrying its own \`provider\`,
+system prompt and tools:
+
+\`\`\`json
+{
+  "id": "support",
+  "value": {
+    "type": "aiagent",
+    "agent": "f/support/support_agent",
+    "input_transforms": {
+      "user_message": { "type": "javascript", "expr": "flow_input.question" }
+    },
+    "tools": []
+  }
+}
+\`\`\`
+
+The step holds only what belongs to one use of the agent: \`user_message\`, \`user_attachments\`,
+\`enabled_tools\`, \`memory_id\`, \`previous_messages\`, and the \`model\` and \`reasoning_effort\` overrides.
+Its \`value.tool_inputs\` (\`{ "<tool id>": { "<argument>": <input transform> } }\`) wires a saved
+tool's arguments to this flow, e.g. \`flow_input.customer_id\`, over the transforms the agent saved,
+without changing the agent. Everything else comes from the agent, so a change to the agent reaches
+every flow linking it.
 `,
   "write-workflow-as-code": `---
 name: write-workflow-as-code
@@ -8369,7 +8497,7 @@ write a secret you were not given: keep the placeholder.
 | \`git_sync\` | \`{ repositories: [...] }\`, each with \`git_repo_resource_path\`, \`script_path\` and \`settings\` (include/exclude paths and types). Server-owned fields (webhook secrets, sync state, credentials) are never read nor written. |
 | \`datatable\` | \`{ datatables: { <name>: { database: { resource_type, resource_path } } } }\`, both required: \`resource_type: postgresql\` with \`resource_path\` a Postgres resource's path, or \`instance\`, or \`external_instance\` (Enterprise only), with \`resource_path\` the name of a database a superadmin set up. A fork's entry can instead be \`{ reference: { workspace_id, datatable } }\`, pointing at its parent's data table; keep it as is. \`main\` is the one scripts use by default. Role permissions are \`datatable_permissions\`. |
 | \`datatable_permissions\` | \`{ <data table>: { default_role, roles: { <role>: [tenants] } } }\`: who may connect to each data table as which role. Tenants are \`u/<user>\`, \`g/<group>\`, \`f/<folder>\` or \`*\`; \`admin\` is always a role, and \`default_role: null\` means no default. A data table the value omits is no longer under roles. Only a data table on a cluster Windmill manages can be. |
-| \`protection_rules\` | \`{ <rule name>: { rules: [...], bypass_groups: [...], bypass_users: [...] } }\`, rules among \`DisableDirectDeployment\`, \`DisableWorkspaceForking\`, \`RestrictDeployToDeployers\`, \`RestrictAnonymousAppDeployment\`, \`RestrictPublicRunSharing\`, \`RestrictGuestAppDeployment\`, \`RequireIsolatedForks\`. A rule the value omits is deleted. The dev workspace lock is not listed and cannot be set here. |
+| \`protection_rules\` | \`{ <rule name>: { rules: [...], bypass_groups: [...], bypass_users: [...], fork_role_mapping?: { <role here>: <role in its forks> } } }\`, rules among \`DisableDirectDeployment\`, \`DisableWorkspaceForking\`, \`RestrictDeployToDeployers\`, \`RestrictAnonymousAppDeployment\`, \`RestrictPublicRunSharing\`, \`RestrictGuestAppDeployment\`, \`RequireIsolatedForks\`. A rule the value omits is deleted. The dev workspace lock is not listed and cannot be set here. |
 | \`ducklake\` | \`{ ducklakes: { <name>: { catalog, storage, ... } } }\`. |
 | \`dbt_warehouses\` | dbt warehouse connections. |
 | \`default_app\` | Path of the app shown as the workspace home. |
@@ -8948,6 +9076,20 @@ resource type related commands
 - \`resource-type new <name:string>\` - create a new resource type locally
 - \`resource-type push <file_path:string> <name:string>\` - push a local resource spec. This overrides any remote versions.
 - \`resource-type generate-namespace\` - Create a TypeScript definition file with the RT namespace generated from the resource types
+
+### review
+
+Review a pull request on a git sync repository with the workspace's AI, the way deployment requests are reviewed. Reads the changes and the base branch's review instructions from git; the instance, workspace and token come from the flags, never from the checkout's wmill.yaml.
+
+**Options:**
+- \`--base <ref:string>\` - The base branch commit. Defaults to the pull_request event's base.
+- \`--head <ref:string>\` - The pull request's commit. Defaults to the event's head, else HEAD.
+- \`--model <model:string>\` - provider:model to review with. Defaults to the workspace's default model.
+- \`--folder <dir:string>\` - The repository directory the workspace is synced into, when it is not the root.
+- \`--json\` - Print the review as JSON
+- \`--post <target:string>\` - Post the review on the pull request. Only \`github\` is supported.
+- \`--pr <number:number>\` - The pull request number. Defaults to the pull_request event's.
+- \`--fail-on <severity:string>\` - Exit with 1 when a finding is at least this severe: high, medium or low.
 
 ### schedule
 

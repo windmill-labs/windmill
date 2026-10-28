@@ -1,5 +1,20 @@
 import { ResourceService } from '$lib/gen'
-import { truncateForPrompt } from './skills/skillResources'
+import {
+	folderInstructionScope,
+	folderInstructionsOpeningTag as openingTag,
+	formatFolderInstructions,
+	instructionsCovering,
+	type FolderInstruction
+} from './folderInstructionScopes'
+
+export {
+	MAX_FOLDER_INSTRUCTIONS_LENGTH,
+	MAX_FOLDER_INSTRUCTIONS_TOTAL,
+	folderInstructionScope,
+	formatFolderInstructions,
+	instructionsCovering,
+	type FolderInstruction
+} from './folderInstructionScopes'
 
 /**
  * Folder instructions are resources of this type: a markdown file resource
@@ -8,40 +23,26 @@ import { truncateForPrompt } from './skills/skillResources'
  */
 export const FOLDER_INSTRUCTIONS_RESOURCE_TYPE = 'ai_instruction'
 
-/** Bytes of one instruction body a tool result may carry. */
-export const MAX_FOLDER_INSTRUCTIONS_LENGTH = 32 * 1024
-/** Bytes all the bodies one tool result carries may add up to, so nested folders
- * cannot stack several full-size bodies onto a single result. */
-export const MAX_FOLDER_INSTRUCTIONS_TOTAL = 48 * 1024
-
 /** Scopes the system prompt names. Past this the list is cut, not the delivery:
  * a scope left out still has its instructions delivered on first touch. */
 export const MAX_LISTED_FOLDER_INSTRUCTIONS = 50
-
-export type FolderInstruction = {
-	/** The `ai_instruction` resource. */
-	path: string
-	/** The directory it covers, with a trailing `/`: `f/billing/AGENTS` covers `f/billing/`. */
-	scope: string
-}
-
-export function folderInstructionScope(path: string): string {
-	return path.slice(0, path.lastIndexOf('/') + 1)
-}
 
 const PAGE_SIZE = 100
 /** Guard against a paging bug looping forever, not a product cap. */
 const MAX_PAGES = 20
 
-/** Every folder instruction the user can read in the workspace. Read access is the
- * resource's own ACL, so a folder's instructions reach exactly who can see them. */
-export async function listFolderInstructions(workspace: string): Promise<FolderInstruction[]> {
+/** Every folder instruction of `resourceType` the user can read in the workspace. Read
+ * access is the resource's own ACL, so a folder's instructions reach exactly who can see them. */
+export async function listFolderInstructions(
+	workspace: string,
+	resourceType: string = FOLDER_INSTRUCTIONS_RESOURCE_TYPE
+): Promise<FolderInstruction[]> {
 	if (!workspace) return []
 	const rows: FolderInstruction[] = []
 	for (let page = 1; page <= MAX_PAGES; page++) {
 		const resources = await ResourceService.listResource({
 			workspace,
-			resourceType: FOLDER_INSTRUCTIONS_RESOURCE_TYPE,
+			resourceType,
 			page,
 			perPage: PAGE_SIZE
 		})
@@ -64,18 +65,6 @@ export function workspacePathsInArgs(args: unknown, depth = 0): string[] {
 				: []
 			: workspacePathsInArgs(value, depth + 1)
 	)
-}
-
-/** The instructions covering any of `paths`, outermost scope first, so a nested
- * folder's instructions come last and read as the more specific ones. A path naming
- * the folder itself (`f/billing`, as a pipeline's is) is covered too. */
-export function instructionsCovering(
-	instructions: readonly FolderInstruction[],
-	paths: readonly string[]
-): FolderInstruction[] {
-	return instructions
-		.filter((i) => paths.some((p) => `${p}/`.startsWith(i.scope)))
-		.sort((a, b) => a.scope.length - b.scope.length || a.path.localeCompare(b.path))
 }
 
 /** What a chat hands the tool loop: the instructions in play, and which tool call
@@ -177,31 +166,6 @@ export async function readFolderInstructionBody(workspace: string, path: string)
 		throw new Error(`resource ${path} has no string "content"`)
 	}
 	return value.content
-}
-
-function openingTag(path: string): string {
-	return `<folder_instructions path="${path}"`
-}
-
-export function formatFolderInstructions(
-	blocks: readonly { instruction: FolderInstruction; body: string }[]
-): string {
-	// The budget goes innermost first: the most specific instructions are the last to
-	// be cut. An outer body the budget no longer reaches keeps its tag, so it still
-	// counts as delivered, with the cut marked.
-	let remaining = MAX_FOLDER_INSTRUCTIONS_TOTAL
-	const bodies = [...blocks].reverse().map(({ body }) => {
-		const cut = truncateForPrompt(body, Math.min(MAX_FOLDER_INSTRUCTIONS_LENGTH, remaining))
-		remaining = Math.max(0, remaining - new TextEncoder().encode(cut).byteLength)
-		return cut
-	})
-	bodies.reverse()
-	return blocks
-		.map(
-			({ instruction }, i) =>
-				`${openingTag(instruction.path)} scope="${instruction.scope}">\n${bodies[i]}\n</folder_instructions>`
-		)
-		.join('\n\n')
 }
 
 /** The system prompt section naming the scopes that carry instructions. */

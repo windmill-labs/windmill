@@ -1905,15 +1905,9 @@ addEventListener('message', function (e) {
 		return $state.snapshot({ ctx: operatingUser.current, workspace: opWorkspace, path })
 	}
 
-	// A build fed before the viewer is known keeps that viewer until the next one. Outside
-	// the navigation workspace the viewer is looked up; in it, `$userStore` still holds the
-	// previous workspace's membership right after a switch. A failed lookup also settles
-	// this: the app then runs with no viewer, as we don't know who it is.
-	const previewUserPending = $derived(
-		!!opWorkspace &&
-			(!operatingUser.resolved(opWorkspace) ||
-				(!!operatingUser.current && operatingUser.current.workspace_id !== opWorkspace))
-	)
+	// A build fed before the viewer is known keeps that viewer until the next one. A failed
+	// lookup also settles this: the app then runs with no viewer, as we don't know who it is.
+	const previewUserPending = $derived(!!opWorkspace && !operatingUser.resolved(opWorkspace))
 	$effect(() => {
 		if (previewUserPending) return
 		untrack(() => {

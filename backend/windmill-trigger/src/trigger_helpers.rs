@@ -489,7 +489,7 @@ pub trait TriggerJobArgs {
                 }
             };
 
-            Ok(job_args)
+            Ok(job_args.omit_untrusted_interpolation())
         }
     }
 

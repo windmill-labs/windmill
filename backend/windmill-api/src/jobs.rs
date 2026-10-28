@@ -5906,6 +5906,15 @@ async fn insert_resume_job<'c>(
     approved: bool,
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<()> {
+    // The approver, possibly anonymous, writes this payload, and later steps receive it as
+    // `resume`, interpolated with the flow's own token.
+    if windmill_common::variables::untrusted_arg_interpolates(&value.to_string()) {
+        return Err(Error::BadRequest(
+            "The resume payload cannot hold $var:, $jsonvar:, $res: or $encrypted: references, \
+             or a $WM_* variable name"
+                .to_string(),
+        ));
+    }
     sqlx::query!(
         r#"
             INSERT INTO resume_job
@@ -7725,6 +7734,12 @@ pub async fn get_args_and_trigger_metadata(
             run_query.skip_preprocessor,
         )
         .await?
+    };
+    // A native trigger's payload is the provider's, whichever branch built the args.
+    let args = if run_query.service_name.is_some() {
+        args.omit_untrusted_interpolation()
+    } else {
+        args
     };
 
     Ok(WebhookRun::Run(args, trigger_metadata))

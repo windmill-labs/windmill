@@ -241,7 +241,7 @@ workspace_invite: workspace_id(char), email(char), is_admin(bool), operator(bool
   FK: (workspace_id) -> workspace(id)
 workspace_key: workspace_id(char), kind(workspace_key_kind), key(char)
   FK: (workspace_id) -> workspace(id)
-workspace_protection_rule: workspace_id(char), name(char), rules(int), bypass_groups(text[]), bypass_users(text[]), created_at(ts)
+workspace_protection_rule: workspace_id(char), name(char), rules(int), bypass_groups(text[]), bypass_users(text[]), created_at(ts), fork_role_mapping(jsonb)
   FK: (workspace_id) -> workspace(id)
 workspace_runnable_dependencies: flow_path(char), runnable_path(char), script_hash(bigint), runnable_is_flow(bool), workspace_id(char), app_path(char), id(bigint), runnable_is_agent(bool)
   FK: (app_path, workspace_id) -> app(path, workspace_id) | (flow_path, workspace_id) -> flow(path, workspace_id)

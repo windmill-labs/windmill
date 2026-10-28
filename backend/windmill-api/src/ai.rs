@@ -25,6 +25,7 @@ use windmill_ai::ai_providers::{
 };
 use windmill_ai::ai_types::{validate_token_limit, CONTEXT_WINDOWS, MAX_MODEL_RATE, OUTPUT_LIMITS};
 use windmill_ai::credentials::{AnthropicFederation, ProviderCredentials};
+use windmill_ai::one_shot::{complete_text, OneShotRequest};
 use windmill_ai::providers::anthropic::{
     exchange_federated_token, FederatedAccessToken, ANTHROPIC_API_BASE_URL,
 };
@@ -33,19 +34,23 @@ use windmill_ai::providers::bedrock::{
     handle_bedrock_proxy, BedrockProxyResponse, BedrockProxyResponseBody,
 };
 use windmill_ai::providers::{
-    create_query_builder,
+    create_chat_completions_query_builder, create_query_builder,
     google_ai::{
         handle_google_ai_chat_proxy, handle_google_ai_models_proxy, GoogleAIProxyResponse,
         GoogleAIProxyResponseBody,
     },
+    is_chat_completions_only,
 };
 use windmill_ai::proxy::{
     fim::maybe_transform_fim_request, proxy_execution_mode, validate_proxy_path, ProxyBuildArgs,
     ProxyExecutionMode, ProxyRequest,
 };
 use windmill_ai::retry::send_with_retries;
+use windmill_ai::types::{OpenAIContent, OpenAIMessage};
 use windmill_audit::{audit_oss::audit_log, ActionKind};
+use windmill_common::client::AuthedClient;
 use windmill_common::db::UserDB;
+use windmill_common::error::JsonResult;
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::{configure_client, require_admin};
 use windmill_common::variables::{get_variable_or_self, get_variable_or_self_as};
@@ -315,7 +320,11 @@ async fn resolve_provider_credentials(
     let user_db = authed.map(|_| UserDB::new(db.clone()));
 
     match resource {
-        AIResource::Standard(resource) => {
+        AIResource::Standard(mut resource) => {
+            if let Some(base_url) = resource.base_url {
+                resource.base_url =
+                    Some(resolve_var(base_url, db, w_id, user_db.as_ref(), authed).await?);
+            }
             // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
             let base_url = if matches!(provider, AIProvider::AWSBedrock) {
                 String::new()
@@ -820,6 +829,105 @@ impl AIConfig {
     }
 }
 
+/// The AI config requests in `w_id` are served from: the workspace's own when it
+/// configures a provider, else the instance's, with the workspace the configured resource
+/// paths live in and, for the instance config, the revision its cache entries are tied to.
+/// `None` when neither configures a provider.
+async fn effective_ai_config(
+    db: &DB,
+    w_id: &str,
+) -> Result<Option<(AIConfig, String, Option<u64>)>> {
+    let workspace_ai_config = sqlx::query_scalar!(
+        "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_one(db)
+    .await?;
+    if let Some(config) = workspace_ai_config
+        .and_then(|v| serde_json::from_value::<AIConfig>(v).ok())
+        .filter(AIConfig::has_providers)
+    {
+        return Ok(Some((config, w_id.to_string(), None)));
+    }
+    let instance_config =
+        sqlx::query_scalar!("SELECT value FROM global_settings WHERE name = 'ai_config'")
+            .fetch_optional(db)
+            .await?;
+    // An instance `ai_config` row with no usable provider (e.g. `{}` or
+    // `{"providers":{}}`) is treated as unconfigured, exactly as
+    // build_copilot_settings_state does — otherwise its mere presence would suppress the
+    // free-tier fallback.
+    Ok(instance_config
+        .and_then(|v| serde_json::from_value::<AIConfig>(v).ok())
+        .filter(AIConfig::has_providers)
+        .map(|config| {
+            (
+                config,
+                "admins".to_string(),
+                Some(current_instance_ai_config_revision()),
+            )
+        }))
+}
+
+/// Credentials for `provider` from the effective AI config, or `None` when no provider is
+/// configured at all.
+async fn configured_credentials(
+    db: &DB,
+    w_id: &str,
+    provider: &AIProvider,
+) -> Result<Option<ProviderCredentials>> {
+    let cache_key = (w_id.to_string(), provider.clone());
+    if let Some(cached) = AI_REQUEST_CACHE.get(&cache_key).filter(|c| !c.is_expired()) {
+        return Ok(Some(cached.credentials));
+    }
+    let Some((mut ai_config, resource_workspace, instance_ai_config_revision)) =
+        effective_ai_config(db, w_id).await?
+    else {
+        return Ok(None);
+    };
+    let provider_config = ai_config
+        .providers
+        .as_mut()
+        .and_then(|providers| providers.remove(provider))
+        .ok_or_else(|| Error::BadRequest(format!("Provider {:?} not configured", provider)))?;
+    let resource_path = provider_config.resource_path;
+    if resource_path.is_empty() {
+        return Err(Error::BadRequest("Resource path is empty".to_string()));
+    }
+    // The resource path was validated by an admin/devops user when configuring the AI
+    // config, so the raw pool is used.
+    let res = sqlx::query_scalar::<_, Option<sqlx::types::Json<Box<RawValue>>>>(
+        "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(&resource_path)
+    .bind(&resource_workspace)
+    .fetch_optional(db)
+    .await?;
+    let resource = parse_ai_resource(res, &resource_path)?;
+    let credentials =
+        resolve_provider_credentials(provider, db, &resource_workspace, resource, None).await?;
+    AI_REQUEST_CACHE.insert(
+        cache_key,
+        ExpiringProviderCredentials::new(credentials.clone(), instance_ai_config_revision),
+    );
+    Ok(Some(credentials))
+}
+
+fn parse_ai_resource(
+    row: Option<Option<sqlx::types::Json<Box<RawValue>>>>,
+    resource_path: &str,
+) -> Result<AIResource> {
+    let value = row
+        .ok_or_else(|| {
+            Error::NotFound(format!(
+                "Could not find the resource {}, update the resource path in the workspace settings",
+                resource_path
+            ))
+        })?
+        .ok_or_else(|| Error::BadRequest(format!("Empty resource value for {}", resource_path)))?;
+    serde_json::from_str::<AIResource>(value.0.get()).map_err(|e| Error::BadRequest(e.to_string()))
+}
+
 pub fn global_service() -> Router {
     Router::new().route("/proxy/{*ai}", post(global_proxy).get(global_proxy))
 }
@@ -827,6 +935,7 @@ pub fn global_service() -> Router {
 pub fn workspaced_service() -> Router {
     let router = Router::new()
         .route("/proxy/{*ai}", post(proxy).get(proxy))
+        .route("/complete", post(complete))
         .route(
             "/usage",
             post(record_ai_usage)
@@ -1222,6 +1331,121 @@ fn var_references(value: &serde_json::Value) -> Vec<&str> {
     }
 }
 
+#[derive(Deserialize)]
+struct CompleteRequest {
+    system: String,
+    user: String,
+    /// Defaults to the AI config's `default_model`.
+    #[serde(default)]
+    model: Option<ProviderModel>,
+    #[serde(default)]
+    max_tokens: Option<u32>,
+}
+
+#[derive(Serialize)]
+struct CompleteResponse {
+    text: String,
+    model: ProviderModel,
+}
+
+/// One text completion with the workspace's AI config, for callers that are not a browser
+/// talking a provider's own API through the proxy (the CLI, jobs). Provider differences are
+/// handled by the same query builders AI agent steps use.
+async fn complete(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(request): Json<CompleteRequest>,
+) -> JsonResult<CompleteResponse> {
+    let not_configured =
+        || Error::BadRequest("AI is not configured for this workspace".to_string());
+    let model = match request.model {
+        Some(model) => model,
+        None => effective_ai_config(&db, &w_id)
+            .await?
+            .ok_or_else(not_configured)?
+            .0
+            .default_model
+            .ok_or_else(|| {
+                Error::BadRequest(
+                    "No model given, and the AI settings set no default model".to_string(),
+                )
+            })?,
+    };
+    if model.provider.is_decision_provider() {
+        return Err(Error::BadRequest(format!(
+            "{:?} serves decision models, which answer typed questions rather than messages",
+            model.provider
+        )));
+    }
+    let mut credentials = configured_credentials(&db, &w_id, &model.provider)
+        .await?
+        .ok_or_else(not_configured)?;
+    #[cfg(feature = "bedrock")]
+    resolve_bedrock_oidc_credentials(&db, &w_id, &authed, &mut credentials).await?;
+    resolve_anthropic_federated_credentials(&db, &w_id, &authed, &mut credentials).await?;
+    // The query builders send the api key; only a federated Anthropic token has a way in.
+    if credentials.access_token.is_some() && credentials.anthropic_federation.is_none() {
+        return Err(Error::BadRequest(format!(
+            "The {:?} resource authenticates with OAuth, which this endpoint does not support. \
+             Set an API key on the resource, or carry the provider's credential header in its \
+             `headers`.",
+            credentials.provider
+        )));
+    }
+
+    let base_url = credentials.base_url.clone();
+    let mut query_builder = create_query_builder(&credentials, &model.model);
+    if query_builder.supports_chat_completions_fallback(&base_url)
+        && is_chat_completions_only(&base_url, &model.model)
+    {
+        query_builder = create_chat_completions_query_builder(&credentials);
+    }
+
+    let mut tx = db.begin().await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "ai.request",
+        ActionKind::Execute,
+        &w_id,
+        Some(&authed.email),
+        Some([("ai_config_path", "complete")].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    let messages =
+        [("system", request.system), ("user", request.user)].map(|(role, text)| OpenAIMessage {
+            role: role.to_string(),
+            content: Some(OpenAIContent::Text(text)),
+            ..Default::default()
+        });
+    // Attachments are the only thing a query builder reaches the API for, and a one-shot
+    // request carries none.
+    let client = AuthedClient::new(String::new(), w_id.clone(), String::new(), None);
+    let (text, _usage) = complete_text(
+        &messages,
+        &OneShotRequest {
+            query_builder: query_builder.as_ref(),
+            credentials: &credentials,
+            model: &model.model,
+            max_tokens: request.max_tokens,
+            reasoning_effort: None,
+            timeout: Duration::from_secs(*AI_TIMEOUT_SECS),
+            client: &client,
+            workspace_id: &w_id,
+            federated_token: credentials
+                .anthropic_federation
+                .as_ref()
+                .and(credentials.access_token.as_deref()),
+            include_usage: true,
+        },
+    )
+    .await?;
+    Ok(Json(CompleteResponse { text, model }))
+}
+
 async fn global_proxy(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1360,12 +1584,9 @@ async fn proxy(
         None => return Err(Error::BadRequest("Provider is required".to_string())),
     };
 
-    let workspace_cache = AI_REQUEST_CACHE.get(&(w_id.clone(), provider.clone()));
-
     let forced_resource_path = headers
         .get("X-Resource-Path")
         .map(|v| v.to_str().unwrap_or("").to_string());
-    let is_user_specified_resource = forced_resource_path.is_some();
 
     // When the caller supplies X-Resource-Path, the resource is treated as if it
     // were being read through the normal resource API: scope and RLS checks must
@@ -1410,168 +1631,54 @@ async fn proxy(
             )
             .await?;
         }
-        match workspace_cache {
-            Some(request_cache)
-                if !request_cache.is_expired() && forced_resource_path.is_none() =>
-            {
-                request_cache.credentials
-            }
-            _ => {
-                let (resource_path, save_to_cache, resource_workspace, instance_ai_config_revision) =
-                    if let Some(resource_path) = forced_resource_path {
-                        // forced resource path
-                        (resource_path, false, w_id.clone(), None)
-                    } else {
-                        let workspace_ai_config = sqlx::query_scalar!(
-                            "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
-                            &w_id
-                        )
-                        .fetch_one(&db)
-                        .await?;
-
-                        let (ai_config_value, resource_workspace, instance_ai_config_revision) = {
-                            let ws_has_config = workspace_ai_config
-                                .as_ref()
-                                .and_then(|v| serde_json::from_value::<AIConfig>(v.clone()).ok())
-                                .is_some_and(|config| config.has_providers());
-
-                            if ws_has_config {
-                                (workspace_ai_config.unwrap(), w_id.clone(), None)
-                            } else {
-                                let instance_config = sqlx::query_scalar!(
-                                    "SELECT value FROM global_settings WHERE name = 'ai_config'"
-                                )
-                                .fetch_optional(&db)
-                                .await?;
-
-                                let instance_has_config =
-                                    instance_config.as_ref().is_some_and(|v| {
-                                        serde_json::from_value::<AIConfig>(v.clone())
-                                            .ok()
-                                            .is_some_and(|c| c.has_providers())
-                                    });
-                                match instance_config {
-                                    // An instance `ai_config` row with no usable provider (e.g. `{}`
-                                    // or `{"providers":{}}`) is treated as unconfigured, exactly as
-                                    // build_copilot_settings_state does — otherwise its mere presence
-                                    // would suppress the free-tier fallback below.
-                                    Some(config) if instance_has_config => (
-                                        config,
-                                        "admins".to_string(),
-                                        Some(current_instance_ai_config_revision()),
-                                    ),
-                                    _ => {
-                                        // Nothing configured: fall back to Windmill's free AI tier
-                                        // (EE-only) if a lent key is set and both the user's
-                                        // one-time grant and the instance's daily cap have room.
-                                        // Errors once the grant is spent, the day is capped, or the
-                                        // user already has a request in flight; None otherwise.
-                                        // Ineligible identities (e.g. service accounts) are refused
-                                        // inside the helper, so every path treats them alike.
-                                        let free =
-                                            crate::ai_free_tier_oss::resolve_free_tier_credentials(
-                                                &provider,
-                                                &db,
-                                                &ai_path,
-                                                &authed.email,
-                                                &body,
-                                            )
-                                            .await?;
-                                        if let Some((free_credentials, lease)) = free {
-                                            free_lease = Some(lease);
-                                            break 'cred free_credentials;
-                                        }
-                                        return Err(Error::internal_err(
-                                            "AI resource not configured".to_string(),
-                                        ));
-                                    }
-                                }
-                            }
-                        };
-
-                        let mut ai_config = serde_json::from_value::<AIConfig>(ai_config_value)
-                            .map_err(|e| Error::BadRequest(e.to_string()))?;
-
-                        let provider_config = ai_config
-                            .providers
-                            .as_mut()
-                            .and_then(|providers| providers.remove(&provider))
-                            .ok_or_else(|| {
-                                Error::BadRequest(format!("Provider {:?} not configured", provider))
-                            })?;
-
-                        if provider_config.resource_path.is_empty() {
-                            return Err(Error::BadRequest("Resource path is empty".to_string()));
-                        }
-
-                        (
-                            provider_config.resource_path,
-                            true,
-                            resource_workspace,
-                            instance_ai_config_revision,
-                        )
-                    };
-
-                // For user-specified resources, fetch through an RLS-scoped
-                // connection so PostgreSQL row-level security enforces the same
-                // folder/group boundaries as the regular resource API. For the
-                // workspace/instance ai_config path, the resource_path was already
-                // validated by an admin/devops user when configuring the workspace,
-                // so the raw pool is used.
-                let resource = if is_user_specified_resource {
-                let mut tx = user_db.clone().begin(&authed).await?;
-                let res = sqlx::query_scalar::<_, Option<sqlx::types::Json<Box<RawValue>>>>(
-                    "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
-                )
-                .bind(&resource_path)
-                .bind(&resource_workspace)
-                .fetch_optional(&mut *tx)
-                .await?;
-                tx.commit().await?;
-                res
-            } else {
-                sqlx::query_scalar::<_, Option<sqlx::types::Json<Box<RawValue>>>>(
-                    "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
-                )
-                .bind(&resource_path)
-                .bind(&resource_workspace)
-                .fetch_optional(&db)
-                .await?
-            }
-            .ok_or_else(|| Error::NotFound(format!("Could not find the resource {}, update the resource path in the workspace settings", resource_path)))?
-            .ok_or_else(|| Error::BadRequest(format!("Empty resource value for {}", resource_path)))?;
-
-                let resource = serde_json::from_str::<AIResource>(resource.0.get())
-                    .map_err(|e| Error::BadRequest(e.to_string()))?;
-
-                // Enforce RLS on $var: resolution when the resource path was
-                // user-specified (X-Resource-Path header) so users can only read
-                // variables they have permission to access.
-                let enforce_authed = if is_user_specified_resource {
-                    Some(&authed)
-                } else {
-                    None
-                };
-                let credentials = resolve_provider_credentials(
-                    &provider,
-                    &db,
-                    &resource_workspace,
-                    resource,
-                    enforce_authed,
-                )
-                .await?;
-                if save_to_cache {
-                    AI_REQUEST_CACHE.insert(
-                        (w_id.clone(), provider.clone()),
-                        ExpiringProviderCredentials::new(
-                            credentials.clone(),
-                            instance_ai_config_revision,
-                        ),
-                    );
-                }
-                credentials
-            }
+        if let Some(resource_path) = forced_resource_path {
+            // For user-specified resources, fetch through an RLS-scoped connection so
+            // PostgreSQL row-level security enforces the same folder/group boundaries as
+            // the regular resource API.
+            let mut tx = user_db.clone().begin(&authed).await?;
+            let res = sqlx::query_scalar::<_, Option<sqlx::types::Json<Box<RawValue>>>>(
+                "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
+            )
+            .bind(&resource_path)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            let resource = parse_ai_resource(res, &resource_path)?;
+            // RLS also applies to the resource's $var: references, so users can only
+            // read variables they have permission to access.
+            break 'cred resolve_provider_credentials(
+                &provider,
+                &db,
+                &w_id,
+                resource,
+                Some(&authed),
+            )
+            .await?;
         }
+        if let Some(credentials) = configured_credentials(&db, &w_id, &provider).await? {
+            break 'cred credentials;
+        }
+        // Nothing configured: fall back to Windmill's free AI tier (EE-only) if a lent
+        // key is set and both the user's one-time grant and the instance's daily cap have
+        // room. Errors once the grant is spent, the day is capped, or the user already has
+        // a request in flight; None otherwise. Ineligible identities (e.g. service
+        // accounts) are refused inside the helper, so every path treats them alike.
+        let free = crate::ai_free_tier_oss::resolve_free_tier_credentials(
+            &provider,
+            &db,
+            &ai_path,
+            &authed.email,
+            &body,
+        )
+        .await?;
+        if let Some((free_credentials, lease)) = free {
+            free_lease = Some(lease);
+            break 'cred free_credentials;
+        }
+        return Err(Error::internal_err(
+            "AI resource not configured".to_string(),
+        ));
     };
 
     #[cfg(feature = "bedrock")]

@@ -90,3 +90,24 @@ VALUES
         '{"restarted_from": {"flow_job_id": "3bb0c0de-0000-4000-8000-000000000118", "step_id": "b"}}'),
     ('3bb0c0de-0000-4000-8000-000000000120',
         '{"restarted_from": {"flow_job_id": "3bb0c0de-0000-4000-8000-000000000109", "step_id": "b"}}');
+
+-- Dynamic selects of f/t/agent, run as parentless previews at its path: the current and the
+-- past version's code, then the current code altered by what `run/preview` lets a caller set
+-- (a script hash, a lock, temp script refs) and code no version has.
+UPDATE flow_version SET schema = json_build_object('x-windmill-dyn-select-code',
+    'export function f() { return ' || id || ' }', 'x-windmill-dyn-select-lang', 'bun')
+WHERE workspace_id = 'test-workspace' AND path = 'f/t/agent';
+
+INSERT INTO v2_job (id, workspace_id, kind, runnable_path, runnable_id, raw_code, raw_lock, script_lang, args, created_by, permissioned_as, permissioned_as_email)
+VALUES
+    ('3bb0c0de-0000-4000-8000-000000000201', 'test-workspace', 'preview', 'f/t/agent', NULL, 'export function f() { return 2222222222 }', NULL, 'bun', '{"_ENTRYPOINT_OVERRIDE": "f"}', 'test-user', 'u/test-user', 'test@windmill.dev'),
+    ('3bb0c0de-0000-4000-8000-000000000202', 'test-workspace', 'preview', 'f/t/agent', NULL, 'export function f() { return 2222222221 }', NULL, 'bun', NULL, 'test-user', 'u/test-user', 'test@windmill.dev'),
+    ('3bb0c0de-0000-4000-8000-000000000203', 'test-workspace', 'preview', 'f/t/agent', 1111111111, 'export function f() { return 2222222222 }', NULL, 'bun', NULL, 'test-user', 'u/test-user', 'test@windmill.dev'),
+    ('3bb0c0de-0000-4000-8000-000000000204', 'test-workspace', 'preview', 'f/t/agent', NULL, 'export function f() { return 2222222222 }', '{}', 'bun', NULL, 'test-user', 'u/test-user', 'test@windmill.dev'),
+    ('3bb0c0de-0000-4000-8000-000000000205', 'test-workspace', 'preview', 'f/t/agent', NULL, 'export function f() { return 2222222222 }', NULL, 'bun', '{"_TEMP_SCRIPT_REFS": {}}', 'test-user', 'u/test-user', 'test@windmill.dev'),
+    ('3bb0c0de-0000-4000-8000-000000000206', 'test-workspace', 'preview', 'f/t/agent', NULL, 'export function f() { return 1 }', NULL, 'bun', NULL, 'test-user', 'u/test-user', 'test@windmill.dev');
+
+-- The current code routed to a dedicated worker (its tag hashed, as long ones are), which
+-- runs its own script.
+INSERT INTO v2_job (id, workspace_id, kind, runnable_path, raw_code, script_lang, tag, created_by, permissioned_as, permissioned_as_email)
+VALUES ('3bb0c0de-0000-4000-8000-000000000207', 'test-workspace', 'preview', 'f/t/agent', 'export function f() { return 2222222222 }', 'bun', 'test-workspace:f/t/agent#0123456789', 'test-user', 'u/test-user', 'test@windmill.dev');

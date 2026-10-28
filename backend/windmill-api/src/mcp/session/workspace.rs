@@ -1030,7 +1030,7 @@ pub(super) fn is_agent(value: &Value) -> bool {
 }
 
 /// The editor that shows the user's draft: a detail page shows only the deployed version.
-fn draft_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
+pub(super) fn draft_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
     Some(match item_type {
         "script" => format!("/scripts/edit/{path}?nomenubar=true"),
         "flow" => format!("/flows/edit/{path}?nomenubar=true"),
@@ -1419,6 +1419,64 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         })
         .collect();
     Ok(pretty(&Value::Array(results)))
+}
+
+/// The card of one workspace item: what `read_workspace_item` returns, under a one-line
+/// answer, with the item's page and the editor its draft opens in.
+pub(super) async fn show_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let item_type = item_type_arg(args)?;
+    // A variable's value never reaches a tool, which leaves its card nothing to show.
+    if item_type == "variable" {
+        return Err("show_item does not show variables.".to_string());
+    }
+    let path = str_arg(args, "path")?;
+    let text = read_workspace_item(ctx, args).await?;
+    let item: Value = serde_json::from_str(&text).map_err(|_| text.clone())?;
+    if item.get("success") == Some(&Value::Bool(false)) {
+        return Err(item["error"].as_str().unwrap_or(&text).to_string());
+    }
+    // Triggers have no page of their own: their kind's list is where one is seen.
+    let page = match (item_type, opt_str_arg(args, "trigger_kind")) {
+        ("trigger", Some("http")) => Some("/routes".to_string()),
+        ("trigger", Some(kind)) => Some(format!("/{kind}_triggers")),
+        // The value tells an AI agent, which has pages of its own, from a resource.
+        _ => super::deploy::deployed_page(item_type, path, &item["value"]),
+    };
+    let url = |page: Option<String>| page.map(|page| ctx.page_url(&page));
+    let edit_url = url(edit_page(item_type, path, &item));
+    // What a schedule or a trigger runs, on its own page.
+    let value = &item["value"];
+    let runs_url = url(value["script_path"].as_str().and_then(|target| {
+        let kind = if truthy(value.get("is_flow")) {
+            "flow"
+        } else {
+            "script"
+        };
+        super::deploy::deployed_page(kind, target, &Value::Null)
+    }));
+    ctx.set_view(
+        "windmill/item",
+        json!({
+            "workspace": ctx.w_id,
+            "item": item,
+            "url": url(page),
+            "edit_url": edit_url,
+            "runs_url": runs_url,
+        }),
+    );
+    Ok(format!(
+        "Showing {item_type} \"{path}\" to the user as a card."
+    ))
+}
+
+/// The editor an item's draft opens in. An app's is its own editor: its page shows only the
+/// deployed version, and a new app has none.
+fn edit_page(item_type: &str, path: &str, item: &Value) -> Option<String> {
+    match item_type {
+        "app" if truthy(item.get("rawApp")) => Some(format!("/apps_raw/edit/{path}")),
+        "app" => Some(format!("/apps/edit/{path}")),
+        _ => draft_page(item_type, path, &item["value"]),
+    }
 }
 
 async fn read_workspace_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
