@@ -511,6 +511,7 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 			expect(held.transient).toBe(true)
 			createdId = createSession().id
 			expect(createdId).not.toBe('held-on-app')
+			expect(sessionState.sessions).toContain(held)
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter(
 				(s) => s.id !== 'held-on-app' && s.id !== createdId

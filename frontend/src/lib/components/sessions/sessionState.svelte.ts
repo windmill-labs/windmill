@@ -1083,14 +1083,10 @@ export function requestComposerFocus(): void {
 // drop. `draftPrompt === undefined` (never edited), not falsiness: a draft typed
 // then erased to '' still has a pending flush and is a real session. Every other
 // touch clears `transient` synchronously, so only the draft prompt needs checking.
+// An `untilStarted` session is not blank: reused it would reopen its item, and dropped
+// while on screen it would leave the page showing a session that is gone.
 function isDiscardableDraft(s: Session): boolean {
-	return !!s.transient && s.draftPrompt === undefined
-}
-
-// A discardable draft that is also blank: an `untilStarted` one is open on an item, so
-// handing it back as a new session would reopen that item.
-function isBlankDraft(s: Session): boolean {
-	return isDiscardableDraft(s) && !s.untilStarted
+	return !!s.transient && s.draftPrompt === undefined && !s.untilStarted
 }
 
 // Somewhere empty to put the user, for a URL naming a session this browser
@@ -1117,7 +1113,9 @@ export function createSession(): Session {
 	// blank entry on every `+`, so several pending sessions can still be built up
 	// in parallel, one touch at a time. A cross-family leftover blank is dropped
 	// instead of reused (reusing it would act on that family).
-	const reusable = sessionState.sessions.find((s) => isBlankDraft(s) && sessionInCurrentFamily(s))
+	const reusable = sessionState.sessions.find(
+		(s) => isDiscardableDraft(s) && sessionInCurrentFamily(s)
+	)
 	if (reusable) {
 		// It may be Home's draft; asked for here, it is the session page's now, and callers
 		// park it on a workspace of their own that Home must not move it off.
@@ -1193,7 +1191,7 @@ export function homeStarterSession(): Session {
 	const draft =
 		(current && unsent(current) ? current : undefined) ??
 		touched ??
-		sessionState.sessions.find((s) => isBlankDraft(s) && homes(s)) ??
+		sessionState.sessions.find((s) => isDiscardableDraft(s) && homes(s)) ??
 		newTransientSession()
 	if (!draft.followsHome) {
 		draft.followsHome = true
