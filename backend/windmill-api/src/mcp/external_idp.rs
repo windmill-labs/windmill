@@ -168,6 +168,9 @@ async fn verify(idp: &McpExternalIdp, token: &str) -> anyhow::Result<(Value, u64
     let claims = jsonwebtoken::decode::<Value>(token, &key, &validation)?.claims;
     // Without an audience to check, an ID token of the same client would pass for an access
     // token: the token must then name itself one (RFC 9068 `at+jwt`, or Keycloak's `Bearer`).
+    if claims.get("typ").and_then(Value::as_str) == Some("ID") {
+        anyhow::bail!("an ID token is not an access token");
+    }
     if idp.audience.is_none() {
         let header_typ = header.typ.as_deref().unwrap_or_default();
         let claim_typ = claims

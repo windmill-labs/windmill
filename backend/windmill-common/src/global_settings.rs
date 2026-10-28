@@ -622,12 +622,9 @@ pub fn parse_mcp_external_idp(
         };
     }
     // Its keys are fetched from it: over plain http anyone on the path could forge tokens.
-    let local = ["http://localhost", "http://127.0.0.1"].iter().any(|p| {
-        idp.issuer
-            .strip_prefix(p)
-            .is_some_and(|r| r.is_empty() || r.starts_with([':', '/']))
-    });
-    if !idp.issuer.starts_with("https://") && !local {
+    let url = url::Url::parse(&idp.issuer).map_err(|e| format!("issuer: {e}"))?;
+    let local = matches!(url.host_str(), Some("localhost" | "127.0.0.1"));
+    if !(url.scheme() == "https" || url.scheme() == "http" && local) {
         return Err("issuer must be an https URL".to_string());
     }
     if idp.client_claim.trim().is_empty() || idp.email_claim.trim().is_empty() {
