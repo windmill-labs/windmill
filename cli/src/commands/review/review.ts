@@ -434,25 +434,40 @@ async function alreadyReviewed(ctx: GitHubContext, marker: string): Promise<bool
   return false;
 }
 
-async function postReview(ctx: GitHubContext, headSha: string, result: ReviewResult) {
+/**
+ * What a pull request gets: a review whose line comments carry the anchored findings, and the
+ * body to post instead if the host refuses them. Printed with `--json`, so a server posting the
+ * review through its own credential sends exactly what `--post github` would.
+ */
+export function reviewPayload(result: ReviewResult, headSha: string) {
   const marker = `<!-- windmill-ai-review:${headSha} -->`;
+  const anchored = result.findings.filter((f) => f.file && f.line);
+  return {
+    /** One review per head commit: a review whose body carries this one is already posted. */
+    marker,
+    body: reviewBody(result, marker, result.findings.filter((f) => !(f.file && f.line))),
+    comments: anchored.map((f) => ({
+      path: f.file!,
+      line: f.line!,
+      side: f.side!,
+      body: `**${f.severity}**: ${f.comment}`,
+    })),
+    /** Every finding in the body, for a host that refuses a comment or has no line comments. */
+    fallback_body: reviewBody(result, marker, result.findings),
+  };
+}
+
+async function postReview(ctx: GitHubContext, headSha: string, result: ReviewResult) {
+  const { marker, body, comments, fallback_body } = reviewPayload(result, headSha);
   if (await alreadyReviewed(ctx, marker)) {
     log.info(`This commit already has a Windmill AI review, not posting another.`);
     return;
   }
-  const anchored = result.findings.filter((f) => f.file && f.line);
-  const comments = anchored.map((f) => ({
-    path: f.file,
-    line: f.line,
-    side: f.side,
-    body: `**${f.severity}**: ${f.comment}`,
-  }));
-  const rest = result.findings.filter((f) => !(f.file && f.line));
   try {
     await github(ctx, "POST", `/pulls/${ctx.pr}/reviews`, {
       commit_id: headSha,
       event: "COMMENT",
-      body: reviewBody(result, marker, rest),
+      body,
       comments,
     });
   } catch (e) {
@@ -462,7 +477,7 @@ async function postReview(ctx: GitHubContext, headSha: string, result: ReviewRes
     await github(ctx, "POST", `/pulls/${ctx.pr}/reviews`, {
       commit_id: headSha,
       event: "COMMENT",
-      body: reviewBody(result, marker, result.findings),
+      body: fallback_body,
     });
   }
   log.info(colors.green(`Posted the review on pull request #${ctx.pr}.`));
@@ -539,7 +554,7 @@ async function review(opts: ReviewOptions) {
     throw e;
   }
 
-  if (opts.json) console.log(JSON.stringify(result));
+  if (opts.json) console.log(JSON.stringify({ ...result, post: reviewPayload(result, headSha) }));
   else printResult(result);
   if (ctx) await postReview(ctx, headSha, result);
   if (
