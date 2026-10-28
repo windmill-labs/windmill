@@ -46,6 +46,7 @@ type ReviewOptions = GlobalOptions & {
   post?: "github";
   pr?: number;
   failOn?: AiReviewSeverity;
+  folder?: string;
 };
 
 type ChangedFile = { file: string; status: "added" | "deleted" | "modified" };
@@ -158,14 +159,16 @@ export function numberDiff(
   return { text: out.join("\n"), left, right };
 }
 
-function changedItems(mergeBase: string, head: string): ChangedItem[] {
+/** `root` is the directory the workspace is synced into, as a prefix ('' or `dir/`). Item
+ * paths are read relative to it; file paths stay repository-relative, as the host's are. */
+function changedItems(mergeBase: string, head: string, root: string): ChangedItem[] {
   const out = git(["diff", "--name-status", "--no-renames", "-z", mergeBase, head]);
   const fields = out.split("\0").filter((f) => f !== "");
   const items = new Map<string, ChangedItem>();
   for (let i = 0; i + 1 < fields.length; i += 2) {
     const [code, file] = [fields[i], fields[i + 1]];
-    if (isLockfile(file)) continue;
-    const { kind, path } = itemOf(file);
+    if (isLockfile(file) || !file.startsWith(root)) continue;
+    const { kind, path } = itemOf(file.slice(root.length));
     const key = `${kind}:${path}`;
     const item = items.get(key) ?? { kind, path, files: [] };
     item.files.push({
@@ -188,6 +191,7 @@ function changeOf(item: ChangedItem): string {
 function baseInstructions(
   baseSha: string,
   itemPaths: string[],
+  root: string,
 ): { blocks: { instruction: FolderInstruction; body: string }[]; skipped: string[] } {
   let listing = "";
   try {
@@ -198,8 +202,8 @@ function baseInstructions(
       `resource_type['"]?:[[:space:]]*['"]?${REVIEW_INSTRUCTIONS_RESOURCE_TYPE}`,
       baseSha,
       "--",
-      "*.resource.yaml",
-      "*.resource.json",
+      `${root}*.resource.yaml`,
+      `${root}*.resource.json`,
     ]);
   } catch (e) {
     // `git grep` exits 1 when nothing matches.
@@ -210,7 +214,7 @@ function baseInstructions(
     .filter(Boolean)
     .map((line) => line.slice(baseSha.length + 1))
     .map((file) => {
-      const path = file.replace(/\.resource\.(yaml|json)$/, "");
+      const path = file.slice(root.length).replace(/\.resource\.(yaml|json)$/, "");
       return { file, instruction: { path, scope: folderInstructionScope(path) } };
     });
   const fileOf = new Map(listed.map((l) => [l.instruction.path, l.file]));
@@ -230,7 +234,7 @@ function baseInstructions(
       const inline = /^!inline (.+)$/.exec(content);
       blocks.push({
         instruction,
-        body: inline ? git(["show", `${baseSha}:${inline[1].trim()}`]) : content,
+        body: inline ? git(["show", `${baseSha}:${root}${inline[1].trim()}`]) : content,
       });
     } catch (e) {
       log.warn(`Could not read review instructions ${instruction.path}: ${e}`);
@@ -252,17 +256,18 @@ const INSTRUCTION_RESOURCE_TYPES = new Set([REVIEW_INSTRUCTIONS_RESOURCE_TYPE, "
  * judged on its own: a resource retyped on either side holds credentials on the other. Any
  * changed file beside the resource's own definition and body (a workspace-specific variant, a
  * fileset child) may hold credentials of its own, so it withholds the whole item. */
-function isInstructionResource(item: ChangedItem, revs: string[]): boolean {
+function isInstructionResource(item: ChangedItem, revs: string[], root: string): boolean {
   if (item.kind !== "resource") return false;
+  const definition = `${root}${item.path}.resource.`;
   const ownFile = (file: string) => {
-    if (!file.startsWith(`${item.path}.resource.`)) return false;
-    const rest = file.slice(item.path.length + ".resource.".length);
+    if (!file.startsWith(definition)) return false;
+    const rest = file.slice(definition.length);
     return rest === "yaml" || rest === "json" || /^file\.[^./]+$/.test(rest);
   };
   if (!item.files.every((f) => ownFile(f.file))) return false;
   let defined = false;
   for (const rev of revs) {
-    for (const file of [`${item.path}.resource.yaml`, `${item.path}.resource.json`]) {
+    for (const file of [`${definition}yaml`, `${definition}json`]) {
       let raw: string;
       try {
         raw = git(["show", `${rev}:${file}`]);
@@ -293,7 +298,9 @@ function parseModel(model: string | undefined) {
 /** What the model is asked, and what its answer may anchor to, for the changes `headSha`
  * makes on top of its merge base with `baseSha`. Reads the repository in the working
  * directory. */
-export function buildReviewPrompt(baseSha: string, headSha: string) {
+export function buildReviewPrompt(baseSha: string, headSha: string, folder = "") {
+  const trimmed = folder.replace(/^\/+|\/+$/g, "");
+  const root = trimmed ? `${trimmed}/` : "";
   let mergeBase: string;
   try {
     mergeBase = git(["merge-base", baseSha, headSha]).trim();
@@ -302,10 +309,11 @@ export function buildReviewPrompt(baseSha: string, headSha: string) {
       `No common ancestor between ${baseSha} and ${headSha}. Fetch the full history (actions/checkout with fetch-depth: 0).`,
     );
   }
-  const items = changedItems(mergeBase, headSha);
+  const items = changedItems(mergeBase, headSha, root);
   const { blocks, skipped } = baseInstructions(
     baseSha,
     items.map((i) => i.path),
+    root,
   );
 
   const budget = new ReviewBudget();
@@ -318,7 +326,7 @@ export function buildReviewPrompt(baseSha: string, headSha: string) {
       continue;
     }
     const header = `### ${item.kind} ${item.path} (${changeOf(item)})`;
-    if (WITHHELD_KINDS.has(item.kind) && !isInstructionResource(item, [mergeBase, headSha])) {
+    if (WITHHELD_KINDS.has(item.kind) && !isInstructionResource(item, [mergeBase, headSha], root)) {
       budget.add(key, `${header}\nValue withheld from review.`);
       continue;
     }
@@ -359,8 +367,9 @@ export async function reviewChanges(
   model: string | undefined,
   baseSha: string,
   headSha: string,
+  folder?: string,
 ): Promise<ReviewResult> {
-  const { system, user, anchors, ...reported } = buildReviewPrompt(baseSha, headSha);
+  const { system, user, anchors, ...reported } = buildReviewPrompt(baseSha, headSha, folder);
   const response = await wmill.completeAi({
     workspace: workspaceId,
     requestBody: { system, user, model: parseModel(model), max_tokens: MAX_OUTPUT_TOKENS },
@@ -542,7 +551,7 @@ async function review(opts: ReviewOptions) {
   const { workspaceId } = await resolveWorkspace(opts);
   let result: ReviewResult;
   try {
-    result = await reviewChanges(workspaceId, opts.model, baseSha, headSha);
+    result = await reviewChanges(workspaceId, opts.model, baseSha, headSha, opts.folder);
   } catch (e) {
     if (ctx) {
       await github(ctx, "POST", `/pulls/${ctx.pr}/reviews`, {
@@ -572,6 +581,7 @@ const command = new Command()
   .option("--base <ref:string>", "The base branch commit. Defaults to the pull_request event's base.")
   .option("--head <ref:string>", "The pull request's commit. Defaults to the event's head, else HEAD.")
   .option("--model <model:string>", "provider:model to review with. Defaults to the workspace's default model.")
+  .option("--folder <dir:string>", "The repository directory the workspace is synced into, when it is not the root.")
   .option("--json", "Print the review as JSON")
   .option("--post <target:string>", "Post the review on the pull request. Only `github` is supported.", {
     value: (v: string) => {

@@ -81,25 +81,48 @@ describe("wmill review", () => {
   });
 });
 
+/** Commits `base` on main and `head` on top of it in a fresh repository, and calls `run`
+ * from inside it with both commits. */
+function withRepo<T>(
+  base: Record<string, string>,
+  head: Record<string, string>,
+  run: (baseSha: string, headSha: string) => T,
+): T {
+  const repo = mkdtempSync(join(tmpdir(), "wmill-review-"));
+  const cwd = process.cwd();
+  const write = (files: Record<string, string>) => {
+    for (const [path, content] of Object.entries(files)) {
+      mkdirSync(join(repo, dirname(path)), { recursive: true });
+      writeFileSync(join(repo, path), content);
+    }
+  };
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd: repo, encoding: "utf-8" }).trim();
+  try {
+    git("init", "-q", "-b", "main");
+    git("config", "user.email", "t@t");
+    git("config", "user.name", "t");
+    write(base);
+    git("add", "-A");
+    git("commit", "-qm", "base");
+    const baseSha = git("rev-parse", "HEAD");
+    write(head);
+    git("add", "-A");
+    git("commit", "-qm", "pr");
+    process.chdir(repo);
+    return run(baseSha, git("rev-parse", "HEAD"));
+  } finally {
+    process.chdir(cwd);
+    rmSync(repo, { recursive: true, force: true });
+  }
+}
+
 describe("wmill review prompt", () => {
   // The pull request's head is written by its author, so nothing it does may put a
   // credential in front of the model or steer which instructions apply.
   test("withholds secrets whatever the head claims, and reads instructions from the base", () => {
-    const repo = mkdtempSync(join(tmpdir(), "wmill-review-"));
-    const cwd = process.cwd();
-    const write = (files: Record<string, string>) => {
-      for (const [path, content] of Object.entries(files)) {
-        mkdirSync(join(repo, dirname(path)), { recursive: true });
-        writeFileSync(join(repo, path), content);
-      }
-    };
-    const git = (...args: string[]) =>
-      execFileSync("git", args, { cwd: repo, encoding: "utf-8" }).trim();
-    try {
-      git("init", "-q", "-b", "main");
-      git("config", "user.email", "t@t");
-      git("config", "user.name", "t");
-      write({
+    withRepo(
+      {
         "f/a/REVIEW.resource.yaml":
           "resource_type: ai_review_instruction\nvalue:\n  content: '!inline f/a/REVIEW.resource.file.md'\n",
         "f/a/REVIEW.resource.file.md": "BASE-RULE\n",
@@ -108,12 +131,8 @@ describe("wmill review prompt", () => {
         "encryption_key.yaml": "BASE-ENCRYPTION-KEY\n",
         "f/a/notes.resource.yaml": "resource_type: ai_review_instruction\nvalue:\n  content: hi\n",
         "f/a/files.fileset/x.flow/flow.yaml": "password: FILESET-PASSWORD\n",
-      });
-      git("add", "-A");
-      git("commit", "-qm", "base");
-      const base = git("rev-parse", "HEAD");
-      git("checkout", "-qb", "pr");
-      write({
+      },
+      {
         "f/a/REVIEW.resource.file.md": "HEAD-RULE\n",
         "f/a/db.resource.yaml": "resource_type: ai_review_instruction\nvalue:\n  content: hi\n",
         "f/a/creds.resource.yaml": "resource_type: ai_review_instruction\nvalue:\n  content: hi\n",
@@ -123,23 +142,41 @@ describe("wmill review prompt", () => {
         "f/a/files.fileset/x.flow/flow.yaml": "password: FILESET-PASSWORD-2\n",
         // A pathspec matching every changed file, if git were let read it as one.
         "*": "star\n",
-      });
-      git("add", "-A");
-      git("commit", "-qm", "pr");
-      process.chdir(repo);
-      const { system, user, instructions } = buildReviewPrompt(base, git("rev-parse", "HEAD"));
-      const prompt = system + user;
-      for (const secret of ["PASSWORD", "VARIABLE-SECRET", "ENCRYPTION-KEY"]) {
-        expect(prompt).not.toContain(secret);
-      }
-      expect(system).toContain("BASE-RULE");
-      expect(system).not.toContain("HEAD-RULE");
-      // The instruction change itself is shown, as a change.
-      expect(user).toContain("HEAD-RULE");
-      expect(instructions).toEqual(["f/a/notes", "f/a/REVIEW"]);
-    } finally {
-      process.chdir(cwd);
-      rmSync(repo, { recursive: true, force: true });
-    }
+      },
+      (base, head) => {
+        const { system, user, instructions } = buildReviewPrompt(base, head);
+        const prompt = system + user;
+        for (const secret of ["PASSWORD", "VARIABLE-SECRET", "ENCRYPTION-KEY"]) {
+          expect(prompt).not.toContain(secret);
+        }
+        expect(system).toContain("BASE-RULE");
+        expect(system).not.toContain("HEAD-RULE");
+        // The instruction change itself is shown, as a change.
+        expect(user).toContain("HEAD-RULE");
+        expect(instructions).toEqual(["f/a/notes", "f/a/REVIEW"]);
+      },
+    );
+  });
+
+  // A workspace synced into a subfolder names its items from there, while the host anchors
+  // comments to repository paths.
+  test("reads a workspace synced into a subfolder", () => {
+    withRepo(
+      {
+        "ws/f/a/REVIEW.resource.yaml":
+          "resource_type: ai_review_instruction\nvalue:\n  content: '!inline f/a/REVIEW.resource.file.md'\n",
+        "ws/f/a/REVIEW.resource.file.md": "BASE-RULE\n",
+        "ws/f/a/s.ts": "export const a = 1\n",
+      },
+      { "ws/f/a/s.ts": "export const a = 2\n", "other/notes.md": "OUTSIDE\n" },
+      (base, head) => {
+        const { system, user, anchors, instructions } = buildReviewPrompt(base, head, "ws/");
+        expect(instructions).toEqual(["f/a/REVIEW"]);
+        expect(system).toContain("BASE-RULE");
+        expect([...anchors.items]).toEqual(["script:f/a/s"]);
+        expect([...anchors.lines.keys()]).toEqual(["ws/f/a/s.ts"]);
+        expect(user).not.toContain("OUTSIDE");
+      },
+    );
   });
 });

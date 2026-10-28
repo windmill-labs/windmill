@@ -549,6 +549,7 @@ Review a pull request on a git sync repository with the workspace's AI, the way 
 - `--base <ref:string>` - The base branch commit. Defaults to the pull_request event's base.
 - `--head <ref:string>` - The pull request's commit. Defaults to the event's head, else HEAD.
 - `--model <model:string>` - provider:model to review with. Defaults to the workspace's default model.
+- `--folder <dir:string>` - The repository directory the workspace is synced into, when it is not the root.
 - `--json` - Print the review as JSON
 - `--post <target:string>` - Post the review on the pull request. Only `github` is supported.
 - `--pr <number:number>` - The pull request number. Defaults to the pull_request event's.
