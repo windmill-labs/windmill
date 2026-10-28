@@ -1134,13 +1134,13 @@ export function createChatRawApp({
 				...react19Template,
 				'/App.tsx': chatAppTsx(name),
 				'/index.css': chatAppCss,
-				// The runnable transport (`{ wmill, runnable }`) needs 1.847.0.
+				// The runnable transport (`{ wmill, runnable }`) sends `memory_id` as a query parameter from 1.851.0.
 				'/package.json': JSON.stringify(
 					{
 						dependencies: {
 							react: '19.0.0',
 							'react-dom': '19.0.0',
-							'@windmill-labs/chat-sdk': '^1.847.0'
+							'@windmill-labs/chat-sdk': '^1.851.0'
 						},
 						devDependencies: { '@types/react-dom': '^19.0.0', '@types/react': '^19.0.0' }
 					},
