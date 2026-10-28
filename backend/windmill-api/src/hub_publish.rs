@@ -122,10 +122,11 @@ impl std::fmt::Display for ProjectSlug {
 /// Handlers can only reach the Hub via this extractor's methods, so a new
 /// endpoint cannot forget the admin check or folder validation.
 ///
-/// A workspace can publish one Hub project per folder. The stable, never-mutated
-/// link key is `workspace_id:folder_name` (folder name is the path segment and is
+/// A workspace can publish one Hub project per folder or folder sub-path. The
+/// stable, never-mutated link key is `workspace_id:folder` (`folder` is the base
+/// folder name, optionally followed by `/`-separated sub-path segments, and is
 /// never renamed — only display_name changes). `:` is safe: neither workspace ids
-/// nor folder names (alphanumeric, underscore, hyphen) contain it.
+/// nor folder paths (alphanumeric, underscore, hyphen, `/`) contain it.
 struct HubPublishCtx {
     source_id: Option<String>,
     token: String,
