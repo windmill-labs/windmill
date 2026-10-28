@@ -470,14 +470,14 @@
 			}
 		})
 
-		if (!flow || !canAuthorFlow || !can_write) {
-			return buttons
-		}
-
-		// Build app starts from the full template, not the builder one a compose-only role deploys.
-		// A chat-mode flow gets the chat template rather than a form over its inputs.
-		if (caps.apps === 'full') {
-			const chat = !!flow.value?.chat_input_enabled
+		// A chat-mode flow gets the chat template rather than a form over its inputs. It holds no
+		// inline code, so authoring raw apps is enough, as on the sidebar card. The form app starts
+		// from the full template, not the builder one a compose-only role deploys.
+		const chat = !!flow?.value?.chat_input_enabled
+		const canBuildApp = chat
+			? editRights.roleCanAuthor('raw_app')
+			: canAuthorFlow && can_write && caps.apps === 'full'
+		if (flow && canBuildApp) {
 			buttons.push({
 				label: chat ? 'Build chat app' : 'Build app',
 				placement: 'menu',
@@ -502,6 +502,10 @@
 					startIcon: LayoutDashboard
 				}
 			})
+		}
+
+		if (!flow || !canAuthorFlow || !can_write) {
+			return buttons
 		}
 
 		buttons.push({
