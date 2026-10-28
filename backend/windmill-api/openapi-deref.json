@@ -35080,7 +35080,7 @@
             ]
           },
           "sleep": {
-            "description": "Delay before executing this step (in seconds or as expression)",
+            "description": "Delay after this step completes, before the next step starts (in seconds or as expression)",
             "$ref": "#/components/schemas/schemas-InputTransform"
           },
           "cache_ttl": {
@@ -47034,7 +47034,7 @@
             ]
           },
           "sleep": {
-            "description": "Delay before executing this step (in seconds or as expression)",
+            "description": "Delay after this step completes, before the next step starts (in seconds or as expression)",
             "$ref": "#/components/schemas/schemas-InputTransform"
           },
           "cache_ttl": {
