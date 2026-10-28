@@ -40,6 +40,8 @@
 	let diffViewer: Drawer | undefined = $state(undefined)
 
 	let aiReviewScope: ReviewScope | undefined = $state(undefined)
+	/** Normal mode: what the review is rebuilt from when the version picker swaps the left side. */
+	let aiReviewTarget: { review: DiffAiReview; current: Value } | undefined = undefined
 
 	function reviewScope(review: DiffAiReview, before: Value, after: Value): ReviewScope {
 		return {
@@ -98,6 +100,7 @@
 		data = undefined
 		diffType = undefined
 		aiReviewScope = undefined
+		aiReviewTarget = undefined
 		diffViewer?.openDrawer()
 	}
 
@@ -133,6 +136,7 @@
 		data = undefined
 		diffType = undefined
 		aiReviewScope = undefined
+		aiReviewTarget = undefined
 		diffViewer?.closeDrawer()
 	}
 
@@ -231,6 +235,11 @@
 				deployed: prepareDiff(value),
 				deployedLabel: opt?.isHead ? headLabel : opt?.label
 			}
+			// The review covers the version on screen; a new scope also drops a result for the
+			// previous one.
+			if (aiReviewTarget) {
+				aiReviewScope = reviewScope(aiReviewTarget.review, value, aiReviewTarget.current)
+			}
 		} catch (e: any) {
 			// The snap-back would otherwise be the only sign the version never loaded.
 			if (generation === versionLoadGeneration) {
@@ -309,6 +318,7 @@
 		if (token != null && token !== openingToken) return
 		if (token == null) openingToken++
 		aiReviewScope = undefined
+		aiReviewTarget = undefined
 		if (diff.mode === 'normal') {
 			const {
 				deployed,
@@ -352,11 +362,11 @@
 			// deployed-vs-current diff.
 			diffType = 'deployed'
 			if (diff.aiReview) {
-				aiReviewScope = reviewScope(
-					{ ...diff.aiReview, added: diff.aiReview.added || !!deployed.draft_only },
-					deployed,
+				aiReviewTarget = {
+					review: { ...diff.aiReview, added: diff.aiReview.added || !!deployed.draft_only },
 					current
-				)
+				}
+				aiReviewScope = reviewScope(aiReviewTarget.review, deployed, current)
 			}
 		} else {
 			const { original, current, title, button } = diff

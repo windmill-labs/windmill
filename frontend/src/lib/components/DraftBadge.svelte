@@ -179,7 +179,11 @@
 				title: `${fullLabel(owner)}'s draft vs deployed`,
 				original: deployed,
 				current: draftValue as any,
-				aiReview: { workspaceId: workspace, kind: itemKind, path, added: draft_only }
+				// Your own draft only: a fix made from the review edits your draft, not theirs.
+				aiReview:
+					currentUsername && owner.username === currentUsername
+						? { workspaceId: workspace, kind: itemKind, path, added: draft_only }
+						: undefined
 			})
 		} catch (e: any) {
 			sendUserToast(`Could not load draft: ${e.body ?? e.message}`, true)
