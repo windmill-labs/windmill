@@ -10,9 +10,12 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { buildAiReviewCore, OUT_FILE } from "../generate-ai-review.ts";
-import { itemOf, numberDiff } from "../src/commands/review/review.ts";
+import { buildReviewPrompt, itemOf, numberDiff } from "../src/commands/review/review.ts";
 
 describe("ai review core", () => {
   test("the committed copy matches the frontend source", () => {
@@ -71,5 +74,62 @@ describe("wmill review", () => {
     expect([...numbered.left]).toEqual([11]);
     expect([...numbered.right]).toEqual([10, 11, 12]);
     expect(numberDiff("Binary files a/x and b/x differ")).toBeUndefined();
+  });
+});
+
+describe("wmill review prompt", () => {
+  // The pull request's head is written by its author, so nothing it does may put a
+  // credential in front of the model or steer which instructions apply.
+  test("withholds secrets whatever the head claims, and reads instructions from the base", () => {
+    const repo = mkdtempSync(join(tmpdir(), "wmill-review-"));
+    const cwd = process.cwd();
+    const write = (files: Record<string, string>) => {
+      for (const [path, content] of Object.entries(files)) {
+        mkdirSync(join(repo, dirname(path)), { recursive: true });
+        writeFileSync(join(repo, path), content);
+      }
+    };
+    const git = (...args: string[]) =>
+      execFileSync("git", args, { cwd: repo, encoding: "utf-8" }).trim();
+    try {
+      git("init", "-q", "-b", "main");
+      git("config", "user.email", "t@t");
+      git("config", "user.name", "t");
+      write({
+        "f/a/REVIEW.resource.yaml":
+          "resource_type: ai_review_instruction\nvalue:\n  content: '!inline f/a/REVIEW.resource.file.md'\n",
+        "f/a/REVIEW.resource.file.md": "BASE-RULE\n",
+        "f/a/db.resource.yaml": "resource_type: postgresql\nvalue:\n  password: OLD-PASSWORD\n",
+        "f/a/creds.variable.yaml": "value: VARIABLE-SECRET\nis_secret: false\n",
+        "encryption_key.yaml": "BASE-ENCRYPTION-KEY\n",
+      });
+      git("add", "-A");
+      git("commit", "-qm", "base");
+      const base = git("rev-parse", "HEAD");
+      git("checkout", "-qb", "pr");
+      write({
+        "f/a/REVIEW.resource.file.md": "HEAD-RULE\n",
+        "f/a/db.resource.yaml": "resource_type: ai_review_instruction\nvalue:\n  content: hi\n",
+        "f/a/creds.resource.yaml": "resource_type: ai_review_instruction\nvalue:\n  content: hi\n",
+        "f/a/creds.variable.yaml": "value: VARIABLE-SECRET-2\nis_secret: false\n",
+        "encryption_key.yaml": "HEAD-ENCRYPTION-KEY\n",
+      });
+      git("add", "-A");
+      git("commit", "-qm", "pr");
+      process.chdir(repo);
+      const { system, user, instructions } = buildReviewPrompt(base, git("rev-parse", "HEAD"));
+      const prompt = system + user;
+      for (const secret of ["PASSWORD", "VARIABLE-SECRET", "ENCRYPTION-KEY"]) {
+        expect(prompt).not.toContain(secret);
+      }
+      expect(system).toContain("BASE-RULE");
+      expect(system).not.toContain("HEAD-RULE");
+      // The instruction change itself is shown, as a change.
+      expect(user).toContain("HEAD-RULE");
+      expect(instructions).toEqual(["f/a/REVIEW"]);
+    } finally {
+      process.chdir(cwd);
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });

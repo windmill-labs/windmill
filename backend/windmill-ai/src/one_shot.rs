@@ -9,7 +9,10 @@ use crate::{
     ai_providers::AIProvider,
     credentials::ProviderCredentials,
     proxy::{common_outbound_headers, retain_effective_credentials},
-    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
+    providers::{create_chat_completions_query_builder, remember_chat_completions_only},
+    query_builder::{
+        is_context_length_error, BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink,
+    },
     types::{OpenAIMessage, OutputType, StreamingEvent, TokenUsage},
     utils::pinned_ai_client_for,
 };
@@ -115,23 +118,27 @@ async fn send_http(
     request: &OneShotRequest<'_>,
 ) -> Result<ParsedResponse, Error> {
     let credentials = request.credentials;
-    let query_builder = request.query_builder;
     let base_url = &credentials.base_url;
     let api_key = credentials.api_key.as_deref().unwrap_or("");
-    let endpoint = query_builder.get_endpoint(base_url, request.model, &OutputType::Text);
-    let auth_headers = match request.federated_token {
-        Some(token) => crate::providers::anthropic::federated_auth_headers(token),
-        None => retain_effective_credentials(
-            credentials,
-            query_builder.get_auth_headers(api_key, base_url, &OutputType::Text),
-        ),
-    };
     // `endpoint` derives from the user-controlled provider base_url, so DNS is pinned to
     // the SSRF-validated address.
     let client = pinned_ai_client_for(base_url).await?;
 
+    // Azure serves the Responses API for only some models and regions, so a deployment
+    // that rejects the route is asked again on `/chat/completions`, as the agent step does.
+    let mut fallback: Option<Box<dyn QueryBuilder>> = None;
+    let mut route_absent = false;
     let mut include_usage = request.include_usage;
     loop {
+        let query_builder = fallback.as_deref().unwrap_or(request.query_builder);
+        let endpoint = query_builder.get_endpoint(base_url, request.model, &OutputType::Text);
+        let auth_headers = match request.federated_token {
+            Some(token) => crate::providers::anthropic::federated_auth_headers(token),
+            None => retain_effective_credentials(
+                credentials,
+                query_builder.get_auth_headers(api_key, base_url, &OutputType::Text),
+            ),
+        };
         let body = if include_usage {
             query_builder
                 .build_request(build_args, request.client, request.workspace_id)
@@ -174,11 +181,25 @@ async fn send_http(
                 include_usage = false;
                 continue;
             }
+            if fallback.is_none()
+                && request.query_builder.supports_chat_completions_fallback(base_url)
+                && matches!(status.as_u16(), 400 | 404)
+                && !is_context_length_error(&text)
+            {
+                // Only a 404 says the route is absent; a 400 re-routes this call alone.
+                route_absent = status.as_u16() == 404;
+                fallback = Some(create_chat_completions_query_builder(credentials));
+                include_usage = true;
+                continue;
+            }
             return Err(Error::internal_err(format!(
                 "API error calling {endpoint}: {e} - {text}"
             )));
         }
 
+        if route_absent {
+            remember_chat_completions_only(base_url, request.model);
+        }
         return query_builder
             .parse_streaming_response(resp, Box::new(DiscardEvents))
             .await;

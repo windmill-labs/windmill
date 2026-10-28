@@ -6,6 +6,7 @@ import { posix } from "node:path";
 
 import * as log from "../../core/log.ts";
 import { requireLogin } from "../../core/auth.ts";
+import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { GlobalOptions, getTypeStrFromPath, parseDatatableMigrationPath } from "../../types.ts";
 import {
@@ -232,14 +233,21 @@ function baseInstructions(
   return { blocks, skipped };
 }
 
+/** A synced workspace encryption key is plaintext, so it is withheld like a secret value. */
+const WITHHELD_KINDS = new Set([...VALUE_WITHHELD_KINDS, "encryption_key"]);
+
 /** Instruction resources hold prose rather than credentials, so a change to one is shown to
  * the model like any other: a pull request rewriting the review's own instructions is
  * something the reviewer should hear about. */
 const INSTRUCTION_RESOURCE_TYPES = new Set([REVIEW_INSTRUCTIONS_RESOURCE_TYPE, "ai_instruction"]);
 
-function isInstructionResource(path: string, revs: string[]): boolean {
+/** Whether `item` is an instruction resource on every revision that defines it. Each side is
+ * judged on its own: a resource retyped on either side holds credentials on the other. */
+function isInstructionResource(item: ChangedItem, revs: string[]): boolean {
+  if (item.kind !== "resource") return false;
+  let defined = false;
   for (const rev of revs) {
-    for (const file of [`${path}.resource.yaml`, `${path}.resource.json`]) {
+    for (const file of [`${item.path}.resource.yaml`, `${item.path}.resource.json`]) {
       let raw: string;
       try {
         raw = git(["show", `${rev}:${file}`]);
@@ -250,13 +258,14 @@ function isInstructionResource(path: string, revs: string[]): boolean {
         const parsed = (file.endsWith(".json") ? JSON.parse(raw) : yamlParseContent(file, raw)) as {
           resource_type?: unknown;
         };
-        if (INSTRUCTION_RESOURCE_TYPES.has(parsed.resource_type as string)) return true;
+        if (!INSTRUCTION_RESOURCE_TYPES.has(parsed.resource_type as string)) return false;
       } catch {
-        // An unparsable file is reviewed as an ordinary resource: withheld.
+        return false;
       }
+      defined = true;
     }
   }
-  return false;
+  return defined;
 }
 
 function parseModel(model: string | undefined) {
@@ -266,11 +275,10 @@ function parseModel(model: string | undefined) {
   return { provider: model.slice(0, i), model: model.slice(i + 1) } as any;
 }
 
-export async function reviewChanges(
-  opts: ReviewOptions,
-  baseSha: string,
-  headSha: string,
-): Promise<ReviewResult> {
+/** What the model is asked, and what its answer may anchor to, for the changes `headSha`
+ * makes on top of its merge base with `baseSha`. Reads the repository in the working
+ * directory. */
+export function buildReviewPrompt(baseSha: string, headSha: string) {
   let mergeBase: string;
   try {
     mergeBase = git(["merge-base", baseSha, headSha]).trim();
@@ -295,7 +303,7 @@ export async function reviewChanges(
       continue;
     }
     const header = `### ${item.kind} ${item.path} (${changeOf(item)})`;
-    if (VALUE_WITHHELD_KINDS.has(item.kind) && !isInstructionResource(item.path, [mergeBase, headSha])) {
+    if (WITHHELD_KINDS.has(item.kind) && !isInstructionResource(item, [mergeBase, headSha])) {
       budget.add(key, `${header}\nValue withheld from review.`);
       continue;
     }
@@ -320,26 +328,31 @@ export async function reviewChanges(
     budget.add(key, `${header}\n${files.join("\n")}`);
   }
 
-  const system = reviewSystemPrompt("pull_request") +
-    reviewInstructionsSection("pull_request", blocks);
-  const response = await wmill.completeAi({
-    workspace: opts.workspace!,
-    requestBody: {
-      system,
-      user: budget.userPrompt(`Base: ${baseSha}\nPull request head: ${headSha}`),
-      model: parseModel(opts.model),
-      max_tokens: MAX_OUTPUT_TOKENS,
-    },
-  });
   return {
-    ...parseReviewAnswer(response.text, {
-      items: new Set(items.map((i) => `${i.kind}:${i.path}`)),
-      lines,
-    }),
+    system: reviewSystemPrompt("pull_request") + reviewInstructionsSection("pull_request", blocks),
+    user: budget.userPrompt(`Base: ${baseSha}\nPull request head: ${headSha}`),
+    anchors: { items: new Set(items.map((i) => `${i.kind}:${i.path}`)), lines },
     omitted: budget.omitted,
     unreadable,
     instructions: blocks.map((b) => b.instruction.path),
     skippedInstructions: skipped,
+  };
+}
+
+export async function reviewChanges(
+  workspaceId: string,
+  model: string | undefined,
+  baseSha: string,
+  headSha: string,
+): Promise<ReviewResult> {
+  const { system, user, anchors, ...reported } = buildReviewPrompt(baseSha, headSha);
+  const response = await wmill.completeAi({
+    workspace: workspaceId,
+    requestBody: { system, user, model: parseModel(model), max_tokens: MAX_OUTPUT_TOKENS },
+  });
+  return {
+    ...parseReviewAnswer(response.text, anchors),
+    ...reported,
     model: `${response.model.provider}:${response.model.model}`,
   };
 }
@@ -496,9 +509,10 @@ async function review(opts: ReviewOptions) {
   const ctx = opts.post === "github" ? githubContext(opts, event) : undefined;
 
   await requireLogin(opts);
+  const { workspaceId } = await resolveWorkspace(opts);
   let result: ReviewResult;
   try {
-    result = await reviewChanges(opts, baseSha, headSha);
+    result = await reviewChanges(workspaceId, opts.model, baseSha, headSha);
   } catch (e) {
     if (ctx) {
       await github(ctx, "POST", `/pulls/${ctx.pr}/reviews`, {
