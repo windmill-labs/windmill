@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { FlaskConical, FormInput, MessageSquare, Pen } from 'lucide-svelte'
+	import { FlaskConical, FormInput, LayoutDashboard, MessageSquare, Pen } from 'lucide-svelte'
 	import { resource } from 'runed'
 	import { goto } from '$lib/navigation'
 	import { copilotInfo } from '$lib/aiStore'
@@ -92,7 +92,7 @@
 		const app = createChatRawApp({ path, runType: 'agent' })
 		// The raw app editor reads the payload from sessionStorage on mount.
 		sessionStorage.setItem('rawAppImport', JSON.stringify(app))
-		await goto('/apps_raw/add')
+		await onNavigate('/apps_raw/add')
 	}
 	let canEdit = $derived(config != undefined && (agent?.canWrite ?? false) && canAuthor)
 
@@ -194,29 +194,36 @@
 		() => ws,
 		() => getDeployUiSettings()
 	)
-	// A role that cannot build agents gets no menu, as on a flow's page.
+	let onBuildChatApp = $derived(
+		chatAvailable && editRights.roleCanAuthor('raw_app') ? buildChatApp : undefined
+	)
+	// A role that cannot build agents gets no menu, as on a flow's page, but for the chat app: it
+	// only needs raw app rights, as on the sidebar card.
 	let menuItems = $derived(
-		config != undefined && canAuthor
-			? agentMenuItems({
-					path,
-					canWrite: canEdit,
-					noCode: !canCode,
-					wsSpecific: agent?.state?.wsSpecific,
-					deployUiSettings: deployUiSettings.current,
-					onPermissions: () => shareModal?.openDrawer?.(path, 'resource'),
-					onDeploy: () => deploymentDrawer?.openDrawer(path, 'resource'),
-					onHistory: () => history?.open(),
-					onDelete: () => (deleteOpen = true),
-					onBuildChatApp:
-						chatAvailable && editRights.roleCanAuthor('raw_app') ? buildChatApp : undefined
-				}).map((item) => ({
-					label: item.displayName,
-					Icon: item.icon,
-					onclick: (e: MouseEvent) => item.action?.(e),
-					disabled: item.disabled,
-					color: item.type === 'delete' ? ('red' as const) : undefined
-				}))
-			: []
+		config == undefined
+			? []
+			: !canAuthor
+				? onBuildChatApp
+					? [{ label: 'Build chat app', Icon: LayoutDashboard, onclick: onBuildChatApp }]
+					: []
+				: agentMenuItems({
+						path,
+						canWrite: canEdit,
+						noCode: !canCode,
+						wsSpecific: agent?.state?.wsSpecific,
+						deployUiSettings: deployUiSettings.current,
+						onPermissions: () => shareModal?.openDrawer?.(path, 'resource'),
+						onDeploy: () => deploymentDrawer?.openDrawer(path, 'resource'),
+						onHistory: () => history?.open(),
+						onDelete: () => (deleteOpen = true),
+						onBuildChatApp
+					}).map((item) => ({
+						label: item.displayName,
+						Icon: item.icon,
+						onclick: (e: MouseEvent) => item.action?.(e),
+						disabled: item.disabled,
+						color: item.type === 'delete' ? ('red' as const) : undefined
+					}))
 	)
 </script>
 
@@ -370,7 +377,7 @@
 		>
 			{#snippet chatSidebarFooter({ expanded })}
 				{#if ws}
-					<BuildChatAppCard kind="agent" {path} workspace={ws} {expanded} />
+					<BuildChatAppCard kind="agent" {path} workspace={ws} {expanded} {onNavigate} />
 				{/if}
 			{/snippet}
 			{#snippet viewForm({ schema, run, loading, actions })}
