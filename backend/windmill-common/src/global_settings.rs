@@ -615,7 +615,11 @@ pub fn parse_mcp_external_idp(
     };
     let idp: McpExternalIdp = serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
     if idp.issuer.trim().is_empty() {
-        return Ok(None);
+        return if idp.clients.is_empty() {
+            Ok(None)
+        } else {
+            Err("clients need an issuer".to_string())
+        };
     }
     if !idp.issuer.starts_with("https://") && !idp.issuer.starts_with("http://") {
         return Err("issuer must be an http(s) URL".to_string());
@@ -626,6 +630,10 @@ pub fn parse_mcp_external_idp(
     for (i, client) in idp.clients.iter().enumerate() {
         if client.client_id.trim().is_empty() || client.workspace_id.trim().is_empty() {
             return Err("every client needs a client id and a workspace".to_string());
+        }
+        // Recorded on every run it starts, in a VARCHAR(255) column.
+        if client.client_id.len() > 255 {
+            return Err(format!("client id {} is too long", client.client_id));
         }
         if idp.clients[..i]
             .iter()
@@ -1120,8 +1128,6 @@ mod tests {
         assert!(validate_api_base_url_applies_to(&json!("mcp")).is_err());
     }
 
-    // `frontend/src/lib/tokenExpiration.test.ts` holds the same table for the token form's
-    // parser; the two must stay in step.
     #[test]
     fn mcp_external_clients_get_only_a_selection_of_tools() {
         let with_scopes = |scopes: &[&str]| {
@@ -1133,7 +1139,10 @@ mod tests {
         let idp = with_scopes(&["mcp:flows:f/x/run", "mcp:scripts:f/x/*", "mcp:favorites"])
             .unwrap()
             .unwrap();
-        assert_eq!((idp.client_claim.as_str(), idp.email_claim.as_str()), ("azp", "email"));
+        assert_eq!(
+            (idp.client_claim.as_str(), idp.email_claim.as_str()),
+            ("azp", "email")
+        );
         for refused in [
             &["mcp:all"][..],
             &["mcp:all:f/x/*"],
@@ -1144,9 +1153,14 @@ mod tests {
             assert!(with_scopes(refused).is_err(), "{refused:?}");
         }
         assert_eq!(parse_mcp_external_idp(None), Ok(None));
-        assert_eq!(parse_mcp_external_idp(Some(&serde_json::json!({"issuer": ""}))), Ok(None));
+        assert_eq!(
+            parse_mcp_external_idp(Some(&serde_json::json!({"issuer": ""}))),
+            Ok(None)
+        );
     }
 
+    // `frontend/src/lib/tokenExpiration.test.ts` holds the same table for the token form's
+    // parser; the two must stay in step.
     #[test]
     fn max_token_expiration_days_accepts_only_whole_days_within_the_bound() {
         use serde_json::json;

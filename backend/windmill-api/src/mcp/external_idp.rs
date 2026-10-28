@@ -69,6 +69,8 @@ struct Resolved {
 const RESOLVED_TTL: Duration = Duration::from_secs(60);
 /// Keys are fetched again for an unknown `kid` (a rotation), but not more often than this.
 const JWKS_REFRESH_MIN_INTERVAL: Duration = Duration::from_secs(30);
+/// A key the issuer withdrew stops verifying tokens at most this long after.
+const JWKS_MAX_AGE: Duration = Duration::from_secs(600);
 
 lazy_static::lazy_static! {
     static ref JWKS: tokio::sync::RwLock<Option<Jwks>> = tokio::sync::RwLock::new(None);
@@ -116,10 +118,11 @@ async fn fetch_jwks(issuer: &str) -> anyhow::Result<JwkSet> {
 async fn decoding_key(
     issuer: &str,
     kid: &str,
+    header_alg: jsonwebtoken::Algorithm,
 ) -> anyhow::Result<(DecodingKey, jsonwebtoken::Algorithm)> {
     let find = |jwks: &Option<Jwks>| {
         jwks.as_ref()
-            .filter(|j| j.issuer == issuer)
+            .filter(|j| j.issuer == issuer && j.fetched_at.elapsed() < JWKS_MAX_AGE)
             .and_then(|j| j.keys.find(kid).cloned())
     };
     let mut jwk = find(&*JWKS.read().await);
@@ -139,23 +142,34 @@ async fn decoding_key(
         }
     }
     let jwk = jwk.ok_or_else(|| anyhow::anyhow!("no key {kid} at {issuer}"))?;
+    // Some issuers (Entra) publish keys without `alg`: the token's own header then names it,
+    // but never an HMAC one, whose "key" would be the public JWK itself.
+    use jsonwebtoken::Algorithm::{HS256, HS384, HS512};
     let alg = windmill_common::jwt::jwk_algorithm(&jwk)
+        .or(Some(header_alg).filter(|a| !matches!(a, HS256 | HS384 | HS512)))
         .ok_or_else(|| anyhow::anyhow!("key {kid} names no signing algorithm"))?;
     Ok((DecodingKey::from_jwk(&jwk)?, alg))
 }
 
 async fn verify(idp: &McpExternalIdp, token: &str) -> anyhow::Result<(Value, u64)> {
-    let kid = jsonwebtoken::decode_header(token)?
+    let header = jsonwebtoken::decode_header(token)?;
+    let kid = header
         .kid
         .ok_or_else(|| anyhow::anyhow!("token has no kid"))?;
-    let (key, alg) = decoding_key(&idp.issuer, &kid).await?;
+    let (key, alg) = decoding_key(&idp.issuer, &kid, header.alg).await?;
     let mut validation = Validation::new(alg);
     validation.set_issuer(&[&idp.issuer]);
+    validation.validate_nbf = true;
     match &idp.audience {
         Some(aud) => validation.set_audience(&[aud]),
         None => validation.validate_aud = false,
     }
     let claims = jsonwebtoken::decode::<Value>(token, &key, &validation)?.claims;
+    // Without an audience to check, an ID token of the same client would pass for an access
+    // token: refuse what the issuer marks as one.
+    if claims.get("typ").and_then(Value::as_str) == Some("ID") {
+        anyhow::bail!("an ID token is not an access token");
+    }
     let exp = claims.get("exp").and_then(Value::as_u64).unwrap_or(0);
     Ok((claims, exp))
 }
@@ -227,6 +241,12 @@ async fn resolve(
             ),
         )
     })?;
+    if claims.get("email_verified").and_then(Value::as_bool) == Some(false) {
+        return Err(refuse(
+            Some(w_id),
+            format!("{email} is not verified at the issuer"),
+        ));
+    }
 
     sync_groups(db, claims, &email).await.map_err(|e| {
         refuse(
