@@ -11,6 +11,7 @@
     "build": "./build.sh",
     "gen:dev-recorder": "bun run generate-dev-recorder.ts",
     "gen:app-policy": "bun run generate-app-policy.ts",
+    "gen:ai-review": "bun run generate-ai-review.ts",
     "test": "bun test test/",
     "test:unit": "UNIT_ONLY=1 bun test test/*_unit*",
     "check": "bunx tsc --noEmit",

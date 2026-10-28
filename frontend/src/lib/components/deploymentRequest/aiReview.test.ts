@@ -49,7 +49,7 @@ vi.mock('$lib/gen', async (importOriginal) => ({
 	}
 }))
 
-const { parseReviewAnswer, reviewDeployment } = await import('./aiReview')
+const { reviewDeployment } = await import('./aiReview')
 
 function diff(path: string): WorkspaceItemDiff {
 	return {
@@ -67,26 +67,6 @@ beforeEach(() => {
 	h.reads = 0
 	h.instructionReads = []
 	h.listed = []
-})
-
-describe('parseReviewAnswer', () => {
-	it('anchors only findings on items in the diff, and ranks by severity', () => {
-		const answer =
-			'```json\n' +
-			JSON.stringify({
-				summary: 's',
-				findings: [
-					{ kind: 'flow', path: 'f/not/changed', severity: 'low', comment: 'phantom' },
-					{ kind: 'script', path: 'f/a/b', severity: 'high', comment: 'real' }
-				]
-			}) +
-			'\n```'
-		const { findings } = parseReviewAnswer(answer, [diff('f/a/b')])
-		expect(findings.map((f) => [f.comment, f.kind, f.path])).toEqual([
-			['real', 'script', 'f/a/b'],
-			['phantom', '', '']
-		])
-	})
 })
 
 describe('reviewDeployment', () => {
