@@ -37,6 +37,11 @@ export function useSessionReadOnly(workspace: () => string | undefined) {
 		get known() {
 			const ws = workspace()
 			return !!ws && (verdictFor(ws) ?? false)
+		},
+		/** Whether the rules were read, a failed read included, which settles as read-only. */
+		get settled() {
+			const ws = workspace()
+			return !!ws && verdictFor(ws) !== undefined
 		}
 	}
 }
@@ -74,6 +79,11 @@ export function useSessionPermissions(
 		/** The session is read-only in this workspace. */
 		get readOnly() {
 			return readOnly
+		},
+		/** Whether `canEditItem` answers for real rather than refusing while it waits for this
+		 *  user's rights or the protection rules. */
+		get settled() {
+			return user.resolved(workspace()) && protectedWorkspace.settled
 		},
 		/** Whether this user can save the drafts the `kind` editor writes. */
 		canOpenEditor: (kind: string) => !readOnly && rights.roleCanDraft(kind),
