@@ -92,6 +92,10 @@ pub struct RoleCapabilities {
     pub apps: AuthorLevel,
     pub manage_schedules: bool,
     pub manage_triggers: bool,
+    /// Fork the workspace. Like visibility, it does not make a role restricted: it is read from
+    /// the role at the fork routes, never through [`caller_capabilities`]'s fast path. Left unset
+    /// by every layer, it is granted exactly to an unrestricted role (see [`Self::resolve`]).
+    pub fork: bool,
     pub visibility: RoleVisibility,
 }
 
@@ -102,6 +106,7 @@ impl RoleCapabilities {
         apps: AuthorLevel::Full,
         manage_schedules: true,
         manage_triggers: true,
+        fork: true,
         visibility: RoleVisibility::ALL,
     };
 
@@ -113,6 +118,7 @@ impl RoleCapabilities {
         apps: AuthorLevel::None,
         manage_schedules: true,
         manage_triggers: true,
+        fork: false,
         visibility: RoleVisibility::ALL,
     };
 
@@ -124,6 +130,7 @@ impl RoleCapabilities {
         apps: AuthorLevel::None,
         manage_schedules: false,
         manage_triggers: false,
+        fork: false,
         visibility: RoleVisibility::NONE,
     };
 
@@ -141,7 +148,7 @@ impl RoleCapabilities {
     /// left out: it only hides pages, and must not turn a full author into an operator for the
     /// raw `is_operator` checks, job permissions and credential caches keyed on it.
     pub fn is_restricted(&self) -> bool {
-        Self { visibility: RoleVisibility::ALL, ..*self } != Self::FULL
+        Self { visibility: RoleVisibility::ALL, fork: true, ..*self } != Self::FULL
     }
 
     /// Whether the role authors deployable artifacts and so costs a full seat rather than half.
@@ -164,6 +171,20 @@ impl RoleCapabilities {
         }
     }
 
+    /// Role `name` with `patches` applied over [`Self::base_for`], bottom layer first. A `fork` no
+    /// layer sets follows [`Self::is_restricted`]: roles that predate the capability keep the
+    /// forking they had, which every unrestricted role held and no restricted one.
+    pub fn resolve(name: &str, patches: &[&RoleCapabilitiesPatch]) -> Self {
+        let mut caps = Self::base_for(name);
+        for p in patches {
+            caps.apply(p);
+        }
+        if patches.iter().all(|p| p.fork.is_none()) {
+            caps.fork = !caps.is_restricted();
+        }
+        caps
+    }
+
     fn apply(&mut self, patch: &RoleCapabilitiesPatch) {
         if let Some(v) = patch.code {
             self.code = v;
@@ -179,6 +200,9 @@ impl RoleCapabilities {
         }
         if let Some(v) = patch.manage_triggers {
             self.manage_triggers = v;
+        }
+        if let Some(v) = patch.fork {
+            self.fork = v;
         }
         if let Some(v) = &patch.visibility {
             v.apply(&mut self.visibility);
@@ -212,6 +236,8 @@ pub struct RoleCapabilitiesPatch {
     pub manage_schedules: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manage_triggers: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visibility: Option<RoleVisibilityPatch>,
 }
@@ -279,6 +305,7 @@ pub fn diff_capabilities(
         apps: d(base.apps, target.apps),
         manage_schedules: d(base.manage_schedules, target.manage_schedules),
         manage_triggers: d(base.manage_triggers, target.manage_triggers),
+        fork: d(base.fork, target.fork),
         visibility: (visibility != RoleVisibilityPatch::default()).then_some(visibility),
     }
 }
@@ -393,9 +420,7 @@ pub fn parse_instance_roles(value: &serde_json::Value) -> Result<Vec<RoleDefinit
         if !seen.insert(r.name.as_str()) {
             return Err(Error::BadRequest(format!("duplicate role `{}`", r.name)));
         }
-        let mut caps = RoleCapabilities::base_for(&r.name);
-        caps.apply(&r.capabilities);
-        caps.validate(&r.name)?;
+        RoleCapabilities::resolve(&r.name, &[&r.capabilities]).validate(&r.name)?;
     }
     Ok(roles)
 }
@@ -408,12 +433,10 @@ pub fn effective_roles(
 ) -> Result<Vec<EffectiveRole>> {
     let mut out = Vec::with_capacity(instance.len() + overrides.len());
     for def in instance {
-        let mut caps = RoleCapabilities::base_for(&def.name);
-        caps.apply(&def.capabilities);
         let ovr = overrides.get(&def.name);
-        if let Some(o) = ovr {
-            caps.apply(&o.capabilities);
-        }
+        let mut patches = vec![&def.capabilities];
+        patches.extend(ovr.map(|o| &o.capabilities));
+        let caps = RoleCapabilities::resolve(&def.name, &patches);
         out.push(EffectiveRole {
             label: ovr
                 .and_then(|o| o.label.clone())
@@ -432,8 +455,7 @@ pub fn effective_roles(
             .collect();
         extra.sort_by(|a, b| a.0.cmp(b.0));
         for (name, o) in extra {
-            let mut caps = RoleCapabilities::base_for(name);
-            caps.apply(&o.capabilities);
+            let caps = RoleCapabilities::resolve(name, &[&o.capabilities]);
             out.push(EffectiveRole {
                 name: name.clone(),
                 label: o.label.clone().unwrap_or_else(|| name.clone()),
@@ -721,6 +743,36 @@ pub async fn caller_capabilities<A: Authable + ?Sized>(
     }
 }
 
+/// Whether the caller's role in `workspace_id` holds [`RoleCapabilities::fork`]. Read from the role
+/// even for an unrestricted caller, since withdrawing `fork` alone leaves a role unrestricted. A
+/// caller with no membership is left to the fork routes' other gates.
+pub async fn caller_can_fork<A: Authable + ?Sized>(
+    db: &DB,
+    workspace_id: &str,
+    authed: &A,
+) -> Result<bool> {
+    if authed.is_admin() {
+        return Ok(true);
+    }
+    // Not through `member_role`: its cache would then hold every forker, restricted or not.
+    let row = sqlx::query!(
+        "SELECT workspace_role, operator FROM usr WHERE workspace_id = $1 AND username = $2",
+        workspace_id,
+        authed.username()
+    )
+    .fetch_optional(db)
+    .await?;
+    match row {
+        Some(r) => {
+            let role = resolve_role_name(r.workspace_role, r.operator);
+            Ok(role_capabilities_by_name(db, workspace_id, &role)
+                .await?
+                .fork)
+        }
+        None => Ok(true),
+    }
+}
+
 pub fn invalidate_workspace_roles_cache(workspace_id: &str) {
     WORKSPACE_ROLES.remove(workspace_id);
 }
@@ -791,6 +843,21 @@ pub async fn ensure_role_unused(db: &DB, w_id: Option<&str>, name: &str) -> Resu
     if users + invites + settings > 0 {
         return Err(Error::BadRequest(format!(
             "role `{name}` is still held by {users} member(s) and {invites} pending invite(s), or named by {settings} workspace auto-invite or instance group mapping(s): reassign them first"
+        )));
+    }
+    let mapping_rulesets = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM workspace_protection_rule WHERE ($1::text IS NULL OR workspace_id = $1)
+            AND (fork_role_mapping ? $2
+                 OR EXISTS (SELECT 1 FROM jsonb_each_text(fork_role_mapping) m WHERE m.value = $2))",
+        w_id,
+        name
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+    if mapping_rulesets > 0 {
+        return Err(Error::BadRequest(format!(
+            "role `{name}` is named by the fork role mapping of {mapping_rulesets} protection ruleset(s): edit them first"
         )));
     }
     // An override left behind would silently re-base onto `base_for` instead of the instance
@@ -984,6 +1051,20 @@ mod tests {
         assert!(!op.capabilities.visibility.workers);
         assert!(op.capabilities.visibility.folders);
         assert!(op.capabilities.is_author());
+    }
+
+    #[test]
+    fn unset_fork_follows_restriction() {
+        let instance: Vec<RoleDefinition> = serde_json::from_value(serde_json::json!([
+            {"name": "developer"},
+            {"name": "operator"},
+            {"name": "maintainer", "capabilities": {"code": true, "flows": "full", "apps": "full"}},
+            {"name": "auditor", "capabilities": {"fork": true}}
+        ]))
+        .unwrap();
+        let roles = effective_roles(&instance, &RoleOverrides::new()).unwrap();
+        let fork: Vec<bool> = roles.iter().map(|r| r.capabilities.fork).collect();
+        assert_eq!(fork, [true, false, true, true]);
     }
 
     #[test]

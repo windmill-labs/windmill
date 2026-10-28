@@ -122,10 +122,6 @@
 				? 'guest'
 				: 'publisher'
 	)
-	// Undefined until loaded. An app can be set to `guest` while the workspace has
-	// guests off, in which case the mode is stored but inert -- say so rather than
-	// letting the publisher believe the app is open.
-	let guestAccessEnabled: boolean | undefined = $state(undefined)
 	let guestUsage: GuestUsage | undefined = $state(undefined)
 	// Whether the deployment can have guests at all; off, the mode is not on offer. The
 	// backend decides; the hostname stands in until it has answered, the shared cloud
@@ -136,9 +132,6 @@
 		const ws = opWs
 		if (ws === undefined) return
 		untrack(() => {
-			WorkspaceService.getPublicSettings({ workspace: ws })
-				.then((s) => (guestAccessEnabled = s.guest_access_enabled))
-				.catch(() => (guestAccessEnabled = undefined))
 			WorkspaceService.getGuestUsage({ workspace: ws })
 				.then((u) => (guestUsage = u))
 				.catch(() => (guestUsage = undefined))
@@ -553,14 +546,6 @@
 						{#if !guestsAvailable}
 							Guests are not available on Windmill Cloud, so this app still admits members only.
 							They require a self-hosted instance or a dedicated Windmill Cloud deployment.
-						{:else if guestUsage && !guestUsage.instance_enabled}
-							A superadmin has turned guests off for this instance, so this app still admits members
-							only.
-						{:else if guestAccessEnabled === undefined}
-							Checking whether this workspace allows guests…
-						{:else if guestAccessEnabled === false}
-							Guests are turned off for this workspace, so this app still admits members only. A
-							workspace admin can turn them on in the workspace settings.
 						{:else}
 							Anyone your identity provider authenticates can open this app without a Windmill
 							account. They join no workspace. Members of this workspace can open it too.
@@ -614,7 +599,7 @@
 				</div>
 			</div>
 
-			{#if embedMode && policy.execution_mode == 'guest' && guestAccessEnabled && guestJwtBase && guestsAvailable}
+			{#if embedMode && policy.execution_mode == 'guest' && guestJwtBase && guestsAvailable}
 				<div class="mt-6 flex flex-col gap-2">
 					<div class="text-xs font-semibold text-emphasis">
 						Embed for your own authenticated users (guest JWT)

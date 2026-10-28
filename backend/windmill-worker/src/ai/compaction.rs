@@ -11,14 +11,11 @@ use windmill_ai::{
     ai_providers::AIProvider,
     credentials::ProviderCredentials,
     model_context::is_openai_reasoning_model,
-    proxy::{common_outbound_headers, retain_effective_credentials},
-    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder},
-    types::{ContentPart, OpenAIContent, OpenAIMessage, OutputType, TokenUsage},
-    utils::pinned_ai_client_for,
+    one_shot::{complete_text, OneShotRequest},
+    query_builder::QueryBuilder,
+    types::{ContentPart, OpenAIContent, OpenAIMessage, TokenUsage},
 };
 use windmill_common::{client::AuthedClient, error::Error};
-
-use crate::ai::stream_event_processor::StreamEventProcessor;
 
 const SUMMARY_OUTPUT_RESERVE_TOKENS: usize = 8000;
 const MIN_SUMMARY_RESERVE_TOKENS: usize = 2000;
@@ -548,174 +545,65 @@ async fn summarize_prefix(
 ) -> Result<(String, Option<TokenUsage>), Error> {
     let summary_messages = summary_messages(prefix);
 
-    let build_args = BuildRequestArgs {
-        messages: &summary_messages,
-        tools: None,
-        model: request.model,
-        // The step's temperature is not carried over: the summary imposes its own
-        // thinking mode (below), and OpenAI's reasoning models reject `temperature`
-        // alongside any effort but their own default. A structured extraction does not
-        // need a set temperature, so the internal call omits it rather than track which
-        // model forbids which pairing.
-        temperature: None,
-        // Thinking shares the output budget with the handoff; minimize it so the
-        // summary can finish even when the step itself requests extensive reasoning.
-        reasoning_effort: lowest_reasoning_effort(&request.credentials.provider, request.model),
-        // Nothing streams this call's reasoning, and a summary of it would be billed.
-        reasoning_summary: false,
-        // Exactly the room the split set aside. Asking for more lets a summary land the
-        // conversation back over the trigger; leaving it to the provider default gives
-        // 64000 on Anthropic (over several Claude models' output ceiling) and the model's
-        // own small default on Bedrock, short enough to truncate the response.
-        max_tokens: Some(reserve_tokens as u32),
-        output_schema: None,
-        output_type: &OutputType::Text,
-        system_prompt: None,
-        user_message: "",
-        attachments: None,
-        has_websearch: false,
-        // The summarization request carries no tools, so its prefix does not match the
-        // agent's own requests: routing it onto the step's cache key would only evict.
-        prompt_cache_key: None,
-    };
-
-    let parsed = if request.credentials.provider == AIProvider::AWSBedrock {
-        #[cfg(feature = "bedrock")]
-        {
-            // A resource that authenticates through an OIDC role carries no keys of its
-            // own. Summaries are rare enough that assuming the role afresh here costs
-            // less than threading the agent loop's cached credentials through.
-            let mut assumed_role = None;
-            let assumed = windmill_ai::ai_bedrock::refresh_bedrock_oidc_credentials(
-                request.credentials,
-                &mut assumed_role,
-                request.client,
-                request.job_id,
-            )
-            .await?;
-            let (access_key_id, secret_access_key, session_token) = match assumed {
-                Some(assumed) => (
-                    Some(assumed.access_key_id.as_str()),
-                    Some(assumed.secret_access_key.as_str()),
-                    Some(assumed.session_token.as_str()),
-                ),
-                None => (
-                    request.credentials.aws_access_key_id.as_deref(),
-                    request.credentials.aws_secret_access_key.as_deref(),
-                    request.credentials.aws_session_token.as_deref(),
-                ),
-            };
-            windmill_ai::providers::bedrock::BedrockQueryBuilder::default()
-                .execute_request(
-                    &summary_messages,
-                    None,
-                    request.model,
-                    // No temperature, as on the HTTP path above.
-                    None,
-                    build_args.reasoning_effort,
-                    build_args.max_tokens,
-                    request.credentials.api_key.as_deref().unwrap_or(""),
-                    request
-                        .credentials
-                        .region
-                        .as_deref()
-                        .unwrap_or(windmill_ai::ai_providers::USE_ENV_REGION),
-                    Some(StreamEventProcessor::new_silent().boxed_sink()),
-                    request.client,
-                    request.workspace_id,
-                    None,
-                    access_key_id,
-                    secret_access_key,
-                    session_token,
-                )
-                .await?
-        }
-        #[cfg(not(feature = "bedrock"))]
-        {
-            return Err(Error::internal_err(
-                "AWS Bedrock support is not enabled. Build with 'bedrock' feature.".to_string(),
-            ));
-        }
-    } else {
-        let base_url = &request.credentials.base_url;
-        let api_key = request.credentials.api_key.as_deref().unwrap_or("");
-        let body = if request.include_usage {
-            request
-                .query_builder
-                .build_request(&build_args, request.client, request.workspace_id)
-                .await?
-        } else {
-            request
-                .query_builder
-                .build_request_without_usage(&build_args, request.client, request.workspace_id)
-                .await?
-        };
-        let endpoint =
-            request
-                .query_builder
-                .get_endpoint(base_url, request.model, &OutputType::Text);
-        // Summaries are rare enough that exchanging afresh costs less than threading
-        // the agent loop's cached token through.
-        let mut federated_token = None;
-        let auth_headers = match windmill_ai::providers::anthropic::refresh_federated_access_token(
+    // A resource that authenticates through an OIDC role carries no keys of its own.
+    // Summaries are rare enough that assuming the role afresh here costs less than
+    // threading the agent loop's cached credentials through.
+    #[cfg(feature = "bedrock")]
+    let assumed_credentials = {
+        let mut assumed_role = None;
+        match windmill_ai::ai_bedrock::refresh_bedrock_oidc_credentials(
             request.credentials,
-            &mut federated_token,
+            &mut assumed_role,
             request.client,
+            request.job_id,
         )
         .await?
         {
-            Some(token) => windmill_ai::providers::anthropic::federated_auth_headers(token),
-            None => retain_effective_credentials(
-                request.credentials,
-                request
-                    .query_builder
-                    .get_auth_headers(api_key, base_url, &OutputType::Text),
-            ),
-        };
-
-        // As in the agent loop, `endpoint` derives from the user-controlled provider
-        // base_url, so DNS is pinned to the SSRF-validated address.
-        let mut http_request = pinned_ai_client_for(base_url)
-            .await?
-            .post(&endpoint)
-            .timeout(request.timeout)
-            .header("Content-Type", "application/json");
-        for (header_name, header_value) in &auth_headers {
-            http_request = http_request.header(*header_name, header_value.clone());
+            Some(assumed) => Some(ProviderCredentials {
+                aws_access_key_id: Some(assumed.access_key_id.clone()),
+                aws_secret_access_key: Some(assumed.secret_access_key.clone()),
+                aws_session_token: Some(assumed.session_token.clone()),
+                ..request.credentials.clone()
+            }),
+            None => None,
         }
-        for (header_name, header_value) in common_outbound_headers(request.credentials) {
-            http_request = http_request.header(header_name.as_str(), header_value.as_str());
-        }
-
-        let resp = http_request
-            .body(body)
-            .send()
-            .await
-            .map_err(|e| Error::internal_err(format!("Failed to call API: {e}")))?;
-
-        if let Err(e) = resp.error_for_status_ref() {
-            let text = resp
-                .text()
-                .await
-                .unwrap_or_else(|_| "<failed to read body>".to_string());
-            return Err(Error::internal_err(format!(
-                "API error calling {endpoint}: {e} - {text}"
-            )));
-        }
-
-        request
-            .query_builder
-            .parse_streaming_response(resp, StreamEventProcessor::new_silent().boxed_sink())
-            .await?
-            .without_nul()
     };
+    #[cfg(not(feature = "bedrock"))]
+    let assumed_credentials: Option<ProviderCredentials> = None;
+    let credentials = assumed_credentials.as_ref().unwrap_or(request.credentials);
 
-    match parsed {
-        ParsedResponse::Text { content, usage, .. } => Ok((content.unwrap_or_default(), usage)),
-        ParsedResponse::Image { .. } => Err(Error::internal_err(
-            "Compaction summary came back as an image".to_string(),
-        )),
-    }
+    // Summaries are rare enough that exchanging afresh costs less than threading the
+    // agent loop's cached token through.
+    let mut federated_token = None;
+    let federated_token = windmill_ai::providers::anthropic::refresh_federated_access_token(
+        credentials,
+        &mut federated_token,
+        request.client,
+    )
+    .await?;
+
+    complete_text(
+        &summary_messages,
+        &OneShotRequest {
+            query_builder: request.query_builder,
+            credentials,
+            model: request.model,
+            // Exactly the room the split set aside. Asking for more lets a summary land the
+            // conversation back over the trigger; leaving it to the provider default gives
+            // 64000 on Anthropic (over several Claude models' output ceiling) and the model's
+            // own small default on Bedrock, short enough to truncate the response.
+            max_tokens: Some(reserve_tokens as u32),
+            // Thinking shares the output budget with the handoff; minimize it so the
+            // summary can finish even when the step itself requests extensive reasoning.
+            reasoning_effort: lowest_reasoning_effort(&credentials.provider, request.model),
+            timeout: request.timeout,
+            client: request.client,
+            workspace_id: request.workspace_id,
+            federated_token,
+            include_usage: request.include_usage,
+        },
+    )
+    .await
 }
 
 #[cfg(test)]

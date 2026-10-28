@@ -761,6 +761,7 @@ async fn route_job(
             runnable_format,
             trigger.wrap_body,
         )
+        .map(windmill_queue::PushArgsOwned::omit_untrusted_interpolation)
         .map_err(|e| e.into_response())?;
 
     let trigger_info = TriggerMetadata::new(Some(trigger.path.clone()), JobTriggerKind::Http);

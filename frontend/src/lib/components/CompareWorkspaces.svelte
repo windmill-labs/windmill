@@ -1854,9 +1854,12 @@
 								<!-- The request form and an open request carry their own review. -->
 								{#if mergeIntoParent && $copilotInfo.enabled && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
 									<AiReview
-										diffs={selectedDiffs}
-										forkWorkspaceId={currentWorkspaceId}
-										{parentWorkspaceId}
+										scope={{
+											kind: 'deployment',
+											diffs: selectedDiffs,
+											forkWorkspaceId: currentWorkspaceId,
+											parentWorkspaceId
+										}}
 										source="selection"
 									/>
 								{/if}
