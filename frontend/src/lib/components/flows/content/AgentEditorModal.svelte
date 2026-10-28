@@ -28,6 +28,10 @@
 		showAgentEditorView
 	} from '../agentEditorStore.svelte'
 	import { agentConfigToInputTransforms } from '../agentResourceUtils'
+	import { openAgentInFlow } from '../agentActions'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+	import { useEditRights } from '$lib/operatorWriteRights'
+	import { userStore } from '$lib/stores'
 	import { publishLinkedAgentTools } from '../flowState'
 	import { linkedModulesForAgent, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import AgentEditorHost from './AgentEditorHost.svelte'
@@ -38,7 +42,6 @@
 	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
 	import { emptyString } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { useEditRights } from '$lib/operatorWriteRights'
 	import { itemDisplayName } from '$lib/components/sessions/previewRouter'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import OpenInSessionButton, {
@@ -328,20 +331,79 @@
 
 	let deployingFor = $state<WriteTarget | undefined>(undefined)
 
-	async function onDeploy() {
+	async function onDeploy(): Promise<boolean> {
 		saving = true
 		deployingFor = currentWriteTarget()
 		try {
-			await host?.deploy()
+			return (await host?.deploy()) ?? false
 		} finally {
 			saving = false
 			deployingFor = undefined
 		}
 	}
 
+	// Only where the agent stands alone: opened from a flow's step, it is already in one. Linking
+	// a deployed agent as it is only reads it. Not for operators: the server refuses their flows
+	// a linked agent, and an inlined one's tools may hold code.
+	let offerFlow = $derived(
+		target?.host === undefined &&
+			draft?.state != undefined &&
+			!draft.loading &&
+			!refused &&
+			!$userStore?.operator &&
+			editRights.roleCanAuthor('flow') &&
+			(!readOnly || (!draft.noDeployed && !draft.sync.hasDraft))
+	)
+	let openingFlow = $state(false)
+	/** Set while a deploy is followed by the flow's page: the page loads next, so the deploy's own
+	 *  navigation would race it. Holds the path the deploy wrote. */
+	let handOff = $state<{ savedPath?: string } | undefined>(undefined)
+
+	async function useInFlow() {
+		const state = draft?.state
+		const at = target
+		const workspace = ws
+		if (!draft || !state || !at || !workspace) return
+		openingFlow = true
+		try {
+			if (draft.noDeployed) {
+				// Never a workspace item: it becomes the flow's step, and its draft goes. Through the
+				// sync, so an autosave still pending cannot write it back.
+				const sync = draft.sync
+				await openAgentInFlow({
+					workspace,
+					path: state.path,
+					config: state.args,
+					inline: true,
+					beforeOpen: async () => sync.discard(at.path, undefined)
+				})
+				return
+			}
+			// The flow links the deployed agent, so it has to run what is shown here.
+			const config = state.args
+			let path = at.path
+			if (draft.sync.hasDraft) {
+				handOff = {}
+				try {
+					if (!(await onDeploy()) || !handOff.savedPath) return
+					path = handOff.savedPath
+				} finally {
+					handOff = undefined
+				}
+			}
+			await openAgentInFlow({ workspace, path, config, inline: false })
+		} finally {
+			openingFlow = false
+		}
+	}
+
 	/** What a successful deploy has to reconcile. `savedPath` is the path it wrote, which a rename
 	 *  moves off the one the editor opened. */
 	async function onSaved(savedPath: string) {
+		if (handOff) {
+			handOff.savedPath = savedPath
+			return
+		}
 		const at = deployingFor ?? currentWriteTarget()
 		// Before the rename is announced: it finds the steps to refresh under the old path.
 		const reconciled = reconcile(at, savedPath)
@@ -665,7 +727,32 @@
 			onSelectTool={(id) => showTool(id)}
 			{onSaved}
 			isNew={target?.isNew}
+			configFooter={offerFlow ? flowFooter : undefined}
 		/>
+	{/snippet}
+
+	{#snippet flowFooter()}
+		<div class="flex flex-wrap items-center gap-x-1.5 text-xs text-hint">
+			Need to fetch context first, process the output, or add other steps?
+			<Button
+				unifiedSize="xs"
+				variant="subtle"
+				startIcon={{ icon: BarsStaggered, props: { style: 'fill: currentColor;' } }}
+				loading={openingFlow}
+				onClick={useInFlow}
+				title={draft?.noDeployed
+					? 'It becomes the step of a new flow, and this draft is discarded.'
+					: draft?.sync.hasDraft
+						? 'Your changes are deployed, then a new flow links this agent.'
+						: 'A new flow links this agent, which stays configured here.'}
+			>
+				{draft?.noDeployed
+					? 'Turn into a flow'
+					: draft?.sync.hasDraft
+						? 'Deploy and use in a flow'
+						: 'Use in a flow'}
+			</Button>
+		</div>
 	{/snippet}
 
 	{#snippet settingsFields()}
