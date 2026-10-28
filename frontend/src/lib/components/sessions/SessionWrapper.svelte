@@ -803,7 +803,7 @@
 			<WorkspaceFamilyPicker
 				bind:open={movePickerOpen}
 				selectedId={actingWorkspaceId}
-				forksOf={actingWorkspaceId}
+				moveFrom={actingWorkspaceId}
 				onPick={(id) => startMove({ kind: 'existing', id })}
 				onCreateFork={(fork) => startMove({ kind: 'new', fork })}
 				createForkCaption="Created now, and the session moves into it."
@@ -966,7 +966,9 @@
 			open={moveRequest.open}
 			parentName={moveRequest.parentName}
 			targetName={moveRequest.targetName}
-			newFork={moveRequest.target.kind === 'new' || !!moveRequest.target.replace}
+			newFork={moveRequest.target.kind === 'new'
+				? moveRequest.target.fork.parent_workspace_id === moveRequest.parent
+				: !!moveRequest.target.replace}
 			items={moveRequest.items}
 			conflicts={moveRequest.conflicts}
 			error={moveRequest.error}

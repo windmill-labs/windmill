@@ -1011,8 +1011,8 @@ pub struct DraftItemRef {
 
 #[derive(Deserialize)]
 pub struct TransferDraftsRequest {
-    /// A direct fork of this workspace to copy the drafts into. Omitted, the call only removes
-    /// them here (`remove_from_source`).
+    /// A workspace of this one's family (the same root: its forks, its parent, siblings) to copy
+    /// the drafts into. Omitted, the call only removes them here (`remove_from_source`).
     #[serde(default)]
     pub target_workspace: Option<String>,
     pub items: Vec<DraftItemRef>,
@@ -1035,9 +1035,9 @@ pub struct TransferDraftsResponse {
     pub conflicts: Vec<DraftItemRef>,
 }
 
-/// Copy the caller's own drafts of `items` into a fork of this workspace and/or remove them
-/// here, in one transaction, so a session moving to a fork never leaves its work in both
-/// places or in neither.
+/// Copy the caller's own drafts of `items` into another workspace of this one's family and/or
+/// remove them here, in one transaction, so a session moving to a fork never leaves its work in
+/// both places or in neither.
 ///
 /// Only the caller's rows are touched (never a teammate's or the legacy NULL-email one), so
 /// removing needs no write right here, as with discarding one's own draft. Copying needs it
@@ -1062,21 +1062,34 @@ async fn transfer_drafts(
 
     let mut target_authed = None;
     if let Some(target) = req.target_workspace.as_deref() {
-        let is_fork = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1 AND parent_workspace_id = $2 AND deleted = false)",
-            target,
-            &w_id,
-        )
-        .fetch_one(&db)
-        .await?
-        .unwrap_or(false);
-        if !is_fork {
+        // Same root, reached through `parent_workspace_id`. The copy keeps what the target can
+        // resolve (script lineage it has, members it has) and repairs the rest, so any workspace
+        // of the family can take the drafts, not only a direct fork.
+        let same_family = target != w_id
+            && sqlx::query_scalar!(
+                r#"WITH RECURSIVE up(id, parent, start, depth) AS (
+                       SELECT id, parent_workspace_id, id, 0 FROM workspace
+                       WHERE id IN ($1, $2) AND deleted = false
+                       UNION ALL
+                       SELECT w.id, w.parent_workspace_id, up.start, up.depth + 1
+                       FROM workspace w JOIN up ON w.id = up.parent
+                       WHERE up.depth < 64
+                   )
+                   SELECT (SELECT id FROM up WHERE start = $1 AND parent IS NULL)
+                        = (SELECT id FROM up WHERE start = $2 AND parent IS NULL) AS "same""#,
+                target,
+                &w_id,
+            )
+            .fetch_one(&db)
+            .await?
+            .unwrap_or(false);
+        if !same_family {
             return Err(Error::BadRequest(format!(
-                "{target} is not a fork of {w_id}"
+                "{target} is not in the same workspace family as {w_id}"
             )));
         }
         // Authentication checked the token against `w_id` only. A token bound to that
-        // workspace, or a job token (not in `token`), must not reach into the fork.
+        // workspace, or a job token (not in `token`), must not reach into the target.
         let token_valid_for_target = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM token WHERE token_hash = $1
                  AND (expiration > NOW() OR expiration IS NULL)

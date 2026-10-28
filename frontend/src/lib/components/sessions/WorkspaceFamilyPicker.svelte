@@ -78,9 +78,9 @@
 		// WorkspaceScopeHeader), so the superadmin lookup isn't duplicated. Omitted
 		// by standalone consumers, which then resolve it themselves.
 		forkableWorkspaces: forkableWorkspacesProp,
-		// Narrow the list to this workspace and its direct forks, and fork only from it —
-		// for moving something into a fork of where it is, rather than anywhere in the family.
-		forksOf,
+		// The workspace something moves out of: its family is listed, and a new fork is based on it
+		// unless another base is picked. Its own forking rule and the user's role there gate creating.
+		moveFrom,
 		open: dropdownOpen = $bindable(),
 		trigger
 	}: {
@@ -96,7 +96,7 @@
 		settingsHref?: string
 		settingsLabel?: string
 		forkableWorkspaces?: UserWorkspace[]
-		forksOf?: string
+		moveFrom?: string
 		open?: boolean
 		trigger: Snippet<[{ open: boolean }]>
 	} = $props()
@@ -112,21 +112,11 @@
 		enabled: () => forkableWorkspacesProp === undefined
 	})
 	const forkableWorkspaces = $derived(forkableWorkspacesProp ?? ownForkable.current)
-	const root = $derived(
-		forksOf
-			? forkableWorkspaces.find((w) => w.id === forksOf)
-			: findWorkspaceRoot(effectiveId, forkableWorkspaces)
-	)
+	const root = $derived(findWorkspaceRoot(moveFrom ?? effectiveId, forkableWorkspaces))
 	// The same hierarchy the sidebar workspace menu builds: forks of forks follow their parent, and the
 	// user's own forks lead each group of siblings.
 	const hierarchy = $derived(buildWorkspaceHierarchy(forkableWorkspaces, $userStore?.email))
-	const forkRows = $derived(
-		root
-			? workspaceSubtreeRows(root.id, hierarchy).filter(
-					(h) => !forksOf || h.workspace.parent_workspace_id === forksOf
-				)
-			: []
-	)
+	const forkRows = $derived(root ? workspaceSubtreeRows(root.id, hierarchy) : [])
 	const forks = $derived(forkRows.map((h) => h.workspace))
 
 	// The family's canonical dev workspace, if any — still used for gating (a forking-locked root can be
@@ -137,12 +127,14 @@
 	// Base a new fork gets by default: the dev workspace when the selection sits in its subtree, the
 	// family root otherwise.
 	const defaultForkBase = $derived(
-		forksOf ? root : findDefaultForkBase(effectiveId, forkableWorkspaces)
+		moveFrom
+			? forkableWorkspaces.find((w) => w.id === moveFrom)
+			: findDefaultForkBase(effectiveId, forkableWorkspaces)
 	)
 	const createForkLabel = 'Create new fork…'
 	// Candidate bases ("targets") for a new fork: the root plus every fork/dev in the family, so a fork
 	// can itself be the base — i.e. a fork of a fork. Root first, matching the list order below.
-	const baseOptions = $derived(root ? (forksOf ? [root] : [root, ...forks]) : [])
+	const baseOptions = $derived(root ? [root, ...forks] : [])
 	// Options for the base-branch <Select>. The nesting (fork of a fork) is rendered via the Select's
 	// per-item `startSnippet` as a depth-based spacer, so the label text itself stays clean.
 	const baseItems = $derived(
@@ -160,46 +152,46 @@
 	// Extra left padding (on top of the row's base px-3) to nest a workspace one step per depth level,
 	// matching the sidebar menu's `depth * 16px`.
 	function indentStyle(id: string): string | undefined {
-		const depth = forksOf ? 1 : (familyDepths.get(id) ?? 0)
+		const depth = familyDepths.get(id) ?? 0
 		return depth > 0 ? `padding-left: ${12 + depth * 16}px` : undefined
 	}
 
 	// Judged off the root's OWN rules, so it reads correctly from a dev workspace or a fork too.
 	// A locked root stays selectable: its session is read-only.
 	const rootReadOnly = useSessionReadOnly(() => root?.id)
-	// In `forksOf` mode a new fork is based on that workspace, so its own forking rule is the gate,
-	// judged with the user's identity there (is_admin and groups are per workspace).
-	const rootRulesetsResource = resource(
-		() => (forksOf ? root?.id : undefined),
+	// In `moveFrom` mode a new fork is based on that workspace by default, so its own forking rule is
+	// the gate, judged with the user's identity there (is_admin and groups are per workspace). Another
+	// base's own rule is enforced when the fork is created.
+	const fromRulesetsResource = resource(
+		() => moveFrom,
 		async (id) => (id ? await fetchProtectionRulesForWorkspace(id) : [])
 	)
-	const rootRulesets = $derived(rootRulesetsResource.current ?? [])
-	const rootUserInfoResource = resource(
-		() => (forksOf ? root?.id : undefined),
+	const fromRulesets = $derived(fromRulesetsResource.current ?? [])
+	const fromUserInfoResource = resource(
+		() => moveFrom,
 		async (id) => (id ? await getUserExt(id) : undefined)
 	)
-	const rootUserInfo = $derived(rootUserInfoResource.current)
+	const fromUserInfo = $derived(fromUserInfoResource.current)
 
 	// Structural gate: hidden in the admins workspace, or when the user can't fork; on cloud, forking
 	// is premium-only (backend caps it per paid seat). DisableWorkspaceForking on the active workspace
 	// (a locked prod) doesn't apply when there's a dev to fork from instead — the dev isn't locked, and
 	// devOfRoot only resolves when the user is a member of it.
-	// In `forksOf` mode the fork is always based on that workspace, so only its own rule counts.
 	const forksGateOpen = $derived(
 		(!isCloudHosted() || $maybePremium) &&
-			(forksOf
-				? forksOf !== 'admins' &&
-					!rootRulesetsResource.loading &&
-					!rootUserInfoResource.loading &&
+			(moveFrom
+				? moveFrom !== 'admins' &&
+					!fromRulesetsResource.loading &&
+					!fromUserInfoResource.loading &&
 					// A restricted role would get the default role in the fork it creates.
 					!isRestricted(
 						capabilitiesIn(
-							rootUserInfo,
-							$userWorkspaces.find((w) => w.id === forksOf)
+							fromUserInfo,
+							$userWorkspaces.find((w) => w.id === moveFrom)
 						)
 					) &&
-					(!isRuleActiveInRulesets(rootRulesets, 'DisableWorkspaceForking') ||
-						canUserBypassRuleKindInRulesets(rootRulesets, 'DisableWorkspaceForking', rootUserInfo))
+					(!isRuleActiveInRulesets(fromRulesets, 'DisableWorkspaceForking') ||
+						canUserBypassRuleKindInRulesets(fromRulesets, 'DisableWorkspaceForking', fromUserInfo))
 				: $workspaceStore !== 'admins' &&
 					(canCreateFork($userStore, $roleCapabilities) || !!devOfRoot))
 	)
@@ -438,7 +430,7 @@
 							<Building size={14} class="shrink-0 text-tertiary" />
 							<span class="truncate">{root.name}</span>
 							<span class="text-2xs text-tertiary shrink-0 ml-auto"
-								>{forksOf ? 'current' : rootReadOnly.known ? 'read-only' : 'root'}</span
+								>{rootReadOnly.known ? 'read-only' : 'root'}</span
 							>
 							{#if isSelected(root.id) && !pendingFork}
 								<Check size={14} class="shrink-0 text-accent" />
@@ -457,7 +449,7 @@
 					{#if separatorBefore}
 						<div
 							class="my-1 border-t border-border-light shrink-0"
-							style:margin-left={`${forksOf ? 0 : ((familyDepths.get(f.id) ?? 1) - 1) * 16}px`}
+							style:margin-left={`${((familyDepths.get(f.id) ?? 1) - 1) * 16}px`}
 							role="separator"
 						></div>
 					{/if}

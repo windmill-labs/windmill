@@ -118,7 +118,14 @@ export async function moveSessionToFork(
 	if (target.kind === 'new') {
 		const made = await materializeForkOutcome(target.fork)
 		if (!made) return { ok: false, error: 'Could not create the fork' }
-		fork = { kind: 'existing', id: made.id, replace: made.created }
+		// The clone holds this session's drafts only when the fork was made from where the session
+		// is; one based elsewhere in the family holds that base's, which are not the session's to
+		// overwrite.
+		fork = {
+			kind: 'existing',
+			id: made.id,
+			replace: made.created && target.fork.parent_workspace_id === parent
+		}
 		// Creating the fork takes seconds, long enough for a job's auto-resume to start a turn.
 		if (opts.isBusy?.()) return { ok: false, error: busy, retry: fork }
 		// So does an edit in the session's preview: it lands in the parent, possibly as a draft the

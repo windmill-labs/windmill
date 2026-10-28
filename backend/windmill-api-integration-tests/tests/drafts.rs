@@ -530,12 +530,26 @@ async fn test_transfer_drafts_to_fork(db: Pool<Postgres>) -> anyhow::Result<()> 
         (Some("ffffffffffffffff"), Some("ffffffffffffffff"))
     );
 
-    // Only a fork of the source is a valid target.
+    // Any workspace of the family takes them: here back from the fork to its parent.
     let r = c
         .post(format!(
             "http://localhost:{port}/api/w/{fork}/drafts/transfer"
         ))
-        .json(&json!({ "target_workspace": WS, "items": items }))
+        .json(&json!({
+            "target_workspace": WS,
+            "items": [{ "kind": "script", "path": "u/test-user/a" }],
+            "remove_from_source": true
+        }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "{}", r.text().await?);
+    assert_eq!(draft_count(&db, "u/test-user/a", "script", me).await, 1);
+    assert_eq!(fork_count("u/test-user/a").await?, 0);
+
+    // A workspace outside the family is refused.
+    let r = c
+        .post(&transfer_url)
+        .json(&json!({ "target_workspace": "admins", "items": items }))
         .send()
         .await?;
     assert_eq!(r.status(), 400);

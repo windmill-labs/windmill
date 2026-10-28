@@ -665,7 +665,7 @@ pub async fn delete_own_draft_for_path(
 /// copied. With `items = None` this is the fork-time clone: every row of `email` plus the legacy
 /// NULL-email row. With `items`, only `email`'s own rows at those `(kind, path)` pairs.
 ///
-/// No authorization here. The caller MUST have checked that `target` is a fork of `source`, that
+/// No authorization here. The caller MUST have checked that `target` is in `source`'s family, that
 /// the credential behind `email` may act on `target`, and that it may write each copied path
 /// there. Secret values are copied as encrypted, so the two workspaces must share a key.
 ///

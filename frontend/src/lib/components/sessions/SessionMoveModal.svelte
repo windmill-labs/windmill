@@ -72,7 +72,7 @@
 			<label for="move-remove-from-parent" class="flex flex-col cursor-pointer">
 				<span class="text-xs font-medium text-primary">Remove these drafts from {parentName}</span>
 				<span class="text-3xs text-tertiary"
-					>Leaves {parentName} at its deployed versions. The work then exists only in the fork.</span
+					>Leaves {parentName} at its deployed versions. The work then exists only in {targetName}.</span
 				>
 			</label>
 		</div>
