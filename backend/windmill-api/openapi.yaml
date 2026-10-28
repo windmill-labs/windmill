@@ -29940,7 +29940,6 @@ components:
       type: object
       required:
         - address
-        - mount_path
       properties:
         address:
           type: string

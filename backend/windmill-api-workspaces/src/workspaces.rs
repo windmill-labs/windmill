@@ -6772,7 +6772,9 @@ async fn set_encryption_key(
         .await?;
 
         for variable in all_variables {
-            if !variable.is_secret {
+            if !variable.is_secret
+                || windmill_common::secret_backend::resolves_externally(&variable.value)
+            {
                 continue;
             }
             let decrypted_value =

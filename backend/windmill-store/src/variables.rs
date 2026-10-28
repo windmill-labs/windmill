@@ -1610,6 +1610,8 @@ pub async fn get_value_internal<'a>(
         unreachable!()
     };
 
+    // A reference is resolved on every read, so Vault rotation and allow-list changes apply at once.
+    let cacheable = !is_external_ref_value(&variable.value);
     let r = if variable.is_secret {
         audit_decrypt_secret(db_with_opt_authed, &w_id, &variable.path).await?;
 
@@ -1645,7 +1647,7 @@ pub async fn get_value_internal<'a>(
     // Cache the result when explicitly allowed. Secrets are cached too: their per-read side
     // effects (audit + running-job registration) are re-run on a hit (see the hit path above),
     // and `is_secret` is stored so the hit knows to do so.
-    if let Some(identity) = cache_identity.as_deref() {
+    if let Some(identity) = cache_identity.as_deref().filter(|_| cacheable) {
         cache_variable(
             &w_id,
             &path,
