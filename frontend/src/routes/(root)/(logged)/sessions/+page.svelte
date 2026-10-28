@@ -94,7 +94,8 @@
 		tabsToReload,
 		viewerTabsToReload
 	} from '$lib/components/sessions/previewReload'
-	import { isPreviewListPath, barePath } from '$lib/components/sessions/previewPaths'
+	import { isPreviewListPath, barePath, agentPagePath } from '$lib/components/sessions/previewPaths'
+	import { listWorkspaceAgents } from '$lib/components/sessions/workspaceAgents'
 	import {
 		leafKeyFor,
 		loadKind,
@@ -262,6 +263,15 @@
 		listRuntimes()
 			.map((r) => sessionState.sessions.find((s) => s.id === r.sessionId))
 			.filter((s): s is NonNullable<typeof s> => s != null)
+	)
+	// The preview hosts take their runtime from the item rather than a lookup by id: a
+	// removed session's hosts are torn down after its runtime has left the map, and their
+	// teardowns (an editor unregistering from the runtime) still read the prop.
+	const warmHosts = $derived(
+		listRuntimes().flatMap((runtime) => {
+			const session = sessionState.sessions.find((s) => s.id === runtime.sessionId)
+			return session ? [{ session, runtime }] : []
+		})
 	)
 
 	// Chat columns stay mounted (stacked, visibility-toggled) so switching back
@@ -436,8 +446,12 @@
 	 * otherwise be two tabs with the same name. Only the editor is marked: the deployed
 	 * page is the item itself, and a page, artifact or pipeline has no second side to be
 	 * told apart from. */
-	function sideSuffix(url: string): string {
-		const slot = resolvePreviewTab(url)
+	function sideSuffix(tab: SessionPreviewTab, workspace: string): string {
+		// An agent's editor is a resource tab, beside the agent's own deployed page.
+		if (tab.agentEditor) return ' (edit)'
+		if (parsePageItemRoute(tab.loc) && listedAgentSummary(tab, workspace) !== undefined)
+			return ' (edit)'
+		const slot = resolvePreviewTab(tab.url)
 		return slot.kind === 'editor' && slot.editorKind !== 'pipeline' ? ' (edit)' : ''
 	}
 	let newTabOpen = $state(false)
@@ -658,7 +672,16 @@
 	// and the item paths whose deployed version changed. By workspace because a path names an
 	// item only within one: a write in one fork must not remount the same path's editor in a
 	// session on another.
-	let pending = new Map<string, { pages: Set<string>; items: Set<string>; deployed: Set<string> }>()
+	// `live` holds the items a write left to their editor; `forced` the ones another tool in the
+	// same round needs reloaded all the same (a discard after a write), which wins.
+	type ReloadScope = {
+		pages: Set<string>
+		items: Set<string>
+		deployed: Set<string>
+		live: Set<string>
+		forced: Set<string>
+	}
+	let pending = new Map<string, ReloadScope>()
 
 	// Reload the mounted tabs a chat round changed in each warm session acting on that
 	// workspace (a hidden preview would otherwise show pre-mutation content on return).
@@ -670,7 +693,12 @@
 			const owner = getRuntime(s.id)?.previewTabs
 			if (!scope || !owner) continue
 			const affected = [
-				...tabsToReload(owner.tabs, scope.pages, scope.items),
+				...tabsToReload(
+					owner.tabs,
+					scope.pages,
+					scope.items,
+					new Set([...scope.live].filter((u) => !scope.forced.has(u)))
+				),
 				...viewerTabsToReload(owner.tabs, scope.deployed)
 			]
 			for (const tab of affected) {
@@ -682,16 +710,28 @@
 	$effect(() => {
 		// Debounced so a burst of writes (the AI editing several files) reloads once.
 		setToolCompletionListener((name, args, workspace) => {
-			const { pages, items, deployed } = toolReloadEffect(name, args)
+			const { pages, items, deployed, live = [] } = toolReloadEffect(name, args)
 			if (pages.length === 0 && deployed.length === 0) return
 			let scope = pending.get(workspace)
 			if (!scope)
 				pending.set(
 					workspace,
-					(scope = { pages: new Set(), items: new Set(), deployed: new Set() })
+					(scope = {
+						pages: new Set(),
+						items: new Set(),
+						deployed: new Set(),
+						live: new Set(),
+						forced: new Set()
+					})
 				)
+			const liveUrls = new Set(live.map(pageItemUrl))
 			for (const p of pages) scope.pages.add(p)
-			for (const item of items) scope.items.add(pageItemUrl(item))
+			for (const item of items) {
+				const url = pageItemUrl(item)
+				scope.items.add(url)
+				if (liveUrls.has(url)) scope.live.add(url)
+				else scope.forced.add(url)
+			}
 			for (const d of deployed) scope.deployed.add(d)
 			clearTimeout(reloadHandle)
 			reloadHandle = setTimeout(flushReload, 500)
@@ -721,6 +761,7 @@
 	$effect(() => {
 		return registerToolDisplayActionHandler('open_created_resource', (action) => {
 			if (action.type !== 'open_created_resource') return
+			// An agent's resource tab renders the agent's own editor.
 			const ref: PageItemRef | undefined =
 				action.resource === 'trigger'
 					? action.triggerKind && {
@@ -728,7 +769,7 @@
 							triggerKind: action.triggerKind,
 							path: action.path
 						}
-					: { kind: action.resource, path: action.path }
+					: { kind: action.resource === 'agent' ? 'resource' : action.resource, path: action.path }
 			if (ref) owner?.open({ type: 'pageitem', ref })
 		})
 	})
@@ -834,6 +875,40 @@
 		}
 	})
 
+	// The same for agents, whose tabs are an agent's deployed page or a resource tab its
+	// editor took over: summaries by path, so an unvisited one is named and marked as the
+	// editor side before its editor stamps it.
+	const agentSummariesRequested = new Set<string>()
+	let agentSummaries = $state<Record<string, Record<string, string>>>({})
+	$effect(() => {
+		const ws = previewWorkspace
+		if (!ws || agentSummariesRequested.has(ws)) return
+		if (!(owner?.tabs ?? []).some((t) => agentTabPath(t) !== undefined)) return
+		agentSummariesRequested.add(ws)
+		listWorkspaceAgents(ws)
+			.then((agents) => {
+				agentSummaries = {
+					...agentSummaries,
+					[ws]: Object.fromEntries(agents.map((a) => [a.path, a.summary]))
+				}
+			})
+			.catch((e) => {
+				agentSummariesRequested.delete(ws)
+				console.error('Failed to load workspace agents', e)
+			})
+	})
+	function agentTabPath(tab: SessionPreviewTab): string | undefined {
+		const get = agentPagePath(tab.loc)
+		if (get !== undefined) return get
+		const ref = parsePageItemRoute(tab.loc)
+		return ref?.kind === 'resource' ? ref.path : undefined
+	}
+	function listedAgentSummary(tab: SessionPreviewTab, workspace: string): string | undefined {
+		if (tab.editorNamed) return undefined
+		const path = agentTabPath(tab)
+		return path === undefined ? undefined : agentSummaries[workspace]?.[path]
+	}
+
 	// Keyed by the tab's OWN session workspace, never the active one: every warm
 	// session's tabs are labelled here, and two sessions on different forks can
 	// hold the same item path.
@@ -852,13 +927,17 @@
 	// cell reactively, so the editor mirrors the name onto the tab model). Before
 	// that, the workspace listing names it. Falls back to the plain location label
 	// for summary-less items and non-item pages.
-	function tabLabelFor(tab: SessionPreviewTab, workspace: string): string {
+	function tabNameFor(tab: SessionPreviewTab, workspace: string): string {
 		const listed = listedItemFor(tab, workspace)
-		const name =
+		return (
 			tab.friendlyLabel ??
 			(listed && itemDisplayName(listed.path, listed.draftPath, listed.summary)) ??
+			(listedAgentSummary(tab, workspace) || undefined) ??
 			previewLocationLabel(tab.loc)
-		return name + sideSuffix(tab.url)
+		)
+	}
+	function tabLabelFor(tab: SessionPreviewTab, workspace: string): string {
+		return tabNameFor(tab, workspace) + sideSuffix(tab, workspace)
 	}
 
 	// Hover title for a tab. A summary label is free text the strip truncates, and
@@ -1118,6 +1197,8 @@
 										sessionId={s.id}
 										headerInPage={s.id === activeSession?.id}
 										covered={aiHiddenVerdict !== false}
+										previewTabName={(tab) =>
+											tabNameFor(tab, getEffectiveWorkspaceId(s) ?? $workspaceStore ?? '')}
 									/>
 								</div>
 							{/each}
@@ -1196,9 +1277,8 @@
 								<div class="relative flex-1 min-h-0">
 									{#if previewTabHostComponent.current}
 										{@const TabHost = previewTabHostComponent.current}
-										{#each warmSessions as s (s.id)}
-											{@const rt = getRuntime(s.id)}
-											{@const tabs = rt?.previewTabs}
+										{#each warmHosts as { session: s, runtime: rt } (s.id)}
+											{@const tabs = rt.previewTabs}
 											{#each tabs?.tabs ?? [] as tab (tab.id)}
 												<!-- tabHosts is an imperative ref-bag (only tabHosts[key]?.reload() in
 										     reloadTabs); it is intentionally a plain object so component
@@ -1258,6 +1338,7 @@
 													<PreviewRouterPicker
 														workspaceId={previewWorkspace}
 														artifacts={sessionArtifacts}
+														chat={activeRuntime?.manager}
 														onPick={(t) => {
 															emptyStateNewTabOpen = false
 															openInNewTab(t)
@@ -1393,6 +1474,7 @@
 									{currentItem}
 									workspaceId={previewWorkspace}
 									artifacts={sessionArtifacts}
+									chat={activeRuntime?.manager}
 									onPick={(t) => {
 										activeTabPickerOpen = false
 										navigatePreviewTo(t)
@@ -1424,6 +1506,7 @@
 						<PreviewRouterPicker
 							workspaceId={previewWorkspace}
 							artifacts={sessionArtifacts}
+							chat={activeRuntime?.manager}
 							onPick={(t) => {
 								newTabOpen = false
 								openInNewTab(t)

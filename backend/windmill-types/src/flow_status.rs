@@ -218,6 +218,31 @@ pub enum AgentAction {
     },
     Message {},
     WebSearch {},
+    /// The agent is parked until someone approves or rejects these calls of tools that require
+    /// it; it is answered once its `agent_actions_success` entry is written. `call_id` is the
+    /// first call's, and names the request.
+    Approval {
+        call_id: String,
+        calls: Vec<ApprovalCall>,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    },
+    /// The agent is parked until someone answers its question, the same way.
+    Question {
+        call_id: String,
+        question: String,
+        /// Answers the model proposes; a free-text answer is always possible.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        choices: Vec<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        multi_select: bool,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ApprovalCall {
+    pub function_name: String,
+    pub arguments: serde_json::Value,
 }
 
 #[derive(Serialize, Debug, Clone)]

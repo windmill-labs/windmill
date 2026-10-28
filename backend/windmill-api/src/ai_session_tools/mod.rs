@@ -70,6 +70,7 @@ mod items;
 mod misc;
 mod runs;
 mod settings;
+mod views;
 mod workspace;
 
 #[cfg(feature = "mcp")]
@@ -123,22 +124,57 @@ const EDITOR_ONLY: &[&str] = &[
     "read_file",
 ];
 
-/// Tools whose effect reaches the deployed workspace and cannot be undone by discarding
-/// a draft. Stands in for the session's confirmation card.
-#[cfg(feature = "mcp")]
+/// Tools whose effect discarding a draft cannot undo: they reach the deployed workspace or a
+/// live datatable, run code, cancel a job, or delete work. Stands in for the session's
+/// confirmation card. The ChatGPT and Claude directories reject a write that deletes,
+/// cancels or cannot be taken back without this hint, even when it could be redone.
+#[cfg(any(test, feature = "mcp"))]
 const DESTRUCTIVE: &[&str] = &[
     "deploy_workspace_item",
     "delete_workspace_item",
     "create_resource_type",
     "set_workspace_settings",
+    "run_script",
+    "run_flow",
+    "run_agent",
+    "test_run_script",
+    "test_run_flow",
+    "test_run_agent",
+    "test_run_step",
+    "test_run_app_runnable",
+    "cancel_job",
+    "exec_datatable_sql",
+    "create_datatable_migration",
+    "run_datatable_migrations",
+    "rollback_datatable_migration",
+    "discard_local_draft",
+    "rebase_draft",
+    "delete_app_file",
+    "delete_app_runnable",
+];
+
+/// Tools that reach a system outside Windmill on the workspace's behalf: running code can
+/// reach any system the workspace can, and `get_db_schema` connects to a resource's
+/// database. Reading public reference data (hub, npm, docs) does not count.
+#[cfg(any(test, feature = "mcp"))]
+const OPEN_WORLD: &[&str] = &[
+    "run_script",
+    "run_flow",
+    "run_agent",
+    "test_run_script",
+    "test_run_flow",
+    "test_run_agent",
+    "test_run_step",
+    "test_run_app_runnable",
+    "get_db_schema",
 ];
 
 /// Tools the session counts as reads that still start a job. A read-only token runs
 /// nothing on the tools server, so it runs nothing here either.
 const RUNS_A_JOB: &[&str] = &["get_db_schema"];
 
-/// Tools that run a deployed script or flow, the one write a read-and-run token keeps.
-const RUNS_DEPLOYED: &[&str] = &["run_script", "run_flow"];
+/// Tools that run a deployed script, flow or agent, the one write a read-and-run token keeps.
+const RUNS_DEPLOYED: &[&str] = &["run_script", "run_flow", "run_agent"];
 
 fn allowed(def: &ToolDef, access: SessionAccess) -> bool {
     let read = def.read_only && !RUNS_A_JOB.contains(&def.name.as_str());
@@ -175,6 +211,7 @@ pub(crate) struct ToolInfo {
     pub parameters: &'static Map<String, Value>,
     pub read_only: bool,
     pub destructive: bool,
+    pub open_world: bool,
 }
 
 /// The tools implemented here that `access` may call.
@@ -184,12 +221,16 @@ pub(crate) fn session_tools(access: SessionAccess) -> impl Iterator<Item = ToolI
         .iter()
         .filter(|def| implemented().any(|name| name == def.name))
         .filter(move |def| allowed(def, access))
-        .map(|def| ToolInfo {
-            name: &def.name,
-            description: &def.description,
-            parameters: &def.parameters,
-            read_only: def.read_only,
-            destructive: DESTRUCTIVE.contains(&def.name.as_str()),
+        .map(|def| {
+            let name = def.name.as_str();
+            ToolInfo {
+                name,
+                description: &def.description,
+                parameters: &def.parameters,
+                read_only: def.read_only && !RUNS_A_JOB.contains(&name),
+                destructive: DESTRUCTIVE.contains(&name),
+                open_world: OPEN_WORLD.contains(&name),
+            }
         })
 }
 
@@ -212,6 +253,9 @@ pub(crate) struct Ctx<'a> {
     /// Minted once per tool call: every JWT the API sees is cached by the auth layer, and a
     /// tool can make dozens of calls, which would evict other users' cached sessions.
     pub jwt: tokio::sync::OnceCell<String>,
+    /// What the card draws of this call, as `(key, value)`: returned in the result's
+    /// `_meta`, which the model never reads.
+    pub view: std::sync::Mutex<Option<(&'static str, Value)>>,
 }
 
 impl<'a> Ctx<'a> {
@@ -231,6 +275,7 @@ impl<'a> Ctx<'a> {
             chat: None,
             effects: Default::default(),
             jwt: Default::default(),
+            view: Default::default(),
         }
     }
 
@@ -246,6 +291,11 @@ impl<'a> Ctx<'a> {
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 impl Ctx<'_> {
+    /// Set what the card draws of this call, replacing what an inner step set.
+    pub fn set_view(&self, key: &'static str, value: Value) {
+        *self.view.lock().unwrap() = Some((key, value));
+    }
+
     /// Call the API as the caller. `path` follows `/api`; a non-2xx answer is the error.
     pub async fn request(&self, method: &str, path: &str, body: Option<Value>) -> ToolResult {
         self.request_within(method, path, body, REQUEST_TIMEOUT)
@@ -473,7 +523,7 @@ fn guarded_url(
     // A run also stores its secret arguments as expiring variables; the write tools that
     // could create other variables are not offered to a read-and-run token.
     let run_writes = method == "POST"
-        && ["jobs/run/p/", "jobs/run/f/"]
+        && ["jobs/run/p/", "jobs/run/f/", "jobs/run/agent/"]
             .iter()
             .any(|run| route.starts_with(&format!("/w/{w_id}/{run}")))
         || method == "POST" && route == format!("/w/{w_id}/variables/create");
@@ -653,11 +703,28 @@ pub(crate) struct ToolOutcome {
     pub is_error: bool,
 }
 
+/// The card tools only MCP Apps clients draw; the chat draws its own cards.
+#[cfg(feature = "mcp")]
+pub(crate) use views::{allowed as view_allowed, definitions as view_definitions};
+
 pub(crate) async fn call_session_tool(
     ctx: &Ctx<'_>,
     name: &str,
     args: Value,
 ) -> Result<ToolOutcome, CallRefused> {
+    if ctx.surface == Surface::Mcp && views::TOOLS.contains(&name) {
+        return Ok(outcome(views::call(ctx, name, &args).await));
+    }
+    let result = call_generated_tool(ctx, name, &args).await?;
+    Ok(outcome(result))
+}
+
+/// A generated session tool, refused when the caller's access does not cover it.
+async fn call_generated_tool(
+    ctx: &Ctx<'_>,
+    name: &str,
+    args: &Value,
+) -> Result<ToolResult, CallRefused> {
     let Some(def) = TOOL_DEFS.iter().find(|def| def.name == name) else {
         return Err(CallRefused::UnknownTool(format!("Unknown tool '{name}'")));
     };
@@ -670,12 +737,13 @@ pub(crate) async fn call_session_tool(
             "Tool '{name}' changes or runs something, and this token {token}"
         )));
     }
-    let Some(result) = dispatch(ctx, name, &args).await else {
-        return Err(CallRefused::NotAvailable(format!(
-            "Tool '{name}' is not available on this server"
-        )));
-    };
-    Ok(match result {
+    dispatch(ctx, name, args).await.ok_or_else(|| {
+        CallRefused::NotAvailable(format!("Tool '{name}' is not available on this server"))
+    })
+}
+
+fn outcome(result: ToolResult) -> ToolOutcome {
+    match result {
         Ok(text) => ToolOutcome { text, is_error: false },
         // Without the status code `Ctx` prefixes an API failure with, as the session reads it.
         Err(message) => {
@@ -683,7 +751,7 @@ pub(crate) async fn call_session_tool(
             let text = if body.is_empty() { &message } else { body };
             ToolOutcome { text: text.to_string(), is_error: true }
         }
-    })
+    }
 }
 
 #[cfg(test)]
@@ -716,6 +784,7 @@ mod tests {
         // preview takes code.
         assert!(url("POST", "/w/ws/jobs/run/p/u/a/b", ReadAndRun).is_ok());
         assert!(url("POST", "/w/ws/jobs/run/f/u/a/b", ReadAndRun).is_ok());
+        assert!(url("POST", "/w/ws/jobs/run/agent/u/a/b", ReadAndRun).is_ok());
         assert!(url("POST", "/w/ws/jobs/run/preview", ReadAndRun).is_err());
         assert!(url("POST", "/w/ws/drafts/update", ReadAndRun).is_err());
         assert!(url("POST", "/w/ws/variables/create", ReadAndRun).is_ok());
@@ -733,10 +802,22 @@ mod tests {
                 "session tool `{name}` must be implemented here or listed in EDITOR_ONLY, not both"
             );
         }
-        for name in implemented.iter().chain(EDITOR_ONLY) {
+        for name in implemented
+            .iter()
+            .chain(EDITOR_ONLY)
+            .chain(DESTRUCTIVE)
+            .chain(OPEN_WORLD)
+            .chain(RUNS_A_JOB)
+        {
             assert!(
                 TOOL_DEFS.iter().any(|def| def.name == *name),
                 "`{name}` is not a session tool any more"
+            );
+        }
+        for name in views::TOOLS {
+            assert!(
+                !TOOL_DEFS.iter().any(|def| def.name == *name),
+                "`{name}` is generated too"
             );
         }
     }

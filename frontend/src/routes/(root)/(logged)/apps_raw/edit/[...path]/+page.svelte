@@ -576,7 +576,12 @@
 				if (saved.state === 'failed') {
 					throw new Error(saved.failureMessage ?? 'the app could not be saved')
 				}
-				await openEditorInSession({ kind: 'raw_app', path }, workspace, { new_draft: 'true' })
+				await openEditorInSession(
+					{ kind: 'raw_app', path },
+					workspace,
+					{ new_draft: 'true' },
+					{ untilStarted: true }
+				)
 				return
 			} catch (e) {
 				sendUserToast(`Could not open the AI session: ${e?.body ?? e?.message ?? e}`, true)

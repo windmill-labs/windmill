@@ -9,9 +9,7 @@ use windmill_common::error::Error;
 use windmill_common::scripts::ScriptLang;
 use windmill_common::worker::{to_raw_value, write_file, Connection};
 use windmill_common::workspace_dependencies::clean_lock_from_annotations;
-use windmill_queue::{
-    append_logs, CanceledBy, MiniPulledJob, INIT_SCRIPT_PATH_PREFIX, PERIODIC_SCRIPT_PATH_PREFIX,
-};
+use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
@@ -36,7 +34,7 @@ use crate::{
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry_with_workspace_override, DISABLE_NUSER, HOME_ENV,
     NSJAIL_PATH, PATH_ENV, POWERSHELL_CACHE_DIR, POWERSHELL_PATH, POWERSHELL_REPO_PAT,
-    POWERSHELL_REPO_URL, PROXY_ENVS, TZ_ENV,
+    POWERSHELL_REPO_URL, TZ_ENV,
 };
 
 fn val_to_pwsh_param(v: serde_json::Value) -> String {
@@ -690,15 +688,9 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
     let _ = write_file(job_dir, "result.out", "")?;
     let _ = write_file(job_dir, "result2.out", "")?;
 
-    // Check if this is a regular job (not init or periodic script)
-    // Init/periodic scripts need full system access without isolation
-    let is_regular_job = job
-        .runnable_path
-        .as_ref()
-        .map(|x| {
-            !x.starts_with(INIT_SCRIPT_PATH_PREFIX) && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
-        })
-        .unwrap_or(true);
+    // Init/periodic scripts need full system access without isolation; see
+    // `MiniPulledJob::is_worker_own_script`.
+    let is_regular_job = !job.is_worker_own_script();
 
     let nsjail = is_sandboxing_enabled() && is_regular_job;
     let child = if nsjail {
@@ -728,7 +720,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         let mut cmd = Command::new(NSJAIL_PATH.as_str());
         cmd.current_dir(job_dir)
             .env_clear()
-            .envs(PROXY_ENVS.clone())
+            .envs(crate::job_proxy_envs())
             .envs(reserved_variables)
             .env("TZ", TZ_ENV.as_str())
             .env("PATH", PATH_ENV.as_str())

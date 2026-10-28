@@ -711,7 +711,6 @@
 		currentEditor: writable(undefined),
 		modulesTestStates,
 		outputPickerOpenFns,
-		preserveOnBehalfOf: writable(false),
 		savedOnBehalfOfEmail: writable<string | undefined>(undefined),
 		savedOnBehalfOfPermissionedAs: writable<string | undefined>(undefined),
 		devTempScriptRefs: () => flowTempScriptRefs

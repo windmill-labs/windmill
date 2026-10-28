@@ -131,10 +131,10 @@
 			onDetails={onSeeDetails}
 			condensedHeader={true}
 			customUi={{ topBar: { aiBuilder: false } }}
-			onDeploy={() => {
+			onDeploy={(e) => {
 				// FlowBuilder has no deploy toast and the session stays put, so toast here.
 				sendUserToast('Deployed')
-				runtime.itemDeployed(workspaceId, 'flow', path)
+				runtime.itemDeployed(workspaceId, 'flow', path, e.path)
 			}}
 		/>
 	{/snippet}

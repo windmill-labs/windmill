@@ -292,7 +292,7 @@ async fn save_app(
     }
 }
 
-fn sha256_hex(text: &str) -> String {
+pub(super) fn sha256_hex(text: &str) -> String {
     hex::encode(Sha256::digest(text.as_bytes()))
 }
 
@@ -846,7 +846,11 @@ fn build_persisted_runnable(input: &Value, existing: Option<&Value>) -> Result<V
     let name = str_arg(input, "name")?;
     let kind = str_arg(input, "type")?;
     let existing = existing.and_then(Value::as_object);
-    let fields = match input.get("staticInputs").and_then(Value::as_object) {
+    let static_inputs = input.get("staticInputs").and_then(Value::as_object);
+    // An agent runnable takes every input from the app: a static one inherited from the kind it
+    // was converted from would be pinned by the deployed policy over every viewer's message.
+    let fields = match static_inputs {
+        _ if kind == "agent" => json!({}),
         Some(static_inputs) => Value::Object(
             static_inputs
                 .iter()
@@ -892,9 +896,16 @@ fn build_persisted_runnable(input: &Value, existing: Option<&Value>) -> Result<V
         return Ok(Value::Object(out));
     }
 
-    let path = text_of(input, "path")
-        .filter(|p| !p.is_empty())
-        .ok_or("path is required when runnable type is \"script\", \"flow\", or \"hubscript\".")?;
+    let path = text_of(input, "path").filter(|p| !p.is_empty()).ok_or(
+        "path is required when runnable type is \"script\", \"flow\", \"hubscript\" or \"agent\".",
+    )?;
+    // A static input is pinned by the deployed policy: every viewer's turn would send the same one.
+    if kind == "agent" && static_inputs.is_some_and(|inputs| !inputs.is_empty()) {
+        return Err(
+            "An \"agent\" runnable takes no staticInputs: each turn's inputs come from the app."
+                .to_string(),
+        );
+    }
     let same_target = existing.is_some_and(|e| {
         matches!(
             e.get("type").and_then(Value::as_str),
@@ -1278,6 +1289,19 @@ mod tests {
         )
         .unwrap();
         assert_eq!(retargeted["schema"], json!({}));
+
+        let agent = build_persisted_runnable(
+            &json!({ "name": "n", "type": "agent", "path": "u/a/agent" }),
+            Some(&existing),
+        )
+        .unwrap();
+        assert_eq!(agent["runType"], "agent");
+        assert_eq!(agent["fields"], json!({}));
+        assert!(build_persisted_runnable(
+            &json!({ "name": "n", "type": "agent", "path": "u/a/agent", "staticInputs": { "m": 1 } }),
+            None,
+        )
+        .is_err());
 
         let inline = build_persisted_runnable(
             &json!({

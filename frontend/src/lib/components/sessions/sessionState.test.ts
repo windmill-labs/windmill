@@ -3,9 +3,11 @@ import { get } from 'svelte/store'
 import {
 	commitSessionWorkspace,
 	createSession,
+	setNewSessionWorkspace,
 	decideSessionLifecycle,
 	findEmptyLandingSession,
 	getSessionDraftAttachments,
+	holdSessionUntilStarted,
 	homeStarterSession,
 	isForkSession,
 	isTearingDownOpenSession,
@@ -15,6 +17,7 @@ import {
 	setGeneratedSessionSummary,
 	setSessionDraftAttachments,
 	setSessionDraftPrompt,
+	setSessionTabs,
 	sessionState,
 	withOpenSessionTeardown,
 	type Session
@@ -488,6 +491,36 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 		}
 	})
 
+	it('keeps a session held until started in memory, and does not reuse it', () => {
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const held = session({
+			id: 'held-on-app',
+			name: 'session-905',
+			pending_workspace_id: 'forkA',
+			transient: true
+		})
+		sessionState.sessions.push(held)
+		let createdId: string | undefined
+		try {
+			holdSessionUntilStarted('held-on-app')
+			const tabs = [
+				{ id: 'session', url: '/apps_raw/edit/u/me/app', loc: '/apps_raw/edit/u/me/app' }
+			]
+			setSessionTabs('held-on-app', tabs, 'session')
+			expect(held.transient).toBe(true)
+			createdId = createSession().id
+			expect(createdId).not.toBe('held-on-app')
+			expect(sessionState.sessions).toContain(held)
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== 'held-on-app' && s.id !== createdId
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
 	it('clears the recovery notice off the draft it reuses, so `+` is not answered with "not found"', () => {
 		const restore = withTwoFamilies('rootA')
 		const prevCurrent = sessionState.currentSessionId
@@ -714,7 +747,7 @@ describe('withOpenSessionTeardown — the gate that holds recovery off during a 
 
 describe('homeStarterSession', () => {
 	it("shows the family's stored draft, not the conversation in view, and selects nothing", () => {
-		const restore = withTwoFamilies('rootA')
+		const restore = withTwoFamilies('forkA')
 		const prevCurrent = sessionState.currentSessionId
 		const conversation = session({ id: 'conversation', workspace_id: 'rootA' })
 		// Touched only by picking where it acts: no text, but stored, so it is the user's draft.
@@ -735,6 +768,62 @@ describe('homeStarterSession', () => {
 			sessionState.sessions = sessionState.sessions.filter(
 				(s) => !['conversation', 'picked-draft', 'other-family-draft'].includes(s.id)
 			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('leaves a draft picked onto another workspace of the family to that workspace', () => {
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const picked = session({ id: 'picked-fork-draft', pending_workspace_id: 'forkA' })
+		sessionState.sessions.push(picked)
+		sessionState.currentSessionId = 'picked-fork-draft'
+		let createdId: string | undefined
+		try {
+			createdId = homeStarterSession().id
+			expect(createdId).not.toBe('picked-fork-draft')
+			expect(picked.pending_workspace_id).toBe('forkA')
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => !['picked-fork-draft', createdId].includes(s.id)
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('keeps its own draft when the workspace was switched on another page', () => {
+		const restore = withTwoFamilies('forkA')
+		const typed = session({
+			id: 'home-draft',
+			pending_workspace_id: 'rootA',
+			draftPrompt: 'typed on Home',
+			followsHome: true
+		})
+		sessionState.sessions.push(typed)
+		try {
+			expect(homeStarterSession().id).toBe('home-draft')
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'home-draft')
+			restore()
+		}
+	})
+
+	it('lets go of its draft once the session page reuses it for a new session', () => {
+		const restore = withTwoFamilies('forkA')
+		const prevCurrent = sessionState.currentSessionId
+		const ids: string[] = []
+		try {
+			ids.push(homeStarterSession().id)
+			const reused = createSession()
+			expect(reused.id).toBe(ids[0])
+			setNewSessionWorkspace(reused.id, 'rootA')
+			ids.push(homeStarterSession().id)
+			expect(ids[1]).not.toBe(ids[0])
+			expect(reused.pending_workspace_id).toBe('rootA')
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter((s) => !ids.includes(s.id))
 			sessionState.currentSessionId = prevCurrent
 			restore()
 		}

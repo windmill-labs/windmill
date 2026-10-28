@@ -291,6 +291,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_base_url_applies_to: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub email_domain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hub_base_url: Option<String>,
@@ -1006,6 +1008,8 @@ pub struct WorkerGroupConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env_vars_allowlist: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub disable_job_proxy: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub min_alive_workers_alert_threshold: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub autoscaling: Option<AutoscalingConfig>,
@@ -1231,15 +1235,17 @@ fn mask_nested_sensitive(key: &str, value: &serde_json::Value) -> serde_json::Va
         }
     }
     // Settings that are maps-of-objects where each child has a sensitive sub-field.
-    const NESTED_MAP_SENSITIVE: &[(&str, &str)] = &[("oauths", "secret")];
-    for &(parent_key, child_field) in NESTED_MAP_SENSITIVE {
+    const NESTED_MAP_SENSITIVE: &[(&str, &[&str])] = &[("oauths", &["secret", "signing_secret"])];
+    for &(parent_key, child_fields) in NESTED_MAP_SENSITIVE {
         if key == parent_key {
             if let serde_json::Value::Object(entries) = value {
                 let mut masked = entries.clone();
                 for (_entry_key, entry_val) in masked.iter_mut() {
                     if let serde_json::Value::Object(ref mut obj) = entry_val {
-                        if let Some(v) = obj.get(child_field) {
-                            obj.insert(child_field.to_string(), redact_json_value(v));
+                        for &child_field in child_fields {
+                            if let Some(v) = obj.get(child_field) {
+                                obj.insert(child_field.to_string(), redact_json_value(v));
+                            }
                         }
                     }
                 }
@@ -1468,7 +1474,7 @@ pub fn diff_worker_configs(
 }
 
 /// Declaratively replace the global settings, rejecting a
-/// `github_app_webhook_base_url`, `api_base_url` or
+/// `github_app_webhook_base_url`, `api_base_url`, `api_base_url_applies_to` or
 /// `http_route_default_allowed_origins` the API would reject.
 ///
 /// Every declarative writer (the `sync-config` CLI, the Kubernetes operator's
@@ -1526,6 +1532,13 @@ pub async fn sync_global_settings_declarative(
                 ));
             }
         }
+    }
+
+    let applies_to_key = crate::global_settings::API_BASE_URL_APPLIES_TO_SETTING;
+    match desired.get(applies_to_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(v) => crate::global_settings::validate_api_base_url_applies_to(v)
+            .map_err(|e| anyhow::anyhow!("{applies_to_key}: {e}"))?,
     }
 
     let banner_key = crate::global_settings::INSTANCE_BANNER_SETTING;
@@ -2912,10 +2925,12 @@ mod tests {
     #[test]
     fn format_setting_value_redacts_oauth_secrets() {
         let val = serde_json::json!({
-            "google": {"id": "client-id", "secret": "my-super-secret-12345"}
+            "google": {"id": "client-id", "secret": "my-super-secret-12345"},
+            "slack": {"id": "s", "secret": "s", "signing_secret": "slack-signing-secret-678"}
         });
         let formatted = format_setting_value("oauths", &val);
         assert!(!formatted.contains("my-super-secret-12345"));
+        assert!(!formatted.contains("slack-signing-secret-678"));
         assert!(formatted.contains("client-id"));
         assert!(formatted.contains("****"));
     }

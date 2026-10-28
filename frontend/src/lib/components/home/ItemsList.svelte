@@ -17,7 +17,7 @@
 	import { resource } from 'runed'
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
 	import { disableHubStore, roleCapabilities, userStore, workspaceStore } from '$lib/stores'
-	import { useEditRights } from '$lib/operatorWriteRights'
+	import { shareEditRights, useEditRights } from '$lib/operatorWriteRights'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		Bot,
@@ -57,6 +57,8 @@
 	import HighlightCode from '../HighlightCode.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
+	import FolderEditorDrawer from '../FolderEditorDrawer.svelte'
+	import { isDemoWorkspaceRestricted } from '$lib/cloud'
 	import Item from './Item.svelte'
 	import PipelineRow from '../common/table/PipelineRow.svelte'
 	import { TreeOpenMemory } from './treeViewState.svelte'
@@ -64,10 +66,10 @@
 	import { tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import BulkActionsBar from './BulkActionsBar.svelte'
-	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
+	import { bulkKey, HomeSelection, setHomeSelection } from './homeSelection.svelte'
 	import HomeQuickAccess from './HomeQuickAccess.svelte'
 
-	const editRights = useEditRights()
+	const editRights = shareEditRights(useEditRights())
 
 	interface Props {
 		subtab?: 'flow' | 'script' | 'app' | 'agent'
@@ -236,7 +238,6 @@
 	})
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app' | 'agent'> = T & {
-		canWrite: boolean
 		marked?: string
 		type?: U
 		time?: number
@@ -357,22 +358,12 @@
 	let loadGen = 0
 
 	function mapRunnable(it: RunnableItem): TableScript | TableFlow | TableApp | TableAgent {
-		const base = {
-			...it,
-			canWrite:
-				editRights.canEditItem(
-					it.type === 'app' && it.raw_app ? 'raw_app' : it.type,
-					it.path,
-					(it.extra_perms ?? {}) as any
-				) &&
-				(it.type === 'script' || it.workspace_id == $workspaceStore)
-		}
 		// combinedItems reads a script's time from `created_at`; the endpoint's
 		// unified `edited_at` holds exactly that for scripts.
-		if (it.type === 'script') return { ...base, created_at: it.edited_at } as unknown as TableScript
+		if (it.type === 'script') return { ...it, created_at: it.edited_at } as unknown as TableScript
 		// An agent row reads its resource's description, which the endpoint reports as `summary`.
-		if (it.type === 'agent') return { ...base, description: it.summary } as unknown as TableAgent
-		return base as unknown as TableFlow | TableApp
+		if (it.type === 'agent') return { ...it, description: it.summary } as unknown as TableAgent
+		return it as unknown as TableFlow | TableApp
 	}
 
 	// The merged, server-ordered, keyset-paginated source. `reset` reloads from
@@ -381,7 +372,7 @@
 	// the existing per-kind arrays so the downstream pipeline is unchanged.
 	async function loadRunnables(reset: boolean): Promise<void> {
 		const ws = $workspaceStore
-		if (!ws || !$userStore) return
+		if (!ws) return
 		// Only the very first load shows the skeleton; filter reloads keep the toolbar
 		// and current items visible (they're replaced on arrival) so the filter control
 		// itself doesn't flicker out when you use it.
@@ -567,7 +558,7 @@
 		const force = opts?.force ?? false
 		const all = opts?.all ?? false
 		const ws = $workspaceStore
-		if (!ws || !$userStore) return
+		if (!ws) return
 		// Track the prefix as open first — even a no-op call (re-expanding a cached node)
 		// means it's on screen, so later reloads must refresh it.
 		openOwners.add(owner)
@@ -818,12 +809,56 @@
 		storeLocalSetting(FLAT_LIST_SETTING_NAME, v ? 'true' : undefined)
 	}
 
+	// Unfiltered, the tree lists every folder, empty ones too, so a workspace holding only
+	// folders is not empty: its first folder is created from here and managed from its row.
+	// A role without the Folders page gets no folder menu, so empty rows would be noise.
+	let keepEmptyFolders = $derived(itemKind === 'all' && $roleCapabilities.visibility.folders)
+	// Only drops rows inside the tree. Whether the tree shows at all, rather than the "no items"
+	// or empty-workspace state, must not depend on it: either state can take down the settings
+	// menu, or replace owners whose items sit past the loaded window.
+	const HIDE_EMPTY_FOLDERS_SETTING_NAME = 'homeHideEmptyFolders'
+	let hideEmptyFolders = $state(getLocalSetting(HIDE_EMPTY_FOLDERS_SETTING_NAME) == 'true')
+	function setHideEmptyFolders(v: boolean) {
+		hideEmptyFolders = v
+		storeLocalSetting(HIDE_EMPTY_FOLDERS_SETTING_NAME, v ? 'true' : undefined)
+	}
+	// A folder created here starts empty; hiding it would read as a failed create. It stays
+	// listed until the page reloads.
+	let createdFolders = $state<{ workspace: string; name: string }[]>([])
+	let keptFolders = $derived(
+		createdFolders.filter((f) => f.workspace === $workspaceStore).map((f) => f.name)
+	)
+
+	// Reload from the server whenever an input the endpoint resolves changes: order,
+	// archived/library scope, kind, the selected owner/folder, or entering/leaving
+	// search (see the reload effect below). Only the label filter and fuzzy ranking
+	// stay client-side over the loaded pages, so they don't reload here.
+	let searching = $derived(filter !== '')
+	// Lazy owner tree is active only in the tree when browsing all (no owner selected, no
+	// search, no label filter): every folder AND user shows as a top-level node and paginates
+	// on expand, its items coming from the separate `treeOwnerItems` store. In the flat list,
+	// or with a selected owner / active search / label filter, the lazy store is unused
+	// (reloadItems must not touch it), so this is false and the view reads the global loaded
+	// window instead.
+	let treeLazyMode = $derived(
+		!flatList && !searching && ownerFilter == undefined && labelFilter == undefined
+	)
+
 	let listSettingsItems: MenuItem[] = $derived([
 		{
 			displayName: 'Flat list',
 			description: 'List items without grouping them by folder',
 			toggle: flatList,
 			action: () => setFlatList(!flatList)
+		},
+		{
+			displayName: 'Hide empty folders',
+			description:
+				'Folders with no scripts, flows, apps, agents or data pipelines. They may still hold resources, variables or schedules.',
+			toggle: hideEmptyFolders,
+			// Only the unfiltered tree lists folders it holds no rows of.
+			hide: !treeLazyMode || archived || !keepEmptyFolders,
+			action: () => setHideEmptyFolders(!hideEmptyFolders)
 		},
 		{
 			displayName: 'Show library scripts',
@@ -933,6 +968,7 @@
 		)
 	})
 	let viewCodeDrawer: Drawer | undefined = $state()
+	let folderEditorDrawer: FolderEditorDrawer | undefined = $state()
 	let viewCodeTitle: string | undefined = $state()
 	let script: Script | undefined = $state()
 	async function showCode(path: string, summary: string) {
@@ -1034,19 +1070,8 @@
 				})
 		)
 	})
-	// Reload from the server whenever an input the endpoint resolves changes: order,
-	// archived/library scope, kind, the selected owner/folder, or entering/leaving
-	// search (see the reload effect below). Only the label filter and fuzzy ranking
-	// stay client-side over the loaded pages, so they don't reload here.
-	let searching = $derived(filter !== '')
-	// Lazy owner tree is active only in the tree when browsing all (no owner selected, no
-	// search, no label filter): every folder AND user shows as a top-level node and paginates
-	// on expand, its items coming from the separate `treeOwnerItems` store. In the flat list,
-	// or with a selected owner / active search / label filter, the lazy store is unused
-	// (reloadItems must not touch it), so this is false and the view reads the global loaded
-	// window instead.
-	let treeLazyMode = $derived(
-		!flatList && !searching && ownerFilter == undefined && labelFilter == undefined
+	let treeShowsFolders = $derived(
+		treeLazyMode && !archived && keepEmptyFolders && (folderNamesRes.current?.length ?? 0) > 0
 	)
 	// How many runnables each owner (`f/<folder>` / `u/<user>`) holds for this user,
 	// in one request. It labels every tree node up front — a lazy owner's own count is
@@ -1199,6 +1224,11 @@
 	let canCreateHere = $derived(
 		(editRights.roleCanAuthor('flow') || editRights.roleCanAuthor('raw_app')) && showEditButtons
 	)
+	// The Folders page's own rule for its "New folder" button.
+	let canCreateFolder = $derived(
+		$roleCapabilities.visibility.folders &&
+			!isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
+	)
 
 	// The workspace itself holds nothing — no filter is narrowing the list away. It stays
 	// false until the first load resolves: a skeleton already means "loading", and the
@@ -1212,6 +1242,7 @@
 			filteredItems != undefined &&
 			filteredItems.length === 0 &&
 			visiblePipelineFolders.size === 0 &&
+			!treeShowsFolders &&
 			!hasMoreServer
 	)
 	/**
@@ -1267,7 +1298,7 @@
 	// folder paginates within itself; users past the window are reached via their owner chip.
 	let treeGlobalHasMore = $derived(!treeLazyMode && !searching ? hasMoreServer : false)
 	$effect(() => {
-		if ($userStore && $workspaceStore) {
+		if ($workspaceStore) {
 			;[archived, includeWithoutMain, sortOrder, searching, ownerFilter, itemKind]
 			// reloadItems (not a bare loadRunnables) so an in-place change — sort, archive,
 			// library, kind — reloads the global stream AND re-fetches the currently-open owners
@@ -1298,7 +1329,7 @@
 		const kind = itemKind
 		// Any term/scope change restarts search paging.
 		searchCursor = undefined
-		if (term === '' || !ws || !$userStore) return
+		if (term === '' || !ws) return
 		const handle = setTimeout(async () => {
 			let res: { items: RunnableItem[]; next_cursor?: string }
 			try {
@@ -1808,10 +1839,7 @@
 				displayedItems[selectedIndex].type !== 'raw_app'
 			) {
 				e.preventDefault()
-				homeSelection.toggle(
-					toBulkItem(displayedItems[selectedIndex], $userStore, $workspaceStore),
-					e.shiftKey
-				)
+				homeSelection.toggle(bulkKey(displayedItems[selectedIndex]), e.shiftKey)
 			} else if (selectedIndex === loadMoreIndex && hasMore) {
 				e.preventDefault()
 				loadMoreAndPreselectFirstNew()
@@ -1868,6 +1896,22 @@
 		return x.summary ? x.summary + ' (' + p + ')' : p
 	}}
 	{opts}
+/>
+
+<!-- Permission changes can hide or reveal rows for this user, so a save reloads them. -->
+<FolderEditorDrawer
+	bind:this={folderEditorDrawer}
+	onSaved={async (name, created) => {
+		if (created) {
+			// Folder pickers and the tree's folder menu derive write access from these, which
+			// the server only resends on the next whoami. The creator is the folder's owner.
+			$userStore?.folders.push(name)
+			$userStore?.folders_owners.push(name)
+			if ($workspaceStore) createdFolders.push({ workspace: $workspaceStore, name })
+			await folderNamesRes.refetch()
+		}
+		await reloadItemsAndCounts()
+	}}
 />
 
 <Drawer
@@ -1990,6 +2034,7 @@
 						onImportHubProject={$disableHubStore || !editRights.roleCanAuthor('script')
 							? undefined
 							: () => (hubPickerOpen = true)}
+						onCreateFolder={canCreateFolder ? () => folderEditorDrawer?.initNew() : undefined}
 					/>
 				{/if}
 			</div>
@@ -2033,7 +2078,7 @@
 			     have scrolled away. -->
 			<div class="sticky z-10 border-b mx-5" style:top="{toolbarHeight}px"></div>
 		{/if}
-		{#if filteredItems?.length == 0 && !workspaceEmpty}
+		{#if filteredItems?.length == 0 && !workspaceEmpty && !treeShowsFolders}
 			<div class="mt-10"></div>
 		{/if}
 		<!-- Inset so a row's hover fill clears the card's border; the controls above take the same
@@ -2060,7 +2105,7 @@
 						<Skeleton layout={[[4], 0.5]} />
 					{/each}
 				</div>
-			{:else if filteredItems.length === 0 && (filter !== '' || visiblePipelineFolders.size === 0)}
+			{:else if filteredItems.length === 0 && (filter !== '' || visiblePipelineFolders.size === 0) && !treeShowsFolders}
 				<div class="px-4 pb-3">
 					<!-- Pipelines aren't part of the text filter, so only fall through to show
 			     them (list rows / injected tree folders) when not actively searching;
@@ -2077,6 +2122,7 @@
 								<WorkspaceEmptyState
 									archivedOnly={archivedProbe?.hasArchived === true}
 									canCreate={canCreateHere}
+									onCreateFolder={canCreateFolder ? () => folderEditorDrawer?.initNew() : undefined}
 									onPick={(project) => (hubPick = project)}
 									onShowArchived={() =>
 										(filterValues.val = { ...filterValues.val, archived: true })}
@@ -2173,6 +2219,11 @@
 						{showCode}
 						showEditButton={showEditButtons}
 						framed={false}
+						onManageFolder={$roleCapabilities.visibility.folders
+							? (name) => folderEditorDrawer?.initEdit(name)
+							: undefined}
+						keepEmptyFolders={keepEmptyFolders && !hideEmptyFolders}
+						{keptFolders}
 					/>
 				{/key}
 			{/if}

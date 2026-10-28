@@ -263,10 +263,9 @@ vi.mock('$lib/gen', async () => {
 			createVariable: vi.fn(async () => 'created'),
 			updateVariable: vi.fn(async () => 'updated')
 		}),
-		// Guests off by default, as a fresh workspace has them.
+		// Guests unavailable by default, as on the shared cloud.
 		WorkspaceService: wrapService(actual.WorkspaceService, {
-			getGuestUsage: vi.fn(async () => ({ available: false, instance_enabled: false })),
-			getPublicSettings: vi.fn(async () => ({ guest_access_enabled: false }))
+			getGuestUsage: vi.fn(async () => ({ available: false }))
 		}),
 		UserService: wrapService(actual.UserService, {
 			whoami: vi.fn(async ({ workspace }: any) => {
@@ -548,6 +547,21 @@ describe('global AI tools', () => {
 		expect(result).not.toContain('Python Datatable API')
 	})
 
+	it('gives agent guidance only to a session that may also draft flows', async () => {
+		const resourcesOnly = await callGlobalTool(
+			'get_instructions',
+			{ subject: 'agent' },
+			toolCallbacks,
+			{ access: new Set(['write_resource_draft']) }
+		)
+		expect(resourcesOnly).not.toContain('Windmill agent authoring reference')
+		const builder = await callGlobalTool('get_instructions', { subject: 'agent' }, toolCallbacks, {
+			access: new Set(['write_resource_draft', 'write_flow_draft'])
+		})
+		expect(builder).toContain('Windmill agent authoring reference')
+		expect(builder).toContain('This user cannot write inline code')
+	})
+
 	it('returns only the requested language SDK for the datatable subject', async () => {
 		const ts = await callGlobalTool('get_instructions', { subject: 'datatable', language: 'bun' })
 		expect(ts).toContain('TypeScript Datatable API')
@@ -742,6 +756,24 @@ describe('global AI tools', () => {
 		const requestBody = vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody
 		expect(requestBody).not.toHaveProperty('value')
 		expect(requestBody).toMatchObject({ description: 'github oauth for the sync job' })
+	})
+
+	// The draft has no null, so a cleared expiry must deploy as an explicit one.
+	it('clears a variable value expiry through to the deploy body', async () => {
+		seedBackendDraft('variable', 'f/secrets/api_key', {
+			path: 'f/secrets/api_key',
+			variable: { path: 'f/secrets/api_key', value: 'tok', is_secret: false, description: 'd' },
+			wsSpecific: false
+		})
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true)
+
+		await callGlobalTool('deploy_workspace_item', { type: 'variable', path: 'f/secrets/api_key' })
+
+		expect(VariableService.updateVariable).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestBody: expect.objectContaining({ value_valid_until: null })
+			})
+		)
 	})
 
 	it('deploys every field of a script draft (not just content/summary)', async () => {
@@ -1561,36 +1593,19 @@ describe('global AI tools', () => {
 		// anyone outside the deployers group — so the note must not name an identity.
 		expect(open.message).not.toContain('u/alice')
 
-		// Guest is a real widening only where the deployment, the instance and the
-		// workspace all admit guests; stored below that, it is inert.
+		// Guest is a real widening only where the deployment admits guests; stored on one
+		// that does not, it is inert and the note would announce an exposure that does not
+		// exist.
 		vi.mocked(WorkspaceService.getGuestUsage).mockResolvedValueOnce({
-			available: true,
-			instance_enabled: true
-		} as any)
-		vi.mocked(WorkspaceService.getPublicSettings).mockResolvedValueOnce({
-			guest_access_enabled: true
+			available: true
 		} as any)
 		const guestOn = await deployApp('f/apps/guest', { execution_mode: 'guest' })
 		expect(guestOn.success).toBe(true)
 		expect(guestOn.message).toContain('identity provider authenticates')
 
-		// Each switch crossed in turn, because either one alone admits nobody and the note
-		// would then announce an exposure that does not exist. Both off needs no case of its
-		// own: whichever half of the check were dropped, one of these two still catches it.
-		vi.mocked(WorkspaceService.getPublicSettings).mockResolvedValueOnce({
-			guest_access_enabled: true
-		} as any)
-		const instanceOff = await deployApp('f/apps/guest_inst_off', { execution_mode: 'guest' })
-		expect(instanceOff.success).toBe(true)
-		expect(instanceOff.message).not.toContain('identity provider')
-
-		vi.mocked(WorkspaceService.getGuestUsage).mockResolvedValueOnce({
-			available: true,
-			instance_enabled: true
-		} as any)
-		const workspaceOff = await deployApp('f/apps/guest_ws_off', { execution_mode: 'guest' })
-		expect(workspaceOff.success).toBe(true)
-		expect(workspaceOff.message).not.toContain('identity provider')
+		const unavailable = await deployApp('f/apps/guest_unavailable', { execution_mode: 'guest' })
+		expect(unavailable.success).toBe(true)
+		expect(unavailable.message).not.toContain('identity provider')
 	})
 
 	it('forwards preserve_on_behalf_of when the deployed policy carries an on_behalf_of', async () => {

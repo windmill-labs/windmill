@@ -6,7 +6,7 @@ vi.mock('$lib/gen', () => ({
 	FlowService: { getFlowByPath: vi.fn(), createFlow: vi.fn(), updateFlow: vi.fn() },
 	DraftService: { deleteDraft: vi.fn() },
 	AppService: {},
-	VariableService: {},
+	VariableService: { getVariable: vi.fn(), createVariable: vi.fn(), updateVariable: vi.fn() },
 	ResourceService: { getResource: vi.fn(), updateResource: vi.fn(), createResource: vi.fn() },
 	ScheduleService: {},
 	HttpTriggerService: {},
@@ -32,7 +32,7 @@ vi.mock('$lib/components/raw_apps/utils', () => ({ canonicalRawAppDiffValue: vi.
 vi.mock('$lib/appDiffSides', () => ({ classicAppDraftParts: vi.fn() }))
 vi.mock('$lib/utils_deployable', () => ({ TRIGGER_RUNTIME_IGNORE: [] }))
 
-import { ScriptService, FlowService, ResourceService } from '$lib/gen'
+import { ScriptService, FlowService, VariableService, ResourceService } from '$lib/gen'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 
 // draftBaseIsStale compares a draft's base pointer against the deployed head
@@ -140,6 +140,96 @@ describe('deployDraft preserves on_behalf_of', () => {
 				})
 			})
 		)
+	})
+})
+
+// Muting writes to the deployed row at once, so a draft saved before it holds a stale copy, and
+// the backend unmutes on a deploy that sends `false`.
+describe('deployDraft keeps the deployed mute flag', () => {
+	beforeEach(() => vi.clearAllMocks())
+
+	const muted = (call: any) => call[0].requestBody.ws_error_handler_muted
+
+	it('flow and script: sends the deployed flag over a stale draft', async () => {
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			ws_error_handler_muted: true,
+			draft: { path: 'f/ops/sync', value: {}, ws_error_handler_muted: false }
+		} as any)
+		await deployDraft('flow', 'f/ops/sync', 'ws')
+		expect(muted(vi.mocked(FlowService.updateFlow).mock.calls[0])).toBe(true)
+
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			hash: 'v1',
+			ws_error_handler_muted: true,
+			draft: { path: 'f/ops/job', ws_error_handler_muted: false }
+		} as any)
+		await deployDraft('script', 'f/ops/job', 'ws')
+		expect(muted(vi.mocked(ScriptService.createScript).mock.calls[0])).toBe(true)
+	})
+
+	it('draft-only flow: sends the flag the draft was muted with', async () => {
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			no_deployed: true,
+			draft: { path: 'f/ops/new', value: {}, ws_error_handler_muted: true }
+		} as any)
+		await deployDraft('flow', 'f/ops/new', 'ws', { draftOnly: true })
+		expect(muted(vi.mocked(FlowService.createFlow).mock.calls[0])).toBe(true)
+	})
+})
+
+// The deploy bodies are built field by field, so a forgotten field is dropped silently.
+describe('deployDraft variable value_valid_until', () => {
+	beforeEach(() => vi.clearAllMocks())
+
+	const DATE = '2027-03-15T08:30:00.000Z'
+
+	function mockVariable(deployedExpiry: string | undefined, draftExpiry: string | undefined) {
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'u/admin/key',
+			value: 'v',
+			is_secret: false,
+			description: '',
+			value_valid_until: deployedExpiry,
+			draft: {
+				path: 'u/admin/key',
+				variable: { value: 'v', is_secret: false, description: '' },
+				value_valid_until: draftExpiry
+			}
+		} as any)
+	}
+
+	const updateBody = () =>
+		vi.mocked(VariableService.updateVariable).mock.calls[0][0].requestBody as any
+
+	it('sends a date the draft set on a variable that had none', async () => {
+		mockVariable(undefined, DATE)
+		await deployDraft('variable', 'u/admin/key', 'ws')
+		expect(updateBody().value_valid_until).toBe(DATE)
+	})
+
+	it('sends null when the draft cleared the deployed date', async () => {
+		mockVariable(DATE, undefined)
+		await deployDraft('variable', 'u/admin/key', 'ws')
+		expect(updateBody().value_valid_until).toBeNull()
+	})
+
+	it('omits it when the draft leaves the deployed date alone', async () => {
+		mockVariable(DATE, DATE)
+		await deployDraft('variable', 'u/admin/key', 'ws')
+		expect(updateBody().value_valid_until).toBeUndefined()
+	})
+
+	it('omits it when the draft spells the deployed moment differently', async () => {
+		mockVariable('2027-03-15T08:30:00Z', DATE)
+		await deployDraft('variable', 'u/admin/key', 'ws')
+		expect(updateBody().value_valid_until).toBeUndefined()
+	})
+
+	it('carries the date onto a draft-only variable', async () => {
+		mockVariable(undefined, DATE)
+		await deployDraft('variable', 'u/admin/key', 'ws', { draftOnly: true })
+		const body = vi.mocked(VariableService.createVariable).mock.calls[0][0].requestBody as any
+		expect(body.value_valid_until).toBe(DATE)
 	})
 })
 

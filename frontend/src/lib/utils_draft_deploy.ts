@@ -12,7 +12,7 @@
  * draft, so discarding deletes the whole item (mirrors `common/table/*Row.svelte`);
  * a draft on an already-deployed item just deletes the draft row.
  */
-import { get, writable } from 'svelte/store'
+import { writable } from 'svelte/store'
 import {
 	DraftService,
 	ScriptService,
@@ -43,7 +43,7 @@ import { classicAppDraftParts } from '$lib/appDiffSides'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
-import { userStore } from '$lib/stores'
+import { isAdminIn } from '$lib/user'
 import { deployTriggers, type Trigger } from '$lib/components/triggers/utils'
 import { saveScheduleFromCfg } from '$lib/components/flows/scheduleUtils'
 import { dropStaleStepLocks } from '$lib/components/flows/staleStepLocks'
@@ -58,6 +58,7 @@ import { saveSqsTriggerFromCfg } from '$lib/components/triggers/sqs/utils'
 import { saveGcpTriggerFromCfg } from '$lib/components/triggers/gcp/utils'
 import { saveAzureTriggerFromCfg } from '$lib/components/triggers/azure/utils'
 import { saveEmailTriggerFromCfg } from '$lib/components/triggers/email/utils'
+import { markAgentWritten } from '$lib/components/flows/agentEditorStore.svelte'
 
 export type DraftKind = UserDraftItemKind
 
@@ -219,14 +220,15 @@ function stripScheduleTriggerRuntime(row: any): Record<string, unknown> {
 function canonicalizeDraftDiffValue(kind: DraftKind, raw: any, isDraft: boolean): unknown {
 	if (!raw || typeof raw !== 'object') return raw ?? {}
 	if (kind === 'variable') {
-		// draft: { variable: { value, is_secret, description }, labels, wsSpecific }
-		// deployed row: { value, is_secret, description, labels, ws_specific }
+		// draft: { variable: { value, is_secret, description }, value_valid_until, labels, wsSpecific }
+		// deployed row: { value, is_secret, description, value_valid_until, labels, ws_specific }
 		const v = isDraft ? (raw.variable ?? {}) : raw
 		const is_secret = !!v.is_secret
 		return {
 			value: is_secret ? '<secret>' : (v.value ?? ''),
 			is_secret,
 			description: v.description ?? '',
+			value_valid_until: raw.value_valid_until ?? undefined,
 			labels: raw.labels ?? undefined,
 			ws_specific: (isDraft ? raw.wsSpecific : raw.ws_specific) ?? undefined
 		}
@@ -367,9 +369,14 @@ export async function getDraftDiffValues(
 			throw new Error(`Draft diff not supported for kind ${kind}`)
 		}
 		const { deployed, draft, hasDraft, noDeployed } = splitOverlay(await getter(workspace, path))
+		// The agent editor's draft of a deployed agent omits its type, which deploying keeps.
+		const draftWithType =
+			kind === 'resource' && draft && !draft.resource_type && deployed?.resource_type
+				? { ...draft, resource_type: deployed.resource_type }
+				: draft
 		return {
 			deployed: draftOnly ? {} : canonicalizeDraftDiffValue(kind, deployed, false),
-			draft: canonicalizeDraftDiffValue(kind, draft, true),
+			draft: canonicalizeDraftDiffValue(kind, draftWithType, true),
 			hasDraft,
 			noDeployed
 		}
@@ -442,8 +449,12 @@ async function deployDraftTriggers(
 ): Promise<void> {
 	const triggers = (draftTriggers ?? []).filter((t) => t?.draftConfig)
 	if (triggers.length === 0) return
-	const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
+	const isAdmin = await isAdminIn(workspace)
 	await deployTriggers(triggers, workspace, isAdmin, writable<string[]>([]), path, isNew)
+}
+
+function timeOf(date: string | null | undefined): number | undefined {
+	return date ? new Date(date).getTime() : undefined
 }
 
 /**
@@ -494,6 +505,10 @@ export async function deployDraft(
 					...rest,
 					path: scriptPath,
 					parent_hash: r.hash,
+					// The deployed script's: muting applies to it at once, so a draft's copy is stale.
+					// Before the first deploy the draft's is the only one.
+					ws_error_handler_muted:
+						draftOnly || r.no_deployed ? rest.ws_error_handler_muted : r.ws_error_handler_muted,
 					deployment_message: deploymentMessage,
 					// Deploy the draft's on-behalf-of as-is; the backend resets it to the
 					// deploying user without this flag, gated by can_preserve_on_behalf_of.
@@ -520,7 +535,10 @@ export async function deployDraft(
 				schema: d.schema,
 				tag: d.tag,
 				dedicated_worker: d.dedicated_worker,
-				ws_error_handler_muted: d.ws_error_handler_muted,
+				// The deployed flow's: muting applies to it at once, so a draft's copy is stale.
+				// Before the first deploy the draft's is the only one.
+				ws_error_handler_muted:
+					draftOnly || r.no_deployed ? d.ws_error_handler_muted : r.ws_error_handler_muted,
 				visible_to_runner_only: d.visible_to_runner_only,
 				on_behalf_of_email: d.on_behalf_of_email,
 				on_behalf_of: d.on_behalf_of,
@@ -568,7 +586,7 @@ export async function deployDraft(
 			// (or a default). custom_path requires admin on update; non-admins send
 			// undefined so the backend preserves the existing route. The draft has no
 			// custom_path, so admins fall back to the deployed route (`''` when none).
-			const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
+			const isAdmin = await isAdminIn(workspace)
 			const policy = r.policy ?? { execution_mode: 'publisher', sandbox: true }
 			const requestBody = {
 				value: appValue,
@@ -594,7 +612,7 @@ export async function deployDraft(
 		} else if (kind === 'variable') {
 			const { deployed, draft: d } = splitOverlay(await OVERLAY_GETTERS.variable!(workspace, path))
 			// VariableEditor's `VariableState` draft shape:
-			// { path, variable: { value, is_secret, description }, labels?, wsSpecific }
+			// { path, variable: { value, is_secret, description }, value_valid_until?, labels?, wsSpecific }
 			if (draftOnly) {
 				await VariableService.createVariable({
 					workspace,
@@ -603,6 +621,7 @@ export async function deployDraft(
 						value: d.variable?.value ?? '',
 						is_secret: !!d.variable?.is_secret,
 						description: d.variable?.description ?? '',
+						value_valid_until: d.value_valid_until,
 						labels: d.labels,
 						ws_specific: d.wsSpecific
 					}
@@ -617,12 +636,17 @@ export async function deployDraft(
 						value: d.variable?.value === '' ? undefined : d.variable?.value,
 						is_secret: d.variable?.is_secret,
 						description: d.variable?.description,
+						// `null` clears, absent keeps. Diffed against the deployed row by moment, since
+						// an absent date in the draft means "no expiry", not "unchanged".
+						value_valid_until:
+							timeOf(deployed.value_valid_until) !== timeOf(d.value_valid_until)
+								? (d.value_valid_until ?? null)
+								: undefined,
 						labels: d.labels,
 						ws_specific: d.wsSpecific
 					}
 				})
 			}
-			void deployed
 		} else if (kind === 'resource') {
 			const overlay = await OVERLAY_GETTERS.resource!(workspace, path)
 			// Adopt the row this promote is based on as the baseline for the delete below. Without one
@@ -682,6 +706,9 @@ export async function deployDraft(
 					}
 				})
 			}
+			// What shows a deployed agent reads it again on this, wherever the deploy came from.
+			if (!noop && (d.resource_type ?? deployed?.resource_type) === 'ai_agent')
+				markAgentWritten(workspace, d.path ?? path)
 		} else if (kind === 'trigger_schedule') {
 			const { draft: d } = splitOverlay(await OVERLAY_GETTERS.trigger_schedule!(workspace, path))
 			// The schedule editor's draft IS the cfg shape `saveScheduleFromCfg`
@@ -693,7 +720,7 @@ export async function deployDraft(
 		} else if (kind in TRIGGER_SAVERS) {
 			const getter = OVERLAY_GETTERS[kind]!
 			const { draft: d } = splitOverlay(await getter(workspace, path))
-			const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
+			const isAdmin = await isAdminIn(workspace)
 			const ok = await TRIGGER_SAVERS[kind]!(
 				path,
 				{ ...d, path: d.path ?? path },

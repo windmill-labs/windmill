@@ -32,7 +32,11 @@ import type {
 } from '$lib/gen/types.gen'
 import { loadSchemaFromModule, memoryPropertyFor } from '$lib/components/flows/flowInfers'
 import { linkedAgentStepSchema } from '$lib/components/flows/agentResourceUtils'
-import { linkedAgentPaths, loadLinkedAgentDrafts } from '$lib/components/flows/linkedAgentDrafts'
+import {
+	linkedAgentPaths,
+	loadLinkedAgentDrafts,
+	settleAgentDraft
+} from '$lib/components/flows/linkedAgentDrafts'
 import { AGENT_FIELDS, initialVisibleAgentFields } from '$lib/components/flows/agentFormFields'
 import { resolveLinkedAgentTools } from '$lib/components/flows/flowState'
 import { enabledToolNames, type AgentTool } from '$lib/components/flows/agentToolUtils'
@@ -51,7 +55,8 @@ import {
 import { processSecretArgs } from '$lib/components/secretArgUtils'
 import { PLAN_MODE_MESSAGES } from '../planModeMessages'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-import { capabilitiesIn } from '$lib/roleCapabilities'
+import { USE_MODE_WITHDRAWN } from '../workMode'
+import { capabilitiesIn, withoutBuilding } from '$lib/roleCapabilities'
 import type { RoleCapabilities } from '$lib/gen'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
@@ -86,6 +91,7 @@ import {
 	getPipelinePrompt,
 	getRawAppPrompt,
 	getResourcePrompt,
+	getAgentPrompt,
 	getScriptPrompt
 } from '$system_prompts'
 import type {
@@ -124,6 +130,8 @@ import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { artifactTools } from '../artifacts/artifactTools'
 import type { SessionArtifactsStore } from '../artifacts/artifactsState.svelte'
 import { UserDraft } from '$lib/userDraft.svelte'
+import { agentEditHref } from '../workspaceItems.svelte'
+import { markAgentWritten } from '$lib/components/flows/agentEditorStore.svelte'
 import { emptySchema } from '$lib/utils'
 import type { Schema } from '$lib/common'
 import { inferArgs } from '$lib/infer'
@@ -161,10 +169,11 @@ import { changedLineIndices, draftDeployedPatch, windowPatch } from './draftDiff
 import { workspaceSettingsTools } from './workspaceSettingsTools'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
-import type { UserDraftItemKind } from '$lib/gen'
+import type { CreateResource, UserDraftItemKind } from '$lib/gen'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	canOpenEditor,
+	isReadOnlyAccess,
 	DEPLOY,
 	NONE,
 	RUN_FLOW_PREVIEW,
@@ -272,7 +281,8 @@ const INSTRUCTION_SUBJECTS = [
 // `pipeline` likewise isn't an item type — a data pipeline is a set of
 // annotated scripts in a folder, so it gets authoring guidance, not a CRUD type.
 // `workspace_settings` is the settings document an admin reads and changes.
-const INSTRUCTION_SUBJECTS_EXTRA = ['datatable', 'pipeline', 'workspace_settings'] as const
+// `agent` is a resource of type `ai_agent`, with authoring guidance of its own.
+const INSTRUCTION_SUBJECTS_EXTRA = ['agent', 'datatable', 'pipeline', 'workspace_settings'] as const
 export const ALL_INSTRUCTION_SUBJECTS = [
 	...INSTRUCTION_SUBJECTS,
 	...INSTRUCTION_SUBJECTS_EXTRA
@@ -291,7 +301,7 @@ const ACTIVE_GLOBAL_EDITOR_DRAFTS: readonly {
 ]
 
 export type GlobalActiveEditorContext = {
-	type: ActiveGlobalEditorType
+	type: ActiveGlobalEditorType | 'agent'
 	path: string
 	/** The key the draft is stored under, which `path` leaves behind on a rename. */
 	storagePath: string
@@ -343,7 +353,7 @@ const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
 	subject: instructionSubjectSchema.describe(
-		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or "workspace_settings" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
+		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "agent" for a saved AI agent (an `ai_agent` resource, as the Agents page lists it), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or "workspace_settings" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
 	),
 	language: scriptLangSchema
 		.optional()
@@ -593,6 +603,15 @@ const writeVariableSchema = variableRequestSchema.extend({
 		.string()
 		.optional()
 		.describe('The description of the variable. Omit it to keep the current description.'),
+	// Nullable, unlike the generated schema, so a cleared expiry differs from an omitted one.
+	value_valid_until: z
+		.string()
+		.datetime({ offset: true })
+		.nullable()
+		.optional()
+		.describe(
+			"When the value stored in this variable stops working. Triggers the workspace's variable expiration handler ahead of it (1 day by default, set on the handler); never causes the variable to be deleted. Omit it to keep the current expiry, or pass null to clear one — for instance once the value has been rotated."
+		),
 	override: draftOverrideField
 })
 
@@ -900,6 +919,45 @@ const runFlowToolDef = createToolDef(
 	{ strict: false }
 )
 
+const agentRunArgsSchema = z
+	.object({
+		user_message: z.string().describe('The message the agent answers.')
+	})
+	.passthrough()
+	.describe("The run's inputs: `user_message`, and `user_attachments` for files the user attaches.")
+
+const testRunAgentSchema = z.object({
+	path: z.string().describe('Workspace path of the agent (`ai_agent` resource) to test.'),
+	args: agentRunArgsSchema,
+	memory_id: testRunFlowSchema.shape.memory_id.describe(
+		'A UUID naming the conversation this turn belongs to: reuse the same one across calls to test memory and follow-ups, and omit it for a one-off turn in a conversation of its own. Generate the UUID yourself so you can pass it again.'
+	),
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
+})
+
+const testRunAgentToolDef = createToolDef(
+	testRunAgentSchema,
+	'test_run_agent',
+	'Execute a test run of an AI agent by path, preferring its draft when one exists, so an agent you drafted can be tried before the user deploys it. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer.',
+	{ strict: false }
+)
+
+const runAgentSchema = z.object({
+	path: z.string().describe('Workspace path of the deployed agent (`ai_agent` resource) to run.'),
+	args: agentRunArgsSchema,
+	memory_id: testRunAgentSchema.shape.memory_id,
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
+})
+
+const runAgentToolDef = createToolDef(
+	runAgentSchema,
+	'run_agent',
+	'Run a DEPLOYED AI agent for real, as its own page runs it. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. Use only when the user names the deployed version ("the deployed X", "in production", "for real").',
+	{ strict: false }
+)
+
 const testRunStepSchema = z.object({
 	path: z.string().describe('Workspace path of the flow containing the step to test.'),
 	stepId: z.string().describe('The id of the step/module to test.'),
@@ -921,9 +979,9 @@ const backendRunnableSchema = z
 	.object({
 		name: z.string().describe('Short summary/description of what the runnable does.'),
 		type: z
-			.enum(['inline', 'script', 'flow', 'hubscript'])
+			.enum(['inline', 'script', 'flow', 'hubscript', 'agent'])
 			.describe(
-				'Runnable kind: "inline" for custom code stored on the app; "script"/"flow" for a workspace runnable; "hubscript" for a hub script.'
+				'Runnable kind: "inline" for custom code stored on the app; "script"/"flow" for a workspace runnable; "hubscript" for a hub script; "agent" for a saved AI agent, run as one chat turn.'
 			),
 		staticInputs: z
 			.record(z.string(), z.any())
@@ -942,7 +1000,7 @@ const backendRunnableSchema = z
 			.string()
 			.optional()
 			.describe(
-				'Required when type is "script", "flow", or "hubscript". Workspace path of the runnable.'
+				'Required when type is "script", "flow", "hubscript" or "agent". Workspace path of the runnable.'
 			),
 		viewerDataAccess: z
 			.boolean()
@@ -1070,9 +1128,9 @@ const testRunAppRunnableToolDef = createToolDef(
 
 const openPreviewSchema = z.object({
 	kind: z
-		.enum(['script', 'flow', 'raw_app', 'pipeline'])
+		.enum(['script', 'flow', 'raw_app', 'agent', 'pipeline'])
 		.describe(
-			'Item kind to preview. Use "raw_app" for code-based apps. Use "pipeline" to show the data-pipeline graph for a folder — here `path` is the folder name, not an item path. The legacy drag-and-drop app builder ("app") is not previewable in the session panel — don\'t pass it.'
+			'Item kind to preview. Use "raw_app" for code-based apps and "agent" for a standalone AI agent (an `ai_agent` resource). Use "pipeline" to show the data-pipeline graph for a folder — here `path` is the folder name, not an item path. The legacy drag-and-drop app builder ("app") is not previewable in the session panel — don\'t pass it.'
 		),
 	path: z
 		.string()
@@ -1090,9 +1148,9 @@ const openPreviewSchema = z.object({
  * a workspace capability says nothing about `f/finance/*` — and is resolved in the
  * handler instead. Mirrors `open_page` re-narrowing its page enum per user. */
 const openPreviewNoPipelineKind = z
-	.enum(['script', 'flow', 'raw_app'])
+	.enum(['script', 'flow', 'raw_app', 'agent'])
 	.describe(
-		'Item kind to preview. Use "raw_app" for code-based apps. The legacy drag-and-drop app builder ("app") is not previewable in the session panel — don\'t pass it.'
+		'Item kind to preview. Use "raw_app" for code-based apps and "agent" for a standalone AI agent (an `ai_agent` resource). The legacy drag-and-drop app builder ("app") is not previewable in the session panel — don\'t pass it.'
 	)
 
 const openPreviewViewOnlySchema = openPreviewSchema.extend({
@@ -1121,7 +1179,7 @@ const openPreviewBuilderEditorSchema = (flows: boolean, apps: boolean) =>
 	})
 
 const OPEN_PREVIEW_DESCRIPTION =
-	'Open the live preview / editor for a workspace item in the side panel next to the chat. ONLY works inside an AI session — call this after writing or editing a script, flow, or raw app to let the user see and interact with it. The path you pass is the path of the item; for code-based apps use kind="raw_app" (legacy drag-and-drop apps are not previewable). Returns an error if there is no active session.'
+	'Open the live preview / editor for a workspace item in the side panel next to the chat. ONLY works inside an AI session — call this after writing or editing a script, flow, raw app or AI agent to let the user see and interact with it. The path you pass is the path of the item; for code-based apps use kind="raw_app" (legacy drag-and-drop apps are not previewable). Returns an error if there is no active session.'
 
 const OPEN_PREVIEW_VIEW_ONLY_DESCRIPTION =
 	'Show a workspace item in the side panel next to the chat, as its deployed page — the run form, triggers and past runs the user can act on. ONLY works inside an AI session. The path you pass is the path of the item; for code-based apps use kind="raw_app" (legacy drag-and-drop apps are not previewable). You cannot open item editors in this workspace, so use this to show the user something that is already deployed. Returns an error if there is no active session.'
@@ -1363,6 +1421,9 @@ const buildGlobalSystemPrompt = (
 		canDraftResources ||
 		canDraftVariables
 	const canDeploy = !access || access.has('deploy')
+	// Holds none of the capabilities below, so every `can*` reads false; the blocks that blame
+	// the user's role for that check this first.
+	const readOnly = isReadOnlyAccess(access)
 	// Whether deploy_workspace_item and delete_workspace_item keep any kind: only schedules and
 	// triggers skip the deploy rules, and an admin passes them.
 	const canDeployAnyKind =
@@ -1496,31 +1557,33 @@ The current user's workspace username is "${username}".${instanceLine}
 ${
 	canWriteDraft
 		? 'Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.'
-		: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${listJoin(refusedKinds, 'disjunction')} here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${listJoin(refusedCode)} outside this chat too, so for those suggest asking a workspace admin, who can grant their role more in ${OPERATOR_SETTINGS_LOCATION}, rather than creating them in the editor.${when(
-				canManageSchedules,
-				' To make something recur, they can schedule a deployed script or flow themselves; only when none does the job is there something to ask an admin for, and it is that script.'
-			)} When you decline something, give the reason stated here and keep to it.${when(
-				buildsFlows,
-				'\n\nFlows are the exception: this workspace lets them compose flows out of scripts and flows that are already deployed. Write flow drafts with write_flow and patch_flow_json, using only steps that call a deployed script or flow by path. The server refuses inline code anywhere in the flow, so never add a rawscript step or inline code; when the flow needs logic no deployed script provides, say so and suggest asking a workspace admin for that script.'
-			)}${when(
-				buildsApps,
-				`\n\nRaw apps are ${buildsFlows ? 'an exception too' : 'the exception'}: this workspace lets them build raw apps whose backend calls scripts and flows that are already deployed. Call get_instructions with subject "app" first, then write app drafts with init_app and the app file and runnable tools, making every backend runnable a path runnable to a deployed script or flow. The server refuses inline and hub runnables, so never write one; when the app needs logic no deployed script provides, say so and suggest asking a workspace admin for that script. An app this user deploys always runs sandboxed, and runs its runnables as the user who deployed it: turning the sandbox off or running them as the viewer is refused. If asked, say operators cannot, because the app's code would then run with the permissions of whoever opens it.`
-			)}${when(
-				!!draftedOperatorKinds,
-				`\n\nThis workspace lets them create and edit ${draftedOperatorKinds}: write them as drafts with ${listJoin(
-					[
-						canDraftResources && 'write_resource (call search_resource_types first)',
-						canDraftVariables && 'write_variable',
-						canDraftSchedules && 'write_schedule',
-						canDraftTriggers &&
-							'write_trigger (call get_trigger_schema first: the config fields differ per kind)'
-					]
-				)}${
-					deployableKinds.length
-						? `, then deploy ${deployableKinds.length === draftedKinds.length ? 'them' : listJoin(deployableKinds)} with deploy_workspace_item once the user asks`
-						: ''
-				}.`
-			)}`
+		: readOnly
+			? "Use tools to inspect workspace items, the workspace's run history and its data, and to run items that are already deployed. This session is read-only: you cannot create, edit, deploy or delete anything here, nor test-run code that is not deployed. When the user asks for such a change, say plainly that it cannot be made in this session, and tell them how to make it as the session context below says, rather than describing steps as if you had made it."
+			: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${listJoin(refusedKinds, 'disjunction')} here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${listJoin(refusedCode)} outside this chat too, so for those suggest asking a workspace admin, who can grant their role more in ${OPERATOR_SETTINGS_LOCATION}, rather than creating them in the editor.${when(
+					canManageSchedules,
+					' To make something recur, they can schedule a deployed script or flow themselves; only when none does the job is there something to ask an admin for, and it is that script.'
+				)} When you decline something, give the reason stated here and keep to it.${when(
+					buildsFlows,
+					'\n\nFlows are the exception: this workspace lets them compose flows out of scripts and flows that are already deployed. Write flow drafts with write_flow and patch_flow_json, using only steps that call a deployed script or flow by path. The server refuses inline code anywhere in the flow, so never add a rawscript step or inline code; when the flow needs logic no deployed script provides, say so and suggest asking a workspace admin for that script. An AI agent step may link a saved agent they can read, which runs its tools as the agent defines them. Its `tool_inputs` may only fill tool inputs the agent leaves for the AI to fill: the server refuses a step that changes an input the agent sets.'
+				)}${when(
+					buildsApps,
+					`\n\nRaw apps are ${buildsFlows ? 'an exception too' : 'the exception'}: this workspace lets them build raw apps whose backend calls scripts and flows that are already deployed. Call get_instructions with subject "app" first, then write app drafts with init_app and the app file and runnable tools, making every backend runnable a path runnable to a deployed script or flow. The server refuses inline and hub runnables, so never write one; when the app needs logic no deployed script provides, say so and suggest asking a workspace admin for that script. An app this user deploys always runs sandboxed, and runs its runnables as the user who deployed it: turning the sandbox off or running them as the viewer is refused. If asked, say operators cannot, because the app's code would then run with the permissions of whoever opens it.`
+				)}${when(
+					!!draftedOperatorKinds,
+					`\n\nThis workspace lets them create and edit ${draftedOperatorKinds}: write them as drafts with ${listJoin(
+						[
+							canDraftResources && 'write_resource (call search_resource_types first)',
+							canDraftVariables && 'write_variable',
+							canDraftSchedules && 'write_schedule',
+							canDraftTriggers &&
+								'write_trigger (call get_trigger_schema first: the config fields differ per kind)'
+						]
+					)}${
+						deployableKinds.length
+							? `, then deploy ${deployableKinds.length === draftedKinds.length ? 'them' : listJoin(deployableKinds)} with deploy_workspace_item once the user asks`
+							: ''
+					}.`
+				)}`
 }`
 	const paths = `${when(
 		canWriteAnyDraft,
@@ -1552,9 +1615,16 @@ ${findItemsRule}${deployRule}${when(canWriteDraft, `\n${instructionsRule}`)}${wh
 ${external ? 'More rules:' : `Rules:${draftsOnlyRule}\n${findItemsRule}`}
 ${groupMembershipRule}- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
 - An agent, as the Agents page lists it, is a resource of type \`ai_agent\`: read it with read_workspace_item type "resource".${when(
-		canDraftResources,
-		" You may draft a change to an agent, but never deploy or rename one here: the user reviews and deploys it from the agent's page, `/agents/edit/<path>`, so point them there."
+		// An agent draft is a resource draft that the server checks under the flow builder right.
+		canDraftResources && canWriteFlowDraft,
+		` You may draft a new agent or a change to one, after calling get_instructions with subject "agent". The user can review it on the agent's page, ${external ? 'the url write_resource returns' : '\`/agents/edit/<path>\`'}.`
 	)}${when(
+		buildsFlows,
+		' Its tools, like flow steps, may only reference deployed scripts and flows by path: the server refuses inline code and hub scripts.'
+	)}${when(
+		canRunFlowPreview,
+		' Test an agent, its draft included, with test_run_agent.'
+	)} Run a deployed agent with run_agent, never with run_flow or run_script.${when(
 		!external,
 		`
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".`
@@ -1566,11 +1636,11 @@ ${groupMembershipRule}- Listings and reads return only what this user can see: i
 			' Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.'
 		)}`
 	)}${when(
-		!canWriteAnyDraft,
+		!canWriteAnyDraft && !readOnly,
 		`
 - Three changes are still open to you where the server allows them: discard_local_draft drops a draft this user left behind, deploy_workspace_item deploys one when the user asks, and delete_workspace_item removes an item already deployed in the workspace — each only for the kinds its type lists. You cannot create or edit one.`
 	)}${when(
-		!canManageSchedules || !canManageTriggers,
+		(!canManageSchedules || !canManageTriggers) && !readOnly,
 		`
 - This workspace does not let this user change ${
 			!canManageSchedules && !canManageTriggers
@@ -1627,7 +1697,7 @@ ${when(canCreateResourceType, `- create_resource_type creates a resource type th
 			? `${when(
 					!canWriteDraft,
 					`
-- open_preview(kind, path) shows a deployed script / flow / app in the side panel next to the chat — its run form, triggers and past runs, which the user can act on there. Use it when you surface an item they will want to run or inspect. ${
+- open_preview(kind, path) shows a deployed script / flow / app / agent in the side panel next to the chat — its run form, triggers and past runs, which the user can act on there. Use it when you surface an item they will want to run or inspect. ${
 						buildsFlows && buildsApps
 							? 'The flow and app editors are the only editors you can open here: after writing or editing a flow or app draft, show it with open_preview(kind="flow" or "raw_app", path, mode="edit").'
 							: buildsFlows || buildsApps
@@ -1637,7 +1707,7 @@ ${when(canCreateResourceType, `- create_resource_type creates a resource type th
 				)}${when(
 					canWriteDraft,
 					`
-- After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
+- After writing or substantially editing a script / flow / app / agent draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
 - Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty ${when(canCreateFolder, 'or not-yet-created ')}folder is fine${when(canCreateFolder, ' (create_folder first if needed, then open it)')}. Opening it adds build_pipeline_node / edit_pipeline_node to your tools from the next step on — they are not in your tool list before open_preview returns, so call open_preview on its own, wait for its result, then build. They then stay available for the rest of the session even while another tab (a page, another preview) is shown: a call brings the pipeline editor back by itself, so do not re-open it first. Use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.`
 				)}
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
@@ -1850,18 +1920,15 @@ const triggerServices: Record<TriggerKind, TriggerService> = {
 }
 
 /** Whether the server would admit a guest here: the deployment has to support guests at
- * all, and the instance and workspace switches both have to be on. `guest` is stored on
- * an app even when none of that holds, so the mode alone never settles who can open it.
- * `undefined` when a switch read fails — neither proven live nor proven inert. */
+ * all. `guest` is stored on an app even where it does not, so the mode alone never
+ * settles who can open it. `undefined` when the read fails — neither proven live nor
+ * proven inert. */
 async function guestAccessIsLive(workspace: string): Promise<boolean | undefined> {
-	const [usage, settings] = await Promise.all([
-		WorkspaceService.getGuestUsage({ workspace }).catch(() => undefined),
-		WorkspaceService.getPublicSettings({ workspace }).catch(() => undefined)
-	])
-	if (usage === undefined || settings === undefined) {
+	const usage = await WorkspaceService.getGuestUsage({ workspace }).catch(() => undefined)
+	if (usage === undefined) {
 		return undefined
 	}
-	return !!(usage.available && usage.instance_enabled && settings.guest_access_enabled)
+	return !!usage.available
 }
 
 // The get_instructions builders below add global mode's tools and draft rules on top of the shared
@@ -1998,15 +2065,48 @@ function getResourceInstructions(): string {
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
 - A resource draft is a workspace item: \`{ type: 'resource', path, summary?, value, isDraft }\`. \`value\` is a CreateResource body: \`{ path, value, description?, resource_type, labels? }\` where the inner \`value\` is the resource type's data shape.
 - Reading a variable returns \`{ type: 'variable', path, summary?, isSecret, isDraft }\` — never its value, secret or not. \`isSecret\` tells you whether the value is encrypted.
-- \`write_variable\` takes \`{ path, value?, is_secret?, description?, account?, is_oauth?, expires_at?, labels? }\`. Creating a variable needs \`value\` and \`is_secret\`; editing one needs only the fields you are changing. Omitting \`value\` keeps the stored value, which is the only way to edit a secret variable — you cannot read its value, so passing any \`value\` you did not get from the user destroys it.
+- \`write_variable\` takes \`{ path, value?, is_secret?, description?, is_oauth?, expires_at?, value_valid_until?, labels? }\`. Creating a variable needs \`value\` and \`is_secret\`; editing one needs only the fields you are changing. Omitting \`value\` keeps the stored value, which is the only way to edit a secret variable — you cannot read its value, so passing any \`value\` you did not get from the user destroys it.
 - For secret fields in a resource value, create the variable with \`write_variable\` and \`is_secret: true\`, and deploy it before the resource (see "Secrets" in the reference below).
 - Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`. The same strings are also how a resource or variable is passed as a run argument (see the run-argument rule in the resource reference below); what they are never valid as is a variable's own value.
 - Use \`search_resource_types\` to discover valid \`resource_type\` names and their JSON Schemas. Match the resource value to that schema.
+- For an agent (an \`ai_agent\` resource), call \`get_instructions\` with \`subject: "agent"\` instead.
 - For OAuth resources, the \`is_oauth: true\` flag is managed by Windmill's OAuth flow; global mode generally creates manual resources, not OAuth ones.
 
 # Windmill resource & variable reference
 
 ${getResourcePrompt()}`
+}
+
+async function getAgentInstructions(
+	workspace: string | undefined,
+	external: boolean,
+	/** The user cannot write inline code: the server refuses a rawscript tool from them. */
+	composeOnly: boolean,
+	/** The session cannot run `test_run_agent`. */
+	untestable: boolean
+): Promise<string> {
+	const aiAgentProviders = external
+		? ''
+		: formatAiAgentProvidersPrompt(await getAiAgentProviderCatalog(workspace), {
+				canAskUser: true
+			})
+	const testRule = untestable
+		? ''
+		: '\n- Test the draft with `test_run_agent` before handing it over, and fix what the run shows: a test runs the draft as it stands, its tools included. Reuse one `memory_id` across calls to test follow-ups.'
+	return `# Global draft agent instructions
+
+- An agent is drafted with \`write_resource\`: \`{ path, resource_type: "ai_agent", description?, value }\`, where \`value\` is the agent's configuration described below. To change an existing agent, read it with \`read_workspace_item\` type "resource" first and write back the whole value.
+- Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` for a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist.${testRule}
+- The user can review the agent on its page, ${external ? 'the url `write_resource` returns' : '`/agents/edit/<path>`'}. Deploy it with \`deploy_workspace_item\` (type "resource") once they ask, as for any other draft.
+${
+	composeOnly
+		? '- This user cannot write inline code, so skip what the reference says about inline tools: every script tool points at a deployed script, found with the workspace search tools. When none does the job, say so and suggest asking a workspace admin for that script; never add a rawscript tool.'
+		: '- Before writing an inline tool, look for a deployed script that already does the job with the workspace search tools.'
+}
+${aiAgentProviders ? `\n${aiAgentProviders}\n` : ''}
+# Windmill agent authoring reference
+
+${getAgentPrompt()}`
 }
 
 function getDatatableInstructions(language?: ScriptLang): string {
@@ -2033,7 +2133,9 @@ export function getInstructions(
 	language: ScriptLang | undefined,
 	workspace: string | undefined,
 	composeOnly: boolean,
-	external = false
+	external = false,
+	/** The session cannot run a flow preview, which an agent's test run is. */
+	untestable = false
 ): string | Promise<string> {
 	switch (subject) {
 		case 'script':
@@ -2042,6 +2144,8 @@ export function getInstructions(
 			return getFlowInstructions(workspace, composeOnly, external)
 		case 'resource':
 			return getResourceInstructions()
+		case 'agent':
+			return getAgentInstructions(workspace, external, composeOnly, untestable)
 		case 'app':
 			return getAppInstructions(language, composeOnly, external)
 		case 'datatable':
@@ -2079,6 +2183,11 @@ export type SessionPromptContext = {
 	forkParentUnknown?: boolean
 	/** Pre-send intent: a staged fork of this workspace is created at first send. */
 	pendingForkOf?: string
+	/** The family's dev workspace, where a read-only session sends the user to make changes. */
+	devWorkspace?: { id: string; name: string }
+	/** Why the session is in Use mode, where the workspace itself is not protected: the user
+	 * picked it, or their role builds nothing there. */
+	useMode?: 'chosen' | 'role'
 }
 
 /** Session-state guidance appended to the global system prompt so the model
@@ -2105,9 +2214,17 @@ export function getSessionContextPromptSection(
 		(!access || access.has('manage_schedules')) && 'schedules',
 		(!access || access.has('manage_triggers')) && 'triggers'
 	].filter((k): k is string => !!k)
+	const readOnly = isReadOnlyAccess(access)
+	// Read-only either because the user chose Use or because the workspace forces it.
+	const protectedWorkspace = readOnly && !ctx.useMode
 	// With no kind left to deploy, the deploy tool is not shipped, so the lines below cannot name it.
-	const deployer = canDeploy || unruledKinds.length ? 'deploy_workspace_item' : 'A deploy'
-	const targets = ['reads', canWriteDraft && 'drafts', canRunPreview && 'test runs', 'deploys']
+	const deployer =
+		!readOnly && (canDeploy || unruledKinds.length) ? 'deploy_workspace_item' : 'A deploy'
+	const targets = (
+		readOnly
+			? ['reads', 'runs']
+			: ['reads', canWriteDraft && 'drafts', canRunPreview && 'test runs', 'deploys']
+	)
 		.filter(Boolean)
 		.join(', ')
 	const lines = [
@@ -2119,6 +2236,14 @@ export function getSessionContextPromptSection(
 	if (ctx.pendingForkOf) {
 		lines.push(
 			`- No workspace is committed yet: a staged fork of workspace "${ctx.pendingForkOf}" is created automatically when the first message is sent, and all work lands in that fork.`
+		)
+	} else if (protectedWorkspace) {
+		const dev = ctx.devWorkspace?.id !== ctx.workspaceId ? ctx.devWorkspace : undefined
+		const elsewhere = dev
+			? `start a new session in the dev workspace "${dev.id}", which the "New session in ${dev.name} (dev)" entry of the composer's mode picker opens`
+			: 'start a new session in a fork of this workspace, or, where forking is refused too, make the change in git and open a pull request'
+		lines.push(
+			`- Operating workspace: "${ctx.workspaceId}" — a production workspace protected against direct changes, so this session is READ-ONLY whatever the user's role. To make a change, the user needs to ${elsewhere}. This session's mode picker shows Plan and Use & build greyed out and its workspace cannot change once it has started, so never suggest picking Use & build or switching this session.`
 		)
 	} else if (ctx.parentWorkspaceId && ctx.isDevWorkspace) {
 		lines.push(
@@ -2141,9 +2266,18 @@ export function getSessionContextPromptSection(
 			'- No operating workspace is set yet; the user picks one (or a new staged fork) before the first message is sent.'
 		)
 	}
+	if (readOnly && ctx.useMode === 'chosen') {
+		lines.push(
+			"- The user put this session in Use mode with the composer's mode picker, so it is READ-ONLY until they switch. To make a change, call `enter_build_mode`, which asks them to switch to Use & build, or `enter_plan_mode` to agree on the change first; without those tools, ask them to switch the picker."
+		)
+	} else if (readOnly && ctx.useMode === 'role') {
+		lines.push(
+			`- This user's workspace role cannot create or change scripts, flows, apps, schedules or triggers, neither through you nor by hand anywhere in the workspace. That role, not this session, is why the session is held in Use mode and is READ-ONLY. When they ask for one, say that their role does not allow it, and that a workspace admin can create it for them or grant their role more in ${OPERATOR_SETTINGS_LOCATION}. Do not write its code or give steps: they can use neither. Their mode picker shows Plan and Use & build greyed out, so never suggest switching modes. Resources and variables are the exception: every role creates and edits those by hand, outside this session, on the workspace's own Resources and Variables pages.`
+		)
+	}
 	// The kind enum already withholds what the rules refuse; this says why, and where the user
 	// promotes the rest instead. The rules gate deletes too, so it is owed to every such profile.
-	if (!canDeploy) {
+	if (!canDeploy && !readOnly) {
 		lines.push(
 			`- This workspace refuses direct deployment for this user${
 				unruledKinds.length === 2
@@ -2156,7 +2290,7 @@ export function getSessionContextPromptSection(
 	}
 	lines.push(
 		'- Sessions are saved: the sidebar lists them under AI Sessions, and the user can reopen any of them.',
-		'- The composer has a permission mode picker: Ask permission, Auto-accept edits, Yolo (bypass permissions: tool confirmations are accepted without asking) and Plan (read-only). Some modes are hidden where they do not apply.',
+		`- The composer has a mode picker in two parts. What you may do: Use (read and run deployed items, change nothing), Plan (research, then propose a plan for approval) and Use & build (everything Use does, plus changes). How tool confirmations work: Ask permission, Auto-accept edits, or Yolo (bypass permissions: tool confirmations are accepted without asking). Some options are hidden where they do not apply${protectedWorkspace ? ', and this workspace locks the picker to Use' : ctx.useMode === 'role' ? ", and this user's role locks the picker to Use" : ''}.`,
 		"- The sliders button next to the model picker opens Assistant settings. Its Permissions section shows what the user's role lets them change and what you can change for them; point them there when they ask what they are allowed to do."
 	)
 	return lines.join('\n')
@@ -2373,7 +2507,9 @@ export async function resolveGlobalPromptIdentity(
 // for the global side-panel chat. The tool only ever advertises, and only ever acts on,
 // `pages`.
 async function allowedOpenPages(
-	workspaceId: string | undefined = get(workspaceStore)
+	workspaceId: string | undefined = get(workspaceStore),
+	/** A read-only session reaches what an operator reaches: never workspace settings. */
+	readOnly = false
 ): Promise<{ pages: OpenPageName[]; roleUnverified: boolean }> {
 	const role = await roleForWorkspace(workspaceId)
 	// A failed lookup says nothing about the role, so guessing a page set can offer one the
@@ -2391,7 +2527,9 @@ async function allowedOpenPages(
 		{ ...u, is_admin: isAdmin },
 		get(userWorkspaces).find((w) => w.id === workspaceId)
 	)
-	return { pages: roleOpenPages(caps, isAdmin), roleUnverified: false }
+	return readOnly
+		? { pages: roleOpenPages(withoutBuilding(caps), false), roleUnverified: false }
+		: { pages: roleOpenPages(caps, isAdmin), roleUnverified: false }
 }
 
 // The Runs page only offers its cross-workspace filter to a superadmin or devops user in
@@ -2664,7 +2802,7 @@ function buildOpenPageDefSchema(
 }
 
 const OPEN_PAGE_DESCRIPTION =
-	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), Workspace settings (on a specific tab), or the Compare & Deploy page. Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings", "open the kafka triggers"), and ALWAYS when asking the user to perform a manual step themselves (fill in a resource\'s credentials, set a variable\'s value — pass open with the item path so its editor opens directly). Never offer page "compare" for draft review. Use it only when the user explicitly asks to deploy a forked workspace into its parent; it always opens the fork-vs-parent comparison. This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed for this user are available; do not offer others.'
+	'Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), Workspace settings (on a specific tab), or the Compare & Deploy page. Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. "show me the failed runs of X", "open the schedule for Y", "open the git sync settings", "open the kafka triggers"), and ALWAYS when asking the user to perform a manual step themselves (fill in a resource\'s credentials, set a variable\'s value — pass open with the item path so its editor opens directly). Never offer page "compare" for draft review. Use it only when the user explicitly asks to deploy a forked workspace into its parent; it always opens the fork-vs-parent comparison. This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, agents, pipelines). Only pages listed for this user are available; do not offer others.'
 
 // Non-arg input the URL builder needs: the chat's operating workspace (the compare
 // page cannot fall back to its own store default inside a session preview).
@@ -2873,7 +3011,10 @@ export const openPageTool: SessionTool<{}> = {
 	// Re-narrow the advertised `page` enum to this user's permissions each iteration, so
 	// the model never sees (or suggests) a page the user can't reach.
 	schemaFor: async (helpers) => {
-		const access = await allowedOpenPages(operatingWorkspaceFromHelpers(helpers))
+		const access = await allowedOpenPages(
+			operatingWorkspaceFromHelpers(helpers),
+			isReadOnlyAccess((helpers as GlobalToolHelpers | undefined)?.access)
+		)
 		return createToolDef(
 			buildOpenPageDefSchema(
 				access.pages,
@@ -2894,7 +3035,10 @@ export const openPageTool: SessionTool<{}> = {
 		// requests one outside the advertised enum. An unverified role means the lookup
 		// failed, not that access was denied — reporting it as denied states a falsehood
 		// about the user's permissions.
-		const access = await allowedOpenPages(workspaceId)
+		const access = await allowedOpenPages(
+			workspaceId,
+			isReadOnlyAccess((ctx.helpers as GlobalToolHelpers | undefined)?.access)
+		)
 		if (!access.pages.includes(page)) {
 			const label = OPEN_PAGE_LABELS[page] ?? page
 			return access.roleUnverified
@@ -2942,14 +3086,37 @@ export const openPageTool: SessionTool<{}> = {
 			return previewResult
 		}
 
+		// A session's tab opens an agent in its own editor; the resources page would show it as JSON.
+		const agentPath =
+			page === 'resources' && parsed.open
+				? await ResourceService.getResource({
+						workspace: urlWorkspace,
+						path: parsed.open,
+						getDraft: true
+					})
+						.then((r) => (r.resource_type === 'ai_agent' ? parsed.open : undefined))
+						.catch(() => undefined)
+				: undefined
+		const linkUrl = agentPath ? agentEditHref(agentPath) : url
+		const linkLabel = agentPath ? 'Agent' : pageLabel
+		const linkSummary = agentPath ?? summary
+
 		// Outside a session there is no preview panel — offer a clickable link the user
 		// controls. (We deliberately don't navigate in place: a same-route goto would
 		// not re-sync the page's URL-driven filter state, so the change wouldn't land.)
 		toolCallbacks.setToolStatus(toolId, {
-			content: `Prepared a link to ${pageLabel}: ${summary}`,
-			actions: [{ id: `open-page:${page}:${url}`, type: 'navigate', label: summary, url, page }]
+			content: `Prepared a link to ${linkLabel}: ${linkSummary}`,
+			actions: [
+				{
+					id: `open-page:${page}:${linkUrl}`,
+					type: 'navigate',
+					label: linkSummary,
+					url: linkUrl,
+					page
+				}
+			]
 		})
-		return `Offered the user a link to the ${pageLabel} page (${summary}). They can click it to open.`
+		return `Offered the user a link to the ${linkLabel} page (${linkSummary}). They can click it to open.`
 	}
 }
 
@@ -2961,7 +3128,7 @@ export const globalTools: SessionTool<{}>[] = [
 		def: createToolDef(
 			getInstructionsSchema,
 			'get_instructions',
-			'Get authoring guidance for scripts, flows, data pipelines, resources, apps, or data tables: their migrations and permissions, and the SQL SDK (wmill.datatable()) used inside runnables.'
+			'Get authoring guidance for scripts, flows, AI agents, data pipelines, resources, apps, or data tables: their migrations and permissions, and the SQL SDK (wmill.datatable()) used inside runnables.'
 		),
 		planModeSafe: true,
 		fn: async (ctx) => {
@@ -2979,7 +3146,11 @@ export const globalTools: SessionTool<{}>[] = [
 				access.has('write_draft') ||
 				(parsed.subject === 'flow' && access.has('write_flow_draft')) ||
 				(parsed.subject === 'app' && access.has('write_app_draft')) ||
-				(parsed.subject === 'resource' && access.has('write_resource_draft'))
+				(parsed.subject === 'resource' && access.has('write_resource_draft')) ||
+				// The server checks an agent write under the flow builder right too.
+				(parsed.subject === 'agent' &&
+					access.has('write_resource_draft') &&
+					access.has('write_flow_draft'))
 			if (!canAuthor) {
 				const message =
 					'This session cannot create or edit this kind of item, so there is no authoring guidance to give for it. Tell the user plainly rather than describing how it would be done.'
@@ -2992,17 +3163,25 @@ export const globalTools: SessionTool<{}>[] = [
 					: parsed.subject
 			toolCallbacks.setToolStatus(toolId, { content: `Loaded ${label} instructions` })
 			// Guidance for inline code would steer a composing role at writes the server refuses
-			// and tools it was not given.
+			// and tools it was not given. An agent's test run is a flow preview, so its inline
+			// tools follow the flow rule.
 			const composeOnly =
 				!!access &&
 				!access.has(
-					parsed.subject === 'flow'
+					parsed.subject === 'flow' || parsed.subject === 'agent'
 						? 'write_inline_flow_code'
 						: parsed.subject === 'app'
 							? 'write_inline_app_code'
 							: 'write_draft'
 				)
-			return getInstructions(parsed.subject, parsed.language, ctx.workspace, composeOnly)
+			return getInstructions(
+				parsed.subject,
+				parsed.language,
+				ctx.workspace,
+				composeOnly,
+				false,
+				!!access && !access.has('run_flow_preview')
+			)
 		}
 	},
 	searchHubScriptsServerTool,
@@ -3086,6 +3265,8 @@ export const globalTools: SessionTool<{}>[] = [
 			'update_user_instructions',
 			'Modify your own persistent personal instructions for the Global assistant. Use when the user asks you to remember a preference, always/never do something, or change/stop a behavior. Edits only the user-level instructions (the USER INSTRUCTIONS block, not workspace-level); changes persist in this browser and take effect on your next message.'
 		),
+		// Writes this browser's preference, not the workspace.
+		readOnlySafe: true,
 		showDetails: true,
 		fn: async ({ args, toolId, toolCallbacks, helpers }) => {
 			const parsed = updateUserInstructionsSchema.parse(args)
@@ -3419,6 +3600,7 @@ export const globalTools: SessionTool<{}>[] = [
 		// permissions, the one run an operator's token allows. `run_flow` likewise.
 		requires: NONE,
 		def: runScriptToolDef,
+		readOnlySafe: true,
 		fn: async (ctx) => {
 			const parsed = runScriptSchema.parse(ctx.args)
 			return runDeployedScript(parsed, ctx)
@@ -3451,6 +3633,7 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: NONE,
 		def: runFlowToolDef,
+		readOnlySafe: true,
 		fn: async (ctx) => {
 			const parsed = runFlowSchema.parse(ctx.args)
 			return runDeployedFlow(parsed, ctx)
@@ -3459,6 +3642,36 @@ export const globalTools: SessionTool<{}>[] = [
 		streamingLabel: 'Preparing the run form...',
 		confirmationMessage: 'Run a deployed flow',
 		queuedLabel: (args) => `Run ${args?.path ?? 'a flow'}`,
+		showDetails: true,
+		autoCollapseDetails: false
+	},
+	{
+		requires: RUN_FLOW_PREVIEW,
+		def: testRunAgentToolDef,
+		fn: async (ctx) => {
+			const parsed = testRunAgentSchema.parse(ctx.args)
+			return testRunAgentByPath(parsed, ctx)
+		},
+		// No requiresConfirmation, for the reason test_run_script carries.
+		bypassedByAutoAccept: true,
+		streamingLabel: 'Preparing the test form...',
+		confirmationMessage: 'Run a test of an agent',
+		queuedLabel: (args) => `Test ${args?.path ?? 'the agent'}`,
+		showDetails: true,
+		autoCollapseDetails: false
+	},
+	{
+		requires: NONE,
+		def: runAgentToolDef,
+		readOnlySafe: true,
+		fn: async (ctx) => {
+			const parsed = runAgentSchema.parse(ctx.args)
+			return runDeployedAgent(parsed, ctx)
+		},
+		bypassedByAutoAccept: true,
+		streamingLabel: 'Preparing the run form...',
+		confirmationMessage: 'Run a deployed agent',
+		queuedLabel: (args) => `Run ${args?.path ?? 'an agent'}`,
 		showDetails: true,
 		autoCollapseDetails: false
 	},
@@ -3560,6 +3773,8 @@ export const globalTools: SessionTool<{}>[] = [
 			'cancel_job',
 			'Cancel a running or queued job by its id (e.g. a background test run you started that is no longer needed).'
 		),
+		// A run the session may start, it may also stop.
+		readOnlySafe: true,
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = cancelJobSchema.parse(args)
@@ -4021,6 +4236,8 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: NONE,
 		def: createToolDef(openPreviewSchema, 'open_preview', OPEN_PREVIEW_DESCRIPTION),
+		// A read-only session holds no draft capability, so the schema below offers it viewers.
+		readOnlySafe: true,
 		// Withhold the editors a session cannot save, so the model never offers the user a
 		// panel it would not get.
 		schemaFor: async (helpers) => {
@@ -4069,6 +4286,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'close_page',
 			'Close one or more preview tabs in the side panel of this AI session. Pass `match` to close the tab(s) whose page name or item path contains that text, or `all: true` to clear the panel. Use this when the user asks to close/dismiss a tab they no longer need. Only works inside a session.'
 		),
+		readOnlySafe: true,
 		fn: async (ctx) => {
 			const parsed = closePageSchema.parse(ctx.args)
 			return closeSessionPreviewTabs(parsed, sessionIdFromCtx(ctx))
@@ -4354,7 +4572,7 @@ function liveFlowTestHookFromCtx(
 
 export type OpenPreviewHandler = (req: {
 	sessionId: string | undefined
-	kind: 'script' | 'flow' | 'raw_app' | 'pipeline'
+	kind: 'script' | 'flow' | 'raw_app' | 'agent' | 'pipeline'
 	path: string
 	/** Which side to open. Omitted means the editor, except for a pipeline, which has only
 	 * one side. `openSessionPreview` resolves it before its capability gates rather than
@@ -4370,7 +4588,11 @@ export function setOpenPreviewHandler(handler: OpenPreviewHandler | undefined): 
 }
 
 async function openSessionPreview(
-	args: { kind: 'script' | 'flow' | 'raw_app' | 'pipeline'; path: string; mode?: 'edit' | 'view' },
+	args: {
+		kind: 'script' | 'flow' | 'raw_app' | 'agent' | 'pipeline'
+		path: string
+		mode?: 'edit' | 'view'
+	},
 	sessionId: string | undefined,
 	workspace: string | undefined,
 	access: SessionAccess | undefined
@@ -4384,6 +4606,18 @@ async function openSessionPreview(
 			return 'Error: you cannot open the pipeline editor in this workspace: this user cannot save drafts. Show its scripts with open_preview mode "view" instead.'
 		}
 		return await openPreviewHandler({ ...args, mode: undefined, sessionId })
+	}
+	// An agent's editor drafts its resource, which the server checks under the flow builder right
+	// too; without both its deployed page is what the session can show. The editor itself turns
+	// read-only on an agent the user cannot write.
+	if (args.kind === 'agent') {
+		const canDraft =
+			!access || (access.has('write_resource_draft') && access.has('write_flow_draft'))
+		return await openPreviewHandler({
+			...args,
+			mode: args.mode === 'view' || !canDraft ? 'view' : 'edit',
+			sessionId
+		})
 	}
 	// Resolved before the gates, not after: the handler reads a missing mode as the editor, so
 	// gating on `args.mode === 'edit'` would wave through every call that simply omitted it —
@@ -4657,10 +4891,16 @@ function buildVariableCreateRequestBody(draftValue: CreateVariable): CreateVaria
 // endpoint, and a draft stores '' when it stages no new value — so omitting `value` in
 // that case is what leaves the stored one untouched. A staged value is sent as-is: the
 // endpoint decrypts an `$encrypted:` marker and encrypts plaintext.
-function buildVariableUpdateRequestBody(
-	draftValue: CreateVariable
-): Omit<CreateVariable, 'value'> & { value?: string } {
-	const { value, ...rest } = structuredClone(draftValue)
+function buildVariableUpdateRequestBody(draftValue: CreateVariable): Omit<
+	CreateVariable,
+	'value' | 'value_valid_until'
+> & {
+	value?: string
+	value_valid_until?: string | null
+} {
+	const { value, value_valid_until, ...others } = structuredClone(draftValue)
+	// The draft holds the full state, so an absent expiry was cleared: send `null`.
+	const rest = { ...others, value_valid_until: value_valid_until ?? null }
 	// A value the draft is never allowed to carry — a secret's, and an OAuth-managed one
 	// dropped by `variableToDraftState` — reaches here as '' whenever this edit staged
 	// none, so sending it would blank the stored value or wipe a rotating token.
@@ -4729,15 +4969,15 @@ const PREVIEW_CARD_KIND_BY_ITEM_KIND: Partial<
 // `open_preview` takes), not its synthetic draft storage key.
 function maybeAttachPreviewCard(
 	ctx: WriteDraftCtx,
-	itemKind: DraftPersistResult['itemKind'],
+	kind: PreviewCardKind | 'agent' | undefined,
 	path: string
-): void {
+): boolean {
 	// Write tools pass the raw tool ctx, whose session id lives in `helpers` —
 	// `ctx.sessionId` is only set by callers that thread it explicitly.
-	if (!ctx.sessionId && !sessionIdFromCtx(ctx)) return
-	const kind = PREVIEW_CARD_KIND_BY_ITEM_KIND[itemKind]
-	if (!kind) return
+	if (!ctx.sessionId && !sessionIdFromCtx(ctx)) return false
+	if (!kind) return false
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { previewCard: { kind, path } })
+	return true
 }
 
 /**
@@ -4840,16 +5080,28 @@ async function runDraftWrite(
 		})
 	}
 	toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
-	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
+	const stored = result.item
+	const isAgent =
+		stored.type === 'resource' &&
+		(stored.value as CreateResource | undefined)?.resource_type === 'ai_agent'
+	const card = maybeAttachPreviewCard(
+		ctx,
+		isAgent ? 'agent' : PREVIEW_CARD_KIND_BY_ITEM_KIND[result.itemKind],
+		stored.path
+	)
+	// The agent editor is where the user reviews and deploys the draft. Outside a session there is
+	// no preview chip, so an action carries the way in.
+	if (isAgent && !card) {
+		toolCallbacks.setToolStatus(toolId, { actions: [createOpenAgentAction(stored.path)] })
+	}
 	opts.onSaved?.(response.effects)
 	if (opts.app) {
 		savedStatuses()
 		return response.text
 	}
 	const written = JSON.parse(response.text.split('\n\nAI agent provider warnings:\n')[0])
-	const stored = result.item
 	toolCallbacks.setToolStatus(toolId, {
-		content: `${written.message.startsWith('Updated') ? 'Updated' : 'Created'} ${stored.type} "${stored.path}" as a draft`,
+		content: `${written.message.startsWith('Updated') ? 'Updated' : 'Created'} ${isAgent ? 'agent' : stored.type} "${stored.path}" as a draft`,
 		result: `Saved as draft`
 	})
 	savedStatuses()
@@ -5111,6 +5363,10 @@ type FormRunSpec = {
 	autoAcceptable?: boolean
 	/** Whether this item's deployed page is a conversation rather than a run form. */
 	conversational?: boolean
+	/** The item is an agent, whose deployed page is the agent's rather than a flow's. */
+	agentPage?: boolean
+	/** What the card's prose calls the runnable, when `contextName` would name it wrongly. */
+	cardNoun?: string
 	background?: boolean
 	detachAfterMs?: number
 	startJob: (submitted: Record<string, any>) => Promise<string>
@@ -5147,6 +5403,17 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	}
 	const blockedBeforeForm = blockedByPlanMode()
 	if (blockedBeforeForm) return blockedBeforeForm
+	// The form is this call's confirmation, and a session can switch to Use while it waits.
+	const withdrawnByUseMode = (): string | undefined => {
+		if (!toolCallbacks.isToolWithdrawn?.(spec.toolName)) return undefined
+		toolCallbacks.setToolStatus(toolId, {
+			content: USE_MODE_WITHDRAWN.label,
+			isLoading: false,
+			isStreamingArguments: false,
+			error: USE_MODE_WITHDRAWN.result
+		})
+		return USE_MODE_WITHDRAWN.result
+	}
 
 	const schema = spec.schema
 	// Whether to ask is the only question decided here. What a mounted field would hold — a
@@ -5195,6 +5462,8 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		kind: spec.kind,
 		runnableKind: spec.contextName,
 		conversational: spec.conversational || undefined,
+		agentPage: spec.agentPage || undefined,
+		cardNoun: spec.cardNoun,
 		schema: autoAccepted ? undefined : schema,
 		code: autoAccepted ? undefined : spec.code,
 		lang: autoAccepted ? undefined : spec.lang,
@@ -5241,7 +5510,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	const adopted = answer.kind === 'job' ? answer : undefined
 	const submitted = answer.args
 
-	const blockedBeforeRun = adopted ? undefined : blockedByPlanMode()
+	const blockedBeforeRun = adopted ? undefined : (blockedByPlanMode() ?? withdrawnByUseMode())
 	if (blockedBeforeRun) {
 		toolCallbacks.markRunFormEnded?.(toolId)
 		return blockedBeforeRun
@@ -5466,6 +5735,67 @@ async function testRunFlowByPath(
 	)
 }
 
+async function testRunAgentByPath(
+	args: z.infer<typeof testRunAgentSchema>,
+	ctx: WriteDraftCtx & { args: unknown }
+): Promise<string> {
+	// The server reads the stored draft: an edit the agent editor still has to save would test an
+	// older configuration than the one on screen.
+	await settleAgentDraft(args.path, ctx.workspace)
+	const prepared = await prepareRun('test_run_agent', ctx)
+	return runThroughForm(
+		{
+			path: args.path,
+			schema: prepared.schema ?? {},
+			summary: prepared.summary ?? undefined,
+			kind: 'test',
+			schemaNoun: 'agent',
+			toolName: 'test_run_agent',
+			proposed: args.args,
+			startMessage: prepared.start_message,
+			contextName: 'flow',
+			noun: 'agent',
+			cardNoun: 'agent',
+			autoAcceptable: true,
+			background: args.background,
+			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+			startJob: (submitted) => startPreparedRun('test_run_agent', ctx, prepared.target, submitted)
+		},
+		ctx
+	)
+}
+
+async function runDeployedAgent(
+	args: z.infer<typeof runAgentSchema>,
+	ctx: WriteDraftCtx & { args: unknown }
+): Promise<string> {
+	const prepared = await prepareRun('run_agent', ctx)
+	return runThroughForm(
+		{
+			path: args.path,
+			schema: prepared.schema ?? {},
+			summary: prepared.summary ?? undefined,
+			kind: 'run',
+			// Its page is the agent's rather than a flow's, which is where the form moves. A turn of a
+			// conversation stays on the card: the page's run starts one of its own, without the memory id.
+			agentPage: true,
+			conversational: prepared.conversational,
+			schemaNoun: 'agent',
+			toolName: 'run_agent',
+			proposed: args.args,
+			startMessage: prepared.start_message,
+			contextName: 'flow',
+			noun: 'agent',
+			cardNoun: 'agent',
+			autoAcceptable: true,
+			background: args.background,
+			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+			startJob: (submitted) => startPreparedRun('run_agent', ctx, prepared.target, submitted)
+		},
+		ctx
+	)
+}
+
 async function testRunFlowStepByPath(
 	args: z.infer<typeof testRunStepSchema>,
 	ctx: WriteDraftCtx & { args: unknown }
@@ -5657,6 +5987,16 @@ function createOpenResourceAction(path: string): ToolDisplayAction {
 		type: 'open_created_resource',
 		label: 'Open resource',
 		resource: 'resource',
+		path
+	}
+}
+
+function createOpenAgentAction(path: string): ToolDisplayAction {
+	return {
+		id: `open-agent:${path}`,
+		type: 'open_created_resource',
+		label: 'Open agent',
+		resource: 'agent',
 		path
 	}
 }
@@ -6600,12 +6940,14 @@ async function deployDraft(
 			}
 			case 'resource': {
 				let requestBody = draft.value as any
+				let isAgent = requestBody.resource_type === 'ai_agent'
 				if (await ResourceService.existsResource({ workspace, path })) {
 					// The server resets an agent's identity to whoever deploys, unless told to keep
 					// it: the identity is the deployed one, never the draft's.
 					const deployed = await ResourceService.getResource({ workspace, path })
 					const obo = (deployed.value as any)?.on_behalf_of
-					if (deployed.resource_type === 'ai_agent' && obo) {
+					isAgent = deployed.resource_type === 'ai_agent'
+					if (isAgent && obo) {
 						requestBody = {
 							...requestBody,
 							value: { ...requestBody.value, on_behalf_of: obo },
@@ -6616,7 +6958,8 @@ async function deployDraft(
 				} else {
 					await ResourceService.createResource({ workspace, requestBody })
 				}
-				actions = [createOpenResourceAction(path)]
+				if (isAgent) markAgentWritten(workspace, path)
+				actions = [isAgent ? createOpenAgentAction(path) : createOpenResourceAction(path)]
 				break
 			}
 			case 'variable': {
@@ -6910,9 +7253,16 @@ async function undeployedRunnableTargets(
 				? runnable?.runType
 				: runnable?.type
 		const path = runnable?.path
-		if ((type !== 'script' && type !== 'flow') || !path) continue
+		if ((type !== 'script' && type !== 'flow' && type !== 'agent') || !path) continue
 		try {
-			if (await deployedItemExists(workspace, type, path, undefined)) continue
+			if (type === 'agent') {
+				// A saved agent is an `ai_agent` resource; another resource at the path runs nothing.
+				const found = await ResourceService.getResource({ workspace, path }).catch((e) => {
+					if ((e as { status?: number } | null | undefined)?.status === 404) return undefined
+					throw e
+				})
+				if (found?.resource_type === 'ai_agent') continue
+			} else if (await deployedItemExists(workspace, type, path, undefined)) continue
 		} catch {
 			// The probe is advisory: a lookup failure must never block the write or
 			// the deploy it annotates.

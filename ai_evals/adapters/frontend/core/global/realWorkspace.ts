@@ -83,6 +83,12 @@ export async function createRealWorkspace(input: {
         () => undefined,
       );
     }
+    const workers = (input.fixtures.workers ?? []).map((w) => literal(w.worker));
+    if (workers.length) {
+      await psql(`DELETE FROM worker_ping WHERE worker IN (${workers.join(", ")})`).catch(
+        () => undefined,
+      );
+    }
     if (datatableDb) {
       await sql(
         api,
@@ -248,6 +254,25 @@ async function seed(
     }
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
+  for (const group of fixtures.groups ?? []) {
+    await api("POST", "groups/create", { name: group.name, summary: group.summary });
+    // A fixture names members who are not users of the instance; a membership row needs none.
+    for (const member of group.members ?? []) {
+      await psql(
+        `INSERT INTO usr_to_group (workspace_id, usr, group_)
+           VALUES (${literal(workspace)}, ${literal(member)}, ${literal(group.name)})`,
+        "This fixture seeds group members",
+      );
+    }
+  }
+  for (const folder of fixtures.folders ?? []) {
+    await api("POST", "folders/create", {
+      name: folder.name,
+      summary: folder.summary,
+      owners: folder.owners ?? [],
+      extra_perms: folder.extra_perms ?? {},
+    });
+  }
   for (const script of fixtures.scripts ?? []) {
     await api("POST", "scripts/create", {
       path: script.path,
@@ -289,8 +314,21 @@ async function seed(
   }
   await seedAiProviders(api, fixtures.aiProviders ?? []);
   for (const job of fixtures.jobs ?? []) {
-    await seedJob(api, job);
+    await seedJob(api, workspace, job);
   }
+  for (const schedule of fixtures.schedules ?? []) {
+    await api("POST", "schedules/create", {
+      path: schedule.path,
+      schedule: schedule.schedule,
+      timezone: "UTC",
+      script_path: schedule.script_path,
+      is_flow: schedule.is_flow ?? false,
+      args: {},
+      enabled: schedule.enabled ?? true,
+      summary: schedule.summary,
+    });
+  }
+  await seedWorkers(fixtures.workers ?? []);
   if (fixtures.ducklakes?.length) {
     await api("POST", "workspaces/edit_ducklake_config", {
       settings: {
@@ -375,27 +413,108 @@ async function seedAiProviders(
 // by the admin, so `createdBy` and a `script` job kind are not reproduced.
 async function seedJob(
   api: Api,
+  workspace: string,
   job: NonNullable<BenchmarkWorkspaceRunnables["jobs"]>[number],
 ): Promise<void> {
   const args = job.args ?? {};
-  const content = [
-    `export async function main(${Object.keys(args).join(", ")}) {`,
-    `  console.log(${JSON.stringify(job.logs ?? "")});`,
-    job.success === false
-      ? `  throw new Error(${JSON.stringify(lastLine(job.logs) ?? "Job failed")});`
-      : `  return ${JSON.stringify(job.result ?? null)};`,
-    `}`,
-  ].join("\n");
   const id = job.id ?? randomUUID();
-  await api("POST", `jobs/run_wait_result/preview?job_id=${id}`, {
-    content,
-    language: "bun",
-    path: job.scriptPath,
-    args,
-  }).catch((error) => {
-    // A failing fixture run answers with its error, which is the point.
-    if (job.success !== false) throw error;
-  });
+  const state = job.state ?? "completed";
+  if (state === "suspended") {
+    // A flow parked on an approval step: its first step suspends, as the fixture flow's does.
+    await api("POST", `jobs/run/f/${job.scriptPath}?job_id=${id}`, args);
+    await waitFor(`run ${id} to suspend`, async () => {
+      const run = await api("GET", `jobs_u/get/${id}?no_logs=true`);
+      return (run.flow_status?.modules ?? []).some(
+        (module: { type?: string }) => module.type === "WaitingForEvents",
+      );
+    });
+  } else if (state === "queued") {
+    // Stays queued only on a tag no worker of the eval backend serves, as the fixture's does.
+    await api("POST", `jobs/run/preview?job_id=${id}`, {
+      content: "export async function main() {}",
+      language: "bun",
+      path: job.scriptPath,
+      args,
+      tag: job.tag,
+    });
+  } else if (state === "completed") {
+    const content = [
+      `export async function main(${Object.keys(args).join(", ")}) {`,
+      `  console.log(${JSON.stringify(job.logs ?? "")});`,
+      job.success === false
+        ? `  throw new Error(${JSON.stringify(lastLine(job.logs) ?? "Job failed")});`
+        : `  return ${JSON.stringify(job.result ?? null)};`,
+      `}`,
+    ].join("\n");
+    await api("POST", `jobs/run_wait_result/preview?job_id=${id}`, {
+      content,
+      language: "bun",
+      path: job.scriptPath,
+      args,
+    }).catch((error) => {
+      // A failing fixture run answers with its error, which is the point.
+      if (job.success !== false) throw error;
+    });
+  } else {
+    throw new Error(`A ${state} fixture run cannot be seeded on a real backend.`);
+  }
+  // Who ran it, when and where cannot be asked of the API: the run is rewritten to match.
+  if (
+    job.createdBy === undefined &&
+    job.createdMinutesAgo === undefined &&
+    job.durationMs === undefined &&
+    job.tag === undefined &&
+    job.schedulePath === undefined &&
+    job.label === undefined
+  ) {
+    return;
+  }
+  const createdAt =
+    job.createdMinutesAgo === undefined
+      ? "created_at"
+      : `now() - interval '${Number(job.createdMinutesAgo)} minutes'`;
+  await psql(
+    `UPDATE v2_job SET created_at = ${createdAt},
+         created_by = COALESCE(${literal(job.createdBy)}, created_by),
+         tag = COALESCE(${literal(job.tag)}, tag),
+         labels = COALESCE(${job.label === undefined ? "NULL" : `ARRAY[${literal(job.label)}]`}, labels)
+         ${job.schedulePath ? `, trigger = ${literal(job.schedulePath)}, trigger_kind = 'schedule'` : ""}
+       WHERE id = ${literal(id)} AND workspace_id = ${literal(workspace)};
+     UPDATE v2_job_queue q SET created_at = j.created_at, scheduled_for = j.created_at
+       FROM v2_job j WHERE q.id = j.id AND q.id = ${literal(id)};
+     UPDATE v2_job_completed c SET started_at = j.created_at,
+         duration_ms = COALESCE(${literal(job.durationMs)}, c.duration_ms),
+         completed_at = j.created_at + make_interval(secs => COALESCE(${literal(job.durationMs)}, c.duration_ms) / 1000.0)
+       FROM v2_job j WHERE c.id = j.id AND c.id = ${literal(id)};`,
+    "This fixture seeds who ran a run, when or where",
+  );
+}
+
+/** Fixture workers, listed beside the instance's own until the attempt ends. */
+async function seedWorkers(
+  workers: NonNullable<BenchmarkWorkspaceRunnables["workers"]>,
+): Promise<void> {
+  // ponytail: rows are instance-wide, so concurrent attempts of one case share them.
+  for (const worker of workers) {
+    await psql(
+      `INSERT INTO worker_ping (worker, worker_instance, ping_at, started_at, ip, jobs_executed,
+                                custom_tags, worker_group)
+         VALUES (${literal(worker.worker)}, ${literal(worker.worker)},
+                 now() - interval '${Number(worker.lastPingSecondsAgo ?? 0)} seconds', now(), 'ai-evals',
+                 ${Number(worker.jobs_executed ?? 0)},
+                 ARRAY[${(worker.custom_tags ?? []).map(literal).join(", ")}]::varchar[],
+                 ${literal(worker.worker_group)})
+         ON CONFLICT (worker) DO UPDATE SET ping_at = EXCLUDED.ping_at`,
+      "This fixture seeds workers",
+    );
+  }
+}
+
+async function waitFor(what: string, done: () => Promise<boolean>): Promise<void> {
+  for (const deadline = Date.now() + 60_000; !(await done()); ) {
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
 }
 
 function lastLine(text: string | undefined): string | undefined {
@@ -538,10 +657,13 @@ function tokenLabel(workspace: string): string {
   return `ai-evals ${workspace}`;
 }
 
-async function psql(sql: string): Promise<void> {
+async function psql(
+  sql: string,
+  why = "This fixture's user is not the admin",
+): Promise<void> {
   if (!DATABASE_URL) {
     throw new Error(
-      "This fixture's user is not the admin: set WMILL_AI_EVAL_DATABASE_URL to the eval backend's database URL so the harness can create them.",
+      `${why}: set WMILL_AI_EVAL_DATABASE_URL to the eval backend's database URL so the harness can write it.`,
     );
   }
   await promisify(execFile)("psql", [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-qc", sql]);

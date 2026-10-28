@@ -182,8 +182,8 @@ fn items_query(
     let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
     if scope_type == "favorites" {
         sqlb.join("favorite")
-            .on("favorite.favorite_kind = ? AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?".bind(&item_type)
-                .bind(&authed.username));
+            .on("favorite.favorite_kind = ? AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
+                .binds(&[&item_type, &authed.username]));
     }
     sqlb.and_where("o.workspace_id = ?".bind(&workspace_id))
         .and_where("o.archived = false");

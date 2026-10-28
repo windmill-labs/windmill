@@ -380,8 +380,7 @@
 	async function syncWithDeployed(opening?: number) {
 		const deployedApp = await AppService.getAppByPath({
 			workspace: $workspaceStore!,
-			path: $appPath!,
-			withStarredInfo: true
+			path: $appPath!
 		})
 
 		// A superseded opening must not write these: the current one would then render
@@ -759,7 +758,10 @@
 							policy,
 							custom_path: customPath,
 							labels
-						}
+						},
+						aiReview: $workspaceStore
+							? { workspaceId: $workspaceStore, kind: 'app', path: savedApp.path }
+							: undefined
 					},
 					opening
 				)
@@ -905,6 +907,9 @@
 									custom_path: customPath,
 									labels
 								},
+								aiReview: $workspaceStore
+									? { workspaceId: $workspaceStore, kind: 'app', path: savedApp.path }
+									: undefined,
 								button: {
 									text: 'Looks good, deploy',
 									onClick: () => {
@@ -1326,7 +1331,7 @@
 						{
 							label: 'Fork',
 							onClick: () => {
-								window.open(`/apps/add?template=${appPath}`)
+								window.open(`/apps/add?template=${encodeURIComponent($appPath)}`)
 							}
 						},
 						...(!isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces)

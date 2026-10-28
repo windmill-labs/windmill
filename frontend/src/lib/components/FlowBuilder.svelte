@@ -1,4 +1,7 @@
 <script lang="ts">
+	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
+	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import {
 		FlowService,
 		type Flow,
@@ -63,7 +66,12 @@
 	} from './flows/flowState'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
-	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
+	import type {
+		ExtendedOpenFlow,
+		FlowEditorContext,
+		FlowInput,
+		FlowInputEditorState
+	} from './flows/types'
 	import { setFlowPanelPlacementTelemetry } from './flows/flowEditorTelemetry'
 	import { SelectionManager } from './graph/selectionUtils.svelte'
 	import { NoteEditor } from './graph/noteEditor.svelte'
@@ -71,6 +79,8 @@
 	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
 	import { cleanFlow } from './flows/utils.svelte'
 	import { DiffIcon, HistoryIcon, FileJson, Settings, Undo, Redo, Disc } from 'lucide-svelte'
+	import { muteErrorHandlerMenuItem } from './details/errorHandlerToggle'
+	import { useDeployedItem } from './details/deployedItem.svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
@@ -135,8 +145,8 @@
 	let {
 		initialPath = $bindable(''),
 		/** The draft row's own path (the URL path). Unlike `initialPath`, which the
-		 *  route re-seeds from `draft_path` so the topbar shows the pending name,
-		 *  this stays where the item actually is. */
+		 *  route re-seeds from a draft-only flow's `draft_path` so the topbar shows
+		 *  the pending name, this stays where the item actually is. */
 		userDraftPath = '',
 		onTakeLatest = undefined,
 		pathStoreInit = undefined,
@@ -194,16 +204,21 @@
 
 	let initialPathStore = writable(initialPath)
 
-	// For preserve_on_behalf_of feature
-	let preserveOnBehalfOf = writable(false)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
 	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(savedFlow?.on_behalf_of)
+	const isNewFlow = $derived(newFlow || initialPath == '')
+	let deployDialogOpen = $state(false)
+	let deployDialogMsg = $state('')
+	let deployButton: DeployButton | undefined = $state(undefined)
 
-	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
+	// Keep savedOnBehalfOfEmail in sync as the flow loads. Once deployed, the deployed row says
+	// who the flow runs as: `savedFlow` carries its draft's user. A flow that runs on behalf of
+	// nobody has no email field at all, so its absence is synced too.
 	$effect(() => {
-		if (savedFlow?.on_behalf_of_email !== undefined) {
-			savedOnBehalfOfEmail.set(savedFlow.on_behalf_of_email)
-			savedOnBehalfOfPermissionedAs.set(savedFlow.on_behalf_of)
+		const saved = deployedFlowPath ? deployedItem.current : savedFlow
+		if (saved) {
+			savedOnBehalfOfEmail.set(saved.on_behalf_of_email)
+			savedOnBehalfOfPermissionedAs.set(saved.on_behalf_of)
 		}
 	})
 
@@ -476,6 +491,30 @@
 	}
 
 	async function handleSaveFlow(deploymentMsg?: string) {
+		// Compares against the user deployed right now, which updates the saved stores; a failed
+		// lookup asks rather than trusting the draft's user.
+		const deployed = deployedFlowPath ? await deployedItem.refetch() : undefined
+		if (
+			(deployedFlowPath && !deployed) ||
+			// Asks while the folder default is loading: the backend would apply it unconfirmed.
+			folderDefault.loading ||
+			deployAsksOnBehalfOf('flow', {
+				user: actingUser,
+				email: flowStore.val.on_behalf_of_email,
+				permissionedAs: flowStore.val.on_behalf_of,
+				savedEmail: deployed?.on_behalf_of_email,
+				savedPermissionedAs: deployed?.on_behalf_of,
+				folderDefault: folderDefault.value
+			})
+		) {
+			deployDialogMsg = deploymentMsg ?? ''
+			deployDialogOpen = true
+			return
+		}
+		await deployFlow(deploymentMsg)
+	}
+
+	async function deployFlow(deploymentMsg?: string) {
 		withAIChangesWarning(async () => {
 			await handleSaveFlowInternal(deploymentMsg)
 		})
@@ -514,8 +553,7 @@
 			// the draft's `draft_path` so the topbar shows the pending name, which after
 			// someone renames the item still names the old location. Comparing against
 			// that fetches the row left behind there instead of the live one.
-			path: userDraftPath || initialPath,
-			withStarredInfo: true
+			path: userDraftPath || initialPath
 		})
 		// A superseded opening must not write these: the current one would then render
 		// and offer Take latest against the older head.
@@ -639,12 +677,13 @@
 			// The editor clears a step's lock when its code is edited, but a draft written elsewhere
 			// can hold a step whose code changed and whose lock did not. A failed lookup skips the
 			// check rather than blocking the deploy.
-			const liveFlowValue = isNewFlow
+			const liveFlow = isNewFlow
 				? undefined
-				: await FlowService.getFlowByPath({ workspace: opWorkspace!, path: initialPath })
-						.then((f) => f.value)
-						.catch(() => undefined)
-			dropStaleStepLocks(flow.value, liveFlowValue)
+				: await FlowService.getFlowByPath({
+						workspace: opWorkspace!,
+						path: userDraftPath || initialPath
+					}).catch(() => undefined)
+			dropStaleStepLocks(flow.value, liveFlow?.value)
 
 			if (isNewFlow) {
 				await FlowService.createFlow({
@@ -661,7 +700,7 @@
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
 						on_behalf_of: flow.on_behalf_of,
-						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
+						preserve_on_behalf_of: flow.on_behalf_of_email ? true : undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels,
 						// Sent explicitly: an omitted field keeps the deployed value.
@@ -711,11 +750,15 @@
 						schema: flow.schema,
 						tag: flow.tag,
 						dedicated_worker: flow.dedicated_worker,
-						ws_error_handler_muted: flow.ws_error_handler_muted,
+						// Muting applies to the deployed flow at once, from the editor menu or the flow's
+						// page, and the backend unmutes on an omitted value: keep the one deployed now.
+						ws_error_handler_muted: liveFlow
+							? liveFlow.ws_error_handler_muted
+							: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
 						on_behalf_of: flow.on_behalf_of,
-						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
+						preserve_on_behalf_of: flow.on_behalf_of_email ? true : undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels,
 						// Sent explicitly: an omitted field keeps the deployed value.
@@ -737,6 +780,10 @@
 			} as Flow
 			setDraftTriggers([])
 			loadingSave = false
+			// Settings shows the deployed run-as user while the editor stays open, a session's
+			// included: read the version just written.
+			void deployedItem.refetch()
+			deployButton?.clearMessage()
 			onDeploy?.({ path: $pathStore })
 		} catch (err) {
 			onDeployError?.({ error: err })
@@ -767,6 +814,11 @@
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
 	const history = initHistory(untrack(() => flowStore).val)
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
+	// Only the flow's first deploy takes the folder's default user.
+	const folderDefault = useFolderDefaultPermissionedAs(
+		() => (isNewFlow ? $pathStore : undefined),
+		() => opWorkspace
+	)
 
 	// Linked-agent tool resolutions are scoped by workspace + flow path, but publishers key by the
 	// flow doc's own path while readers use the live-edited $pathStore — which diverge for renames
@@ -997,7 +1049,6 @@
 		flowInputEditorState: flowInputEditorStateStore,
 		modulesTestStates,
 		outputPickerOpenFns,
-		preserveOnBehalfOf,
 		savedOnBehalfOfEmail,
 		savedOnBehalfOfPermissionedAs,
 		opWorkspace: () => opWorkspace
@@ -1306,7 +1357,10 @@
 					...currentFlow,
 					path: $pathStore,
 					draft_triggers: currentDraftTriggers
-				}
+				},
+				aiReview: opWorkspace
+					? { workspaceId: opWorkspace, kind: 'flow', path: $pathStore }
+					: undefined
 			},
 			opening
 		)
@@ -1370,9 +1424,32 @@
 				displayName: 'Test flow & record',
 				icon: Disc,
 				action: () => flowPreviewButtons?.openRecordingPreview()
-			}
+			},
+			// Before the first deploy the switch edits the flow, and the create sends it.
+			muteErrorHandlerMenuItem({
+				kind: 'flow',
+				deployed: !!deployedFlowPath,
+				muted: deployedFlowPath ? deployedItem.muted : !!editedFlow().ws_error_handler_muted,
+				hasEnterpriseLicense: !!$enterpriseLicense,
+				onToggle: () => {
+					if (deployedFlowPath) deployedItem.toggle()
+					else editedFlow().ws_error_handler_muted = !editedFlow().ws_error_handler_muted
+				}
+			})
 		]
 	}
+	const editedFlow = () => flowStore.val as ExtendedOpenFlow
+	// The URL path: `initialPath` is the staged name once a draft that renames the flow reloads.
+	const deployedFlowPath = $derived(
+		!newFlow && savedFlow && savedFlow.no_deployed !== true
+			? userDraftPath || initialPath || undefined
+			: undefined
+	)
+	const deployedItem = useDeployedItem(
+		'flow',
+		() => opWorkspace,
+		() => deployedFlowPath
+	)
 
 	function onCustomUiChange(
 		customUi: FlowBuilderWhitelabelCustomUi | undefined,
@@ -1436,18 +1513,17 @@
 			readFieldsRecursively(flowStore.val)
 		}
 	})
-	// Sync `$pathStore` from `flowStore.val.path` (which `initFlow` populates
-	// from the loaded flow — including the draft's rename, when there is one).
-	// This effect only tracks `flowStore.val.path`, so popover edits that go
-	// straight to `$pathStore` don't trigger it and aren't overwritten.
-	// Replaces the previous `$pathStore = initialPath` push (added in #2536 for
-	// the VSCode extension), which silently dropped any draft-renamed path
-	// because `initialPath` is the URL, not the loaded path.
+	// Sync `$pathStore` from the loaded flow: its staged `draft_path` when the
+	// draft has one, else its `path`. Seeding from `path` alone would make the
+	// effect below drop a staged move on every reload, and deploy would then
+	// create at a taken path. Only `flowStore.val.path` is tracked, so popover
+	// edits that go straight to `$pathStore` aren't overwritten.
 	$effect.pre(() => {
 		// `flowStore.val` is typed `OpenFlow` here but `initFlow` actually puts a
 		// `Flow` (with `path`) in it.
-		const p = (flowStore.val as Flow | undefined)?.path
-		if (p) untrack(() => ($pathStore = p))
+		const flow = flowStore.val as (Flow & { draft_path?: string }) | undefined
+		const p = flow?.path
+		if (p) untrack(() => ($pathStore = flow?.draft_path || p))
 	})
 
 	// Persist the user-typed path into the draft JSON as `draft_path`
@@ -1558,6 +1634,21 @@
 <svelte:window onkeydown={onKeyDown} />
 
 {@render children?.()}
+
+<DeployOnBehalfOfDialog
+	kind="flow"
+	bind:open={deployDialogOpen}
+	bind:message={deployDialogMsg}
+	bind:email={flowStore.val.on_behalf_of_email}
+	bind:permissionedAs={flowStore.val.on_behalf_of}
+	savedEmail={isNewFlow ? undefined : $savedOnBehalfOfEmail}
+	savedPermissionedAs={isNewFlow ? undefined : $savedOnBehalfOfPermissionedAs}
+	isNew={isNewFlow}
+	folderDefault={folderDefault.value}
+	folderDefaultLoading={folderDefault.loading}
+	targetWorkspace={opWorkspace ?? ''}
+	onConfirmed={() => deployFlow(deployDialogMsg)}
+/>
 
 <DeployOverrideConfirmationModal
 	{deployedBy}
@@ -1686,6 +1777,7 @@
 						{/if}
 
 						<DeployButton
+							bind:this={deployButton}
 							on:save={async ({ detail }) => await handleSaveFlow(detail)}
 							{loading}
 							{loadingSave}
@@ -1801,6 +1893,7 @@
 
 				<OpenInSessionButton source={headerSessionOpen} />
 				<DeployButton
+					bind:this={deployButton}
 					on:save={async ({ detail }) => await handleSaveFlow(detail)}
 					{loading}
 					{loadingSave}

@@ -891,20 +891,6 @@ pub async fn set_flow_memory_id(
     Ok(())
 }
 
-/// Apply flow-specific query parameters after job creation
-pub async fn process_flow_run_query_params(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    job_id: Uuid,
-    w_id: &str,
-    flow_path: &str,
-    run_query: &RunJobQuery,
-) -> error::Result<()> {
-    if let Some(memory_id) = run_query.memory_key(w_id, flow_path) {
-        set_flow_memory_id(tx, job_id, memory_id).await?;
-    }
-    Ok(())
-}
-
 pub async fn handle_chat_conversation_messages(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     authed: &ApiAuthed,
@@ -915,6 +901,35 @@ pub async fn handle_chat_conversation_messages(
     job_id: Uuid,
     is_test: bool,
     // The run's args, for the files the message carried.
+    args: &HashMap<String, Box<serde_json::value::RawValue>>,
+) -> error::Result<()> {
+    file_chat_turn(
+        tx,
+        &authed.username,
+        authed.is_admin,
+        w_id,
+        flow_path,
+        run_query,
+        user_message_raw,
+        job_id,
+        is_test,
+        args,
+    )
+    .await
+}
+
+/// [`handle_chat_conversation_messages`] for a conversation owned by `owner`, which need not be a
+/// user: an anonymous app visitor's is owned by `ANONYMOUS_CONVERSATION_OWNER`.
+pub async fn file_chat_turn(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    owner: &str,
+    is_admin: bool,
+    w_id: &str,
+    flow_path: &str,
+    run_query: &RunJobQuery,
+    user_message_raw: Option<&Box<serde_json::value::RawValue>>,
+    job_id: Uuid,
+    is_test: bool,
     args: &HashMap<String, Box<serde_json::value::RawValue>>,
 ) -> error::Result<()> {
     // Names the query parameter rather than the field: it is not a flow argument, and
@@ -945,8 +960,8 @@ pub async fn handle_chat_conversation_messages(
         tx,
         w_id,
         flow_path,
-        &authed.username,
-        authed.is_admin,
+        owner,
+        is_admin,
         &user_message,
         memory_id,
         is_test,

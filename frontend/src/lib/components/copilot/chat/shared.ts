@@ -8,6 +8,7 @@ import type { UserDraftItemKind } from '$lib/gen'
 // The gate's two refusals, from a module that holds prose and one size limit: under the
 // shallow-import rule below, the rest of plan mode is not reachable from here.
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
+import { USE_MODE_WITHDRAWN } from './workMode'
 import { NONE, type SessionTool } from './sessionCapabilities'
 import { integrationDisplayName } from '$lib/components/resourceTypeDisplay'
 // Import-free leaf, so it satisfies the shallow-import rule below.
@@ -522,7 +523,8 @@ export type CreatedResourceAction = {
 	id: string
 	type: 'open_created_resource'
 	label: string
-	resource: 'schedule' | 'trigger' | 'resource' | 'variable'
+	/** `agent` is an `ai_agent` resource, opened on its own editor rather than as a resource. */
+	resource: 'schedule' | 'trigger' | 'resource' | 'agent' | 'variable'
 	path: string
 	targetKind?: 'script' | 'flow'
 	triggerKind?: CreatedResourceTriggerKind
@@ -576,6 +578,11 @@ export type RunFormDisplay = {
 	 * flow. Its page can be opened to look at, but it has no form to confirm this call on, so
 	 * the card keeps the run. */
 	conversational?: boolean
+	/** What runs is a deployed agent, whose own page takes the form over rather than a script's
+	 * or a flow's. */
+	agentPage?: boolean
+	/** What the card's prose calls the runnable when `runnableKind` would name it wrongly. */
+	cardNoun?: string
 	/** Of whatever version is about to run: the deployed script, or the draft a test
 	 * previews. Only the rendered form reads it, so it is dropped once one of the flags
 	 * below unmounts that form: kept, every settled card would carry a copy of the schema
@@ -698,7 +705,7 @@ export type ToolDisplayMessage = {
 	/** Workspace item this tool created or updated. Rendered as a discrete,
 	 * always-visible card that opens (or focuses) the item's preview in the
 	 * session side panel. Set only for session chats — the side panel is their surface. */
-	previewCard?: { kind: PreviewCardKind; path: string }
+	previewCard?: { kind: PreviewCardKind | 'agent'; path: string }
 	/** Whole text on both sides of an edit this call saved. Kept in full rather than as a
 	 * reference: drafts are overwritten in place, so the sides cannot be fetched back later. */
 	codeDiff?: ToolCodeDiff
@@ -956,6 +963,7 @@ type ToolCallStatus =
 	| 'declined'
 	| 'rejected'
 	| 'blocked_plan_mode'
+	| 'withdrawn'
 	| 'held_for_instructions'
 
 /** Re-reads the chat loop's current tools and helpers. A call earlier in the same
@@ -1036,6 +1044,27 @@ export async function processToolCall<T>({
 				role: 'tool' as const,
 				tool_call_id: toolCall.id,
 				content: refusal.result
+			}
+		}
+
+		const withdrawnBlock = (): ChatCompletionMessageParam | undefined => {
+			if (!tool || !toolCallbacks.isToolWithdrawn?.(tool.def.function.name)) return undefined
+			logToolOutcome('withdrawn')
+			toolCallbacks.setToolStatus(toolCall.id, {
+				content: USE_MODE_WITHDRAWN.label,
+				parameters: args,
+				isLoading: false,
+				isQueued: false,
+				isStreamingArguments: false,
+				error: USE_MODE_WITHDRAWN.result,
+				needsConfirmation: false,
+				showDetails: tool.showDetails,
+				autoCollapseDetails: tool.autoCollapseDetails
+			})
+			return {
+				role: 'tool' as const,
+				tool_call_id: toolCall.id,
+				content: USE_MODE_WITHDRAWN.result
 			}
 		}
 
@@ -1158,7 +1187,7 @@ export async function processToolCall<T>({
 				}
 			}
 
-			const postConfirmationBlock = planModeBlock()
+			const postConfirmationBlock = planModeBlock() ?? withdrawnBlock()
 			if (postConfirmationBlock) {
 				return postConfirmationBlock
 			}
@@ -1457,6 +1486,10 @@ export interface ToolCallbacks {
 	shouldAutoAcceptToolConfirmations?: (toolName?: string) => boolean
 	isPlanModeActive?: () => boolean
 	onToolBlockedByPlanMode?: () => void
+	/** Whether the session has stopped shipping this tool since the call was made, as a switch to
+	 * Use does to every write. Asked once a confirmation or a run form has been answered, since
+	 * the switch can land while either waits. */
+	isToolWithdrawn?: (toolName: string) => boolean
 	requestUserQuestion?: (
 		toolId: string,
 		question: UserQuestionDisplay

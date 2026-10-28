@@ -74,6 +74,14 @@ export interface BenchmarkWorkspaceResource {
 	resource_type: string
 	value?: Record<string, unknown>
 	description?: string
+	/** A database's tables, as `get_db_schema` reads them: schema, table, then column. */
+	dbSchema?: Record<string, Record<string, Record<string, BenchmarkDbColumn>>>
+}
+
+export interface BenchmarkDbColumn {
+	type: string
+	required: boolean
+	default?: string
 }
 
 /** A resource type the instance holds. */
@@ -94,6 +102,48 @@ export interface BenchmarkWorkspaceJob {
 	logs?: string
 	args?: Record<string, unknown>
 	result?: unknown
+	/** Defaults to `completed`. `suspended` is a running flow parked on an approval step. */
+	state?: 'completed' | 'queued' | 'running' | 'suspended'
+	tag?: string
+	schedulePath?: string
+	/** When the run was created, relative to the case start. Unset = now. */
+	createdMinutesAgo?: number
+	/** Completed runs only: how long the run took. */
+	durationMs?: number
+}
+
+/** A worker of the instance, as `list_workers` reports it. */
+export interface BenchmarkWorkspaceWorker {
+	worker: string
+	worker_group: string
+	custom_tags?: string[]
+	lastPingSecondsAgo?: number
+	jobs_executed?: number
+}
+
+/** A folder of the benchmark workspace, as `read_workspace_item` reads it. */
+export interface BenchmarkWorkspaceFolder {
+	name: string
+	summary?: string
+	owners?: string[]
+	/** Who else may use the folder, as `u/<user>` or `g/<group>`: `true` grants write. */
+	extra_perms?: Record<string, boolean>
+}
+
+export interface BenchmarkWorkspaceGroup {
+	name: string
+	summary?: string
+	members?: string[]
+}
+
+export interface BenchmarkWorkspaceSchedule {
+	path: string
+	/** Six-field cron. */
+	schedule: string
+	script_path: string
+	is_flow?: boolean
+	enabled?: boolean
+	summary?: string
 }
 
 /** One seeded datatable table: its columns (col -> compact_type) and optional rows. */
@@ -137,6 +187,13 @@ export interface BenchmarkWorkspaceRunnables {
 	ducklakes?: string[]
 	dataMetrics?: DataMetric[]
 	jobs?: BenchmarkWorkspaceJob[]
+	/** The instance's workers. Unset falls through to the real backend's; `[]` is none. */
+	workers?: BenchmarkWorkspaceWorker[]
+	schedules?: BenchmarkWorkspaceSchedule[]
+	folders?: BenchmarkWorkspaceFolder[]
+	groups?: BenchmarkWorkspaceGroup[]
+	/** The workspace settings document (`get_workspace_settings` reads it). */
+	workspaceSettings?: Record<string, unknown>
 }
 
 type BenchmarkCompletedJob = CompletedJob & { type: 'CompletedJob' }
@@ -311,7 +368,7 @@ export function getBenchmarkCompletedJob(
 	jobId: string
 ): BenchmarkCompletedJob | null {
 	const entry = benchmarkJobs.get(benchmarkJobKey(workspace, jobId))
-	if (!entry) {
+	if (!entry || entry.job.type !== 'CompletedJob') {
 		return null
 	}
 	return structuredClone(entry.job)

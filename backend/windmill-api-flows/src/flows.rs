@@ -16,8 +16,8 @@ use axum::{
 };
 use windmill_api_auth::{
     auth::{list_tokens_internal, TruncatedTokenWithEmail},
-    build_scope_path_predicate, check_scopes, get_scope_tags, maybe_refresh_folders,
-    require_owner_of_path, ApiAuthed,
+    build_scope_path_predicate, check_scopes, maybe_refresh_folders, require_owner_of_path,
+    ApiAuthed,
 };
 use windmill_common::roles::AuthorLevel;
 use windmill_common::workspaces::{
@@ -134,6 +134,17 @@ async fn list_search_flows(
     Ok(Json(rows))
 }
 
+/// `WHERE` condition matching one label, directly on the flow or inherited from its folder.
+///
+/// The template has two `?`, so both are filled in a single `binds` pass. Chaining `bind`
+/// would not work: `bind` replaces the first `?` of the string *as it is at that moment*,
+/// so the second call would find the `?` that the first call inserted as part of the bound
+/// value and substitute there, leaving the value partly outside its quotes.
+fn label_condition(label: &str) -> String {
+    "(o.labels @> ARRAY[?] OR folder_labels(o.workspace_id, o.path) @> ARRAY[?])"
+        .binds(&[&label.trim()])
+}
+
 async fn list_flows(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -217,11 +228,7 @@ async fn list_flows(
     }
     if let Some(label) = &lq.label {
         for l in label.split(',') {
-            sqlb.and_where(
-                "(o.labels @> ARRAY[?] OR folder_labels(o.workspace_id, o.path) @> ARRAY[?])"
-                    .bind(&l.trim())
-                    .bind(&l.trim()),
-            );
+            sqlb.and_where(label_condition(l));
         }
     }
 
@@ -643,85 +650,11 @@ pub async fn validate_operator_composed_flow(
     user_db: &UserDB,
     w_id: &str,
 ) -> error::Result<()> {
-    let mut refs = windmill_common::flows::check_flow_is_composition_only(value)?;
-
-    // A tag is how a step picks the worker group it runs on: unauthorized, a builder could route
-    // a job onto a privileged one.
-    refs.tags.extend(flow_tag.clone().filter(|t| !t.is_empty()));
-    if !refs.tags.is_empty() {
-        // Job-aware: a WM_TOKEN running as a superadmin must not unlock restricted tags.
-        let is_super_admin = windmill_api_auth::is_super_admin_authed(db, authed).await?;
-        for tag in &refs.tags {
-            windmill_common::jobs::check_tag_available_for_workspace_internal(
-                db,
-                w_id,
-                tag,
-                None,
-                std::future::ready(w_id.to_string()),
-                is_super_admin,
-                get_scope_tags(authed),
-            )
-            .await?;
-        }
-    }
-
-    if refs.runnables.is_empty() && refs.pinned_scripts.is_empty() {
-        return Ok(());
-    }
-    // A flow can step through the same script thirty times; this runs on every write, preview and
-    // dependency job.
-    refs.runnables.sort();
-    refs.runnables.dedup();
-    refs.pinned_scripts
-        .sort_by_key(|(path, hash)| (path.clone(), hash.0));
-    refs.pinned_scripts
-        .dedup_by_key(|(path, hash)| (path.clone(), hash.0));
-    // The worker resolves a step's path with the root DB handle and runs it as that runnable's
-    // `on_behalf_of`, so composing an unreadable path would run code the builder cannot see. RLS
-    // on this transaction is the check.
     let mut tx = user_db.clone().begin(authed).await?;
-    for (is_flow, path) in &refs.runnables {
-        let readable = if *is_flow {
-            sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2)",
-                w_id,
-                path,
-            )
-        } else {
-            sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2)",
-                w_id,
-                path,
-            )
-        }
-        .fetch_one(&mut *tx)
-        .await?
-        .unwrap_or(false);
-        if !readable {
-            return Err(Error::PermissionDenied(format!(
-                "{} {path} does not exist or is not readable by you",
-                if *is_flow { "Flow" } else { "Script" }
-            )));
-        }
-    }
-    // A pinned step is dispatched by its hash alone, ignoring the path beside it, so a readable
-    // path paired with another script's hash would still run that other script.
-    for (path, hash) in &refs.pinned_scripts {
-        let exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2 AND hash = $3)",
-            w_id,
-            path,
-            hash.0,
-        )
-        .fetch_one(&mut *tx)
-        .await?
-        .unwrap_or(false);
-        if !exists {
-            return Err(Error::PermissionDenied(format!(
-                "Version {hash} is not a readable version of {path}"
-            )));
-        }
-    }
+    windmill_api_auth::composed::authorize_composed_flow(
+        value, flow_tag, authed, db, &mut tx, w_id,
+    )
+    .await?;
     tx.commit().await?;
     Ok(())
 }
@@ -2357,6 +2290,31 @@ mod tests {
     };
 
     const SECOND: Duration = Duration::from_secs(1);
+
+    #[test]
+    fn label_condition_fills_both_placeholders_in_one_pass() {
+        // Ordinary label: unchanged behaviour, the value appears quoted in both positions.
+        assert_eq!(
+            super::label_condition(" finance "),
+            "(o.labels @> ARRAY['finance'] OR folder_labels(o.workspace_id, o.path) @> ARRAY['finance'])"
+        );
+
+        // A `?` in the label must stay inside the quoted literal in both positions and must
+        // not leave a placeholder behind. With chained `bind`s this produced
+        // `ARRAY['a'a?b'b'] ... ARRAY[?]`, i.e. label text outside the quotes.
+        let cond = super::label_condition("a?b");
+        assert_eq!(
+            cond,
+            "(o.labels @> ARRAY['a?b'] OR folder_labels(o.workspace_id, o.path) @> ARRAY['a?b'])"
+        );
+        assert!(!cond.contains("ARRAY[?]"));
+
+        // Single quotes keep being escaped by doubling.
+        assert_eq!(
+            super::label_condition("a'?b"),
+            "(o.labels @> ARRAY['a''?b'] OR folder_labels(o.workspace_id, o.path) @> ARRAY['a''?b'])"
+        );
+    }
 
     #[test]
     fn flowmodule_serde() {

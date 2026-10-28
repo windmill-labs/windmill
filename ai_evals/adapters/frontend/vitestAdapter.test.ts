@@ -93,6 +93,37 @@ vi.mock('@codingame/monaco-vscode-languages-service-override', () => ({
 
 vi.mock('$lib/components/vscode', () => ({}))
 
+// get_db_schema reads a database's tables by running a query job; a benchmark database
+// answers with the tables its fixture seeds instead.
+vi.mock('$lib/components/apps/components/display/dbtable/metadata', async () => {
+	const actual = await vi.importActual<any>(
+		'$lib/components/apps/components/display/dbtable/metadata'
+	)
+	const { getBenchmarkDbSchemaSeed } = await import('./mockBackend')
+	const { stringifySchema } = await import('$lib/components/copilot/lib')
+	const { resourceTypeToLang } = await import(
+		'$lib/components/apps/components/display/dbtable/utils'
+	)
+	return {
+		...actual,
+		getDbSchemas: async (
+			resourceType: string,
+			resourcePath: string,
+			workspace: string | undefined,
+			...rest: unknown[]
+		) => {
+			const seed = workspace ? getBenchmarkDbSchemaSeed(workspace, resourcePath) : null
+			if (!seed) return actual.getDbSchemas(resourceType, resourcePath, workspace, ...rest)
+			const dbSchema = {
+				lang: resourceTypeToLang(seed.resourceType),
+				schema: seed.schema,
+				publicOnly: !!seed.schema.public
+			}
+			return { ...dbSchema, stringified: stringifySchema(dbSchema) }
+		}
+	}
+})
+
 vi.mock('$lib/gen', async () => {
 	const actual = await vi.importActual<any>('$lib/gen')
 	const {
@@ -211,7 +242,7 @@ vi.mock('$lib/gen', async () => {
 					: actual.JobService.runFlowByPath(data),
 			getJob: async (data: { workspace: string; id: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
-					const job = getBenchmarkCompletedJob(data.workspace, data.id)
+					const job = getBenchmarkJob(data.workspace, data.id)
 					if (!job) {
 						throw new Error(`Job "${data.id}" not found in benchmark workspace`)
 					}
@@ -223,8 +254,20 @@ vi.mock('$lib/gen', async () => {
 		// A benchmark workspace holds no resources and no AI settings: answer as an empty
 		// workspace would, rather than send its temp-directory id to the real backend.
 		WorkspaceService: wrapService(actual.WorkspaceService, {
+			getWorkspaceSettingsDocument: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkWorkspaceSettingsDocument(data.workspace)
+					: actual.WorkspaceService.getWorkspaceSettingsDocument(data),
+			applyWorkspaceSettingsDocument: async (data: any) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? applyBenchmarkWorkspaceSettingsDocument(data)
+					: actual.WorkspaceService.applyWorkspaceSettingsDocument(data),
 			getCopilotInfo: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace) ? {} : actual.WorkspaceService.getCopilotInfo(data)
+		}),
+		WorkerService: wrapService(actual.WorkerService, {
+			listWorkers: async (data: Record<string, unknown>) =>
+				listBenchmarkWorkers() ?? actual.WorkerService.listWorkers(data)
 		}),
 		ScheduleService: wrapService(actual.ScheduleService, {
 			previewSchedule: async (data: { requestBody?: Record<string, unknown> }) =>

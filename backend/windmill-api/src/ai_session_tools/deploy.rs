@@ -9,12 +9,12 @@ use serde_json::{json, Map, Value};
 use super::flows::drop_stale_step_locks;
 use super::workspace::{
     api_message, app_source_to_draft_value, delete_draft, deployed_item_exists, draft_kind,
-    get_deployed, get_draft_item, item_exists, item_type_arg, path_enc, service, unified_patch,
-    ITEM_TYPES, TRIGGER_KINDS,
+    draft_page, get_deployed, get_draft_item, item_exists, item_type_arg, path_enc, service,
+    unified_patch, ITEM_TYPES, TRIGGER_KINDS,
 };
 use super::{
-    array, bool_arg, is_not_found, js_str, matches_glob, non_null, opt_str_arg, pretty, str_arg,
-    truthy, Ctx, Surface, ToolResult,
+    array, bool_arg, enc, is_not_found, js_str, matches_glob, non_null, opt_str_arg, pretty,
+    str_arg, truthy, Ctx, Surface, ToolResult,
 };
 
 pub(super) const TOOLS: &[&str] = &["deploy_workspace_item", "delete_workspace_item", "diff"];
@@ -268,11 +268,16 @@ async fn deploy_variable(
         || draft.get("is_oauth") == Some(&Value::Bool(true))
         || non_null(draft.get("account")).is_some();
     let keep_stored = protected && stages_no_value;
-    let body = if keep_stored {
+    let mut body = if keep_stored {
         without(draft, &["value"])
     } else {
         draft.clone()
     };
+    // The draft holds the full variable, so an absent expiry was cleared, while the update
+    // endpoint reads an absent one as unchanged.
+    if let Some(body) = body.as_object_mut() {
+        body.entry("value_valid_until").or_insert(Value::Null);
+    }
     ctx.post(
         &ctx.ws(&format!("variables/update/{}", path_enc(path))),
         body,
@@ -294,7 +299,7 @@ async fn undeployed_runnable_targets(ctx: &Ctx<'_>, runnables: &Map<String, Valu
         } else {
             kind
         };
-        let (Some(target_type @ ("script" | "flow")), Some(path)) = (
+        let (Some(target_type @ ("script" | "flow" | "agent")), Some(path)) = (
             target_type,
             runnable
                 .get("path")
@@ -304,23 +309,32 @@ async fn undeployed_runnable_targets(ctx: &Ctx<'_>, runnables: &Map<String, Valu
             continue;
         };
         // Advisory: a failed probe must not block the deploy it annotates.
-        if let Ok(false) = deployed_item_exists(ctx, target_type, None, path).await {
+        let deployed = if target_type == "agent" {
+            agent_exists(ctx, path).await
+        } else {
+            deployed_item_exists(ctx, target_type, None, path).await
+        };
+        if let Ok(false) = deployed {
             targets.push(format!("\"{key}\" → {target_type} \"{path}\""));
         }
     }
     targets
 }
 
+/// Whether a saved agent, an `ai_agent` resource, is at `path`: another resource runs nothing.
+async fn agent_exists(ctx: &Ctx<'_>, path: &str) -> Result<bool, String> {
+    match ctx.get(&ctx.ws(&format!("resources/get/{}", path_enc(path)))).await {
+        Ok(resource) => Ok(resource["resource_type"] == "ai_agent"),
+        Err(e) if is_not_found(&e) => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
 async fn guest_access_is_live(ctx: &Ctx<'_>) -> bool {
-    let (Ok(usage), Ok(settings)) = (
-        ctx.get(&ctx.ws("workspaces/guest_usage")).await,
-        ctx.get(&ctx.ws("workspaces/get_public_settings")).await,
-    ) else {
+    let Ok(usage) = ctx.get(&ctx.ws("workspaces/guest_usage")).await else {
         return false;
     };
     truthy(usage.get("available"))
-        && truthy(usage.get("instance_enabled"))
-        && truthy(settings.get("guest_access_enabled"))
 }
 
 /// Deploys a raw app draft from its sources: the server bundles them on a worker and
@@ -469,7 +483,7 @@ fn mutation_result(
 }
 
 /// Where a deployed item is seen in Windmill.
-fn deployed_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
+pub(super) fn deployed_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
     Some(match item_type {
         "script" => format!("/scripts/get/{path}"),
         "flow" => format!("/flows/get/{path}"),
@@ -1403,6 +1417,8 @@ struct Materialized {
     value_masked: bool,
     value_uncomparable: bool,
     no_deployed: bool,
+    /// The item is an AI agent, which has its own pages.
+    agent: bool,
     error: Option<String>,
 }
 
@@ -1421,6 +1437,8 @@ async fn materialize(ctx: &Ctx<'_>, kind: &str, path: &str) -> Materialized {
 }
 
 fn materialized_of(kind: &str, sides: DraftSides) -> Materialized {
+    let agent =
+        super::workspace::is_agent(&sides.draft) || super::workspace::is_agent(&sides.deployed);
     let mut before = (!sides.no_deployed).then_some(sides.deployed);
     let mut after = Some(sides.draft);
     let value_masked = kind == "variable";
@@ -1430,6 +1448,7 @@ fn materialized_of(kind: &str, sides: DraftSides) -> Materialized {
         value_masked,
         value_uncomparable,
         no_deployed: sides.no_deployed,
+        agent,
         error: None,
     }
 }
@@ -1965,6 +1984,208 @@ async fn parent_comparison_unavailable(ctx: &Ctx<'_>) -> String {
     }
 }
 
+/// Items `show_deploy_review` draws at most, each one diff.
+const MAX_REVIEW_ITEMS: usize = 10;
+/// A patch the review card shows whole, or not at all: past this it shows the counts only.
+const MAX_REVIEW_PATCH_CHARS: usize = 60_000;
+
+/// Lines a patch adds and removes, as its hunks count them.
+fn changed_line_counts(patch: &str) -> (usize, usize) {
+    let mut in_hunk = false;
+    let (mut added, mut removed) = (0, 0);
+    for line in patch.lines() {
+        if line.starts_with("@@") {
+            in_hunk = true;
+        } else if line.starts_with("=== ") {
+            in_hunk = false;
+        } else if in_hunk && line.starts_with('+') {
+            added += 1;
+        } else if in_hunk && line.starts_with('-') {
+            removed += 1;
+        }
+    }
+    (added, removed)
+}
+
+/// The whole of a draft's diff as the user reviews it: unlike the model's `diff` text it
+/// is never paged, and a multi-file app's files are all in it.
+fn review_patch(m: &Materialized) -> String {
+    let mut out = String::new();
+    if m.value_masked {
+        out.push_str(if m.value_uncomparable {
+            SECRET_UNCOMPARABLE_NOTE
+        } else {
+            VARIABLE_MASKED_NOTE
+        });
+    }
+    if m.no_deployed {
+        out.push_str("No deployed version yet: the entire draft is new.\n\n");
+    }
+    out.push_str(&m.parts.patch);
+    for (name, file) in m.parts.files.iter().flatten() {
+        out.push_str(&format!("\n=== {name} ({})\n{}", file.status, file.patch));
+    }
+    out
+}
+
+/// Drafts with their diffs, each with a Deploy button the user presses: the card calls
+/// `deploy_workspace_item` itself, so that click is the confirmation. The card checks the
+/// draft is still the one it shows by the diff's digest, also for a diff too large to show.
+pub(super) async fn show_deploy_review(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let (rows, _) = list_draft_rows(ctx).await?;
+    let addressed = |row: &DraftRow| row.addressing.map(|(t, k)| (t, k.map(str::to_string)));
+    let mut picked: Vec<(&DraftRow, &'static str, Option<String>)> = Vec::new();
+    let mut missing: Vec<Value> = Vec::new();
+    match args
+        .get("items")
+        .and_then(Value::as_array)
+        .filter(|i| !i.is_empty())
+    {
+        Some(items) => {
+            for item in items {
+                let (Some(item_type), Some(path)) =
+                    (opt_str_arg(item, "type"), opt_str_arg(item, "path"))
+                else {
+                    continue;
+                };
+                let kind = opt_str_arg(item, "trigger_kind").map(str::to_string);
+                let row = find_draft(&rows, item_type, kind.as_deref(), path);
+                match (row, addressed_type(item_type)) {
+                    (Some(row), Some(item_type)) => picked.push((row, item_type, kind)),
+                    _ => missing.push(json!({
+                        "type": item_type,
+                        "trigger_kind": kind,
+                        "path": path,
+                        "error": format!("No draft of {item_type} \"{path}\" to deploy."),
+                    })),
+                }
+            }
+        }
+        None => picked.extend(rows.iter().filter_map(|row| {
+            let (item_type, kind) = addressed(row)?;
+            Some((row, item_type, kind))
+        })),
+    }
+    let total = picked.len() + missing.len();
+    let mut items = Vec::new();
+    for (row, item_type, trigger_kind) in picked.into_iter().take(MAX_REVIEW_ITEMS) {
+        // A draft is deployed by the path it is stored under, which a staged rename or a new
+        // editor draft keeps apart from the name it is known by.
+        let path = row.path.as_str();
+        let m = materialize(ctx, &row.kind, path).await;
+        let kind_value = if m.agent {
+            json!({ "resource_type": "ai_agent" })
+        } else {
+            Value::Null
+        };
+        // An app's draft opens in its own editor: its page shows only the deployed version.
+        let editor = match row.kind.as_str() {
+            "raw_app" => Some(format!("/apps_raw/edit/{path}")),
+            "app" => Some(format!("/apps/edit/{path}")),
+            _ => draft_page(item_type, path, &kind_value),
+        };
+        let has_editor = editor.is_some();
+        let page = editor.or_else(|| deployed_page(item_type, &row.display_path, &kind_value));
+        let mut item = json!({
+            "type": item_type,
+            "trigger_kind": trigger_kind,
+            "path": path,
+            "name": row.display_path,
+            "url": page.map(|page| ctx.page_url(&page)),
+            "editor": has_editor,
+        });
+        if row.kind == "app" {
+            // `deploy_workspace_item` deploys raw apps only.
+            item["note"] = json!("A classic app: deploy it from its editor in Windmill.");
+        } else if let Some(error) = &m.error {
+            item["error"] = json!(format!("Could not diff it: {error}"));
+        } else if !m.parts.has_changes && !m.value_uncomparable {
+            item["note"] = json!("The draft matches the deployed version: nothing to deploy.");
+        } else {
+            let patch = review_patch(&m);
+            let (added, removed) = changed_line_counts(&patch);
+            item["added"] = added.into();
+            item["removed"] = removed.into();
+            item["digest"] = super::apps::sha256_hex(&patch).into();
+            if patch.chars().count() > MAX_REVIEW_PATCH_CHARS {
+                item["too_large"] = true.into();
+            } else {
+                item["patch"] = json!(patch);
+            }
+        }
+        items.push(item);
+    }
+    items.extend(
+        missing
+            .into_iter()
+            .take(MAX_REVIEW_ITEMS.saturating_sub(items.len())),
+    );
+    let reviewable = items
+        .iter()
+        .filter(|item| item.get("digest").is_some())
+        .count();
+    ctx.set_view(
+        "windmill/review",
+        json!({
+            "workspace": ctx.w_id,
+            "items": items,
+            // Windmill's own "Review & deploy drafts" page.
+            "url": ctx.page_url(&format!("/forks/compare?workspace_id={}&mode=draft", enc(ctx.w_id))),
+        }),
+    );
+    if total == 0 {
+        return Ok("No drafts to review: nothing differs from the deployed state.".to_string());
+    }
+    let mut text = format!(
+        "Showing {} draft(s) to the user, {reviewable} with a diff they can deploy from the card. Nothing was deployed: you are told when the user deploys one.",
+        items.len()
+    );
+    if total > items.len() {
+        text.push_str(&format!(
+            " Only the first {MAX_REVIEW_ITEMS} of {total} are shown."
+        ));
+    }
+    let rest: Vec<&str> = items
+        .iter()
+        .filter(|item| item.get("digest").is_none())
+        .filter_map(|item| item.get("name").unwrap_or(&item["path"]).as_str())
+        .collect();
+    if !rest.is_empty() {
+        text.push_str(&format!(
+            " No Deploy is offered for {} (nothing to deploy, or not deployable from the card).",
+            rest.join(", ")
+        ));
+    }
+    Ok(text)
+}
+
+/// The draft a tool names by path. An exact storage path wins over a display name, as in
+/// `diff`: a staged rename shows one draft under the path another is stored at.
+fn find_draft<'a>(
+    rows: &'a [DraftRow],
+    item_type: &str,
+    trigger_kind: Option<&str>,
+    path: &str,
+) -> Option<&'a DraftRow> {
+    let named = |row: &&DraftRow| {
+        row.addressing
+            .is_some_and(|(t, k)| t == item_type && k == trigger_kind)
+    };
+    rows.iter()
+        .filter(named)
+        .find(|row| row.path == path)
+        .or_else(|| {
+            rows.iter()
+                .filter(named)
+                .find(|row| row.display_path == path)
+        })
+}
+
+/// The item type a tool names, as the `'static` the draft listing addresses drafts by.
+fn addressed_type(item_type: &str) -> Option<&'static str> {
+    ITEM_TYPES.iter().copied().find(|t| *t == item_type)
+}
+
 async fn diff(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     if args.get("search").is_some_and(|s| !s.is_null()) {
         return diff_search(ctx, args).await;
@@ -1982,6 +2203,28 @@ async fn diff(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_draft_is_found_by_its_storage_path_before_a_display_name() {
+        let row = |path: &str, display_path: &str| DraftRow {
+            kind: "script".into(),
+            path: path.into(),
+            display_path: display_path.into(),
+            addressing: Some(("script", None)),
+        };
+        // A rename of `x` to `y` is staged, and another draft is stored at `y`.
+        let rows = [row("u/a/x", "u/a/y"), row("u/a/y", "u/a/y")];
+        assert_eq!(
+            find_draft(&rows, "script", None, "u/a/y").unwrap().path,
+            "u/a/y"
+        );
+        assert_eq!(
+            find_draft(&rows[..1], "script", None, "u/a/y")
+                .unwrap()
+                .path,
+            "u/a/x"
+        );
+    }
 
     #[test]
     fn yaml_matches_the_session_emitter() {

@@ -78,17 +78,15 @@ export function agentDraftState(
 export class AgentDraftUnavailable extends Error {}
 
 /**
- * An agent's resource together with the draft a run of it would use.
+ * Land the agent editor's pending save of `path`, or refuse: a read of the stored draft would
+ * otherwise be older than the edit still held in the browser.
  *
- * The flush is what makes the answer current. Autosave is debounced by 1.5s (10s ceiling), and
+ * The flush is what makes the stored row current. Autosave is debounced by 1.5s (10s ceiling), and
  * closing the agent editor releases the in-memory cell without cancelling that pending POST — so
  * testing or deploying right after closing would otherwise read a row the last edits have not
  * reached yet. `flush` replays the parked save and is a no-op when there is none.
  */
-export async function fetchAgentWithDraft(
-	path: string,
-	workspace: string
-): Promise<{ response: Resource; draft: AgentResourceState | undefined }> {
+export async function settleAgentDraft(path: string, workspace: string): Promise<void> {
 	const query = { workspace, itemKind: 'resource' as const, path }
 	await UserDraftDbSyncer.flush(query)
 	// `flush` resolves whether or not the save actually landed: `postSave` catches network and
@@ -106,6 +104,14 @@ export async function fetchAgentWithDraft(
 			`The unsaved changes to ${path} could not be saved because it was edited elsewhere. Open the agent to resolve it.`
 		)
 	}
+}
+
+/** An agent's resource together with the draft a run of it would use, its pending save landed. */
+export async function fetchAgentWithDraft(
+	path: string,
+	workspace: string
+): Promise<{ response: Resource; draft: AgentResourceState | undefined }> {
+	await settleAgentDraft(path, workspace)
 	const response = await ResourceService.getResource({ workspace, path, getDraft: true })
 	return { response, draft: agentDraftState(response, path, workspace) }
 }

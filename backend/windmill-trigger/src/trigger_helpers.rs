@@ -489,7 +489,7 @@ pub trait TriggerJobArgs {
                 }
             };
 
-            Ok(job_args)
+            Ok(job_args.omit_untrusted_interpolation())
         }
     }
 
@@ -512,7 +512,7 @@ pub async fn trigger_runnable_inner<'c>(
     workspace_id: &str,
     runnable_path: &str,
     is_flow: bool,
-    args: PushArgsOwned,
+    mut args: PushArgsOwned,
     retry: Option<&sqlx::types::Json<Retry>>,
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
@@ -527,6 +527,18 @@ pub async fn trigger_runnable_inner<'c>(
     bool,
     Option<sqlx::Transaction<'c, sqlx::Postgres>>,
 )> {
+    // A trigger's args are built from a third party's payload — for an HTTP route without
+    // preprocessor the request body's keys *are* the job's top-level args — and the job runs
+    // as the trigger's owner, not as whoever sent that payload. So the sender may not steer
+    // how the runnable runs: pick the function called instead of `main` (and skip whatever
+    // `main` authenticates, e.g. the signature check of a `custom_script` route), plant
+    // module files in the job directory, or redirect where its workspace imports resolve.
+    // Every trigger kind funnels through here on its way to `push`, and none of them sets
+    // one of those keys itself, so this is the single place to do it rather than each args
+    // builder. It does not restrict what the runnable is *given*: ordinary inputs pass
+    // through untouched.
+    args.sanitize_untrusted();
+
     let error_handler_args = error_handler_args.map(|args| {
         let args = args
             .0

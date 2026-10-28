@@ -363,7 +363,7 @@ fn variable_to_draft_state(variable: &Value) -> Value {
         "wsSpecific".into(),
         field("ws_specific").unwrap_or(json!(false)),
     );
-    for key in ["account", "is_oauth", "expires_at"] {
+    for key in ["account", "is_oauth", "expires_at", "value_valid_until"] {
         put(&mut state, key, field(key));
     }
     Value::Object(state)
@@ -428,6 +428,13 @@ fn variable_draft(args: &Value, base: Option<Value>) -> Result<Value, String> {
     draft.insert("wsSpecific".into(), ws_specific);
     for (key, value) in extras {
         put(&mut draft, key, value);
+    }
+    // Deploying a draft reads an absent expiry as cleared. The draft starts from the base, so a
+    // `null` has to remove its date rather than skip it.
+    if args.get("value_valid_until").is_some_and(Value::is_null) {
+        draft.remove("value_valid_until");
+    } else {
+        put(&mut draft, "value_valid_until", arg("value_valid_until"));
     }
     Ok(Value::Object(draft))
 }
@@ -702,6 +709,18 @@ mod tests {
         assert!(
             variable_draft(&json!({"path": "p", "is_secret": true}), Some(plain_empty)).is_err()
         );
+
+        let dated = variable_to_draft_state(&json!({
+            "path": "p", "value": "v", "is_secret": false, "value_valid_until": "2027-01-15T00:00:00Z",
+        }));
+        let edit = |args: Value| variable_draft(&args, Some(dated.clone())).unwrap();
+        assert_eq!(
+            edit(json!({"path": "p", "description": "new"}))["value_valid_until"],
+            "2027-01-15T00:00:00Z"
+        );
+        assert!(edit(json!({"path": "p", "value_valid_until": null}))
+            .get("value_valid_until")
+            .is_none());
 
         let oauth = variable_to_draft_state(&json!({
             "path": "p", "value": "live-token", "is_secret": true, "account": 3,

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import ResourceVersionHistory from '$lib/components/ResourceVersionHistory.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { markAgentWritten } from './agentEditorStore.svelte'
 
 	interface Props {
@@ -12,6 +12,9 @@
 
 	let { path, canRestore, onRestored }: Props = $props()
 	let drawer: Drawer | undefined = $state()
+	// The workspace the history reads and restores in, which a session's fork makes other than the
+	// navigation one.
+	const operatingWorkspace = useOperatingWorkspace()
 
 	export function open() {
 		drawer?.openDrawer()
@@ -26,7 +29,7 @@
 			onRestore={() => {
 				drawer?.closeDrawer()
 				// A restore writes the resource as a deploy does, so whatever shows this agent re-reads it.
-				markAgentWritten($workspaceStore ?? undefined, path)
+				markAgentWritten($operatingWorkspace ?? undefined, path)
 				onRestored?.()
 			}}
 		/>

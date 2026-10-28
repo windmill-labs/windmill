@@ -529,6 +529,14 @@ try {{
     if ($step_id) {{
         $err["step_id"] = $step_id;
     }}
+    $job_id = getenv('WM_JOB_ID');
+    if ($job_id) {{
+        $err["job_id"] = $job_id;
+    }}
+    $flow_path = getenv('WM_FLOW_PATH');
+    if ($flow_path) {{
+        $err["flow_path"] = $flow_path;
+    }}
     file_put_contents("result.json", json_encode($err));
     exit(1);
 }}

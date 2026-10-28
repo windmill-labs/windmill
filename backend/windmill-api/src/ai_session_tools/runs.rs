@@ -18,6 +18,8 @@ pub(super) const TOOLS: &[&str] = &[
     "test_run_flow",
     "run_flow",
     "test_run_step",
+    "test_run_agent",
+    "run_agent",
     "list_runs",
     "get_run",
     "cancel_job",
@@ -30,6 +32,8 @@ pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult 
         "test_run_flow" => test_run_flow(ctx, args).await,
         "run_flow" => run_deployed(ctx, args, true).await,
         "test_run_step" => test_run_step(ctx, args).await,
+        "test_run_agent" => test_run_agent(ctx, args).await,
+        "run_agent" => run_agent(ctx, args).await,
         "list_runs" => list_runs(ctx, args).await,
         "get_run" => get_run(ctx, args).await,
         "cancel_job" => cancel_job(ctx, args).await,
@@ -631,6 +635,11 @@ pub(crate) enum RunTarget {
         /// Without one, a chat-enabled flow's test run is a conversation of its own.
         fresh_conversation: bool,
     },
+    /// A saved AI agent, as its own page runs it.
+    Agent {
+        path: String,
+        memory_id: Option<String>,
+    },
     /// An AI agent or AI decision step, run alone as a one-step flow preview of `flow_path`.
     Step {
         flow_path: String,
@@ -716,6 +725,19 @@ pub(super) async fn start_run(
                 memory_id.as_deref(),
             )
             .await
+            .map_err(message)
+        }
+        RunTarget::Agent { path, memory_id } => {
+            let query = memory_id
+                .as_ref()
+                .map(|id| format!("?memory_id={}", enc(id)))
+                .unwrap_or_default();
+            ctx.post(
+                &ctx.ws(&format!("jobs/run/agent/{}{query}", path_enc(path))),
+                Value::Object(args),
+            )
+            .await
+            .map(job_id)
             .map_err(message)
         }
         RunTarget::Step { flow_path, step } => {
@@ -1048,6 +1070,178 @@ async fn test_run_flow(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         args,
         resolve_test_flow(ctx, path, memory_id),
         async |resolved| run_resolved(ctx, args, path, resolved, "flow", path, "test").await,
+    )
+    .await
+}
+
+// ============================================================================
+// Saved AI agents
+// ============================================================================
+
+/// What a run of an agent takes, as its editor's chat declares it.
+fn agent_run_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "user_message": { "type": "string", "description": "Message from user" },
+            "user_attachments": {
+                "type": "array",
+                "items": { "type": "object", "resourceType": "s3object" },
+                "description": "Images or PDFs for the agent to read"
+            }
+        },
+        "required": ["user_message"]
+    })
+}
+
+fn agent_memory_id(args: &Value) -> Result<Option<&str>, String> {
+    let memory_id = opt_str_arg(args, "memory_id");
+    if memory_id.is_some_and(|id| id.len() != 36 || uuid::Uuid::parse_str(id).is_err()) {
+        return Err("memory_id must be a UUID".to_string());
+    }
+    Ok(memory_id)
+}
+
+/// The agent a test runs, as `(configuration, description)`: the user's draft when there is
+/// one, else the deployed resource. Refuses a path holding some other kind of resource.
+async fn load_agent_for_test(ctx: &Ctx<'_>, path: &str) -> Result<(Value, Value), String> {
+    let draft = get_draft(ctx, "resource", path).await?.map(|d| d.value);
+    // A draft records its type only when nothing is deployed at its path.
+    let (resource_type, config, description) = match draft {
+        Some(draft) if draft.get("resource_type").is_some() => (
+            draft["resource_type"].clone(),
+            draft["args"].clone(),
+            draft["description"].clone(),
+        ),
+        draft => {
+            let deployed = ctx
+                .get(&ctx.ws(&format!("resources/get/{}", path_enc(path))))
+                .await?;
+            let (config, description) = match draft {
+                Some(draft) => (draft["args"].clone(), draft["description"].clone()),
+                None => (deployed["value"].clone(), deployed["description"].clone()),
+            };
+            (deployed["resource_type"].clone(), config, description)
+        }
+    };
+    let resource_type = resource_type.as_str().unwrap_or_default();
+    if resource_type != "ai_agent" {
+        return Err(format!(
+            "\"{path}\" is a {resource_type} resource, not an AI agent."
+        ));
+    }
+    Ok((config, description))
+}
+
+fn agent_resolved(
+    target: RunTarget,
+    description: &Value,
+    start_message: String,
+    conversational: bool,
+) -> Resolved {
+    Resolved {
+        target,
+        schema: Some(agent_run_schema()),
+        code: None,
+        lang: None,
+        summary: description.as_str().map(String::from),
+        runnable_kind: "flow",
+        start_message,
+        conversational,
+        module: None,
+    }
+}
+
+async fn resolve_test_agent(
+    ctx: &Ctx<'_>,
+    path: &str,
+    memory_id: Option<&str>,
+) -> Result<Resolved, String> {
+    let (mut config, description) = load_agent_for_test(ctx, path).await?;
+    // Who the agent runs as and who may ask it in Slack, not inputs: a test runs as its caller.
+    if let Some(map) = config.as_object_mut() {
+        for key in ["on_behalf_of", "run_on_behalf_of", "slack_anyone"] {
+            map.remove(key);
+        }
+    }
+    // The run the agent editor's chat makes of its draft, which keeps none of the inputs a flow
+    // step supplies (`agentChatFlow`).
+    let flow = crate::ai_evals::run::config_to_draft(config)
+        .and_then(|config| {
+            crate::agent_runs::agent_step_flow(
+                &config,
+                crate::agent_runs::AGENT_NODE_ID,
+                true,
+                &["memory_id", "previous_messages", "enabled_tools"],
+            )
+        })
+        .map_err(|e| e.to_string())?;
+    let target = RunTarget::FlowPreview {
+        // Filed where the agent editor's chat files its conversations.
+        path: format!("{path}.chat"),
+        value: serde_json::to_value(flow).map_err(|e| e.to_string())?,
+        memory_id: Some(
+            memory_id
+                .map(String::from)
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        ),
+        fresh_conversation: false,
+    };
+    Ok(agent_resolved(
+        target,
+        &description,
+        format!("Starting agent test run for \"{path}\"..."),
+        false,
+    ))
+}
+
+async fn test_run_agent(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let path = str_arg(args, "path")?;
+    let memory_id = agent_memory_id(args)?;
+    run_tool(
+        ctx,
+        args,
+        resolve_test_agent(ctx, path, memory_id),
+        async |resolved| run_resolved(ctx, args, path, resolved, "agent", path, "test").await,
+    )
+    .await
+}
+
+async fn resolve_agent(
+    ctx: &Ctx<'_>,
+    path: &str,
+    memory_id: Option<&str>,
+) -> Result<Resolved, String> {
+    let agent = ctx
+        .get(&ctx.ws(&format!("resources/get/{}", path_enc(path))))
+        .await?;
+    let resource_type = agent["resource_type"].as_str().unwrap_or_default();
+    if resource_type != "ai_agent" {
+        return Err(format!(
+            "\"{path}\" is a {resource_type} resource, not an AI agent."
+        ));
+    }
+    let target = RunTarget::Agent {
+        path: path.to_string(),
+        memory_id: memory_id.map(String::from),
+    };
+    // A turn of a conversation stays on the card: the agent's page starts one of its own.
+    Ok(agent_resolved(
+        target,
+        &agent["description"],
+        format!("Running agent \"{path}\"..."),
+        memory_id.is_some(),
+    ))
+}
+
+async fn run_agent(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let path = str_arg(args, "path")?;
+    let memory_id = agent_memory_id(args)?;
+    run_tool(
+        ctx,
+        args,
+        resolve_agent(ctx, path, memory_id),
+        async |resolved| run_resolved(ctx, args, path, resolved, "agent", path, "run").await,
     )
     .await
 }
@@ -1700,6 +1894,10 @@ const LOGS_UNREADABLE: &str = "Logs could not be read for this run.";
 struct RunTree<'a> {
     entries: &'a [Value],
     children: Vec<Vec<usize>>,
+    /// The card lists a top-level loop's latest iterations, up to this many, where the model
+    /// reads its failed ones and its last. Nested loops keep the model's: at every depth the
+    /// listing would multiply.
+    card_iterations: Option<usize>,
 }
 
 impl<'a> RunTree<'a> {
@@ -1716,7 +1914,7 @@ impl<'a> RunTree<'a> {
             }
             stack.push(i);
         }
-        RunTree { entries, children }
+        RunTree { entries, children, card_iterations: None }
     }
 
     fn status(&self, i: usize) -> &str {
@@ -1857,14 +2055,22 @@ impl<'a> RunTree<'a> {
         let skipped = count("skipped");
         // Skipped is terminal: only running, queued and suspended are unfinished.
         let unfinished = by_index.len() - ok - failed.len() - skipped;
-        let mut shown: Vec<usize> = failed
-            .iter()
-            .copied()
-            .take(MAX_FAILED_ITERATIONS_SHOWN)
-            .collect();
-        if !shown.contains(&last) {
-            shown.push(last);
-        }
+        let top_level = first["depth"].as_i64().is_some_and(|d| d <= 1);
+        let latest = self.card_iterations.filter(|_| top_level);
+        let shown: Vec<usize> = match latest {
+            Some(limit) => by_index[by_index.len().saturating_sub(limit)..].to_vec(),
+            None => {
+                let mut shown: Vec<usize> = failed
+                    .iter()
+                    .copied()
+                    .take(MAX_FAILED_ITERATIONS_SHOWN)
+                    .collect();
+                if !shown.contains(&last) {
+                    shown.push(last);
+                }
+                shown
+            }
+        };
 
         out.insert(
             "type".into(),
@@ -1897,6 +2103,10 @@ impl<'a> RunTree<'a> {
                 "iterations_elided".into(),
                 (by_index.len() - shown.len()).into(),
             );
+        }
+        if latest.is_some() {
+            // The ones left out all came before the ones listed.
+            out.insert("iterations_latest".into(), true.into());
         }
         out
     }
@@ -2007,6 +2217,12 @@ fn stringify(value: &Value) -> String {
 }
 
 async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    read_run(ctx, args, false).await
+}
+
+/// `get_run`'s answer, and with `card` what the run card draws of it, which costs more reads
+/// than the model's answer: only `show_run`, the card's own refresh, asks for it.
+async fn read_run(ctx: &Ctx<'_>, args: &Value, card: bool) -> ToolResult {
     let id = str_arg(args, "id")?;
     let results_route = |max: usize| {
         ctx.ws(&format!(
@@ -2035,18 +2251,628 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         enc(id)
     ));
     let tree_route = results_route(TREE_RESULT_HEAD_CHARS);
-    let (job, logs, results) = tokio::join!(
-        ctx.get(&job_route),
-        ctx.request("GET", &logs_route, None),
-        ctx.get(&tree_route),
-    );
+    // The card reads only the end of the log, below; the model's answer, the whole of it.
+    let logs = async {
+        match card {
+            true => Err(String::new()),
+            false => ctx.request("GET", &logs_route, None).await,
+        }
+    };
+    let (job, logs, results) = tokio::join!(ctx.get(&job_route), logs, ctx.get(&tree_route));
     let results = results.unwrap_or_else(|_| json!({ "entries": [] }));
+    if let (true, Ok(job)) = (card, &job) {
+        let mut details = Map::new();
+        let entries = results["entries"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let mut steps = card_steps(entries, job);
+        details.extend(agent_card(job, &mut steps));
+        details.insert("step_list".into(), steps.into());
+        let mut logs = log_tail(ctx, id, CARD_LOG_CHARS).await;
+        // `getupdate` reads only what is still in the database, and archiving can leave
+        // little there. A finished run is not refreshed again, so it can afford the full read.
+        let short = |(tail, cut): &(String, bool)| *cut && js_len(tail) < CARD_LOG_CHARS as usize;
+        if job.get("success").is_some() && logs.as_ref().is_some_and(short) {
+            if let Ok(full) = ctx.request("GET", &logs_route, None).await {
+                let tail = js_tail(&full, CARD_LOG_CHARS as usize);
+                logs = Some((tail.to_string(), tail.len() < full.len()));
+            }
+        }
+        if let Some((tail, cut)) = logs.as_ref().filter(|(tail, _)| !tail.trim().is_empty()) {
+            if *cut {
+                details.insert("logs_cut".into(), true.into());
+            }
+            details.insert("logs".into(), tail.clone().into());
+        }
+        // While a run goes on, its latest log line says what it is doing: a flow's is in the
+        // deepest step still running, a script's in its own log.
+        if job.get("success").is_none() {
+            let running = entries
+                .iter()
+                .skip(1)
+                .filter(|e| e["status"] == "running")
+                .filter_map(|e| e["job_id"].as_str())
+                .last();
+            let live = match running {
+                Some(step) => log_tail(ctx, step, 400).await.map(|(tail, _)| tail),
+                None => logs.map(|(tail, _)| tail),
+            };
+            if let Some(line) = live
+                .as_deref()
+                .and_then(|l| l.lines().rev().find(|l| !l.trim().is_empty()))
+            {
+                details.insert("live_log".into(), js_head(line.trim(), 300).into());
+            }
+        }
+        match big_image_result(ctx, id, job, entries.first()).await {
+            Some(image) => {
+                let mut job = job.clone();
+                job["result"] = image;
+                report_run(ctx, id, Some(&job), details);
+            }
+            None => report_run(ctx, id, Some(job), details),
+        }
+    }
     let run = shape_run(id, &job?, logs, &results);
     ctx.effect(Effect::InspectedRun { job_id: id.to_string() });
     Ok(match ctx.link(&format!("/run/{}", enc(id))) {
         Some(url) => format!("{run}\n\nRun page: {url}"),
         None => run,
     })
+}
+
+/// The job read swaps a result past ~90 KB for a marker, so an image under the card's cap
+/// is read again by its one field. The step tree's head of the result says which it is.
+async fn big_image_result(
+    ctx: &Ctx<'_>,
+    id: &str,
+    job: &Value,
+    root: Option<&Value>,
+) -> Option<Value> {
+    if job.get("result")? != TOO_BIG {
+        return None;
+    }
+    let root = root?;
+    let kind = root["result_prefix"]
+        .as_str()?
+        .strip_prefix("{\"")?
+        .split('"')
+        .next()?;
+    if !["png", "jpeg", "gif", "svg"].contains(&kind)
+        || root["result_length"].as_u64()? > CARD_IMAGE_CHARS as u64 + 64
+    {
+        return None;
+    }
+    let route = ctx.ws(&format!(
+        "jobs/completed/get_result/{}?json_path={kind}",
+        enc(id)
+    ));
+    let field = ctx.get(&route).await.ok()?;
+    // The field alone must be the whole result, as `card_image` requires: a result with more
+    // keys is no image, and keeps its marker. The length is the result's text, in characters.
+    let whole = json!({ kind: field });
+    (jsonb_text_len(&whole) == root["result_length"].as_u64()?).then_some(whole)
+}
+
+/// The length in characters of a value as PostgreSQL prints a jsonb: `", "` between items
+/// and `": "` after keys. Key order, which jsonb changes, does not change it.
+fn jsonb_text_len(value: &Value) -> u64 {
+    let text = |v: &Value| serde_json::to_string(v).map_or(0, |t| t.chars().count() as u64);
+    let separators = |n: usize| 2 * n.saturating_sub(1) as u64;
+    match value {
+        Value::Array(items) => {
+            2 + separators(items.len()) + items.iter().map(jsonb_text_len).sum::<u64>()
+        }
+        Value::Object(map) => {
+            2 + separators(map.len())
+                + map
+                    .iter()
+                    .map(|(k, v)| text(&Value::String(k.clone())) + 2 + jsonb_text_len(v))
+                    .sum::<u64>()
+        }
+        _ => text(value),
+    }
+}
+
+/// The end of a job's log, read without the rest of it: an offset past the end returns
+/// no log but where it ends, and a second read starts just before that. A log grows as long
+/// as its job runs, and the card asks again on every refresh. The result stream's offset is
+/// past its end too, or each read would carry the whole stream. Also says whether the log
+/// goes back further.
+async fn log_tail(ctx: &Ctx<'_>, job: &str, chars: i64) -> Option<(String, bool)> {
+    let update = |offset: i64| {
+        ctx.ws(&format!(
+            "jobs_u/getupdate/{}?log_offset={offset}&stream_offset={}",
+            enc(job),
+            i32::MAX
+        ))
+    };
+    let end = ctx.get(&update(i32::MAX as i64)).await.ok()?["log_offset"].as_i64()?;
+    // Offsets count from 1, and `end` is one past the last character.
+    let start = (end - chars).max(1);
+    let tail = ctx.get(&update(start)).await.ok()?;
+    tail["new_logs"]
+        .as_str()
+        .map(|logs| (logs.to_string(), start > 1))
+}
+
+/// The card of one run: what `get_run` hands it, under a one-line answer, since the model
+/// shows a run it already read.
+pub(super) async fn show_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let id = str_arg(args, "id")?;
+    read_run(ctx, args, true).await?;
+    let Some((_, Value::Object(mut run))) = ctx.view.lock().unwrap().take() else {
+        return Err(format!("Run {id} could not be read."));
+    };
+    // A run knows its path alone: the card names it as an item does, by its summary.
+    let get = match run.get("job_kind").and_then(Value::as_str) {
+        Some("script") => Some("scripts/get/p"),
+        Some("flow") => Some("flows/get"),
+        _ => None,
+    };
+    if let (Some(get), Some(path)) = (get, run.get("path").and_then(Value::as_str)) {
+        let route = ctx.ws(&format!("{get}/{}", path_enc(path)));
+        if let Ok(item) = ctx.get(&route).await {
+            if let Some(summary) = item["summary"].as_str().filter(|s| !s.is_empty()) {
+                run.insert("summary".into(), summary.into());
+            }
+        }
+    }
+    let status = run["status"].as_str().unwrap_or("running").to_string();
+    ctx.set_view("windmill/run", Value::Object(run));
+    Ok(format!(
+        "Showing run {id} ({status}) to the user as a live card."
+    ))
+}
+
+/// Runs `show_runs` draws at most: each is one job read.
+const MAX_RUNS_SHOWN: usize = 20;
+
+pub(super) async fn show_runs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let ids: Vec<&str> = args
+        .get("ids")
+        .and_then(Value::as_array)
+        .map(|ids| ids.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    if ids.is_empty() {
+        return Err("ids is required: the runs to show, from list_runs.".to_string());
+    }
+    let shown = &ids[..ids.len().min(MAX_RUNS_SHOWN)];
+    let routes: Vec<String> = shown
+        .iter()
+        .map(|id| ctx.ws(&format!("jobs_u/get/{}?no_logs=true&no_code=true", enc(id))))
+        .collect();
+    let jobs = futures::future::join_all(routes.iter().map(|route| ctx.get(route))).await;
+    let mut runs = Vec::new();
+    let mut missing = Vec::new();
+    for (id, job) in shown.iter().zip(jobs) {
+        match job {
+            Ok(job) => {
+                let mut run = run_card(id, Some(&job));
+                // A table row draws neither: an image would ride along unseen.
+                run.remove("result");
+                run.remove("image");
+                run.insert(
+                    "url".into(),
+                    ctx.page_url(&format!("/run/{}", enc(id))).into(),
+                );
+                runs.push(Value::Object(run));
+            }
+            Err(_) => missing.push(*id),
+        }
+    }
+    ctx.set_view(
+        "windmill/runs",
+        json!({ "workspace": ctx.w_id, "runs": runs, "url": ctx.page_url("/runs") }),
+    );
+    let mut text = format!("Showing {} run(s) to the user as a table.", runs.len());
+    if ids.len() > shown.len() {
+        text.push_str(&format!(" Only the first {MAX_RUNS_SHOWN} are shown."));
+    }
+    if !missing.is_empty() {
+        text.push_str(&format!(" Not found: {}.", missing.join(", ")));
+    }
+    Ok(text)
+}
+
+/// Result head the run card shows; the full result is one click away on the run page.
+const CARD_RESULT_CHARS: usize = 1500;
+/// A loop's iterations the card lists, the latest ones: the rest are on the run page.
+const CARD_ITERATIONS: usize = 10;
+/// Past this an image result is named and linked rather than drawn: every refresh of the
+/// card carries it again.
+const CARD_IMAGE_CHARS: usize = 1_000_000;
+/// What the job read returns in place of a result too big to send.
+const TOO_BIG: &str = "WINDMILL_TOO_BIG";
+const CARD_STEP_RESULT_CHARS: usize = 300;
+const CARD_ARGS_CHARS: usize = 4000;
+const CARD_LOG_CHARS: i64 = 3000;
+
+/// Hand the run card the run `id`, read as `job` (`None` while it is still running), with
+/// `extra` fields beside it.
+fn report_run(ctx: &Ctx<'_>, id: &str, job: Option<&Value>, extra: Map<String, Value>) {
+    let mut run = run_card(id, job);
+    run.extend(extra);
+    run.insert("workspace".into(), ctx.w_id.into());
+    run.insert(
+        "url".into(),
+        ctx.page_url(&format!("/run/{}", enc(id))).into(),
+    );
+    // `cancel_job` writes: a token that cannot call it gets no Cancel button.
+    run.insert(
+        "can_cancel".into(),
+        matches!(ctx.access, super::SessionAccess::Full).into(),
+    );
+    ctx.set_view("windmill/run", Value::Object(run));
+}
+
+/// A flow run's top-level steps for the card's details, grouped as the model reads them:
+/// a loop as its iteration counts, a parallel step as its branches, a retry as its attempts.
+fn card_steps(entries: &[Value], job: &Value) -> Vec<Value> {
+    if entries.is_empty() {
+        return Vec::new();
+    }
+    let mut tree = RunTree::new(entries);
+    tree.card_iterations = Some(CARD_ITERATIONS);
+    let mut steps = tree.shape_children(0, (CARD_STEP_RESULT_CHARS, CARD_STEP_RESULT_CHARS));
+    let mut modules = HashMap::new();
+    collect_modules(&job["raw_flow"], &mut modules);
+    name_steps(&mut steps, &modules);
+    // Which branch a top-level branch-one step took, which only the flow's status says.
+    for status in job["flow_status"]["modules"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        let chosen = &status["branch_chosen"];
+        let Some(step) = steps.iter_mut().find(|s| s["step"] == status["id"]) else {
+            continue;
+        };
+        let taken = match (chosen["type"].as_str(), chosen["branch"].as_u64()) {
+            (Some("default"), _) => "Default branch".to_string(),
+            (Some("branch"), Some(i)) => modules
+                .get(status["id"].as_str().unwrap_or_default())
+                .and_then(|m| m["value"]["branches"][i as usize]["summary"].as_str())
+                .filter(|s| !s.is_empty())
+                .map_or_else(|| format!("Branch {}", i + 1), str::to_string),
+            _ => continue,
+        };
+        step["branch_taken"] = taken.into();
+    }
+    steps
+}
+
+/// What the card says of a run's agents, from the flow's status: the tool each call ran, an
+/// approval or a question one of them waits on, and whether the run is a saved agent's.
+fn agent_card(job: &Value, steps: &mut Vec<Value>) -> Map<String, Value> {
+    let mut out = Map::new();
+    let mut tools = HashMap::new();
+    for status in job["flow_status"]["modules"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        let actions = status["agent_actions"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        for action in actions {
+            if let (Some(job), Some(name)) =
+                (action["job_id"].as_str(), action["function_name"].as_str())
+            {
+                tools.insert(job.to_string(), name.to_string());
+            }
+        }
+        // A request is answered once its `agent_actions_success` entry is written.
+        let answered = status["agent_actions_success"]
+            .as_array()
+            .map_or(0, Vec::len);
+        let waiting = actions.iter().enumerate().rev().find(|(i, a)| {
+            *i >= answered && matches!(a["type"].as_str(), Some("approval" | "question"))
+        });
+        // A run canceled or timed out while waiting keeps the request unanswered: only a run
+        // still going waits on it.
+        if let Some((_, waiting)) = waiting.filter(|_| job.get("success").is_none()) {
+            out.entry("waiting").or_insert_with(|| waiting.clone());
+        }
+    }
+    name_tool_calls(steps, &tools);
+    let modules = job["raw_flow"]["modules"].as_array();
+    if modules.is_some_and(|m| m.len() == 1 && m[0]["id"] == crate::agent_runs::AGENT_NODE_ID) {
+        out.insert("agent_run".into(), true.into());
+        // Its one step is internal: the run's steps are its tool calls.
+        if let [root] = &mut steps[..] {
+            let calls = root.get_mut("steps").map(Value::take);
+            *steps = calls
+                .and_then(|c| serde_json::from_value(c).ok())
+                .unwrap_or_default();
+        }
+    }
+    out
+}
+
+fn name_tool_calls(steps: &mut [Value], tools: &HashMap<String, String>) {
+    for step in steps {
+        if let Some(name) = step["job_id"].as_str().and_then(|job| tools.get(job)) {
+            step["tool"] = name.clone().into();
+        }
+        for key in ["branches", "iterations_shown", "steps"] {
+            if let Some(children) = step.get_mut(key).and_then(Value::as_array_mut) {
+                name_tool_calls(children, tools);
+            }
+        }
+    }
+}
+
+/// A flow's modules by id, at any depth, for the card to name its steps as Windmill's graph
+/// does: by summary, else by kind.
+fn collect_modules<'a>(value: &'a Value, out: &mut HashMap<&'a str, &'a Value>) {
+    let visit = |module: &'a Value, out: &mut HashMap<&'a str, &'a Value>| {
+        if let Some(id) = module["id"].as_str() {
+            out.insert(id, module);
+        }
+        collect_modules(&module["value"], out);
+    };
+    for key in ["modules", "default"] {
+        for module in value[key].as_array().into_iter().flatten() {
+            visit(module, out);
+        }
+    }
+    for branch in value["branches"].as_array().into_iter().flatten() {
+        collect_modules(branch, out);
+    }
+    for key in ["failure_module", "preprocessor_module"] {
+        if value[key].is_object() {
+            visit(&value[key], out);
+        }
+    }
+}
+
+/// Puts each step's summary and module kind on it, the steps of iterations and branches
+/// included; an iteration or a branch is named by its place, so it gets neither.
+fn name_steps(steps: &mut [Value], modules: &HashMap<&str, &Value>) {
+    for step in steps {
+        let id = step["step"].as_str().unwrap_or_default();
+        if let Some(module) = modules.get(id.rsplit('/').next().unwrap_or(id)) {
+            if let Some(summary) = module["summary"].as_str().filter(|s| !s.is_empty()) {
+                step["summary"] = summary.into();
+            }
+            let value = &module["value"];
+            step["module"] = json!({
+                "type": value["type"],
+                "language": value["language"],
+                "parallel": value["parallel"],
+                "path": value["path"],
+            });
+            // A branch is named by its summary, as the graph names it.
+            for (part, branch) in step
+                .get_mut("branches")
+                .and_then(Value::as_array_mut)
+                .into_iter()
+                .flatten()
+                .zip(value["branches"].as_array().into_iter().flatten())
+            {
+                if let Some(summary) = branch["summary"].as_str().filter(|s| !s.is_empty()) {
+                    part["summary"] = summary.into();
+                }
+            }
+            // An inner flow's steps are its own flow's modules, which this one does not hold.
+            if value["type"] == "flow" {
+                continue;
+            }
+        }
+        // `get_mut`: indexing a value mutably would add the keys it looks for.
+        for key in ["branches", "iterations_shown"] {
+            for part in step
+                .get_mut(key)
+                .and_then(Value::as_array_mut)
+                .into_iter()
+                .flatten()
+            {
+                if let Some(children) = part.get_mut("steps").and_then(Value::as_array_mut) {
+                    name_steps(children, modules);
+                }
+            }
+        }
+        if let Some(children) = step.get_mut("steps").and_then(Value::as_array_mut) {
+            name_steps(children, modules);
+        }
+    }
+}
+
+/// A result Windmill shows as a file, an image, a page or a map, named for the card: its
+/// content (often base64) is no use cut to the card's head, and the run page shows it.
+fn describe_result(result: &Value) -> Option<String> {
+    let s3 = |value: &Value| value.get("s3").and_then(Value::as_str).map(str::to_string);
+    if let Some(items) = result.as_array().filter(|a| !a.is_empty()) {
+        return items
+            .iter()
+            .all(|item| s3(item).is_some())
+            .then(|| format!("{} files in object storage", items.len()));
+    }
+    let object = result.as_object()?;
+    if let Some(path) = s3(result) {
+        return Some(format!("File {path} in object storage"));
+    }
+    if let Some(name) = object
+        .get("filename")
+        .and_then(Value::as_str)
+        .filter(|_| object.contains_key("file"))
+    {
+        return Some(format!("File {name}"));
+    }
+    let [(key, _)] = object.iter().collect::<Vec<_>>()[..] else {
+        return None;
+    };
+    Some(match key.as_str() {
+        "png" | "jpeg" | "gif" => format!("{} image", key.to_uppercase()),
+        "svg" => "SVG image".to_string(),
+        "pdf" => "PDF document".to_string(),
+        "file" => "File".to_string(),
+        "html" => "HTML page".to_string(),
+        "map" => "Map".to_string(),
+        _ => return None,
+    })
+}
+
+/// An image result as Windmill draws it, for the card to draw too: base64 for PNG, JPEG and
+/// GIF, the markup itself for SVG, either bare or as a file's `content`.
+fn card_image(result: &Value) -> Option<Value> {
+    let [(kind, value)] = result.as_object()?.iter().collect::<Vec<_>>()[..] else {
+        return None;
+    };
+    let data = value
+        .as_str()
+        .or_else(|| value.get("content").and_then(Value::as_str))
+        .filter(|d| !d.is_empty() && d.len() <= CARD_IMAGE_CHARS)?;
+    let base64 = |d: &str| {
+        d.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'=' | b'\n' | b'\r'))
+    };
+    match kind.as_str() {
+        "png" | "jpeg" | "gif" if base64(data) => Some(json!({ "type": kind, "data": data })),
+        "svg" => Some(json!({ "type": "svg", "data": data })),
+        _ => None,
+    }
+}
+
+/// The envelope an AI agent step returns (`AIAgentResult`): its answer and its conversation,
+/// and nothing a script would also return.
+fn is_agent_envelope(result: &Value) -> bool {
+    const KEYS: [&str; 5] = ["output", "messages", "usage", "wm_stream", "reasoning"];
+    result.as_object().is_some_and(|o| {
+        o.contains_key("output")
+            && o.get("messages").is_some_and(Value::is_array)
+            && o.keys().all(|k| KEYS.contains(&k.as_str()))
+    })
+}
+
+/// What the run card draws of a run: its summary, the head of its result (a failure's
+/// message alone), and a running flow's top-level step.
+fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
+    let mut run = job.map(summarize_run).unwrap_or_default();
+    run.insert("id".into(), id.into());
+    run.entry("status").or_insert("running".into());
+    if let Some(job) = job {
+        let too_big = job.get("result").is_some_and(|r| r == TOO_BIG);
+        let result = job.get("result").filter(|r| !r.is_null() && !too_big);
+        // An agent returns its answer inside the envelope of its conversation: the card shows
+        // the answer, and how many tools it called and tokens it used.
+        let envelope = result.filter(|r| is_agent_envelope(r));
+        if let Some(envelope) = envelope {
+            let calls = envelope["messages"]
+                .as_array()
+                .map_or(0, |m| m.iter().filter(|m| m["role"] == "tool").count());
+            run.insert("agent_tool_calls".into(), calls.into());
+            if let Some(tokens) = envelope["usage"]["total_tokens"].as_u64() {
+                run.insert("agent_tokens".into(), tokens.into());
+            }
+        }
+        let result = envelope.map(|e| &e["output"]).or(result);
+        if too_big {
+            run.insert("result".into(), "Too large to show here.".into());
+            run.insert("result_cut".into(), true.into());
+        }
+        let error = result
+            .map(|r| &r["error"])
+            .filter(|e| e["message"].is_string() && job.get("success") == Some(&json!(false)));
+        // An error reads as Windmill shows it: `name: message`, then its stack.
+        if let Some(stack) = error
+            .and_then(|e| e["stack"].as_str())
+            .filter(|s| !s.is_empty())
+        {
+            run.insert("stack".into(), js_head(stack, CARD_RESULT_CHARS).into());
+        }
+        let described = result.filter(|_| error.is_none()).and_then(describe_result);
+        if let Some(label) = &described {
+            run.insert("result_kind".into(), "file".into());
+            run.insert("result".into(), label.clone().into());
+            if let Some(image) = result.and_then(card_image) {
+                run.insert("image".into(), image);
+            }
+        } else if let Some(text) = error
+            .map(|e| match e["name"].as_str().filter(|n| !n.is_empty()) {
+                Some(name) => format!("{name}: {}", e["message"].as_str().unwrap_or_default()),
+                None => e["message"].as_str().unwrap_or_default().to_string(),
+            })
+            .or_else(|| {
+                // Markdown is shown as its text.
+                let markdown = result
+                    .and_then(|r| r.get("markdown"))
+                    .and_then(Value::as_str);
+                markdown
+                    .map(String::from)
+                    .or_else(|| result.map(|r| format_result(Some(r))))
+            })
+        {
+            let head = js_head(&text, CARD_RESULT_CHARS);
+            if head.len() < text.len() {
+                run.insert("result_cut".into(), true.into());
+            }
+            run.insert("result".into(), head.into());
+        }
+        // The arguments it ran with, as the model reads them in `get_run`; past the card's
+        // size the run page has them.
+        if let Some(args) = job
+            .get("args")
+            .filter(|a| a.as_object().is_some_and(|o| !o.is_empty()))
+        {
+            if js_len(&args.to_string()) <= CARD_ARGS_CHARS {
+                run.insert("args".into(), args.clone());
+            } else {
+                run.insert("args_cut".into(), true.into());
+            }
+        }
+        // 1-based, of how many: `step` already points past the last module once it is done.
+        let status = &job["flow_status"];
+        if let Some(modules) = status["modules"]
+            .as_array()
+            .filter(|_| job.get("success").is_none())
+        {
+            let step = status["step"].as_u64().unwrap_or(0) as usize;
+            run.insert("steps".into(), modules.len().into());
+            run.insert("step".into(), (step + 1).min(modules.len()).into());
+            if let Some(step_id) = modules.get(step).and_then(|m| m.get("id")) {
+                run.insert("step_id".into(), step_id.clone());
+            }
+            // How far into its loop or its branches the current step is. Run in parallel, its
+            // index only counts what started, so what finished is said instead.
+            let module = modules.get(step).unwrap_or(&Value::Null);
+            let iterator = &module["iterator"];
+            let iterations = iterator["itered_len"]
+                .as_u64()
+                .or_else(|| iterator["itered"].as_array().map(|a| a.len() as u64));
+            let done = (module["parallel"] == Value::Bool(true)).then(|| {
+                module["flow_jobs_success"]
+                    .as_array()
+                    .map_or(0, |a| a.iter().filter(|v| !v.is_null()).count())
+            });
+            let progress = match (iterator["index"].as_u64(), iterations, done) {
+                (_, Some(n), Some(done)) if n > 0 => Some(format!("{done} of {n} iterations done")),
+                (Some(i), Some(n), None) if n > 0 => {
+                    Some(format!("iteration {} of {n}", (i + 1).min(n)))
+                }
+                _ => match (
+                    module["branchall"]["branch"].as_u64(),
+                    module["branchall"]["len"].as_u64(),
+                    done,
+                ) {
+                    (_, Some(n), Some(done)) if n > 0 => {
+                        Some(format!("{done} of {n} branches done"))
+                    }
+                    (Some(b), Some(n), None) if n > 0 => {
+                        Some(format!("branch {} of {n}", (b + 1).min(n)))
+                    }
+                    _ => None,
+                },
+            };
+            if let Some(progress) = progress {
+                run.insert("step_progress".into(), progress.into());
+            }
+        }
+    }
+    run
 }
 
 /// A run as `get_run` reports it: its summary, args, result and logs around the step
@@ -2085,7 +2911,7 @@ fn shape_run(id: &str, job: &Value, logs: Result<String, String>, results: &Valu
         }
     }
     if let Some(result) = job.get("result") {
-        if result == "WINDMILL_TOO_BIG" {
+        if result == TOO_BIG {
             run.insert("result_truncated".into(), true.into());
         } else {
             run.insert("result".into(), cap(&stringify(result), false).into());
@@ -2356,5 +3182,125 @@ mod tests {
         );
         assert_eq!(transforms["max_iterations"]["value"], 10);
         assert!(!transforms.contains_key("memory_id"));
+    }
+
+    #[test]
+    fn run_card_shows_a_failure_message_and_a_running_flow_step() {
+        let failed = json!({
+            "type": "CompletedJob", "success": false, "duration_ms": 3600,
+            "result": { "error": { "name": "Error", "message": "duplicate key" } },
+        });
+        let card = run_card("j", Some(&failed));
+        assert_eq!(card["status"], "failure");
+        assert_eq!(card["result"], "Error: duplicate key");
+
+        let running = json!({
+            "type": "QueuedJob", "running": true,
+            "flow_status": { "step": 1, "modules": [{ "id": "a" }, { "id": "b" }] },
+        });
+        let card = run_card("j", Some(&running));
+        assert_eq!(
+            (card["step"].clone(), card["steps"].clone()),
+            (json!(2), json!(2))
+        );
+        assert_eq!(card["step_id"], "b");
+
+        // Not read yet: still running, by id alone.
+        assert_eq!(run_card("j", None)["status"], "running");
+
+        let image =
+            json!({ "type": "CompletedJob", "success": true, "result": { "png": "iVBORw0KGgo" } });
+        let card = run_card("j", Some(&image));
+        assert_eq!(
+            (&card["result_kind"], &card["result"]),
+            (&json!("file"), &json!("PNG image"))
+        );
+        assert_eq!(
+            card["image"],
+            json!({ "type": "png", "data": "iVBORw0KGgo" })
+        );
+        // Not base64: never put in a data URL.
+        let odd = json!({ "type": "CompletedJob", "success": true, "result": { "png": "a\"b" } });
+        assert!(run_card("j", Some(&odd)).get("image").is_none());
+
+        // Cut by UTF-16 units: 800 emoji are 1,600 of them, past the head's 1,500.
+        let emoji = json!({ "type": "CompletedJob", "success": true, "result": "😀".repeat(800) });
+        assert_eq!(run_card("j", Some(&emoji))["result_cut"], true);
+    }
+
+    #[test]
+    fn agent_card_names_tool_calls_and_says_what_waits() {
+        let job = json!({
+            "raw_flow": { "modules": [{ "id": crate::agent_runs::AGENT_NODE_ID }] },
+            "flow_status": { "modules": [{
+                "id": crate::agent_runs::AGENT_NODE_ID,
+                "agent_actions": [
+                    { "type": "tool_call", "job_id": "j1", "function_name": "lookup_order", "module_id": "t" },
+                    { "type": "question", "call_id": "c", "question": "Which region?", "expires_at": "x" }
+                ],
+                "agent_actions_success": [true]
+            }] }
+        });
+        let mut steps = vec![json!({
+            "step": crate::agent_runs::AGENT_NODE_ID,
+            "steps": [{ "step": "x/", "job_id": "j1" }]
+        })];
+        let card = agent_card(&job, &mut steps);
+        assert_eq!(card["agent_run"], true);
+        assert_eq!(card["waiting"]["question"], "Which region?");
+        // A saved agent's one internal step gives way to its tool calls, named.
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0]["tool"], "lookup_order");
+        // A run that ended no longer waits, answered or not.
+        let mut ended = job.clone();
+        ended["success"] = json!(false);
+        assert!(agent_card(&ended, &mut vec![]).get("waiting").is_none());
+        // An answered request no longer waits.
+        let mut answered = job.clone();
+        answered["flow_status"]["modules"][0]["agent_actions_success"] = json!([true, true]);
+        assert!(agent_card(&answered, &mut vec![]).get("waiting").is_none());
+        // The agent's answer, out of its envelope.
+        assert!(is_agent_envelope(
+            &json!({ "output": "hi", "messages": [] })
+        ));
+        assert!(!is_agent_envelope(
+            &json!({ "output": "hi", "messages": [], "extra": 1 })
+        ));
+    }
+
+    #[test]
+    fn jsonb_text_len_matches_postgres_printing() {
+        // As `select '{"png": {"content": "iVBO", "filename": "a.png"}}'::jsonb::text`.
+        let wrapped = json!({ "png": { "content": "iVBO", "filename": "a.png" } });
+        let printed = r#"{"png": {"content": "iVBO", "filename": "a.png"}}"#;
+        assert_eq!(jsonb_text_len(&wrapped), printed.chars().count() as u64);
+        assert_eq!(
+            jsonb_text_len(&json!([1, "a\"b"])),
+            r#"[1, "a\"b"]"#.len() as u64
+        );
+    }
+
+    #[test]
+    fn steps_are_named_from_the_flow_at_any_depth() {
+        let flow = json!({ "modules": [{
+            "id": "loop", "summary": "Each customer",
+            "value": { "type": "forloopflow", "parallel": true, "modules": [
+                { "id": "inner", "value": { "type": "rawscript", "language": "python3" } }
+            ] }
+        }] });
+        let mut steps = vec![json!({
+            "step": "loop", "iterations": 1,
+            "iterations_shown": [{ "step": "loop", "iteration": 1, "steps": [{ "step": "loop/inner" }] }]
+        })];
+        let mut modules = HashMap::new();
+        collect_modules(&flow, &mut modules);
+        name_steps(&mut steps, &modules);
+        assert_eq!(steps[0]["summary"], "Each customer");
+        assert_eq!(steps[0]["module"]["parallel"], true);
+        // An iteration is named by its place, its steps by their module.
+        assert!(steps[0]["iterations_shown"][0].get("module").is_none());
+        assert!(steps[0].get("branches").is_none());
+        let inner = &steps[0]["iterations_shown"][0]["steps"][0];
+        assert_eq!(inner["module"]["language"], "python3");
     }
 }

@@ -1,10 +1,14 @@
-import { derived, fromStore, get, readable, type Readable } from 'svelte/store'
+import { getContext, setContext } from 'svelte'
+import { derived, fromStore, get, readable, toStore, type Readable } from 'svelte/store'
 import type { RoleCapabilities } from '$lib/gen'
 import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
-import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+import {
+	useOperatingWorkspace,
+	useReadOnlyWorkspace
+} from '$lib/components/operatingWorkspace.svelte'
 import { useActingUser } from '$lib/actingUser.svelte'
 import { canDraftItem, canEditItem, roleCanAuthor, roleCanDraft } from '$lib/editRights'
-import { capabilitiesIn } from '$lib/roleCapabilities'
+import { capabilitiesIn, withoutBuilding } from '$lib/roleCapabilities'
 
 /**
  * The `editRights` rules (`roleCanAuthor` / `canEditItem` for the item handlers, `roleCanDraft` /
@@ -17,26 +21,49 @@ export function useEditRights(workspace?: () => string | undefined) {
 	const operating = fromStore(useOperatingWorkspace())
 	const ws = workspace ?? (() => operating.current)
 	const user = useActingUser(ws)
+	const readOnly = useReadOnlyWorkspace()
 	const workspaces = fromStore(userWorkspaces)
-	const caps = () =>
-		capabilitiesIn(
+	const open = () => !readOnly(ws())
+	// A read-only workspace leaves the role building nothing, so a gate reading `capabilities`
+	// follows it as the four checks below do. Those keep their own guard: every role edits
+	// resources and variables.
+	const caps = () => {
+		const roleCaps = capabilitiesIn(
 			user.current,
 			workspaces.current.find((w) => w.id === ws())
 		)
+		return open() ? roleCaps : withoutBuilding(roleCaps)
+	}
 	return {
 		get capabilities(): RoleCapabilities {
 			return caps()
 		},
-		roleCanAuthor: (kind: string) => roleCanAuthor(kind, caps()),
+		roleCanAuthor: (kind: string) => open() && roleCanAuthor(kind, caps()),
 		canEditItem: (kind: string, path: string, extraPerms: Record<string, boolean> | undefined) =>
-			canEditItem(kind, path, extraPerms, user.current, caps()),
-		roleCanDraft: (kind: string) => roleCanDraft(kind, caps()),
+			open() && canEditItem(kind, path, extraPerms, user.current, caps()),
+		roleCanDraft: (kind: string) => open() && roleCanDraft(kind, caps()),
 		canDraftItem: (kind: string, path: string, extraPerms: Record<string, boolean> | undefined) =>
-			canDraftItem(kind, path, extraPerms, user.current, caps()),
+			open() && canDraftItem(kind, path, extraPerms, user.current, caps()),
 		/** This hook looks the user up on its own, so an editor that retries a failed lookup on
 		 *  its acting user (`forgetFailures`) must retry this one too, or it stays read-only. */
 		forgetFailures: () => user.forgetFailures()
 	}
+}
+
+type EditRights = ReturnType<typeof useEditRights>
+const EDIT_RIGHTS_KEY = Symbol('editRights')
+
+/** A list's rows all act as the same user in the same workspace, so they read the list's
+ *  `useEditRights` instance rather than each setting up their own. */
+export function shareEditRights(rights: EditRights): EditRights {
+	setContext(EDIT_RIGHTS_KEY, rights)
+	return rights
+}
+
+/** Only under a component that called `shareEditRights`: elsewhere there is no instance and the
+ *  first check throws. */
+export function getSharedEditRights(): EditRights {
+	return getContext<EditRights>(EDIT_RIGHTS_KEY)
 }
 
 /**
@@ -72,10 +99,17 @@ export const capabilitiesInWorkspace = (workspace: string | undefined) =>
  * the shape `title` and `disabled` both want. See `docs/operator-write-rights.md`.
  */
 function writeLock(kind: 'schedule' | 'trigger', noun: string) {
-	return derived(useRoleCapabilities(), (caps) =>
+	const workspace = fromStore(useOperatingWorkspace())
+	const readOnly = useReadOnlyWorkspace()
+	// A store, so a session switched to Use mid-page locks the toggles already shown.
+	const sessionReadOnly = toStore(() => readOnly(workspace.current))
+	return derived([useRoleCapabilities(), sessionReadOnly], ([caps, inUse]) => {
+		if (inUse) return `A session in Use mode cannot manage ${noun}`
 		// Worded as the server words its refusal of the same write.
-		roleCanAuthor(kind, caps) ? undefined : `Your role cannot manage ${noun} in this workspace`
-	)
+		return roleCanAuthor(kind, caps)
+			? undefined
+			: `Your role cannot manage ${noun} in this workspace`
+	})
 }
 
 /** Reads context: call during component initialisation. */

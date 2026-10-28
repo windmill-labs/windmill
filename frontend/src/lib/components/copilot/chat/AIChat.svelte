@@ -20,10 +20,10 @@
 		wideLayout = false,
 		emptyHint,
 		starter = undefined,
-		viewTransitionNames = false,
 		onSent = undefined,
 		inputPreface,
 		actingOn,
+		workModeLock = undefined,
 		initialInstructions = undefined,
 		onDraftChange = undefined,
 		initialAttachments = undefined,
@@ -44,11 +44,11 @@
 		wideLayout?: boolean
 		emptyHint?: import('svelte').Snippet
 		starter?: import('./starter/starterPrompts.svelte').ChatStarter
-		viewTransitionNames?: boolean
 		onSent?: () => void
 		inputPreface?: import('svelte').Snippet
 		/** Forwarded to AIChatDisplay: where the session acts, first among the controls. */
 		actingOn?: import('svelte').Snippet
+		workModeLock?: import('./workMode').WorkModeLock
 		// Seed / observe the composer's draft (forwarded to AIChatDisplay).
 		initialInstructions?: string
 		onDraftChange?: (text: string) => void
@@ -220,10 +220,10 @@
 	{wideLayout}
 	{emptyHint}
 	{starter}
-	{viewTransitionNames}
 	{onSent}
 	{inputPreface}
 	{actingOn}
+	{workModeLock}
 	{initialInstructions}
 	{onDraftChange}
 	{initialAttachments}

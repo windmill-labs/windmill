@@ -138,37 +138,70 @@ struct PrivateMetadata {
     skin: ApprovalSkin,
 }
 
-// Opportunistic transport-level check: when `SLACK_SIGNING_SECRET` is configured we verify
-// the Slack request signature (which also defeats replay). It is NOT the primary defense:
-// the secret is unset in the default deployment, so authorization of the sensitive actions
-// is instead anchored on a per-workspace HMAC over the callback payload itself (see
-// `verify_slack_payload`), which holds even when this check is a no-op.
-#[cfg(feature = "oauth2")]
-fn verify_slack_callback_signature(headers: &HeaderMap, body: &str) -> Result<(), Error> {
-    if let Some(sv) = crate::SLACK_SIGNING_SECRET.as_ref() {
-        let sig = headers
-            .get("X-Slack-Signature")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        let ts = headers
-            .get("X-Slack-Request-Timestamp")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        sv.verify(ts, body, sig)
-            .map_err(|_| Error::BadRequest("Slack signature verification failed".to_string()))?;
+/// Slack's signature over a callback, checked once the workspace it belongs to is known.
+#[cfg_attr(not(feature = "oauth2"), allow(dead_code))]
+struct SlackCallbackSignature {
+    sig: String,
+    ts: String,
+    body: String,
+}
+
+impl SlackCallbackSignature {
+    fn new(headers: &HeaderMap, body: &str) -> Self {
+        let header = |name: &str| {
+            headers
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_string()
+        };
+        Self {
+            sig: header("X-Slack-Signature"),
+            ts: header("X-Slack-Request-Timestamp"),
+            body: body.to_string(),
+        }
     }
-    Ok(())
+}
+
+// Transport-level check, which also defeats replay. It is NOT the primary defense: authorization of
+// the sensitive actions is anchored on a per-workspace HMAC over the callback payload itself (see
+// `verify_slack_payload`). Only an approval sent through the workspace's Slack connection comes from
+// an app whose secret Windmill knows; any other resource may belong to any Slack app, so its
+// callbacks are left to the HMAC.
+#[cfg(feature = "oauth2")]
+async fn verify_slack_callback_signature(
+    db: &DB,
+    w_id: &str,
+    resource_path: &str,
+    request: &SlackCallbackSignature,
+) -> Result<(), Error> {
+    if resource_path != windmill_common::oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH {
+        return Ok(());
+    }
+    crate::slack_agents::verify_approval_slack_request(
+        db,
+        w_id,
+        &request.sig,
+        &request.ts,
+        &request.body,
+    )
+    .await
 }
 
 #[cfg(not(feature = "oauth2"))]
-fn verify_slack_callback_signature(_headers: &HeaderMap, _body: &str) -> Result<(), Error> {
+async fn verify_slack_callback_signature(
+    _db: &DB,
+    _w_id: &str,
+    _resource_path: &str,
+    _request: &SlackCallbackSignature,
+) -> Result<(), Error> {
     Ok(())
 }
 
 /// HMAC keyed on the per-workspace encryption key (the same trust anchor as resume-URL
 /// signatures). Used to authenticate the `/api/slack` callback payload itself so the
 /// unauthenticated route cannot be driven into decrypting arbitrary workspace variables,
-/// regardless of whether `SLACK_SIGNING_SECRET` is configured.
+/// whether or not a Slack signing secret is set.
 type SlackPayloadHmac = Hmac<Sha256>;
 
 /// Domain-separation tag prepended to every Slack-payload MAC. The workspace key is also used
@@ -232,8 +265,7 @@ pub async fn slack_app_callback_handler(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode, Error> {
-    let body_str = String::from_utf8_lossy(&body);
-    verify_slack_callback_signature(&headers, &body_str)?;
+    let request = SlackCallbackSignature::new(&headers, &String::from_utf8_lossy(&body));
 
     let form_data: SlackFormData = serde_urlencoded::from_bytes(&body)
         .map_err(|e| Error::BadRequest(format!("invalid form data: {}", e)))?;
@@ -244,10 +276,10 @@ pub async fn slack_app_callback_handler(
 
     match payload.r#type {
         PayloadType::ViewSubmission => {
-            handle_submission(authed, opt_tokened, db, &payload, "resume").await?
+            handle_submission(authed, opt_tokened, db, &payload, &request, "resume").await?
         }
         PayloadType::ViewClosed => {
-            handle_submission(authed, opt_tokened, db, &payload, "cancel").await?
+            handle_submission(authed, opt_tokened, db, &payload, &request, "cancel").await?
         }
         _ => {
             if let Some(actions) = &payload.actions {
@@ -274,8 +306,8 @@ pub async fn slack_app_callback_handler(
                             // payload was minted by `send_slack_message` with an HMAC over
                             // (w_id, job_id, path) keyed on the workspace key. Without a valid
                             // signature an unauthenticated caller cannot reach the decryption
-                            // below for an arbitrary variable, even when SLACK_SIGNING_SECRET
-                            // is unset.
+                            // below for an arbitrary variable, even when no Slack signing
+                            // secret is set.
                             verify_slack_payload(
                                 &db,
                                 w_id,
@@ -283,6 +315,7 @@ pub async fn slack_app_callback_handler(
                                 parsed_value.signature.as_deref(),
                             )
                             .await?;
+                            verify_slack_callback_signature(&db, w_id, path, &request).await?;
 
                             // Map any lookup/decryption failure to a generic error: the
                             // raw error echoes the probed `path`/`w_id` back, which would be
@@ -411,6 +444,7 @@ async fn handle_submission(
     opt_tokened: OptTokened,
     db: DB,
     payload: &Payload,
+    request: &SlackCallbackSignature,
     action: &str,
 ) -> Result<(), Error> {
     let view = payload
@@ -455,6 +489,7 @@ async fn handle_submission(
     // the resume/cancel and reach the decryption below with a swapped path. Require the
     // workspace-keyed HMAC minted when the modal was built.
     verify_slack_payload(&db, w_id, &[resource_path.as_bytes()], signature.as_deref()).await?;
+    verify_slack_callback_signature(&db, w_id, &resource_path, request).await?;
 
     // Use the common handler to process the resume/cancel action
     handle_resume_action(

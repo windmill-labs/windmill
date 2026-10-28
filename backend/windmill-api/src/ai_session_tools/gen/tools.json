@@ -19,7 +19,7 @@
 	},
 	{
 		"name": "open_page",
-		"description": "Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), Workspace settings (on a specific tab), or the Compare & Deploy page. Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. \"show me the failed runs of X\", \"open the schedule for Y\", \"open the git sync settings\", \"open the kafka triggers\"), and ALWAYS when asking the user to perform a manual step themselves (fill in a resource's credentials, set a variable's value — pass open with the item path so its editor opens directly). Never offer page \"compare\" for draft review. Use it only when the user explicitly asks to deploy a forked workspace into its parent; it always opens the fork-vs-parent comparison. This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed for this user are available; do not offer others.",
+		"description": "Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), Workspace settings (on a specific tab), or the Compare & Deploy page. Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. \"show me the failed runs of X\", \"open the schedule for Y\", \"open the git sync settings\", \"open the kafka triggers\"), and ALWAYS when asking the user to perform a manual step themselves (fill in a resource's credentials, set a variable's value — pass open with the item path so its editor opens directly). Never offer page \"compare\" for draft review. Use it only when the user explicitly asks to deploy a forked workspace into its parent; it always opens the fork-vs-parent comparison. This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, agents, pipelines). Only pages listed for this user are available; do not offer others.",
 		"parameters": {
 			"type": "object",
 			"properties": {
@@ -211,18 +211,19 @@
 	},
 	{
 		"name": "get_instructions",
-		"description": "Get authoring guidance for scripts, flows, data pipelines, resources, apps, or data tables: their migrations and permissions, and the SQL SDK (wmill.datatable()) used inside runnables.",
+		"description": "Get authoring guidance for scripts, flows, AI agents, data pipelines, resources, apps, or data tables: their migrations and permissions, and the SQL SDK (wmill.datatable()) used inside runnables.",
 		"parameters": {
 			"type": "object",
 			"properties": {
 				"subject": {
-					"description": "What to get authoring instructions for: a workspace item type (script, flow, resource, app), \"pipeline\" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or \"datatable\" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or \"workspace_settings\" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don't need instructions — their tool schemas describe everything.",
+					"description": "What to get authoring instructions for: a workspace item type (script, flow, resource, app), \"agent\" for a saved AI agent (an `ai_agent` resource, as the Agents page lists it), \"pipeline\" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or \"datatable\" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or \"workspace_settings\" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don't need instructions — their tool schemas describe everything.",
 					"type": "string",
 					"enum": [
 						"script",
 						"flow",
 						"resource",
 						"app",
+						"agent",
 						"datatable",
 						"pipeline",
 						"workspace_settings"
@@ -1180,6 +1181,96 @@
 		"read_only": false
 	},
 	{
+		"name": "test_run_agent",
+		"description": "Execute a test run of an AI agent by path, preferring its draft when one exists, so an agent you drafted can be tried before the user deploys it. It runs with exactly the `args` you send.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the agent (`ai_agent` resource) to test.",
+					"type": "string"
+				},
+				"args": {
+					"description": "The run's inputs: `user_message`, and `user_attachments` for files the user attaches.",
+					"type": "object",
+					"properties": {
+						"user_message": {
+							"description": "The message the agent answers.",
+							"type": "string"
+						}
+					},
+					"required": [
+						"user_message"
+					],
+					"additionalProperties": {}
+				},
+				"memory_id": {
+					"description": "A UUID naming the conversation this turn belongs to: reuse the same one across calls to test memory and follow-ups, and omit it for a one-off turn in a conversation of its own. Generate the UUID yourself so you can pass it again.",
+					"type": "string"
+				},
+				"background": {
+					"description": "Run in the background without waiting. Set true for jobs you expect to be long (deploys, backfills, big queries) — you will be notified when it finishes. Leave unset for normal runs, which wait briefly and only background automatically if slow.",
+					"type": "boolean"
+				},
+				"wait_seconds": {
+					"description": "How many seconds to wait for the job in-turn before it detaches into the background jobs tray. Defaults to 15. Raise it (capped at 120) for a job you expect to finish in, say, 30–60s and want the result in this same turn. Ignored when background is true. Do not use this to poll — larger values just hold the turn longer.",
+					"type": "number"
+				}
+			},
+			"required": [
+				"path",
+				"args"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "run_agent",
+		"description": "Run a DEPLOYED AI agent for real, as its own page runs it. It runs with exactly the `args` you send. Use only when the user names the deployed version (\"the deployed X\", \"in production\", \"for real\").",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the deployed agent (`ai_agent` resource) to run.",
+					"type": "string"
+				},
+				"args": {
+					"description": "The run's inputs: `user_message`, and `user_attachments` for files the user attaches.",
+					"type": "object",
+					"properties": {
+						"user_message": {
+							"description": "The message the agent answers.",
+							"type": "string"
+						}
+					},
+					"required": [
+						"user_message"
+					],
+					"additionalProperties": {}
+				},
+				"memory_id": {
+					"description": "A UUID naming the conversation this turn belongs to: reuse the same one across calls to test memory and follow-ups, and omit it for a one-off turn in a conversation of its own. Generate the UUID yourself so you can pass it again.",
+					"type": "string"
+				},
+				"background": {
+					"description": "Run in the background without waiting. Set true for jobs you expect to be long (deploys, backfills, big queries) — you will be notified when it finishes. Leave unset for normal runs, which wait briefly and only background automatically if slow.",
+					"type": "boolean"
+				},
+				"wait_seconds": {
+					"description": "How many seconds to wait for the job in-turn before it detaches into the background jobs tray. Defaults to 15. Raise it (capped at 120) for a job you expect to finish in, say, 30–60s and want the result in this same turn. Ignored when background is true. Do not use this to poll — larger values just hold the turn longer.",
+					"type": "number"
+				}
+			},
+			"required": [
+				"path",
+				"args"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
 		"name": "test_run_step",
 		"description": "Execute a test run of one step in a flow by path, preferring draft flow/script content when it exists. `args` are the step's OWN inputs, not the flow's: a step is normally fed by its input transforms, so send what that step's code takes, not what the flow takes. An AI agent step takes the inputs a run supplies rather than code arguments, `user_message` above all; its form opens on the step's own configuration, so send only what this run should change. An AI decision step takes `state`, what its questions are asked about; its provider and questions are the step's own. It runs with exactly the `args` you send. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.",
 		"parameters": {
@@ -1670,7 +1761,7 @@
 					"type": "string"
 				},
 				"account": {
-					"description": "The account identifier",
+					"description": "Ignored. A variable is linked to an OAuth account only when `createAccount` creates both.",
 					"type": "integer",
 					"minimum": -9007199254740991,
 					"maximum": 9007199254740991
@@ -1680,10 +1771,23 @@
 					"type": "boolean"
 				},
 				"expires_at": {
-					"description": "The expiration date of the variable",
+					"description": "When to garbage-collect the variable. Used for ephemeral secrets; the variable is deleted once this is reached. Not the value's expiry — see value_valid_until.\n",
 					"type": "string",
 					"format": "date-time",
 					"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+				},
+				"value_valid_until": {
+					"description": "When the value stored in this variable stops working. Triggers the workspace's variable expiration handler ahead of it (1 day by default, set on the handler); never causes the variable to be deleted. Omit it to keep the current expiry, or pass null to clear one — for instance once the value has been rotated.",
+					"anyOf": [
+						{
+							"type": "string",
+							"format": "date-time",
+							"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+						},
+						{
+							"type": "null"
+						}
+					]
 				},
 				"labels": {
 					"type": "array",
@@ -2069,13 +2173,14 @@
 							"type": "string"
 						},
 						"type": {
-							"description": "Runnable kind: \"inline\" for custom code stored on the app; \"script\"/\"flow\" for a workspace runnable; \"hubscript\" for a hub script.",
+							"description": "Runnable kind: \"inline\" for custom code stored on the app; \"script\"/\"flow\" for a workspace runnable; \"hubscript\" for a hub script; \"agent\" for a saved AI agent, run as one chat turn.",
 							"type": "string",
 							"enum": [
 								"inline",
 								"script",
 								"flow",
-								"hubscript"
+								"hubscript",
+								"agent"
 							]
 						},
 						"staticInputs": {
@@ -2110,7 +2215,7 @@
 							"additionalProperties": false
 						},
 						"path": {
-							"description": "Required when type is \"script\", \"flow\", or \"hubscript\". Workspace path of the runnable.",
+							"description": "Required when type is \"script\", \"flow\", \"hubscript\" or \"agent\". Workspace path of the runnable.",
 							"type": "string"
 						},
 						"viewerDataAccess": {
