@@ -49,7 +49,15 @@ vi.mock('$lib/gen', async (importOriginal) => ({
 	}
 }))
 
-const { reviewDeployment } = await import('./aiReview')
+const { reviewChanges } = await import('./aiReview')
+
+const reviewDeployment = (
+	diffs: WorkspaceItemDiff[],
+	forkWorkspaceId: string,
+	parentWorkspaceId: string,
+	abortController: AbortController
+) =>
+	reviewChanges({ kind: 'deployment', diffs, forkWorkspaceId, parentWorkspaceId }, abortController)
 
 function diff(path: string): WorkspaceItemDiff {
 	return {
@@ -105,5 +113,41 @@ describe('reviewDeployment', () => {
 		const result = await reviewDeployment([diff('f/a/b')], 'fork', 'offline', new AbortController())
 		expect(result.instructionsUnavailable).toBe(true)
 		expect(result.instructions).toEqual([])
+	})
+})
+
+describe('drafts review', () => {
+	it("reviews drafts as deployed against draft, under their own workspace's instructions", async () => {
+		const result = await reviewChanges(
+			{
+				kind: 'drafts',
+				workspaceId: 'parent',
+				items: [
+					{
+						kind: 'script',
+						path: 'f/a/b',
+						change: 'modified',
+						load: async () => ({ before: 'old body', after: 'new body' })
+					},
+					{
+						kind: 'flow',
+						path: 'f/a/c',
+						change: 'added',
+						load: async () => {
+							throw new Error('404')
+						}
+					}
+				]
+			},
+			new AbortController()
+		)
+		expect(h.prompt).toContain(
+			'### script f/a/b (modified)\n#### Deployed version\nold body\n#### Draft version\nnew body'
+		)
+		expect(result.unreadable).toEqual(['flow:f/a/c'])
+		expect(result.instructions).toEqual(['f/a/REVIEW'])
+		expect(h.listed).toEqual(['parent'])
+		expect(h.workspace).toBe('parent')
+		expect(h.system).toContain('You review drafts in a Windmill workspace')
 	})
 })

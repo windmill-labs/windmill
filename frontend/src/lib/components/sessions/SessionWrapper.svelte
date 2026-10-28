@@ -106,8 +106,10 @@
 		setContext<AIChatManager>('aiChatManager', runtime.manager)
 	}
 
-	// Reactive session reference (mutations to summary/target propagate via the $state proxy)
-	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
+	// Reactive session reference (mutations to summary/target propagate via the $state proxy).
+	// Falls back to the mounted session once it is deleted: the layout's header reads this
+	// through PageHeaderContent, outside the page's tree, once more before the wrapper unmounts.
+	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId) ?? initialSession)
 
 	// Only a session that has never sent opens as the starter block. Read off the record, not
 	// the transcript: a cold session's history is still loading from storage when it mounts,

@@ -443,9 +443,10 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
-        "UPDATE usr_to_group SET usr = $1 WHERE usr = $2",
+        "UPDATE usr_to_group SET usr = $1 WHERE usr = $2 AND workspace_id = $3",
         new_username,
-        old_username
+        old_username,
+        w_id
     )
     .execute(&mut **tx)
     .await?;

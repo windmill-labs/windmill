@@ -163,7 +163,6 @@ pub fn workspaced_service() -> Router {
         )
         .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
-        .route("/edit_guest_access", post(edit_guest_access))
         .route(
             "/edit_add_admins_and_developers_to_forks",
             post(edit_add_admins_and_developers_to_forks),
@@ -350,13 +349,10 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
     pub error_handler_fallback_to_instance_alerts: bool,
-    /// Whether this workspace admits guest sessions (`ExecutionMode::Guest`). An app's
-    /// own `execution_mode: guest` is inert while this is off.
-    pub guest_access_enabled: bool,
     /// The key a guest JWT is verified against: a PEM public key, or a JWKS URL, at most
     /// one (a DB CHECK enforces it). Public material, not a secret, so it is admin-
     /// readable here. `None`/`None` falls back to the instance issuer (`JWT_EXT_JWKS_URL`)
-    /// off cloud, or accepts no JWT guest if none is set; `guest_access_enabled` is the switch.
+    /// off cloud, or accepts no JWT guest if none is set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub guest_jwt_public_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -384,9 +380,6 @@ pub struct WorkspacePublicSettings {
     pub teams_team_guid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mute_critical_alerts: Option<bool>,
-    /// Not sensitive, and the app editor needs it to say whether the guest rung is
-    /// live -- an app can be set to `guest` while the workspace has guests off.
-    pub guest_access_enabled: bool,
     /// Read by the fork dialog, which tells the forker who else the fork will include.
     pub add_admins_and_developers_to_forks: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1214,7 +1207,6 @@ async fn get_settings(
             variable_expiration_handler,
             public_app_execution_limit_per_minute,
             error_handler_fallback_to_instance_alerts,
-            guest_access_enabled,
             guest_jwt_public_key,
             guest_jwt_jwks_url,
             add_admins_and_developers_to_forks
@@ -1258,7 +1250,6 @@ async fn get_public_settings(
             teams_team_name,
             teams_team_guid,
             mute_critical_alerts,
-            guest_access_enabled,
             add_admins_and_developers_to_forks,
             deploy_ui,
             large_file_storage,
@@ -5948,53 +5939,6 @@ async fn edit_default_app(
 }
 
 #[derive(Deserialize)]
-struct EditGuestAccess {
-    guest_access_enabled: bool,
-}
-
-/// Turn guest sessions on or off for this workspace. Off by default, and off is
-/// authoritative and immediate: the switch is re-read where a guest session is
-/// minted (`guest_app_admits`) and at the auth door on every guest request, so an app
-/// whose policy already says `guest` — pushed by git-sync, say — closes to guests on
-/// the next request, sessions already issued included.
-async fn edit_guest_access(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Json(EditGuestAccess { guest_access_enabled }): Json<EditGuestAccess>,
-) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-    if guest_access_enabled {
-        windmill_common::workspaces::require_guest_support()?;
-    }
-
-    let mut tx = db.begin().await?;
-    sqlx::query!(
-        "UPDATE workspace_settings SET guest_access_enabled = $1 WHERE workspace_id = $2",
-        guest_access_enabled,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "workspaces.edit_guest_access",
-        ActionKind::Update,
-        &w_id,
-        Some(&guest_access_enabled.to_string()),
-        None,
-    )
-    .await?;
-    tx.commit().await?;
-
-    Ok(format!(
-        "Guest access set to {guest_access_enabled} for workspace {w_id}"
-    ))
-}
-
-#[derive(Deserialize)]
 struct EditAddAdminsAndDevelopersToForks {
     add_admins_and_developers_to_forks: bool,
 }
@@ -6039,13 +5983,13 @@ async fn edit_add_admins_and_developers_to_forks(
 struct EditGuestJwtKey {
     /// A PEM public key (RS or ES family), or a JWKS URL, at most one. Both empty clears the
     /// workspace key; verification then falls back to the instance issuer (`JWT_EXT_JWKS_URL`)
-    /// off cloud, or refuses the JWT if none is set. The off-switch is `guest_access_enabled`.
+    /// off cloud, or refuses the JWT if none is set.
     public_key: Option<String>,
     jwks_url: Option<String>,
 }
 
 /// Configure the key a guest JWT (`jwt_guest_`) is verified against for this workspace.
-/// Workspace-admin gated, like the guest switch: guests are free up to the instance
+/// Workspace-admin gated: guests are free up to the instance
 /// allowance on any plan, so configuring their key needs no licence. The key is
 /// validated before it is stored so a typo is refused here, not silently on every guest
 /// later: a PEM must parse as an RS/ES public key (HS* has no PEM form and is
@@ -15820,7 +15764,6 @@ pub enum SettingsEdit {
     Ducklake,
     DbtWarehouses,
     DeployUi,
-    GuestAccess,
     GuestJwtKey,
     PublicAppRateLimit,
     AddAdminsAndDevelopersToForks,
@@ -15892,7 +15835,6 @@ pub async fn apply_settings_edit(
         DeployUi => edit_deploy_ui_config(a, d, p, settings_edit_body(edit, body)?).await?,
         #[cfg(not(feature = "enterprise"))]
         DeployUi => edit_deploy_ui_config(a, d, p).await?,
-        GuestAccess => edit_guest_access(a, d, p, settings_edit_body(edit, body)?).await?,
         GuestJwtKey => edit_guest_jwt_key(a, d, p, settings_edit_body(edit, body)?).await?,
         PublicAppRateLimit => {
             edit_public_app_rate_limit(d, p, a, settings_edit_body(edit, body)?).await?

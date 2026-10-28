@@ -32,20 +32,6 @@ async fn the_cloud_admits_no_guest(db: Pool<Postgres>) -> anyhow::Result<()> {
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    // The workspace switch cannot be turned on, so no policy can lean on it.
-    let resp = authed(
-        client().post(format!("{ws}/workspaces/edit_guest_access")),
-        ADMIN_TOKEN,
-    )
-    .json(&json!({ "guest_access_enabled": true }))
-    .send()
-    .await?;
-    assert_eq!(resp.status(), 400);
-    assert!(
-        resp.text().await?.contains("self-hosted"),
-        "the refusal must name what guests need"
-    );
-
     let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
         .json(&json!({
             "path": APP_PATH,
@@ -56,6 +42,10 @@ async fn the_cloud_admits_no_guest(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await?;
     assert_eq!(resp.status(), 400, "an app cannot be deployed to guests");
+    assert!(
+        resp.text().await?.contains("self-hosted"),
+        "the refusal must name what guests need"
+    );
 
     // Nor can a key be configured for the JWT way in — the refusal lands before the
     // outbound JWKS fetch it would otherwise make.
@@ -96,9 +86,6 @@ async fn the_cloud_admits_no_guest(db: Pool<Postgres>) -> anyhow::Result<()> {
     .bind(APP_PATH)
     .execute(&db)
     .await?;
-    sqlx::query("UPDATE workspace_settings SET guest_access_enabled = true WHERE workspace_id = 'test-workspace'")
-        .execute(&db)
-        .await?;
 
     // Deploying it again is not refused: only widening an app into guests is, so a
     // git-sync push of one already stored that way keeps working (and keeps being inert).
