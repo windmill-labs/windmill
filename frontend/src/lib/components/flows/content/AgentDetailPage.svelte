@@ -369,7 +369,9 @@
 			onRunStarted={embedded || pendingRun ? runStarted : undefined}
 		>
 			{#snippet chatSidebarFooter({ expanded })}
-				<BuildChatAppCard kind="agent" {path} workspace={ws} {expanded} />
+				{#if ws}
+					<BuildChatAppCard kind="agent" {path} workspace={ws} {expanded} />
+				{/if}
 			{/snippet}
 			{#snippet viewForm({ schema, run, loading, actions })}
 				{#if config && !chatAvailable}
