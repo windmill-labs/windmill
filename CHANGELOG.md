@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.853.0](https://github.com/windmill-labs/windmill/compare/v1.852.0...v1.853.0) (2026-10-28)
+
+
+### Features
+
+* agent to flow, tabbed agent page, one webhook panel with an AI prompt ([#11903](https://github.com/windmill-labs/windmill/issues/11903)) ([2e4c078](https://github.com/windmill-labs/windmill/commit/2e4c0789a25a51ec9fdb05ea6f57e1e70c73e591))
+
+
+### Performance Improvements
+
+* borrow cached script modules instead of cloning per job ([#12087](https://github.com/windmill-labs/windmill/issues/12087)) ([d03142b](https://github.com/windmill-labs/windmill/commit/d03142ba39f0ad2247ecd867da74890a7681cf85))
+* build log-mask automaton as a contiguous nfa ([#12088](https://github.com/windmill-labs/windmill/issues/12088)) ([97de072](https://github.com/windmill-labs/windmill/commit/97de072e7ff5f91d5b5494b78c409ce31bfde3b1))
+
 ## [1.852.0](https://github.com/windmill-labs/windmill/compare/v1.851.0...v1.852.0) (2026-10-28)
 
 
