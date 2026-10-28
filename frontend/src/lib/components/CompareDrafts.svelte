@@ -928,15 +928,7 @@
 			{/snippet}
 
 			{#snippet footer()}
-				<div class="flex items-start justify-between gap-4">
-					<div class="flex-1 min-w-0">
-						{#if $copilotInfo.enabled}
-							<AiReview
-								scope={{ kind: 'drafts', workspaceId: currentWorkspaceId, items: reviewItems }}
-								source="drafts"
-							/>
-						{/if}
-					</div>
+				<div class="flex flex-col gap-4">
 					<div class="flex flex-col items-end gap-2">
 						<div class="flex items-center gap-2">
 							<Button
@@ -970,6 +962,12 @@
 							</span>
 						{/if}
 					</div>
+					{#if $copilotInfo.enabled}
+						<AiReview
+							scope={{ kind: 'drafts', workspaceId: currentWorkspaceId, items: reviewItems }}
+							source="drafts"
+						/>
+					{/if}
 				</div>
 			{/snippet}
 		</WorkspaceDeployLayout>
