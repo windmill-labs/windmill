@@ -104,11 +104,23 @@ const EDITOR_ONLY: &[&str] = &[
     "read_file",
 ];
 
-/// Tools whose effect discarding a draft cannot undo: they reach the deployed workspace or a
-/// live datatable, run code, cancel a job, or delete work. Stands in for the session's
-/// confirmation card. The ChatGPT and Claude directories reject a write that deletes,
-/// cancels or cannot be taken back without this hint, even when it could be redone.
+/// Tools that can lose work or cannot be taken back: they reach the deployed workspace or a
+/// live datatable, run code, cancel a job, delete work, or replace a draft's content, which
+/// discarding the draft does not restore. Stands in for the session's confirmation card. The
+/// ChatGPT and Claude directories reject such a tool without this hint.
 const DESTRUCTIVE: &[&str] = &[
+    "write_script",
+    "edit_script",
+    "write_flow",
+    "patch_flow_json",
+    "set_flow_module_code",
+    "write_schedule",
+    "write_trigger",
+    "write_resource",
+    "write_variable",
+    "write_app_file",
+    "patch_app_file",
+    "write_app_runnable",
     "deploy_workspace_item",
     "delete_workspace_item",
     "create_resource_type",
