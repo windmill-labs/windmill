@@ -261,7 +261,10 @@
 				</div>
 				{#if $copilotInfo.enabled}
 					<div class="border-t pt-2">
-						<AiReview {diffs} {forkWorkspaceId} {parentWorkspaceId} source="request_form" />
+						<AiReview
+							scope={{ kind: 'deployment', diffs, forkWorkspaceId, parentWorkspaceId }}
+							source="request_form"
+						/>
 					</div>
 				{/if}
 			</div>
@@ -294,9 +297,7 @@
 			<div class="border rounded-md bg-surface p-3 flex flex-col gap-3">
 				{#if $copilotInfo.enabled}
 					<AiReview
-						{diffs}
-						{forkWorkspaceId}
-						{parentWorkspaceId}
+						scope={{ kind: 'deployment', diffs, forkWorkspaceId, parentWorkspaceId }}
 						source="open_request"
 						onPost={postAiFinding}
 					/>

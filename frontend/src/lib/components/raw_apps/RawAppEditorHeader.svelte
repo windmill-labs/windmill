@@ -604,7 +604,10 @@
 					// reintroduce the post-deploy noise the head side already strips.
 					return replaceFalseWithUndefined(stripRawAppDiffNoise(v as any))
 				},
-				current: currentDiffValue
+				current: currentDiffValue,
+				aiReview: opWorkspace
+					? { workspaceId: opWorkspace, kind: 'raw_app', path: appPath }
+					: undefined
 			},
 			opening
 		)
@@ -870,6 +873,9 @@
 								mode: 'normal',
 								deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
 								current: currentDiffValue,
+								aiReview: opWorkspace
+									? { workspaceId: opWorkspace, kind: 'raw_app', path: appPath }
+									: undefined,
 								button: {
 									text: 'Looks good, deploy',
 									onClick: () => {
