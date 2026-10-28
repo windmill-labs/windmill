@@ -266,6 +266,10 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     /// The tools a token with this access is offered.
     fn session_tools(&self, access: SessionAccess) -> Vec<Tool>;
 
+    /// The MCP Apps views (`ui://` HTML) session tools render their results in, as
+    /// `(uri, html)`.
+    fn session_views(&self) -> &'static [(&'static str, &'static str)];
+
     async fn call_session_tool(
         &self,
         auth: &Self::Auth,

@@ -5280,7 +5280,9 @@ async fn execute_component(
             &run_query,
             args.args.get("user_message"),
             uuid,
-            is_preview,
+            // Never a test conversation, even from the app editor's preview: an app runs the
+            // deployed flow or agent, and a test conversation is one run on the editor's draft.
+            false,
             &args.args,
         )
         .await?;

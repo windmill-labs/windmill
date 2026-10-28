@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.850.0
+  version: 1.851.0
   title: Windmill API
 
   contact:
@@ -8239,6 +8239,8 @@ paths:
                   $ref: "#/components/schemas/RuleBypasserGroups"
                 bypass_users:
                   $ref: "#/components/schemas/RuleBypasserUsers"
+                fork_role_mapping:
+                  $ref: "#/components/schemas/ForkRoleMapping"
       responses:
         "200":
           description: protection rule created successfully
@@ -8287,6 +8289,8 @@ paths:
                   $ref: "#/components/schemas/RuleBypasserGroups"
                 bypass_users:
                   $ref: "#/components/schemas/RuleBypasserUsers"
+                fork_role_mapping:
+                  $ref: "#/components/schemas/ForkRoleMapping"
       responses:
         "200":
           description: protection rule updated successfully
@@ -14000,6 +14004,53 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/FlowConversationMessage"
+
+  /w/{workspace}/ai/complete:
+    post:
+      summary: one text completion with the workspace's AI config
+      description: >
+        Sends a system and a user message to the configured provider and returns the text of
+        the answer, with no tools and no streaming. For callers that do not speak a provider's
+        own API through the proxy, such as the CLI and jobs.
+      operationId: completeAi
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                system:
+                  type: string
+                user:
+                  type: string
+                model:
+                  description: defaults to the AI config's default model
+                  $ref: "#/components/schemas/AIProviderModel"
+                max_tokens:
+                  type: integer
+              required:
+                - system
+                - user
+      responses:
+        "200":
+          description: the answer, and the model that wrote it
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  text:
+                    type: string
+                  model:
+                    $ref: "#/components/schemas/AIProviderModel"
+                required:
+                  - text
+                  - model
 
   /w/{workspace}/ai_evals/datasets/list:
     get:
@@ -38639,6 +38690,9 @@ components:
           type: boolean
         fork_open_prs:
           type: boolean
+        ai_review_prs:
+          type: boolean
+          description: review every pull request against the tracked branch with the workspace's AI
         open_pr_error:
           type: string
           description: server-owned, last failure opening a PR for a deploy branch of this repo
@@ -39157,9 +39211,12 @@ components:
           type: boolean
         manage_triggers:
           type: boolean
+        fork:
+          type: boolean
+          description: Fork the workspace.
         visibility:
           $ref: "#/components/schemas/RoleVisibility"
-      required: [code, flows, apps, manage_schedules, manage_triggers, visibility]
+      required: [code, flows, apps, manage_schedules, manage_triggers, fork, visibility]
 
     RoleCapabilitiesPatch:
       type: object
@@ -39172,6 +39229,7 @@ components:
           $ref: "#/components/schemas/AuthorLevel"
         manage_schedules: { type: boolean }
         manage_triggers: { type: boolean }
+        fork: { type: boolean }
         visibility:
           type: object
           additionalProperties:
@@ -39836,6 +39894,16 @@ components:
           $ref: "#/components/schemas/RuleBypasserGroups"
         bypass_users:
           $ref: "#/components/schemas/RuleBypasserUsers"
+        fork_role_mapping:
+          $ref: "#/components/schemas/ForkRoleMapping"
+    ForkRoleMapping:
+      type: object
+      description: >-
+        Role a member of this workspace gets in a fork of it, keyed by the role it holds here.
+        Unmapped roles carry over unchanged; where two rulesets map the same role, the first by
+        name wins. On update, omitting it leaves the stored mapping unchanged.
+      additionalProperties:
+        type: string
     ProtectionRules:
       type: array
       description: Configuration of protection restrictions

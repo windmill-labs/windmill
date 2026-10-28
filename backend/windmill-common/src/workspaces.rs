@@ -63,7 +63,12 @@ pub struct ProtectionRuleset {
     pub rules: ProtectionRules,
     pub bypass_groups: Vec<String>,
     pub bypass_users: Vec<String>,
+    /// Role a member of the workspace gets in a fork of it, keyed by the role it holds here.
+    /// Unmapped roles carry over unchanged.
+    pub fork_role_mapping: ForkRoleMapping,
 }
+
+pub type ForkRoleMapping = sqlx::types::Json<std::collections::BTreeMap<String, String>>;
 
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -210,6 +215,11 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/30052/sync-script-to-git-repo
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
 pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/30051/git-sync-init-repository-windmill";
+
+/// Hub script that reviews a pull request with the workspace's AI (`ai_review_prs`): clones
+/// the base branch, fetches the pull request's head and runs `wmill review --json` from the
+/// `windmill-cli` it pins. The server posts what it returns.
+pub const GIT_SYNC_REVIEW_SCRIPT_PATH: &str = "hub/30053/git-sync-review-pull-request-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -373,6 +383,12 @@ pub struct GitRepositorySettings {
     /// deploy callback reads this from the parent). Off by default.
     #[serde(default, skip_serializing_if = "is_false")]
     pub fork_open_prs: bool,
+    /// Review every pull request against the tracked branch with the workspace's AI and post
+    /// the findings on it (`wmill review`, run by `GIT_SYNC_REVIEW_SCRIPT_PATH`). Arrives on
+    /// the pull request webhook, so it needs a credential the server holds. Parent-owned like
+    /// `fork_open_prs`; off by default.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub ai_review_prs: bool,
     /// Server-owned: the last failure opening a PR for a deploy branch of this
     /// repo (e.g. the GitHub App installation hasn't approved the pull-request
     /// permission). Written by the deploy completion hook, cleared on the next
@@ -1185,7 +1201,8 @@ pub async fn get_protection_rules(
                 name,
                 rules as "rules: ProtectionRules",
                 bypass_groups,
-                bypass_users
+                bypass_users,
+                fork_role_mapping as "fork_role_mapping: ForkRoleMapping"
             FROM workspace_protection_rule
             WHERE workspace_id = $1
             ORDER BY name
@@ -1473,6 +1490,21 @@ pub async fn check_user_against_rule(
     }
 
     Ok(RuleCheckResult::Allowed)
+}
+
+/// The roles members of `workspace_id` get in a fork of it, merged across its rulesets: where two
+/// rulesets map the same role, the first by name wins. Unmapped roles carry over unchanged.
+pub async fn fork_role_mapping(
+    workspace_id: &str,
+    db: &DB,
+) -> Result<std::collections::BTreeMap<String, String>> {
+    let mut mapping = std::collections::BTreeMap::new();
+    for ruleset in get_protection_rules(workspace_id, db).await?.iter() {
+        for (from, to) in ruleset.fork_role_mapping.iter() {
+            mapping.entry(from.clone()).or_insert_with(|| to.clone());
+        }
+    }
+    Ok(mapping)
 }
 
 /// Check all deploy-gating protection rules at once.

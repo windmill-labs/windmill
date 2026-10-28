@@ -8497,7 +8497,7 @@ write a secret you were not given: keep the placeholder.
 | \`git_sync\` | \`{ repositories: [...] }\`, each with \`git_repo_resource_path\`, \`script_path\` and \`settings\` (include/exclude paths and types). Server-owned fields (webhook secrets, sync state, credentials) are never read nor written. |
 | \`datatable\` | \`{ datatables: { <name>: { database: { resource_type, resource_path } } } }\`, both required: \`resource_type: postgresql\` with \`resource_path\` a Postgres resource's path, or \`instance\`, or \`external_instance\` (Enterprise only), with \`resource_path\` the name of a database a superadmin set up. A fork's entry can instead be \`{ reference: { workspace_id, datatable } }\`, pointing at its parent's data table; keep it as is. \`main\` is the one scripts use by default. Role permissions are \`datatable_permissions\`. |
 | \`datatable_permissions\` | \`{ <data table>: { default_role, roles: { <role>: [tenants] } } }\`: who may connect to each data table as which role. Tenants are \`u/<user>\`, \`g/<group>\`, \`f/<folder>\` or \`*\`; \`admin\` is always a role, and \`default_role: null\` means no default. A data table the value omits is no longer under roles. Only a data table on a cluster Windmill manages can be. |
-| \`protection_rules\` | \`{ <rule name>: { rules: [...], bypass_groups: [...], bypass_users: [...] } }\`, rules among \`DisableDirectDeployment\`, \`DisableWorkspaceForking\`, \`RestrictDeployToDeployers\`, \`RestrictAnonymousAppDeployment\`, \`RestrictPublicRunSharing\`, \`RestrictGuestAppDeployment\`, \`RequireIsolatedForks\`. A rule the value omits is deleted. The dev workspace lock is not listed and cannot be set here. |
+| \`protection_rules\` | \`{ <rule name>: { rules: [...], bypass_groups: [...], bypass_users: [...], fork_role_mapping?: { <role here>: <role in its forks> } } }\`, rules among \`DisableDirectDeployment\`, \`DisableWorkspaceForking\`, \`RestrictDeployToDeployers\`, \`RestrictAnonymousAppDeployment\`, \`RestrictPublicRunSharing\`, \`RestrictGuestAppDeployment\`, \`RequireIsolatedForks\`. A rule the value omits is deleted. The dev workspace lock is not listed and cannot be set here. |
 | \`ducklake\` | \`{ ducklakes: { <name>: { catalog, storage, ... } } }\`. |
 | \`dbt_warehouses\` | dbt warehouse connections. |
 | \`default_app\` | Path of the app shown as the workspace home. |
@@ -9076,6 +9076,20 @@ resource type related commands
 - \`resource-type new <name:string>\` - create a new resource type locally
 - \`resource-type push <file_path:string> <name:string>\` - push a local resource spec. This overrides any remote versions.
 - \`resource-type generate-namespace\` - Create a TypeScript definition file with the RT namespace generated from the resource types
+
+### review
+
+Review a pull request on a git sync repository with the workspace's AI, the way deployment requests are reviewed. Reads the changes and the base branch's review instructions from git; the instance, workspace and token come from the flags, never from the checkout's wmill.yaml.
+
+**Options:**
+- \`--base <ref:string>\` - The base branch commit. Defaults to the pull_request event's base.
+- \`--head <ref:string>\` - The pull request's commit. Defaults to the event's head, else HEAD.
+- \`--model <model:string>\` - provider:model to review with. Defaults to the workspace's default model.
+- \`--folder <dir:string>\` - The repository directory the workspace is synced into, when it is not the root.
+- \`--json\` - Print the review as JSON
+- \`--post <target:string>\` - Post the review on the pull request. Only \`github\` is supported.
+- \`--pr <number:number>\` - The pull request number. Defaults to the pull_request event's.
+- \`--fail-on <severity:string>\` - Exit with 1 when a finding is at least this severe: high, medium or low.
 
 ### schedule
 

@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.851.0](https://github.com/windmill-labs/windmill/compare/v1.850.0...v1.851.0) (2026-10-28)
+
+
+### Features
+
+* app conversations through the memory_id query parameter ([#12025](https://github.com/windmill-labs/windmill/issues/12025)) ([07d4f7f](https://github.com/windmill-labs/windmill/commit/07d4f7fe613b285963fa27749bfb44bb91e237a1))
+* build, test and run standalone ai agents from ai sessions ([#11954](https://github.com/windmill-labs/windmill/issues/11954)) ([8dd46a4](https://github.com/windmill-labs/windmill/commit/8dd46a4d14ecbce4e2ee4a71561d7a5e917dfed3))
+* confirm run-as on flow and script deploy, mute from editor menu ([#12015](https://github.com/windmill-labs/windmill/issues/12015)) ([75e3e7e](https://github.com/windmill-labs/windmill/commit/75e3e7ea419d1ec6c69280ba2ec4d82367263b10))
+* folder-scoped review instructions for the deployment ai review ([#12037](https://github.com/windmill-labs/windmill/issues/12037)) ([62fbd50](https://github.com/windmill-labs/windmill/commit/62fbd508c8ceb5336633fffd0fb9afbad6cfdee5))
+* per-role fork capability and fork role mapping on rulesets ([#12054](https://github.com/windmill-labs/windmill/issues/12054)) ([ca8f0a1](https://github.com/windmill-labs/windmill/commit/ca8f0a16c18de3307e1b545afe72140ff1bc604d))
+* rebuild raw apps on a ui/-only change, fail sync push on ui/ errors ([#12051](https://github.com/windmill-labs/windmill/issues/12051)) ([d3872cb](https://github.com/windmill-labs/windmill/commit/d3872cb18343b7cf08e520ebecc5246fe464d933))
+* review git sync pull requests with ai on the instance ([#12056](https://github.com/windmill-labs/windmill/issues/12056)) ([375bf03](https://github.com/windmill-labs/windmill/commit/375bf03cdcbdc379aa78321cc464b55fbb03f848))
+* review git sync pull requests with wmill review ([#12055](https://github.com/windmill-labs/windmill/issues/12055)) ([fbe776d](https://github.com/windmill-labs/windmill/commit/fbe776d611c818e54e2fd7c211d39949f7faa8e8))
+* show runs, run tables, deploy reviews and items as mcp apps cards ([#11969](https://github.com/windmill-labs/windmill/issues/11969)) ([8121dc2](https://github.com/windmill-labs/windmill/commit/8121dc2b1cd322914a19469cb2e764f44fc525a3))
+
+
+### Bug Fixes
+
+* **cli:** resolve /ui/ in app dev and lint, bare ui/ imports from the app ([#12050](https://github.com/windmill-labs/windmill/issues/12050)) ([3ee7451](https://github.com/windmill-labs/windmill/commit/3ee745192c510b90a41499972fca025cf8e33a90))
+* drop superseded list replies after a workspace or filter change ([#12041](https://github.com/windmill-labs/windmill/issues/12041)) ([003a6a9](https://github.com/windmill-labs/windmill/commit/003a6a9fd639a76bdf272096a37601bdef45a251))
+* issue oidc tokens to a deployed flow's dynamic select ([#12046](https://github.com/windmill-labs/windmill/issues/12046)) ([60d07dc](https://github.com/windmill-labs/windmill/commit/60d07dc0d9d8c926853666973b0b3064d33b25c7))
+* resolve $var: in an AI resource's base_url ([#12053](https://github.com/windmill-labs/windmill/issues/12053)) ([210a235](https://github.com/windmill-labs/windmill/commit/210a235be602dd3d1bf00eeb9b6ce4ef75d165cb))
+* stop the breadcrumb sliding when switching sessions ([#12045](https://github.com/windmill-labs/windmill/issues/12045)) ([b5ed5c7](https://github.com/windmill-labs/windmill/commit/b5ed5c749a05508391bb24bc5428df0a7749d635))
+* treat the acting user as unknown during a workspace switch ([#12049](https://github.com/windmill-labs/windmill/issues/12049)) ([0aec3e2](https://github.com/windmill-labs/windmill/commit/0aec3e2e6ad0c79b06238dd05c3920366994e5af))
+
 ## [1.850.0](https://github.com/windmill-labs/windmill/compare/v1.849.0...v1.850.0) (2026-10-27)
 
 

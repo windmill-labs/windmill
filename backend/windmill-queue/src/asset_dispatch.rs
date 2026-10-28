@@ -277,7 +277,6 @@ async fn try_dispatch(db: &DB, job: &MiniCompletedJob) -> Result<DispatchResult>
         return Ok(DispatchResult::default());
     };
 
-
     let args = fetch_args(db, &job.workspace_id, job.id).await?;
     if read_skip_arg(args.as_ref()) {
         return Ok(DispatchResult::default());
@@ -768,9 +767,7 @@ async fn push_subscriber(
     .await?
     .prefetch_cached(db)
     .await?;
-    let on_behalf_of = script
-        .on_behalf_of(&producer.workspace_id, db)
-        .await?;
+    let on_behalf_of = script.on_behalf_of(&producer.workspace_id, db).await?;
     let hash = ScriptHash(script.hash);
     let tag = script.tag;
     let concurrency_settings = script.runnable_settings.concurrency_settings;
@@ -866,6 +863,12 @@ async fn push_subscriber(
     if let Some(p) = partition {
         args.insert(PARTITION_ARG.to_string(), to_raw_value(&p));
     }
+    // The partition and chain come from the producer's args, which its author controls, while
+    // the subscriber runs as its own deployer.
+    let args = windmill_common::variables::omit_untrusted_interpolation(
+        args,
+        "The following resource has been omitted for security reasons: ",
+    );
 
     // Attribute the dispatched run to a synthetic user so audit logs reflect
     // it came from the asset cascade, not the original human runner.

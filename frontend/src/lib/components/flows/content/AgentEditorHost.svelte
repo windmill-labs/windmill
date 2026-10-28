@@ -196,7 +196,6 @@
 		}),
 		currentEditor: writable(undefined),
 		outputPickerOpenFns: {},
-		preserveOnBehalfOf: writable(false),
 		savedOnBehalfOfEmail: writable<string | undefined>(undefined),
 		savedOnBehalfOfPermissionedAs: writable<string | undefined>(undefined),
 		...(outer ?? {}),

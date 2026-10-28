@@ -11,6 +11,7 @@
 	import FolderInfo from '$lib/components/FolderInfo.svelte'
 	import FolderUsageInfo from '$lib/components/FolderUsageInfo.svelte'
 	import { sendUserToast } from '$lib/utils'
+	import { latestRequest } from '$lib/utils/latestRequest'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import { Pen, Trash, Plus, UploadCloud, FolderOpen } from 'lucide-svelte'
@@ -30,8 +31,12 @@
 	let hubDrawer: Drawer | undefined = $state()
 	let publishFolderName: string = $state('')
 
+	const folderLoads = latestRequest()
 	async function loadFolders(): Promise<void> {
-		folders = await FolderService.listFolders({ workspace: $workspaceStore! })
+		const isLatest = folderLoads.start()
+		const result = await FolderService.listFolders({ workspace: $workspaceStore! })
+		if (!isLatest()) return
+		folders = result
 	}
 
 	function onFolderSaved(name: string, created: boolean) {
