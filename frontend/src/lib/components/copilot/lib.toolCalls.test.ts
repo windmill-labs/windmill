@@ -312,6 +312,7 @@ describe('output token limit', () => {
 		expect(getModelMaxTokens('customai', 'gpt-5')).toBe(128000)
 		// GLM's own API (z.ai) is only reachable through Custom AI.
 		expect(getModelMaxTokens('customai', 'glm-5.1')).toBe(32768)
+		expect(getModelMaxTokens('customai', 'glm-4.5v')).toBe(8192)
 	})
 
 	it('sizes the budget from the effort the same request carries', async () => {
