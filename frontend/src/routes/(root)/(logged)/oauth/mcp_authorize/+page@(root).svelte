@@ -63,7 +63,7 @@
 	let loadingWorkspaces = $state(false)
 	const grantsWorkspace = $derived(!isGateway || allWorkspaces || pickedWorkspaces.length > 0)
 	// Selected scripts and flows are listed per workspace, so a selection keeps one of them.
-	function setAccess(next: McpAccess) {
+	function setAccess(next: McpAccess | undefined) {
 		access = next
 		if (next === 'selected') {
 			allWorkspaces = false
