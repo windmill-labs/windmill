@@ -29,6 +29,15 @@ export function workspaceItemDisplayPath(item: Pick<WorkspaceItem, 'path' | 'dra
 	return item.draftPath ?? item.path
 }
 
+/** The name an `@` mention gives the item. Only a draft-only item is named by its draft
+ * path: a deployed item keeps its path while its draft renames it, the way the chat's
+ * answer links name it. */
+export function workspaceItemMentionPath(
+	item: Pick<WorkspaceItem, 'path' | 'draftPath' | 'draftOnly'>
+): string {
+	return item.draftOnly ? workspaceItemDisplayPath(item) : item.path
+}
+
 /** Display label for kinds — used in the picker rows and search section headers. */
 export const KIND_LABEL: Record<WorkspaceItemKind, string> = {
 	flow: 'Flows',

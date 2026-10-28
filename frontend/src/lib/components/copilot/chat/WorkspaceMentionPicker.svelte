@@ -11,6 +11,7 @@ at the workspace root because the parent menu item already names the scope.
 	import type { DrillBranch, DrillLeaf, DrillNode } from '$lib/components/drillPicker'
 	import {
 		workspaceItemDisplayPath,
+		workspaceItemMentionPath,
 		type WorkspaceItem,
 		type WorkspaceItemKind
 	} from '$lib/components/workspacePicker'
@@ -64,7 +65,7 @@ at the workspace root because the parent menu item already names the scope.
 			return {
 				type: 'workspace_script',
 				path: item.path,
-				title: workspaceItemDisplayPath(item),
+				title: workspaceItemMentionPath(item),
 				summary: item.summary,
 				deletable: true
 			} satisfies WorkspaceScriptElement & { deletable: boolean }
@@ -73,7 +74,7 @@ at the workspace root because the parent menu item already names the scope.
 			return {
 				type: 'workspace_flow',
 				path: item.path,
-				title: workspaceItemDisplayPath(item),
+				title: workspaceItemMentionPath(item),
 				summary: item.summary,
 				deletable: true
 			} satisfies WorkspaceFlowElement & { deletable: boolean }
@@ -82,7 +83,7 @@ at the workspace root because the parent menu item already names the scope.
 			return {
 				type: 'workspace_app',
 				path: item.path,
-				title: workspaceItemDisplayPath(item),
+				title: workspaceItemMentionPath(item),
 				summary: item.summary,
 				deletable: true
 			} satisfies WorkspaceAppElement & { deletable: boolean }
@@ -140,7 +141,8 @@ at the workspace root because the parent menu item already names the scope.
 		onPick={handlePick}
 		{leafIcon}
 		{branchIcon}
-		leafSecondary={(leaf, scope) => relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data), scope)}
+		leafSecondary={(leaf, scope) =>
+			relativizeWorkspacePath(workspaceItemDisplayPath(leaf.data), scope)}
 		onScopeChange={handleScopeChange}
 		onFilterChange={loader.onFilterChange}
 		rootLoading={WORKSPACE_KINDS.some((k) => !loader.loaded[k] && loader.loadingKind[k])}

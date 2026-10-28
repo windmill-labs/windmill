@@ -28,6 +28,7 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 	import type { DrillBranch, DrillIcon, DrillLeaf, DrillNode } from '$lib/components/drillPicker'
 	import {
 		workspaceItemDisplayPath,
+		workspaceItemMentionPath,
 		type WorkspaceItem,
 		type WorkspaceItemKind
 	} from '$lib/components/workspacePicker'
@@ -301,7 +302,7 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 				const element: WorkspaceScriptElement & { deletable: boolean } = {
 					type: 'workspace_script',
 					path: d.path,
-					title: workspaceItemDisplayPath(d),
+					title: workspaceItemMentionPath(d),
 					summary: d.summary,
 					deletable: true
 				}
@@ -310,7 +311,7 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 				const element: WorkspaceFlowElement & { deletable: boolean } = {
 					type: 'workspace_flow',
 					path: d.path,
-					title: workspaceItemDisplayPath(d),
+					title: workspaceItemMentionPath(d),
 					summary: d.summary,
 					deletable: true
 				}
@@ -320,7 +321,7 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 				const element: WorkspaceAppElement & { deletable: boolean } = {
 					type: 'workspace_app',
 					path: d.path,
-					title: workspaceItemDisplayPath(d),
+					title: workspaceItemMentionPath(d),
 					summary: d.summary,
 					deletable: true
 				}
