@@ -920,9 +920,9 @@ export function resolveFlowFolderArg(flowPath: string): string {
 }
 
 /**
- * Fetch the code a `script` step runs. Hub paths (`hub/<id>/...`) are served
- * by the hub, not the workspace, and run with the hub's lockfile, the way a
- * whole-flow run resolves them.
+ * Fetch the code and lockfile a `script` step runs, the way a whole-flow run
+ * resolves them: hub paths (`hub/<id>/...`) from the hub, others from the
+ * workspace.
  */
 export async function loadStepScript(
   workspaceId: string,
@@ -935,7 +935,7 @@ export async function loadStepScript(
   const script = moduleValue.hash
     ? await wmill.getScriptByHash({ workspace: workspaceId, hash: moduleValue.hash })
     : await wmill.getScriptByPath({ workspace: workspaceId, path: moduleValue.path });
-  return { content: script.content, language: script.language };
+  return { content: script.content, language: script.language, lock: script.lock };
 }
 
 // Strip the `.flow`/`__flow` directory suffix to recover the flow's logical

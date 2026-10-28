@@ -23,7 +23,7 @@ mockServices({
   },
   getScriptByHash: async (args: any) => {
     calls.push({ fn: "getScriptByHash", args });
-    return { content: "hashed code", language: "python3" };
+    return { content: "hashed code", language: "python3", lock: "hash-lock" };
   },
 });
 
@@ -101,12 +101,12 @@ describe("loadStepScript", () => {
     });
   });
 
-  test("a workspace path is fetched from the workspace", async () => {
+  test("a workspace path is fetched from the workspace, with its deployed lock", async () => {
     const script = await loadStepScript("ws", { path: "f/t/helper" });
     expect(calls).toEqual([
       { fn: "getScriptByPath", args: { workspace: "ws", path: "f/t/helper" } },
     ]);
-    expect(script).toEqual({ content: "workspace code", language: "bun" });
+    expect(script).toEqual({ content: "workspace code", language: "bun", lock: "ws-lock" });
   });
 
   test("a pinned hash is fetched by hash", async () => {
@@ -114,6 +114,6 @@ describe("loadStepScript", () => {
     expect(calls).toEqual([
       { fn: "getScriptByHash", args: { workspace: "ws", hash: "abc" } },
     ]);
-    expect(script).toEqual({ content: "hashed code", language: "python3" });
+    expect(script).toEqual({ content: "hashed code", language: "python3", lock: "hash-lock" });
   });
 });
