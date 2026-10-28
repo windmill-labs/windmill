@@ -1,6 +1,5 @@
 import { page } from '$app/state'
 import { replaceState } from '$app/navigation'
-import { rememberWorkspacePage } from '$lib/components/sessions/sessionSwitch.svelte'
 import { UserDraftDbSyncer, type UserDraftLastSyncQuery } from '$lib/userDraftDbSyncer.svelte'
 import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 import type { UserDraftItemKind } from '$lib/gen'
@@ -11,17 +10,13 @@ import type { UserDraftItemKind } from '$lib/gen'
  *
  * Uses SvelteKit's `replaceState` (not raw `history.replaceState`, which the
  * router warns conflicts with it) so the history entry keeps the router's
- * bookkeeping and `page.state`. Also refreshes the page the sidebar switch's
- * Workspace side returns to: `afterNavigate` never observes this in-place
- * rewrite, so the switch would restore the pre-strip URL — still carrying
- * `?new_draft=true` — and re-enter the seed-empty branch. */
+ * bookkeeping and `page.state`. */
 export function stripNewDraftFlag(): void {
 	if (typeof window === 'undefined') return
 	const url = new URL(window.location.href)
 	if (url.searchParams.get('new_draft') !== 'true') return
 	url.searchParams.delete('new_draft')
 	replaceState(url, page.state)
-	rememberWorkspacePage(url.pathname + url.search)
 }
 
 /**
@@ -31,7 +26,7 @@ export function stripNewDraftFlag(): void {
  * `u/<user>/draft_<uuid>?new_draft=true`; the seed branch bootstraps an empty
  * (or template/hub/fork-seeded) editor instead of fetching a row that doesn't
  * exist yet. But the flag can outlive the seed: a return to the editor's URL
- * (Back, the sidebar switch's Workspace side, a link kept from before) still
+ * (Back, a link kept from before) still
  * carries `?new_draft=true` after the
  * draft was materialized — by the first autosave, or by "Open in AI session"'s
  * `forcePersist`. Re-running the seed branch then blanks the saved draft.

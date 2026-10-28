@@ -20,6 +20,7 @@
 		Trash2
 	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import type { Snippet } from 'svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { goto } from '$lib/navigation'
 	import { leaveForHome, openDraftOnHome, openNewSession } from './sessionSwitch.svelte'
@@ -141,6 +142,13 @@
 		// Drop the section's own outer padding/border so it sits flush inside a
 		// parent container (e.g. gathered with Favorites/Search in the sidebar).
 		embedded?: boolean
+		// Render only the collapsed rail's session menu, opened by hovering this trigger
+		// (rendered with melt's `trigger` and the unread total). The trigger's own click is
+		// the host's: it never reaches the menu.
+		hoverTrigger?: Snippet<[{ trigger: any; unread: number }]>
+		// Shares the options row, left of its menu. With it the picker fills its parent and
+		// scrolls the list alone, so the row stays in place.
+		leading?: Snippet
 	}
 
 	let {
@@ -150,7 +158,9 @@
 		browsedWorkspaceId = undefined,
 		onBrowseWorkspace = undefined,
 		onSelectSession = undefined,
-		embedded = false
+		embedded = false,
+		hoverTrigger = undefined,
+		leading = undefined
 	}: Props = $props()
 
 	const sectionCollapsed = useLocalStorageValue(
@@ -424,12 +434,6 @@
 		}
 	}
 
-	// Whatever page is on screen, a new session starts on Home: a session about an item
-	// is started from that item, by its Open in AI session button.
-	async function createAndOpen() {
-		await openNewSession()
-	}
-
 	// The `+` on a workspace group header: a new session in that group's workspace,
 	// which the header switches to, since Home's draft acts on the header's workspace.
 	async function createAndOpenIn(workspaceId: string) {
@@ -667,46 +671,36 @@
 	     unavailable (no provider configured or disabled in the user's settings)
 	     the section still shows — the per-session chat input is disabled with an
 	     explanatory message, mirroring the sidebar AI chat. -->
-{:else if isCollapsed}
-	<div class={embedded ? '' : 'px-2 pt-3 pb-2 border-b border-light'}>
-		<MenuButton
-			stopPropagationOnClick={true}
-			on:click={createAndOpen}
-			{isCollapsed}
-			icon={Plus}
-			label="New session"
-			class="!text-xs"
-		/>
+{:else if isCollapsed || hoverTrigger}
+	<div class={embedded || hoverTrigger ? '' : 'px-2 pt-3 pb-2 border-b border-light'}>
 		<Menubar>
 			{#snippet children({ createMenu })}
-				<Menu {createMenu} usePointerDownOutside submenuSafe>
+				<Menu {createMenu} usePointerDownOutside submenuSafe openOnHover={!!hoverTrigger}>
 					{#snippet triggr({ trigger })}
-						<div class="relative">
-							<MenuButton
-								class="!text-xs"
-								icon={MessageSquare}
-								label="AI sessions"
-								{isCollapsed}
-								{trigger}
-							/>
-							{#if totalUnread > 0}
-								<span
-									class="absolute top-1 right-1 pointer-events-none inline-block w-2 h-2 rounded-full bg-surface-accent-primary"
-									aria-label="{totalUnread} unread message{totalUnread === 1
-										? ''
-										: 's'} across all sessions"
-								></span>
-							{/if}
-						</div>
+						{#if hoverTrigger}
+							{@render hoverTrigger({ trigger, unread: totalUnread })}
+						{:else}
+							<div class="relative">
+								<MenuButton
+									class="!text-xs"
+									icon={MessageSquare}
+									label="AI sessions"
+									{isCollapsed}
+									{trigger}
+								/>
+								{#if totalUnread > 0}
+									<span
+										class="absolute top-1 right-1 pointer-events-none inline-block w-2 h-2 rounded-full bg-surface-accent-primary"
+										aria-label="{totalUnread} unread message{totalUnread === 1
+											? ''
+											: 's'} across all sessions"
+									></span>
+								{/if}
+							</div>
+						{/if}
 					{/snippet}
 					{#snippet children({ item, builders })}
 						<div class="divide-y min-w-48" role="none">
-							<div class="py-1" role="none">
-								<MenuItem class={menuItemBase} onClick={createAndOpen} {item}>
-									<Plus size={14} />
-									New session
-								</MenuItem>
-							</div>
 							<div class="py-1" role="none">
 								<SessionFilterMenu
 									{builders}
@@ -780,10 +774,10 @@
 	<div
 		class="flex flex-col gap-1 {embedded ? '' : 'px-2 pt-3 pb-2'} {!embedded && collapsible
 			? 'border-b border-light'
-			: ''}"
+			: ''} {leading ? 'flex-1 min-h-0' : ''}"
 	>
-		<!-- Selection mode reuses the New session row (same h-8 slot, same px-2) so
-		     the list below it never moves. -->
+		<!-- Selection mode reuses the options row (same h-8 slot) so the list below it
+		     never moves. -->
 		{#if selectionMode}
 			<div class="flex flex-row items-center gap-1.5 h-8 px-2">
 				<Checkbox
@@ -826,17 +820,10 @@
 					{GROUP_BY_OPTIONS.find((o) => o.value === groupBy.val)?.hint ?? ''}
 				</span>
 			{/snippet}
-			<div class="flex flex-row items-center gap-0.5 pr-0.5">
-				<div class="flex-1 min-w-0">
-					<MenuButton
-						stopPropagationOnClick={true}
-						on:click={createAndOpen}
-						isCollapsed={false}
-						icon={Plus}
-						label="New session"
-						class="!text-xs"
-					/>
-				</div>
+			<div class="flex flex-row items-center gap-0.5 h-8 pr-0.5 {leading ? '' : 'justify-end'}">
+				{#if leading}
+					<div class="flex-1 min-w-0">{@render leading()}</div>
+				{/if}
 				<DropdownV2
 					fixedHeight={false}
 					placement="bottom-end"
@@ -928,7 +915,8 @@
 					selectionMode ? 'select-none' : '',
 					// In the rail the picker is the whole list and the rail scrolls;
 					// only cap height when it's one section among others (normal sidebar).
-					collapsible ? 'max-h-[40vh]' : ''
+					collapsible ? 'max-h-[40vh]' : '',
+					leading ? 'flex-1 min-h-0' : ''
 				)}
 				onkeydown={handleListKeydown}
 				role="listbox"

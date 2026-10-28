@@ -52,7 +52,7 @@ export function homeSessionsTransition(navigation: OnNavigate): Promise<void> | 
 	})
 }
 
-/** For the Workspace ⇄ AI Sessions switch on Home, which stays on the page: runs `swap` as a
+/** For the Workspace ⇄ AI Sessions switch, which stays on the page: runs `swap` as a
  * view transition in which the sidebar's list comes in from the side of the button pressed.
  * The name and timing live in app.css, keyed on `data-home-side-transition`: set only for the
  * switch, so a move to a session page does not pick the name up.

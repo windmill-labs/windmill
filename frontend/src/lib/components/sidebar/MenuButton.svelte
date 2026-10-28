@@ -43,6 +43,8 @@
 		buttonClass?: string | undefined
 		// Show a trailing chevron to signal the button opens a dropdown.
 		showChevron?: boolean
+		// An icon at the row's end, hidden with the label when collapsed.
+		trailingIcon?: any | undefined
 		// Render the label with stronger weight/size (e.g. the workspace name).
 		emphasizeLabel?: boolean
 		// Drop the native `title` attributes — for callers that wrap the button
@@ -78,6 +80,7 @@
 		class: classNames = undefined,
 		buttonClass = undefined,
 		showChevron = false,
+		trailingIcon = undefined,
 		emphasizeLabel = false,
 		disableTitle = false,
 		ariaLabel = undefined,
@@ -208,6 +211,14 @@
 
 			{#if showChevron && !isCollapsed}
 				<ChevronDown
+					size={14}
+					class="flex-shrink-0 text-tertiary transition-colors group-hover:text-secondary"
+				/>
+			{/if}
+
+			{#if trailingIcon && !isCollapsed}
+				{@const TrailingIcon = trailingIcon}
+				<TrailingIcon
 					size={14}
 					class="flex-shrink-0 text-tertiary transition-colors group-hover:text-secondary"
 				/>
