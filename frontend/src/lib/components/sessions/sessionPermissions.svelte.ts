@@ -16,9 +16,12 @@ import { previewPageAllowed, type PreviewPage } from './previewRouter'
 /** Whether a session in `workspace` is read-only because the workspace is protected: the verdict
  * `resolveSessionAccess` gives the chat, so the UI and the toolset agree. */
 export function useSessionReadOnly(workspace: () => string | undefined) {
-	const verdict = resource(workspace, async (ws) =>
-		ws ? { workspace: ws, readOnly: await isReadOnlySessionWorkspace(ws) } : undefined
-	)
+	const verdict = resource(workspace, async (ws) => {
+		if (!ws) return undefined
+		const readOnly = await isReadOnlySessionWorkspace(ws)
+		// Only a successful read settles a verdict; a failed one is read-only to fail closed.
+		return { workspace: ws, readOnly, rulesRead: settledReadOnlyVerdict(ws) !== undefined }
+	})
 	// `resource` keeps the previous workspace's verdict while it asks about the next one.
 	const verdictFor = (ws: string): boolean | undefined => {
 		const landed = verdict.current
@@ -37,6 +40,16 @@ export function useSessionReadOnly(workspace: () => string | undefined) {
 		get known() {
 			const ws = workspace()
 			return !!ws && (verdictFor(ws) ?? false)
+		},
+		/** Protected by a rule that was actually read: false when the read failed, where the session
+		 * is still read-only. For text that names the rule as the reason. */
+		get confirmed() {
+			const ws = workspace()
+			if (!ws) return false
+			const landed = verdict.current
+			return landed?.workspace === ws
+				? landed.readOnly && landed.rulesRead
+				: (settledReadOnlyVerdict(ws) ?? false)
 		}
 	}
 }

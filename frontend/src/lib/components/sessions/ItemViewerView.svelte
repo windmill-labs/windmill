@@ -264,7 +264,7 @@
 			<div class="text-xs text-tertiary max-w-sm">
 				Nothing is deployed at <span class="font-mono">{path}</span>, so there is no deployed
 				version to view.{#if canEdit}{' '}
-					Deploy it from the editor to see it here.{:else if protectedWorkspace.known}{' '}
+					Deploy it from the editor to see it here.{:else if protectedWorkspace.confirmed}{' '}
 					Direct deployment is disabled in this workspace, so this session can read and run deployed
 					items, but not edit. Pick {devWorkspace
 						? `its ${devLabelNoun(devWorkspace.dev_workspace_label)}`
