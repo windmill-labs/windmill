@@ -10,7 +10,6 @@
 	import PermissionedAsLine from '$lib/components/triggers/PermissionedAsLine.svelte'
 	import AgentSlackSettings from './AgentSlackSettings.svelte'
 	import { WorkspaceService } from '$lib/gen'
-	import { userStore } from '$lib/stores'
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import type { AgentDraftHandle, AgentRunAs } from '../agentDraft.svelte'
 
@@ -36,8 +35,8 @@
 	let nextRunAs = $derived(
 		pickedRunAs?.preserve && pickedRunAs.permissionedAs
 			? pickedRunAs.permissionedAs
-			: $userStore?.username
-				? `u/${$userStore.username}`
+			: acting.current?.username
+				? `u/${acting.current.username}`
 				: undefined
 	)
 	// Only a workspace that deploys somewhere has anything to keep an agent out of.
