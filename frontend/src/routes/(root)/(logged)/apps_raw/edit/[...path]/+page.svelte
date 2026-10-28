@@ -560,6 +560,8 @@
 	 *  editor should keep it instead. */
 	async function handOffToSession(app: Omit<RawAppDraft, 'draft_path'>): Promise<boolean> {
 		const workspace = $workspaceStore
+		// Inside a session's preview the sessions page refuses to render, so the editor keeps it.
+		if (window.self !== window.top) return false
 		if (!prefersSessionHandoff(!$roleCaps.code) || !workspace) return false
 		if (get(copilotWorkspace) !== workspace) await loadCopilot(workspace)
 		if (get(copilotWorkspace) !== workspace || !get(copilotInfo).enabled) return false
