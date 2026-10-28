@@ -701,38 +701,22 @@ pub async fn explain_resource_perm_error(
     db: &sqlx::Pool<Postgres>,
     authed: &ApiAuthed,
 ) -> windmill_common::error::Result<()> {
-    let extra_perms = sqlx::query_scalar!(
-        "SELECT extra_perms from resource WHERE path = $1 AND workspace_id = $2",
+    // Read with the raw pool, so the error must not carry the item's or its folder's
+    // extra_perms: that would show the caller who holds access to an item they cannot read.
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM resource WHERE path = $1 AND workspace_id = $2)",
         path,
         w_id
     )
-    .fetch_optional(db)
+    .fetch_one(db)
     .await?
-    .ok_or_else(|| Error::NotFound(format!("Resource {} not found", path)))?;
-    if path.starts_with("f/") {
-        let folder = path.split("/").nth(1).ok_or_else(|| {
-            Error::BadRequest(format!(
-                "path {} should have at least 2 components separated by /",
-                path
-            ))
-        })?;
-        let folder_extra_perms = sqlx::query_scalar!(
-            "SELECT extra_perms from folder WHERE name = $1 AND workspace_id = $2",
-            folder,
-            w_id
-        )
-        .fetch_optional(db)
-        .await?;
-        return Err(Error::NotAuthorized(format!(
-            "Resource exists but you don't have access to it:\nresource perms: {}\nfolder perms: {}\nauthed as: {authed:?}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default()
-        )));
-    } else {
-        return Err(Error::NotAuthorized(format!(
-            "Resource exists but you don't have access to it:\nresource perms: {}\nauthed as: {authed:?}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default()
-        )));
+    .unwrap_or(false);
+    if !exists {
+        return Err(Error::NotFound(format!("Resource {} not found", path)));
     }
+    Err(Error::NotAuthorized(format!(
+        "Resource exists but you don't have access to it:\nauthed as: {authed:?}"
+    )))
 }
 
 async fn custom_component(
