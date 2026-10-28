@@ -124,7 +124,7 @@ pub async fn generate_vault_jwt(_db: &DB, _vault_address: &str) -> Result<String
 }
 
 /// Read `key` of the secret at `path` for an `$external:vault://` reference (OSS stub)
-pub(crate) async fn read_vault_external_secret(
+pub async fn read_vault_external_secret(
     _db: &DB,
     _settings: &VaultSettings,
     _path: &str,

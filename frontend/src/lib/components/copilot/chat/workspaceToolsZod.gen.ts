@@ -485,7 +485,7 @@ export const emailTriggerRequestSchema = z.object({
 
 export const variableRequestSchema = z.object({
 	"path": z.string().describe("The path to the variable"),
-	"value": z.string().describe("The value of the variable"),
+	"value": z.string().describe("The value of the variable. For a secret, `$external:vault://<path>#<key>` stores a reference to an existing secret in the instance's external HashiCorp Vault (path as `vault kv get` takes it) instead of a value; it is resolved on each read, only under the path prefixes a superadmin allowed for the workspace, and is returned as-is when the secret is not decrypted.\n"),
 	"is_secret": z.boolean().describe("Whether the variable is a secret"),
 	"description": z.string().describe("The description of the variable"),
 	"account": z.number().int().describe("Ignored. A variable is linked to an OAuth account only when `createAccount` creates both.").optional(),
