@@ -50,11 +50,7 @@
 		type SessionPreviewTab
 	} from '$lib/components/sessions/sessionState.svelte'
 	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
-	import {
-		openDraftOnHome,
-		resumeAiSessions,
-		returnToWorkspace
-	} from '$lib/components/sessions/sessionSwitch.svelte'
+	import { openDraftOnHome, resumeAiSessions } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import {
@@ -179,8 +175,8 @@
 	// Family reconcile: a workspace switch can land this page with no session
 	// selected or with another family's session in the URL (the workspace menu's
 	// link navigation keeps the route), and a chat must not bleed across
-	// families. Both resume as the switch's AI Sessions side does, within the
-	// active family. A `session` that resolves to nothing is left to the
+	// families. Both resume the last session opened, within the active family.
+	// A `session` that resolves to nothing is left to the
 	// recovery effect below.
 	$effect(() => {
 		if (embedded || !sessionState.hydrated) return
@@ -1238,7 +1234,7 @@
 				>
 					<p class="text-primary font-medium">AI Sessions are hidden in this workspace</p>
 					<p>A workspace admin hid AI sessions in the workspace settings.</p>
-					<Button unifiedSize="sm" onclick={() => returnToWorkspace()}>Back to workspace</Button>
+					<Button unifiedSize="sm" onclick={() => goto('/')}>Back to workspace</Button>
 				</div>
 			{/if}
 		</div>
