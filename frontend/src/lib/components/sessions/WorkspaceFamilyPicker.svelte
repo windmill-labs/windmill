@@ -19,7 +19,7 @@
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
 	import { canCreateFork } from '$lib/utils/editInFork'
-	import { capabilitiesIn, isRestricted } from '$lib/roleCapabilities'
+	import { canFork, capabilitiesIn } from '$lib/roleCapabilities'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import { WorkspaceService } from '$lib/gen'
 	import { useSessionReadOnly } from './sessionPermissions.svelte'
@@ -183,8 +183,7 @@
 				? moveFrom !== 'admins' &&
 					!fromRulesetsResource.loading &&
 					!fromUserInfoResource.loading &&
-					// A restricted role would get the default role in the fork it creates.
-					!isRestricted(
+					canFork(
 						capabilitiesIn(
 							fromUserInfo,
 							$userWorkspaces.find((w) => w.id === moveFrom)
