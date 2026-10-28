@@ -253,9 +253,13 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for SqlLayer {
 
 /// SQL counting is a separate mode (`PERF_SQL=1`): sqlx formats a query summary for every
 /// statement once its event is enabled, which inflates the allocation numbers.
+fn sql_mode() -> bool {
+    std::env::var("PERF_SQL").is_ok_and(|v| !v.is_empty() && v != "0")
+}
+
 fn init_sql_counting() {
     use tracing_subscriber::prelude::*;
-    if std::env::var("PERF_SQL").is_err() {
+    if !sql_mode() {
         return;
     }
     static ONCE: std::sync::Once = std::sync::Once::new();
@@ -305,9 +309,16 @@ fn report(out: &mut String, title: &str, s0: &Snap, s1: &Snap, n: u64, idle: &Id
     let count = (s1.count - s0.count) as f64;
     let adj_bytes = (bytes - idle.bytes_per_sec * secs).max(0.0);
     let adj_count = (count - idle.count_per_sec * secs).max(0.0);
+    // Allocation numbers from SQL mode are inflated by sqlx's query summaries; the mode tag
+    // keeps them from being mistaken for an allocation run.
+    let mode = if sql_mode() {
+        "sql mode, allocs not comparable"
+    } else {
+        "alloc mode"
+    };
     let _ = writeln!(
         out,
-        "\n=== {title}: {n} jobs in {secs:.2}s | raw {:.1} KiB/job {:.0} allocs/job | idle-adjusted {:.1} KiB/job {:.0} allocs/job",
+        "\n=== {title} [{mode}]: {n} jobs in {secs:.2}s | raw {:.1} KiB/job {:.0} allocs/job | idle-adjusted {:.1} KiB/job {:.0} allocs/job",
         bytes / n_f / 1024.0,
         count / n_f,
         adj_bytes / n_f / 1024.0,
