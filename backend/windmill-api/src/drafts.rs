@@ -1176,6 +1176,36 @@ async fn transfer_drafts(
             )
             .await?;
         }
+        // A pipeline node deploys with its `script.hash` as `parent_hash`, refused where that
+        // version does not exist, and repointing it would deploy over the target's newer one.
+        let stale_pipelines = sqlx::query_scalar!(
+            r#"SELECT DISTINCT d.path FROM draft d,
+                   jsonb_array_elements(CASE WHEN jsonb_typeof(d.value::jsonb->'drafts') = 'array'
+                                             THEN d.value::jsonb->'drafts' ELSE '[]' END) node
+               WHERE d.workspace_id = $1 AND d.email = $2 AND d.typ = 'data_pipeline'
+                 AND d.path = ANY($3::text[])
+                 AND CASE WHEN (node->1->'script'->>'hash' ~ '^[0-9a-f]{16}$') IS NOT TRUE THEN false
+                          ELSE NOT EXISTS (SELECT 1 FROM script sc WHERE sc.workspace_id = $4::text
+                                   AND sc.hash = ('x' || (node->1->'script'->>'hash'))::bit(64)::bigint)
+                     END
+               ORDER BY d.path"#,
+            &w_id,
+            &authed.email,
+            &locked
+                .iter()
+                .filter(|(k, _)| *k == UserDraftItemKind::DataPipeline)
+                .map(|(_, p)| p.clone())
+                .collect::<Vec<_>>(),
+            target,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        if !stale_pipelines.is_empty() {
+            return Err(Error::BadRequest(format!(
+                "{target} lacks a script version these pipeline drafts are based on, so Deploy all would fail there: {}. Deploy them before moving, or pick a workspace that has those versions.",
+                stale_pipelines.join(", ")
+            )));
+        }
         if req.replace_existing {
             sqlx::query!(
                 "DELETE FROM draft

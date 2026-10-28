@@ -554,5 +554,39 @@ async fn test_transfer_drafts_to_fork(db: Pool<Postgres>) -> anyhow::Result<()> 
         .await?;
     assert_eq!(r.status(), 400);
 
+    // A pipeline node based on a version the target lacks would fail Deploy all there: refused,
+    // and the source keeps it. One based on a version the target has moves.
+    let pipeline = |hash: &str| json!({ "drafts": [["f/p/n", { "localId": "n", "script": { "path": "f/p/n", "hash": hash } }]] });
+    for (path, hash) in [
+        ("f/p_stale", "00000000000abcde"),
+        ("f/p_ok", "ffffffffffffffff"),
+    ] {
+        sqlx::query(
+            "INSERT INTO draft (workspace_id, path, typ, value, email) VALUES ($1, $2, 'data_pipeline', $3, $4)",
+        )
+        .bind(WS)
+        .bind(path)
+        .bind(pipeline(hash))
+        .bind(me)
+        .execute(&db)
+        .await?;
+    }
+    let move_pipeline = |path: &'static str| {
+        c.post(&transfer_url)
+            .json(&json!({
+                "target_workspace": fork,
+                "items": [{ "kind": "data_pipeline", "path": path }],
+                "remove_from_source": true
+            }))
+            .send()
+    };
+    let r = move_pipeline("f/p_stale").await?;
+    assert_eq!(r.status(), 400, "{}", r.text().await?);
+    assert_eq!(draft_count(&db, "f/p_stale", "data_pipeline", me).await, 1);
+    assert_eq!(fork_count("f/p_stale").await?, 0);
+    let r = move_pipeline("f/p_ok").await?;
+    assert_eq!(r.status(), 200, "{}", r.text().await?);
+    assert_eq!(fork_count("f/p_ok").await?, 1);
+
     Ok(())
 }
