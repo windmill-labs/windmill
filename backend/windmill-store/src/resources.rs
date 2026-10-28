@@ -695,6 +695,9 @@ async fn get_resource_value(
     Ok(Json(value))
 }
 
+/// Including the resource's and its folder's `extra_perms` in the error is intended, not a
+/// leak: who holds access to an item is not secret within a workspace, and it tells the
+/// denied caller whom to ask. Keep the maps in the message.
 pub async fn explain_resource_perm_error(
     path: &str,
     w_id: &str,
