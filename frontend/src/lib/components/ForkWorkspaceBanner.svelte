@@ -1,7 +1,7 @@
 <script lang="ts">
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
-	import { Badge } from './common'
+	import { Badge, Button } from './common'
 	import { AlertTriangle, ArrowDown, ArrowUp, Pencil } from 'lucide-svelte'
 	import {
 		roleCapabilities,
@@ -12,7 +12,6 @@
 	} from '$lib/stores'
 	import type { WorkspaceComparison } from '$lib/gen'
 	import { fetchWorkspaceComparison } from '$lib/workspaceComparison'
-	import { Button } from './common'
 	import { goto } from '$app/navigation'
 	import { onMount, untrack } from 'svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
@@ -47,35 +46,14 @@
 	let isNotOperator = $derived(isUserFor($userStore, $workspaceStore) && $roleCapabilities.code)
 	let showBanner = $derived(isFork && isNotOperator)
 
-	// Drafts in this fork. When the fork is otherwise in sync with its parent, a
-	// user with only pending drafts should still get the draft CTA (mirrors the
-	// non-fork WorkspaceDraftsBanner). Pass undefined when the banner is hidden so
-	// it doesn't fetch.
+	// Drafts in this fork. Pass undefined when the banner is hidden so it doesn't fetch.
 	const drafts = useWorkspaceDrafts(() => (showBanner ? ($workspaceStore ?? undefined) : undefined))
 	const draftCount = $derived(drafts.count)
-
-	// Every read of `comparison` that decides what the banner says or where its button
-	// goes must go through this: anything else — in flight, failed, or a tally skipped
-	// outright — counts zero of everything, which is indistinguishable from "nothing to
-	// deploy". Typed helper avoids the `never`-inference quirk on `$state` in `$derived`.
-	function isAnswerable(c: WorkspaceComparison | undefined, isLoading: boolean): boolean {
-		return !isLoading && !!c && !c.skipped_comparison
-	}
-	const hasAnswer = $derived(isAnswerable(comparison, loading))
 
 	/** Bar width from which each badge says what it counts. Below it they keep the icon and the
 	 *  number, which is the part a reader scans for; the tooltip names them either way. */
 	const BAR_FITS_COUNT_LABELS = 1280
 	const compactCounts = $derived(pageHeader.barWidth < BAR_FITS_COUNT_LABELS)
-
-	// Fork is fully in sync with its parent (comparison ran, no ahead/behind diffs).
-	function isUpToDate(c: WorkspaceComparison | undefined): boolean {
-		return !!c && !c.skipped_comparison && c.summary.total_diffs === 0
-	}
-	let upToDate = $derived(hasAnswer && isUpToDate(comparison))
-	// Up to date with the parent but local drafts are pending — show the draft
-	// state (same text + CTA as the draft banner) instead of "Everything is up to date".
-	let showDraftsOnly = $derived(upToDate && draftCount > 0)
 
 	// Leaving for a workspace with no comparison of its own has to invalidate whatever
 	// is in flight too, or that response lands as this one's answer.
@@ -148,10 +126,7 @@
 		}
 	}
 
-	// Opens the direction the button offers, so the label and the list agree: a fork
-	// with nothing to deploy lands on the update side, not on an empty deploy list.
-	/** The compare page opened on one direction, for a badge that counts exactly that. The button
-	 *  beside them still chooses on the reader's behalf; a badge means the one thing it names. */
+	/** The compare page opened on one direction, for a badge that counts exactly that. */
 	function openCompareDir(dir: 'deploy_to' | 'update') {
 		if (!parentWorkspaceId || !$workspaceStore) return
 		goto(
@@ -160,15 +135,6 @@
 				(dir === 'update' ? '&dir=update' : ''),
 			{ replaceState: true }
 		)
-	}
-
-	function openComparisonDrawer() {
-		if (parentWorkspaceId && $workspaceStore) {
-			const dir = hasAnswer && changesAhead === 0 ? '&dir=update' : ''
-			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore) + dir, {
-				replaceState: true
-			})
-		}
 	}
 
 	function openDraftCompare() {
@@ -188,47 +154,39 @@
 	}
 	const changesAhead = $derived(countDir(comparison, true))
 	const changesBehind = $derived(countDir(comparison, false))
+	const conflicts = $derived(comparison?.summary.conflicts ?? 0)
+	// The badges are the only way to the compare page, so with none to show (in sync, still
+	// counting, or the count failed) the button takes their place.
+	const showsBadge = $derived(
+		!loading && !error && (changesAhead > 0 || changesBehind > 0 || conflicts > 0 || draftCount > 0)
+	)
 
-	function forkAheadBehindMessage(changesAhead: number, changesBehind: number) {
-		let msg: string[] = []
-		if (changesAhead > 0 || changesBehind > 0) {
-			msg.push(`This ${currentNoun} is `)
-			if (changesAhead > 0)
-				msg.push(`${changesAhead} change${changesAhead > 1 ? 's' : ''} ahead of `)
-			if (changesAhead > 0 && changesBehind > 0) msg.push('and ')
-			if (changesBehind > 0)
-				msg.push(`${changesBehind} change${changesBehind > 1 ? 's' : ''} behind `)
+	function openCompare() {
+		if ($workspaceStore) {
+			goto('/forks/compare?workspace_id=' + encodeURIComponent($workspaceStore), {
+				replaceState: true
+			})
 		}
-		return msg.join('')
 	}
 </script>
 
 {#if showBanner}
 	<!-- In the band, not a banner: the breadcrumb already says which fork this is, so all this has
-	     to carry is how far it has drifted and the way to review that. The per-kind breakdown, the
-	     CI line and the conflict count live on the compare page the button opens. -->
+	     to carry is how far it has drifted, as badges that each open the compare page on what they
+	     count. The per-kind breakdown and the CI line live on that page. -->
 	<PageHeaderContent actions={forkAction} />
 {/if}
 
 {#snippet forkAction()}
-	{@const total = comparison?.summary.total_diffs ?? 0}
-	{@const conflicts = comparison?.summary.conflicts ?? 0}
-	<!-- What the comparison has to say is a mark beside the button, never instead of it: a fork
-	     still being counted, or one whose count failed, is exactly when a reader wants the page
-	     that does the counting properly. The button below renders in every state. -->
 	{#if loading}
 		<span class="text-2xs text-tertiary">Checking for changes…</span>
 	{:else if error}
 		<span class="text-2xs text-red-600 dark:text-red-400" title={error}>Comparison failed</span>
-	{:else if showDraftsOnly}
-		<Badge color="blue" small>
-			{draftCount} draft{draftCount !== 1 ? 's' : ''}
-		</Badge>
-	{:else if total > 0}
+	{:else}
 		<!-- Which way the drift goes is the thing to know at a glance: ahead is what this fork has
 		     to give its parent, behind is what it has yet to take. -->
 		<!-- The colours and the icons the compare page gives these three, so the counts in the bar
-		     and the rows behind the button say the same thing the same way. -->
+		     and the rows on that page say the same thing the same way. -->
 		{#if changesAhead > 0}
 			<Badge
 				color="green"
@@ -271,8 +229,7 @@
 		     items against the parent, this counts work in this fork that is not deployed anywhere
 		     yet. It shares blue with "behind" and is told apart by the pencil and by naming what it
 		     counts, rather than by an arrow that would read as a third direction. Clicking goes to
-		     the drafts half of the compare page rather than the drawer the button opens. It shows at
-		     every drift — a fork both behind and holding drafts said nothing about the drafts. -->
+		     the drafts half of the compare page. -->
 		{#if draftCount > 0}
 			<Badge
 				color="blue"
@@ -288,29 +245,14 @@
 			</Badge>
 		{/if}
 	{/if}
-	{#if showDraftsOnly}
+	{#if !showsBadge}
 		<Button
 			variant="subtle"
 			unifiedSize="sm"
-			onclick={openDraftCompare}
-			title={`Review and deploy this workspace's drafts`}
+			onclick={openCompare}
+			title="Review this {currentNoun} against {parentWorkspaceId}"
 		>
-			Review & deploy drafts
-		</Button>
-	{:else}
-		<Button
-			variant="subtle"
-			unifiedSize="sm"
-			onclick={openComparisonDrawer}
-			title={hasAnswer
-				? `${forkAheadBehindMessage(changesAhead, changesBehind)} ${parentWorkspaceId} over ${total} items`
-				: `Review this ${currentNoun} against ${parentWorkspaceId}`}
-		>
-			{#if !hasAnswer || changesAhead > 0}
-				Review changes
-			{:else}
-				Review & Update {currentNoun}
-			{/if}
+			Compare with {parentWorkspaceId}
 		</Button>
 	{/if}
 {/snippet}
