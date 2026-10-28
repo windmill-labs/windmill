@@ -843,9 +843,10 @@ async fn delete_variable(
         return Err(Error::PermissionDenied(msg));
     }
 
-    // Check if variable is a secret before deleting (for Vault cleanup)
+    // Check if variable is a secret before deleting (for Vault cleanup). An external reference
+    // is excluded: its path may name a secret Windmill does not own.
     let is_secret = sqlx::query_scalar!(
-        "SELECT is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
+        r#"SELECT is_secret AND value NOT LIKE '$external:%' AS "is_secret!" FROM variable WHERE path = $1 AND workspace_id = $2"#,
         path,
         &w_id
     )
@@ -1017,9 +1018,9 @@ async fn delete_variables_bulk(
         return Err(Error::PermissionDenied(msg));
     }
 
-    // Query which paths are secrets before deletion (for Vault cleanup)
+    // Query which paths are secrets before deletion (for Vault cleanup), external references excluded
     let secret_paths: Vec<String> = sqlx::query_scalar!(
-        "SELECT path FROM variable WHERE path = ANY($1) AND workspace_id = $2 AND is_secret = true",
+        "SELECT path FROM variable WHERE path = ANY($1) AND workspace_id = $2 AND is_secret = true AND value NOT LIKE '$external:%'",
         &request.paths,
         &w_id
     )

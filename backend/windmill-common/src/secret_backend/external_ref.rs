@@ -91,10 +91,15 @@ pub fn resolves_externally(value: &str) -> bool {
 
 fn path_segments(path: &str) -> Result<Vec<&str>> {
     let segments: Vec<&str> = path.trim().trim_matches('/').split('/').collect();
-    if segments
-        .iter()
-        .any(|s| s.is_empty() || *s == "." || *s == ".." || s.contains(['?', '%']))
-    {
+    // The URL parser treats `\` as `/` and drops tabs and newlines, so either would let a
+    // `..` segment slip past this check and the allow-list.
+    if segments.iter().any(|s| {
+        s.is_empty()
+            || *s == "."
+            || *s == ".."
+            || s.contains(['?', '%', '#', '\\'])
+            || s.contains(char::is_control)
+    }) {
         return Err(Error::BadRequest(format!(
             "Invalid external secret path `{path}`: expected segments like `secret/team/app`"
         )));
@@ -172,7 +177,7 @@ pub async fn check_external_ref(db: &DB, w_id: &str, value: &str) -> Result<()> 
     authorize(db, w_id, value).await.map(|_| ())
 }
 
-pub async fn resolve_external_ref(
+pub(crate) async fn resolve_external_ref(
     db: &DB,
     w_id: &str,
     variable_path: &str,
@@ -233,6 +238,7 @@ mod tests {
             "$external:vault://secret/app#",
             "$external:vault://secret//app#k",
             "$external:vault://secret/../sys#k",
+            "$external:vault://secret/team/..\\other/app#k",
             "$external:vault://secret/app?list=true#k",
             "$external:aws-sm://secret/app#k",
         ] {
