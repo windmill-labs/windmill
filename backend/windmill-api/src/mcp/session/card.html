@@ -1249,7 +1249,7 @@
     window.clearTimeout(pollTimer);
     window.clearInterval(tickTimer);
     run = null;
-    for (const id of ['step', 'stale', 'error-line', 'result', 'details', 'cancel', 'expand', 'deploy']) $(id).hidden = true;
+    for (const id of ['step', 'stale', 'result-head', 'error-line', 'result', 'details', 'cancel', 'expand', 'deploy']) $(id).hidden = true;
     $('result-more').replaceChildren();
     $('duration').textContent = '';
     $('result-table').replaceChildren();
