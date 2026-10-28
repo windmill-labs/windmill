@@ -66,7 +66,7 @@ value:
           if (event.kind !== "http") return { event }
           return {
             event: {
-              method: event.method,
+              method: String(event.method).toUpperCase(),
               path: event.path,
               query: event.query,
               headers: event.headers,
@@ -76,6 +76,8 @@ value:
           }
         }
 ```
+
+Windmill sends the method in lowercase and Pipedream in uppercase, hence `toUpperCase()`, so a check like `event.method === "POST"` keeps working. `path` is the request path on the new route, which differs from the old endpoint's. `url` is host + path, as Pipedream documents it, with no scheme or query string. Check any step that compares `path` or `url`, or parses `url` with `new URL(...)`: rewrite it to use `event.path` and `event.query`.
 
 **HTTP route settings:**
 
@@ -114,7 +116,7 @@ Rewrite each code step as a native Windmill script, a `rawscript` module with `i
 | `import { axios } from "@pipedream/platform"` + `axios($, config)` | `fetch`, throwing on failure: `if (!res.ok) throw new Error(res.status + " " + (await res.text()))`, then `await res.json()`. Pipedream's helper returned only the response body. Avoid the `axios` package's thrown errors: they are cyclic, so the job reports `cannot serialize cyclic structures` instead of the HTTP error |
 | `import x from "pkg@1.2.3"` | Unchanged: Bun scripts in Windmill take the same versioned imports |
 | `this.dataStore` (a `data_store` prop) | A store only this step uses, such as a cursor or last-run timestamp: `wmill.getState()` / `wmill.setState(value)`, keeping the keys in one object. A store several steps or workflows share: a key/value table in a data table, queried with SQL (see `datatables`; creating the table is a schema change, so add it to the checklist). Either way the contents aren't in the export; the user has to copy them out of Pipedream |
-| `$.flow.delay(ms)` | Split the step there and put `sleep` (in seconds) on the next module, or use a suspend step when the delay waits for a resume URL |
+| `$.flow.delay(ms)` | `sleep` (in seconds, `ms / 1000`) on this same module. Pipedream delays at the end of the step that calls it, and a module's `sleep` waits after that module finishes, before the next one starts. Keep the step whole. When the delay hands out its `resume_url`/`cancel_url`, use a suspend step instead |
 | `$.flow.suspend()` / `resume_url` | A suspend (approval) step; see the approval section of `write-flow` |
 | `$.flow.rerun(...)` | `retry` on the module, or a while loop when it polls until a condition holds |
 | `$.flow.trigger(...)` and calls to another workflow's URL | A `flow` module that runs the migrated flow by path, or `wmill.runFlowAsync` |
@@ -182,7 +184,7 @@ Some keys are Pipedream built-ins, not app actions. The export calls them `end-e
 
 - **End workflow:** the previous module gets `stop_after_if`. If the step stands alone, use a one-line `rawscript` returning `{ $exit: reason }` with the stop condition on it.
 - **Return HTTP response:** a step returning `{ wm_status_code, wm_headers, result }` (see Responses).
-- **Delay:** `sleep` on the next module.
+- **Delay:** `sleep` on the module before it; a module's `sleep` runs after that module. When the delay is the first step, put it on a one-line `rawscript` that returns nothing and carries the `sleep`.
 - **Filter:** a `stop_after_if` (or `skip_if`) holding the filter's condition.
 
 ## Control flow
@@ -198,10 +200,12 @@ A control-flow step is a code step whose `props._controlFlow` describes the bloc
 
 Windmill's sync endpoints return the flow's result, and use `wm_status_code`, `wm_headers` and `wm_content_type` from it when they are present, with `result` as the body.
 
-- **Last step responds** (the most common case): it returns `{ wm_status_code, wm_headers, result }`.
-- **Step responds, then work continues** (Pipedream's `immediate: true`, or any step after the response): set `early_return: <responding step id>` on the flow `value`, so the caller gets that step's result as soon as it completes.
-- **Response then `$.flow.exit`**: return both keys from the step, `{ $exit, wm_status_code, result }`. The early stop makes it the flow's result.
-- **Respond from inside a branch while later steps keep running**: make the responding step the last one in its branch and point `early_return` at the `branchone` module. Flag it for a test against the live route.
+Pipedream sends a `$.respond` response when the workflow finishes, unless the call passes `immediate: true`. Keep that timing:
+
+- **The last step responds** (the most common case): it returns `{ wm_status_code: status, wm_headers: headers, result: body }`.
+- **`immediate: true`**: set `early_return: <responding step id>` on the flow `value`, so the caller gets that step's result as soon as it completes while the rest of the flow keeps running. If the responding step is inside a branch, make it the last step of its branch and point `early_return` at the `branchone` module; flag it for a test against the live route.
+- **A step responds and later steps still run** (no `immediate`): the response has to wait for the end of the flow, but the flow's result is the last step's. Have the responding step save the response with `await wmill.setFlowUserState("http_response", { status, headers, body })`. Then add a final top-level step that reads it with `wmill.getFlowUserState("http_response")` and returns it as `{ wm_status_code, wm_headers, result }`. This also works when the responding step is inside a branch.
+- **A response, then `$.flow.exit`**: an early stop makes the stopping step's result the flow's result, so that step returns the response next to `$exit`: `{ $exit, wm_status_code, wm_headers, result }`. Read it with `getFlowUserState` when an earlier step responded.
 
 Pipedream answered `400 No $.respond called in workflow` when a custom-response workflow never responded; Windmill returns whatever the flow returned. Where callers depend on that error, add an explicit response.
 
