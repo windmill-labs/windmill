@@ -1153,6 +1153,8 @@ async fn reject_parent_only_git_sync_settings_on_fork<'a>(
             Some("Promotion mode")
         } else if r.fork_open_prs {
             Some("Opening PRs for fork deploys")
+        } else if r.ai_review_prs {
+            Some("Reviewing pull requests with AI")
         } else {
             None
         }
@@ -7988,7 +7990,7 @@ async fn update_workspace_settings(
         .filter(|r| !r.use_individual_branch.unwrap_or(false))
         .take(1)
         .map(|mut r| {
-            // Auto-pull and fork PRs are parent-owned and must not be inherited:
+            // Auto-pull, fork PRs and PR reviews are parent-owned and must not be inherited:
             // the fork would otherwise carry the parent's webhook id (turning off
             // auto-pull on the fork would delete the parent's webhook). A fork
             // still inherits the push-direction config, the installation, and the
@@ -7997,6 +7999,7 @@ async fn update_workspace_settings(
             // fork unqualified for managed features until its first check.
             r.auto_pull = None;
             r.fork_open_prs = false;
+            r.ai_review_prs = false;
             r.open_pr_error = None;
             r
         })
@@ -11341,6 +11344,7 @@ async fn attach_dev_workspace(
                 }
                 r.auto_pull = None;
                 r.fork_open_prs = false;
+                r.ai_review_prs = false;
                 r.open_pr_error = None;
             }
             let serialized =
