@@ -13,10 +13,11 @@
 	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import {
-		applyCapabilitiesPatch,
 		authorLevelLabel,
 		baseCapabilitiesFor,
 		capabilitiesError,
+		forkLooksSet,
+		resolveCapabilities,
 		isEmptyPatch,
 		roleNameError,
 		VISIBILITY_KEYS
@@ -58,7 +59,7 @@
 
 	function overriddenKeys(o: RoleOverride | undefined): string[] {
 		const c = o?.capabilities ?? {}
-		const keys = ['code', 'flows', 'apps', 'manage_schedules', 'manage_triggers'].filter(
+		const keys = ['code', 'flows', 'apps', 'manage_schedules', 'manage_triggers', 'fork'].filter(
 			(k) => c[k] != null
 		)
 		for (const { key } of VISIBILITY_KEYS) {
@@ -78,8 +79,20 @@
 		return { base: role.capabilities, unknown: overriddenKeys(stored) }
 	}
 
+	/** Whether the layers under the draft set `fork`, so an unset one is not derived again. */
+	function forkSetBelow(name: string): boolean {
+		const { base, unknown } = baseFor(name)
+		return (
+			instanceRoles.some((r) => r.name === name) && (unknown.includes('fork') || forkLooksSet(base))
+		)
+	}
+
 	function effectiveFor(name: string): RoleCapabilities {
-		return applyCapabilitiesPatch(baseFor(name).base, draft.get(name)?.capabilities)
+		return resolveCapabilities(
+			baseFor(name).base,
+			draft.get(name)?.capabilities,
+			forkSetBelow(name)
+		)
 	}
 
 	const AUTHORING_KEYS = ['code', 'flows', 'apps']
@@ -204,7 +217,7 @@
 
 {#snippet roleCard(name: string, role: EffectiveRole | undefined)}
 	{@const { base, unknown } = baseFor(name)}
-	{@const caps = applyCapabilitiesPatch(base, draft.get(name)?.capabilities)}
+	{@const caps = effectiveFor(name)}
 	{@const overridden = Object.hasOwn(cleanedDraft, name)}
 	{@const frozen = !role && !data?.custom_roles_enabled}
 	<div class="flex flex-col rounded-md border bg-surface-tertiary">
@@ -283,6 +296,7 @@
 				<RoleCapabilitiesEditor
 					{base}
 					unknownBase={unknown}
+					baseSetsFork={forkSetBelow(name)}
 					patch={draft.get(name)?.capabilities ?? {}}
 					baseName={role ? 'instance' : 'default'}
 					setText={role ? 'Overridden' : 'Set'}

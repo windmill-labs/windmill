@@ -13,6 +13,7 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import { userStore, workspaceStore, roleCapabilities } from '$lib/stores'
 	import { useEditRights } from '$lib/operatorWriteRights'
+	import { latestRequest } from '$lib/utils/latestRequest'
 	import { Pen, Plus, Trash } from 'lucide-svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
@@ -32,8 +33,12 @@
 	let instanceGroups: InstanceGroupWithWorkspaces[] | undefined = $state(undefined)
 	let groupEditorDrawer: GroupEditorDrawer | undefined = $state()
 
+	const groupLoads = latestRequest()
 	async function loadGroups(): Promise<void> {
-		groups = await GroupService.listGroups({ workspace: $workspaceStore! })
+		const isLatest = groupLoads.start()
+		const result = await GroupService.listGroups({ workspace: $workspaceStore! })
+		if (!isLatest()) return
+		groups = result
 	}
 
 	async function loadInstanceGroups(): Promise<void> {

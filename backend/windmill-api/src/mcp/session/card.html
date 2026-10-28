@@ -1,0 +1,1776 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Windmill</title>
+<!--
+  The MCP Apps view the session's show tools draw (`CARD_URI` in `mod.rs`, `views.rs`): a
+  run, a table of runs, drafts to review before deploying, or a workspace item, from
+  whichever of `_meta["windmill/run" | "windmill/runs" | "windmill/review" | "windmill/item"]`
+  the result carries. It holds no credential: it acts by calling tools
+  through the host, as the user the connection belongs to. Everything it shows is set as
+  text, never as markup: a run's result is whatever its script returned.
+-->
+<style>
+  /* Colours, fonts and radii come from the host's style variables when it sends them, so the
+     card reads as part of the host; the fallbacks are Windmill's palette, with its body and
+     emphasis text apart. The accent stays Windmill's: hosts allow a brand accent on the
+     primary action only. Spacing follows Windmill's 4px scale. */
+  :root {
+    color-scheme: light dark;
+    --bg: var(--color-background-primary, #ffffff);
+    --bg-2: var(--color-background-secondary, #efeff4);
+    --fg: var(--color-text-primary, #3d4758);
+    --fg-em: var(--color-text-primary, #1d2430);
+    --fg-2: var(--color-text-secondary, #718096);
+    --fg-3: var(--color-text-tertiary, #8d93a1);
+    --line: var(--color-border-tertiary, #e5e7eb);
+    --info-bg: var(--color-background-info, #e9ecfe);
+    --info-fg: var(--color-text-info, #183faf);
+    --ok-bg: var(--color-background-success, #dcfce7);
+    --ok-fg: var(--color-text-success, #3b7a5b);
+    --bad-bg: var(--color-background-danger, #fee2e2);
+    --bad-fg: var(--color-text-danger, #693237);
+    --accent: #758ff8;
+    --accent-hover: #5074f6;
+    --danger: #ef4444;
+    --danger-hover: #dc2626;
+    --warn-bg: var(--color-background-warning, #ffedd5);
+    /* Windmill's draft badge is indigo, a hue hosts have no variable for. */
+    --draft-bg: #e0e7ff;
+    --draft-fg: #3730a3;
+    --warn-fg: var(--color-text-warning, #9a3412);
+    /* Dots, progress and error text need a mid tone in both themes, where badge text is pale
+       in dark mode. */
+    --ok-strong: var(--color-text-success, #22c55e);
+    --bad-strong: var(--color-text-danger, #ef4444);
+    --info-strong: var(--color-text-info, #3b82f6);
+    --warn-strong: var(--color-text-warning, #f97316);
+    --ring: var(--color-ring-primary, #758ff8);
+    --radius: var(--border-radius-md, 6px);
+    /* Both hosts require their own type: the fallback is the system stack, not Windmill's
+       Inter. Sizes default to Windmill's 11/12/14. */
+    --sans: var(--font-sans, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif);
+    --mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    --t-xs: var(--font-text-xs-size, 11px);
+    --t-sm: var(--font-text-sm-size, 12px);
+    --t-md: var(--font-text-md-size, 14px);
+    --w-normal: var(--font-weight-normal, 400);
+    --w-medium: var(--font-weight-medium, 500);
+    --w-semibold: var(--font-weight-semibold, 600);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: var(--color-background-primary, #2e3441);
+      --bg-2: var(--color-background-secondary, rgba(255, 255, 255, 0.05));
+      --fg: var(--color-text-primary, #d4d7dd);
+      --fg-em: var(--color-text-primary, #eeeff2);
+      --fg-2: var(--color-text-secondary, #a9b0ba);
+      --fg-3: var(--color-text-tertiary, #8d93a1);
+      --line: var(--color-border-tertiary, rgba(255, 255, 255, 0.12));
+      --info-bg: var(--color-background-info, rgba(24, 71, 210, 0.4));
+      --info-fg: var(--color-text-info, #c7cefc);
+      --ok-bg: var(--color-background-success, rgba(59, 122, 91, 0.4));
+      --ok-fg: var(--color-text-success, #dcfce7);
+      --bad-bg: var(--color-background-danger, rgba(129, 56, 63, 0.4));
+      --bad-fg: var(--color-text-danger, #fee2e2);
+      --warn-bg: var(--color-background-warning, rgba(154, 52, 18, 0.4));
+      --draft-bg: rgba(67, 56, 202, 0.4);
+      --draft-fg: #e0e7ff;
+      --warn-fg: var(--color-text-warning, #fed7aa);
+      --ok-strong: var(--color-text-success, #4ade80);
+      --bad-strong: var(--color-text-danger, #f87171);
+      --info-strong: var(--color-text-info, #60a5fa);
+      --warn-strong: var(--color-text-warning, #fb923c);
+      --accent: #7085db;
+      --accent-hover: #5670d5;
+      --danger: #dc2626;
+      --danger-hover: #b91c1c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: var(--color-background-primary, #2e3441);
+    --bg-2: var(--color-background-secondary, rgba(255, 255, 255, 0.05));
+    --fg: var(--color-text-primary, #d4d7dd);
+    --fg-em: var(--color-text-primary, #eeeff2);
+    --fg-2: var(--color-text-secondary, #a9b0ba);
+    --fg-3: var(--color-text-tertiary, #8d93a1);
+    --line: var(--color-border-tertiary, rgba(255, 255, 255, 0.12));
+    --info-bg: var(--color-background-info, rgba(24, 71, 210, 0.4));
+    --info-fg: var(--color-text-info, #c7cefc);
+    --ok-bg: var(--color-background-success, rgba(59, 122, 91, 0.4));
+    --ok-fg: var(--color-text-success, #dcfce7);
+    --bad-bg: var(--color-background-danger, rgba(129, 56, 63, 0.4));
+    --bad-fg: var(--color-text-danger, #fee2e2);
+    --warn-bg: var(--color-background-warning, rgba(154, 52, 18, 0.4));
+    --draft-bg: rgba(67, 56, 202, 0.4);
+    --draft-fg: #e0e7ff;
+    --warn-fg: var(--color-text-warning, #fed7aa);
+    --ok-strong: var(--color-text-success, #4ade80);
+    --bad-strong: var(--color-text-danger, #f87171);
+    --info-strong: var(--color-text-info, #60a5fa);
+    --warn-strong: var(--color-text-warning, #fb923c);
+    --accent: #7085db;
+    --accent-hover: #5670d5;
+    --danger: #dc2626;
+    --danger-hover: #b91c1c;
+  }
+  html, body { margin: 0; background: transparent; }
+  body { font: var(--w-normal) var(--t-md)/1.4 var(--sans); color: var(--fg); }
+  .card { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+  .head { display: flex; align-items: flex-start; gap: 12px; }
+  .title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .subtitle { font: var(--t-sm) var(--mono); color: var(--fg-2); overflow-wrap: anywhere; }
+  .kind-icon { flex: none; width: 28px; height: 28px; border-radius: var(--radius); background: var(--bg-2); color: var(--fg-2); display: inline-flex; align-items: center; justify-content: center; }
+  .kind-icon .lucide { width: 16px; height: 16px; color: inherit; }
+  /* Blocks sit 12px apart; a section keeps its header 8px above what it opens. */
+  #body, #details { display: flex; flex-direction: column; gap: 12px; }
+  .section { display: flex; flex-direction: column; gap: 8px; }
+  /* Tabs, in fullscreen alone: inline a card is one view (OpenAI's guidelines rule out tabs
+     there). Drawn as Windmill's own: an underlined strip, the selected tab marked by a bar
+     and an emphasised label. */
+  .tabs { display: flex; gap: 16px; border-bottom: 1px solid var(--line); }
+  .tab { min-height: 0; padding: 4px 0; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; font-size: var(--t-sm); font-weight: var(--w-normal); color: var(--fg); }
+  .tab[aria-selected="true"] { border-bottom-color: var(--fg-3); color: var(--fg-em); font-weight: var(--w-semibold); }
+  .tab:hover:not([aria-selected="true"]) { background: none; border-bottom-color: var(--line); }
+  .row.tree { flex-wrap: nowrap; align-items: center; gap: 8px; padding-top: 6px; padding-bottom: 6px; cursor: pointer; }
+  .row.tree:hover, .row.tree[aria-selected="true"] { background: var(--bg-2); }
+  .row.tree[aria-selected="true"] { box-shadow: inset 2px 0 var(--fg-3); }
+  .row.tree .v { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row.tree .grow { color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row.tree .dim { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Every row keeps the chevron's place, so a level's dots line up. */
+  .chev { flex: none; width: 16px; display: inline-flex; justify-content: center; color: var(--fg-3); }
+  .chev-toggle { min-height: 16px; width: 16px; padding: 0; border: 0; background: none; color: inherit; display: inline-flex; }
+  .chev-toggle:hover:not(:disabled) { background: none; color: var(--fg-em); }
+  .split { display: grid; grid-template-columns: minmax(220px, 2fr) 3fr; gap: 16px; align-items: start; }
+  .detail { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+  .back { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; min-height: 0; font-size: var(--t-sm); color: var(--fg-2); }
+  .back:hover { background: none; color: var(--fg-em); }
+  /* Links and Show more read as text, as in Windmill: tinting on hover is for buttons. */
+  .more-line { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; padding: 0; min-height: 0; font-size: var(--t-sm); color: var(--fg-2); }
+  .more-line:hover { background: none; color: var(--fg-em); text-decoration: underline; }
+  .empty { font-size: var(--t-sm); color: var(--fg-3); }
+  /* An empty slot takes no gap in the card's rhythm. */
+  #result-more:empty, #result-table:empty, #body:empty, #result-slot:not(:has(:not([hidden]))), .actions:not(:has(> :not([hidden]))) { display: none; }
+  .section-title { font-size: var(--t-sm); font-weight: var(--w-semibold); color: var(--fg-em); }
+  /* Windmill sets titles in its sans, semibold; a path never goes bold. */
+  .path { font: var(--w-semibold) var(--t-md)/1.3 var(--sans); color: var(--fg-em); overflow-wrap: anywhere; text-align: left; }
+  button.path { border: 0; padding: 0; min-height: 0; background: none; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+  /* A title that is a path reads as one: mono, not bold. */
+  .path:not(.named) { font: var(--w-normal) var(--t-md)/1.3 var(--mono); }
+  button.path:hover { background: none; text-decoration: underline; }
+  button.path:disabled { opacity: 1; cursor: default; text-decoration: none; }
+  /* Lucide's line icons, as Windmill uses, in the host's text colour. */
+  .lucide { width: 14px; height: 14px; flex: none; vertical-align: -2px; color: var(--fg-3); }
+  button .lucide { color: inherit; }
+  .icon { flex: none; min-height: 28px; width: 28px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+  .summary-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 12px; font-size: var(--t-sm); }
+  .summary-row + .summary-row { border-top: 1px solid var(--line); }
+  button.summary-row { width: 100%; min-height: 0; border: 0; border-radius: 0; background: transparent; font: inherit; font-size: var(--t-sm); color: inherit; text-align: left; }
+  button.summary-row:hover { background: var(--bg-2); }
+  .summary-row .grow { flex: 1; min-width: 0; font: var(--t-sm) var(--mono); color: var(--fg-em); overflow-wrap: anywhere; }
+  .summary-row .label { font-family: var(--mono); }
+  .summary-row .error-text { color: var(--bad-strong); font-family: var(--sans); }
+  .summary-row .dot { align-self: flex-start; margin-top: 5px; }
+  /* A result listed beside others keeps to two lines, as the tree keeps to one. */
+  .summary-row .clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .summary-row .why { flex-basis: 100%; font-size: var(--t-sm); color: var(--fg-2); }
+  .add-count { color: var(--ok-strong); font: var(--t-sm) var(--mono); }
+  .del-count { color: var(--bad-strong); font: var(--t-sm) var(--mono); }
+  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--t-sm); color: var(--fg-2); }
+  .ws { background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; color: var(--fg-2); font-weight: var(--w-medium); }
+  .pill, .badge { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: var(--t-sm); font-weight: var(--w-normal); padding: 2px 8px; border-radius: 6px; background: var(--info-bg); color: var(--info-fg); white-space: nowrap; }
+  .success, .pill.success { background: var(--ok-bg); color: var(--ok-fg); }
+  .failure, .not_started, .pill.failure, .pill.not_started, .pill.error { background: var(--bad-bg); color: var(--bad-fg); }
+  /* As Windmill: queued and suspended wait (its orange and violet; hosts offer a warning
+     colour), canceled is neutral. */
+  .queued, .suspended, .pill.queued, .pill.suspended { background: var(--warn-bg); color: var(--warn-fg); }
+  .canceled, .pill.canceled, .skipped, .pill.skipped { background: var(--bg-2); color: var(--fg-2); }
+  .pill.draft { background: var(--draft-bg); color: var(--draft-fg); }
+  .step { font-size: var(--t-sm); color: var(--fg-2); }
+  .progress-block { display: flex; flex-direction: column; gap: 4px; }
+  /* As Windmill's progress bar: what ran in its blue, the running step pulsing, a failed one
+     red, in the host's own info and danger colours. */
+  .progress { display: flex; gap: 2px; }
+  .segment { flex: 1; height: 6px; border-radius: 3px; background: var(--line); }
+  .segment.success { background: var(--info-strong); }
+  .segment.failure { background: var(--bad-strong); }
+  .segment.running { background: var(--info-strong); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.45; } }
+  .spin { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .segment.running, .spin { animation: none; } }
+  .pill .lucide, .badge .lucide { width: 12px; height: 12px; color: inherit; }
+  /* The basic terminal colours a log carries, as Windmill's log viewer draws them. */
+  .ansi-red { color: var(--bad-strong); }
+  .ansi-green { color: var(--ok-strong); }
+  .ansi-yellow { color: var(--warn-strong); }
+  .ansi-blue { color: var(--info-strong); }
+  .ansi-grey { color: var(--fg-3); }
+  .ansi-bold { font-weight: var(--w-semibold); }
+  .live-log { font: var(--t-sm) var(--mono); color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .step code { font-family: var(--mono); }
+  pre { margin: 0; padding: 8px 12px; border-radius: var(--radius); background: var(--bg-2); font: var(--t-sm)/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+  pre.clip { max-height: 180px; overflow: hidden; }
+  /* A result in a bordered box, logs and code on the sunken surface, as on the run page. */
+  pre.result { background: none; border: 1px solid var(--line); }
+  /* A cut result fades out: its box is drawn around it, so the fade leaves the border whole. */
+  .openable:has(> pre.result) { border: 1px solid var(--line); border-radius: var(--radius); }
+  .openable > pre.result { border: 0; }
+  /* Error colour goes on text, as in Windmill: `name: message` in it, the stack plain. */
+  pre.stack { background: none; padding: 0; }
+  .openable > pre.stack { padding-right: 64px; }
+  .error-line .openable { padding-right: 32px; }
+  .openable > .table th:last-child { padding-right: 44px; }
+  .waiting { display: flex; flex-direction: column; gap: 4px; font-size: var(--t-sm); color: var(--fg); }
+  .waiting pre { padding: 4px 8px; }
+  .error-line { color: var(--bad-strong); font-weight: var(--w-semibold); font-size: var(--t-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .rows { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); }
+  .row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 12px; font-size: var(--t-sm); }
+  .row + .row { border-top: 1px solid var(--line); }
+  .row .v { min-width: 0; overflow-wrap: anywhere; font-family: var(--mono); font-size: var(--t-sm); color: var(--fg-em); }
+  .row .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .dim { color: var(--fg-3); font-size: var(--t-sm); }
+  .row .k { flex: 0 0 140px; color: var(--fg-2); overflow-wrap: anywhere; }
+  .row .v.sans { font-family: var(--sans); font-size: var(--t-sm); }
+  .row:has(> .v > .more-line) { align-items: center; }
+  .row pre { flex-basis: 100%; padding: 4px 8px; }
+  .row > .openable { flex-basis: 100%; }
+  .row .more-line.mono { font-family: var(--mono); color: var(--fg-em); }
+  .row .step-link { min-height: 20px; width: 20px; border: 0; background: none; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; background: var(--info-strong); }
+  .dot.success { background: var(--ok-strong); }
+  .dot.failure, .dot.not_started { background: var(--bad-strong); }
+  .dot.queued, .dot.suspended { background: var(--warn-strong); }
+  .dot.canceled, .dot.skipped { background: var(--fg-3); }
+  .openable { position: relative; }
+  .image-box { display: flex; justify-content: center; padding: 8px; border-radius: var(--radius); background: var(--bg-2); }
+  .image-box img { max-width: 100%; height: auto; }
+  .image-box.cut { cursor: zoom-in; }
+  .image-box.cut img { max-height: 240px; }
+  .openable .corner { position: absolute; top: 4px; right: 4px; display: flex; gap: 2px; }
+  .openable .corner button { min-height: 24px; width: 24px; border: 0; background: var(--bg-2); color: var(--fg-3); }
+  .openable .corner button:hover { background: var(--bg); color: var(--fg-em); }
+  .openable > pre { padding-right: 64px; }
+  pre.cut { cursor: pointer; -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent); mask-image: linear-gradient(to bottom, #000 75%, transparent); }
+  pre.cut.from-end { -webkit-mask-image: linear-gradient(to top, #000 75%, transparent); mask-image: linear-gradient(to top, #000 75%, transparent); }
+  .patch { font: var(--t-sm)/1.45 var(--mono); padding: 6px 0; background: var(--bg-2); border-radius: var(--radius); overflow-wrap: anywhere; }
+  .patch div { padding: 0 12px; white-space: pre-wrap; }
+  .patch .add { background: var(--ok-bg); color: var(--ok-fg); }
+  .patch .del { background: var(--bad-bg); color: var(--bad-fg); }
+  .patch .hunk { color: var(--info-fg); }
+  .patch .file { font-weight: var(--w-semibold); color: var(--fg); padding-top: 8px; }
+  .patch .note { color: var(--fg-2); font-family: var(--sans); }
+  /* As Windmill's tables: a light border, the header row on the secondary surface. */
+  /* Inline a card never scrolls inside itself: cells wrap, and fullscreen may scroll. */
+  .table { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .table.scroll { overflow-x: auto; }
+  thead tr { background: var(--bg-2); }
+  table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
+  th { text-align: left; font-size: var(--t-xs); font-weight: var(--w-normal); color: var(--fg); padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer; white-space: nowrap; user-select: none; }
+  th .lucide { width: 12px; height: 12px; margin-left: 2px; }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+  tr:last-child td { border-bottom: 0; }
+  tfoot td { border-top: 1px solid var(--line); }
+  td.mono { font: var(--t-sm) var(--mono); }
+  td .lucide { margin-right: 6px; }
+  /* A leading icon stays beside its text when the text wraps. */
+  .with-icon { display: flex; align-items: flex-start; }
+  .with-icon > .lucide { margin-top: 2px; }
+  tr.link { cursor: pointer; }
+  tr.link:hover td { background: var(--bg-2); }
+  /* The drafts in fullscreen sit in the same bordered box as inline. */
+  .items { border: 1px solid var(--line); border-radius: var(--radius); }
+  .item { display: flex; flex-direction: column; gap: 8px; padding: 8px 12px; }
+  .item + .item { border-top: 1px solid var(--line); }
+  .item-head input { accent-color: var(--fg-em); }
+  .zero { color: var(--fg-3); font: var(--t-sm) var(--mono); }
+  .item-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .item-head input { margin: 0; }
+  .item-head .grow { flex: 1; min-width: 0; font: var(--t-sm) var(--mono); color: var(--fg-em); overflow-wrap: anywhere; }
+  .form-error { color: var(--bad-strong); font-size: var(--t-sm); }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  /* Windmill's small button: 28px, 12px, regular weight, its icon 8px from the label. */
+  button { font: var(--w-normal) var(--t-sm) var(--sans); min-height: 28px; padding: 0 12px; border-radius: var(--radius); cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--fg); }
+  /* As weak as the base rule it follows, so a text-styled button's own hover wins. */
+  button:where(:hover:not(:disabled)) { background: var(--bg-2); }
+  button.primary, button.danger { display: inline-flex; align-items: center; gap: 8px; }
+  button.primary { background: var(--accent); color: #ffffff; border-color: transparent; }
+  button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+  button.danger { background: var(--danger); color: #ffffff; border-color: transparent; }
+  button.danger:hover:not(:disabled) { background: var(--danger-hover); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main class="card" aria-live="polite">
+  <div class="head">
+    <span class="kind-icon" id="kind-icon" hidden></span>
+    <div class="title">
+      <button class="path" id="path" type="button" disabled>Windmill</button>
+      <div class="subtitle" id="summary" hidden></div>
+      <div class="meta">
+        <span class="ws" id="ws" hidden></span>
+        <span id="kind"></span>
+        <span id="duration"></span>
+      </div>
+    </div>
+    <span class="pill" id="status" hidden></span>
+    <button class="icon" id="expand" type="button" title="Full screen" aria-label="Full screen" hidden></button>
+  </div>
+  <div class="progress-block" id="step" hidden></div>
+  <div class="step" id="stale" hidden>No longer refreshing here. Open it in Windmill for its live status.</div>
+  <div class="error-line" id="error-line" hidden></div>
+  <div id="result-slot"><pre class="clip" id="result" hidden></pre></div>
+  <div id="result-more"></div>
+  <div id="result-table"></div>
+  <div id="body"></div>
+  <section id="details" hidden></section>
+  <div class="actions">
+    <button class="danger" id="cancel" type="button" hidden>Cancel run</button>
+    <button class="primary" id="review" type="button" hidden>Review and deploy</button>
+    <button class="primary" id="deploy" type="button" hidden></button>
+  </div>
+</main>
+<script>
+(() => {
+  // Every poll is a tool call the server serves with a freshly minted token, which lands in
+  // the API's shared auth cache: polls back off and stop after ten minutes (~50 per card).
+  const MAX_POLL_MS = 10 * 60 * 1000;
+  const pollDelay = (age) => (age < 10_000 ? 2_000 : age < 60_000 ? 5_000 : 15_000);
+  const RUNNING = ['running', 'queued', 'suspended'];
+  const LABELS = {
+    running: 'Running', queued: 'Queued', suspended: 'Suspended', success: 'Success',
+    failure: 'Failed', canceled: 'Canceled', skipped: 'Skipped', not_started: 'Not started',
+    step: 'Step result', in_progress: 'Running', error: 'Error'
+  };
+  const $ = (id) => document.getElementById(id);
+
+  let nextId = 1;
+  const pending = new Map();
+  let host = {};
+  let toolArgs = {};
+  let view = null;
+  let run = null;
+  let pollStarted = 0;
+  let pollTimer = null;
+  let tickTimer = null;
+
+  function post(message) {
+    window.parent.postMessage({ jsonrpc: '2.0', ...message }, '*');
+  }
+  function request(method, params) {
+    const id = nextId++;
+    post({ id, method, params });
+    return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+  }
+  function callTool(name, args) {
+    return request('tools/call', { name, arguments: args });
+  }
+  function textOf(result) {
+    return (result?.content ?? []).filter((c) => c.type === 'text').map((c) => c.text).join('\n');
+  }
+  function el(tag, props = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(props)) {
+      if (value == null || value === false) continue;
+      if (key === 'class') node.className = value;
+      else if (key.startsWith('on')) node.addEventListener(key.slice(2), value);
+      else if (key in node) node[key] = value;
+      else node.setAttribute(key, value);
+    }
+    node.append(...children.filter((c) => c != null && c !== false));
+    return node;
+  }
+  // A saved agent's test run is filed under its path plus `.chat`, a suffix no flow path can
+  // carry; Windmill shows it as the agent's.
+  const runPath = (path) => path?.replace(/\.chat$/, '');
+  // A path breaks after a `/` first: `overflow-wrap: anywhere` alone cuts it mid-name.
+  const pathText = (path) => path.split('/').flatMap((part, i, parts) => (i < parts.length - 1 ? [`${part}/`, el('wbr')] : [part]));
+  // Lucide icons (as Windmill uses), built from constant shapes: no markup is parsed.
+  const ICONS = {
+    timerOff: [['path', { d: 'M10 2h4' }], ['path', { d: 'M4.6 11a8 8 0 0 0 1.7 8.7 8 8 0 0 0 8.7 1.7' }], ['path', { d: 'M7.4 7.4a8 8 0 0 1 10.3 1 8 8 0 0 1 .9 10.2' }], ['path', { d: 'm2 2 20 20' }], ['path', { d: 'M12 12v-2' }]],
+    copy: [['rect', { width: '8', height: '4', x: '8', y: '2', rx: '1', ry: '1' }], ['path', { d: 'M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2' }], ['path', { d: 'M16 4h2a2 2 0 0 1 2 2v4' }], ['path', { d: 'M21 14H11' }], ['path', { d: 'm15 10-4 4 4 4' }]],
+    check: [['path', { d: 'M20 6 9 17l-5-5' }]],
+    external: [['path', { d: 'M15 3h6v6' }], ['path', { d: 'M10 14 21 3' }], ['path', { d: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6' }]],
+    minimize: [['polyline', { points: '4 14 10 14 10 20' }], ['polyline', { points: '20 10 14 10 14 4' }], ['line', { x1: '14', x2: '21', y1: '10', y2: '3' }], ['line', { x1: '3', x2: '10', y1: '21', y2: '14' }]],
+    maximize: [['polyline', { points: '15 3 21 3 21 9' }], ['polyline', { points: '9 21 3 21 3 15' }], ['line', { x1: '21', x2: '14', y1: '3', y2: '10' }], ['line', { x1: '3', x2: '10', y1: '21', y2: '14' }]],
+    right: [['path', { d: 'm9 18 6-6-6-6' }]],
+    down: [['path', { d: 'm6 9 6 6 6-6' }]],
+    back: [['path', { d: 'm15 18-6-6 6-6' }]],
+    // The kinds, as Windmill draws them (its flow icon is three staggered bars).
+    script: [['path', { d: 'm18 16 4-4-4-4' }], ['path', { d: 'm6 8-4 4 4 4' }], ['path', { d: 'm14.5 4-5 16' }]],
+    flow: [['path', { d: 'M3 6h13' }], ['path', { d: 'M8 12h13' }], ['path', { d: 'M3 18h13' }]],
+    schedule: [['path', { d: 'M8 2v4' }], ['path', { d: 'M16 2v4' }], ['rect', { width: '18', height: '18', x: '3', y: '4', rx: '2' }], ['path', { d: 'M3 10h18' }]],
+    trigger: [['path', { d: 'M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z' }]],
+    http: [['circle', { cx: '6', cy: '19', r: '3' }], ['path', { d: 'M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15' }], ['circle', { cx: '18', cy: '5', r: '3' }]],
+    resource: [['path', { d: 'M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5.5l-5-3-4.03 2.42Z' }], ['path', { d: 'm7 16.5-4.74-2.85' }], ['path', { d: 'm7 16.5 5-3' }], ['path', { d: 'M7 16.5v5.17' }], ['path', { d: 'M12 13.5V19l3.97 2.38a2 2 0 0 0 2.06 0l3-1.8a2 2 0 0 0 .97-1.71v-3.24a2 2 0 0 0-.97-1.71L17 10.5l-5 3Z' }], ['path', { d: 'm17 16.5-5-3' }], ['path', { d: 'm17 16.5 4.74-2.85' }], ['path', { d: 'M17 16.5v5.17' }], ['path', { d: 'M7.97 4.42A2 2 0 0 0 7 6.13v4.37l5 3 5-3V6.13a2 2 0 0 0-.97-1.71l-3-1.8a2 2 0 0 0-2.06 0l-3 1.8Z' }], ['path', { d: 'M12 8 7.26 5.15' }], ['path', { d: 'm12 8 4.74-2.85' }], ['path', { d: 'M12 13.5V8' }]],
+    app: [['rect', { width: '7', height: '9', x: '3', y: '3', rx: '1' }], ['rect', { width: '7', height: '5', x: '14', y: '3', rx: '1' }], ['rect', { width: '7', height: '9', x: '14', y: '12', rx: '1' }], ['rect', { width: '7', height: '5', x: '3', y: '16', rx: '1' }]],
+    review: [['path', { d: 'M12 3v14' }], ['path', { d: 'M5 10h14' }], ['path', { d: 'M5 21h14' }]],
+    runs: [['path', { d: 'M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z' }]],
+    websocket: [['path', { d: 'm19 5 3-3' }], ['path', { d: 'm2 22 3-3' }], ['path', { d: 'M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4Z' }], ['path', { d: 'M7.5 13.5 10 11' }], ['path', { d: 'M10.5 16.5 13 14' }], ['path', { d: 'm12 6 6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z' }]],
+    database: [['ellipse', { cx: '12', cy: '5', rx: '9', ry: '3' }], ['path', { d: 'M3 5V19A9 3 0 0 0 21 19V5' }], ['path', { d: 'M3 12A9 3 0 0 0 21 12' }]],
+    mail: [['path', { d: 'm22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7' }], ['rect', { x: '2', y: '4', width: '20', height: '16', rx: '2' }]],
+    agent: [['path', { d: 'M12 8V4H8' }], ['rect', { width: '16', height: '12', x: '4', y: '8', rx: '2' }], ['path', { d: 'M2 14h2' }], ['path', { d: 'M20 14h2' }], ['path', { d: 'M15 13v2' }], ['path', { d: 'M9 13v2' }]],
+    expand: [['path', { d: 'm15 15 6 6' }], ['path', { d: 'm15 9 6-6' }], ['path', { d: 'M21 16v5h-5' }], ['path', { d: 'M21 8V3h-5' }], ['path', { d: 'M3 16v5h5' }], ['path', { d: 'm3 21 6-6' }], ['path', { d: 'M3 8V3h5' }], ['path', { d: 'M9 9 3 3' }]],
+    loader: [['path', { d: 'M21 12a9 9 0 1 1-6.219-8.56' }]],
+    save: [['path', { d: 'M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z' }], ['path', { d: 'M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7' }], ['path', { d: 'M7 3v4a1 1 0 0 0 1 1h7' }]],
+    arrowUp: [['path', { d: 'm5 12 7-7 7 7' }], ['path', { d: 'M12 19V5' }]],
+    arrowDown: [['path', { d: 'M12 5v14' }], ['path', { d: 'm19 12-7 7-7-7' }]]
+  };
+  function icon(name) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    const attrs = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', class: 'lucide', 'aria-hidden': 'true' };
+    for (const [k, v] of Object.entries(attrs)) svg.setAttribute(k, v);
+    for (const [tag, shape] of ICONS[name]) {
+      const node = document.createElementNS(ns, tag);
+      for (const [k, v] of Object.entries(shape)) node.setAttribute(k, v);
+      svg.append(node);
+    }
+    return svg;
+  }
+  // Windmill's Loader2, turning while something runs (still under reduced motion).
+  function spinner() {
+    const svg = icon('loader');
+    svg.classList.add('spin');
+    return svg;
+  }
+  // A button that opens a Windmill page.
+  const linkButton = (label, url, style) => el('button', { class: 'more-line', type: 'button', style, onclick: () => openLink(url) }, label, icon('external'));
+
+  const KINDS = { preview: 'script test', flowpreview: 'flow test', flowscript: 'flow step', flowdependencies: 'flow dependencies' };
+  const kindLabel = (kind) => (kind ? KINDS[kind] ?? kind : '');
+
+  // As Windmill's `msToReadableTime(ms, 2)`.
+  function formatMs(ms) {
+    if (ms == null || ms < 0) return '';
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+    if (days > 0) return `${days}d ${hours % 24}h ${minutes % 60}m ${seconds % 60}s`;
+    if (hours > 0) return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+    if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+    return `${Number((ms / 1000).toFixed(2))}s`;
+  }
+
+  // The names Windmill shows for a language, a trigger kind and a flow step's kind.
+  const LANGUAGES = {
+    python3: 'Python', deno: 'TypeScript', bun: 'TypeScript', bunnative: 'TypeScript', nativets: 'TypeScript',
+    go: 'Go', bash: 'Bash', powershell: 'PowerShell', graphql: 'GraphQL', postgresql: 'PostgreSQL',
+    bigquery: 'BigQuery', oracledb: 'Oracle Database', duckdb: 'DuckDB', snowflake: 'Snowflake', mysql: 'MySQL',
+    mssql: 'MS SQL Server', php: 'PHP', rust: 'Rust', ansible: 'Ansible', csharp: 'C#', nu: 'Nu', java: 'Java',
+    ruby: 'Ruby', rlang: 'R', dbt: 'dbt'
+  };
+  const languageLabel = (language) => LANGUAGES[language] ?? language;
+  const TRIGGERS = {
+    http: 'HTTP', websocket: 'WebSocket', ws: 'WebSocket', postgres: 'Postgres', kafka: 'Kafka', nats: 'NATS',
+    sqs: 'SQS', gcp: 'GCP Pub/Sub', azure: 'Azure Event Grid', mqtt: 'MQTT', amqp: 'AMQP', email: 'Email',
+    schedule: 'Schedule'
+  };
+  const triggerLabel = (kind) => TRIGGERS[kind] ?? kind;
+  // The settings that say what a trigger of each kind listens to.
+  const TRIGGER_SETTINGS = {
+    http: [['http_method', 'Method'], ['route_path', 'Route']],
+    websocket: [['url', 'URL']],
+    postgres: [['postgres_resource_path', 'Database'], ['publication_name', 'Publication']],
+    kafka: [['kafka_resource_path', 'Connection'], ['topics', 'Topics'], ['group_id', 'Group']],
+    nats: [['nats_resource_path', 'Connection'], ['subjects', 'Subjects']],
+    mqtt: [['mqtt_resource_path', 'Connection'], ['subscribe_topics', 'Topics']],
+    sqs: [['aws_resource_path', 'Connection'], ['queue_url', 'Queue']],
+    gcp: [['gcp_resource_path', 'Connection'], ['topic_id', 'Topic'], ['subscription_id', 'Subscription']],
+    azure: [['azure_resource_path', 'Connection'], ['topic_name', 'Topic']],
+    amqp: [['amqp_resource_path', 'Connection'], ['queue_name', 'Queue']],
+    email: [['local_part', 'Address']]
+  };
+  const TRIGGER_ICONS = { http: 'http', websocket: 'websocket', ws: 'websocket', postgres: 'database', email: 'mail', schedule: 'schedule' };
+  // The icon an item of a kind takes; a trigger's follows its kind, as in Windmill.
+  function kindIconOf(type, triggerKind) {
+    if (type === 'trigger') return TRIGGER_ICONS[triggerKind] ?? 'trigger';
+    if (type === 'raw_app') return 'app';
+    return ICONS[type] ? type : null;
+  }
+  function stepKind(module) {
+    switch (module?.type) {
+      case 'identity': return 'Identity';
+      case 'forloopflow': return `For loop${module.parallel ? ' (parallel)' : ''}`;
+      case 'whileloopflow': return 'While loop';
+      case 'branchall': return `Run all branches${module.parallel ? ' (parallel)' : ''}`;
+      case 'branchone': return 'Run one branch';
+      case 'flow': return 'Inner flow';
+      case 'rawscript': return `Inline ${languageLabel(module.language)} script`;
+      case 'script': return 'Workspace script';
+      case 'aiagent': return 'AI Agent';
+      case 'aidecision': return 'AI Decision';
+      default: return null;
+    }
+  }
+
+  // Logs carry terminal colour codes: the basic colours and bold are drawn, as Windmill's
+  // log viewer does, and every other sequence is dropped. Each run of text is set as text.
+  const ANSI_COLOURS = { 31: 'red', 91: 'red', 32: 'green', 92: 'green', 33: 'yellow', 93: 'yellow', 34: 'blue', 94: 'blue', 35: 'blue', 95: 'blue', 36: 'blue', 96: 'blue', 90: 'grey' };
+  const stripAnsi = (text) => text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+  function ansiNodes(text) {
+    const nodes = [];
+    let colour = null;
+    let bold = false;
+    const push = (part) => {
+      if (!part) return;
+      const classes = [colour && `ansi-${colour}`, bold && 'ansi-bold'].filter(Boolean).join(' ');
+      nodes.push(classes ? el('span', { class: classes }, part) : part);
+    };
+    const clean = text.replace(/\x1b\[[0-9;?]*[A-Za-ln-z]/g, '');
+    let last = 0;
+    for (const match of clean.matchAll(/\x1b\[([0-9;]*)m/g)) {
+      push(clean.slice(last, match.index));
+      last = match.index + match[0].length;
+      for (const code of (match[1] || '0').split(';').map(Number)) {
+        // 256-colour and RGB forms carry their own numbers: the rest of the sequence is theirs.
+        if (code === 38 || code === 48) break;
+        if (code === 0) { colour = null; bold = false; }
+        else if (code === 1) bold = true;
+        else if (code === 22) bold = false;
+        else if (code === 39) colour = null;
+        else if (ANSI_COLOURS[code]) colour = ANSI_COLOURS[code];
+      }
+    }
+    push(clean.slice(last));
+    return nodes;
+  }
+
+  function canFullscreen() {
+    return (host.availableDisplayModes ?? []).includes('fullscreen');
+  }
+  const fullscreen = () => host.displayMode === 'fullscreen';
+
+  // A text block cut to fit inline opens whole on a click anywhere on it, or on its corner
+  // button: fullscreen, or the page in Windmill on a host without it. Shown whole, it is
+  // plain text to select.
+  // An image result, drawn as Windmill draws it: the source is set as a property, so the
+  // data is never parsed as markup, and an SVG in an <img> runs no script.
+  function imageBox(of) {
+    const { type, data } = of.image;
+    const src = type === 'svg' ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(data)}` : `data:image/${type};base64,${data}`;
+    return el('div', { class: 'image-box' }, el('img', { src, alt: of.result ?? 'Image result' }));
+  }
+
+  // A block's corner holds its copy control, as in Windmill, and when it is cut the control
+  // that opens it whole. Text in it stays selectable unless a click on it opens it.
+  function openable(block, cut, url, tabName = null, copy = null) {
+    const open = canFullscreen() ? () => (tabName ? openTab(tabName) : setDisplayMode('fullscreen')) : url ? () => openLink(url) : null;
+    const buttons = copy ? [copyButton(copy)] : [];
+    if (cut && open) {
+      block.classList.add('cut');
+      block.title = canFullscreen() ? 'Show it all' : 'Open in Windmill';
+      block.addEventListener('click', open);
+      buttons.push(el('button', { class: 'icon', type: 'button', 'aria-label': block.title, title: block.title, onclick: open },
+        icon(canFullscreen() ? 'expand' : 'external')));
+    }
+    if (!buttons.length) return block;
+    return el('div', { class: 'openable' }, block, el('div', { class: 'corner' }, ...buttons));
+  }
+
+  // Sandboxed, the clipboard API may be refused even with the host's grant: a selected
+  // textarea copies within the click instead.
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {}
+    const area = el('textarea', { value: text, readOnly: true, style: 'position: fixed; left: -9999px' });
+    document.body.append(area);
+    area.select();
+    let copied = false;
+    try { copied = document.execCommand('copy'); } catch {}
+    area.remove();
+    return copied;
+  }
+
+  // A failed step's result head as the error line says it, `name: message`; a head cut
+  // mid-JSON still gives its message.
+  function errorSummary(text) {
+    if (!text) return '';
+    try {
+      const error = JSON.parse(text)?.error;
+      if (error?.message) return error.name ? `${error.name}: ${error.message}` : error.message;
+    } catch {}
+    const message = /"message":\s*"((?:[^"\\]|\\.)*)"/.exec(text)?.[1];
+    if (message) return message.replace(/\\n/g, ' ');
+    // A stack opens with `name: message`, and may come first in a cut head.
+    const stack = /"stack":\s*"((?:[^"\\]|\\[^n])*)/.exec(text)?.[1];
+    return stack || text;
+  }
+  // What a suspended run waits on. An agent says it: the tool calls to approve or the question
+  // to answer, which are answered in Windmill (no tool answers them).
+  function waitingView(of) {
+    const waiting = of.waiting;
+    const url = of.url ?? run?.url;
+    if (waiting?.type === 'approval') {
+      const calls = (waiting.calls ?? []).map((c) => `${c.function_name}(${JSON.stringify(c.arguments ?? {})})`).join('\n');
+      return [el('div', { class: 'waiting' }, el('span', {}, `The agent waits for approval to run ${plural((waiting.calls ?? []).length, 'tool call')}:`), el('pre', {}, calls)),
+        linkButton('Approve or reject in Windmill', url)];
+    }
+    if (waiting?.type === 'question') {
+      return [el('div', { class: 'waiting' }, el('span', {}, 'The agent asks:'), el('strong', {}, waiting.question ?? ''),
+        waiting.choices?.length ? el('span', { class: 'dim' }, `Choices: ${waiting.choices.join(' \u00b7 ')}`) : null),
+        linkButton('Answer in Windmill', url)];
+    }
+    return [el('div', { class: 'step' }, 'Waiting for an approval or another event.'), linkButton('Approve or cancel in Windmill', url)];
+  }
+
+  // Under an agent's answer: what it took to give it.
+  const agentNote = (of) => el('div', { class: 'dim' },
+    [plural(of.agent_tool_calls, 'tool call'), of.agent_tokens != null ? plural(of.agent_tokens, 'token') : null].filter(Boolean).join(' \u00b7 '));
+
+  // A stack usually opens with the message, which the error line already says.
+  function stackBody(of) {
+    if (!of?.stack) return null;
+    if (!of.result || !of.stack.startsWith(of.result)) return of.stack;
+    return of.stack.slice(of.result.length).replace(/^\n/, '') || null;
+  }
+  // A stack usually opens with the message: copied, it is said once.
+  const errorText = (of) => (of.stack && of.result && !of.stack.startsWith(of.result) ? `${of.result}\n${of.stack}` : of.stack ?? of.result);
+
+  function copyButton(text) {
+    const label = 'Copy to clipboard';
+    const button = el('button', { class: 'icon', type: 'button', 'aria-label': label, title: label }, icon('copy'));
+    let reset = 0;
+    button.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const copied = await copyText(text);
+      button.replaceChildren(icon(copied ? 'check' : 'copy'));
+      button.title = copied ? 'Copied' : 'Could not copy';
+      window.clearTimeout(reset);
+      reset = window.setTimeout(() => { button.replaceChildren(icon('copy')); button.title = label; }, 1500);
+    });
+    return button;
+  }
+
+  // The last row of a cut list, as a trigger's other settings are.
+  function moreRow(label, url) {
+    const button = moreButton(label, url);
+    return button ? el('div', { class: 'row' }, button) : null;
+  }
+
+  // What does not fit inline opens fullscreen, or on a host without it the page in
+  // Windmill: grown inline it would pass the height hosts cap a card at.
+  function moreButton(label, url) {
+    if (canFullscreen()) {
+      return el('button', { class: 'more-line', type: 'button', onclick: () => setDisplayMode('fullscreen') }, `Show ${label}`, icon('expand'));
+    }
+    if (!url) return null;
+    return linkButton(`${label[0].toUpperCase()}${label.slice(1)} in Windmill`, url);
+  }
+  // Inline only: fullscreen, the host's own close control brings the card back.
+  function showExpand(available) {
+    $('expand').hidden = !canFullscreen() || !available || fullscreen();
+  }
+
+  function setDisplayMode(mode) {
+    if (mode === 'fullscreen' && !canFullscreen()) return;
+    if (mode === (host.displayMode ?? 'inline')) return;
+    request('ui/request-display-mode', { mode }).then((result) => {
+      if (result?.mode) host.displayMode = result.mode;
+      redraw();
+    }).catch(() => {});
+  }
+
+  // The header names what the card shows and links to it in Windmill: opening a page is
+  // neither a tool call nor a conversation turn, so it is no card action. A summary names
+  // it when there is one, with the path under it.
+  function setHeader({ path, ws, kind = '', status = null, label = null, url = null, summary = null, kindIcon = null }) {
+    const named = !!summary;
+    $('path').classList.toggle('named', named);
+    $('summary').hidden = !named || !path;
+    $('summary').textContent = named ? path ?? '' : '';
+    $('path').replaceChildren(el('span', {}, ...(named ? [summary] : path ? pathText(path) : ['Windmill'])), ...(url ? [icon('external')] : []));
+    $('kind-icon').hidden = !kindIcon;
+    $('kind-icon').replaceChildren(...(kindIcon ? [icon(kindIcon)] : []));
+    $('path').disabled = !url;
+    $('path').dataset.url = url ?? '';
+    $('path').title = url ? 'Open in Windmill' : '';
+    $('ws').hidden = !ws;
+    $('ws').textContent = ws || '';
+    $('kind').textContent = kind;
+    const pill = $('status');
+    pill.hidden = !label;
+    pill.className = `pill ${status ?? ''}`;
+    pill.replaceChildren(...(status === 'running' && label ? [spinner()] : []), label ?? '');
+  }
+  // ---------------------------------------------------------------- tables
+
+  function cellText(value) {
+    if (value == null) return '';
+    if (value instanceof Node || typeof value === 'string') return value;
+    const json = JSON.stringify(value);
+    return json.length > 200 ? `${json.slice(0, 200)}…` : json;
+  }
+
+  // Columns are `{ label, value(row), show?(value), mono? }`; clicking a header sorts by it.
+  // Inline it shows `ROWS_INLINE` rows, and `more` (the noun, the page in Windmill) the rest.
+  function table(columns, rows, onRow, more) {
+    const limit = fullscreen() ? Infinity : ROWS_INLINE;
+    let sort = null;
+    const key = (value) => (typeof value === 'number' ? value : String(cellText(value) ?? ''));
+    const body = el('tbody');
+    const draw = () => {
+      const sorted = !sort ? rows : [...rows].sort((a, b) => {
+        const [x, y] = [key(sort.column.value(a)), key(sort.column.value(b))];
+        return (x < y ? -1 : x > y ? 1 : 0) * sort.dir;
+      });
+      body.replaceChildren(...sorted.slice(0, limit).map((row) => el('tr', { class: onRow ? 'link' : null, onclick: onRow && (() => onRow(row)) },
+        ...columns.map((column) => {
+          const value = column.value(row);
+          return el('td', { class: column.mono ? 'mono' : null }, cellText(column.show ? column.show(value, row) : value));
+        }))));
+      head.replaceChildren(...columns.map((column) => {
+        const sorted = sort?.column === column;
+        return el('th', {
+          'aria-sort': sorted ? (sort.dir > 0 ? 'ascending' : 'descending') : null,
+          onclick: () => {
+            sort = { column, dir: sorted ? -sort.dir : 1 };
+            draw();
+          }
+        }, column.label, sorted ? icon(sort.dir > 0 ? 'arrowUp' : 'arrowDown') : null);
+      }));
+    };
+    const head = el('tr');
+    draw();
+    const hidden = rows.length - Math.min(rows.length, limit);
+    const button = hidden > 0 ? moreButton(plural(hidden, `more ${more.noun}`), more.url) : null;
+    return el('div', { class: fullscreen() ? 'table scroll' : 'table' }, el('table', {}, el('thead', {}, head), body,
+      button ? el('tfoot', {}, el('tr', {}, el('td', { colSpan: columns.length }, button))) : null));
+  }
+
+  // A result Windmill draws as a table reads as one here too: a list of records, a list of
+  // rows under a header row, or columns (each bare or under its `table-*` key). A result
+  // cut short is no longer JSON, and stays text.
+  function recordsTable(text) {
+    let value;
+    try { value = JSON.parse(text); } catch { return null; }
+    let kind = null;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const keys = Object.keys(value);
+      if (keys.length === 1 && ['table-row', 'table-row-object', 'table-col'].includes(keys[0])) {
+        kind = keys[0];
+        value = value[kind];
+      }
+    }
+    let rows = value;
+    if (kind === 'table-col' && value && typeof value === 'object') {
+      const columns = Object.keys(value).filter((c) => Array.isArray(value[c]));
+      const length = Math.max(0, ...columns.map((c) => value[c].length));
+      rows = Array.from({ length }, (_, i) => Object.fromEntries(columns.map((c) => [c, value[c][i]])));
+    } else if (Array.isArray(value) && value.length > 1 && value.every(Array.isArray)) {
+      const [header, ...body] = value;
+      rows = body.map((cells) => Object.fromEntries(header.map((h, i) => [String(h), cells[i]])));
+    }
+    if (!Array.isArray(rows) || !rows.length || rows.length > 100) return null;
+    if (!rows.every((row) => row && typeof row === 'object' && !Array.isArray(row))) return null;
+    const keys = [...new Set(rows.flatMap(Object.keys))].slice(0, 8);
+    return table(keys.map((k) => ({ label: k, value: (row) => row[k] })), rows, null, { noun: 'row', url: run.url });
+  }
+
+  // ---------------------------------------------------------------- run
+
+  function elapsed() {
+    if (!run) return '';
+    if (run.duration_ms != null) return formatMs(run.duration_ms);
+    if (run.started_at && RUNNING.includes(run.status)) {
+      return formatMs(Date.now() - Date.parse(run.started_at));
+    }
+    return '';
+  }
+
+  // A running flow's place: a segment per top-level step, the current one named with its
+  // loop or branch progress, and the latest log line of what runs now.
+  function progressView() {
+    const parts = [];
+    // A saved agent's run is one internal step: its tool calls are not steps of a flow.
+    if (run.steps && !run.agent_run) {
+      // Only the steps that started have a status: the rest are still to come.
+      // The count is the flow's modules: its preprocessor and error handler are not among them.
+      const done = (run.step_list ?? []).filter((s) => s.step !== 'failure' && s.step !== 'preprocessor');
+      const segment = (i) => i === run.step - 1 ? 'running'
+        : i < run.step - 1 ? (done[i]?.status === 'failure' ? 'failure' : 'success') : '';
+      parts.push(el('div', {
+        class: 'progress', role: 'progressbar', 'aria-label': 'Steps done',
+        'aria-valuemin': '0', 'aria-valuemax': String(run.steps), 'aria-valuenow': String(run.step - 1)
+      }, ...Array.from({ length: run.steps }, (_, i) => el('span', { class: `segment ${segment(i)}` }))));
+      const label = el('div', { class: 'step' }, `Step ${run.step} of ${run.steps}`);
+      if (run.step_id) label.append(' · ', el('code', {}, run.step_id));
+      if (run.step_progress) label.append(`, ${run.step_progress}`);
+      const current = flowSteps().find((s) => s.step === run.step_id);
+      if (current) label.append(...nestedPath(current, true));
+      parts.push(label);
+    }
+    const line = run.live_log ? stripAnsi(run.live_log) : '';
+    if (line) parts.push(el('div', { class: 'live-log', title: line }, line));
+    return parts;
+  }
+
+  function renderRun() {
+    const status = run?.status ?? 'running';
+    const running = RUNNING.includes(status);
+    setHeader({
+      path: runPath(run?.path) ?? (run?.id ? `Run ${run.id.slice(0, 8)}` : toolArgs.path ?? 'Windmill'),
+      ws: run?.workspace ?? toolArgs.workspace_id,
+      kind: run?.agent_run ? 'agent' : kindLabel(run?.job_kind),
+      // A running flow whose agent waits on a person reads as waiting, as Windmill colours it.
+      status: run?.waiting && status === 'running' ? 'suspended' : status,
+      label: run ? (LABELS[run.waiting && status === 'running' ? 'suspended' : status] ?? status) : 'Starting',
+      url: run?.url,
+      summary: run?.summary,
+      kindIcon: run?.agent_run ? 'agent' : run?.job_kind && /flow/.test(run.job_kind) ? 'flow' : run?.job_kind ? 'script' : null
+    });
+    $('duration').textContent = elapsed();
+    if (!running) $('stale').hidden = true;
+    const step = $('step');
+    step.hidden = !(running && (run?.steps || run?.live_log));
+    step.replaceChildren(...(step.hidden ? [] : progressView()));
+    const result = $('result');
+    const failed = ['failure', 'not_started', 'error'].includes(status);
+    // Fullscreen, the tabs carry the result; inline it shows here.
+    const inline = !(fullscreen() && run?.id);
+    const errorLine = $('error-line');
+    errorLine.hidden = !inline || !failed || run?.result == null;
+    const errorText_ = failed ? run?.result ?? '' : '';
+    // With no stack under it, the error line carries the copy control itself.
+    errorLine.replaceChildren(errorText_ && !stackBody(run) ? openable(el('span', {}, errorText_), false, run?.url, null, errorText_) : errorText_);
+    const described = run?.result_kind === 'file';
+    const records = inline && status === 'success' && !described ? recordsTable(run?.result) : null;
+    const shown = failed ? stackBody(run) : run?.result;
+    result.hidden = !inline || running || shown == null || !!records || described;
+    result.textContent = shown ?? '';
+    result.classList.toggle('clip', !fullscreen());
+    // Rebuilt only for a new result, so a sort survives the card redrawing.
+    const holder = $('result-table');
+    const source = records ? `${fullscreen()}:${run.result}` : '';
+    if (holder.dataset.source !== source) {
+      holder.dataset.source = source;
+      holder.replaceChildren(...(records ? [openable(records, false, run.url, null, run.result)] : []));
+    }
+    // A long result is clipped inline; the server also cuts one past its own limit.
+    const more = $('result-more');
+    more.replaceChildren();
+    // A file, image, page or map is named here and shown on the run page.
+    if (inline && run?.image && !running) more.append(openable(imageBox(run), true, run.url, 'result'));
+    else if (inline && described && !running) more.append(el('div', { class: 'step' }, run.result), linkButton('File in Windmill', run.url, 'margin-top: 8px'));
+    // A flow waiting on an approval or another event is resumed or canceled on its page.
+    if (inline && (status === 'suspended' || (running && run?.waiting))) more.append(...waitingView(run));
+    // A saved agent says it once, on its steps line.
+    if (inline && !running && run?.agent_tool_calls != null && !run.agent_run) more.append(agentNote(run));
+    // The result is clipped inline; a click on it opens it whole.
+    const slot = $('result-slot');
+    result.classList.remove('cut');
+    const fresh = el('pre', { class: `${result.className} ${failed ? 'stack' : 'result'}`, id: 'result', hidden: result.hidden }, result.textContent);
+    slot.replaceChildren(fresh);
+    if (!fresh.hidden) {
+      const clipped = !fullscreen() && fresh.scrollHeight > fresh.clientHeight + 1;
+      const copy = failed ? errorText(run) : run.result;
+      slot.replaceChildren(openable(fresh, clipped, run.url, 'result', copy));
+      // What the server cut is only whole on the run page, however much of it shows here.
+      if (run.result_cut && !(clipped && canFullscreen())) more.append(linkButton('Full result in Windmill', run.url));
+    }
+
+    $('cancel').hidden = !(running && run?.id && run.can_cancel);
+    $('review').hidden = true;
+    $('deploy').hidden = true;
+    showExpand(!!run?.id);
+    renderDetails();
+    window.clearInterval(tickTimer);
+    if (running && run?.started_at) tickTimer = window.setInterval(() => {
+      $('duration').textContent = elapsed();
+    }, 1000);
+  }
+
+  // A step's own run page, which has its arguments, logs and whole result.
+  const stepUrl = (jobId) => (jobId && run?.url && run?.id ? run.url.replace(run.id, jobId) : null);
+  const isFlow = () => /flow/.test(run?.job_kind ?? '');
+
+  // A step's status as the server groups it: a failed iteration or branch fails the step
+  // only when it stopped the run, which makes it the last step that ran (one set to skip
+  // failures carries on).
+  function groupStatus(step, last) {
+    if (step.status) return step.status;
+    const parts = step.branches ?? step.iterations_shown ?? [];
+    const failed = step.failed_iterations || parts.some((p) => ['failure', 'canceled'].includes(p.status));
+    if (step.unfinished || parts.some((p) => RUNNING.includes(p.status))) return 'running';
+    return failed && last && ['failure', 'canceled'].includes(run.status) ? 'failure' : 'success';
+  }
+
+  // The flow's own steps: its preprocessor and error handler are not among the modules.
+  const flowSteps = () => (run?.step_list ?? []).filter((s) => s.step !== 'failure' && s.step !== 'preprocessor');
+
+  // Inline, a flow's steps are one line; the Steps tab has them.
+  function stepsLine() {
+    const steps = flowSteps();
+    if (!steps.length || RUNNING.includes(run.status)) return null;
+    const lastRan = steps.length - 1;
+    const failedAt = steps.find((s, i) => groupStatus(s, i === lastRan) === 'failure');
+    const groups = steps.filter((s) => s.branches || s.iterations != null)
+      .map((s) => s.branches ? `${s.step} ran ${plural(s.branches.length, 'branch')}` : `${s.step} ran ${plural(s.iterations, 'iteration')}`);
+    // "All succeeded" only for a run that did: one that timed out or was canceled says where.
+    const outcome = failedAt ? `failed at ${stepLabel(failedAt)}`
+      : run.status === 'success' ? (run.agent_run ? null : 'all succeeded')
+      : `${(LABELS[run.status] ?? run.status).toLowerCase()} after ${stepLabel(steps[lastRan])}`;
+    // A saved agent's run is its tool calls, and what they cost.
+    const text = (run.agent_run
+      ? [plural(steps.length, 'tool call'), run.agent_tokens != null ? plural(run.agent_tokens, 'token') : null, outcome]
+      : [plural(steps.length, 'step'), outcome, ...groups]).filter(Boolean).join(' \u00b7 ');
+    if (canFullscreen()) return el('button', { class: 'more-line', type: 'button', onclick: () => openTab('steps') }, text, icon('expand'));
+    if (run.url) return el('button', { class: 'more-line', type: 'button', onclick: () => openLink(run.url) }, text, icon('external'));
+    return el('div', { class: 'step' }, text);
+  }
+
+  // The Steps tab: the flow's steps as a tree, every level open in place. A loop or a
+  // parallel step opens onto its iterations or branches, and those onto their own steps.
+  const openNodes = new Set();
+  const isGroup = (node) => !!node.branches || node.iterations != null;
+  function childrenOf(node) {
+    if (node.branches) return node.branches.map((b, i) => ({ node: b, label: `Branch ${i + 1}`, place: `branch ${i + 1}` }));
+    if (node.iterations != null) return (node.iterations_shown ?? []).map((p) => ({ node: p, label: `Iteration ${p.iteration}`, place: `iteration ${p.iteration}` }));
+    return (node.steps ?? []).map((s) => ({ node: s, label: s.tool ?? (s.step.split('/').pop() || s.step) }));
+  }
+  const depthPad = (depth) => `padding-left: ${8 + depth * 16}px`;
+
+  function treeRows(node, label, key, depth, last, rows) {
+    const status = groupStatus(node, last);
+    const kids = childrenOf(node);
+    const open = openNodes.has(key);
+    const note = node.branch_taken ? `Took ${node.branch_taken}`
+      : node.branches ? plural(node.branches.length, 'branch')
+      : node.iterations != null ? [plural(node.iterations, 'iteration'), `${node.ok} succeeded`].join(' · ')
+      : node.attempts > 1 ? `${node.attempts} attempts` : '';
+    const toggle = (e) => {
+      e.stopPropagation();
+      if (open) openNodes.delete(key); else openNodes.add(key);
+      redraw();
+    };
+    rows.push(el('div', {
+      class: 'row tree', role: 'treeitem', style: depthPad(depth),
+      'aria-selected': String(selected?.key === key), 'aria-expanded': kids.length ? String(open) : null,
+      onclick: () => select(key, node, label, kids.length > 0, status)
+    },
+      el('span', { class: 'chev' }, kids.length
+        ? el('button', { class: 'chev-toggle', type: 'button', 'aria-label': open ? 'Collapse' : 'Expand', onclick: toggle }, icon(open ? 'down' : 'right'))
+        : null),
+      el('span', { class: `dot ${status ?? ''}` }),
+      el('span', { class: 'v' }, label),
+      // Named as Windmill's graph names it: by summary, else by kind.
+      el('span', { class: 'grow' }, stepName(node)),
+      el('span', { class: 'dim' }, [note, LABELS[status] ?? status ?? '', formatMs(node.duration_ms)].filter(Boolean).join(' · '))));
+    if (!open) return;
+    // The server sends a loop's latest iterations: the earlier ones come first, on the run page.
+    if (node.iterations_elided && run.url) {
+      rows.push(el('div', { class: 'row tree', style: depthPad(depth + 1) },
+        el('span', { class: 'chev' }),
+        el('button', { class: 'more-line', type: 'button', onclick: () => openLink(run.url) },
+          `${plural(node.iterations_elided, node.iterations_latest ? 'earlier iteration' : 'other iteration')} in Windmill`, icon('external'))));
+    }
+    kids.forEach((kid, i) => treeRows(kid.node, kid.label, `${key}>${i}`, depth + 1, last && status === 'failure' && i === kids.length - 1, rows));
+  }
+
+  // A step as the tree labels it: a tool call by the tool it called, anything else by its id.
+  const stepLabel = (step) => step.tool ?? step.step;
+
+  // Named as Windmill's graph names a step: by summary, else by kind; an inner flow by its path.
+  function stepName(node) {
+    if (node.summary) return node.summary;
+    if (node.tool) return 'Tool call';
+    if (node.module?.type === 'flow' && node.module.path) return `Inner flow ${node.module.path}`;
+    // A workspace script is told apart by the script it calls.
+    if (node.module?.type === 'script' && node.module.path) return node.module.path;
+    return stepKind(node.module) ?? '';
+  }
+
+  // A step, iteration or branch is a run of its own, which `show_run` reads; a loop or a
+  // parallel step is not, so it shows its counts.
+  let selected = null;
+  async function select(key, node, label, expandable, status) {
+    if (expandable) openNodes.add(key);
+    if (selected?.key === key) return redraw();
+    const token = {};
+    selected = { key, node, label, status, run: null, tab: null, token };
+    redraw();
+    if (!node.job_id) return;
+    try {
+      const result = await callTool('show_run', { workspace_id: run.workspace, id: node.job_id });
+      if (selected?.token !== token) return;
+      selected.run = result?._meta?.['windmill/run'] ?? { status: 'error', result: textOf(result) };
+    } catch (e) {
+      if (selected?.token !== token) return;
+      selected.run = { status: 'error', result: e?.message ?? 'The step could not be read.' };
+    }
+    redraw();
+  }
+
+  // A loop or parallel step is no run of its own: its counts, and as Windmill shows it, the
+  // result of each iteration or branch, each opening it.
+  function groupPane(node, key) {
+    const parts = node.branches ?? [];
+    const count = node.branches ? parts.length : node.iterations;
+    const ok = node.branches ? parts.filter((b) => b.status === 'success').length : node.ok;
+    const rows = [
+      row('Kind', stepKind(node.module) ?? (node.branches ? 'Run all branches' : node.type === 'whileloopflow' ? 'While loop' : 'For loop'), true),
+      row(node.branches ? 'Branches' : 'Iterations', String(count)),
+      row('Succeeded', String(ok))
+    ];
+    if (node.failed_iterations?.length) rows.push(row('Failed iterations', node.failed_iterations.join(', ')));
+    if (node.skipped) rows.push(row('Skipped', String(node.skipped)));
+    if (node.unfinished) rows.push(row('Unfinished', String(node.unfinished)));
+    const results = childrenOf(node).map((kid, i) => {
+      const status = groupStatus(kid.node, false);
+      return el('button', {
+        class: 'summary-row', type: 'button', title: `Open ${kid.place}`,
+        onclick: () => select(`${key}>${i}`, kid.node, kid.label, childrenOf(kid.node).length > 0, status)
+      },
+        el('span', { class: `dot ${status ?? ''}` }),
+        el('span', { class: 'label' }, kid.label, kid.node.summary ? ` \u00b7 ${kid.node.summary}` : ''),
+        el('span', { class: ['failure', 'canceled'].includes(status) ? 'grow clamp error-text' : 'grow clamp' }, ['failure', 'canceled'].includes(status) ? errorSummary(kid.node.result) : kid.node.result ?? ''),
+        el('span', { class: 'dim' }, formatMs(kid.node.duration_ms)));
+    });
+    return el('div', { class: 'section' },
+      el('div', { class: 'rows' }, ...rows),
+      el('div', { class: 'section-title' }, node.branches ? 'Result of every branch' : 'Result of every iteration'),
+      node.iterations_elided && run.url ? linkButton(`${plural(node.iterations_elided, node.iterations_latest ? 'earlier iteration' : 'other iteration')} in Windmill`, run.url) : null,
+      results.length ? el('div', { class: 'rows' }, ...results) : el('div', { class: 'empty' }, 'None yet'));
+  }
+
+  function stepDetail() {
+    const { node, run: r, label } = selected;
+    const status = r?.status ?? selected.status;
+    const url = node.job_id ? stepUrl(node.job_id) : null;
+    const kind = stepName(node);
+    const head = el('div', { class: 'section' },
+      el('div', { class: 'item-head' },
+        el('span', { class: 'grow' }, label),
+        el('span', { class: `badge ${status ?? ''}` }, LABELS[status] ?? status ?? ''),
+        (r?.duration_ms ?? node.duration_ms) != null ? el('span', { class: 'dim' }, formatMs(r?.duration_ms ?? node.duration_ms)) : null,
+        url ? linkButton('Open in Windmill', url) : null),
+      kind ? el('div', { class: 'meta' }, node.summary && stepKind(node.module) ? `${node.summary} \u00b7 ${stepKind(node.module)}` : kind) : null);
+    if (!node.job_id) return [head, groupPane(node, selected.key)];
+    if (!r) return [head, el('div', { class: 'empty' }, spinner(), ' Loading')];
+    const active = selected.tab ?? 'result';
+    return [head,
+      tabBar([['result', 'Result'], ['logs', 'Logs'], ['inputs', 'Inputs']], active, (name) => { selected.tab = name; redraw(); }),
+      runPane(r, active)];
+  }
+
+  // Beside each other when the view is wide enough; otherwise a step opens in place of the tree.
+  const SPLIT_MIN_WIDTH = 640;
+  const split = () => window.innerWidth >= SPLIT_MIN_WIDTH;
+  let wasSplit = split();
+  window.addEventListener('resize', () => {
+    if (split() !== wasSplit) { wasSplit = split(); redraw(); }
+  });
+
+  // Where the running step is inside its loops and branches, as far down as one thing runs.
+  // The server's line already says how far into the top-level step the run is.
+  function nestedPath(node, top) {
+    const running = childrenOf(node).filter((k) => RUNNING.includes(groupStatus(k.node, false)));
+    const out = [];
+    if (isGroup(node) && !top) {
+      const total = node.branches ? node.branches.length : node.iterations;
+      const ok = node.branches ? node.branches.filter((b) => b.status === 'success').length : node.ok;
+      out.push(running.length === 1 ? `, ${running[0].place} of ${total}` : `, ${ok} of ${total} done`);
+    }
+    if (running.length !== 1) return out;
+    if (!isGroup(node)) out.push(' \u203a ', el('code', {}, running[0].label));
+    return out.concat(nestedPath(running[0].node, false));
+  }
+
+  // ---------------------------------------------------------------- fullscreen run view
+
+  let tab = null;
+
+  function openTab(name) {
+    tab = name;
+    selected = null;
+    if (canFullscreen()) setDisplayMode('fullscreen');
+    redraw();
+  }
+
+  function tabBar(names, active, select) {
+    return el('div', { class: 'tabs', role: 'tablist' }, ...names.map(([name, label]) => el('button', {
+      class: 'tab', type: 'button', role: 'tab', 'aria-selected': String(name === active), onclick: () => select(name)
+    }, label)));
+  }
+
+  // One run's Result, Logs or Inputs, whole: `of` is the run or a step drilled into.
+  function runPane(of, name) {
+    const failed = ['failure', 'not_started', 'error'].includes(of.status);
+    const url = of.url ?? run.url;
+    if (name === 'logs') {
+      if (!of.logs) return el('div', { class: 'empty' }, RUNNING.includes(of.status) ? 'No logs yet.' : 'No logs.');
+      const lines = of.logs.split('\n');
+      // A log cut to its end starts mid-line, unless that line is all there is.
+      if (of.logs_cut && lines.length > 1) lines.shift();
+      return el('div', { class: 'section' },
+        of.logs_cut ? linkButton('Earlier lines in Windmill', url) : null,
+        openable(el('pre', {}, ...ansiNodes(lines.join('\n'))), false, url, null, stripAnsi(lines.join('\n'))));
+    }
+    if (name === 'inputs') {
+      if (of.args_cut) return el('div', { class: 'section' }, el('div', { class: 'empty' }, 'Too large to show here.'), linkButton('Inputs in Windmill', url));
+      const entries = Object.entries(of.args ?? {});
+      if (!entries.length) return el('div', { class: 'empty' }, 'No inputs.');
+      return el('div', { class: 'rows' }, ...entries.map(([k, v]) => row(k, display(v))));
+    }
+    // Result
+    const parts = [];
+    if (of.status === 'suspended' || (RUNNING.includes(of.status) && of.waiting)) parts.push(...waitingView(of));
+    if (failed && of.result != null) {
+      parts.push(el('div', { class: 'error-line' }, stackBody(of) ? of.result : openable(el('span', {}, of.result), false, url, null, of.result)));
+    }
+    if (failed && stackBody(of)) parts.push(openable(el('pre', { class: 'stack' }, stackBody(of)), false, url, null, errorText(of)));
+    if (failed && of.result_cut) parts.push(linkButton('Full error in Windmill', url));
+    if (!failed && of.image) parts.push(imageBox(of));
+    else if (!failed && of.result_kind === 'file') parts.push(el('div', { class: 'step' }, of.result), linkButton('File in Windmill', url));
+    else if (!failed && of.result != null) {
+      const records = of.status === 'success' ? recordsTable(of.result) : null;
+      parts.push(openable(records ?? el('pre', { class: 'result' }, of.result), false, url, null, of.result));
+      if (of.result_cut) parts.push(linkButton('Full result in Windmill', url));
+    }
+    if (of.agent_tool_calls != null && !RUNNING.includes(of.status)) parts.push(agentNote(of));
+    if (!parts.length) parts.push(el('div', { class: 'empty' }, RUNNING.includes(of.status) ? 'No result yet.' : 'No result.'));
+    return el('div', { class: 'section' }, ...parts);
+  }
+
+  function fullView() {
+    const steps = flowSteps();
+    const names = [['result', ['failure', 'error'].includes(run.status) ? 'Error' : 'Result'], ['logs', 'Logs'], ['inputs', 'Inputs']];
+    // A saved agent's steps are its tool calls, and are named so.
+    const noun = run.agent_run ? 'tool call' : 'step';
+    if (steps.length) names.push(['steps', run.agent_run ? 'Tool calls' : 'Steps']);
+    const active = names.some(([n]) => n === tab) ? tab
+      : RUNNING.includes(run.status) ? (steps.length ? 'steps' : 'logs') : 'result';
+    const tabs = tabBar(names, active, (name) => { tab = name; redraw(); });
+    if (active !== 'steps') return [tabs, runPane(run, active)];
+    if (selected && !split()) {
+      return [el('button', { class: 'back', type: 'button', onclick: () => { selected = null; redraw(); } }, icon('back'), `Back to the ${noun}s`), ...stepDetail()];
+    }
+    const rows = [];
+    steps.forEach((step, i) => treeRows(step, stepLabel(step), step.step, 0, i === steps.length - 1, rows));
+    const tree = el('div', { class: 'rows', role: 'tree', 'aria-label': run.agent_run ? 'Tool calls' : 'Steps' }, ...rows);
+    if (!split()) return [tabs, tree];
+    return [tabs, el('div', { class: 'split' }, tree, el('div', { class: 'detail' },
+      ...(selected ? stepDetail() : [el('div', { class: 'empty' }, `Select a ${noun} to see its result, logs and inputs.`)])))];
+  }
+
+  function renderDetails() {
+    const details = $('details');
+    const children = fullscreen() && run?.id ? fullView() : [stepsLine()];
+    if (run?.unreadable) children.push(el('div', { class: 'step' }, 'The details could not be read. Open the run in Windmill.'));
+    details.replaceChildren(...children.filter(Boolean));
+    details.hidden = !details.children.length;
+  }
+
+  // A tool result without a run, shown as the model got it: a call that started nothing,
+  // or a `show_run` drilling into one step.
+  function renderText(result) {
+    const inspected = toolArgs.id && !result.isError;
+    run = { status: inspected ? 'step' : result.isError ? 'error' : 'not_started', result: textOf(result).slice(0, 1500) };
+    view = 'run';
+    renderRun();
+  }
+
+  function onRun(next) {
+    // A refresh reads the job alone: the summary `show_run` read stays.
+    run = { ...next, summary: next.summary ?? run?.summary };
+    view = 'run';
+    renderRun();
+    if (RUNNING.includes(run.status)) schedulePoll();
+  }
+
+  function schedulePoll() {
+    window.clearTimeout(pollTimer);
+    const age = Date.now() - pollStarted;
+    if (age < MAX_POLL_MS) {
+      pollTimer = window.setTimeout(poll, pollDelay(age));
+    } else {
+      $('stale').hidden = false;
+    }
+  }
+
+  async function poll() {
+    const id = run?.id;
+    if (!id) return;
+    try {
+      const result = await callTool('show_run', { workspace_id: run.workspace, id });
+      if (run?.id === id) onResult(result);
+    } catch {
+      if (run?.id === id) refreshFailed();
+    }
+  }
+
+  // A finished run's details are read once, so a failed read is said rather than waited on.
+  function refreshFailed() {
+    if (RUNNING.includes(run.status)) return schedulePoll();
+    run.unreadable = true;
+    renderRun();
+  }
+
+  // A busy button turns its icon into Windmill's spinner.
+  function setBusy(button, busy, iconName) {
+    button.disabled = busy;
+    button.firstChild.replaceWith(busy ? spinner() : icon(iconName));
+  }
+
+  $('cancel').prepend(icon('timerOff'));
+  $('cancel').addEventListener('click', async () => {
+    const button = $('cancel');
+    setBusy(button, true, 'timerOff');
+    try {
+      await callTool('cancel_job', { workspace_id: run.workspace, id: run.id });
+    } catch {}
+    setBusy(button, false, 'timerOff');
+    window.clearTimeout(pollTimer);
+    poll();
+  });
+  // ---------------------------------------------------------------- runs and review
+
+  // A list view shows none of a run's parts.
+  function clearRun() {
+    window.clearTimeout(pollTimer);
+    window.clearInterval(tickTimer);
+    run = null;
+    for (const id of ['step', 'stale', 'error-line', 'result', 'details', 'cancel', 'expand', 'deploy']) $(id).hidden = true;
+    $('result-more').replaceChildren();
+    $('duration').textContent = '';
+    $('result-table').replaceChildren();
+  }
+
+  function openLink(url) {
+    if (url) request('ui/open-link', { url }).catch(() => {});
+  }
+
+  let runsMeta = null;
+
+  function renderRuns(meta) {
+    view = 'runs';
+    runsMeta = meta;
+    clearRun();
+    setHeader({ summary: meta.runs.length === 1 ? '1 run' : `${meta.runs.length} runs`, ws: meta.workspace, url: meta.url, kindIcon: 'runs' });
+    $('review').hidden = true;
+    showExpand(meta.runs.length > ROWS_INLINE);
+    // As the runs page: when a run ended (or started, while it runs), relative for ten
+    // minutes, then its day and time.
+    const now = Date.now();
+    const when = (r) => {
+      const start = Date.parse(r.started_at ?? r.created_at ?? '');
+      return Number.isNaN(start) ? null : start + (r.duration_ms ?? 0);
+    };
+    const time = (t, r) => {
+      if (t == null) return '';
+      const age = now - t;
+      if (age >= 10 * 60 * 1000) return new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const ago = age < 60_000 ? `${Math.max(0, Math.floor(age / 1000))}s ago` : `${Math.floor(age / 60_000)}m ago`;
+      return `${r.duration_ms != null ? 'Ended' : 'Started'} ${ago}`;
+    };
+    $('body').replaceChildren(table([
+      { label: 'Status', value: (r) => r.status, show: (s) => el('span', { class: `badge ${s ?? ''}` }, LABELS[s] ?? s ?? '') },
+      { label: 'Time', value: when, show: time },
+      { label: 'Duration', value: (r) => r.duration_ms, show: formatMs },
+      {
+        label: 'Path', value: (r) => runPath(r.path) ?? r.id, mono: true,
+        show: (p, r) => el('span', { class: 'with-icon', title: kindLabel(r.job_kind) }, icon(/flow/.test(r.job_kind ?? '') ? 'flow' : 'script'),
+          el('span', {}, ...pathText(String(p)), ' ', icon('external')))
+      }
+    ], meta.runs, (r) => openLink(r.url), { noun: 'run', url: meta.url }));
+  }
+
+  const ROWS_INLINE = 8;
+
+  // A diff's text with its patch lines coloured; the `---`/`+++` labels before the first
+  // hunk are dropped.
+  function patchView(text) {
+    let inHunk = false;
+    const nodes = [];
+    for (const line of text.split('\n')) {
+      if (line.startsWith('@@')) inHunk = true;
+      if (!inHunk && /^(--- |\+\+\+ |=+$)/.test(line)) continue;
+      const kind = line.startsWith('=== ') ? 'file'
+        : line.startsWith('@@') ? 'hunk'
+        : !inHunk ? 'note'
+        : line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : '';
+      nodes.push(el('div', { class: kind }, line || ' '));
+    }
+    return el('div', { class: 'patch' }, ...nodes);
+  }
+
+  // The model hears of each deploy: a context update replaces the previous one, so it
+  // names every deploy made from this card.
+  const deployed = [];
+
+  function reviewBody(item) {
+    if (item.error) return el('div', { class: 'error-line' }, item.error);
+    // Too large to draw here, but still deployable: its counts say what it changes.
+    if (item.too_large) return el('div', { class: 'step' }, `Too large to show here (+${item.added} -${item.removed} lines). Review it in Windmill before deploying.`);
+    if (item.patch == null) return el('div', { class: 'step' }, item.note ?? '');
+    // The diffs are drawn in fullscreen alone, which has the room for them whole.
+    return patchView(item.patch);
+  }
+
+  const typeLabel = (item) => (item.trigger_kind ? `${triggerLabel(item.trigger_kind)} trigger` : item.type === 'raw_app' ? 'app' : item.type);
+  // Its +/- line counts, a zero in the hint colour.
+  const counts = (item) => el('span', {},
+    el('span', { class: item.added ? 'add-count' : 'zero' }, `+${item.added}`), ' ',
+    el('span', { class: item.removed ? 'del-count' : 'zero' }, `-${item.removed}`));
+  const itemIcon = (item) => {
+    const name = kindIconOf(item.type, item.trigger_kind);
+    return name ? icon(name) : null;
+  };
+
+  // As Windmill's Compare & Deploy page: every deployable draft is selected at first, and
+  // one button deploys the selected ones in turn, each showing how it went.
+  const itemKey = (item) => `${item.type}:${item.trigger_kind ?? ''}:${item.path}`;
+  const deployable = (item) => item.digest != null && !item.deployed;
+  const unselected = new Set();
+  let deploying = false;
+  const selectedDrafts = (meta) => meta.items.filter((item) => deployable(item) && !unselected.has(itemKey(item)));
+
+  // As on the Compare page, a draft's diff opens on demand; one that changed under the card
+  // opens by itself.
+  const openDiffs = new Set();
+
+  function reviewItem(item) {
+    const key = itemKey(item);
+    const hasDiff = item.patch != null;
+    const open = hasDiff && openDiffs.has(key);
+    const toggle = hasDiff ? el('button', {
+      class: 'chev-toggle', type: 'button', 'aria-expanded': String(open), 'aria-label': open ? 'Hide the diff' : 'Show the diff',
+      onclick: () => {
+        if (open) openDiffs.delete(key); else openDiffs.add(key);
+        redraw();
+      }
+    }, icon(open ? 'down' : 'right')) : el('span', { class: 'chev' });
+    const pick = deployable(item) ? el('input', {
+      type: 'checkbox', checked: !unselected.has(key), disabled: deploying, 'aria-label': `Deploy ${item.name ?? item.path}`,
+      // Only the button follows: a redraw would take the focus off the box.
+      onchange: (e) => {
+        if (e.target.checked) unselected.delete(key); else unselected.add(key);
+        showDeployButton(review);
+      }
+    }) : null;
+    const state = item.deploying ? el('span', { class: 'badge running' }, spinner(), 'Deploying')
+      : item.deployed ? el('span', { class: 'badge success' }, 'Deployed') : null;
+    return el('section', { class: 'item' },
+      el('div', { class: 'item-head' },
+        toggle,
+        pick,
+        itemIcon(item),
+        el('span', { class: 'grow' }, item.name ?? item.path),
+        el('span', { class: 'dim' }, typeLabel(item)),
+        item.digest != null ? counts(item) : null,
+        state,
+        item.url ? linkButton(item.editor ? 'Open in editor' : 'Open in Windmill', item.url) : null),
+      hasDiff && !open ? null : reviewBody(item),
+      item.message ? el('div', { class: 'form-error' }, item.message) : null);
+  }
+
+  function showDeployButton(meta) {
+    const button = $('deploy');
+    const picked = selectedDrafts(meta).length;
+    button.hidden = !fullscreen() || !meta.items.some(deployable);
+    button.disabled = deploying || !picked;
+    button.replaceChildren(deploying ? spinner() : icon('save'), `Deploy ${plural(picked, 'draft')}`);
+  }
+
+  async function deploySelected(meta) {
+    deploying = true;
+    for (const item of selectedDrafts(meta)) {
+      item.deploying = true;
+      item.message = undefined;
+      redraw();
+      try {
+        await deployOne(meta.workspace, item);
+      } catch (e) {
+        item.message = e?.message || 'The deploy failed.';
+      }
+      item.deploying = false;
+      redraw();
+    }
+    deploying = false;
+    redraw();
+  }
+
+  async function deployOne(workspace, item) {
+    const { type, path, trigger_kind } = item;
+    const address = { type, path, ...(trigger_kind ? { trigger_kind } : {}) };
+    // The draft may have changed since it was shown: what would be deployed is read again,
+    // and a different diff is shown in place of deploying it.
+    const check = await callTool('show_deploy_review', { workspace_id: workspace, items: [address] });
+    const current = check?._meta?.['windmill/review']?.items?.[0];
+    if (!current || current.digest !== item.digest) {
+      Object.assign(item, { patch: undefined, note: undefined, error: undefined, digest: undefined, too_large: undefined }, current ?? { error: 'The draft could not be read again.' });
+      openDiffs.add(itemKey(item));
+      item.message = item.digest == null
+        ? 'The draft changed since it was shown, and cannot be deployed from here.'
+        : 'The draft changed since it was shown. Review the diff above, then deploy it again.';
+      return;
+    }
+    const result = await callTool('deploy_workspace_item', { workspace_id: workspace, ...address });
+    if (result?.isError) throw new Error(textOf(result));
+    item.deployed = true;
+    deployed.push(`${typeLabel(item)} ${item.name ?? item.path}`);
+    request('ui/update-model-context', {
+      content: [{ type: 'text', text: `From the review card, the user deployed: ${deployed.join(', ')}.` }]
+    }).catch(() => {});
+  }
+
+  function summaryRow(item) {
+    let state;
+    if (item.deployed) state = el('span', { class: 'badge success' }, 'Deployed');
+    else if (item.digest != null) {
+      state = counts(item);
+    } else state = el('span', { class: 'dim' }, item.error ? 'Cannot be diffed' : 'Not deployable here');
+    // A draft the card cannot deploy says why, under its link to Windmill.
+    const why = item.digest == null && !item.deployed ? el('span', { class: 'why' }, item.error ?? item.note ?? '') : null;
+    return el(item.url ? 'button' : 'div', {
+      class: 'summary-row', type: item.url ? 'button' : null, title: item.url ? (item.editor ? 'Open in editor' : 'Open in Windmill') : null,
+      onclick: item.url ? () => openLink(item.url) : null
+    },
+      el('span', { class: 'grow' }, itemIcon(item), ' ', item.name ?? item.path, ' ', item.url ? icon('external') : null),
+      el('span', { class: 'dim' }, typeLabel(item)),
+      state,
+      why);
+  }
+
+  // Inline the review is a summary: whole diffs would outgrow the height hosts give an
+  // inline card. They and their Deploy buttons open fullscreen; on a host without it each
+  // draft links to its editor, where it is deployed.
+  let review = null;
+
+  function renderReview(meta) {
+    view = 'review';
+    review = meta;
+    clearRun();
+    const n = meta.items.length;
+    setHeader({ summary: 'Review before deploying', ws: meta.workspace, kind: n === 1 ? '1 draft' : `${n} drafts`, url: meta.url, kindIcon: 'review' });
+    const full = fullscreen();
+    showExpand(n > 0);
+    $('review').hidden = full || !canFullscreen() || !meta.items.some(deployable);
+    showDeployButton(meta);
+    $('body').replaceChildren(...(!n
+      ? [el('div', { class: 'empty' }, 'No drafts differ from the deployed state.')]
+      : full
+        ? [el('div', { class: 'items' }, ...meta.items.map(reviewItem))]
+        : [el('div', { class: 'rows' }, ...meta.items.map(summaryRow))]));
+  }
+
+  $('review').addEventListener('click', () => setDisplayMode('fullscreen'));
+  $('deploy').addEventListener('click', () => { if (review && !deploying) deploySelected(review); });
+
+  function redraw() {
+    if (view === 'run' && run) renderRun();
+    else if (view === 'review' && review) renderReview(review);
+    else if (view === 'runs' && runsMeta) renderRuns(runsMeta);
+    else if (view === 'item' && itemMeta) renderItem(itemMeta);
+  }
+
+  // ---------------------------------------------------------------- item
+
+  const SENSITIVE = /pass|secret|token|key|private|credential/i;
+  const CODE_LINES_INLINE = 8;
+
+  // A value is mono, as Windmill shows values; `sans` for a word such as Enabled.
+  function row(key, value, sans = false) {
+    return el('div', { class: 'row' }, el('span', { class: 'k' }, key), el('span', { class: sans ? 'v sans' : 'v' }, value));
+  }
+  // A long value is cut inline, so a row stays one or two lines; fullscreen shows it whole.
+  const VALUE_CHARS_INLINE = 200;
+  // Set when a value was cut inline, which fullscreen then shows whole.
+  let valueCut = false;
+  function display(value) {
+    if (value == null) return '';
+    const text = typeof value === 'string' ? value : JSON.stringify(value);
+    if (fullscreen() || text.length <= VALUE_CHARS_INLINE) return text;
+    valueCut = true;
+    return `${text.slice(0, VALUE_CHARS_INLINE)}\u2026`;
+  }
+  function inputRows(schema) {
+    const properties = schema?.properties ?? {};
+    const required = new Set(schema?.required ?? []);
+    return Object.entries(properties).map(([name, prop]) =>
+      row(`${name}${required.has(name) ? ' *' : ''}`, [prop.type ?? 'any', prop.format, prop.description].filter(Boolean).join(' · ')));
+  }
+  function moduleRows(modules) {
+    return (modules ?? []).map((module) => el('div', { class: 'row' },
+      el('span', { class: 'v' }, module.id ?? ''),
+      // As the run's step tree names it.
+      el('span', { class: 'grow' }, stepName({ summary: module.summary, module: module.value }) || module.value?.type || '')));
+  }
+  // Rows past the inline count open fullscreen, or the item in Windmill.
+  function capped(rows, noun, url) {
+    const shown = fullscreen() ? rows : rows.slice(0, ROWS_INLINE);
+    const hidden = rows.length - shown.length;
+    return el('div', { class: 'rows' }, ...shown, hidden > 0 ? moreRow(plural(hidden, `more ${noun}`), url) : null);
+  }
+  const plural = (n, noun) => `${n} ${noun}${n === 1 ? '' : /(s|sh|ch|x)$/.test(noun) ? 'es' : 's'}`;
+
+  // Inline an item shows a few key settings; the rest are collapsed sections.
+  let itemMeta = null;
+  const FLOW_STEPS_INLINE = 5;
+
+  function renderItem(meta) {
+    view = 'item';
+    itemMeta = meta;
+    clearRun();
+    valueCut = false;
+    const item = meta.item;
+    const value = item.value ?? {};
+    const type = item.type;
+    const draft = !!item.isDraft;
+    const url = draft && meta.edit_url ? meta.edit_url : meta.url;
+    const kind = item.triggerKind ? `${triggerLabel(item.triggerKind)} trigger`
+      : type === 'script' && item.language ? `${languageLabel(item.language)} script`
+      : type === 'resource' && value.resource_type === 'ai_agent' ? 'AI agent'
+      : type === 'resource' && value.resource_type ? `${value.resource_type} resource` : type;
+    const kindIcon = value.resource_type === 'ai_agent' ? 'agent' : kindIconOf(type, item.triggerKind);
+    setHeader({
+      path: item.path, ws: meta.workspace, kind, summary: item.summary, kindIcon,
+      status: draft ? 'draft' : null, label: draft ? 'Draft' : null, url
+    });
+    $('review').hidden = true;
+    const blocks = [];
+    // Sections are fullscreen's, shown whole under their titles: inline a card is one view,
+    // so it names what is there.
+    const hiddenSections = [];
+    const section = (label, content) => (fullscreen()
+      ? [el('div', { class: 'section' }, el('div', { class: 'section-title' }, label), content())]
+      : (hiddenSections.push(label), []));
+    // What a schedule or a trigger runs: its kind's icon and its path, opening its page.
+    const target = value.script_path
+      ? el('button', { class: 'more-line mono', type: 'button', title: `Open the ${value.is_flow ? 'flow' : 'script'} in Windmill`, disabled: !meta.runs_url, onclick: () => openLink(meta.runs_url) },
+        icon(value.is_flow ? 'flow' : 'script'), value.script_path, meta.runs_url ? icon('external') : null)
+      : null;
+    // Opens a value shown whole in fullscreen, or the item's page on a host without it.
+    const openWhole = (label) => el('button', { class: 'more-line', type: 'button', onclick: canFullscreen() ? () => setDisplayMode('fullscreen') : () => openLink(url) },
+      label, icon(canFullscreen() ? 'expand' : 'external'));
+    switch (type) {
+      case 'script': {
+        const code = typeof item.value === 'string' ? item.value.split('\n') : [];
+        const inputs = inputRows(item.schema);
+        // A script is its code: inline its start fades out as a cut result does, and a click
+        // shows it whole.
+        if (code.length && fullscreen()) {
+          blocks.push(...section('Code', () => openable(el('pre', {}, code.join('\n')), false, url, null, code.join('\n'))));
+        } else if (code.length) {
+          const shown = code.slice(0, CODE_LINES_INLINE);
+          blocks.push(openable(el('pre', { class: 'clip' }, shown.join('\n')), shown.length < code.length, url, null, code.join('\n')));
+        }
+        if (inputs.length) blocks.push(...section(plural(inputs.length, 'input'), () => capped(inputs, 'input', url)));
+        break;
+      }
+      case 'flow': {
+        // A flow is its steps: the first ones show without opening anything.
+        const steps = moduleRows(value.modules);
+        const inputs = inputRows(value.schema);
+        if (steps.length) {
+          const shown = fullscreen() ? steps : steps.slice(0, FLOW_STEPS_INLINE);
+          const hidden = steps.length - shown.length;
+          blocks.push(el('div', { class: 'section' },
+            el('div', { class: 'section-title' }, plural(steps.length, 'step')),
+            el('div', { class: 'rows' }, ...shown, hidden > 0 ? moreRow(plural(hidden, 'more step'), url) : null)));
+        }
+        if (inputs.length) blocks.push(...section(plural(inputs.length, 'input'), () => capped(inputs, 'input', url)));
+        break;
+      }
+      case 'schedule': {
+        const rows = [row('Cron', value.schedule ?? ''), row('Timezone', value.timezone ?? '')];
+        if (target) rows.push(row('Runs', target));
+        if (value.enabled != null) rows.push(row('Status', value.enabled ? 'Enabled' : 'Disabled', true));
+        // Its arguments are a row: named inline, whole in fullscreen.
+        const argCount = value.args ? Object.keys(value.args).length : 0;
+        if (argCount && fullscreen()) {
+          const text = JSON.stringify(value.args, null, 2);
+          rows.push(el('div', { class: 'row' }, el('span', { class: 'k' }, 'Arguments'), openable(el('pre', {}, text), false, url, null, text)));
+        } else if (argCount) {
+          rows.push(row('Arguments', openWhole(plural(argCount, 'argument'))));
+        }
+        blocks.push(el('div', { class: 'rows' }, ...rows));
+        break;
+      }
+      case 'trigger': {
+        const rows = [];
+        if (target) rows.push(row('Runs', target));
+        // What a trigger listens to, inline, as its kind's page lists it.
+        const keys = TRIGGER_SETTINGS[item.triggerKind] ?? [];
+        for (const [key, label] of keys) {
+          const shown = value[key];
+          if (shown == null || shown === '' || (Array.isArray(shown) && !shown.length)) continue;
+          // A list reads as its names: MQTT's topics are `{ topic, qos }` objects.
+          const names = Array.isArray(shown) ? shown.map((v) => (typeof v === 'string' ? v : v?.topic)) : null;
+          rows.push(row(label, key === 'http_method' ? String(shown).toUpperCase()
+            : names?.every((n) => typeof n === 'string') ? names.join(', ') : display(shown)));
+        }
+        if (value.mode != null) rows.push(row('Status', String(value.mode).replace(/^./, (c) => c.toUpperCase()), true));
+        else if (value.enabled != null) rows.push(row('Status', value.enabled ? 'Enabled' : 'Disabled', true));
+        const skip = new Set(['path', 'summary', 'description', 'script_path', 'is_flow', 'mode', 'enabled', 'workspace_id', 'edited_by', 'edited_at', 'extra_perms', 'email', 'labels', 'permissioned_as', 'error', 'last_server_ping', 'server_id', 'is_draft', 'route_path_key', ...keys.map(([key]) => key)]);
+        const settings = Object.entries(value)
+          .filter(([k, v]) => !skip.has(k) && v != null && v !== '' && !(Array.isArray(v) && !v.length))
+          .map(([k, v]) => row(settingLabel(k), display(v)));
+        // The rest of its settings join the table in fullscreen; inline its last row opens them.
+        if (fullscreen()) rows.push(...settings);
+        else if (settings.length) rows.push(moreRow(plural(settings.length, 'more setting'), url));
+        if (rows.length) blocks.push(el('div', { class: 'rows' }, ...rows));
+        break;
+      }
+      case 'resource': {
+        if (value.resource_type === 'ai_agent' && value.value && typeof value.value === 'object') {
+          blocks.push(agentRows(value.value, url));
+          break;
+        }
+        const fields = value.value && typeof value.value === 'object' ? Object.entries(value.value) : [];
+        // Shown at a glance, so a secret-looking field is masked unless it only names one.
+        const rows = [...fields.map(([k, field]) => {
+          const reference = typeof field === 'string' && /^\$(var|res):/.test(field);
+          return row(k, SENSITIVE.test(k) && !reference ? '\u2022\u2022\u2022\u2022\u2022\u2022' : display(field));
+        })];
+        blocks.push(capped(rows, 'field', url));
+        break;
+      }
+    }
+    if (hiddenSections.length && (canFullscreen() || url)) {
+      const open = canFullscreen() ? () => setDisplayMode('fullscreen') : () => openLink(url);
+      blocks.push(el('button', { class: 'more-line', type: 'button', onclick: open }, hiddenSections.join(' \u00b7 '), icon(canFullscreen() ? 'expand' : 'external')));
+    }
+    $('body').replaceChildren(...blocks.filter(Boolean));
+    markItemCuts();
+  }
+
+  // A few long lines can still overflow a clipped block: it is cut, and opens whole. Wrapping
+  // depends on the width, so a resized card checks again. `wrap-cut` marks the blocks cut here,
+  // which a wider card uncuts; a block cut by its line count stays cut.
+  function markItemCuts() {
+    for (const pre of $('body').querySelectorAll('pre.clip:not(.cut), pre.wrap-cut')) {
+      const cut = pre.scrollHeight > pre.clientHeight + 1 && canFullscreen();
+      pre.classList.toggle('cut', cut);
+      pre.classList.toggle('wrap-cut', cut);
+      pre.onclick = cut ? () => setDisplayMode('fullscreen') : null;
+    }
+    // Offered when fullscreen shows more than this: a cut list, value or code block, a section.
+    showExpand(valueCut || !!$('body').querySelector('.more-line:not(.mono), .cut'));
+  }
+  window.addEventListener('resize', () => { if (view === 'item') markItemCuts(); });
+
+  // A saved agent: its model, tools and instructions inline, its other settings in fullscreen.
+  function agentRows(agent, url) {
+    const provider = agent.provider ?? {};
+    const tools = (agent.tools ?? []).map((t) => t.summary || t.id).filter(Boolean);
+    const rows = [];
+    if (provider.model || provider.kind) rows.push(row('Model', [provider.model, provider.kind].filter(Boolean).join(' \u00b7 ')));
+    rows.push(row('Tools', tools.length ? tools.join(', ') : 'None'));
+    if (agent.system_prompt) rows.push(row('Instructions', display(agent.system_prompt), true));
+    const rest = Object.entries(agent)
+      .filter(([k, v]) => !['provider', 'tools', 'system_prompt'].includes(k) && v != null && v !== '' && !SENSITIVE.test(k))
+      .map(([k, v]) => row(settingLabel(k), display(v)));
+    if (fullscreen()) rows.push(...rest);
+    else if (rest.length) rows.push(moreRow(plural(rest.length, 'more setting'), url));
+    return el('div', { class: 'rows' }, ...rows);
+  }
+
+  // A setting's field name as a label: words, the first capitalised, acronyms upper-case.
+  const ACRONYMS = new Set(['url', 'id', 'http', 'api', 'sql', 'tls', 'ssl', 'aws', 'gcp']);
+  const settingLabel = (key) => key.split('_')
+    .map((word, i) => (ACRONYMS.has(word) ? word.toUpperCase() : i === 0 ? word[0].toUpperCase() + word.slice(1) : word))
+    .join(' ');
+
+  // ---------------------------------------------------------------- dispatch
+
+  function onResult(result) {
+    const meta = result?._meta ?? {};
+    if (meta['windmill/review']) return renderReview(meta['windmill/review']);
+    if (meta['windmill/runs']) return renderRuns(meta['windmill/runs']);
+    if (meta['windmill/item']) return renderItem(meta['windmill/item']);
+    if (meta['windmill/run']) return onRun(meta['windmill/run']);
+    // A poll that failed (the job read erred) keeps the run's last state.
+    if (!run?.id) renderText(result ?? {});
+    else refreshFailed();
+  }
+
+  function applyContext(context) {
+    if (!context) return;
+    const modeChanged = context.displayMode && context.displayMode !== host.displayMode;
+    host = { ...host, ...context };
+    if (modeChanged) redraw();
+    if (context.theme) document.documentElement.dataset.theme = context.theme;
+    for (const [name, value] of Object.entries(context.styles?.variables ?? {})) {
+      if (value) document.documentElement.style.setProperty(name, value);
+    }
+    // The host's `@font-face` rules for the fonts its `--font-*` variables name.
+    const fonts = context.styles?.css?.fonts;
+    if (fonts) {
+      const style = document.getElementById('host-fonts') ?? document.head.appendChild(el('style', { id: 'host-fonts' }));
+      style.textContent = fonts;
+    }
+  }
+
+  $('path').addEventListener('click', () => openLink($('path').dataset.url));
+  $('expand').append(icon('expand'));
+  $('expand').addEventListener('click', () => setDisplayMode('fullscreen'));
+
+  window.addEventListener('message', (event) => {
+    if (event.source !== window.parent) return;
+    const message = event.data;
+    if (!message || message.jsonrpc !== '2.0') return;
+    if (message.id != null && pending.has(message.id) && !message.method) {
+      const { resolve, reject } = pending.get(message.id);
+      pending.delete(message.id);
+      if (message.error) reject(message.error); else resolve(message.result);
+      return;
+    }
+    switch (message.method) {
+      case 'ui/notifications/tool-input':
+        toolArgs = message.params?.arguments ?? {};
+        if (!view && toolArgs.path) $('path').textContent = toolArgs.path;
+        break;
+      case 'ui/notifications/tool-result':
+        pollStarted = Date.now();
+        onResult(message.params);
+        break;
+      case 'ui/notifications/tool-cancelled':
+        if (!view) {
+          run = { status: 'not_started', result: message.params?.reason ?? null };
+          view = 'run';
+          renderRun();
+        }
+        break;
+      case 'ui/notifications/host-context-changed':
+        applyContext(message.params);
+        break;
+      case 'ui/resource-teardown':
+        window.clearTimeout(pollTimer);
+        window.clearInterval(tickTimer);
+        if (message.id != null) post({ id: message.id, result: {} });
+        break;
+    }
+  });
+
+  // The content's own height: the document's never drops below the frame it is in, so a
+  // card that shrinks would keep its old height.
+  const main = document.querySelector('main');
+  new ResizeObserver(() => {
+    post({
+      method: 'ui/notifications/size-changed',
+      params: { width: document.documentElement.scrollWidth, height: Math.ceil(main.getBoundingClientRect().height) }
+    });
+  }).observe(main);
+
+  request('ui/initialize', {
+    protocolVersion: '2026-01-26',
+    appInfo: { name: 'windmill-card', version: '1.0.0' },
+    appCapabilities: { availableDisplayModes: ['inline', 'fullscreen'] }
+  }).then((result) => {
+    applyContext(result?.hostContext);
+    post({ method: 'ui/notifications/initialized', params: {} });
+  }).catch(() => {});
+})();
+</script>
+</body>
+</html>

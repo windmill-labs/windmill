@@ -58,6 +58,7 @@ import { saveSqsTriggerFromCfg } from '$lib/components/triggers/sqs/utils'
 import { saveGcpTriggerFromCfg } from '$lib/components/triggers/gcp/utils'
 import { saveAzureTriggerFromCfg } from '$lib/components/triggers/azure/utils'
 import { saveEmailTriggerFromCfg } from '$lib/components/triggers/email/utils'
+import { markAgentWritten } from '$lib/components/flows/agentEditorStore.svelte'
 
 export type DraftKind = UserDraftItemKind
 
@@ -368,9 +369,14 @@ export async function getDraftDiffValues(
 			throw new Error(`Draft diff not supported for kind ${kind}`)
 		}
 		const { deployed, draft, hasDraft, noDeployed } = splitOverlay(await getter(workspace, path))
+		// The agent editor's draft of a deployed agent omits its type, which deploying keeps.
+		const draftWithType =
+			kind === 'resource' && draft && !draft.resource_type && deployed?.resource_type
+				? { ...draft, resource_type: deployed.resource_type }
+				: draft
 		return {
 			deployed: draftOnly ? {} : canonicalizeDraftDiffValue(kind, deployed, false),
-			draft: canonicalizeDraftDiffValue(kind, draft, true),
+			draft: canonicalizeDraftDiffValue(kind, draftWithType, true),
 			hasDraft,
 			noDeployed
 		}
@@ -499,6 +505,10 @@ export async function deployDraft(
 					...rest,
 					path: scriptPath,
 					parent_hash: r.hash,
+					// The deployed script's: muting applies to it at once, so a draft's copy is stale.
+					// Before the first deploy the draft's is the only one.
+					ws_error_handler_muted:
+						draftOnly || r.no_deployed ? rest.ws_error_handler_muted : r.ws_error_handler_muted,
 					deployment_message: deploymentMessage,
 					// Deploy the draft's on-behalf-of as-is; the backend resets it to the
 					// deploying user without this flag, gated by can_preserve_on_behalf_of.
@@ -525,7 +535,10 @@ export async function deployDraft(
 				schema: d.schema,
 				tag: d.tag,
 				dedicated_worker: d.dedicated_worker,
-				ws_error_handler_muted: d.ws_error_handler_muted,
+				// The deployed flow's: muting applies to it at once, so a draft's copy is stale.
+				// Before the first deploy the draft's is the only one.
+				ws_error_handler_muted:
+					draftOnly || r.no_deployed ? d.ws_error_handler_muted : r.ws_error_handler_muted,
 				visible_to_runner_only: d.visible_to_runner_only,
 				on_behalf_of_email: d.on_behalf_of_email,
 				on_behalf_of: d.on_behalf_of,
@@ -693,6 +706,9 @@ export async function deployDraft(
 					}
 				})
 			}
+			// What shows a deployed agent reads it again on this, wherever the deploy came from.
+			if (!noop && (d.resource_type ?? deployed?.resource_type) === 'ai_agent')
+				markAgentWritten(workspace, d.path ?? path)
 		} else if (kind === 'trigger_schedule') {
 			const { draft: d } = splitOverlay(await OVERLAY_GETTERS.trigger_schedule!(workspace, path))
 			// The schedule editor's draft IS the cfg shape `saveScheduleFromCfg`

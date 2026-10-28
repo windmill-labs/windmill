@@ -21,14 +21,14 @@ export type FolderResourceType = "flow" | "app" | "raw_app";
 
 // Configuration for folder suffixes - can be switched between dot and dunder prefixes
 // The default uses dot-prefixed names (.flow, .app, .raw_app)
-const DOTTED_SUFFIXES = {
+export const DOTTED_SUFFIXES = {
   flow: ".flow",
   app: ".app",
   raw_app: ".raw_app",
 } as const;
 
 // Alternative dunder-prefixed names (__flow, __app, __raw_app)
-const NON_DOTTED_SUFFIXES = {
+export const NON_DOTTED_SUFFIXES = {
   flow: "__flow",
   app: "__app",
   raw_app: "__raw_app",

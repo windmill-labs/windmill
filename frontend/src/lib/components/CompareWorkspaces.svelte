@@ -493,6 +493,9 @@
 	// Summary cache: stores summaries from both workspaces
 	type SummaryCache = Record<string, { current?: string; parent?: string; loading?: boolean }>
 	let summaryCache = $state<SummaryCache>({})
+	// Resource rows that are AI agents: titled by their summary and drawn as agents, as a script is.
+	// Per side, since a path can be an agent on one side and another resource type on the other.
+	let agentKeys = $state<Record<string, { current: boolean; parent: boolean }>>({})
 	// What has already been asked for. Deliberately not `$state`: the fetchers below run inside an
 	// effect, and a guard that reads reactive state makes that effect depend on what it writes —
 	// which is a loop. A plain Set is also what tells "asked, and the answer was nothing" from
@@ -510,6 +513,14 @@
 
 	function getItemKey(diff: WorkspaceItemDiff): string {
 		return `${diff.kind}:${diff.path}`
+	}
+
+	// Drawn as an agent by the side being deployed, or by the target's when the source deletes it.
+	function isAgentRow(diff: WorkspaceItemDiff): boolean {
+		const sides = agentKeys[getItemKey(diff)]
+		if (!sides) return false
+		const fromCurrent = mergeIntoParent ? diff.exists_in_fork : !diff.exists_in_source
+		return fromCurrent ? sides.current : sides.parent
 	}
 
 	/** The two things a row needs from an item — the name it shows and who it runs as — are fields
@@ -579,9 +590,9 @@
 	})
 
 	async function fetchSummaries(diffs: WorkspaceItemDiff[]) {
-		// Only fetch summaries for scripts, flows, and apps
+		// Only fetch summaries for scripts, flows, apps, and resources (for the agents among them)
 		const itemsToFetch = diffs.filter((diff) =>
-			['script', 'flow', 'app', 'raw_app', 'folder'].includes(diff.kind)
+			['script', 'flow', 'app', 'raw_app', 'folder', 'resource'].includes(diff.kind)
 		)
 		// Read once, so every request in this pass names the pair the pass was started for. Named
 		// the way the diff names the two sides: `exists_in_fork` is this workspace, `exists_in_source`
@@ -598,6 +609,33 @@
 			summariesRequested.add(key)
 
 			summaryCache[key] = { loading: true }
+
+			if (diff.kind === 'resource') {
+				const read = (ws: string) =>
+					ResourceService.getResource({ workspace: ws, path: diff.path }).catch((error) => {
+						console.error(`Failed to fetch resource ${diff.path} in ${ws}`, error)
+						return undefined
+					})
+				const [current, parent] = await Promise.all([
+					diff.exists_in_fork ? read(forkWs) : undefined,
+					diff.exists_in_source ? read(sourceWs) : undefined
+				])
+				if (!alive) return
+				const sides = {
+					current: current?.resource_type === 'ai_agent',
+					parent: parent?.resource_type === 'ai_agent'
+				}
+				const agent = sides.current || sides.parent
+				if (agent) agentKeys[key] = sides
+				summaryCache[key] = agent
+					? {
+							current: sides.current ? current?.description : undefined,
+							parent: sides.parent ? parent?.description : undefined,
+							loading: false
+						}
+					: { loading: false }
+				continue
+			}
 
 			// Only the sides that have the item. An item that is only ahead does not exist in the
 			// other workspace, so asking it there is a 404 by construction — a guaranteed-failing
@@ -1325,6 +1363,7 @@
 		<div class="bg-surface-tertiary p-4 rounded-md border">
 			<WorkspaceDeployLayout
 				items={deployableItems}
+				isAgent={(item) => isAgentRow(item.diff as WorkspaceItemDiff)}
 				{selectedItems}
 				{deploymentStatus}
 				{allSelected}
@@ -1649,10 +1688,10 @@
 					<!-- Point the edit link at the workspace the item actually lives in:
 					     a parent-only row (deleted/absent in the fork) would 404 if linked
 					     into the fork, so link it into the parent instead. -->
-					{@const editUrl = editUrlFor(
-						diff,
-						diff.exists_in_fork ? currentWorkspaceId : parentWorkspaceId
-					)}
+					{@const linkWs = diff.exists_in_fork ? currentWorkspaceId : parentWorkspaceId}
+					{@const editUrl = agentKeys[key]?.[diff.exists_in_fork ? 'current' : 'parent']
+						? `/agents/edit/${diff.path}?workspace=${encodeURIComponent(linkWs)}`
+						: editUrlFor(diff, linkWs)}
 					{#if isTriggerOrScheduleKind(diff.kind)}
 						<span class="text-emphasis">
 							{KIND_DISPLAY_NAMES[diff.kind as string] ?? diff.kind}

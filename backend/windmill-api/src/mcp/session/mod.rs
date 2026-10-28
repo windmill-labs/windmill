@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use serde::Deserialize;
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use windmill_mcp::server::{
     BackendResult, CallToolResult, ContentBlock, ErrorData, MetaObject, SessionAccess, Tool,
     ToolAnnotations,
@@ -52,6 +52,7 @@ mod items;
 mod misc;
 mod runs;
 mod settings;
+mod views;
 mod workspace;
 
 pub(super) use instructions::{
@@ -103,21 +104,77 @@ const EDITOR_ONLY: &[&str] = &[
     "read_file",
 ];
 
-/// Tools whose effect reaches the deployed workspace and cannot be undone by discarding
-/// a draft. Stands in for the session's confirmation card.
+/// Tools whose effect discarding a draft cannot undo: they reach the deployed workspace or a
+/// live datatable, run code, cancel a job, or delete work. Stands in for the session's
+/// confirmation card. The ChatGPT and Claude directories reject a write that deletes,
+/// cancels or cannot be taken back without this hint, even when it could be redone.
 const DESTRUCTIVE: &[&str] = &[
     "deploy_workspace_item",
     "delete_workspace_item",
     "create_resource_type",
     "set_workspace_settings",
+    "run_script",
+    "run_flow",
+    "run_agent",
+    "test_run_script",
+    "test_run_flow",
+    "test_run_agent",
+    "test_run_step",
+    "test_run_app_runnable",
+    "cancel_job",
+    "exec_datatable_sql",
+    "create_datatable_migration",
+    "run_datatable_migrations",
+    "rollback_datatable_migration",
+    "discard_local_draft",
+    "rebase_draft",
+    "delete_app_file",
+    "delete_app_runnable",
 ];
+
+/// The destructive tools a card may call, each from a button the user presses. Every
+/// other destructive tool is hidden from cards: a card acts as the user with no one
+/// confirming.
+const CARD_ACTIONS: &[&str] = &["deploy_workspace_item", "cancel_job"];
+
+/// Tools that reach a system outside Windmill on the workspace's behalf: running code can
+/// reach any system the workspace can, and `get_db_schema` connects to a resource's
+/// database. Reading public reference data (hub, npm, docs) does not count.
+const OPEN_WORLD: &[&str] = &[
+    "run_script",
+    "run_flow",
+    "run_agent",
+    "test_run_script",
+    "test_run_flow",
+    "test_run_agent",
+    "test_run_step",
+    "test_run_app_runnable",
+    "get_db_schema",
+];
+
+/// A tool's display name, which Claude shows in its tool list and approval prompts.
+fn tool_title(name: &str) -> String {
+    let words: Vec<String> = name
+        .split('_')
+        .map(|word| match word {
+            "db" | "sql" | "json" => word.to_uppercase(),
+            _ => word.to_string(),
+        })
+        .collect();
+    let title = words.join(" ");
+    let mut chars = title.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
+}
 
 /// Tools the session counts as reads that still start a job. A read-only token runs
 /// nothing on the tools server, so it runs nothing here either.
 const RUNS_A_JOB: &[&str] = &["get_db_schema"];
 
-/// Tools that run a deployed script or flow, the one write a read-and-run token keeps.
-const RUNS_DEPLOYED: &[&str] = &["run_script", "run_flow"];
+/// Tools that run a deployed script, flow or agent, the one write a read-and-run token keeps.
+const RUNS_DEPLOYED: &[&str] = &["run_script", "run_flow", "run_agent"];
 
 fn allowed(def: &ToolDef, access: SessionAccess) -> bool {
     let read = def.read_only && !RUNS_A_JOB.contains(&def.name.as_str());
@@ -154,24 +211,69 @@ fn result_size_meta() -> MetaObject {
     MetaObject(meta)
 }
 
+/// The MCP Apps view a client that renders them draws these tools' results in. It draws
+/// what the tool put in its result's `_meta` (`Ctx::view`), and acts by calling tools.
+/// Hosts cache a view by its URI: bump the version when a change breaks the `_meta` shape
+/// the deployed card reads.
+pub(super) const CARD_URI: &str = "ui://windmill/card-v1";
+const CARD_HTML: &str = include_str!("card.html");
+
+/// The `ui://` views the session's tools render in, as `(uri, html)`.
+pub(super) fn session_views() -> &'static [(&'static str, &'static str)] {
+    &[(CARD_URI, CARD_HTML)]
+}
+
 pub(super) fn session_tools(access: SessionAccess) -> Vec<Tool> {
     TOOL_DEFS
         .iter()
         .filter(|def| implemented().any(|name| name == def.name))
         .filter(|def| allowed(def, access))
         .map(|def| {
+            let name = def.name.as_str();
+            let mut meta = result_size_meta();
+            let destructive = DESTRUCTIVE.contains(&name);
+            if destructive && !CARD_ACTIONS.contains(&name) {
+                meta.0
+                    .insert("ui".into(), json!({ "visibility": ["model"] }));
+            }
+            let title = tool_title(name);
             Tool::new(
                 def.name.clone(),
                 def.description.clone(),
                 def.parameters.clone(),
             )
+            .with_title(title.clone())
             .with_annotations(
-                ToolAnnotations::new()
-                    .read_only(def.read_only)
-                    .destructive(DESTRUCTIVE.contains(&def.name.as_str())),
+                ToolAnnotations::with_title(title)
+                    .read_only(def.read_only && !RUNS_A_JOB.contains(&name))
+                    .destructive(destructive)
+                    .open_world(OPEN_WORLD.contains(&name)),
             )
-            .with_meta(result_size_meta())
+            .with_meta(meta)
         })
+        .chain(
+            views::definitions()
+                .into_iter()
+                .filter(|(name, ..)| views::allowed(name, access))
+                .map(|(name, description, schema)| {
+                    let mut meta = result_size_meta();
+                    meta.0
+                        .insert("ui".into(), json!({ "resourceUri": CARD_URI }));
+                    let Value::Object(schema) = schema else {
+                        unreachable!("a view tool's schema is an object")
+                    };
+                    let title = tool_title(name);
+                    Tool::new(name, description, schema)
+                        .with_title(title.clone())
+                        .with_annotations(
+                            ToolAnnotations::with_title(title)
+                                .read_only(true)
+                                .destructive(false)
+                                .open_world(false),
+                        )
+                        .with_meta(meta)
+                }),
+        )
         .collect()
 }
 
@@ -189,9 +291,17 @@ pub(super) struct Ctx<'a> {
     /// Minted once per tool call: every JWT the API sees is cached by the auth layer, and a
     /// tool can make dozens of calls, which would evict other users' cached sessions.
     pub jwt: tokio::sync::OnceCell<String>,
+    /// What the card draws of this call, as `(key, value)`: returned in the result's
+    /// `_meta`, which the model never reads.
+    pub view: std::sync::Mutex<Option<(&'static str, Value)>>,
 }
 
 impl Ctx<'_> {
+    /// Set what the card draws of this call, replacing what an inner step set.
+    pub fn set_view(&self, key: &'static str, value: Value) {
+        *self.view.lock().unwrap() = Some((key, value));
+    }
+
     /// Call the API as the caller. `path` follows `/api`; a non-2xx answer is the error.
     pub async fn request(&self, method: &str, path: &str, body: Option<Value>) -> ToolResult {
         let url = guarded_url(self.base_internal_url, self.w_id, method, path, self.access)?;
@@ -368,7 +478,7 @@ fn guarded_url(
     // A run also stores its secret arguments as expiring variables; the write tools that
     // could create other variables are not offered to a read-and-run token.
     let run_writes = method == "POST"
-        && ["jobs/run/p/", "jobs/run/f/"]
+        && ["jobs/run/p/", "jobs/run/f/", "jobs/run/agent/"]
             .iter()
             .any(|run| route.starts_with(&format!("/w/{w_id}/{run}")))
         || method == "POST" && route == format!("/w/{w_id}/variables/create");
@@ -513,11 +623,8 @@ pub(super) fn matches_glob(subject: &str, glob: &str) -> bool {
     regex::Regex::new(&pattern).is_ok_and(|re| re.is_match(subject))
 }
 
-pub(super) async fn call_session_tool(
-    ctx: &Ctx<'_>,
-    name: &str,
-    args: Value,
-) -> BackendResult<CallToolResult> {
+/// A generated session tool, refused when the token's access does not cover it.
+async fn call_generated_tool(ctx: &Ctx<'_>, name: &str, args: &Value) -> BackendResult<ToolResult> {
     let Some(def) = TOOL_DEFS.iter().find(|def| def.name == name) else {
         return Err(ErrorData::invalid_params(
             format!("Unknown tool '{name}'"),
@@ -534,14 +641,27 @@ pub(super) async fn call_session_tool(
             None,
         ));
     }
-    let Some(result) = dispatch(ctx, name, &args).await else {
+    let Some(result) = dispatch(ctx, name, args).await else {
         return Err(ErrorData::invalid_params(
             format!("Tool '{name}' is not available on this server"),
             None,
         ));
     };
+    Ok(result)
+}
+
+pub(super) async fn call_session_tool(
+    ctx: &Ctx<'_>,
+    name: &str,
+    args: Value,
+) -> BackendResult<CallToolResult> {
+    let result = if views::TOOLS.contains(&name) {
+        views::call(ctx, name, &args).await
+    } else {
+        call_generated_tool(ctx, name, &args).await?
+    };
     windmill_common::feature_usage::log_feature_usage("mcp_workspace", "tool_call", name);
-    Ok(match result {
+    let mut result = match result {
         Ok(text) => CallToolResult::success(vec![ContentBlock::text(text)]),
         // Without the status code `Ctx` prefixes an API failure with, as the session reads it.
         Err(message) => {
@@ -549,7 +669,11 @@ pub(super) async fn call_session_tool(
             let text = if body.is_empty() { &message } else { body };
             CallToolResult::error(vec![ContentBlock::text(text.to_string())])
         }
-    })
+    };
+    if let Some((key, view)) = ctx.view.lock().unwrap().take() {
+        result.meta = Some(MetaObject(Map::from_iter([(key.to_string(), view)])));
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -582,11 +706,44 @@ mod tests {
         // preview takes code.
         assert!(url("POST", "/w/ws/jobs/run/p/u/a/b", ReadAndRun).is_ok());
         assert!(url("POST", "/w/ws/jobs/run/f/u/a/b", ReadAndRun).is_ok());
+        assert!(url("POST", "/w/ws/jobs/run/agent/u/a/b", ReadAndRun).is_ok());
         assert!(url("POST", "/w/ws/jobs/run/preview", ReadAndRun).is_err());
         assert!(url("POST", "/w/ws/drafts/update", ReadAndRun).is_err());
         assert!(url("POST", "/w/ws/variables/create", ReadAndRun).is_ok());
         assert!(url("POST", "/w/ws/variables/update/u/a/b", ReadAndRun).is_err());
         assert!(url("POST", "/w/ws/variables/create", ReadOnly).is_err());
+    }
+
+    #[test]
+    fn no_card_can_call_a_destructive_tool_but_deploy_and_cancel() {
+        for tool in session_tools(SessionAccess::Full) {
+            let name = tool.name.as_ref();
+            if DESTRUCTIVE.contains(&name) {
+                let ui = tool.meta.as_ref().and_then(|m| m.0.get("ui"));
+                let model_only = ui == Some(&json!({ "visibility": ["model"] }));
+                assert_eq!(
+                    model_only,
+                    !matches!(name, "deploy_workspace_item" | "cancel_job"),
+                    "{name}"
+                );
+            }
+        }
+    }
+
+    /// The ChatGPT directory wants every hint explicit, and Claude's a title on every tool.
+    #[test]
+    fn every_session_tool_has_a_title_and_explicit_hints() {
+        for tool in session_tools(SessionAccess::Full) {
+            let a = tool.annotations.as_ref().expect("annotations");
+            assert!(tool.title.is_some() && a.title.is_some(), "{}", tool.name);
+            assert!(
+                a.read_only_hint.is_some()
+                    && a.destructive_hint.is_some()
+                    && a.open_world_hint.is_some(),
+                "{}",
+                tool.name
+            );
+        }
     }
 
     #[test]
@@ -599,10 +756,22 @@ mod tests {
                 "session tool `{name}` must be implemented here or listed in EDITOR_ONLY, not both"
             );
         }
-        for name in implemented.iter().chain(EDITOR_ONLY) {
+        for name in implemented
+            .iter()
+            .chain(EDITOR_ONLY)
+            .chain(DESTRUCTIVE)
+            .chain(OPEN_WORLD)
+            .chain(RUNS_A_JOB)
+        {
             assert!(
                 TOOL_DEFS.iter().any(|def| def.name == *name),
                 "`{name}` is not a session tool any more"
+            );
+        }
+        for name in views::TOOLS {
+            assert!(
+                !TOOL_DEFS.iter().any(|def| def.name == *name),
+                "`{name}` is generated too"
             );
         }
     }

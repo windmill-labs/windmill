@@ -195,6 +195,26 @@
 			{#if result.summary}
 				<div class="text-xs text-secondary">{result.summary}</div>
 			{/if}
+			<div class="text-2xs text-secondary">
+				{#if result.instructions.length > 0}
+					Applied {result.instructions.length} review instruction{result.instructions.length === 1
+						? ''
+						: 's'} from {parentWorkspaceId}: {result.instructions.join(', ')}.
+				{:else}
+					No review instructions from {parentWorkspaceId} applied.
+				{/if}
+				Only the ai_review_instruction resources you can read in {parentWorkspaceId} are used.
+			</div>
+			{#if result.instructionsUnavailable}
+				<Alert type="warning" title="Review instructions unavailable" size="xs">
+					Could not list the review instructions of {parentWorkspaceId}, so none were applied.
+				</Alert>
+			{/if}
+			{#if result.skippedInstructions.length > 0}
+				<Alert type="warning" title="Review instructions skipped" size="xs">
+					Could not load: {result.skippedInstructions.join(', ')}
+				</Alert>
+			{/if}
 			{#if result.unreadable.length > 0}
 				<Alert type="warning" title="Not reviewed" size="xs">
 					Could not load the contents of: {result.unreadable.join(', ')}

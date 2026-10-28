@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT\n                workspace_id,\n                name,\n                rules as \"rules: ProtectionRules\",\n                bypass_groups,\n                bypass_users\n            FROM workspace_protection_rule\n            WHERE workspace_id = $1\n            ORDER BY name\n        ",
+  "query": "\n            SELECT\n                workspace_id,\n                name,\n                rules as \"rules: ProtectionRules\",\n                bypass_groups,\n                bypass_users,\n                fork_role_mapping as \"fork_role_mapping: ForkRoleMapping\"\n            FROM workspace_protection_rule\n            WHERE workspace_id = $1\n            ORDER BY name\n        ",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,11 @@
         "ordinal": 4,
         "name": "bypass_users",
         "type_info": "TextArray"
+      },
+      {
+        "ordinal": 5,
+        "name": "fork_role_mapping: ForkRoleMapping",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -39,8 +44,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "4cfb35e423a75ca2701f03d5a30a7c0778af5e548254f3e0f29004d7f2058eef"
+  "hash": "c0b4a4914f738a6a9975bb75d8ffeda071ba59b874fd56ec3eeb9b054df7eb64"
 }
