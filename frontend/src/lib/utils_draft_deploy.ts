@@ -12,7 +12,7 @@
  * draft, so discarding deletes the whole item (mirrors `common/table/*Row.svelte`);
  * a draft on an already-deployed item just deletes the draft row.
  */
-import { get, writable } from 'svelte/store'
+import { writable } from 'svelte/store'
 import {
 	DraftService,
 	ScriptService,
@@ -43,7 +43,7 @@ import { classicAppDraftParts } from '$lib/appDiffSides'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
-import { userStore } from '$lib/stores'
+import { isAdminIn } from '$lib/user'
 import { deployTriggers, type Trigger } from '$lib/components/triggers/utils'
 import { saveScheduleFromCfg } from '$lib/components/flows/scheduleUtils'
 import { dropStaleStepLocks } from '$lib/components/flows/staleStepLocks'
@@ -449,7 +449,7 @@ async function deployDraftTriggers(
 ): Promise<void> {
 	const triggers = (draftTriggers ?? []).filter((t) => t?.draftConfig)
 	if (triggers.length === 0) return
-	const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
+	const isAdmin = await isAdminIn(workspace)
 	await deployTriggers(triggers, workspace, isAdmin, writable<string[]>([]), path, isNew)
 }
 
@@ -586,7 +586,7 @@ export async function deployDraft(
 			// (or a default). custom_path requires admin on update; non-admins send
 			// undefined so the backend preserves the existing route. The draft has no
 			// custom_path, so admins fall back to the deployed route (`''` when none).
-			const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
+			const isAdmin = await isAdminIn(workspace)
 			const policy = r.policy ?? { execution_mode: 'publisher', sandbox: true }
 			const requestBody = {
 				value: appValue,
@@ -720,7 +720,7 @@ export async function deployDraft(
 		} else if (kind in TRIGGER_SAVERS) {
 			const getter = OVERLAY_GETTERS[kind]!
 			const { draft: d } = splitOverlay(await getter(workspace, path))
-			const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
+			const isAdmin = await isAdminIn(workspace)
 			const ok = await TRIGGER_SAVERS[kind]!(
 				path,
 				{ ...d, path: d.path ?? path },

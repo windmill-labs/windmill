@@ -10,10 +10,9 @@
  * files, then createAppRaw/updateAppRaw. The source→AppDraftValue projection is
  * shared via `rawAppDraftValue` so the two deploy paths can't drift.
  */
-import { get } from 'svelte/store'
 import { AppService } from '$lib/gen'
 import type { Policy } from '$lib/gen'
-import { userStore } from '$lib/stores'
+import { isAdminIn } from '$lib/user'
 import { bundleRawAppDraft } from '$lib/components/copilot/chat/global/rawAppBundlerBridge'
 import type { AppDraftValue } from '$lib/components/copilot/chat/global/workspaceItems'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
@@ -63,7 +62,7 @@ export async function deployRawAppValue({
 
 	const bundle = await bundleRawAppDraft({ workspace, files })
 
-	const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
+	const isAdmin = await isAdminIn(workspace)
 	await AppService.updateAppRaw({
 		workspace,
 		path,
@@ -131,7 +130,7 @@ export async function deployRawAppDraft(
 		// non-admin deploying a draft for an app that has a custom route would hit
 		// RequireAdmin (the deployed custom_path is sent via the appSourceToDraftValue
 		// fallback even when unchanged).
-		const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
+		const isAdmin = await isAdminIn(workspace)
 		await AppService.updateAppRaw({
 			workspace,
 			path,
