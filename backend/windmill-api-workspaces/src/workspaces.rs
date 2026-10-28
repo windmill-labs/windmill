@@ -29,7 +29,7 @@ use regex::Regex;
 
 use hex;
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use strum::IntoEnumIterator;
 use uuid::Uuid;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
@@ -1153,6 +1153,8 @@ async fn reject_parent_only_git_sync_settings_on_fork<'a>(
             Some("Promotion mode")
         } else if r.fork_open_prs {
             Some("Opening PRs for fork deploys")
+        } else if r.ai_review_prs {
+            Some("Reviewing pull requests with AI")
         } else {
             None
         }
@@ -7988,7 +7990,7 @@ async fn update_workspace_settings(
         .filter(|r| !r.use_individual_branch.unwrap_or(false))
         .take(1)
         .map(|mut r| {
-            // Auto-pull and fork PRs are parent-owned and must not be inherited:
+            // Auto-pull, fork PRs and PR reviews are parent-owned and must not be inherited:
             // the fork would otherwise carry the parent's webhook id (turning off
             // auto-pull on the fork would delete the parent's webhook). A fork
             // still inherits the push-direction config, the installation, and the
@@ -7997,6 +7999,7 @@ async fn update_workspace_settings(
             // fork unqualified for managed features until its first check.
             r.auto_pull = None;
             r.fork_open_prs = false;
+            r.ai_review_prs = false;
             r.open_pr_error = None;
             r
         })
@@ -8084,34 +8087,48 @@ async fn clone_groups(
     Ok(())
 }
 
-/// Copy the source workspace's members (the `usr` rows, carrying each member's role) into the
-/// target so a fork/dev can be a shared environment. Idempotent — skips members the target already
-/// has. Group memberships are not handled here: the sole caller is the create-fork path, where
-/// `clone_groups` already copies the source's full group structure (including `all` membership).
-async fn copy_workspace_members(
+/// The role each of the parent's roles becomes in a fork of it, after the parent's ruleset
+/// mappings, with the `usr.operator` value that goes with it.
+struct ForkRoles {
+    from: Vec<String>,
+    to: Vec<String>,
+    to_operator: Vec<bool>,
+}
+
+impl ForkRoles {
+    fn maps(&self, role: &str) -> bool {
+        self.from
+            .iter()
+            .zip(&self.to)
+            .any(|(from, to)| from == role && from != to)
+    }
+}
+
+async fn fork_roles(db: &DB, parent_workspace_id: &str) -> Result<ForkRoles> {
+    let mapping = windmill_common::workspaces::fork_role_mapping(parent_workspace_id, db).await?;
+    let roles = windmill_common::roles::workspace_roles(db, parent_workspace_id).await?;
+    let mut out = ForkRoles { from: vec![], to: vec![], to_operator: vec![] };
+    for role in roles.iter() {
+        let to = mapping.get(&role.name).unwrap_or(&role.name);
+        let caps = roles
+            .iter()
+            .find(|r| &r.name == to)
+            .map(|r| r.capabilities)
+            .unwrap_or(windmill_common::roles::RoleCapabilities::NONE);
+        out.from.push(role.name.clone());
+        out.to.push(to.clone());
+        out.to_operator.push(!caps.code);
+    }
+    Ok(out)
+}
+
+/// Give the fork the parent's workspace-only roles and overrides, so a role carried into the fork
+/// means there what it means in the parent.
+async fn copy_workspace_roles(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    admins_and_developers_only: bool,
 ) -> Result<()> {
-    // Admins and developers join as manual members: the fork does not inherit the source's
-    // instance-group config, so a copied `instance_group` provenance would let the fork's
-    // reconciliation delete them and their data.
-    sqlx::query!(
-        "INSERT INTO usr (workspace_id, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via, workspace_role)
-         SELECT $1, username, email, is_admin, created_at, operator, disabled, role, is_service_account,
-                CASE WHEN $3 THEN NULL ELSE added_via END, workspace_role
-         FROM usr WHERE workspace_id = $2
-           AND (NOT $3 OR (NOT operator AND NOT disabled AND NOT is_service_account))
-         ON CONFLICT DO NOTHING",
-        target_workspace_id,
-        source_workspace_id,
-        admins_and_developers_only,
-    )
-    .execute(&mut **tx)
-    .await?;
-    // The members keep their roles, so the fork needs the source's workspace-only roles and
-    // overrides to give them the same meaning.
     sqlx::query!(
         "UPDATE workspace_settings SET role_overrides =
             (SELECT role_overrides FROM workspace_settings WHERE workspace_id = $2)
@@ -8131,6 +8148,50 @@ async fn copy_workspace_members(
     .execute(&mut **tx)
     .await?;
     windmill_common::roles::invalidate_workspace_roles_cache(target_workspace_id);
+    Ok(())
+}
+
+/// Copy the source workspace's members (the `usr` rows) into the target so a fork/dev can be a
+/// shared environment, each with its role after `roles`. Idempotent — skips members the target
+/// already has. `only_email` restricts the copy to one member. Group memberships are not handled
+/// here: the sole caller is the create-fork path, where `clone_groups` already copies the source's
+/// full group structure (including `all` membership).
+async fn copy_workspace_members(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    roles: &ForkRoles,
+    admins_and_developers_only: bool,
+    only_email: Option<&str>,
+) -> Result<()> {
+    // Admins and developers, and a lone member, join as manual members: the fork does not inherit
+    // the source's instance-group config, so a copied `instance_group` provenance would let the fork's
+    // reconciliation delete them and their data. The role is written by name even when unmapped:
+    // `operator` is recomputed from it, and a NULL role would then read as whatever that flag
+    // names. A role the parent no longer defines is carried as is, and resolves to no
+    // capabilities in the fork as it does in the parent.
+    sqlx::query!(
+        "WITH m AS (SELECT * FROM unnest($4::text[], $5::text[], $6::bool[]) AS m(from_role, to_role, to_operator))
+         INSERT INTO usr (workspace_id, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via, workspace_role)
+         SELECT $1, u.username, u.email, u.is_admin, u.created_at, COALESCE(m.to_operator, u.operator), u.disabled, u.role,
+                u.is_service_account, CASE WHEN $3 OR $7::text IS NOT NULL THEN NULL ELSE u.added_via END,
+                COALESCE(m.to_role, u.workspace_role)
+         FROM usr u
+         LEFT JOIN m ON m.from_role = COALESCE(u.workspace_role, CASE WHEN u.operator THEN 'operator' ELSE 'developer' END)
+         WHERE u.workspace_id = $2
+           AND ($7::text IS NULL OR u.email = $7)
+           AND (NOT $3 OR (NOT u.operator AND NOT u.disabled AND NOT u.is_service_account))
+         ON CONFLICT DO NOTHING",
+        target_workspace_id,
+        source_workspace_id,
+        admins_and_developers_only,
+        &roles.from,
+        &roles.to,
+        &roles.to_operator,
+        only_email,
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -9303,6 +9364,32 @@ async fn clone_workspace_dependencies(
     Ok(())
 }
 
+/// Who may fork `w_id` at all: the instance switch, the caller's role, then the parent's rulesets.
+async fn enforce_fork_allowed(db: &DB, authed: &ApiAuthed, w_id: &str) -> Result<()> {
+    if *DISABLE_WORKSPACE_FORK {
+        require_super_admin(db, authed).await?;
+    }
+    if !windmill_common::roles::caller_can_fork(db, w_id, authed).await? {
+        windmill_common::feature_usage::log_feature_usage("fork_roles", "fork_refused", "");
+        return Err(Error::PermissionDenied(format!(
+            "Your role in {w_id} cannot fork it"
+        )));
+    }
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        w_id,
+        &ProtectionRuleKind::DisableWorkspaceForking,
+        AuditAuthorable::username(authed),
+        &authed.groups,
+        authed.is_admin,
+        db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+    Ok(())
+}
+
 async fn deprecated_create_workspace_fork(_authed: ApiAuthed) -> Result<String> {
     return Err(Error::BadRequest("This API endpoint has been relocated. Your Windmill CLI version is outdated and needs to be updated.".to_string()));
 }
@@ -9322,21 +9409,7 @@ async fn create_workspace_fork_branch(
         enforce_cloud_fork_cap(&db, &w_id).await?;
     }
 
-    if *DISABLE_WORKSPACE_FORK {
-        require_super_admin(&db, &authed).await?;
-    }
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
-        &w_id,
-        &ProtectionRuleKind::DisableWorkspaceForking,
-        AuditAuthorable::username(&authed),
-        &authed.groups,
-        authed.is_admin,
-        &db,
-    )
-    .await?
-    {
-        return Err(Error::PermissionDenied(msg));
-    }
+    enforce_fork_allowed(&db, &authed, &w_id).await?;
     enforce_isolated_forks(&db, &authed, &w_id, &nw).await?;
 
     // Two-phase create for git-synced workspaces: this endpoint only creates the git branch(es) and
@@ -10073,21 +10146,7 @@ async fn create_workspace_fork(
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
 
-    if *DISABLE_WORKSPACE_FORK {
-        require_super_admin(&db, &authed).await?;
-    }
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
-        &parent_workspace_id,
-        &ProtectionRuleKind::DisableWorkspaceForking,
-        AuditAuthorable::username(&authed),
-        &authed.groups,
-        authed.is_admin,
-        &db,
-    )
-    .await?
-    {
-        return Err(Error::PermissionDenied(msg));
-    }
+    enforce_fork_allowed(&db, &authed, &parent_workspace_id).await?;
     enforce_isolated_forks(&db, &authed, &parent_workspace_id, &nw).await?;
 
     if nw.is_dev_workspace {
@@ -10652,6 +10711,8 @@ async fn write_workspace_fork(
     copies: &[crate::datatable_clone::MadeCopy],
     progress: &ForkProgress,
 ) -> Result<String> {
+    // Read on the pool before the transaction holds a connection of its own.
+    let roles = fork_roles(&db, &parent_workspace_id).await?;
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
     // Held until this transaction ends: after an error, the copies' cleanup waits on it, so it reads
     // whether the fork exists only once a commit still being resolved has settled.
@@ -10721,13 +10782,20 @@ async fn write_workspace_fork(
     // Optionally bring the parent's members into the fork (a shared dev env). Dev-only: it's part of the
     // dev-workspace feature (and the frontend only offers it there), so the backend enforces it rather
     // than trusting the client — copying the parent's whole team into an ordinary throwaway fork isn't
-    // intended. Dev creation is already admin-gated, so this is transitively admin-only too. Done before
-    // the explicit creator insert below so the creator (a parent member) is copied with full metadata
-    // (operator/role/is_service_account/added_via), not the bare row the insert alone would leave.
+    // intended. Dev creation is already admin-gated, so this is transitively admin-only too.
     // Independently, the parent's admins can have every fork of it start with its admins and
     // developers; the forker cannot opt out, since the point is that those admins can review it.
+    copy_workspace_roles(&mut tx, &parent_workspace_id, &forked_id).await?;
     if nw.copy_members && nw.is_dev_workspace {
-        copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id, false).await?;
+        copy_workspace_members(
+            &mut tx,
+            &parent_workspace_id,
+            &forked_id,
+            &roles,
+            false,
+            None,
+        )
+        .await?;
     } else if sqlx::query_scalar!(
         "SELECT add_admins_and_developers_to_forks FROM workspace_settings WHERE workspace_id = $1",
         parent_workspace_id
@@ -10736,24 +10804,44 @@ async fn write_workspace_fork(
     .await?
     .unwrap_or(false)
     {
-        copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id, true).await?;
+        copy_workspace_members(
+            &mut tx,
+            &parent_workspace_id,
+            &forked_id,
+            &roles,
+            true,
+            None,
+        )
+        .await?;
     }
 
-    // Ensure the creator is a member of the fork even without copy_members (or if they aren't a parent
-    // member). No-op when copy_members already brought their full row.
-    sqlx::query!(
-        "INSERT INTO usr
-           (workspace_id, email, username, is_admin)
-           SELECT $1, email, username, is_admin FROM usr
-         WHERE workspace_id = $3 AND email = $2
-         ON CONFLICT DO NOTHING
-        ",
-        forked_id,
-        authed.email,
-        parent_workspace_id,
+    // The creator joins with the role they hold in the parent, after its ruleset mappings, even
+    // without copy_members. No-op when copy_members already brought their row.
+    copy_workspace_members(
+        &mut tx,
+        &parent_workspace_id,
+        &forked_id,
+        &roles,
+        false,
+        Some(&authed.email),
     )
-    .execute(&mut *tx)
     .await?;
+    if let Some(forker) = sqlx::query!(
+        "SELECT workspace_role, operator FROM usr WHERE workspace_id = $1 AND email = $2",
+        parent_workspace_id,
+        authed.email,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    {
+        let role =
+            windmill_common::roles::resolve_role_name(forker.workspace_role, forker.operator);
+        windmill_common::feature_usage::log_feature_usage(
+            "fork_roles",
+            "fork_created",
+            if roles.maps(&role) { "mapped" } else { "kept" },
+        );
+    }
 
     // The pointers this fork writes to the parent's data tables stay invisible until it commits, so
     // a rename of one of them cannot carry them. Holding the parent's settings row makes such a
@@ -11256,6 +11344,7 @@ async fn attach_dev_workspace(
                 }
                 r.auto_pull = None;
                 r.fork_open_prs = false;
+                r.ai_review_prs = false;
                 r.open_pr_error = None;
             }
             let serialized =
@@ -11929,8 +12018,10 @@ If you do not have an account on {}, login with SSO or ask an admin to create an
 /// - only on a fork they created, never on a root workspace;
 /// - only as a developer, so it can never mint an admin (nor an operator, which would need the
 ///   workspace's operator settings to be meaningful);
-/// - only for someone who is already a developer or admin of the parent, so pulling them into the
-///   fork cannot widen who can read the parent's data.
+/// - only for a member of the parent whose role in its forks, after the parent's ruleset
+///   mappings, is `developer`, so pulling them into the fork cannot widen who can read the
+///   parent's data nor undo a mapping. A custom role is refused even when unrestricted: the grant
+///   seats a developer, not that role.
 ///
 /// Anything outside those bounds stays an admin's call. Returns the username the new member must be
 /// given in the fork.
@@ -11957,19 +12048,29 @@ async fn authorize_fork_owner_add_user(
         )));
     }
 
-    let parent_username = sqlx::query_scalar!(
-        "SELECT username FROM usr
-         WHERE workspace_id = $1 AND email = $2 AND NOT operator AND NOT disabled",
+    let member = sqlx::query!(
+        "SELECT username, workspace_role, operator FROM usr
+         WHERE workspace_id = $1 AND email = $2 AND NOT disabled",
         parent,
         nu.email,
     )
     .fetch_optional(db)
     .await?;
+    let mut fork_role = None;
+    if let Some(m) = &member {
+        let role = windmill_common::roles::resolve_role_name(m.workspace_role.clone(), m.operator);
+        let mapping = windmill_common::workspaces::fork_role_mapping(&parent, db).await?;
+        fork_role = Some(mapping.get(&role).cloned().unwrap_or(role));
+    }
+    let parent_username = member
+        .filter(|_| fork_role.as_deref() == Some(windmill_common::roles::DEVELOPER_ROLE))
+        .map(|m| m.username);
 
     let Some(parent_username) = parent_username else {
         return Err(Error::PermissionDenied(format!(
-            "as the creator of fork {w_id} you can only add developers or admins of its parent \
-             workspace {parent}; {} is not one, so only an admin of {w_id} can add them",
+            "as the creator of fork {w_id} you can only add members of its parent workspace \
+             {parent} whose role in its forks is developer; {} is not one, so only an admin of \
+             {w_id} can add them",
             nu.email
         )));
     };
@@ -12581,6 +12682,8 @@ struct CreateProtectionRuleRequest {
     rules: Vec<ProtectionRuleKind>,
     bypass_groups: Vec<String>,
     bypass_users: Vec<String>,
+    #[serde(default)]
+    fork_role_mapping: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -12591,6 +12694,9 @@ struct UpdateProtectionRuleRequest {
     rules: Vec<ProtectionRuleKind>,
     bypass_groups: Vec<String>,
     bypass_users: Vec<String>,
+    /// Absent leaves the stored mapping alone, which is what a client that predates it gets.
+    #[serde(default)]
+    fork_role_mapping: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Serialize)]
@@ -12600,6 +12706,7 @@ struct ProtectionRulesetResponse {
     pub rules: Vec<ProtectionRuleKind>,
     pub bypass_groups: Vec<String>,
     pub bypass_users: Vec<String>,
+    pub fork_role_mapping: BTreeMap<String, String>,
 }
 
 impl From<ProtectionRuleset> for ProtectionRulesetResponse {
@@ -12618,8 +12725,36 @@ impl From<ProtectionRuleset> for ProtectionRulesetResponse {
             name: value.name,
             bypass_groups: value.bypass_groups,
             bypass_users: value.bypass_users,
+            fork_role_mapping: value.fork_role_mapping.0,
         }
     }
+}
+
+/// A fork role mapping may only name roles `w_id` defines, and maps each to a different one.
+async fn validate_fork_role_mapping(
+    db: &DB,
+    w_id: &str,
+    mapping: &BTreeMap<String, String>,
+) -> Result<()> {
+    if mapping.is_empty() {
+        return Ok(());
+    }
+    let roles = windmill_common::roles::workspace_roles(db, w_id).await?;
+    for (from, to) in mapping {
+        for name in [from, to] {
+            if !roles.iter().any(|r| &r.name == name) {
+                return Err(Error::BadRequest(format!(
+                    "fork role mapping: role `{name}` is not defined in workspace {w_id}"
+                )));
+            }
+        }
+        if from == to {
+            return Err(Error::BadRequest(format!(
+                "fork role mapping: `{from}` is mapped to itself"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// List all protection rules for a workspace
@@ -13003,6 +13138,10 @@ async fn create_protection_rule(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
     reject_reserved_rule_name(&req.name)?;
+    validate_fork_role_mapping(&db, &w_id, &req.fork_role_mapping).await?;
+    if !req.fork_role_mapping.is_empty() {
+        windmill_common::feature_usage::log_feature_usage("fork_roles", "mapping_saved", "create");
+    }
 
     let mut tx = db.begin().await?;
 
@@ -13026,14 +13165,15 @@ async fn create_protection_rule(
     // Insert the new rule
     sqlx::query!(
         r#"
-            INSERT INTO workspace_protection_rule (workspace_id, name, rules, bypass_groups, bypass_users)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO workspace_protection_rule (workspace_id, name, rules, bypass_groups, bypass_users, fork_role_mapping)
+            VALUES ($1, $2, $3, $4, $5, $6)
         "#,
         &w_id,
         &req.name,
         ProtectionRules::from(&req.rules).bits(),
         &req.bypass_groups,
         &req.bypass_users,
+        sqlx::types::Json(&req.fork_role_mapping) as _,
     )
     .execute(&mut *tx)
     .await?;
@@ -13099,6 +13239,16 @@ async fn update_protection_rule(
         }
         reject_reserved_rule_name(new_name)?;
     }
+    if let Some(mapping) = &req.fork_role_mapping {
+        validate_fork_role_mapping(&db, &w_id, mapping).await?;
+        if !mapping.is_empty() {
+            windmill_common::feature_usage::log_feature_usage(
+                "fork_roles",
+                "mapping_saved",
+                "update",
+            );
+        }
+    }
 
     let mut tx = db.begin().await?;
 
@@ -13142,7 +13292,8 @@ async fn update_protection_rule(
     sqlx::query!(
         r#"
             UPDATE workspace_protection_rule
-            SET name = $1, rules = $2, bypass_groups = $3, bypass_users = $4
+            SET name = $1, rules = $2, bypass_groups = $3, bypass_users = $4,
+                fork_role_mapping = COALESCE($7, fork_role_mapping)
             WHERE workspace_id = $5 AND name = $6
         "#,
         final_name,
@@ -13150,7 +13301,8 @@ async fn update_protection_rule(
         &req.bypass_groups,
         &req.bypass_users,
         &w_id,
-        &rule_name
+        &rule_name,
+        req.fork_role_mapping.as_ref().map(sqlx::types::Json) as _,
     )
     .execute(&mut *tx)
     .await?;

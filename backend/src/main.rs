@@ -311,6 +311,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     for git_sync_path in [
         windmill_common::workspaces::LATEST_GIT_SYNC_SCRIPT_PATH,
         windmill_common::workspaces::GIT_SYNC_PULL_SCRIPT_PATH,
+        windmill_common::workspaces::GIT_SYNC_REVIEW_SCRIPT_PATH,
     ] {
         let git_sync_path = git_sync_path.to_string();
         if !all_paths.contains(&git_sync_path) {

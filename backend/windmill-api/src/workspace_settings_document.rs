@@ -262,8 +262,8 @@ fn datatable_permissions_document(datatable: Option<&Value>, roles: &DatatableNa
 /// Protection rules by name, their rules in a fixed order so a reordered file is no change. The
 /// dev workspace lock is left out: the dev workspace setting creates and removes it.
 async fn protection_rules_document(conn: &mut PgConnection, w_id: &str) -> Result<Value> {
-    let rows = sqlx::query_as::<_, (String, i32, Vec<String>, Vec<String>)>(
-        "SELECT name, rules, bypass_groups, bypass_users FROM workspace_protection_rule
+    let rows = sqlx::query_as::<_, (String, i32, Vec<String>, Vec<String>, Value)>(
+        "SELECT name, rules, bypass_groups, bypass_users, fork_role_mapping FROM workspace_protection_rule
          WHERE workspace_id = $1 AND name <> $2 ORDER BY name",
     )
     .bind(w_id)
@@ -272,17 +272,25 @@ async fn protection_rules_document(conn: &mut PgConnection, w_id: &str) -> Resul
     .await?;
     Ok(Value::Object(
         rows.into_iter()
-            .map(|(name, bits, bypass_groups, bypass_users)| {
+            .map(|(name, bits, bypass_groups, bypass_users, fork_role_mapping)| {
                 let rules = ProtectionRules::from_bits_truncate(bits);
-                let rule = json!({
+                let mut rule = json!({
                     "rules": rule_kinds(rules),
                     "bypass_groups": bypass_groups,
                     "bypass_users": bypass_users,
                 });
+                with_fork_role_mapping(&mut rule, fork_role_mapping);
                 (name, rule)
             })
             .collect(),
     ))
+}
+
+/// Written only when set, so documents of rulesets that map no role read as they always did.
+fn with_fork_role_mapping(rule: &mut Value, mapping: Value) {
+    if mapping.as_object().is_some_and(|m| !m.is_empty()) {
+        rule["fork_role_mapping"] = mapping;
+    }
 }
 
 fn rule_kinds(rules: ProtectionRules) -> Value {
@@ -860,14 +868,16 @@ fn normalize_protection_rules(v: &Value, warnings: &mut Vec<String>) -> Result<V
         let kinds: Vec<ProtectionRuleKind> =
             serde_json::from_value(rule.get("rules").cloned().unwrap_or(json!([])))
                 .map_err(|e| Error::BadRequest(format!("Invalid {what}.rules: {e}")))?;
-        out.insert(
-            name.clone(),
-            json!({
-                "rules": rule_kinds(ProtectionRules::from(&kinds)),
-                "bypass_groups": string_list(rule.get("bypass_groups"), &format!("{what}.bypass_groups"))?,
-                "bypass_users": string_list(rule.get("bypass_users"), &format!("{what}.bypass_users"))?,
-            }),
-        );
+        let fork_role_mapping: std::collections::BTreeMap<String, String> =
+            serde_json::from_value(rule.get("fork_role_mapping").cloned().unwrap_or(json!({})))
+                .map_err(|e| Error::BadRequest(format!("Invalid {what}.fork_role_mapping: {e}")))?;
+        let mut normalized = json!({
+            "rules": rule_kinds(ProtectionRules::from(&kinds)),
+            "bypass_groups": string_list(rule.get("bypass_groups"), &format!("{what}.bypass_groups"))?,
+            "bypass_users": string_list(rule.get("bypass_users"), &format!("{what}.bypass_users"))?,
+        });
+        with_fork_role_mapping(&mut normalized, json!(fork_role_mapping));
+        out.insert(name.clone(), normalized);
     }
     Ok(Value::Object(out))
 }
@@ -1761,6 +1771,7 @@ fn plan_protection_rules(p: &mut Plan, desired: Value) {
                 "rules": r.get("rules"),
                 "bypass_groups": r.get("bypass_groups"),
                 "bypass_users": r.get("bypass_users"),
+                "fork_role_mapping": r.get("fork_role_mapping").cloned().unwrap_or(json!({})),
             })
         };
         match (before, after) {
@@ -2178,7 +2189,8 @@ mod tests {
             json!({ "old": { "rules": ["DisableWorkspaceForking"], "bypass_groups": [], "bypass_users": [] } }),
         );
         let d = doc(json!({ "protection_rules": {
-            "new": { "rules": ["RestrictPublicRunSharing", "DisableDirectDeployment"] },
+            "new": { "rules": ["RestrictPublicRunSharing", "DisableDirectDeployment"],
+                     "fork_role_mapping": { "operator": "developer" } },
             "dev_workspace_lock": { "rules": [] },
         } }));
         let p = plan_document(cur, d, false, &mc, &DatatableNames::default()).unwrap();
@@ -2186,7 +2198,8 @@ mod tests {
         assert_eq!(
             p.writes[0].body,
             json!({ "name": "new", "rules": ["DisableDirectDeployment", "RestrictPublicRunSharing"],
-                    "bypass_groups": [], "bypass_users": [] })
+                    "bypass_groups": [], "bypass_users": [],
+                    "fork_role_mapping": { "operator": "developer" } })
         );
         assert!(matches!(
             p.writes[1].target,

@@ -1,5 +1,5 @@
 import { get } from 'svelte/store'
-import { isRestricted } from '$lib/roleCapabilities'
+import { canFork } from '$lib/roleCapabilities'
 import type { RoleCapabilities } from '$lib/gen'
 import {
 	roleCapabilities,
@@ -58,17 +58,12 @@ export function editInForkDescription(
 }
 
 /**
- * Whether the user may CREATE a new fork of the current workspace: their role is unrestricted, and
+ * Whether the user may CREATE a new fork of the current workspace: their role holds `fork`, and
  * either forking isn't disabled or they can bypass the rule (workspace admins). Keeps the "Fork
  * workspace" entry available to admins as the last-resort escape hatch on a locked prod.
- *
- * Any restricted role is refused because a fork does not carry the role: the server writes the
- * forker's membership row from the parent's `is_admin` alone, so the forker gets the default role
- * and forking would hand a restricted member a full-rights copy of the workspace. The server does
- * not refuse it: this hides the affordance, it does not enforce the rule.
  */
 export function canCreateFork(user: UserExt | undefined, caps: RoleCapabilities): boolean {
-	if (isRestricted(caps)) return false
+	if (!canFork(caps)) return false
 	return (
 		!isRuleActive('DisableWorkspaceForking') ||
 		canUserBypassRuleKind('DisableWorkspaceForking', user)

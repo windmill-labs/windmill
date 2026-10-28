@@ -18,6 +18,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { apiErrorMessage } from '$lib/utils'
 	import { workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -95,6 +96,9 @@
 	function setForkOpenPrs(v: boolean) {
 		if (repo) repo.fork_open_prs = v
 	}
+	function setAiReviewPrs(v: boolean) {
+		if (repo) repo.ai_review_prs = v
+	}
 	function setPromotionOpenPrs(v: boolean) {
 		if (repo) repo.promotion_open_prs = v
 	}
@@ -168,6 +172,20 @@
 	// Not the recorded status: that is keyed by resource path and outlives a
 	// repoint, while the origin follows the repository the URL names now.
 	let hasManagedCredential = $derived(isGithubApp || credentialOrigin !== undefined)
+	// Why the AI review cannot be turned on, or undefined when it can. Pull request events
+	// arrive on the auto-pull webhook, the review posts through the credential Windmill holds,
+	// and the job asks the workspace's default model.
+	const aiReviewBlocker = $derived(
+		!$enterpriseLicense
+			? 'Requires an enterprise license.'
+			: !hasManagedCredential
+				? 'Needs a credential Windmill holds for the repository: the GitHub App, or a GitLab project access token.'
+				: !repo?.auto_pull?.enabled
+					? 'Requires automatic deploy from Git to be enabled above: pull request events arrive on its webhook.'
+					: !$copilotInfo.defaultModel
+						? 'Set a default model in the workspace AI settings first.'
+						: undefined
+	)
 
 	const MS_PER_DAY = 86_400_000
 
@@ -892,6 +910,23 @@
 											}}
 											on:change={(e) => setSyncForks(e.detail)}
 										/>
+									</div>
+									<div class="mt-1">
+										<Toggle
+											disabled={!repo.ai_review_prs && aiReviewBlocker != undefined}
+											checked={repo.ai_review_prs ?? false}
+											options={{
+												right: 'Review pull requests with AI',
+												rightTooltip:
+													aiReviewBlocker ??
+													"Windmill reviews each pull request against the tracked branch with the workspace's default AI model and posts the findings on it, following the review instructions on the tracked branch. Pull requests from forks of the repository are not reviewed."
+											}}
+											on:change={(e) => setAiReviewPrs(e.detail)}
+										>
+											{#snippet right()}
+												{#if !$enterpriseLicense}<EEOnly />{/if}
+											{/snippet}
+										</Toggle>
 									</div>
 								{/if}
 								{#if !hasManagedCredential && !loadingResourceInfo}

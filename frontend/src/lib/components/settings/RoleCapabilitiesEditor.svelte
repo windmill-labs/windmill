@@ -10,9 +10,9 @@
 		RoleVisibility
 	} from '$lib/gen'
 	import {
-		applyCapabilitiesPatch,
 		capabilitiesError,
 		isEmptyPatch,
+		resolveCapabilities,
 		VISIBILITY_KEYS
 	} from '$lib/workspaceRoles'
 	import { RotateCcw } from 'lucide-svelte'
@@ -22,6 +22,8 @@
 		base: RoleCapabilities
 		/** Fields whose `base` value is not known here, as `code` or `visibility.runs`. */
 		unknownBase?: string[]
+		/** Whether a layer `base` includes sets `fork`; otherwise an unset one is derived. */
+		baseSetsFork?: boolean
 		patch: RoleCapabilitiesPatch
 		/** What the layer below is called: "default" on the instance, "instance" in a workspace. */
 		baseName: string
@@ -35,6 +37,7 @@
 	let {
 		base,
 		unknownBase = [],
+		baseSetsFork = false,
 		patch,
 		baseName,
 		setText,
@@ -43,10 +46,10 @@
 		onchange
 	}: Props = $props()
 
-	const effective = $derived(applyCapabilitiesPatch(base, patch))
+	const effective = $derived(resolveCapabilities(base, patch, baseSetsFork))
 	const error = $derived(capabilitiesError(effective))
 
-	type BoolKey = 'code' | 'manage_schedules' | 'manage_triggers'
+	type BoolKey = 'code' | 'manage_schedules' | 'manage_triggers' | 'fork'
 	type LevelKey = 'flows' | 'apps'
 
 	function boolValue(path: string): boolean {
@@ -115,6 +118,12 @@
 			key: 'manage_triggers',
 			label: 'Manage triggers',
 			description: 'Create, edit and delete triggers where folder permissions allow.'
+		},
+		{
+			key: 'fork',
+			label: 'Fork the workspace',
+			description:
+				'Create forks of this workspace. Their role in the fork is this one, unless a ruleset maps it.'
 		}
 	]
 </script>

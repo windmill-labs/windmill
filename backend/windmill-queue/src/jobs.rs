@@ -6165,6 +6165,19 @@ impl PushArgsOwned {
             sanitize_untrusted_args(extra);
         }
     }
+
+    /// For args built from a third party's payload, pushed as someone else: see
+    /// [`omit_untrusted_interpolation`]. Not part of [`Self::sanitize_untrusted`], because
+    /// some trigger pushes carry args their author wrote, whose references must resolve.
+    pub fn omit_untrusted_interpolation(self) -> Self {
+        let omit = |args| {
+            omit_untrusted_interpolation(
+                args,
+                "The following resource has been omitted for security reasons: ",
+            )
+        };
+        PushArgsOwned { args: omit(self.args), extra: self.extra.map(omit) }
+    }
 }
 
 pub fn empty_result() -> Box<RawValue> {

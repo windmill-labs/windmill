@@ -4973,35 +4973,28 @@ async fn execute_component(
     // alone — as it does the policy's own `static_inputs`, which the publisher writes.
     sanitize_untrusted_args(&mut payload.args);
 
-    // An agent runnable takes the message and its files, plus optionally the conversation they
-    // belong to, which names the agent's memory rather than an input of its run. Without it the
-    // run is a single one, as on the direct agent endpoint.
+    // The conversation a turn belongs to, which names the runnable's memory rather than an input
+    // of its run. Without it an agent's run is a single one, as on the direct agent endpoint.
+    let memory_id = payload
+        .run_query_params
+        .as_ref()
+        .and_then(|q| q.memory_id.clone())
+        .filter(|m| !m.trim().is_empty());
+
+    // An agent runnable takes the message and its files.
     let agent_path = payload
         .path
         .as_deref()
         .and_then(|p| p.strip_prefix("agent/"))
         .map(str::to_string);
-    let agent_memory_id = if agent_path.is_some() {
-        let memory_id = payload
-            .args
-            .remove("memory_id")
-            .map(|v| {
-                serde_json::from_str::<Option<String>>(v.get())
-                    .map_err(|_| Error::BadRequest("memory_id must be a string".to_string()))
-            })
-            .transpose()?
-            .flatten()
-            .filter(|m| !m.trim().is_empty());
+    if agent_path.is_some() {
         payload.args.retain(|k, _| {
             matches!(
                 k.as_str(),
                 "user_message" | "user_attachments" | "previous_messages"
             )
         });
-        memory_id
-    } else {
-        None
-    };
+    }
 
     let (mut args, job_id) = build_args(
         policy,
@@ -5028,6 +5021,17 @@ async fn execute_component(
         .as_deref()
         .and_then(|path| path.strip_prefix("flow/"))
         .map(str::to_string);
+    // A chat-mode flow keeps its conversations as an agent does, and is scoped like one below.
+    let chat_flow_path = match (flow_path.as_deref(), &memory_id) {
+        (Some(p), Some(_)) if !p.starts_with("hub/") => {
+            windmill_common::get_latest_flow_version_info_for_path(None, &db, &w_id, p, true)
+                .await?
+                .chat_input_enabled
+                .unwrap_or(false)
+                .then(|| p.to_string())
+        }
+        _ => None,
+    };
 
     // Tag for inline-script jobs is read from the deployed policy in run mode;
     // only preview mode (editor) honors the client-supplied tag. This applies to
@@ -5062,7 +5066,7 @@ async fn execute_component(
         }
     }
     // Filed under the viewer, who must therefore be kept past the push below.
-    let agent_viewer = agent_path.as_ref().and(opt_authed.clone());
+    let conversation_viewer = memory_id.as_ref().and(opt_authed.clone());
     let mut agent_run_path = None;
 
     let component = payload.component.clone();
@@ -5085,7 +5089,7 @@ async fn execute_component(
                     &user_db,
                     &w_id,
                     agent,
-                    agent_memory_id.is_some(),
+                    memory_id.is_some(),
                 )
                 .await?;
                 agent_run_path = Some(turn.run_path.clone());
@@ -5239,14 +5243,19 @@ async fn execute_component(
         .await?;
     }
 
-    if let (Some(run_path), Some(memory_id)) = (agent_run_path.as_deref(), agent_memory_id) {
+    let conversation_path = agent_run_path.as_deref().or(chat_flow_path.as_deref());
+    if let (Some(run_path), Some(memory_id)) = (conversation_path, memory_id.as_deref()) {
         // A signed-in viewer's turn is filed under them: nobody else may continue their
         // conversation. An anonymous visitor's id is derived per app so that it can name no
         // signed-in user's conversation (a bare UUID is used as is). Either way the
         // conversation's row lock refuses a turn while one runs, and retention collects its
         // memory with its messages.
-        let (owner, is_admin, memory_id) = match agent_viewer.as_ref() {
-            Some(viewer) => (viewer.username.clone(), viewer.is_admin, memory_id),
+        let (owner, is_admin, memory_id) = match conversation_viewer.as_ref() {
+            Some(viewer) => (
+                viewer.username.clone(),
+                viewer.is_admin,
+                memory_id.to_string(),
+            ),
             None => (
                 windmill_common::flow_conversations::ANONYMOUS_CONVERSATION_OWNER.to_string(),
                 false,
@@ -5271,18 +5280,24 @@ async fn execute_component(
             &run_query,
             args.args.get("user_message"),
             uuid,
-            is_preview,
+            // Never a test conversation, even from the app editor's preview: an app runs the
+            // deployed flow or agent, and a test conversation is one run on the editor's draft.
+            false,
             &args.args,
         )
         .await?;
-    }
-
-    // Apply runnable query parameters if provided
-    if let Some(ref run_query) = payload.run_query_params {
-        if let Some(flow_path) = flow_path.as_deref() {
-            crate::jobs::process_flow_run_query_params(&mut tx, uuid, &w_id, flow_path, run_query)
-                .await?;
-        }
+    } else if let (Some(flow_path), Some(memory_id)) = (flow_path.as_deref(), memory_id) {
+        // A flow keeping no conversation has no row to own its memory, so the key itself is
+        // derived per app and viewer: no viewer can name another's memory.
+        let viewer = conversation_viewer
+            .as_ref()
+            .map_or("anonymous".to_string(), |v| format!("u/{}", v.username));
+        let key = windmill_common::flow_conversations::memory_key(
+            &w_id,
+            flow_path,
+            &format!("app:{path}:{viewer}:{memory_id}"),
+        );
+        crate::jobs::set_flow_memory_id(&mut tx, uuid, key).await?;
     }
 
     tx.commit().await?;
