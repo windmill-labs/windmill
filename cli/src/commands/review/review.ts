@@ -576,7 +576,7 @@ async function review(opts: ReviewOptions) {
 
 const command = new Command()
   .description(
-    "Review a pull request on a git sync repository with the workspace's AI, the way deployment requests are reviewed. Reads the changes and the base branch's review instructions from git; never reads the checkout's wmill.yaml.",
+    "Review a pull request on a git sync repository with the workspace's AI, the way deployment requests are reviewed. Reads the changes and the base branch's review instructions from git; the instance, workspace and token come from the flags, never from the checkout's wmill.yaml.",
   )
   .option("--base <ref:string>", "The base branch commit. Defaults to the pull_request event's base.")
   .option("--head <ref:string>", "The pull request's commit. Defaults to the event's head, else HEAD.")
