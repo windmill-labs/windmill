@@ -117,7 +117,8 @@
 			headers
 		})
 		if (!res.ok) {
-			// The token is minted for the deployed app, so its 404 is "nothing deployed here" too.
+			// Minted for the deployed app under the caller's RLS: a 404 is "nothing deployed here" or
+			// "not visible to this member", the same reading as `getAppLiteByPath`'s 404 below.
 			if (res.status == 404) onLoadState?.('not_found')
 			const err: any = new Error('Failed to fetch embed token')
 			err.status = res.status
