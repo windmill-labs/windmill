@@ -73,20 +73,23 @@ value:
         export async function preprocessor(event: any) {
           if (event.kind !== "http") return { event }
           const path = "/" + String(event.path ?? "").replace(/^\//, "")
+          const headers = Object.fromEntries(
+            Object.entries(event.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]),
+          )
           return {
             event: {
               method: String(event.method).toUpperCase(),
               path,
               query: event.query,
-              headers: event.headers,
+              headers,
               body: event.body,
-              url: `${event.headers?.host ?? ""}${path}`,
+              url: `${headers.host ?? ""}${path}`,
             },
           }
         }
 ```
 
-Windmill sends the method in lowercase and Pipedream in uppercase, hence `toUpperCase()`, so a check like `event.method === "POST"` keeps working. Windmill's `path` has no leading slash and Pipedream's does, hence the added `/`. `path` is the request path on the new route, which differs from the old endpoint's. `url` is host + path, as Pipedream documents it, with no scheme or query string. Check any step that compares `path` or `url`, or parses `url` with `new URL(...)`: rewrite it to use `event.path` and `event.query`.
+Windmill sends the method in lowercase and Pipedream in uppercase, hence `toUpperCase()`, so a check like `event.method === "POST"` keeps working. Windmill's `path` has no leading slash and Pipedream's does, hence the added `/`. Windmill also keeps header names as the client sent them (`Host`, `Content-Type`), so the preprocessor lowercases them: lookups like `event.headers["content-type"]` and the `host` in `url` then work whatever the client's casing. `path` is the request path on the new route, which differs from the old endpoint's. `url` is host + path, as Pipedream documents it, with no scheme or query string. Check any step that compares `path` or `url`, or parses `url` with `new URL(...)`: rewrite it to use `event.path` and `event.query`.
 
 **HTTP route settings:**
 
