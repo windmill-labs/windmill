@@ -171,10 +171,10 @@ impl AuthCache {
         // from a job's WM_TOKEN, even on an AUTH_CACHE hit whose cached authed
         // predates this field.
         opt_job_authed.authed.job_id = opt_job_authed.job_id;
-        // The workspace's guest switch is enforced here, once, for every guest request
-        // — not per handler, where each guest-reachable route would have to remember
-        // it. Uncached, so turning guests off takes effect on the next request of every
-        // guest session and every token derived from one.
+        // The no-account rule is enforced here, once, for every guest request — not per
+        // handler, where each guest-reachable route would have to remember it. Uncached,
+        // so an account provisioned after the mint ends the guest session, and every
+        // token derived from one, on its next request.
         if crate::scopes::has_guest_sentinel(opt_job_authed.authed.scopes.as_deref()) {
             let Some(w_id) = w_id else { return None };
             let email = &opt_job_authed.authed.email;
@@ -277,11 +277,9 @@ impl AuthCache {
                             return None;
                         }
                     };
-                // The workspace switch, the instance switch and the app being in guest
-                // mode, in one answer (guest_app_admits). The door re-reads the switches
-                // and the no-account rule per request through the sentinel below
-                // (guest_session_stands), so turning any of them off stops a cached JWT
-                // session on its next call.
+                // The app being in guest mode (guest_app_admits). The door re-reads the
+                // no-account rule per request through the sentinel below
+                // (guest_session_stands), and the on-behalf resolver re-reads the mode.
                 match windmill_common::workspaces::guest_app_admits(
                     &self.db,
                     w_id,
@@ -811,8 +809,8 @@ impl AuthCache {
 }
 
 /// How long a guest JWT resolves from the auth cache before the arm re-runs (and
-/// re-reads the key). A guest JWT is not revocable except by the workspace switch or
-/// by rotating the key, so the entry must be short enough that a rotated key bites
+/// re-reads the key). A guest JWT is not revocable except by taking its app out of
+/// guest mode or by rotating the key, so the entry must be short enough that a rotated key bites
 /// soon, unlike a normal token whose row can be deleted. Also what makes the
 /// day-keyed activity dedupe below reachable across a midnight.
 const GUEST_JWT_CACHE_TTL: chrono::Duration = chrono::Duration::minutes(5);

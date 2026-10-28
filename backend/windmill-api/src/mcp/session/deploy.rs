@@ -317,15 +317,10 @@ async fn undeployed_runnable_targets(ctx: &Ctx<'_>, runnables: &Map<String, Valu
 }
 
 async fn guest_access_is_live(ctx: &Ctx<'_>) -> bool {
-    let (Ok(usage), Ok(settings)) = (
-        ctx.get(&ctx.ws("workspaces/guest_usage")).await,
-        ctx.get(&ctx.ws("workspaces/get_public_settings")).await,
-    ) else {
+    let Ok(usage) = ctx.get(&ctx.ws("workspaces/guest_usage")).await else {
         return false;
     };
     truthy(usage.get("available"))
-        && truthy(usage.get("instance_enabled"))
-        && truthy(settings.get("guest_access_enabled"))
 }
 
 /// Deploys a raw app draft from its sources: the server bundles them on a worker and

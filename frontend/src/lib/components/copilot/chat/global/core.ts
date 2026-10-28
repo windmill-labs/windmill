@@ -2520,18 +2520,15 @@ const triggerServices: Record<TriggerKind, TriggerService> = {
 }
 
 /** Whether the server would admit a guest here: the deployment has to support guests at
- * all, and the instance and workspace switches both have to be on. `guest` is stored on
- * an app even when none of that holds, so the mode alone never settles who can open it.
- * `undefined` when a switch read fails — neither proven live nor proven inert. */
+ * all. `guest` is stored on an app even where it does not, so the mode alone never
+ * settles who can open it. `undefined` when the read fails — neither proven live nor
+ * proven inert. */
 async function guestAccessIsLive(workspace: string): Promise<boolean | undefined> {
-	const [usage, settings] = await Promise.all([
-		WorkspaceService.getGuestUsage({ workspace }).catch(() => undefined),
-		WorkspaceService.getPublicSettings({ workspace }).catch(() => undefined)
-	])
-	if (usage === undefined || settings === undefined) {
+	const usage = await WorkspaceService.getGuestUsage({ workspace }).catch(() => undefined)
+	if (usage === undefined) {
 		return undefined
 	}
-	return !!(usage.available && usage.instance_enabled && settings.guest_access_enabled)
+	return !!usage.available
 }
 
 /** Who may open an app, from the mode stored on it. An app sits in `guest` mode whether
@@ -2545,7 +2542,7 @@ async function describeAppExposure(
 	if (mode !== 'guest' || (await guestAccessIsLive(workspace)) !== false) {
 		return mode
 	}
-	return 'guest, but inert: the instance or workspace admits no guest, so this app admits members only'
+	return 'guest, but inert: this deployment admits no guest, so this app admits members only'
 }
 
 async function readWorkspaceItem(
@@ -6041,7 +6038,9 @@ function createVariableToDraftState(
 		// `null` clears and omitted keeps the base's. The draft stores a cleared expiry as
 		// `undefined`, since a stored draft goes through a JSON round-trip.
 		value_valid_until:
-			args.value_valid_until === null ? undefined : (args.value_valid_until ?? base?.value_valid_until)
+			args.value_valid_until === null
+				? undefined
+				: (args.value_valid_until ?? base?.value_valid_until)
 	}
 }
 

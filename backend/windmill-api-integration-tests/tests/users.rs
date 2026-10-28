@@ -1160,3 +1160,55 @@ async fn test_set_password_revokes_mcp_oauth_grants(db: Pool<Postgres>) -> anyho
 
     Ok(())
 }
+
+/// Without automatic usernames, a username is only unique within a workspace, so renaming one
+/// account must leave the memberships of a like-named account elsewhere alone.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_keeps_other_workspaces_like_named_memberships(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        "INSERT INTO workspace (id, name, owner) VALUES ('other-workspace', 'other', 'test-user');
+         INSERT INTO usr (workspace_id, email, username, is_admin, role)
+             VALUES ('other-workspace', 'test3@windmill.dev', 'test-user-2', false, 'User');
+         INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES
+             ('test-workspace', 'ops', '', '{}'), ('other-workspace', 'finance', '', '{}');
+         INSERT INTO usr_to_group (workspace_id, group_, usr) VALUES
+             ('test-workspace', 'ops', 'test-user-2'),
+             ('other-workspace', 'finance', 'test-user-2');",
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/users/rename/test2@windmill.dev"
+    )))
+    .json(&json!({ "new_username": "alice" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "rename: {}", resp.text().await?);
+
+    let memberships: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT workspace_id, group_, usr FROM usr_to_group
+         WHERE group_ IN ('ops', 'finance') ORDER BY workspace_id",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        memberships,
+        vec![
+            (
+                "other-workspace".into(),
+                "finance".into(),
+                "test-user-2".into()
+            ),
+            ("test-workspace".into(), "ops".into(), "alice".into()),
+        ]
+    );
+
+    Ok(())
+}

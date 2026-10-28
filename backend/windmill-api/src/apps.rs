@@ -306,9 +306,8 @@ pub enum ExecutionMode {
     /// publisher exactly as in [`ExecutionMode::Publisher`]. Such a viewer holds a
     /// guest session: an identity with no account at all (no `password` row, no `usr`
     /// row anywhere), which is what keeps it off every row-based seat counter; what a
-    /// guest costs instead is the allowance in `windmill_common::workspaces`. Honored
-    /// only where `workspace_settings.guest_access_enabled` is on, re-read at the auth
-    /// door on every guest request.
+    /// guest costs instead is the allowance in `windmill_common::workspaces`. Widening
+    /// an app into it is gated by `RestrictGuestAppDeployment`.
     Guest,
     /// Default for a policy that omits `execution_mode`. It MUST stay a mode
     /// that requires an authenticated viewer: an omitted field must never be
@@ -386,8 +385,8 @@ fn refuse_guest_mode_where_unavailable(
 /// A guest is authorized by its token's scope and never by an ACL probe: it holds no
 /// `usr` row, so RLS finds nothing for it and every guest would read as having no
 /// access. That scope is also what keeps a guest session to the one app it was minted
-/// for, even though the mode itself admits anyone signed in. The workspace's guest
-/// switch is not checked here: `AuthCache` enforces it for every guest request.
+/// for, even though the mode itself admits anyone signed in. The no-account rule is not
+/// checked here: `AuthCache` enforces it for every guest request.
 pub fn authorize_non_member_viewer(
     mode: ExecutionMode,
     app_path: &str,

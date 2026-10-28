@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            workspace_id,\n            slack_team_id,\n            slack_name,\n            teams_team_id,\n            teams_team_name,\n            teams_team_guid,\n            mute_critical_alerts,\n            guest_access_enabled,\n            add_admins_and_developers_to_forks,\n            deploy_ui,\n            large_file_storage,\n            datatable\n        FROM\n            workspace_settings\n        WHERE\n            workspace_id = $1\n        ",
+  "query": "\n        SELECT\n            workspace_id,\n            slack_team_id,\n            slack_name,\n            teams_team_id,\n            teams_team_name,\n            teams_team_guid,\n            mute_critical_alerts,\n            add_admins_and_developers_to_forks,\n            deploy_ui,\n            large_file_storage,\n            datatable\n        FROM\n            workspace_settings\n        WHERE\n            workspace_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -40,26 +40,21 @@
       },
       {
         "ordinal": 7,
-        "name": "guest_access_enabled",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 8,
         "name": "add_admins_and_developers_to_forks",
         "type_info": "Bool"
       },
       {
-        "ordinal": 9,
+        "ordinal": 8,
         "name": "deploy_ui",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 10,
+        "ordinal": 9,
         "name": "large_file_storage",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 11,
+        "ordinal": 10,
         "name": "datatable",
         "type_info": "Jsonb"
       }
@@ -78,11 +73,10 @@
       true,
       true,
       false,
-      false,
       true,
       true,
       true
     ]
   },
-  "hash": "e6e31fdf705896c81f9a0f45d47c1b93db0406aaf278bccba07be00e9f937e2a"
+  "hash": "d8b38538f21b533eccc147be0a24fdddbfdb63c021a4ec93c371c1ae38cb72be"
 }

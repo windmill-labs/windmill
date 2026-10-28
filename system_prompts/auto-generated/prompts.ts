@@ -1617,7 +1617,7 @@ write a secret you were not given: keep the placeholder.
 | \`slack_command_script\` / \`teams_command_script\` | Script or flow handling the Slack / Teams command. |
 | \`slack_oauth_client_id\` / \`slack_oauth_client_secret\` | The workspace's own Slack OAuth app. Clearing either removes both. |
 | \`public_app_execution_limit_per_minute\` | Rate limit for public apps, \`null\` for none. |
-| \`guest_access_enabled\`, \`guest_jwt_public_key\`, \`guest_jwt_jwks_url\` | Guest access to public apps and the key that signs guest JWTs. |
+| \`guest_jwt_public_key\`, \`guest_jwt_jwks_url\` | The key that signs guest JWTs for apps set to Guests. |
 | \`add_admins_and_developers_to_forks\` | Add the workspace's admins and developers to each fork. |
 | \`color\` | Workspace color, \`#rrggbb\`. |
 `;

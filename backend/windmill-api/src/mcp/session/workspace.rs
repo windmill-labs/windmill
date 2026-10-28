@@ -807,20 +807,15 @@ pub(super) async fn describe_app_exposure(ctx: &Ctx<'_>, mode: Option<&Value>) -
     if mode.and_then(Value::as_str) != Some("guest") {
         return mode.cloned();
     }
-    let usage = ctx.get(&ctx.ws("workspaces/guest_usage")).await;
-    let settings = ctx.get(&ctx.ws("workspaces/get_public_settings")).await;
-    // A switch that could not be read proves nothing either way: report the mode bare.
-    let (Ok(usage), Ok(settings)) = (usage, settings) else {
+    // A deployment that could not be read proves nothing either way: report the mode bare.
+    let Ok(usage) = ctx.get(&ctx.ws("workspaces/guest_usage")).await else {
         return mode.cloned();
     };
-    let live = truthy(usage.get("available"))
-        && truthy(usage.get("instance_enabled"))
-        && truthy(settings.get("guest_access_enabled"));
-    if live {
+    if truthy(usage.get("available")) {
         mode.cloned()
     } else {
         Some(json!(
-            "guest, but inert: the instance or workspace admits no guest, so this app admits members only"
+            "guest, but inert: this deployment admits no guest, so this app admits members only"
         ))
     }
 }
