@@ -331,6 +331,7 @@ import NetskopeIcon from './NetskopeIcon.svelte'
 import PaloAltoIcon from './PaloAltoIcon.svelte'
 import SplunkIcon from './SplunkIcon.svelte'
 import TufinIcon from './TufinIcon.svelte'
+import ZabbixIcon from './ZabbixIcon.svelte'
 import type { Component } from 'svelte'
 /**
  * ./triggers/ holds desaturated variants of some marks in this folder, used by the four
@@ -710,6 +711,7 @@ export const APP_TO_ICON_COMPONENT = {
 	palo_alto: PaloAltoIcon,
 	splunk: SplunkIcon,
 	tufin: TufinIcon,
+	zabbix: ZabbixIcon,
 	oauth_client_credentials: OauthIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
 
@@ -1040,5 +1042,6 @@ export {
 	PaloAltoIcon,
 	SplunkIcon,
 	TufinIcon,
+	ZabbixIcon,
 	OauthIcon
 }
