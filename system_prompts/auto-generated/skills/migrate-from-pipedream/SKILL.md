@@ -242,4 +242,4 @@ Write this into `pipedream_migration.md`, one project section and then one secti
 
 ## When the migration gets stuck
 
-If something in the export can't be mapped, or a converted flow behaves differently from the Pipedream original, tell the user they can get help from the Windmill team on Discord (https://discord.com/invite/V7PM2YHsPB) or by email at pipedream@windmill.dev. Include the workflow's checklist entry so they can share it.
+If something in the export can't be mapped, or a converted flow behaves differently from the Pipedream original, tell the user they can get help from the Windmill team on Discord (https://discord.com/invite/V7PM2YHsPB) or by email at contact@windmill.dev. Include the workflow's checklist entry so they can share it.
