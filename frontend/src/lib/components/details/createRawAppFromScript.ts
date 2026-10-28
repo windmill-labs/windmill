@@ -1,5 +1,6 @@
 import { forbiddenIds } from '$lib/components/flows/idUtils'
 import { react19Template, themeCss } from '$lib/components/raw_apps/templates'
+import { AGENT_CHAT_SCHEMA } from '$lib/components/flows/conversations/agentEditorChat'
 
 /** Shape the `/apps_raw/add` import handoff consumes (`$importStore` /
  *  `sessionStorage.rawAppImport`). */
@@ -417,8 +418,10 @@ function generateAppTsx(opts: {
 	fields: Field[]
 	title: string
 	subtitle: string
+	/** An agent's run also returns its usage, every message and the raw stream: keep the answer. */
+	outputOnly?: boolean
 }): string {
-	const { runnableId, fields, title, subtitle } = opts
+	const { runnableId, fields, title, subtitle, outputOnly } = opts
 	const states = fields
 		.map((f) => `	const [${f.local}, ${f.setter}] = useState(${f.init})`)
 		.join('\n')
@@ -459,7 +462,7 @@ ${states}${states === '' ? '' : '\n'}	const [result, setResult] = useState(undef
 		setRunning(true)
 		setError(undefined)
 		try {
-			setResult(await backend.${runnableId}(${callArgs}))
+			setResult(${outputOnly ? `(await backend.${runnableId}(${callArgs}))?.output` : `await backend.${runnableId}(${callArgs})`})
 		} catch (e) {
 			setResult(undefined)
 			setError(e instanceof Error ? e.message : String(e))
@@ -483,7 +486,7 @@ ${form}				<button className="run-button" type="submit" disabled={running}>
 				</button>
 			</form>
 			{error !== undefined && <pre className="app-error">{error}</pre>}
-			{result !== undefined && <pre className="app-result">{JSON.stringify(result, null, 2)}</pre>}
+			{result !== undefined && <pre className="app-result">{${outputOnly ? `typeof result === 'string' ? result : ` : ''}JSON.stringify(result, null, 2)}</pre>}
 		</main>
 	)
 }
@@ -653,7 +656,7 @@ function createRawApp(opts: {
 	path: string
 	summary: string | undefined
 	schema: Record<string, any> | undefined
-	runType: 'script' | 'flow'
+	runType: 'script' | 'flow' | 'agent'
 }): RawAppImport {
 	const { path, summary, schema, runType } = opts
 	const runnableId = runnableIdFromPath(path)
@@ -687,7 +690,8 @@ function createRawApp(opts: {
 					runnableId,
 					fields,
 					title,
-					subtitle: `${runType} · ${path}`
+					subtitle: `${runType} · ${path}`,
+					outputOnly: runType === 'agent'
 				}),
 				'/index.css': indexCss
 			},
@@ -720,6 +724,18 @@ export function createRawAppFromFlow(
 	schema: Record<string, any> | undefined
 ): RawAppImport {
 	return createRawApp({ path, summary, schema, runType: 'flow' })
+}
+
+/** For an agent without managed memory, which answers each message on its own: a form over the
+ *  message. Attachments are left out, a raw app having no upload for them. */
+export function createRawAppFromAgent(path: string): RawAppImport {
+	const { user_message } = AGENT_CHAT_SCHEMA.properties
+	return createRawApp({
+		path,
+		summary: undefined,
+		schema: { ...AGENT_CHAT_SCHEMA, properties: { user_message } },
+		runType: 'agent'
+	})
 }
 
 const chatAppTsx = (chatName: string) => `import React, { useEffect, useRef, useState } from 'react'

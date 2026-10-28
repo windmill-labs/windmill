@@ -16,7 +16,10 @@
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import AgentEditorHost from '$lib/components/flows/content/AgentEditorHost.svelte'
 	import BuildChatAppCard from '$lib/components/details/BuildChatAppCard.svelte'
-	import { createChatRawApp } from '$lib/components/details/createRawAppFromScript'
+	import {
+		createChatRawApp,
+		createRawAppFromAgent
+	} from '$lib/components/details/createRawAppFromScript'
 	import AgentConfigModal from '$lib/components/flows/content/AgentConfigModal.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import InputSelectedBadge from '$lib/components/schema/InputSelectedBadge.svelte'
@@ -88,8 +91,10 @@
 	let canAuthor = $derived(editRights.roleCanAuthor('agent'))
 	let canCode = $derived(editRights.capabilities.code)
 
-	async function buildChatApp() {
-		const app = createChatRawApp({ path, runType: 'agent' })
+	async function buildApp() {
+		const app = chatAvailable
+			? createChatRawApp({ path, runType: 'agent' })
+			: createRawAppFromAgent(path)
 		// The raw app editor reads the payload from sessionStorage on mount.
 		sessionStorage.setItem('rawAppImport', JSON.stringify(app))
 		await onNavigate('/apps_raw/add')
@@ -194,17 +199,26 @@
 		() => ws,
 		() => getDeployUiSettings()
 	)
-	let onBuildChatApp = $derived(
-		chatAvailable && editRights.roleCanAuthor('raw_app') ? buildChatApp : undefined
+	// The chat template runs the agent by path and holds no code, so raw app rights are enough, as
+	// on the sidebar card. The form app starts from the full template, as on a flow's page.
+	let buildAppItem = $derived(
+		(chatAvailable ? editRights.roleCanAuthor('raw_app') : editRights.capabilities.apps === 'full')
+			? { chat: chatAvailable, action: buildApp }
+			: undefined
 	)
-	// A role that cannot build agents gets no menu, as on a flow's page, but for the chat app: it
-	// only needs raw app rights, as on the sidebar card.
+	// A role that cannot build agents gets no menu, as on a flow's page, but for the app.
 	let menuItems = $derived(
 		config == undefined
 			? []
 			: !canAuthor
-				? onBuildChatApp
-					? [{ label: 'Build chat app', Icon: LayoutDashboard, onclick: onBuildChatApp }]
+				? buildAppItem
+					? [
+							{
+								label: buildAppItem.chat ? 'Build chat app' : 'Build app',
+								Icon: LayoutDashboard,
+								onclick: buildApp
+							}
+						]
 					: []
 				: agentMenuItems({
 						path,
@@ -216,7 +230,7 @@
 						onDeploy: () => deploymentDrawer?.openDrawer(path, 'resource'),
 						onHistory: () => history?.open(),
 						onDelete: () => (deleteOpen = true),
-						onBuildChatApp
+						buildApp: buildAppItem
 					}).map((item) => ({
 						label: item.displayName,
 						Icon: item.icon,

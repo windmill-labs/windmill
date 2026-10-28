@@ -94,9 +94,9 @@ export function agentMenuItems(agent: {
 	onDeploy: () => void
 	onHistory: () => void
 	onDelete: (event?: MouseEvent) => void
-	/** Set where a chat app can be built over the agent: it keeps a chat, and the user may author
-	 *  raw apps. */
-	onBuildChatApp?: () => void
+	/** Set where the user may build an app over the agent: a chat app when it keeps a chat, a form
+	 *  over its message otherwise. */
+	buildApp?: { chat: boolean; action: () => void }
 }): Item[] {
 	const deployable =
 		!agent.noCode &&
@@ -126,8 +126,14 @@ export function agentMenuItems(agent: {
 							]),
 					{ displayName: 'Copy path', icon: Copy, action: () => copyToClipboard(agent.path) }
 				]),
-		...(agent.onBuildChatApp
-			? [{ displayName: 'Build chat app', icon: LayoutDashboard, action: agent.onBuildChatApp }]
+		...(agent.buildApp
+			? [
+					{
+						displayName: agent.buildApp.chat ? 'Build chat app' : 'Build app',
+						icon: LayoutDashboard,
+						action: agent.buildApp.action
+					}
+				]
 			: []),
 		{
 			displayName: 'Permissions',
