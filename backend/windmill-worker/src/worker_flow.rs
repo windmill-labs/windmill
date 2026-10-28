@@ -6166,6 +6166,7 @@ pub(super) fn is_simple_modules(
         && modules[0].suspend.is_none()
         && modules[0].cache_ttl.is_none()
         && modules[0].retry.is_none()
+        && modules[0].timeout.is_none()
         && modules[0].stop_after_if.is_none()
         && modules[0].stop_after_all_iters_if.is_none()
         && modules[0].skip_if.is_none()
@@ -6710,8 +6711,32 @@ pub async fn get_previous_job_result(
 
 #[cfg(test)]
 mod tests {
-    use super::{effective_flow_step_timeout, extract_chat_message_from_flow_result};
+    use super::{
+        effective_flow_step_timeout, extract_chat_message_from_flow_result, is_simple_modules,
+    };
     use serde_json::{json, value::to_raw_value};
+    use windmill_common::flows::FlowModule;
+
+    // The simple-loop fast path reads step settings off the loop module, so a loop body whose
+    // step has its own timeout must take the full path or that timeout is dropped.
+    #[test]
+    fn loop_body_with_step_timeout_is_not_simple() {
+        let step = |extra: serde_json::Value| -> FlowModule {
+            let mut m = json!({
+                "id": "b",
+                "value": {"type": "rawscript", "language": "python3", "content": "", "input_transforms": {}}
+            });
+            m.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            serde_json::from_value(m).unwrap()
+        };
+        assert!(is_simple_modules(&vec![step(json!({}))], None));
+        assert!(!is_simple_modules(
+            &vec![step(json!({"timeout": {"type": "static", "value": 300}}))],
+            None
+        ));
+    }
 
     // A `<= 0` step timeout override must behave as "no override" and inherit the referenced
     // script's timeout, not collapse to a 0-second (instant-kill) timeout. A positive override
