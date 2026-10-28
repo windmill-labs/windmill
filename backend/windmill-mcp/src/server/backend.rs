@@ -97,6 +97,17 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     /// The authentication context type
     type Auth: McpAuth;
 
+    /// Called once a tool call in a workspace has an outcome: `refusal` is the error the
+    /// caller receives, `None` when it succeeded.
+    async fn after_tool_call(
+        &self,
+        _auth: &Self::Auth,
+        _workspace_id: &str,
+        _tool: &str,
+        _refusal: Option<&str>,
+    ) {
+    }
+
     // ─────────────────────────────────────────────────────────────────
     // Listing Operations
     // ─────────────────────────────────────────────────────────────────

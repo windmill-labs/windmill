@@ -276,10 +276,22 @@ fn build_protected_resource_metadata(
     oauth_prefix: &str,
     base_url: &str,
 ) -> ProtectedResourceMetadata {
+    // With an external issuer configured, clients sign in there: Windmill's own server keeps
+    // honouring the tokens it issued, but no longer hands out new ones to MCP clients.
+    let (authorization_server, scopes) = match super::external_idp::configured() {
+        Some(idp) => (
+            idp.issuer.clone(),
+            super::external_idp::REQUESTED_SCOPES
+                .split(' ')
+                .map(str::to_string)
+                .collect(),
+        ),
+        None => (format!("{}{}", base_url, oauth_prefix), granting_scopes()),
+    };
     ProtectedResourceMetadata {
         resource: format!("{}{}", base_url, resource_path),
-        authorization_servers: vec![format!("{}{}", base_url, oauth_prefix)],
-        scopes_supported: Some(granting_scopes()),
+        authorization_servers: vec![authorization_server],
+        scopes_supported: Some(scopes),
         bearer_methods_supported: Some(vec!["header".to_string()]),
     }
 }

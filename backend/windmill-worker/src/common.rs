@@ -576,6 +576,17 @@ pub async fn get_reserved_variables(
     )
     .await
     .to_vec();
+    let mut variables = variables;
+    if let Some(client) = &job.mcp_client {
+        variables.push(variables::ContextualVariable {
+            name: "WM_MCP_CLIENT".to_string(),
+            value: client.clone(),
+            description: "OAuth client of the external identity provider the run was started \
+                          through on the user's behalf, propagated to flow steps"
+                .to_string(),
+            is_custom: false,
+        });
+    }
 
     Ok(build_envs_map(variables).await)
 }
@@ -2634,6 +2645,7 @@ mod tests {
             viewer_data_access: None,
             runnable_settings_handle: None,
             job_token_scopes: None,
+            mcp_client: None,
         }
     }
 

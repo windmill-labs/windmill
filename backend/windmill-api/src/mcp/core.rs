@@ -108,6 +108,16 @@ impl WindmillBackend {
 impl McpBackend for WindmillBackend {
     type Auth = ApiAuthed;
 
+    async fn after_tool_call(
+        &self,
+        auth: &ApiAuthed,
+        workspace_id: &str,
+        tool: &str,
+        refusal: Option<&str>,
+    ) {
+        super::external_idp::audit_tool_call(&self.db, auth, workspace_id, tool, refusal).await;
+    }
+
     async fn list_scripts(
         &self,
         auth: &ApiAuthed,
@@ -540,9 +550,14 @@ pub async fn extract_and_store_workspace_id(
 /// a client requests: without it, Claude requests every scope the metadata lists, read-only
 /// included, and the consent page would then default to read-only access.
 fn www_authenticate_value(base_url: &str, endpoint: &str) -> String {
+    let scope = if super::external_idp::configured().is_some() {
+        super::external_idp::REQUESTED_SCOPES
+    } else {
+        "mcp:all"
+    };
     format!(
         "Bearer resource_metadata=\"{base_url}/.well-known/oauth-protected-resource{endpoint}\", \
-         scope=\"mcp:all\""
+         scope=\"{scope}\""
     )
 }
 

@@ -80,6 +80,7 @@ export interface Setting {
 		| 'instance_banner'
 		| 'accent_color'
 		| 'agent_workload_identity_issuers'
+		| 'mcp_external_idp'
 		| 'workspace_roles'
 	storage: SettingStorage
 	advancedToggle?: {
@@ -847,6 +848,16 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: 'groups',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'MCP external identity provider',
+			description:
+				"Accept access tokens issued by an external OpenID Connect provider on the MCP endpoints. MCP clients then sign in there instead of with Windmill, and tokens Windmill issued keep working. The token's client claim picks one of the clients below, which sets the workspace and the tools offered; the request acts as the Windmill user whose email is in the token, so a tool is offered only when the client has it and the user can run it. The user must already exist: they sign in to Windmill once first. The groups claim above also applies to these tokens. Runs record the client, and their steps read it as WM_MCP_CLIENT.",
+			key: 'mcp_external_idp',
+			fieldType: 'mcp_external_idp',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
 		}
 	],
 	'Agent workers': [

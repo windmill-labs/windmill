@@ -1585,6 +1585,10 @@ pub async fn sync_global_settings_declarative(
     crate::global_settings::parse_max_token_expiration_days(desired.get(max_expiration_key))
         .map_err(|e| anyhow::anyhow!("{max_expiration_key}: {e}"))?;
 
+    let idp_key = crate::global_settings::MCP_EXTERNAL_IDP_SETTING;
+    crate::global_settings::parse_mcp_external_idp(desired.get(idp_key))
+        .map_err(|e| anyhow::anyhow!("{idp_key}: {e}"))?;
+
     let mut diff = diff_global_settings(current, desired, ApplyMode::Replace);
     let roles_key = crate::global_settings::WORKSPACE_ROLES_SETTING;
     let roles_written = diff.upserts.iter().any(|(k, _)| k == roles_key)

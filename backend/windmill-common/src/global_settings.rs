@@ -113,6 +113,9 @@ pub const DISABLE_PASSWORD_LOGIN_SETTING: &str = "disable_password_login";
 /// in. A URL-borne credential ends up in browser history, proxy logs and referrers, so an
 /// instance that cares sends MCP clients through the OAuth flow instead.
 pub const MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING: &str = "mcp_disable_token_query_param";
+/// An external OIDC issuer whose access tokens the MCP endpoints accept, and the OAuth clients
+/// of that issuer they serve. Read and validated by [`parse_mcp_external_idp`].
+pub const MCP_EXTERNAL_IDP_SETTING: &str = "mcp_external_idp";
 /// Ceiling, in days, on how far ahead a token minted through `POST /users/tokens/create` or
 /// `POST /users/tokens/impersonate` may expire; a request asking for more, or for no
 /// expiration at all, is shortened to it rather than refused. On those routes only: server-side
@@ -546,6 +549,9 @@ lazy_static::lazy_static! {
     pub static ref HTTP_ROUTE_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);
     pub static ref DISABLE_PASSWORD_LOGIN: AtomicBool = AtomicBool::new(false);
     pub static ref MCP_DISABLE_TOKEN_QUERY_PARAM: AtomicBool = AtomicBool::new(false);
+    /// `None` when [`MCP_EXTERNAL_IDP_SETTING`] is unset or has no issuer.
+    pub static ref MCP_EXTERNAL_IDP: arc_swap::ArcSwapOption<McpExternalIdp> =
+        arc_swap::ArcSwapOption::empty();
     /// Empty means unset. See [`API_BASE_URL_SETTING`].
     pub static ref API_BASE_URL: arc_swap::ArcSwap<String> =
         arc_swap::ArcSwap::from_pointee(String::new());
@@ -555,6 +561,94 @@ lazy_static::lazy_static! {
     /// own. Empty means unset, which keeps the historical `*`.
     pub static ref HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS: arc_swap::ArcSwap<Vec<String>> =
         arc_swap::ArcSwap::from_pointee(vec![]);
+}
+
+/// [`MCP_EXTERNAL_IDP_SETTING`]: the MCP endpoints accept an access token signed by `issuer`
+/// when its `client_claim` names one of `clients`, acting as the Windmill user whose email is
+/// in `email_claim`, limited to that client's selection in that client's workspace.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct McpExternalIdp {
+    pub issuer: String,
+    /// Checked against the token's `aud` when set. Many issuers stamp an audience the
+    /// resource server cannot choose, so it is optional.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<String>,
+    #[serde(default = "default_mcp_client_claim")]
+    pub client_claim: String,
+    #[serde(default = "default_mcp_email_claim")]
+    pub email_claim: String,
+    #[serde(default)]
+    pub clients: Vec<McpExternalClient>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct McpExternalClient {
+    pub client_id: String,
+    pub workspace_id: String,
+    /// Selection scopes, as a token scoped to runnables-as-tools carries them.
+    pub scopes: Vec<String>,
+}
+
+fn default_mcp_client_claim() -> String {
+    "azp".to_string()
+}
+
+fn default_mcp_email_claim() -> String {
+    "email".to_string()
+}
+
+impl McpExternalIdp {
+    pub fn client(&self, client_id: &str) -> Option<&McpExternalClient> {
+        self.clients.iter().find(|c| c.client_id == client_id)
+    }
+}
+
+/// Reads [`MCP_EXTERNAL_IDP_SETTING`]; `None` when unset. A client may only be given
+/// individual tools: `mcp:all` would hand it the whole session toolset and endpoint scopes
+/// the raw API, neither of which the user's own grant to the client is meant to cover.
+pub fn parse_mcp_external_idp(
+    value: Option<&serde_json::Value>,
+) -> Result<Option<McpExternalIdp>, String> {
+    let value = match value {
+        None | Some(serde_json::Value::Null) => return Ok(None),
+        Some(v) => v,
+    };
+    let idp: McpExternalIdp = serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+    if idp.issuer.trim().is_empty() {
+        return Ok(None);
+    }
+    if !idp.issuer.starts_with("https://") && !idp.issuer.starts_with("http://") {
+        return Err("issuer must be an http(s) URL".to_string());
+    }
+    if idp.client_claim.trim().is_empty() || idp.email_claim.trim().is_empty() {
+        return Err("claim names must not be empty".to_string());
+    }
+    for (i, client) in idp.clients.iter().enumerate() {
+        if client.client_id.trim().is_empty() || client.workspace_id.trim().is_empty() {
+            return Err("every client needs a client id and a workspace".to_string());
+        }
+        if idp.clients[..i]
+            .iter()
+            .any(|c| c.client_id == client.client_id)
+        {
+            return Err(format!("client {} is listed twice", client.client_id));
+        }
+        if client.scopes.is_empty() {
+            return Err(format!("client {} selects no tools", client.client_id));
+        }
+        if let Some(scope) = client.scopes.iter().find(|s| {
+            !(*s == "mcp:favorites"
+                || ["mcp:scripts:", "mcp:flows:", "mcp:hub:"]
+                    .iter()
+                    .any(|p| s.strip_prefix(p).is_some_and(|rest| !rest.is_empty())))
+        }) {
+            return Err(format!(
+                "client {}: {scope} is not a selection of scripts, flows or hub scripts",
+                client.client_id
+            ));
+        }
+    }
+    Ok(Some(idp))
 }
 
 /// [`API_BASE_URL_SETTING`] when it applies to MCP, else `base_url`. The MCP gateway builds every URL it hands a
@@ -1028,6 +1122,31 @@ mod tests {
 
     // `frontend/src/lib/tokenExpiration.test.ts` holds the same table for the token form's
     // parser; the two must stay in step.
+    #[test]
+    fn mcp_external_clients_get_only_a_selection_of_tools() {
+        let with_scopes = |scopes: &[&str]| {
+            parse_mcp_external_idp(Some(&serde_json::json!({
+                "issuer": "https://idp.example.com/realms/main",
+                "clients": [{ "client_id": "a", "workspace_id": "w", "scopes": scopes }]
+            })))
+        };
+        let idp = with_scopes(&["mcp:flows:f/x/run", "mcp:scripts:f/x/*", "mcp:favorites"])
+            .unwrap()
+            .unwrap();
+        assert_eq!((idp.client_claim.as_str(), idp.email_claim.as_str()), ("azp", "email"));
+        for refused in [
+            &["mcp:all"][..],
+            &["mcp:all:f/x/*"],
+            &["mcp:endpoints:listJobs"],
+            &["mcp:scripts:"],
+            &[],
+        ] {
+            assert!(with_scopes(refused).is_err(), "{refused:?}");
+        }
+        assert_eq!(parse_mcp_external_idp(None), Ok(None));
+        assert_eq!(parse_mcp_external_idp(Some(&serde_json::json!({"issuer": ""}))), Ok(None));
+    }
+
     #[test]
     fn max_token_expiration_days_accepts_only_whole_days_within_the_bound() {
         use serde_json::json;

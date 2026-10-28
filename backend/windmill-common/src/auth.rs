@@ -370,6 +370,9 @@ pub struct JobPerms {
     /// role, and the object storage advanced permission rules it is checked against.
     #[serde(default)]
     pub viewer_data_access: bool,
+    /// The OAuth client of an external issuer the root run was started through.
+    #[serde(default)]
+    pub mcp_client: Option<String>,
 }
 
 impl From<JobPerms> for Authed {
@@ -387,6 +390,7 @@ impl From<JobPerms> for Authed {
                 .collect(),
             scopes: None,
             token_prefix: None,
+            mcp_client: value.mcp_client,
         }
     }
 }
@@ -579,6 +583,7 @@ async fn fetch_authed_from_permissioned_as_inner(
                 folders,
                 scopes: None,
                 token_prefix: None,
+                mcp_client: None,
             })
         } else {
             let groups = vec![name.to_string()];
@@ -592,6 +597,7 @@ async fn fetch_authed_from_permissioned_as_inner(
                 folders,
                 scopes: None,
                 token_prefix: None,
+                mcp_client: None,
             })
         }
     } else {
@@ -613,6 +619,7 @@ async fn fetch_authed_from_permissioned_as_inner(
             folders: vec![],
             scopes: None,
             token_prefix: None,
+            mcp_client: None,
         })
     }
 }
@@ -670,7 +677,7 @@ pub async fn get_job_perms<'a, E: sqlx::PgExecutor<'a>>(
     sqlx::query_as!(
         JobPerms,
         "SELECT email, username, is_admin, is_operator, groups, folders, end_user_email,
-            job_token_scopes, viewer_data_access
+            job_token_scopes, viewer_data_access, mcp_client
         FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
         job_id,
         w_id

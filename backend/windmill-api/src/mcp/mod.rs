@@ -5,6 +5,7 @@
 
 mod auto_generated_endpoints;
 mod core;
+pub mod external_idp;
 mod session;
 mod utils;
 

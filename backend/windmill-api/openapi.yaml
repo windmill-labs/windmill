@@ -31691,6 +31691,11 @@ components:
           type: boolean
         trigger_kind:
           $ref: "#/components/schemas/JobTriggerKind"
+        mcp_client:
+          type: string
+          description: >-
+            OAuth client of the external identity provider the run was started through on
+            the user's behalf, when it was
         worker:
           type: string
       required:
@@ -31837,6 +31842,11 @@ components:
             resolution outside enterprise
         trigger_kind:
           $ref: "#/components/schemas/JobTriggerKind"
+        mcp_client:
+          type: string
+          description: >-
+            OAuth client of the external identity provider the run was started through on
+            the user's behalf, when it was
         worker:
           type: string
       required:

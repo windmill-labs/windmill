@@ -1271,6 +1271,10 @@ async fn run_setting_pre_write_hook(
             windmill_common::global_settings::validate_api_base_url_applies_to(value)
                 .map_err(|e| error::Error::BadRequest(format!("{key}: {e}")))?;
         }
+        windmill_common::global_settings::MCP_EXTERNAL_IDP_SETTING => {
+            windmill_common::global_settings::parse_mcp_external_idp(Some(value))
+                .map_err(|e| error::Error::BadRequest(format!("{key}: {e}")))?;
+        }
         MAX_TOKEN_EXPIRATION_DAYS_SETTING => {
             windmill_common::global_settings::parse_max_token_expiration_days(Some(value))
                 .map_err(|e| {

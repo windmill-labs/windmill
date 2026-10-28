@@ -309,6 +309,11 @@ pub struct QueuedJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub trigger_kind: Option<TriggerKindLabel>,
+    /// The OAuth client of an external issuer the run was started through, on the user's
+    /// behalf. Selected by the single-job GET only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub mcp_client: Option<String>,
 }
 
 impl QueuedJob {
@@ -386,6 +391,7 @@ impl Default for QueuedJob {
             labels: None,
             is_retry: None,
             trigger_kind: None,
+            mcp_client: None,
         }
     }
 }
@@ -480,6 +486,11 @@ pub struct CompletedJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub trigger_kind: Option<TriggerKindLabel>,
+    /// The OAuth client of an external issuer the run was started through, on the user's
+    /// behalf. Selected by the single-job GET only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub mcp_client: Option<String>,
 }
 
 impl CompletedJob {

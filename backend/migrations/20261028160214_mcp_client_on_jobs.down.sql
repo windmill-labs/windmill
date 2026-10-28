@@ -1,0 +1,2 @@
+ALTER TABLE job_perms DROP COLUMN IF EXISTS mcp_client;
+ALTER TABLE v2_job DROP COLUMN IF EXISTS mcp_client;

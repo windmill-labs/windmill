@@ -153,6 +153,17 @@ Symbols, not line numbers, are cited: they drift less.
   "true"/"false" strings) and is only consulted for the claim above; only GitHub is filtered to
   `primary && verified`; a missing email is fabricated from `name` as `<name>@windmill.dev` and
   reaches `login_externally` with `email_asserted = false`.
+- **MCP access tokens from an external issuer** (`mcp_external_idp`, EE, `mcp/external_idp.rs`):
+  taken only for a JWT whose unverified `iss` is the configured issuer, then verified against its
+  discovery JWKS. The token's client claim (`azp` by default) must name a configured client, and
+  its email claim an existing, enabled member of that client's workspace: no account is created,
+  and a client-credentials token (no user) is refused with 403. The groups claim named by
+  `sso_groups_claim` is reconciled into instance groups as at an SSO login, and the identity is
+  then read uncached, so a group change applies on the next token; the resolved identity is
+  cached per token for at most a minute. A user removed from every group still keeps their
+  memberships, because an absent claim never strips (see `reconcile_sso_instance_groups`). Runs
+  record the client in `v2_job.mcp_client` and `job_perms.mcp_client`, from the pushing identity
+  rather than `job_authed`, so a run on behalf of another identity still names it.
 - **`GET /api/oauth/login/{client}`** is an unauthenticated 302 to the provider — a plain link
   from any page starts SSO.
 - **`CLOUD_HOSTED`** is presence-tested (`windmill-common/src/worker.rs`): `CLOUD_HOSTED=false`

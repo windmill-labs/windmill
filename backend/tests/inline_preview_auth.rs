@@ -77,6 +77,7 @@ async fn operator_job_token(job_id: uuid::Uuid) -> String {
         folders: vec![],
         scopes: None,
         token_prefix: None,
+        mcp_client: None,
     };
     create_jwt_token(
         authed,
