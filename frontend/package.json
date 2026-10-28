@@ -114,7 +114,7 @@
 		"d3-zoom": "^3.0.0",
 		"date-fns": "^2.30.0",
 		"diff": "^8.0.3",
-		"dompurify": "^3.4.13",
+		"dompurify": "^3.4.17",
 		"driver.js": "^1.3.0",
 		"esm-env": "^1.0.0",
 		"fast-equals": "^5.0.1",
