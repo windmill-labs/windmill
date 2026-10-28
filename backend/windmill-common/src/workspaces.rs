@@ -216,6 +216,11 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/30052/sync-script-to-git-repo
 /// reverse proxies reject as double-encoding when the client re-encodes it).
 pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/30051/git-sync-init-repository-windmill";
 
+/// Hub script that reviews a pull request with the workspace's AI (`ai_review_prs`): clones
+/// the base branch, fetches the pull request's head and runs `wmill review --json` from the
+/// `windmill-cli` it pins. The server posts what it returns.
+pub const GIT_SYNC_REVIEW_SCRIPT_PATH: &str = "hub/30053/git-sync-review-pull-request-windmill";
+
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
 pub const WM_FORK_PREFIX: &str = "wm-fork-";
@@ -378,6 +383,12 @@ pub struct GitRepositorySettings {
     /// deploy callback reads this from the parent). Off by default.
     #[serde(default, skip_serializing_if = "is_false")]
     pub fork_open_prs: bool,
+    /// Review every pull request against the tracked branch with the workspace's AI and post
+    /// the findings on it (`wmill review`, run by `GIT_SYNC_REVIEW_SCRIPT_PATH`). Arrives on
+    /// the pull request webhook, so it needs a credential the server holds. Parent-owned like
+    /// `fork_open_prs`; off by default.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub ai_review_prs: bool,
     /// Server-owned: the last failure opening a PR for a deploy branch of this
     /// repo (e.g. the GitHub App installation hasn't approved the pull-request
     /// permission). Written by the deploy completion hook, cleared on the next

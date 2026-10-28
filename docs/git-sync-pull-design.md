@@ -734,12 +734,27 @@ those PRs). A timeout on a repository pinned to a sync script older than the one
 pushed commits names that as the reason. Known limit (accepted for v1): the fork's status is workspace-wide (all its
 tested items), which for the one-fork-per-PR model equals the PR's scope.
 
-### Phase 8: AI review of pull requests (`wmill review`), CLI implemented
+### Phase 8: AI review of pull requests (`wmill review`), implemented
 
 The deployment request panel's AI review, run on a pull request against a synced repository.
-One review, three runners: the panel, `wmill review` in a customer's CI, and later an
-instance-side job on the `pull_request` webhook (a git sync setting next to `fork_open_prs`,
-running `wmill review --json` from a pinned hub script and posting through the installation).
+One review, three runners: the panel, `wmill review` in a customer's CI, and an instance-side
+job on the pull request webhook, enabled per repository with `ai_review_prs`.
+
+- **Instance side.** On a pull request event against the tracked branch, the server enqueues
+  `GIT_SYNC_REVIEW_SCRIPT_PATH` as the read-only sync identity with an
+  `__git_sync_ai_review` marker (repository identity, number, head). The hub script clones the
+  base branch, fetches the host's head ref, returns `{skipped}` when the pull request moved
+  past that head, and otherwise runs `wmill review --json` from the `windmill-cli` it pins.
+  The completion hook (`post_git_pr_review_result`) posts the `post` payload that JSON
+  carries through the credential the server holds: a GitHub review per head, deduplicated by
+  the same marker `--post github` writes, or the one managed GitLab note; a failed job posts
+  a note saying so. The script is on the installation-token allowlist by slug.
+- **Who gets reviewed.** Only a head in the base repository: a contributor fork could
+  otherwise spend the workspace's AI at will. The setting is parent-owned like
+  `fork_open_prs`, so forks never hold it.
+- **Delivery.** A change to the review reaches the instance side as a `windmill-cli` release,
+  then a hub script version pinning it, then a bump of `GIT_SYNC_REVIEW_SCRIPT_PATH`, the same
+  chain as the sync scripts.
 
 - **One source for the review.** Prompt, size budget, withheld kinds and answer parsing live
   in `frontend/src/lib/components/deploymentRequest/aiReviewCore.ts`, which imports nothing
