@@ -326,9 +326,13 @@ export type ContextElement = (
 // DOM selector chips can share a display title (two `button.btn` from repeated
 // elements), so identify them by (appPath, selector) — keying or removing by
 // title would collide, giving repeated chips one Svelte key and deleting them
-// together. Other context types stay identified by (type, title).
+// together. Mentioned workspace items are titled by their draft path when draft-only,
+// which two drafts can share, so they are identified by their storage path. Other
+// context types stay identified by (type, title).
 export function contextElementKey(c: ContextElement): string {
-	return c.type === 'app_dom_selector' ? `dom:${c.appPath}:${c.selector}` : `${c.type}:${c.title}`
+	if (c.type === 'app_dom_selector') return `dom:${c.appPath}:${c.selector}`
+	if (isMentionContext(c)) return `${c.type}:${(c as WorkspaceScriptElement).path}`
+	return `${c.type}:${c.title}`
 }
 
 /** An `@`-mentioned workspace item, attached to one message the way a DOM pick
@@ -342,6 +346,9 @@ export function isSameContextElement(a: ContextElement, b: ContextElement): bool
 	if (a.type !== b.type) return false
 	if (a.type === 'app_dom_selector' && b.type === 'app_dom_selector') {
 		return a.selector === b.selector && a.appPath === b.appPath
+	}
+	if (isMentionContext(a) && isMentionContext(b)) {
+		return (a as WorkspaceScriptElement).path === (b as WorkspaceScriptElement).path
 	}
 	return a.title === b.title
 }
