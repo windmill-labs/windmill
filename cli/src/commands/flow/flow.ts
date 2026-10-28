@@ -651,6 +651,10 @@ async function preview(
   const cwdBeforeConfig = process.cwd();
   if (useLocalPathScripts) {
     opts = await mergeConfigWithConfigFile(opts);
+  } else {
+    // --remote skips the config read, but resolving the flow folder still
+    // needs the configured suffix (nonDottedPaths).
+    await loadNonDottedPathsSetting();
   }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);

@@ -30,6 +30,7 @@ mockServices({
 const { resolveFlowFolderArg, loadStepScript } = await import(
   "../src/commands/flow/flow.ts"
 );
+const { setNonDottedPaths } = await import("../src/utils/resource_folders.ts");
 
 const SEP = path.sep;
 
@@ -62,6 +63,23 @@ describe("resolveFlowFolderArg", () => {
     expect(resolveFlowFolderArg(`f${SEP}t${SEP}nondotted`)).toBe(
       `f${SEP}t${SEP}nondotted__flow${SEP}`,
     );
+  });
+
+  test("when both folders exist, the configured suffix wins", () => {
+    fs.mkdirSync(path.join(root, "f", "t", "both.flow"), { recursive: true });
+    fs.mkdirSync(path.join(root, "f", "t", "both__flow"), { recursive: true });
+    try {
+      setNonDottedPaths(true);
+      expect(resolveFlowFolderArg(`f${SEP}t${SEP}both`)).toBe(
+        `f${SEP}t${SEP}both__flow${SEP}`,
+      );
+      setNonDottedPaths(false);
+      expect(resolveFlowFolderArg(`f${SEP}t${SEP}both`)).toBe(
+        `f${SEP}t${SEP}both.flow${SEP}`,
+      );
+    } finally {
+      setNonDottedPaths(false);
+    }
   });
 
   test("the folder and its flow.yaml keep resolving to the folder", () => {
