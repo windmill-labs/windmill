@@ -219,7 +219,7 @@ pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/30051/git-sync-init-repository-
 /// Hub script that reviews a pull request with the workspace's AI (`ai_review_prs`): clones
 /// the base branch, fetches the pull request's head and runs `wmill review --json` from the
 /// `windmill-cli` it pins. The server posts what it returns.
-pub const GIT_SYNC_REVIEW_SCRIPT_PATH: &str = "hub/0/git-sync-review-pull-request-windmill";
+pub const GIT_SYNC_REVIEW_SCRIPT_PATH: &str = "hub/30053/git-sync-review-pull-request-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
