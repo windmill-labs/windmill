@@ -310,6 +310,8 @@ describe('output token limit', () => {
 		// vendor's, while a Custom AI proxy in front of a hosted model keeps its row.
 		expect(getModelMaxTokens('customai', 'deepseek-v4-pro', 'high')).toBe(8192)
 		expect(getModelMaxTokens('customai', 'gpt-5')).toBe(128000)
+		// GLM's own API (z.ai) is only reachable through Custom AI.
+		expect(getModelMaxTokens('customai', 'glm-5.1')).toBe(32768)
 	})
 
 	it('sizes the budget from the effort the same request carries', async () => {

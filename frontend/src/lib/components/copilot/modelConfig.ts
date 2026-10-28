@@ -152,7 +152,12 @@ const MODEL_MAX_OUTPUT_TOKENS: [name: string, maxOutputTokens: number][] = [
 	['o4-mini', 100_000],
 	// Google
 	['gemini-3', 64_000],
-	['gemini-2.5', 64_000]
+	['gemini-2.5', 64_000],
+	// Z.ai — open-weight, but listed here because z.ai's own API is reached only
+	// through Custom AI. GLM thinks by default and counts it toward max_tokens; z.ai
+	// takes up to 131072, and 32768 fits every OpenRouter host and a self-hosted
+	// 128K window.
+	['glm', 32_768]
 ]
 
 // Open-weight models, which a self-hosted server (Custom AI) caps at whatever context
