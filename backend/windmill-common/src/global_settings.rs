@@ -181,6 +181,7 @@ pub const APP_WORKSPACED_ROUTE_SETTING: &str = "app_workspaced_route";
 pub const HTTP_ROUTE_WORKSPACED_ROUTE_SETTING: &str = "http_route_workspaced_route";
 pub const HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING: &str = "http_route_default_allowed_origins";
 pub const SECRET_BACKEND_SETTING: &str = "secret_backend";
+pub const EXTERNAL_SECRETS_SETTING: &str = "external_secrets";
 pub const MIN_KEEP_ALIVE_VERSION_SETTING: &str = "min_keep_alive_version";
 pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
 /// Base URL GitHub delivers git-sync repository webhooks to. Falls back to
@@ -517,6 +518,7 @@ pub const AGENT_WORKER_BLOCKED_SETTINGS: &[&str] = &[
     SCIM_TOKEN_SETTING,
     SAML_METADATA_SETTING,
     SECRET_BACKEND_SETTING,
+    EXTERNAL_SECRETS_SETTING,
     GITHUB_ENTERPRISE_APP_SETTING,
     OBJECT_STORE_CONFIG_SETTING,
     AI_CONFIG_SETTING,
@@ -1269,6 +1271,7 @@ mod tests {
             SCIM_TOKEN_SETTING,
             SAML_METADATA_SETTING,
             SECRET_BACKEND_SETTING,
+            EXTERNAL_SECRETS_SETTING,
             GITHUB_ENTERPRISE_APP_SETTING,
             OBJECT_STORE_CONFIG_SETTING,
             AI_CONFIG_SETTING,

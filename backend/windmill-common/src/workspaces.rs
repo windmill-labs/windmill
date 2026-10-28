@@ -11,7 +11,7 @@ use crate::{
     error::{self, to_anyhow, Error, Result},
     get_database_url,
     roles::{caller_capabilities, AuthorLevel, RoleCapabilities},
-    secret_backend::{get_secret_value, is_external_stored_value},
+    secret_backend::{get_secret_value, resolves_externally},
     utils::{get_custom_pg_instance_password, get_custom_pg_instance_replication_password},
     variables::{build_crypt, decrypt},
     PgDatabase, DB,
@@ -3814,7 +3814,7 @@ async fn transform_json_unchecked(
             .map_err(to_anyhow)?
             .ok_or_else(|| Error::NotFound(format!("variable {path} does not exist")))?;
             let value = if is_secret {
-                if is_external_stored_value(&value) {
+                if resolves_externally(&value) {
                     get_secret_value(db, w_id, &s[5..], &value).await?
                 } else {
                     let mc = build_crypt(&db, &w_id).await?;

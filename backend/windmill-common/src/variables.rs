@@ -9,7 +9,7 @@
 use crate::db::{Authable, UserDB};
 use crate::error::{self, Error};
 use crate::scripts::ScriptHash;
-use crate::secret_backend::{get_secret_value, is_external_stored_value};
+use crate::secret_backend::{get_secret_value, resolves_externally};
 use crate::utils::{strip_json_nul, WarnAfterExt};
 use crate::worker::{to_raw_value, Connection};
 use crate::workspace_crypt::CipherFormat;
@@ -490,7 +490,7 @@ pub async fn decrypt_secret_value(
 ) -> crate::error::Result<String> {
     if value.is_empty() {
         Ok(value)
-    } else if is_external_stored_value(&value) {
+    } else if resolves_externally(&value) {
         get_secret_value(db, w_id, path, &value).await
     } else {
         let mc = build_crypt(db, w_id).await?;
@@ -687,7 +687,7 @@ async fn upgrade_workspace_secret_variables(db: &DB, w_id: &str) -> error::Resul
         .await?;
         let last_page = (rows.len() as i64) < LEGACY_SECRET_UPGRADE_BATCH;
         for (path, value) in rows {
-            if value.is_empty() || is_external_stored_value(&value) || mc.is_v2(&value) {
+            if value.is_empty() || resolves_externally(&value) || mc.is_v2(&value) {
                 after = path;
                 continue;
             }
@@ -1029,7 +1029,7 @@ pub async fn get_variable_or_self(
     if let Some(record) = record {
         let mut value = record.value;
         if record.is_secret {
-            if is_external_stored_value(&value) {
+            if resolves_externally(&value) {
                 value = get_secret_value(db, w_id, &path, &value).await?;
             } else {
                 let mc = build_crypt(db, w_id).await?;
@@ -1078,7 +1078,7 @@ pub async fn get_variable_or_self_as<T: Authable + Sync>(
     if let Some(record) = record {
         let mut value = record.value;
         if record.is_secret {
-            if is_external_stored_value(&value) {
+            if resolves_externally(&value) {
                 value = get_secret_value(db, w_id, &var_path, &value).await?;
             } else {
                 let mc = build_crypt(db, w_id).await?;

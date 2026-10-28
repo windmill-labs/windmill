@@ -252,6 +252,9 @@ pub async fn get_secret_value(
     path: &str,
     encrypted_value: &str,
 ) -> Result<String> {
+    if super::is_external_ref_value(encrypted_value) {
+        return super::resolve_external_ref(db, workspace_id, path, encrypted_value).await;
+    }
     let backend = get_secret_backend(db).await?;
 
     match backend.backend_name() {

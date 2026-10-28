@@ -14,8 +14,10 @@
 
 pub mod database;
 pub mod resolver;
+pub mod external_ref;
 
 pub use resolver::*;
+pub use external_ref::*;
 
 #[cfg(feature = "private")]
 pub mod vault_ee;
@@ -119,7 +121,9 @@ impl Default for SecretBackendConfig {
 pub struct VaultSettings {
     /// Vault server address (e.g., "https://vault.company.com:8200")
     pub address: String,
-    /// KV v2 mount path (e.g., "windmill")
+    /// KV v2 mount path (e.g., "windmill"). Empty for the external-secrets
+    /// connection, which reads whatever mount a reference names.
+    #[serde(default)]
     pub mount_path: String,
     /// Optional path prefix inserted between the KV `data`/`metadata` segment
     /// and the workspace id, e.g. "apps/windmill". When set, secrets live at
@@ -137,6 +141,15 @@ pub struct VaultSettings {
     /// e.g. via `vault auth enable -path=my-mount jwt`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jwt_mount_path: Option<String>,
+    /// AppRole role_id. When set (and no static token), Windmill logs in with
+    /// AppRole; the secret_id is read from the `VAULT_APPROLE_SECRET_ID`
+    /// environment variable of servers and workers, never from settings, and
+    /// is omitted when unset (a role with `bind_secret_id=false`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approle_role_id: Option<String>,
+    /// Mount path of the AppRole auth method (defaults to "approle").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approle_mount_path: Option<String>,
     /// Vault Enterprise namespace (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,

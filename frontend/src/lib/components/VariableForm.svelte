@@ -17,6 +17,8 @@
 	import EncryptedDraftField from './EncryptedDraftField.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import TextInput from './text_input/TextInput.svelte'
+	import { formatVaultRef, isExternalRef, parseVaultRef } from '$lib/externalSecretRef'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -101,6 +103,9 @@
 
 	const MAX_VARIABLE_LENGTH = 10000
 
+	let externalRef = $derived(variable.is_secret && isExternalRef(variable.value))
+	let vaultRef = $derived(parseVaultRef(variable.value))
+
 	let editorKind: 'plain' | 'json' | 'yaml' = $state('plain')
 	let editor: any = $state(undefined)
 
@@ -137,6 +142,7 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 			on:change={(e) => onSecretChange?.(e.detail)}
 			bind:checked={variable.is_secret}
 			disabled={unsecureNeedsLoad ||
+				externalRef ||
 				(edit && (!actingUser || !caps.code || isEncryptedDraftValue(variable.value)))}
 		/>
 		{#if unsecureNeedsLoad && can_write && caps.code}
@@ -145,7 +151,13 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 			</span>
 		{/if}
 	</div>
-	{#if variable.is_secret}
+	{#if externalRef}
+		<Alert type="info" title="Read from Vault on each access">
+			Only the reference is stored in Windmill. The value is read from HashiCorp Vault each time the
+			variable is read, and every read generates an audit log whose operation name is:
+			variables.decrypt_secret
+		</Alert>
+	{:else if variable.is_secret}
 		<Alert type="info" title="Audit log for each access">
 			Every secret is encrypted at rest and in transit with a key specific to this workspace. In
 			addition, any read of a secret variable generates an audit log whose operation name is:
@@ -163,96 +175,141 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 	</Label>
 {/if}
 
-<div class="flex flex-col gap-1">
-	<label for="variable-value" class="flex flex-row justify-left items-center">
-		<span class="text-xs font-semibold text-emphasis">Variable value&nbsp;</span>
-		{#if !isEncryptedDraftValue(variable.value)}
-			<span class="text-xs text-secondary font-normal">
-				({variable.value.length}/{MAX_VARIABLE_LENGTH} characters)
+{#if variable.is_secret}
+	<div class="flex flex-col gap-1">
+		<span class="text-xs font-semibold text-emphasis">External reference</span>
+		<Toggle
+			ariaLabel="External reference"
+			class="w-fit"
+			checked={externalRef}
+			disabled={!can_write || isEncryptedDraftValue(variable.value)}
+			on:change={(e) => (variable.value = e.detail ? formatVaultRef('', '') : '')}
+			options={{ right: 'Read the value from an existing secret in HashiCorp Vault' }}
+		/>
+	</div>
+{/if}
+
+{#if externalRef}
+	<div class="flex flex-col gap-2">
+		<div class="flex flex-col gap-1">
+			<label for="external-ref-path" class="text-xs font-semibold text-emphasis">Vault path</label>
+			<span class="text-2xs text-secondary">
+				As <code>vault kv get</code> takes it, KV v1 or v2. Only paths a superadmin allowed for this
+				workspace resolve.
 			</span>
-		{/if}
-		{#if edit && variable.is_secret}
-			<div class="ml-3"></div>
-			{#if hasStagedValue}
-				<!-- Clearing the staged value is the only way back to loading the deployed one;
-				see `hasStagedValue`. An `$encrypted:` value additionally cannot be displayed. -->
-				<Button
-					size="xs"
-					variant="default"
-					startIcon={{ icon: RotateCcw }}
-					disabled={!can_write}
-					on:click={() => (variable.value = '')}
-				>
-					Reset
-				</Button>
-			{:else if !caps.code}
-				<div class="p-2 border">Your role cannot load secret values</div>
-			{:else}
-				<Button size="xs" variant="default" on:click={() => onLoadSecret?.()}>
-					Load secret value<Tooltip>Will generate an audit log</Tooltip>
-				</Button>
+			<TextInput
+				inputProps={{
+					id: 'external-ref-path',
+					placeholder: 'secret/team/app',
+					disabled: !can_write
+				}}
+				bind:value={
+					() => vaultRef.path, (v) => (variable.value = formatVaultRef(v ?? '', vaultRef.key))
+				}
+			/>
+		</div>
+		<div class="flex flex-col gap-1">
+			<label for="external-ref-key" class="text-xs font-semibold text-emphasis">Key</label>
+			<TextInput
+				inputProps={{ id: 'external-ref-key', placeholder: 'token', disabled: !can_write }}
+				bind:value={
+					() => vaultRef.key, (v) => (variable.value = formatVaultRef(vaultRef.path, v ?? ''))
+				}
+			/>
+		</div>
+	</div>
+{:else}
+	<div class="flex flex-col gap-1">
+		<label for="variable-value" class="flex flex-row justify-left items-center">
+			<span class="text-xs font-semibold text-emphasis">Variable value&nbsp;</span>
+			{#if !isEncryptedDraftValue(variable.value)}
+				<span class="text-xs text-secondary font-normal">
+					({variable.value.length}/{MAX_VARIABLE_LENGTH} characters)
+				</span>
 			{/if}
-		{/if}
-	</label>
-	<div>
-		{#if isEncryptedDraftValue(variable.value)}
-			<!-- The draft's secret value was encrypted server-side and can't be
+			{#if edit && variable.is_secret}
+				<div class="ml-3"></div>
+				{#if hasStagedValue}
+					<!-- Clearing the staged value is the only way back to loading the deployed one;
+				see `hasStagedValue`. An `$encrypted:` value additionally cannot be displayed. -->
+					<Button
+						size="xs"
+						variant="default"
+						startIcon={{ icon: RotateCcw }}
+						disabled={!can_write}
+						on:click={() => (variable.value = '')}
+					>
+						Reset
+					</Button>
+				{:else if !caps.code}
+					<div class="p-2 border">Your role cannot load secret values</div>
+				{:else}
+					<Button size="xs" variant="default" on:click={() => onLoadSecret?.()}>
+						Load secret value<Tooltip>Will generate an audit log</Tooltip>
+					</Button>
+				{/if}
+			{/if}
+		</label>
+		<div>
+			{#if isEncryptedDraftValue(variable.value)}
+				<!-- The draft's secret value was encrypted server-side and can't be
 			loaded back. Saving deploys the last saved value as-is; Reset clears
 			it so a new secret can be typed. -->
-			<EncryptedDraftField disabled={!can_write} onReset={() => (variable.value = '')} />
-		{:else}
-			<div class="flex flex-col gap-2">
-				<ToggleButtonGroup bind:selected={editorKind}>
-					{#snippet children({ item })}
-						<ToggleButton value="plain" label="Plain" {item} />
-						<ToggleButton value="json" label="Json" {item} />
-						<ToggleButton value="yaml" label="YAML" {item} />
-					{/snippet}
-				</ToggleButtonGroup>
-				{#if editorKind == 'plain'}
-					<textarea
-						disabled={!can_write}
-						rows="4"
-						use:autosize
-						bind:value={variable.value}
-						placeholder="Update variable value"
-						id="variable-value"
-					></textarea>
-				{:else if editorKind == 'json'}
-					<div class="border rounded mb-4 w-full">
-						{#await import('$lib/components/SimpleEditor.svelte')}
-							<Loader2 class="animate-spin" />
-						{:then Module}
-							<Module.default
-								bind:this={editor}
-								autoHeight
-								lang="json"
-								bind:code={variable.value}
-								fixedOverflowWidgets={false}
-								class="bg-surface-tertiary"
-							/>
-						{/await}
-					</div>
-				{:else if editorKind == 'yaml'}
-					<div class="border rounded mb-4 w-full">
-						{#await import('$lib/components/SimpleEditor.svelte')}
-							<Loader2 class="animate-spin" />
-						{:then Module}
-							<Module.default
-								bind:this={editor}
-								autoHeight
-								lang="yaml"
-								bind:code={variable.value}
-								fixedOverflowWidgets={false}
-								class="bg-surface-tertiary"
-							/>
-						{/await}
-					</div>
-				{/if}
-			</div>
-		{/if}
+				<EncryptedDraftField disabled={!can_write} onReset={() => (variable.value = '')} />
+			{:else}
+				<div class="flex flex-col gap-2">
+					<ToggleButtonGroup bind:selected={editorKind}>
+						{#snippet children({ item })}
+							<ToggleButton value="plain" label="Plain" {item} />
+							<ToggleButton value="json" label="Json" {item} />
+							<ToggleButton value="yaml" label="YAML" {item} />
+						{/snippet}
+					</ToggleButtonGroup>
+					{#if editorKind == 'plain'}
+						<textarea
+							disabled={!can_write}
+							rows="4"
+							use:autosize
+							bind:value={variable.value}
+							placeholder="Update variable value"
+							id="variable-value"
+						></textarea>
+					{:else if editorKind == 'json'}
+						<div class="border rounded mb-4 w-full">
+							{#await import('$lib/components/SimpleEditor.svelte')}
+								<Loader2 class="animate-spin" />
+							{:then Module}
+								<Module.default
+									bind:this={editor}
+									autoHeight
+									lang="json"
+									bind:code={variable.value}
+									fixedOverflowWidgets={false}
+									class="bg-surface-tertiary"
+								/>
+							{/await}
+						</div>
+					{:else if editorKind == 'yaml'}
+						<div class="border rounded mb-4 w-full">
+							{#await import('$lib/components/SimpleEditor.svelte')}
+								<Loader2 class="animate-spin" />
+							{:then Module}
+								<Module.default
+									bind:this={editor}
+									autoHeight
+									lang="yaml"
+									bind:code={variable.value}
+									fixedOverflowWidgets={false}
+									class="bg-surface-tertiary"
+								/>
+							{/await}
+						</div>
+					{/if}
+				</div>
+			{/if}
+		</div>
 	</div>
-</div>
+{/if}
 <label class="flex flex-col gap-1">
 	<span class="text-xs font-semibold text-emphasis">Description</span>
 	<textarea rows="4" use:autosize bind:value={variable.description} placeholder="Used for X"

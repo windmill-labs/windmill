@@ -23,8 +23,9 @@ use windmill_common::{
 };
 
 pub use windmill_common::secret_backend::{
-    get_secret_backend, get_secret_value, is_aws_sm_stored_value, is_azure_kv_stored_value,
-    is_external_stored_value, is_vault_backend_configured, is_vault_stored_value,
+    check_external_ref, get_secret_backend, get_secret_value, is_aws_sm_stored_value,
+    is_azure_kv_stored_value, is_external_ref_value, is_external_stored_value,
+    is_vault_backend_configured, is_vault_stored_value, resolves_externally,
 };
 
 /// Store a secret value using the configured backend

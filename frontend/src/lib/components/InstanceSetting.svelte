@@ -25,6 +25,7 @@
 	import WorkspaceRolesSetting from './instanceSettings/WorkspaceRolesSetting.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
+	import ExternalSecretsConfig from './instanceSettings/ExternalSecretsConfig.svelte'
 	import ExternalInstancePgSettings from './instanceSettings/ExternalInstancePgSettings.svelte'
 	import InstancePgSettings from './instanceSettings/InstancePgSettings.svelte'
 	import GhesAppSettings from './instanceSettings/GhesAppSettings.svelte'
@@ -876,6 +877,8 @@
 					<SmtpSettings {values} disabled={loading} />
 				{:else if setting.fieldType == 'secret_backend'}
 					<SecretBackendConfig {values} disabled={loading} />
+				{:else if setting.fieldType == 'external_secrets'}
+					<ExternalSecretsConfig {values} disabled={loading} />
 				{:else if setting.fieldType == 'external_instance_pg'}
 					<ExternalInstancePgSettings
 						{values}

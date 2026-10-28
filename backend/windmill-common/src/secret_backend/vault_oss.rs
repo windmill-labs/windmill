@@ -122,3 +122,15 @@ pub async fn generate_vault_jwt(_db: &DB, _vault_address: &str) -> Result<String
         "HashiCorp Vault integration requires Enterprise Edition".to_string(),
     ))
 }
+
+/// Read `key` of the secret at `path` for an `$external:vault://` reference (OSS stub)
+pub async fn read_vault_external_secret(
+    _db: &DB,
+    _settings: &VaultSettings,
+    _path: &str,
+    _key: &str,
+) -> Result<String> {
+    Err(Error::internal_err(
+        "HashiCorp Vault integration requires Enterprise Edition".to_string(),
+    ))
+}

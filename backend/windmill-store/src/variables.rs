@@ -14,8 +14,8 @@ use windmill_common::db::{Authable, DB};
 use windmill_common::workspaces::{check_deploy_rules, operator_can_draft, RuleCheckResult};
 
 use crate::secret_backend_ext::{
-    delete_secret_from_backend, get_secret_value, is_external_stored_value, is_vault_stored_value,
-    rename_vault_secret, store_secret_value,
+    check_external_ref, delete_secret_from_backend, get_secret_value, is_external_ref_value,
+    is_vault_stored_value, rename_vault_secret, resolves_externally, store_secret_value,
 };
 use windmill_common::utils::{
     check_proper_path, escape_ilike_pattern, sanitize_db_error, BulkDeleteRequest,
@@ -138,7 +138,8 @@ async fn list_variables(
         .fields(&[
             "variable.workspace_id",
             "variable.path",
-            "CASE WHEN is_secret IS TRUE THEN null ELSE variable.value::text END as value",
+            // An `$external:` reference names where the secret lives, not the secret.
+            "CASE WHEN is_secret IS TRUE AND variable.value NOT LIKE '$external:%' THEN null ELSE variable.value::text END as value",
             "is_secret",
             "variable.description",
             "variable.extra_perms",
@@ -425,7 +426,7 @@ async fn get_variable(
             } else if !value.is_empty() && decrypt_secret {
                 // Use secret backend for decryption (supports both DB and Vault)
                 Some(get_secret_value(&db, &w_id, &variable.path, &value).await?)
-            } else if q.include_encrypted.unwrap_or(false) {
+            } else if q.include_encrypted.unwrap_or(false) || is_external_ref_value(&value) {
                 Some(value)
             } else {
                 None
@@ -576,7 +577,7 @@ async fn check_path_conflict(db: &DB, w_id: &str, path: &str) -> Result<()> {
 /// Values stored by an external backend ($vault:/$aws_sm:/$azure_kv: markers)
 /// are not workspace ciphertext and are passed through untouched.
 fn validate_already_encrypted_secret(path: &str, value: &str) -> Result<()> {
-    if is_external_stored_value(value) {
+    if resolves_externally(value) {
         return Ok(());
     }
     let looks_like_ciphertext = STANDARD
@@ -591,6 +592,38 @@ fn validate_already_encrypted_secret(path: &str, value: &str) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+/// The `value` column for a secret sent to create or update. An `$external:`
+/// reference is checked against the workspace's allowed prefixes and kept
+/// verbatim, including when pushed as already encrypted by sync; any other
+/// value goes to the configured secret backend.
+async fn secret_value_to_store(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    value: String,
+    already_encrypted: bool,
+    op: &'static str,
+) -> Result<String> {
+    if already_encrypted && !is_external_ref_value(&value) {
+        // Stored verbatim, so it must be ciphertext and not plaintext mislabeled as encrypted.
+        validate_already_encrypted_secret(path, &value)?;
+        return Ok(value);
+    }
+    // A restored draft sends the `$encrypted:` marker as-is; decrypt it back
+    // (validating against the workspace key) before storing it.
+    let value = if value.starts_with(ENCRYPTED_DRAFT_PREFIX) {
+        decrypt_draft_secret_value(db, w_id, &value).await?
+    } else {
+        value
+    };
+    if is_external_ref_value(&value) {
+        check_external_ref(db, w_id, &value).await?;
+        windmill_common::feature_usage::log_feature_usage("external_secret_ref", "saved", op);
+        return Ok(value);
+    }
+    store_secret_value(db, w_id, path, &value).await
 }
 
 async fn create_variable(
@@ -640,7 +673,7 @@ pub async fn create_variable_with_account(
     user_db: UserDB,
     webhook: &WebhookShared,
     w_id: String,
-    variable: CreateVariable,
+    mut variable: CreateVariable,
     already_encrypted: bool,
     account: Option<NewOAuthAccount>,
 ) -> Result<Option<i32>> {
@@ -676,22 +709,18 @@ pub async fn create_variable_with_account(
     let authed = maybe_refresh_folders(&variable.path, &w_id, authed, &db).await;
 
     check_path_conflict(&db, &w_id, &variable.path).await?;
-    let value = if variable.is_secret && !already_encrypted {
-        // A restored draft sends the `$encrypted:` marker as-is; decrypt it back
-        // (validating against the workspace key) before the secret backend re-stores it.
-        let plain = if variable.value.starts_with(ENCRYPTED_DRAFT_PREFIX) {
-            decrypt_draft_secret_value(&db, &w_id, &variable.value).await?
-        } else {
-            variable.value.clone()
-        };
-        // Use secret backend for encryption (supports both DB and Vault)
-        store_secret_value(&db, &w_id, &variable.path, &plain).await?
+    let value = if variable.is_secret {
+        let value = std::mem::take(&mut variable.value);
+        secret_value_to_store(
+            &db,
+            &w_id,
+            &variable.path,
+            value,
+            already_encrypted,
+            "create",
+        )
+        .await?
     } else {
-        if variable.is_secret {
-            // already_encrypted == true: value is stored verbatim, so it must be
-            // ciphertext and not plaintext mislabeled as encrypted.
-            validate_already_encrypted_secret(&variable.path, &variable.value)?;
-        }
         variable.value
     };
 
@@ -1205,22 +1234,18 @@ async fn update_variable(
             .unwrap_or(false)
         };
 
-        let value = if is_secret && !already_encrypted.unwrap_or(false) {
-            // Decrypt a restored draft's `$encrypted:` marker before re-storing; see create_variable.
-            let plain = if nvalue.starts_with(ENCRYPTED_DRAFT_PREFIX) {
-                decrypt_draft_secret_value(&db, &w_id, &nvalue).await?
-            } else {
-                nvalue
-            };
-            // Use secret backend for encryption (supports both DB and Vault)
-            // Store at target_path (new path if renaming, otherwise current path)
-            store_secret_value(&db, &w_id, target_path, &plain).await?
+        let value = if is_secret {
+            // Stored at target_path (the new path when renaming)
+            secret_value_to_store(
+                &db,
+                &w_id,
+                target_path,
+                nvalue,
+                already_encrypted.unwrap_or(false),
+                "update",
+            )
+            .await?
         } else {
-            if is_secret {
-                // already_encrypted == true: value is stored verbatim, so it must
-                // be ciphertext and not plaintext mislabeled as encrypted.
-                validate_already_encrypted_secret(target_path, &nvalue)?;
-            }
             nvalue
         };
         sqlb.set_str("value", &value);

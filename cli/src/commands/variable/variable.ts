@@ -111,14 +111,15 @@ export interface VariableFile {
  * ciphertext (AES-256-GCM or legacy AES-256-CBC, base64) is standard base64
  * decoding to a non-zero
  * multiple of the 16-byte block size. External secret-backend markers
- * ($vault:/$aws_sm:/$azure_kv:) are stored verbatim too, so they count as
- * already-encrypted. This is a shape check only — it never decrypts.
+ * ($vault:/$aws_sm:/$azure_kv:) and `$external:` references to a secret in an
+ * external store are stored verbatim too, so they count as already-encrypted. This is a shape check only — it never decrypts.
  */
 export function looksLikeWorkspaceCiphertext(value: string): boolean {
   if (
     value.startsWith("$vault:") ||
     value.startsWith("$aws_sm:") ||
-    value.startsWith("$azure_kv:")
+    value.startsWith("$azure_kv:") ||
+    value.startsWith("$external:")
   ) {
     return true;
   }
