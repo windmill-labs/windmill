@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.852.0](https://github.com/windmill-labs/windmill/compare/v1.851.0...v1.852.0) (2026-10-28)
+
+
+### Features
+
+* accept the google_service_account resource type alongside gcp_service_account ([#12070](https://github.com/windmill-labs/windmill/issues/12070)) ([e480501](https://github.com/windmill-labs/windmill/commit/e480501af9573c62bbec58d6edef5fc7ffb46433))
+* add ai review to drafts, draft diffs and session review ([#12063](https://github.com/windmill-labs/windmill/issues/12063)) ([77c0a26](https://github.com/windmill-labs/windmill/commit/77c0a26515bf4405b2e0918910aa8a84eb1a55ea))
+* gate guest apps by their mode and the protection rule alone ([#12061](https://github.com/windmill-labs/windmill/issues/12061)) ([d3869fc](https://github.com/windmill-labs/windmill/commit/d3869fcdb28a7053644582afe822f3d52d6c2ace))
+
+
+### Bug Fixes
+
+* check session admin rights in the session's workspace ([#12071](https://github.com/windmill-labs/windmill/issues/12071)) ([09ddf1e](https://github.com/windmill-labs/windmill/commit/09ddf1e0c76fc2a1e488dfdd3be147495c2c37f0))
+* **cli:** flow preview hub steps and windmill paths, trigger templates ([#12075](https://github.com/windmill-labs/windmill/issues/12075)) ([65f3c5e](https://github.com/windmill-labs/windmill/commit/65f3c5ee5cf0da6a22f770763cf77d5a7bff830d))
+* give GLM models a 32K output budget, including through Custom AI ([#12068](https://github.com/windmill-labs/windmill/issues/12068)) ([80a49f9](https://github.com/windmill-labs/windmill/commit/80a49f9bd3e8797f0f55aa9482e5ca9ec277cd07))
+* honor a step's timeout when it is the only step of a loop ([#12058](https://github.com/windmill-labs/windmill/issues/12058)) ([499c756](https://github.com/windmill-labs/windmill/commit/499c7569ffd49131cb6de9588b8691f062c5d91e))
+* keep a deleted session's data in its components until they unmount ([#12062](https://github.com/windmill-labs/windmill/issues/12062)) ([9c6c201](https://github.com/windmill-labs/windmill/commit/9c6c2018a4fa76cd080744e7f3defaa4bed04d74))
+* keep a new app's AI session unsaved until it is started ([#12065](https://github.com/windmill-labs/windmill/issues/12065)) ([f46b3a7](https://github.com/windmill-labs/windmill/commit/f46b3a7505158a35794f7ca186aed0e944a909da))
+* keep retry and branch settings intact when a flow is reserialized ([#12077](https://github.com/windmill-labs/windmill/issues/12077)) ([20def22](https://github.com/windmill-labs/windmill/commit/20def2289753320361ed6c7ab177f36880720499))
+* rebuild service log index without a hash dedupe that cannot spill ([#12080](https://github.com/windmill-labs/windmill/issues/12080)) ([26888e8](https://github.com/windmill-labs/windmill/commit/26888e834d5ac99d9af26a119bc233ab1bb95a0f))
+* scope rename's group membership update to the user's workspace ([#12043](https://github.com/windmill-labs/windmill/issues/12043)) ([ad571c6](https://github.com/windmill-labs/windmill/commit/ad571c62262dad9b2211f442d9e94c0a044ac167))
+* show not deployed yet for undeployed apps in session preview tabs ([#12076](https://github.com/windmill-labs/windmill/issues/12076)) ([bda59e6](https://github.com/windmill-labs/windmill/commit/bda59e6d23eb521b07d3769c54a59a80c7accd0f))
+* show the server's error when user offboarding fails ([#12069](https://github.com/windmill-labs/windmill/issues/12069)) ([7765913](https://github.com/windmill-labs/windmill/commit/77659130640c28a59f65989d83ab8be7f44e01c3))
+* wait for access before opening a draft-only item from the picker ([#12064](https://github.com/windmill-labs/windmill/issues/12064)) ([bfd31df](https://github.com/windmill-labs/windmill/commit/bfd31df5d5c96f6187ee5c4efb86a4d9caafafab))
+
 ## [1.851.0](https://github.com/windmill-labs/windmill/compare/v1.850.0...v1.851.0) (2026-10-28)
 
 
