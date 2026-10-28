@@ -1714,6 +1714,11 @@ TOPICS: dict[str, dict] = {
         'chat_helper': 'getWorkspaceSettingsPrompt',
         'parts': ['workspace-settings.md'],
     },
+    'pipedream_migration': {
+        'skill': 'migrate-from-pipedream',
+        'description': 'MUST use when migrating, importing or converting Pipedream workflows to Windmill, including a Pipedream export (project_export-*.zip, manifest.json, workflow JSON files).',
+        'parts': [('cli', 'pipedream-migration.md')],
+    },
     'cli_commands': {
         'skill': 'cli-commands',
         'description': 'MUST use when using the CLI, including debugging job failures and inspecting run history via `wmill job`.',
