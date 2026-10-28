@@ -39,6 +39,8 @@ describe("wmill review", () => {
         "f/a/folder.meta.yaml",
         "f/a/REVIEW.resource.file.md",
         "f/a/creds.variable.yaml",
+        "f/a/files.fileset/x.flow/flow.yaml",
+        "f/a/proj__dbt/models/legacy__mod/a.sql",
         ".github/workflows/review.yml",
       ].map((f) => Object.values(itemOf(f)).join(":")),
     ).toEqual([
@@ -51,6 +53,8 @@ describe("wmill review", () => {
       "folder:f/a",
       "resource:f/a/REVIEW",
       "variable:f/a/creds",
+      "resource:f/a/files",
+      "script:f/a/proj",
       "file:.github/workflows/review.yml",
     ]);
   });
@@ -102,6 +106,8 @@ describe("wmill review prompt", () => {
         "f/a/db.resource.yaml": "resource_type: postgresql\nvalue:\n  password: OLD-PASSWORD\n",
         "f/a/creds.variable.yaml": "value: VARIABLE-SECRET\nis_secret: false\n",
         "encryption_key.yaml": "BASE-ENCRYPTION-KEY\n",
+        "f/a/notes.resource.yaml": "resource_type: ai_review_instruction\nvalue:\n  content: hi\n",
+        "f/a/files.fileset/x.flow/flow.yaml": "password: FILESET-PASSWORD\n",
       });
       git("add", "-A");
       git("commit", "-qm", "base");
@@ -113,6 +119,10 @@ describe("wmill review prompt", () => {
         "f/a/creds.resource.yaml": "resource_type: ai_review_instruction\nvalue:\n  content: hi\n",
         "f/a/creds.variable.yaml": "value: VARIABLE-SECRET-2\nis_secret: false\n",
         "encryption_key.yaml": "HEAD-ENCRYPTION-KEY\n",
+        "f/a/notes.prod.resource.yaml": "resource_type: postgresql\nvalue:\n  password: PROD-PASSWORD\n",
+        "f/a/files.fileset/x.flow/flow.yaml": "password: FILESET-PASSWORD-2\n",
+        // A pathspec matching every changed file, if git were let read it as one.
+        "*": "star\n",
       });
       git("add", "-A");
       git("commit", "-qm", "pr");
@@ -126,7 +136,7 @@ describe("wmill review prompt", () => {
       expect(system).not.toContain("HEAD-RULE");
       // The instruction change itself is shown, as a change.
       expect(user).toContain("HEAD-RULE");
-      expect(instructions).toEqual(["f/a/REVIEW"]);
+      expect(instructions).toEqual(["f/a/notes", "f/a/REVIEW"]);
     } finally {
       process.chdir(cwd);
       rmSync(repo, { recursive: true, force: true });

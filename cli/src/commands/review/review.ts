@@ -76,21 +76,28 @@ function git(args: string[]): string {
 /** The workspace item a repository file belongs to, as git sync lays a workspace out. Any
  * other file is its own item of kind `file`. */
 export function itemOf(file: string): { kind: string; path: string } {
-  for (const suffixes of [DOTTED_SUFFIXES, NON_DOTTED_SUFFIXES]) {
-    for (const [kind, suffix] of Object.entries(suffixes)) {
-      const i = file.indexOf(suffix + "/");
-      if (i > 0) return { kind, path: file.slice(0, i) };
+  // The outermost container owns everything under it: a fileset's or a dbt project's
+  // children are named freely, so a child called `x.flow/` or `legacy__mod/` is still
+  // part of the resource or script around it.
+  const containers: [string, string][] = [
+    [".fileset/", "resource"],
+    ["__mod/", "script"],
+    [`${DBT_MODULE_SUFFIX}/`, "script"],
+    ...[DOTTED_SUFFIXES, NON_DOTTED_SUFFIXES].flatMap((suffixes) =>
+      Object.entries(suffixes).map(([kind, suffix]): [string, string] => [`${suffix}/`, kind])
+    ),
+  ];
+  let outermost: { kind: string; path: string } | undefined;
+  for (const [marker, kind] of containers) {
+    const i = file.indexOf(marker);
+    if (i > 0 && (!outermost || i < outermost.path.length)) {
+      outermost = { kind, path: file.slice(0, i) };
     }
   }
-  for (const suffix of ["__mod", DBT_MODULE_SUFFIX]) {
-    const i = file.indexOf(suffix + "/");
-    if (i > 0) return { kind: "script", path: file.slice(0, i) };
-  }
+  if (outermost) return outermost;
   if (parseDatatableMigrationPath(file)) return { kind: "datatable_migration", path: file };
-  for (const marker of [".resource.file.", ".fileset/"]) {
-    const i = file.indexOf(marker);
-    if (i > 0) return { kind: "resource", path: file.slice(0, i) };
-  }
+  const sidecar = file.indexOf(".resource.file.");
+  if (sidecar > 0) return { kind: "resource", path: file.slice(0, sidecar) };
   let kind: string;
   try {
     kind = getTypeStrFromPath(file);
@@ -242,9 +249,17 @@ const WITHHELD_KINDS = new Set([...VALUE_WITHHELD_KINDS, "encryption_key"]);
 const INSTRUCTION_RESOURCE_TYPES = new Set([REVIEW_INSTRUCTIONS_RESOURCE_TYPE, "ai_instruction"]);
 
 /** Whether `item` is an instruction resource on every revision that defines it. Each side is
- * judged on its own: a resource retyped on either side holds credentials on the other. */
+ * judged on its own: a resource retyped on either side holds credentials on the other. Any
+ * changed file beside the resource's own definition and body (a workspace-specific variant, a
+ * fileset child) may hold credentials of its own, so it withholds the whole item. */
 function isInstructionResource(item: ChangedItem, revs: string[]): boolean {
   if (item.kind !== "resource") return false;
+  const ownFile = (file: string) => {
+    if (!file.startsWith(`${item.path}.resource.`)) return false;
+    const rest = file.slice(item.path.length + ".resource.".length);
+    return rest === "yaml" || rest === "json" || /^file\.[^./]+$/.test(rest);
+  };
+  if (!item.files.every((f) => ownFile(f.file))) return false;
   let defined = false;
   for (const rev of revs) {
     for (const file of [`${item.path}.resource.yaml`, `${item.path}.resource.json`]) {
@@ -311,10 +326,10 @@ export function buildReviewPrompt(baseSha: string, headSha: string) {
     let failed = false;
     for (const { file, status } of item.files) {
       const shown = numberDiff(
-        git(["diff", "--no-color", "--no-ext-diff", `-U${MODEL_DIFF_CONTEXT}`, mergeBase, headSha, "--", file]),
+        git(["diff", "--no-color", "--no-ext-diff", `-U${MODEL_DIFF_CONTEXT}`, mergeBase, headSha, "--", `:(literal)${file}`]),
       );
       const commentable = numberDiff(
-        git(["diff", "--no-color", "--no-ext-diff", `-U${GITHUB_DIFF_CONTEXT}`, mergeBase, headSha, "--", file]),
+        git(["diff", "--no-color", "--no-ext-diff", `-U${GITHUB_DIFF_CONTEXT}`, mergeBase, headSha, "--", `:(literal)${file}`]),
       );
       if (!shown || !commentable) {
         failed = true;
