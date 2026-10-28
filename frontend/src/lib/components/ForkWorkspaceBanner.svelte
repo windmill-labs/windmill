@@ -47,8 +47,14 @@
 	let showBanner = $derived(isFork && isNotOperator)
 
 	// Drafts in this fork. Pass undefined when the banner is hidden so it doesn't fetch.
-	const drafts = useWorkspaceDrafts(() => (showBanner ? ($workspaceStore ?? undefined) : undefined))
-	const draftCount = $derived(drafts.count)
+	// Drafts cloned in from the parent and never edited are left out, as the draft view
+	// the badge opens hides them; counting them shows a fresh fork's badge over an empty list.
+	const drafts = useWorkspaceDrafts(
+		() => (showBanner ? ($workspaceStore ?? undefined) : undefined),
+		() => false,
+		() => parentWorkspaceId ?? undefined
+	)
+	const draftCount = $derived(drafts.items.filter((d) => d.unchanged_from_parent !== true).length)
 
 	/** Bar width from which each badge says what it counts. Below it they keep the icon and the
 	 *  number, which is the part a reader scans for; the tooltip names them either way. */
