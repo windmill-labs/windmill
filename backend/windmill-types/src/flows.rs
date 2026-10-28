@@ -539,6 +539,7 @@ pub struct ExponentialDelay {
     pub attempts: u32,
     pub multiplier: u16,
     pub seconds: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub random_factor: Option<i8>,
 }
 
@@ -1698,6 +1699,23 @@ mod tests {
         // A fully-default retry serializes to an empty object.
         let empty = serde_json::to_value(&Retry::default()).unwrap();
         assert_eq!(empty, json!({}));
+    }
+
+    #[test]
+    fn exponential_retry_without_random_factor_omits_it() {
+        // A non-default exponential retry with no random_factor must not gain
+        // random_factor:null on a round-trip (the flow-dependencies job writes
+        // that value back to flow.yaml, and the CLI linter rejects null).
+        let input = json!({ "exponential": { "attempts": 3, "multiplier": 1, "seconds": 2 } });
+        let retry: Retry = serde_json::from_value(input.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&retry).unwrap(), input);
+
+        // A set random_factor still round-trips.
+        let input = json!({
+            "exponential": { "attempts": 3, "multiplier": 1, "seconds": 2, "random_factor": 10 }
+        });
+        let retry: Retry = serde_json::from_value(input.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&retry).unwrap(), input);
     }
 
     #[test]
