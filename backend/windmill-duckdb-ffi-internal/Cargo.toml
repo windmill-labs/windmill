@@ -12,8 +12,10 @@ chrono = "0.4.41"
 # f64 → (mantissa, scale) inference.
 #
 # Pinned exactly, so `cargo update` cannot move the engine (and the prebuilt extensions it
-# must match) under us.
-duckdb = { version = "=1.10506.0", features = [
+# must match) under us. DuckDB 2.0.0 (duckdb-rs 1.20000.0) is not on crates.io yet: this is
+# duckdb/duckdb-rs#913's head, which vendors the v2.0.0 tag. Move back to the crates.io release
+# once it is published.
+duckdb = { git = "https://github.com/duckdb/duckdb-rs", rev = "c4532aa5b054a2e8898870c75e7bd3425491b07d", features = [
     "bundled",
     "rust_decimal",
 ] }

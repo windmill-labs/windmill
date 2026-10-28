@@ -219,6 +219,17 @@ fn configure_duckdb_resource_limits(
     Ok(())
 }
 
+// DuckDB 2.0 defaults that would break scripts written for 1.x, reverted so they keep running
+// unchanged; a script can SET either back. `lambda_syntax` is removed in DuckDB 2.1, which
+// will make `x -> ...` lambdas an error again.
+fn keep_duckdb_1x_semantics(conn: &duckdb::Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "SET lambda_syntax='enable_single_arrow';
+        SET error_on_division_by_zero=false;",
+    )
+    .map_err(|e| format!("Error applying DuckDB 1.x compatibility settings: {e}"))
+}
+
 fn setup_duckdb_connection(
     conn: &duckdb::Connection,
     token: &str,
@@ -227,6 +238,7 @@ fn setup_duckdb_connection(
     limits: &ResourceLimits,
 ) -> Result<(), String> {
     configure_duckdb_resource_limits(conn, limits)?;
+    keep_duckdb_1x_semantics(conn)?;
 
     let (s3_access_key, s3_secret_key) = token.rsplit_once('.').unwrap_or(("", token));
     let (s3_endpoint_ssl, s3_endpoint) = base_internal_url
@@ -1014,6 +1026,21 @@ mod temporal_json_tests {
             duckdb_time_to_iso(TimeUnit::Microsecond, 37_800_500_000).as_deref(),
             Some("10:30:00.500")
         );
+    }
+
+    #[test]
+    fn scripts_written_for_duckdb_1x_keep_their_semantics() {
+        let conn = duckdb::Connection::open_in_memory().unwrap();
+        keep_duckdb_1x_semantics(&conn).unwrap();
+        let (lambda, int_div, modulo): (String, Option<i64>, Option<i64>) = conn
+            .query_row(
+                "SELECT list_transform([1, 2], x -> x + 1)::VARCHAR, 1 // 0, 1 % 0",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(lambda, "[2, 3]");
+        assert_eq!((int_div, modulo), (None, None));
     }
 
     #[test]
