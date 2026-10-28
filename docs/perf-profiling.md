@@ -73,6 +73,10 @@ versions.
   formats a summary for every statement. Never read allocations from a `PERF_SQL=1` run.
 - **The sampler's own work is excluded.** `IN_SAMPLER` stops the backtrace's allocations from
   being counted. Keep it if you change how samples are captured, or idle reads tens of MB/s.
+- **`RUST_BACKTRACE` and `RUST_LIB_BACKTRACE` must be unset (or `0`).** Sampling takes std's
+  backtrace lock, which is not reentrant. With either variable enabled, errors capture
+  backtraces of their own, and an allocation made under that lock can deadlock the sampler.
+  The harness refuses to start when either is set.
 - **Deployed Bun scripts need a NULL lock.** `''` fails at run time with "expected //bun.lock
   split pattern".
 - **Disk.** The test build shares `target/` with the dev backend, but the first build also

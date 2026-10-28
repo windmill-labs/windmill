@@ -379,6 +379,16 @@ async fn profile_workload(db: Pool<Postgres>, name: &str, payload: impl Fn() -> 
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(30);
+    // `capture` takes std's non-reentrant backtrace lock. With either variable enabled, any
+    // `anyhow::Error` captures a backtrace too, and an allocation it makes under that lock can
+    // land on a sample point and deadlock the thread.
+    for var in ["RUST_BACKTRACE", "RUST_LIB_BACKTRACE"] {
+        let enabled = std::env::var(var).is_ok_and(|v| v != "0");
+        assert!(
+            !enabled,
+            "unset {var}: it can deadlock the allocation sampler"
+        );
+    }
     init_sql_counting();
     set_jwt_secret().await;
     let server = ApiServer::start(db.clone()).await.unwrap();
@@ -450,7 +460,9 @@ async fn profile_workload(db: Pool<Postgres>, name: &str, payload: impl Fn() -> 
     let _ = tokio::time::timeout(Duration::from_secs(30), worker).await;
     let _ = server.close().await;
 
-    let dir = std::env::var("PERF_OUT").map_or_else(|_| std::env::temp_dir(), Into::into);
+    let dir: std::path::PathBuf =
+        std::env::var("PERF_OUT").map_or_else(|_| std::env::temp_dir(), Into::into);
+    std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join(format!("{name}.txt")), &out).unwrap();
     println!("{out}");
 }
