@@ -92,7 +92,10 @@
 		/>
 	</label>
 	<label class="flex flex-col gap-1">
-		<span class="text-xs text-secondary">Audience (optional, checked against the token's aud)</span>
+		<span class="text-xs text-secondary"
+			>Audience (checked against the token's aud; when empty, only tokens typed as access tokens are
+			accepted)</span
+		>
 		<TextInput bind:value={form.audience} inputProps={{ placeholder: 'windmill', disabled }} />
 	</label>
 	<div class="flex gap-2">

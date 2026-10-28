@@ -155,7 +155,10 @@ Symbols, not line numbers, are cited: they drift less.
   reaches `login_externally` with `email_asserted = false`.
 - **MCP access tokens from an external issuer** (`mcp_external_idp`, EE, `mcp/external_idp.rs`):
   taken only for a JWT whose unverified `iss` is the configured issuer, then verified against its
-  discovery JWKS. The token's client claim (`azp` by default) must name a configured client, and
+  discovery JWKS. With no audience configured, only a token typed as an access token (`at+jwt`
+  header, or a `Bearer` `typ` claim) is taken, so a client's ID token cannot stand in for one;
+  an instance-deactivated account (`password.disabled`) is refused, since this path has no
+  Windmill token for deactivation to revoke. The token's client claim (`azp` by default) must name a configured client, and
   its email claim an existing, enabled member of that client's workspace: no account is created,
   and a client-credentials token (no user) is refused with 403. The groups claim named by
   `sso_groups_claim` is reconciled into instance groups as at an SSO login, and the identity is

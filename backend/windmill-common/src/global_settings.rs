@@ -621,8 +621,14 @@ pub fn parse_mcp_external_idp(
             Err("clients need an issuer".to_string())
         };
     }
-    if !idp.issuer.starts_with("https://") && !idp.issuer.starts_with("http://") {
-        return Err("issuer must be an http(s) URL".to_string());
+    // Its keys are fetched from it: over plain http anyone on the path could forge tokens.
+    let local = ["http://localhost", "http://127.0.0.1"].iter().any(|p| {
+        idp.issuer
+            .strip_prefix(p)
+            .is_some_and(|r| r.is_empty() || r.starts_with([':', '/']))
+    });
+    if !idp.issuer.starts_with("https://") && !local {
+        return Err("issuer must be an https URL".to_string());
     }
     if idp.client_claim.trim().is_empty() || idp.email_claim.trim().is_empty() {
         return Err("claim names must not be empty".to_string());

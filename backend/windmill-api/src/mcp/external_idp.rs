@@ -155,6 +155,7 @@ async fn verify(idp: &McpExternalIdp, token: &str) -> anyhow::Result<(Value, u64
     let header = jsonwebtoken::decode_header(token)?;
     let kid = header
         .kid
+        .clone()
         .ok_or_else(|| anyhow::anyhow!("token has no kid"))?;
     let (key, alg) = decoding_key(&idp.issuer, &kid, header.alg).await?;
     let mut validation = Validation::new(alg);
@@ -166,9 +167,16 @@ async fn verify(idp: &McpExternalIdp, token: &str) -> anyhow::Result<(Value, u64
     }
     let claims = jsonwebtoken::decode::<Value>(token, &key, &validation)?.claims;
     // Without an audience to check, an ID token of the same client would pass for an access
-    // token: refuse what the issuer marks as one.
-    if claims.get("typ").and_then(Value::as_str) == Some("ID") {
-        anyhow::bail!("an ID token is not an access token");
+    // token: the token must then name itself one (RFC 9068 `at+jwt`, or Keycloak's `Bearer`).
+    if idp.audience.is_none() {
+        let header_typ = header.typ.as_deref().unwrap_or_default();
+        let claim_typ = claims
+            .get("typ")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !header_typ.eq_ignore_ascii_case("at+jwt") && !claim_typ.eq_ignore_ascii_case("Bearer") {
+            anyhow::bail!("not marked as an access token; configure an audience to accept it");
+        }
     }
     let exp = claims.get("exp").and_then(Value::as_u64).unwrap_or(0);
     Ok((claims, exp))
@@ -252,6 +260,18 @@ async fn resolve(
             Some(w_id),
             format!("{email} is not verified at the issuer"),
         ));
+    }
+
+    // Instance deactivation sets `password.disabled` and revokes Windmill's own tokens; this
+    // path has none to revoke, so it reads the flag itself.
+    let deactivated: Option<bool> =
+        sqlx::query_scalar("SELECT disabled FROM password WHERE email = $1")
+            .bind(&email)
+            .fetch_optional(db)
+            .await
+            .map_err(|e| refuse(Some(w_id), e.to_string()))?;
+    if deactivated == Some(true) {
+        return Err(refuse(Some(w_id), format!("{email} is deactivated")));
     }
 
     sync_groups(db, claims, &email).await.map_err(|e| {
