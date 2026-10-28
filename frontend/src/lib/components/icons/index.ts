@@ -322,6 +322,15 @@ import LeonardoAiIcon from './LeonardoAiIcon.svelte'
 import LocalContextsIcon from './LocalContextsIcon.svelte'
 import WeatherApiIcon from './WeatherApiIcon.svelte'
 import WebScrapingAiIcon from './WebScrapingAiIcon.svelte'
+import ArubaIcon from './ArubaIcon.svelte'
+import F5Icon from './F5Icon.svelte'
+import FortinetIcon from './FortinetIcon.svelte'
+import InfobloxIcon from './InfobloxIcon.svelte'
+import IpFabricIcon from './IpFabricIcon.svelte'
+import NetskopeIcon from './NetskopeIcon.svelte'
+import PaloAltoIcon from './PaloAltoIcon.svelte'
+import SplunkIcon from './SplunkIcon.svelte'
+import TufinIcon from './TufinIcon.svelte'
 import type { Component } from 'svelte'
 /**
  * ./triggers/ holds desaturated variants of some marks in this folder, used by the four
@@ -689,6 +698,18 @@ export const APP_TO_ICON_COMPONENT = {
 	localcontexts: LocalContextsIcon,
 	weatherapi: WeatherApiIcon,
 	webscrapingai: WebScrapingAiIcon,
+	aruba_central_onprem: ArubaIcon,
+	aruba_instant: ArubaIcon,
+	awx: AnsibleIcon,
+	f5_bigip: F5Icon,
+	fortimanager: FortinetIcon,
+	fortigate: FortinetIcon,
+	infoblox: InfobloxIcon,
+	ip_fabric: IpFabricIcon,
+	netskope: NetskopeIcon,
+	palo_alto: PaloAltoIcon,
+	splunk: SplunkIcon,
+	tufin: TufinIcon,
 	oauth_client_credentials: OauthIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
 
@@ -1010,5 +1031,14 @@ export {
 	DbtIcon,
 	ShutterstockIcon,
 	TaskadeIcon,
+	ArubaIcon,
+	F5Icon,
+	FortinetIcon,
+	InfobloxIcon,
+	IpFabricIcon,
+	NetskopeIcon,
+	PaloAltoIcon,
+	SplunkIcon,
+	TufinIcon,
 	OauthIcon
 }
