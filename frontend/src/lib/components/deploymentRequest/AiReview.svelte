@@ -93,6 +93,21 @@
 
 	$effect(() => () => abortController?.abort())
 
+	// A review answers for the workspaces it ran in. The same paths in another workspace are
+	// other items, so a switch drops the result and any review still running, rather than
+	// leaving it to read as current there.
+	$effect(() => {
+		void workspaceId
+		void instructionsWorkspaceId
+		return () => {
+			abortController?.abort()
+			running = false
+			result = undefined
+			error = undefined
+			reviewed = undefined
+		}
+	})
+
 	function stop() {
 		abortController?.abort()
 		running = false
