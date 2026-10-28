@@ -81,7 +81,6 @@ struct SettingsRow {
     deploy_ui: Option<Value>,
     teams_command_script: Option<String>,
     public_app_execution_limit_per_minute: Option<i32>,
-    guest_access_enabled: Option<bool>,
     guest_jwt_public_key: Option<String>,
     guest_jwt_jwks_url: Option<String>,
     error_handler_fallback_to_instance_alerts: Option<bool>,
@@ -272,16 +271,18 @@ async fn protection_rules_document(conn: &mut PgConnection, w_id: &str) -> Resul
     .await?;
     Ok(Value::Object(
         rows.into_iter()
-            .map(|(name, bits, bypass_groups, bypass_users, fork_role_mapping)| {
-                let rules = ProtectionRules::from_bits_truncate(bits);
-                let mut rule = json!({
-                    "rules": rule_kinds(rules),
-                    "bypass_groups": bypass_groups,
-                    "bypass_users": bypass_users,
-                });
-                with_fork_role_mapping(&mut rule, fork_role_mapping);
-                (name, rule)
-            })
+            .map(
+                |(name, bits, bypass_groups, bypass_users, fork_role_mapping)| {
+                    let rules = ProtectionRules::from_bits_truncate(bits);
+                    let mut rule = json!({
+                        "rules": rule_kinds(rules),
+                        "bypass_groups": bypass_groups,
+                        "bypass_users": bypass_users,
+                    });
+                    with_fork_role_mapping(&mut rule, fork_role_mapping);
+                    (name, rule)
+                },
+            )
             .collect(),
     ))
 }
@@ -312,7 +313,7 @@ pub async fn load_settings_document(
              git_sync, default_app, default_scripts, workspace.name AS name, mute_critical_alerts,
              color, operator_settings, datatable, slack_team_id, slack_name, slack_command_script,
              slack_oauth_client_id, slack_oauth_client_secret, ducklake, dbt_warehouses, deploy_ui,
-             teams_command_script, public_app_execution_limit_per_minute, guest_access_enabled,
+             teams_command_script, public_app_execution_limit_per_minute,
              guest_jwt_public_key, guest_jwt_jwks_url, error_handler_fallback_to_instance_alerts,
              add_admins_and_developers_to_forks
          FROM workspace_settings
@@ -360,7 +361,7 @@ pub async fn load_settings_document(
     // In the order `wmill sync pull` has always written settings.yaml. A key that predates the
     // document and is not marked `always` is written only when set, as it always was; a key
     // added since is always written, so a pulled file states it and from then on manages it.
-    let entries: [(&str, Option<Value>, bool); 32] = [
+    let entries: [(&str, Option<Value>, bool); 31] = [
         ("auto_invite", row.auto_invite, false),
         ("webhook", row.webhook.map(Value::String), false),
         ("error_handler", row.error_handler, true),
@@ -416,11 +417,6 @@ pub async fn load_settings_document(
         (
             "public_app_execution_limit_per_minute",
             row.public_app_execution_limit_per_minute.map(|n| json!(n)),
-            true,
-        ),
-        (
-            "guest_access_enabled",
-            Some(json!(row.guest_access_enabled.unwrap_or(false))),
             true,
         ),
         (
@@ -565,7 +561,6 @@ fn same(a: Option<&Value>, b: Option<&Value>) -> bool {
 /// Switches the endpoint stores as `false` when cleared, compared as `false` when unset.
 const FALSE_WHEN_UNSET: &[&str] = &[
     "mute_critical_alerts",
-    "guest_access_enabled",
     "add_admins_and_developers_to_forks",
     "error_handler_fallback_to_instance_alerts",
 ];
@@ -690,6 +685,10 @@ fn resolve_secret(
     }
 }
 
+/// Keys earlier versions wrote that no longer configure anything. A synced `settings.yaml`
+/// keeps them until its next pull, so they are dropped without the unknown-key warning.
+const RETIRED_KEYS: &[&str] = &["guest_access_enabled"];
+
 const KNOWN_KEYS: &[&str] = &[
     "auto_invite",
     "webhook",
@@ -716,7 +715,6 @@ const KNOWN_KEYS: &[&str] = &[
     "deploy_ui",
     "teams_command_script",
     "public_app_execution_limit_per_minute",
-    "guest_access_enabled",
     "guest_jwt_public_key",
     "guest_jwt_jwks_url",
     "error_handler_fallback_to_instance_alerts",
@@ -1072,7 +1070,7 @@ fn plan_document(
     let unknown: Vec<&str> = desired
         .keys()
         .map(String::as_str)
-        .filter(|k| !KNOWN_KEYS.contains(k))
+        .filter(|k| !KNOWN_KEYS.contains(k) && !RETIRED_KEYS.contains(k))
         .collect();
     if !unknown.is_empty() {
         warnings.push(format!("Ignored unknown settings: {}", unknown.join(", ")));
@@ -1540,14 +1538,6 @@ fn plan_document(
         |v| json!({ "public_app_execution_limit_per_minute": v }),
     );
 
-    let guest_access = null_as_false(p.managed("guest_access_enabled"));
-    p.simple(
-        "guest_access_enabled",
-        guest_access,
-        Target::Edit(SettingsEdit::GuestAccess),
-        |v| json!({ "guest_access_enabled": v.as_bool().unwrap_or(false) }),
-    );
-
     let (public_key, jwks_url) = (
         p.managed("guest_jwt_public_key"),
         p.managed("guest_jwt_jwks_url"),
@@ -2008,13 +1998,24 @@ mod tests {
     #[test]
     fn unset_switches_compare_as_false() {
         let mc = WorkspaceCrypt::new("k");
-        let d = doc(json!({ "mute_critical_alerts": false, "guest_access_enabled": null }));
+        let d = doc(json!({
+            "mute_critical_alerts": false,
+            "add_admins_and_developers_to_forks": null
+        }));
         assert!(
             plan_document(current(), d, false, &mc, &DatatableNames::default())
                 .unwrap()
                 .changes
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn retired_keys_are_dropped_without_a_warning() {
+        let mc = WorkspaceCrypt::new("k");
+        let d = doc(json!({ "guest_access_enabled": true }));
+        let p = plan_document(current(), d, false, &mc, &DatatableNames::default()).unwrap();
+        assert!(p.changes.is_empty() && p.writes.is_empty() && p.warnings.is_empty());
     }
 
     #[test]
@@ -2033,7 +2034,6 @@ mod tests {
     fn mistyped_values_are_refused_rather_than_coerced() {
         let mc = WorkspaceCrypt::new("k");
         for d in [
-            json!({ "guest_access_enabled": "true" }),
             json!({ "add_admins_and_developers_to_forks": 1 }),
             json!({ "slack_oauth_client_id": 123 }),
             json!({ "error_handler": { "path": "f/x", "muted_on_cancel": "yes" } }),
