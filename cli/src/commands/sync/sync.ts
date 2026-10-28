@@ -14,7 +14,7 @@ import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import * as log from "../../core/log.ts";
-import { SETTINGS_MANAGED_ONLY_WHEN_PRESENT } from "../../core/settings.ts";
+import { RETIRED_SETTINGS, SETTINGS_MANAGED_ONLY_WHEN_PRESENT } from "../../core/settings.ts";
 import * as path from "node:path";
 import { sep as SEP } from "node:path";
 import {
@@ -2606,6 +2606,10 @@ const isWorkspaceSettingsFile = (p: string) =>
 function stripUnappliedSettingsFields(local: any, remote: any) {
   delete local?.name;
   delete remote?.name;
+  for (const key of RETIRED_SETTINGS) {
+    delete local?.[key];
+    delete remote?.[key];
+  }
   for (const key of ["operator_settings", ...SETTINGS_MANAGED_ONLY_WHEN_PRESENT]) {
     if (local?.[key] === undefined) delete remote?.[key];
   }

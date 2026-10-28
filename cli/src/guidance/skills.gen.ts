@@ -8509,7 +8509,7 @@ write a secret you were not given: keep the placeholder.
 | \`slack_command_script\` / \`teams_command_script\` | Script or flow handling the Slack / Teams command. |
 | \`slack_oauth_client_id\` / \`slack_oauth_client_secret\` | The workspace's own Slack OAuth app. Clearing either removes both. |
 | \`public_app_execution_limit_per_minute\` | Rate limit for public apps, \`null\` for none. |
-| \`guest_access_enabled\`, \`guest_jwt_public_key\`, \`guest_jwt_jwks_url\` | Guest access to public apps and the key that signs guest JWTs. |
+| \`guest_jwt_public_key\`, \`guest_jwt_jwks_url\` | The key that signs guest JWTs for apps set to Guests. |
 | \`add_admins_and_developers_to_forks\` | Add the workspace's admins and developers to each fork. |
 | \`color\` | Workspace color, \`#rrggbb\`. |
 
@@ -8527,8 +8527,8 @@ With \`includeSettings: true\` in \`wmill.yaml\`, \`wmill sync pull\` writes the
 \`wmill sync push\` applies it. Unlike a partial apply, a push treats the file as the whole
 document: a setting the file omits is cleared, except \`operator_settings\`, \`color\`, the auto-invite
 instance groups, and the keys \`ducklake\`, \`dbt_warehouses\`, \`deploy_ui\`, \`teams_command_script\`,
-\`public_app_execution_limit_per_minute\`, \`guest_access_enabled\`, \`guest_jwt_public_key\`,
-\`guest_jwt_jwks_url\`, \`error_handler_fallback_to_instance_alerts\` and
+\`public_app_execution_limit_per_minute\`, \`guest_jwt_public_key\`, \`guest_jwt_jwks_url\`,
+\`error_handler_fallback_to_instance_alerts\` and
 \`add_admins_and_developers_to_forks\`, which are managed only when the file states them.
 \`datatable_permissions\` is pushed only with \`includeDatatablePermissions: true\` (or
 \`--include-datatable-permissions\`). A push ignores \`protection_rules\`: \`protection-rules.yaml\` and
