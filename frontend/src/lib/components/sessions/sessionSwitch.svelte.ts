@@ -265,7 +265,8 @@ export async function openSourceInSession(
 	const opts = {
 		seedPrompt: overrides?.seedPrompt ?? source.seedPrompt,
 		autoSend: overrides?.autoSend ?? source.autoSend,
-		seedDomElement: overrides?.seedDomElement
+		seedDomElement: overrides?.seedDomElement,
+		untilStarted: overrides?.untilStarted
 	}
 	if (source.target) {
 		await openEditorInSession(
