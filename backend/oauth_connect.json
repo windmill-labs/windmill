@@ -462,6 +462,121 @@
       "access_type": "offline"
     }
   },
+  "zoho_crm": {
+    "req_body_auth": true,
+    "extra_params": {
+      "access_type": "offline",
+      "prompt": "consent"
+    },
+    "scopes": [
+      "ZohoCRM.modules.ALL",
+      "ZohoCRM.settings.modules.READ",
+      "ZohoCRM.settings.fields.READ"
+    ],
+    "scope_options": [
+      {
+        "value": "ZohoCRM.modules.ALL",
+        "label": "Read, create, edit and delete records, notes and attachments"
+      },
+      {
+        "value": "ZohoCRM.modules.READ",
+        "label": "Read records only"
+      },
+      {
+        "value": "ZohoCRM.settings.modules.READ",
+        "label": "List modules"
+      },
+      {
+        "value": "ZohoCRM.settings.fields.READ",
+        "label": "List fields"
+      },
+      {
+        "value": "ZohoCRM.users.READ",
+        "label": "List users"
+      },
+      {
+        "value": "ZohoCRM.coql.READ",
+        "label": "Run COQL queries"
+      }
+    ],
+    "connect_config_template": {
+      "display_name": "Zoho CRM",
+      "label": "Zoho data centre domain",
+      "placeholder": "com, eu, in, com.au, jp, sa, uk or com.cn",
+      "help_url": "https://www.zoho.com/crm/developer/docs/api/v8/multi-dc.html",
+      "auth_url": "https://accounts.zoho.{instance}/oauth/v2/auth",
+      "token_url": "https://accounts.zoho.{instance}/oauth/v2/token",
+      "req_body_auth": true,
+      "scopes": [
+        "ZohoCRM.modules.ALL",
+        "ZohoCRM.settings.modules.READ",
+        "ZohoCRM.settings.fields.READ"
+      ],
+      "resource_mapping": {
+        "api_domain": "https://www.zohoapis.{instance}"
+      }
+    }
+  },
+  "zoho_books": {
+    "req_body_auth": true,
+    "resource_fields": ["organization_id"],
+    "extra_params": {
+      "access_type": "offline",
+      "prompt": "consent"
+    },
+    "scopes": [
+      "ZohoBooks.fullaccess.all"
+    ],
+    "scope_options": [
+      {
+        "value": "ZohoBooks.fullaccess.all",
+        "label": "Full access to all Books modules"
+      },
+      {
+        "value": "ZohoBooks.settings.ALL",
+        "label": "Organizations, items, taxes and other settings"
+      },
+      {
+        "value": "ZohoBooks.contacts.ALL",
+        "label": "Customers and vendors"
+      },
+      {
+        "value": "ZohoBooks.invoices.ALL",
+        "label": "Invoices"
+      },
+      {
+        "value": "ZohoBooks.estimates.ALL",
+        "label": "Estimates"
+      },
+      {
+        "value": "ZohoBooks.salesorders.ALL",
+        "label": "Sales orders"
+      },
+      {
+        "value": "ZohoBooks.customerpayments.ALL",
+        "label": "Customer payments"
+      },
+      {
+        "value": "ZohoBooks.expenses.ALL",
+        "label": "Expenses"
+      }
+    ],
+    "connect_config_template": {
+      "display_name": "Zoho Books",
+      "label": "Zoho data centre domain",
+      "placeholder": "com, eu, in, com.au, jp, sa, uk or com.cn",
+      "help_url": "https://www.zoho.com/books/api/v3/introduction/#multidc",
+      "auth_url": "https://accounts.zoho.{instance}/oauth/v2/auth",
+      "token_url": "https://accounts.zoho.{instance}/oauth/v2/token",
+      "req_body_auth": true,
+      "scopes": [
+        "ZohoBooks.fullaccess.all"
+      ],
+      "resource_mapping": {
+        "api_domain": "https://www.zohoapis.{instance}"
+      }
+    }
+  },
   "snowflake_oauth": {
     "resource_fields": ["database", "warehouse", "role", "schema"],
     "connect_config_template": {
