@@ -118,7 +118,6 @@
 		currentEditor: writable(undefined),
 		modulesTestStates: new ModulesTestStates(),
 		outputPickerOpenFns: {},
-		preserveOnBehalfOf: writable(false),
 		savedOnBehalfOfEmail: writable<string | undefined>(undefined),
 		savedOnBehalfOfPermissionedAs: writable<string | undefined>(undefined)
 	})

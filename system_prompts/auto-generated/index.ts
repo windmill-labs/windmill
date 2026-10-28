@@ -51,6 +51,13 @@ export function getResourcePrompt(): string {
   ].filter(Boolean).join('\n\n');
 }
 
+// Helper for AI agent authoring
+export function getAgentPrompt(): string {
+  return [
+    prompts.AGENT_BASE
+  ].filter(Boolean).join('\n\n');
+}
+
 // Helper for raw app authoring (chat consumers). Inline backend runnables are
 // ordinary Windmill jobs, so the reference has to carry the SDK the runnable
 // calls — without it an agent invents client functions and hand-rolls HTTP.

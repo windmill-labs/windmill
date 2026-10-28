@@ -21,6 +21,7 @@
 		storeLocalSetting
 	} from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
+	import { latestRequest } from '$lib/utils/latestRequest'
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { enterpriseLicense, usedTriggerKinds, workspaceStore } from '$lib/stores'
 	import { goto, setQuery } from '$lib/navigation'
@@ -129,9 +130,7 @@
 	}
 	const Icon = $derived(ICONS[triggerKind])
 
-	type TriggerW = TriggerRow & { canWrite: boolean }
-
-	let triggers: TriggerW[] = $state([])
+	let triggers: TriggerRow[] = $state([])
 	let loading = $state(true)
 	let editor: EditorHandle | undefined = $state()
 	let shareModal: ShareModal | undefined = $state()
@@ -168,13 +167,14 @@
 			.catch(() => (globalHttpWorkspacedRoute = false))
 	}
 
+	const triggerLoads = latestRequest()
+
 	async function loadTriggers(): Promise<void> {
+		const isLatest = triggerLoads.start()
 		const workspace = $operatingWorkspace!
 		const listed = await config.list({ workspace, includeDraftOnly: true })
-		triggers = listed.map((x) => ({
-			canWrite: canWrite(x.path, x.extra_perms!, operatingUser.current),
-			...x
-		}))
+		if (!isLatest()) return
+		triggers = listed
 		// The nav rail lists the trigger kinds of the navigation workspace only.
 		if (workspace === $workspaceStore) {
 			$usedTriggerKinds = removeTriggerKindIfUnused(
@@ -184,11 +184,12 @@
 			)
 		}
 		if (triggerKind === 'email') emailDomain = await getEmailDomain()
+		if (!isLatest()) return
 		loading = false
 	}
 
 	$effect(() => {
-		if ($operatingWorkspace && operatingUser.current) {
+		if ($operatingWorkspace) {
 			untrack(() => loadTriggers())
 		}
 	})
@@ -196,7 +197,10 @@
 	let interval: ReturnType<typeof setInterval> | undefined = untrack(() => config.status)
 		? setInterval(async () => {
 				try {
+					// Peeks, so that a refresh never drops the reply of a full list in flight.
+					const isLatestLoad = triggerLoads.peek()
 					const newTriggers = await config.list({ workspace: $operatingWorkspace! })
+					if (!isLatestLoad()) return
 					for (let i = 0; i < triggers.length; i++) {
 						const newTrigger = newTriggers.find((x) => x.path === triggers[i].path)
 						if (newTrigger) {
@@ -253,7 +257,7 @@
 		return committed
 	}
 
-	async function deleteTrigger(row: TriggerW) {
+	async function deleteTrigger(row: TriggerRow) {
 		const workspace = $operatingWorkspace ?? ''
 		if (triggerKind === 'postgres' || triggerKind === 'gcp' || triggerKind === 'azure') {
 			isDeleting = false
@@ -280,7 +284,7 @@
 
 	// Kinds whose trigger owns an external subscription (a replication slot and publication, a
 	// cloud subscription) confirm the delete, offering to drop those too.
-	let pendingDelete: TriggerW | undefined = $state(undefined)
+	let pendingDelete: TriggerRow | undefined = $state(undefined)
 	let isDeleting = $state(false)
 	let deleteA = $state(false)
 	let deleteB = $state(false)
@@ -370,7 +374,7 @@
 		}
 	})
 
-	let filteredItems: (TriggerW & { marked?: any })[] | undefined = $state([])
+	let filteredItems: (TriggerRow & { marked?: any })[] | undefined = $state([])
 	let filter = $state('')
 	let ownerFilter: string | undefined = $state(undefined)
 	let nbDisplayed = $state(15)
@@ -428,7 +432,7 @@
 		})
 	})
 
-	function filterItemsPathsBaseOnUserFilters(item: TriggerW) {
+	function filterItemsPathsBaseOnUserFilters(item: TriggerRow) {
 		if ($operatingWorkspace == 'admins') return true
 		if (!filterUserFolders) return true
 		const path = selectedFilterKind === 'trigger' ? item.path : item.script_path
@@ -524,7 +528,7 @@
 	const canCreate = $derived(!config.adminOnly || isAdmin)
 </script>
 
-{#snippet rowTitle(row: TriggerW & { marked?: any }, hasDraft: boolean | undefined)}
+{#snippet rowTitle(row: TriggerRow & { marked?: any }, hasDraft: boolean | undefined)}
 	{@const marked = ['http', 'websocket', 'kafka', 'nats', 'email'].includes(triggerKind)
 		? row.marked
 		: undefined}
@@ -576,7 +580,7 @@
 	</div>
 {/snippet}
 
-{#snippet statusDot(row: TriggerW)}
+{#snippet statusDot(row: TriggerRow)}
 	{@const status = config.status}
 	{#if status}
 		{@const ping = status.pings
@@ -672,7 +676,7 @@
 	</div>
 </ConfirmationModal>
 
-{#snippet triggerRow(row: TriggerW & { marked?: any }, inTree: boolean, depth: number)}
+{#snippet triggerRow(row: TriggerRow & { marked?: any }, inTree: boolean, depth: number)}
 	{@const {
 		path,
 		edited_by,
@@ -680,7 +684,6 @@
 		script_path,
 		is_flow,
 		extra_perms,
-		canWrite,
 		mode,
 		retry,
 		error_handler_path,
@@ -720,7 +723,10 @@
 			</a>
 
 			<div class="hidden lg:flex flex-row gap-1 items-center">
-				<SharedBadge {canWrite} extraPerms={extra_perms} />
+				<SharedBadge
+					canWrite={canWrite(path, extra_perms!, operatingUser.current)}
+					extraPerms={extra_perms}
+				/>
 				{#if triggerKind !== 'http' && triggerKind !== 'azure' && labels?.length}
 					{#each labels as label}
 						<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
@@ -854,7 +860,7 @@
 {/snippet}
 
 {#snippet treeLeaf(item: ItemType, depth: number)}
-	{@render triggerRow(item as unknown as TriggerW & { marked?: any }, true, depth)}
+	{@render triggerRow(item as unknown as TriggerRow & { marked?: any }, true, depth)}
 {/snippet}
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />

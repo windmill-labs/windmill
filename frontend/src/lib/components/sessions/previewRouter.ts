@@ -19,6 +19,7 @@ import {
 	RUNS_PATH,
 	SCHEDULES_PATH,
 	barePath,
+	agentPagePath,
 	VARIABLES_PATH,
 	WORKSPACE_SETTINGS_PATH,
 	triggerLabelForPath,
@@ -496,6 +497,14 @@ export function previewLocationLabel(url: string): string {
 	if (historical) return `${historical.path.split('/').pop()} @ ${historical.hash.slice(0, 8)}`
 	const parsed = parsePreviewItemRoute(url)
 	if (parsed) return parsed.itemPath.split('/').pop() ?? parsed.itemPath
+	const agent = barePath(url).match(/^\/agents\/(?:edit|get)\/(.+)$/)
+	if (agent) {
+		let path = agent[1]
+		try {
+			path = decodeURIComponent(path)
+		} catch {}
+		return path.split('/').pop() || path
+	}
 	return barePath(url)
 }
 
@@ -628,7 +637,7 @@ export const isArtifactKey = (key: string) => key.startsWith('artifact:')
 // else (static pages, regular drag-and-drop apps, any other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
-	| { kind: 'viewer'; viewerKind: SessionTargetKind; path: string }
+	| { kind: 'viewer'; viewerKind: SessionTargetKind | 'agent'; path: string }
 	| { kind: 'artifact'; id: string; version?: number }
 	| { kind: 'runform'; toolCallId: string }
 	| { kind: 'pageitem'; ref: PageItemRef }
@@ -667,6 +676,9 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 	if (pipelineFolder) {
 		return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
 	}
+	// An agent's deployed page; its editor is the resource tab, which hosts it in process.
+	const agent = agentPagePath(url)
+	if (agent !== undefined) return { kind: 'viewer', viewerKind: 'agent', path: agent }
 	const item = parsePreviewItemRoute(url)
 	if (!item || parseHistoricalScriptEdit(url)) return { kind: 'iframe' }
 	const itemKind: SessionTargetKind | undefined =

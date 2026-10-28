@@ -17,8 +17,8 @@ use crate::server::endpoints::EndpointTool;
 /// Result type for backend operations using rmcp's ErrorData directly
 pub type BackendResult<T> = Result<T, ErrorData>;
 
-/// What a v2 token may do: read, read and run deployed scripts and flows (`mcp:read_run`),
-/// or everything its owner can.
+/// What a v2 token may do: read, read and run deployed scripts, flows and agents
+/// (`mcp:read_run`), or everything its owner can.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SessionAccess {
     ReadOnly,
@@ -265,6 +265,10 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
 
     /// The tools a token with this access is offered.
     fn session_tools(&self, access: SessionAccess) -> Vec<Tool>;
+
+    /// The MCP Apps views (`ui://` HTML) session tools render their results in, as
+    /// `(uri, html)`.
+    fn session_views(&self) -> &'static [(&'static str, &'static str)];
 
     async fn call_session_tool(
         &self,

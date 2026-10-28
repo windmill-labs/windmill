@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { composerFocusAfter } from './homeSessionsTransition.svelte'
+import { composerFocusAfter } from './homeComposerFocus'
 
 describe('composerFocusAfter', () => {
 	it('hands focus on only for the return from AI Sessions to Home', () => {

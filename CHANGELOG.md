@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.850.0](https://github.com/windmill-labs/windmill/compare/v1.849.0...v1.850.0) (2026-10-27)
+
+
+### Features
+
+* add a home setting to hide empty folders ([#12011](https://github.com/windmill-labs/windmill/issues/12011)) ([6e40940](https://github.com/windmill-labs/windmill/commit/6e4094009901f0702dc8b102390466d120361156))
+* add ai review to fork deploys and deployment requests ([#12029](https://github.com/windmill-labs/windmill/issues/12029)) ([bac1e46](https://github.com/windmill-labs/windmill/commit/bac1e463e5759add52b34e0555d2530d671b2251))
+* build MCP OAuth urls from the api base url, narrowable per surface ([#12010](https://github.com/windmill-labs/windmill/issues/12010)) ([e0da560](https://github.com/windmill-labs/windmill/commit/e0da5605163ce5157e9b605667c5e5fc85894db9))
+* forward a pinned version through the hub project export proxy ([#12022](https://github.com/windmill-labs/windmill/issues/12022)) ([7b1dce5](https://github.com/windmill-labs/windmill/commit/7b1dce5af05660ffbe1febbe04976af139569a0b))
+* name the previewed item in an empty AI session's composer ([#12021](https://github.com/windmill-labs/windmill/issues/12021)) ([6939454](https://github.com/windmill-labs/windmill/commit/6939454edb55a8df39b4fc5460f77333554f48a5))
+* show the draft badge on Home's favorite and recent cards ([#12018](https://github.com/windmill-labs/windmill/issues/12018)) ([4a34dc6](https://github.com/windmill-labs/windmill/commit/4a34dc69f544460e7893b04dbfd002f1c67125ae))
+* tool approval and a question tool for ai agent steps ([#11826](https://github.com/windmill-labs/windmill/issues/11826)) ([a1bc9ec](https://github.com/windmill-labs/windmill/commit/a1bc9ec0c27ab615460b145e59d7e7b8fdea8406))
+
+
+### Bug Fixes
+
+* add job_id, step_id and flow_path to native ts step errors ([#12012](https://github.com/windmill-labs/windmill/issues/12012)) ([2b4dfcc](https://github.com/windmill-labs/windmill/commit/2b4dfccb36493365de4e358f4f8c0fb7d7009c4a))
+* build hub script urls and cache keys from the parsed id only ([#12028](https://github.com/windmill-labs/windmill/issues/12028)) ([e2e2e7d](https://github.com/windmill-labs/windmill/commit/e2e2e7d7c4924fe29a912c603554f8545184d704))
+* compute list row rights when drawn instead of reloading ([#12023](https://github.com/windmill-labs/windmill/issues/12023)) ([b813c1b](https://github.com/windmill-labs/windmill/commit/b813c1b35d20291e0bf2ec23add0f76de7788e27))
+* detect attached -c and --no-config in DENO_FLAGS ([#12027](https://github.com/windmill-labs/windmill/issues/12027)) ([a2b91fd](https://github.com/windmill-labs/windmill/commit/a2b91fd17e785f4c707eea092bc0b993419d7d7d))
+* serve new MCP OAuth sign-ins the session toolset on the tools server URLs ([#12024](https://github.com/windmill-labs/windmill/issues/12024)) ([ee4150a](https://github.com/windmill-labs/windmill/commit/ee4150a69cca745ce3a909cefa5b9c1627a5f992))
+* show the protection-rule bypass toggle inline ([#12034](https://github.com/windmill-labs/windmill/issues/12034)) ([df2e0cd](https://github.com/windmill-labs/windmill/commit/df2e0cdb9d56a9d5cb7f3d64ed6ff2a621d0cca2))
+* stop starred items showing a starred removal in the editor diff ([#12017](https://github.com/windmill-labs/windmill/issues/12017)) ([35be14e](https://github.com/windmill-labs/windmill/commit/35be14ea27e70025b46d33fb072ad3767211eb17))
+
 ## [1.849.0](https://github.com/windmill-labs/windmill/compare/v1.848.3...v1.849.0) (2026-10-25)
 
 

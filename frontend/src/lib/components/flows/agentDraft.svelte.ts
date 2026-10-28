@@ -431,6 +431,15 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 							seedNewUntilInput = { ws, path }
 							return
 						}
+						// A view of what is deployed finding nothing there is that view's ordinary state for a
+						// draft-only agent, not a failure: it says so rather than refusing with a toast.
+						if (opts.deployedOnly?.() && (err as { status?: number })?.status === 404) {
+							loading = false
+							state = undefined
+							deployed = undefined
+							noDeployed = true
+							return
+						}
 						// A failed load knows neither the resource's type nor its value, so it refuses:
 						// clearing `loading` alone would let the sync restore a persisted draft into a form
 						// that would then deploy over a resource nobody read.

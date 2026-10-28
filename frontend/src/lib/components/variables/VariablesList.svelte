@@ -39,6 +39,7 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { isOwner, truncate } from '$lib/utils'
+	import { latestRequest } from '$lib/utils/latestRequest'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 	import {
@@ -76,9 +77,7 @@
 		else variableEditor?.editVariable(path)
 	}
 
-	type ListableVariableW = ListableVariable & { canWrite: boolean }
-
-	let variables = $state(undefined) as ListableVariableW[] | undefined
+	let variables = $state(undefined) as ListableVariable[] | undefined
 	let showCreateButtons = $state(false)
 
 	// Collect unique values for filter autocomplete
@@ -108,8 +107,8 @@
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => variablesFilterSchema))
 	// A link can carry the user folders filter to someone it is not offered to, where it would sit
-	// set with no chip to clear it. Dropped only once a user is actually known: `resolved` holds for
-	// the navigation workspace even while its user is still loading.
+	// set with no chip to clear it. Dropped only once a user is actually known: `resolved` also
+	// holds for a lookup that came back with nobody.
 	$effect(() => {
 		if (!operatingUser.resolved($operatingWorkspace) || !operatingUser.current) return
 		if (userFoldersFilterType !== undefined) return
@@ -171,8 +170,12 @@
 		return items
 	})
 
+	const variableLoads = latestRequest()
+	const contextualLoads = latestRequest()
+
 	// If relative, the dropdown is positioned relative to its button
 	async function loadVariables(): Promise<void> {
+		const isLatest = variableLoads.start()
 		const currentFilters = filters.val
 
 		// Build API parameters from filters.
@@ -207,14 +210,8 @@
 			apiParams.label = currentFilters.label
 		}
 
-		const result = (await VariableService.listVariable(apiParams)).map((x) => {
-			return {
-				canWrite:
-					editRights.canEditItem('variable', x.path, x.extra_perms) &&
-					x.workspace_id == $operatingWorkspace,
-				...x
-			}
-		})
+		const result = await VariableService.listVariable(apiParams)
+		if (!isLatest()) return
 
 		// Extract unique values for autocomplete
 		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
@@ -249,9 +246,12 @@
 	getDeployUiSettings()
 
 	async function loadContextualVariables(): Promise<void> {
-		contextualVariables = await VariableService.listContextualVariables({
+		const isLatest = contextualLoads.start()
+		const result = await VariableService.listContextualVariables({
 			workspace: $operatingWorkspace!
 		})
+		if (!isLatest()) return
+		contextualVariables = result
 		loading.contextual = false
 	}
 
@@ -265,11 +265,8 @@
 	}
 
 	$effect(() => {
-		if ($operatingWorkspace && operatingUser.current) {
-			untrack(() => {
-				loadVariables()
-				loadContextualVariables()
-			})
+		if ($operatingWorkspace) {
+			untrack(() => loadContextualVariables())
 		}
 	})
 	let tab: 'workspace' | 'contextual' = $state('workspace')
@@ -442,9 +439,12 @@
 								</tr>
 							</Head>
 							<tbody class="divide-y">
-								{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels, inherited_labels, ws_specific, draft_only, is_draft, value_valid_until }}
+								{#each filteredItems as { path, value, is_secret, description, extra_perms, workspace_id, account, is_refreshed, is_expired, refresh_error, is_linked, labels, inherited_labels, ws_specific, draft_only, is_draft, value_valid_until }}
 									{@const hasDraft =
 										getLocalDraftHint($operatingWorkspace, 'variable', path) ?? is_draft}
+									{@const canWrite =
+										editRights.canEditItem('variable', path, extra_perms) &&
+										workspace_id == $operatingWorkspace}
 									<Row>
 										<Cell class="!px-0 text-center w-12" first>
 											<SharedBadge {canWrite} extraPerms={extra_perms} />

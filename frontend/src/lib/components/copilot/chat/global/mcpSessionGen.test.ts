@@ -54,6 +54,16 @@ const DESCRIPTION_REWRITES: [tool: string, from: string, to: string][] = [
 		" Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. In an AI session the user can open that form on the flow's own deployed page instead; either way this call waits for them and runs what they confirm.",
 		' It runs with exactly the `args` you send.'
 	],
+	[
+		'test_run_agent',
+		' The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer.',
+		' It runs with exactly the `args` you send.'
+	],
+	[
+		'run_agent',
+		' Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs.',
+		' It runs with exactly the `args` you send.'
+	],
 	['create_resource_type', ' once the user confirms the schema', ''],
 	['set_workspace_settings', ' The user reviews the changes before they apply.', '']
 ]
