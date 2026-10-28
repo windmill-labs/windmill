@@ -30,6 +30,13 @@ export function formatMention(name: string): string {
 	return BARE_SAFE.test(name) ? `@${name}` : `@[${name.replace(/[\\\]]/g, '\\$&')}]`
 }
 
+/** A draft-only item is mentioned by its draft path while `path` stays its generated
+ * `draft_<uuid>` storage path, which is what tools resolve; the prompt names both so
+ * the model ties the `@` token in the message to the item. */
+export function mentionedAs(item: { path: string; title: string }): string {
+	return item.title && item.title !== item.path ? `, mentioned as: ${item.title}` : ''
+}
+
 function isWordChar(char: string | undefined): boolean {
 	return char !== undefined && /[\p{L}\p{N}\p{M}_]/u.test(char)
 }

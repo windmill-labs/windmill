@@ -9,11 +9,20 @@
 	let {
 		kind,
 		path,
+		displayPath,
 		summary,
 		rawApp
-	}: { kind: BulkKind; path: string; summary?: string; rawApp?: boolean } = $props()
+	}: {
+		kind: BulkKind
+		path: string
+		displayPath?: string
+		summary?: string
+		rawApp?: boolean
+	} = $props()
 
-	let element = $derived(itemContextElement({ kind, path, summary: summary || undefined, rawApp }))
+	let element = $derived(
+		itemContextElement({ kind, path, displayPath, summary: summary || undefined, rawApp })
+	)
 </script>
 
 {#if element && homeComposerContext.available}

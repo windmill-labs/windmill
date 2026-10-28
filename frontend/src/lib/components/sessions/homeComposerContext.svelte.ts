@@ -10,6 +10,9 @@ type Attach = (element: ContextElement) => Promise<void>
 export function itemContextElement(item: {
 	kind: BulkKind
 	path: string
+	/** The path a draft-only item is named by, shown as its mention instead of the
+	 * generated `draft_<uuid>` storage path. */
+	displayPath?: string
 	summary?: string
 	rawApp?: boolean
 }): ContextElement | undefined {
@@ -22,7 +25,13 @@ export function itemContextElement(item: {
 					? 'workspace_app'
 					: undefined
 	if (!type) return undefined
-	return { type, path: item.path, title: item.path, summary: item.summary, deletable: true }
+	return {
+		type,
+		path: item.path,
+		title: item.displayPath || item.path,
+		summary: item.summary,
+		deletable: true
+	}
 }
 
 let attach = $state<Attach | undefined>(undefined)

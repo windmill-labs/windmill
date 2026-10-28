@@ -234,7 +234,12 @@
 
 	{#snippet actions()}
 		<span class="hidden md:inline-flex">
-			<AskAiRowButton kind="script" path={script.path} summary={script.summary} />
+			<AskAiRowButton
+				kind="script"
+				path={script.path}
+				displayPath={script.draft_only ? script.draft_path : undefined}
+				summary={script.summary}
+			/>
 			{#if $roleCapabilities.code}
 				{#if showEditButton}
 					{#if script.use_codebase}

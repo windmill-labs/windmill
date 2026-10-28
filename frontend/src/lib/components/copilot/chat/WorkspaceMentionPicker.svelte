@@ -64,7 +64,7 @@ at the workspace root because the parent menu item already names the scope.
 			return {
 				type: 'workspace_script',
 				path: item.path,
-				title: item.path,
+				title: workspaceItemDisplayPath(item),
 				summary: item.summary,
 				deletable: true
 			} satisfies WorkspaceScriptElement & { deletable: boolean }
@@ -73,7 +73,7 @@ at the workspace root because the parent menu item already names the scope.
 			return {
 				type: 'workspace_flow',
 				path: item.path,
-				title: item.path,
+				title: workspaceItemDisplayPath(item),
 				summary: item.summary,
 				deletable: true
 			} satisfies WorkspaceFlowElement & { deletable: boolean }
@@ -82,7 +82,7 @@ at the workspace root because the parent menu item already names the scope.
 			return {
 				type: 'workspace_app',
 				path: item.path,
-				title: item.path,
+				title: workspaceItemDisplayPath(item),
 				summary: item.summary,
 				deletable: true
 			} satisfies WorkspaceAppElement & { deletable: boolean }

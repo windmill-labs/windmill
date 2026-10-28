@@ -186,6 +186,7 @@ import { appFileEditorLang } from '../appFileEditorLang'
 import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import { createDbSchemaTool } from '../script/core'
 import type { ContextElement } from '../context'
+import { mentionedAs } from '../mention'
 import { getDatatableTools } from '../datatableTools'
 import { getDatatableMigrationTools } from '../datatableMigrationTools'
 import { getDucklakeTools } from '../ducklakeTools'
@@ -6040,7 +6041,9 @@ function createVariableToDraftState(
 		// `null` clears and omitted keeps the base's. The draft stores a cleared expiry as
 		// `undefined`, since a stored draft goes through a JSON round-trip.
 		value_valid_until:
-			args.value_valid_until === null ? undefined : (args.value_valid_until ?? base?.value_valid_until)
+			args.value_valid_until === null
+				? undefined
+				: (args.value_valid_until ?? base?.value_valid_until)
 	}
 }
 
@@ -10086,7 +10089,7 @@ export function prepareGlobalUserMessage(
 					: context.type === 'workspace_flow'
 						? 'flow'
 						: 'raw_app'
-			content += `- type: ${itemType}, path: ${context.path}\n`
+			content += `- type: ${itemType}, path: ${context.path}${mentionedAs(context)}\n`
 		}
 		content += '\n'
 	}

@@ -178,7 +178,12 @@
 	{/snippet}
 	{#snippet actions()}
 		<span class="hidden md:inline-flex">
-			<AskAiRowButton kind="flow" path={flow.path} summary={flow.summary} />
+			<AskAiRowButton
+				kind="flow"
+				path={flow.path}
+				displayPath={flow.draft_only ? flow.draft_path : undefined}
+				summary={flow.summary}
+			/>
 			{#if !hideForOperator && showEditButton && flow.canWrite && !flow.archived}
 				<div>
 					<Button

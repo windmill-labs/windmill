@@ -49,7 +49,12 @@ describe('workspaceItemRegistry', () => {
 		])
 		await workspaceItemRegistry.ensureLoaded('ws-draft')
 		const entry = workspaceItemRegistry.resolve('ws-draft', 'u/me/report')
-		expect(entry).toMatchObject({ kind: 'flow', path: 'u/me/draft_1234', draftOnly: true })
+		expect(entry).toMatchObject({
+			kind: 'flow',
+			path: 'u/me/draft_1234',
+			draftOnly: true,
+			draftPath: 'u/me/report'
+		})
 		expect(itemHref(entry!, 'ws-draft')).toBe('/flows/edit/u/me/draft_1234?workspace=ws-draft')
 	})
 
@@ -326,6 +331,25 @@ describe('remarkWindmillPaths (mdast)', () => {
 		)
 		expect(byPath['f/ops/live_board']['data-wm-raw-app']).toBe('true')
 		expect(byPath['f/ops/dashboard']['data-wm-raw-app']).toBeUndefined()
+	})
+
+	it('names a draft stored at a synthetic path by its draft path', () => {
+		const processor = unified()
+			.use(remarkParse)
+			.use(
+				remarkWindmillPaths({
+					resolve: (p) =>
+						p === 'u/me/draft_1234'
+							? { kind: 'flow', path: p, draftOnly: true, draftPath: 'u/me/report' }
+							: undefined
+				})
+			)
+		const tree = processor.runSync(processor.parse('Saved u/me/draft_1234.')) as MdastRoot
+		const [link] = findLinks(tree)
+		expect((link.children[0] as Text).value).toBe('u/me/report')
+		expect((link.data?.hProperties as Record<string, string>)['data-wm-path']).toBe(
+			'u/me/draft_1234'
+		)
 	})
 
 	it('leaves unknown paths as plain text', () => {

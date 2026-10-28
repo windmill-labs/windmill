@@ -56,6 +56,9 @@ export interface WorkspaceItemEntry {
 	/** Scripts, flows and apps that exist only as the viewer's draft: no deployed version,
 	 * so only their editor can open them. */
 	draftOnly?: boolean
+	/** The path a draft-only item is named by when it is stored at a generated
+	 * `draft_<uuid>` path. Display only: `path` stays what links and actions address. */
+	draftPath?: string
 }
 
 export type WorkspaceItemTargetKind = 'script' | 'flow'
@@ -209,7 +212,8 @@ class WorkspaceItemRegistry {
 						targetKind:
 							typeof it.is_flow === 'boolean' ? (it.is_flow ? 'flow' : 'script') : undefined,
 						rawApp: kind === 'app' ? it.raw_app === true : undefined,
-						draftOnly: it.draft_only === true || undefined
+						draftOnly: it.draft_only === true || undefined,
+						draftPath: (it.draft_only && it.draft_path) || undefined
 					})
 				}
 			}
@@ -340,7 +344,7 @@ function buildPathLinkNode(
 		data: {
 			hProperties
 		},
-		children: [{ type: 'text', value: displayPath }]
+		children: [{ type: 'text', value: entry.draftPath ?? displayPath }]
 	}
 }
 

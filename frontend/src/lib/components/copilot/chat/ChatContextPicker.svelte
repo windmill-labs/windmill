@@ -301,7 +301,7 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 				const element: WorkspaceScriptElement & { deletable: boolean } = {
 					type: 'workspace_script',
 					path: d.path,
-					title: d.path,
+					title: workspaceItemDisplayPath(d),
 					summary: d.summary,
 					deletable: true
 				}
@@ -310,7 +310,7 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 				const element: WorkspaceFlowElement & { deletable: boolean } = {
 					type: 'workspace_flow',
 					path: d.path,
-					title: d.path,
+					title: workspaceItemDisplayPath(d),
 					summary: d.summary,
 					deletable: true
 				}
@@ -320,7 +320,7 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 				const element: WorkspaceAppElement & { deletable: boolean } = {
 					type: 'workspace_app',
 					path: d.path,
-					title: d.path,
+					title: workspaceItemDisplayPath(d),
 					summary: d.summary,
 					deletable: true
 				}
