@@ -77,7 +77,7 @@
 	let userSettings: UserSettings | undefined = $state(undefined)
 	let token = $state('')
 	let target = $derived({
-		api: `${apiBaseUrl()}/api/w/${workspace}`,
+		api: `${apiBaseUrl('webhooks')}/api/w/${workspace}`,
 		agentPath,
 		chat,
 		token

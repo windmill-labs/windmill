@@ -18,11 +18,13 @@
 	import { Button } from '$lib/components/common'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { useEditRights } from '$lib/operatorWriteRights'
-	import { roleCapabilities } from '$lib/stores'
+	import { roleCapabilities, userStore } from '$lib/stores'
 	import { AppService } from '$lib/gen'
 	import { copyToClipboard, type Item } from '$lib/utils'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import Star from '$lib/components/Star.svelte'
+	import { useWorkspaceDrafts, type DraftItem } from '$lib/workspaceDrafts.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import {
 		favoriteManager,
@@ -213,6 +215,27 @@
 				via: r.via
 			}))
 	})
+	// The cards know only kind and path, so their drafts come from the workspace's draft list,
+	// keyed the way favorites are: a raw app's card can be an `app` one, its draft is `raw_app`.
+	// An agent is a resource and drafts as one; no other resource can sit at its path.
+	// The list holds the user's own drafts and legacy ones, so an item only another user drafted
+	// shows its badge in the list below but not on its card.
+	const drafts = useWorkspaceDrafts(() => workspace)
+	function cardKind(kind: DraftItem['kind']): FavoriteKind | undefined {
+		if (kind === 'script' || kind === 'flow' || kind === 'app' || kind === 'raw_app') {
+			return asStarKind(kind)
+		}
+		return kind === 'resource' ? 'agent' : undefined
+	}
+	let draftByItem = $derived(
+		new Map<string, DraftItem>(
+			drafts.items.flatMap((d) => {
+				const kind = cardKind(d.kind)
+				return kind ? [[`${kind}/${d.path}`, d]] : []
+			})
+		)
+	)
+
 	// Grows by a page from the "Load next" card; back to one page on the next visit.
 	let recentLimit = $state(RECENT_COUNT)
 	let recentMore = $derived(Math.max(0, recentAll.length - recentLimit))
@@ -334,6 +357,7 @@
 <svelte:window bind:innerWidth />
 
 {#snippet card(item: Entry, favorite: boolean)}
+	{@const draft = draftByItem.get(`${item.starKind}/${item.path}`)}
 	<div
 		class="group flex items-center gap-1 rounded-md border border-light bg-surface-tertiary hover:bg-surface-hover transition-colors min-w-0"
 	>
@@ -363,6 +387,21 @@
 			tabindex="-1"
 			aria-hidden="true"
 		></a>
+		<!-- After the filler, so the badges line up down the column whatever the title's length. -->
+		{#if draft}
+			<span class="shrink-0 inline-flex">
+				<DraftBadge
+					is_draft={draft.mine && !draft.legacy_draft}
+					draft_only={draft.draft_only}
+					draft_users={draft.draft_users}
+					currentUsername={$userStore?.username}
+					{workspace}
+					itemKind={draft.kind}
+					path={draft.path}
+					onMigrated={drafts.refresh}
+				/>
+			</span>
+		{/if}
 		{#if !favorite && item.at}
 			<span
 				class="shrink-0 text-2xs text-secondary"

@@ -6,6 +6,7 @@
 	import Toggle from '../Toggle.svelte'
 	import { SettingService, UserService, type NewToken } from '$lib/gen'
 	import { mcpTokenUrlDisabled } from '$lib/mcpAuth'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import TokenDisplay from './TokenDisplay.svelte'
 	import ScopesPicker from './ScopesPicker.svelte'
 	import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
@@ -255,10 +256,9 @@
 			$operatingWorkspace ||
 			''
 	)
-	// On the browsing origin, not the API base url: the OAuth metadata the server
-	// publishes for this URL is built from `base_url`, and a client rejects a mismatch.
-	// One URL whatever the access: the token's scopes decide which tools it gets.
-	const mcpUrl = `${window.location.origin}/api/mcp`
+	// The server builds this URL's OAuth metadata from the same API base url, and a client
+	// rejects a mismatch. One URL whatever the access: the token's scopes decide which tools it gets.
+	const mcpUrl = $derived(`${apiBaseUrl('mcp')}/api/mcp`)
 	// Selected scripts and flows are listed per workspace: across several, a path could be two.
 	const selectionNeedsOneWorkspace = $derived(
 		mcpAccess === 'selected' && (mcpAllWorkspaces || mcpWorkspaces.length !== 1)

@@ -9,7 +9,7 @@
 pub use windmill_types::scripts::*;
 
 use crate::{
-    error::{to_anyhow, Error},
+    error::to_anyhow,
     runnable_settings::{self},
     utils::http_get_from_hub,
     workspace_dependencies::WorkspaceDependenciesAnnotatedRefs,
@@ -22,7 +22,7 @@ use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
 use regex::Regex;
 
-use crate::utils::StripPath;
+use crate::utils::{parse_hub_id, StripPath};
 
 /// The tag a script's dependency job runs on, given the script's own tag; `None` leaves it to
 /// `push`'s default (the language tag). Every relock of a script must use this, or a relock
@@ -195,17 +195,12 @@ pub async fn get_hub_script_by_path(
     http_client: &reqwest::Client,
     db: &DB,
 ) -> crate::error::Result<String> {
-    let path = path
-        .to_path()
-        .strip_prefix("hub/")
-        .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
-
+    let id = parse_hub_id(path.to_path(), "hub/")?;
     let hub_base_url = (**HUB_BASE_URL.load()).clone();
 
-    //
     let result = http_get_from_hub(
         http_client,
-        &format!("{}/raw/{}.ts", hub_base_url, path),
+        &format!("{hub_base_url}/raw/{id}/script.ts"),
         true,
         None,
         Some(db),
@@ -220,19 +215,11 @@ pub async fn get_hub_script_by_path(
     match result {
         Ok(result) => Ok(result),
         Err(e) => {
-            if hub_base_url != DEFAULT_HUB_BASE_URL
-                && path
-                    .split("/")
-                    .next()
-                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < PRIVATE_HUB_MIN_VERSION))
-            {
-                tracing::info!(
-                    "Not found on private hub, fallback to default hub for {}",
-                    path
-                );
+            if hub_base_url != DEFAULT_HUB_BASE_URL && id < PRIVATE_HUB_MIN_VERSION {
+                tracing::info!("Not found on private hub, fallback to default hub for {id}");
                 let content = http_get_from_hub(
                     http_client,
-                    &format!("{}/raw/{}.ts", DEFAULT_HUB_BASE_URL, path),
+                    &format!("{DEFAULT_HUB_BASE_URL}/raw/{id}/script.ts"),
                     true,
                     None,
                     Some(db),
@@ -257,15 +244,8 @@ pub async fn get_full_hub_script_by_path(
     http_client: &reqwest::Client,
     db: Option<&DB>,
 ) -> crate::error::Result<HubScript> {
-    let path = path
-        .to_path()
-        .strip_prefix("hub/")
-        .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
-
-    let mut path_iterator = path.split("/");
-    let version = path_iterator
-        .next()
-        .ok_or_else(|| Error::internal_err(format!("expected hub path to have version number")))?;
+    let path = path.to_path();
+    let version = parse_hub_id(path, "hub/")?;
     // A cache entry that cannot be read or parsed counts as a miss rather than an error:
     // a truncated write leaves a file that exists but deserializes to nothing, and refetching
     // it is always preferable to failing the job push it was read for.
@@ -288,10 +268,10 @@ pub async fn get_full_hub_script_by_path(
         return Ok(script);
     }
 
-    let script = get_full_hub_script_by_path_inner(path, http_client, db).await?;
+    let script = get_full_hub_script_by_path_inner(version, http_client, db).await?;
     if let Err(e) = crate::worker::write_file(
         &HUB_CACHE_DIR,
-        &version,
+        &version.to_string(),
         &serde_json::to_string(&script).map_err(to_anyhow)?,
     ) {
         tracing::error!("failed to write hub script {path} to cache: {e}");
@@ -302,7 +282,7 @@ pub async fn get_full_hub_script_by_path(
 }
 
 async fn get_full_hub_script_by_path_inner(
-    path: &str,
+    id: i32,
     http_client: &reqwest::Client,
     db: Option<&DB>,
 ) -> crate::error::Result<HubScript> {
@@ -311,7 +291,7 @@ async fn get_full_hub_script_by_path_inner(
     let response = (|| async {
         let response = http_get_from_hub(
             http_client,
-            &format!("{}/raw2/{}", hub_base_url, path),
+            &format!("{hub_base_url}/raw2/{id}/script"),
             true,
             None,
             db,
@@ -322,19 +302,12 @@ async fn get_full_hub_script_by_path_inner(
         match response {
             Ok(response) => Ok(response),
             Err(e) => {
-                if hub_base_url != DEFAULT_HUB_BASE_URL
-                    && path.split("/").next().is_some_and(|x| {
-                        x.parse::<i32>().is_ok_and(|x| x < PRIVATE_HUB_MIN_VERSION)
-                    })
-                {
+                if hub_base_url != DEFAULT_HUB_BASE_URL && id < PRIVATE_HUB_MIN_VERSION {
                     // TODO: should only fallback to default hub if status is 404 (hub returns 500 currently)
-                    tracing::info!(
-                        "Not found on private hub, fallback to default hub for {}",
-                        path
-                    );
+                    tracing::info!("Not found on private hub, fallback to default hub for {id}");
                     http_get_from_hub(
                         http_client,
-                        &format!("{}/raw2/{}", DEFAULT_HUB_BASE_URL, path),
+                        &format!("{DEFAULT_HUB_BASE_URL}/raw2/{id}/script"),
                         true,
                         None,
                         db,
@@ -355,9 +328,7 @@ async fn get_full_hub_script_by_path_inner(
             .build(),
     )
     .notify(|err, dur| {
-        tracing::warn!(
-            "Could not get hub script at path {path}, retrying in {dur:#?}, err: {err:#?}"
-        );
+        tracing::warn!("Could not get hub script {id}, retrying in {dur:#?}, err: {err:#?}");
     })
     .sleep(tokio::time::sleep)
     .await?;
@@ -365,7 +336,7 @@ async fn get_full_hub_script_by_path_inner(
     let script = response
         .json::<HubScript>()
         .await
-        .context(format!("Decoding hub response for script at path {path}"))?;
+        .context(format!("Decoding hub response for script {id}"))?;
 
     Ok(script)
 }
@@ -508,4 +479,18 @@ pub async fn deploy_relocked_version(
     .await?;
 
     Ok(new_hash)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hub_script_id_is_the_first_segment_only() {
+        let id = |p: &str| parse_hub_id(p, "hub/").ok();
+        assert_eq!(id("hub/28102/windmill/git_sync"), Some(28102));
+        assert_eq!(id("hub/28102/../19862/x"), Some(28102));
+        assert_eq!(id("hub/../19862/x"), None);
+        assert_eq!(id("hub/flows/76"), None);
+    }
 }

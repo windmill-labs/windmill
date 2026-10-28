@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.849.0
+  version: 1.850.0
   title: Windmill API
 
   contact:
@@ -1928,7 +1928,7 @@ paths:
         - setting
       responses:
         "200":
-          description: the instance_banner, accent_color and api_base_url settings
+          description: the instance_banner, accent_color, api_base_url and api_base_url_applies_to settings
           content:
             application/json:
               schema:
@@ -1937,6 +1937,7 @@ paths:
                   instance_banner: {}
                   accent_color: {}
                   api_base_url: {}
+                  api_base_url_applies_to: {}
 
   /settings_u/ruff_config:
     get:
@@ -8238,6 +8239,8 @@ paths:
                   $ref: "#/components/schemas/RuleBypasserGroups"
                 bypass_users:
                   $ref: "#/components/schemas/RuleBypasserUsers"
+                fork_role_mapping:
+                  $ref: "#/components/schemas/ForkRoleMapping"
       responses:
         "200":
           description: protection rule created successfully
@@ -8286,6 +8289,8 @@ paths:
                   $ref: "#/components/schemas/RuleBypasserGroups"
                 bypass_users:
                   $ref: "#/components/schemas/RuleBypasserUsers"
+                fork_role_mapping:
+                  $ref: "#/components/schemas/ForkRoleMapping"
       responses:
         "200":
           description: protection rule updated successfully
@@ -28423,6 +28428,13 @@ paths:
           description: folder scoping the Hub project source (`{workspace}:{folder}`)
           schema:
             type: string
+        - name: version
+          in: query
+          required: false
+          description: id of a reviewed project version to export instead of the current one (see the hub's `/projects/{slug}/versions`)
+          schema:
+            type: integer
+            minimum: 1
       responses:
         "200":
           description: raw Hub response body (status code is passed through from the Hub)
@@ -39149,9 +39161,12 @@ components:
           type: boolean
         manage_triggers:
           type: boolean
+        fork:
+          type: boolean
+          description: Fork the workspace.
         visibility:
           $ref: "#/components/schemas/RoleVisibility"
-      required: [code, flows, apps, manage_schedules, manage_triggers, visibility]
+      required: [code, flows, apps, manage_schedules, manage_triggers, fork, visibility]
 
     RoleCapabilitiesPatch:
       type: object
@@ -39164,6 +39179,7 @@ components:
           $ref: "#/components/schemas/AuthorLevel"
         manage_schedules: { type: boolean }
         manage_triggers: { type: boolean }
+        fork: { type: boolean }
         visibility:
           type: object
           additionalProperties:
@@ -39828,6 +39844,16 @@ components:
           $ref: "#/components/schemas/RuleBypasserGroups"
         bypass_users:
           $ref: "#/components/schemas/RuleBypasserUsers"
+        fork_role_mapping:
+          $ref: "#/components/schemas/ForkRoleMapping"
+    ForkRoleMapping:
+      type: object
+      description: >-
+        Role a member of this workspace gets in a fork of it, keyed by the role it holds here.
+        Unmapped roles carry over unchanged; where two rulesets map the same role, the first by
+        name wins. On update, omitting it leaves the stored mapping unchanged.
+      additionalProperties:
+        type: string
     ProtectionRules:
       type: array
       description: Configuration of protection restrictions

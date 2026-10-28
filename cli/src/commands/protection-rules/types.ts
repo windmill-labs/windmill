@@ -10,6 +10,8 @@ export interface ProtectionRuleEntry {
   rules: ProtectionRuleKind[];
   bypass_groups: string[];
   bypass_users: string[];
+  // Role a member gets in a fork of the workspace, keyed by the role it holds there.
+  fork_role_mapping?: Record<string, string>;
 }
 
 // protection-rules.yaml is a flat map: workspace name -> its protection rules.

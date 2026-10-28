@@ -17,7 +17,7 @@
 	import { resource } from 'runed'
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
 	import { disableHubStore, roleCapabilities, userStore, workspaceStore } from '$lib/stores'
-	import { useEditRights } from '$lib/operatorWriteRights'
+	import { shareEditRights, useEditRights } from '$lib/operatorWriteRights'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		Bot,
@@ -66,10 +66,10 @@
 	import { tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import BulkActionsBar from './BulkActionsBar.svelte'
-	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
+	import { bulkKey, HomeSelection, setHomeSelection } from './homeSelection.svelte'
 	import HomeQuickAccess from './HomeQuickAccess.svelte'
 
-	const editRights = useEditRights()
+	const editRights = shareEditRights(useEditRights())
 
 	interface Props {
 		subtab?: 'flow' | 'script' | 'app' | 'agent'
@@ -238,7 +238,6 @@
 	})
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app' | 'agent'> = T & {
-		canWrite: boolean
 		marked?: string
 		type?: U
 		time?: number
@@ -359,22 +358,12 @@
 	let loadGen = 0
 
 	function mapRunnable(it: RunnableItem): TableScript | TableFlow | TableApp | TableAgent {
-		const base = {
-			...it,
-			canWrite:
-				editRights.canEditItem(
-					it.type === 'app' && it.raw_app ? 'raw_app' : it.type,
-					it.path,
-					(it.extra_perms ?? {}) as any
-				) &&
-				(it.type === 'script' || it.workspace_id == $workspaceStore)
-		}
 		// combinedItems reads a script's time from `created_at`; the endpoint's
 		// unified `edited_at` holds exactly that for scripts.
-		if (it.type === 'script') return { ...base, created_at: it.edited_at } as unknown as TableScript
+		if (it.type === 'script') return { ...it, created_at: it.edited_at } as unknown as TableScript
 		// An agent row reads its resource's description, which the endpoint reports as `summary`.
-		if (it.type === 'agent') return { ...base, description: it.summary } as unknown as TableAgent
-		return base as unknown as TableFlow | TableApp
+		if (it.type === 'agent') return { ...it, description: it.summary } as unknown as TableAgent
+		return it as unknown as TableFlow | TableApp
 	}
 
 	// The merged, server-ordered, keyset-paginated source. `reset` reloads from
@@ -383,7 +372,7 @@
 	// the existing per-kind arrays so the downstream pipeline is unchanged.
 	async function loadRunnables(reset: boolean): Promise<void> {
 		const ws = $workspaceStore
-		if (!ws || !$userStore) return
+		if (!ws) return
 		// Only the very first load shows the skeleton; filter reloads keep the toolbar
 		// and current items visible (they're replaced on arrival) so the filter control
 		// itself doesn't flicker out when you use it.
@@ -569,7 +558,7 @@
 		const force = opts?.force ?? false
 		const all = opts?.all ?? false
 		const ws = $workspaceStore
-		if (!ws || !$userStore) return
+		if (!ws) return
 		// Track the prefix as open first — even a no-op call (re-expanding a cached node)
 		// means it's on screen, so later reloads must refresh it.
 		openOwners.add(owner)
@@ -1309,7 +1298,7 @@
 	// folder paginates within itself; users past the window are reached via their owner chip.
 	let treeGlobalHasMore = $derived(!treeLazyMode && !searching ? hasMoreServer : false)
 	$effect(() => {
-		if ($userStore && $workspaceStore) {
+		if ($workspaceStore) {
 			;[archived, includeWithoutMain, sortOrder, searching, ownerFilter, itemKind]
 			// reloadItems (not a bare loadRunnables) so an in-place change — sort, archive,
 			// library, kind — reloads the global stream AND re-fetches the currently-open owners
@@ -1340,7 +1329,7 @@
 		const kind = itemKind
 		// Any term/scope change restarts search paging.
 		searchCursor = undefined
-		if (term === '' || !ws || !$userStore) return
+		if (term === '' || !ws) return
 		const handle = setTimeout(async () => {
 			let res: { items: RunnableItem[]; next_cursor?: string }
 			try {
@@ -1850,10 +1839,7 @@
 				displayedItems[selectedIndex].type !== 'raw_app'
 			) {
 				e.preventDefault()
-				homeSelection.toggle(
-					toBulkItem(displayedItems[selectedIndex], $userStore, $workspaceStore),
-					e.shiftKey
-				)
+				homeSelection.toggle(bulkKey(displayedItems[selectedIndex]), e.shiftKey)
 			} else if (selectedIndex === loadMoreIndex && hasMore) {
 				e.preventDefault()
 				loadMoreAndPreselectFirstNew()
