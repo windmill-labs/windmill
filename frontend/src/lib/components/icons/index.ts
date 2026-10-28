@@ -361,7 +361,8 @@ export const APP_TO_ICON_COMPONENT = {
 	gsheets: GSheetsIcon,
 	gitlab: GitlabIcon,
 	// `gcloud` and `gcp_service_account` are both Google Cloud, so both resolve to the
-	// official four-colour mark.
+	// official four-colour mark. `google_service_account` also serves Workspace APIs,
+	// so it takes the G mark like `gworkspace`.
 	gcloud: GoogleCloudIcon,
 	gcal: GcalIcon,
 	gdrive: GdriveIcon,
@@ -460,6 +461,7 @@ export const APP_TO_ICON_COMPONENT = {
 	ipinfo: IpinfoIcon,
 	gworkspace: GoogleIcon,
 	gcp_service_account: GoogleCloudIcon,
+	google_service_account: GoogleIcon,
 	cacertificate: CaCertificate,
 	currencyapi: CurrencyApiIcon,
 	visma: VismaIcon,

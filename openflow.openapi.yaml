@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.851.0
+  version: 1.852.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -308,7 +308,7 @@ components:
           required:
             - expr
         sleep:
-          description: Delay before executing this step (in seconds or as expression)
+          description: Delay after this step completes, before the next step starts (in seconds or as expression)
           $ref: '#/components/schemas/InputTransform'
         cache_ttl:
           type: number

@@ -241,7 +241,13 @@ async fn resolve(
             ),
         )
     })?;
-    if claims.get("email_verified").and_then(Value::as_bool) == Some(false) {
+    // Some issuers send the flag as a string.
+    let unverified = match claims.get("email_verified") {
+        Some(Value::Bool(b)) => !b,
+        Some(Value::String(s)) => s.eq_ignore_ascii_case("false"),
+        _ => false,
+    };
+    if unverified {
         return Err(refuse(
             Some(w_id),
             format!("{email} is not verified at the issuer"),
