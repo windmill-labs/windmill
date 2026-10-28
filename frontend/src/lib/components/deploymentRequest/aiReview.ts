@@ -2,6 +2,19 @@ import type { AIProviderModel, WorkspaceItemDiff } from '$lib/gen'
 import { getNonStreamingCompletion } from '$lib/components/copilot/lib'
 import { getItemValue } from '$lib/utils_workspace_deploy'
 import type { Kind } from '$lib/utils_deployable'
+import {
+	formatFolderInstructions,
+	instructionsCovering,
+	listFolderInstructions,
+	readFolderInstructionBody,
+	type FolderInstruction
+} from '$lib/components/copilot/chat/folderInstructions'
+
+/**
+ * Review instructions are resources of this type in the parent workspace: a markdown file
+ * resource whose `value.content` applies to every changed item under the directory it lives in.
+ */
+export const REVIEW_INSTRUCTIONS_RESOURCE_TYPE = 'ai_review_instruction'
 
 export type AiReviewSeverity = 'high' | 'medium' | 'low'
 
@@ -20,6 +33,12 @@ export type AiReviewResult = {
 	omitted: string[]
 	/** Changed items whose contents failed to load, so the model did not review them. */
 	unreadable: string[]
+	/** Review instructions of the parent that covered a changed item and were given to the model. */
+	instructions: string[]
+	/** Review instructions listed in the parent whose body failed to load. */
+	skippedInstructions: string[]
+	/** The parent's review instructions could not be listed, so none were applied. */
+	instructionsUnavailable: boolean
 }
 
 // A variable's value is read decrypted and a resource's value holds credentials, so neither may
@@ -45,6 +64,54 @@ Do not comment on style, naming, formatting or lockfiles, and do not praise. Do 
 
 Answer with JSON only, no prose around it, in this shape:
 {"summary": "<one or two sentences on what the change does and its overall risk>", "findings": [{"kind": "<item kind as given>", "path": "<item path as given>", "severity": "high" | "medium" | "low", "comment": "<the issue and what to do about it, under 80 words>"}]}`
+
+// Read from the parent, never the fork: the fork is the author's side, and its copy of an
+// instruction is itself one of the changes under review. A failed listing reviews without
+// instructions rather than failing the review, and is reported as `unavailable`.
+async function reviewInstructions(
+	diffs: WorkspaceItemDiff[],
+	parentWorkspaceId: string
+): Promise<{ text: string; applied: string[]; skipped: string[]; unavailable: boolean }> {
+	let listed: FolderInstruction[]
+	try {
+		listed = await listFolderInstructions(parentWorkspaceId, REVIEW_INSTRUCTIONS_RESOURCE_TYPE)
+	} catch (e) {
+		console.error('Failed to list review instructions', e)
+		return { text: '', applied: [], skipped: [], unavailable: true }
+	}
+	const covering = instructionsCovering(
+		listed,
+		diffs.map((d) => d.path)
+	)
+	const reads = await Promise.all(
+		covering.map(async (instruction) => {
+			try {
+				return {
+					instruction,
+					body: await readFolderInstructionBody(parentWorkspaceId, instruction.path)
+				}
+			} catch (e) {
+				console.error(`Failed to read review instructions ${instruction.path}`, e)
+				return { instruction, body: undefined }
+			}
+		})
+	)
+	const blocks = reads.filter(
+		(r): r is { instruction: FolderInstruction; body: string } => r.body !== undefined
+	)
+	// Hardcoded secrets and unintended deletions stay a floor: a folder's writers steer the
+	// review of their own changes, so they must not be able to switch those checks off.
+	const text =
+		blocks.length === 0
+			? ''
+			: `\n\nThe parent workspace gives the review instructions below, each for the changed items under the folder in its scope. For those items they take precedence over the instructions above, and a nested folder's over its parent folder's. They may ask you to check more, check less or weigh severity differently, except that hardcoded secrets or credentials and deletions that look unintended are always reported. The answer is still the JSON above.\n\n${formatFolderInstructions(blocks)}`
+	return {
+		text,
+		applied: blocks.map((b) => b.instruction.path),
+		skipped: reads.filter((r) => r.body === undefined).map((r) => r.instruction.path),
+		unavailable: false
+	}
+}
 
 function changeType(diff: WorkspaceItemDiff): 'added' | 'deleted' | 'modified' {
 	if (!diff.exists_in_source) return 'added'
@@ -96,7 +163,7 @@ function isEmptyRead(value: unknown): boolean {
 export function parseReviewAnswer(
 	text: string,
 	diffs: WorkspaceItemDiff[]
-): Omit<AiReviewResult, 'omitted' | 'unreadable'> {
+): Pick<AiReviewResult, 'summary' | 'findings'> {
 	const start = text.indexOf('{')
 	const end = text.lastIndexOf('}')
 	if (start === -1 || end <= start) {
@@ -137,6 +204,7 @@ export async function reviewDeployment(
 		model?: AIProviderModel
 	}
 ): Promise<AiReviewResult> {
+	const instructionsPromise = reviewInstructions(diffs, parentWorkspaceId)
 	const included: string[] = []
 	const omitted: string[] = []
 	const unreadable: string[] = []
@@ -170,9 +238,11 @@ export async function reviewDeployment(
 		user += `\n\nAlso changed, contents not shown for size:\n${omitted.map((o) => `- ${o}`).join('\n')}`
 	}
 
+	const instructions = await instructionsPromise
+	if (abortController.signal.aborted) throw new Error('aborted')
 	const answer = await getNonStreamingCompletion(
 		[
-			{ role: 'system', content: SYSTEM_PROMPT },
+			{ role: 'system', content: SYSTEM_PROMPT + instructions.text },
 			{ role: 'user', content: user }
 		],
 		abortController,
@@ -184,5 +254,12 @@ export async function reviewDeployment(
 			workspace: forkWorkspaceId
 		}
 	)
-	return { ...parseReviewAnswer(answer ?? '', diffs), omitted, unreadable }
+	return {
+		...parseReviewAnswer(answer ?? '', diffs),
+		omitted,
+		unreadable,
+		instructions: instructions.applied,
+		skippedInstructions: instructions.skipped,
+		instructionsUnavailable: instructions.unavailable
+	}
 }

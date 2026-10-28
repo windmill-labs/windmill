@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorkspaceItemDiff } from '$lib/gen'
 
-const h = vi.hoisted(() => ({ prompt: '', workspace: '' as string | undefined, reads: 0 }))
+const h = vi.hoisted(() => ({
+	prompt: '',
+	system: '',
+	workspace: '' as string | undefined,
+	reads: 0,
+	instructionReads: [] as string[],
+	listed: [] as string[]
+}))
 
 vi.mock('$lib/components/copilot/lib', () => ({
 	getNonStreamingCompletion: async (
@@ -9,6 +16,7 @@ vi.mock('$lib/components/copilot/lib', () => ({
 		_abort: AbortController,
 		options?: { workspace?: string }
 	) => {
+		h.system = messages[0].content
 		h.prompt = messages[1].content
 		h.workspace = options?.workspace
 		return '{"summary":"s","findings":[]}'
@@ -20,6 +28,24 @@ vi.mock('$lib/utils_workspace_deploy', () => ({
 		h.reads++
 		if (path === 'f/a/unreadable') return {}
 		return { content: path.startsWith('f/big/') ? 'x'.repeat(30_000) : 'x' }
+	}
+}))
+
+vi.mock('$lib/gen', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$lib/gen')>()),
+	ResourceService: {
+		listResource: async ({ workspace }: { workspace: string }) => {
+			h.listed.push(workspace)
+			if (workspace === 'offline') throw new Error('unreachable')
+			return workspace === 'parent'
+				? [{ path: 'f/a/REVIEW' }, { path: 'f/other/REVIEW' }, { path: 'f/a/gone' }]
+				: [{ path: 'f/a/FORK_REVIEW' }]
+		},
+		getResourceValue: async ({ workspace, path }: { workspace: string; path: string }) => {
+			h.instructionReads.push(`${workspace}:${path}`)
+			if (path === 'f/a/gone') throw new Error('not found')
+			return { content: `body of ${path}` }
+		}
 	}
 }))
 
@@ -39,6 +65,8 @@ function diff(path: string): WorkspaceItemDiff {
 
 beforeEach(() => {
 	h.reads = 0
+	h.instructionReads = []
+	h.listed = []
 })
 
 describe('parseReviewAnswer', () => {
@@ -80,5 +108,22 @@ describe('reviewDeployment', () => {
 		// Only the first batch of 6 is read, both sides each.
 		expect(h.reads).toBe(12)
 		expect(result.omitted).toContain('script:f/big/29')
+	})
+
+	it("follows the parent's instructions covering a changed item, and no others", async () => {
+		const result = await reviewDeployment([diff('f/a/b')], 'fork', 'parent', new AbortController())
+		expect(result.instructions).toEqual(['f/a/REVIEW'])
+		expect(result.skippedInstructions).toEqual(['f/a/gone'])
+		expect(h.system).toContain('<folder_instructions path="f/a/REVIEW" scope="f/a/">')
+		expect(h.system).toContain('body of f/a/REVIEW')
+		expect(h.system).not.toContain('f/other/REVIEW')
+		expect(h.listed).toEqual(['parent'])
+		expect(h.instructionReads.every((r) => r.startsWith('parent:'))).toBe(true)
+	})
+
+	it('reviews without instructions when the parent cannot be listed', async () => {
+		const result = await reviewDeployment([diff('f/a/b')], 'fork', 'offline', new AbortController())
+		expect(result.instructionsUnavailable).toBe(true)
+		expect(result.instructions).toEqual([])
 	})
 })

@@ -33,15 +33,18 @@ const PAGE_SIZE = 100
 /** Guard against a paging bug looping forever, not a product cap. */
 const MAX_PAGES = 20
 
-/** Every folder instruction the user can read in the workspace. Read access is the
- * resource's own ACL, so a folder's instructions reach exactly who can see them. */
-export async function listFolderInstructions(workspace: string): Promise<FolderInstruction[]> {
+/** Every folder instruction of `resourceType` the user can read in the workspace. Read
+ * access is the resource's own ACL, so a folder's instructions reach exactly who can see them. */
+export async function listFolderInstructions(
+	workspace: string,
+	resourceType: string = FOLDER_INSTRUCTIONS_RESOURCE_TYPE
+): Promise<FolderInstruction[]> {
 	if (!workspace) return []
 	const rows: FolderInstruction[] = []
 	for (let page = 1; page <= MAX_PAGES; page++) {
 		const resources = await ResourceService.listResource({
 			workspace,
-			resourceType: FOLDER_INSTRUCTIONS_RESOURCE_TYPE,
+			resourceType,
 			page,
 			perPage: PAGE_SIZE
 		})
