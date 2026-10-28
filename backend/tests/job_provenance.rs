@@ -140,6 +140,35 @@ async fn dynamic_select_of_a_deployed_flow_is_deployed(db: Pool<Postgres>) {
     }
 }
 
+/// A flow's dynamic select gets the `sub` of a script, or app inline script, at the same
+/// path: while one exists there, it stays a claim on that path.
+#[sqlx::test(fixtures("base", "job_provenance", "job_provenance_versions"))]
+async fn dynamic_select_sharing_a_script_or_app_path_is_claimed(db: Pool<Postgres>) {
+    let job = "3bb0c0de-0000-4000-8000-000000000201";
+    let expected = [claim("f/t/agent", ClaimedItem::ScriptOrAppComponent)];
+    sqlx::query(
+        "INSERT INTO script (workspace_id, hash, path, content, language, kind, created_by, schema, summary, description, lock)
+        VALUES ('test-workspace', 4444444444, 'f/t/agent', 'echo', 'bash', 'script', 'test-user', '{}', '', '', '')",
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    assert_eq!(claims(&db, job).await, expected);
+
+    sqlx::query("DELETE FROM script WHERE hash = 4444444444")
+        .execute(&db)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO app (id, workspace_id, path, summary, policy, versions)
+        VALUES (999001, 'test-workspace', 'f/t', '', '{}', '{}')",
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    assert_eq!(claims(&db, job).await, expected);
+}
+
 /// Flow steps run what the version of the flow above them defines, except under a
 /// restart, which rebuilds a body from a past run, under the current flow version or with
 /// no flow above it at all: that body is current only if the run it came from was.

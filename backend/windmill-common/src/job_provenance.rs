@@ -208,6 +208,13 @@ pub async fn job_provenance(db: &DB, job_id: &Uuid, w_id: &str) -> Result<Option
                 AND NOT starts_with(j.tag, left($2 || ':', 33))
                 AND jsonb_typeof(j.args->'_MODULES') IS NULL
                 AND jsonb_typeof(j.args->'_TEMP_SCRIPT_REFS') IS NULL
+                -- Its token's `sub` is that of a script at the path, or of an app's inline
+                -- script when the path is `<app>/<component>`: a flow may share that path, and
+                -- only a writer of the script or app can then mint it.
+                AND NOT EXISTS (SELECT 1 FROM script s
+                    WHERE s.workspace_id = $2 AND s.path = j.runnable_path)
+                AND NOT EXISTS (SELECT 1 FROM app a WHERE a.workspace_id = $2
+                    AND a.path = regexp_replace(j.runnable_path, '/[^/]*$', ''))
         ) dyn_select ON lineage.kind = 'preview' AND lineage.parent_job IS NULL
         ORDER BY depth"#,
         job_id,
