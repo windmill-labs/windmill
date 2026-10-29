@@ -42,10 +42,10 @@
 <div
 	class={twMerge(
 		'grow text-xs',
-		!col ? 'grid grid-cols-2 gap-2 overflow-hidden' : 'flex flex-col gap-6'
+		!col ? 'grid grid-cols-2 gap-2 overflow-hidden' : 'flex flex-col gap-6 min-h-0'
 	)}
 >
-	<div class="relative flex flex-col gap-1">
+	<div class="relative flex flex-col gap-1 {col ? 'min-h-[120px] max-h-[50%]' : ''}">
 		<span class="text-emphasis text-xs font-semibold">Result</span>
 		<div
 			class="{col
@@ -69,13 +69,13 @@
 			{/if}
 		</div>
 	</div>
-	<div class="relative flex flex-col gap-1">
+	<div class="relative flex flex-col gap-1 {col ? 'flex-1 min-h-[200px]' : ''}">
 		<span class="text-emphasis text-xs font-semibold">Logs</span>
 		<div class="rounded-md grow min-h-0 border bg-surface-tertiary overflow-hidden">
-			<!-- In col mode the caller's panel scrolls, so this box needs a cap that fits on screen
-			     next to the result's: a taller one would be clipped or never fully in view -->
+			<!-- In col mode the caller gives this column a definite height and the log box fills it:
+			     a max-h cap of its own would overflow the column and get its tail clipped -->
 			<LogViewer
-				maxHClass={col ? 'max-h-1/2' : undefined}
+				noMaxH={col}
 				{tagLabel}
 				download={downloadLogs}
 				content={logs ?? ''}
