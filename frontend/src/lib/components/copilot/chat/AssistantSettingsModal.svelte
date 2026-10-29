@@ -17,6 +17,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		| 'mcp'
 		| 'files'
 		| 'permissions'
+		| 'danger'
 </script>
 
 <script lang="ts">
@@ -27,7 +28,8 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		Paperclip,
 		Plug,
 		ScrollText,
-		ShieldCheck
+		ShieldCheck,
+		TriangleAlert
 	} from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
@@ -43,6 +45,8 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	import AssistantFilesSection from './AssistantFilesSection.svelte'
 	import AssistantPermissionsSection from './AssistantPermissionsSection.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import AssistantDangerZoneSection from './AssistantDangerZoneSection.svelte'
+	import { useActingUser } from '$lib/actingUser.svelte'
 
 	// Prefilled title marks the issue as AI Sessions feedback for triage.
 	const FEEDBACK_ISSUE_URL =
@@ -79,7 +83,8 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		instructions: instructionsBusy,
 		mcp: mcpBusy,
 		files: filesBusy,
-		permissions: false
+		permissions: false,
+		danger: false
 	})
 	let blockingSection = $derived<AssistantSettingsSection | undefined>(
 		busyBySection[section]
@@ -117,6 +122,10 @@ callers that already know which section they mean, such as the "+" menu's Manage
 
 	// The session's capability surface, not this turn's: the heading answers what the
 	// assistant can call here, so it must not shift when the autonomy picker does.
+	// The danger zone writes the workspace's AI config, which only its admins may change.
+	const acting = useActingUser(() => ws)
+	let isWsAdmin = $derived(!!acting.current && (acting.current.is_admin || acting.current.is_super_admin))
+
 	let tools = $derived(summarizeTools(aiChatManager.availableTools))
 	let providerTools = $derived(aiChatManager.providerTools)
 
@@ -140,7 +149,8 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		// The count is what is readable rather than what is attached: a locked folder under
 		// a heading about what the assistant can use would say the opposite of the truth.
 		{ id: 'files', label: 'Files & folders', icon: Paperclip, count: fileCount },
-		{ id: 'permissions', label: 'Permissions', icon: ShieldCheck }
+		{ id: 'permissions', label: 'Permissions', icon: ShieldCheck },
+		...(isWsAdmin ? [{ id: 'danger', label: 'Danger zone', icon: TriangleAlert }] : [])
 	])
 
 	/** Opens on `target`, or back on whichever section was last read. */
@@ -298,6 +308,13 @@ callers that already know which section they mean, such as the "+" menu's Manage
 			>
 				<AssistantPermissionsSection {ws} />
 			</div>
+			{#if isWsAdmin}
+				<div
+					class="{section === 'danger' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2"
+				>
+					<AssistantDangerZoneSection {ws} />
+				</div>
+			{/if}
 		</div>
 	</div>
 </Modal2>
