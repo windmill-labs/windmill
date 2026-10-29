@@ -637,9 +637,8 @@
 					>
 						{#snippet trigger()}
 							<Button
-								color={autoAddInstanceGroups.length > 0 ? 'green' : 'gray'}
-								variant="border"
-								size="xs"
+								variant="default"
+								unifiedSize="md"
 								nonCaptureEvent={true}
 								startIcon={{ icon: Mails }}
 								>Instance groups: {autoAddInstanceGroups.length}
@@ -677,8 +676,8 @@
 											</div>
 
 											<Button
-												color="blue"
-												size="xs"
+												variant="accent"
+												unifiedSize="md"
 												startIcon={{ icon: Plus }}
 												disabled={!selectedNewInstanceGroup}
 												onclick={addInstanceGroup}
@@ -727,11 +726,9 @@
 																<td class="py-2">
 																	<div class="flex justify-end">
 																		<Button
-																			color="light"
-																			variant="contained"
-																			btnClasses="text-red-500"
-																			size="xs"
-																			spacingSize="xs2"
+																			variant="subtle"
+																			destructive
+																			unifiedSize="sm"
 																			onclick={() => {
 																				removeInstanceGroupConfirmedCallback = async () => {
 																					await removeInstanceGroup(groupName)
