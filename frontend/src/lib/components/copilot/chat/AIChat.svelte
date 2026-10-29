@@ -130,6 +130,13 @@
 		aiChatDisplay?.flashComposer()
 	}
 
+	export function openAssistantSettings(
+		section: import('./AssistantSettingsModal.svelte').AssistantSettingsSection,
+		root?: string
+	) {
+		aiChatDisplay?.openAssistantSettings(section, root)
+	}
+
 	export async function attachContext(element: import('./context').ContextElement) {
 		await aiChatDisplay?.attachContext(element)
 	}

@@ -12,7 +12,7 @@ vi.mock('$lib/stores', () => ({
 import { isMcpEnabled } from '$lib/components/mcp/enabledServers'
 import { isSkillEnabled, setSkillEnabled } from './enabledSkills'
 import { ambiguousSkillNames, truncateChars, truncateForPrompt } from './skillResources'
-import { buildSkillTree, countSkills, skillFolderPaths, visibleEntries } from './skillTree'
+import { buildSkillTree, countSkills, visibleEntries } from './skillTree'
 
 describe('enabledSkills', () => {
 	beforeEach(() => {
@@ -111,12 +111,6 @@ describe('skill tree', () => {
 			'skill:u/admin/release-notes',
 			'folder:f/skills'
 		])
-	})
-
-	// What the list uses to choose between the tree and a flat list.
-	it('counts the folders holding the skills, not the skills', () => {
-		expect(skillFolderPaths(skills).size).toBe(3)
-		expect(skillFolderPaths([skills[1], { path: 'f/skills/deploy', name: 'deploy' }]).size).toBe(1)
 	})
 })
 

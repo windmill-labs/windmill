@@ -33,6 +33,8 @@ type Registration = {
 	focus: () => void
 	/** The box's accent outline, for a composer the user is sent to without it moving. */
 	flash: () => void
+	/** Assistant settings on `section`; Instructions opens with only `root`'s folder open. */
+	openSettings: (section: 'instructions' | 'skills' | 'mcp', root: string) => void
 	runtime: SessionRuntime
 }
 
@@ -65,6 +67,9 @@ export const homeComposerContext = {
 	},
 	flash(): void {
 		registered?.flash()
+	},
+	openSettings(section: 'instructions' | 'skills' | 'mcp', root: string): void {
+		registered?.openSettings(section, root)
 	},
 	/** Returns the unregister, which only clears its own registration: a remount registers
 	 * the new composer before the old one is destroyed. */
