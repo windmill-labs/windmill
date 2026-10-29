@@ -24,8 +24,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     db::DB,
     error::{Error, Result},
-    global_settings::{load_value_from_global_settings, EXTERNAL_SECRETS_SETTING},
-    secret_backend::VaultSettings,
+    global_settings::{
+        load_value_from_global_settings, EXTERNAL_SECRETS_SETTING, SECRET_BACKEND_SETTING,
+    },
+    secret_backend::{SecretBackendConfig, VaultSettings},
 };
 
 pub const EXTERNAL_REF_MARKER: &str = "$external:";
@@ -153,6 +155,31 @@ async fn load_settings(db: &DB) -> Result<ExternalSecretsSettings> {
     }
 }
 
+fn vault_segments(s: Option<&str>) -> Vec<&str> {
+    s.unwrap_or_default()
+        .split('/')
+        .filter(|s| !s.trim().is_empty())
+        .collect()
+}
+
+/// Whether `path`, read through `conn`, lands in the storage of the managed Vault
+/// backend `managed`. The namespace is folded into the path because Vault also
+/// takes a namespace as a path prefix, so `ns/kv/x` with no namespace header
+/// reaches the same secret as `kv/x` under namespace `ns`.
+fn is_managed_storage(managed: &VaultSettings, conn: &VaultSettings, path: &str) -> bool {
+    let address = |s: &VaultSettings| s.address.trim().trim_end_matches('/').to_lowercase();
+    let mount = vault_segments(Some(&managed.mount_path));
+    if mount.is_empty() || address(managed) != address(conn) {
+        return false;
+    }
+    let mut storage = vault_segments(managed.namespace.as_deref());
+    storage.extend(mount);
+    storage.extend(vault_segments(managed.kv_secret_path_prefix.as_deref()));
+    let mut target = vault_segments(conn.namespace.as_deref());
+    target.extend(vault_segments(Some(path)));
+    target.starts_with(&storage)
+}
+
 /// Parses a reference and checks it is allowed for `w_id`.
 async fn authorize(
     db: &DB,
@@ -167,6 +194,24 @@ async fn authorize(
             r.backend.scheme(),
             r.path
         )));
+    }
+    // The managed backend's storage holds every workspace's secrets, so no
+    // allow-list entry may open it.
+    if let Some(SecretBackendConfig::HashiCorpVault(managed)) =
+        load_value_from_global_settings(db, SECRET_BACKEND_SETTING)
+            .await?
+            .and_then(|v| serde_json::from_value(v).ok())
+    {
+        if is_managed_storage(
+            &managed,
+            settings.vault.as_ref().unwrap_or(&managed),
+            &r.path,
+        ) {
+            return Err(Error::PermissionDenied(format!(
+                "External secret `vault://{}` points into the storage of Windmill's own Vault secret backend",
+                r.path
+            )));
+        }
     }
     Ok((settings, r))
 }
@@ -258,5 +303,26 @@ mod tests {
         assert!(!allowed(&s, "ws2", "vault://secret/team/app#k"));
         assert!(allowed(&s, "ws2", "vault://kv/shared/x#k"));
         assert!(!allowed(&s, "ws2", "vault://kv#k"));
+    }
+
+    #[test]
+    fn refuses_the_managed_backend_storage() {
+        let vault = |address: &str, mount: &str, prefix: Option<&str>, ns: Option<&str>| {
+            serde_json::from_value::<VaultSettings>(serde_json::json!({
+                "address": address, "mount_path": mount,
+                "kv_secret_path_prefix": prefix, "namespace": ns,
+            }))
+            .unwrap()
+        };
+        let managed = vault("https://vault:8200", "kv", Some("/apps/wm/"), Some("ns"));
+        let same = vault("https://vault:8200/", "", None, Some("ns"));
+        assert!(is_managed_storage(&managed, &same, "kv/apps/wm/ws1/f/x"));
+        assert!(is_managed_storage(&managed, &same, "kv/apps/wm"));
+        assert!(!is_managed_storage(&managed, &same, "kv/apps/other/x"));
+        assert!(!is_managed_storage(&managed, &same, "secret/apps/wm/x"));
+        let root = vault("https://vault:8200", "", None, None);
+        assert!(is_managed_storage(&managed, &root, "ns/kv/apps/wm/ws1/x"));
+        let other = vault("https://other:8200", "", None, Some("ns"));
+        assert!(!is_managed_storage(&managed, &other, "kv/apps/wm/ws1/x"));
     }
 }

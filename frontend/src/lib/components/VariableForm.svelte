@@ -101,6 +101,9 @@
 	// reveal the secret without the explicit, audited "Load secret value" action.
 	let unsecureNeedsLoad = $derived(edit && deployedSecret && variable.is_secret && !hasStagedValue)
 
+	// The API refuses anyone else creating, repointing or removing a reference.
+	let canEditRef = $derived(can_write && !!actingUser?.is_admin)
+
 	const MAX_VARIABLE_LENGTH = 10000
 
 	let externalRef = $derived(variable.is_secret && isExternalRef(variable.value))
@@ -182,10 +185,15 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 			ariaLabel="External reference"
 			class="w-fit"
 			checked={externalRef}
-			disabled={!can_write || isEncryptedDraftValue(variable.value)}
+			disabled={!canEditRef || isEncryptedDraftValue(variable.value)}
 			on:change={(e) => (variable.value = e.detail ? formatVaultRef('', '') : '')}
 			options={{ right: 'Read the value from an existing secret in HashiCorp Vault' }}
 		/>
+		{#if can_write && !canEditRef}
+			<span class="text-2xs text-secondary">
+				Only workspace admins can create or change a reference.
+			</span>
+		{/if}
 	</div>
 {/if}
 
@@ -201,7 +209,7 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 				inputProps={{
 					id: 'external-ref-path',
 					placeholder: 'secret/team/app',
-					disabled: !can_write
+					disabled: !canEditRef
 				}}
 				bind:value={
 					() => vaultRef.path, (v) => (variable.value = formatVaultRef(v ?? '', vaultRef.key))
@@ -211,7 +219,7 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 		<div class="flex flex-col gap-1">
 			<label for="external-ref-key" class="text-xs font-semibold text-emphasis">Key</label>
 			<TextInput
-				inputProps={{ id: 'external-ref-key', placeholder: 'token', disabled: !can_write }}
+				inputProps={{ id: 'external-ref-key', placeholder: 'token', disabled: !canEditRef }}
 				bind:value={
 					() => vaultRef.key, (v) => (variable.value = formatVaultRef(vaultRef.path, v ?? ''))
 				}

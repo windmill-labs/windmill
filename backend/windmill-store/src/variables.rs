@@ -594,7 +594,26 @@ fn validate_already_encrypted_secret(path: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
-/// The `value` column for a secret sent to create or update. An `$external:`
+/// Creating, repointing or removing an `$external:` reference takes a workspace
+/// admin. Every reference resolves with the instance's one store identity, so
+/// the allow-list cannot tell users apart: any writer could point a variable at
+/// a secret under an allowed prefix and read it.
+fn check_external_ref_change(
+    is_admin: bool,
+    old_ref: Option<&str>,
+    new_ref: Option<&str>,
+) -> Result<()> {
+    if !is_admin && old_ref != new_ref {
+        return Err(Error::PermissionDenied(
+            "Only workspace admins can create, repoint or remove an external secret reference"
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// The `value` column for a secret sent to create or update, replacing
+/// `old_ref` when the variable currently holds a reference. An `$external:`
 /// reference is checked against the workspace's allowed prefixes and kept
 /// verbatim, including when pushed as already encrypted by sync; any other
 /// value goes to the configured secret backend.
@@ -605,8 +624,11 @@ async fn secret_value_to_store(
     value: String,
     already_encrypted: bool,
     op: &'static str,
+    is_admin: bool,
+    old_ref: Option<&str>,
 ) -> Result<String> {
     if already_encrypted && !is_external_ref_value(&value) {
+        check_external_ref_change(is_admin, old_ref, None)?;
         // Stored verbatim, so it must be ciphertext and not plaintext mislabeled as encrypted.
         validate_already_encrypted_secret(path, &value)?;
         return Ok(value);
@@ -618,6 +640,11 @@ async fn secret_value_to_store(
     } else {
         value
     };
+    check_external_ref_change(
+        is_admin,
+        old_ref,
+        is_external_ref_value(&value).then_some(value.as_str()),
+    )?;
     if is_external_ref_value(&value) {
         check_external_ref(db, w_id, &value).await?;
         windmill_common::feature_usage::log_feature_usage("external_secret_ref", "saved", op);
@@ -718,6 +745,8 @@ pub async fn create_variable_with_account(
             value,
             already_encrypted,
             "create",
+            authed.is_admin,
+            None,
         )
         .await?
     } else {
@@ -1222,18 +1251,20 @@ async fn update_variable(
     // Determine the target path for storing secrets (use new path if provided)
     let target_path = ns.path.as_deref().unwrap_or(path);
     if let Some(nvalue) = ns.value.clone() {
-        let is_secret = if ns.is_secret.is_some() {
-            ns.is_secret.unwrap()
-        } else {
-            sqlx::query_scalar!(
-                "SELECT is_secret from variable WHERE path = $1 AND workspace_id = $2",
-                &path,
-                &w_id
-            )
-            .fetch_optional(&db)
-            .await?
-            .unwrap_or(false)
-        };
+        let old = sqlx::query!(
+            "SELECT value::text AS \"value!\", is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
+            path,
+            w_id
+        )
+        .fetch_optional(&db)
+        .await?;
+        let is_secret = ns
+            .is_secret
+            .unwrap_or_else(|| old.as_ref().is_some_and(|o| o.is_secret));
+        let old_ref = old
+            .as_ref()
+            .filter(|o| o.is_secret && is_external_ref_value(&o.value))
+            .map(|o| o.value.as_str());
 
         let value = if is_secret {
             // Stored at target_path (the new path when renaming)
@@ -1244,9 +1275,12 @@ async fn update_variable(
                 nvalue,
                 already_encrypted.unwrap_or(false),
                 "update",
+                authed.is_admin,
+                old_ref,
             )
             .await?
         } else {
+            check_external_ref_change(authed.is_admin, old_ref, None)?;
             nvalue
         };
         sqlb.set_str("value", &value);
