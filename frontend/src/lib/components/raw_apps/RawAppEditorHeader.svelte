@@ -57,7 +57,7 @@
 	import AppJobsDrawer from '../apps/editor/AppJobsDrawer.svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
-	import AppSettingsDrawer, { type AppSettingsTab } from '../apps/editor/AppSettingsDrawer.svelte'
+	import AppSettingsDrawer from '../apps/editor/AppSettingsDrawer.svelte'
 	import DeployButton from '$lib/components/DeployButton.svelte'
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
@@ -353,7 +353,7 @@
 	let appExport = $state() as AppExportButton | undefined
 
 	let settingsOpen = $state(false)
-	let settingsTab: AppSettingsTab = $state('metadata')
+	let settingsDrawer: AppSettingsDrawer | undefined = $state()
 	let deployRefused = $state(false)
 	let historyBrowserDrawerOpen = $state(false)
 	let recordDrawer = $state<Drawer | undefined>(undefined)
@@ -720,16 +720,15 @@
 		})
 	}
 
-	function openSettings(tab: AppSettingsTab) {
-		settingsTab = tab
-		settingsOpen = true
+	function openSettings(setting?: string) {
+		settingsDrawer?.openAt(setting)
 	}
 
 	async function deploy(message?: string) {
 		if (app == undefined) return
 		if (pathError != '' || customPathError != '') {
 			deployRefused = true
-			openSettings(pathError != '' ? 'metadata' : 'sharing')
+			openSettings(pathError != '' ? undefined : 'custom-url')
 			return
 		}
 		deploymentMsg = message
@@ -847,12 +846,12 @@
 		{
 			displayName: 'Settings',
 			icon: Settings,
-			action: () => openSettings('metadata')
+			action: () => openSettings()
 		},
 		{
 			displayName: 'Public URL',
 			icon: Globe,
-			action: () => openSettings('sharing')
+			action: () => openSettings('access')
 		},
 		{
 			displayName: 'Export',
@@ -931,8 +930,8 @@
 />
 
 <AppSettingsDrawer
+	bind:this={settingsDrawer}
 	bind:open={settingsOpen}
-	bind:tab={settingsTab}
 	{newPath}
 	{newApp}
 	bind:policy
@@ -1208,7 +1207,7 @@
 				startIcon={{ icon: Settings }}
 				iconOnly={compactTopbar}
 				title="Settings"
-				on:click={() => openSettings('metadata')}
+				on:click={() => openSettings()}
 			>
 				Settings
 			</Button>

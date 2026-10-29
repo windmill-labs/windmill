@@ -2,7 +2,7 @@ import { Globe, Link, PlugZap, ShieldCheck, Tag, UserCog, Users } from 'lucide-s
 import type { Policy } from '$lib/gen'
 import type { ScriptSettingsBadge } from '$lib/components/scriptSettings'
 
-/** The badges of an app's Metadata tab. */
+/** The badges of an app's Metadata section. */
 export function getAppMetadataBadges(labels: string[] | undefined): ScriptSettingsBadge[] {
 	return labels?.length
 		? [
@@ -18,7 +18,7 @@ export function getAppMetadataBadges(labels: string[] | undefined): ScriptSettin
 		: []
 }
 
-/** The badges of an app's Permissions tab. `sandboxed` also holds when the role forces it. */
+/** The badges of an app's Permissions section. `sandboxed` also holds when the role forces it. */
 export function getAppPermissionBadges(
 	policy: Pick<Policy, 'on_behalf_of' | 'on_behalf_of_email' | 'frontend_sdk_scopes'>,
 	sandboxed: boolean
@@ -58,7 +58,7 @@ export function getAppPermissionBadges(
 	return badges
 }
 
-/** The badges of an app's Sharing tab: who beyond members can open it, and its custom URL. */
+/** The badges of an app's Sharing section: who beyond members can open it, and its custom URL. */
 export function getAppSharingBadges(
 	executionMode: Policy['execution_mode'],
 	customPath: string | undefined

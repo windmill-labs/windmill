@@ -1,9 +1,5 @@
-<script lang="ts" module>
-	export type AppSettingsTab = 'metadata' | 'permissions' | 'sharing'
-</script>
-
 <script lang="ts">
-	import { Alert, Drawer, DrawerContent, Tab, TabContent, Tabs } from '$lib/components/common'
+	import { Alert, Drawer, DrawerContent, Section } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { enterpriseLicense, userStore } from '$lib/stores'
@@ -13,7 +9,8 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
-	import { untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
+	import { revealSetting } from '$lib/components/itemSettings/ActiveSettingChips.svelte'
 	import { AppService, SettingService, WorkspaceService } from '$lib/gen'
 	import type { GuestUsage, Policy } from '$lib/gen'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -52,7 +49,6 @@
 
 	let {
 		open = $bindable(),
-		tab = $bindable(),
 		policy = $bindable(),
 		appPath,
 		customPath = $bindable(),
@@ -70,7 +66,6 @@
 		setAccessMode
 	}: {
 		open: boolean
-		tab: AppSettingsTab
 		/** Mutated in place and deployed with the app, except who can open it: see `setAccessMode`. */
 		policy: Policy
 		appPath: string
@@ -99,6 +94,16 @@
 		/** Changes who can open the deployed app at once, leaving the rest of its deployed policy. */
 		setAccessMode: (mode: NonNullable<Policy['execution_mode']>) => Promise<void>
 	} = $props()
+
+	let body: HTMLElement | undefined = $state()
+
+	/** Opens the drawer scrolled to the row whose `data-setting` is `setting`, or at the top. */
+	export async function openAt(setting?: string) {
+		open = true
+		if (!setting) return
+		await tick()
+		revealSetting(body, setting)
+	}
 
 	const opWs = $derived(operatingWorkspace ?? $operatingWorkspaceStore)
 
@@ -264,7 +269,6 @@
 		// has no `app` row to look up and would 404, leaving the UI
 		// component spinning indefinitely.
 		open &&
-			tab === 'sharing' &&
 			!newApp &&
 			appPath &&
 			appPath != '' &&
@@ -291,416 +295,393 @@
 
 <Drawer bind:open size="800px">
 	<DrawerContent noPadding title="Settings" on:close={() => (open = false)}>
-		<div class="flex flex-col h-full">
-			<Tabs bind:selected={tab} wrapperClass="flex-none w-full">
-				<Tab value="metadata" label="Metadata">
-					{#snippet extra()}
+		<div bind:this={body} class="h-full overflow-y-auto">
+			<div class="flex flex-col gap-10 p-4 pb-8">
+				<Section label="Metadata">
+					{#snippet labelExtra()}
 						<SettingIcons badges={getAppMetadataBadges(labels)} />
 					{/snippet}
-				</Tab>
-				<Tab value="permissions" label="Permissions">
-					{#snippet extra()}
+					<div class="flex flex-col gap-6">
+						<Label label="Summary" for="app-summary">
+							<!-- svelte-ignore a11y_autofocus -->
+							<TextInput
+								inputProps={{
+									id: 'app-summary',
+									autofocus: true,
+									placeholder: 'Short summary to be displayed when listed',
+									onkeydown: (e) => {
+										e.stopPropagation()
+									},
+									onkeyup: () => {
+										if (appPath == '' && summary?.length > 0 && !dirtyPath) {
+											path?.setName(
+												summary
+													.toLowerCase()
+													.replace(/[^a-z0-9_]/g, '_')
+													.replace(/-+/g, '_')
+													.replace(/^-|-$/g, '')
+											)
+										}
+									}
+								}}
+								bind:value={summary}
+							/>
+						</Label>
+						<div data-setting="labels" class="-mt-4"><LabelsInput bind:labels /></div>
+						<Label label="Path">
+							{#snippet header()}
+								<Tooltip
+									documentationLink="https://www.windmill.dev/docs/core_concepts/roles_and_permissions#path"
+								>
+									The unique identifier of the app in the workspace that defines permissions
+								</Tooltip>
+							{/snippet}
+							<Path
+								bind:this={path}
+								bind:dirty={dirtyPath}
+								bind:error={pathError}
+								bind:path={newEditedPath}
+								initialPath={newPath}
+								namePlaceholder="app"
+								kind="app"
+								autofocus={false}
+								workspaceOverride={operatingWorkspace}
+							/>
+							{#if pathChanged}
+								<Alert
+									type="info"
+									size="xs"
+									title="Deploy the app to make the path change effective."
+									class="mt-2"
+								/>
+							{/if}
+						</Label>
+					</div>
+				</Section>
+
+				<Section label="Permissions">
+					{#snippet labelExtra()}
 						<SettingIcons
 							badges={getAppPermissionBadges(policy, composeOnlyApps || policy.sandbox == true)}
 						/>
 					{/snippet}
-				</Tab>
-				<Tab value="sharing" label="Sharing">
-					{#snippet extra()}
+					<div class="flex flex-col gap-6">
+						<RunOnBehalfOfSetting
+							kind="app"
+							required
+							tooltip={appOnBehalfOfTooltip(rawApp)}
+							bind:email={policy.on_behalf_of_email}
+							bind:permissionedAs={policy.on_behalf_of}
+							savedEmail={savedApp?.policy?.on_behalf_of_email}
+							savedPermissionedAs={savedApp?.policy?.on_behalf_of}
+							targetWorkspace={opWs ?? ''}
+							isNew={newApp}
+						/>
+
+						<SettingToggle
+							setting="sandbox"
+							label="Sandbox isolation"
+							tooltip="Controls what the app's browser-side code can reach in each viewer's browser, separately from who its runnables run as. A sandboxed app gets a narrowly scoped token on every surface, public URL and in-workspace. On by default for new apps. Turn it off only if the app needs IndexedDB, third-party sign-in or OAuth redirects."
+							checked={composeOnlyApps || policy.sandbox == true}
+							disabled={composeOnlyApps}
+							hint={composeOnlyApps || policy.sandbox != true ? sandboxHint : undefined}
+							onchange={(on) => {
+								policy.sandbox = on || undefined
+								// Counted where the toggle is flipped rather than where the policy is
+								// persisted, so a choice made before the first deploy counts too.
+								logFeatureUsage('app_sandbox', 'toggled', {
+									key: `${rawApp ? 'raw' : 'low_code'}:${on ? 'on' : 'off'}`
+								})
+								// Frontend API access exists only for a sandboxed app, so turning
+								// isolation off drops the declared scopes with it rather than leaving
+								// them set but inert.
+								if (!on) {
+									policy.frontend_sdk_scopes = undefined
+								}
+							}}
+						>
+							{#if rawApp}
+								<Label
+									label="Frontend API access"
+									tooltip="Each viewer approves these scopes before the app runs. The app's code, or an XSS bug in it, can use them as that viewer."
+								>
+									<div class="text-xs text-secondary">
+										Let the app's frontend call the Windmill API as <b>the viewer</b> through the
+										<code>windmill-client</code> SDK, which it lists as a dependency. Grant only what
+										the app needs.
+									</div>
+									<div class="flex flex-col gap-2 mt-2">
+										{#each FRONTEND_SDK_SCOPES as scope (scope.value)}
+											<div>
+												<Toggle
+													size="xs"
+													options={{ right: scope.label }}
+													checked={policy.frontend_sdk_scopes?.includes(scope.value) ?? false}
+													on:change={(e) => {
+														const current: string[] = policy.frontend_sdk_scopes ?? []
+														const next = e.detail
+															? [...current, scope.value]
+															: current.filter((s) => s !== scope.value)
+														// Keep the curated order so the consent banner and the stored
+														// consent compare stably across deploys. A leftover implicit scope is
+														// not in the list, so it drops here rather than keep minting a token
+														// for an app whose toggles all read off.
+														const ordered = FRONTEND_SDK_SCOPES.map((s) => s.value).filter((s) =>
+															next.includes(s)
+														)
+														policy.frontend_sdk_scopes = ordered.length > 0 ? ordered : undefined
+													}}
+												/>
+												<div class="text-2xs text-secondary pl-9">{scope.description}</div>
+											</div>
+										{/each}
+									</div>
+									{#if sdkScopesToConfirm(policy.frontend_sdk_scopes ?? []).length}
+										<div class="mt-2">
+											<Alert
+												type="info"
+												title="Redeploy to use the SDK from a sandboxed app"
+												size="xs"
+											>
+												A sandboxed app calls the API cross-origin, which older <code
+													>windmill-client</code
+												>
+												versions cannot do. An app bundled before this Windmill version fails with a
+												CORS error until you deploy it again, which re-bundles it against a current client.
+											</Alert>
+										</div>
+									{/if}
+								</Label>
+							{/if}
+						</SettingToggle>
+					</div>
+				</Section>
+
+				<Section label="Sharing">
+					{#snippet labelExtra()}
 						<SettingIcons badges={getAppSharingBadges(policy.execution_mode, customPath)} />
 					{/snippet}
-				</Tab>
-
-				{#snippet content()}
-					<div class="min-h-0 grow overflow-y-auto">
-						<TabContent value="metadata">
-							<div class="flex flex-col gap-6 p-4 pb-8">
-								<Label label="Summary" for="app-summary">
-									<!-- svelte-ignore a11y_autofocus -->
-									<TextInput
-										inputProps={{
-											id: 'app-summary',
-											autofocus: true,
-											placeholder: 'Short summary to be displayed when listed',
-											onkeydown: (e) => {
-												e.stopPropagation()
-											},
-											onkeyup: () => {
-												if (appPath == '' && summary?.length > 0 && !dirtyPath) {
-													path?.setName(
-														summary
-															.toLowerCase()
-															.replace(/[^a-z0-9_]/g, '_')
-															.replace(/-+/g, '_')
-															.replace(/^-|-$/g, '')
-													)
-												}
-											}
-										}}
-										bind:value={summary}
-									/>
-								</Label>
-								<div data-setting="labels" class="-mt-4"><LabelsInput bind:labels /></div>
-								<Label label="Path">
-									{#snippet header()}
-										<Tooltip
-											documentationLink="https://www.windmill.dev/docs/core_concepts/roles_and_permissions#path"
-										>
-											The unique identifier of the app in the workspace that defines permissions
-										</Tooltip>
-									{/snippet}
-									<Path
-										bind:this={path}
-										bind:dirty={dirtyPath}
-										bind:error={pathError}
-										bind:path={newEditedPath}
-										initialPath={newPath}
-										namePlaceholder="app"
-										kind="app"
-										autofocus={false}
-										workspaceOverride={operatingWorkspace}
-									/>
-									{#if pathChanged}
-										<Alert
-											type="info"
-											size="xs"
-											title="Deploy the app to make the path change effective."
-											class="mt-2"
-										/>
-									{/if}
-								</Label>
-							</div>
-						</TabContent>
-
-						<TabContent value="permissions">
-							<div class="flex flex-col gap-6 p-4 pb-8">
-								<RunOnBehalfOfSetting
-									kind="app"
-									required
-									tooltip={appOnBehalfOfTooltip(rawApp)}
-									bind:email={policy.on_behalf_of_email}
-									bind:permissionedAs={policy.on_behalf_of}
-									savedEmail={savedApp?.policy?.on_behalf_of_email}
-									savedPermissionedAs={savedApp?.policy?.on_behalf_of}
-									targetWorkspace={opWs ?? ''}
-									isNew={newApp}
-								/>
-
-								<SettingToggle
-									setting="sandbox"
-									label="Sandbox isolation"
-									tooltip="Controls what the app's browser-side code can reach in each viewer's browser, separately from who its runnables run as. A sandboxed app gets a narrowly scoped token on every surface, public URL and in-workspace. On by default for new apps. Turn it off only if the app needs IndexedDB, third-party sign-in or OAuth redirects."
-									checked={composeOnlyApps || policy.sandbox == true}
-									disabled={composeOnlyApps}
-									hint={composeOnlyApps || policy.sandbox != true ? sandboxHint : undefined}
-									onchange={(on) => {
-										policy.sandbox = on || undefined
-										// Counted where the toggle is flipped rather than where the policy is
-										// persisted, so a choice made before the first deploy counts too.
-										logFeatureUsage('app_sandbox', 'toggled', {
-											key: `${rawApp ? 'raw' : 'low_code'}:${on ? 'on' : 'off'}`
-										})
-										// Frontend API access exists only for a sandboxed app, so turning
-										// isolation off drops the declared scopes with it rather than leaving
-										// them set but inert.
-										if (!on) {
-											policy.frontend_sdk_scopes = undefined
-										}
-									}}
-								>
-									{#if rawApp}
-										<Label
-											label="Frontend API access"
-											tooltip="Each viewer approves these scopes before the app runs. The app's code, or an XSS bug in it, can use them as that viewer."
-										>
-											<div class="text-xs text-secondary">
-												Let the app's frontend call the Windmill API as <b>the viewer</b> through
-												the
-												<code>windmill-client</code> SDK, which it lists as a dependency. Grant only
-												what the app needs.
-											</div>
-											<div class="flex flex-col gap-2 mt-2">
-												{#each FRONTEND_SDK_SCOPES as scope (scope.value)}
-													<div>
-														<Toggle
-															size="xs"
-															options={{ right: scope.label }}
-															checked={policy.frontend_sdk_scopes?.includes(scope.value) ?? false}
-															on:change={(e) => {
-																const current: string[] = policy.frontend_sdk_scopes ?? []
-																const next = e.detail
-																	? [...current, scope.value]
-																	: current.filter((s) => s !== scope.value)
-																// Keep the curated order so the consent banner and the stored
-																// consent compare stably across deploys. A leftover implicit scope is
-																// not in the list, so it drops here rather than keep minting a token
-																// for an app whose toggles all read off.
-																const ordered = FRONTEND_SDK_SCOPES.map((s) => s.value).filter(
-																	(s) => next.includes(s)
-																)
-																policy.frontend_sdk_scopes =
-																	ordered.length > 0 ? ordered : undefined
-															}}
-														/>
-														<div class="text-2xs text-secondary pl-9">{scope.description}</div>
-													</div>
-												{/each}
-											</div>
-											{#if sdkScopesToConfirm(policy.frontend_sdk_scopes ?? []).length}
-												<div class="mt-2">
-													<Alert
-														type="info"
-														title="Redeploy to use the SDK from a sandboxed app"
-														size="xs"
-													>
-														A sandboxed app calls the API cross-origin, which older <code
-															>windmill-client</code
-														>
-														versions cannot do. An app bundled before this Windmill version fails with
-														a CORS error until you deploy it again, which re-bundles it against a current
-														client.
-													</Alert>
-												</div>
-											{/if}
-										</Label>
-									{/if}
-								</SettingToggle>
-							</div>
-						</TabContent>
-
-						<TabContent value="sharing">
-							<div class="flex flex-col gap-6 p-4 pb-8">
-								{#if sharingChanged}
-									<Alert type="info" size="xs" title="Deploy the app to apply these changes." />
+					<div class="flex flex-col gap-6">
+						{#if sharingChanged}
+							<Alert type="info" size="xs" title="Deploy the app to apply these changes." />
+						{/if}
+						<div data-setting="access">
+							<Label label="Access">
+								{#if rulesetsLoaded && !canSetAnonymous && policy.execution_mode != 'anonymous'}
+									<Alert type="warning" title="Restricted by a workspace protection rule" size="xs">
+										Opening this app to anyone with the link is restricted to workspace admins and
+										bypass users by a workspace protection rule
+									</Alert>
 								{/if}
-								<div data-setting="access">
-									<Label label="Access">
-										{#if rulesetsLoaded && !canSetAnonymous && policy.execution_mode != 'anonymous'}
-											<Alert
-												type="warning"
-												title="Restricted by a workspace protection rule"
-												size="xs"
-											>
-												Opening this app to anyone with the link is restricted to workspace admins
-												and bypass users by a workspace protection rule
-											</Alert>
-										{/if}
-										{#if rulesetsLoaded && !canSetGuest && policy.execution_mode != 'guest' && guestsAvailable}
-											<Alert
-												type="warning"
-												title="Restricted by a workspace protection rule"
-												size="xs"
-											>
-												Opening this app to guests is restricted to workspace admins and bypass
-												users by a workspace protection rule
-											</Alert>
-										{/if}
-										<div>
-											<!-- Bound through accessors: given `selected` one way, the group keeps the
+								{#if rulesetsLoaded && !canSetGuest && policy.execution_mode != 'guest' && guestsAvailable}
+									<Alert type="warning" title="Restricted by a workspace protection rule" size="xs">
+										Opening this app to guests is restricted to workspace admins and bypass users by
+										a workspace protection rule
+									</Alert>
+								{/if}
+								<div>
+									<!-- Bound through accessors: given `selected` one way, the group keeps the
 										     choice it was clicked to, and a refused change would stay shown. -->
-											<ToggleButtonGroup
-												bind:selected={() => accessMode, (mode) => onAccessModeChange(mode)}
-												disabled={accessModePending || accessModeLocked}
-											>
-												{#snippet children({ item })}
-													<ToggleButton
-														label="Members"
-														value="publisher"
-														tooltip="Workspace members with read access on this app."
-														{item}
-													/>
-													<ToggleButton
-														label="Guests"
-														value="guest"
-														disabled={policy.execution_mode != 'guest' &&
-															(!guestsAvailable || !canSetGuest)}
-														tooltip={!guestsAvailable
-															? 'Not available on Windmill Cloud. Guests require a self-hosted instance or a dedicated Windmill Cloud deployment.'
-															: "Anyone your identity provider authenticates who has no Windmill account, plus workspace members. No membership, no seat up to the instance's allowance."}
-														{item}
-													/>
-													<ToggleButton
-														label="Public"
-														value="anonymous"
-														disabled={!canSetAnonymous && policy.execution_mode != 'anonymous'}
-														tooltip="Anyone with the secret URL. No login."
-														{item}
-													/>
-												{/snippet}
-											</ToggleButtonGroup>
-										</div>
-										{#if accessModeLocked}
-											<div class="text-xs text-secondary">
-												{#if runsAsAnotherForCaller}
-													This app runs on behalf of <strong>{deployedRunsAs}</strong>. Deploy it so
-													it runs on behalf of you, then change who can open it.
-													{#if !composeOnlyApps}
-														An admin or a member of <code>wm_deployers</code> can change it without taking
-														the app over.
-													{/if}
-												{:else}
-													This app is not sandboxed yet. Deploy it so it is sandboxed, then change
-													who can open it.
-												{/if}
-											</div>
-										{/if}
-										<div class="text-xs text-secondary">
-											{#if policy.execution_mode == 'anonymous'}
-												Anyone holding the secret URL below can open this app without signing in.
-											{:else if policy.execution_mode == 'guest'}
-												{#if !guestsAvailable}
-													Guests are not available on Windmill Cloud, so this app still admits
-													members only. They require a self-hosted instance or a dedicated Windmill
-													Cloud deployment.
-												{:else}
-													Anyone your identity provider authenticates can open this app without a
-													Windmill account. They join no workspace. Members of this workspace can
-													open it too.
-													{#if guestUsage}
-														{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used
-														across this instance in the last {guestUsage.window_days} days; beyond that,
-														{guestUsage.metered
-															? 'every four guests count as one seat'
-															: 'new guests are refused until the count drops'}.
-													{/if}
-												{/if}
-											{:else}
-												Only workspace members with read access on this app can open it.
-											{/if}
-										</div>
-									</Label>
-								</div>
-
-								<Label
-									label="Secret URL"
-									tooltip="An unguessable link to the app. Who it lets in depends on the access above."
-								>
-									{#snippet action()}
-										{#if savedApp && !newApp && secretUrlHref}
-											<Toggle
-												size="xs"
-												checked={embedMode}
-												on:change={(e) => (embedMode = e.detail)}
-												options={{ left: 'URL', right: 'Embed' }}
+									<ToggleButtonGroup
+										bind:selected={() => accessMode, (mode) => onAccessModeChange(mode)}
+										disabled={accessModePending || accessModeLocked}
+									>
+										{#snippet children({ item })}
+											<ToggleButton
+												label="Members"
+												value="publisher"
+												tooltip="Workspace members with read access on this app."
+												{item}
 											/>
-										{/if}
-									{/snippet}
-									{#if !savedApp || newApp}
-										<ClipboardPanel
-											content={`Deploy this app once to get the public secret URL`}
-											size="md"
-										/>
-									{:else if secretUrlHref}
-										<ClipboardPanel
-											content={embedMode ? toEmbedSnippet(secretUrlHref) : secretUrlHref}
-											size="md"
-										/>
-									{:else}<Loader2 size={16} class="animate-spin" />
-									{/if}
-									<div class="text-2xs text-secondary">
-										{#if embedMode}
-											Paste this iframe snippet into another app.
-											{#if rawApp}
-												To embed it in a cross-origin isolated page, add <code>wm_coep=on</code>
-												<Tooltip
-													>Sets the cross-origin isolation headers (COEP) on the app, which such a
-													page requires of its iframes. The app then only loads cross-origin
-													resources that send CORS or a Cross-Origin-Resource-Policy header.</Tooltip
-												> to the URL.
+											<ToggleButton
+												label="Guests"
+												value="guest"
+												disabled={policy.execution_mode != 'guest' &&
+													(!guestsAvailable || !canSetGuest)}
+												tooltip={!guestsAvailable
+													? 'Not available on Windmill Cloud. Guests require a self-hosted instance or a dedicated Windmill Cloud deployment.'
+													: "Anyone your identity provider authenticates who has no Windmill account, plus workspace members. No membership, no seat up to the instance's allowance."}
+												{item}
+											/>
+											<ToggleButton
+												label="Public"
+												value="anonymous"
+												disabled={!canSetAnonymous && policy.execution_mode != 'anonymous'}
+												tooltip="Anyone with the secret URL. No login."
+												{item}
+											/>
+										{/snippet}
+									</ToggleButtonGroup>
+								</div>
+								{#if accessModeLocked}
+									<div class="text-xs text-secondary">
+										{#if runsAsAnotherForCaller}
+											This app runs on behalf of <strong>{deployedRunsAs}</strong>. Deploy it so it
+											runs on behalf of you, then change who can open it.
+											{#if !composeOnlyApps}
+												An admin or a member of <code>wm_deployers</code> can change it without taking
+												the app over.
 											{/if}
-											(if requiring login, top-level domain of embedding app must be the same as the
-											one of Windmill)
 										{:else}
-											Share this URL directly, or switch to <b>Embed</b> to get an iframe snippet. Only
-											the latest deployed version is served.
+											This app is not sandboxed yet. Deploy it so it is sandboxed, then change who
+											can open it.
 										{/if}
 									</div>
-								</Label>
-
-								{#if embedMode && policy.execution_mode == 'guest' && guestJwtBase && guestsAvailable}
-									<Label label="Embed for your own authenticated users (guest JWT)">
-										<div class="text-xs text-secondary">
-											To open this app for a user your own product already authenticates, mint a
-											short-lived JWT in your backend and append it to the app URL as <code
-												>guest.&lt;jwt&gt;</code
-											>. Each token is its own seatless guest, confined to this app. Unlike the
-											plain secret URL above, there is no shared secret and no Windmill account.
-										</div>
-										<div class="text-xs text-secondary">
-											Windmill verifies the token against the workspace's guest JWT key (Workspace
-											settings → Guests): a PEM public key or a JWKS URL{#if !isCloudHosted()}, or
-												the instance's configured issuer (<code>JWT_EXT_JWKS_URL</code>) when no
-												workspace key is set{/if}. Set the <b>public</b> half there; in your
-											backend, sign each token with the matching
-											<b>private</b> key using RS256/384/512, PS256/384/512 or ES256/384 (symmetric
-											HS* is refused), carrying <code>email</code>,
-											<code>workspace_id</code>
-											=
-											<code>{opWs}</code>, <code>app_path</code> = <code>{appPath}</code> and
-											<code>exp</code> (at most 24h ahead).
-										</div>
-										<ClipboardPanel
-											content={toEmbedSnippet(`${guestJwtBase}/guest.YOUR_GUEST_JWT`)}
-											size="md"
-										/>
-										<div class="text-2xs text-secondary">
-											Replace <code>YOUR_GUEST_JWT</code> with the token your backend signs per user.
-											Past the instance's free guest allowance a new guest email is refused (see the
-											count above); guests already seen in the window keep working.
-										</div>
-									</Label>
 								{/if}
+								<div class="text-xs text-secondary">
+									{#if policy.execution_mode == 'anonymous'}
+										Anyone holding the secret URL below can open this app without signing in.
+									{:else if policy.execution_mode == 'guest'}
+										{#if !guestsAvailable}
+											Guests are not available on Windmill Cloud, so this app still admits members
+											only. They require a self-hosted instance or a dedicated Windmill Cloud
+											deployment.
+										{:else}
+											Anyone your identity provider authenticates can open this app without a
+											Windmill account. They join no workspace. Members of this workspace can open
+											it too.
+											{#if guestUsage}
+												{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used across
+												this instance in the last {guestUsage.window_days} days; beyond that,
+												{guestUsage.metered
+													? 'every four guests count as one seat'
+													: 'new guests are refused until the count drops'}.
+											{/if}
+										{/if}
+									{:else}
+										Only workspace members with read access on this app can open it.
+									{/if}
+								</div>
+							</Label>
+						</div>
 
-								<SettingToggle
-									setting="custom-url"
-									label="Custom URL"
-									tooltip="Serve the app at a path you pick, on top of its secret URL."
-									eeOnly
-									disabled={!$enterpriseLicense || !isAdmin}
-									checked={customPath !== undefined}
-									hint={!isAdmin ? adminOnlyHint : undefined}
-									onchange={(on) => {
-										customPath = on ? '' : undefined
-										if (!on) {
-											customPathError = ''
+						<Label
+							label="Secret URL"
+							tooltip="An unguessable link to the app. Who it lets in depends on the access above."
+						>
+							{#snippet action()}
+								{#if savedApp && !newApp && secretUrlHref}
+									<Toggle
+										size="xs"
+										checked={embedMode}
+										on:change={(e) => (embedMode = e.detail)}
+										options={{ left: 'URL', right: 'Embed' }}
+									/>
+								{/if}
+							{/snippet}
+							{#if !savedApp || newApp}
+								<ClipboardPanel
+									content={`Deploy this app once to get the public secret URL`}
+									size="md"
+								/>
+							{:else if secretUrlHref}
+								<ClipboardPanel
+									content={embedMode ? toEmbedSnippet(secretUrlHref) : secretUrlHref}
+									size="md"
+								/>
+							{:else}<Loader2 size={16} class="animate-spin" />
+							{/if}
+							<div class="text-2xs text-secondary">
+								{#if embedMode}
+									Paste this iframe snippet into another app.
+									{#if rawApp}
+										To embed it in a cross-origin isolated page, add <code>wm_coep=on</code>
+										<Tooltip
+											>Sets the cross-origin isolation headers (COEP) on the app, which such a page
+											requires of its iframes. The app then only loads cross-origin resources that
+											send CORS or a Cross-Origin-Resource-Policy header.</Tooltip
+										> to the URL.
+									{/if}
+									(if requiring login, top-level domain of embedding app must be the same as the one
+									of Windmill)
+								{:else}
+									Share this URL directly, or switch to <b>Embed</b> to get an iframe snippet. Only the
+									latest deployed version is served.
+								{/if}
+							</div>
+						</Label>
+
+						{#if embedMode && policy.execution_mode == 'guest' && guestJwtBase && guestsAvailable}
+							<Label label="Embed for your own authenticated users (guest JWT)">
+								<div class="text-xs text-secondary">
+									To open this app for a user your own product already authenticates, mint a
+									short-lived JWT in your backend and append it to the app URL as <code
+										>guest.&lt;jwt&gt;</code
+									>. Each token is its own seatless guest, confined to this app. Unlike the plain
+									secret URL above, there is no shared secret and no Windmill account.
+								</div>
+								<div class="text-xs text-secondary">
+									Windmill verifies the token against the workspace's guest JWT key (Workspace
+									settings → Guests): a PEM public key or a JWKS URL{#if !isCloudHosted()}, or the
+										instance's configured issuer (<code>JWT_EXT_JWKS_URL</code>) when no workspace
+										key is set{/if}. Set the <b>public</b> half there; in your backend, sign each
+									token with the matching
+									<b>private</b> key using RS256/384/512, PS256/384/512 or ES256/384 (symmetric HS*
+									is refused), carrying <code>email</code>,
+									<code>workspace_id</code>
+									=
+									<code>{opWs}</code>, <code>app_path</code> = <code>{appPath}</code> and
+									<code>exp</code> (at most 24h ahead).
+								</div>
+								<ClipboardPanel
+									content={toEmbedSnippet(`${guestJwtBase}/guest.YOUR_GUEST_JWT`)}
+									size="md"
+								/>
+								<div class="text-2xs text-secondary">
+									Replace <code>YOUR_GUEST_JWT</code> with the token your backend signs per user. Past
+									the instance's free guest allowance a new guest email is refused (see the count above);
+									guests already seen in the window keep working.
+								</div>
+							</Label>
+						{/if}
+
+						<SettingToggle
+							setting="custom-url"
+							label="Custom URL"
+							tooltip="Serve the app at a path you pick, on top of its secret URL."
+							eeOnly
+							disabled={!$enterpriseLicense || !isAdmin}
+							checked={customPath !== undefined}
+							hint={!isAdmin ? adminOnlyHint : undefined}
+							onchange={(on) => {
+								customPath = on ? '' : undefined
+								if (!on) {
+									customPathError = ''
+								}
+							}}
+						>
+							<Label label="Custom path" for="customPath">
+								<TextInput
+									inputProps={{
+										id: 'customPath',
+										autocomplete: 'off',
+										disabled: !isAdmin,
+										oninput: () => {
+											dirtyCustomPath = true
 										}
 									}}
-								>
-									<Label label="Custom path" for="customPath">
-										<TextInput
-											inputProps={{
-												id: 'customPath',
-												autocomplete: 'off',
-												disabled: !isAdmin,
-												oninput: () => {
-													dirtyCustomPath = true
-												}
-											}}
-											bind:value={customPath}
-											error={dirtyCustomPath || showErrors ? customPathError : undefined}
-										/>
-										{#if (dirtyCustomPath || showErrors) && customPathError}
-											<div class="text-2xs text-red-600 dark:text-red-400">{customPathError}</div>
-										{/if}
-									</Label>
-									<Label label="Custom public URL">
-										<ClipboardPanel
-											content={embedMode ? toEmbedSnippet(fullCustomUrl) : fullCustomUrl}
-											size="md"
-										/>
-									</Label>
-								</SettingToggle>
+									bind:value={customPath}
+									error={dirtyCustomPath || showErrors ? customPathError : undefined}
+								/>
+								{#if (dirtyCustomPath || showErrors) && customPathError}
+									<div class="text-2xs text-red-600 dark:text-red-400">{customPathError}</div>
+								{/if}
+							</Label>
+							<Label label="Custom public URL">
+								<ClipboardPanel
+									content={embedMode ? toEmbedSnippet(fullCustomUrl) : fullCustomUrl}
+									size="md"
+								/>
+							</Label>
+						</SettingToggle>
 
-								<a
-									href="https://www.windmill.dev/docs/advanced/external_auth_with_jwt#embed-public-apps-using-your-own-authentification"
-									class="text-2xs"
-									>Embed this app in your own product to be used by your own users</a
-								>
-							</div>
-						</TabContent>
+						<a
+							href="https://www.windmill.dev/docs/advanced/external_auth_with_jwt#embed-public-apps-using-your-own-authentification"
+							class="text-2xs">Embed this app in your own product to be used by your own users</a
+						>
 					</div>
-				{/snippet}
-			</Tabs>
+				</Section>
+			</div>
 		</div>
 	</DrawerContent>
 </Drawer>
