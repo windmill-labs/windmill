@@ -168,10 +168,9 @@
 			}
 		})
 		const unsubscribePool = createdPool.subscribe((s) => (poolState = s))
-		// Untracked: following the link once is the whole job; a later change of the prop must
-		// not rebuild every chat of the flow.
+		// Untracked: a later change of the prop must not rebuild every chat of the flow; the
+		// navigation below follows it instead.
 		const linked = untrack(() => openConversation)
-		followedLink = linked
 		if (linked) createdPool.select(linked)
 		listChat = createdList
 		pool = createdPool
@@ -184,13 +183,12 @@
 	})
 
 	// A link to another chat of this flow changes only the query, so the page is not remounted
-	// and the pool stays: it is shown here. Compared with the link last followed, so the
-	// conversation the reader picked in the chat's own sidebar survives an unrelated navigation.
-	let followedLink: string | undefined = undefined
+	// and the pool stays: it is shown here. Compared with what the panel shows, not with the
+	// link last followed: picking a chat in the panel's own sidebar leaves the query as it was,
+	// and the reader can still link back to it.
 	afterNavigate(() => {
 		const linked = openConversation
-		if (!linked || linked === followedLink || !pool) return
-		followedLink = linked
+		if (!linked || !pool || linked === poolState?.selectedId) return
 		pool.select(linked)
 	})
 
