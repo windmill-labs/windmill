@@ -21,6 +21,7 @@
 		'snowflake',
 		'snowflake_oauth',
 		'bigquery',
+		'google_service_account',
 		'gcp_service_account',
 		'databricks'
 	].join(',')

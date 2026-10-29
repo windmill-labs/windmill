@@ -184,7 +184,11 @@ fn compile(secrets: &HashSet<String>) -> CompiledMasks {
         })
         .collect();
 
+    // Built once per job (its token is always a secret) and searched over little log text, so
+    // the default DFA's build cost dominates; a contiguous NFA searches as fast here since
+    // the literal prefilter does the scanning.
     let ac = aho_corasick::AhoCorasickBuilder::new()
+        .kind(Some(aho_corasick::AhoCorasickKind::ContiguousNFA))
         .match_kind(aho_corasick::MatchKind::LeftmostLongest)
         .build(sorted.iter().map(|s| s.as_str()))
         .expect("failed to build aho-corasick automaton");

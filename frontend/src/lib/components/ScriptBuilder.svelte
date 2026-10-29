@@ -1156,7 +1156,10 @@
 					})
 				},
 				draft: savedScript['draft'],
-				current
+				current,
+				aiReview: opWorkspace
+					? { workspaceId: opWorkspace, kind: 'script', path: script.path }
+					: undefined
 			},
 			opening
 		)

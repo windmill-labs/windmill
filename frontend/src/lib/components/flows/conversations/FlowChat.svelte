@@ -63,6 +63,8 @@
 		subject?: 'flow' | 'agent'
 		/** The host's own controls, after the model's in the composer's footer. */
 		composerSettings?: import('svelte').Snippet
+		/** Pinned at the foot of the conversations sidebar. */
+		sidebarFooter?: import('svelte').Snippet<[{ expanded: boolean }]>
 	}
 
 	let {
@@ -78,7 +80,8 @@
 		frame = 'top',
 		conversationKind = 'deployed',
 		subject = 'flow',
-		composerSettings = undefined
+		composerSettings = undefined,
+		sidebarFooter = undefined
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
@@ -202,6 +205,7 @@
 				{poolState}
 				defaultKind={conversationKind}
 				canFilterKind={conversationKind !== 'deployed' && subject === 'flow'}
+				footer={sidebarFooter}
 			/>
 		{/if}
 		<!-- pb-3 on the chat alone, not on the row: the transcript and composer stop short of

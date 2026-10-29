@@ -486,6 +486,9 @@ fn describe_authed(authed: Option<&(impl Authable + Sync)>) -> String {
     }
 }
 
+/// Including the variable's and its folder's `extra_perms` in the error is intended, not a
+/// leak: who holds access to an item is not secret within a workspace, and it tells the
+/// denied caller whom to ask. Keep the maps in the message.
 async fn explain_variable_perm_error(
     path: &str,
     w_id: &str,

@@ -822,6 +822,9 @@
 							custom_path: customPath,
 							labels
 						},
+						aiReview: $workspaceStore
+							? { workspaceId: $workspaceStore, kind: 'app', path: savedApp.path }
+							: undefined,
 						button: {
 							text: 'Looks good, deploy',
 							onClick: () => deploy(deploymentMsg)

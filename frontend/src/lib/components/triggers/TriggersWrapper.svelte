@@ -39,6 +39,8 @@
 		onDelete?: () => void
 		onReset?: () => void
 		onEmailDomain: (domain: string) => void
+		/** A flow in chat mode: its webhook examples then name a conversation. */
+		chatMode?: boolean
 	}
 
 	let {
@@ -53,6 +55,7 @@
 		newItem,
 		schema,
 		onEmailDomain,
+		chatMode = false,
 		...props
 	}: Props = $props()
 
@@ -79,6 +82,7 @@
 		{args}
 		scopes={isFlow ? [`jobs:run:flows:${currentPath}`] : [`jobs:run:scripts:${currentPath}`]}
 		{newItem}
+		chat={isFlow && chatMode}
 	/>
 {:else if selectedTrigger.type === 'default_email'}
 	<DefaultEmailPanel

@@ -152,7 +152,7 @@ repeatedly — check the brand's own page.
 | `GoogleCloudIcon` | `gcloud`, `gcp_service_account` | fixed | #EA4335 | #EA4335 | 3.80 | 7.30 | Google's own product logo asset https://www.gstatic.com/images/branding/product/2x/google_cloud_64dp.png |
 | `GoogleDriveIcon` | — | fixed | #B43333 | #B43333 | 5.87 | 10.05 | https://www.gstatic.com/images/branding/productlogos/drive_2026/v2/web/192px.svg (Drive 2026 mark, copied verbatim) |
 | `GoogleFormsIcon` | `gforms` | fixed | #969DFF | #969DFF | 5.99 | 12.47 | Google's own Forms product icon at www.gstatic.com/images/branding/productlogos/forms_2026/v2/web/192px.svg |
-| `GoogleIcon` | `google`, `gworkspace` | mixed | #4285F4 | #4285F4 | 3.88 | 7.30 | the G mark Google serves in accounts.google.com/gsi/client |
+| `GoogleIcon` | `google`, `gworkspace`, `google_service_account` | mixed | #4285F4 | #4285F4 | 3.88 | 7.30 | the G mark Google serves in accounts.google.com/gsi/client |
 | `GorgiasIcon` | `gorgias` | pair | #000000 | #FFF9F4 | 20.32 | 11.94 | gorgias.com/about-us/style, which ships the symbol as a "Dark"/"Light" pair |
 | `GraphqlIcon` | `graphql` | pair | #E10098 | #FFFFFF | 4.37 | 12.47 | graphql.org |
 | `GreipIcon` | `greip` | pair | #141C27 | #FFFFFF | 16.59 | 12.47 | docs.greip.io |

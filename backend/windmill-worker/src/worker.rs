@@ -5881,15 +5881,18 @@ async fn handle_code_execution_job(
     // preview only, from its `RawCode`; a job queued by a server predating that may still carry
     // a caller's, and honoring it on a deployed runnable would run caller code as that runnable
     // (and as its `on_behalf_of` identity).
-    let modules = modules_from_data.clone().or_else(|| {
-        let args = job.args.as_ref().filter(|_| job.kind == JobKind::Preview);
-        args.and_then(|args| {
-            args.get(MODULES_ARG).and_then(|raw| {
-                serde_json::from_str::<std::collections::HashMap<String, ScriptModule>>(raw.get())
-                    .ok()
-            })
-        })
-    });
+    let modules_from_args;
+    let modules = if modules_from_data.is_some() {
+        modules_from_data
+    } else {
+        modules_from_args = job
+            .args
+            .as_ref()
+            .filter(|_| job.kind == JobKind::Preview)
+            .and_then(|args| args.get(MODULES_ARG))
+            .and_then(|raw| serde_json::from_str(raw.get()).ok());
+        &modules_from_args
+    };
 
     try_validate_schema(
         job,
@@ -5924,7 +5927,7 @@ async fn handle_code_execution_job(
         envs,
         codebase,
         lock,
-        &modules,
+        modules,
         false,
         in_pipeline,
     ))

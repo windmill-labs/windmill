@@ -1357,7 +1357,10 @@
 					...currentFlow,
 					path: $pathStore,
 					draft_triggers: currentDraftTriggers
-				}
+				},
+				aiReview: opWorkspace
+					? { workspaceId: opWorkspace, kind: 'flow', path: $pathStore }
+					: undefined
 			},
 			opening
 		)
