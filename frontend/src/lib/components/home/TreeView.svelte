@@ -3,11 +3,13 @@
 	import { createEventDispatcher, onDestroy, untrack, type Snippet } from 'svelte'
 	import ResizeTransitionWrapper from '$lib/components/common/ResizeTransitionWrapper.svelte'
 
-	import { Eye, Folder, FolderTree, Pen, User } from 'lucide-svelte'
+	import { AtSign, Eye, Folder, FolderTree, Pen, User } from 'lucide-svelte'
 	import { userStore } from '$lib/stores'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import TreeOwnerRow from './TreeOwnerRow.svelte'
 	import HomeFolderBadge from './HomeFolderBadge.svelte'
+	import { homeComposerContext } from '../sessions/homeComposerContext.svelte'
+	import { folderContextElement } from '../copilot/chat/context'
 	import PipelineRow from '../common/table/PipelineRow.svelte'
 	import Item from './Item.svelte'
 	import { countLeaves, type FolderItem, type ItemType, type UserItem } from './treeViewUtils'
@@ -304,6 +306,13 @@
 			fixedHeight={false}
 			placement="bottom-start"
 			items={[
+				{
+					displayName: 'Add to AI session context',
+					icon: AtSign,
+					type: 'ai',
+					action: () => homeComposerContext.attach(folderContextElement(`f/${folderName}`)),
+					hide: !homeComposerContext.available
+				},
 				{
 					displayName: canWrite ? 'Manage folder' : 'View folder',
 					icon: canWrite ? Pen : Eye,

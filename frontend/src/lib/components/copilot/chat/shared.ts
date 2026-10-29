@@ -465,6 +465,11 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
 			}
 			workspaceItemsContext += `- type: raw_app, path: ${context.path}\n`
+		} else if (context.type === 'workspace_folder') {
+			if (!workspaceItemsContext) {
+				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
+			}
+			workspaceItemsContext += `- type: folder, path: ${context.path}\n`
 		}
 	}
 

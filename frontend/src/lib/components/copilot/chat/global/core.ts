@@ -173,7 +173,7 @@ import { scriptLangToEditorLang } from '$lib/scripts'
 import { appFileEditorLang } from '../appFileEditorLang'
 import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import { createDbSchemaTool } from '../script/core'
-import type { ContextElement } from '../context'
+import { isMentionContext, type ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
 import { getDatatableMigrationTools } from '../datatableMigrationTools'
 import { getDucklakeTools } from '../ducklakeTools'
@@ -9753,12 +9753,7 @@ export function prepareGlobalUserMessage(
 	selectedContext: ContextElement[] = [],
 	options: GlobalUserMessageOptions = {}
 ): ChatCompletionUserMessageParam {
-	const selectedWorkspaceItems = selectedContext.filter(
-		(context) =>
-			context.type === 'workspace_script' ||
-			context.type === 'workspace_flow' ||
-			context.type === 'workspace_app'
-	)
+	const selectedWorkspaceItems = selectedContext.filter(isMentionContext)
 	const activeEditor =
 		options.activeEditor ??
 		(options.workspace ? getActiveGlobalEditorContext(options.workspace) : undefined)
@@ -9789,6 +9784,10 @@ export function prepareGlobalUserMessage(
 	if (selectedWorkspaceItems.length > 0) {
 		content += '## SELECTED CONTEXT\n'
 		for (const context of selectedWorkspaceItems) {
+			if (context.type === 'workspace_folder') {
+				content += `- type: folder, path: ${context.path} (its items: list_workspace_items with path_prefix "${context.path}/")\n`
+				continue
+			}
 			const itemType =
 				context.type === 'workspace_script'
 					? 'script'
