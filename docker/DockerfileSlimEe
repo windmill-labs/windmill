@@ -31,8 +31,10 @@ RUN make
 FROM ${DEBIAN_IMAGE}
 
 ARG APP=/usr/src/app
-ARG LATEST_STABLE_PY=3.12.16
-ARG NEW_INSTANCE_PY=3.13.18
+# Minor versions, as in ../Dockerfile (which says why both are preinstalled): uv installs the
+# newest patch build it pins, so a uv bump also brings that build's bundled pip and certifi.
+ARG LATEST_STABLE_PY=3.12
+ARG NEW_INSTANCE_PY=3.13
 
 # UV configuration
 ENV UV_CACHE_DIR=/tmp/windmill/cache/uv
