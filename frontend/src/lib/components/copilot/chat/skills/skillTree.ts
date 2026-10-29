@@ -1,8 +1,4 @@
-/** Grouping for the Skills list: skills sorted into the folders that hold them.
- *
- * Only worth showing when the skills are spread over more than one folder — see
- * `skillFolderPaths` — since a tree over a single folder is a list with a header
- * on top of it. */
+/** Grouping for the Skills list: skills sorted into the folders that hold them. */
 
 /** A folder in the skills tree. `path` is the whole prefix the node covers, so it
  * is unique across the tree and can key collapsed state. */
@@ -18,11 +14,6 @@ export type SkillTreeNode<T> = {
 }
 
 type Skill = { path: string; name: string }
-
-/** The folders holding these skills — one entry per distinct parent path. */
-export function skillFolderPaths(skills: readonly Skill[]): Set<string> {
-	return new Set(skills.map((s) => s.path.split('/').slice(0, -1).join('/')))
-}
 
 /** Every skill under `node`, its subfolders included. */
 export function countSkills<T>(node: SkillTreeNode<T>): number {
@@ -42,6 +33,12 @@ export type SkillTreeEntry<T> = { key: string; parentKey?: string } & (
 
 /** A folder and a skill can hold the same path — `f/skills/deploy` names both when
  * `f/skills/deploy/rollback` exists beside it — so the kind is part of the key. */
+/** Whether a folder the user has not folded or unfolded starts folded: with a folder focused
+ * (`f/x` or `u/x`), every other top-level folder does, so the focused one is what is left. */
+export function foldedByDefault(path: string, focusRoot: string | undefined): boolean {
+	return focusRoot !== undefined && path.split('/').length === 2 && path !== focusRoot
+}
+
 export function folderKey(path: string): string {
 	return `folder:${path}`
 }

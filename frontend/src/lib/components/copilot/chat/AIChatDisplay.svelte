@@ -18,6 +18,7 @@
 		MousePointer2,
 		Plug,
 		Plus,
+		SlidersHorizontal,
 		TextSelect,
 		X,
 		XIcon
@@ -34,7 +35,9 @@
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
 	import ScrollFade from '$lib/components/ScrollFade.svelte'
-	import AssistantSettingsModal from './AssistantSettingsModal.svelte'
+	import AssistantSettingsModal, {
+		type AssistantSettingsSection
+	} from './AssistantSettingsModal.svelte'
 	import WorkingInPicker from './WorkingInPicker.svelte'
 	import { scopeLabel } from './workingScope'
 	import { SkillsMenu } from './skills/skillsMenu.svelte'
@@ -314,6 +317,12 @@
 
 	export function focusInput(selection?: ComposerSelection) {
 		aiChatInput?.focusInput(selection)
+	}
+
+	/** With `root`, focused on that folder. */
+	export function openAssistantSettings(section: AssistantSettingsSection, root?: string) {
+		if (root) void assistantSettings?.openFolder(section, root)
+		else assistantSettings?.open(section)
 	}
 
 	/** Mention a workspace item in the draft, as "+" → Mention file does, and hand the user
@@ -1393,7 +1402,24 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								{/if}
 								{@render footerSettings?.()}
 								{#if chatHost.mode === AIMode.GLOBAL}
-									<AssistantSettingsModal bind:this={assistantSettings} />
+									<Tooltip small placement="top">
+										<Button
+											unifiedSize="2xs"
+											variant="subtle"
+											iconOnly
+											startIcon={{ icon: SlidersHorizontal }}
+											aria-label="Assistant settings"
+											onClick={() => assistantSettings?.open()}
+										/>
+										{#snippet text()}
+											<div class="max-w-64 text-xs">
+												<p class="font-semibold">Assistant settings</p>
+												<p class="mt-1"
+													>The tools, skills, instructions and MCP servers this chat can use.</p
+												>
+											</div>
+										{/snippet}
+									</Tooltip>
 								{/if}
 
 								{#if chatHost.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
@@ -1476,3 +1502,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		{/if}
 	</div>
 </div>
+<!-- Outside the composer: Home's folded composer drops its toolbar, and the folder badges open
+     this without unfolding it. -->
+{#if chatHost.mode === AIMode.GLOBAL}
+	<AssistantSettingsModal bind:this={assistantSettings} />
+{/if}

@@ -27,19 +27,18 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		Paperclip,
 		Plug,
 		ScrollText,
-		ShieldCheck,
-		SlidersHorizontal
+		ShieldCheck
 	} from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
-	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { summarizeTools } from './agentContext'
 	import AssistantToolsSection from './AssistantToolsSection.svelte'
 	import AssistantSkillsSection from './AssistantSkillsSection.svelte'
 	import AssistantInstructionsSection from './AssistantInstructionsSection.svelte'
+	import { tick } from 'svelte'
 	import AssistantMcpSection from './AssistantMcpSection.svelte'
 	import AssistantFilesSection from './AssistantFilesSection.svelte'
 	import AssistantPermissionsSection from './AssistantPermissionsSection.svelte'
@@ -121,12 +120,22 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	let tools = $derived(summarizeTools(aiChatManager.availableTools))
 	let providerTools = $derived(aiChatManager.providerTools)
 
+	/** The folder (`f/x` or `u/x`) the modal was opened on, from a folder's badge: in Skills
+	 * and Instructions it is the only top-level folder open. */
+	let focusRoot = $state<string | undefined>(undefined)
+
 	// `SidebarNavigation`'s item shape, which is what the instance and workspace settings
 	// navs are built from too.
 	let sections = $derived([
 		{ id: 'tools', label: 'Tools', icon: Boxes, count: tools.length + providerTools.length },
 		{ id: 'skills', label: 'Skills', icon: BookOpen, count: skillCount },
-		{ id: 'instructions', label: 'Instructions', icon: ScrollText },
+		// Folder instructions only: the workspace's and yours are fixed rows, set or not.
+		{
+			id: 'instructions',
+			label: 'Instructions',
+			icon: ScrollText,
+			count: aiChatManager.scopeResources.instructions.length
+		},
 		{ id: 'mcp', label: 'MCP connections', icon: Plug, count: mcpCount },
 		// The count is what is readable rather than what is attached: a locked folder under
 		// a heading about what the assistant can use would say the opposite of the truth.
@@ -136,11 +145,23 @@ callers that already know which section they mean, such as the "+" menu's Manage
 
 	/** Opens on `target`, or back on whichever section was last read. */
 	export function open(target: AssistantSettingsSection = section) {
+		focusRoot = undefined
 		section = target
 		isOpen = true
 		refresh()
 		record('open')
 		record(target)
+	}
+
+	let skillsSection: AssistantSkillsSection | undefined = $state()
+	let instructionsSection: AssistantInstructionsSection | undefined = $state()
+	/** Opens on `target` focused on `root`. The sections mount with the modal. */
+	export async function openFolder(target: AssistantSettingsSection, root: string) {
+		open(target)
+		focusRoot = root
+		await tick()
+		skillsSection?.showFolder()
+		instructionsSection?.showFolder()
 	}
 
 	// `context_panel` is the kind registered in `feature_usage_ee.rs`; an unregistered
@@ -172,6 +193,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		// values the turn was actually given, which is the honest answer anyway.
 		if (!aiChatManager.loading && !aiChatManager.sendInFlight) {
 			void aiChatManager.refreshGlobalSkills()
+			void aiChatManager.refreshGlobalFolderInstructions()
 			void aiChatManager.refreshMcpServers()
 			void aiChatManager.refreshSessionAccess()
 		}
@@ -179,23 +201,6 @@ callers that already know which section they mean, such as the "+" menu's Manage
 </script>
 
 <svelte:window onkeydown={onKeydown} />
-
-<Tooltip small placement="top">
-	<Button
-		unifiedSize="2xs"
-		variant="subtle"
-		iconOnly
-		startIcon={{ icon: SlidersHorizontal }}
-		aria-label="Assistant settings"
-		onClick={() => open()}
-	/>
-	{#snippet text()}
-		<div class="max-w-64 text-xs">
-			<p class="font-semibold">Assistant settings</p>
-			<p class="mt-1">The tools, skills, instructions and MCP servers this chat can use.</p>
-		</div>
-	{/snippet}
-</Tooltip>
 
 <Modal2
 	bind:isOpen
@@ -254,7 +259,9 @@ callers that already know which section they mean, such as the "+" menu's Manage
 			     laid over each other, and each keeps a scroll position of its own. -->
 			<div class="{section === 'skills' ? 'flex' : 'hidden'} grow min-h-0 flex-col overflow-hidden">
 				<AssistantSkillsSection
+					bind:this={skillsSection}
 					{ws}
+					{focusRoot}
 					active={section === 'skills'}
 					bind:count={skillCount}
 					bind:blocksClose={skillsBusy}
@@ -266,7 +273,9 @@ callers that already know which section they mean, such as the "+" menu's Manage
 					: 'hidden'} grow min-h-0 flex-col overflow-hidden"
 			>
 				<AssistantInstructionsSection
+					bind:this={instructionsSection}
 					{ws}
+					{focusRoot}
 					active={section === 'instructions'}
 					bind:blocksClose={instructionsBusy}
 				/>

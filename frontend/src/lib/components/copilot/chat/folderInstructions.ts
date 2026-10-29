@@ -86,7 +86,7 @@ export async function saveFolderInstruction(
 	workspace: string,
 	path: string,
 	content: string,
-	{ create = false }: { create?: boolean } = {}
+	{ create = false, from = path }: { create?: boolean; from?: string } = {}
 ): Promise<void> {
 	if (create) {
 		await ResourceService.createResource({
@@ -98,7 +98,11 @@ export async function saveFolderInstruction(
 			}
 		})
 	} else {
-		await ResourceService.updateResource({ workspace, path, requestBody: { value: { content } } })
+		await ResourceService.updateResource({
+			workspace,
+			path: from,
+			requestBody: { path, value: { content } }
+		})
 	}
 }
 

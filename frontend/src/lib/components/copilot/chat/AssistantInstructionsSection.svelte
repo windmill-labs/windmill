@@ -55,7 +55,12 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		saveFolderInstruction,
 		type FolderInstructionRow
 	} from './folderInstructions'
-	import { buildSkillTree, countSkills, type SkillTreeNode } from './skills/skillTree'
+	import {
+		buildSkillTree,
+		countSkills,
+		foldedByDefault,
+		type SkillTreeNode
+	} from './skills/skillTree'
 
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
@@ -63,10 +68,13 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 	let {
 		ws,
 		active,
+		focusRoot,
 		blocksClose = $bindable()
 	}: {
 		/** The workspace the chat operates on, which is not always the one on screen. */
 		ws: string
+		/** The folder (`f/x` or `u/x`) the modal was opened on: the only top-level one open. */
+		focusRoot?: string
 		/** Whether this is the panel on screen. The list costs a settings read and a
 		 * resource listing, so it is fetched when someone looks at instructions rather
 		 * than on every open of the modal. */
@@ -157,8 +165,9 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 	let folderRows = $state<FolderInstructionRow[]>([])
 	let folderLoadError = $state<string | undefined>(undefined)
 	let tree = $derived(buildSkillTree(folderRows))
-	/** Folders the user closed, keyed by full prefix. */
+	/** Folders the user closed or opened, keyed by full prefix. */
 	let collapsed = $state<Record<string, boolean>>({})
+	const isFolded = (path: string) => collapsed[path] ?? foldedByDefault(path, focusRoot)
 
 	// The folder instruction on the detail page: what Monaco holds against what was read.
 	let folderContent = $state('')
@@ -175,7 +184,8 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 	let folderChanged = $derived(
 		detail?.kind === 'new'
 			? folderContent.trim() !== ''
-			: detail?.kind === 'folder' && folderContent !== folderOriginal
+			: detail?.kind === 'folder' &&
+					(folderContent !== folderOriginal || newPath !== detail.row.path)
 	)
 
 	let dirty = $derived(workspaceChanged || userChanged || folderChanged)
@@ -315,6 +325,12 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		bodyEditor?.setCode(next)
 	}
 
+	/** Back on the list with the folds reset, for `focusRoot` to decide them. */
+	export function showFolder() {
+		closeDetail()
+		collapsed = {}
+	}
+
 	/** Lands on the rendered instructions: reading them is the common reason to open
 	 * them, and the header's View/Edit switch is one click from the other half. */
 	async function openFolder(row: FolderInstructionRow) {
@@ -332,6 +348,8 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 			if (source !== ws || seq !== visit) return
 			setFolderContent(body)
 			folderOriginal = body
+			newPath = row.path
+			editorSeq++
 			folderMode = 'view'
 			opened = { workspace: source, detail: { kind: 'folder', row } }
 			detailOpen = true
@@ -387,7 +405,8 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		if (current?.kind !== 'folder' && current?.kind !== 'new') return
 		if (blockedByPendingFork()) return
 		const target = ws
-		const path = current.kind === 'new' ? newPath : current.row.path
+		const path = newPath
+		const from = current.kind === 'folder' ? current.row.path : undefined
 		// Monaco hands its text to `folderContent` on a debounce, so the last keystrokes
 		// before a quick click would otherwise be left out of the save.
 		bodyEditor?.flushPendingChanges()
@@ -395,14 +414,17 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		const seq = visit
 		saving = true
 		try {
-			await saveFolderInstruction(target, path, content, { create: current.kind === 'new' })
+			await saveFolderInstruction(target, path, content, {
+				create: current.kind === 'new',
+				from
+			})
 			sendUserToast(current.kind === 'new' ? `Added ${path}` : `Saved ${path}`)
 			await loadFolders(target)
 			refreshChat(target)
 			// Another instruction opened meanwhile owns the editor now.
 			if (seq !== visit) return
 			folderOriginal = content
-			if (current.kind === 'new') {
+			if (path !== from) {
 				const row = folderRows.find((r) => r.path === path)
 				if (row) opened = { workspace: target, detail: { kind: 'folder', row } }
 				folderMode = 'view'
@@ -599,10 +621,10 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		<button
 			type="button"
 			class="w-full flex items-center gap-2 px-2 py-2 text-left rounded-md hover:bg-surface-hover"
-			aria-expanded={!collapsed[node.path]}
-			onclick={() => (collapsed[node.path] = !collapsed[node.path])}
+			aria-expanded={!isFolded(node.path)}
+			onclick={() => (collapsed[node.path] = !isFolded(node.path))}
 		>
-			{#if collapsed[node.path]}
+			{#if isFolded(node.path)}
 				<ChevronRight size={14} class="text-tertiary shrink-0" />
 			{:else}
 				<ChevronDown size={14} class="text-tertiary shrink-0" />
@@ -618,7 +640,7 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 			<span class="text-xs font-normal text-emphasis truncate">{node.label}</span>
 			<span class="text-2xs text-secondary">{countSkills(node)}</span>
 		</button>
-		{#if !collapsed[node.path]}
+		{#if !isFolded(node.path)}
 			<div class="pl-4 flex flex-col gap-0.5">
 				{#each node.children as child (child.path)}
 					{@render folder(child, false)}
@@ -776,7 +798,7 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 						</div>
 					</div>
 					<div class="{folderMode === 'edit' ? 'flex' : 'hidden'} flex-col gap-3">
-						{#if detail?.kind === 'new'}
+						{#if detail?.kind === 'new' || detail?.kind === 'folder'}
 							<Label label="Path">
 								<span class="text-xs font-normal text-secondary">
 									The folder decides what these cover: every item under it, for everyone who can
@@ -786,7 +808,7 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 									<Path
 										bind:path={newPath}
 										bind:error={newPathError}
-										initialPath=""
+										initialPath={detail.kind === 'folder' ? detail.row.path : ''}
 										fullNamePlaceholder="AGENTS"
 										kind="resource"
 										workspaceOverride={ws}
@@ -822,7 +844,13 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 							</div>
 							<div class="flex items-center gap-2">
 								<Button
-									onClick={() => setFolderContent(folderOriginal)}
+									onClick={() => {
+										setFolderContent(folderOriginal)
+										if (detail?.kind === 'folder' && newPath !== detail.row.path) {
+											newPath = detail.row.path
+											editorSeq++
+										}
+									}}
 									variant="subtle"
 									unifiedSize="sm"
 									startIcon={{ icon: RotateCcw }}
@@ -835,15 +863,27 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 									variant="accent"
 									unifiedSize="sm"
 									startIcon={{ icon: detail?.kind === 'new' ? Plus : Pencil }}
-									disabled={saving ||
-										!folderChanged ||
-										(detail?.kind === 'new' && (!newPath || !!newPathError))}
+									disabled={saving || !folderChanged || !newPath || !!newPathError}
 								>
 									{detail?.kind === 'new' ? 'Add instructions' : 'Save instructions'}
 								</Button>
 							</div>
 						</div>
 					</div>
+					{#if detail?.kind === 'folder'}
+						<div class="flex items-center gap-1 text-xs text-secondary">
+							Stored as an <code>ai_instruction</code> resource.
+							<Button
+								href="/resources?path={encodeURIComponent(detail.row.path)}&workspace={ws}"
+								target="_blank"
+								variant="subtle"
+								unifiedSize="xs"
+								endIcon={{ icon: ExternalLink }}
+							>
+								Open in Resources
+							</Button>
+						</div>
+					{/if}
 				</div>
 			</Section>
 		</div>

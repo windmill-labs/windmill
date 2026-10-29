@@ -30,6 +30,7 @@ and the actions that create, edit, import and delete them.
 		BookOpen,
 		ChevronDown,
 		ChevronRight,
+		ExternalLink,
 		Eye,
 		Folder,
 		FolderTree,
@@ -45,7 +46,6 @@ and the actions that create, edit, import and delete them.
 	import { forgetSkill, isSkillEnabled, setSkillEnabled } from './skills/enabledSkills'
 	import { ownerRoot } from './workingScope'
 	import {
-		ambiguousSkillNames,
 		deleteSkillResource,
 		listSkillResources,
 		readSkillBody,
@@ -62,9 +62,9 @@ and the actions that create, edit, import and delete them.
 	import {
 		buildSkillTree,
 		countSkills,
+		foldedByDefault,
 		folderKey,
 		nodeSkills,
-		skillFolderPaths,
 		skillKey,
 		visibleEntries,
 		type SkillTreeEntry,
@@ -74,11 +74,14 @@ and the actions that create, edit, import and delete them.
 	let {
 		ws,
 		active,
+		focusRoot,
 		count = $bindable(),
 		blocksClose = $bindable()
 	}: {
 		/** The workspace the chat operates on, which is not always the one on screen. */
 		ws: string
+		/** The folder (`f/x` or `u/x`) the modal was opened on: the only top-level one open. */
+		focusRoot?: string
 		/** Whether this is the panel on screen. Gates the editor page's build: it is
 		 * worth paying for once someone is looking at skills, not on every open of a
 		 * modal whose other three sections have nothing to do with them. */
@@ -190,25 +193,24 @@ What the assistant should do when this skill applies.
 	let pendingSkipped: string[] = $state([])
 	let overwriteChoices: Record<string, boolean> = $state({})
 
-	let ambiguous = $derived(ambiguousSkillNames(skills))
-	// Skills in one folder are a list; spread over several, the folder is what tells
-	// two of them apart, so they are grouped under it instead.
-	let grouped = $derived(skillFolderPaths(skills).size > 1)
 	let tree = $derived(buildSkillTree(skills))
-	/** Folders the user closed, keyed by full prefix. Everything opens expanded: the
-	 * point of this list is seeing what the assistant carries. */
+	/** Folders the user closed or opened, keyed by full prefix. Everything opens expanded
+	 * unless a folder is focused: the point of this list is seeing what the assistant carries. */
 	let collapsed = $state<Record<string, boolean>>({})
+	const isFolded = (path: string) => collapsed[path] ?? foldedByDefault(path, focusRoot)
+
+	/** Back on the list with the folds reset, for `focusRoot` to decide them. An editor
+	 * holding unsaved text stays open, as it does when the section is parked. */
+	export function showFolder() {
+		if (!contentChanged && !pathChanged) editorOpen = false
+		collapsed = {}
+	}
 	/** The list top to bottom as it stands, for the keyboard to walk. Empty whenever
 	 * the rows are not the thing on screen — a reload after a save or a delete shows
 	 * the loading line, and a failed one shows the error, both over the rows this
-	 * would otherwise still walk. Flat mode has no folders, so the same keys drive
-	 * both layouts. */
+	 * would otherwise still walk. */
 	let entries: SkillTreeEntry<Row>[] = $derived(
-		loading || loadError !== undefined
-			? []
-			: grouped
-				? visibleEntries(tree, (path) => collapsed[path] === true)
-				: skills.map((skill) => ({ kind: 'skill', key: skillKey(skill.path), skill }))
+		loading || loadError !== undefined ? [] : visibleEntries(tree, isFolded)
 	)
 	/** Where each entry sits in the walk, so a row rendered deep in the tree can say
 	 * whether it is the highlighted one. */
@@ -233,7 +235,7 @@ What the assistant should do when this skill applies.
 			const entry = entries[index]
 			if (entry === undefined) return
 			if (entry.kind === 'skill') openSkill(entry.skill)
-			else fold(entry.key, entry.node.path, !collapsed[entry.node.path])
+			else fold(entry.key, entry.node.path, !isFolded(entry.node.path))
 		}
 		// No `activateEnterFrom`: Enter is answered by `onListKeydown`, which does not
 		// depend on where focus happens to be.
@@ -409,7 +411,7 @@ What the assistant should do when this skill applies.
 		} else if (event.key === 'Enter') {
 			answer()
 			if (current.kind === 'skill') openSkill(current.skill)
-			else fold(current.key, current.node.path, !collapsed[current.node.path])
+			else fold(current.key, current.node.path, !isFolded(current.node.path))
 		} else if (event.key === 'ArrowRight') {
 			answer()
 			if (current.kind === 'skill') {
@@ -417,14 +419,14 @@ What the assistant should do when this skill applies.
 				// `PagedContent`, which steps to the editor page — showing whichever skill
 				// it was last parked on, not this one.
 				openSkill(current.skill)
-			} else if (collapsed[current.node.path]) {
+			} else if (isFolded(current.node.path)) {
 				fold(current.key, current.node.path, false)
 			} else {
 				// Into what opening it revealed: the next row down is its first child.
 				highlight.move(1)
 			}
 		} else if (event.key === 'ArrowLeft') {
-			if (current.kind === 'folder' && !collapsed[current.node.path]) {
+			if (current.kind === 'folder' && !isFolded(current.node.path)) {
 				answer()
 				fold(current.key, current.node.path, true)
 			} else if (current.parentKey !== undefined) {
@@ -946,15 +948,9 @@ What the assistant should do when this skill applies.
 				/>
 			{:else}
 				<div class="flex flex-col gap-0.5">
-					{#if grouped}
-						{#each tree as node (node.path)}
-							{@render folder(node, true)}
-						{/each}
-					{:else}
-						{#each skills as skill (skill.path)}
-							{@render row(skill)}
-						{/each}
-					{/if}
+					{#each tree as node (node.path)}
+						{@render folder(node, true)}
+					{/each}
 				</div>
 			{/if}
 		</Section>
@@ -971,7 +967,7 @@ What the assistant should do when this skill applies.
 		<span class="truncate leading-5">
 			<!-- Grouped, the folder above the row is what tells two skills of the same
 			     name apart; flat, the path has to do it. -->
-			{!grouped && ambiguous.has(skill.name) ? skill.path : skill.name}
+			{skill.name}
 		</span>
 	{/snippet}
 	{@const note = scopeNote(skill.path)}
@@ -1044,10 +1040,10 @@ What the assistant should do when this skill applies.
 			<button
 				type="button"
 				class="grow min-w-0 flex items-center gap-2 px-2 py-2 text-left"
-				aria-expanded={!collapsed[node.path]}
-				onclick={() => fold(folderKey(node.path), node.path, !collapsed[node.path])}
+				aria-expanded={!isFolded(node.path)}
+				onclick={() => fold(folderKey(node.path), node.path, !isFolded(node.path))}
 			>
-				{#if collapsed[node.path]}
+				{#if isFolded(node.path)}
 					<ChevronRight size={14} class="text-tertiary shrink-0" />
 				{:else}
 					<ChevronDown size={14} class="text-tertiary shrink-0" />
@@ -1071,7 +1067,7 @@ What the assistant should do when this skill applies.
 				on:change={async (e) => await toggleFolder(node, e.detail)}
 			/>
 		</div>
-		{#if !collapsed[node.path]}
+		{#if !isFolded(node.path)}
 			<div class="pl-4 flex flex-col gap-0.5">
 				{#each node.children as child (child.path)}
 					{@render folder(child, false)}
@@ -1103,10 +1099,10 @@ What the assistant should do when this skill applies.
 				Skills
 			</Button>
 		</div>
-		<!-- `headerClass` keeps a long skill name on one line: the View/Edit group shares
+		<!-- `headerClass` keeps a long skill path on one line: the View/Edit group shares
 	     the header row and would otherwise wrap the title under itself. -->
 		<Section
-			label={editing ? editing.name : 'New skill'}
+			label={editing ? editing.path : 'New skill'}
 			wrapperClass="mt-1"
 			headerClass="min-w-0 truncate pr-2"
 		>
@@ -1204,6 +1200,20 @@ What the assistant should do when this skill applies.
 						</div>
 					</div>
 				</div>
+				{#if editing}
+					<div class="flex items-center gap-1 text-xs text-secondary">
+						Stored as an <code>ai_skill</code> resource.
+						<Button
+							href="/resources?path={encodeURIComponent(editing.path)}&workspace={ws}"
+							target="_blank"
+							variant="subtle"
+							unifiedSize="xs"
+							endIcon={{ icon: ExternalLink }}
+						>
+							Open in Resources
+						</Button>
+					</div>
+				{/if}
 			</div>
 		</Section>
 	</div>
