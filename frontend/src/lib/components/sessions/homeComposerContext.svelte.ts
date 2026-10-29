@@ -33,7 +33,7 @@ type Registration = {
 	focus: () => void
 	/** The box's accent outline, for a composer the user is sent to without it moving. */
 	flash: () => void
-	/** Assistant settings on `section`; Instructions opens with only `root`'s folder open. */
+	/** Assistant settings on `section`, focused on `root`'s folder. */
 	openSettings: (section: 'instructions' | 'skills' | 'mcp', root: string) => void
 	runtime: SessionRuntime
 }

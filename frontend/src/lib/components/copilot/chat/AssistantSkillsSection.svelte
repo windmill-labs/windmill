@@ -965,8 +965,7 @@ What the assistant should do when this skill applies.
 	{/snippet}
 	{#snippet title()}
 		<span class="truncate leading-5">
-			<!-- Grouped, the folder above the row is what tells two skills of the same
-			     name apart; flat, the path has to do it. -->
+			<!-- The folder above the row is what tells two skills of the same name apart. -->
 			{skill.name}
 		</span>
 	{/snippet}

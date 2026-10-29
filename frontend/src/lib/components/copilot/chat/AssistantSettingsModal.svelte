@@ -130,7 +130,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	let providerTools = $derived(aiChatManager.providerTools)
 
 	/** The folder (`f/x` or `u/x`) the modal was opened on, from a folder's badge: in Skills
-	 * and Instructions it is the only top-level folder open. */
+	 * and Instructions it is the only top-level folder open, and MCP lists only its servers. */
 	let focusRoot = $state<string | undefined>(undefined)
 
 	// `SidebarNavigation`'s item shape, which is what the instance and workspace settings
@@ -165,6 +165,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 
 	let skillsSection: AssistantSkillsSection | undefined = $state()
 	let instructionsSection: AssistantInstructionsSection | undefined = $state()
+	let mcpSection: AssistantMcpSection | undefined = $state()
 	/** Opens on `target` focused on `root`. The sections mount with the modal. */
 	export async function openFolder(target: AssistantSettingsSection, root: string) {
 		open(target)
@@ -172,6 +173,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		await tick()
 		skillsSection?.showFolder()
 		instructionsSection?.showFolder()
+		mcpSection?.showFolder()
 	}
 
 	// `context_panel` is the kind registered in `feature_usage_ee.rs`; an unregistered
@@ -294,7 +296,9 @@ callers that already know which section they mean, such as the "+" menu's Manage
 			     PagedContent pages laid over each other. -->
 			<div class="{section === 'mcp' ? 'flex' : 'hidden'} grow min-h-0 flex-col overflow-hidden">
 				<AssistantMcpSection
+					bind:this={mcpSection}
 					{ws}
+					{focusRoot}
 					active={section === 'mcp'}
 					bind:count={mcpCount}
 					bind:blocksClose={mcpBusy}
