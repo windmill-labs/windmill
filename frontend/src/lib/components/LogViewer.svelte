@@ -40,6 +40,8 @@
 		small?: boolean
 		drawerOpen?: boolean
 		noMaxH?: boolean
+		/** Height cap of the log box, in place of `max-h-screen`. Ignored with `noMaxH`. */
+		maxHClass?: string
 		noAutoScroll?: boolean
 		download?: boolean
 		customEmptyMessage?: string
@@ -63,6 +65,7 @@
 		small = false,
 		drawerOpen = $bindable(false),
 		noMaxH = false,
+		maxHClass = 'max-h-screen',
 		noAutoScroll = false,
 		download = true,
 		customEmptyMessage = 'No logs are available yet',
@@ -360,7 +363,7 @@
 <div class="w-full h-full {wrapperClass}">
 	<div class="w-full h-full relative">
 		<div
-			class="w-full h-full bg-surface-secondary flex flex-col {noMaxH ? '' : 'max-h-screen'}"
+			class="w-full h-full bg-surface-secondary flex flex-col {noMaxH ? '' : maxHClass}"
 			data-nav-id={navigationId}
 		>
 			<div
