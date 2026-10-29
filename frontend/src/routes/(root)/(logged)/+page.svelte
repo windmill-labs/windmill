@@ -17,7 +17,20 @@
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import RecentRunsPanel from '$lib/components/home/RecentRunsPanel.svelte'
 	import RecentRunsHeaderStatus from '$lib/components/home/RecentRunsHeaderStatus.svelte'
-	import { itemHref, usePanelOpen, useRecentRuns } from '$lib/components/home/recentRuns.svelte'
+	import {
+		allRunsHref,
+		itemHref,
+		totalLabel,
+		usePanelOpen,
+		useRecentRuns
+	} from '$lib/components/home/recentRuns.svelte'
+	import {
+		HOME_ACTION_FOLDS,
+		homeActionsCompact,
+		homeActionsGathered,
+		homeActionsVersion,
+		homeHeaderMenu
+	} from '$lib/components/home/homeHeaderMenu.svelte'
 	import { MediaQuery } from 'svelte/reactivity'
 	import PickHubApp from '$lib/components/flows/pickers/PickHubApp.svelte'
 	import { writable } from 'svelte/store'
@@ -34,7 +47,7 @@
 	import { z } from 'zod'
 	import HomeAIChat from '$lib/components/home/HomeAIChat.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { onMount, untrack } from 'svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
 	import OperatorTour from '$lib/components/tutorials/OperatorTour.svelte'
 	import {
 		hasSeenOperatorTour,
@@ -108,6 +121,18 @@
 		tab == 'workspace' && itemsList != undefined && !itemsList.isWorkspaceEmpty()
 	)
 	let showRunsPanel = $derived(showRuns && wide.current && runsPanelOpen.val)
+	const runsMenuId = homeHeaderMenu.register(200, () => {
+		const data = recentRuns.current
+		if (!showRuns || showRunsPanel || !homeActionsGathered()) return []
+		return [
+			{
+				displayName: data ? totalLabel(data) : 'Recent runs',
+				description: data && data.failing_items > 0 ? `${data.failing_items} failing` : undefined,
+				href: allRunsHref(runsFolder)
+			}
+		]
+	})
+	onDestroy(() => homeHeaderMenu.release(runsMenuId))
 	// A run's item is shown in place in the list, among its folder's; one the list does not show
 	// opens instead.
 	async function revealRunItem(path: string) {
@@ -314,8 +339,9 @@
 {/snippet}
 
 {#snippet runsStatus()}
-	{#if showRuns && !showRunsPanel}
+	{#if showRuns && !showRunsPanel && !homeActionsGathered()}
 		<RecentRunsHeaderStatus
+			compact={homeActionsCompact()}
 			runs={recentRuns}
 			folder={runsFolder}
 			onFocusItem={revealRunItem}
@@ -336,7 +362,12 @@
 	     header with the workspace's own name rather than above the list. -->
 	<PageHeaderContent actions={editRuleBadge} />
 	<!-- After the home menu (order 100): the run status closes the bar. -->
-	<PageHeaderContent actions={runsStatus} actionsOrder={200} />
+	<PageHeaderContent
+		actions={runsStatus}
+		actionsOrder={200}
+		actionFolds={HOME_ACTION_FOLDS}
+		actionsVersion={homeActionsVersion()}
+	/>
 
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
