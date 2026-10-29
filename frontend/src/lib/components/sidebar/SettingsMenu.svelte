@@ -277,9 +277,7 @@
 
 	const logsItems = $derived<Item[]>([
 		{ displayName: 'Audit logs', icon: Eye, href: '/audit_logs' },
-		...($devopsRole
-			? [{ displayName: 'Service logs', icon: Logs, href: '/service_logs' }]
-			: []),
+		...($devopsRole ? [{ displayName: 'Service logs', icon: Logs, href: '/service_logs' }] : []),
 		...($enterpriseLicense
 			? [
 					{
@@ -312,7 +310,7 @@
 
 <!-- Workers and Logs are full pages (not account/instance actions), so they sit
      as plain links above the Settings dropdown rather than inside it. -->
-<div class="flex flex-col gap-1 pb-1">
+<div class="flex flex-col gap-0.5 pb-1">
 	<MenuLink
 		class="!text-xs"
 		label="Workers"

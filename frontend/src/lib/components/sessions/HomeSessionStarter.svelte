@@ -17,6 +17,7 @@
 		sessionPageHref,
 		sessionState,
 		setSessionDraftPrompt,
+		takeHomeDraftFlash,
 		takeHomeDraftFocus
 	} from './sessionState.svelte'
 	import { useWorkModeLock } from './workModeLock.svelte'
@@ -67,6 +68,7 @@
 	function bindChat(chat: AIChat | undefined) {
 		aiChat = chat
 		if (chat && takeHomeDraftFocus()) setTimeout(() => chat.focusInput(), 0)
+		if (chat && takeHomeDraftFlash()) setTimeout(() => chat.flashComposer(), 0)
 	}
 	let chatWrapper: HTMLDivElement | undefined = $state(undefined)
 	// A seeded draft holds the composer open, which is not the shape it rests in once the
@@ -85,11 +87,12 @@
 		// The rows' "Ask AI" lands here. Before the chat has mounted (its config still
 		// loading) there is nowhere to put the item, and the attach does nothing.
 		return homeComposerContext.register({
+			sessionId,
 			attach: async (element) => {
 				await aiChat?.attachContext(element)
 			},
 			focus: () => aiChat?.focusInput(),
-			fold: () => aiChat?.foldComposer(),
+			flash: () => aiChat?.flashComposer(),
 			runtime
 		})
 	})

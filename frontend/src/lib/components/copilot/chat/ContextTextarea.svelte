@@ -813,6 +813,7 @@
 
 <!-- The box that opens a session grows and shrinks between its one-line and full shapes. -->
 <div
+	data-composer-box
 	class={twMerge(composerBoxClass(disabled), hero && HERO_BOX_CLASS)}
 	use:smoothHeight={{ enabled: hero, key: oneLine }}
 >
@@ -857,7 +858,7 @@
 			bind:this={textarea}
 			onkeydown={handleKeyDown}
 			bind:value
-			use:autosize={hero && !oneLine ? { maxHeight: 160, minHeight: 56 } : { maxHeight: '40vh' }}
+			use:autosize={hero && !oneLine ? { maxHeight: 160, minHeight: 80 } : { maxHeight: '40vh' }}
 			rows={1}
 			oninput={handleInput}
 			onpaste={handlePaste}

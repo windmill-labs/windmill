@@ -78,7 +78,7 @@
 	import ComposerSuggestions from './starter/ComposerSuggestions.svelte'
 	import type { DraftAttachments } from './messageDraft.svelte'
 	import type { ChatStarter } from './starter/starterPrompts.svelte'
-	import { isComposerOverlay } from './starter/composerCollapse'
+	import { asksForComposer, isComposerOverlay } from './starter/composerCollapse'
 	import { smoothHeight } from './starter/smoothHeight'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
@@ -314,14 +314,6 @@
 
 	export function focusInput(selection?: ComposerSelection) {
 		aiChatInput?.focusInput(selection)
-	}
-
-	/** A starter composer back on one line, as a press outside it does: not while it holds a
-	 * draft, which is never hidden. Takes the caret out, or the next keypress reopens it. */
-	export function foldComposer() {
-		closeComposer()
-		if (!composerOpened && composerEl?.contains(document.activeElement))
-			(document.activeElement as HTMLElement).blur()
 	}
 
 	/** Mention a workspace item in the draft, as "+" → Mention file does, and hand the user
@@ -634,7 +626,18 @@
 	}
 	function onComposerPointerDown(e: PointerEvent) {
 		if (!starterLayout || !composerOpened || composerEl?.contains(e.target as Node)) return
-		if (!isComposerOverlay(e.target)) closeComposer()
+		if (!isComposerOverlay(e.target) && !asksForComposer(e.target)) closeComposer()
+	}
+
+	// While the box plays its accent outline (app.css, `data-composer-flash`).
+	let flashing = $state(false)
+
+	/** Points the eye at a composer the user was sent to without it moving: its box's outline
+	 * lights up in the accent color and fades. */
+	export function flashComposer() {
+		// Off for a frame first, so a flash asked for while one plays starts over.
+		flashing = false
+		requestAnimationFrame(() => (flashing = true))
 	}
 
 	// Home's composer is one block of the page and takes the page's column as it is.
@@ -1017,13 +1020,20 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 	<!-- The focus and key handlers take events bubbling from the field inside, which is the
 	     interactive element; the group itself is never focused. -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+	<!-- `data-composer-open`: while the reader is in Home's composer, Home keeps it at the top
+	     and quiets its cards. -->
 	<div
 		data-session-composer
+		data-composer-open={starterLayout && composerOpened ? '' : undefined}
+		data-composer-flash={flashing ? '' : undefined}
 		role="group"
 		aria-label="Message composer"
 		bind:this={composerEl}
 		class="relative {columnClass} pb-2"
 		style:view-transition-name={viewTransitionNames ? 'composer' : undefined}
+		onanimationend={(e) => {
+			if (e.animationName === 'wm-composer-flash') flashing = false
+		}}
 		onfocusin={(e) => {
 			if (starterLayout && e.target instanceof HTMLTextAreaElement) composerOpened = true
 		}}

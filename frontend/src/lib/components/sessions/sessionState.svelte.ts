@@ -1040,10 +1040,16 @@ onUserChange(async (email, prevEmail) => {
 // session open on the sessions page: which draft Home shows says nothing about which
 // session the user last opened. `requests` counts asks to show another one, which
 // remount Home's composer when Home is already on screen.
-export const homeDraft = $state<{ id: string | undefined; requests: number; focus: boolean }>({
+export const homeDraft = $state<{
+	id: string | undefined
+	requests: number
+	focus: boolean
+	flash: boolean
+}>({
 	id: undefined,
 	requests: 0,
-	focus: false
+	focus: false,
+	flash: false
 })
 
 // Workspace switches do not reload or clear the active session. The sidebar
@@ -1086,10 +1092,12 @@ export function holdHomeDraft(id: string): void {
 	followHomeDraft()
 }
 
-/** Ask Home to show `id`, and whether its composer takes focus as it mounts. */
-export function showOnHome(id: string, opts?: { focus?: boolean }): void {
+/** Ask Home to show `id`, whether its composer takes focus as it mounts, and whether it then
+ * plays its accent outline. */
+export function showOnHome(id: string, opts?: { focus?: boolean; flash?: boolean }): void {
 	homeDraft.id = id
 	homeDraft.focus = opts?.focus ?? false
+	homeDraft.flash = opts?.flash ?? false
 	homeDraft.requests++
 }
 
@@ -1098,6 +1106,13 @@ export function takeHomeDraftFocus(): boolean {
 	const focus = homeDraft.focus
 	homeDraft.focus = false
 	return focus
+}
+
+/** Whether Home's composer should play its accent outline now that it is on screen. Read once. */
+export function takeHomeDraftFlash(): boolean {
+	const flash = homeDraft.flash
+	homeDraft.flash = false
+	return flash
 }
 
 export function sessionPageHref(id: string): string {

@@ -2,6 +2,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
 	import { Button } from '$lib/components/common'
+	import SidebarSectionHeader from '$lib/components/sidebar/SidebarSectionHeader.svelte'
 	import {
 		Archive,
 		ArchiveRestore,
@@ -20,7 +21,6 @@
 		Trash2
 	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { Snippet } from 'svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { goto } from '$lib/navigation'
 	import { leaveForHome, openDraftOnHome, openNewSession } from './sessionSwitch.svelte'
@@ -142,13 +142,6 @@
 		// Drop the section's own outer padding/border so it sits flush inside a
 		// parent container (e.g. gathered with Favorites/Search in the sidebar).
 		embedded?: boolean
-		// Render only the collapsed rail's session menu, opened by hovering this trigger
-		// (rendered with melt's `trigger` and the unread total). The trigger's own click is
-		// the host's: it never reaches the menu.
-		hoverTrigger?: Snippet<[{ trigger: any; unread: number }]>
-		// Shares the options row, left of its menu. With it the picker fills its parent and
-		// scrolls the list alone, so the row stays in place.
-		leading?: Snippet
 	}
 
 	let {
@@ -158,9 +151,7 @@
 		browsedWorkspaceId = undefined,
 		onBrowseWorkspace = undefined,
 		onSelectSession = undefined,
-		embedded = false,
-		hoverTrigger = undefined,
-		leading = undefined
+		embedded = false
 	}: Props = $props()
 
 	const sectionCollapsed = useLocalStorageValue(
@@ -671,33 +662,29 @@
 	     unavailable (no provider configured or disabled in the user's settings)
 	     the section still shows — the per-session chat input is disabled with an
 	     explanatory message, mirroring the sidebar AI chat. -->
-{:else if isCollapsed || hoverTrigger}
-	<div class={embedded || hoverTrigger ? '' : 'px-2 pt-3 pb-2 border-b border-light'}>
+{:else if isCollapsed}
+	<div class={embedded ? '' : 'px-2 pt-3 pb-2 border-b border-light'}>
 		<Menubar>
 			{#snippet children({ createMenu })}
-				<Menu {createMenu} usePointerDownOutside submenuSafe openOnHover={!!hoverTrigger}>
+				<Menu {createMenu} usePointerDownOutside submenuSafe>
 					{#snippet triggr({ trigger })}
-						{#if hoverTrigger}
-							{@render hoverTrigger({ trigger, unread: totalUnread })}
-						{:else}
-							<div class="relative">
-								<MenuButton
-									class="!text-xs"
-									icon={MessageSquare}
-									label="AI sessions"
-									{isCollapsed}
-									{trigger}
-								/>
-								{#if totalUnread > 0}
-									<span
-										class="absolute top-1 right-1 pointer-events-none inline-block w-2 h-2 rounded-full bg-surface-accent-primary"
-										aria-label="{totalUnread} unread message{totalUnread === 1
-											? ''
-											: 's'} across all sessions"
-									></span>
-								{/if}
-							</div>
-						{/if}
+						<div class="relative">
+							<MenuButton
+								class="!text-xs"
+								icon={MessageSquare}
+								label="AI sessions"
+								{isCollapsed}
+								{trigger}
+							/>
+							{#if totalUnread > 0}
+								<span
+									class="absolute top-1 right-1 pointer-events-none inline-block w-2 h-2 rounded-full bg-surface-accent-primary"
+									aria-label="{totalUnread} unread message{totalUnread === 1
+										? ''
+										: 's'} across all sessions"
+								></span>
+							{/if}
+						</div>
 					{/snippet}
 					{#snippet children({ item, builders })}
 						<div class="divide-y min-w-48" role="none">
@@ -774,7 +761,7 @@
 	<div
 		class="flex flex-col gap-1 {embedded ? '' : 'px-2 pt-3 pb-2'} {!embedded && collapsible
 			? 'border-b border-light'
-			: ''} {leading ? 'flex-1 min-h-0' : ''}"
+			: ''}"
 	>
 		<!-- Selection mode reuses the options row (same h-8 slot) so the list below it
 		     never moves. -->
@@ -820,10 +807,7 @@
 					{GROUP_BY_OPTIONS.find((o) => o.value === groupBy.val)?.hint ?? ''}
 				</span>
 			{/snippet}
-			<div class="flex flex-row items-center gap-0.5 h-8 pr-0.5 {leading ? '' : 'justify-end'}">
-				{#if leading}
-					<div class="flex-1 min-w-0">{@render leading()}</div>
-				{/if}
+			{#snippet listOptions(size: 'sm' | 'md')}
 				<DropdownV2
 					fixedHeight={false}
 					placement="bottom-end"
@@ -871,7 +855,7 @@
 					{#snippet buttonReplacement()}
 						<Button
 							nonCaptureEvent
-							unifiedSize="md"
+							unifiedSize={size}
 							variant="subtle"
 							iconOnly
 							startIcon={{ icon: EllipsisVertical }}
@@ -881,29 +865,35 @@
 						/>
 					{/snippet}
 				</DropdownV2>
-			</div>
-		{/if}
-		{#if collapsible}
-			<!-- Only the collapsible sidebar section needs a title: it doubles as the
-			     fold toggle. In the rail the list owns the pane, so the label is noise. -->
-			<div class="flex flex-row items-center pl-1 pr-0.5">
-				<button
-					type="button"
-					onclick={() => (sectionCollapsed.val = !sectionCollapsed.val)}
-					class="text-secondary text-[0.5rem] uppercase flex flex-row items-center gap-1 rounded px-1 -mx-1 py-0.5 hover:bg-surface-hover focus:outline-none"
-					aria-expanded={!sectionCollapsed.val}
+			{/snippet}
+			{#if collapsible}
+				<SidebarSectionHeader
+					title="AI sessions"
+					collapsed={sectionCollapsed.val}
+					onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
 					disabled={visibleSessions.length === 0}
 				>
-					AI sessions
-					{#if visibleSessions.length > 0}
-						{#if sectionCollapsed.val}
-							<ChevronRight size={10} />
-						{:else}
-							<ChevronDown size={10} />
-						{/if}
-					{/if}
-				</button>
-			</div>
+					{#snippet actions()}
+						<Button
+							unifiedSize="sm"
+							variant="subtle"
+							iconOnly
+							startIcon={{ icon: Plus }}
+							title="New session"
+							aria-label="New session"
+							data-asks-for-composer
+							btnClasses="text-secondary"
+							onClick={() => openNewSession()}
+						/>
+						{@render listOptions('sm')}
+					{/snippet}
+				</SidebarSectionHeader>
+			{:else}
+				<!-- Where the list owns the pane, a title would only repeat what the pane is. -->
+				<div class="flex flex-row items-center gap-0.5 h-8 pr-0.5 justify-end">
+					{@render listOptions('md')}
+				</div>
+			{/if}
 		{/if}
 		{#if !collapsible || !sectionCollapsed.val}
 			<div
@@ -915,8 +905,7 @@
 					selectionMode ? 'select-none' : '',
 					// In the rail the picker is the whole list and the rail scrolls;
 					// only cap height when it's one section among others (normal sidebar).
-					collapsible ? 'max-h-[40vh]' : '',
-					leading ? 'flex-1 min-h-0' : ''
+					collapsible ? 'max-h-[40vh]' : ''
 				)}
 				onkeydown={handleListKeydown}
 				role="listbox"
@@ -1160,7 +1149,7 @@
 							     plain text, no workspace icon or chip. -->
 							<div
 								class={twMerge(
-									'group flex flex-row items-center gap-1 pl-1 pr-0.5 pt-2 pb-1 min-w-0',
+									'group flex flex-row items-center gap-1 pl-2 pr-0.5 pt-2 pb-1 min-w-0',
 									// Space groups apart so their boundaries read clearly.
 									groupIdx > 0 ? 'mt-4' : ''
 								)}
@@ -1186,6 +1175,7 @@
 										on:click={() => createAndOpenIn(groupWsId)}
 										title="New session in {group.label}"
 										aria-label="New session in {group.label}"
+										data-asks-for-composer
 										wrapperClasses="ml-auto shrink-0"
 										btnClasses="text-tertiary opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
 									/>

@@ -43,8 +43,6 @@
 		buttonClass?: string | undefined
 		// Show a trailing chevron to signal the button opens a dropdown.
 		showChevron?: boolean
-		// An icon at the row's end, hidden with the label when collapsed.
-		trailingIcon?: any | undefined
 		// Render the label with stronger weight/size (e.g. the workspace name).
 		emphasizeLabel?: boolean
 		// Drop the native `title` attributes — for callers that wrap the button
@@ -80,7 +78,6 @@
 		class: classNames = undefined,
 		buttonClass = undefined,
 		showChevron = false,
-		trailingIcon = undefined,
 		emphasizeLabel = false,
 		disableTitle = false,
 		ariaLabel = undefined,
@@ -125,11 +122,12 @@
 			{href}
 			data-light-mode={lightMode}
 			class={twMerge(
-				'group flex items-center px-2 py-2 font-light rounded-md gap-2',
+				'group flex items-center px-2 py-1 font-light rounded-md gap-2',
 				compact ? 'w-auto' : 'w-full',
 				sidebarClasses.hoverBg,
 				'transition-all relative',
-				sublabel ? 'h-10' : 'h-8',
+				// Compact rows sit in the page header and keep its height; the nav's are h-7.
+				sublabel ? 'h-10' : compact ? 'h-8' : 'h-7',
 				classNames,
 				buttonClass
 			)}
@@ -211,14 +209,6 @@
 
 			{#if showChevron && !isCollapsed}
 				<ChevronDown
-					size={14}
-					class="flex-shrink-0 text-tertiary transition-colors group-hover:text-secondary"
-				/>
-			{/if}
-
-			{#if trailingIcon && !isCollapsed}
-				{@const TrailingIcon = trailingIcon}
-				<TrailingIcon
 					size={14}
 					class="flex-shrink-0 text-tertiary transition-colors group-hover:text-secondary"
 				/>

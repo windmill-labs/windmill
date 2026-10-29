@@ -27,10 +27,12 @@ export function itemContextElement(item: {
 }
 
 type Registration = {
+	/** The draft the composer shows. */
+	sessionId: string
 	attach: Attach
 	focus: () => void
-	/** Back to one line, unless it holds a draft, and out of the caret's way. */
-	fold: () => void
+	/** The box's accent outline, for a composer the user is sent to without it moving. */
+	flash: () => void
 	runtime: SessionRuntime
 }
 
@@ -54,11 +56,15 @@ export const homeComposerContext = {
 	async attach(element: ContextElement): Promise<void> {
 		await registered?.attach(element)
 	},
+	/** Whether Home's composer is on screen with this draft. */
+	holds(sessionId: string): boolean {
+		return registered?.sessionId === sessionId
+	},
 	focus(): void {
 		registered?.focus()
 	},
-	fold(): void {
-		registered?.fold()
+	flash(): void {
+		registered?.flash()
 	},
 	/** Returns the unregister, which only clears its own registration: a remount registers
 	 * the new composer before the old one is destroyed. */

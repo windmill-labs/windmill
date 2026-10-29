@@ -21,11 +21,9 @@ import {
 	type SessionTarget
 } from './sessionState.svelte'
 import { sessionTargetHref, withPreviewParams } from './sessionMode.svelte'
-import { chosenSidebarList, type SidebarList } from './sidebarList.svelte'
 import { fixupUrlAfterWorkspaceSwitch } from '../sidebar/workspaceSwitchUrl'
 import { pinHomeComposer } from '../home/homeComposerPin.svelte'
 import { homeComposerContext } from './homeComposerContext.svelte'
-import { swapHomeSide } from './homeSessionsTransition.svelte'
 // Type-only: erased at compile time, so the component graph stays out of this
 // navigation seam (see the dynamic import in openEditorInSession).
 import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
@@ -45,16 +43,6 @@ export function noteArrival(url: URL): void {
 	if (url.pathname.startsWith('/sessions')) {
 		lastSessionId = url.searchParams.get('session') ?? lastSessionId
 	}
-}
-
-/** The Workspace ⇄ AI Sessions switch: swaps the sidebar's list and leaves the page where it
- * is. On Home it also opens the composer, for AI Sessions, or folds it, after the click has
- * played out, or the switch button it landed on takes focus back. */
-export function swapSidebarList(list: SidebarList, onHome: boolean): void {
-	const swapped = swapHomeSide(list, () => (chosenSidebarList.val = list))
-	if (!onHome) return
-	if (list === 'workspace') void swapped.then(() => homeComposerContext.fold())
-	else void swapped.then(() => homeComposerContext.focus())
 }
 
 // The session last opened, else the family's most recently used one. Scoped to the
@@ -85,28 +73,37 @@ export async function resumeAiSessions(opts?: { replace?: boolean }): Promise<vo
 // A plain session starts on Home, and an unsent draft is shown there rather than on a
 // page of its own. Asking for one puts the composer back on Home if the reader had
 // unpinned it: there is nowhere else to type it.
-async function toHome(id: string, opts?: { replace?: boolean }): Promise<void> {
+async function toHome(id: string, opts?: { replace?: boolean; flash?: boolean }): Promise<void> {
 	lastSessionId = id
-	showOnHome(id, { focus: true })
 	pinHomeComposer()
+	const onHome = typeof window !== 'undefined' && window.location.pathname === '/'
+	// The draft already on screen is focused where it is: rebuilding the composer would fold it
+	// to one line and open it again under the user's eyes.
+	if (onHome && homeComposerContext.holds(id)) {
+		homeComposerContext.focus()
+		if (opts?.flash) homeComposerContext.flash()
+		return
+	}
+	showOnHome(id, { focus: true, flash: opts?.flash })
 	// `goto` has no same-URL short-circuit, so navigating from Home would push a
 	// duplicate history entry; showOnHome already remounts the composer there.
-	if (typeof window !== 'undefined' && window.location.pathname === '/') return
+	if (onHome) return
 	await goto('/', { replaceState: opts?.replace ?? false })
 }
 
-/** New session: Home's composer, blank and focused. It acts on the header's workspace,
- * switched to `workspaceId` first when given. A draft already typed stays in the list. */
+/** New session: Home's composer, blank, focused and outlined for a moment. It acts on the
+ * header's workspace, switched to `workspaceId` first when given. A draft already typed stays
+ * in the list. */
 export async function openNewSession(workspaceId?: string): Promise<void> {
-	// Home's current draft stays where it is: the switch below must not take it along.
-	homeDraft.id = undefined
 	if (workspaceId && workspaceId !== get(workspaceStore)) {
+		// Home's current draft stays where it is: the switch must not take it along.
+		homeDraft.id = undefined
 		syncWorkspaceTo(workspaceId)
 		// Home may be open already, under a URL naming the workspace just left: a reload would
 		// switch back to it and take the new draft along.
 		await fixupUrlAfterWorkspaceSwitch(workspaceId)
 	}
-	await toHome(blankHomeDraft().id)
+	await toHome(blankHomeDraft().id, { flash: true })
 }
 
 /** An unsent draft, opened in Home's composer. `replace` for a redirect off the sessions
