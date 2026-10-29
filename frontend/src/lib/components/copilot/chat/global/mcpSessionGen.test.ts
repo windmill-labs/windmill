@@ -68,11 +68,24 @@ const DESCRIPTION_REWRITES: [tool: string, from: string, to: string][] = [
 	['set_workspace_settings', ' The user reviews the changes before they apply.', '']
 ]
 
+// The chat follows a backgrounded job in its jobs tray and tells the model when it ends; an
+// MCP client gets the job id back and follows it with get_run. Applied to every tool's
+// parameter of that name, and each must match at least once.
+const PARAM_REWRITES: [param: string, from: string, to: string][] = [
+	[
+		'background',
+		' — you will be notified when it finishes.',
+		': the result gives its job id, to follow with get_run.'
+	],
+	['wait_seconds', 'detaches into the background jobs tray', 'keeps running in the background']
+]
+
 // A rewrite only proves its old sentence is still there; this catches one added next to it.
 const CHAT_ONLY_PROMISE = /argument form|the user (confirms|reviews|approves)/i
 
 function toolDefs() {
-	return globalToolsFor({ sessionPreview: false }).map((tool) => {
+	const unmatched = new Set(PARAM_REWRITES)
+	const defs = globalToolsFor({ sessionPreview: false }).map((tool) => {
 		const fn = tool.def.function
 		let description = fn.description ?? ''
 		for (const [name, from, to] of DESCRIPTION_REWRITES) {
@@ -85,14 +98,28 @@ function toolDefs() {
 		if (CHAT_ONLY_PROMISE.test(description)) {
 			throw new Error(`${fn.name}: its description promises a chat-only confirmation`)
 		}
+		const parameters = structuredClone(fn.parameters) as {
+			properties?: Record<string, { description?: string }>
+		}
+		for (const rewrite of PARAM_REWRITES) {
+			const [param, from, to] = rewrite
+			const prop = parameters.properties?.[param]
+			if (!prop?.description?.includes(from)) continue
+			prop.description = prop.description.replace(from, to)
+			unmatched.delete(rewrite)
+		}
 		return {
 			name: fn.name,
 			description,
-			parameters: fn.parameters,
+			parameters,
 			// The session's own read-only marker: what plan mode lets through.
 			read_only: tool.planModeSafe === true
 		}
 	})
+	for (const [param, from] of unmatched) {
+		throw new Error(`no ${param} parameter contains "${from}" any more`)
+	}
+	return defs
 }
 
 const WRITABLE = '{{writable_folders}}'

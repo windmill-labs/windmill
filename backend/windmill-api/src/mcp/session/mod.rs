@@ -151,8 +151,10 @@ const CARD_ACTIONS: &[&str] = &["deploy_workspace_item", "cancel_job"];
 
 /// Tools that reach a system outside Windmill on the workspace's behalf: running code can
 /// reach any system the workspace can, and `get_db_schema` connects to a resource's
-/// database. Reading public reference data (hub, npm, docs) does not count.
+/// database, and `search_npm_packages` queries the npm registry, which Windmill does not
+/// control. Reading Windmill's own hub and docs does not count.
 const OPEN_WORLD: &[&str] = &[
+    "search_npm_packages",
     "run_script",
     "run_flow",
     "run_agent",
