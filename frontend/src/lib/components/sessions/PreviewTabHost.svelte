@@ -334,6 +334,7 @@
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
+		inert={permissions.moveStarted}
 	>
 		<!-- Only the side the tab shows is mounted. A hidden editor would be a second editor on
 		     the item's one cell that tab dedupe, reading URLs, cannot see; a hidden side's drawers
@@ -400,6 +401,10 @@
 					{/await}
 				{/if}
 			</div>
+		{:else if permissions.moving && slot.kind !== 'viewer'}
+			<div class="flex-1 flex items-center justify-center p-8 text-center text-sm text-secondary">
+				The editor reopens once the session has moved.
+			</div>
 		{:else if itemKind !== 'pipeline'}
 			<div class="absolute inset-0 flex flex-col min-h-0 bg-surface">
 				{#await import('./ItemViewerView.svelte')}
@@ -435,6 +440,7 @@
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
+		inert={permissions.moveStarted}
 	>
 		<!-- Waits for the host element, as the run form does: the editors' own drawers and
 		     modals portal when they mount, and resolve their host only then. -->
@@ -451,6 +457,7 @@
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
+		inert={permissions.moveStarted}
 	>
 		{#if overlayHostEl}
 			{#await import('./PageListView.svelte')}
@@ -472,6 +479,7 @@
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
+		inert={permissions.moveStarted}
 	>
 		{#if overlayHostEl}
 			{#await import('./RunViewerView.svelte')}
@@ -495,6 +503,7 @@
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
+		inert={permissions.moveStarted}
 	>
 		{#if artifact && runtime}
 			<ArtifactViewer
@@ -512,6 +521,7 @@
 		bind:this={overlayHostEl}
 		class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}"
 		aria-hidden={!active}
+		inert={permissions.moveStarted}
 	>
 		<!-- Waits for the host element itself: Drawer portals when it mounts, and the portal
 		     action reads its target once, so a form mounted in the same pass as this div would

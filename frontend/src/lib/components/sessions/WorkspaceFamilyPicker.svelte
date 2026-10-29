@@ -19,9 +19,17 @@
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
 	import { canCreateFork } from '$lib/utils/editInFork'
+	import { canFork, capabilitiesIn } from '$lib/roleCapabilities'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import { WorkspaceService } from '$lib/gen'
 	import { useSessionReadOnly } from './sessionPermissions.svelte'
+	import { getUserExt } from '$lib/user'
+	import {
+		fetchProtectionRulesForWorkspace,
+		isRuleActiveInRulesets,
+		canUserBypassRuleKindInRulesets
+	} from '$lib/workspaceProtectionRules.svelte'
+	import { resource } from 'runed'
 	import { isCloudHosted } from '$lib/cloud'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -57,6 +65,7 @@
 		// consumer differentiate "staged for first send" vs. "will be
 		// created immediately" semantics.
 		createForkCaption = '',
+		confirmForkLabel = 'Set as target',
 		// Forwarded to the dropdown trigger wrapper — e.g. `min-w-0` so the
 		// trigger can shrink and its label truncate inside a narrow container.
 		class: triggerClass = undefined,
@@ -69,6 +78,10 @@
 		// WorkspaceScopeHeader), so the superadmin lookup isn't duplicated. Omitted
 		// by standalone consumers, which then resolve it themselves.
 		forkableWorkspaces: forkableWorkspacesProp,
+		// The workspace something moves out of: its family is listed, and a new fork is based on it
+		// unless another base is picked. Its own forking rule and the user's role there gate creating.
+		moveFrom,
+		open: dropdownOpen = $bindable(),
 		trigger
 	}: {
 		selectedId?: string
@@ -78,10 +91,13 @@
 		onRequestCreateFork?: () => void
 		allowCreateFork?: boolean
 		createForkCaption?: string
+		confirmForkLabel?: string
 		class?: string
 		settingsHref?: string
 		settingsLabel?: string
 		forkableWorkspaces?: UserWorkspace[]
+		moveFrom?: string
+		open?: boolean
 		trigger: Snippet<[{ open: boolean }]>
 	} = $props()
 
@@ -96,7 +112,7 @@
 		enabled: () => forkableWorkspacesProp === undefined
 	})
 	const forkableWorkspaces = $derived(forkableWorkspacesProp ?? ownForkable.current)
-	const root = $derived(findWorkspaceRoot(effectiveId, forkableWorkspaces))
+	const root = $derived(findWorkspaceRoot(moveFrom ?? effectiveId, forkableWorkspaces))
 	// The same hierarchy the sidebar workspace menu builds: forks of forks follow their parent, and the
 	// user's own forks lead each group of siblings.
 	const hierarchy = $derived(buildWorkspaceHierarchy(forkableWorkspaces, $userStore?.email))
@@ -110,7 +126,11 @@
 	)
 	// Base a new fork gets by default: the dev workspace when the selection sits in its subtree, the
 	// family root otherwise.
-	const defaultForkBase = $derived(findDefaultForkBase(effectiveId, forkableWorkspaces))
+	const defaultForkBase = $derived(
+		moveFrom
+			? forkableWorkspaces.find((w) => w.id === moveFrom)
+			: findDefaultForkBase(effectiveId, forkableWorkspaces)
+	)
 	const createForkLabel = 'Create new fork…'
 	// Candidate bases ("targets") for a new fork: the root plus every fork/dev in the family, so a fork
 	// can itself be the base — i.e. a fork of a fork. Root first, matching the list order below.
@@ -139,6 +159,19 @@
 	// Judged off the root's OWN rules, so it reads correctly from a dev workspace or a fork too.
 	// A locked root stays selectable: its session is read-only.
 	const rootReadOnly = useSessionReadOnly(() => root?.id)
+	// In `moveFrom` mode a new fork is based on that workspace by default, so its own forking rule is
+	// the gate, judged with the user's identity there (is_admin and groups are per workspace). Another
+	// base's own rule is enforced when the fork is created.
+	const fromRulesetsResource = resource(
+		() => moveFrom,
+		async (id) => (id ? await fetchProtectionRulesForWorkspace(id) : [])
+	)
+	const fromRulesets = $derived(fromRulesetsResource.current ?? [])
+	const fromUserInfoResource = resource(
+		() => moveFrom,
+		async (id) => (id ? await getUserExt(id) : undefined)
+	)
+	const fromUserInfo = $derived(fromUserInfoResource.current)
 
 	// Structural gate: hidden in the admins workspace, or when the user can't fork; on cloud, forking
 	// is premium-only (backend caps it per paid seat). DisableWorkspaceForking on the active workspace
@@ -146,8 +179,20 @@
 	// devOfRoot only resolves when the user is a member of it.
 	const forksGateOpen = $derived(
 		(!isCloudHosted() || $maybePremium) &&
-			$workspaceStore !== 'admins' &&
-			(canCreateFork($userStore, $roleCapabilities) || !!devOfRoot)
+			(moveFrom
+				? moveFrom !== 'admins' &&
+					!fromRulesetsResource.loading &&
+					!fromUserInfoResource.loading &&
+					canFork(
+						capabilitiesIn(
+							fromUserInfo,
+							$userWorkspaces.find((w) => w.id === moveFrom)
+						)
+					) &&
+					(!isRuleActiveInRulesets(fromRulesets, 'DisableWorkspaceForking') ||
+						canUserBypassRuleKindInRulesets(fromRulesets, 'DisableWorkspaceForking', fromUserInfo))
+				: $workspaceStore !== 'admins' &&
+					(canCreateFork($userStore, $roleCapabilities) || !!devOfRoot))
 	)
 	// A fork is a new workspace, so it's subject to the community-edition cap on
 	// the number of non-'admins' workspaces (backend _check_nb_of_workspaces,
@@ -175,7 +220,6 @@
 		forkAffordanceOpen && ceWorkspaceCapReached && !onRequestCreateFork
 	)
 
-	let dropdownOpen = $state(false)
 	let creatingFork = $state(false)
 	// Bare fork id, without the wm-fork- prefix. Forks have no separate display
 	// name — the id is the name (it also becomes the git branch).
@@ -311,7 +355,7 @@
 	let lastDropdownOpen = $state(false)
 	$effect(() => {
 		const wasOpen = lastDropdownOpen
-		lastDropdownOpen = dropdownOpen
+		lastDropdownOpen = !!dropdownOpen
 		if (dropdownOpen && !wasOpen && pendingFork && !creatingFork && showCreateFork) {
 			// Preserve the base the fork was staged from; without this the re-entry falls back to the
 			// default base and silently re-parents a fork that was staged off another workspace.
@@ -347,7 +391,7 @@
 />
 
 <DropdownV2
-	bind:open={dropdownOpen}
+	bind:open={() => !!dropdownOpen, (v) => (dropdownOpen = v)}
 	customMenu
 	placement="bottom-start"
 	fixedHeight={false}
@@ -355,7 +399,7 @@
 	class={triggerClass}
 >
 	{#snippet buttonReplacement()}
-		{@render trigger({ open: dropdownOpen })}
+		{@render trigger({ open: !!dropdownOpen })}
 	{/snippet}
 	{#snippet menu()}
 		{@const rowBase =
@@ -520,7 +564,7 @@
 								disabled={!newForkId.trim() || !!forkIdError || staging}
 								on:click={() => void stageNewFork()}
 							>
-								Set as target
+								{confirmForkLabel}
 							</Button>
 						</div>
 					</div>

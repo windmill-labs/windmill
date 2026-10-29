@@ -753,5 +753,23 @@ export const UserDraftDbSyncer = {
 		await runner.settled(key)
 		// A save that landed while we waited can have scheduled the next one.
 		debouncer.cancel(key)
+	},
+
+	/**
+	 * Save every parked write of `workspace` now, auto-save toggle or not, and return the
+	 * drafts that still did not land (a failed POST or a conflict). For an operation that is
+	 * about to read or move the workspace's drafts server-side: a write still parked would
+	 * land after it, in the wrong place.
+	 */
+	async flushWorkspace(workspace: string): Promise<UserDraftLastSyncQuery[]> {
+		const parked = [...pendingSaveOpts.values()].filter((o) => o.workspace === workspace)
+		await Promise.all(parked.map((o) => this.save({ ...o, immediate: true })))
+		await Promise.all(parked.map((o) => runner.settled(draftKey(o.workspace, o.itemKind, o.path))))
+		return parked
+			.map((o) => ({ workspace: o.workspace, itemKind: o.itemKind, path: o.path }))
+			.filter((q) => {
+				const key = draftKey(q.workspace, q.itemKind, q.path)
+				return failures.has(key) || conflicts.has(key)
+			})
 	}
 }

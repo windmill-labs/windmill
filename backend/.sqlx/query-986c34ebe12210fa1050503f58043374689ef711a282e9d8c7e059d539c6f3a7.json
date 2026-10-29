@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM draft\n               WHERE workspace_id = $1 AND email = $2\n                 AND (typ::text, path) IN (SELECT * FROM unnest($3::text[], $4::text[]))\n               RETURNING typ AS \"typ: UserDraftItemKind\", path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "typ: UserDraftItemKind",
+        "type_info": {
+          "Custom": {
+            "name": "draft_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "flow",
+                "app",
+                "raw_app",
+                "resource",
+                "variable",
+                "trigger_schedule",
+                "trigger_webhook",
+                "trigger_default_email",
+                "trigger_email",
+                "trigger_http",
+                "trigger_websocket",
+                "trigger_postgres",
+                "trigger_kafka",
+                "trigger_nats",
+                "trigger_mqtt",
+                "trigger_sqs",
+                "trigger_gcp",
+                "trigger_azure",
+                "trigger_poll",
+                "trigger_cli",
+                "trigger_nextcloud",
+                "trigger_google",
+                "trigger_github",
+                "data_pipeline",
+                "trigger_amqp"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "986c34ebe12210fa1050503f58043374689ef711a282e9d8c7e059d539c6f3a7"
+}

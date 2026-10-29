@@ -40,6 +40,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/move/{kind}/{*path}", post(move_draft))
         .route("/migrate_legacy/{kind}/{*path}", post(migrate_legacy_draft))
+        .route("/transfer", post(transfer_drafts))
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -384,6 +385,105 @@ fn draft_lineage(kind: UserDraftItemKind, value: &str) -> Option<DraftBaseVersio
     has_base.then_some(base)
 }
 
+/// A role that composes but does not author in full is held to the composition-only rules on
+/// its drafts as on its deploys. `value` is the draft text as stored or about to be.
+async fn validate_composed_draft(
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+    kind: UserDraftItemKind,
+    path: &str,
+    value: &str,
+) -> Result<()> {
+    let caps = windmill_common::roles::caller_capabilities(db, w_id, authed).await?;
+    if caps.flows == AuthorLevel::Compose && kind == UserDraftItemKind::Flow {
+        #[derive(Deserialize)]
+        struct FlowDraft {
+            #[serde(default)]
+            value: FlowValue,
+            schema: Option<Box<serde_json::value::RawValue>>,
+            tag: Option<String>,
+        }
+        // The text as stored, NULs stripped: a stripped NUL can rename a key into one this
+        // check reads.
+        let draft: FlowDraft = serde_json::from_str(&strip_json_nul(value))
+            .map_err(|e| Error::BadRequest(format!("Invalid flow draft: {e}")))?;
+        validate_operator_flow(
+            &draft.value,
+            &draft.tag,
+            draft.schema.as_deref().map(|s| s.get()),
+            authed,
+            db,
+            user_db,
+            w_id,
+        )
+        .await?;
+    }
+
+    // An agent draft is held to the rules of its deploy, as a flow draft is: a developer who
+    // tests it in the agent editor runs its tools as themselves.
+    if caps.flows != AuthorLevel::Full && kind == UserDraftItemKind::Resource {
+        #[derive(Deserialize)]
+        struct ResourceDraft {
+            #[serde(default)]
+            args: serde_json::Value,
+            resource_type: Option<String>,
+        }
+        let draft: ResourceDraft = serde_json::from_str(&strip_json_nul(value))
+            .map_err(|e| Error::BadRequest(format!("Invalid resource draft: {e}")))?;
+        // Whatever type the draft names, deploying it over a deployed agent keeps the row's type.
+        let is_agent = draft.resource_type.as_deref() == Some("ai_agent")
+            || sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent')",
+                w_id,
+                path,
+            )
+            .fetch_one(db)
+            .await?
+            .unwrap_or(false);
+        if is_agent {
+            let mut tx = user_db.clone().begin(authed).await?;
+            windmill_api_auth::composed::validate_operator_agent(
+                &draft.args,
+                authed,
+                db,
+                &mut tx,
+                w_id,
+            )
+            .await?;
+            tx.commit().await?;
+        }
+    }
+
+    // A raw-app draft carries the app value and its policy side by side.
+    if caps.apps == AuthorLevel::Compose && kind == UserDraftItemKind::RawApp {
+        let stripped = strip_json_nul(value);
+        let draft: serde_json::Value = serde_json::from_str(&stripped)
+            .map_err(|e| Error::BadRequest(format!("Invalid app draft: {e}")))?;
+        let mut policy = draft
+            .get("policy")
+            .filter(|p| !p.is_null())
+            .map(|p| serde_json::from_value::<crate::apps::Policy>(p.clone()))
+            .transpose()
+            .map_err(|e| Error::BadRequest(format!("Invalid app draft policy: {e}")))?;
+        let raw = serde_json::value::RawValue::from_string(stripped.into_owned())
+            .map_err(|e| Error::BadRequest(format!("Invalid app draft: {e}")))?;
+        crate::apps::validate_operator_composed_app(
+            authed,
+            db,
+            user_db,
+            w_id,
+            crate::apps::BuilderAppWrite::Draft,
+            true,
+            Some(&raw),
+            policy.as_mut(),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 /// Apply the current user's draft: non-null `value` upserts, `null` (or
 /// omitted) deletes. Either way, when the existing row is newer than
 /// `last_sync` (and `force` is false) the op is skipped and the response is
@@ -470,95 +570,8 @@ async fn update_draft(
         }
     }
 
-    // A role that composes but does not author in full is held to the composition-only rules on
-    // its drafts as on its deploys.
-    let caps = windmill_common::roles::caller_capabilities(&db, &w_id, &authed).await?;
-    if caps.flows == AuthorLevel::Compose && kind == UserDraftItemKind::Flow {
-        if let Some(value) = &req.value {
-            #[derive(Deserialize)]
-            struct FlowDraft {
-                #[serde(default)]
-                value: FlowValue,
-                schema: Option<Box<serde_json::value::RawValue>>,
-                tag: Option<String>,
-            }
-            // The text stored below, NULs stripped: a stripped NUL can rename a key into one
-            // this check reads.
-            let draft: FlowDraft = serde_json::from_str(&strip_json_nul(value.0.get()))
-                .map_err(|e| Error::BadRequest(format!("Invalid flow draft: {e}")))?;
-            validate_operator_flow(
-                &draft.value,
-                &draft.tag,
-                draft.schema.as_deref().map(|s| s.get()),
-                &authed,
-                &db,
-                &user_db,
-                &w_id,
-            )
-            .await?;
-        }
-    }
-
-    // An agent draft is held to the rules of its deploy, as a flow draft is: a developer who
-    // tests it in the agent editor runs its tools as themselves.
-    if caps.flows != AuthorLevel::Full && kind == UserDraftItemKind::Resource {
-        if let Some(value) = &req.value {
-            #[derive(Deserialize)]
-            struct ResourceDraft {
-                #[serde(default)]
-                args: serde_json::Value,
-                resource_type: Option<String>,
-            }
-            let draft: ResourceDraft = serde_json::from_str(&strip_json_nul(value.0.get()))
-                .map_err(|e| Error::BadRequest(format!("Invalid resource draft: {e}")))?;
-            // Whatever type the draft names, deploying it over a deployed agent keeps the row's type.
-            let is_agent = draft.resource_type.as_deref() == Some("ai_agent")
-                || sqlx::query_scalar!(
-                    "SELECT EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent')",
-                    &w_id,
-                    path,
-                )
-                .fetch_one(&db)
-                .await?
-                .unwrap_or(false);
-            if is_agent {
-                let mut tx = user_db.clone().begin(&authed).await?;
-                windmill_api_auth::composed::validate_operator_agent(
-                    &draft.args,
-                    &authed,
-                    &db,
-                    &mut tx,
-                    &w_id,
-                )
-                .await?;
-                tx.commit().await?;
-            }
-        }
-    }
-
-    // A raw-app draft carries the app value and its policy side by side.
-    if caps.apps == AuthorLevel::Compose && kind == UserDraftItemKind::RawApp {
-        if let Some(value) = &req.value {
-            let draft: serde_json::Value = serde_json::from_str(&strip_json_nul(value.0.get()))
-                .map_err(|e| Error::BadRequest(format!("Invalid app draft: {e}")))?;
-            let mut policy = draft
-                .get("policy")
-                .filter(|p| !p.is_null())
-                .map(|p| serde_json::from_value::<crate::apps::Policy>(p.clone()))
-                .transpose()
-                .map_err(|e| Error::BadRequest(format!("Invalid app draft policy: {e}")))?;
-            crate::apps::validate_operator_composed_app(
-                &authed,
-                &db,
-                &user_db,
-                &w_id,
-                crate::apps::BuilderAppWrite::Draft,
-                true,
-                Some(&value.0),
-                policy.as_mut(),
-            )
-            .await?;
-        }
+    if let Some(value) = &req.value {
+        validate_composed_draft(&authed, &db, &user_db, &w_id, kind, path, value.0.get()).await?;
     }
 
     let applied = if let Some(value) = &req.value {
@@ -988,6 +1001,276 @@ async fn move_draft(
         return Ok(format!("updated draft {path}"));
     }
     Ok(format!("moved draft {path} to {new_path}"))
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+pub struct DraftItemRef {
+    pub kind: UserDraftItemKind,
+    pub path: String,
+}
+
+#[derive(Deserialize)]
+pub struct TransferDraftsRequest {
+    /// A workspace of this one's family (the same root: its forks, its parent, siblings) to copy
+    /// the drafts into. Omitted, the call only removes them here (`remove_from_source`).
+    #[serde(default)]
+    pub target_workspace: Option<String>,
+    pub items: Vec<DraftItemRef>,
+    #[serde(default)]
+    pub remove_from_source: bool,
+    /// Overwrite the caller's own drafts of `items` already in the target instead of
+    /// reporting them as conflicts. For a fork created moments ago, whose only such rows are
+    /// the fork clone's copies of the very drafts being moved: a save made after the clone
+    /// must reach the fork before its parent's copy is removed.
+    #[serde(default)]
+    pub replace_existing: bool,
+}
+
+#[derive(Serialize)]
+pub struct TransferDraftsResponse {
+    pub copied: Vec<DraftItemRef>,
+    pub removed: Vec<DraftItemRef>,
+    /// Items the caller already has a draft of in the target. When non-empty nothing was
+    /// written: the caller resolves them first rather than have one side silently win.
+    pub conflicts: Vec<DraftItemRef>,
+}
+
+/// Copy the caller's own drafts of `items` into another workspace of this one's family and/or
+/// remove them here, in one transaction, so a session moving to a fork never leaves its work in
+/// both places or in neither.
+///
+/// Only the caller's rows are touched (never a teammate's or the legacy NULL-email one), so
+/// removing needs no write right here, as with discarding one's own draft. Copying needs it
+/// in the target.
+async fn transfer_drafts(
+    authed: ApiAuthed,
+    tokened: crate::auth::Tokened,
+    Extension(auth_cache): Extension<std::sync::Arc<crate::auth::AuthCache>>,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<TransferDraftsRequest>,
+) -> Result<Json<TransferDraftsResponse>> {
+    let items: Vec<(UserDraftItemKind, String)> =
+        req.items.iter().map(|i| (i.kind, i.path.clone())).collect();
+    let kinds: Vec<&str> = items.iter().map(|(k, _)| k.as_str()).collect();
+    let paths: Vec<&str> = items.iter().map(|(_, p)| p.as_str()).collect();
+    let to_refs = |rows: Vec<(UserDraftItemKind, String)>| -> Vec<DraftItemRef> {
+        rows.into_iter()
+            .map(|(kind, path)| DraftItemRef { kind, path })
+            .collect()
+    };
+
+    let mut target_authed = None;
+    if let Some(target) = req.target_workspace.as_deref() {
+        // Same root, reached through `parent_workspace_id`. The copy keeps what the target can
+        // resolve (script lineage it has, members it has) and repairs the rest, so any workspace
+        // of the family can take the drafts, not only a direct fork.
+        let same_family = target != w_id
+            && sqlx::query_scalar!(
+                r#"WITH RECURSIVE up(id, parent, start, depth) AS (
+                       SELECT id, parent_workspace_id, id, 0 FROM workspace
+                       WHERE id IN ($1, $2) AND deleted = false
+                       UNION ALL
+                       SELECT w.id, w.parent_workspace_id, up.start, up.depth + 1
+                       FROM workspace w JOIN up ON w.id = up.parent
+                       WHERE up.depth < 64
+                   )
+                   SELECT (SELECT id FROM up WHERE start = $1 AND parent IS NULL)
+                        = (SELECT id FROM up WHERE start = $2 AND parent IS NULL) AS "same""#,
+                target,
+                &w_id,
+            )
+            .fetch_one(&db)
+            .await?
+            .unwrap_or(false);
+        if !same_family {
+            return Err(Error::BadRequest(format!(
+                "{target} is not in the same workspace family as {w_id}"
+            )));
+        }
+        // Authentication checked the token against `w_id` only. Re-resolving it against the
+        // target refuses a token bound to `w_id`, whatever its kind (an external JWT has no
+        // `token` row), and gives the rights a request to the target would carry: a JWT's
+        // own claims, not the database's. A job token stays refused even where its claims
+        // list both workspaces.
+        let authed_there = auth_cache
+            .get_authed(Some(target.to_string()), &tokened.token)
+            .await
+            .filter(|a| a.job_id.is_none())
+            .ok_or_else(|| Error::PermissionDenied(format!("this token cannot act on {target}")))?;
+        // Secret variable drafts hold values encrypted with the source workspace's key.
+        if items.iter().any(|(k, _)| *k == UserDraftItemKind::Variable)
+            && windmill_common::variables::get_workspace_key(&w_id, &db).await?
+                != windmill_common::variables::get_workspace_key(target, &db).await?
+        {
+            return Err(Error::BadRequest(format!(
+                "{target} has a different encryption key than {w_id}, so variable drafts cannot be copied to it"
+            )));
+        }
+        let is_member = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 AND disabled = false)",
+            target,
+            &authed.email,
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(false);
+        if !is_member && !authed_there.is_admin {
+            return Err(Error::PermissionDenied(format!("not a member of {target}")));
+        }
+        for (kind, path) in &items {
+            require_can_write_path(&authed_there, &db, &user_db, target, *kind, path).await?;
+        }
+        target_authed = Some(authed_there);
+    }
+
+    let mut tx = db.begin().await?;
+    // Holds off a concurrent save of these rows, so the version removed below is the one copied.
+    // A requested key with no row takes no lock and a draft saved there meanwhile skips the
+    // checks below, so everything after this works on the locked keys only.
+    let source_rows = sqlx::query!(
+        r#"SELECT typ AS "typ: UserDraftItemKind", path, value::text AS "value!" FROM draft
+           WHERE workspace_id = $1 AND email = $2
+             AND (typ::text, path) IN (SELECT * FROM unnest($3::text[], $4::text[]))
+           FOR UPDATE"#,
+        &w_id,
+        &authed.email,
+        &kinds as &[&str],
+        &paths as &[&str],
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let locked: Vec<(UserDraftItemKind, String)> = source_rows
+        .iter()
+        .map(|r| (r.typ, r.path.clone()))
+        .collect();
+    let locked_kinds: Vec<&str> = locked.iter().map(|(k, _)| k.as_str()).collect();
+    let locked_paths: Vec<&str> = locked.iter().map(|(_, p)| p.as_str()).collect();
+    let mut copied = vec![];
+    if let (Some(target), Some(target_authed)) =
+        (req.target_workspace.as_deref(), target_authed.as_ref())
+    {
+        // The copy is a save in the target, so a role that only composes there is held to the
+        // rules a direct save would apply. Checked on the locked rows, the ones copied.
+        for row in &source_rows {
+            validate_composed_draft(
+                target_authed,
+                &db,
+                &user_db,
+                target,
+                row.typ,
+                &row.path,
+                &row.value,
+            )
+            .await?;
+        }
+        // A pipeline node deploys with its `script.hash` as `parent_hash`, refused where that
+        // version does not exist, and repointing it would deploy over the target's newer one.
+        let stale_pipelines = sqlx::query_scalar!(
+            r#"SELECT DISTINCT d.path FROM draft d,
+                   jsonb_array_elements(CASE WHEN jsonb_typeof(d.value::jsonb->'drafts') = 'array'
+                                             THEN d.value::jsonb->'drafts' ELSE '[]' END) node
+               WHERE d.workspace_id = $1 AND d.email = $2 AND d.typ = 'data_pipeline'
+                 AND d.path = ANY($3::text[])
+                 AND CASE WHEN (node->1->'script'->>'hash' ~ '^[0-9a-f]{16}$') IS NOT TRUE THEN false
+                          ELSE NOT EXISTS (SELECT 1 FROM script sc WHERE sc.workspace_id = $4::text
+                                   AND sc.hash = ('x' || (node->1->'script'->>'hash'))::bit(64)::bigint)
+                     END
+               ORDER BY d.path"#,
+            &w_id,
+            &authed.email,
+            &locked
+                .iter()
+                .filter(|(k, _)| *k == UserDraftItemKind::DataPipeline)
+                .map(|(_, p)| p.clone())
+                .collect::<Vec<_>>(),
+            target,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        if !stale_pipelines.is_empty() {
+            return Err(Error::BadRequest(format!(
+                "{target} lacks a script version these pipeline drafts are based on, so Deploy all would fail there: {}. Deploy them before moving, or pick a workspace that has those versions.",
+                stale_pipelines.join(", ")
+            )));
+        }
+        if req.replace_existing {
+            sqlx::query!(
+                "DELETE FROM draft
+                 WHERE workspace_id = $1 AND email = $2
+                   AND (typ::text, path) IN (SELECT * FROM unnest($3::text[], $4::text[]))",
+                target,
+                &authed.email,
+                &locked_kinds as &[&str],
+                &locked_paths as &[&str],
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        let conflicts = sqlx::query!(
+            r#"SELECT typ AS "typ: UserDraftItemKind", path FROM draft
+               WHERE workspace_id = $1 AND email = $2
+                 AND (typ::text, path) IN (SELECT * FROM unnest($3::text[], $4::text[]))
+               FOR UPDATE"#,
+            target,
+            &authed.email,
+            &locked_kinds as &[&str],
+            &locked_paths as &[&str],
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        if !conflicts.is_empty() {
+            return Ok(Json(TransferDraftsResponse {
+                copied: vec![],
+                removed: vec![],
+                conflicts: to_refs(conflicts.into_iter().map(|r| (r.typ, r.path)).collect()),
+            }));
+        }
+        copied = windmill_common::user_drafts::copy_drafts_to_workspace(
+            &mut *tx,
+            &w_id,
+            target,
+            &authed.email,
+            Some(&locked),
+        )
+        .await?;
+        // A copied app policy or trigger may name someone who is not a member of the fork, as a
+        // fork's own clone may; fork creation re-points those at the user, and so does this.
+        windmill_api_workspaces::workspaces::repoint_unresolvable_draft_identities(
+            &mut tx,
+            target,
+            target_authed,
+            Some(&copied),
+        )
+        .await?;
+    }
+
+    let mut removed = vec![];
+    if req.remove_from_source {
+        removed = sqlx::query!(
+            r#"DELETE FROM draft
+               WHERE workspace_id = $1 AND email = $2
+                 AND (typ::text, path) IN (SELECT * FROM unnest($3::text[], $4::text[]))
+               RETURNING typ AS "typ: UserDraftItemKind", path"#,
+            &w_id,
+            &authed.email,
+            &locked_kinds as &[&str],
+            &locked_paths as &[&str],
+        )
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .map(|r| (r.typ, r.path))
+        .collect();
+    }
+    tx.commit().await?;
+
+    Ok(Json(TransferDraftsResponse {
+        copied: to_refs(copied),
+        removed: to_refs(removed),
+        conflicts: vec![],
+    }))
 }
 
 #[derive(Deserialize, Debug)]

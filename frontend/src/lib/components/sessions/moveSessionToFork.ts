@@ -1,0 +1,197 @@
+import { tick } from 'svelte'
+import { DraftService, type DraftItemRef } from '$lib/gen'
+import { UserDraft } from '$lib/userDraft.svelte'
+import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
+import { invalidateWorkspaceDiffCache } from '$lib/components/copilot/chat/global/diffSnapshot'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
+import {
+	anyEditorUnparseable,
+	flushAllPendingEditorChanges
+} from '$lib/components/pendingEditorFlush'
+import { flushEditorSaves } from './useUserDraftSync.svelte'
+import {
+	materializeForkOutcome,
+	moveSessionToWorkspace,
+	type PendingFork
+} from './sessionState.svelte'
+
+/**
+ * `replace` marks a fork this move created itself, whose own drafts at the moved paths are the
+ * fork clone's copies of them: they are overwritten rather than reported as conflicts.
+ */
+export type MoveTarget =
+	| { kind: 'existing'; id: string; replace?: boolean }
+	| { kind: 'new'; fork: PendingFork }
+
+export type MoveSessionResult =
+	| { ok: true; forkId: string; copied: number; removed: number }
+	// `retry` is the target to retry with once the fork exists, so a retry never creates it again.
+	// `changed`: the session's drafts are no longer the ones listed, so the caller lists them again.
+	| {
+			ok: false
+			error: string
+			conflicts?: DraftItemRef[]
+			retry?: MoveTarget
+			changed?: boolean
+	  }
+
+/**
+ * Send every debounced draft save for `workspace` to the server. Returns an error message
+ * when one of them failed or conflicted.
+ *
+ * A save still debounced in an open editor would otherwise land in the parent after the
+ * move: re-creating a draft just removed there, or missing from the copy. Three debounces
+ * stand between a keystroke and the server, and each hands on to the next through an
+ * effect, hence the ticks.
+ */
+export async function flushPendingSaves(workspace: string): Promise<string | undefined> {
+	flushAllPendingEditorChanges()
+	await tick()
+	// Text that does not parse never reaches the draft, and the move closes the editor holding it.
+	// After the tick: the JSON editors parse what was just flushed in an effect.
+	if (anyEditorUnparseable()) {
+		return 'An editor in the preview has changes that are not valid JSON. Fix them before moving.'
+	}
+	flushEditorSaves(workspace)
+	await tick()
+	const unsaved = await UserDraftDbSyncer.flushWorkspace(workspace)
+	if (unsaved.length > 0) {
+		return `Could not save ${unsaved.map((q) => q.path).join(', ')} before moving. Resolve it and retry.`
+	}
+}
+
+/**
+ * Load the moved drafts into editors already open on them in `workspace`. Such an editor
+ * still holds what it loaded before the move, with no baseline to conflict on, so its next
+ * save would overwrite the moved draft.
+ */
+async function reloadOpenEditors(workspace: string, items: DraftItemRef[]): Promise<void> {
+	await Promise.all(
+		items
+			.filter((it) => UserDraft.isLive(it.kind, it.path, { workspace }))
+			.map(async (it) => {
+				const draft = await DraftService.getOwnDraft({
+					workspace,
+					kind: it.kind,
+					path: it.path
+				}).catch(() => undefined)
+				if (draft?.value == null) return
+				UserDraftDbSyncer.recordRemoteSync(
+					{ workspace, itemKind: it.kind, path: it.path },
+					draft.created_at
+				)
+				UserDraft.seed(it.kind, it.path, draft.value, { workspace })
+			})
+	)
+}
+
+/**
+ * Move a session into a fork of its workspace, bringing its drafts along. The session's
+ * workspace changes only once its drafts are where they must be, so a failure at any step
+ * leaves it acting on the parent with its drafts intact.
+ *
+ * A new fork already holds the user's drafts through the fork clone, but a save made after the
+ * clone is only in the parent, so the drafts are copied again, under the same lock as their
+ * removal from the parent.
+ */
+export async function moveSessionToFork(
+	sessionId: string,
+	parent: string,
+	target: MoveTarget,
+	opts: {
+		items: DraftItemRef[]
+		removeFromParent: boolean
+		// A turn running in the parent keeps writing there while its drafts move away.
+		isBusy?: () => boolean
+		// Saves pending in the parent and tells whether the session's drafts differ from `items`.
+		itemsChanged?: () => Promise<boolean>
+	}
+): Promise<MoveSessionResult> {
+	const unsaved = await flushPendingSaves(parent)
+	if (unsaved) return { ok: false, error: unsaved }
+	const busy = 'A chat turn is running. Retry once it ends.'
+	if (opts.isBusy?.()) return { ok: false, error: busy }
+
+	let fork: Extract<MoveTarget, { kind: 'existing' }>
+	if (target.kind === 'new') {
+		const made = await materializeForkOutcome(target.fork)
+		if (!made) return { ok: false, error: 'Could not create the fork' }
+		// The clone holds this session's drafts only when the fork was made from where the session
+		// is; one based elsewhere in the family holds that base's, which are not the session's to
+		// overwrite.
+		fork = {
+			kind: 'existing',
+			id: made.id,
+			replace: made.created && target.fork.parent_workspace_id === parent
+		}
+		// Creating the fork takes seconds, long enough for a job's auto-resume to start a turn.
+		if (opts.isBusy?.()) return { ok: false, error: busy, retry: fork }
+		// So does an edit in the session's preview: it lands in the parent, possibly as a draft the
+		// list did not have.
+		if (await opts.itemsChanged?.()) {
+			return {
+				ok: false,
+				error: "This session's drafts changed. Check the list and confirm again.",
+				retry: fork,
+				changed: true
+			}
+		}
+	} else {
+		fork = target
+		// An editor open in the fork may hold edits not yet saved. Saved now, they become the
+		// conflict they are; still parked, they would land on top of the moved draft later.
+		const unsavedThere = await flushPendingSaves(fork.id)
+		if (unsavedThere) return { ok: false, error: unsavedThere, retry: fork }
+		if (opts.isBusy?.()) return { ok: false, error: busy, retry: fork }
+	}
+
+	let copied: DraftItemRef[] = []
+	let removed: DraftItemRef[] = []
+	if (opts.items.length > 0) {
+		try {
+			const res = await DraftService.transferDrafts({
+				workspace: parent,
+				requestBody: {
+					target_workspace: fork.id,
+					items: opts.items,
+					remove_from_source: opts.removeFromParent,
+					replace_existing: fork.replace
+				}
+			})
+			if (res.conflicts.length > 0) {
+				return {
+					ok: false,
+					error: 'You already have drafts of these items in the fork',
+					conflicts: res.conflicts,
+					retry: fork
+				}
+			}
+			copied = res.copied
+			removed = res.removed
+		} catch (e: any) {
+			return { ok: false, error: String(e?.body ?? e?.message ?? e), retry: fork }
+		}
+	}
+
+	if (removed.length > 0) {
+		for (const it of opts.items) UserDraft.forgetLocal(it.kind, it.path, { workspace: parent })
+	}
+	// The transfer bypasses the syncer that keeps these hints, and lists prefer a hint over the
+	// server's flag, so a refetch alone would keep the parent's markers.
+	for (const it of removed) setLocalDraftHint(parent, it.kind, it.path, false)
+	for (const it of copied) setLocalDraftHint(fork.id, it.kind, it.path, true)
+	await reloadOpenEditors(fork.id, opts.items)
+	await moveSessionToWorkspace(sessionId, fork.id)
+	for (const ws of [parent, fork.id]) {
+		invalidateWorkspaceDrafts(ws)
+		invalidateWorkspaceDiffCache(ws)
+	}
+	logFeatureUsage('ai_session', 'moved_to_fork', {
+		key: opts.removeFromParent ? 'copy_and_clean_parent' : 'copy',
+		entityId: sessionId,
+		workspace: fork.id
+	})
+	return { ok: true, forkId: fork.id, copied: copied.length, removed: removed.length }
+}

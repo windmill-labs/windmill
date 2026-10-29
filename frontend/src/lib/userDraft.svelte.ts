@@ -341,6 +341,11 @@ export const UserDraft = {
 		return writtenCache.get(mk)?.val !== undefined
 	},
 
+	/** Whether an editor in this tab holds a live handle on this key. */
+	isLive(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): boolean {
+		return entries.has(mapKey(resolveWorkspace(opts), itemKind, path))
+	},
+
 	remove(itemKind: UserDraftItemKind, path: string, opts?: UserDraftOptions): void {
 		const ws = resolveWorkspace(opts)
 		const mk = mapKey(ws, itemKind, path)

@@ -311,3 +311,338 @@ async fn test_cross_user_draft_privacy(db: Pool<Postgres>) -> anyhow::Result<()>
 
     Ok(())
 }
+
+/// Moving a session's drafts into a fork is all-or-nothing: a draft the caller already has in
+/// the fork blocks the whole transfer rather than one side silently winning, unless the caller
+/// asks to replace it, and the source copy is removed only together with a successful copy.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_transfer_drafts_to_fork(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let c = client_for("SECRET_TOKEN");
+    let me = "test@windmill.dev";
+    let fork = "wm-fork-transfer";
+    let transfer_url = format!("http://localhost:{port}/api/w/{WS}/drafts/transfer");
+    let fork_count = |path: &'static str| {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM draft WHERE workspace_id = $1 AND path = $2 AND email = $3",
+        )
+        .bind(fork)
+        .bind(path)
+        .bind(me)
+        .fetch_one(&db)
+    };
+
+    let r = c
+        .post(save_url(port, "script", "u/test-user/a"))
+        .json(&json!({ "value": { "content": "a" } }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200);
+    let r = c
+        .post(format!(
+            "http://localhost:{port}/api/w/{WS}/workspaces/create_fork"
+        ))
+        .json(&json!({ "id": fork, "name": "transfer" }))
+        .send()
+        .await?;
+    assert!(r.status().is_success(), "create fork: {}", r.text().await?);
+    // Created after the fork, so only the source has it.
+    let r = c
+        .post(save_url(port, "script", "u/test-user/b"))
+        .json(&json!({ "value": { "content": "b" } }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200);
+
+    let items = json!([
+        { "kind": "script", "path": "u/test-user/a" },
+        { "kind": "script", "path": "u/test-user/b" }
+    ]);
+
+    // A token bound to the source authenticates on its routes but must not write the fork.
+    sqlx::query(
+        "INSERT INTO token(token_hash, token_prefix, token, email, label, super_admin, workspace_id)
+         VALUES (encode(sha256('BOUND_TOKEN'::bytea), 'hex'), 'BOUND_TOK', 'BOUND_TOKEN', $1, 'bound', true, $2)",
+    )
+    .bind(me)
+    .bind(WS)
+    .execute(&db)
+    .await?;
+    let r = client_for("BOUND_TOKEN")
+        .post(&transfer_url)
+        .json(&json!({ "target_workspace": fork, "items": items }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 403);
+    assert_eq!(fork_count("u/test-user/b").await?, 0);
+
+    // A JWT has no `token` row: its own claims decide which workspaces it reaches.
+    set_jwt_secret().await;
+    let jwt = |workspace_ids: Vec<&str>, job_id: Option<&str>, is_admin: bool| {
+        windmill_common::jwt::encode_with_internal_secret(windmill_common::auth::JWTAuthClaims {
+            email: me.to_string(),
+            username: "test-user".to_string(),
+            is_admin,
+            is_operator: false,
+            groups: vec![],
+            folders: vec![],
+            label: None,
+            workspace_id: None,
+            workspace_ids: Some(workspace_ids.into_iter().map(String::from).collect()),
+            exp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as usize
+                + 3600,
+            job_id: job_id.map(String::from),
+            scopes: None,
+            audit_span: None,
+        })
+    };
+    let job_id = uuid::Uuid::new_v4().to_string();
+    let r = c
+        .post(save_url(port, "script", "u/someone-else/x"))
+        .json(&json!({ "value": { "content": "x" } }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200);
+    for (claims, path, status) in [
+        (jwt(vec![WS], None, true).await?, "u/test-user/a", 403),
+        (
+            jwt(vec![WS, fork], Some(&job_id), true).await?,
+            "u/test-user/a",
+            403,
+        ),
+        (jwt(vec![WS, fork], None, true).await?, "u/test-user/a", 200),
+        // An admin in the fork's database, but the JWT does not claim it: the claims win.
+        (
+            jwt(vec![WS, fork], None, false).await?,
+            "u/someone-else/x",
+            401,
+        ),
+    ] {
+        let r = client_for(&format!("jwt_{claims}"))
+            .post(&transfer_url)
+            .json(
+                &json!({ "target_workspace": fork, "items": [{ "kind": "script", "path": path }] }),
+            )
+            .send()
+            .await?;
+        assert_eq!(r.status(), status, "{path}: {}", r.text().await?);
+    }
+    assert_eq!(fork_count("u/someone-else/x").await?, 0);
+
+    // `a` was cloned into the fork: the whole transfer is refused and nothing moves.
+    let body: serde_json::Value = c
+        .post(&transfer_url)
+        .json(&json!({ "target_workspace": fork, "items": items, "remove_from_source": true }))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        body["conflicts"],
+        json!([{ "kind": "script", "path": "u/test-user/a" }])
+    );
+    assert_eq!(fork_count("u/test-user/b").await?, 0);
+    assert_eq!(draft_count(&db, "u/test-user/a", "script", me).await, 1);
+    assert_eq!(draft_count(&db, "u/test-user/b", "script", me).await, 1);
+
+    // A save after the clone: replacing the clone's copy must carry it into the fork.
+    let r = c
+        .post(save_url(port, "script", "u/test-user/a"))
+        .json(&json!({ "value": { "content": "a2" } }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200);
+    let body: serde_json::Value = c
+        .post(&transfer_url)
+        .json(&json!({
+            "target_workspace": fork, "items": items,
+            "remove_from_source": true, "replace_existing": true
+        }))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(body["conflicts"], json!([]));
+    assert_eq!(body["copied"].as_array().unwrap().len(), 2);
+    assert_eq!(body["removed"].as_array().unwrap().len(), 2);
+    assert_eq!(fork_count("u/test-user/a").await?, 1);
+    assert_eq!(fork_count("u/test-user/b").await?, 1);
+    let a_in_fork: String = sqlx::query_scalar(
+        "SELECT value->>'content' FROM draft WHERE workspace_id = $1 AND path = 'u/test-user/a'",
+    )
+    .bind(fork)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(a_in_fork, "a2");
+    assert_eq!(draft_count(&db, "u/test-user/a", "script", me).await, 0);
+    assert_eq!(draft_count(&db, "u/test-user/b", "script", me).await, 0);
+
+    // With nothing left in the source to replace them, the fork's drafts stay.
+    let r = c
+        .post(&transfer_url)
+        .json(&json!({
+            "target_workspace": fork, "items": items,
+            "remove_from_source": true, "replace_existing": true
+        }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200);
+    assert_eq!(fork_count("u/test-user/a").await?, 1);
+    assert_eq!(fork_count("u/test-user/b").await?, 1);
+
+    // An app policy naming someone who is not a member of the fork is re-pointed at the user, as
+    // the fork's own clone does: a deploy in the fork rejects an identity that does not resolve.
+    let r = c
+        .post(save_url(port, "raw_app", "u/test-user/app"))
+        .json(&json!({ "value": { "policy": {
+            "on_behalf_of": "u/not-in-fork", "on_behalf_of_email": "ghost@windmill.dev"
+        } } }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "{}", r.text().await?);
+    let r = c
+        .post(&transfer_url)
+        .json(&json!({
+            "target_workspace": fork,
+            "items": [{ "kind": "raw_app", "path": "u/test-user/app" }]
+        }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "{}", r.text().await?);
+    let on_behalf_of: String = sqlx::query_scalar(
+        "SELECT value->'policy'->>'on_behalf_of' FROM draft
+         WHERE workspace_id = $1 AND path = 'u/test-user/app'",
+    )
+    .bind(fork)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(on_behalf_of, "u/test-user");
+
+    // A script version the fork does not have (deployed in the source after the fork was made)
+    // is no lineage there: a deploy naming it as parent would be refused.
+    let r = c
+        .post(save_url(port, "script", "u/test-user/lineage"))
+        .json(&json!({ "value": { "content": "l", "parent_hash": "0123456789abcdef" } }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "{}", r.text().await?);
+    let r = c
+        .post(&transfer_url)
+        .json(&json!({
+            "target_workspace": fork,
+            "items": [{ "kind": "script", "path": "u/test-user/lineage" }]
+        }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "{}", r.text().await?);
+    let (parent_hash, base): (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT value->>'parent_hash', base FROM draft
+         WHERE workspace_id = $1 AND path = 'u/test-user/lineage'",
+    )
+    .bind(fork)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!((parent_hash, base), (None, None));
+
+    // A version the fork has keeps its lineage. Its hash has the high bit set, so the match also
+    // holds for a negative i64, which serializes as 16 hex digits.
+    sqlx::query(
+        "INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by)
+         VALUES ($1, -1, 'u/test-user/lineage', '', '', 'l', 'test-user')",
+    )
+    .bind(fork)
+    .execute(&db)
+    .await?;
+    let r = c
+        .post(save_url(port, "script", "u/test-user/lineage"))
+        .json(&json!({ "value": { "content": "l2", "parent_hash": "ffffffffffffffff" } }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "{}", r.text().await?);
+    let r = c
+        .post(&transfer_url)
+        .json(&json!({
+            "target_workspace": fork,
+            "items": [{ "kind": "script", "path": "u/test-user/lineage" }],
+            "replace_existing": true
+        }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "{}", r.text().await?);
+    let (parent_hash, base): (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT value->>'parent_hash', base FROM draft
+         WHERE workspace_id = $1 AND path = 'u/test-user/lineage'",
+    )
+    .bind(fork)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        (parent_hash.as_deref(), base.as_deref()),
+        (Some("ffffffffffffffff"), Some("ffffffffffffffff"))
+    );
+
+    // Any workspace of the family takes them: here back from the fork to its parent.
+    let r = c
+        .post(format!(
+            "http://localhost:{port}/api/w/{fork}/drafts/transfer"
+        ))
+        .json(&json!({
+            "target_workspace": WS,
+            "items": [{ "kind": "script", "path": "u/test-user/a" }],
+            "remove_from_source": true
+        }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "{}", r.text().await?);
+    assert_eq!(draft_count(&db, "u/test-user/a", "script", me).await, 1);
+    assert_eq!(fork_count("u/test-user/a").await?, 0);
+
+    // A workspace outside the family is refused.
+    let r = c
+        .post(&transfer_url)
+        .json(&json!({ "target_workspace": "admins", "items": items }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 400);
+
+    // A pipeline node based on a version the target lacks would fail Deploy all there: refused,
+    // and the source keeps it. One based on a version the target has moves.
+    let pipeline = |hash: &str| json!({ "drafts": [["f/p/n", { "localId": "n", "script": { "path": "f/p/n", "hash": hash } }]] });
+    for (path, hash) in [
+        ("f/p_stale", "00000000000abcde"),
+        ("f/p_ok", "ffffffffffffffff"),
+    ] {
+        sqlx::query(
+            "INSERT INTO draft (workspace_id, path, typ, value, email) VALUES ($1, $2, 'data_pipeline', $3, $4)",
+        )
+        .bind(WS)
+        .bind(path)
+        .bind(pipeline(hash))
+        .bind(me)
+        .execute(&db)
+        .await?;
+    }
+    let move_pipeline = |path: &'static str| {
+        c.post(&transfer_url)
+            .json(&json!({
+                "target_workspace": fork,
+                "items": [{ "kind": "data_pipeline", "path": path }],
+                "remove_from_source": true
+            }))
+            .send()
+    };
+    let r = move_pipeline("f/p_stale").await?;
+    assert_eq!(r.status(), 400, "{}", r.text().await?);
+    assert_eq!(draft_count(&db, "f/p_stale", "data_pipeline", me).await, 1);
+    assert_eq!(fork_count("f/p_stale").await?, 0);
+    let r = move_pipeline("f/p_ok").await?;
+    assert_eq!(r.status(), 200, "{}", r.text().await?);
+    assert_eq!(fork_count("f/p_ok").await?, 1);
+
+    Ok(())
+}

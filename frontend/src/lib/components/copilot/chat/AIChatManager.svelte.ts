@@ -563,6 +563,18 @@ export class AIChatManager implements ChatViewHost {
 	// when the chat is idle, an auto-resume turn started for them (see
 	// #maybeAutoResumeFromJobs). Ephemeral like queuedMessage — not persisted.
 	pendingJobNotes = $state<string[]>([])
+	// Notes about something that happened outside a turn, delivered with the job notes.
+	// Persisted on the chat record, unlike the job notes, because nothing re-derives
+	// them after a reload.
+	#modelNotes: string[] = []
+	/** Tell the model about something that happened outside a turn, on its next turn. */
+	async queueModelNote(note: string) {
+		this.#modelNotes = [...this.#modelNotes, note]
+		await this.historyManager.setModelNotes(
+			this.historyManager.getCurrentChatId(),
+			this.#modelNotes
+		)
+	}
 	// Guards #maybeAutoResumeFromJobs against re-entering while its own turn spins up.
 	#autoResuming = false
 	#jobPollTimer: ReturnType<typeof setTimeout> | undefined = undefined
@@ -774,6 +786,12 @@ export class AIChatManager implements ChatViewHost {
 	/** Use, Plan or Build. A session keeps its own: the runtime seeds it from the session record
 	 * and stores each change through `onWorkModeChanged`. */
 	workMode = $state<AIWorkMode>(AIWorkMode.BUILD)
+	/** The session is moving into a fork. Its editors stay closed meanwhile: an edit would save a
+	 * draft in the workspace being left, after the move listed what it brings along. */
+	moving = $state(false)
+	/** A move into a fork has started: no turn starts until it ends, retries and edits included.
+	 * Set before `moving`, which waits for the editors to hand over their pending edits. */
+	moveStarted = $state(false)
 	onWorkModeChanged: ((mode: AIWorkMode) => void) | undefined = undefined
 	workModesAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
 	/** Use is the only mode: the workspace is protected, or the user's role builds nothing in it. */
@@ -1401,8 +1419,21 @@ export class AIChatManager implements ChatViewHost {
 		}, 5_000)
 	}
 
+	#autoResumeHolds = 0
+	/** Keep background-job completions from starting a turn until the returned release runs. */
+	holdAutoResume(): () => void {
+		this.#autoResumeHolds++
+		let released = false
+		return () => {
+			if (released) return
+			released = true
+			this.#autoResumeHolds--
+			void this.#maybeAutoResumeFromJobs()
+		}
+	}
+
 	async #maybeAutoResumeFromJobs() {
-		if (this.#autoResuming) return
+		if (this.#autoResuming || this.#autoResumeHolds > 0) return
 		// Global/sessions chat only (the only mode with a jobs tray + preamble).
 		if (this.mode !== AIMode.GLOBAL) return
 		// Mid-turn: the notes will ride that turn's preamble, so don't start another.
@@ -1460,6 +1491,7 @@ export class AIChatManager implements ChatViewHost {
 		this.#jobUpdateReaders.clear()
 		this.backgroundJobs = []
 		this.pendingJobNotes = []
+		this.#modelNotes = []
 	}
 
 	/** Merge a status patch into the tool card identified by tool_call_id, or
@@ -3621,7 +3653,9 @@ export class AIChatManager implements ChatViewHost {
 		// false`), and a copy here would double it. Paste tokens are expanded
 		// into the text, as the queue does, because the restore lanes carry no
 		// pastes.
-		if (this.runHeldElsewhere) {
+		// A move into a fork holds turns the same way: one started now would act on the
+		// workspace being left. The composer is locked then, but a retry or an edit is not.
+		if (this.runHeldElsewhere || this.moveStarted) {
 			if (options.synthetic) {
 				// Client-authored prompt (a job auto-resume), not user input: nothing
 				// to hand back and no toast. Releasing the staged text un-blocks the
@@ -3639,7 +3673,12 @@ export class AIChatManager implements ChatViewHost {
 						options.files
 					)
 				}
-				sendUserToast('This session is running in another tab. Your message was kept.', true)
+				sendUserToast(
+					this.moveStarted
+						? 'This session is moving to another workspace. Your message was kept.'
+						: 'This session is running in another tab. Your message was kept.',
+					true
+				)
 			}
 			return false
 		}
@@ -4215,11 +4254,18 @@ export class AIChatManager implements ChatViewHost {
 			// turn (notify-only wake). Folded into the model-facing text only — the
 			// display bubble keeps this.instructions, and no extra message is added, so
 			// the display↔messages index pairing above stays intact. Ephemeral.
+			const notes = [...this.#modelNotes, ...this.pendingJobNotes]
 			const jobNotesPreamble =
-				this.mode === AIMode.GLOBAL && this.pendingJobNotes.length > 0
-					? this.pendingJobNotes.join('\n\n') + '\n\n'
-					: ''
-			if (jobNotesPreamble) this.pendingJobNotes = []
+				this.mode === AIMode.GLOBAL && notes.length > 0 ? notes.join('\n\n') + '\n\n' : ''
+			if (jobNotesPreamble) {
+				this.pendingJobNotes = []
+				if (this.#modelNotes.length > 0) {
+					this.#modelNotes = []
+					void this.historyManager
+						.setModelNotes(this.historyManager.getCurrentChatId(), [])
+						.catch((e) => console.error('Failed to clear model notes', e))
+				}
+			}
 			const modelInstructions =
 				this.mode === AIMode.GLOBAL
 					? jobNotesPreamble + this.expandGlobalSkillCommand(oldInstructions)
@@ -4802,7 +4848,7 @@ export class AIChatManager implements ChatViewHost {
 		// nothing yet, so there is nothing to restore. Un-submitted context-chip
 		// edits are the one loss — the chips re-seed from the untouched message
 		// on the next edit.
-		if (this.runHeldElsewhere) {
+		if (this.runHeldElsewhere || this.moveStarted) {
 			if (newContent !== undefined) {
 				this.restoreToInput(
 					expanded(chatDraft(newContent, pastes ?? [])),
@@ -4811,7 +4857,12 @@ export class AIChatManager implements ChatViewHost {
 				)
 			}
 			// "Text", not "message": chip edits are the part that does not survive.
-			sendUserToast('This session is running in another tab. Your text was kept.', true)
+			sendUserToast(
+				this.moveStarted
+					? 'This session is moving to another workspace. Your text was kept.'
+					: 'This session is running in another tab. Your text was kept.',
+				true
+			)
 			return
 		}
 
@@ -4978,6 +5029,7 @@ export class AIChatManager implements ChatViewHost {
 				if (this.isJobNonTerminal(j.status)) j.detached = true
 			}
 			if (this.backgroundJobs.length > 0) this.backgroundJobs = [...this.backgroundJobs]
+			this.#modelNotes = chat.modelNotes ?? []
 			// Reloading resolves no card on its own. Settle every one the poller above
 			// will not reach, whoever wrote it — a record from a build that stored cards
 			// without their jobs would otherwise restore one that spins forever.

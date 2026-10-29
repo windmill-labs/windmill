@@ -32,7 +32,12 @@
 	import { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
-	import { WorkspaceService } from '$lib/gen'
+	import { DraftService, WorkspaceService, type DraftItemRef } from '$lib/gen'
+	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
+	import SessionMoveModal from './SessionMoveModal.svelte'
+	import { flushPendingSaves, moveSessionToFork, type MoveTarget } from './moveSessionToFork'
+	import { maskHasDraftRow } from './modifiedItemsMask'
+	import { localRunEnded, localRunStarted } from './sessionSync.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
@@ -41,6 +46,7 @@
 		Archive,
 		ArchiveRestore,
 		EllipsisVertical,
+		GitFork,
 		MessageSquareDashed,
 		Pencil,
 		Plus,
@@ -421,6 +427,216 @@
 		await moveSessionToNewFork(session.id, fork)
 	}
 
+	// Moving mid-turn would let a tool still running write its draft into the workspace
+	// being left, after the move copied or removed the others.
+	const canMoveToFork = $derived(
+		!!runtime &&
+			!isUnavailable &&
+			!session?.archived &&
+			!runtime.manager.loading &&
+			!runtime.manager.sendInFlight &&
+			!runtime.manager.sendPending &&
+			!runtime.manager.runHeldElsewhere
+	)
+
+	type MoveRequest = {
+		open: boolean
+		parent: string
+		parentName: string
+		target: MoveTarget
+		targetName: string
+		items: (DraftItemRef & { label: string })[]
+		conflicts: DraftItemRef[]
+		error?: string
+	}
+	let movePickerOpen = $state(false)
+	let moveRequest = $state<MoveRequest | undefined>(undefined)
+	let moveRemoveFromParent = $state(false)
+	let moving = $state(false)
+
+	// Every chat of the session counts, not only the one on screen: a user who opened a new
+	// chat inside the session still expects the earlier edits to come along.
+	function sessionMask(): Set<string> {
+		const m = runtime?.manager
+		if (!m) return new Set()
+		return new Set([
+			...m.historyManager.getAllSavedChats().flatMap((c) => c.modifiedItems ?? []),
+			...(m.modifiedItems ?? [])
+		])
+	}
+
+	// The list comes from the server, so an edit still debounced would be left out of it.
+	async function listMoveItems(
+		parent: string,
+		target: MoveTarget
+	): Promise<Pick<MoveRequest, 'items' | 'conflicts'> | string> {
+		const unsaved = await flushPendingSaves(parent)
+		if (unsaved) return unsaved
+		const mask = sessionMask()
+		try {
+			// Only the user's own rows move; a legacy workspace-level draft is nobody's.
+			const items = (await DraftService.listDrafts({ workspace: parent }))
+				.filter((r) => r.mine && !r.legacy_draft && maskHasDraftRow(mask, r))
+				.map((r) => ({ kind: r.kind, path: r.path, label: r.draft_path ?? r.path }))
+			let conflicts: DraftItemRef[] = []
+			if (target.kind === 'existing' && !target.replace && items.length > 0) {
+				const inFork = new Set(
+					(await DraftService.listDrafts({ workspace: target.id }))
+						.filter((r) => r.mine && !r.legacy_draft)
+						.map((r) => `${r.kind}:${r.path}`)
+				)
+				conflicts = items
+					.filter((i) => inFork.has(`${i.kind}:${i.path}`))
+					.map(({ kind, path }) => ({ kind, path }))
+			}
+			return { items, conflicts }
+		} catch (e: any) {
+			return `Could not list the session's drafts: ${e?.body ?? e?.message ?? e}`
+		}
+	}
+
+	function itemKeys(items: DraftItemRef[]): string {
+		return items
+			.map((i) => `${i.kind}:${i.path}`)
+			.sort()
+			.join('\n')
+	}
+
+	async function startMove(target: MoveTarget) {
+		const parent = actingWorkspaceId
+		if (!session || !parent || !canMoveToFork || moving) return
+		if (target.kind === 'existing' && target.id === parent) return
+		const listed = await listMoveItems(parent, target)
+		if (typeof listed === 'string') {
+			sendUserToast(listed, true)
+			return
+		}
+		moveRemoveFromParent = false
+		moveRequest = {
+			open: listed.items.length > 0,
+			parent,
+			parentName: $userWorkspaces.find((w) => w.id === parent)?.name ?? parent,
+			target,
+			targetName:
+				target.kind === 'new'
+					? target.fork.name
+					: ($userWorkspaces.find((w) => w.id === target.id)?.name ?? target.id),
+			...listed
+		}
+		if (listed.items.length === 0) await confirmMove()
+	}
+
+	async function confirmMove() {
+		const req = moveRequest
+		if (!session || !req || moving) return
+		// Another tab moved the session while this dialog was open.
+		if (actingWorkspaceId !== req.parent) {
+			moveRequest = undefined
+			sendUserToast(
+				'This session moved to another workspace meanwhile. Pick the workspace again.',
+				true
+			)
+			return
+		}
+		// A turn started while the dialog was open (a job's auto-resume) owns the cross-tab hold
+		// below; the move would release it while that turn still runs.
+		if (!canMoveToFork) {
+			moveRequest = { ...req, open: true, error: 'A chat turn is running. Retry once it ends.' }
+			return
+		}
+		moving = true
+		if (runtime) runtime.manager.moveStarted = true
+		const releaseAutoResume = runtime?.manager.holdAutoResume()
+		// Bracketed like a turn, so another tab on this session cannot send while its drafts
+		// move, then re-reads the session (its new workspace, the model note) once it ends.
+		const chatId = runtime?.manager.historyManager.getCurrentChatId()
+		if (chatId) localRunStarted(session.id, chatId)
+		try {
+			// Closing the draft editors drops what they have not handed to their save yet, so they
+			// are drained while still mounted, then closed with no await in between.
+			const unsaved = await flushPendingSaves(req.parent)
+			if (unsaved) {
+				moveRequest = { ...req, open: true, error: unsaved }
+				return
+			}
+			if (runtime) runtime.manager.moving = true
+			// A turn that ran while the dialog was open (a job's auto-resume, another tab) may have
+			// added drafts the list does not show, and the conflicts listed may have been discarded
+			// since. Now that no turn can start, both are re-read.
+			const listed = await listMoveItems(req.parent, req.target)
+			if (typeof listed === 'string') {
+				moveRequest = { ...req, open: true, error: listed }
+				return
+			}
+			const changed = itemKeys(listed.items) !== itemKeys(req.items)
+			if (changed || listed.conflicts.length > 0) {
+				moveRequest = {
+					...req,
+					...listed,
+					open: true,
+					error: changed
+						? "This session's drafts changed. Check the list and confirm again."
+						: undefined
+				}
+				return
+			}
+			let relisted: Awaited<ReturnType<typeof listMoveItems>> | undefined
+			const res = await moveSessionToFork(session.id, req.parent, req.target, {
+				items: req.items.map(({ kind, path }) => ({ kind, path })),
+				removeFromParent: moveRemoveFromParent,
+				isBusy: () => !canMoveToFork,
+				itemsChanged: async () => {
+					relisted = await listMoveItems(req.parent, req.target)
+					return typeof relisted === 'string' || itemKeys(relisted.items) !== itemKeys(req.items)
+				}
+			})
+			if (!res.ok) {
+				if (res.changed && relisted !== undefined) {
+					moveRequest = {
+						...req,
+						...(typeof relisted === 'string' ? {} : relisted),
+						target: res.retry ?? req.target,
+						open: true,
+						error: typeof relisted === 'string' ? relisted : res.error
+					}
+				} else if (!req.open) {
+					sendUserToast(res.error, true)
+					moveRequest = undefined
+				} else {
+					moveRequest = {
+						...req,
+						target: res.retry ?? req.target,
+						error: res.error,
+						conflicts: res.conflicts ?? []
+					}
+				}
+				return
+			}
+			moveRequest = undefined
+			await runtime?.manager
+				.queueModelNote(
+					`This session moved from workspace "${req.parent}" to workspace "${res.forkId}": every further tool call acts on "${res.forkId}". ` +
+						(res.copied > 0
+							? `${res.copied} draft(s) of this session were copied there` +
+								(res.removed > 0 ? ` and removed from "${req.parent}". ` : '. ')
+							: '') +
+						`Jobs from earlier turns ran in "${req.parent}".`
+				)
+				.catch((e) => console.error('Failed to persist the move note', e))
+			runtime?.manager.rebuildGlobalSystemMessage()
+			sendUserToast(`Session moved to ${req.targetName}`)
+		} finally {
+			moving = false
+			if (runtime) {
+				runtime.manager.moving = false
+				runtime.manager.moveStarted = false
+			}
+			releaseAutoResume?.()
+			if (chatId)
+				localRunEnded(session.id, runtime?.manager.historyManager.getCurrentChatId() ?? chatId)
+		}
+	}
+
 	// Chrome shared by the banners stacked above the composer, so restyling one
 	// can't leave the others behind. Each supplies its own background: two bg-*
 	// utilities on one element resolve by stylesheet order, not attribute order.
@@ -542,6 +758,14 @@
 					icon: Pencil,
 					action: () => summaryInput?.edit()
 				},
+				{
+					displayName: 'Move to another workspace…',
+					icon: GitFork,
+					// Before the first message, the "Run in" picker sets the workspace instead.
+					hide: !hasFirstUserMessage || isUnavailable || session.archived,
+					disabled: !canMoveToFork || moving,
+					action: () => (movePickerOpen = true)
+				},
 				...(session.archived
 					? // No Unarchive when the workspace is gone — it can't persist
 						// (putSession guard) and reconcile would re-archive it.
@@ -578,6 +802,23 @@
 				</span>
 			{/snippet}
 		</DropdownV2>
+		{#if actingWorkspaceId}
+			<!-- Opened from the menu item above; the empty trigger only anchors it. Picking a fork
+			     moves the session there (see startMove). -->
+			<WorkspaceFamilyPicker
+				bind:open={movePickerOpen}
+				selectedId={actingWorkspaceId}
+				moveFrom={actingWorkspaceId}
+				onPick={(id) => startMove({ kind: 'existing', id })}
+				onCreateFork={(fork) => startMove({ kind: 'new', fork })}
+				createForkCaption="Created now, and the session moves into it."
+				confirmForkLabel="Move here"
+			>
+				{#snippet trigger()}
+					<span class="block w-0 h-5"></span>
+				{/snippet}
+			</WorkspaceFamilyPicker>
+		{/if}
 
 		<SessionShareButton
 			sessionId={session.id}
@@ -620,12 +861,14 @@
 							initialAttachments={armedAtInit ? undefined : getSessionDraftAttachments(sessionId)}
 							onAttachmentsChange={(a) => setSessionDraftAttachments(sessionId, a)}
 							placeholder={previewedItemPlaceholder ?? composerPlaceholder}
-							forceDisabled={isUnavailable || !!session.archived}
+							forceDisabled={isUnavailable || !!session.archived || moving}
 							forceDisabledMessage={isUnavailable
 								? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
 								: session.archived
 									? 'This session is archived. Unarchive it from the banner above to keep working.'
-									: ''}
+									: moving
+										? `Moving this session to ${moveRequest?.targetName ?? 'the fork'}…`
+										: ''}
 							starter={greets
 								? { where: 'session', suggestions: starterPrompts.suggestions }
 								: undefined}
@@ -722,6 +965,24 @@
 			{/if}
 		</div>
 	</ConfirmationModal>
+
+	{#if moveRequest}
+		<SessionMoveModal
+			open={moveRequest.open}
+			parentName={moveRequest.parentName}
+			targetName={moveRequest.targetName}
+			newFork={moveRequest.target.kind === 'new'
+				? moveRequest.target.fork.parent_workspace_id === moveRequest.parent
+				: !!moveRequest.target.replace}
+			items={moveRequest.items}
+			conflicts={moveRequest.conflicts}
+			error={moveRequest.error}
+			loading={moving}
+			bind:removeFromParent={moveRemoveFromParent}
+			onConfirmed={() => void confirmMove()}
+			onCanceled={() => (moveRequest = undefined)}
+		/>
+	{/if}
 
 	<ConfirmationModal
 		open={archiveConfirmOpen}
