@@ -100,18 +100,20 @@
 	function summary(scopes: string[]): string {
 		const access = mcpAccessOf(scopes)
 		if (access !== 'selected') return ACCESS_LABELS[access]
-		const count = (prefix: string) =>
-			storedScopes(scopes)
+		const describe = (prefix: string, label: string) => {
+			const paths = storedScopes(scopes)
 				.filter((s) => s.startsWith(prefix))
 				.flatMap((s) => s.slice(prefix.length).split(','))
-				.filter((p) => p).length
+				.filter((p) => p)
+			if (paths.includes('*')) return `all ${label}s`
+			if (paths.length === 0) return undefined
+			return `${paths.length} ${label}${paths.length === 1 ? '' : 's'}`
+		}
 		const parts = [
-			[count('mcp:scripts:'), 'script'],
-			[count('mcp:flows:'), 'flow'],
-			[count('mcp:hub:'), 'hub script']
-		]
-			.filter(([n]) => n)
-			.map(([n, label]) => `${n} ${label}${n === 1 ? '' : 's'}`)
+			describe('mcp:scripts:', 'script'),
+			describe('mcp:flows:', 'flow'),
+			describe('mcp:hub:', 'hub script')
+		].filter((p): p is string => p !== undefined)
 		if (scopes.includes('mcp:favorites')) parts.unshift('favorites')
 		return parts.length ? parts.join(', ') : 'No tools selected'
 	}
@@ -221,7 +223,13 @@
 						{#key client.workspace_id}
 							<McpAccessPicker
 								workspaceId={client.workspace_id}
-								bind:scopes={client.scopes}
+								bind:scopes={
+									() => client.scopes,
+									(v) => {
+										client.scopes = v ?? []
+										client.scopesWorkspace = client.workspace_id
+									}
+								}
 								initialScopes={initialScopes(client)}
 							/>
 						{/key}
