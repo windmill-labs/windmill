@@ -4,6 +4,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { deployRawAppValue } from '$lib/rawAppDeploy'
+	import { withoutSharedPolicySettings } from './appDraftSettings'
 	import DeploymentHistory from './DeploymentHistory.svelte'
 
 	interface Props {
@@ -29,7 +30,6 @@
 				value: app.value,
 				summary: app.summary,
 				policy: app.policy,
-				customPath: app.custom_path,
 				allowKindChange: true
 			})
 		} else {
@@ -37,7 +37,8 @@
 				workspace: $workspaceStore!,
 				path: app.path,
 				requestBody: {
-					...app
+					...app,
+					policy: app.policy && withoutSharedPolicySettings(app.policy)
 				}
 			})
 		}

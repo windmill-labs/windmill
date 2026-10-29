@@ -34,10 +34,10 @@ export function deployedPermissionedAs(
 	return user?.username ? `u/${user.username}` : undefined
 }
 
-/** Whether a deploy asks first whose access the item will run with. Every app deploy asks, since
- *  all its viewers use that access. A flow or script deploy asks when it starts running on behalf
- *  of someone, changes who, or stops: a deploy that keeps the deployed user has nothing new to
- *  confirm. `saved*` are the deployed version's, unset before the first deploy. */
+/** Whether a deploy asks first whose access the item will run with. A deploy asks when the item
+ *  starts running on behalf of someone, changes who, or stops: a deploy that keeps the deployed
+ *  user has nothing new to confirm. An app always runs on behalf of someone, so its first deploy
+ *  always asks. `saved*` are the deployed version's, unset before the first deploy. */
 export function deployAsksOnBehalfOf(
 	kind: 'flow' | 'script' | 'app',
 	deploy: {
@@ -49,14 +49,65 @@ export function deployAsksOnBehalfOf(
 		folderDefault?: string
 	}
 ): boolean {
-	if (kind === 'app') return true
 	const deployedHoldsUser = !!(deploy.savedPermissionedAs ?? deploy.savedEmail)
-	if (!deploy.email && !deploy.folderDefault) return deployedHoldsUser
+	if (kind !== 'app' && !deploy.email && !deploy.folderDefault) return deployedHoldsUser
 	if (!deployedHoldsUser) return true
 	return (
 		deployedPermissionedAs(deploy.user, deploy.permissionedAs, deploy.folderDefault) !==
 		deploy.savedPermissionedAs
 	)
+}
+
+/** What a deploy asks about the user an item runs on behalf of: the question, whether the item
+ *  must run on behalf of someone, whether it does, whether the deploy stops a flow or script
+ *  running on behalf of the deployed user, and who it runs as otherwise. `email` and
+ *  `permissionedAs` are the user the item holds, `saved*` the deployed one. */
+export function deployOnBehalfOfQuestion(
+	kind: 'flow' | 'script' | 'app',
+	user: DeployingUser,
+	held: {
+		email: string | undefined
+		permissionedAs: string | undefined
+		savedEmail: string | undefined
+		savedPermissionedAs: string | undefined
+		isNew: boolean
+		folderDefault?: string
+	}
+): {
+	title: string
+	required: boolean
+	on: boolean
+	stops: boolean
+	runsAs: string | undefined
+	savedUser: string | undefined
+	/** The deploy leaves the deployed user as it is. */
+	unchanged: boolean
+	/** The item takes its folder's default user, who is not the deployer. */
+	folderDefaultNotMe: boolean
+} {
+	const me = user?.username ? `u/${user.username}` : undefined
+	const savedUser = held.savedPermissionedAs ?? held.savedEmail
+	// The backend gives a new item in a folder with a default user that user unless the deploy
+	// names one, so only a flow or script outside that case can deploy with the setting off.
+	const required = kind === 'app' || !!held.folderDefault
+	const on = required || !!held.email
+	const stops = !on && !!savedUser
+	const runsAs = deployedPermissionedAs(user, held.permissionedAs, held.folderDefault)
+	const who = !runsAs ? 'you' : runsAs === me ? `${runsAs} (you)` : runsAs
+	return {
+		title: on
+			? `Run this ${kind} on behalf of ${who}?`
+			: stops
+				? `Stop running this ${kind} on behalf of ${savedUser}?`
+				: `Deploy this ${kind}?`,
+		required,
+		on,
+		stops,
+		runsAs,
+		savedUser,
+		unchanged: !held.isNew && !!held.savedPermissionedAs && runsAs === held.savedPermissionedAs,
+		folderDefaultNotMe: !!held.folderDefault && runsAs === held.folderDefault && runsAs !== me
+	}
 }
 
 /** What keeps lending the publisher's access to an app's viewers safe. */

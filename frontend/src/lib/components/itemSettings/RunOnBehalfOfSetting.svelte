@@ -5,6 +5,7 @@
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { AlertTriangle } from 'lucide-svelte'
 	import SettingToggle from './SettingToggle.svelte'
 	import { canPreserveOnBehalfOf, deployedPermissionedAs, WM_DEPLOYERS_GROUP } from './onBehalfOf'
@@ -60,7 +61,11 @@
 
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
-	let canPreserve = $derived(canPreserveOnBehalfOf(actingUser))
+	const roleCaps = useRoleCapabilities()
+	// A builder's app draft may name no other user (docs/operator-builder-rights.md), so their editor
+	// drops the deployed one and the deploy stores them, `wm_deployers` or not.
+	let composesApp = $derived(kind === 'app' && $roleCaps.apps === 'compose')
+	let canPreserve = $derived(canPreserveOnBehalfOf(actingUser) && !composesApp)
 	// "Me" is the acting user in the target workspace, its username and its email alike: usernames
 	// are per-workspace, and the backend rejects a pair that names two accounts.
 	let myPermissionedAs = $derived(actingUser?.username ? `u/${actingUser.username}` : undefined)
@@ -69,9 +74,9 @@
 	// opens, and a choice that restarts empty lets the selector reselect the deployed user over
 	// the one picked.
 	let choice: OnBehalfOfChoice = $derived.by(() => {
-		// No user picked deploys the folder default, even over a deployed user: a script renamed
-		// into the folder is created at its new path.
-		if (!permissionedAs && !email && folderDefault) return 'custom'
+		// No user held deploys the folder default, even over a deployed user: a script renamed
+		// into the folder is created at its new path. Outside one, it deploys the deployer.
+		if (!permissionedAs && !email) return folderDefault ? 'custom' : 'me'
 		const keepsSaved = savedPermissionedAs
 			? (permissionedAs ?? savedPermissionedAs) === savedPermissionedAs
 			: !!savedEmail && (email ?? savedEmail) === savedEmail
@@ -140,7 +145,11 @@
 			>
 		{/if}
 	</div>
-	{#if !canPreserve}
+	{#if composesApp}
+		<div class="text-2xs text-secondary">
+			Apps you build run on behalf of you once you deploy them.
+		</div>
+	{:else if !canPreserve}
 		<div class="text-2xs text-secondary">
 			Only workspace admins and members of {WM_DEPLOYERS_GROUP} can pick another user.
 		</div>

@@ -1,4 +1,13 @@
 <script lang="ts">
+	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import {
+		fetchDeployedAccessMode,
+		fetchDeployedRunAs,
+		setDeployedOnBehalfOf
+	} from './appDeploy.svelte'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
+	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 
@@ -21,7 +30,6 @@
 		FormInput,
 		History,
 		Laptop2,
-		Save,
 		Smartphone,
 		FileClock,
 		Sun,
@@ -30,7 +38,9 @@
 		Undo,
 		Redo,
 		Zap,
-		Globe
+		Globe,
+		Settings,
+		UserPlus
 	} from 'lucide-svelte'
 	import { getContext, onDestroy, untrack, type Snippet } from 'svelte'
 	import { orderedJsonStringify, type Value, replaceFalseWithUndefined } from '../../../utils'
@@ -46,7 +56,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import DeploymentHistory from './DeploymentHistory.svelte'
 	import Awareness from '$lib/components/Awareness.svelte'
-	import { secondaryMenuLeftStore, secondaryMenuRightStore } from './settingsPanel/secondaryMenu'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
@@ -65,9 +74,19 @@
 	import AppJobsDrawer from './AppJobsDrawer.svelte'
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
 	import type { DiffDrawerI } from '$lib/components/diff_drawer'
-	import AppEditorHeaderDeploy from './AppEditorHeaderDeploy.svelte'
-	import { computeSecretUrl } from './appDeploy.svelte'
+	import AppSettingsDrawer from './AppSettingsDrawer.svelte'
+	import DeployButton from '$lib/components/DeployButton.svelte'
 	import { updatePolicy } from './appPolicy'
+	import { appDraftSettings, withoutSharedPolicySettings } from './appDraftSettings'
+	import ShareDialog from '$lib/components/itemSettings/ShareDialog.svelte'
+	import FirstDeployDialog, {
+		applyFirstDeployMembers
+	} from '$lib/components/itemSettings/FirstDeployDialog.svelte'
+	import ShareButton from '$lib/components/itemSettings/ShareButton.svelte'
+	import { accessModeOf } from '$lib/components/itemSettings/appAccess'
+	import { movesToAnotherOwner } from '$lib/components/itemSettings/inheritedAccess'
+	import { computeSecretUrl } from './appDeploy.svelte'
+	import { classicAppDraftParts } from '$lib/appDiffSides'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
@@ -171,7 +190,6 @@
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 	let open: boolean = $state(false) // Is confirmation modal open
-	let customPathError: string = $state('')
 
 	const {
 		app,
@@ -204,17 +222,25 @@
 		})
 	})
 
-	// Mirror the summary onto the autosaved App so a draft persists it (the
-	// autosave stores the bare App value, which has no summary of its own — it
-	// lives in the `app` table column, set only on deploy). Without this the
-	// summary is lost when reopening a draft or deploying it from the Review &
+	// Mirror the summary and the app settings onto the autosaved App so a draft
+	// persists them (the autosave stores the bare App value, which has none of
+	// its own — they live in `app` table columns, set only on deploy). Without
+	// this they are lost when reopening a draft or deploying it from the Review &
 	// Deploy page. Parallels `draft_path`.
 	$effect(() => {
 		const s = $summary
+		const settings = appDraftSettings({
+			policy: $state.snapshot(policy),
+			labels: $state.snapshot(labels)
+		})
 		const a = $app
 		if (!a) return
 		untrack(() => {
 			if (a.summary !== s) a.summary = s
+			// Compared first: every write reaches the autosave.
+			const same = (x: unknown, y: unknown) => orderedJsonStringify(x) === orderedJsonStringify(y)
+			if (!same(a.policy, settings.policy)) a.policy = settings.policy
+			if (!same(a.labels, settings.labels)) a.labels = settings.labels
 		})
 	})
 
@@ -249,15 +275,25 @@
 	let selectedJobId: string | undefined = $state(undefined)
 
 	let pathError: string = $state('')
+
 	let appExport: AppExportButton | undefined = $state()
 
-	let saveDrawerOpen = $state(false)
+	let settingsOpen = $state(false)
+	let settingsDrawer: AppSettingsDrawer | undefined = $state()
 	let inputsDrawerOpen = $state(untrack(() => fromHub))
 	let historyBrowserDrawerOpen = $state(false)
 	let debugAppDrawerOpen = $state(false)
 	let lazyDrawerOpen = $state(false)
 	let deploymentMsg = $state('')
-	let preserveOnBehalfOf = $state(false)
+	const operatingUser = useOperatingUser()
+	// Only the app's first deploy takes the folder's default user.
+	const folderDefault = useFolderDefaultPermissionedAs(
+		() => (newApp ? newEditedPath : undefined),
+		() => $workspaceStore
+	)
+	let deployDialogOpen = $state(false)
+	let deployButton: DeployButton | undefined = $state(undefined)
+	let deployedRunAs: Awaited<ReturnType<typeof fetchDeployedRunAs>> = $state()
 
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
@@ -272,20 +308,21 @@
 	// editor/preview switch join the menu compact already shows.
 	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
 
-	function closeSaveDrawer() {
-		saveDrawerOpen = false
-	}
-
-	// `parent_version` is the draft's stale-check base. Deployed, it would put a version
-	// id that changes on every deploy into git-synced files and version diffs.
+	// The draft-only fields mirrored onto `$app` (fork base, staged path, summary and settings)
+	// are columns of the app row or editor state. Deployed inside the value, they would land in
+	// git-synced files and version diffs, `parent_version` changing on every deploy; exported,
+	// they would hand out the publisher's email.
 	function withoutDraftBase<T extends App | undefined>(a: T): T {
 		if (!a) return a
-		const { parent_version: _pv, ...rest } = a
-		return rest as T
+		return classicAppDraftParts(a).value as T
 	}
 
-	async function createApp(path: string) {
-		policy = await updatePolicy($app, policy)
+	/** Resolves to whether the app was created. */
+	async function createApp(path: string): Promise<boolean> {
+		// In place: the settings drawer and the draft mirror hold this object.
+		Object.assign(policy, await updatePolicy($app, policy))
+		// Read for the path being created: the first-deploy dialog may have just chosen it.
+		setDeployedOnBehalfOf(policy, operatingUser.current, await folderDefault.refetch())
 		try {
 			await AppService.createApp({
 				workspace: $workspaceStore!,
@@ -296,7 +333,9 @@
 					policy,
 					deployment_message: deploymentMsg,
 					custom_path: customPath,
-					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
+					// The user the deploy dialog confirmed, which the backend keeps only for a deployer
+					// who may preserve one.
+					preserve_on_behalf_of: true,
 					labels
 				}
 			})
@@ -311,8 +350,8 @@
 				custom_path: customPath,
 				labels: $state.snapshot(labels)
 			}
-			closeSaveDrawer()
 			sendUserToast('App deployed successfully')
+			deployButton?.clearMessage()
 			// Remove the autosave at its canonical URL draft key, not the deploy
 			// `path` (they differ for new apps), or the real draft row orphans.
 			// stopSync-bracketed + flushed so AppEditor's mirror can't re-save.
@@ -324,8 +363,10 @@
 				})
 			}
 			onSavedNewAppPath?.(path)
+			return true
 		} catch (e) {
 			sendUserToast('Error creating app', e)
+			return false
 		}
 	}
 
@@ -401,25 +442,29 @@
 	}
 
 	async function updateApp(npath: string) {
-		policy = await updatePolicy($app, policy)
+		// In place: the settings drawer and the draft mirror hold this object.
+		Object.assign(policy, await updatePolicy($app, policy))
+		setDeployedOnBehalfOf(policy, operatingUser.current)
 		const deployed = await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $appPath!,
 			requestBody: {
 				value: withoutDraftBase($app!),
 				summary: $summary,
-				policy,
+				// Without the mode, which the Share dialog sets: the server keeps the deployed one,
+				// read under the row lock a mode change also takes.
+				policy: withoutSharedPolicySettings(policy),
 				path: npath,
 				deployment_message: deploymentMsg,
-				// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
-				// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
-				custom_path:
-					$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined,
-				preserve_on_behalf_of: preserveOnBehalfOf || undefined,
+				// Absent keeps the custom URL, which the Share dialog sets.
+				custom_path: undefined,
+				preserve_on_behalf_of: true,
 				labels
 			}
 		})
 		invalidateWorkspacePaths($workspaceStore!)
+		const accessMode = await fetchDeployedAccessMode($workspaceStore!, npath)
+		if (accessMode) policy.execution_mode = accessMode
 		savedApp = {
 			summary: $summary,
 			value: structuredClone($state.snapshot($app)),
@@ -449,8 +494,8 @@
 			headAt: head?.created_at
 		})
 
-		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
+		deployButton?.clearMessage()
 		// Canonical autosave key (the URL draft path), not `$appPath` — a
 		// rename leaves the autosave at the original key, so removing at
 		// `$appPath` would miss it. Bracketed + flushed (see createApp).
@@ -466,28 +511,103 @@
 		}
 	}
 
-	async function setPublishState(message?: string) {
-		policy = await updatePolicy($app, policy)
-		await AppService.updateApp({
-			workspace: $workspaceStore!,
-			path: $appPath,
-			requestBody: { policy }
-		})
-		if (message) {
-			sendUserToast(message)
-		} else if (policy.execution_mode == 'anonymous') {
-			sendUserToast('App require no login to be accessed')
-		} else {
-			sendUserToast('App require login and read-access')
-		}
+	function openSettings(setting?: string) {
+		settingsDrawer?.openAt(setting)
 	}
 
-	async function save() {
-		$secondaryMenuLeftStore.isOpen = false
-		$secondaryMenuRightStore.isOpen = false
+	let shareDialog: ShareDialog | undefined = $state()
+	let firstDeployDialog: FirstDeployDialog | undefined = $state()
 
-		saveDrawerOpen = true
-		return
+	function openShare() {
+		shareDialog?.openDialog('app', $appPath!, {
+			source: 'editor_header',
+			fromEditor: true,
+			stagedPath: newEditedPath
+		})
+	}
+
+	// Chosen in the first-deploy dialog, added once the run-as confirmation has created the app.
+	let firstDeployMembers: Record<string, boolean> = {}
+
+	async function deploy(message?: string) {
+		if (pathError != '') {
+			openSettings()
+			return
+		}
+		deploymentMsg = message ?? ''
+		firstDeployMembers = {}
+		if (newApp && ownsPageHeader) {
+			// The dialog also asks who the app runs on behalf of, for the path it chose.
+			const choice = await firstDeployDialog?.ask({
+				kind: 'app',
+				summary: $summary,
+				path: newEditedPath,
+				appMode: accessModeOf(policy),
+				runAs: {
+					email: policy.on_behalf_of_email,
+					permissionedAs: policy.on_behalf_of,
+					targetWorkspace: $workspaceStore ?? ''
+				}
+			})
+			if (!choice) return
+			$summary = choice.summary
+			newEditedPath = choice.path
+			policy.execution_mode = choice.appMode
+			if (choice.runAs) {
+				policy.on_behalf_of_email = choice.runAs.email
+				policy.on_behalf_of = choice.runAs.permissionedAs
+			}
+			deploymentMsg = choice.message
+			firstDeployMembers = choice.members
+			await deployNow()
+			return
+		}
+		// Compares against the user deployed right now; a failed lookup asks rather than trusting
+		// the loaded one.
+		deployedRunAs = newApp ? undefined : await fetchDeployedRunAs($workspaceStore!, $appPath!)
+		const asksRunAs =
+			(!newApp && !deployedRunAs) ||
+			// Asks while the folder default is loading: the backend would apply it unconfirmed.
+			folderDefault.loading ||
+			deployAsksOnBehalfOf('app', {
+				user: operatingUser.current,
+				email: policy.on_behalf_of_email,
+				permissionedAs: policy.on_behalf_of,
+				savedEmail: deployedRunAs?.on_behalf_of_email,
+				savedPermissionedAs: deployedRunAs?.on_behalf_of,
+				folderDefault: folderDefault.value
+			})
+		if (
+			shareDialog &&
+			$appPath &&
+			movesToAnotherOwner($appPath, newEditedPath) &&
+			!(await shareDialog.confirmMove(
+				'app',
+				$appPath,
+				newEditedPath,
+				asksRunAs ? 'Next' : 'Deploy'
+			))
+		) {
+			return
+		}
+		if (asksRunAs) {
+			deployDialogOpen = true
+			return
+		}
+		await deployNow()
+	}
+
+	async function deployNow() {
+		// Use `newApp` (set for /apps/add and draft-only paths), not
+		// `$appPath` — its `draft_{uuid}` is a poor create signal.
+		if (newApp) {
+			const members = firstDeployMembers
+			if (await createApp(newEditedPath)) {
+				await applyFirstDeployMembers($workspaceStore!, 'app', newEditedPath, members)
+			}
+		} else {
+			await handleUpdateApp(newEditedPath)
+		}
 	}
 
 	let onLatest = $state(true)
@@ -699,18 +819,34 @@
 			displayName: 'Export',
 			icon: FileJson,
 			action: () => {
-				appExport?.open($app)
+				appExport?.open(withoutDraftBase($app))
 			}
 		},
 		{
+			displayName: 'Settings',
+			icon: Settings,
+			action: () => openSettings()
+		},
+		...(ownsPageHeader
+			? [
+					{
+						displayName: 'Share',
+						icon: UserPlus,
+						disabled: newApp,
+						action: openShare
+					}
+				]
+			: []),
+		{
 			displayName: 'Public URL',
 			icon: Globe,
+			disabled: newApp,
 			action: async () => {
 				const secretUrl = await AppService.getPublicSecretOfApp({
 					workspace: $workspaceStore!,
-					path: $appPath
+					path: $appPath!
 				})
-				window.open(computeSecretUrl(secretUrl), '_blank')
+				window.open(computeSecretUrl(secretUrl, $workspaceStore), '_blank')
 			}
 		},
 		{
@@ -761,7 +897,11 @@
 						},
 						aiReview: $workspaceStore
 							? { workspaceId: $workspaceStore, kind: 'app', path: savedApp.path }
-							: undefined
+							: undefined,
+						button: {
+							text: 'Looks good, deploy',
+							onClick: () => deploy(deploymentMsg)
+						}
 					},
 					opening
 				)
@@ -787,7 +927,7 @@
 			displayName: 'Hub export',
 			icon: FileUp,
 			action: () => {
-				appExport?.open(toStatic($app, $staticExporter, $summary).app)
+				appExport?.open(toStatic(withoutDraftBase($app), $staticExporter, $summary).app)
 			}
 		}
 	]) as Item[]
@@ -832,13 +972,27 @@
 		}
 	})
 
-	$effect(() => {
-		saveDrawerOpen && untrack(() => compareVersions())
-	})
+	let settingsHaveErrors = $derived(pathError != '')
 	let hasErrors = $derived(Object.keys($errorByComponent).length > 0)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
+
+<DeployOnBehalfOfDialog
+	kind="app"
+	bind:open={deployDialogOpen}
+	bind:message={deploymentMsg}
+	bind:email={policy.on_behalf_of_email}
+	bind:permissionedAs={policy.on_behalf_of}
+	savedEmail={newApp ? undefined : deployedRunAs?.on_behalf_of_email}
+	savedPermissionedAs={newApp ? undefined : deployedRunAs?.on_behalf_of}
+	isNew={newApp}
+	folderDefault={folderDefault.value}
+	folderDefaultLoading={folderDefault.loading}
+	executionMode={policy.execution_mode}
+	targetWorkspace={$workspaceStore ?? ''}
+	onConfirmed={deployNow}
+/>
 
 <DeployOverrideConfirmationModal
 	{deployedBy}
@@ -874,101 +1028,34 @@
 	jobsById={$jobsById}
 	errorByComponent={$errorByComponent}
 />
-<Drawer bind:open={saveDrawerOpen} size="800px">
-	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
-		{#snippet actions()}
-			<div class="flex flex-row gap-4">
-				<Button
-					variant="accent"
-					disabled={!savedApp || newApp}
-					on:click={async () => {
-						if (!savedApp || newApp) {
-							return
-						}
-						// The other entry point into the same drawer, so it takes an opening too.
-						const opening = diffDrawer?.beginOpening()
-						lastOpening = opening
-						if (opening == null) return
-						// deployedValue should be syncronized when we open Diff
-						await syncWithDeployed(opening)
+<AppSettingsDrawer
+	bind:this={settingsDrawer}
+	bind:open={settingsOpen}
+	{newPath}
+	{newApp}
+	bind:policy
+	appPath={$appPath}
+	{savedApp}
+	bind:summary={$summary}
+	bind:pathError
+	bind:newEditedPath
+	bind:labels
+/>
 
-						if (!diffDrawer?.ownsOpening(opening)) return
-						saveDrawerOpen = false
-						diffDrawer.openDrawer(opening)
-						diffDrawer.setDiff(
-							{
-								mode: 'normal',
-								deployed: deployedValue ?? savedApp,
-								current: {
-									summary: $summary,
-									value: withoutDraftBase($app),
-									path: newEditedPath || savedApp.path,
-									policy,
-									custom_path: customPath,
-									labels
-								},
-								aiReview: $workspaceStore
-									? { workspaceId: $workspaceStore, kind: 'app', path: savedApp.path }
-									: undefined,
-								button: {
-									text: 'Looks good, deploy',
-									onClick: () => {
-										if (newApp) {
-											createApp(newEditedPath)
-										} else {
-											handleUpdateApp(newEditedPath)
-										}
-									}
-								}
-							},
-							opening
-						)
-					}}
-				>
-					<div class="flex flex-row gap-2 items-center">
-						<DiffIcon size={14} />
-						Diff
-					</div>
-				</Button>
-				<Button
-					variant="accent"
-					startIcon={{ icon: Save }}
-					disabled={pathError != '' || customPathError != ''}
-					on:click={() => {
-						// Use `newApp` (set for /apps/add and draft-only paths), not
-						// `$appPath` — its `draft_{uuid}` is a poor create signal.
-						if (newApp) {
-							createApp(newEditedPath)
-						} else {
-							handleUpdateApp(newEditedPath)
-						}
-					}}
-				>
-					Deploy
-				</Button>
-			</div>
-		{/snippet}
-		<AppEditorHeaderDeploy
-			{newPath}
-			{newApp}
-			{policy}
-			{setPublishState}
-			appPath={$appPath}
-			{onLatest}
-			{headUnknown}
-			{savedApp}
-			bind:summary={$summary}
-			bind:customPath
-			bind:deploymentMsg
-			bind:customPathError
-			bind:pathError
-			bind:newEditedPath
-			bind:preserveOnBehalfOf
-			bind:labels
-			hideSecretUrl={false}
-		/>
-	</DrawerContent>
-</Drawer>
+{#if ownsPageHeader}
+	<ShareDialog
+		bind:this={shareDialog}
+		onAppChanged={(row) => {
+			policy.execution_mode = row.policy.execution_mode
+			customPath = row.custom_path ?? undefined
+			if (savedApp) {
+				savedApp.policy = { ...savedApp.policy, execution_mode: row.policy.execution_mode }
+				savedApp.custom_path = row.custom_path ?? undefined
+			}
+		}}
+	/>
+	<FirstDeployDialog bind:this={firstDeployDialog} />
+{/if}
 
 <Drawer bind:open={inputsDrawerOpen} size="600px">
 	<DrawerContent title="App inputs configuration" on:close={() => (inputsDrawerOpen = false)}>
@@ -1318,14 +1405,34 @@
 		     seeing the app is most of what an app editor is good for on one. -->
 		<AppExportButton bind:this={appExport} />
 		<PreviewToggle loading={loading.save} iconOnly={phoneTopbar} />
-		<Button
-			variant="accent"
-			loading={loading.save}
-			startIcon={{ icon: Save }}
-			on:click={save}
+		{#if !phoneTopbar}
+			<div class="relative shrink-0">
+				{#if settingsHaveErrors}
+					<span
+						class="absolute inline-flex rounded-full bg-red-600 h-2 w-2 z-50 -right-0.5 -top-0.5"
+					></span>
+				{/if}
+				<Button
+					variant="default"
+					unifiedSize="md"
+					startIcon={{ icon: Settings }}
+					iconOnly={compactTopbar}
+					title="Settings"
+					on:click={() => openSettings()}
+				>
+					Settings
+				</Button>
+			</div>
+			{#if ownsPageHeader}
+				<ShareButton deployed={!newApp} iconOnly={compactTopbar} onclick={openShare} />
+			{/if}
+		{/if}
+		<DeployButton
+			bind:this={deployButton}
+			loadingSave={loading.save}
 			iconOnly={phoneTopbar}
-			title="Deploy"
 			unifiedSize={phoneTopbar ? 'sm' : 'md'}
+			on:save={({ detail }) => deploy(detail)}
 			dropdownItems={$appPath != ''
 				? () => [
 						{
@@ -1346,8 +1453,6 @@
 							: [])
 					]
 				: undefined}
-		>
-			Deploy
-		</Button>
+		/>
 	</div>
 {/snippet}

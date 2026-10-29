@@ -61,6 +61,11 @@
 		 * the dialog otherwise hugs its content, and percentage heights inside it do not
 		 * resolve (the centering wrapper is `min-h-full`, i.e. height:auto). */
 		fillHeight?: boolean
+		/** Grow with the content only up to the height the dialog is anchored to, then lay the
+		 * body out as `fillHeight` does: content sized with `h-full` can shrink its flexible part
+		 * (`min-h-0`), and the body scrolls once nothing shrinks further. Off by default: a taller
+		 * dialog otherwise runs past the viewport and the whole overlay scrolls. */
+		fitHeight?: boolean
 		/** Force a minimum z-index base. Defaults to elevating above the AI chat
 		 * side panel when it is open. Pass an explicit value to stack above other
 		 * surfaces (e.g. a modal opened over the /sessions preview-pane editor). */
@@ -86,6 +91,7 @@
 		trail = undefined,
 		description = undefined,
 		fillHeight = false,
+		fitHeight = false,
 		paginated = false,
 		enterConfirms = true,
 		minZIndex: minZIndexProp = undefined,
@@ -213,7 +219,9 @@
 
 					<div class="{posClass} inset-0 z-10 overflow-y-auto">
 						<div
-							class="flex {fillHeight ? 'h-full' : 'min-h-full'} items-center justify-center p-4"
+							class="flex {fillHeight || fitHeight
+								? 'h-full'
+								: 'min-h-full'} items-center justify-center p-4"
 						>
 							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div
@@ -221,8 +229,18 @@
 								class={twMerge(
 									'relative transform overflow-hidden rounded-md bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:w-full sm:max-w-lg sm:p-6',
 									// The margins are what keeps a content-sized dialog off the viewport edges; a
-									// filling one takes its inset from the wrapper's padding instead.
-									fillHeight ? 'h-full flex flex-col' : 'sm:my-8',
+									// filling or fitting one takes its inset from the wrapper's padding instead.
+									// Fitting is a grid, not a flex column: a grid row gives the body a definite
+									// height while the dialog still hugs its content, so `h-full` resolves in it.
+									// The column's 0 minimum is the grid's `min-w-0`: long unbreakable content
+									// would otherwise widen it past the dialog.
+									fillHeight
+										? 'h-full flex flex-col'
+										: fitHeight
+											? kind == 'button'
+												? 'max-h-full grid grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto]'
+												: 'max-h-full grid grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]'
+											: 'sm:my-8',
 									c,
 									open
 										? 'ease-out duration-300 opacity-100 translate-y-0 sm:scale-100'
@@ -235,10 +253,14 @@
 										><CloseButton on:close={() => (open = false)} /></div
 									>
 								{/if}
-								<div class="flex {fillHeight ? 'flex-1 min-h-0' : ''}">
+								<div class="flex {fillHeight ? 'flex-1 min-h-0' : fitHeight ? 'min-h-0' : ''}">
 									<!-- min-w-0: without it this flex item takes its content's min-content width and
 									     stretches the modal past its max-width instead of letting content shrink. -->
-									<div class="text-left flex-1 min-w-0 {fillHeight ? 'flex flex-col min-h-0' : ''}">
+									<div
+										class="text-left flex-1 min-w-0 {fillHeight || fitHeight
+											? 'flex flex-col min-h-0'
+											: ''}"
+									>
 										<!-- pr-8 under `kind="X"`: the close button is absolutely positioned, so a long
 										     heading or the header actions would otherwise run under it. -->
 										<div
@@ -308,11 +330,13 @@
 										{/if}
 
 										<!-- `mt-1` when paginated: a page carries its own description as its first line,
-										     and it belongs where the dialog's own sat, right under the title. -->
+										     and it belongs where the dialog's own sat, right under the title. Fitting, the
+										     body is the scroller of last resort: 4px of padding, taken back by the margins,
+										     keeps the focus rings of controls along its edges from being clipped. -->
 										<div
-											class="{paginated ? 'mt-1' : 'mt-4'} text-sm text-primary {fillHeight
-												? 'flex-1 min-h-0'
-												: ''}"
+											class={fitHeight
+												? 'mt-3 -mx-1 -mb-1 p-1 flex-1 min-h-0 overflow-y-auto text-sm text-primary'
+												: `${paginated ? 'mt-1' : 'mt-4'} text-sm text-primary ${fillHeight ? 'flex-1 min-h-0' : ''}`}
 										>
 											{@render children_render?.()}
 										</div>

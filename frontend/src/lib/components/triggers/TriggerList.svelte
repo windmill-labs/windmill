@@ -39,9 +39,9 @@
 		Pen,
 		Plus,
 		Route,
-		Shield,
 		Trash,
-		Unplug
+		Unplug,
+		UserPlus
 	} from 'lucide-svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, EmptyState, Skeleton } from '$lib/components/common'
@@ -830,8 +830,8 @@
 							href: `/audit_logs?resource=${path}`
 						},
 						{
-							displayName: 'Permissions',
-							icon: Shield,
+							displayName: 'Share',
+							icon: UserPlus,
 							action: () => {
 								shareModal?.openDrawer(path, config.shareKind as any)
 							}

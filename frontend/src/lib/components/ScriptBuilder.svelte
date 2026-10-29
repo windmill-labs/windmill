@@ -1,6 +1,8 @@
 <script lang="ts">
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
 	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import { movesToAnotherOwner } from '$lib/components/itemSettings/inheritedAccess'
+	import PathMoveNote from '$lib/components/itemSettings/PathMoveNote.svelte'
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import {
 		ScriptService,
@@ -49,12 +51,18 @@
 		type Value
 	} from '$lib/utils'
 	import Path from './Path.svelte'
+	import ShareDialog from './itemSettings/ShareDialog.svelte'
+	import FirstDeployDialog, {
+		applyFirstDeployMembers,
+		type FirstDeployChoice
+	} from './itemSettings/FirstDeployDialog.svelte'
+	import ShareButton from './itemSettings/ShareButton.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import { notifyContractWarnings } from './assets/AssetGraph/schemaContracts'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import DbtEditor from './dbt/DbtEditor.svelte'
 	import { findModulePathClash } from './scriptModulePath'
-	import { Alert, Button, Drawer, Tab, TabContent, Tabs } from './common'
+	import { Button, Drawer, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
@@ -72,6 +80,7 @@
 		Settings,
 		Shuffle,
 		Tag,
+		UserPlus,
 		X
 	} from 'lucide-svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
@@ -236,6 +245,31 @@
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
 	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
+
+	let shareDialog: ShareDialog | undefined = $state()
+	let firstDeployDialog: FirstDeployDialog | undefined = $state()
+	/** Where a deploy from this editor left the script. After a deploy that stays,
+	 *  `savedScript.no_deployed` survives and the route's path still names the draft or the
+	 *  pre-rename row. */
+	let deployedPath: string | undefined = $state()
+	const neverDeployed = $derived(
+		deployedPath === undefined && (initialPath == '' || savedScript?.no_deployed === true)
+	)
+	let pendingFirstDeploy: FirstDeployChoice | undefined = undefined
+	// Where the deployed script is, which a staged path change moves it from: `initialPath` is
+	// re-seeded from a staged rename.
+	const deployedRowPath = $derived(
+		neverDeployed ? undefined : (deployedPath ?? (userDraftPath || initialPath))
+	)
+
+	function openShare() {
+		if (!deployedRowPath) return
+		shareDialog?.openDialog('script', deployedRowPath, {
+			source: 'editor_header',
+			fromEditor: true,
+			stagedPath: script.path
+		})
+	}
 	const indicatorPath = $derived(autosavePath ?? userDraftPath)
 
 	// The shared `workerTags` store caches tags for the navigation workspace. A
@@ -245,17 +279,13 @@
 	let localWorkerTags = $state<string[] | undefined>(undefined)
 	const scriptWorkerTags = $derived(usesLocalTags ? localWorkerTags : $workerTags)
 
-	const scriptIsDeployed = $derived(!!initialPath && !!savedScript && !savedScript.no_deployed)
-	// The URL path: `initialPath` is the staged name once a draft that renames the script reloads.
 	const deployedItem = useDeployedItem(
 		'script',
 		() => opWorkspace,
-		() => (scriptIsDeployed ? userDraftPath || initialPath : undefined)
+		() => deployedRowPath
 	)
 	// Who the deployed script runs as: `savedScript` carries its draft's user.
-	const savedRunAs = $derived(
-		scriptIsDeployed ? (deployedItem.current ?? savedScript) : savedScript
-	)
+	const savedRunAs = $derived(deployedRowPath ? (deployedItem.current ?? savedScript) : savedScript)
 	const offersMute = $derived(customUi?.settingsPanel?.metadata?.disableMute !== true)
 
 	function getMoreMenuItems(): Item[] {
@@ -266,11 +296,11 @@
 						// Before the first deploy the switch edits the script, and the deploy sends it.
 						muteErrorHandlerMenuItem({
 							kind: 'script',
-							deployed: scriptIsDeployed,
-							muted: scriptIsDeployed ? deployedItem.muted : !!script.ws_error_handler_muted,
+							deployed: !!deployedRowPath,
+							muted: deployedRowPath ? deployedItem.muted : !!script.ws_error_handler_muted,
 							hasEnterpriseLicense: !!$enterpriseLicense,
 							onToggle: () => {
-								if (scriptIsDeployed) deployedItem.toggle()
+								if (deployedRowPath) deployedItem.toggle()
 								else script.ws_error_handler_muted = !script.ws_error_handler_muted
 							}
 						})
@@ -296,6 +326,9 @@
 			...(phoneTopbar && customUi?.topBar?.settings != false
 				? [{ displayName: 'Settings', icon: Settings, action: () => (metadataOpen = true) }]
 				: []),
+			...(phoneTopbar && ownsPageHeader
+				? [{ displayName: 'Share', icon: UserPlus, disabled: neverDeployed, action: openShare }]
+				: []),
 			...(customUi?.topBar?.tagEdit != false && hasTags
 				? [
 						{
@@ -314,11 +347,10 @@
 	let args: Record<string, any> = $state(untrack(() => initialArgs)) // Test args input
 	let selectedInputTab: 'main' | 'preprocessor' | 'diagram' = $state('main')
 	let hasPreprocessor = $state(false)
-	const isNewScript = $derived(initialPath == '' || savedScript?.no_deployed === true)
 	// Only the script's first deploy takes the folder's default user.
 	// A rename is a create at the new path, so the backend applies that path's folder default too.
 	const folderDefault = useFolderDefaultPermissionedAs(
-		() => (isNewScript || script.path !== (userDraftPath || initialPath) ? script.path : undefined),
+		() => (!deployedRowPath || script.path !== deployedRowPath ? script.path : undefined),
 		() => opWorkspace
 	)
 	let deployDialogOpen = $state(false)
@@ -662,11 +694,38 @@
 	}
 
 	async function handleEditScript(stay: boolean, deployMsg?: string): Promise<void> {
+		// Every deploy path of the full-page editor comes through here, the message popover and
+		// "Deploy & Stay here" included.
+		pendingFirstDeploy = undefined
+		if (ownsPageHeader && neverDeployed) {
+			// The dialog also asks who the script runs on behalf of, for the path it chose.
+			const choice = await firstDeployDialog?.ask({
+				kind: 'script',
+				summary: script.summary,
+				path: script.path,
+				pathChosen: dirtyPath,
+				runAs: {
+					email: script.on_behalf_of_email,
+					permissionedAs: script.on_behalf_of,
+					targetWorkspace: opWorkspace ?? ''
+				}
+			})
+			if (!choice) return
+			script.summary = choice.summary
+			script.path = choice.path
+			if (choice.runAs) {
+				script.on_behalf_of_email = choice.runAs.email
+				script.on_behalf_of = choice.runAs.permissionedAs
+			}
+			pendingFirstDeploy = choice
+			await deployScript(stay, choice.message)
+			return
+		}
 		// Compares against the user deployed right now; a failed lookup asks rather than trusting
 		// the draft's user.
-		const deployed = scriptIsDeployed ? await deployedItem.refetch() : undefined
-		if (
-			(scriptIsDeployed && !deployed) ||
+		const deployed = deployedRowPath ? await deployedItem.refetch() : undefined
+		const asksRunAs =
+			(!!deployedRowPath && !deployed) ||
 			// Asks while the folder default is loading: the backend would apply it unconfirmed.
 			folderDefault.loading ||
 			deployAsksOnBehalfOf('script', {
@@ -677,7 +736,16 @@
 				savedPermissionedAs: deployed?.on_behalf_of,
 				folderDefault: folderDefault.value
 			})
+		const from = deployedRowPath
+		if (
+			shareDialog &&
+			from &&
+			movesToAnotherOwner(from, script.path) &&
+			!(await shareDialog.confirmMove('script', from, script.path, asksRunAs ? 'Next' : 'Deploy'))
 		) {
+			return
+		}
+		if (asksRunAs) {
 			deployDialogStay = stay
 			deployDialogMsg = deployMsg ?? ''
 			deployDialogOpen = true
@@ -850,11 +918,10 @@
 
 			// Muting applies to the deployed script at once, from the editor menu or the script's
 			// page, and a new version without the value is unmuted: keep the one deployed now.
-			// The deployed row sits at the URL path: `initialPath` is the staged name after a reload.
-			const deployedMuted = scriptIsDeployed
+			const deployedMuted = deployedRowPath
 				? await ScriptService.getScriptByPath({
 						workspace: opWorkspace!,
-						path: userDraftPath || initialPath
+						path: deployedRowPath
 					})
 						.then((s) => !!s.ws_error_handler_muted)
 						.catch(() => undefined)
@@ -942,6 +1009,12 @@
 			const { draft_triggers: _, ...newScript } = structuredClone($state.snapshot(script))
 			savedScript = structuredClone($state.snapshot(newScript))
 			setDraftTriggers([])
+			deployedPath = script.path
+			if (pendingFirstDeploy) {
+				const { members } = pendingFirstDeploy
+				pendingFirstDeploy = undefined
+				await applyFirstDeployMembers(opWorkspace!, 'script', script.path, members)
+			}
 
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
@@ -1476,9 +1549,9 @@
 	bind:message={deployDialogMsg}
 	bind:email={script.on_behalf_of_email}
 	bind:permissionedAs={script.on_behalf_of}
-	savedEmail={isNewScript ? undefined : savedRunAs?.on_behalf_of_email}
-	savedPermissionedAs={isNewScript ? undefined : savedRunAs?.on_behalf_of}
-	isNew={isNewScript}
+	savedEmail={neverDeployed ? undefined : savedRunAs?.on_behalf_of_email}
+	savedPermissionedAs={neverDeployed ? undefined : savedRunAs?.on_behalf_of}
+	isNew={neverDeployed}
 	folderDefault={folderDefault.value}
 	folderDefaultLoading={folderDefault.loading}
 	targetWorkspace={opWorkspace ?? ''}
@@ -1510,6 +1583,11 @@
 	onConfirmed={() => confirmPerpetualRunsCallback()}
 	onCanceled={() => (perpetualRunsToConfirm = undefined)}
 />
+
+{#if ownsPageHeader}
+	<ShareDialog bind:this={shareDialog} />
+	<FirstDeployDialog bind:this={firstDeployDialog} />
+{/if}
 
 {#if editRights.roleCanAuthor('script')}
 	<Drawer
@@ -1644,14 +1722,11 @@
 												kind="script"
 												workspaceOverride={opWorkspace}
 											/>
-											{#if initialPath && script.path && script.path !== initialPath}
-												<Alert
-													type="info"
-													size="xs"
-													title="Deploy the script to make the path change effective."
-													class="mt-2"
-												/>
-											{/if}
+											<PathMoveNote
+												kind="script"
+												deployedPath={deployedRowPath}
+												path={script.path}
+											/>
 										</Label>
 										<Label label="Description">
 											<MetadataGen
@@ -1909,7 +1984,7 @@
 										savedEmail={savedRunAs?.on_behalf_of_email}
 										savedPermissionedAs={savedRunAs?.on_behalf_of}
 										targetWorkspace={opWorkspace ?? ''}
-										isNew={isNewScript}
+										isNew={neverDeployed}
 									/>
 									<InvisibleRunsSetting
 										kind="script"
@@ -2251,6 +2326,14 @@
 
 			{#if ownsPageHeader}
 				<OpenInSessionButton source={headerSessionOpen()} />
+			{/if}
+			{#if ownsPageHeader && !phoneTopbar}
+				<ShareButton
+					deployed={!neverDeployed}
+					iconOnly={compactTopbar}
+					unifiedSize={headerBtnSize}
+					onclick={openShare}
+				/>
 			{/if}
 			<DeployButton
 				bind:this={deployButton}
