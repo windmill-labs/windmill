@@ -1,6 +1,7 @@
 <script lang="ts">
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
 	import { useDeployAs } from '$lib/components/access/deployAs.svelte'
+	import { dropStalePending } from '$lib/components/access/serviceAccounts.svelte'
 	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import {
@@ -239,6 +240,10 @@
 	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
 	const deployAs = useDeployAs(() => $operatingWorkspace)
 	const indicatorPath = $derived(autosavePath ?? userDraftPath)
+	dropStalePending(
+		untrack(() => opWorkspace),
+		script
+	)
 
 	// The shared `workerTags` store caches tags for the navigation workspace. A
 	// session editor deploys to `opWorkspace` (a fork), so it keeps a local list to

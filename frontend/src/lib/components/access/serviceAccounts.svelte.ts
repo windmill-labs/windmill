@@ -46,6 +46,19 @@ export function getPendingServiceAccount(
 	return permissionedAs ? pending.get(key(workspace, permissionedAs)) : undefined
 }
 
+/** Clears a run-as that names a placeholder email this tab no longer holds an account for, as a
+ *  draft saved before its deploy does after a reload: the server knows no such user. */
+export function dropStalePending(
+	workspace: string | undefined,
+	item: { on_behalf_of?: string; on_behalf_of_email?: string }
+): void {
+	const email = item.on_behalf_of_email
+	if (!workspace || !email?.endsWith(`@${PENDING_EMAIL_DOMAIN}`)) return
+	if (getPendingServiceAccount(workspace, `u/${email.split('@')[0]}`)) return
+	item.on_behalf_of = undefined
+	item.on_behalf_of_email = undefined
+}
+
 const TTL_MS = 60_000
 const asked = new Map<string, { at: number; accounts: Promise<ServiceAccount[]> }>()
 
@@ -165,6 +178,7 @@ export async function createPolicyServiceAccount(
 	workspace: string,
 	policy: { on_behalf_of?: string; on_behalf_of_email?: string }
 ): Promise<boolean> {
+	dropStalePending(workspace, policy)
 	try {
 		const email = await createPendingServiceAccount(workspace, policy.on_behalf_of)
 		if (email) policy.on_behalf_of_email = email

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
 	import { useDeployAs } from '$lib/components/access/deployAs.svelte'
+	import { dropStalePending } from '$lib/components/access/serviceAccounts.svelte'
 	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import {
@@ -203,6 +204,10 @@
 	// indicatorPath is the matching draft path.
 	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
+	dropStalePending(
+		untrack(() => opWorkspace),
+		flowStore.val
+	)
 
 	let initialPathStore = writable(initialPath)
 
