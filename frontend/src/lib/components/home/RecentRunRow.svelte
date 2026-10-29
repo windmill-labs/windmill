@@ -20,9 +20,12 @@
 		/** Shown before the title when another row carries the same title. */
 		prefix?: string
 		strip?: boolean
+		/** What a click on the row does; without it the row opens the item's page. The run links
+		 * open runs either way. */
+		onSelect?: (path: string) => void
 	}
 
-	let { item, now, prefix, strip = true }: Props = $props()
+	let { item, now, prefix, strip = true, onSelect }: Props = $props()
 
 	const STRIP_SLOTS = 10
 	// The strip reads oldest to newest; the item's runs arrive newest first.
@@ -64,14 +67,15 @@
 	}
 
 	function open() {
-		goto(itemHref(item))
+		if (onSelect) onSelect(item.path)
+		else goto(itemHref(item))
 	}
 </script>
 
 <div
-	role="link"
+	role={onSelect ? 'button' : 'link'}
 	tabindex="0"
-	aria-label="Open {title}"
+	aria-label={onSelect ? `Show ${title} in the workspace list` : `Open ${title}`}
 	class="group relative flex items-center gap-2.5 min-h-[42px] px-2.5 py-[5px] rounded-md cursor-pointer hover:bg-surface-hover focus-visible:bg-surface-hover outline-none"
 	onclick={open}
 	onkeydown={(e) => {

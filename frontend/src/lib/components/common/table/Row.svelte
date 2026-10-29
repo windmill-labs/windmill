@@ -182,8 +182,9 @@
 	bind:this={rowEl}
 	data-row-selection-key={rowSelection?.key}
 	data-row-keyboard-selected={keyboardSelected ? 'true' : undefined}
+	data-row-path={path}
 	class={twMerge(
-		'group/row w-full inline-flex items-center gap-4 px-4 py-3',
+		'group/row w-full inline-flex items-center gap-4 px-4 py-3 transition-shadow duration-300 data-[revealed]:ring-2 data-[revealed]:ring-inset data-[revealed]:ring-accent',
 		unruled
 			? 'rounded-md'
 			: 'first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b border-b last:border-b-0',

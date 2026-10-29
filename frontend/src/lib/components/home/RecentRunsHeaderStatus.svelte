@@ -18,9 +18,10 @@
 		folder: string | undefined
 		/** Absent below the width the side panel needs: there is no panel to bring back. */
 		onShowPanel?: () => void
+		onFocusItem?: (path: string) => void
 	}
 
-	let { runs, folder, onShowPanel }: Props = $props()
+	let { runs, folder, onShowPanel, onFocusItem }: Props = $props()
 
 	const MAX_ITEMS = 8
 
@@ -92,7 +93,17 @@
 					<!-- Every item the counts above are made of, in the panel's order: a list of only the
 					     failing ones under a total of all runs reads as missing rows. -->
 					{#each data.items.slice(0, MAX_ITEMS) as item (item.path)}
-						<RecentRunRow {item} now={runs.now} prefix={prefixes.get(item.path)} strip={false} />
+						<RecentRunRow
+							{item}
+							now={runs.now}
+							prefix={prefixes.get(item.path)}
+							strip={false}
+							onSelect={onFocusItem &&
+								((path) => {
+									isOpen = false
+									onFocusItem(path)
+								})}
+						/>
 					{:else}
 						<p class="px-2.5 py-3 text-secondary text-[12.5px]">
 							Runs show up here once something runs.
