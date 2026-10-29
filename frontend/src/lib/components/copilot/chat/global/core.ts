@@ -1550,10 +1550,10 @@ const listJoin = (items: (string | false)[], type: 'conjunction' | 'disjunction'
 // The prompt an external MCP client reads. A directory reviewer reads it as a description of
 // what the server does, so it names only the server's own tools and leaves how each one works
 // to its description and to get_instructions. OpenAI asks for the most important details in
-// the first 512 characters and some clients keep only the first 4096, so what the tools are
-// for and the drafts rule open, and the rules come before the path conventions.
+// the first 512 characters and some clients keep only the first 4096, so the drafts rule
+// opens and the rules come before the path conventions.
 function buildExternalPrompt(username: string, paths: string, skills: AiSkillListItem[]) {
-	return `This server works in a Windmill workspace as the user "${username}". Its tools are for that workspace: its scripts, flows, apps, runs and data. Answer anything else directly without calling them, questions about windmills as machines included.
+	return `This server works in a Windmill workspace as the user "${username}".
 
 Rules:
 - What you write is a per-user draft, saved server-side and visible only to this user. Nothing reaches the workspace until deploy_workspace_item deploys it, which you call only when the user asks.
