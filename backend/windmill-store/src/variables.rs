@@ -16,7 +16,7 @@ use windmill_common::workspaces::{check_deploy_rules, operator_can_draft, RuleCh
 use crate::secret_backend_ext::{
     delete_secret_from_backend, get_secret_value, http_store_rename_error,
     is_external_stored_value, is_http_store_stored_value, is_vault_stored_value,
-    rename_vault_secret, store_secret_value,
+    rename_vault_secret, store_managed_secret_value, store_secret_value,
 };
 use windmill_common::utils::{
     check_proper_path, escape_ilike_pattern, sanitize_db_error, BulkDeleteRequest,
@@ -688,8 +688,11 @@ pub async fn create_variable_with_account(
         } else {
             variable.value.clone()
         };
-        // Use secret backend for encryption (supports both DB and Vault)
-        store_secret_value(&db, &w_id, &variable.path, &plain).await?
+        if account.is_some() {
+            store_managed_secret_value(&db, &w_id, &variable.path, &plain).await?
+        } else {
+            store_secret_value(&db, &w_id, &variable.path, &plain).await?
+        }
     } else {
         if variable.is_secret {
             // already_encrypted == true: value is stored verbatim, so it must be

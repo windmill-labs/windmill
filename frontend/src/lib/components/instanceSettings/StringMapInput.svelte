@@ -26,7 +26,11 @@
 	// cannot hold; only the complete ones are written back.
 	let nextId = 0
 	let rows = $state(
-		Object.entries(untrack(() => value) ?? {}).map(([k, v]) => ({ id: nextId++, key: k, value: v }))
+		Object.entries(untrack(() => value) ?? {}).map(([k, v]) => ({
+			id: nextId++,
+			key: k,
+			value: v
+		}))
 	)
 
 	$effect(() => {
@@ -40,14 +44,8 @@
 <div class="flex flex-col gap-2">
 	{#each rows as row, i (row.id)}
 		<div class="flex items-center gap-2">
-			<TextInput
-				bind:value={row.key}
-				inputProps={{ placeholder: keyPlaceholder, disabled }}
-			/>
-			<TextInput
-				bind:value={row.value}
-				inputProps={{ placeholder: valuePlaceholder, disabled }}
-			/>
+			<TextInput bind:value={row.key} inputProps={{ placeholder: keyPlaceholder, disabled }} />
+			<TextInput bind:value={row.value} inputProps={{ placeholder: valuePlaceholder, disabled }} />
 			<Button
 				variant="subtle"
 				unifiedSize="sm"

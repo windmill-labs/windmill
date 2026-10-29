@@ -86,13 +86,29 @@ pub async fn store_secret_value(
     }
 }
 
+/// Store a secret Windmill itself writes, such as the OAuth access token it refreshes. The
+/// read-only HTTP store cannot hold it, so it is encrypted in the database instead, where reads
+/// find it: they only go to that store for `$http_store:` references.
+pub async fn store_managed_secret_value(
+    db: &DB,
+    workspace_id: &str,
+    path: &str,
+    plain_value: &str,
+) -> Result<String> {
+    if get_secret_backend(db).await?.backend_name() == "http_store" {
+        let mc = build_crypt(db, workspace_id).await?;
+        return Ok(encrypt(&mc, plain_value));
+    }
+    store_secret_value(db, workspace_id, path, plain_value).await
+}
+
 /// Persist a freshly minted OAuth access token to the secret variable backing
 /// a resource, routing through the configured secret backend.
 ///
 /// This is the write counterpart of the lazy on-fetch OAuth refresh: it stores
-/// the token via [`store_secret_value`] (which writes to the external backend —
+/// the token via [`store_managed_secret_value`] (which writes to the external backend —
 /// AWS Secrets Manager / Azure Key Vault / Vault — when one is configured, or
-/// encrypts for the database backend) and updates `variable.value` with the
+/// encrypts for the database backend and the read-only HTTP store) and updates `variable.value` with the
 /// returned value (the encrypted blob for the DB backend, or a `$...:` marker
 /// for an external backend). Using a raw `UPDATE variable SET value = <encrypted>`
 /// here instead would leave the external store frozen at its connect-time token
@@ -120,7 +136,7 @@ pub(crate) async fn store_oauth_token_value(
     token: &str,
 ) -> Result<()> {
     let persist = async {
-        let value = store_secret_value(db, workspace_id, path, token).await?;
+        let value = store_managed_secret_value(db, workspace_id, path, token).await?;
         sqlx::query("UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3")
             .bind(value)
             .bind(workspace_id)

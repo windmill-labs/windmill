@@ -313,6 +313,10 @@
 				<label for="http_store_token_header" class="block text-xs font-semibold text-emphasis"
 					>Header name and prefix (optional)</label
 				>
+				<span class="text-2xs text-secondary"
+					>The prefix goes before the token. Left empty, it is <code>Bearer </code> for the Authorization
+					header and nothing for any other header.</span
+				>
 				<div class="flex gap-2">
 					<TextInput
 						inputProps={{
