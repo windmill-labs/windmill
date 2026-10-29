@@ -92,7 +92,7 @@ export type FetchLike = (input: string | URL | Request, init?: RequestInit) => P
 
 /** A raw app's generated `wmill.ts`, as far as a chat uses it. */
 export interface RawAppWmill {
-  backendAsync: Record<string, (args: any) => Promise<string>>
+  backendAsync: Record<string, (args: any, opts: { memoryId: string }) => Promise<string>>
   streamJob: (jobId: string, onUpdate?: (update: { new_result_stream?: string }) => void) => Promise<unknown>
 }
 
