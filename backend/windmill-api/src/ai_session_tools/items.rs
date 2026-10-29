@@ -454,6 +454,7 @@ async fn write_draft(
     from_deployed: impl FnOnce(Value) -> Value,
     build: impl FnOnce(Option<Value>) -> Result<Value, String>,
 ) -> ToolResult {
+    ctx.saving_draft(item_type, path);
     let base = write_base(ctx, item_type, path, trigger_kind).await?;
     let existed = base.base.is_some();
     let from_draft = base.from_draft;

@@ -1739,6 +1739,7 @@ async fn write_script_draft(
             "\"{path}\" is a data pipeline node (its source starts with the pipeline annotation). In a session, pipeline nodes are not script drafts: call open_preview(kind=\"pipeline\", path=\"{folder}\") if that folder's pipeline editor is not open yet, then use build_pipeline_node (new node) or edit_pipeline_node (existing node). Nothing was written."
         ));
     }
+    ctx.saving_draft("script", path);
     let base = write_base(ctx, "script", path, None).await?;
     let existed = base.base.is_some();
     let before = base

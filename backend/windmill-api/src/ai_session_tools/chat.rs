@@ -225,6 +225,11 @@ impl super::Ctx<'_> {
         self.effect(Effect::Status(patch));
     }
 
+    /// The card's label while a draft write builds and saves.
+    pub(super) fn saving_draft(&self, item_type: &str, path: &str) {
+        self.status(format!("Saving {item_type} \"{path}\" as a draft…"));
+    }
+
     /// `status`, applied only once the chat saved the call's draft writes and deletes.
     pub(super) fn status_after_save(&self, content: impl Into<String>, result: Option<&str>) {
         let mut patch = serde_json::Map::new();

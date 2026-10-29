@@ -3459,10 +3459,8 @@ export const globalTools: SessionTool<{}>[] = [
 		streamArguments: true,
 		showFade: true,
 		fn: async (ctx) => {
-			const parsed = writeScriptSchema.parse(ctx.args)
-			return runDraftWrite('write_script', ctx, {
-				pending: `Saving script "${parsed.path}" as a draft…`
-			})
+			writeScriptSchema.parse(ctx.args)
+			return runDraftWrite('write_script', ctx)
 		}
 	},
 	{
@@ -3472,10 +3470,8 @@ export const globalTools: SessionTool<{}>[] = [
 		streamArguments: true,
 		showFade: true,
 		fn: async (ctx) => {
-			const parsed = writeFlowSchema.parse(ctx.args)
-			return runDraftWrite('write_flow', ctx, {
-				pending: `Saving flow "${parsed.path}" as a draft…`
-			})
+			writeFlowSchema.parse(ctx.args)
+			return runDraftWrite('write_flow', ctx)
 		}
 	},
 	{
@@ -3501,9 +3497,7 @@ export const globalTools: SessionTool<{}>[] = [
 			if (dropped.length) {
 				throw new Error(describeDroppedScheduleOptions(dropped))
 			}
-			return runDraftWrite('write_schedule', ctx, {
-				pending: `Saving schedule "${parsed.path}" as a draft…`
-			})
+			return runDraftWrite('write_schedule', ctx)
 		}
 	},
 	{
@@ -3531,9 +3525,7 @@ export const globalTools: SessionTool<{}>[] = [
 						.join('; ')}`
 				)
 			}
-			return runDraftWrite('write_trigger', ctx, {
-				pending: `Saving trigger "${(config.data as { path: string }).path}" as a draft…`
-			})
+			return runDraftWrite('write_trigger', ctx)
 		}
 	},
 	{
@@ -3984,10 +3976,8 @@ export const globalTools: SessionTool<{}>[] = [
 		streamArguments: true,
 		showFade: true,
 		fn: async (ctx) => {
-			const parsed = writeResourceSchema.parse(ctx.args)
-			return runDraftWrite('write_resource', ctx, {
-				pending: `Saving resource "${parsed.path}" as a draft…`
-			})
+			writeResourceSchema.parse(ctx.args)
+			return runDraftWrite('write_resource', ctx)
 		}
 	},
 	{
@@ -4002,10 +3992,8 @@ export const globalTools: SessionTool<{}>[] = [
 		streamArguments: true,
 		showFade: true,
 		fn: async (ctx) => {
-			const parsed = writeVariableSchema.parse(ctx.args)
-			return runDraftWrite('write_variable', ctx, {
-				pending: `Saving variable "${parsed.path}" as a draft…`
-			})
+			writeVariableSchema.parse(ctx.args)
+			return runDraftWrite('write_variable', ctx)
 		}
 	},
 	{

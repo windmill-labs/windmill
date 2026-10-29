@@ -756,6 +756,7 @@ struct FlowWrite<'a> {
 
 async fn write_flow_draft(ctx: &Ctx<'_>, write: FlowWrite<'_>) -> ToolResult {
     let FlowWrite { path, mut value, .. } = write;
+    ctx.saving_draft("flow", path);
     let base = write_base(ctx, "flow", path, None).await?;
     let existed = base.base.is_some();
     if let Some(groups) = write.groups {
