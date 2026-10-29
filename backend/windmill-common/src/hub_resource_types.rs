@@ -11,7 +11,7 @@
 //! superadmins run [`sync`] on demand, and `windmill cache-rt` bakes the public hub's listing
 //! into the image for instances that cannot reach a hub.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -298,6 +298,9 @@ async fn apply(db: &DB, source: SyncSource, types: &[HubResourceType]) -> Result
 struct SyncState {
     last_attempt_at: Option<DateTime<Utc>>,
     last_hub_sync_at: Option<DateTime<Utc>>,
+    /// The types the last successful hub sync listed.
+    #[serde(default)]
+    hub_types: HashSet<String>,
 }
 
 async fn load_state(db: &DB) -> Result<SyncState> {
@@ -340,9 +343,12 @@ async fn sync_from_hub(db: &DB) -> Result<SyncOutcome> {
         Err(e) => Err(e),
     };
     let state = match &result {
-        Ok(_) => {
-            json!({ "last_attempt_at": attempted_at, "last_hub_sync_at": attempted_at, "last_error": null })
-        }
+        Ok(outcome) => json!({
+            "last_attempt_at": attempted_at,
+            "last_hub_sync_at": attempted_at,
+            "last_error": null,
+            "hub_types": outcome.listed,
+        }),
         Err(e) => json!({ "last_attempt_at": attempted_at, "last_error": e.to_string() }),
     };
     record_state(db, state).await?;
@@ -384,7 +390,8 @@ async fn fall_back_to_image_cache(db: &DB, path: &str) -> Result<Option<SyncOutc
 /// Applies the listing baked into the image (`SYNC_CACHED_RT`), on every start and whether or
 /// not the instance has synced from a hub: it is how an instance that cannot reach the public
 /// hub, a private hub listing only its own types included, takes each new image's public types.
-/// `None` when the image carries no cache.
+/// Types the last hub sync listed are left as the hub wrote them. `None` when the image carries
+/// no cache.
 pub async fn sync_from_image_cache(db: &DB) -> Result<Option<SyncOutcome>> {
     sync_from_cache_file(db, &cache_path()).await
 }
@@ -402,11 +409,15 @@ async fn sync_from_cache_file(db: &DB, path: &str) -> Result<Option<SyncOutcome>
             )))
         }
     };
-    let types: Vec<HubResourceType> = serde_json::from_str(&content).map_err(|e| {
+    let mut types: Vec<HubResourceType> = serde_json::from_str(&content).map_err(|e| {
         Error::InternalErr(format!(
             "Failed to parse cached resource types at {path}: {e}"
         ))
     })?;
+    // The hub's copy of a type is never older than the image's, and a private hub's is the
+    // one the instance chose, so the cache only fills in the types the hub does not list.
+    let hub_types = load_state(db).await?.hub_types;
+    types.retain(|rt| !hub_types.contains(&rt.name));
     Ok(Some(apply(db, SyncSource::ImageCache, &types).await?))
 }
 
@@ -528,7 +539,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn only_sync_cached_rt_applies_the_image_cache_after_a_hub_sync(
+    async fn after_a_hub_sync_the_image_cache_only_fills_in_types_the_hub_does_not_list(
         db: DB,
     ) -> anyhow::Result<()> {
         let dir = tempfile::tempdir()?;
@@ -549,7 +560,11 @@ mod tests {
         assert!(fall_back_to_image_cache(&db, path).await?.is_some());
         assert_eq!(description().await?.as_deref(), Some("image copy"));
 
-        record_state(&db, json!({ "last_hub_sync_at": Utc::now() })).await?;
+        record_state(
+            &db,
+            json!({ "last_hub_sync_at": Utc::now(), "hub_types": ["cached_type"] }),
+        )
+        .await?;
         sqlx::query(
             "UPDATE resource_type SET description = 'hub copy' WHERE workspace_id = 'admins' AND name = 'cached_type'",
         )
@@ -558,8 +573,18 @@ mod tests {
         assert!(fall_back_to_image_cache(&db, path).await?.is_none());
         assert_eq!(description().await?.as_deref(), Some("hub copy"));
 
-        assert!(sync_from_cache_file(&db, path).await?.is_some());
-        assert_eq!(description().await?.as_deref(), Some("image copy"));
+        // A newer image: the hub's type keeps the hub's copy, the image's new type arrives.
+        std::fs::write(
+            path,
+            json!([
+                { "name": "cached_type", "schema": null, "description": "image copy" },
+                { "name": "new_type", "schema": null, "description": null }
+            ])
+            .to_string(),
+        )?;
+        let outcome = sync_from_cache_file(&db, path).await?.unwrap();
+        assert_eq!(outcome.changed, vec!["new_type".to_string()]);
+        assert_eq!(description().await?.as_deref(), Some("hub copy"));
         Ok(())
     }
 
