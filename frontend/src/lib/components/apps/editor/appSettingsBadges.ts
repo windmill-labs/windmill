@@ -1,4 +1,4 @@
-import { Globe, Link, PlugZap, ShieldCheck, Tag, UserCog, Users } from 'lucide-svelte'
+import { PlugZap, ShieldCheck, Tag, UserCog } from 'lucide-svelte'
 import type { Policy } from '$lib/gen'
 import type { ScriptSettingsBadge } from '$lib/components/scriptSettings'
 
@@ -54,44 +54,6 @@ export function getAppPermissionBadges(
 				detail: policy.frontend_sdk_scopes.join(', ')
 			})
 		}
-	}
-	return badges
-}
-
-/** The badges of an app's Sharing section: who beyond members can open it, and its custom URL. */
-export function getAppSharingBadges(
-	executionMode: Policy['execution_mode'],
-	customPath: string | undefined
-): ScriptSettingsBadge[] {
-	const badges: ScriptSettingsBadge[] = []
-	if (executionMode === 'anonymous') {
-		badges.push({
-			key: 'access',
-			short: 'Public',
-			setting: 'access',
-			label: 'Public',
-			icon: Globe,
-			detail: 'Anyone with the secret URL, no login'
-		})
-	} else if (executionMode === 'guest') {
-		badges.push({
-			key: 'access',
-			short: 'Guests',
-			setting: 'access',
-			label: 'Guests',
-			icon: Users,
-			detail: 'Guests your identity provider authenticates, plus members'
-		})
-	}
-	if (customPath) {
-		badges.push({
-			key: 'custom_path',
-			short: 'Custom URL',
-			setting: 'custom-url',
-			label: 'Custom URL',
-			icon: Link,
-			detail: customPath
-		})
 	}
 	return badges
 }

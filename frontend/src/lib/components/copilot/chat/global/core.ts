@@ -90,7 +90,7 @@ import {
 	formatDataTableRef
 } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
-import { policyForUpdate } from '$lib/components/apps/editor/publishAccessMode'
+import { withoutSharedPolicySettings } from '$lib/components/apps/editor/appDraftSettings'
 import { conformBuilderAppPolicy } from '$lib/components/raw_apps/builderAppPolicy'
 import { capabilitiesInWorkspace } from '$lib/operatorWriteRights'
 import { capabilitiesIn, withoutBuilding } from '$lib/roleCapabilities'
@@ -2543,6 +2543,17 @@ async function guestAccessIsLive(workspace: string): Promise<boolean | undefined
 	return !!usage.available
 }
 
+/** Who can open a deployed app, which the Share dialog sets and a deploy keeps; undefined for an
+ *  app that is not deployed. */
+async function deployedAppExecutionMode(
+	workspace: string,
+	path: string
+): Promise<string | undefined> {
+	if (!(await AppService.existsApp({ workspace, path }))) return undefined
+	const row = await AppService.getAppLiteByPath({ workspace, path })
+	return row.policy.execution_mode ?? undefined
+}
+
 /** Who may open an app, from the mode stored on it. An app sits in `guest` mode whether
  * or not anyone is admitted by it, so reporting the mode bare would say strangers can
  * open an app that admits members only. Say it is inert rather than hide it, as the
@@ -4367,14 +4378,14 @@ export const globalTools: SessionTool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read draft ${type} "${parsed.path}"`
 				})
-				// The mode reported is the draft's, which is what deploying it will write. The
-				// deployed app's own mode is a different question, asked with version:
-				// "deployed", and must not be fetched here.
+				// The mode reported is the one deploying the draft leaves: a deployed app keeps its
+				// own, which the Share dialog sets, and a never-deployed one takes the draft's.
 				const executionMode =
 					type === 'app'
 						? await describeAppExposure(
 								workspace,
-								(draft.value as AppDraftValue)?.policy?.execution_mode
+								(await deployedAppExecutionMode(workspace, parsed.path)) ??
+									(draft.value as AppDraftValue)?.policy?.execution_mode
 							)
 						: undefined
 				return JSON.stringify(serializeWorkspaceItemForRead({ ...draft, executionMode }), null, 2)
@@ -9689,9 +9700,8 @@ async function deployDraft(
 				deployedPath = targetPath
 				const isUpdate = await AppService.existsApp({ workspace, path: targetPath })
 				if (isUpdate) {
-					// Omit custom_path on update for now. The backend preserves it when absent, while
-					// sending it requires admin privileges; this chat deploy path does not yet mirror
-					// the raw app editor's user/admin-specific custom_path handling.
+					// Who can open the app and its custom URL are set from the Share dialog: the update
+					// states neither, and the server keeps the deployed ones.
 					await AppService.updateAppRaw({
 						workspace,
 						path: targetPath,
@@ -9700,7 +9710,7 @@ async function deployDraft(
 								path: targetPath,
 								value: rawAppValue,
 								summary,
-								policy: policyForUpdate(policy),
+								policy: withoutSharedPolicySettings(policy),
 								labels: appValue.labels,
 								deployment_message: deploymentMessage,
 								// Preserve the policy's on_behalf_of: this chat deploy path has no

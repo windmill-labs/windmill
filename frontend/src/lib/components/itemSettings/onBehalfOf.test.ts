@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { deployAsksOnBehalfOf, deployedPermissionedAs } from './onBehalfOf'
+import {
+	deployAsksOnBehalfOf,
+	deployOnBehalfOfQuestion,
+	deployedPermissionedAs
+} from './onBehalfOf'
 
 // The deploy dialog names who the backend will leave the item running on behalf of, and asks only
 // when that differs from the deployed version.
@@ -48,5 +52,43 @@ describe('onBehalfOf', () => {
 		).toBe(true)
 		// The backend replaces the user with a deployer who may not preserve it.
 		expect(deployAsksOnBehalfOf('flow', { user: member, ...bot, ...deployedAsBot })).toBe(true)
+	})
+
+	it('asks to run on behalf of someone or to stop, and says when the user is the deployed one', () => {
+		const held = {
+			email: undefined,
+			permissionedAs: undefined,
+			savedEmail: undefined,
+			savedPermissionedAs: undefined,
+			isNew: true
+		}
+		expect(deployOnBehalfOfQuestion('app', admin, held)).toMatchObject({
+			title: 'Run this app on behalf of u/admin (you)?',
+			folderDefaultNotMe: false
+		})
+		expect(
+			deployOnBehalfOfQuestion('app', admin, { ...held, folderDefault: 'u/folder' })
+		).toMatchObject({ title: 'Run this app on behalf of u/folder?', folderDefaultNotMe: true })
+		expect(
+			deployOnBehalfOfQuestion('flow', admin, {
+				...held,
+				savedPermissionedAs: 'u/bot',
+				isNew: false
+			})
+		).toMatchObject({ stops: true, title: 'Stop running this flow on behalf of u/bot?' })
+		expect(
+			deployOnBehalfOfQuestion('flow', admin, {
+				...held,
+				email: 'bot@x.dev',
+				permissionedAs: 'u/bot',
+				savedPermissionedAs: 'u/bot',
+				isNew: false
+			})
+		).toMatchObject({ stops: false, runsAs: 'u/bot', unchanged: true })
+		expect(deployOnBehalfOfQuestion('flow', admin, held)).toMatchObject({
+			required: false,
+			on: false,
+			title: 'Deploy this flow?'
+		})
 	})
 })

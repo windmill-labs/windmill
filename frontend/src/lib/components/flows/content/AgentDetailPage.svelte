@@ -226,7 +226,7 @@
 						noCode: !canCode,
 						wsSpecific: agent?.state?.wsSpecific,
 						deployUiSettings: deployUiSettings.current,
-						onPermissions: () => shareModal?.openDrawer?.(path, 'resource'),
+						onShare: () => shareModal?.openDrawer?.(path, 'resource'),
 						onDeploy: () => deploymentDrawer?.openDrawer(path, 'resource'),
 						onHistory: () => history?.open(),
 						onDelete: () => (deleteOpen = true),

@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { Policy } from '$lib/gen'
-import { withDraftPolicySettings } from './appDraftSettings'
+import { withDraftPolicySettings, withoutSharedPolicySettings } from './appDraftSettings'
+
+describe('withoutSharedPolicySettings', () => {
+	it('drops who can open the app and keeps the rest of the policy', () => {
+		const policy = { execution_mode: 'anonymous', sandbox: true } as unknown as Policy
+		expect(withoutSharedPolicySettings(policy)).toEqual({ sandbox: true })
+		expect(withoutSharedPolicySettings(undefined)).toBeUndefined()
+	})
+})
 
 describe('withDraftPolicySettings', () => {
 	it('keeps a setting the draft turned off, and the undrafted fields from the deployed policy', () => {
