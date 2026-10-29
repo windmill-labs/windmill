@@ -435,38 +435,113 @@ jobs:
             --certificate-identity "https://github.com/windmill-labs/windmill/.github/workflows/docker-image.yml@${GITHUB_REF}" \
             "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${GITHUB_REF_NAME#v}"
 
-  verify_ee_image_vulnerabilities:
+  # Scans the digests this run built, never a tag: :main and :latest race with concurrent main
+  # builds. Release artifacts are uploaded before the gate so a failing gate still publishes them.
+  scan_release_images:
     runs-on: ubicloud
-    needs: [tag_latest_ee]
-    if: startsWith(github.ref, 'refs/tags/v') && (github.event_name != 'workflow_dispatch')
+    needs: [build, build_ee, build_slim, build_ee_slim]
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: windmill
+            suffix: ""
+            digest: ${{ needs.build.outputs.digest }}
+          - image: windmill-ee
+            suffix: "-ee"
+            digest: ${{ needs.build_ee.outputs.digest }}
+          - image: windmill-slim
+            suffix: "-slim"
+            digest: ${{ needs.build_slim.outputs.digest }}
+          - image: windmill-ee-slim
+            suffix: "-ee-slim"
+            digest: ${{ needs.build_ee_slim.outputs.digest }}
+    env:
+      # 0.69.3, pinned by digest so a republished tag cannot change what runs with release credentials.
+      TRIVY_IMAGE: aquasec/trivy@sha256:bcc376de8d77cfe086a917230e818dc9f8528e3c852f7b1aff648949b6258d1c
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Analyze for critical and high CVEs
-        id: docker-scout-cves
-        if: ${{ github.event_name != 'pull_request_target' }}
+      - uses: actions/checkout@v4
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image reference
+        run: echo "IMAGE_REF=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.suffix }}@${{ matrix.digest }}" >> "$GITHUB_ENV"
+
+      # The VEX must be built from an unfiltered scan: a statement covers only the CVEs listed in it.
+      - name: Trivy scan
+        run: |
+          mkdir -p scan
+          docker run --rm -v "$PWD/scan:/out" "$TRIVY_IMAGE" image -q --platform linux/amd64 \
+            --scanners vuln --format json -o /out/full.json "$IMAGE_REF"
+          .github/scripts/kernel-headers-vex.sh \
+            "https://github.com/windmill-labs/windmill/releases/tag/${GITHUB_REF_NAME}#${{ matrix.image }}" \
+            scan/full.json > "scan/${{ matrix.image }}.openvex.json"
+          docker run --rm -v "$PWD/scan:/out" "$TRIVY_IMAGE" image -q --platform linux/amd64 \
+            --scanners vuln --vex "/out/${{ matrix.image }}.openvex.json" \
+            --format json -o "/out/${{ matrix.image }}.trivy.json" "$IMAGE_REF"
+          docker run --rm -v "$PWD/scan:/out" "$TRIVY_IMAGE" convert --format table \
+            --severity CRITICAL,HIGH -o "/out/${{ matrix.image }}.cves.txt" "/out/${{ matrix.image }}.trivy.json"
+
+      - uses: sigstore/cosign-installer@v4.1.2
+        with:
+          cosign-release: "v2.6.5"
+
+      # Lets `trivy image --vex oci` apply the statements without the release page.
+      - name: Attest VEX
+        run: |
+          for attempt in 1 2 3; do
+            cosign attest --yes --recursive --type openvex \
+              --predicate "scan/${{ matrix.image }}.openvex.json" "$IMAGE_REF" && exit 0
+            echo "::warning::cosign attest failed (attempt $attempt/3)"
+            [ "$attempt" -lt 3 ] && sleep $((attempt * 30))
+          done
+          exit 1
+
+      - name: Attach scan results to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            scan/${{ matrix.image }}.openvex.json
+            scan/${{ matrix.image }}.trivy.json
+            scan/${{ matrix.image }}.cves.txt
+
+      - name: Docker Scout report
         uses: docker/scout-action@v1
         with:
           command: cves
           only-severities: critical,high
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:main
-          sarif-file: sarif.output.json
+          image: ${{ env.IMAGE_REF }}
+          sarif-file: scout.sarif.json
           summary: true
           dockerhub-user: windmilllabs
           dockerhub-password: ${{ secrets.DOCKER_PAT }}
 
-      # Filed under main, not under the release tag this job runs on. The scanned image is
-      # `-ee:main` and the Security tab only reads the default branch, so tag-only uploads
-      # left main's last Docker Scout result at 2025-01-29: the tool showed as failing and
-      # its alerts could never close. `sha` is the release commit, which is on main.
+      # Filed under main: the Security tab only reads the default branch, so tag-only uploads
+      # never close their alerts. `sha` is the release commit, which is on main.
       - name: Upload SARIF result
-        id: upload-sarif
-        if: ${{ github.event_name != 'pull_request_target' }}
         uses: github/codeql-action/upload-sarif@v4
         with:
-          sarif_file: sarif.output.json
+          sarif_file: scout.sarif.json
+          category: docker-scout-${{ matrix.image }}
           ref: refs/heads/main
           sha: ${{ github.sha }}
+
+      - name: Fail on fixable critical CVEs
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          only-severities: critical
+          only-fixed: true
+          exit-code: true
+          image: ${{ env.IMAGE_REF }}
+          dockerhub-user: windmilllabs
+          dockerhub-password: ${{ secrets.DOCKER_PAT }}
 
   # docker_scout_ee:
   #   runs-on: ubicloud
@@ -582,6 +657,8 @@ jobs:
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     needs: [build]
     runs-on: ubicloud
+    outputs:
+      digest: ${{ steps.docker_build.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -636,6 +713,8 @@ jobs:
     needs: [build_ee]
     runs-on: ubicloud
     if: (github.event_name != 'pull_request') && ((github.event_name != 'workflow_dispatch') || (github.event.inputs.ee || github.event.inputs.slim))
+    outputs:
+      digest: ${{ steps.docker_build.outputs.digest }}
 
     steps:
       - uses: actions/checkout@v4
