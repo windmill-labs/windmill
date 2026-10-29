@@ -128,7 +128,7 @@ pub(crate) async fn list_recent_runs(
             r.duration_ms
          FROM ran r
          JOIN v2_job j ON j.id = r.id
-         ORDER BY r.completed_at DESC NULLS FIRST
+         ORDER BY r.completed_at DESC NULLS FIRST, ran_at DESC
          LIMIT $4"
     ))
     .bind(&w_id)

@@ -137,7 +137,7 @@ export async function askAI(context: AskAIContext, draft?: string) {
 		context.kind === 'run'
 			? [{ path: context.path, jobId: context.jobId }]
 			: context.items.flatMap((i) => (i.runs[0] ? [{ path: i.path, jobId: i.runs[0].id }] : []))
-	// Mentions land at the caret, so the question goes in after them, ahead of the draft.
+	// Mentions land at the caret, so they go in first; `prefill` then puts the question ahead of them.
 	for (const run of runs) await homeComposerContext.attach(runContextElement(run.jobId, run.path))
 	if (draft) homeComposerContext.prefill(`${draft} `)
 }
