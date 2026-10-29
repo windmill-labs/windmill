@@ -22,7 +22,9 @@
 		GraduationCap,
 		PanelLeft,
 		Star,
-		Database
+		Database,
+		FolderOpen,
+		Users
 	} from 'lucide-svelte'
 	import { sidebarPrefs } from './sidebarPrefs.svelte'
 	import { goto } from '$lib/navigation'
@@ -165,6 +167,12 @@
 	// Workspace- and instance-scoped entries anchor the bottom of the menu,
 	// instance settings last.
 	const workspaceInstanceItems = $derived<Item[]>([
+		...($roleCapabilities.visibility.folders
+			? [{ displayName: 'Folders', icon: FolderOpen, href: '/folders' }]
+			: []),
+		...($roleCapabilities.visibility.groups
+			? [{ displayName: 'Groups', icon: Users, href: '/groups' }]
+			: []),
 		...(!canManageWorkspace && !workspaceSettingsTarget
 			? [
 					{
@@ -243,7 +251,7 @@
 				},
 				{
 					displayName: 'Group data pages',
-					description: 'Variables, Resources and Assets under one Data menu',
+					description: 'Variables, Resources and Assets under one Data menu, rather than a Data section',
 					icon: Database,
 					toggle: !sidebarPrefs.splitData.val,
 					action: () => (sidebarPrefs.splitData.val = !sidebarPrefs.splitData.val)

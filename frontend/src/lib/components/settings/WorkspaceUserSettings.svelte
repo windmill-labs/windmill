@@ -44,7 +44,7 @@
 	import { truncate } from '$lib/utils'
 	import { onDestroy, untrack } from 'svelte'
 	import { goto } from '$lib/navigation'
-	import { ArrowRightLeft } from 'lucide-svelte'
+	import { ArrowRightLeft, ExternalLink } from 'lucide-svelte'
 
 	let offboardingUser: string | undefined = $state(undefined)
 	let offboardingReassignOnly = $state(false)
@@ -495,6 +495,14 @@
 	description="Add members to your workspace and manage their roles. You can also auto-add users to join your workspace."
 	link="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
 />
+<!-- Someone looking for a way to share with several people at once lands here, on members, rather
+     than on the Groups page that does it. -->
+<p class="-mt-4 mb-6 text-xs text-secondary">
+	Sharing items with several members at once? Gather them in a group on the
+	<a href="/groups" target="_blank" class="whitespace-nowrap"
+		>Groups page <ExternalLink size={12} class="inline-block" /></a
+	>, then share with the group.
+</p>
 
 {#if isAdminsWorkspaceWithoutEE}
 	<Alert type="info" title="Admins workspace">

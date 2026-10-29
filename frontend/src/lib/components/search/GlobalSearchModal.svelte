@@ -21,6 +21,7 @@
 		Code2Icon,
 		Database,
 		DollarSignIcon,
+		FolderOpenIcon,
 		HomeIcon,
 		LayoutDashboardIcon,
 		MailIcon,
@@ -29,6 +30,7 @@
 		Search,
 		SearchCode,
 		Unplug,
+		UsersIcon,
 		WandSparkles
 	} from 'lucide-svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -215,6 +217,20 @@
 			action: (newtab: boolean = false) => gotoPage('/schedules', newtab),
 			icon: CalendarIcon,
 			disabled: false
+		},
+		{
+			search_id: 'nav:folders',
+			label: 'Go to Folders',
+			action: (newtab: boolean = false) => gotoPage('/folders', newtab),
+			icon: FolderOpenIcon,
+			disabled: !$roleCapabilities.visibility.folders
+		},
+		{
+			search_id: 'nav:groups',
+			label: 'Go to Groups',
+			action: (newtab: boolean = false) => gotoPage('/groups', newtab),
+			icon: UsersIcon,
+			disabled: !$roleCapabilities.visibility.groups
 		},
 		...switchModeItems,
 		{

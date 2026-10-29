@@ -1269,10 +1269,10 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			     instance settings) are spaced by the scroll area's
 			     gap rather than each scrolling on its own. -->
 			<SidebarScrollArea color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
-				<!-- Section 1: Runs + Search, then the workspace items, spaced as one list. -->
+				<!-- Section 1: Search (collapsed) + Runs, then the workspace items, spaced as one list. -->
 				<div class="flex flex-col gap-0.5">
 					<div class="px-2 flex flex-col gap-0.5">
-						{@render quickLinks(collapsed)}
+						<!-- Collapsed, Search stays right under Home, where it sits beside it expanded. -->
 						{#if collapsed}
 							<MenuButton
 								stopPropagationOnClick={true}
@@ -1284,6 +1284,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 								shortcut={`${getModifierKey()}k`}
 							/>
 						{/if}
+						{@render quickLinks(collapsed)}
 						{#if askAiShown}
 							<!-- Legacy Ask-AI pane, shown only when the user opted out of the
 						     AI Sessions beta (otherwise the AI sessions section replaces it). -->
@@ -1341,12 +1342,12 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 		</div>
 
 		<div
-			class="flex-shrink-0 flex pt-1 pb-3.5 {collapsed
-				? 'flex-col items-center gap-3'
-				: 'items-center justify-between px-4'}"
+			class="flex-shrink-0 flex pb-3.5 {collapsed
+				? 'flex-col items-center gap-1 pt-4'
+				: 'items-center justify-between px-4 pt-1'}"
 		>
 			{@render brandMark(collapsed)}
-			<div class="flex {collapsed ? 'flex-col gap-3' : 'gap-3'}">
+			<div class="flex {collapsed ? 'flex-col gap-1' : 'gap-3'}">
 				{#if !panel || navDetached.val}
 					{@render sidebarToggle()}
 				{/if}

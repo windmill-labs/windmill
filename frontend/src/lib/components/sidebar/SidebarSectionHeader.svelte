@@ -26,7 +26,7 @@ are `sm` (h-7) buttons.
 		onclick={onToggle}
 		{disabled}
 		aria-expanded={!collapsed}
-		class="flex-1 min-w-0 h-7 px-2 rounded-md text-secondary text-[0.5rem] uppercase flex flex-row items-center gap-1 transition-colors hover:bg-surface-hover disabled:hover:bg-transparent focus:outline-none"
+		class="flex-1 min-w-0 h-7 px-2 rounded-md text-secondary text-[0.5rem] font-normal uppercase flex flex-row items-center gap-1 transition-colors hover:bg-surface-hover disabled:hover:bg-transparent focus:outline-none"
 	>
 		{title}
 		{#if !disabled}

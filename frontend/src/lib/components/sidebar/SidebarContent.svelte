@@ -32,8 +32,7 @@
 		Unplug,
 		AlertCircle,
 		Database,
-		MailIcon,
-		Users
+		MailIcon
 	} from 'lucide-svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { slide } from 'svelte/transition'
@@ -221,9 +220,7 @@
 			aiId: 'sidebar-menu-link-resources',
 			aiDescription: 'Button to navigate to resources'
 		},
-		Assets: { aiId: 'sidebar-menu-link-assets', aiDescription: 'Button to navigate to assets' },
-		Folders: { aiId: 'sidebar-menu-link-folders', aiDescription: 'Button to navigate to folders' },
-		Groups: { aiId: 'sidebar-menu-link-groups', aiDescription: 'Button to navigate to groups' }
+		Assets: { aiId: 'sidebar-menu-link-assets', aiDescription: 'Button to navigate to assets' }
 	}
 	let mainMenuLinks = $derived(
 		NAV_PAGES.filter((p) => p.label in MAIN_MENU_EXTRAS)
@@ -246,27 +243,23 @@
 			aiDescription: 'Menu with the variables, resources and assets pages'
 		}
 	]
-	// Folders and Groups are one Sharing page with a tab each (SharingTabs): one row, leading to
-	// the first of the two the role can see.
-	const SHARING_LABELS = ['Folders', 'Groups']
-	let sharingLinks = $derived(
-		mainMenuLinks.filter((l) => SHARING_LABELS.includes(l.label) && !l.disabled)
-	)
-	// "Customize sidebar" can split the groups back into links of their own.
-	let activeMenuGroups = $derived(sidebarPrefs.splitData.val ? [] : MAIN_MENU_GROUPS)
-	let groupedLabels = $derived(
-		new Set([...activeMenuGroups.flatMap((g) => g.members), ...SHARING_LABELS])
-	)
+	const groupedLabels = new Set(MAIN_MENU_GROUPS.flatMap((g) => g.members))
 	let ungroupedMainLinks = $derived(mainMenuLinks.filter((l) => !groupedLabels.has(l.label)))
 	// A disabled MenuLink renders nothing, so its page leaves the menu, and a group with no
 	// page left leaves the nav.
-	let mainMenuGroups = $derived(
-		activeMenuGroups
-			.map((g) => ({
-				...g,
-				links: mainMenuLinks.filter((l) => g.members.includes(l.label) && !l.disabled)
-			}))
-			.filter((g) => g.links.length > 0)
+	let menuGroups = $derived(
+		MAIN_MENU_GROUPS.map((g) => ({
+			...g,
+			links: mainMenuLinks.filter((l) => g.members.includes(l.label) && !l.disabled)
+		})).filter((g) => g.links.length > 0)
+	)
+	// "Customize sidebar" can unfold the Data menu into a collapsible section of the nav, as Triggers.
+	let mainMenuGroups = $derived(sidebarPrefs.splitData.val ? [] : menuGroups)
+	let dataSection = $derived(sidebarPrefs.splitData.val ? menuGroups[0] : undefined)
+	const dataSectionCollapsed = useLocalStorageValue(
+		'windmill_data_section_collapsed',
+		false,
+		'boolean'
 	)
 	let defaultExtraTriggerLinks = $derived([
 		{
@@ -533,7 +526,14 @@
 	])
 </script>
 
-<nav class={twMerge('flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-2 gap-2')}>
+<!-- Expanded, each section opens 8px under the one before, the gap the layout's scroll area puts
+     between this nav and the sections after it; the collapsed rail keeps one pitch instead. -->
+<nav
+	class={twMerge(
+		'flex flex-col overflow-x-hidden scrollbar-hidden px-2 gap-2',
+		isCollapsed ? 'md:pb-2' : ''
+	)}
+>
 	<div class={twMerge('flex flex-col')}>
 		{#if showMain}
 			<div class="space-y-0.5">
@@ -582,19 +582,29 @@
 						{/each}
 					{/snippet}
 				</Menubar>
-				{#if sharingLinks.length > 0}
-					<MenuLink
-						class="!text-xs"
-						label="Sharing"
-						href={sharingLinks[0].href}
-						alsoSelectedOn={sharingLinks.map((l) => l.href)}
-						icon={Users}
-						{isCollapsed}
-						aiId="sidebar-menu-link-sharing"
-						aiDescription="Button to navigate to sharing: the folders items are shared through, and the groups of users they are shared with"
-					/>
-				{/if}
 			</div>
+		{/if}
+		{#if showMain}
+			{#if dataSection}
+				<!-- 6px: the layout's 2px gap above this nav makes it 8 under Runs. -->
+				<div class={isCollapsed ? '' : 'mt-1.5'}>
+					<!-- Collapsed, no title row: the rail's icons keep one pitch across sections. -->
+					{#if !isCollapsed}
+						<SidebarSectionHeader
+							title="Data"
+							collapsed={dataSectionCollapsed.val}
+							onToggle={() => (dataSectionCollapsed.val = !dataSectionCollapsed.val)}
+						/>
+					{/if}
+					{#if isCollapsed || !dataSectionCollapsed.val}
+						<div transition:slide={{ duration: 180 }} class="flex flex-col gap-0.5">
+							{#each dataSection.links as menuLink (menuLink.href)}
+								<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
+							{/each}
+						</div>
+					{/if}
+				</div>
+			{/if}
 		{/if}
 		{#if showMain && showTriggersGroup}
 			<!-- Expanded, the + sits at the right of the section's title row, as the AI sessions
@@ -638,12 +648,9 @@
 					{/snippet}
 				</Menu>
 			{/snippet}
-			<div>
-				{#if isCollapsed}
-					<div class="text-secondary text-[0.5rem] uppercase transition-opacity opacity-0">
-						Triggers
-					</div>
-				{:else}
+			<div class={isCollapsed ? '' : 'mt-2'}>
+				<!-- Collapsed, no title row: the rail's icons keep one pitch across sections. -->
+				{#if !isCollapsed}
 					<SidebarSectionHeader
 						title="Triggers"
 						collapsed={triggersCollapsed.val}

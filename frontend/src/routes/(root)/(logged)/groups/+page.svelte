@@ -10,7 +10,6 @@
 	import InstanceGroupEditor from '$lib/components/InstanceGroupEditor.svelte'
 	import GroupInfo from '$lib/components/GroupInfo.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import SharingTabs from '$lib/components/SharingTabs.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import { userStore, workspaceStore, roleCapabilities } from '$lib/stores'
 	import { useEditRights } from '$lib/operatorWriteRights'
@@ -78,7 +77,6 @@
 	</div>
 {:else}
 	<CenteredPage>
-		<SharingTabs selected="groups" />
 		<PageHeader
 			title="Groups"
 			tooltip="Group users together to grant roles and homegenous permissions. Same users can be in many groups at the same time."

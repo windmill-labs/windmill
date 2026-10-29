@@ -20,8 +20,6 @@
 		item?: MenubarMenuElements['item'] | undefined
 		class?: string
 		onclick?: (ev: MouseEvent) => any
-		// Further paths the row is selected on, for a link standing for several pages.
-		alsoSelectedOn?: string[]
 	}
 
 	let {
@@ -35,8 +33,7 @@
 		lightMode = false,
 		item = undefined,
 		class: classNames = '',
-		onclick = undefined,
-		alsoSelectedOn = []
+		onclick = undefined
 	}: Props = $props()
 
 	let isSelected = $state(false)
@@ -45,7 +42,7 @@
 		if (href === '/') {
 			isSelected = $page.url.pathname === href
 		} else {
-			isSelected = [href, ...alsoSelectedOn].some((p) => $page.url.pathname.startsWith(p))
+			isSelected = $page.url.pathname.startsWith(href)
 		}
 	})
 </script>
