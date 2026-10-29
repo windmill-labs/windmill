@@ -72,10 +72,11 @@
 	<div class="relative flex flex-col gap-1">
 		<span class="text-emphasis text-xs font-semibold">Logs</span>
 		<div class="rounded-md grow min-h-0 border bg-surface-tertiary overflow-hidden">
-			<!-- In col mode the caller's panel is the scroller: a capped log box inside it is a
-			     second scrollbar, and its height cannot resolve there, so its tail gets clipped -->
+			<!-- In col mode the caller's panel scrolls: a capped log box here cannot resolve its
+			     height and gets its tail clipped, and with no inner scroller auto-scroll is moot -->
 			<LogViewer
 				noMaxH={col}
+				noAutoScroll={col}
 				{tagLabel}
 				download={downloadLogs}
 				content={logs ?? ''}
