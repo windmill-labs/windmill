@@ -526,7 +526,7 @@
 	])
 </script>
 
-<!-- Expanded, each section opens 8px under the one before, the gap the layout's scroll area puts
+<!-- Expanded, each section opens 10px under the one before, the gap the layout's scroll area puts
      between this nav and the sections after it; the collapsed rail keeps one pitch instead. -->
 <nav
 	class={twMerge(
@@ -586,8 +586,8 @@
 		{/if}
 		{#if showMain}
 			{#if dataSection}
-				<!-- 6px: the layout's 2px gap above this nav makes it 8 under Runs. -->
-				<div class={isCollapsed ? '' : 'mt-1.5'}>
+				<!-- 8px: the layout's 2px gap above this nav makes it 10 under Runs. -->
+				<div class={isCollapsed ? '' : 'mt-2'}>
 					<!-- Collapsed, no title row: the rail's icons keep one pitch across sections. -->
 					{#if !isCollapsed}
 						<SidebarSectionHeader
@@ -648,7 +648,7 @@
 					{/snippet}
 				</Menu>
 			{/snippet}
-			<div class={isCollapsed ? '' : 'mt-2'}>
+			<div class={isCollapsed ? 'mt-0.5' : 'mt-2.5'}>
 				<!-- Collapsed, no title row: the rail's icons keep one pitch across sections. -->
 				{#if !isCollapsed}
 					<SidebarSectionHeader

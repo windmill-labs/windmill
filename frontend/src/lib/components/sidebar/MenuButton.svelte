@@ -126,8 +126,9 @@
 				compact ? 'w-auto' : 'w-full',
 				sidebarClasses.hoverBg,
 				'transition-all relative',
-				// Compact rows sit in the page header and keep its height; the nav's are h-7.
-				sublabel ? 'h-10' : compact ? 'h-8' : 'h-7',
+				// Compact rows sit in the page header and keep its height; the nav's are 30px, and
+				// square on the collapsed rail.
+				sublabel ? 'h-10' : compact || isCollapsed ? 'h-8' : 'h-[30px]',
 				classNames,
 				buttonClass
 			)}

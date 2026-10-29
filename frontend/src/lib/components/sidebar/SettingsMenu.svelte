@@ -341,7 +341,7 @@
 
 <!-- Workers and Logs are full pages (not account/instance actions), so they sit
      as plain links above the Settings dropdown rather than inside it. -->
-<div class="flex flex-col gap-0.5 pb-1">
+<div class="flex flex-col gap-0.5 mb-0.5">
 	<MenuLink
 		class="!text-xs"
 		label="Workers"
@@ -357,15 +357,16 @@
 			items={logsItems}
 			placement="top-start"
 			class="w-full"
+			fixedHeight={false}
 			enableFlyTransition
 			aiId="sidebar-menu-link-logs"
 			aiDescription="Button to open the logs menu (audit logs, service logs, critical alerts)"
 		>
 			{#snippet buttonReplacement()}
 				<span
-					class="relative flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
-						? 'justify-center'
-						: ''}"
+					class="relative flex items-center gap-2 w-full px-2 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
+						? 'h-8 justify-center'
+						: 'h-[30px]'}"
 				>
 					<Logs size={16} />
 					{#if !isCollapsed}
@@ -407,14 +408,15 @@
 	{items}
 	placement="top-start"
 	class="w-full"
+	fixedHeight={false}
 	enableFlyTransition
 	on:close={onChangelogsOpened}
 >
 	{#snippet buttonReplacement()}
 		<span
-			class="relative flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
-				? 'justify-center'
-				: ''}"
+			class="relative flex items-center gap-2 w-full px-2 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
+				? 'h-8 justify-center'
+				: 'h-[30px]'}"
 		>
 			<Settings size={16} />
 			{#if !isCollapsed}

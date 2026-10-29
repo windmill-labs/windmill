@@ -1260,10 +1260,10 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 				</Button>
 			{/if}
 		</div>
-		<!-- Pulled up into the Home band's slack under its centred row (48px band, 28px row), so
-		     Runs sits as far below Home as the nav's rows sit apart. Kept outside the scroll
-		     area: a negative margin inside it would clip Runs. -->
-		<div class="flex flex-col flex-1 min-h-0 -mt-2">
+		<!-- Pulled up into the Home band's slack under its centred row (48px band; rows 30px, 32px
+		     on the rail), so the next row sits 2px under Home, as the nav's rows sit apart. Kept
+		     outside the scroll area: a negative margin inside it would clip that row. -->
+		<div class={twMerge('flex flex-col flex-1 min-h-0', collapsed ? '-mt-1.5' : '-mt-[7px]')}>
 			<!-- The workspace nav: Runs → Settings scroll as ONE block with an
 			     overflow fade hint. The sections (Runs + workspace items / AI sessions /
 			     instance settings) are spaced by the scroll area's
