@@ -477,31 +477,17 @@ jobs:
       - name: Trivy scan
         run: |
           mkdir -p scan
-          docker run --rm -v "$PWD/scan:/out" "$TRIVY_IMAGE" image -q --platform linux/amd64 \
+          trivy() { docker run --rm -v "$RUNNER_TEMP/trivy-cache:/root/.cache/trivy" -v "$PWD/scan:/out" "$TRIVY_IMAGE" "$@"; }
+          trivy image -q --platform linux/amd64 \
             --scanners vuln --format json -o /out/full.json "$IMAGE_REF"
           .github/scripts/kernel-headers-vex.sh \
             "https://github.com/windmill-labs/windmill/releases/tag/${GITHUB_REF_NAME}#${{ matrix.image }}" \
             scan/full.json > "scan/${{ matrix.image }}.openvex.json"
-          docker run --rm -v "$PWD/scan:/out" "$TRIVY_IMAGE" image -q --platform linux/amd64 \
+          trivy image -q --platform linux/amd64 \
             --scanners vuln --vex "/out/${{ matrix.image }}.openvex.json" \
             --format json -o "/out/${{ matrix.image }}.trivy.json" "$IMAGE_REF"
-          docker run --rm -v "$PWD/scan:/out" "$TRIVY_IMAGE" convert --format table \
+          trivy convert --format table \
             --severity CRITICAL,HIGH -o "/out/${{ matrix.image }}.cves.txt" "/out/${{ matrix.image }}.trivy.json"
-
-      - uses: sigstore/cosign-installer@v4.1.2
-        with:
-          cosign-release: "v2.6.5"
-
-      # Lets `trivy image --vex oci` apply the statements without the release page.
-      - name: Attest VEX
-        run: |
-          for attempt in 1 2 3; do
-            cosign attest --yes --recursive --type openvex \
-              --predicate "scan/${{ matrix.image }}.openvex.json" "$IMAGE_REF" && exit 0
-            echo "::warning::cosign attest failed (attempt $attempt/3)"
-            [ "$attempt" -lt 3 ] && sleep $((attempt * 30))
-          done
-          exit 1
 
       - name: Attach scan results to the release
         uses: softprops/action-gh-release@v2
@@ -510,6 +496,28 @@ jobs:
             scan/${{ matrix.image }}.openvex.json
             scan/${{ matrix.image }}.trivy.json
             scan/${{ matrix.image }}.cves.txt
+
+      - uses: sigstore/cosign-installer@v4.1.2
+        with:
+          cosign-release: "v2.6.5"
+
+      # Lets `trivy image --vex oci` apply the statements without the release page. `cosign
+      # attest` has no --recursive, and a scanner may resolve either the index or the platform
+      # manifest, so each digest gets its own attestation.
+      - name: Attest VEX
+        run: |
+          repo="${IMAGE_REF%@*}"
+          digests="${{ matrix.digest }} $(docker buildx imagetools inspect --raw "$IMAGE_REF" \
+            | jq -r '.manifests[]? | select(.platform.os != "unknown") | .digest')"
+          for d in $digests; do
+            for attempt in 1 2 3; do
+              cosign attest --yes --type openvex \
+                --predicate "scan/${{ matrix.image }}.openvex.json" "$repo@$d" && continue 2
+              echo "::warning::cosign attest of $d failed (attempt $attempt/3)"
+              [ "$attempt" -lt 3 ] && sleep $((attempt * 30))
+            done
+            exit 1
+          done
 
       - name: Docker Scout report
         uses: docker/scout-action@v1

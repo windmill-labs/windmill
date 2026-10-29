@@ -191,7 +191,7 @@ RUN curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmo
 
 RUN if [ "$WITH_GIT" = "true" ]; then \
     apt-get update  -y \
-    && apt-get install -y --no-install-recommends git openssh-client \
+    && apt-get install -y --no-install-recommends git openssh-client less \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*; \
     else echo 'Building the image without git'; fi;
