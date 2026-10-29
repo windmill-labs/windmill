@@ -4,6 +4,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { deployRawAppValue } from '$lib/rawAppDeploy'
+	import { policyForUpdate } from './publishAccessMode'
 	import DeploymentHistory from './DeploymentHistory.svelte'
 
 	interface Props {
@@ -37,7 +38,8 @@
 				workspace: $workspaceStore!,
 				path: app.path,
 				requestBody: {
-					...app
+					...app,
+					policy: app.policy && policyForUpdate(app.policy)
 				}
 			})
 		}

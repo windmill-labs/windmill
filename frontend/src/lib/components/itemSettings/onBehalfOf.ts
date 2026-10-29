@@ -34,10 +34,10 @@ export function deployedPermissionedAs(
 	return user?.username ? `u/${user.username}` : undefined
 }
 
-/** Whether a deploy asks first whose access the item will run with. Every app deploy asks, since
- *  all its viewers use that access. A flow or script deploy asks when it starts running on behalf
- *  of someone, changes who, or stops: a deploy that keeps the deployed user has nothing new to
- *  confirm. `saved*` are the deployed version's, unset before the first deploy. */
+/** Whether a deploy asks first whose access the item will run with. A deploy asks when the item
+ *  starts running on behalf of someone, changes who, or stops: a deploy that keeps the deployed
+ *  user has nothing new to confirm. An app always runs on behalf of someone, so its first deploy
+ *  always asks. `saved*` are the deployed version's, unset before the first deploy. */
 export function deployAsksOnBehalfOf(
 	kind: 'flow' | 'script' | 'app',
 	deploy: {
@@ -49,9 +49,8 @@ export function deployAsksOnBehalfOf(
 		folderDefault?: string
 	}
 ): boolean {
-	if (kind === 'app') return true
 	const deployedHoldsUser = !!(deploy.savedPermissionedAs ?? deploy.savedEmail)
-	if (!deploy.email && !deploy.folderDefault) return deployedHoldsUser
+	if (kind !== 'app' && !deploy.email && !deploy.folderDefault) return deployedHoldsUser
 	if (!deployedHoldsUser) return true
 	return (
 		deployedPermissionedAs(deploy.user, deploy.permissionedAs, deploy.folderDefault) !==

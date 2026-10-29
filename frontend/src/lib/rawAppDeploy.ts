@@ -16,6 +16,7 @@ import { isAdminIn } from '$lib/user'
 import { bundleRawAppDraft } from '$lib/components/copilot/chat/global/rawAppBundlerBridge'
 import type { AppDraftValue } from '$lib/components/copilot/chat/global/workspaceItems'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
+import { policyForUpdate } from '$lib/components/apps/editor/publishAccessMode'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import {
 	appSourceToDraftValue,
@@ -56,9 +57,6 @@ export async function deployRawAppValue({
 	// The value carries the runnables, so the policy's triggerables have to be
 	// recomputed from it or the deployed app can't call what it now contains.
 	const policy = (await updateRawAppPolicy(runnables, currentPolicy)) as Policy
-	if (!policy.execution_mode) {
-		policy.execution_mode = 'publisher'
-	}
 
 	const bundle = await bundleRawAppDraft({ workspace, files })
 
@@ -72,7 +70,7 @@ export async function deployRawAppValue({
 				// version can still carry the pre-`data` datatable shapes.
 				value: { files, runnables, data: normalizeRawAppData(plainValue) },
 				summary: summary ?? '',
-				policy,
+				policy: policyForUpdate(policy),
 				deployment_message: deploymentMessage,
 				// custom_path changes require admin (see deployRawAppDraft).
 				custom_path: isAdmin ? (customPath ?? '') : undefined,
@@ -139,9 +137,10 @@ export async function deployRawAppDraft(
 					path: targetPath,
 					value: rawAppValue,
 					summary,
-					policy,
+					policy: policyForUpdate(policy),
 					deployment_message: deploymentMessage,
 					custom_path: isAdmin ? (value.custom_path ?? '') : undefined,
+					labels: value.labels,
 					// Preserve the policy's on_behalf_of: this draft-deploy path has no
 					// on-behalf-of selector, so without the flag the backend resets it to
 					// the deploying user (gated server-side by can_preserve_on_behalf_of).
@@ -162,6 +161,7 @@ export async function deployRawAppDraft(
 					policy,
 					deployment_message: deploymentMessage,
 					custom_path: value.custom_path,
+					labels: value.labels,
 					// Preserve the policy's on_behalf_of (see update branch above).
 					preserve_on_behalf_of: policy.on_behalf_of ? true : undefined
 				},
