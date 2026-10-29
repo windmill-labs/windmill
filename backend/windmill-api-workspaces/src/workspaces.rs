@@ -15749,8 +15749,7 @@ pub enum SettingsEdit {
     DefaultApp,
     Color,
     OperatorSettings,
-    /// Body: `{ overrides, keep_stored }`, `overrides` the whole `role_overrides` map with the
-    /// workspace-only roles, and `keep_stored` the roles whose stored entry is kept instead.
+    /// Body: `{ overrides }`, the whole `role_overrides` map, workspace-only roles included.
     RoleOverrides,
     Datatable,
     SlackCommand,
@@ -15820,17 +15819,8 @@ pub async fn apply_settings_edit(
             #[derive(Deserialize)]
             struct Body {
                 overrides: windmill_common::roles::RoleOverrides,
-                #[serde(default)]
-                keep_stored: Vec<String>,
             }
-            let Json(Body { mut overrides, keep_stored }) = settings_edit_body(edit, body)?;
-            let stored = windmill_common::roles::load_role_overrides(&d.0, &p.0).await?;
-            for name in keep_stored {
-                match stored.get(&name) {
-                    Some(o) => overrides.insert(name, o.clone()),
-                    None => overrides.remove(&name),
-                };
-            }
+            let Json(Body { overrides }) = settings_edit_body(edit, body)?;
             crate::workspace_roles::write_role_overrides(&d.0, &a, &p.0, overrides, None).await?;
             "Role overrides updated".to_string()
         }

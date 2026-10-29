@@ -61,9 +61,9 @@ instance's capabilities once defined there.
 The roles are written before every other setting, so an instance group mapping or invite in the
 same document can name a role it adds; a removed workspace-only role is written last, once nothing
 still names it. The document's `operator_settings` is derived from the `operator` role, not read
-from the column (only the legacy endpoint rewrites it, so it goes stale). It is applied just before
-the roles, and an `operator` entry the file leaves as it was pulled takes what that legacy write
-stored rather than undoing it.
+from the column (only the legacy endpoint rewrites it, so it goes stale). A document that states
+the roles is not applied through it: one edited in only one of the two would flip the role on every
+push. When it says something other than the roles do, the apply warns instead.
 
 ## Who is restricted
 

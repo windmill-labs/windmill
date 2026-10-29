@@ -1252,7 +1252,16 @@ fn plan_document(
     let stated: Vec<String> = desired.keys().cloned().collect();
     let mut p = Plan { current, desired, replace, changes: vec![], writes: vec![], warnings };
 
-    if let Some(desired) = p.managed("operator_settings").filter(|o| !o.is_null()) {
+    // A document stating the roles states the `operator` role there; its `operator_settings`
+    // is checked against them instead (see `plan_role_overrides`). Applying both would let a
+    // file edited in one of them flip the role on every push.
+    let roles_stated = ["role_overrides", "workspace_only_roles"]
+        .iter()
+        .any(|k| p.managed(k).is_some());
+    if let Some(desired) = p
+        .managed("operator_settings")
+        .filter(|o| !o.is_null() && !roles_stated)
+    {
         // The endpoint keeps the stored value of a write right the document omits, so an
         // older document must not count as differing on those keys.
         let mut compared = desired.clone();
@@ -1733,7 +1742,6 @@ fn plan_role_overrides(p: &mut Plan, instance: &[RoleDefinition]) -> Result<Opti
         .chain(current_added.clone())
         .filter_map(|(name, v)| Some((name, serde_json::from_value(v).ok()?)))
         .collect();
-    let current_operator = current_overrides.get(roles::OPERATOR_ROLE).cloned();
     let mut changed = false;
     for (key, desired, current) in [
         ("role_overrides", overrides, current_overrides),
@@ -1746,31 +1754,18 @@ fn plan_role_overrides(p: &mut Plan, instance: &[RoleDefinition]) -> Result<Opti
         }
         p.desired.insert(key.to_string(), desired);
     }
-    if !changed {
-        return Ok(None);
-    }
-    // The legacy write before this one rewrites the `operator` override. A document that leaves
-    // that entry as it found it must keep the rewrite, not restore the entry the file was pulled
-    // with, so the write takes it from the store once the legacy write has gone through.
-    let operator_settings_written = p
-        .writes
-        .iter()
-        .any(|w| matches!(w.target, Target::Edit(SettingsEdit::OperatorSettings)));
-    let operator = roles::OPERATOR_ROLE;
-    let keep_stored: Vec<&str> = (operator_settings_written
-        && same(
-            object_of(p.desired.get("role_overrides")).get(operator),
-            current_operator.as_ref(),
-        ))
-    .then_some(operator)
-    .into_iter()
-    .collect();
     let next: RoleOverrides = ["role_overrides", "workspace_only_roles"]
         .iter()
         .flat_map(|key| object_of(p.desired.get(*key)))
         .map(|(name, v)| Ok((name, serde_json::from_value(v)?)))
         .collect::<std::result::Result<_, serde_json::Error>>()
         .map_err(|e| Error::internal_err(format!("re-reading role overrides: {e:#}")))?;
+    if let Some(stated) = p.managed("operator_settings").filter(|o| o.is_object()) {
+        check_operator_settings(&mut p.warnings, &stated, instance, &next)?;
+    }
+    if !changed {
+        return Ok(None);
+    }
     roles::validate_overrides(instance, &next)?;
     roles::check_frozen_overrides(instance, &previous, &next)?;
     let mut staged = next.clone();
@@ -1782,19 +1777,53 @@ fn plan_role_overrides(p: &mut Plan, instance: &[RoleDefinition]) -> Result<Opti
     if staged == next {
         p.write(
             Target::Edit(SettingsEdit::RoleOverrides),
-            json!({ "overrides": next, "keep_stored": keep_stored }),
+            json!({ "overrides": next }),
         );
         return Ok(None);
     }
     if staged != previous {
         p.write(
             Target::Edit(SettingsEdit::RoleOverrides),
-            json!({ "overrides": staged, "keep_stored": keep_stored }),
+            json!({ "overrides": staged }),
         );
     }
-    Ok(Some(
-        json!({ "overrides": next, "keep_stored": keep_stored }),
-    ))
+    Ok(Some(json!({ "overrides": next })))
+}
+
+/// Warns when the document's `operator_settings` says something other than its roles do: it is
+/// not applied beside them, so an edit made only there would otherwise be dropped silently.
+fn check_operator_settings(
+    warnings: &mut Vec<String>,
+    stated: &Value,
+    instance: &[RoleDefinition],
+    next: &RoleOverrides,
+) -> Result<()> {
+    let Some(operator) = roles::effective_roles(instance, next)?
+        .into_iter()
+        .find(|r| r.name == roles::OPERATOR_ROLE)
+    else {
+        return Ok(());
+    };
+    let implied = roles::legacy_operator_settings(&operator.capabilities);
+    // As the legacy endpoint reads it: an omitted page is hidden, an omitted write right kept.
+    let differs = object_of(Some(&implied)).iter().any(|(key, value)| {
+        let keeps = matches!(
+            key.as_str(),
+            "builder_flows" | "builder_apps" | "manage_schedules" | "manage_triggers"
+        );
+        match stated.get(key) {
+            Some(v) => v != value,
+            None => !keeps && value != &Value::Bool(false),
+        }
+    });
+    if differs {
+        warnings.push(
+            "operator_settings was not applied: it differs from the operator role stated in \
+             role_overrides, which is what applies. Edit role_overrides.operator instead."
+                .to_string(),
+        );
+    }
+    Ok(())
 }
 
 fn plan_datatable_permissions(
@@ -2714,15 +2743,6 @@ mod tests {
             .map(|w| &w.body["overrides"])
     }
 
-    fn kept_stored(p: &Plan) -> Vec<&str> {
-        p.writes
-            .iter()
-            .filter(|w| matches!(w.target, Target::Edit(SettingsEdit::RoleOverrides)))
-            .flat_map(|w| w.body["keep_stored"].as_array().unwrap())
-            .map(|v| v.as_str().unwrap())
-            .collect()
-    }
-
     #[test]
     fn a_stated_override_is_written_with_the_other_kind_kept() {
         let instance = roles::default_instance_roles();
@@ -2810,15 +2830,26 @@ mod tests {
         }
     }
 
-    /// A pulled file states both `operator_settings` and `role_overrides.operator`: an edit to
-    /// either one must take effect, not be undone by the other's unchanged value.
+    /// A file stating the roles states the `operator` role there: its `operator_settings` is
+    /// not applied, so a file edited in only one of the two cannot flip the role on each push.
     #[test]
-    fn a_legacy_operator_settings_edit_is_not_undone_by_the_unchanged_roles() {
+    fn operator_settings_is_not_applied_beside_the_roles() {
         let instance = roles::default_instance_roles();
         let same = roles_current();
+        let consistent = roles::legacy_operator_settings(
+            &roles::effective_roles(
+                &instance,
+                &serde_json::from_value(same["role_overrides"].clone()).unwrap(),
+            )
+            .unwrap()
+            .into_iter()
+            .find(|r| r.name == roles::OPERATOR_ROLE)
+            .unwrap()
+            .capabilities,
+        );
         let p = plan_roles(
             json!({
-                "operator_settings": { "runs": true },
+                "operator_settings": consistent,
                 "role_overrides": same["role_overrides"],
                 "workspace_only_roles": same["workspace_only_roles"],
             }),
@@ -2826,41 +2857,44 @@ mod tests {
             &instance,
         )
         .unwrap();
-        assert_eq!(keys(&p), ["operator_settings"]);
-        assert!(role_write(&p).is_none(), "the legacy write alone applies");
+        assert!(p.writes.is_empty(), "{:?}", keys(&p));
+        assert!(p.warnings.is_empty(), "{:?}", p.warnings);
 
-        // Another role changes too: the write keeps the `operator` the legacy write stores.
+        // Edited only in the legacy key: nothing is written, and the warning says so.
+        let mut edited = consistent.clone();
+        edited["runs"] = json!(!edited["runs"].as_bool().unwrap());
         let p = plan_roles(
             json!({
-                "operator_settings": { "runs": true },
-                "role_overrides": {
-                    "operator": same["role_overrides"]["operator"],
-                    "developer": { "capabilities": { "fork": false } },
-                },
+                "operator_settings": edited,
+                "role_overrides": same["role_overrides"],
             }),
             false,
             &instance,
         )
         .unwrap();
-        let targets: Vec<_> = p.writes.iter().map(|w| format!("{:?}", w.target)).collect();
-        assert_eq!(targets, ["Edit(OperatorSettings)", "Edit(RoleOverrides)"]);
-        assert_eq!(kept_stored(&p), ["operator"]);
+        assert!(p.writes.is_empty(), "{:?}", keys(&p));
+        assert_eq!(p.warnings.len(), 1, "{:?}", p.warnings);
+        assert!(p.warnings[0].contains("role_overrides.operator"));
 
-        // An edit stated in `role_overrides` itself wins, as the later write.
+        // Edited only in `role_overrides`: the role is written, the stale legacy key never is.
         let p = plan_roles(
             json!({
-                "operator_settings": { "runs": true },
+                "operator_settings": consistent,
                 "role_overrides": { "operator": { "capabilities": { "flows": "none" } } },
             }),
             false,
             &instance,
         )
         .unwrap();
-        assert_eq!(kept_stored(&p), Vec::<&str>::new());
+        assert_eq!(targets(&p), ["Edit(RoleOverrides)"]);
         assert_eq!(
             role_write(&p).unwrap()["operator"],
             json!({ "capabilities": { "flows": "none" } })
         );
+
+        // A file without the roles keeps applying `operator_settings`.
+        let p = plan_roles(json!({ "operator_settings": edited }), false, &instance).unwrap();
+        assert_eq!(targets(&p), ["Edit(OperatorSettings)"]);
     }
 
     fn targets(p: &Plan) -> Vec<String> {

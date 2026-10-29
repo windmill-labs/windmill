@@ -292,9 +292,10 @@ async fn each_roles_key_is_managed_on_its_own(db: Pool<Postgres>) -> anyhow::Res
 }
 
 /// A pulled settings.yaml states the operator role twice, as `operator_settings` and as
-/// `role_overrides.operator`. Editing only the legacy key must still change the role.
+/// `role_overrides.operator`. The roles are what applies, so a file edited in only one of them
+/// gives the same role on every push, and an edit made only in the legacy key is reported.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn an_operator_settings_edit_in_a_pulled_file_takes_effect(
+async fn a_pulled_file_gives_the_same_operator_role_on_every_push(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -303,10 +304,25 @@ async fn an_operator_settings_edit_in_a_pulled_file_takes_effect(
     create_workspace(&db, "legacy-edit").await;
     let base = format!("http://localhost:{port}/api/w/legacy-edit/workspaces");
     let resp = authed(client().post(format!("{base}/operator_settings")))
-        .json(&json!({ "runs": false, "schedules": true }))
+        .json(&json!({ "runs": true, "builder_flows": true }))
         .send()
         .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let roles_url = format!("{base}/roles");
+    let roles_url = &roles_url;
+    let operator = || async move {
+        let roles: Value = authed(client().get(roles_url)).send().await?.json().await?;
+        anyhow::Ok(
+            roles["roles"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["name"] == "operator")
+                .unwrap()
+                .clone(),
+        )
+    };
+    assert_eq!(operator().await?["capabilities"]["flows"], "compose");
 
     let mut pulled: Value =
         authed(client().get(format!("{base}/settings_document?secrets=encrypted")))
@@ -314,44 +330,44 @@ async fn an_operator_settings_edit_in_a_pulled_file_takes_effect(
             .await?
             .json()
             .await?;
-    pulled["operator_settings"]["runs"] = json!(true);
-    // An unrelated role edit in the same push, so the roles are written after the legacy key.
-    pulled["role_overrides"]["developer"] = json!({ "capabilities": { "fork": false } });
-    let resp = apply(port, "legacy-edit", pulled, false).await;
-    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    assert_eq!(pulled["operator_settings"]["builder_flows"], true);
 
-    let roles: Value = authed(client().get(format!("{base}/roles")))
-        .send()
-        .await?
-        .json()
-        .await?;
-    let role = |name: &str| {
-        roles["roles"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|r| r["name"] == name)
-            .cloned()
-            .unwrap()
-    };
-    let operator = role("operator");
-    assert_eq!(operator["capabilities"]["visibility"]["runs"], true);
-    assert_eq!(operator["capabilities"]["visibility"]["schedules"], true);
-    assert_eq!(role("developer")["capabilities"]["fork"], false);
+    // Withdraw flows in `role_overrides` only, and push the same file twice.
+    pulled["role_overrides"]["operator"]["capabilities"]["flows"] = json!("none");
+    for push in 0..2 {
+        let resp = apply(port, "legacy-edit", pulled.clone(), false).await;
+        assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+        let result: Value = resp.json().await?;
+        if push == 1 {
+            assert_eq!(result["changes"], json!([]), "{result}");
+        }
+        assert_eq!(
+            operator().await?["capabilities"]["flows"],
+            "none",
+            "push {push}: {result}"
+        );
+    }
 
-    // The next pull states the edit in both keys, so pushing it again changes nothing.
-    let repulled: Value =
+    // An edit made only in `operator_settings` is not applied, and the push says so.
+    let mut legacy_only: Value =
         authed(client().get(format!("{base}/settings_document?secrets=encrypted")))
             .send()
             .await?
             .json()
             .await?;
-    assert_eq!(repulled["operator_settings"]["runs"], true);
-    let result: Value = apply(port, "legacy-edit", repulled, false)
+    legacy_only["operator_settings"]["builder_flows"] = json!(true);
+    let result: Value = apply(port, "legacy-edit", legacy_only, false)
         .await
         .json()
         .await?;
     assert_eq!(result["changes"], json!([]), "{result}");
+    assert!(
+        result["warnings"][0]
+            .as_str()
+            .is_some_and(|w| w.contains("role_overrides.operator")),
+        "{result}"
+    );
+    assert_eq!(operator().await?["capabilities"]["flows"], "none");
     Ok(())
 }
 
