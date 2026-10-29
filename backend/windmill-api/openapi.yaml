@@ -24998,6 +24998,102 @@ paths:
               schema:
                 $ref: "#/components/schemas/PrincipalAccess"
 
+  /w/{workspace}/access/browse_folders:
+    get:
+      summary: list the folders the caller can read, with the principal's direct grant on each
+      operationId: browseAccessFolders
+      tags:
+        - granular_acl
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: principal
+          description: "`u/<username>` or `g/<group>`"
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: folders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    grant:
+                      description: the principal's entry in the folder's extra_perms; absent when none, false for read, true for write
+                      type: boolean
+                      nullable: true
+                    target_owner:
+                      type: boolean
+                    blocked:
+                      description: why the caller cannot change this grant
+                      type: string
+                  required: [name, target_owner]
+
+  /w/{workspace}/access/browse_items:
+    get:
+      summary: list items the caller can read, with the principal's direct grant on each
+      operationId: browseAccessItems
+      tags:
+        - granular_acl
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: principal
+          description: "`u/<username>` or `g/<group>`"
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: prefix
+          description: only paths starting with this, e.g. `f/billing/`
+          in: query
+          schema:
+            type: string
+        - name: kind
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: a page of 100 items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        kind:
+                          type: string
+                        path:
+                          type: string
+                        grant:
+                          type: boolean
+                          nullable: true
+                        blocked:
+                          description: why the caller cannot change this grant
+                          type: string
+                      required: [kind, path]
+                  has_more:
+                    type: boolean
+                required: [items, has_more]
+
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
       summary: get granular acls

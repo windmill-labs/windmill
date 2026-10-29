@@ -8,30 +8,14 @@
 	import { GranularAclService, type AccessReason, type PrincipalAccess } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
+	import { Tab, Tabs } from './common'
+	import AccessGrantPanel from './access/AccessGrantPanel.svelte'
+	import AddNeededAccess from './access/AddNeededAccess.svelte'
+	import { KIND_LABELS } from './access/access'
 
 	type Target = 'self' | 'user' | 'service_account' | 'group'
 
 	const PAGE = 100
-
-	const KIND_LABELS: Record<string, string> = {
-		script: 'Script',
-		flow: 'Flow',
-		app: 'App',
-		resource: 'Resource',
-		variable: 'Variable',
-		schedule: 'Schedule',
-		http_trigger: 'HTTP route',
-		websocket_trigger: 'WebSocket trigger',
-		kafka_trigger: 'Kafka trigger',
-		nats_trigger: 'NATS trigger',
-		postgres_trigger: 'Postgres trigger',
-		mqtt_trigger: 'MQTT trigger',
-		amqp_trigger: 'AMQP trigger',
-		gcp_trigger: 'GCP Pub/Sub trigger',
-		azure_trigger: 'Azure trigger',
-		sqs_trigger: 'SQS trigger',
-		email_trigger: 'Email trigger'
-	}
 
 	let drawer: Drawer | undefined = $state()
 	let principal = $state('')
@@ -40,6 +24,7 @@
 	let search = $state('')
 	let kind: string | undefined = $state()
 	let nbDisplayed = $state(PAGE)
+	let tab: 'access' | 'grant' = $state('access')
 	// Responses are not ordered: a slow answer for the previous principal must not land on this one.
 	let requestId = 0
 
@@ -50,19 +35,31 @@
 		search = ''
 		kind = undefined
 		nbDisplayed = PAGE
+		tab = 'access'
 		drawer?.openDrawer()
 		logFeatureUsage('access_view', 'opened', { key: target })
+		await reload()
+	}
+
+	async function reload(): Promise<void> {
 		const id = ++requestId
 		try {
 			const result = await GranularAclService.getPrincipalAccess({
 				workspace: $workspaceStore!,
-				principal: nextPrincipal
+				principal
 			})
 			if (id === requestId) access = result
 		} catch (e) {
 			if (id === requestId) error = e?.body ?? String(e)
 		}
 	}
+
+	function selectTab(next: 'access' | 'grant') {
+		tab = next
+		if (next === 'grant') logFeatureUsage('access_view', 'grant_opened')
+	}
+
+	const reads = $derived(new Set((access?.items ?? []).map((i) => `${i.kind}:${i.path}`)))
 
 	const name = $derived(principal.slice(2))
 	const isGroup = $derived(principal.startsWith('g/'))
@@ -131,6 +128,16 @@
 					{principal} is an admin of this workspace and can read and write every item in it.
 				</Alert>
 			{:else}
+				<Tabs bind:selected={() => tab, (v) => selectTab(v as 'access' | 'grant')}>
+					<Tab value="access" label="Access" />
+					<Tab value="grant" label="Grant" />
+				</Tabs>
+			{/if}
+
+			{#if access && !access.is_admin && tab === 'grant'}
+				<AddNeededAccess {principal} {reads} onGranted={reload} />
+				<AccessGrantPanel {principal} onChanged={reload} />
+			{:else if access && !access.is_admin}
 				<Section label="Groups" small>
 					{#if access.groups.length}
 						<div class="flex flex-wrap gap-1">

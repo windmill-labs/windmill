@@ -18,13 +18,19 @@ use windmill_api_auth::ApiAuthed;
 use windmill_common::{
     auth::fetch_authed_from_permissioned_as,
     db::UserDB,
-    error::{Error, JsonResult},
+    error::{Error, JsonResult, Result},
+    workspaces::{check_operator_can_manage, ManageKind},
     DB,
 };
 
 pub fn workspaced_service() -> Router {
-    Router::new().route("/get", get(get_access))
+    Router::new()
+        .route("/get", get(get_access))
+        .route("/browse_folders", get(browse_folders))
+        .route("/browse_items", get(browse_items))
 }
+
+const BROWSE_PAGE: i64 = 100;
 
 /// `(kind, table, extra filter)`. Captures, capture configs and eval datasets are left out on
 /// purpose: they are test data attached to an item, not something access is granted to.
@@ -179,16 +185,11 @@ impl From<ItemRow> for ItemAccess {
     }
 }
 
-async fn get_access(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Query(AccessQuery { principal }): Query<AccessQuery>,
-) -> JsonResult<AccessReport> {
+/// Splits `u/<user>` or `g/<group>` and refuses callers who may not look at that principal.
+fn check_principal<'a>(authed: &ApiAuthed, principal: &'a str) -> Result<(&'a str, &'a str)> {
     let (prefix, name) = principal
         .split_once('/')
-        .filter(|(_, name)| !name.is_empty())
+        .filter(|(prefix, name)| matches!(*prefix, "u" | "g") && !name.is_empty())
         .ok_or_else(|| Error::BadRequest("principal must be u/<user> or g/<group>".into()))?;
 
     // Another principal's list names paths the caller may not be able to read. A group's reach is
@@ -196,14 +197,24 @@ async fn get_access(
     let allowed = authed.is_admin
         || match prefix {
             "u" => name == authed.username,
-            "g" => authed.groups.iter().any(|g| g == name),
-            _ => false,
+            _ => authed.groups.iter().any(|g| g == name),
         };
     if !allowed {
         return Err(Error::PermissionDenied(
             "only workspace admins can view another member's access".into(),
         ));
     }
+    Ok((prefix, name))
+}
+
+async fn get_access(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(AccessQuery { principal }): Query<AccessQuery>,
+) -> JsonResult<AccessReport> {
+    let (prefix, name) = check_principal(&authed, &principal)?;
 
     let email = match prefix {
         "u" => {
@@ -311,4 +322,161 @@ async fn get_access(
         folders,
         items,
     }))
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct BrowseFolder {
+    name: String,
+    /// The principal's own entry in the folder's `extra_perms`: absent, read (false) or write.
+    grant: Option<bool>,
+    /// Owners always keep write; `acls/add` refuses to lower it.
+    target_owner: bool,
+    #[sqlx(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocked: Option<String>,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct BrowseItem {
+    kind: String,
+    path: String,
+    grant: Option<bool>,
+    #[sqlx(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocked: Option<String>,
+}
+
+#[derive(Serialize)]
+struct BrowseItems {
+    items: Vec<BrowseItem>,
+    has_more: bool,
+}
+
+#[derive(Deserialize)]
+struct BrowseItemsQuery {
+    principal: String,
+    /// Only paths starting with this, e.g. `f/billing/` or `u/alice/`.
+    prefix: Option<String>,
+    kind: Option<String>,
+    search: Option<String>,
+    offset: Option<i64>,
+}
+
+/// Why the caller cannot change grants on `path`, mirroring the checks `acls/add` makes.
+fn grant_blocked(authed: &ApiAuthed, path: &str) -> Option<String> {
+    if authed.is_admin {
+        return None;
+    }
+    let mut parts = path.splitn(3, '/');
+    match (parts.next(), parts.next()) {
+        (Some("u"), Some(owner)) if owner == authed.username => None,
+        (Some("u"), Some(owner)) => {
+            Some(format!("Only u/{owner} and workspace admins can share it"))
+        }
+        (Some("f"), Some(folder)) if windmill_api_auth::is_owner(authed, folder) => None,
+        (Some("f"), Some(folder)) => Some(folder_blocked(folder)),
+        _ => Some("Only workspace admins can share items under g/".to_string()),
+    }
+}
+
+fn folder_blocked(folder: &str) -> String {
+    format!("Only workspace admins and owners of f/{folder} can share it")
+}
+
+async fn browse_folders(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(AccessQuery { principal }): Query<AccessQuery>,
+) -> JsonResult<Vec<BrowseFolder>> {
+    check_principal(&authed, &principal)?;
+    let mut tx = user_db.begin(&authed).await?;
+    let mut folders = sqlx::query_as::<_, BrowseFolder>(
+        "SELECT name, (extra_perms ->> $2)::boolean AS \"grant\", $2 = ANY(owners) AS target_owner
+         FROM folder WHERE workspace_id = $1 ORDER BY name",
+    )
+    .bind(&w_id)
+    .bind(&principal)
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    for folder in &mut folders {
+        if !windmill_api_auth::is_owner(&authed, &folder.name) {
+            folder.blocked = Some(folder_blocked(&folder.name));
+        }
+    }
+    Ok(Json(folders))
+}
+
+async fn browse_items(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(q): Query<BrowseItemsQuery>,
+) -> JsonResult<BrowseItems> {
+    check_principal(&authed, &q.principal)?;
+    let tables = ITEM_TABLES
+        .iter()
+        .filter(|(kind, ..)| q.kind.as_deref().map_or(true, |k| k == *kind))
+        .collect::<Vec<_>>();
+    if tables.is_empty() {
+        return Err(Error::BadRequest("unknown kind".into()));
+    }
+    // SAFETY: table names and filters come from the `ITEM_TABLES` constant, never from the request.
+    let union = tables
+        .iter()
+        .map(|(kind, table, filter)| {
+            format!(
+                "SELECT '{kind}'::text AS kind, path::text AS path, (extra_perms ->> $2)::boolean AS \"grant\"
+                 FROM {table} WHERE workspace_id = $1 {filter}"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" UNION ALL ");
+    let sql = format!(
+        "SELECT kind, path, \"grant\" FROM ({union}) i
+         WHERE ($3::text IS NULL OR starts_with(path, $3))
+            AND ($4::text IS NULL OR strpos(lower(path), lower($4)) > 0)
+         ORDER BY path, kind LIMIT $5 OFFSET $6"
+    );
+    let mut tx = user_db.begin(&authed).await?;
+    let mut items = sqlx::query_as::<_, BrowseItem>(&sql)
+        .bind(&w_id)
+        .bind(&q.principal)
+        .bind(q.prefix.as_deref().filter(|p| !p.is_empty()))
+        .bind(q.search.as_deref().map(str::trim).filter(|s| !s.is_empty()))
+        .bind(BROWSE_PAGE + 1)
+        .bind(q.offset.unwrap_or(0).max(0))
+        .fetch_all(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    let has_more = items.len() as i64 > BROWSE_PAGE;
+    items.truncate(BROWSE_PAGE as usize);
+
+    // Operators may be barred from managing schedules and triggers, `/acls` included.
+    let mut manage_denied = vec![];
+    if !authed.is_admin {
+        for kind in [ManageKind::Schedules, ManageKind::Triggers] {
+            if let Err(e) = check_operator_can_manage(&db, &w_id, &authed, kind.clone()).await {
+                manage_denied.push((kind, e.to_string()));
+            }
+        }
+    }
+    for item in &mut items {
+        let manage_kind = match item.kind.as_str() {
+            "schedule" => Some(ManageKind::Schedules),
+            k if k.ends_with("_trigger") => Some(ManageKind::Triggers),
+            _ => None,
+        };
+        item.blocked = manage_kind
+            .and_then(|mk| {
+                manage_denied
+                    .iter()
+                    .find(|(k, _)| *k == mk)
+                    .map(|(_, e)| e.clone())
+            })
+            .or_else(|| grant_blocked(&authed, &item.path));
+    }
+    Ok(Json(BrowseItems { items, has_more }))
 }
