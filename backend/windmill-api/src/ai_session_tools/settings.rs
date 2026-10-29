@@ -2,8 +2,9 @@
 
 use serde_json::{json, Map, Value};
 
+use super::chat::Effect;
 use super::workspace::api_message;
-use super::{array, js_head, js_len, js_str, str_arg, Ctx, ToolResult};
+use super::{array, js_head, js_len, js_str, str_arg, Ctx, Surface, ToolResult};
 
 pub(super) const TOOLS: &[&str] = &["get_workspace_settings", "set_workspace_settings"];
 
@@ -65,37 +66,73 @@ fn parse_settings_yaml(text: &str) -> Result<Value, String> {
     }
 }
 
-/// The dry run stands in for the session's confirmation card: it reports a no-op or an
-/// invalid document before anything is written.
+/// The dry run reports a no-op or an invalid document before anything is written: for MCP
+/// it stands in for the session's confirmation card, and the chat runs it alone, as a
+/// check-only call, before showing that card.
 async fn set_workspace_settings(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let route = ctx.ws("workspaces/settings_document");
+    let refuse = |label: String, text: String| {
+        ctx.facts(json!({ "refused": label }));
+        Ok(text)
+    };
     let document = match parse_settings_yaml(str_arg(args, "yaml")?) {
         Ok(document) => document,
-        Err(e) => return Ok(format!("Nothing was changed: {e}")),
+        Err(e) if ctx.surface == Surface::Chat && !ctx.check_only() => return Err(e),
+        Err(e) => {
+            return refuse(
+                format!("Invalid settings: {e}"),
+                format!("Nothing was changed: {e}"),
+            )
+        }
     };
-    let dry_run = json!({ "document": document, "replace": false, "dry_run": true });
-    let dry_run = match ctx.post(&route, dry_run).await {
-        Ok(result) => result,
-        Err(e) => return Ok(format!("Nothing was changed: {}", api_message(&e))),
-    };
-    if array(dry_run.get("changes")).is_empty() {
-        let warnings: Vec<String> = array(dry_run.get("warnings")).iter().map(js_str).collect();
-        let warnings = if warnings.is_empty() {
-            String::new()
-        } else {
-            format!(" Warnings: {}", warnings.join(" "))
+    // The chat's own check ran before its card, and the user confirmed what it showed.
+    if ctx.surface == Surface::Mcp || ctx.check_only() {
+        let dry_run = json!({ "document": document, "replace": false, "dry_run": true });
+        let dry_run = match ctx.post(&route, dry_run).await {
+            Ok(result) => result,
+            Err(e) => {
+                let e = api_message(&e);
+                return refuse(
+                    format!("Invalid settings: {e}"),
+                    format!("Nothing was changed: {e}"),
+                );
+            }
         };
-        return Ok(format!(
-            "The settings already hold these values: nothing to change.{warnings}"
-        ));
+        if array(dry_run.get("changes")).is_empty() {
+            let warnings: Vec<String> = array(dry_run.get("warnings")).iter().map(js_str).collect();
+            let warnings = if warnings.is_empty() {
+                String::new()
+            } else {
+                format!(" Warnings: {}", warnings.join(" "))
+            };
+            return refuse(
+                "No settings change".to_string(),
+                format!("The settings already hold these values: nothing to change.{warnings}"),
+            );
+        }
+        if ctx.check_only() {
+            ctx.facts(json!({ "changes": dry_run["changes"] }));
+            return Ok(String::new());
+        }
     }
     let applied = match ctx
         .post(&route, json!({ "document": document, "replace": false }))
         .await
     {
         Ok(result) => result,
-        Err(e) => return Ok(json!({ "success": false, "error": api_message(&e) }).to_string()),
+        Err(e) => {
+            let error = api_message(&e);
+            let mut failed = Map::new();
+            failed.insert(
+                "content".into(),
+                json!("Failed to change workspace settings"),
+            );
+            failed.insert("error".into(), json!(error));
+            ctx.effect(Effect::Status(failed));
+            return Ok(json!({ "success": false, "error": error }).to_string());
+        }
     };
+    ctx.facts(json!({ "changes": applied["changes"] }));
     let keys: Vec<String> = array(applied.get("changes"))
         .iter()
         .map(|c| js_str(c.get("key").unwrap_or(&Value::Null)))
@@ -105,7 +142,11 @@ async fn set_workspace_settings(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     out.insert(
         "message".into(),
         json!(format!(
-            "These settings are now applied: {}.",
+            "{} now applied: {}.",
+            match ctx.surface {
+                Surface::Chat => "The user approved and these settings are",
+                Surface::Mcp => "These settings are",
+            },
             keys.join(", ")
         )),
     );

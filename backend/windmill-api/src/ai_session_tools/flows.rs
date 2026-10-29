@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::{json, Map, Value};
 use windmill_types::flows::FlowModule;
 
+use super::ai_providers::{self, CatalogFor};
 use super::workspace::{
     compact_flow, empty_schema, find_and_replace, finish_draft_write, load_flow, persist_draft,
     write_base, Persist, FLOW_VALUE_SETTINGS_KEYS,
@@ -69,7 +70,6 @@ const RESERVED_TOOL_NAMES: &[&str] = &[
     "Trigger",
     "__wm_web_search",
 ];
-const PROVIDER_SHAPE: &str = r#"{ "type": "static", "value": { "kind": "<provider kind>", "resource": "$res:<resource path>", "model": "<model id>" } }"#;
 
 fn module_id(module: &Value) -> &str {
     module.get("id").and_then(Value::as_str).unwrap_or_default()
@@ -410,45 +410,6 @@ fn tool_name_error(name: &str, siblings: &[&str]) -> Option<String> {
     (siblings.iter().filter(|n| **n == name).count() > 1).then(|| "Duplicate tool name".into())
 }
 
-/// A provider config that cannot run whatever the workspace holds.
-fn provider_shape_error(provider: Option<&Value>, step_type: &str) -> Option<String> {
-    let provider = match provider {
-        Some(Value::String(reference)) => {
-            return Some(format!(
-                "provider must be an object {PROVIDER_SHAPE}, not the resource reference string {}",
-                json!(reference)
-            ))
-        }
-        Some(Value::Object(provider)) => provider,
-        _ => return Some(format!("provider must be an object {PROVIDER_SHAPE}")),
-    };
-    let text = |key: &str| {
-        provider
-            .get(key)
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-    };
-    let kind = text("kind");
-    if kind.is_empty() {
-        return Some(format!(
-            "provider.kind is missing. Expected {PROVIDER_SHAPE}"
-        ));
-    }
-    let decision_only = ["typesafe", "cloudflare"].contains(&kind);
-    if step_type == "aidecision" && !decision_only && kind != "openai" {
-        return Some(format!("an AI decision step runs on a decision model: provider.kind must be \"typesafe\", \"cloudflare\" or \"openai\", not \"{kind}\""));
-    }
-    if step_type != "aidecision" && decision_only {
-        return Some(format!("\"{kind}\" serves decision models, which answer typed questions rather than messages: use an \"aidecision\" step rather than an AI agent"));
-    }
-    if !text("resource").starts_with("$res:") {
-        return Some(format!("provider.resource must be a \"$res:<resource path>\" reference. Expected {PROVIDER_SHAPE}"));
-    }
-    text("model")
-        .is_empty()
-        .then(|| format!("provider.model is missing. Expected {PROVIDER_SHAPE}"))
-}
-
 fn quoted_list(ids: &[String]) -> String {
     ids.iter()
         .map(|id| format!("\"{id}\""))
@@ -465,7 +426,6 @@ fn validate_modules(modules: &mut Value) -> Result<HashSet<String>, String> {
     let mut ids = Vec::new();
     let mut providerless = Vec::new();
     let mut tool_names = Vec::new();
-    let mut providers = Vec::new();
     walk(Some(modules), false, &mut |module, in_tool| {
         let id = module_id(module);
         // A tool is not a flow module: the agent that owns it checks its shape.
@@ -517,13 +477,6 @@ fn validate_modules(modules: &mut Value) -> Result<HashSet<String>, String> {
                 ));
             }
         }
-
-        let is_static = |p: &&Value| p.get("type").and_then(Value::as_str) == Some("static");
-        if let Some(provider) = provider.filter(|_| !linked).filter(is_static) {
-            if let Some(error) = provider_shape_error(provider.get("value"), kind) {
-                providers.push(format!("Step \"{id}\": {error}"));
-            }
-        }
     });
 
     if !shape_errors.is_empty() {
@@ -549,12 +502,6 @@ fn validate_modules(modules: &mut Value) -> Result<HashSet<String>, String> {
         return Err(format!(
             "Invalid AI agent tool name(s): {}. The tool's \"summary\" is the name the agent calls it by: use underscores instead of spaces (e.g. \"search_docs\").",
             tool_names.join("; ")
-        ));
-    }
-    if !providers.is_empty() {
-        return Err(format!(
-            "Invalid AI agent provider configuration:\n{}",
-            providers.join("\n")
         ));
     }
     Ok(unique)
@@ -722,8 +669,12 @@ fn validate_notes(raw: Option<&Value>, module_ids: &HashSet<String>) -> Result<V
 
 /// Checks a compact flow view (`modules, schema, preprocessor_module, failure_module,
 /// groups, notes` and the top-level settings) and returns it with every structural key
-/// present, `null` when unset.
-fn validate_editable(raw: Value) -> Result<Map<String, Value>, String> {
+/// present, `null` when unset. Provider findings that do not block go to `warnings`.
+fn validate_editable(
+    raw: Value,
+    catalog: Option<&ai_providers::Catalog>,
+    warnings: &mut Vec<String>,
+) -> Result<Map<String, Value>, String> {
     let Value::Object(mut flow) = raw else {
         return Err("Flow JSON must be an object".into());
     };
@@ -744,8 +695,9 @@ fn validate_editable(raw: Value) -> Result<Map<String, Value>, String> {
     }
     validate_settings(&flow)?;
 
-    let mut modules = flow.remove("modules").unwrap_or(Value::Null);
+    let mut modules = flow.shift_remove("modules").unwrap_or(Value::Null);
     let module_ids = validate_modules(&mut modules)?;
+    ai_providers::validate(&modules, catalog, warnings)?;
     let schema = match flow.get("schema") {
         None | Some(Value::Null) => Value::Null,
         Some(schema @ Value::Object(_)) => schema.clone(),
@@ -776,12 +728,12 @@ fn validate_editable(raw: Value) -> Result<Map<String, Value>, String> {
     editable.insert("modules".into(), modules);
     editable.insert("schema".into(), schema);
     for (key, _) in SPECIAL_MODULES {
-        editable.insert(key.into(), flow.remove(key).unwrap_or(Value::Null));
+        editable.insert(key.into(), flow.shift_remove(key).unwrap_or(Value::Null));
     }
     editable.insert("groups".into(), groups);
     editable.insert("notes".into(), notes);
     for key in FLOW_VALUE_SETTINGS_KEYS {
-        if let Some(setting) = flow.remove(*key) {
+        if let Some(setting) = flow.shift_remove(*key) {
             editable.insert((*key).into(), setting);
         }
     }
@@ -910,7 +862,13 @@ async fn write_flow(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     for key in STRUCTURAL_KEYS {
         raw.insert((*key).into(), json_arg(args, key)?);
     }
-    let mut editable = validate_editable(Value::Object(raw))?;
+    let catalog = match ai_providers::catalog_for(ctx, &raw["modules"]).await {
+        CatalogFor::Requested => return Ok(String::new()),
+        CatalogFor::Ready(catalog) => Some(catalog),
+        CatalogFor::NotNeeded => None,
+    };
+    let mut warnings = Vec::new();
+    let mut editable = validate_editable(Value::Object(raw), catalog.as_ref(), &mut warnings)?;
 
     // A placeholder keeps the body the current flow has for that module, so a rewrite
     // does not have to send code it is not changing.
@@ -924,9 +882,9 @@ async fn write_flow(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 
     let schema = non_null(editable.get("schema")).cloned();
     let groups = non_null(editable.get("groups")).cloned();
-    editable.remove("schema");
+    editable.shift_remove("schema");
     editable.retain(|_, field| !field.is_null());
-    write_flow_draft(
+    let written = write_flow_draft(
         ctx,
         FlowWrite {
             path,
@@ -940,7 +898,18 @@ async fn write_flow(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             force: args.get("override").and_then(Value::as_bool) == Some(true),
         },
     )
-    .await
+    .await?;
+    Ok(with_provider_warnings(ctx, written, &warnings))
+}
+
+/// The provider findings that did not block the write, after the result. The chat appends
+/// them itself when its own save fails and replaces this text.
+fn with_provider_warnings(ctx: &Ctx<'_>, written: String, warnings: &[String]) -> String {
+    let suffix = ai_providers::format_warnings(warnings);
+    if !suffix.is_empty() {
+        ctx.facts(json!({ "text_suffix": suffix }));
+    }
+    format!("{written}{suffix}")
 }
 
 async fn patch_flow_json(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
@@ -959,10 +928,16 @@ async fn patch_flow_json(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     )?;
     let parsed: Value = serde_json::from_str(&updated)
         .map_err(|e| format!("Invalid JSON after replacement: {e}"))?;
-    let editable = validate_editable(parsed)?;
+    let catalog = match ai_providers::catalog_for(ctx, &parsed["modules"]).await {
+        CatalogFor::Requested => return Ok(String::new()),
+        CatalogFor::Ready(catalog) => Some(catalog),
+        CatalogFor::NotNeeded => None,
+    };
+    let mut warnings = Vec::new();
+    let editable = validate_editable(parsed, catalog.as_ref(), &mut warnings)?;
     let mut value = apply_editable(base.flow.get("value"), &editable, &scripts);
     finalize_inline_scripts(&mut value)?;
-    write_flow_draft(
+    let written = write_flow_draft(
         ctx,
         FlowWrite {
             path,
@@ -976,14 +951,38 @@ async fn patch_flow_json(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             force: false,
         },
     )
-    .await
+    .await?;
+    Ok(with_provider_warnings(ctx, written, &warnings))
+}
+
+/// A step as the chat's card names it: its id, and its summary when it has one.
+fn step_name(flow: Option<&Value>, module_id: &str) -> String {
+    let mut flow = flow.and_then(Value::as_object).cloned().unwrap_or_default();
+    let mut summary = None;
+    walk_flow(&mut flow, &mut |module, _| {
+        if summary.is_none() && self::module_id(module) == module_id {
+            summary = module
+                .get("summary")
+                .and_then(Value::as_str)
+                .map(String::from);
+        }
+    });
+    match summary.filter(|s| !s.is_empty()) {
+        Some(summary) => format!("{module_id} \"{summary}\""),
+        None => module_id.to_string(),
+    }
 }
 
 async fn read_flow_module_code(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let (path, module_id) = (str_arg(args, "path")?, str_arg(args, "module_id")?);
     let base = load_flow(ctx, path).await?;
     let (_, mut scripts) = compact_flow(base.flow.get("value").unwrap_or(&Value::Null), None);
-    scripts.remove(module_id).ok_or_else(|| format!("Module \"{module_id}\" is not an inline rawscript in flow \"{path}\". (Path runnables, branches, and loops have no inline script content; use patch_flow_json to inspect them.)"))
+    let code = scripts.remove(module_id).ok_or_else(|| format!("Module \"{module_id}\" is not an inline rawscript in flow \"{path}\". (Path runnables, branches, and loops have no inline script content; use patch_flow_json to inspect them.)"))?;
+    ctx.status(format!(
+        "Read code of step {}",
+        step_name(base.flow.get("value"), module_id)
+    ));
+    Ok(code)
 }
 
 async fn set_flow_module_code(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
@@ -999,6 +998,14 @@ async fn set_flow_module_code(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     }
     scripts.insert(module_id.to_string(), code.to_string());
     let editable = compact.as_object().cloned().unwrap_or_default();
+    // Several code edits of one flow read as identical rows under the generic flow label.
+    ctx.status_after_save(
+        format!(
+            "Updated code of step {}",
+            step_name(base.flow.get("value"), module_id)
+        ),
+        None,
+    );
     write_flow_draft(
         ctx,
         FlowWrite {
@@ -1111,7 +1118,8 @@ mod tests {
             .to_string()
             .replace(",\"same_worker\":true", "")
             .replace("\"id\":\"b\"", "\"id\":\"c\"");
-        let editable = validate_editable(serde_json::from_str(&patched).unwrap()).unwrap();
+        let editable =
+            validate_editable(serde_json::from_str(&patched).unwrap(), None, &mut vec![]).unwrap();
         let mut applied = apply_editable(Some(&value), &editable, &scripts);
         finalize_inline_scripts(&mut applied).unwrap();
         assert_eq!(content(&applied, "/0"), "A");
@@ -1124,7 +1132,7 @@ mod tests {
 
     #[test]
     fn validation_reports_what_the_editor_would_refuse() {
-        let check = |flow: Value| validate_editable(flow).unwrap_err();
+        let check = |flow: Value| validate_editable(flow, None, &mut vec![]).unwrap_err();
         assert_eq!(
             check(json!({ "modules": [raw("a", ""), raw("a", "")] })),
             "Duplicate module IDs found in flow"
@@ -1159,7 +1167,7 @@ mod tests {
         assert!(check(agent(json!([tool("search docs")]))).starts_with(
             "Invalid AI agent tool name(s): agent \"agent\" tool \"t\" is named \"search docs\" - Tool name must only contain letters, numbers and underscores. "
         ));
-        validate_editable(agent(json!([tool("search_docs")]))).unwrap();
+        validate_editable(agent(json!([tool("search_docs")])), None, &mut vec![]).unwrap();
     }
 
     #[test]

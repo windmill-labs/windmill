@@ -3,7 +3,9 @@
 //! the other tools, which draw nothing, and calls one of these when it means the user to
 //! see a result: a host draws a card for every call of a tool that has one.
 
-use serde_json::{json, Value};
+#[cfg(feature = "mcp")]
+use serde_json::json;
+use serde_json::Value;
 
 use super::{deploy, runs, workspace, Ctx, SessionAccess, ToolResult};
 
@@ -11,7 +13,7 @@ pub(super) const TOOLS: &[&str] = &["show_run", "show_runs", "show_deploy_review
 
 /// The review card's one action deploys, which only a full token may do: such a token is
 /// neither offered the tool nor answered when it calls it by name.
-pub(super) fn allowed(name: &str, access: SessionAccess) -> bool {
+pub(crate) fn allowed(name: &str, access: SessionAccess) -> bool {
     name != "show_deploy_review" || access == SessionAccess::Full
 }
 
@@ -32,7 +34,8 @@ pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult 
 
 /// Each tool as `(name, description, input schema)`. All only read: the review card's
 /// Deploy button calls `deploy_workspace_item`, which the token's own access gates.
-pub(super) fn definitions() -> [(&'static str, &'static str, Value); 4] {
+#[cfg(feature = "mcp")]
+pub(crate) fn definitions() -> [(&'static str, &'static str, Value); 4] {
     [
         (
             "show_run",

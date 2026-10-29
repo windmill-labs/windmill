@@ -1,6 +1,3 @@
-import { mkdtemp, rm } from "fs/promises";
-import { tmpdir } from "os";
-import { join } from "path";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
 import type { AIProvider, OperatorSettings } from "$lib/gen/types.gen";
 import {
@@ -29,6 +26,7 @@ import { appendPlanModeInstructions } from "../../../../../frontend/src/lib/comp
 import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
 import { createEvalPlanTools } from "./planModeTools";
 import { UserDraft } from "../../../../../frontend/src/lib/userDraft.svelte";
+import { DraftService } from "$lib/gen";
 import {
   createEvalArtifactHelpers,
   type SeededArtifact,
@@ -42,11 +40,11 @@ import type { EvalCaseProfile, ModeRunContext } from "../../../../core/types";
 import type { GlobalDraftState } from "../../../../core/validators";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
 import {
-  registerBenchmarkWorkspaceRunnables,
-  seedBenchmarkDraft,
+  registerBenchmarkAiModels,
   unregisterBenchmarkWorkspaceRunnables,
   type BenchmarkWorkspaceRunnables,
 } from "../../mockBackend";
+import { createRealWorkspace } from "./realWorkspace";
 import { runEval } from "../shared";
 import type { TokenUsage, ToolCallDetail } from "../shared/types";
 
@@ -140,7 +138,6 @@ export interface GlobalEvalOptions {
   userAnswers?: string[];
   provider?: AIProvider;
   backend: WindmillBackendSettings;
-  workspaceRoot?: string;
   // Artifacts the session already holds when the run starts.
   artifacts?: SeededArtifact[];
   /** Tabs already open in the side panel, including any artifact version the reader pinned. */
@@ -153,18 +150,22 @@ export async function runGlobalEval(
   apiKey: string,
   options: GlobalEvalOptions,
 ): Promise<GlobalEvalResult> {
-  const workspaceRoot =
-    options.workspaceRoot ??
-    (await mkdtemp(join(tmpdir(), "wmill-frontend-global-benchmark-")));
+  const realWorkspace = await createRealWorkspace({
+    settings: options.backend,
+    caseId: options.runContext?.caseId ?? "global",
+    attempt: options.runContext?.attempt ?? 1,
+    fixtures: options.workspaceFixtures ?? {},
+    user: options.user,
+    profile: options.profile,
+  });
+  const workspaceRoot = realWorkspace.id;
 
   clearGlobalDrafts(workspaceRoot);
-  registerBenchmarkWorkspaceRunnables(
+  registerBenchmarkAiModels(
     workspaceRoot,
-    options.workspaceFixtures ?? {},
+    options.workspaceFixtures?.aiProviders ?? [],
   );
-  seedLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
-  // No deploy rules in the mock workspace, so they always pass. The role is read as a server
-  // that predates workspace roles describes it, from `operator_settings`.
+  // The eval workspace has no deploy rules, so they always pass.
   const roleAccess =
     options.profile &&
     capabilitiesForRole({
@@ -187,6 +188,7 @@ export async function runGlobalEval(
   let panel: EvalPreviewPanel | undefined;
 
   try {
+    await seedLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
     const evalArtifacts = createEvalArtifactHelpers(options.artifacts);
     // Only a session chat has a side panel, so only it gets one here. Seeded tabs would
     // otherwise vanish without a word, and the case would measure an empty panel.
@@ -230,6 +232,9 @@ export async function runGlobalEval(
     });
     const helpers = {
       ...evalArtifacts.helpers,
+      // A standalone chat has no session: the tools that behave differently in one (a pipeline
+      // node is built into the pipeline draft there, not written as a script) read this.
+      sessionId: options.sessionChat ? evalArtifacts.helpers.sessionId : undefined,
       access,
       ...(panel && { openArtifact: panel.openArtifact }),
     };
@@ -275,7 +280,7 @@ export async function runGlobalEval(
         model,
         workspace: workspaceRoot,
         provider: options.provider,
-        backend: options.backend,
+        backend: realWorkspace.backend,
         caseId: options.runContext?.caseId,
         attempt: options.runContext?.attempt,
       },
@@ -299,9 +304,7 @@ export async function runGlobalEval(
     clearLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
     seedOperatorSettings(workspaceRoot, undefined);
     unregisterBenchmarkWorkspaceRunnables(workspaceRoot);
-    if (!options.workspaceRoot) {
-      await rm(workspaceRoot, { recursive: true, force: true });
-    }
+    await realWorkspace.dispose();
   }
 }
 
@@ -331,17 +334,22 @@ async function collectGlobalDraftState(
   return { drafts: drafts as GlobalDraftState["drafts"] };
 }
 
-function seedLiveEditorDrafts(
+async function seedLiveEditorDrafts(
   workspace: string,
   fixtures: GlobalLiveEditorDraftFixture[],
-): void {
+): Promise<void> {
   for (const fixture of fixtures) {
     const itemKind = LIVE_EDITOR_ITEM_KINDS[fixture.type];
     const storagePath = fixture.storagePath ?? fixture.effectivePath ?? "";
     if (fixture.value !== undefined) {
       // Seed as a backend draft row, not an in-tab cell: a cell would shadow the
       // model's DB-backed edit when the output is read back via listGlobalDrafts.
-      seedBenchmarkDraft(workspace, itemKind, storagePath, fixture.value);
+      await DraftService.updateDraft({
+        workspace,
+        kind: itemKind,
+        path: storagePath,
+        requestBody: { value: fixture.value, force: true },
+      });
     }
     UserDraft.setLiveEditorDraft({
       workspace,
@@ -382,6 +390,10 @@ function seedOperatorSettings(
         username: "",
         color: "",
         operator_settings: operatorSettings as OperatorSettings,
+        role: "operator",
+        capabilities: legacyOperatorCapabilities(
+          operatorSettings as OperatorSettings,
+        ),
         is_dev_workspace: false,
         disabled: false,
       });

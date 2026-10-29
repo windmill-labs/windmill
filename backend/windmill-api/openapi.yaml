@@ -14730,6 +14730,84 @@ paths:
                     type: boolean
                     description: more buckets matched than were returned, so summing them under-reports
 
+  /w/{workspace}/ai_session_tools/{name}:
+    post:
+      summary: run one of the AI session's tools as the calling user
+      description: The in-app chat's entry to the session toolset the MCP server also serves. Refused for job tokens and scoped tokens.
+      operationId: callAiSessionTool
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                args:
+                  description: the tool's arguments, as the model sent them
+                context:
+                  type: object
+                  description: browser-held state the tool reads
+                  additionalProperties: true
+                  properties:
+                    live_editors:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - kind
+                          - storage_path
+                        properties:
+                          kind:
+                            type: string
+                          storage_path:
+                            type: string
+                          effective_path:
+                            type: string
+                    cells:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - kind
+                          - storage_path
+                          - value
+                        properties:
+                          kind:
+                            type: string
+                          storage_path:
+                            type: string
+                          value: {}
+      responses:
+        "200":
+          description: what the model reads, and what the chat applies
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - text
+                  - is_error
+                  - effects
+                properties:
+                  text:
+                    type: string
+                  is_error:
+                    type: boolean
+                  effects:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+
   /w/{workspace}/ai/sessions/list:
     get:
       summary: list the calling user's AI session backups in the workspace object storage

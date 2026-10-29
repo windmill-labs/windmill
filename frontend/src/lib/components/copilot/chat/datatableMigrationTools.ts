@@ -1,14 +1,7 @@
 import { z } from 'zod'
-import { WorkspaceService } from '$lib/gen'
-import { withMigrationRole } from '$lib/components/datatableMigrationRole'
-import {
-	migrationScope,
-	parseMigrationSchemas,
-	scopesOverlap,
-	withMigrationSchemas
-} from '$lib/components/datatableMigrationSchemas'
-import { createToolDef, type ToolCallbacks } from './shared'
+import { createToolDef } from './shared'
 import { NONE, RUN_PREVIEW, type SessionTool } from './sessionCapabilities'
+import { runServerTool } from './global/backendSessionTools'
 
 /**
  * Tools over a data table's versioned SQL migrations (`datatable_migrations.rs`).
@@ -22,21 +15,6 @@ const memo = <T>(factory: () => T): (() => T) => {
 	let cached: T | undefined
 	return () => (cached ??= factory())
 }
-
-function apiErrorMessage(e: unknown): string {
-	const err = e as { body?: unknown; message?: unknown } | undefined
-	const body = err?.body
-	if (typeof body === 'string' && body !== '') return body
-	if (typeof err?.message === 'string') return err.message
-	return String(e)
-}
-
-function fail(toolCallbacks: ToolCallbacks, toolId: string, message: string): string {
-	toolCallbacks.setToolStatus(toolId, { content: message, error: message })
-	return message
-}
-
-const migrationLabel = (m: { version: number; name: string }) => `${m.version} (${m.name})`
 
 const datatableNameSchema = () =>
 	z.string().describe('The datatable the migrations belong to, e.g. "main".')
@@ -146,66 +124,12 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 			requires: NONE,
 			def: getListMigrationsToolDef(),
 			planModeSafe: true,
-			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-				const { datatable_name, version } = getListMigrationsSchema().parse(args)
-				toolCallbacks.setToolStatus(toolId, {
+			fn: async (ctx) => {
+				const { datatable_name } = getListMigrationsSchema().parse(ctx.args)
+				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 					content: `Listing migrations of "${datatable_name}"...`
 				})
-				try {
-					const status = await WorkspaceService.getDatatableMigrationsStatus({
-						workspace,
-						datatableName: datatable_name
-					})
-					if (!status.enabled) {
-						toolCallbacks.setToolStatus(toolId, {
-							content: `Migrations are not enabled on "${datatable_name}"`
-						})
-						return `Migrations are not enabled on datatable "${datatable_name}": its schema is changed with plain SQL and there is no history to list. Enabling them is a workspace admin's decision, made in Workspace settings → Data Tables.`
-					}
-					if (version !== undefined) {
-						const migration = status.migrations.find((m) => m.timestamp === version)
-						if (!migration) {
-							return fail(
-								toolCallbacks,
-								toolId,
-								`No migration ${version} on datatable "${datatable_name}"`
-							)
-						}
-						toolCallbacks.setToolStatus(toolId, {
-							content: `Read migration ${migrationLabel({ version, name: migration.name })}`
-						})
-						return JSON.stringify(
-							{
-								version,
-								name: migration.name,
-								status: migrationStatus(migration.status),
-								code_up: migration.code_up,
-								...(migration.code_down != null && { code_down: migration.code_down })
-							},
-							null,
-							2
-						)
-					}
-					toolCallbacks.setToolStatus(toolId, {
-						content: `Listed ${status.migrations.length} migration(s) of "${datatable_name}"`
-					})
-					return JSON.stringify(
-						{
-							migrations: status.migrations.map((m) => ({
-								version: m.timestamp,
-								name: m.name,
-								status: migrationStatus(m.status),
-								schemas: m.schemas ?? 'whole database'
-							})),
-							// Set when the database could not be read, which is why every status is unknown.
-							...(status.error && { error: status.error })
-						},
-						null,
-						2
-					)
-				} catch (e) {
-					return fail(toolCallbacks, toolId, `Error listing migrations: ${apiErrorMessage(e)}`)
-				}
+				return (await runServerTool('list_datatable_migrations', ctx)).text
 			}
 		},
 		{
@@ -218,124 +142,12 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 				`${args?.version === undefined ? 'Create' : 'Rewrite'}${args?.apply === false ? '' : ' and apply'} data table migration`,
 			queuedLabel: (args) => `Write migration "${args?.name ?? ''}"`,
 			showDetails: true,
-			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-				const parsed = getCreateMigrationSchema().parse(args)
-				const datatableName = parsed.datatable_name
-				toolCallbacks.setToolStatus(toolId, {
-					content: `Saving migration "${parsed.name}" on "${datatableName}"...`
+			fn: async (ctx) => {
+				const parsed = getCreateMigrationSchema().parse(ctx.args)
+				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+					content: `Saving migration "${parsed.name}" on "${parsed.datatable_name}"...`
 				})
-				// The role is an annotation in the SQL, read from above everything else, and a rollback
-				// has to run as the role that created what it drops.
-				// No inference here: the model reads the SQL it wrote better than a pattern does, so
-				// the scope is what it declares, and the whole database when it declares none.
-				const declared = parseMigrationSchemas(parsed.code_up)
-				const scope = parsed.schemas ?? (declared.kind === 'schemas' ? declared.schemas : [])
-				const definition = {
-					name: parsed.name,
-					code_up: withMigrationSchemas(
-						withRole(parsed.code_up, parsed.role),
-						scope.map((s) => s.toLowerCase())
-					),
-					...(parsed.code_down !== undefined && {
-						code_down: withRole(parsed.code_down, parsed.role)
-					})
-				}
-				let version: number
-				try {
-					if (parsed.version === undefined) {
-						const created = await WorkspaceService.createDatatableMigration({
-							workspace,
-							datatableName,
-							requestBody: definition
-						})
-						version = created.timestamp
-					} else {
-						version = parsed.version
-						// The server inserts at a version it does not know, which would wedge a new
-						// migration into the middle of the history, and stores a down left out as none.
-						const { migrations } = await WorkspaceService.getDatatableMigrationsStatus({
-							workspace,
-							datatableName
-						})
-						const existing = migrations.find((m) => m.timestamp === version)
-						if (existing?.status !== 'not_run') {
-							return fail(
-								toolCallbacks,
-								toolId,
-								`Migration ${version} is not a pending migration of datatable "${datatableName}", so it cannot be rewritten. Omit \`version\` to add a new migration.`
-							)
-						}
-						await WorkspaceService.upsertDatatableMigration({
-							workspace,
-							datatableName,
-							requestBody: {
-								timestamp: version,
-								...(existing.code_down != null && { code_down: existing.code_down }),
-								...definition
-							}
-						})
-					}
-				} catch (e) {
-					return fail(toolCallbacks, toolId, `Error saving migration: ${apiErrorMessage(e)}`)
-				}
-				const label = migrationLabel({ version, name: parsed.name })
-				if (parsed.apply === false) {
-					toolCallbacks.setToolStatus(toolId, { content: `Saved migration ${label} as pending` })
-					return `Saved migration ${label} as pending. It is not applied yet.`
-				}
-
-				// Applying it alone would run it ahead of migrations it may depend on, and applying
-				// those with it would run SQL the user was never shown.
-				let earlierPending: string[]
-				try {
-					const status = await WorkspaceService.getDatatableMigrationsStatus({
-						workspace,
-						datatableName
-					})
-					const ownScope = migrationScope(definition.code_up)
-					const earlier = status.migrations.filter(
-						(m) => m.timestamp < version && scopesOverlap(m.schemas, ownScope)
-					)
-					// Unreadable is not pending: reporting it so would send the user to apply
-					// migrations that already ran.
-					if (status.error || earlier.some((m) => m.status === 'unknown')) {
-						throw new Error(status.error ?? 'the applied migrations could not be read')
-					}
-					earlierPending = earlier
-						.filter((m) => m.status === 'not_run')
-						.map((m) => migrationLabel({ version: m.timestamp, name: m.name }))
-				} catch (e) {
-					return fail(
-						toolCallbacks,
-						toolId,
-						`Saved migration ${label} as pending, but could not check what else is pending, so it was not applied: ${apiErrorMessage(e)}`
-					)
-				}
-				if (earlierPending.length > 0) {
-					toolCallbacks.setToolStatus(toolId, {
-						content: `Saved migration ${label}; ${earlierPending.length} earlier migration(s) still pending`
-					})
-					return `Saved migration ${label} as pending without applying it: earlier migrations are not applied yet (${earlierPending.join(', ')}) and it may depend on them. Tell the user, then apply them all in order with run_datatable_migrations.`
-				}
-
-				toolCallbacks.setToolStatus(toolId, { content: `Applying migration ${label}...` })
-				try {
-					await WorkspaceService.runDatatableMigrations({
-						workspace,
-						datatableName,
-						only: version
-					})
-				} catch (e) {
-					// Kept whatever failed: part of it may be applied, or all of it with only the record
-					// missing, and the definition with its down is then the one trace of that.
-					return fail(
-						toolCallbacks,
-						toolId,
-						`Migration ${label} is saved but failed to apply: ${apiErrorMessage(e)}. It stays pending and blocks later migrations. If nothing of it was applied, fix it by calling this tool again with version ${version}; otherwise, or to drop it, tell the user, who can edit or delete it in Workspace settings → Data Tables.`
-					)
-				}
-				toolCallbacks.setToolStatus(toolId, { content: `Applied migration ${label}` })
-				return `Applied migration ${label} on datatable "${datatableName}".`
+				return (await runServerTool('create_datatable_migration', ctx)).text
 			}
 		},
 		{
@@ -346,32 +158,12 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 			confirmationMessage: 'Apply pending data table migrations',
 			queuedLabel: (args) => `Apply migrations on "${args?.datatable_name ?? 'datatable'}"`,
 			showDetails: true,
-			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-				const { datatable_name } = getRunMigrationsSchema().parse(args)
-				toolCallbacks.setToolStatus(toolId, {
+			fn: async (ctx) => {
+				const { datatable_name } = getRunMigrationsSchema().parse(ctx.args)
+				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 					content: `Applying migrations on "${datatable_name}"...`
 				})
-				try {
-					const { applied } = await WorkspaceService.runDatatableMigrations({
-						workspace,
-						datatableName: datatable_name
-					})
-					if (applied.length === 0) {
-						toolCallbacks.setToolStatus(toolId, { content: 'No pending migration to apply' })
-						return `No pending migration to apply on datatable "${datatable_name}".`
-					}
-					toolCallbacks.setToolStatus(toolId, {
-						content: `Applied ${applied.length} migration(s) on "${datatable_name}"`
-					})
-					return `Applied ${applied.length} migration(s) on datatable "${datatable_name}": ${applied.map(migrationLabel).join(', ')}.`
-				} catch (e) {
-					// Those before the failing one are applied: the list is what says where it stopped.
-					return fail(
-						toolCallbacks,
-						toolId,
-						`Error applying migrations: ${apiErrorMessage(e)}. Migrations before the failing one may have been applied: list them to see.`
-					)
-				}
+				return (await runServerTool('run_datatable_migrations', ctx)).text
 			}
 		},
 		{
@@ -382,36 +174,13 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 			confirmationMessage: (args) => `Roll back data table migration ${args?.version ?? ''}`,
 			queuedLabel: (args) => `Roll back migration ${args?.version ?? ''}`,
 			showDetails: true,
-			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-				const { datatable_name, version } = getRollbackMigrationSchema().parse(args)
-				toolCallbacks.setToolStatus(toolId, {
+			fn: async (ctx) => {
+				const { datatable_name, version } = getRollbackMigrationSchema().parse(ctx.args)
+				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
 					content: `Rolling back migration ${version} on "${datatable_name}"...`
 				})
-				try {
-					const { rolled_back } = await WorkspaceService.rollbackDatatableMigrations({
-						workspace,
-						datatableName: datatable_name,
-						only: version
-					})
-					if (rolled_back.length === 0) {
-						toolCallbacks.setToolStatus(toolId, { content: `Migration ${version} is not applied` })
-						return `Migration ${version} is not applied on datatable "${datatable_name}", so there is nothing to roll back.`
-					}
-					const label = rolled_back.map(migrationLabel).join(', ')
-					toolCallbacks.setToolStatus(toolId, { content: `Rolled back migration ${label}` })
-					return `Rolled back migration ${label} on datatable "${datatable_name}". It is pending again.`
-				} catch (e) {
-					return fail(toolCallbacks, toolId, `Error rolling back: ${apiErrorMessage(e)}`)
-				}
+				return (await runServerTool('rollback_datatable_migration', ctx)).text
 			}
 		}
 	]
-}
-
-function migrationStatus(status: 'ran' | 'not_run' | 'unknown'): 'applied' | 'pending' | 'unknown' {
-	return status === 'ran' ? 'applied' : status === 'not_run' ? 'pending' : 'unknown'
-}
-
-function withRole(sql: string, role: string | undefined): string {
-	return role === undefined ? sql : withMigrationRole(sql, role)
 }

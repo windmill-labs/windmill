@@ -14,7 +14,7 @@ use super::workspace::{
 };
 use super::{
     array, bool_arg, enc, is_not_found, js_str, matches_glob, non_null, opt_str_arg, pretty,
-    str_arg, truthy, Ctx, ToolResult,
+    str_arg, truthy, Ctx, Surface, ToolResult,
 };
 
 pub(super) const TOOLS: &[&str] = &["deploy_workspace_item", "delete_workspace_item", "diff"];
@@ -299,7 +299,7 @@ async fn undeployed_runnable_targets(ctx: &Ctx<'_>, runnables: &Map<String, Valu
         } else {
             kind
         };
-        let (Some(target_type @ ("script" | "flow")), Some(path)) = (
+        let (Some(target_type @ ("script" | "flow" | "agent")), Some(path)) = (
             target_type,
             runnable
                 .get("path")
@@ -309,11 +309,28 @@ async fn undeployed_runnable_targets(ctx: &Ctx<'_>, runnables: &Map<String, Valu
             continue;
         };
         // Advisory: a failed probe must not block the deploy it annotates.
-        if let Ok(false) = deployed_item_exists(ctx, target_type, None, path).await {
+        let deployed = if target_type == "agent" {
+            agent_exists(ctx, path).await
+        } else {
+            deployed_item_exists(ctx, target_type, None, path).await
+        };
+        if let Ok(false) = deployed {
             targets.push(format!("\"{key}\" → {target_type} \"{path}\""));
         }
     }
     targets
+}
+
+/// Whether a saved agent, an `ai_agent` resource, is at `path`: another resource runs nothing.
+async fn agent_exists(ctx: &Ctx<'_>, path: &str) -> Result<bool, String> {
+    match ctx
+        .get(&ctx.ws(&format!("resources/get/{}", path_enc(path))))
+        .await
+    {
+        Ok(resource) => Ok(resource["resource_type"] == "ai_agent"),
+        Err(e) if is_not_found(&e) => Ok(false),
+        Err(e) => Err(e),
+    }
 }
 
 async fn guest_access_is_live(ctx: &Ctx<'_>) -> bool {
@@ -546,7 +563,7 @@ async fn deploy_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     }
 
     // The baseline keeps a draft saved since the read above from being deleted undeployed.
-    delete_draft(ctx, &kind, path, draft.created_at.as_deref()).await?;
+    delete_draft(ctx, &kind, path, draft.created_at.as_deref(), true).await?;
 
     let note = note.map(|note| format!(" {note}")).unwrap_or_default();
     Ok(mutation_result(
@@ -554,7 +571,7 @@ async fn deploy_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         item_type,
         path,
         trigger_kind,
-        deployed_page(item_type, path, value).map(|page| ctx.page_url(&page)),
+        deployed_page(item_type, path, value).and_then(|page| ctx.link(&page)),
     ))
 }
 
@@ -569,17 +586,28 @@ async fn delete_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     if item_type == "trigger" && trigger_kind.is_none() {
         return Err("trigger_kind is required when deleting a trigger.".to_string());
     }
-    // Undoing a draft is a discard, not a delete: say so before the delete route 404s.
-    if !deployed_item_exists(ctx, item_type, trigger_kind, path).await? {
-        let draft = get_draft_item(ctx, item_type, path, trigger_kind).await?;
-        return Err(if draft.is_some() {
-            format!(
-                "No deployed {item_type} at \"{path}\" — it only exists as a draft, so there is nothing to delete \
-                 from the workspace. Call discard_local_draft with the same arguments to remove the draft."
-            )
-        } else {
-            format!("No {item_type} at \"{path}\": neither a deployed item nor a draft. Nothing to delete.")
-        });
+    // Undoing a draft is a discard, not a delete: say so before the delete route 404s. The
+    // chat asks this before its confirmation card, which a refused delete never shows.
+    if ctx.surface == Surface::Mcp || ctx.check_only() {
+        if !deployed_item_exists(ctx, item_type, trigger_kind, path).await? {
+            let draft = get_draft_item(ctx, item_type, path, trigger_kind).await?;
+            let refusal = if draft.is_some() {
+                format!(
+                    "No deployed {item_type} at \"{path}\" — it only exists as a draft, so there is nothing to delete \
+                     from the workspace. Call discard_local_draft with the same arguments to remove the draft."
+                )
+            } else {
+                format!("No {item_type} at \"{path}\": neither a deployed item nor a draft. Nothing to delete.")
+            };
+            if ctx.check_only() {
+                ctx.facts(json!({ "refused": refusal }));
+                return Ok(refusal);
+            }
+            return Err(refusal);
+        }
+        if ctx.check_only() {
+            return Ok(String::new());
+        }
     }
 
     let path_in_url = path_enc(path);
@@ -598,8 +626,9 @@ async fn delete_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         .await?;
     }
     if let Some(kind) = draft_kind(item_type, trigger_kind) {
-        delete_draft(ctx, &kind, path, None).await?;
+        delete_draft(ctx, &kind, path, None, false).await?;
     }
+    ctx.status_after_save(format!("Deleted {item_type} \"{path}\""), Some("Deleted"));
     Ok(mutation_result(
         format!(
             "Deleted {item_type} \"{path}\" from the workspace. Any matching draft was also cleared."

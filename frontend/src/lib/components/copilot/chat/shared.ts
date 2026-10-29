@@ -67,6 +67,7 @@ import { getCurrentModel } from '$lib/aiStore'
 import type { editor as meditor } from 'monaco-editor'
 import { pendingFolderInstructions, type FolderInstructionsContext } from './folderInstructions'
 import type { WebSearchSource } from './webSearchResult'
+import { runOnServer } from './global/backendSessionTools'
 
 // Prettify function for code arguments - extracts and formats code from JSON
 function prettifyCodeArguments(content: string): string {
@@ -1604,7 +1605,7 @@ function hasOptionalProperties(schema: Record<string, any> | undefined): boolean
 	return false
 }
 
-const searchHubScriptsSchema = z.object({
+export const searchHubScriptsSchema = z.object({
 	query: z
 		.string()
 		.optional()
@@ -1761,41 +1762,6 @@ const getHubIntegrationToolDef = createToolDef(
 	'Read how one integration works before writing code against it: the resource type it takes, its auth fields, and its most-used scripts as examples. For an integration a search marked `documented` it also returns provider knowledge checked against the live API: pagination, enums, error codes and gotchas.'
 )
 
-/** Enough to show the integration's idiom; search_hub_scripts is the way to find
- * a specific one. */
-const MAX_INTEGRATION_EXAMPLES = 5
-
-/** How the authored notes were checked — method, per-surface confidence, the instance
- * used — is provenance for a human reviewing the hub, and up to a third of the
- * document. The verdict and any fields it flags as shaky are the parts a caller can
- * act on, so those stay. */
-function withoutProvenance(meta: unknown): unknown {
-	if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) {
-		return meta
-	}
-	const { validation, ...rest } = meta as Record<string, unknown>
-	const kept = Object.fromEntries(
-		Object.entries((validation as Record<string, unknown> | undefined) ?? {}).filter(
-			([key]) => key === 'status' || key === 'low_confidence_fields'
-		)
-	)
-	return Object.keys(kept).length ? { ...rest, validation: kept } : rest
-}
-
-/** The hub keeps a resource type's schema in a text column and hands it back as a
- * JSON string, so parse it rather than passing an escaped blob to the model.
- * Anything already structured goes through untouched. */
-function parseResourceTypeSchema(schema: unknown): unknown {
-	if (typeof schema !== 'string') {
-		return schema
-	}
-	try {
-		return JSON.parse(schema)
-	} catch {
-		return schema
-	}
-}
-
 export const HUB_SYNC_INSTRUCTIONS =
 	'Tell the user: no resource of a missing type can be created until a superadmin syncs resource types from the hub, with "Sync resource types with Hub" in the Add resource dialog of the Resources page.'
 
@@ -1804,76 +1770,20 @@ export const getHubIntegrationTool = {
 	def: getHubIntegrationToolDef,
 	// Reads one hub document over a GET and writes nothing, so planning may use it.
 	planModeSafe: true,
-	fn: async ({ args, toolId, toolCallbacks }) => {
+	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 		const { integration } = getHubIntegrationSchema.parse(args)
 		toolCallbacks.setToolStatus(toolId, { content: `Reading the ${integration} integration...` })
-
-		let doc: Awaited<ReturnType<typeof IntegrationService.getHubIntegrationMeta>>
-		try {
-			doc = await IntegrationService.getHubIntegrationMeta({ app: integration })
-		} catch (err) {
-			// Only a 404 means the integration is absent — an unknown slug, or a hub
-			// predating the endpoint. Reporting a timeout the same way would teach the
-			// model that a real integration does not exist for the rest of the chat.
-			const absent = (err as { status?: number } | undefined)?.status === 404
-			const label = absent
-				? `No hub integration named ${integration}`
-				: `Could not reach the hub for ${integration}`
-			toolCallbacks.setToolStatus(toolId, { content: label })
-			const suggested = await suggestHubIntegrations(integration)
-			return JSON.stringify({
-				error: absent
-					? `No hub metadata for "${integration}".`
-					: `Could not reach the hub for "${integration}"; it may still exist. Read its scripts instead, or try again.`,
-				suggested_integrations: suggested
-			})
-		}
-
-		toolCallbacks.setToolStatus(toolId, { content: `Read the ${doc.display_name} integration` })
-		// The hub owns this response's shape and can be older than this client, so
-		// every section is read as optional: a hub that sends less should return less,
-		// not fail the call.
-		const derived = doc.derived
-		return JSON.stringify({
-			integration: doc.app,
-			display_name: doc.display_name,
-			...(doc.description ? { description: doc.description } : {}),
-			...(doc.docs_url ? { docs_url: doc.docs_url } : {}),
-			// Authored provider knowledge and facts inferred from the scripts stay
-			// separate: only the former was checked against the live API.
-			...(doc.meta ? { verified_provider_notes: withoutProvenance(doc.meta) } : {}),
-			...(derived
-				? {
-						observed_from_scripts: {
-							api_hosts: derived.api_hosts?.map((h) => h.host) ?? [],
-							style: derived.style,
-							languages: Object.keys(derived.languages ?? {}),
-							script_counts: derived.script_counts
-						}
-					}
-				: {}),
-			// `curated` is three-state: only an integration's own meta.json asserts it, and
-			// anything else means nobody has assessed the script set. Speak only for a
-			// positive assertion, so an unassessed integration is never characterised
-			// either way; `script_counts` below is the factual signal for the rest.
-			...(doc.curated === true
-				? {
-						scripts_note:
-							'These scripts were pruned to idiomatic actions rather than generated one per API endpoint, so they are worth following as style examples.'
-					}
-				: {}),
-			resource_types: (doc.resource_types ?? []).map((rt) => ({
-				name: rt.name,
-				...(rt.description ? { description: rt.description } : {}),
-				schema: parseResourceTypeSchema(rt.schema)
-			})),
-			example_scripts: (derived?.top_scripts ?? []).slice(0, MAX_INTEGRATION_EXAMPLES).map((s) => ({
-				path: s.path,
-				summary: s.summary,
-				...(s.description ? { description: s.description } : {}),
-				...(s.language ? { language: s.language } : {})
-			}))
+		const { text } = await runOnServer('get_hub_integration', workspace, args)
+		const doc = JSON.parse(text)
+		toolCallbacks.setToolStatus(toolId, {
+			content:
+				doc.error === undefined
+					? `Read the ${doc.display_name} integration`
+					: doc.error.startsWith('No hub metadata')
+						? `No hub integration named ${integration}`
+						: `Could not reach the hub for ${integration}`
 		})
+		return text
 	}
 } satisfies SessionTool<{}>
 
@@ -2592,6 +2502,18 @@ async function loadDeployedScriptForFlowStep(
 	}
 }
 
+/** What a test run of an AI decision step supplies: the state. The provider and questions
+ * are the step's own. */
+export function decisionStepRunSchema(): Record<string, any> {
+	return {
+		$schema: 'https://json-schema.org/draft/2020-12/schema',
+		type: 'object',
+		properties: { state: AI_DECISION_SCHEMA.properties.state },
+		required: ['state'],
+		order: ['state']
+	}
+}
+
 export async function resolveFlowStepRun({
 	flowValue,
 	stepId,
@@ -2733,14 +2655,7 @@ export async function resolveFlowStepRun({
 			// Run alone as a one-step flow preview, as the editor's step test does: the inputs given here
 			// override the step's own, so a state that reads an earlier step can be passed directly.
 			runnableKind: 'flow',
-			// What a run supplies: the state. The provider and questions are the step's own.
-			schema: {
-				$schema: 'https://json-schema.org/draft/2020-12/schema',
-				type: 'object',
-				properties: { state: AI_DECISION_SCHEMA.properties.state },
-				required: ['state'],
-				order: ['state']
-			},
+			schema: decisionStepRunSchema(),
 			startMessage: `Starting test run of AI decision step "${stepId}"...`,
 			startJob: async (args) =>
 				JobService.runFlowPreview({

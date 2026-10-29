@@ -44,7 +44,7 @@ static SCHEDULE_SCHEMA: LazyLock<Value> = LazyLock::new(|| {
     let mut schema = tool_schema("write_schedule");
     let advanced: Value = serde_json::from_str(&SCHEMAS.schedule).unwrap_or_default();
     if let Some(properties) = schema.get_mut("properties").and_then(Value::as_object_mut) {
-        properties.remove("advanced");
+        properties.shift_remove("advanced");
         if let Some(advanced) = advanced.get("properties").and_then(Value::as_object) {
             properties.extend(advanced.clone());
         }
@@ -282,7 +282,7 @@ fn into_object(value: Option<Value>) -> Map<String, Value> {
 fn merge_config(base: Option<Value>, config: Value, path: &str) -> Map<String, Value> {
     let mut draft = into_object(base);
     for key in ["workspace_id", "edited_by", "edited_at", "email", "error"] {
-        draft.remove(key);
+        draft.shift_remove(key);
     }
     draft.extend(into_object(Some(config)));
     draft.insert("path".into(), json!(path));
@@ -480,7 +480,7 @@ async fn write_draft(
 fn take_override(parsed: &mut Value) -> bool {
     parsed
         .as_object_mut()
-        .and_then(|o| o.remove("override"))
+        .and_then(|o| o.shift_remove("override"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false)
 }
