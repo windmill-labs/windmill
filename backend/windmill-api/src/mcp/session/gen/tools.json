@@ -580,7 +580,7 @@
 	},
 	{
 		"name": "write_script",
-		"description": "Create or overwrite a draft script.",
+		"description": "Create or overwrite a draft script. Call get_instructions first.",
 		"parameters": {
 			"type": "object",
 			"properties": {
@@ -643,7 +643,7 @@
 	},
 	{
 		"name": "write_flow",
-		"description": "Create or overwrite a draft flow.",
+		"description": "Create or overwrite a draft flow. Call get_instructions first.",
 		"parameters": {
 			"type": "object",
 			"properties": {
@@ -1014,7 +1014,7 @@
 	},
 	{
 		"name": "test_run_script",
-		"description": "Execute a preview-style test run of a script by path, preferring draft content when it exists. It runs with exactly the `args` you send. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal also works, but stays in this conversation.",
+		"description": "Execute a preview-style test run of a script by path, preferring draft content when it exists. It runs with exactly the `args` you send. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal also works, but stays in this conversation. When the user asked for this run, show it to them with show_run, if you have it. Once the draft works and the user wants to review it, show it with show_deploy_review, if you have it.",
 		"parameters": {
 			"type": "object",
 			"properties": {
@@ -1055,7 +1055,7 @@
 	},
 	{
 		"name": "run_script",
-		"description": "Run a DEPLOYED script for real, under the user's own permissions. It runs with exactly the `args` you send. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal also works, but stays in this conversation. A required file is the user's to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version (\"the deployed X\", \"in production\", \"for real\").",
+		"description": "Run a DEPLOYED script for real, under the user's own permissions. It runs with exactly the `args` you send. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal also works, but stays in this conversation. A required file is the user's to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version (\"the deployed X\", \"in production\", \"for real\"). Then show the run to the user with show_run, if you have it.",
 		"parameters": {
 			"type": "object",
 			"properties": {
@@ -1096,7 +1096,7 @@
 	},
 	{
 		"name": "test_run_flow",
-		"description": "Execute a preview-style test run of a flow by path, preferring draft content when it exists. It runs with exactly the `args` you send. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal also works, but stays in this conversation.",
+		"description": "Execute a preview-style test run of a flow by path, preferring draft content when it exists. It runs with exactly the `args` you send. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal also works, but stays in this conversation. When the user asked for this run, show it to them with show_run, if you have it. Once the draft works and the user wants to review it, show it with show_deploy_review, if you have it.",
 		"parameters": {
 			"type": "object",
 			"properties": {
@@ -1141,7 +1141,7 @@
 	},
 	{
 		"name": "run_flow",
-		"description": "Run a DEPLOYED flow for real, under the user's own permissions. It runs with exactly the `args` you send. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal also works, but stays in this conversation. A required file is the user's to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version (\"the deployed X\", \"in production\", \"for real\").",
+		"description": "Run a DEPLOYED flow for real, under the user's own permissions. It runs with exactly the `args` you send. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal also works, but stays in this conversation. A required file is the user's to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version (\"the deployed X\", \"in production\", \"for real\"). Then show the run to the user with show_run, if you have it.",
 		"parameters": {
 			"type": "object",
 			"properties": {
@@ -1182,7 +1182,7 @@
 	},
 	{
 		"name": "test_run_agent",
-		"description": "Execute a test run of an AI agent by path, preferring its draft when one exists, so an agent you drafted can be tried before the user deploys it. It runs with exactly the `args` you send.",
+		"description": "Execute a test run of an AI agent by path, preferring its draft when one exists, so an agent you drafted can be tried before the user deploys it. It runs with exactly the `args` you send. When the user asked for this run, show it to them with show_run, if you have it.",
 		"parameters": {
 			"type": "object",
 			"properties": {
@@ -1227,7 +1227,7 @@
 	},
 	{
 		"name": "run_agent",
-		"description": "Run a DEPLOYED AI agent for real, as its own page runs it. It runs with exactly the `args` you send. Use only when the user names the deployed version (\"the deployed X\", \"in production\", \"for real\").",
+		"description": "Run a DEPLOYED AI agent for real, as its own page runs it. It runs with exactly the `args` you send. Use only when the user names the deployed version (\"the deployed X\", \"in production\", \"for real\"). Then show the run to the user with show_run, if you have it.",
 		"parameters": {
 			"type": "object",
 			"properties": {
@@ -1318,7 +1318,7 @@
 	},
 	{
 		"name": "list_runs",
-		"description": "List recent runs (jobs), most recent first. Optionally filter by path, creator, label, or status. Returns compact metadata only — use get_run with a returned id to see what a run was called with, returned and logged.",
+		"description": "List recent runs (jobs), most recent first. Optionally filter by path, creator, label, or status. Returns compact metadata only — use get_run with a returned id to see what a run was called with, returned and logged. To show runs to the user, pass their ids to show_runs, if you have it.",
 		"parameters": {
 			"type": "object",
 			"properties": {
@@ -1694,7 +1694,7 @@
 	},
 	{
 		"name": "write_resource",
-		"description": "Create or overwrite a draft resource.",
+		"description": "Create or overwrite a draft resource. Call get_instructions first.",
 		"parameters": {
 			"type": "object",
 			"properties": {
@@ -1936,7 +1936,7 @@
 	},
 	{
 		"name": "init_app",
-		"description": "Initialize a draft raw app from a framework template.",
+		"description": "Initialize a draft raw app from a framework template. Call get_instructions first.",
 		"parameters": {
 			"type": "object",
 			"properties": {
