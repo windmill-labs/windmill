@@ -17870,6 +17870,83 @@ paths:
                 type: string
                 description: Summary of deleted jobs and rows
 
+  /w/{workspace}/jobs/recent_runs:
+    get:
+      summary: list what ran recently, one entry per script, flow or agent
+      operationId: listRecentRuns
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: folder
+          description: only runs of items in this folder
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: recent runs grouped by item, newest run first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  window_hours:
+                    type: integer
+                  capped:
+                    description: the window holds more runs than were read, so counts cover the newest ones only
+                    type: boolean
+                  total_runs:
+                    type: integer
+                  failed_runs:
+                    type: integer
+                  failing_items:
+                    type: integer
+                  running_items:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        kind:
+                          type: string
+                          enum: [script, flow, agent]
+                        summary:
+                          type: string
+                        status:
+                          $ref: "#/components/schemas/RecentRunStatus"
+                        runs:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                              status:
+                                $ref: "#/components/schemas/RecentRunStatus"
+                              created_at:
+                                type: string
+                                format: date-time
+                              started_at:
+                                type: string
+                                format: date-time
+                              duration_ms:
+                                type: integer
+                            required: [id, status, created_at]
+                      required: [path, kind, status, runs]
+                required:
+                  - window_hours
+                  - capped
+                  - total_runs
+                  - failed_runs
+                  - failing_items
+                  - running_items
+                  - items
+
   /w/{workspace}/jobs/list:
     get:
       summary: list all jobs
@@ -33112,6 +33189,10 @@ components:
         - error
         - auto_kind
         - has_preprocessor
+
+    RecentRunStatus:
+      type: string
+      enum: [success, failure, running]
 
     ScriptLang:
       type: string
