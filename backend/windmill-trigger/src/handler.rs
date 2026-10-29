@@ -604,7 +604,7 @@ async fn create_trigger<T: TriggerCrud>(
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         Some(&resolved_permissioned_as),
         new_trigger.base.preserve_permissioned_as.unwrap_or(false),
-        &authed.username,
+        &windmill_common::users::username_to_permissioned_as(&authed.username),
     );
 
     handler
@@ -877,7 +877,7 @@ async fn update_trigger<T: TriggerCrud>(
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         Some(&resolved_permissioned_as),
         edit_trigger.base.preserve_permissioned_as.unwrap_or(false),
-        &authed.username,
+        &windmill_common::users::username_to_permissioned_as(&authed.username),
     );
 
     let before =

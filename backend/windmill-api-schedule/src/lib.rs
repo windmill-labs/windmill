@@ -498,7 +498,7 @@ async fn create_schedule(
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
         Some(&audited_permissioned_as),
         ns.preserve_permissioned_as.unwrap_or(false),
-        &authed.username,
+        &windmill_common::users::username_to_permissioned_as(&authed.username),
     ) {
         audit_log(
             &mut *tx,
@@ -741,7 +741,7 @@ async fn edit_schedule(
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
         Some(&audited_permissioned_as),
         es.preserve_permissioned_as.unwrap_or(false),
-        &authed.username,
+        &windmill_common::users::username_to_permissioned_as(&authed.username),
     ) {
         audit_log(
             &mut *tx,
