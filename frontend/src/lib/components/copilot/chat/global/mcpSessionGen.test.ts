@@ -99,8 +99,7 @@ const DESCRIPTION_APPENDS: [tool: string, text: string][] = [
 	['test_run_script', SHOW_USER_RUN + SHOW_DEPLOY_REVIEW],
 	['test_run_flow', SHOW_USER_RUN + SHOW_DEPLOY_REVIEW],
 	['test_run_agent', SHOW_USER_RUN],
-	['list_runs', ' To show runs to the user, pass their ids to show_runs, if you have it.'],
-	['list_workspace_items', " Only for requests about the user's Windmill workspace."]
+	['list_runs', ' To show runs to the user, pass their ids to show_runs, if you have it.']
 ]
 
 // A rewrite only proves its old sentence is still there; this catches one added next to it.

@@ -224,13 +224,6 @@ impl<B: McpBackend> SessionRunner<B> {
                 )
             }
         };
-        // Opens the instructions whatever follows: a host may weigh only their first lines, and
-        // the product's name invites calls on questions about windmills.
-        let instructions = format!(
-            "These tools are for the user's Windmill workspaces: their scripts, flows, apps, runs \
-             and data. Answer anything else directly without calling them, questions about \
-             windmills as machines included.\n\n{instructions}"
-        );
         Ok(self.get_info().with_instructions(instructions))
     }
 }
