@@ -11,15 +11,12 @@
 </script>
 
 <script lang="ts">
-	import { ExternalLink, Globe2, PinOff, PlugZap } from 'lucide-svelte'
+	import { ExternalLink, Globe2, PlugZap } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
-	import CloseButton from '../common/CloseButton.svelte'
-	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { hubBaseUrlStore, roleCapabilities, workspaceStore } from '$lib/stores'
 	import { homeDraft, sessionState } from '../sessions/sessionState.svelte'
 	import { currentWorkspaceRootId } from '../sessions/sessionScope.svelte'
 	import { HOME_SHOW_HUB } from '$lib/consts'
-	import { homeComposerPin, setHomeComposerRemoved } from './homeComposerPin.svelte'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { BROWSER } from 'esm-env'
 	import HomeConnectDrawer from './HomeConnectDrawer.svelte'
@@ -44,32 +41,7 @@
 
 	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
 
-	// Whether this reader wants the composer on the home page at all. Starting a session puts
-	// it back (see pinHomeComposer).
-	const removed = $derived(homeComposerPin.removed)
-
-	// Removing puts the composer away rather than throwing it out, and the way back is one item in
-	// the band's menu — so the ellipsis flashes as it appears, in a corner nobody is watching while
-	// the composer leaves the page.
-	//
-	// A keyframe animation, not a transition: this mounts in the same flush that removes the
-	// composer, so the frame that would paint it at rest is the frame it is already told to leave, and
-	// one `requestAnimationFrame` is not reliably past that paint. The flash then goes straight to
-	// invisible without ever being drawn. Mounted only while pulsing, so each removal replays it.
-	const PULSE_MS = 1000
 	const reducedMotion = useReducedMotion()
-	let pulsing = $state(false)
-	let pulseEndTimer: ReturnType<typeof setTimeout> | undefined
-
-	function removeComposer() {
-		// The `close` key keeps these events in the series they have always been counted in.
-		logFeatureUsage('home', 'ai_hero_remove', { key: 'close' })
-		setHomeComposerRemoved(true)
-		if (reducedMotion.val) return
-		clearTimeout(pulseEndTimer)
-		pulsing = true
-		pulseEndTimer = setTimeout(() => (pulsing = false), PULSE_MS)
-	}
 
 	let HomeSessionStarter = $state(loadedStarter)
 	if (!loadedStarter) void loadStarter().then((c) => (HomeSessionStarter = c))
@@ -91,23 +63,11 @@
 		prefersSessionHandoff(!$roleCapabilities.code) && !inPreviewFrame && !homeAiHidden.hidden
 	)
 
-	let hero = $derived(showComposer && !removed)
 </script>
 
-<div class="w-full {hero ? 'mt-2' : 'mb-1'}">
+<div class="w-full {showComposer ? 'mt-2' : 'mb-1'}">
 	<div class="relative group/composer">
-		{#if hero}
-			<!-- In the page's side padding, clear of the composer's own controls at its right end,
-			     and centred on the composer's first row: the one-line box's middle, and where that
-			     row stays once the box opens downward. Shown on hover; the container starts at the
-			     composer's edge so the pointer reaches the unpin button without leaving the hovered
-			     zone. Below `sm` there is no side padding to hold it, so unpinning is in the band's
-			     menu instead. -->
-			<div
-				class="hidden sm:block absolute top-4 left-full pl-1 z-20 transition-opacity opacity-0 group-hover/composer:opacity-100 focus-within:opacity-100"
-			>
-				<CloseButton small noBg Icon={PinOff} title="Unpin from Home" onClick={removeComposer} />
-			</div>
+		{#if showComposer}
 			<!-- The block is a session's chat, so it waits for the sessions it might reuse. Keyed on
 			     the workspace family, not the workspace: another family needs its own draft, but a
 			     fork shares its parent's, and remounting for it only flashes the block. Also keyed
@@ -132,14 +92,14 @@
 
 <HomeConnectDrawer bind:this={homeConnectDrawer} />
 
-<!-- Everything the hero offered beside the composer lives in the band's menu: the connect helper,
-     the hub, and the way back to the composer once it has been put away. -->
+<!-- Everything the hero offered beside the composer lives in the band's menu: the connect helper
+     and the hub. -->
 <!-- Last in the bar whatever else the page registers: a menu of side trips belongs after the
      buttons that act on what is on screen. -->
 <PageHeaderContent actions={homeMenu} actionsOrder={100} />
 
 {#snippet homeMenu()}
-	<!-- The band's own menu: the connect helper, the hub, and whether the composer is on this page
+	<!-- The band's own menu: the connect helper, the hub, and the way back to favorites & recent
 	     — all of them preferences or side trips, none of them the page's work. -->
 	<span class="flex items-center gap-1">
 		<!-- Wide enough, and the two side trips are buttons of their own: a menu is where a thing
@@ -172,26 +132,12 @@
 				</Button>
 			{/if}
 		{/if}
-		<!-- Nothing left to hold once the side trips stand in the bar and the composer is on the
-		     page: an ellipsis that opens an empty menu is a button that does nothing. -->
-		<!-- No menu while the hero is on the page and its side trips are in the bar: the hero's own
-		     unpin button removes it, so an ellipsis holding a second way to do that is a button whose only
-		     item is a duplicate. -->
-		{#if !sideTripsInBar || (showComposer && removed) || homeQuickAccessSettings.hidden}
-			<!-- The flash rides the ellipsis itself, not the row: with the side trips beside it the
-			     row is three controls wide, and marking all three names none of them. -->
+		<!-- Nothing left to hold once the side trips stand in the bar: an ellipsis that opens an
+		     empty menu is a button that does nothing. -->
+		{#if !sideTripsInBar || homeQuickAccessSettings.hidden}
 			<span class="relative inline-flex">
-				{#if pulsing}
-					<!-- `opacity-0` at rest: the keyframes carry no fill mode, so at the end of the
-					     animation the element returns to its own opacity. At 1 that is the flash coming
-					     back at full strength until the unmount timer catches up. -->
-					<span
-						aria-hidden="true"
-						class="pointer-events-none absolute -inset-1 rounded-lg bg-blue-500/30 opacity-0 animate-fade-out"
-					></span>
-				{/if}
-				<!-- The same flash for hiding the favorites & recent section. It rests at opacity 0, so
-				     it can stay mounted; the key replays it on each hide. -->
+				<!-- Hiding favorites & recent puts its way back in this menu, so the ellipsis flashes on
+				     each hide. It rests at opacity 0, so it can stay mounted; the key replays it. -->
 				{#if homeQuickAccessSettings.hideCount > 0 && !reducedMotion.val}
 					{#key homeQuickAccessSettings.hideCount}
 						<span
@@ -205,20 +151,6 @@
 					size="sm"
 					customWidth={240}
 					items={[
-						// Every phone gets the menu, and there the composer has no room for its own unpin
-						// button. The menu can also hold the section's pin, so the label names the session.
-						...(hero ? [{ displayName: 'Unpin session from Home', action: removeComposer }] : []),
-						...(showComposer && removed
-							? [
-									{
-										displayName: 'Pin session hero to homepage',
-										action: () => {
-											logFeatureUsage('home', 'ai_hero_pin')
-											setHomeComposerRemoved(false)
-										}
-									}
-								]
-							: []),
 						...(homeQuickAccessSettings.hidden
 							? [
 									{

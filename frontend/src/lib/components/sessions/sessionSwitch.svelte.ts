@@ -22,7 +22,6 @@ import {
 } from './sessionState.svelte'
 import { sessionTargetHref, withPreviewParams } from './sessionMode.svelte'
 import { fixupUrlAfterWorkspaceSwitch } from '../sidebar/workspaceSwitchUrl'
-import { pinHomeComposer } from '../home/homeComposerPin.svelte'
 import { homeComposerContext } from './homeComposerContext.svelte'
 // Type-only: erased at compile time, so the component graph stays out of this
 // navigation seam (see the dynamic import in openEditorInSession).
@@ -71,11 +70,9 @@ export async function resumeAiSessions(opts?: { replace?: boolean }): Promise<vo
 }
 
 // A plain session starts on Home, and an unsent draft is shown there rather than on a
-// page of its own. Asking for one puts the composer back on Home if the reader had
-// unpinned it: there is nowhere else to type it.
+// page of its own.
 async function toHome(id: string, opts?: { replace?: boolean; flash?: boolean }): Promise<void> {
 	lastSessionId = id
-	pinHomeComposer()
 	const onHome = typeof window !== 'undefined' && window.location.pathname === '/'
 	// The draft already on screen is focused where it is: rebuilding the composer would fold it
 	// to one line and open it again under the user's eyes.
