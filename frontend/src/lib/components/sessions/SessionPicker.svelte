@@ -874,6 +874,7 @@
 					disabled={visibleSessions.length === 0}
 				>
 					{#snippet actions()}
+						{@render listOptions('sm')}
 						<Button
 							unifiedSize="sm"
 							variant="subtle"
@@ -885,7 +886,6 @@
 							btnClasses="text-secondary"
 							onClick={() => openNewSession()}
 						/>
-						{@render listOptions('sm')}
 					{/snippet}
 				</SidebarSectionHeader>
 			{:else}
