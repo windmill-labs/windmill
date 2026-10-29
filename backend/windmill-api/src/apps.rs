@@ -4049,17 +4049,9 @@ async fn update_app_internal<'a>(
                         .as_deref()
                         .or(npolicy.on_behalf_of.as_deref())
                         .unwrap_or("another user");
-                    return Err(Error::PermissionDenied(if composes_only {
-                        format!(
-                            "app {path} runs as {runs_as}: change who can open it by deploying it"
-                        )
-                    } else {
-                        format!(
-                            "app {path} runs as {runs_as}: only admins and members of \
-                             wm_deployers can change who can open it without deploying it: \
-                             deploy it to change that"
-                        )
-                    }));
+                    return Err(Error::PermissionDenied(format!(
+                        "app {path} runs as {runs_as}: change who can open it by deploying it"
+                    )));
                 }
                 npolicy.set_execution_mode(mode);
                 if composes_only {
