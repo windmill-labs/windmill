@@ -957,6 +957,26 @@ async fn plan(db: &DB, w_id: &str, mut desired: Map<String, Value>, replace: boo
             None => current.remove("git_sync"),
         };
     }
+    // A document without the roles applies `operator_settings` through the legacy endpoint, so
+    // it diffs against the column that endpoint writes, as it always did: against the value
+    // derived from the role, an unchanged file with a stale column would re-grant what a role
+    // edit since has withdrawn.
+    if !["role_overrides", "workspace_only_roles"]
+        .iter()
+        .any(|k| desired.contains_key(*k))
+    {
+        let column: Option<Value> = sqlx::query_scalar(
+            "SELECT operator_settings FROM workspace_settings WHERE workspace_id = $1",
+        )
+        .bind(w_id)
+        .fetch_optional(db)
+        .await?
+        .flatten();
+        match column {
+            Some(column) => current.insert("operator_settings".to_string(), column),
+            None => current.remove("operator_settings"),
+        };
+    }
     let mc = build_crypt(db, w_id).await?;
     let names = match desired.get("datatable_permissions") {
         Some(v) if !v.is_null() => DatatableNames::load(db, w_id, v).await?,
@@ -1761,7 +1781,8 @@ fn plan_role_overrides(p: &mut Plan, instance: &[RoleDefinition]) -> Result<Opti
         .collect::<std::result::Result<_, serde_json::Error>>()
         .map_err(|e| Error::internal_err(format!("re-reading role overrides: {e:#}")))?;
     if let Some(stated) = p.managed("operator_settings").filter(|o| o.is_object()) {
-        check_operator_settings(&mut p.warnings, &stated, instance, &next)?;
+        let before = p.current.get("operator_settings").cloned();
+        check_operator_settings(&mut p.warnings, &stated, before.as_ref(), instance, &next)?;
     }
     if !changed {
         return Ok(None);
@@ -1790,11 +1811,13 @@ fn plan_role_overrides(p: &mut Plan, instance: &[RoleDefinition]) -> Result<Opti
     Ok(Some(json!({ "overrides": next })))
 }
 
-/// Warns when the document's `operator_settings` says something other than its roles do: it is
-/// not applied beside them, so an edit made only there would otherwise be dropped silently.
+/// Warns when the document's `operator_settings` was edited to say something other than its roles
+/// do: it is not applied beside them, so the edit would otherwise be dropped silently. Left as
+/// pulled (`before`, derived from the role the apply starts from), it is no edit.
 fn check_operator_settings(
     warnings: &mut Vec<String>,
     stated: &Value,
+    before: Option<&Value>,
     instance: &[RoleDefinition],
     next: &RoleOverrides,
 ) -> Result<()> {
@@ -1805,8 +1828,21 @@ fn check_operator_settings(
         return Ok(());
     };
     let implied = roles::legacy_operator_settings(&operator.capabilities);
-    // As the legacy endpoint reads it: an omitted page is hidden, an omitted write right kept.
-    let differs = object_of(Some(&implied)).iter().any(|(key, value)| {
+    if legacy_differs(stated, &implied) && before.is_none_or(|b| legacy_differs(stated, b)) {
+        warnings.push(
+            "operator_settings was not applied: it disagrees with role_overrides.operator, which \
+             is what applies. Edit the operator role there, or pull again to refresh \
+             operator_settings."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Whether the legacy endpoint would read `stated` as other than `reference`: an omitted page is
+/// hidden, an omitted write right kept.
+fn legacy_differs(stated: &Value, reference: &Value) -> bool {
+    object_of(Some(reference)).iter().any(|(key, value)| {
         let keeps = matches!(
             key.as_str(),
             "builder_flows" | "builder_apps" | "manage_schedules" | "manage_triggers"
@@ -1815,15 +1851,7 @@ fn check_operator_settings(
             Some(v) => v != value,
             None => !keeps && value != &Value::Bool(false),
         }
-    });
-    if differs {
-        warnings.push(
-            "operator_settings was not applied: it differs from the operator role stated in \
-             role_overrides, which is what applies. Edit role_overrides.operator instead."
-                .to_string(),
-        );
-    }
-    Ok(())
+    })
 }
 
 fn plan_datatable_permissions(
@@ -2707,11 +2735,27 @@ mod tests {
         );
     }
 
+    /// The `operator_settings` a pull derives from an `operator` override.
+    fn derived_operator_settings(operator: &Value) -> Value {
+        let overrides: RoleOverrides =
+            serde_json::from_value(json!({ "operator": operator })).unwrap();
+        let roles = roles::effective_roles(&roles::default_instance_roles(), &overrides).unwrap();
+        let operator = roles
+            .iter()
+            .find(|r| r.name == roles::OPERATOR_ROLE)
+            .unwrap();
+        roles::legacy_operator_settings(&operator.capabilities)
+    }
+
     fn roles_current() -> Map<String, Value> {
         let mut cur = current();
         cur.insert(
             "role_overrides".to_string(),
             json!({ "operator": { "capabilities": { "flows": "compose" } } }),
+        );
+        cur.insert(
+            "operator_settings".to_string(),
+            derived_operator_settings(&json!({ "capabilities": { "flows": "compose" } })),
         );
         cur.insert(
             "workspace_only_roles".to_string(),
@@ -2836,17 +2880,7 @@ mod tests {
     fn operator_settings_is_not_applied_beside_the_roles() {
         let instance = roles::default_instance_roles();
         let same = roles_current();
-        let consistent = roles::legacy_operator_settings(
-            &roles::effective_roles(
-                &instance,
-                &serde_json::from_value(same["role_overrides"].clone()).unwrap(),
-            )
-            .unwrap()
-            .into_iter()
-            .find(|r| r.name == roles::OPERATOR_ROLE)
-            .unwrap()
-            .capabilities,
-        );
+        let consistent = same["operator_settings"].clone();
         let p = plan_roles(
             json!({
                 "operator_settings": consistent,
@@ -2890,6 +2924,11 @@ mod tests {
         assert_eq!(
             role_write(&p).unwrap()["operator"],
             json!({ "capabilities": { "flows": "none" } })
+        );
+        assert!(
+            p.warnings.is_empty(),
+            "the legacy key left as pulled is no edit: {:?}",
+            p.warnings
         );
 
         // A file without the roles keeps applying `operator_settings`.

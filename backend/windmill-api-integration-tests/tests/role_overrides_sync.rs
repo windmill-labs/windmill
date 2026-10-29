@@ -341,6 +341,20 @@ async fn a_pulled_file_gives_the_same_operator_role_on_every_push(
         if push == 1 {
             assert_eq!(result["changes"], json!([]), "{result}");
         }
+        if push == 0 {
+            assert!(
+                result.get("warnings").is_none(),
+                "the legacy key was left as pulled: {result}"
+            );
+        } else {
+            // Not pulled again, the file's legacy key now disagrees with the workspace's role.
+            assert!(
+                result["warnings"][0]
+                    .as_str()
+                    .is_some_and(|w| w.contains("pull again")),
+                "{result}"
+            );
+        }
         assert_eq!(
             operator().await?["capabilities"]["flows"],
             "none",
@@ -486,5 +500,47 @@ async fn a_role_is_added_and_removed_with_the_instance_group_naming_it(
     .await;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     assert_eq!(stored_overrides(&db, "group-mapping").await, None);
+    Ok(())
+}
+
+/// A settings.yaml pulled before the roles were in it carries the legacy column as it was then.
+/// After a role edit made since, pushing that file unchanged must not re-grant what the edit
+/// withdrew.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn an_unchanged_file_without_the_roles_does_not_undo_a_role_edit(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    create_workspace(&db, "pre-fix-file").await;
+    let base = format!("http://localhost:{port}/api/w/pre-fix-file/workspaces");
+    let resp = authed(client().post(format!("{base}/operator_settings")))
+        .json(&json!({ "runs": true, "builder_flows": true }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let column: Value = sqlx::query_scalar(
+        "SELECT operator_settings FROM workspace_settings WHERE workspace_id = 'pre-fix-file'",
+    )
+    .fetch_one(&db)
+    .await?;
+    let old_file = json!({ "name": "pre-fix-file", "operator_settings": column });
+
+    let resp = authed(client().post(format!("{base}/role_overrides")))
+        .json(&json!({ "operator": { "capabilities": { "flows": "none" } } }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let result: Value = apply(port, "pre-fix-file", old_file, false)
+        .await
+        .json()
+        .await?;
+    assert_eq!(result["changes"], json!([]), "{result}");
+    assert_eq!(
+        stored_overrides(&db, "pre-fix-file").await,
+        Some(json!({ "operator": { "capabilities": { "flows": "none" } } }))
+    );
     Ok(())
 }

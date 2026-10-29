@@ -63,7 +63,10 @@ same document can name a role it adds; a removed workspace-only role is written 
 still names it. The document's `operator_settings` is derived from the `operator` role, not read
 from the column (only the legacy endpoint rewrites it, so it goes stale). A document that states
 the roles is not applied through it: one edited in only one of the two would flip the role on every
-push. When it says something other than the roles do, the apply warns instead.
+push. When it was edited to say something other than the roles do, the apply warns instead. A
+document without the roles (pulled before they were in it) still applies `operator_settings`, and
+diffs it against the column rather than the derived value: against that, an unchanged file with a
+stale column would re-grant what a role edit since has withdrawn.
 
 ## Who is restricted
 
