@@ -5,6 +5,7 @@
 	import { Bot } from 'lucide-svelte'
 	import SidebarSectionHeader from './SidebarSectionHeader.svelte'
 	import { page } from '$app/state'
+	import { afterNavigate } from '$app/navigation'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { FlowConversationsService, type FlowConversation } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -22,13 +23,12 @@
 		'boolean'
 	)
 
-	// Read again on each navigation, so a chat started on a page lists once the reader moves on.
 	// Tagged with its workspace: responses are not ordered, and a late one from the workspace
-	// just left must not show here.
+	// just left must not show here. Not read on the collapsed rail, which shows no chats.
 	const listing = resource(
-		() => [$workspaceStore, page.url.pathname] as const,
-		async ([ws]) => {
-			if (!ws) return undefined
+		() => [$workspaceStore, isCollapsed] as const,
+		async ([ws, collapsed]) => {
+			if (!ws || collapsed) return undefined
 			const rows = await FlowConversationsService.listFlowConversations({
 				workspace: ws,
 				perPage: 30,
@@ -37,6 +37,12 @@
 			return { ws, rows }
 		}
 	)
+	// A chat is started on its flow's or agent's page, so it lists once the reader leaves one.
+	afterNavigate(({ from, to }) => {
+		const left = from?.url.pathname
+		if (!left || left === to?.url.pathname) return
+		if (left.startsWith('/flows/get/') || left.startsWith('/agents/get/')) listing.refetch()
+	})
 	const rows = $derived(
 		listing.current && listing.current.ws === $workspaceStore ? listing.current.rows : []
 	)

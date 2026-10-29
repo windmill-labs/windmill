@@ -31,14 +31,14 @@ export type SkillTreeEntry<T> = { key: string; parentKey?: string } & (
 	| { kind: 'skill'; skill: T }
 )
 
-/** A folder and a skill can hold the same path — `f/skills/deploy` names both when
- * `f/skills/deploy/rollback` exists beside it — so the kind is part of the key. */
 /** Whether a folder the user has not folded or unfolded starts folded: with a folder focused
  * (`f/x` or `u/x`), every other top-level folder does, so the focused one is what is left. */
 export function foldedByDefault(path: string, focusRoot: string | undefined): boolean {
 	return focusRoot !== undefined && path.split('/').length === 2 && path !== focusRoot
 }
 
+/** A folder and a skill can hold the same path — `f/skills/deploy` names both when
+ * `f/skills/deploy/rollback` exists beside it — so the kind is part of the key. */
 export function folderKey(path: string): string {
 	return `folder:${path}`
 }

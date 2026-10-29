@@ -35,7 +35,7 @@ type Registration = {
 	flash: () => void
 	/** Text put before the draft, for an entry point that comes with a question. */
 	prefill: (text: string) => void
-	/** Assistant settings on `section`; Instructions opens with only `root`'s folder open. */
+	/** Assistant settings on `section`, focused on `root`'s folder. */
 	openSettings: (section: 'instructions' | 'skills' | 'mcp', root: string) => void
 	runtime: SessionRuntime
 }

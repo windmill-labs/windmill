@@ -20,6 +20,7 @@
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { roleCapabilities } from '$lib/stores'
 	import { AppService } from '$lib/gen'
+	import { SvelteMap } from 'svelte/reactivity'
 	import { copyToClipboard, type Item } from '$lib/utils'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import Star from '$lib/components/Star.svelte'
@@ -115,14 +116,25 @@
 	// A favorite app arrives as plain `app` (the layout lists apps without their subtype), and
 	// `/apps/edit` mounts the low-code editor whatever it opens, so the editor routes ask which
 	// one it is, once, when its menu opens.
+	const appKinds = new SvelteMap<string, RecentKind>()
 	async function editorKind(item: Entry): Promise<RecentKind> {
 		if (item.kind !== 'app') return item.kind
+		const known = appKinds.get(`${workspace}/${item.path}`)
+		if (known) return known
+		let kind: RecentKind = 'app'
 		try {
 			const app: any = await AppService.getAppLiteByPath({ workspace, path: item.path })
-			return app?.raw_app ? 'raw_app' : 'app'
-		} catch {
-			return 'app'
-		}
+			if (app?.raw_app) kind = 'raw_app'
+		} catch {}
+		appKinds.set(`${workspace}/${item.path}`, kind)
+		return kind
+	}
+
+	// Only scripts, flows and raw apps can be context, so another card keeps its menu while the
+	// composer is open; an `app` card is a visual one until the hover's lookup says otherwise.
+	function canMention(item: Entry): boolean {
+		if (item.kind === 'app') return appKinds.get(`${workspace}/${item.path}`) === 'raw_app'
+		return item.kind !== 'agent'
 	}
 
 	function contextElementFor(item: Entry, kind: RecentKind) {
@@ -343,7 +355,10 @@
 <svelte:window bind:innerWidth />
 
 {#snippet card(item: Entry, favorite: boolean)}
+	{@const mentionable = canMention(item)}
 	<div
+		onpointerenter={() => homeComposerContext.available && void editorKind(item)}
+		onfocusin={() => homeComposerContext.available && void editorKind(item)}
 		class="group flex items-center gap-1 rounded-md border border-light bg-surface-tertiary hover:bg-surface-hover transition-colors min-w-0 group-has-[[data-composer-open]]/home:border-transparent group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:hover:bg-surface-hover"
 	>
 		<a
@@ -374,7 +389,9 @@
 		></a>
 		{#if !favorite && item.at}
 			<span
-				class="shrink-0 text-2xs text-secondary group-has-[[data-composer-open]]/home:group-hover:hidden group-has-[[data-composer-open]]/home:group-focus-within:hidden"
+				class="shrink-0 text-2xs text-secondary {mentionable
+					? 'group-has-[[data-composer-open]]/home:group-hover:hidden group-has-[[data-composer-open]]/home:group-focus-within:hidden'
+					: ''}"
 				title={recentTooltip(item.at, item.via)}
 				onmouseenter={() => (now = Date.now())}
 				role="note"
@@ -384,25 +401,31 @@
 		{/if}
 		<!-- While Home's composer is open the menu gives way to Mention, like the items' rows
 		     (AskAiRowButton). -->
-		<div class="shrink-0 pr-1 text-secondary group-has-[[data-composer-open]]/home:hidden">
+		<div
+			class="shrink-0 pr-1 text-secondary {mentionable
+				? 'group-has-[[data-composer-open]]/home:hidden'
+				: ''}"
+		>
 			<DropdownV2 items={() => menuItems(item, favorite)} size="xs" fixedHeight={false} />
 		</div>
-		<!-- Takes the time's place on the hovered or focused card only: holding a place on every
-		     card would leave the narrow cards no room for their titles. -->
-		<div
-			class="shrink-0 pr-1 hidden group-has-[[data-composer-open]]/home:group-hover:block group-has-[[data-composer-open]]/home:group-focus-within:block"
-		>
-			<Button
-				variant="subtle"
-				unifiedSize="sm"
-				btnClasses="!text-ai font-medium"
-				title="Mention"
-				aria-label="Mention {item.title}"
-				onClick={() => mention(item)}
+		{#if mentionable}
+			<!-- Takes the time's place on the hovered or focused card only: holding a place on every
+			     card would leave the narrow cards no room for their titles. -->
+			<div
+				class="shrink-0 pr-1 hidden group-has-[[data-composer-open]]/home:group-hover:block group-has-[[data-composer-open]]/home:group-focus-within:block"
 			>
-				+@
-			</Button>
-		</div>
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					btnClasses="!text-ai font-medium"
+					title="Mention"
+					aria-label="Mention {item.title}"
+					onClick={() => mention(item)}
+				>
+					+@
+				</Button>
+			</div>
+		{/if}
 	</div>
 {/snippet}
 
