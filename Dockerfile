@@ -1,5 +1,14 @@
 ARG DEBIAN_IMAGE=debian:trixie-slim
 ARG RUST_IMAGE=rust:1.97-slim-trixie
+# NOTE: If changing, also change go version in workspace dependencies template at WorkspaceDependenciesEditor.svelte
+ARG GO_VERSION=1.27.3
+
+# crane is built from source rather than downloaded: its release binaries are built with whatever
+# Go was current at release time, so their stdlib lags behind the Go the image installs.
+FROM golang:${GO_VERSION}-trixie AS crane
+ARG CRANE_VERSION=v0.22.1
+RUN CGO_ENABLED=0 GOBIN=/out go install -trimpath -ldflags="-s -w" \
+    "github.com/google/go-containerregistry/cmd/crane@${CRANE_VERSION}"
 
 FROM debian:trixie-slim AS nsjail
 
@@ -139,11 +148,10 @@ COPY --from=builder /windmill/target/release/windmill.debug /windmill.debug
 FROM ${DEBIAN_IMAGE}
 
 ARG TARGETPLATFORM
-ARG POWERSHELL_VERSION=7.5.0
-ARG KUBECTL_VERSION=1.37.1
-ARG HELM_VERSION=3.21.4
-# NOTE: If changing, also change go version in workspace dependencies template at WorkspaceDependenciesEditor.svelte
-ARG GO_VERSION=1.27.1
+ARG POWERSHELL_VERSION=7.5.13
+ARG KUBECTL_VERSION=1.37.2
+ARG HELM_VERSION=3.22.1
+ARG GO_VERSION
 # Pinned to the patch: an unpinned install is cached by the image build and stops picking up
 # security releases.
 ARG NODE_VERSION=24.22.1
@@ -266,7 +274,14 @@ RUN apt-get -y update && apt-get install -y --no-install-recommends curl procps 
 # The npm bundled with nodejs is replaced by a pinned one: it is what `//npm` scripts install with
 # (NPM_PATH=/usr/bin/npm). npm 12 skips dependency install scripts not covered by an allowScripts
 # policy (package.json or .npmrc).
-RUN npm install -g npm@12.2.0 && npm cache clean --force
+RUN npm install -g npm@12.2.1 && npm cache clean --force
+# npm 12.2.1 bundles undici 6.29.0 (node-gyp's), below the 6.29.1 fix for its TLS and DoS
+# advisories. undici 6 has no dependencies, so the package is swapped in place. Drop this once an
+# npm release bundles undici >= 6.29.1.
+RUN d="$(npm root -g)/npm/node_modules/undici" \
+    && grep -q '"version": "6.29.0"' "$d/package.json" \
+    && rm -rf "$d" && mkdir "$d" \
+    && curl -fsSL https://registry.npmjs.org/undici/-/undici-6.29.1.tgz | tar -xz -C "$d" --strip-components=1
 
 # go build is slower the first time it is ran, so we prewarm it in the build
 # This mirrors Windmill's Go wrapper structure: main.go imports inner package, uses encoding/json, os, fmt
@@ -326,13 +341,7 @@ COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
 # crane: pulls + flattens images for the sandboxed container runtime (`# sandbox <image>`).
 # Single static binary — no daemon/store/root needed. See docs/docker-v2-runtime.md.
-ARG CRANE_VERSION=v0.22.1
-RUN arch="$(dpkg --print-architecture)"; \
-    case "$arch" in amd64) crane_arch=x86_64 ;; arm64) crane_arch=arm64 ;; *) echo >&2 "error: unsupported arch '$arch' for crane"; exit 1 ;; esac; \
-    wget -O /tmp/crane.tgz "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_${crane_arch}.tar.gz" \
-    && tar -xzf /tmp/crane.tgz -C /usr/local/bin crane \
-    && rm /tmp/crane.tgz \
-    && chmod +x /usr/local/bin/crane
+COPY --from=crane /out/crane /usr/local/bin/crane
 
 WORKDIR ${APP}
 
