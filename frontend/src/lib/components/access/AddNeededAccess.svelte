@@ -135,7 +135,7 @@
 							class="mt-0.5"
 							checked={selected[key]}
 							disabled={already || granting}
-							onChange={(e) => (selected[key] = e.currentTarget.checked)}
+							onChange={() => (selected[key] = !selected[key])}
 						/>
 						<span class="flex flex-col grow min-w-0">
 							<span class="font-mono text-2xs text-emphasis truncate">{item.path}</span>
