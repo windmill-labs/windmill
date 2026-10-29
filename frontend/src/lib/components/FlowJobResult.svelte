@@ -41,8 +41,8 @@
 
 <div
 	class={twMerge(
-		'grow overflow-hidden text-xs',
-		!col ? 'grid grid-cols-2 gap-2' : 'flex flex-col max-h-screen gap-6 overflow-hidden'
+		'grow text-xs',
+		!col ? 'grid grid-cols-2 gap-2 overflow-hidden' : 'flex flex-col gap-6'
 	)}
 >
 	<div class="relative flex flex-col gap-1">
@@ -72,7 +72,10 @@
 	<div class="relative flex flex-col gap-1">
 		<span class="text-emphasis text-xs font-semibold">Logs</span>
 		<div class="rounded-md grow min-h-0 border bg-surface-tertiary overflow-hidden">
+			<!-- In col mode the caller's panel is the scroller: a capped log box inside it is a
+			     second scrollbar, and its height cannot resolve there, so its tail gets clipped -->
 			<LogViewer
+				noMaxH={col}
 				{tagLabel}
 				download={downloadLogs}
 				content={logs ?? ''}
