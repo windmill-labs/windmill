@@ -440,7 +440,7 @@
 	},
 	{
 		"name": "list_workspace_items",
-		"description": "List workspace items and drafts. Returns metadata only, up to limit items per item type per page (default 50); pass page to continue past a full page.",
+		"description": "List workspace items and drafts. Returns metadata only, up to limit items per item type per page (default 50); pass page to continue past a full page. Only for requests about the user's Windmill workspace.",
 		"parameters": {
 			"type": "object",
 			"properties": {

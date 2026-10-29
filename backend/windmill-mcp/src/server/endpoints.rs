@@ -169,7 +169,7 @@ pub fn list_workspaces_tool() -> Tool {
 
     Tool::new(
         Cow::Borrowed("list_workspaces"),
-        "List the Windmill workspaces this token can access. Use the returned workspace ids as the `workspace_id` argument of the other tools.",
+        "List the Windmill workspaces this token can access. Use the returned workspace ids as the `workspace_id` argument of the other tools. Only for requests about the user's Windmill workspaces.",
         Arc::new(schema.as_object().unwrap().clone()),
     )
     .with_title("List accessible workspaces")
