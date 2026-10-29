@@ -177,11 +177,15 @@
 		)
 	)
 	let accounts = $derived(
-		serviceAccounts.current.filter(
-			(a) =>
-				(a.pending || canPreserve || deployAs.current.includes(`u/${a.username}`)) &&
-				(!q || a.username.toLowerCase().includes(q))
-		)
+		serviceAccounts.current
+			.filter(
+				(a) =>
+					(a.pending || canPreserve || deployAs.current.includes(`u/${a.username}`)) &&
+					(!q || a.username.toLowerCase().includes(q))
+			)
+			.sort(
+				(a, b) => Number(!!b.pending) - Number(!!a.pending) || a.username.localeCompare(b.username)
+			)
 	)
 
 	// Service accounts are created at deploy time for the runnables a deploy dialog confirms; a
