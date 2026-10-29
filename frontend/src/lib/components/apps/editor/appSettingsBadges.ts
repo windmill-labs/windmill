@@ -2,14 +2,23 @@ import { Globe, Link, PlugZap, ShieldCheck, Tag, UserCog, Users } from 'lucide-s
 import type { Policy } from '$lib/gen'
 import type { ScriptSettingsBadge } from '$lib/components/scriptSettings'
 
-/** The badges of an app's Metadata tab. */
+/** The badges of an app's Metadata section. */
 export function getAppMetadataBadges(labels: string[] | undefined): ScriptSettingsBadge[] {
 	return labels?.length
-		? [{ key: 'labels', label: 'Labels', icon: Tag, detail: labels.join(', ') }]
+		? [
+				{
+					key: 'labels',
+					short: 'Labels',
+					setting: 'labels',
+					label: 'Labels',
+					icon: Tag,
+					detail: labels.join(', ')
+				}
+			]
 		: []
 }
 
-/** The badges of an app's Permissions tab. `sandboxed` also holds when the role forces it. */
+/** The badges of an app's Permissions section. `sandboxed` also holds when the role forces it. */
 export function getAppPermissionBadges(
 	policy: Pick<Policy, 'on_behalf_of' | 'on_behalf_of_email' | 'frontend_sdk_scopes'>,
 	sandboxed: boolean
@@ -17,11 +26,20 @@ export function getAppPermissionBadges(
 	const badges: ScriptSettingsBadge[] = []
 	const runsAs = policy.on_behalf_of ?? policy.on_behalf_of_email
 	if (runsAs) {
-		badges.push({ key: 'on_behalf_of', label: 'Run on behalf of', icon: UserCog, detail: runsAs })
+		badges.push({
+			key: 'on_behalf_of',
+			short: 'On behalf',
+			setting: 'on-behalf-of',
+			label: 'Run on behalf of',
+			icon: UserCog,
+			detail: runsAs
+		})
 	}
 	if (sandboxed) {
 		badges.push({
 			key: 'sandbox',
+			short: 'Sandbox',
+			setting: 'sandbox',
 			label: 'Sandbox isolation',
 			icon: ShieldCheck,
 			detail: "The app's browser-side code gets a narrowly scoped token"
@@ -29,6 +47,8 @@ export function getAppPermissionBadges(
 		if (policy.frontend_sdk_scopes?.length) {
 			badges.push({
 				key: 'frontend_sdk_scopes',
+				short: 'API access',
+				setting: 'sandbox',
 				label: 'Frontend API access',
 				icon: PlugZap,
 				detail: policy.frontend_sdk_scopes.join(', ')
@@ -38,7 +58,7 @@ export function getAppPermissionBadges(
 	return badges
 }
 
-/** The badges of an app's Sharing tab: who beyond members can open it, and its custom URL. */
+/** The badges of an app's Sharing section: who beyond members can open it, and its custom URL. */
 export function getAppSharingBadges(
 	executionMode: Policy['execution_mode'],
 	customPath: string | undefined
@@ -47,6 +67,8 @@ export function getAppSharingBadges(
 	if (executionMode === 'anonymous') {
 		badges.push({
 			key: 'access',
+			short: 'Public',
+			setting: 'access',
 			label: 'Public',
 			icon: Globe,
 			detail: 'Anyone with the secret URL, no login'
@@ -54,13 +76,22 @@ export function getAppSharingBadges(
 	} else if (executionMode === 'guest') {
 		badges.push({
 			key: 'access',
+			short: 'Guests',
+			setting: 'access',
 			label: 'Guests',
 			icon: Users,
 			detail: 'Guests your identity provider authenticates, plus members'
 		})
 	}
 	if (customPath) {
-		badges.push({ key: 'custom_path', label: 'Custom URL', icon: Link, detail: customPath })
+		badges.push({
+			key: 'custom_path',
+			short: 'Custom URL',
+			setting: 'custom-url',
+			label: 'Custom URL',
+			icon: Link,
+			detail: customPath
+		})
 	}
 	return badges
 }

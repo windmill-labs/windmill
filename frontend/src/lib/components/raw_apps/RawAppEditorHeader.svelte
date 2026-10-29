@@ -65,7 +65,7 @@
 	import AppJobsDrawer from '../apps/editor/AppJobsDrawer.svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
-	import AppSettingsDrawer, { type AppSettingsTab } from '../apps/editor/AppSettingsDrawer.svelte'
+	import AppSettingsDrawer from '../apps/editor/AppSettingsDrawer.svelte'
 	import DeployButton from '$lib/components/DeployButton.svelte'
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
@@ -361,7 +361,7 @@
 	let appExport = $state() as AppExportButton | undefined
 
 	let settingsOpen = $state(false)
-	let settingsTab: AppSettingsTab = $state('metadata')
+	let settingsDrawer: AppSettingsDrawer | undefined = $state()
 	let historyBrowserDrawerOpen = $state(false)
 	let recordDrawer = $state<Drawer | undefined>(undefined)
 	let deploymentMsg: string | undefined = $state(undefined)
@@ -512,8 +512,7 @@
 	async function syncWithDeployed(opening?: number) {
 		const deployedApp = await AppService.getAppByPath({
 			workspace: opWorkspace!,
-			path: appPath!,
-			withStarredInfo: true
+			path: appPath!
 		})
 
 		// A superseded opening must not write these: the current one would then render
@@ -638,7 +637,10 @@
 					// reintroduce the post-deploy noise the head side already strips.
 					return replaceFalseWithUndefined(stripRawAppDiffNoise(v as any))
 				},
-				current: currentDiffValue
+				current: currentDiffValue,
+				aiReview: opWorkspace
+					? { workspaceId: opWorkspace, kind: 'raw_app', path: appPath }
+					: undefined
 			},
 			opening
 		)
@@ -716,9 +718,8 @@
 		})
 	}
 
-	function openSettings(tab: AppSettingsTab) {
-		settingsTab = tab
-		settingsOpen = true
+	function openSettings(setting?: string) {
+		settingsDrawer?.openAt(setting)
 	}
 
 	const neverDeployed = $derived(newApp || appPath == '' || savedApp?.no_deployed === true)
@@ -739,7 +740,7 @@
 	async function deploy(message?: string) {
 		if (app == undefined) return
 		if (pathError != '') {
-			openSettings('metadata')
+			openSettings()
 			return
 		}
 		deploymentMsg = message
@@ -900,7 +901,7 @@
 		{
 			displayName: 'Settings',
 			icon: Settings,
-			action: () => openSettings('metadata')
+			action: () => openSettings()
 		},
 		...(ownsPageHeader
 			? [
@@ -999,8 +1000,8 @@
 />
 
 <AppSettingsDrawer
+	bind:this={settingsDrawer}
 	bind:open={settingsOpen}
-	bind:tab={settingsTab}
 	{newPath}
 	{newApp}
 	bind:policy
@@ -1287,7 +1288,7 @@
 				startIcon={{ icon: Settings }}
 				iconOnly={compactTopbar}
 				title="Settings"
-				on:click={() => openSettings('metadata')}
+				on:click={() => openSettings()}
 			>
 				Settings
 			</Button>

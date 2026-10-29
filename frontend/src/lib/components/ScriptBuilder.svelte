@@ -137,6 +137,7 @@
 	import ScriptRuntimeSettings from './itemSettings/ScriptRuntimeSettings.svelte'
 	import InvisibleRunsSetting from './itemSettings/InvisibleRunsSetting.svelte'
 	import SettingIcons from './itemSettings/SettingIcons.svelte'
+	import ActiveSettingChips, { revealSetting } from './itemSettings/ActiveSettingChips.svelte'
 	import { getActivePermissionBadges, getActiveScriptSettingsBadges } from './scriptSettings'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
@@ -823,8 +824,7 @@
 			// the user has typed, so after someone renames the item it still names
 			// the old location and this would compare against the archived row left
 			// there. Resolving by the row is what lets the diff show the rename.
-			path: userDraftPath || initialPath,
-			withStarredInfo: true
+			path: userDraftPath || initialPath
 		})
 
 		// A superseded opening must not write these: the current one would then render
@@ -1229,7 +1229,10 @@
 					})
 				},
 				draft: savedScript['draft'],
-				current
+				current,
+				aiReview: opWorkspace
+					? { workspaceId: opWorkspace, kind: 'script', path: script.path }
+					: undefined
 			},
 			opening
 		)
@@ -1355,6 +1358,15 @@
 			return 'metadata'
 		})()
 	)
+
+	let runtimeBadges = $derived(getActiveScriptSettingsBadges(script))
+	let permissionBadges = $derived(getActivePermissionBadges(script))
+	let settingsContent: HTMLElement | undefined = $state(undefined)
+	async function openSetting(tab: string, setting: string) {
+		selectedTab = tab as typeof selectedTab
+		await tick()
+		revealSetting(settingsContent, setting)
+	}
 
 	setContext('disableTooltips', untrack(() => customUi)?.disableTooltips === true)
 
@@ -1590,6 +1602,17 @@
 			aiId="script-builder-settings"
 			aiDescription="Script builder settings"
 		>
+			{#snippet titleExtra()}
+				{#if customUi?.settingsPanel?.disableRuntime !== true}
+					<ActiveSettingChips
+						groups={[
+							{ tab: 'runtime', badges: runtimeBadges },
+							{ tab: 'permissions', badges: permissionBadges }
+						]}
+						onopen={openSetting}
+					/>
+				{/if}
+			{/snippet}
 			<!-- svelte-ignore a11y_autofocus -->
 			<div class="flex flex-col h-full">
 				<Tabs bind:selected={selectedTab} wrapperClass="flex-none w-full">
@@ -1609,7 +1632,7 @@
 							label="Runtime"
 						>
 							{#snippet extra()}
-								<SettingIcons badges={getActiveScriptSettingsBadges(script)} />
+								<SettingIcons badges={runtimeBadges} />
 							{/snippet}
 						</Tab>
 						<Tab
@@ -1619,7 +1642,7 @@
 							label="Permissions"
 						>
 							{#snippet extra()}
-								<SettingIcons badges={getActivePermissionBadges(script)} />
+								<SettingIcons badges={permissionBadges} />
 							{/snippet}
 						</Tab>
 					{/if}
@@ -1659,7 +1682,7 @@
 					{/if}
 
 					{#snippet content()}
-						<div class="min-h-0 grow overflow-y-auto">
+						<div class="min-h-0 grow overflow-y-auto" bind:this={settingsContent}>
 							<TabContent value="metadata">
 								<div class="flex flex-col gap-8 p-4 pb-8">
 									<div class="flex flex-col gap-6">

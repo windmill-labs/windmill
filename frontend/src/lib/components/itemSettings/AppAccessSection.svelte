@@ -72,9 +72,6 @@
 				canUserBypassRuleKind('RestrictGuestAppDeployment', $userStore ?? undefined))
 	)
 
-	// Undefined until loaded. An app can be set to `guest` while the workspace has guests off;
-	// the mode is then stored but inert, which the description says.
-	let guestAccessEnabled = $state<boolean | undefined>(undefined)
 	let guestUsage = $state<GuestUsage | undefined>(undefined)
 	// The backend decides; the hostname stands in until it answers, the shared cloud being the
 	// only deployment where guests are unavailable.
@@ -84,9 +81,6 @@
 	let secretUrl: string | undefined = $state(undefined)
 
 	function load() {
-		WorkspaceService.getPublicSettings({ workspace })
-			.then((s) => (guestAccessEnabled = s.guest_access_enabled))
-			.catch(() => (guestAccessEnabled = undefined))
 		WorkspaceService.getGuestUsage({ workspace })
 			.then((u) => (guestUsage = u))
 			.catch(() => (guestUsage = undefined))
@@ -215,14 +209,6 @@
 				{#if !guestsAvailable}
 					Guests are not available on Windmill Cloud, so this app still admits members only. They
 					require a self-hosted instance or a dedicated Windmill Cloud deployment.
-				{:else if guestUsage && !guestUsage.instance_enabled}
-					A superadmin has turned guests off for this instance, so this app still admits members
-					only.
-				{:else if guestAccessEnabled === undefined}
-					Checking whether this workspace allows guests…
-				{:else if guestAccessEnabled === false}
-					Guests are turned off for this workspace, so this app still admits members only. A
-					workspace admin can turn them on in the workspace settings.
 				{:else}
 					Anyone your identity provider authenticates can open this app without a Windmill account.
 					They join no workspace. Members of this workspace can open it too.
@@ -379,7 +365,7 @@
 			{/if}
 		</Label>
 
-		{#if embedMode && mode == 'guest' && guestAccessEnabled && guestJwtBase && guestsAvailable}
+		{#if embedMode && mode == 'guest' && guestJwtBase && guestsAvailable}
 			<Label label="Embed for your own authenticated users (guest JWT)">
 				<div class="text-xs text-secondary">
 					To open this app for a user your own product already authenticates, mint a short-lived JWT

@@ -54,7 +54,11 @@
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
-	import { createRawAppFromFlow } from '$lib/components/details/createRawAppFromScript'
+	import {
+		createChatRawApp,
+		createRawAppFromFlow
+	} from '$lib/components/details/createRawAppFromScript'
+	import BuildChatAppCard from '$lib/components/details/BuildChatAppCard.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
@@ -465,19 +469,28 @@
 			}
 		})
 
-		if (!flow || !canAuthorFlow || !can_write) {
-			return buttons
-		}
-
-		// Build app starts from the full template, not the builder one a compose-only role deploys.
-		if (caps.apps === 'full') {
+		// A chat-mode flow gets the chat template rather than a form over its inputs. It holds no
+		// inline code, so authoring raw apps is enough, as on the sidebar card. The form app starts
+		// from the full template, not the builder one a compose-only role deploys.
+		const chat = !!flow?.value?.chat_input_enabled
+		const canBuildApp = chat
+			? editRights.roleCanAuthor('raw_app')
+			: canAuthorFlow && can_write && caps.apps === 'full'
+		if (flow && canBuildApp) {
 			buttons.push({
-				label: 'Build app',
+				label: chat ? 'Build chat app' : 'Build app',
 				placement: 'menu',
 				alwaysPlaced: true,
 				buttonProps: {
 					onClick: async () => {
-						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
+						const app = chat
+							? createChatRawApp({
+									path: flow.path,
+									runType: 'flow',
+									summary: flow.summary,
+									schema: flow.schema
+								})
+							: createRawAppFromFlow(flow.path, flow.summary, flow.schema)
 						// The raw app editor reads the payload from sessionStorage on mount.
 						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
 						await onNavigate('/apps_raw/add')
@@ -488,6 +501,10 @@
 					startIcon: LayoutDashboard
 				}
 			})
+		}
+
+		if (!flow || !canAuthorFlow || !can_write) {
+			return buttons
 		}
 
 		buttons.push({
@@ -852,7 +869,21 @@
 								flowModules={flow?.value?.modules}
 								wideLayout
 								frame="none"
-							/>
+							>
+								{#snippet sidebarFooter({ expanded })}
+									{#if workspace && flow}
+										<BuildChatAppCard
+											kind="flow"
+											path={flow.path}
+											{workspace}
+											{expanded}
+											summary={flow.summary}
+											schema={flow.schema}
+											{onNavigate}
+										/>
+									{/if}
+								{/snippet}
+							</FlowChat>
 						{:else}
 							{@const hasSchema =
 								flow.schema && Object.keys(flow.schema.properties ?? {}).length > 0}
@@ -1011,6 +1042,7 @@
 				isDeployed={true}
 				noCapture={true}
 				isEditor={false}
+				chatMode={chatInputEnabled}
 			/>
 		{/if}
 	{/snippet}

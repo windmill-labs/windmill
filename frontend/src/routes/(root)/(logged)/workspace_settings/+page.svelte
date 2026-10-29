@@ -241,9 +241,7 @@
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let publicAppRateLimitPerMinute: number | undefined = $state(undefined)
-	let guestAccessEnabled: boolean = $state(false)
 	let guestUsage: GuestUsage | undefined = $state(undefined)
-	let initialGuestAccessEnabled: boolean = $state(false)
 	// A guest JWT is verified against one key: a PEM public key, or a JWKS URL. The
 	// type picks which field is live; the other is cleared on save.
 	let guestJwtKeyType = $state<'pem' | 'jwks'>('pem')
@@ -257,8 +255,8 @@
 		pem: guestJwtKeyType === 'pem' ? guestJwtPublicKey.trim() : '',
 		jwks: guestJwtKeyType === 'jwks' ? guestJwtJwksUrl.trim() : ''
 	})
-	// Whether the deployment can have guests at all; off, the card offers no switch to
-	// turn on. The backend decides; the hostname stands in until it has answered.
+	// Whether the deployment can have guests at all; off, the card offers no guest key to
+	// configure. The backend decides; the hostname stands in until it has answered.
 	let guestsAvailable = $derived.by(() => guestUsage?.available ?? !isCloudHosted())
 	let initialPublicAppRateLimitPerMinute: number | undefined = $state(undefined)
 
@@ -697,11 +695,8 @@
 	}
 
 	async function saveDefaultAppSettings(): Promise<void> {
-		// Guest access and the guest JWT key are the writes of this card available on every plan;
-		// save them first so a refused Enterprise-only write after cannot swallow them.
-		if (guestAccessEnabled !== initialGuestAccessEnabled) {
-			await editGuestAccess()
-		}
+		// The guest JWT key is the write of this card available on every plan; save it first so
+		// a refused Enterprise-only write after cannot swallow it.
 		if (
 			effectiveGuestJwt.pem !== initialGuestJwtPublicKey ||
 			effectiveGuestJwt.jwks !== initialGuestJwtJwksUrl
@@ -741,19 +736,6 @@
 		initialGuestJwtPublicKey = ''
 		initialGuestJwtJwksUrl = ''
 		sendUserToast('Guest JWT key cleared')
-	}
-
-	async function editGuestAccess(): Promise<void> {
-		await WorkspaceService.editGuestAccess({
-			workspace: $workspaceStore!,
-			requestBody: { guest_access_enabled: guestAccessEnabled }
-		})
-		initialGuestAccessEnabled = guestAccessEnabled
-		sendUserToast(
-			guestAccessEnabled
-				? 'Guests can now open apps set to Guests in this workspace'
-				: 'Guests can no longer sign in to this workspace'
-		)
 	}
 
 	async function loadWorkspaceEncryptionKey(): Promise<void> {
@@ -841,8 +823,6 @@
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
 		publicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
 		initialPublicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
-		guestAccessEnabled = settings.guest_access_enabled ?? false
-		initialGuestAccessEnabled = settings.guest_access_enabled ?? false
 		guestJwtPublicKey = settings.guest_jwt_public_key ?? ''
 		guestJwtJwksUrl = settings.guest_jwt_jwks_url ?? ''
 		initialGuestJwtPublicKey = guestJwtPublicKey
@@ -1351,14 +1331,12 @@
 			savedValue: {
 				defaultAppPath: initialWorkspaceDefaultAppPath,
 				publicAppRateLimitPerMinute: initialPublicAppRateLimitPerMinute,
-				guestAccessEnabled: initialGuestAccessEnabled,
 				guestJwtPem: initialGuestJwtPublicKey,
 				guestJwtJwks: initialGuestJwtJwksUrl
 			},
 			modifiedValue: {
 				defaultAppPath: workspaceDefaultAppPath,
 				publicAppRateLimitPerMinute: publicAppRateLimitPerMinute,
-				guestAccessEnabled: guestAccessEnabled,
 				guestJwtPem: effectiveGuestJwt.pem,
 				guestJwtJwks: effectiveGuestJwt.jwks
 			}
@@ -1369,7 +1347,6 @@
 	function discardDefaultAppSettingsChanges() {
 		workspaceDefaultAppPath = initialWorkspaceDefaultAppPath
 		publicAppRateLimitPerMinute = initialPublicAppRateLimitPerMinute
-		guestAccessEnabled = initialGuestAccessEnabled
 		guestJwtPublicKey = initialGuestJwtPublicKey
 		guestJwtJwksUrl = initialGuestJwtJwksUrl
 		guestJwtKeyType = initialGuestJwtJwksUrl ? 'jwks' : 'pem'
@@ -2018,7 +1995,9 @@
 															onclick={saveSlackSigningSecret}
 															disabled={!slackSigningSecret.trim() && !slackSigningSecretSet}
 														>
-															{slackSigningSecret.trim() || !slackSigningSecretSet ? 'Save' : 'Remove'}
+															{slackSigningSecret.trim() || !slackSigningSecretSet
+																? 'Save'
+																: 'Remove'}
 														</Button>
 													</div>
 													<div class="text-2xs text-hint"
@@ -2704,7 +2683,7 @@ export async function main(
 
 							<SettingCard
 								label="Guests"
-								description="Let anyone your identity provider authenticates, or a JWT your own backend signs (configured below), open the apps set to Guests without a Windmill account. They join no workspace, see nothing else, and take no seat. Off by default. Turning it off stops guests immediately, even for apps already set to Guests."
+								description="An app set to Guests can be opened by anyone your identity provider authenticates, or by a JWT your own backend signs (configured below), without a Windmill account. They join no workspace, see nothing else, and take no seat. To limit who may set an app to Guests, add the 'Restrict guest app access' rule to a protection ruleset."
 								class="mt-6"
 							>
 								{#if !guestsAvailable}
@@ -2723,16 +2702,7 @@ export async function main(
 										</div>
 									{/if}
 								{:else}
-									<Toggle
-										bind:checked={guestAccessEnabled}
-										options={{ right: 'Allow guests to open apps set to Guests' }}
-									/>
-									{#if guestUsage && !guestUsage.instance_enabled}
-										<span class="text-hint text-2xs">
-											A superadmin has turned guests off for this instance, so this switch has no
-											effect until they are allowed again.
-										</span>
-									{:else if guestUsage}
+									{#if guestUsage}
 										<span class="text-hint text-2xs">
 											{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used across
 											this instance in the last {guestUsage.window_days} days.
@@ -2802,7 +2772,6 @@ export async function main(
 								onDiscard={discardDefaultAppSettingsChanges}
 								saveLabel="Save app settings"
 								disabled={!$enterpriseLicense &&
-									guestAccessEnabled === initialGuestAccessEnabled &&
 									effectiveGuestJwt.pem === initialGuestJwtPublicKey &&
 									effectiveGuestJwt.jwks === initialGuestJwtJwksUrl}
 							/>

@@ -90,7 +90,11 @@ describe("buildAppWmillTypes", () => {
       },
     });
 
-    expect(wmillTypes).toContain('"listRecipes": () => Promise<any>;');
-    expect(wmillTypes).toContain('"addRecipe": (args: { name: string }) => Promise<any>;');
+    expect(wmillTypes).toContain(
+      '"listRecipes": (args?: {}, opts?: { memoryId?: string }) => Promise<any>;',
+    );
+    expect(wmillTypes).toContain(
+      '"addRecipe": (args: { name: string }, opts?: { memoryId?: string }) => Promise<any>;',
+    );
   });
 });

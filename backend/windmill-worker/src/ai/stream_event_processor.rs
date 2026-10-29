@@ -26,14 +26,16 @@ impl Clone for StreamEventProcessor {
 }
 
 impl StreamEventProcessor {
-    /// Create a new StreamEventProcessor that persists events to the database.
-    pub fn new(conn: &Connection, job: &MiniPulledJob) -> Self {
+    /// Create a new StreamEventProcessor that persists events to the database, after the
+    /// `first_offset` events the job already streamed: a row written at an offset already taken
+    /// is appended to that row, out of order.
+    pub fn new(conn: &Connection, job: &MiniPulledJob, first_offset: i32) -> Self {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(100);
         let conn = conn.clone();
         let job_id = job.id.clone();
         let workspace_id = job.workspace_id.clone();
         let handle = tokio::spawn(async move {
-            let mut offset = -1;
+            let mut offset = first_offset - 1;
             while let Some(event) = rx.recv().await {
                 offset += 1;
                 match tokio::time::timeout(

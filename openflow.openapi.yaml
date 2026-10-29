@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.849.0
+  version: 1.853.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -308,7 +308,7 @@ components:
           required:
             - expr
         sleep:
-          description: Delay before executing this step (in seconds or as expression)
+          description: Delay after this step completes, before the next step starts (in seconds or as expression)
           $ref: '#/components/schemas/InputTransform'
         cache_ttl:
           type: number
@@ -1008,7 +1008,7 @@ components:
           description: Unique identifier for this tool. Cannot contain spaces - use underscores instead (e.g., 'get_user_data' not 'get user data')
         summary:
           type: string
-          description: "The name the AI agent calls this tool by, not a human label. On a flowmodule tool it must match ^[a-zA-Z0-9_]+$ - letters, numbers and underscores only (e.g. 'search_documentation', not 'Search documentation') - and always be set; on an mcp or websearch tool it is a plain label. Put the human-readable explanation in 'description'."
+          description: "The name the AI agent calls this tool by, not a human label. On a flowmodule tool it must match ^[a-zA-Z0-9_]+$ - letters, numbers and underscores only (e.g. 'search_documentation', not 'Search documentation') - and always be set; on an mcp, websearch or question tool it is a plain label. Put the human-readable explanation in 'description'."
         description:
           type: string
           description: Free-text description of the tool given to the AI to decide when and how to call it. Overrides the description auto-derived from the underlying script.
@@ -1018,6 +1018,9 @@ components:
           items:
             type: string
           description: "Scopes the token of this tool's jobs is restricted to, on top of the agent step's own restriction: a tool can only narrow it."
+        requires_approval:
+          type: boolean
+          description: "Flowmodule and mcp tools only. Each call waits for a person to approve or reject it from the flow's run page or chat, without the agent holding a worker. Calls in the same turn that do not require approval run right away. A rejected call, or one nobody answers within 30 minutes, is reported to the AI as not run."
         value:
           $ref: '#/components/schemas/ToolValue'
       required:
@@ -1030,12 +1033,14 @@ components:
         - $ref: '#/components/schemas/FlowModuleTool'
         - $ref: '#/components/schemas/McpToolValue'
         - $ref: '#/components/schemas/WebsearchToolValue'
+        - $ref: '#/components/schemas/QuestionToolValue'
       discriminator:
         propertyName: tool_type
         mapping:
           flowmodule: '#/components/schemas/FlowModuleTool'
           mcp: '#/components/schemas/McpToolValue'
           websearch: '#/components/schemas/WebsearchToolValue'
+          question: '#/components/schemas/QuestionToolValue'
 
     FlowModuleTool:
       description: A tool implemented as a flow module (script, flow, etc.). The AI can call this like any other flow module
@@ -1058,6 +1063,20 @@ components:
           type: string
           enum:
             - websearch
+      required:
+        - tool_type
+
+    QuestionToolValue:
+      type: object
+      description: "Built-in tool the AI calls as ask_question: the agent stops, releasing its worker, until someone answers from the flow's run page or chat or the question times out, then resumes with the answer as the tool result."
+      properties:
+        tool_type:
+          type: string
+          enum:
+            - question
+        timeout:
+          type: integer
+          description: Seconds to wait for an answer before the question is reported to the AI as timed out. Defaults to 1800.
       required:
         - tool_type
 
@@ -1494,6 +1513,57 @@ components:
                     enum: [web_search]
                 required:
                   - type
+              - type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [approval]
+                  call_id:
+                    type: string
+                  calls:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        function_name:
+                          type: string
+                        arguments: {}
+                      required:
+                        - function_name
+                        - arguments
+                  expires_at:
+                    type: string
+                    format: date-time
+                required:
+                  - type
+                  - call_id
+                  - calls
+                  - expires_at
+              - type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [question]
+                  call_id:
+                    type: string
+                  question:
+                    type: string
+                  choices:
+                    type: array
+                    items:
+                      type: string
+                    description: answers the model proposes; a free-text answer is always possible
+                  multi_select:
+                    type: boolean
+                    description: whether several choices can be picked together
+                  expires_at:
+                    type: string
+                    format: date-time
+                required:
+                  - type
+                  - call_id
+                  - question
+                  - expires_at
               - type: object
                 properties:
                   type:

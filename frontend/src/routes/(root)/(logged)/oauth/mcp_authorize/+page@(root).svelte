@@ -20,9 +20,16 @@
 	let clientName = page.url.searchParams.get('client_name') || 'Unknown Client'
 	let redirectUri = page.url.searchParams.get('redirect_uri') || ''
 	// What the client asked for seeds the access picker; what is approved is the picker's.
-	const requestedScopes = (page.url.searchParams.get('scope') || 'mcp:all')
+	const askedScopes = (page.url.searchParams.get('scope') || 'mcp:all')
 		.split(' ')
 		.filter((s) => s.startsWith('mcp:'))
+	// Both narrowings at once is a client requesting every scope it was offered, not a choice.
+	const requestedScopes =
+		askedScopes.includes('mcp:all') &&
+		askedScopes.includes('mcp:read_only') &&
+		askedScopes.includes('mcp:read_run')
+			? askedScopes.filter((s) => s !== 'mcp:read_only' && s !== 'mcp:read_run')
+			: askedScopes
 	let scopes = $state<string[]>([])
 	let access = $state<McpAccess>()
 	let oauthState = page.url.searchParams.get('state') || ''
@@ -205,15 +212,17 @@
 					<p class="text-xs font-semibold text-emphasis">Workspaces it may work in:</p>
 					{#if loadingWorkspaces}
 						<p class="text-xs text-secondary">Loading workspaces...</p>
-					{:else if workspaces.length === 0}
-						<p class="text-xs text-secondary">No workspaces available.</p>
 					{:else}
 						<Toggle
 							bind:checked={allWorkspaces}
 							options={{ right: 'All my workspaces, including ones I join later' }}
 							size="xs"
 						/>
-						{#if !allWorkspaces}
+						{#if workspaces.length === 0 && !allWorkspaces}
+							<p class="text-xs text-secondary">
+								You are not in any workspace yet. Turn this on to give it the ones you join later.
+							</p>
+						{:else if !allWorkspaces}
 							<MultiSelect
 								items={workspaces}
 								bind:value={pickedWorkspaces}

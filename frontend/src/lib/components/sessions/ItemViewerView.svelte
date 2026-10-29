@@ -21,7 +21,11 @@
 		previewLocationLabel,
 		barePath
 	} from './previewRouter'
-	import { useSessionPermissions } from './sessionPermissions.svelte'
+	import { useSessionPermissions, useSessionReadOnly } from './sessionPermissions.svelte'
+	import { agentWriteCount } from '$lib/components/flows/agentEditorStore.svelte'
+	import { userWorkspaces } from '$lib/stores'
+	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
+	import { devLabelNoun } from '$lib/utils/devWorkspaceLabel'
 
 	let {
 		runtime,
@@ -41,7 +45,7 @@
 		tabId: string
 		/** The tab's host element, which also holds the overlays the page portals out. */
 		container: HTMLElement | undefined
-		kind: SessionTargetKind
+		kind: SessionTargetKind | 'agent'
 		path: string
 		/** Deployed version this tab is pinned to, from its URL's `?version=`. */
 		version?: string
@@ -69,6 +73,8 @@
 		() => runtime.manager
 	)
 	const canEdit = $derived(permissions.canOpenEditor(kind))
+	const protectedWorkspace = useSessionReadOnly(() => workspaceId)
+	const devWorkspace = $derived(findCanonicalDevWorkspace(workspaceId, $userWorkspaces))
 
 	// This reads the deployed version over the API rather than from the editor cell the
 	// chat mutates, so it is the one preview kind that does not self-sync (the invariant
@@ -76,7 +82,10 @@
 	// bumps this counter through `itemDeployed`; a deploy from the chat arrives
 	// instead as `refresh()`, via `previewReload`'s item list. Neither covers a deploy made
 	// outside the session (Compare & Deploy, the CLI, another browser tab).
-	const revision = $derived(runtime.deployedRevision(kind, path))
+	// An agent is deployed from its own editor, which counts its writes for every surface showing it.
+	const revision = $derived(
+		kind === 'agent' ? agentWriteCount(workspaceId, path) : runtime.deployedRevision(kind, path)
+	)
 	let reloadKey = $state(0)
 	// Seeded from the current value on purpose: before the first run this holds "no deploy
 	// seen yet", so a fresh mount must not count as one.
@@ -133,6 +142,10 @@
 	}
 
 	function toEditSide() {
+		if (kind === 'agent') {
+			runtime.previewTabs.open({ type: 'pageitem', ref: { kind: 'resource', path } })
+			return
+		}
 		onNavigate(
 			kind === 'flow'
 				? `/flows/edit/${path}`
@@ -148,6 +161,22 @@
 	function onNavigate(url: string): void {
 		const clean = barePath(url)
 		const query = new URL(url, 'http://x').searchParams
+		// An agent's editor is its resource tab; another agent's page is this same view.
+		const agentEdit = clean.match(/^\/agents\/edit\/(.+)$/)
+		if (agentEdit) {
+			runtime.previewTabs.open({
+				type: 'pageitem',
+				ref: { kind: 'resource', path: decodeURIComponent(agentEdit[1]) }
+			})
+			return
+		}
+		if (/^\/agents\/get\/.+$/.test(clean)) {
+			runtime.previewTabs.navigate(
+				{ type: 'page', href: clean, label: previewLocationLabel(clean) },
+				tabId
+			)
+			return
+		}
 		const run = clean.match(/^\/run\/([^/?#]+)$/)
 		if (run) {
 			const jobId = decodeURIComponent(run[1])
@@ -234,8 +263,12 @@
 			<div class="text-sm text-primary">Not deployed yet</div>
 			<div class="text-xs text-tertiary max-w-sm">
 				Nothing is deployed at <span class="font-mono">{path}</span>, so there is no deployed
-				version to view.{#if canEdit}
-					Deploy it from the editor to see it here.{/if}
+				version to view.{#if canEdit}{' '}
+					Deploy it from the editor to see it here.{:else if protectedWorkspace.confirmed}{' '}
+					Direct deployment is disabled in this workspace, so this session can read and run deployed
+					items, but not edit. Pick {devWorkspace
+						? `its ${devLabelNoun(devWorkspace.dev_workspace_label)}`
+						: 'a fork'} to make changes.{/if}
 			</div>
 			{#if canEdit}
 				<Button unifiedSize="sm" variant="default" startIcon={{ icon: Pen }} on:click={toEditSide}>
@@ -243,6 +276,20 @@
 				</Button>
 			{/if}
 		</div>
+	{:else if kind === 'agent'}
+		<!-- Loaded when shown: the agent page carries the agent editor, the flow editor's graph. -->
+		{#await import('$lib/components/flows/content/AgentDetailPage.svelte') then Module}
+			<Module.default
+				{path}
+				workspace={workspaceId}
+				embedded
+				{active}
+				{onNavigate}
+				{pendingRun}
+				onLoadState={setLoadState}
+				onSummary={(summary) => runtime.previewTabs.setTabFriendlyLabel(tabId, summary)}
+			/>
+		{/await}
 	{:else if kind === 'script'}
 		<ScriptDetail
 			hash={path}

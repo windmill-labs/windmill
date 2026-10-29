@@ -12,7 +12,7 @@
  * draft, so discarding deletes the whole item (mirrors `common/table/*Row.svelte`);
  * a draft on an already-deployed item just deletes the draft row.
  */
-import { get, writable } from 'svelte/store'
+import { writable } from 'svelte/store'
 import {
 	DraftService,
 	ScriptService,
@@ -52,7 +52,7 @@ import {
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
-import { userStore } from '$lib/stores'
+import { isAdminIn } from '$lib/user'
 import { deployTriggers, type Trigger } from '$lib/components/triggers/utils'
 import { saveScheduleFromCfg } from '$lib/components/flows/scheduleUtils'
 import { dropStaleStepLocks } from '$lib/components/flows/staleStepLocks'
@@ -67,6 +67,7 @@ import { saveSqsTriggerFromCfg } from '$lib/components/triggers/sqs/utils'
 import { saveGcpTriggerFromCfg } from '$lib/components/triggers/gcp/utils'
 import { saveAzureTriggerFromCfg } from '$lib/components/triggers/azure/utils'
 import { saveEmailTriggerFromCfg } from '$lib/components/triggers/email/utils'
+import { markAgentWritten } from '$lib/components/flows/agentEditorStore.svelte'
 
 export type DraftKind = UserDraftItemKind
 
@@ -398,9 +399,14 @@ export async function getDraftDiffValues(
 			throw new Error(`Draft diff not supported for kind ${kind}`)
 		}
 		const { deployed, draft, hasDraft, noDeployed } = splitOverlay(await getter(workspace, path))
+		// The agent editor's draft of a deployed agent omits its type, which deploying keeps.
+		const draftWithType =
+			kind === 'resource' && draft && !draft.resource_type && deployed?.resource_type
+				? { ...draft, resource_type: deployed.resource_type }
+				: draft
 		return {
 			deployed: draftOnly ? {} : canonicalizeDraftDiffValue(kind, deployed, false),
-			draft: canonicalizeDraftDiffValue(kind, draft, true),
+			draft: canonicalizeDraftDiffValue(kind, draftWithType, true),
 			hasDraft,
 			noDeployed
 		}
@@ -473,7 +479,7 @@ async function deployDraftTriggers(
 ): Promise<void> {
 	const triggers = (draftTriggers ?? []).filter((t) => t?.draftConfig)
 	if (triggers.length === 0) return
-	const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
+	const isAdmin = await isAdminIn(workspace)
 	await deployTriggers(triggers, workspace, isAdmin, writable<string[]>([]), path, isNew)
 }
 
@@ -732,6 +738,9 @@ export async function deployDraft(
 					}
 				})
 			}
+			// What shows a deployed agent reads it again on this, wherever the deploy came from.
+			if (!noop && (d.resource_type ?? deployed?.resource_type) === 'ai_agent')
+				markAgentWritten(workspace, d.path ?? path)
 		} else if (kind === 'trigger_schedule') {
 			const { draft: d } = splitOverlay(await OVERLAY_GETTERS.trigger_schedule!(workspace, path))
 			// The schedule editor's draft IS the cfg shape `saveScheduleFromCfg`
@@ -743,7 +752,7 @@ export async function deployDraft(
 		} else if (kind in TRIGGER_SAVERS) {
 			const getter = OVERLAY_GETTERS[kind]!
 			const { draft: d } = splitOverlay(await getter(workspace, path))
-			const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
+			const isAdmin = await isAdminIn(workspace)
 			const ok = await TRIGGER_SAVERS[kind]!(
 				path,
 				{ ...d, path: d.path ?? path },

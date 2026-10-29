@@ -9,8 +9,10 @@
 	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { Plus, RefreshCw, Unplug } from 'lucide-svelte'
-	import { userStore } from '$lib/stores'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 	import { connectNativeAccount, getServiceConfig } from './utils'
 
 	interface Props {
@@ -45,6 +47,7 @@
 	}: Props = $props()
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
 	const displayName = $derived(getServiceConfig(service)?.serviceDisplayName ?? service)
 	const confirmationModal = createAsyncConfirmationModal()
 
@@ -95,7 +98,7 @@
 	}
 
 	async function reconnect(c: NativeTriggerConnection) {
-		if (c.owner && c.owner !== $userStore?.username) {
+		if (c.owner && c.owner !== operatingUser.current?.username) {
 			const confirmed = await confirmationModal.ask({
 				title: `Reconnect ${c.path} with your account?`,
 				confirmationText: 'Reconnect',
@@ -130,13 +133,16 @@
 
 	// Members cannot write the workspace connection; the server refuses anyone else it does not own.
 	function canDisconnect(c: NativeTriggerConnection): boolean {
-		if ($userStore?.is_admin) return true
-		return !c.workspace && !!c.owner && c.owner === $userStore?.username
+		if (operatingUser.current?.is_admin) return true
+		return !c.workspace && !!c.owner && c.owner === operatingUser.current?.username
 	}
 
 	// The server lets only the connection's owner or an admin replace it.
 	function canReconnect(c: NativeTriggerConnection): boolean {
-		return !!$userStore?.is_admin || (!!c.owner && c.owner === $userStore?.username)
+		return (
+			!!operatingUser.current?.is_admin ||
+			(!!c.owner && c.owner === operatingUser.current?.username)
+		)
 	}
 
 	const items = $derived.by(() => {

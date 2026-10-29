@@ -74,7 +74,7 @@
 	import AppJobsDrawer from './AppJobsDrawer.svelte'
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
 	import type { DiffDrawerI } from '$lib/components/diff_drawer'
-	import AppSettingsDrawer, { type AppSettingsTab } from './AppSettingsDrawer.svelte'
+	import AppSettingsDrawer from './AppSettingsDrawer.svelte'
 	import DeployButton from '$lib/components/DeployButton.svelte'
 	import { updatePolicy } from './appPolicy'
 	import { appDraftSettings, withoutSharedPolicySettings } from './appDraftSettings'
@@ -279,7 +279,7 @@
 	let appExport: AppExportButton | undefined = $state()
 
 	let settingsOpen = $state(false)
-	let settingsTab: AppSettingsTab = $state('metadata')
+	let settingsDrawer: AppSettingsDrawer | undefined = $state()
 	let inputsDrawerOpen = $state(untrack(() => fromHub))
 	let historyBrowserDrawerOpen = $state(false)
 	let debugAppDrawerOpen = $state(false)
@@ -421,8 +421,7 @@
 	async function syncWithDeployed(opening?: number) {
 		const deployedApp = await AppService.getAppByPath({
 			workspace: $workspaceStore!,
-			path: $appPath!,
-			withStarredInfo: true
+			path: $appPath!
 		})
 
 		// A superseded opening must not write these: the current one would then render
@@ -512,9 +511,8 @@
 		}
 	}
 
-	function openSettings(tab: AppSettingsTab) {
-		settingsTab = tab
-		settingsOpen = true
+	function openSettings(setting?: string) {
+		settingsDrawer?.openAt(setting)
 	}
 
 	let shareDialog: ShareDialog | undefined = $state()
@@ -533,7 +531,7 @@
 
 	async function deploy(message?: string) {
 		if (pathError != '') {
-			openSettings('metadata')
+			openSettings()
 			return
 		}
 		deploymentMsg = message ?? ''
@@ -827,7 +825,7 @@
 		{
 			displayName: 'Settings',
 			icon: Settings,
-			action: () => openSettings('metadata')
+			action: () => openSettings()
 		},
 		...(ownsPageHeader
 			? [
@@ -897,6 +895,9 @@
 							custom_path: customPath,
 							labels
 						},
+						aiReview: $workspaceStore
+							? { workspaceId: $workspaceStore, kind: 'app', path: savedApp.path }
+							: undefined,
 						button: {
 							text: 'Looks good, deploy',
 							onClick: () => deploy(deploymentMsg)
@@ -1028,8 +1029,8 @@
 	errorByComponent={$errorByComponent}
 />
 <AppSettingsDrawer
+	bind:this={settingsDrawer}
 	bind:open={settingsOpen}
-	bind:tab={settingsTab}
 	{newPath}
 	{newApp}
 	bind:policy
@@ -1417,7 +1418,7 @@
 					startIcon={{ icon: Settings }}
 					iconOnly={compactTopbar}
 					title="Settings"
-					on:click={() => openSettings('metadata')}
+					on:click={() => openSettings()}
 				>
 					Settings
 				</Button>

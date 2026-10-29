@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.849.0
+  version: 1.853.0
   title: Windmill API
 
   contact:
@@ -1928,7 +1928,7 @@ paths:
         - setting
       responses:
         "200":
-          description: the instance_banner, accent_color and api_base_url settings
+          description: the instance_banner, accent_color, api_base_url and api_base_url_applies_to settings
           content:
             application/json:
               schema:
@@ -1937,6 +1937,7 @@ paths:
                   instance_banner: {}
                   accent_color: {}
                   api_base_url: {}
+                  api_base_url_applies_to: {}
 
   /settings_u/ruff_config:
     get:
@@ -4303,15 +4304,11 @@ paths:
                     $ref: "#/components/schemas/WorkspaceDeployUISettings"
                   mute_critical_alerts:
                     type: boolean
-                  guest_access_enabled:
-                    type: boolean
-                    description: Whether this workspace admits guest sessions. An app's own `guest` execution mode is inert while this is false.
                   add_admins_and_developers_to_forks:
                     type: boolean
                     description: Whether every new fork of this workspace starts with its admins and developers as members, keeping their role.
                 required:
                   - workspace_id
-                  - guest_access_enabled
                   - add_admins_and_developers_to_forks
 
   /w/{workspace}/workspaces/get_settings:
@@ -4396,9 +4393,6 @@ paths:
                   error_handler_fallback_to_instance_alerts:
                     type: boolean
                     description: Report failed jobs to the instance critical alert channels when no workspace error handler is set.
-                  guest_access_enabled:
-                    type: boolean
-                    description: Whether this workspace admits guest sessions. An app's own `guest` execution mode is inert while this is false.
                   guest_jwt_public_key:
                     type: string
                     description: PEM public key a guest JWT (`jwt_guest_`) is verified against for this workspace. Mutually exclusive with `guest_jwt_jwks_url`.
@@ -6887,41 +6881,6 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/edit_guest_access:
-    post:
-      summary: enable or disable guest sessions for this workspace
-      description: >-
-        Guests are people the identity provider authenticates who have no Windmill
-        account; the `guest` app execution mode admits them. Off by default. Re-read
-        where a guest session is minted and at the auth door on every guest request, so
-        turning it off takes effect immediately, for sessions already issued and for
-        apps whose policy already says `guest`. Turning it *on* is refused with a 400
-        where guests are unavailable (the shared cloud); turning it off always works.
-      operationId: editGuestAccess
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: Whether guest sessions are admitted
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                guest_access_enabled:
-                  type: boolean
-              required:
-                - guest_access_enabled
-      responses:
-        "200":
-          description: status
-          content:
-            text/plain:
-              schema:
-                type: string
-
   /w/{workspace}/workspaces/edit_add_admins_and_developers_to_forks:
     post:
       summary: choose whether new forks of this workspace start with its admins and developers
@@ -6963,7 +6922,7 @@ paths:
         verified against this key: a PEM public key (RS/ES family, HS* refused) or a JWKS
         URL, at most one. Both empty clears the workspace key; off cloud, verification then
         falls back to the instance issuer (`JWT_EXT_JWKS_URL`) if one is set, else no guest
-        JWT is accepted (`guest_access_enabled` is the on/off switch). Workspace-admin gated.
+        JWT is accepted. Workspace-admin gated.
         The key is validated before it is stored. Setting a key is refused with a 400 where
         guests are unavailable (the shared cloud); clearing one always works.
       operationId: editGuestJwtKey
@@ -8238,6 +8197,8 @@ paths:
                   $ref: "#/components/schemas/RuleBypasserGroups"
                 bypass_users:
                   $ref: "#/components/schemas/RuleBypasserUsers"
+                fork_role_mapping:
+                  $ref: "#/components/schemas/ForkRoleMapping"
       responses:
         "200":
           description: protection rule created successfully
@@ -8286,6 +8247,8 @@ paths:
                   $ref: "#/components/schemas/RuleBypasserGroups"
                 bypass_users:
                   $ref: "#/components/schemas/RuleBypasserUsers"
+                fork_role_mapping:
+                  $ref: "#/components/schemas/ForkRoleMapping"
       responses:
         "200":
           description: protection rule updated successfully
@@ -10579,9 +10542,8 @@ paths:
       summary: whether the app behind a custom path admits guests
       description: >-
         The custom-path counterpart of `getGuestEntry`. Unauthenticated; 404 unless
-        the app's execution mode is `guest` AND its workspace has
-        `guest_access_enabled` AND the instance has not set `guest_access_disabled`,
-        and never on a deployment where guests are unavailable (the shared cloud).
+        the app's execution mode is `guest`, and never on a deployment where guests
+        are unavailable (the shared cloud).
         Returns the workspace too, since a custom URL may not carry it.
       operationId: getGuestEntryByCustomPath
       tags:
@@ -14000,6 +13962,53 @@ paths:
                 items:
                   $ref: "#/components/schemas/FlowConversationMessage"
 
+  /w/{workspace}/ai/complete:
+    post:
+      summary: one text completion with the workspace's AI config
+      description: >
+        Sends a system and a user message to the configured provider and returns the text of
+        the answer, with no tools and no streaming. For callers that do not speak a provider's
+        own API through the proxy, such as the CLI and jobs.
+      operationId: completeAi
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                system:
+                  type: string
+                user:
+                  type: string
+                model:
+                  description: defaults to the AI config's default model
+                  $ref: "#/components/schemas/AIProviderModel"
+                max_tokens:
+                  type: integer
+              required:
+                - system
+                - user
+      responses:
+        "200":
+          description: the answer, and the model that wrote it
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  text:
+                    type: string
+                  model:
+                    $ref: "#/components/schemas/AIProviderModel"
+                required:
+                  - text
+                  - model
+
   /w/{workspace}/ai_evals/datasets/list:
     get:
       summary: list eval datasets
@@ -15604,11 +15613,9 @@ paths:
       summary: whether the app behind a share secret admits guests
       description: >-
         Unauthenticated: what a signed-out visitor reads to learn that signing in
-        would let them in. 404 unless the app's execution mode is `guest` AND the
-        workspace has `guest_access_enabled` AND the instance has not set the
-        `guest_access_disabled` global setting, and never on a deployment where guests
-        are unavailable (the shared cloud), so it says nothing about apps that are not
-        open to guests. Discloses only the app path, to a caller already
+        would let them in. 404 unless the app's execution mode is `guest`, and never
+        on a deployment where guests are unavailable (the shared cloud), so it says
+        nothing about apps that are not open to guests. Discloses only the app path, to a caller already
         holding the share secret.
       operationId: getGuestEntry
       tags:
@@ -28423,6 +28430,13 @@ paths:
           description: folder scoping the Hub project source (`{workspace}:{folder}`)
           schema:
             type: string
+        - name: version
+          in: query
+          required: false
+          description: id of a reviewed project version to export instead of the current one (see the hub's `/projects/{slug}/versions`)
+          schema:
+            type: integer
+            minimum: 1
       responses:
         "200":
           description: raw Hub response body (status code is passed through from the Hub)
@@ -32539,15 +32553,11 @@ components:
         Guests are free up to `free_allowance` distinct emails over the trailing
         `window_days`. Past that an Enterprise plan meters them (`metered`, four guests
         to one seat: `billable_guests`, `guest_seats`); every other plan and build
-        admits no new email until the count drops. `instance_enabled` is the superadmin
-        switch (`guest_access_disabled` global setting) every workspace switch sits under.
-        `available` is whether this deployment can have guests at all: false on the shared
-        cloud, where guest access requires a self-hosted or dedicated deployment, and every
-        other field and switch is then moot.
+        admits no new email until the count drops. `available` is whether this
+        deployment can have guests at all: false on the shared cloud, where guest access
+        requires a self-hosted or dedicated deployment, and every other field is then moot.
       properties:
         available:
-          type: boolean
-        instance_enabled:
           type: boolean
         guest_count:
           type: integer
@@ -32567,7 +32577,6 @@ components:
           format: int64
       required:
         - available
-        - instance_enabled
         - guest_count
         - window_days
         - free_allowance
@@ -37644,9 +37653,8 @@ components:
             requires an authenticated viewer), while updating one keeps the mode
             the app is already deployed under. Neither `anonymous`, which makes
             the app publicly executable, nor `guest`, which opens it to anyone the
-            identity provider authenticates, is ever assumed. A guest is only
-            admitted where the workspace also has `guest_access_enabled`, which is
-            checked when the session is minted and again on every guest request
+            identity provider authenticates, is ever assumed. Widening an app to
+            `guest` is gated by the `RestrictGuestAppDeployment` protection rule
         on_behalf_of:
           type: string
           description: The user or group the app runs as in anonymous or publisher mode (e.g. 'u/admin' or 'g/mygroup'). The authority for the app's identity.
@@ -38631,6 +38639,9 @@ components:
           type: boolean
         fork_open_prs:
           type: boolean
+        ai_review_prs:
+          type: boolean
+          description: review every pull request against the tracked branch with the workspace's AI
         open_pr_error:
           type: string
           description: server-owned, last failure opening a PR for a deploy branch of this repo
@@ -39149,9 +39160,12 @@ components:
           type: boolean
         manage_triggers:
           type: boolean
+        fork:
+          type: boolean
+          description: Fork the workspace.
         visibility:
           $ref: "#/components/schemas/RoleVisibility"
-      required: [code, flows, apps, manage_schedules, manage_triggers, visibility]
+      required: [code, flows, apps, manage_schedules, manage_triggers, fork, visibility]
 
     RoleCapabilitiesPatch:
       type: object
@@ -39164,6 +39178,7 @@ components:
           $ref: "#/components/schemas/AuthorLevel"
         manage_schedules: { type: boolean }
         manage_triggers: { type: boolean }
+        fork: { type: boolean }
         visibility:
           type: object
           additionalProperties:
@@ -39828,6 +39843,16 @@ components:
           $ref: "#/components/schemas/RuleBypasserGroups"
         bypass_users:
           $ref: "#/components/schemas/RuleBypasserUsers"
+        fork_role_mapping:
+          $ref: "#/components/schemas/ForkRoleMapping"
+    ForkRoleMapping:
+      type: object
+      description: >-
+        Role a member of this workspace gets in a fork of it, keyed by the role it holds here.
+        Unmapped roles carry over unchanged; where two rulesets map the same role, the first by
+        name wins. On update, omitting it leaves the stored mapping unchanged.
+      additionalProperties:
+        type: string
     ProtectionRules:
       type: array
       description: Configuration of protection restrictions
