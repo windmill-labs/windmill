@@ -17885,7 +17885,7 @@ paths:
             type: string
       responses:
         "200":
-          description: recent runs grouped by item, newest run first
+          description: runs that completed in the window or are running, grouped by item, newest run first
           content:
             application/json:
               schema:
@@ -17928,15 +17928,13 @@ paths:
                                 format: uuid
                               status:
                                 $ref: "#/components/schemas/RecentRunStatus"
-                              created_at:
-                                type: string
-                                format: date-time
-                              started_at:
+                              ran_at:
+                                description: when the run started, or was created for one that has not reported a start
                                 type: string
                                 format: date-time
                               duration_ms:
                                 type: integer
-                            required: [id, status, created_at]
+                            required: [id, status, ran_at]
                       required: [path, kind, status, runs]
                 required:
                   - window_hours
@@ -33192,7 +33190,7 @@ components:
 
     RecentRunStatus:
       type: string
-      enum: [success, failure, running]
+      enum: [success, failure, canceled, running]
 
     ScriptLang:
       type: string
