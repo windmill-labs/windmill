@@ -160,11 +160,12 @@ Symbols, not line numbers, are cited: they drift less.
   an instance-deactivated account (`password.disabled`) is refused, since this path has no
   Windmill token for deactivation to revoke. The token's client claim (`azp` by default) must name a configured client, and
   its email claim an existing, enabled member of that client's workspace: no account is created,
-  and a client-credentials token (no user) is refused with 403. The groups claim named by
-  `sso_groups_claim` is reconciled into instance groups as at an SSO login, and the identity is
-  then read uncached, so a group change applies on the next token; the resolved identity is
-  cached per token for at most a minute. A user removed from every group still keeps their
-  memberships, because an absent claim never strips (see `reconcile_sso_instance_groups`). Runs
+  and a client-credentials token (no user) is refused with 403. When `sso_groups_claim` is set,
+  the instance groups with an `external_id` come from that claim of the token alone, for that
+  request only (nested paths counting for their ancestors): nothing is written, unlike an SSO
+  login, and an absent claim means no IdP groups, so removing a user from every group revokes at
+  the next token. Entra's overage pointer (`_claim_names`) is refused rather than read as no
+  groups. The resolved identity is cached per token for at most a minute. Runs
   record the client in `v2_job.mcp_client` and `job_perms.mcp_client`, from the pushing identity
   rather than `job_authed`, so a run on behalf of another identity still names it.
 - **`GET /api/oauth/login/{client}`** is an unauthenticated 302 to the provider — a plain link

@@ -277,13 +277,6 @@ async fn resolve(
         return Err(refuse(Some(w_id), format!("{email} is deactivated")));
     }
 
-    sync_groups(db, claims, &email).await.map_err(|e| {
-        refuse(
-            Some(w_id),
-            format!("could not apply the user's groups: {e}"),
-        )
-    })?;
-
     let username = sqlx::query_scalar!(
         "SELECT username FROM usr WHERE workspace_id = $1 AND email = $2 AND NOT disabled",
         w_id,
@@ -302,8 +295,6 @@ async fn resolve(
         )
     })?;
 
-    // Uncached, unlike `fetch_api_authed`: the groups just reconciled from the token must be
-    // the ones this identity carries, not a copy from before the change.
     let mut authed: ApiAuthed = windmill_common::auth::fetch_authed_from_permissioned_as(
         &format!("u/{username}"),
         &email,
@@ -313,53 +304,71 @@ async fn resolve(
     .await
     .map_err(|e| refuse(Some(w_id), e.to_string()))?
     .into();
+    // The groups the IdP manages come from the token alone, for this request only: one the
+    // token no longer lists, or an absent claim, stops granting at once, and nothing is stored.
+    if let Some(idp_groups) = token_groups(db, claims)
+        .await
+        .map_err(|e| refuse(Some(w_id), e))?
+    {
+        let managed: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM instance_group WHERE external_id IS NOT NULL")
+                .fetch_all(db)
+                .await
+                .map_err(|e| refuse(Some(w_id), e.to_string()))?;
+        authed.groups.retain(|g| !managed.contains(g));
+        authed.groups.extend(idp_groups);
+        authed.folders =
+            windmill_common::auth::get_folders_for_user(w_id, &authed.username, &authed.groups, db)
+                .await
+                .map_err(|e| refuse(Some(w_id), e.to_string()))?;
+    }
     authed.scopes = Some(client.scopes.clone());
     authed.mcp_client = Some(client.client_id.clone());
     Ok((authed, w_id.to_string()))
 }
 
-/// Applies the token's groups claim to the user's IdP-managed instance groups, as an SSO
-/// login does, so the rights the token carries are the ones checked.
+/// The instance groups the token's groups claim maps to through their `external_id`, or
+/// `None` when `sso_groups_claim` is unset and the stored memberships apply alone.
 #[cfg(all(feature = "enterprise", feature = "private", feature = "oauth2"))]
-async fn sync_groups(db: &DB, claims: &Value, email: &str) -> windmill_common::error::Result<()> {
-    let Some(claim) = crate::oauth2_ee::sso_groups_claim(db).await? else {
-        return Ok(());
-    };
-    let values = match claims.get(&claim) {
-        Some(Value::Array(v)) => Some(
-            v.iter()
-                .filter_map(|x| x.as_str().map(str::to_string))
-                .collect(),
-        ),
-        Some(Value::String(s)) => Some(vec![s.clone()]),
-        _ => None,
-    };
-    let Some(groups) =
-        crate::oauth2_ee::actionable_idp_groups(values, email, &claim, "MCP access token")
+async fn token_groups(db: &DB, claims: &Value) -> Result<Option<Vec<String>>, String> {
+    let Some(claim) = crate::oauth2_ee::sso_groups_claim(db)
+        .await
+        .map_err(|e| e.to_string())?
     else {
-        return Ok(());
+        return Ok(None);
     };
-    // Only an existing account: the reconcile would otherwise write memberships for an
-    // address that has none.
-    let exists = sqlx::query_scalar!("SELECT 1 FROM password WHERE email = $1", email)
-        .fetch_optional(db)
-        .await?
-        .is_some();
-    if exists {
-        let mut tx = db.begin().await?;
-        crate::scim_ee::reconcile_sso_instance_groups(email, &groups, &mut tx).await?;
-        tx.commit().await?;
-    }
-    Ok(())
+    let values: Vec<String> = match claims.get(&claim) {
+        Some(Value::Array(v)) => v
+            .iter()
+            .filter_map(|x| x.as_str().map(str::to_string))
+            .collect(),
+        Some(Value::String(s)) => vec![s.clone()],
+        // Entra leaves out a list too long for the token and points to it here: reading that
+        // as "no groups" would silently strip the user's rights.
+        None if claims
+            .get("_claim_names")
+            .and_then(|c| c.get(&claim))
+            .is_some() =>
+        {
+            return Err(format!(
+                "the token's `{claim}` claim was left out for listing too many groups: \
+                 limit it to the groups assigned to the client"
+            ));
+        }
+        _ => vec![],
+    };
+    let values = crate::scim_ee::with_ancestor_paths(crate::scim_ee::usable_claim_values(&values));
+    sqlx::query_scalar("SELECT name FROM instance_group WHERE external_id = ANY($1)")
+        .bind(&values)
+        .fetch_all(db)
+        .await
+        .map(Some)
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(not(all(feature = "enterprise", feature = "private", feature = "oauth2")))]
-async fn sync_groups(
-    _db: &DB,
-    _claims: &Value,
-    _email: &str,
-) -> windmill_common::error::Result<()> {
-    Ok(())
+async fn token_groups(_db: &DB, _claims: &Value) -> Result<Option<Vec<String>>, String> {
+    Ok(None)
 }
 
 async fn audit_refusal(db: &DB, refusal: &Refusal) {
