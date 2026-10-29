@@ -3395,7 +3395,7 @@ const ERROR_HANDLER_PATH_EMAIL: &str = "/workspace-or-error-handler-email";
 /// Every handler version the frontend has offered as a preset (`frontend/src/lib/hubPaths.json`
 /// and its history, which stored schedules still point at). Matched whole: a hub script is
 /// resolved by its numeric id alone, so the name after it proves nothing about its code.
-const PRESET_HANDLER_PATHS: [&str; 23] = [
+const PRESET_HANDLER_PATHS: [&str; 26] = [
     "hub/6512/workspace-or-schedule-error-handler-slack",
     "hub/5792/workspace-or-schedule-error-handler-slack",
     "hub/9079/workspace-or-schedule-error-handler-slack",
@@ -3403,17 +3403,20 @@ const PRESET_HANDLER_PATHS: [&str; 23] = [
     "hub/19741/workspace-or-schedule-error-handler-slack",
     "hub/28241/workspace-or-schedule-error-handler-slack",
     "hub/28794/workspace-or-schedule-error-handler-slack",
+    "hub/30057/workspace-or-schedule-error-handler-slack",
     "hub/2431/slack/schedule-error-handler-slack",
     "hub/2430/slack/schedule-recovery-handler-slack",
     "hub/9067/slack/schedule-recovery-handler-slack",
     "hub/9080/slack/schedule-recovery-handler-slack",
     "hub/28239/slack/schedule-recovery-handler-slack",
     "hub/28791/slack/schedule-recovery-handler-slack",
+    "hub/30054/slack/schedule-recovery-handler-slack",
     "hub/9069/slack/schedule-success-handler-slack",
     "hub/9072/slack/schedule-success-handler-slack",
     "hub/28220/slack/schedule-success-handler-slack",
     "hub/28240/slack/schedule-success-handler-slack",
     "hub/28793/slack/schedule-success-handler-slack",
+    "hub/30056/slack/schedule-success-handler-slack",
     "hub/11598/workspace-or-schedule-error-handler-teams",
     "hub/19742/workspace-or-schedule-error-handler-teams",
     "hub/11593/schedule-recovery-handler-teams",
