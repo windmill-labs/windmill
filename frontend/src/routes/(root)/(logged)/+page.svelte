@@ -15,6 +15,10 @@
 	import { hubBaseUrlStore } from '$lib/stores'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
+	import RecentRunsPanel from '$lib/components/home/RecentRunsPanel.svelte'
+	import RecentRunsHeaderStatus from '$lib/components/home/RecentRunsHeaderStatus.svelte'
+	import { usePanelOpen, useRecentRuns } from '$lib/components/home/recentRuns.svelte'
+	import { MediaQuery } from 'svelte/reactivity'
 	import PickHubApp from '$lib/components/flows/pickers/PickHubApp.svelte'
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
@@ -93,6 +97,17 @@
 	}
 
 	let showCreateButtons = $state(false)
+
+	let itemsList = $state<ItemsList>()
+	let runsFolder = $derived(itemsList?.folderFilter())
+	const recentRuns = useRecentRuns(() => ({ workspace: $workspaceStore, folder: runsFolder }))
+	const runsPanelOpen = usePanelOpen()
+	// The side panel needs the room of a desktop window; narrower, only the header status shows.
+	const wide = new MediaQuery('min-width: 1024px')
+	let showRuns = $derived(
+		tab == 'workspace' && itemsList != undefined && !itemsList.isWorkspaceEmpty()
+	)
+	let showRunsPanel = $derived(showRuns && wide.current && runsPanelOpen.val)
 
 	// A workspace switch keeps this page mounted and swaps its contents under the reader, which
 	// the mount animation below never covers. Replay it by hand instead of keying the page on the
@@ -292,6 +307,16 @@
 	<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
 {/snippet}
 
+{#snippet runsStatus()}
+	{#if showRuns && !showRunsPanel}
+		<RecentRunsHeaderStatus
+			runs={recentRuns}
+			folder={runsFolder}
+			onShowPanel={wide.current ? () => (runsPanelOpen.val = true) : undefined}
+		/>
+	{/if}
+{/snippet}
+
 <div
 	bind:this={pageEl}
 	class="{fadeIn
@@ -303,111 +328,134 @@
 	<!-- Where edits to this workspace are made is a fact about the workspace, so it sits in the
 	     header with the workspace's own name rather than above the list. -->
 	<PageHeaderContent actions={editRuleBadge} />
+	<!-- After the home menu (order 100): the run status closes the bar. -->
+	<PageHeaderContent actions={runsStatus} actionsOrder={200} />
 
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
-	<!-- While the composer is open this column stays at the top and the lists scroll under it. It
-	     is the scroller's own child because a sticky element holds only inside its parent; its
+	<div class="flex w-full justify-center {showRunsPanel ? 'max-w-[1520px]' : ''}">
+		<div class="flex flex-col items-center flex-1 min-w-0">
+			<!-- While the composer is open this column stays at the top and the lists scroll under it. Its
+	     parent holds the lists too, because a sticky element holds only inside its parent; its
 	     background covers what passes under it, and the items' search bar sticks below it
 	     (`--home-pinned`, ItemsList) rather than behind it. -->
-	<div
-		bind:clientHeight={pinnedHeight}
-		class="{HOME_COLUMN_WIDTH} px-4 sm:px-8 md:px-8 h-fit w-full pb-6 shrink-0 bg-surface group-has-[[data-composer-open]]/home:sticky group-has-[[data-composer-open]]/home:top-0 group-has-[[data-composer-open]]/home:z-20"
-	>
-		<!-- HomeAIChat carries both the AI composer and the AI-independent CLI/MCP connect row,
+			<div
+				bind:clientHeight={pinnedHeight}
+				class="{HOME_COLUMN_WIDTH} px-4 sm:px-8 md:px-8 h-fit w-full pb-6 shrink-0 bg-surface group-has-[[data-composer-open]]/home:sticky group-has-[[data-composer-open]]/home:top-0 group-has-[[data-composer-open]]/home:z-20"
+			>
+				<!-- HomeAIChat carries both the AI composer and the AI-independent CLI/MCP connect row,
 		     so it shows whenever the sessions beta is on; the composer itself is gated on the
 		     workspace inside the component, which owns its own vertical spacing
 		     because the hero and the bare connect row want different amounts of it. -->
-		{#if isGlobalAiEnabled()}
-			<HomeAIChat />
-		{/if}
+				{#if isGlobalAiEnabled()}
+					<HomeAIChat />
+				{/if}
 
-		{#if $workspaceStore == 'admins'}
-			<Alert title="Admins workspace">
-				The Admins workspace is for admins only and contains scripts whose purpose is to manage your
-				Windmill instance, such as keeping resource types up to date.
-			</Alert>
-			<div class="my-4"></div>
-		{/if}
+				{#if $workspaceStore == 'admins'}
+					<Alert title="Admins workspace">
+						The Admins workspace is for admins only and contains scripts whose purpose is to manage
+						your Windmill instance, such as keeping resource types up to date.
+					</Alert>
+					<div class="my-4"></div>
+				{/if}
 
-		{#if tab == 'hub'}
-			<div class="flex flex-col gap-y-16">
-				<div class="flex flex-col pb-8">
-					{#snippet toggleKinds()}
-						<ToggleButtonGroup
-							bind:selected={subtab}
-							onSelected={(v) => {
-								setQuery('kind', v, window.location.hash)
-							}}
-							noWFull
-						>
-							{#snippet children({ item })}
-								<ToggleButton value="script" label="Scripts" icon={Code} {item} />
-								<ToggleButton
-									value="flow"
-									label="Flows"
-									icon={FlowIcon}
-									selectedColor="#14b8a6"
-									{item}
-								/>
-								<ToggleButton
-									value="app"
-									label="Apps"
-									icon={LayoutDashboard}
-									selectedColor="#fb923c"
-									{item}
-								/>
+				{#if tab == 'hub'}
+					<div class="flex flex-col gap-y-16">
+						<div class="flex flex-col pb-8">
+							{#snippet toggleKinds()}
+								<ToggleButtonGroup
+									bind:selected={subtab}
+									onSelected={(v) => {
+										setQuery('kind', v, window.location.hash)
+									}}
+									noWFull
+								>
+									{#snippet children({ item })}
+										<ToggleButton value="script" label="Scripts" icon={Code} {item} />
+										<ToggleButton
+											value="flow"
+											label="Flows"
+											icon={FlowIcon}
+											selectedColor="#14b8a6"
+											{item}
+										/>
+										<ToggleButton
+											value="app"
+											label="Apps"
+											icon={LayoutDashboard}
+											selectedColor="#fb923c"
+											{item}
+										/>
+									{/snippet}
+								</ToggleButtonGroup>
+								<Button
+									startIcon={{ icon: ExternalLink }}
+									target="_blank"
+									href={$hubBaseUrlStore}
+									variant="default"
+								>
+									Hub
+								</Button>
 							{/snippet}
-						</ToggleButtonGroup>
-						<Button
-							startIcon={{ icon: ExternalLink }}
-							target="_blank"
-							href={$hubBaseUrlStore}
-							variant="default"
-						>
-							Hub
-						</Button>
-					{/snippet}
 
-					{#if subtab == 'script'}
-						<PickHubScript
-							syncQuery
-							bind:filter={getFilter, setFilter}
-							on:pick={(e) => viewCode(e.detail)}
-						>
-							{#snippet children()}
-								{@render toggleKinds?.()}
-							{/snippet}
-						</PickHubScript>
-					{:else if subtab == 'flow'}
-						<PickHubFlow
-							syncQuery
-							bind:filter={getFilter, setFilter}
-							on:pick={(e) => viewFlow(e.detail)}
-						>
-							{#snippet children()}
-								{@render toggleKinds?.()}
-							{/snippet}
-						</PickHubFlow>
-					{:else if subtab == 'app'}
-						<PickHubApp
-							syncQuery
-							bind:filter={getFilter, setFilter}
-							on:pick={(e) => viewApp(e.detail)}
-						>
-							{#snippet children()}
-								{@render toggleKinds?.()}
-							{/snippet}
-						</PickHubApp>
-					{/if}
-				</div>
+							{#if subtab == 'script'}
+								<PickHubScript
+									syncQuery
+									bind:filter={getFilter, setFilter}
+									on:pick={(e) => viewCode(e.detail)}
+								>
+									{#snippet children()}
+										{@render toggleKinds?.()}
+									{/snippet}
+								</PickHubScript>
+							{:else if subtab == 'flow'}
+								<PickHubFlow
+									syncQuery
+									bind:filter={getFilter, setFilter}
+									on:pick={(e) => viewFlow(e.detail)}
+								>
+									{#snippet children()}
+										{@render toggleKinds?.()}
+									{/snippet}
+								</PickHubFlow>
+							{:else if subtab == 'app'}
+								<PickHubApp
+									syncQuery
+									bind:filter={getFilter, setFilter}
+									on:pick={(e) => viewApp(e.detail)}
+								>
+									{#snippet children()}
+										{@render toggleKinds?.()}
+									{/snippet}
+								</PickHubApp>
+							{/if}
+						</div>
+					</div>
+				{/if}
 			</div>
+
+			{#if tab == 'workspace'}
+				<ItemsList bind:this={itemsList} bind:subtab showEditButtons={showCreateButtons} />
+			{/if}
+		</div>
+		{#if showRunsPanel}
+			<!-- Beside the composer and the items card, as one of the page's cards, and like them it
+		     loses its frame while the composer is open. The page scrolls, so it holds to the top
+		     and its list scrolls inside it. `data-works-with-composer`: a press in it leaves the
+		     composer open, as one in the items card does. -->
+			<aside
+				data-works-with-composer
+				class="sticky top-3 self-start shrink-0 w-[380px] max-[1180px]:w-[300px] -ml-2 mr-8 mb-6 max-h-[calc(100dvh-48px-1.5rem)] flex flex-col bg-surface-tertiary border border-border-light rounded-lg px-5 py-3 group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:border-transparent"
+				aria-label="Recently run"
+			>
+				<RecentRunsPanel
+					runs={recentRuns}
+					folder={runsFolder}
+					onCollapse={() => (runsPanelOpen.val = false)}
+				/>
+			</aside>
 		{/if}
 	</div>
-
-	{#if tab == 'workspace'}
-		<ItemsList bind:subtab showEditButtons={showCreateButtons} />
-	{/if}
 </div>
 
 {#if !$roleCapabilities.code}

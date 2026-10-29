@@ -1248,6 +1248,15 @@
 	// Expand/collapse: nothing to group on an empty workspace.
 	let listControls = $derived(!loading && !workspaceEmpty)
 
+	// Read by the page around the list (the recent runs panel); reactive when called in a derived.
+	export function isWorkspaceEmpty() {
+		return workspaceEmpty
+	}
+	/** The folder the list is scoped to, when its owner filter names one (`f/<folder>`). */
+	export function folderFilter(): string | undefined {
+		return ownerFilter?.startsWith('f/') ? ownerFilter.slice(2) : undefined
+	}
+
 	// Owners the counts found the user has something in, split by kind. They cover
 	// what the folder/username lists miss: an item shared individually out of a
 	// folder or user space the user is otherwise not a member of.
