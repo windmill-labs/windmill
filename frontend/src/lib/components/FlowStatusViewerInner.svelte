@@ -1983,7 +1983,7 @@
 				<div class="border h-full rounded-md" bind:clientHeight={wrapperHeight}>
 					<Splitpanes>
 						<Pane bind:size={graphPaneSize} minSize={30}>
-							<div class="bg-surface-secondary h-full max-h-screen">
+							<div class="bg-surface-secondary h-full max-h-[1200px]">
 								<div class="flex flex-col" bind:clientHeight={retryStatusHeight}>
 									{#each Object.values(retryStatus?.val ?? {}) as count}
 										{#if count}
@@ -2003,7 +2003,7 @@
 									triggerNode={true}
 									download={!hideDownloadInGraph}
 									minHeight={wrapperHeight - retryStatusHeight}
-									outerDivClass="max-h-screen"
+									outerDivClass="max-h-[1200px]"
 									success={jobId != undefined && isSuccess(job?.['success'])}
 									flowModuleStates={localModuleStates}
 									bind:expandedSubflows
@@ -2053,7 +2053,9 @@
 							</div>
 						</Pane>
 						<Pane bind:size={detailsPaneSize} minSize={25} class="!overflow-visible">
-							<div class="pt-1 min-h-[min(700px,100vh)] max-h-screen flex flex-col h-full relative">
+							<div
+								class="pt-1 min-h-[min(700px,100vh)] max-h-[1200px] flex flex-col h-full relative"
+							>
 								<Tabs bind:selected={rightColumnSelect} wrapperClass="shrink-0">
 									{#if !hideTimeline}
 										<Tab value="timeline" label="Timeline" />

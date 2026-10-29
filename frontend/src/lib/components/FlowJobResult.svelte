@@ -69,7 +69,7 @@
 			{/if}
 		</div>
 	</div>
-	<div class="relative flex flex-col gap-1 {col ? 'flex-1 min-h-[200px]' : ''}">
+	<div class="relative flex flex-col gap-1 {col ? 'flex-1 min-h-[400px]' : ''}">
 		<span class="text-emphasis text-xs font-semibold">Logs</span>
 		<div class="rounded-md grow min-h-0 border bg-surface-tertiary overflow-hidden">
 			<!-- In col mode the caller gives this column a definite height and the log box fills it:
