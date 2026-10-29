@@ -77,7 +77,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::secret_backend::{
-    get_secret_backend, is_external_stored_value, is_vault_backend_configured,
+    get_secret_backend, is_external_ref_value, is_external_stored_value,
+    is_vault_backend_configured,
 };
 use windmill_common::utils::not_found_if_none;
 
@@ -14930,8 +14931,12 @@ async fn compare_two_variables(
         {
             // A secret's ciphertext is randomized on every write, so equal secrets are compared
             // by plaintext, each decrypted with its own workspace's key. An external backend
-            // reference is the same text on both sides but names a per-workspace entry.
+            // reference is the same text on both sides but names a per-workspace entry. An
+            // `$external:` reference is compared as written: two references resolving to equal
+            // values still point at different secrets.
             has_changes = !source.is_secret
+                || is_external_ref_value(&source.value)
+                || is_external_ref_value(&target.value)
                 || !matches!(
                     tokio::try_join!(
                         decrypt_secret_value(db, source_workspace_id, path, source.value.clone()),
