@@ -326,8 +326,14 @@ export function runContextElement(
 	id: string,
 	path: string
 ): WorkspaceRunElement & { deletable: boolean } {
-	// The id in the title: two runs of one item are two chips.
-	return { type: 'workspace_run', id, path, title: `${path} · run ${id.slice(0, 8)}`, deletable: true }
+	// The title is the element's identity (selection and `@` mentions match on it), so it carries
+	// the whole id: ids minted in the same minute share their first characters.
+	return { type: 'workspace_run', id, path, title: `${path} · run ${id}`, deletable: true }
+}
+
+/** A run element's chip label: the id cut to what tells two chips apart at a glance. */
+export function runContextLabel(el: WorkspaceRunElement): string {
+	return `${el.path} · run ${el.id.slice(-8)}`
 }
 
 const DIR_PREFIX = dirKey('all', '')
@@ -408,7 +414,12 @@ export function contextElementKey(c: ContextElement): string {
 export type MentionContext = Extract<
 	ContextElement,
 	{
-		type: 'workspace_script' | 'workspace_flow' | 'workspace_app' | 'workspace_folder' | 'workspace_run'
+		type:
+			| 'workspace_script'
+			| 'workspace_flow'
+			| 'workspace_app'
+			| 'workspace_folder'
+			| 'workspace_run'
 	}
 >
 

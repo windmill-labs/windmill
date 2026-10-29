@@ -14,11 +14,14 @@ const REFRESH_MS = 5000
 
 /**
  * What ran recently in the workspace, read from `listRecentRuns`. The side panel and the header
- * status read the same instance: the counts they show must never disagree.
+ * status read the same instance: the counts they show must never disagree. Nothing is read while
+ * `enabled` is false: each read scans the window's runs.
  */
-export function useRecentRuns(args: () => { workspace: string | undefined; folder?: string }) {
-	const runs = resource(args, async ({ workspace, folder }, _, { data, refetching }) => {
-		if (!workspace) return undefined
+export function useRecentRuns(
+	args: () => { workspace: string | undefined; folder?: string; enabled: boolean }
+) {
+	const runs = resource(args, async ({ workspace, folder, enabled }, _, { data, refetching }) => {
+		if (!workspace || !enabled) return undefined
 		try {
 			return await JobService.listRecentRuns({ workspace, folder })
 		} catch {
@@ -32,7 +35,7 @@ export function useRecentRuns(args: () => { workspace: string | undefined; folde
 	const visible = new IsDocumentVisible()
 	useInterval(REFRESH_MS, {
 		callback: () => {
-			if (!visible.current) return
+			if (!visible.current || !args().enabled) return
 			now = Date.now()
 			if (!runs.loading) runs.refetch()
 		}
@@ -86,11 +89,16 @@ export function windowLabel(hours: number) {
 /** `now`, `3m`, `2h`, `4d`; `running` while the newest run has not finished. */
 export function shortAge(run: RecentRun, now: number) {
 	if (run.status === 'running') return 'running'
-	const s = Math.max(0, (now - new Date(run.created_at).getTime()) / 1000)
+	const s = Math.max(0, (now - new Date(run.ran_at).getTime()) / 1000)
 	if (s < 60) return 'now'
 	if (s < 3600) return `${Math.floor(s / 60)}m`
 	if (s < 86400) return `${Math.floor(s / 3600)}h`
 	return `${Math.floor(s / 86400)}d`
+}
+
+/** A script and a flow can share a path: an item is both. */
+export function itemKey(item: Pick<RecentRunItem, 'kind' | 'path'>) {
+	return `${item.kind}:${item.path}`
 }
 
 export function itemTitle(item: Pick<RecentRunItem, 'summary' | 'path'>) {
@@ -103,7 +111,8 @@ export function collisionPrefixes(items: RecentRunItem[]): Map<string, string> {
 	for (const item of items) byTitle.set(itemTitle(item), (byTitle.get(itemTitle(item)) ?? 0) + 1)
 	const prefixes = new Map<string, string>()
 	for (const item of items) {
-		if ((byTitle.get(itemTitle(item)) ?? 0) > 1) prefixes.set(item.path, item.path.split('/')[1])
+		if ((byTitle.get(itemTitle(item)) ?? 0) > 1)
+			prefixes.set(itemKey(item), item.path.split('/')[1])
 	}
 	return prefixes
 }

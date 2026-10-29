@@ -11,6 +11,7 @@
 </script>
 
 <script lang="ts">
+	import { onDestroy } from 'svelte'
 	import { ExternalLink, Globe2, PlugZap } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { hubBaseUrlStore, roleCapabilities, workspaceStore } from '$lib/stores'
@@ -35,6 +36,7 @@
 	const sideTripsInBar = $derived(homeSideTripsInBar())
 	// The rows the page's other header actions put here once the bar gathers them all in this menu.
 	const gatheredItems = $derived(homeHeaderMenu.items)
+	onDestroy(homeHeaderMenu.mountRenderer())
 	const hubOffered = $derived($roleCapabilities.code && HOME_SHOW_HUB)
 
 	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)

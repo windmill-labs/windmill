@@ -1256,6 +1256,7 @@
 	// Bumped to remount the tree, whose nodes read `treeOpenMemory` only when they mount.
 	let revealSeq = $state(0)
 	const REVEAL_WAIT_MS = 4000
+	const REVEAL_GRACE_MS = 300
 	const REVEAL_RING_MS = 1600
 
 	// A pipeline's steps have no rows of their own: the folder's Pipeline row stands for them.
@@ -1275,12 +1276,18 @@
 		let row = findRow(path)
 		if (!row && !flatList) {
 			const segments = path.split('/')
-			for (let i = 2; i < segments.length; i++) {
-				treeOpenMemory.setOpen(segments.slice(0, i).join('/'), true)
+			const closed = segments
+				.slice(2)
+				.map((_, i) => segments.slice(0, i + 2).join('/'))
+				.filter((prefix) => !treeOpenMemory.isOpen(prefix))
+			// A remount drops the tree's loaded pages, so it is only worth it to open a folder. With
+			// every folder already open, a row still missing is filtered out or not loaded.
+			if (closed.length > 0) {
+				for (const prefix of closed) treeOpenMemory.setOpen(prefix, true)
+				revealSeq++
 			}
-			revealSeq++
 			// The owner's rows load on open, so the row appears some frames later.
-			const deadline = Date.now() + REVEAL_WAIT_MS
+			const deadline = Date.now() + (closed.length > 0 ? REVEAL_WAIT_MS : REVEAL_GRACE_MS)
 			while (!row && Date.now() < deadline) {
 				await new Promise((r) => setTimeout(r, 50))
 				row = findRow(path)

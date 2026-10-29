@@ -24,19 +24,22 @@ export function homeSideTripsInBar(): boolean {
 /** The actions change width at these two widths on their own, not through a fold: the bar has to
  *  measure its fold levels afresh when one flips, or it keeps folding by the wider row. */
 export function homeActionsVersion(): string {
-	return `${homeCountLabels()}:${pageHeader.barWidth >= BAR_FITS_SIDE_TRIPS}`
+	return `${homeCountLabels()}:${pageHeader.barWidth >= BAR_FITS_SIDE_TRIPS}:${renderers > 0}`
 }
 
 export function homeActionsCompact(): boolean {
 	return pageHeader.actionFold >= 1
 }
 
+/** Only while the ⋮ menu is mounted to hold them (HomeAIChat, absent when the sessions beta is
+ *  opted out): without it, gathered actions would be nowhere on the page. */
 export function homeActionsGathered(): boolean {
-	return pageHeader.actionFold >= 2
+	return pageHeader.actionFold >= 2 && renderers > 0
 }
 
 let providers = $state<{ id: number; order: number; get: () => Item[] }[]>([])
 let nextId = 0
+let renderers = $state(0)
 
 /** The rows each of Home's header actions puts in the ⋮ menu once they are gathered there. */
 export const homeHeaderMenu = {
@@ -52,5 +55,10 @@ export const homeHeaderMenu = {
 	},
 	release(id: number) {
 		providers = providers.filter((p) => p.id !== id)
+	},
+	/** Called by the menu that lists `items`, on mount; returns its release for destroy. */
+	mountRenderer(): () => void {
+		renderers++
+		return () => renderers--
 	}
 }

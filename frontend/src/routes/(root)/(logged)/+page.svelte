@@ -22,7 +22,8 @@
 		itemHref,
 		totalLabel,
 		usePanelOpen,
-		useRecentRuns
+		useRecentRuns,
+		type RecentRunItem
 	} from '$lib/components/home/recentRuns.svelte'
 	import {
 		HOME_ACTION_FOLDS,
@@ -113,13 +114,17 @@
 
 	let itemsList = $state<ItemsList>()
 	let runsFolder = $derived(itemsList?.folderFilter())
-	const recentRuns = useRecentRuns(() => ({ workspace: $workspaceStore, folder: runsFolder }))
-	const runsPanelOpen = usePanelOpen()
-	// The side panel needs the room of a desktop window; narrower, only the header status shows.
-	const wide = new MediaQuery('min-width: 1024px')
 	let showRuns = $derived(
 		tab == 'workspace' && itemsList != undefined && !itemsList.isWorkspaceEmpty()
 	)
+	const recentRuns = useRecentRuns(() => ({
+		workspace: $workspaceStore,
+		folder: runsFolder,
+		enabled: showRuns
+	}))
+	const runsPanelOpen = usePanelOpen()
+	// The side panel needs the room of a desktop window; narrower, only the header status shows.
+	const wide = new MediaQuery('min-width: 1024px')
 	let showRunsPanel = $derived(showRuns && wide.current && runsPanelOpen.val)
 	const runsMenuId = homeHeaderMenu.register(200, () => {
 		const data = recentRuns.current
@@ -135,9 +140,8 @@
 	onDestroy(() => homeHeaderMenu.release(runsMenuId))
 	// A run's item is shown in place in the list, among its folder's; one the list does not show
 	// opens instead.
-	async function revealRunItem(path: string) {
-		const item = recentRuns.current?.items.find((i) => i.path === path)
-		if (!(await itemsList?.revealItem(path)) && item) await goto(itemHref(item))
+	async function revealRunItem(item: RecentRunItem) {
+		if (!(await itemsList?.revealItem(item.path))) await goto(itemHref(item))
 	}
 
 	// A workspace switch keeps this page mounted and swaps its contents under the reader, which

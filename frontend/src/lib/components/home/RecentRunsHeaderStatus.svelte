@@ -8,8 +8,10 @@
 		askAI,
 		canAskAI,
 		collisionPrefixes,
+		itemKey,
 		totalLabel,
 		windowLabel,
+		type RecentRunItem,
 		type RecentRunsState
 	} from './recentRuns.svelte'
 
@@ -18,7 +20,7 @@
 		folder: string | undefined
 		/** Absent below the width the side panel needs: there is no panel to bring back. */
 		onShowPanel?: () => void
-		onFocusItem?: (path: string) => void
+		onFocusItem?: (item: RecentRunItem) => void
 		/** A narrow bar: the trigger is one icon, its dot the colour of the worst status. */
 		compact?: boolean
 	}
@@ -113,16 +115,16 @@
 
 						<!-- Every item the counts above are made of, in the panel's order: a list of only the
 					     failing ones under a total of all runs reads as missing rows. -->
-						{#each data.items.slice(0, MAX_ITEMS) as item (item.path)}
+						{#each data.items.slice(0, MAX_ITEMS) as item (itemKey(item))}
 							<RecentRunRow
 								{item}
 								now={runs.now}
-								prefix={prefixes.get(item.path)}
+								prefix={prefixes.get(itemKey(item))}
 								strip={false}
 								onSelect={onFocusItem &&
-									((path) => {
+									((item) => {
 										isOpen = false
-										onFocusItem(path)
+										onFocusItem(item)
 									})}
 							/>
 						{:else}

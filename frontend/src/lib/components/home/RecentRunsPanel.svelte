@@ -7,8 +7,10 @@
 		askAI,
 		canAskAI,
 		collisionPrefixes,
+		itemKey,
 		totalLabel,
 		windowLabel,
+		type RecentRunItem,
 		type RecentRunsState
 	} from './recentRuns.svelte'
 
@@ -16,7 +18,7 @@
 		runs: RecentRunsState
 		folder: string | undefined
 		onCollapse: () => void
-		onFocusItem?: (path: string) => void
+		onFocusItem?: (item: RecentRunItem) => void
 	}
 
 	let { runs, folder, onCollapse, onFocusItem }: Props = $props()
@@ -89,11 +91,11 @@
 		{#if data && data.items.length === 0}
 			<p class="px-2.5 text-xs text-hint">Runs show up here once something runs.</p>
 		{:else if data}
-			{#each data.items as item (item.path)}
+			{#each data.items as item (itemKey(item))}
 				<RecentRunRow
 					{item}
 					now={runs.now}
-					prefix={prefixes.get(item.path)}
+					prefix={prefixes.get(itemKey(item))}
 					onSelect={onFocusItem}
 				/>
 			{/each}

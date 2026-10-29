@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { workspaceStore } from '$lib/stores'
-	import { CircleCheck, CircleX, Loader2 } from 'lucide-svelte'
+	import { CircleCheck, CircleSlash, CircleX, Loader2 } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import {
 		askAI,
@@ -22,7 +22,7 @@
 		strip?: boolean
 		/** What a click on the row does; without it the row opens the item's page. The run links
 		 * open runs either way. */
-		onSelect?: (path: string) => void
+		onSelect?: (item: RecentRunItem) => void
 	}
 
 	let { item, now, prefix, strip = true, onSelect }: Props = $props()
@@ -40,15 +40,21 @@
 	let failing = $derived(item.status === 'failure')
 	let title = $derived(itemTitle(item))
 
-	const statusLabel = { success: 'Succeeded', failure: 'Failed', running: 'Running' }
+	const statusLabel = {
+		success: 'Succeeded',
+		failure: 'Failed',
+		canceled: 'Canceled',
+		running: 'Running'
+	}
 	const barClass = {
 		success: 'bg-green-500 dark:bg-green-600',
 		failure: 'bg-red-500 dark:bg-red-600',
+		canceled: 'bg-gray-400 dark:bg-gray-500',
 		running: 'bg-yellow-500'
 	}
 
 	function runTooltip(run: RecentRun) {
-		const at = new Date(run.created_at).toLocaleTimeString([], {
+		const at = new Date(run.ran_at).toLocaleTimeString([], {
 			hour: '2-digit',
 			minute: '2-digit',
 			hourCycle: 'h23'
@@ -67,7 +73,7 @@
 	}
 
 	function open() {
-		if (onSelect) onSelect(item.path)
+		if (onSelect) onSelect(item)
 		else goto(itemHref(item))
 	}
 </script>
@@ -87,6 +93,8 @@
 			<Loader2 size={14} class="animate-spin text-yellow-500" />
 		{:else if failing}
 			<CircleX size={14} class="text-red-500" />
+		{:else if item.status === 'canceled'}
+			<CircleSlash size={14} class="text-hint" />
 		{:else}
 			<CircleCheck size={14} class="text-green-500" />
 		{/if}
