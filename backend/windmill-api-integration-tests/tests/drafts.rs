@@ -380,11 +380,11 @@ async fn test_transfer_drafts_to_fork(db: Pool<Postgres>) -> anyhow::Result<()> 
 
     // A JWT has no `token` row: its own claims decide which workspaces it reaches.
     set_jwt_secret().await;
-    let jwt = |workspace_ids: Vec<&str>, job_id: Option<&str>| {
+    let jwt = |workspace_ids: Vec<&str>, job_id: Option<&str>, is_admin: bool| {
         windmill_common::jwt::encode_with_internal_secret(windmill_common::auth::JWTAuthClaims {
             email: me.to_string(),
             username: "test-user".to_string(),
-            is_admin: true,
+            is_admin,
             is_operator: false,
             groups: vec![],
             folders: vec![],
@@ -402,18 +402,37 @@ async fn test_transfer_drafts_to_fork(db: Pool<Postgres>) -> anyhow::Result<()> 
         })
     };
     let job_id = uuid::Uuid::new_v4().to_string();
-    for (claims, status) in [
-        (jwt(vec![WS], None).await?, 403),
-        (jwt(vec![WS, fork], Some(&job_id)).await?, 403),
-        (jwt(vec![WS, fork], None).await?, 200),
+    let r = c
+        .post(save_url(port, "script", "u/someone-else/x"))
+        .json(&json!({ "value": { "content": "x" } }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200);
+    for (claims, path, status) in [
+        (jwt(vec![WS], None, true).await?, "u/test-user/a", 403),
+        (
+            jwt(vec![WS, fork], Some(&job_id), true).await?,
+            "u/test-user/a",
+            403,
+        ),
+        (jwt(vec![WS, fork], None, true).await?, "u/test-user/a", 200),
+        // An admin in the fork's database, but the JWT does not claim it: the claims win.
+        (
+            jwt(vec![WS, fork], None, false).await?,
+            "u/someone-else/x",
+            401,
+        ),
     ] {
         let r = client_for(&format!("jwt_{claims}"))
             .post(&transfer_url)
-            .json(&json!({ "target_workspace": fork, "items": [{ "kind": "script", "path": "u/test-user/a" }] }))
+            .json(
+                &json!({ "target_workspace": fork, "items": [{ "kind": "script", "path": path }] }),
+            )
             .send()
             .await?;
-        assert_eq!(r.status(), status);
+        assert_eq!(r.status(), status, "{path}: {}", r.text().await?);
     }
+    assert_eq!(fork_count("u/someone-else/x").await?, 0);
 
     // `a` was cloned into the fork: the whole transfer is refused and nothing moves.
     let body: serde_json::Value = c

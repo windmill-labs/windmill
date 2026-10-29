@@ -1091,16 +1091,14 @@ async fn transfer_drafts(
         }
         // Authentication checked the token against `w_id` only. Re-resolving it against the
         // target refuses a token bound to `w_id`, whatever its kind (an external JWT has no
-        // `token` row). A job token stays refused even where its claims list both workspaces.
-        let token_valid_for_target = auth_cache
+        // `token` row), and gives the rights a request to the target would carry: a JWT's
+        // own claims, not the database's. A job token stays refused even where its claims
+        // list both workspaces.
+        let authed_there = auth_cache
             .get_authed(Some(target.to_string()), &tokened.token)
             .await
-            .is_some_and(|a| a.job_id.is_none());
-        if !token_valid_for_target {
-            return Err(Error::PermissionDenied(format!(
-                "this token cannot act on {target}"
-            )));
-        }
+            .filter(|a| a.job_id.is_none())
+            .ok_or_else(|| Error::PermissionDenied(format!("this token cannot act on {target}")))?;
         // Secret variable drafts hold values encrypted with the source workspace's key.
         if items.iter().any(|(k, _)| *k == UserDraftItemKind::Variable)
             && windmill_common::variables::get_workspace_key(&w_id, &db).await?
@@ -1110,11 +1108,6 @@ async fn transfer_drafts(
                 "{target} has a different encryption key than {w_id}, so variable drafts cannot be copied to it"
             )));
         }
-        // `authed` speaks for this workspace only; the copy writes into the fork, so its
-        // rights there are loaded separately. A non-member gets an empty authed, not an error.
-        let authed_there =
-            windmill_api_workspaces::workspaces::load_workspace_authed(&db, &authed, target)
-                .await?;
         let is_member = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 AND disabled = false)",
             target,

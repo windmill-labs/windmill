@@ -14244,7 +14244,7 @@ async fn seed_full_diff_scan(
 /// If the user is not a member of `workspace_id`, returns an authed with no
 /// folders/groups/operator/admin (except for superadmins, who stay admin) —
 /// i.e. they will only see what RLS explicitly allows for unknown users.
-pub async fn load_workspace_authed(
+async fn load_workspace_authed(
     db: &DB,
     base_authed: &ApiAuthed,
     workspace_id: &str,
