@@ -16,6 +16,10 @@ function fetchDeployAs(workspace: string): Promise<string[]> {
 	return accounts
 }
 
+export function forgetDeployAs(workspace: string): void {
+	asked.delete(workspace)
+}
+
 /** The service accounts the current user may deploy as in `workspace`, as `u/<username>`: those
  *  whose deployers list names them, one of their groups, or a folder they write in. Admins and
  *  `wm_deployers` get every account, and may deploy as anyone besides. */

@@ -1485,6 +1485,13 @@
 	folderDefault={folderDefault.value}
 	folderDefaultLoading={folderDefault.loading}
 	targetWorkspace={opWorkspace ?? ''}
+	itemPath={script.path}
+	needsSource={() => ({
+		kind: 'script',
+		language: script.language,
+		content: script.content,
+		schema: script.schema
+	})}
 	onConfirmed={() => deployScript(deployDialogStay, deployDialogMsg)}
 />
 
@@ -1913,6 +1920,13 @@
 										savedPermissionedAs={savedRunAs?.on_behalf_of}
 										targetWorkspace={opWorkspace ?? ''}
 										isNew={isNewScript}
+										itemPath={script.path}
+										needsSource={() => ({
+											kind: 'script',
+											language: script.language,
+											content: script.content,
+											schema: script.schema
+										})}
 									/>
 									<InvisibleRunsSetting
 										kind="script"

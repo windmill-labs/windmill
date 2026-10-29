@@ -25,6 +25,8 @@
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import { useDeployAs } from '$lib/components/access/deployAs.svelte'
 	import { canDeployAs } from '$lib/components/itemSettings/onBehalfOf'
+	import RunAsNotes from '$lib/components/access/RunAsNotes.svelte'
+	import type { NeedsSource } from '$lib/components/access/detectNeeds'
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 	import { FRONTEND_SDK_SCOPES, sdkScopesToConfirm } from '$lib/components/raw_apps/sdkScopes'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
@@ -61,7 +63,8 @@
 		labels = $bindable(),
 		rawApp = false,
 		newApp = false,
-		operatingWorkspace = undefined
+		operatingWorkspace = undefined,
+		needsSource = undefined
 	}: {
 		policy: any
 		setPublishState: (message?: string) => void
@@ -93,6 +96,8 @@
 		/** Workspace the app is deployed to. The secret-URL / custom-path / folder /
 		 *  on-behalf-of lookups target it; defaults to the operating workspace. */
 		operatingWorkspace?: string
+		/** The app as the editor holds it, read for what a service account made here needs. */
+		needsSource?: () => NeedsSource | undefined
 	} = $props()
 
 	const opWs = $derived(operatingWorkspace ?? $operatingWorkspaceStore)
@@ -356,6 +361,8 @@
 					isDeployment={false}
 					myPermissionedAs={myOnBehalfOf}
 					readOnlyWithoutPreserve
+					itemPath={newEditedPath || appPath}
+					{needsSource}
 				/>
 				{#if onBehalfOfWillChange}
 					<AlertTriangle class="w-3.5 h-3.5 text-yellow-500" />
@@ -375,6 +382,22 @@
 					Only workspace admins and members of {WM_DEPLOYERS_GROUP} can pick another user.
 				{/if}
 			</div>
+			<RunAsNotes
+				kind="app"
+				targetWorkspace={opWs ?? ''}
+				itemPath={newEditedPath || appPath}
+				{needsSource}
+				runsAs={deployOnBehalfOf}
+				isNew={newApp}
+				savedPermissionedAs={savedOnBehalfOf}
+				onUseAccount={(username, email) => {
+					onBehalfOfChoice = 'custom'
+					policy.on_behalf_of_email = email
+					policy.on_behalf_of = `u/${username}`
+					customOnBehalfOfEmail = email
+					preserveOnBehalfOf = true
+				}}
+			/>
 		</div>
 	</Section>
 

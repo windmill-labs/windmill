@@ -49,6 +49,7 @@
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import AppEditorHeaderDeploy from '../apps/editor/AppEditorHeaderDeploy.svelte'
+	import { createPolicyServiceAccount } from '../access/serviceAccounts.svelte'
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
 	import { saveRawAppFork } from './forkRawApp.svelte'
@@ -391,6 +392,7 @@
 		if (!policy.execution_mode) {
 			policy.execution_mode = 'publisher'
 		}
+		if (!(await createPolicyServiceAccount(opWorkspace!, policy))) return
 		try {
 			const { js, css } = await getBundle()
 			const deployedPolicy = await policyWithTriggerables()
@@ -446,6 +448,7 @@
 	}
 
 	async function handleUpdateApp(npath: string) {
+		if (!(await createPolicyServiceAccount(opWorkspace!, policy))) return
 		// We have to make sure there is no updates when we clicked the button
 		await compareVersions()
 
@@ -919,6 +922,7 @@
 			{newApp}
 			{policy}
 			{setPublishState}
+			needsSource={() => ({ kind: 'app', value: runnables })}
 			{appPath}
 			{onLatest}
 			{headUnknown}

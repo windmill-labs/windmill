@@ -66,6 +66,7 @@
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
 	import type { DiffDrawerI } from '$lib/components/diff_drawer'
 	import AppEditorHeaderDeploy from './AppEditorHeaderDeploy.svelte'
+	import { createPolicyServiceAccount } from '$lib/components/access/serviceAccounts.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
 	import { updatePolicy } from './appPolicy'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
@@ -285,6 +286,7 @@
 	}
 
 	async function createApp(path: string) {
+		if (!(await createPolicyServiceAccount($workspaceStore!, policy))) return
 		policy = await updatePolicy($app, policy)
 		try {
 			await AppService.createApp({
@@ -330,6 +332,7 @@
 	}
 
 	async function handleUpdateApp(npath: string) {
+		if (!(await createPolicyServiceAccount($workspaceStore!, policy))) return
 		// We have to make sure there is no updates when we clicked the button
 		await compareVersions()
 
@@ -953,6 +956,7 @@
 			{newApp}
 			{policy}
 			{setPublishState}
+			needsSource={() => ({ kind: 'app', value: $app })}
 			appPath={$appPath}
 			{onLatest}
 			{headUnknown}

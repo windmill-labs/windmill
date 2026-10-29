@@ -1650,6 +1650,12 @@
 	folderDefault={folderDefault.value}
 	folderDefaultLoading={folderDefault.loading}
 	targetWorkspace={opWorkspace ?? ''}
+	itemPath={$pathStore}
+	needsSource={() => ({
+		kind: 'flow',
+		value: flowStore.val.value,
+		schema: flowStore.val.schema
+	})}
 	onConfirmed={() => deployFlow(deployDialogMsg)}
 />
 

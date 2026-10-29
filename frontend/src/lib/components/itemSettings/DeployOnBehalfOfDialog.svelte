@@ -5,6 +5,13 @@
 	import { appOnBehalfOfTooltip, deployedPermissionedAs } from './onBehalfOf'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import { useDeployAs } from '$lib/components/access/deployAs.svelte'
+	import {
+		createPendingServiceAccount,
+		getPendingServiceAccount
+	} from '$lib/components/access/serviceAccounts.svelte'
+	import type { NeedsSource } from '$lib/components/access/detectNeeds'
+	import RunAsNotes from '$lib/components/access/RunAsNotes.svelte'
+	import { sendUserToast } from '$lib/toast'
 	import { AlertTriangle } from 'lucide-svelte'
 
 	interface Props {
@@ -27,6 +34,9 @@
 		/** Apps: who can open the app, which decides whether viewers are recorded at all. */
 		executionMode?: string
 		rawApp?: boolean
+		/** The item's path and its editor's copy: what a service account made here is built from. */
+		itemPath?: string
+		needsSource?: () => NeedsSource | undefined
 		onConfirmed: () => void
 	}
 
@@ -44,6 +54,8 @@
 		targetWorkspace,
 		executionMode,
 		rawApp = false,
+		itemPath,
+		needsSource,
 		onConfirmed
 	}: Props = $props()
 
@@ -66,6 +78,26 @@
 	const unchanged = $derived(!isNew && !!savedPermissionedAs && runsAs === savedPermissionedAs)
 	const folderDefaultNotMe = $derived(!!folderDefault && runsAs === folderDefault && runsAs !== me)
 	let pickerOpen = $state(false)
+
+	let creatingOpen = $state(false)
+	let deploying = $state(false)
+
+	async function confirm() {
+		if (getPendingServiceAccount(targetWorkspace, runsAs)) {
+			deploying = true
+			try {
+				const created = await createPendingServiceAccount(targetWorkspace, runsAs)
+				if (created) email = created
+			} catch (e) {
+				sendUserToast(`Could not create ${runsAs}: ${e?.body ?? e}`, true)
+				return
+			} finally {
+				deploying = false
+			}
+		}
+		open = false
+		onConfirmed()
+	}
 </script>
 
 <ConfirmationModal
@@ -78,12 +110,10 @@
 			: `Deploy this ${kind}?`}
 	confirmationText="Deploy"
 	confirmDisabled={folderDefaultLoading}
-	keyListen={!pickerOpen}
+	loading={deploying}
+	keyListen={!pickerOpen && !creatingOpen}
 	alwaysPortal
-	onConfirmed={() => {
-		open = false
-		onConfirmed()
-	}}
+	onConfirmed={confirm}
 	onCanceled={() => (open = false)}
 >
 	<div class="flex flex-col gap-4">
@@ -123,6 +153,8 @@
 				aboveConfirmationModal
 				onPickerOpenChange={(o) => (pickerOpen = o)}
 				hideDescription
+				{itemPath}
+				{needsSource}
 			/>
 			{#if on && unchanged}
 				<!-- pl-9 lines it up under the switch's label, as SettingToggle indents its contents. -->
@@ -140,6 +172,20 @@
 				</div>
 			{/if}
 		</div>
+		<RunAsNotes
+			{kind}
+			{targetWorkspace}
+			{itemPath}
+			{needsSource}
+			runsAs={on ? runsAs : undefined}
+			{isNew}
+			{savedPermissionedAs}
+			onUseAccount={(username, accountEmail) => {
+				email = accountEmail
+				permissionedAs = `u/${username}`
+			}}
+			onCreatingChange={(o) => (creatingOpen = o)}
+		/>
 		<TextInput bind:value={message} inputProps={{ placeholder: 'Deployment message' }} />
 	</div>
 </ConfirmationModal>

@@ -28,14 +28,22 @@
 </script>
 
 <script lang="ts">
-	import { Check, User as UserIcon, UserCog, Users, ExternalLink } from 'lucide-svelte'
+	import { Bot, Check, User as UserIcon, UserCog, Users, ExternalLink, Plus } from 'lucide-svelte'
 	import MeltPopover from './meltComponents/Popover.svelte'
 	import Portal from './Portal.svelte'
 	import Modal from './common/modal/Modal.svelte'
-	import { userStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { UserService, type User } from '$lib/gen'
 	import TextInput from './text_input/TextInput.svelte'
 	import { useDeployAs } from './access/deployAs.svelte'
+	import {
+		getPendingServiceAccount,
+		PENDING_EMAIL_DOMAIN,
+		useServiceAccounts,
+		type ServiceAccount
+	} from './access/serviceAccounts.svelte'
+	import NewServiceAccountForm from './access/NewServiceAccountForm.svelte'
+	import type { NeedsSource } from './access/detectNeeds'
 
 	interface Props {
 		targetWorkspace: string
@@ -80,6 +88,10 @@
 		/** Without `canPreserve`, show the current user as plain text instead of a popover whose
 		 *  only enabled option is "me". The host must treat that as the choice already made. */
 		readOnlyWithoutPreserve?: boolean
+		/** The item's path, which a new service account is named after and given read on. */
+		itemPath?: string
+		/** The item as its editor holds it, read for what a new service account needs. */
+		needsSource?: () => NeedsSource | undefined
 	}
 
 	let {
@@ -95,7 +107,9 @@
 		aboveConfirmationModal = false,
 		onPickerOpenChange = undefined,
 		myPermissionedAs = undefined,
-		readOnlyWithoutPreserve = false
+		readOnlyWithoutPreserve = false,
+		itemPath = undefined,
+		needsSource = undefined
 	}: Props = $props()
 
 	const isTrigger = $derived(kind === 'trigger' || isTriggerOrScheduleKind(kind))
@@ -128,6 +142,7 @@
 	function resolveDisplayName(value: string | undefined): string | undefined {
 		if (!value) return undefined
 		if (value.startsWith('u/') || value.startsWith('g/')) return value
+		if (value.endsWith(`@${PENDING_EMAIL_DOMAIN}`)) return `u/${value.split('@')[0]}`
 		const username = users.find((u) => u.email === value)?.username
 		return username ? `u/${username}` : value
 	}
@@ -147,23 +162,45 @@
 		return canPreserve || (!!name && deployAs.current.includes(name))
 	}
 
-	let activeUsers = $derived(
+	const serviceAccounts = useServiceAccounts(() => targetWorkspace)
+	const q = $derived(searchQuery.trim().toLowerCase())
+	let people = $derived(
 		users.filter(
-			(u) => !u.disabled && (canPreserve || deployAs.current.includes(`u/${u.username}`))
+			(u) =>
+				!u.disabled &&
+				!u.is_service_account &&
+				canPreserve &&
+				(!q ||
+					u.username.toLowerCase().includes(q) ||
+					u.email.toLowerCase().includes(q) ||
+					(u.name?.toLowerCase()?.includes(q) ?? false))
 		)
 	)
-	let filteredUsers = $derived(
-		searchQuery
-			? activeUsers.filter((u) => {
-					const q = searchQuery.toLowerCase()
-					return (
-						u.username.toLowerCase().includes(q) ||
-						u.email.toLowerCase().includes(q) ||
-						(u.name?.toLowerCase()?.includes(q) ?? false)
-					)
-				})
-			: activeUsers
+	let accounts = $derived(
+		serviceAccounts.current.filter(
+			(a) =>
+				(a.pending || canPreserve || deployAs.current.includes(`u/${a.username}`)) &&
+				(!q || a.username.toLowerCase().includes(q))
+		)
 	)
+
+	// Service accounts are created at deploy time for the runnables a deploy dialog confirms; a
+	// trigger's identity is set where it is saved, with no dialog to create one from.
+	const offersCreate = $derived(
+		kind === 'script' || kind === 'flow' || kind === 'app' || kind === 'raw_app'
+	)
+	const canCreate = $derived(!!$enterpriseLicense && !!$userStore?.is_admin)
+	let mode: 'pick' | 'create' = $state('pick')
+	let createName: string | undefined = $state()
+
+	function startCreate(name?: string) {
+		createName = name
+		mode = 'create'
+	}
+
+	function isPending(value: string | undefined): boolean {
+		return !!getPendingServiceAccount(targetWorkspace, resolveDisplayName(value))
+	}
 
 	// Preselect "target" when available and user has permission to preserve.
 	// When no target is set but a folder default is, preselect that as a custom value.
@@ -186,12 +223,17 @@
 	function openModal() {
 		loadUsers()
 		searchQuery = ''
+		mode = 'pick'
 		modalOpen = true
 	}
 
-	function selectUser(user: User) {
+	function selectUser(user: Pick<User, 'email' | 'username'> | ServiceAccount) {
 		onSelect('custom', { email: user.email, permissionedAs: `u/${user.username}` })
 		modalOpen = false
+	}
+
+	function isSelected(username: string, email: string): boolean {
+		return selected === 'custom' && (customValue === `u/${username}` || customValue === email)
 	}
 
 	// Covers every close path — the X, the overlay, Escape — not just `selectUser`.
@@ -223,6 +265,12 @@
 				<UserCog class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}" />
 				{#if selectedDisplayName}
 					<span class="text-xs truncate max-w-24">{selectedDisplayName}</span>
+					{#if selected === 'custom' && isPending(customValue)}
+						<span
+							class="text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300"
+							title="Created when you deploy">new</span
+						>
+					{/if}
 				{/if}
 				{#if isFolderDefaultSelected}
 					<span
@@ -293,60 +341,143 @@
      its open transition) it would be laid out within that card instead of the viewport. -->
 <Portal>
 	<Modal
-		title="Select a user"
+		title={mode === 'create' ? 'New service account' : 'Select a user'}
 		bind:open={modalOpen}
 		kind="X"
 		minZIndex={aboveConfirmationModal ? 10001 : undefined}
 	>
-		<div class="flex flex-col gap-4">
-			<div class="text-xs text-secondary">
-				{#if isTrigger}
-					Choose the user this trigger will be permissioned as {isDeployment
-						? 'in the target workspace'
-						: 'in this workspace'}. The selected user's permissions will be used when the trigger
-					fires.
-				{:else}
-					Choose the user this {kind} will run on behalf of {isDeployment
-						? 'in the target workspace'
-						: 'in this workspace'}. The selected user's permissions will be used when executing.
-				{/if}
-				<a
-					href="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
-					target="_blank"
-					rel="noopener noreferrer"
-					class="text-blue-500 hover:underline inline-flex items-center gap-0.5"
-				>
-					Learn more
-					<ExternalLink class="w-3 h-3" />
-				</a>
+		{#if mode === 'create'}
+			<div class="w-[32rem] max-w-full">
+				<NewServiceAccountForm
+					workspace={targetWorkspace}
+					itemKind={kind === 'raw_app' ? 'app' : (kind as 'script' | 'flow' | 'app')}
+					{itemPath}
+					{needsSource}
+					initialName={createName}
+					onBack={() => (mode = 'pick')}
+					onUse={(permissionedAs) => {
+						onSelect('custom', {
+							email: `${permissionedAs.slice(2)}@${PENDING_EMAIL_DOMAIN}`,
+							permissionedAs
+						})
+						modalOpen = false
+					}}
+				/>
 			</div>
-
-			<TextInput bind:value={searchQuery} inputProps={{ placeholder: 'Search users...' }} />
-
-			<div class="max-h-60 overflow-y-auto border rounded">
-				{#each filteredUsers as user (user.email)}
-					<button
-						class="w-full flex items-center gap-3 px-3 py-2 text-left text-sm hover:bg-surface-hover border-b last:border-b-0"
-						onclick={() => selectUser(user)}
+		{:else}
+			<div class="flex flex-col gap-4">
+				<div class="text-xs text-secondary">
+					{#if isTrigger}
+						Choose the user this trigger will be permissioned as {isDeployment
+							? 'in the target workspace'
+							: 'in this workspace'}. The selected user's permissions will be used when the trigger
+						fires.
+					{:else}
+						Choose the user this {kind} will run on behalf of {isDeployment
+							? 'in the target workspace'
+							: 'in this workspace'}. The selected user's permissions will be used when executing.
+					{/if}
+					<a
+						href="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
+						target="_blank"
+						rel="noopener noreferrer"
+						class="text-blue-500 hover:underline inline-flex items-center gap-0.5"
 					>
-						<div class="flex flex-col min-w-0">
-							<span class="font-medium truncate">u/{user.username}</span>
-							<span class="text-xs text-tertiary truncate">{user.email}</span>
+						Learn more
+						<ExternalLink class="w-3 h-3" />
+					</a>
+				</div>
+
+				<TextInput
+					bind:value={searchQuery}
+					inputProps={{ placeholder: 'Search people and service accounts' }}
+				/>
+
+				<div class="max-h-72 overflow-y-auto border rounded">
+					{#if accounts.length}
+						<div class="px-3 pt-2 pb-1 text-2xs font-semibold text-secondary">Service accounts</div>
+						{#each accounts as account (account.username)}
+							<button
+								class="w-full flex items-center gap-3 px-3 py-2 text-left text-sm hover:bg-surface-hover"
+								onclick={() => selectUser(account)}
+							>
+								<Bot class="w-4 h-4 text-secondary flex-shrink-0" />
+								<span class="font-medium truncate">u/{account.username}</span>
+								{#if account.pending}
+									<span class="text-2xs text-blue-700 dark:text-blue-300">new</span>
+								{/if}
+								<span class="ml-auto text-xs text-tertiary truncate">
+									{account.folders.length
+										? `reads ${account.folders.map((f) => `f/${f}`).join(', ')}`
+										: 'no folder shared'}
+								</span>
+								{#if isSelected(account.username, account.email)}
+									<Check class="w-4 h-4 text-green-500 flex-shrink-0" />
+								{/if}
+							</button>
+						{/each}
+					{/if}
+					{#if people.length}
+						<div class="px-3 pt-2 pb-1 text-2xs font-semibold text-secondary">People</div>
+						{#each people as user (user.email)}
+							<button
+								class="w-full flex items-center gap-3 px-3 py-2 text-left text-sm hover:bg-surface-hover"
+								onclick={() => selectUser(user)}
+							>
+								<UserIcon class="w-4 h-4 text-secondary flex-shrink-0" />
+								<span class="font-medium truncate">u/{user.username}</span>
+								<span class="ml-auto text-xs text-tertiary truncate">{user.email}</span>
+								{#if isSelected(user.username, user.email)}
+									<Check class="w-4 h-4 text-green-500 flex-shrink-0" />
+								{/if}
+							</button>
+						{/each}
+					{/if}
+					{#if !accounts.length && !people.length}
+						<div class="px-3 py-4 text-sm text-tertiary text-center">
+							{#if !usersLoaded}
+								Loading users&hellip;
+							{:else if q}
+								No one matches “{searchQuery.trim()}”
+							{:else}
+								No users found
+							{/if}
 						</div>
-						{#if selected === 'custom' && (customValue === `u/${user.username}` || customValue === user.email)}
-							<Check class="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />
-						{/if}
-					</button>
-				{:else}
-					<div class="px-3 py-4 text-sm text-tertiary text-center">
-						{#if !usersLoaded}
-							Loading users&hellip;
-						{:else}
-							No users found
-						{/if}
-					</div>
-				{/each}
+					{/if}
+					{#if offersCreate}
+						<div class="border-t">
+							<button
+								class="w-full flex items-center gap-2 px-3 py-2 text-left text-sm font-semibold {canCreate
+									? 'text-accent hover:bg-surface-hover'
+									: 'text-disabled cursor-not-allowed'}"
+								disabled={!canCreate}
+								onclick={() =>
+									startCreate(!accounts.length && !people.length ? searchQuery.trim() : undefined)}
+							>
+								<Plus class="w-4 h-4" />
+								<span class="grow">
+									{#if canCreate && q && !accounts.length && !people.length}
+										Create service account “{searchQuery.trim()}”
+									{:else}
+										New service account
+									{/if}
+								</span>
+								{#if !$enterpriseLicense}
+									<span
+										class="text-2xs font-medium px-1.5 rounded bg-surface-secondary text-secondary"
+										>EE</span
+									>
+								{/if}
+							</button>
+							{#if $enterpriseLicense && !canCreate}
+								<div class="px-3 pb-2 pl-9 text-2xs text-secondary">
+									Only workspace admins can create one.
+								</div>
+							{/if}
+						</div>
+					{/if}
+				</div>
 			</div>
-		</div>
+		{/if}
 	</Modal>
 </Portal>

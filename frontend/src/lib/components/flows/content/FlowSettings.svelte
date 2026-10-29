@@ -406,6 +406,12 @@
 									savedPermissionedAs={$savedOnBehalfOfPermissionedAs}
 									targetWorkspace={opWorkspace?.() ?? $operatingWorkspace ?? ''}
 									isNew={newFlow || $initialPathStore == ''}
+									itemPath={$pathStore}
+									needsSource={() => ({
+										kind: 'flow',
+										value: flowStore.val.value,
+										schema: flowStore.val.schema
+									})}
 								/>
 								<InvisibleRunsSetting
 									kind="flow"

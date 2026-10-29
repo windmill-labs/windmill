@@ -9,6 +9,8 @@
 	import SettingToggle from './SettingToggle.svelte'
 	import { canPreserveOnBehalfOf, deployedPermissionedAs, WM_DEPLOYERS_GROUP } from './onBehalfOf'
 	import { useDeployAs } from '$lib/components/access/deployAs.svelte'
+	import { useServiceAccounts } from '$lib/components/access/serviceAccounts.svelte'
+	import type { NeedsSource } from '$lib/components/access/detectNeeds'
 	const DOCS_LINK =
 		'https://www.windmill.dev/docs/core_concepts/roles_and_permissions#run-on-behalf-of'
 
@@ -34,6 +36,9 @@
 		hideDescription?: boolean
 		/** The folder's default for a new item's path, which a deploy holding no user takes. */
 		folderDefault?: string
+		/** See `OnBehalfOfSelector`: what a service account created from the picker is built from. */
+		itemPath?: string
+		needsSource?: () => NeedsSource | undefined
 	}
 
 	let {
@@ -49,7 +54,9 @@
 		aboveConfirmationModal = false,
 		onPickerOpenChange,
 		hideDescription = false,
-		folderDefault
+		folderDefault,
+		itemPath,
+		needsSource
 	}: Props = $props()
 
 	// The label keeps the docs' term; the description says what it gives, access to resources,
@@ -102,6 +109,19 @@
 			deployPermissionedAs !== savedPermissionedAs
 	)
 
+	const serviceAccounts = useServiceAccounts(() => targetWorkspace)
+	const serviceAccount = $derived(
+		enabled && deployPermissionedAs
+			? serviceAccounts.current.find((a) => `u/${a.username}` === deployPermissionedAs)
+			: undefined
+	)
+
+	const serviceAccountReads = $derived(
+		serviceAccount
+			? [...serviceAccount.folders.map((f) => `f/${f}`), ...(serviceAccount.items ?? [])]
+			: []
+	)
+
 	function setMe() {
 		email = actingUser?.email
 		permissionedAs = myPermissionedAs
@@ -136,6 +156,8 @@
 			readOnlyWithoutPreserve
 			{aboveConfirmationModal}
 			{onPickerOpenChange}
+			{itemPath}
+			{needsSource}
 		/>
 		{#if willChange}
 			<AlertTriangle size={14} class="text-yellow-500" />
@@ -144,6 +166,16 @@
 			>
 		{/if}
 	</div>
+	{#if serviceAccount}
+		<div class="text-2xs text-secondary">
+			{serviceAccount.pending
+				? 'New service account, created when you deploy.'
+				: 'Service account.'}
+			{serviceAccountReads.length
+				? `Reads ${serviceAccountReads.join(', ')}.`
+				: 'No folder is shared with it.'}
+		</div>
+	{/if}
 	{#if !canPreserve}
 		<div class="text-2xs text-secondary">
 			{#if deployAs.current.length}
