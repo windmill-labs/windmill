@@ -100,6 +100,7 @@ const timezones = {
 		'America/Coral_Harbour': ['Coral Harbour', '-05:00', '-05:00'],
 		'America/Cordoba': ['Cordoba', '-03:00', '-03:00'],
 		'America/Costa_Rica': ['Costa Rica', '-06:00', '-06:00'],
+		'America/Coyhaique': ['Coyhaique', '-03:00', '-03:00'],
 		'America/Creston': ['Creston', '-07:00', '-07:00'],
 		'America/Cuiaba': ['Cuiaba', '-04:00', '-03:00'],
 		'America/Curacao': ['Curacao', '-04:00', '-04:00'],
