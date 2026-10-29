@@ -26,6 +26,7 @@
 	import { useDeployAs } from '$lib/components/access/deployAs.svelte'
 	import { canDeployAs } from '$lib/components/itemSettings/onBehalfOf'
 	import RunAsNotes from '$lib/components/access/RunAsNotes.svelte'
+	import { dropStalePending } from '$lib/components/access/serviceAccounts.svelte'
 	import type { NeedsSource } from '$lib/components/access/detectNeeds'
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 	import { FRONTEND_SDK_SCOPES, sdkScopesToConfirm } from '$lib/components/raw_apps/sdkScopes'
@@ -156,8 +157,20 @@
 		}
 	}
 	let canPreserve = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin || isDeployer)
-	let savedOnBehalfOfEmail = $derived(savedApp?.policy?.on_behalf_of_email)
-	let savedOnBehalfOf = $derived(savedApp?.policy?.on_behalf_of)
+	// A draft-only app's saved policy is its draft, which can name an account never created; the
+	// deploy then runs it as the deployer, as a new app's draft records.
+	let savedRunAs = $derived.by(() => {
+		const runAs = {
+			on_behalf_of: savedApp?.policy?.on_behalf_of as string | undefined,
+			on_behalf_of_email: savedApp?.policy?.on_behalf_of_email as string | undefined
+		}
+		dropStalePending(opWs, runAs)
+		return runAs.on_behalf_of_email || !savedApp?.policy?.on_behalf_of_email
+			? runAs
+			: { on_behalf_of: myOnBehalfOf, on_behalf_of_email: actingUser?.email }
+	})
+	let savedOnBehalfOfEmail = $derived(savedRunAs.on_behalf_of_email)
+	let savedOnBehalfOf = $derived(savedRunAs.on_behalf_of)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
 	let myOnBehalfOf = $derived(actingUser?.username ? `u/${actingUser.username}` : undefined)

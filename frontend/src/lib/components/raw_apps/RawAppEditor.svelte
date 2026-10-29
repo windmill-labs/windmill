@@ -99,6 +99,7 @@
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { conformBuilderAppPolicy } from './builderAppPolicy'
+	import { dropStalePending } from '../access/serviceAccounts.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const roleCaps = useRoleCapabilities()
@@ -276,6 +277,10 @@
 	// Everything under the editor acts on it too (see operatingWorkspace.svelte.ts).
 	setOperatingWorkspace(() => opWorkspace)
 	const operatingUser = useActingUser(() => opWorkspace)
+	dropStalePending(
+		untrack(() => opWorkspace),
+		untrack(() => policy)
+	)
 	let previewOnBehalfOf = $derived(appPreviewOnBehalfOf(operatingUser.current, policy))
 
 	// The path autosaves land on, which is what the session preview loads the app by.
