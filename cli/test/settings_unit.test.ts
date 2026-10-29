@@ -269,3 +269,22 @@ describe("migrateToGroupedFormat", () => {
     expect(result.slack_oauth_client_secret).toBeNull();
   });
 });
+
+describe("migrateToGroupedFormat role overrides", () => {
+  test("keeps role_overrides and workspace_only_roles for the push", () => {
+    const settings = {
+      name: "ws",
+      role_overrides: { operator: { capabilities: { flows: "compose" } } },
+      workspace_only_roles: { auditor: { label: "Auditor", capabilities: {} } },
+    };
+    const result = migrateToGroupedFormat(settings);
+    expect(result.role_overrides).toEqual(settings.role_overrides);
+    expect(result.workspace_only_roles).toEqual(settings.workspace_only_roles);
+  });
+
+  test("leaves them unset when the file omits them", () => {
+    const result = migrateToGroupedFormat({ name: "ws" });
+    expect("role_overrides" in result).toBe(false);
+    expect("workspace_only_roles" in result).toBe(false);
+  });
+});

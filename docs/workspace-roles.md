@@ -48,6 +48,16 @@ re-adding cannot undo a mapping that restricts.
 turn every developer into an operator for the raw `is_operator` checks. So the fork routes read it
 from the member's role (`caller_can_fork`), never through `caller_capabilities`' fast path.
 
+## Git sync and export
+
+The settings document (`settings.yaml`, `settings.json` in an export) states `role_overrides` in
+two keys, split by the instance that writes it: `role_overrides` for overrides of instance roles,
+`workspace_only_roles` for roles the workspace adds. The stored column cannot tell them apart, and
+a promotion target may define different instance roles. Each key is applied only when stated.
+An override naming a role the target instance does not define refuses the whole apply rather than
+skipping it: stored, it would become a workspace-only role; dropped, the role would take the
+instance's capabilities once defined there.
+
 ## Who is restricted
 
 `ApiAuthed::is_operator` means "this member's role is restricted", computed at authentication from
