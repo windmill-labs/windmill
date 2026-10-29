@@ -56,9 +56,14 @@ two keys, split by the instance that writes it: `role_overrides` for overrides o
 a promotion target may define different instance roles. Each key is applied only when stated.
 An override naming a role the target instance does not define refuses the whole apply rather than
 skipping it: stored, it would become a workspace-only role; dropped, the role would take the
-instance's capabilities once defined there. A pulled file also states the `operator` role as
-legacy `operator_settings`: the roles are written after it, and an `operator` entry the file
-leaves as it was pulled takes what the legacy write stored rather than undoing it.
+instance's capabilities once defined there.
+
+The roles are written before every other setting, so an instance group mapping or invite in the
+same document can name a role it adds; a removed workspace-only role is written last, once nothing
+still names it. The document's `operator_settings` is derived from the `operator` role, not read
+from the column (only the legacy endpoint rewrites it, so it goes stale). It is applied just before
+the roles, and an `operator` entry the file leaves as it was pulled takes what that legacy write
+stored rather than undoing it.
 
 ## Who is restricted
 

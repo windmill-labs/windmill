@@ -95,13 +95,15 @@ async fn role_overrides_round_trip_through_export_and_import(
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
+    create_workspace(&db, "rt-source").await;
+    create_workspace(&db, "rt-target").await;
 
     let mut all = overrides_of_default_roles();
     all.as_object_mut()
         .unwrap()
         .extend(workspace_only_roles().as_object().unwrap().clone());
     let resp = authed(client().post(format!(
-        "http://localhost:{port}/api/w/test-workspace/workspaces/role_overrides"
+        "http://localhost:{port}/api/w/rt-source/workspaces/role_overrides"
     )))
     .json(&all)
     .send()
@@ -109,7 +111,7 @@ async fn role_overrides_round_trip_through_export_and_import(
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
 
     let resp = authed(client().get(format!(
-        "http://localhost:{port}/api/w/test-workspace/workspaces/tarball\
+        "http://localhost:{port}/api/w/rt-source/workspaces/tarball\
          ?include_settings=true&settings_version=v2&archive_type=tar"
     )))
     .send()
@@ -124,7 +126,7 @@ async fn role_overrides_round_trip_through_export_and_import(
 
     // The settings document `wmill sync pull` writes states the same.
     let pulled: Value = authed(client().get(format!(
-        "http://localhost:{port}/api/w/test-workspace/workspaces/settings_document?secrets=encrypted"
+        "http://localhost:{port}/api/w/rt-source/workspaces/settings_document?secrets=encrypted"
     )))
     .send()
     .await?
@@ -137,17 +139,16 @@ async fn role_overrides_round_trip_through_export_and_import(
     );
 
     // Importing the export into another workspace reproduces the roles.
-    create_workspace(&db, "target-ws").await;
-    let resp = apply(port, "target-ws", settings.clone(), false).await;
+    let resp = apply(port, "rt-target", settings.clone(), false).await;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     let result: Value = resp.json().await?;
     assert_eq!(result["applied"], true);
     assert_eq!(
-        stored_overrides(&db, "target-ws").await,
-        stored_overrides(&db, "test-workspace").await
+        stored_overrides(&db, "rt-target").await,
+        stored_overrides(&db, "rt-source").await
     );
     let roles: Value = authed(client().get(format!(
-        "http://localhost:{port}/api/w/target-ws/workspaces/roles"
+        "http://localhost:{port}/api/w/rt-target/workspaces/roles"
     )))
     .send()
     .await?
@@ -174,7 +175,7 @@ async fn role_overrides_round_trip_through_export_and_import(
     }
 
     // A second import changes nothing, so a repeated push does not rewrite the roles.
-    let result: Value = apply(port, "target-ws", settings, false)
+    let result: Value = apply(port, "rt-target", settings, false)
         .await
         .json()
         .await?;
@@ -189,10 +190,11 @@ async fn an_override_of_a_role_the_instance_lacks_is_refused(
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
-    let before = stored_overrides(&db, "test-workspace").await;
+    create_workspace(&db, "missing-role").await;
+    let before = stored_overrides(&db, "missing-role").await;
 
     let document = json!({
-        "name": "test-workspace",
+        "name": "missing-role",
         "webhook": "https://example.com/hook",
         "role_overrides": {
             "operator": { "capabilities": { "manage_schedules": true } },
@@ -200,7 +202,7 @@ async fn an_override_of_a_role_the_instance_lacks_is_refused(
         },
     });
     for dry_run in [true, false] {
-        let resp = apply(port, "test-workspace", document.clone(), dry_run).await;
+        let resp = apply(port, "missing-role", document.clone(), dry_run).await;
         assert_eq!(resp.status(), 400, "dry_run: {dry_run}");
         let message = resp.text().await?;
         assert!(
@@ -208,10 +210,10 @@ async fn an_override_of_a_role_the_instance_lacks_is_refused(
             "{message}"
         );
     }
-    assert_eq!(stored_overrides(&db, "test-workspace").await, before);
+    assert_eq!(stored_overrides(&db, "missing-role").await, before);
     let webhook: Option<String> =
         sqlx::query_scalar("SELECT webhook FROM workspace_settings WHERE workspace_id = $1")
-            .bind("test-workspace")
+            .bind("missing-role")
             .fetch_one(&db)
             .await?;
     assert_eq!(
@@ -222,7 +224,7 @@ async fn an_override_of_a_role_the_instance_lacks_is_refused(
     // A role the instance defines cannot be added as a workspace-only one either.
     let resp = apply(
         port,
-        "test-workspace",
+        "missing-role",
         json!({ "workspace_only_roles": { "operator": { "label": "Mine" } } }),
         true,
     )
@@ -239,23 +241,24 @@ async fn a_document_without_the_roles_keys_leaves_them_alone(
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
+    create_workspace(&db, "unstated-keys").await;
     sqlx::query("UPDATE workspace_settings SET role_overrides = $1 WHERE workspace_id = $2")
         .bind(json!({ "operator": { "capabilities": { "flows": "compose" } } }))
-        .bind("test-workspace")
+        .bind("unstated-keys")
         .execute(&db)
         .await?;
 
     // A settings.yaml pulled before the keys existed.
     let resp = apply(
         port,
-        "test-workspace",
-        json!({ "name": "test-workspace", "webhook": "https://example.com/hook" }),
+        "unstated-keys",
+        json!({ "name": "unstated-keys", "webhook": "https://example.com/hook" }),
         false,
     )
     .await;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     assert_eq!(
-        stored_overrides(&db, "test-workspace").await,
+        stored_overrides(&db, "unstated-keys").await,
         Some(json!({ "operator": { "capabilities": { "flows": "compose" } } }))
     );
     Ok(())
@@ -269,25 +272,20 @@ async fn each_roles_key_is_managed_on_its_own(db: Pool<Postgres>) -> anyhow::Res
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
+    create_workspace(&db, "each-key").await;
     sqlx::query("UPDATE workspace_settings SET role_overrides = $1 WHERE workspace_id = $2")
         .bind(json!({
             "operator": { "capabilities": { "flows": "compose" } },
             "auditor": { "label": "Auditor", "capabilities": {} },
         }))
-        .bind("test-workspace")
+        .bind("each-key")
         .execute(&db)
         .await?;
 
-    let resp = apply(
-        port,
-        "test-workspace",
-        json!({ "role_overrides": {} }),
-        false,
-    )
-    .await;
+    let resp = apply(port, "each-key", json!({ "role_overrides": {} }), false).await;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     assert_eq!(
-        stored_overrides(&db, "test-workspace").await,
+        stored_overrides(&db, "each-key").await,
         Some(json!({ "auditor": { "label": "Auditor", "capabilities": {} } }))
     );
     Ok(())
@@ -302,7 +300,8 @@ async fn an_operator_settings_edit_in_a_pulled_file_takes_effect(
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
-    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+    create_workspace(&db, "legacy-edit").await;
+    let base = format!("http://localhost:{port}/api/w/legacy-edit/workspaces");
     let resp = authed(client().post(format!("{base}/operator_settings")))
         .json(&json!({ "runs": false, "schedules": true }))
         .send()
@@ -318,7 +317,7 @@ async fn an_operator_settings_edit_in_a_pulled_file_takes_effect(
     pulled["operator_settings"]["runs"] = json!(true);
     // An unrelated role edit in the same push, so the roles are written after the legacy key.
     pulled["role_overrides"]["developer"] = json!({ "capabilities": { "fork": false } });
-    let resp = apply(port, "test-workspace", pulled, false).await;
+    let resp = apply(port, "legacy-edit", pulled, false).await;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
 
     let roles: Value = authed(client().get(format!("{base}/roles")))
@@ -348,10 +347,128 @@ async fn an_operator_settings_edit_in_a_pulled_file_takes_effect(
             .json()
             .await?;
     assert_eq!(repulled["operator_settings"]["runs"], true);
-    let result: Value = apply(port, "test-workspace", repulled, false)
+    let result: Value = apply(port, "legacy-edit", repulled, false)
         .await
         .json()
         .await?;
     assert_eq!(result["changes"], json!([]), "{result}");
+    Ok(())
+}
+
+/// The legacy column is only rewritten by the legacy endpoint, so after a direct role edit it
+/// holds flags the role no longer grants. The document states the role's own, and importing it
+/// into a workspace with the same stale column must not grant them back.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn a_stale_legacy_operator_settings_column_is_not_exported(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    create_workspace(&db, "stale-source").await;
+    create_workspace(&db, "stale-target").await;
+    for w_id in ["stale-source", "stale-target"] {
+        let base = format!("http://localhost:{port}/api/w/{w_id}/workspaces");
+        let resp = authed(client().post(format!("{base}/operator_settings")))
+            .json(&json!({ "runs": true, "builder_flows": true }))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+        let resp = authed(client().post(format!("{base}/role_overrides")))
+            .json(&json!({ "operator": { "capabilities": { "flows": "none" } } }))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    }
+
+    let document: Value = authed(client().get(format!(
+        "http://localhost:{port}/api/w/stale-source/workspaces/settings_document?secrets=encrypted"
+    )))
+    .send()
+    .await?
+    .json()
+    .await?;
+    assert_eq!(document["operator_settings"]["builder_flows"], false);
+    assert_eq!(
+        document["role_overrides"]["operator"],
+        json!({ "capabilities": { "flows": "none" } })
+    );
+
+    let resp = apply(port, "stale-target", document, false).await;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let roles: Value = authed(client().get(format!(
+        "http://localhost:{port}/api/w/stale-target/workspaces/roles"
+    )))
+    .send()
+    .await?
+    .json()
+    .await?;
+    let operator = roles["roles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == "operator")
+        .unwrap();
+    assert_eq!(operator["capabilities"]["flows"], "none");
+    Ok(())
+}
+
+/// A role the document adds can be named by an instance group mapping in the same document, and
+/// removing both together works too.
+#[cfg(feature = "enterprise")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn a_role_is_added_and_removed_with_the_instance_group_naming_it(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    create_workspace(&db, "group-mapping").await;
+    sqlx::query(
+        "INSERT INTO instance_group (name, summary, id) VALUES ('eng', 'Engineering', 'eng')",
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = apply(
+        port,
+        "group-mapping",
+        json!({
+            "auto_invite": {
+                "instance_groups": ["eng"],
+                "instance_groups_roles": { "eng": "auditor" },
+            },
+            "workspace_only_roles": { "auditor": { "label": "Auditor", "capabilities": {} } },
+        }),
+        false,
+    )
+    .await;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    assert_eq!(
+        stored_overrides(&db, "group-mapping").await,
+        Some(json!({ "auditor": { "label": "Auditor", "capabilities": {} } }))
+    );
+    let auto_invite: Value =
+        sqlx::query_scalar("SELECT auto_invite FROM workspace_settings WHERE workspace_id = $1")
+            .bind("group-mapping")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(
+        auto_invite["instance_groups_roles"],
+        json!({ "eng": "auditor" })
+    );
+
+    let resp = apply(
+        port,
+        "group-mapping",
+        json!({
+            "auto_invite": { "instance_groups": [], "instance_groups_roles": {} },
+            "workspace_only_roles": {},
+        }),
+        false,
+    )
+    .await;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    assert_eq!(stored_overrides(&db, "group-mapping").await, None);
     Ok(())
 }
