@@ -4056,8 +4056,8 @@ async fn update_app_internal<'a>(
                     } else {
                         format!(
                             "app {path} runs as {runs_as}: only admins and members of \
-                             wm_deployers can change who can open it without deploying it, and a \
-                             deploy from you makes it run as you"
+                             wm_deployers can change who can open it without deploying it: \
+                             deploy it to change that"
                         )
                     }));
                 }
