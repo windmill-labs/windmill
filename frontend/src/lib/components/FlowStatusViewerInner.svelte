@@ -2053,9 +2053,9 @@
 							</div>
 						</Pane>
 						<Pane bind:size={detailsPaneSize} minSize={25} class="!overflow-visible">
-							<div
-								class="pt-1 min-h-[min(700px,100vh)] max-h-[1200px] flex flex-col h-full relative"
-							>
+							<!-- A fixed height, not a cap: the node status content fills it through h-full, which
+							     resolves only against a definite height -->
+							<div class="pt-1 h-[1200px] flex flex-col relative">
 								<Tabs bind:selected={rightColumnSelect} wrapperClass="shrink-0">
 									{#if !hideTimeline}
 										<Tab value="timeline" label="Timeline" />
@@ -2086,7 +2086,6 @@
 											durationStatuses={localDurationStatuses}
 										/>
 									{:else if rightColumnSelect == 'node_status'}
-										<!-- h-full gives the step's logs a definite height to fill (FlowJobResult col) -->
 										<div class="p-4 h-full flex flex-col gap-6">
 											{#if selectedNode?.startsWith(AI_TOOL_MESSAGE_PREFIX)}
 												{@const [, agentModuleId, toolCallIndex] = selectedNode.split('-')}
