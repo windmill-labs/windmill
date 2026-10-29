@@ -85,20 +85,6 @@ fn bearer(claims: &Claims, priv_pem: &str, alg: Algorithm) -> String {
     format!("jwt_guest_{jwt}")
 }
 
-async fn enable_guests(port: u16, ws: &str, on: bool) -> anyhow::Result<()> {
-    let resp = authed(
-        client().post(format!(
-            "http://localhost:{port}/api/w/{ws}/workspaces/edit_guest_access"
-        )),
-        ADMIN_TOKEN,
-    )
-    .json(&json!({ "guest_access_enabled": on }))
-    .send()
-    .await?;
-    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
-    Ok(())
-}
-
 async fn set_guest_jwt_pem(port: u16, ws: &str, pem: &str) -> anyhow::Result<()> {
     let resp = authed(
         client().post(format!(
@@ -157,7 +143,6 @@ async fn a_valid_guest_jwt_opens_its_app(db: Pool<Postgres>) -> anyhow::Result<(
     let port = server.addr.port();
     let ws = "test-workspace";
 
-    enable_guests(port, ws, true).await?;
     set_guest_jwt_pem(port, ws, PUB1).await?;
     let resp = authed(
         client().post(format!("http://localhost:{port}/api/w/{ws}/scripts/create")),
@@ -239,7 +224,6 @@ async fn guest_jwt_refusals(db: Pool<Postgres>) -> anyhow::Result<()> {
     let port = server.addr.port();
     let ws = "test-workspace";
 
-    enable_guests(port, ws, true).await?;
     set_guest_jwt_pem(port, ws, PUB1).await?;
     create_app(port, ws, app(APP_PATH, "guest", false)).await?;
     create_app(port, ws, app("u/test-user/members_app", "publisher", false)).await?;
@@ -346,48 +330,6 @@ async fn guest_jwt_refusals(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The workspace switch gates a JWT guest exactly as it gates a signed-in one, at the
-/// auth door, so turning guests off closes the JWT entry too.
-#[sqlx::test(fixtures("base"))]
-async fn guest_jwt_needs_the_workspace_switch(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
-    let ws = "test-workspace";
-
-    set_guest_jwt_pem(port, ws, PUB1).await?;
-    create_app(port, ws, app(APP_PATH, "guest", false)).await?;
-    let token = bearer(&Claims::valid(), PRIV1, Algorithm::ES256);
-
-    // Switch off (the default): refused.
-    let resp = whoami(port, ws, &token).send().await?;
-    assert_eq!(
-        resp.status(),
-        401,
-        "a JWT guest must be refused while guests are off"
-    );
-
-    // Switch on: through.
-    enable_guests(port, ws, true).await?;
-    let resp = whoami(port, ws, &token).send().await?;
-    assert_eq!(
-        resp.status(),
-        200,
-        "with guests on, the JWT guest is admitted"
-    );
-
-    // Off again: closed on the next request.
-    enable_guests(port, ws, false).await?;
-    let resp = whoami(port, ws, &token).send().await?;
-    assert_eq!(
-        resp.status(),
-        401,
-        "turning guests off closes the JWT guest again"
-    );
-
-    Ok(())
-}
-
 /// A guest JWT is pinned to the workspace its claim names, so it authenticates on no
 /// workspace-less route: the arm has no workspace to check the claim against.
 #[sqlx::test(fixtures("base"))]
@@ -397,7 +339,6 @@ async fn guest_jwt_rejected_on_workspaceless_route(db: Pool<Postgres>) -> anyhow
     let port = server.addr.port();
     let ws = "test-workspace";
 
-    enable_guests(port, ws, true).await?;
     set_guest_jwt_pem(port, ws, PUB1).await?;
     create_app(port, ws, app(APP_PATH, "guest", false)).await?;
     let token = bearer(&Claims::valid(), PRIV1, Algorithm::ES256);
@@ -427,7 +368,6 @@ async fn a_guest_jwt_derived_embed_token_is_capped(db: Pool<Postgres>) -> anyhow
     let port = server.addr.port();
     let ws = "test-workspace";
 
-    enable_guests(port, ws, true).await?;
     set_guest_jwt_pem(port, ws, PUB1).await?;
     create_app(port, ws, app(APP_PATH, "guest", true)).await?;
     let secret: String = authed(

@@ -86,6 +86,10 @@
 				}
 			]
 		>
+		/** A hint pinned under the configuration, outside its scroll. */
+		configFooter?: import('svelte').Snippet
+		/** Pinned at the foot of the chat's conversations sidebar. */
+		chatSidebarFooter?: import('svelte').Snippet<[{ expanded: boolean }]>
 	}
 
 	let {
@@ -99,7 +103,9 @@
 		view = false,
 		onOpenConfig = undefined,
 		onRunStarted = undefined,
-		viewForm = undefined
+		viewForm = undefined,
+		configFooter = undefined,
+		chatSidebarFooter = undefined
 	}: Props = $props()
 
 	/** The one module the editor edits. Standalone (no `agent` key) so `initFlowState` loads a
@@ -611,31 +617,40 @@
 	</div>
 
 	{#snippet configPane()}
-		<div class="h-full min-h-0 overflow-auto">
-			<PropPickerWrapper pickableProperties={stepPropPicker?.pickableProperties} noPadding sidePane>
-				<AiAgentStepInputs
-					class="px-4 pt-4 pb-8"
-					{schema}
-					filter={brainFilter}
-					previousModuleId={undefined}
+		<div class="h-full min-h-0 flex flex-col">
+			<div class="flex-1 min-h-0 overflow-auto">
+				<PropPickerWrapper
 					pickableProperties={stepPropPicker?.pickableProperties}
-					extraLib={stepPropPicker?.extraLib ?? 'missing extraLib'}
-					{enableAi}
-					{workspace}
-					staticOnly
-					visibilityKey={`agent:${path}`}
-					{tools}
-					{readOnly}
-					onSelectTool={(id) => onSelectTool?.(id)}
-					onAddTool={readOnly ? undefined : addTool}
-					onDeleteTool={readOnly ? undefined : deleteTool}
-					toolPickerPortal="#agent-editor"
-					bind:args={
-						() => (agentValue?.input_transforms ?? {}) as Record<string, InputTransform>,
-						(v) => agentValue && (agentValue.input_transforms = v)
-					}
-				/>
-			</PropPickerWrapper>
+					noPadding
+					sidePane
+				>
+					<AiAgentStepInputs
+						class="px-4 pt-4 pb-8"
+						{schema}
+						filter={brainFilter}
+						previousModuleId={undefined}
+						pickableProperties={stepPropPicker?.pickableProperties}
+						extraLib={stepPropPicker?.extraLib ?? 'missing extraLib'}
+						{enableAi}
+						{workspace}
+						staticOnly
+						visibilityKey={`agent:${path}`}
+						{tools}
+						{readOnly}
+						onSelectTool={(id) => onSelectTool?.(id)}
+						onAddTool={readOnly ? undefined : addTool}
+						onDeleteTool={readOnly ? undefined : deleteTool}
+						toolPickerPortal="#agent-editor"
+						bind:args={
+							() => (agentValue?.input_transforms ?? {}) as Record<string, InputTransform>,
+							(v) => agentValue && (agentValue.input_transforms = v)
+						}
+					/>
+				</PropPickerWrapper>
+			</div>
+			{#if configFooter}
+				<div class="shrink-0 px-3 py-1.5">{@render configFooter()}</div>
+			{/if}
 		</div>
 	{/snippet}
 
@@ -755,6 +770,7 @@
 							inputSchema={AGENT_CHAT_SCHEMA}
 							flowModules={chatModules}
 							composerSettings={onOpenConfig ? configButton : undefined}
+							sidebarFooter={chatSidebarFooter}
 						/>
 					</div>
 				</div>

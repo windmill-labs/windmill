@@ -21,8 +21,11 @@
 		previewLocationLabel,
 		barePath
 	} from './previewRouter'
-	import { useSessionPermissions } from './sessionPermissions.svelte'
+	import { useSessionPermissions, useSessionReadOnly } from './sessionPermissions.svelte'
 	import { agentWriteCount } from '$lib/components/flows/agentEditorStore.svelte'
+	import { userWorkspaces } from '$lib/stores'
+	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
+	import { devLabelNoun } from '$lib/utils/devWorkspaceLabel'
 
 	let {
 		runtime,
@@ -70,6 +73,8 @@
 		() => runtime.manager
 	)
 	const canEdit = $derived(permissions.canOpenEditor(kind))
+	const protectedWorkspace = useSessionReadOnly(() => workspaceId)
+	const devWorkspace = $derived(findCanonicalDevWorkspace(workspaceId, $userWorkspaces))
 
 	// This reads the deployed version over the API rather than from the editor cell the
 	// chat mutates, so it is the one preview kind that does not self-sync (the invariant
@@ -259,7 +264,11 @@
 			<div class="text-xs text-tertiary max-w-sm">
 				Nothing is deployed at <span class="font-mono">{path}</span>, so there is no deployed
 				version to view.{#if canEdit}{' '}
-					Deploy it from the editor to see it here.{/if}
+					Deploy it from the editor to see it here.{:else if protectedWorkspace.confirmed}{' '}
+					Direct deployment is disabled in this workspace, so this session can read and run deployed
+					items, but not edit. Pick {devWorkspace
+						? `its ${devLabelNoun(devWorkspace.dev_workspace_label)}`
+						: 'a fork'} to make changes.{/if}
 			</div>
 			{#if canEdit}
 				<Button unifiedSize="sm" variant="default" startIcon={{ icon: Pen }} on:click={toEditSide}>
