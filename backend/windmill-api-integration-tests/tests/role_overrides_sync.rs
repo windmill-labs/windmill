@@ -292,3 +292,66 @@ async fn each_roles_key_is_managed_on_its_own(db: Pool<Postgres>) -> anyhow::Res
     );
     Ok(())
 }
+
+/// A pulled settings.yaml states the operator role twice, as `operator_settings` and as
+/// `role_overrides.operator`. Editing only the legacy key must still change the role.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn an_operator_settings_edit_in_a_pulled_file_takes_effect(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+    let resp = authed(client().post(format!("{base}/operator_settings")))
+        .json(&json!({ "runs": false, "schedules": true }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let mut pulled: Value =
+        authed(client().get(format!("{base}/settings_document?secrets=encrypted")))
+            .send()
+            .await?
+            .json()
+            .await?;
+    pulled["operator_settings"]["runs"] = json!(true);
+    // An unrelated role edit in the same push, so the roles are written after the legacy key.
+    pulled["role_overrides"]["developer"] = json!({ "capabilities": { "fork": false } });
+    let resp = apply(port, "test-workspace", pulled, false).await;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let roles: Value = authed(client().get(format!("{base}/roles")))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let role = |name: &str| {
+        roles["roles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["name"] == name)
+            .cloned()
+            .unwrap()
+    };
+    let operator = role("operator");
+    assert_eq!(operator["capabilities"]["visibility"]["runs"], true);
+    assert_eq!(operator["capabilities"]["visibility"]["schedules"], true);
+    assert_eq!(role("developer")["capabilities"]["fork"], false);
+
+    // The next pull states the edit in both keys, so pushing it again changes nothing.
+    let repulled: Value =
+        authed(client().get(format!("{base}/settings_document?secrets=encrypted")))
+            .send()
+            .await?
+            .json()
+            .await?;
+    assert_eq!(repulled["operator_settings"]["runs"], true);
+    let result: Value = apply(port, "test-workspace", repulled, false)
+        .await
+        .json()
+        .await?;
+    assert_eq!(result["changes"], json!([]), "{result}");
+    Ok(())
+}

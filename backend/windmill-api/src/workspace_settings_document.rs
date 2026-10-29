@@ -1708,6 +1708,7 @@ fn plan_role_overrides(p: &mut Plan, instance: &[RoleDefinition]) -> Result<()> 
         .chain(current_added.clone())
         .filter_map(|(name, v)| Some((name, serde_json::from_value(v).ok()?)))
         .collect();
+    let current_operator = current_overrides.get(roles::OPERATOR_ROLE).cloned();
     let mut changed = false;
     for (key, desired, current) in [
         ("role_overrides", overrides, current_overrides),
@@ -1720,15 +1721,25 @@ fn plan_role_overrides(p: &mut Plan, instance: &[RoleDefinition]) -> Result<()> 
         }
         p.desired.insert(key.to_string(), desired);
     }
-    // The legacy write before this one rewrites the `operator` override, so the stated roles are
-    // written after it even when they match what is stored.
+    if !changed {
+        return Ok(());
+    }
+    // The legacy write before this one rewrites the `operator` override. A document that leaves
+    // that entry as it found it must keep the rewrite, not restore the entry the file was pulled
+    // with, so the write takes it from the store once the legacy write has gone through.
     let operator_settings_written = p
         .writes
         .iter()
         .any(|w| matches!(w.target, Target::Edit(SettingsEdit::OperatorSettings)));
-    if !changed && !operator_settings_written {
-        return Ok(());
-    }
+    let operator = roles::OPERATOR_ROLE;
+    let keep_stored: Vec<&str> = (operator_settings_written
+        && same(
+            object_of(p.desired.get("role_overrides")).get(operator),
+            current_operator.as_ref(),
+        ))
+    .then_some(operator)
+    .into_iter()
+    .collect();
     let next: RoleOverrides = ["role_overrides", "workspace_only_roles"]
         .iter()
         .flat_map(|key| object_of(p.desired.get(*key)))
@@ -1737,7 +1748,10 @@ fn plan_role_overrides(p: &mut Plan, instance: &[RoleDefinition]) -> Result<()> 
         .map_err(|e| Error::internal_err(format!("re-reading role overrides: {e:#}")))?;
     roles::validate_overrides(instance, &next)?;
     roles::check_frozen_overrides(instance, &previous, &next)?;
-    p.write(Target::Edit(SettingsEdit::RoleOverrides), json!(next));
+    p.write(
+        Target::Edit(SettingsEdit::RoleOverrides),
+        json!({ "overrides": next, "keep_stored": keep_stored }),
+    );
     Ok(())
 }
 
@@ -2655,7 +2669,16 @@ mod tests {
         p.writes
             .iter()
             .find(|w| matches!(w.target, Target::Edit(SettingsEdit::RoleOverrides)))
-            .map(|w| &w.body)
+            .map(|w| &w.body["overrides"])
+    }
+
+    fn kept_stored(p: &Plan) -> Vec<&str> {
+        p.writes
+            .iter()
+            .filter(|w| matches!(w.target, Target::Edit(SettingsEdit::RoleOverrides)))
+            .flat_map(|w| w.body["keep_stored"].as_array().unwrap())
+            .map(|v| v.as_str().unwrap())
+            .collect()
     }
 
     #[test]
@@ -2745,23 +2768,56 @@ mod tests {
         }
     }
 
+    /// A pulled file states both `operator_settings` and `role_overrides.operator`: an edit to
+    /// either one must take effect, not be undone by the other's unchanged value.
     #[test]
-    fn roles_are_written_after_a_legacy_operator_settings_write() {
+    fn a_legacy_operator_settings_edit_is_not_undone_by_the_unchanged_roles() {
+        let instance = roles::default_instance_roles();
         let same = roles_current();
         let p = plan_roles(
             json!({
                 "operator_settings": { "runs": true },
                 "role_overrides": same["role_overrides"],
+                "workspace_only_roles": same["workspace_only_roles"],
             }),
             false,
-            &roles::default_instance_roles(),
+            &instance,
+        )
+        .unwrap();
+        assert_eq!(keys(&p), ["operator_settings"]);
+        assert!(role_write(&p).is_none(), "the legacy write alone applies");
+
+        // Another role changes too: the write keeps the `operator` the legacy write stores.
+        let p = plan_roles(
+            json!({
+                "operator_settings": { "runs": true },
+                "role_overrides": {
+                    "operator": same["role_overrides"]["operator"],
+                    "developer": { "capabilities": { "fork": false } },
+                },
+            }),
+            false,
+            &instance,
         )
         .unwrap();
         let targets: Vec<_> = p.writes.iter().map(|w| format!("{:?}", w.target)).collect();
+        assert_eq!(targets, ["Edit(OperatorSettings)", "Edit(RoleOverrides)"]);
+        assert_eq!(kept_stored(&p), ["operator"]);
+
+        // An edit stated in `role_overrides` itself wins, as the later write.
+        let p = plan_roles(
+            json!({
+                "operator_settings": { "runs": true },
+                "role_overrides": { "operator": { "capabilities": { "flows": "none" } } },
+            }),
+            false,
+            &instance,
+        )
+        .unwrap();
+        assert_eq!(kept_stored(&p), Vec::<&str>::new());
         assert_eq!(
-            targets,
-            ["Edit(OperatorSettings)", "Edit(RoleOverrides)"],
-            "the stated roles win over what the legacy write leaves"
+            role_write(&p).unwrap()["operator"],
+            json!({ "capabilities": { "flows": "none" } })
         );
     }
 }

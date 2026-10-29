@@ -32,7 +32,7 @@ async function setRoleOverrides(backend: any, overrides: unknown) {
       body: JSON.stringify(overrides),
     },
   );
-  expect(resp.ok).toBe(true);
+  if (!resp.ok) throw new Error(`role_overrides: ${resp.status} ${await resp.text()}`);
 }
 
 async function storedRoles(backend: any) {
