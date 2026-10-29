@@ -24,6 +24,7 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { goto } from '$lib/navigation'
 	import { leaveForHome, openDraftOnHome, openNewSession } from './sessionSwitch.svelte'
+	import { homeComposerContext } from './homeComposerContext.svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { slide } from 'svelte/transition'
 	import {
@@ -425,6 +426,16 @@
 		}
 	}
 
+	// The rail menu hands focus back to its trigger once it has closed, after New session has
+	// focused Home's composer: the composer takes it back instead.
+	let newSessionFromRail = false
+	function railMenuCloseFocus(trigger?: HTMLElement | null): HTMLElement | null {
+		if (!newSessionFromRail) return trigger ?? null
+		newSessionFromRail = false
+		homeComposerContext.focus()
+		return null
+	}
+
 	// The `+` on a workspace group header: a new session in that group's workspace,
 	// which the header switches to, since Home's draft acts on the header's workspace.
 	async function createAndOpenIn(workspaceId: string) {
@@ -666,7 +677,7 @@
 	<div class={embedded ? '' : 'px-2 pt-3 pb-2 border-b border-light'}>
 		<Menubar>
 			{#snippet children({ createMenu })}
-				<Menu {createMenu} usePointerDownOutside submenuSafe>
+				<Menu {createMenu} usePointerDownOutside submenuSafe closeFocus={railMenuCloseFocus}>
 					{#snippet triggr({ trigger })}
 						<div class="relative">
 							<MenuButton
@@ -688,6 +699,19 @@
 					{/snippet}
 					{#snippet children({ item, builders })}
 						<div class="divide-y min-w-48" role="none">
+							<div class="py-1" role="none" data-asks-for-composer>
+								<MenuItem
+									class={menuItemBase}
+									onClick={() => {
+										newSessionFromRail = true
+										void openNewSession()
+									}}
+									{item}
+								>
+									<Plus size={14} />
+									New session
+								</MenuItem>
+							</div>
 							<div class="py-1" role="none">
 								<SessionFilterMenu
 									{builders}

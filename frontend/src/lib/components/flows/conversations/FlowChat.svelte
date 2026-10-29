@@ -12,6 +12,7 @@
 	import FlowConversationsSidebar from './FlowConversationsSidebar.svelte'
 	import FlowChatInterface from './FlowChatInterface.svelte'
 	import { getContext, untrack } from 'svelte'
+	import { afterNavigate } from '$app/navigation'
 	import type { FlowEditorContext } from '../types'
 	import { ApiError, type FlowModule } from '$lib/gen'
 	import { FlowChatPool, type FlowChatPoolState } from './flowChatPool'
@@ -170,6 +171,7 @@
 		// Untracked: following the link once is the whole job; a later change of the prop must
 		// not rebuild every chat of the flow.
 		const linked = untrack(() => openConversation)
+		followedLink = linked
 		if (linked) createdPool.select(linked)
 		listChat = createdList
 		pool = createdPool
@@ -179,6 +181,17 @@
 			createdPool.destroy()
 			createdList.destroy()
 		}
+	})
+
+	// A link to another chat of this flow changes only the query, so the page is not remounted
+	// and the pool stays: it is shown here. Compared with the link last followed, so the
+	// conversation the reader picked in the chat's own sidebar survives an unrelated navigation.
+	let followedLink: string | undefined = undefined
+	afterNavigate(() => {
+		const linked = openConversation
+		if (!linked || linked === followedLink || !pool) return
+		followedLink = linked
+		pool.select(linked)
 	})
 
 	// The panel on screen. Every other panel the pool holds stays mounted behind it.
