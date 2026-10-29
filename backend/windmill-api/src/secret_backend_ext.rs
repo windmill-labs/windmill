@@ -17,6 +17,33 @@
 
 use windmill_common::{db::DB, error::Result};
 
+/// Refuses a bulk path move (user rename, offboarding) that would carry HTTP secret store
+/// references along: their store key is derived from the path, so moved references would read
+/// other keys.
+pub async fn reject_http_store_refs_under_prefix(
+    conn: &mut sqlx::PgConnection,
+    workspace_id: &str,
+    prefix: &str,
+) -> Result<()> {
+    let paths: Vec<String> = sqlx::query_scalar(
+        "SELECT path FROM variable WHERE workspace_id = $1 AND is_secret \
+         AND left(path, length($2)) = $2 AND value LIKE '$http_store:%' ORDER BY path LIMIT 5",
+    )
+    .bind(workspace_id)
+    .bind(prefix)
+    .fetch_all(conn)
+    .await?;
+    if paths.is_empty() {
+        return Ok(());
+    }
+    Err(windmill_common::error::Error::BadRequest(format!(
+        "Secret variables under {prefix} reference the external HTTP secret store by their path \
+         and cannot be moved: {}. Delete them, then recreate the references at their new paths \
+         once this is done.",
+        paths.join(", ")
+    )))
+}
+
 #[cfg(all(feature = "private", feature = "enterprise"))]
 use windmill_common::{
     error::Error,

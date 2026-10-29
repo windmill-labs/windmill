@@ -12,7 +12,9 @@ pub use windmill_api_users::users::*;
 use std::sync::Arc;
 
 use crate::db::{ApiAuthed, OptJobAuthed};
-use crate::secret_backend_ext::rename_vault_secrets_with_prefix;
+use crate::secret_backend_ext::{
+    reject_http_store_refs_under_prefix, rename_vault_secrets_with_prefix,
+};
 use argon2::Argon2;
 use axum::{
     extract::{Extension, Path, Query},
@@ -630,6 +632,7 @@ async fn update_username_in_workpsace<'c>(
     // Handle Vault secret renames before updating paths in DB
     let old_prefix = format!("u/{}/", old_username);
     let new_prefix = format!("u/{}/", new_username);
+    reject_http_store_refs_under_prefix(&mut **tx, w_id, &old_prefix).await?;
 
     // Fetch all externally-stored secret variables under this user's path
     let vault_secrets: Vec<(String, String)> = sqlx::query!(

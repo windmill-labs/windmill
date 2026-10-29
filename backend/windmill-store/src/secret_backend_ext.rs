@@ -24,8 +24,18 @@ use windmill_common::{
 
 pub use windmill_common::secret_backend::{
     get_secret_backend, get_secret_value, is_aws_sm_stored_value, is_azure_kv_stored_value,
-    is_external_stored_value, is_vault_backend_configured, is_vault_stored_value,
+    is_external_stored_value, is_http_store_stored_value, is_vault_backend_configured,
+    is_vault_stored_value,
 };
+
+/// The HTTP store's key is derived from the variable path, so moving a reference would point it
+/// at a different key of a store Windmill cannot write to.
+pub fn http_store_rename_error(path: &str) -> Error {
+    Error::BadRequest(format!(
+        "{path} references a secret in the external HTTP secret store by its path and cannot be \
+         renamed. Delete it and create a new reference at the new path instead."
+    ))
+}
 
 /// Store a secret value using the configured backend
 ///
@@ -58,6 +68,17 @@ pub async fn store_secret_value(
             backend.set_secret(workspace_id, path, plain_value).await?;
             Ok(format!("$aws_sm:{}", path))
         }
+        // Read-only store: an empty value creates a reference to the key the path maps to, and
+        // the value itself is managed in the store.
+        "http_store" if plain_value.is_empty() => {
+            backend.check_path(path)?;
+            Ok(format!("$http_store:{}", path))
+        }
+        "http_store" => Err(Error::BadRequest(format!(
+            "Secrets are read from an external HTTP secret store, which Windmill cannot write to. \
+             Set the value of {path} in the store and save this secret with an empty value to \
+             reference it."
+        ))),
         _ => Err(Error::internal_err(format!(
             "Unknown backend: {}",
             backend.backend_name()
@@ -174,10 +195,13 @@ pub async fn delete_secret_from_backend(db: &DB, workspace_id: &str, path: &str)
 pub async fn rename_vault_secret(
     _db: &DB,
     _workspace_id: &str,
-    _old_path: &str,
+    old_path: &str,
     new_path: &str,
     current_value: &str,
 ) -> Result<Option<String>> {
+    if is_http_store_stored_value(current_value) {
+        return Err(http_store_rename_error(old_path));
+    }
     if is_vault_stored_value(current_value) {
         tracing::warn!(
             "Variable has $vault: prefix but Vault requires Enterprise Edition. \
@@ -215,6 +239,9 @@ pub async fn rename_vault_secret(
 ) -> Result<Option<String>> {
     if !is_external_stored_value(current_value) {
         return Ok(None);
+    }
+    if is_http_store_stored_value(current_value) {
+        return Err(http_store_rename_error(old_path));
     }
 
     let marker_prefix = if current_value.starts_with("$azure_kv:") {

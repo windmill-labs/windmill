@@ -55,7 +55,8 @@ use windmill_ai::ai_cache::bump_instance_ai_config_revision;
 use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
 #[cfg(all(feature = "private", feature = "enterprise"))]
 use windmill_common::secret_backend::{
-    AwsSecretsManagerSettings, AzureKeyVaultSettings, SecretMigrationReport, VaultSettings,
+    AwsSecretsManagerSettings, AzureKeyVaultSettings, HttpStoreSettings, SecretMigrationReport,
+    VaultSettings,
 };
 use windmill_common::{
     ee_oss::{get_license_plan, LicensePlan},
@@ -260,6 +261,11 @@ pub fn global_service() -> Router {
         .route(
             "/migrate_secrets_from_aws_sm",
             post(migrate_secrets_from_aws_sm),
+        )
+        .route("/test_http_store_backend", post(test_http_store_backend))
+        .route(
+            "/migrate_secrets_from_http_store",
+            post(migrate_secrets_from_http_store),
         );
 
     #[cfg(feature = "parquet")]
@@ -2514,6 +2520,56 @@ pub async fn migrate_secrets_from_aws_sm(
         &db,
         &authed,
         "settings.migrate_secrets_from_aws_sm",
+        ActionKind::Update,
+        None,
+    )
+    .await?;
+    Ok(Json(report))
+}
+
+#[cfg(all(feature = "private", feature = "enterprise"))]
+#[derive(Deserialize)]
+pub struct TestHttpStoreBackend {
+    settings: HttpStoreSettings,
+    /// Workspace and variable path of a secret that exists in the store, read as the probe
+    workspace_id: String,
+    path: String,
+}
+
+/// Test the HTTP secret store by reading one secret, without returning its value
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn test_http_store_backend(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(req): Json<TestHttpStoreBackend>,
+) -> Result<String> {
+    require_super_admin(&db, &authed).await?;
+    windmill_common::secret_backend::test_http_store_connection(
+        &req.settings,
+        &req.workspace_id,
+        &req.path,
+    )
+    .await?;
+    Ok(format!(
+        "Successfully read {} in workspace {} from the HTTP secret store",
+        req.path, req.workspace_id
+    ))
+}
+
+/// Copy the values of HTTP secret store references into the database
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub async fn migrate_secrets_from_http_store(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<HttpStoreSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed).await?;
+    let report =
+        windmill_common::secret_backend::migrate_secrets_from_http_store(&db, &settings).await?;
+    audit_instance_action(
+        &db,
+        &authed,
+        "settings.migrate_secrets_from_http_store",
         ActionKind::Update,
         None,
     )
