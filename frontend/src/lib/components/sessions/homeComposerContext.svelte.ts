@@ -33,6 +33,8 @@ type Registration = {
 	focus: () => void
 	/** The box's accent outline, for a composer the user is sent to without it moving. */
 	flash: () => void
+	/** Text put before the draft, for an entry point that comes with a question. */
+	prefill: (text: string) => void
 	/** Assistant settings on `section`; Instructions opens with only `root`'s folder open. */
 	openSettings: (section: 'instructions' | 'skills' | 'mcp', root: string) => void
 	runtime: SessionRuntime
@@ -67,6 +69,9 @@ export const homeComposerContext = {
 	},
 	flash(): void {
 		registered?.flash()
+	},
+	prefill(text: string): void {
+		registered?.prefill(text)
 	},
 	openSettings(section: 'instructions' | 'skills' | 'mcp', root: string): void {
 		registered?.openSettings(section, root)

@@ -22,17 +22,12 @@
 
 	let { runs, folder, onShowPanel }: Props = $props()
 
-	const MAX_FAILING = 5
-	const MAX_RUNNING = 3
+	const MAX_ITEMS = 8
 
 	let isOpen = $state(false)
 	let data = $derived(runs.current)
 	let failing = $derived(data?.items.filter((i) => i.status === 'failure') ?? [])
-	let running = $derived(data?.items.filter((i) => i.status === 'running') ?? [])
 	let prefixes = $derived(data && !folder ? collisionPrefixes(data.items) : new Map())
-	let failingHref = $derived(
-		`/runs?status=failure${folder ? `&folder=${encodeURIComponent(folder)}` : ''}`
-	)
 </script>
 
 {#if data}
@@ -80,12 +75,12 @@
 								{data.failed_runs} failed
 							</span>
 						</span>
-						{#if canAskAI && failing.length > 0}
+						{#if canAskAI() && failing.length > 0}
 							<button
 								class="ml-auto h-[26px] px-2.5 rounded text-xs font-medium text-ai bg-ai/10 hover:bg-ai/15"
 								onclick={() =>
 									askAI(
-										{ kind: 'failing', paths: failing.map((i) => i.path) },
+										{ kind: 'failing', items: failing },
 										'Investigate why these items are failing'
 									)}
 							>
@@ -94,39 +89,19 @@
 						{/if}
 					</div>
 
-					{#if failing.length > 0}
-						<div
-							class="px-2.5 pt-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-red-600 dark:text-red-400"
-						>
-							Failing <span class="normal-case tracking-normal font-normal"
-								>{data.failing_items} {data.failing_items === 1 ? 'item' : 'items'}</span
-							>
-						</div>
-						{#each failing.slice(0, MAX_FAILING) as item (item.path)}
-							<RecentRunRow {item} now={runs.now} prefix={prefixes.get(item.path)} strip={false} />
-						{/each}
-						{#if data.failing_items > MAX_FAILING}
-							<a href={failingHref} class="block px-2.5 py-1 ml-7 text-[11.5px] text-accent">
-								{data.failing_items - MAX_FAILING} more failing
-							</a>
-						{/if}
-					{/if}
-
-					{#if running.length > 0}
-						<div class="px-2.5 pt-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-hint">
-							Running <span class="normal-case tracking-normal font-normal"
-								>{data.running_items} {data.running_items === 1 ? 'item' : 'items'}</span
-							>
-						</div>
-						{#each running.slice(0, MAX_RUNNING) as item (item.path)}
-							<RecentRunRow {item} now={runs.now} prefix={prefixes.get(item.path)} strip={false} />
-						{/each}
-					{/if}
-
-					{#if failing.length === 0 && running.length === 0}
+					<!-- Every item the counts above are made of, in the panel's order: a list of only the
+					     failing ones under a total of all runs reads as missing rows. -->
+					{#each data.items.slice(0, MAX_ITEMS) as item (item.path)}
+						<RecentRunRow {item} now={runs.now} prefix={prefixes.get(item.path)} strip={false} />
+					{:else}
 						<p class="px-2.5 py-3 text-secondary text-[12.5px]">
-							{data.total_runs > 0 ? 'Nothing failing.' : 'Runs show up here once something runs.'}
+							Runs show up here once something runs.
 						</p>
+					{/each}
+					{#if data.items.length > MAX_ITEMS}
+						<a href={allRunsHref(folder)} class="block px-2.5 py-1 ml-7 text-[11.5px] text-accent">
+							{data.items.length - MAX_ITEMS} more
+						</a>
 					{/if}
 
 					<div class="flex items-center gap-2 mt-1.5 pt-2 px-1.5 pb-1 border-t border-border-light">

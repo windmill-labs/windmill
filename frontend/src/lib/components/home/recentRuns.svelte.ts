@@ -1,6 +1,8 @@
 import { JobService, type ListRecentRunsResponse } from '$lib/gen'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { IsDocumentVisible, resource, useInterval } from 'runed'
+import { homeComposerContext } from '$lib/components/sessions/homeComposerContext.svelte'
+import { runContextElement } from '$lib/components/copilot/chat/context'
 
 export type RecentRuns = ListRecentRunsResponse
 export type RecentRunItem = RecentRuns['items'][number]
@@ -111,10 +113,22 @@ export function totalLabel(runs: RecentRuns) {
 }
 
 export type AskAIContext =
-	| { kind: 'failing'; paths: string[] }
+	| { kind: 'failing'; items: RecentRunItem[] }
 	| { kind: 'run'; path: string; jobId: string }
 
-/** The home composer does not take context yet; the Ask AI entry points stay hidden until it does. */
-export const canAskAI = false
+/** Whether Home's composer is there to take a run: it registers only once mounted. */
+export function canAskAI(): boolean {
+	return homeComposerContext.available
+}
 
-export function askAI(_context: AskAIContext, _draft?: string) {}
+/** Each run into Home's composer as context, `draft` before them: a failing item hands over its
+ * latest run, which is the one that failed. */
+export async function askAI(context: AskAIContext, draft?: string) {
+	const runs =
+		context.kind === 'run'
+			? [{ path: context.path, jobId: context.jobId }]
+			: context.items.flatMap((i) => (i.runs[0] ? [{ path: i.path, jobId: i.runs[0].id }] : []))
+	// Mentions land at the caret, so the question goes in after them, ahead of the draft.
+	for (const run of runs) await homeComposerContext.attach(runContextElement(run.jobId, run.path))
+	if (draft) homeComposerContext.prefill(`${draft} `)
+}

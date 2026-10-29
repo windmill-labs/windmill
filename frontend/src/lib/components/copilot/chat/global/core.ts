@@ -9790,6 +9790,10 @@ export function prepareGlobalUserMessage(
 				content += `- type: ${isUserContextPath(context.path) ? 'user' : 'folder'}, path: ${context.path} (its items: list_workspace_items with path_prefix "${context.path}/")\n`
 				continue
 			}
+			if (context.type === 'workspace_run') {
+				content += `- type: run, id: ${context.id}, of: ${context.path} (read it: get_run with id "${context.id}")\n`
+				continue
+			}
 			const itemType =
 				context.type === 'workspace_script'
 					? 'script'
