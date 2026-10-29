@@ -27,7 +27,8 @@ pub async fn reject_http_store_refs_under_prefix(
 ) -> Result<()> {
     let paths: Vec<String> = sqlx::query_scalar(
         "SELECT path FROM variable WHERE workspace_id = $1 AND is_secret \
-         AND left(path, length($2)) = $2 AND value LIKE '$http_store:%' ORDER BY path LIMIT 5",
+         AND left(path, length($2)) = $2 AND starts_with(value, '$http_store:') \
+         ORDER BY path LIMIT 5",
     )
     .bind(workspace_id)
     .bind(prefix)

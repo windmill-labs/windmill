@@ -25,19 +25,23 @@
 	// Rows keep entries that are still being typed (empty or duplicate keys), which a plain object
 	// cannot hold; only the complete ones are written back.
 	let nextId = 0
-	let rows = $state(
-		Object.entries(untrack(() => value) ?? {}).map(([k, v]) => ({
-			id: nextId++,
-			key: k,
-			value: v
-		}))
-	)
+	function toRows(v: Record<string, string> | undefined) {
+		return Object.entries(v ?? {}).map(([k, val]) => ({ id: nextId++, key: k, value: val }))
+	}
+	function fromRows() {
+		return Object.fromEntries(rows.filter((r) => r.key.trim() !== '').map((r) => [r.key, r.value]))
+	}
+	let rows = $state(toRows(untrack(() => value)))
 
+	// Each effect tracks one side only: edits flow out, and an outside change such as Discard
+	// flows in, without either writing back what the other just wrote.
 	$effect(() => {
-		const next = Object.fromEntries(
-			rows.filter((r) => r.key.trim() !== '').map((r) => [r.key, r.value])
-		)
-		if (JSON.stringify(next) !== JSON.stringify(value ?? {})) onChange(next)
+		const next = fromRows()
+		if (JSON.stringify(next) !== JSON.stringify(untrack(() => value) ?? {})) onChange(next)
+	})
+	$effect(() => {
+		const incoming = value ?? {}
+		if (JSON.stringify(incoming) !== JSON.stringify(untrack(fromRows))) rows = toRows(incoming)
 	})
 </script>
 
