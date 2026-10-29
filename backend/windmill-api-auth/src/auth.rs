@@ -393,7 +393,7 @@ impl AuthCache {
                             read_only: false,
                             job_id: None,
                             credential_expiry: None,
-                            mcp_client: None,
+                            mcp_client: claims.mcp_client,
                         };
                         // Fail closed: a `job_id` claim that does not parse must reject
                         // the token rather than resolve to `None`, which would clear the

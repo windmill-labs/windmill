@@ -27,7 +27,7 @@ use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     audit::AuditAuthor,
     db::{GatewayWorkspaceId, DB},
-    global_settings::McpExternalIdp,
+    global_settings::{client_access, McpExternalIdp},
     utils::HTTP_CLIENT,
 };
 use windmill_mcp::server::NoEndpointTools;
@@ -310,19 +310,53 @@ async fn resolve(
         .await
         .map_err(|e| refuse(Some(w_id), e))?
     {
-        let managed: Vec<String> =
-            sqlx::query_scalar("SELECT name FROM instance_group WHERE external_id IS NOT NULL")
-                .fetch_all(db)
-                .await
-                .map_err(|e| refuse(Some(w_id), e.to_string()))?;
-        authed.groups.retain(|g| !managed.contains(g));
-        authed.groups.extend(idp_groups);
+        let err = |e: sqlx::Error| refuse(Some(w_id), e.to_string());
+        // Workspace groups and unmanaged instance groups as stored, by source rather than by
+        // name: a workspace group may share its name with a managed instance group.
+        let mut groups: Vec<String> = sqlx::query_scalar(
+            "SELECT group_ FROM usr_to_group WHERE usr = $1 AND workspace_id = $2 \
+             UNION ALL SELECT igroup FROM email_to_igroup JOIN instance_group ON name = igroup \
+             WHERE email = $3 AND external_id IS NULL",
+        )
+        .bind(&authed.username)
+        .bind(w_id)
+        .bind(&email)
+        .fetch_all(db)
+        .await
+        .map_err(err)?;
+        // Admin rights a managed group can grant (an instance superadmin role, or the admin
+        // role this workspace gives its members) follow the token as well. Where no managed
+        // group grants them they were granted directly, and stand.
+        if authed.is_admin {
+            let admin_groups: Vec<String> = sqlx::query_scalar(
+                "SELECT name FROM instance_group WHERE external_id IS NOT NULL \
+                 AND (instance_role = 'superadmin' OR name IN (\
+                   SELECT key FROM workspace_settings, \
+                     jsonb_each_text(auto_invite->'instance_groups_roles') \
+                   WHERE workspace_id = $1 AND value = 'admin'))",
+            )
+            .bind(w_id)
+            .fetch_all(db)
+            .await
+            .map_err(err)?;
+            if !admin_groups.is_empty() && !idp_groups.iter().any(|g| admin_groups.contains(g)) {
+                authed.is_admin = false;
+            }
+        }
+        groups.extend(idp_groups);
         authed.folders =
-            windmill_common::auth::get_folders_for_user(w_id, &authed.username, &authed.groups, db)
+            windmill_common::auth::get_folders_for_user(w_id, &authed.username, &groups, db)
                 .await
                 .map_err(|e| refuse(Some(w_id), e.to_string()))?;
+        authed.groups = groups;
     }
-    authed.scopes = Some(client.scopes.clone());
+    let mut scopes = client.scopes.clone();
+    // Every MCP URL then serves the session's toolset, as for a Windmill token approved with
+    // an access level, rather than the tools server with its endpoint tools.
+    if client_access(&scopes) == Ok(true) && !scopes.iter().any(|s| s == "mcp:session") {
+        scopes.push("mcp:session".to_string());
+    }
+    authed.scopes = Some(scopes);
     authed.mcp_client = Some(client.client_id.clone());
     Ok((authed, w_id.to_string()))
 }
@@ -511,11 +545,15 @@ pub async fn external_idp_auth(
     }
 
     let extensions = request.extensions_mut();
+    let selection =
+        client_access(resolved.authed.scopes.as_deref().unwrap_or_default()) != Ok(true);
     extensions.insert(OptJobAuthed { job_id: None, authed: resolved.authed.clone() });
     extensions.insert(resolved.authed);
     extensions.insert(GatewayWorkspaceId(resolved.workspace_id.clone()));
     extensions.insert(WorkspaceId(resolved.workspace_id));
-    extensions.insert(McpSelection);
-    extensions.insert(NoEndpointTools);
+    if selection {
+        extensions.insert(McpSelection);
+        extensions.insert(NoEndpointTools);
+    }
     next.run(request).await
 }

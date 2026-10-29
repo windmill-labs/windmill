@@ -644,22 +644,46 @@ pub fn parse_mcp_external_idp(
         {
             return Err(format!("client {} is listed twice", client.client_id));
         }
-        if client.scopes.is_empty() {
-            return Err(format!("client {} selects no tools", client.client_id));
-        }
-        if let Some(scope) = client.scopes.iter().find(|s| {
-            !(*s == "mcp:favorites"
-                || ["mcp:scripts:", "mcp:flows:", "mcp:hub:"]
-                    .iter()
-                    .any(|p| s.strip_prefix(p).is_some_and(|rest| !rest.is_empty())))
-        }) {
-            return Err(format!(
-                "client {}: {scope} is not a selection of scripts, flows or hub scripts",
-                client.client_id
-            ));
-        }
+        client_access(&client.scopes).map_err(|e| format!("client {}: {e}", client.client_id))?;
     }
     Ok(Some(idp))
+}
+
+/// Whether an external MCP client's scopes give the AI session's toolset (`mcp:all`, alone or
+/// narrowed by `mcp:read_only` / `mcp:read_run`) rather than a selection of scripts, flows and
+/// hub scripts. Endpoint scopes, path-narrowed `mcp:all` and `mcp:workspaces:` are refused:
+/// a client reaches its one workspace, and only through these two shapes.
+pub fn client_access(scopes: &[String]) -> Result<bool, String> {
+    // Markers the token form adds; they grant nothing.
+    let scopes: Vec<&str> = scopes
+        .iter()
+        .map(String::as_str)
+        .filter(|s| !["mcp:runnables_as_tools", "mcp:session"].contains(s))
+        .collect();
+    if scopes.contains(&"mcp:all") {
+        let narrowed: Vec<&str> = scopes.iter().copied().filter(|s| *s != "mcp:all").collect();
+        return match narrowed.as_slice() {
+            [] | ["mcp:read_only"] | ["mcp:read_run"] => Ok(true),
+            other => Err(format!(
+                "mcp:all takes at most one of mcp:read_only and mcp:read_run, not {}",
+                other.join(" ")
+            )),
+        };
+    }
+    if scopes.is_empty() {
+        return Err("selects no tools".to_string());
+    }
+    if let Some(scope) = scopes.iter().find(|s| {
+        !(**s == "mcp:favorites"
+            || ["mcp:scripts:", "mcp:flows:", "mcp:hub:"]
+                .iter()
+                .any(|p| s.strip_prefix(p).is_some_and(|rest| !rest.is_empty())))
+    }) {
+        return Err(format!(
+            "{scope} is not an access level nor a selection of scripts, flows or hub scripts"
+        ));
+    }
+    Ok(false)
 }
 
 /// [`API_BASE_URL_SETTING`] when it applies to MCP, else `base_url`. The MCP gateway builds every URL it hands a
@@ -1132,7 +1156,7 @@ mod tests {
     }
 
     #[test]
-    fn mcp_external_clients_get_only_a_selection_of_tools() {
+    fn mcp_external_clients_get_an_access_level_or_a_selection() {
         let with_scopes = |scopes: &[&str]| {
             parse_mcp_external_idp(Some(&serde_json::json!({
                 "issuer": "https://idp.example.com/realms/main",
@@ -1146,8 +1170,18 @@ mod tests {
             (idp.client_claim.as_str(), idp.email_claim.as_str()),
             ("azp", "email")
         );
+        for (scopes, session) in [
+            (&["mcp:all"][..], true),
+            (&["mcp:all", "mcp:read_run", "mcp:session"], true),
+            (&["mcp:favorites", "mcp:runnables_as_tools"], false),
+        ] {
+            let scopes: Vec<String> = scopes.iter().map(|s| s.to_string()).collect();
+            assert_eq!(client_access(&scopes), Ok(session), "{scopes:?}");
+        }
         for refused in [
-            &["mcp:all"][..],
+            &["mcp:all", "mcp:read_only", "mcp:read_run"][..],
+            &["mcp:all", "mcp:scripts:f/x/run"],
+            &["mcp:all", "mcp:workspaces:a,b"],
             &["mcp:all:f/x/*"],
             &["mcp:endpoints:listJobs"],
             &["mcp:scripts:"],

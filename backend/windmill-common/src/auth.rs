@@ -324,6 +324,10 @@ pub struct JWTAuthClaims {
     pub job_id: Option<String>,
     pub scopes: Option<Vec<String>>,
     pub audit_span: Option<String>,
+    /// [`Authed::mcp_client`], so a request the caller's tools make on its behalf still
+    /// records the client on the runs it starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_client: Option<String>,
 }
 
 impl JWTAuthClaims {
@@ -831,6 +835,7 @@ pub async fn create_jwt_token(
         job_id: job_id.map(|id| id.to_string()),
         scopes,
         audit_span,
+        mcp_client: authed.mcp_client.clone(),
     };
 
     let token = jwt::encode_with_internal_secret(&payload)
@@ -969,6 +974,7 @@ mod tests {
             job_id: None,
             scopes: None,
             audit_span: None,
+            mcp_client: None,
         };
         // Signature is irrelevant — the gate decodes without verifying — so any key works.
         let token = jsonwebtoken::encode(

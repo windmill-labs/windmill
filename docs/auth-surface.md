@@ -167,7 +167,9 @@ Symbols, not line numbers, are cited: they drift less.
   the next token. Entra's overage pointer (`_claim_names`) is refused rather than read as no
   groups. The resolved identity is cached per token for at most a minute. Runs
   record the client in `v2_job.mcp_client` and `job_perms.mcp_client`, from the pushing identity
-  rather than `job_authed`, so a run on behalf of another identity still names it.
+  rather than `job_authed`, so a run on behalf of another identity still names it; the
+  session toolset reaches the API through a JWT minted for the caller, which carries the client
+  in its `mcp_client` claim for the same reason, and so does a job's `WM_TOKEN`.
 - **`GET /api/oauth/login/{client}`** is an unauthenticated 302 to the provider — a plain link
   from any page starts SSO.
 - **`CLOUD_HOSTED`** is presence-tested (`windmill-common/src/worker.rs`): `CLOUD_HOSTED=false`
