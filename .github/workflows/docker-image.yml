@@ -474,6 +474,7 @@ jobs:
         run: echo "IMAGE_REF=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.suffix }}@${{ matrix.digest }}" >> "$GITHUB_ENV"
 
       # The VEX must be built from an unfiltered scan: a statement covers only the CVEs listed in it.
+      # amd64 only: both arches install the same package versions from the same sources.
       - name: Trivy scan
         run: |
           mkdir -p scan
@@ -540,16 +541,18 @@ jobs:
           ref: refs/heads/main
           sha: ${{ github.sha }}
 
+      # Gates on the VEX-filtered report attached to the release, so the gate and the published
+      # results agree on what is not_affected.
       - name: Fail on fixable critical CVEs
-        uses: docker/scout-action@v1
-        with:
-          command: cves
-          only-severities: critical
-          only-fixed: true
-          exit-code: true
-          image: ${{ env.IMAGE_REF }}
-          dockerhub-user: windmilllabs
-          dockerhub-password: ${{ secrets.DOCKER_PAT }}
+        run: |
+          fixable="$(jq -r '.Results[]? | (.Vulnerabilities // [])[]
+            | select(.Severity == "CRITICAL" and .Status == "fixed")
+            | "\(.VulnerabilityID) \(.PkgName) \(.InstalledVersion) -> \(.FixedVersion)"' \
+            "scan/${{ matrix.image }}.trivy.json" | sort -u)"
+          if [ -n "$fixable" ]; then
+            echo "$fixable" | sed 's/^/::error::fixable critical CVE: /'
+            exit 1
+          fi
 
   # docker_scout_ee:
   #   runs-on: ubicloud
