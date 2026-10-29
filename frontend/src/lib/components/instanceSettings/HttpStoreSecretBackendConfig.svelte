@@ -20,7 +20,11 @@
 
 	let { values, disabled = false, reportMigrationFailures }: Props = $props()
 
-	let cfg = $derived($values['secret_backend'] as HttpStoreSettings & { type: 'HttpStore' })
+	// Not a $derived: the form edits this object in place, and a $derived of the same object would
+	// not notify its readers.
+	function cfg() {
+		return $values['secret_backend'] as HttpStoreSettings & { type: 'HttpStore' }
+	}
 
 	let probeWorkspace = $state('')
 	let probePath = $state('')
@@ -30,7 +34,7 @@
 
 	const EXAMPLE_PATH = 'u/alice/db_password'
 	let exampleKey = $derived.by(() => {
-		switch (cfg.path_encoding ?? 'url') {
+		switch (cfg().path_encoding ?? 'url') {
 			case 'double_dash':
 				return EXAMPLE_PATH.replaceAll('/', '--')
 			case 'raw':
@@ -41,7 +45,7 @@
 	})
 
 	function setAuthType(type: string | undefined) {
-		if (!type || type === cfg.auth?.type) return
+		if (!type || type === cfg().auth?.type) return
 		const auth =
 			type === 'StaticHeader'
 				? { type, header_name: 'Authorization', header_value: '' }
@@ -50,7 +54,7 @@
 					: type === 'ClientCertificate'
 						? { type, cert_path: '', key_path: '' }
 						: { type: 'None' }
-		$values['secret_backend'] = { ...cfg, auth }
+		$values['secret_backend'] = { ...cfg(), auth }
 	}
 
 	function optionalNumber(v: string | number | undefined): number | undefined {
@@ -59,7 +63,7 @@
 
 	// The form leaves empty strings behind; the backend reads an absent optional as its default.
 	function getSettings(): HttpStoreSettings {
-		const { type: _type, ...settings } = cfg
+		const { type: _type, ...settings } = cfg()
 		const clean = (o: Record<string, any>) =>
 			Object.fromEntries(Object.entries(o).filter(([, v]) => v !== '' && v != null))
 		return {
@@ -70,7 +74,7 @@
 	}
 
 	function isConfigValid(): boolean {
-		return !!cfg.base_url?.trim() && !!cfg.read?.path?.trim()
+		return !!cfg().base_url?.trim() && !!cfg().read?.path?.trim()
 	}
 
 	async function testConnection() {
@@ -206,7 +210,7 @@
 		<div class="flex flex-col gap-1">
 			<span class="block text-xs font-semibold text-emphasis">Query parameters (optional)</span>
 			<StringMapInput
-				value={cfg.read?.query}
+				value={cfg().read?.query}
 				onChange={(query) => ($values['secret_backend'].read.query = query)}
 				valuePlaceholder="value, may use {'{workspace}'} or {'{path}'}"
 				addLabel="Add parameter"
@@ -220,7 +224,7 @@
 				<code>{exampleKey}</code></span
 			>
 			<ToggleButtonGroup
-				selected={cfg.path_encoding ?? 'url'}
+				selected={cfg().path_encoding ?? 'url'}
 				onSelected={(v) => ($values['secret_backend'].path_encoding = v)}
 				{disabled}
 			>
@@ -252,7 +256,7 @@
 		<div class="flex flex-col gap-1">
 			<span class="block text-xs font-semibold text-emphasis">Value encoding</span>
 			<ToggleButtonGroup
-				selected={cfg.read?.value_encoding ?? 'plain'}
+				selected={cfg().read?.value_encoding ?? 'plain'}
 				onSelected={(v) => ($values['secret_backend'].read.value_encoding = v)}
 				{disabled}
 			>
@@ -268,7 +272,7 @@
 			>Credential files must be mounted on servers and workers; agent workers never read them.</span
 		>
 		<ToggleButtonGroup
-			selected={cfg.auth?.type ?? 'None'}
+			selected={cfg().auth?.type ?? 'None'}
 			onSelected={(v) => setAuthType(v)}
 			{disabled}
 		>
@@ -284,7 +288,7 @@
 				<ToggleButton value="ClientCertificate" label="Client certificate" {item} />
 			{/snippet}
 		</ToggleButtonGroup>
-		{#if cfg.auth?.type === 'StaticHeader'}
+		{#if cfg().auth?.type === 'StaticHeader'}
 			<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-lg">
 				<label for="http_store_header_name" class="block text-xs font-semibold text-emphasis"
 					>Header name</label
@@ -296,7 +300,7 @@
 				<span class="block text-xs font-semibold text-emphasis">Header value</span>
 				<Password bind:password={$values['secret_backend'].auth.header_value} small {disabled} />
 			</div>
-		{:else if cfg.auth?.type === 'BearerTokenFile'}
+		{:else if cfg().auth?.type === 'BearerTokenFile'}
 			<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-lg">
 				<label for="http_store_token_path" class="block text-xs font-semibold text-emphasis"
 					>Token file path</label
@@ -351,7 +355,7 @@
 					}
 				/>
 			</div>
-		{:else if cfg.auth?.type === 'ClientCertificate'}
+		{:else if cfg().auth?.type === 'ClientCertificate'}
 			<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-lg">
 				<label for="http_store_cert_path" class="block text-xs font-semibold text-emphasis"
 					>Certificate path</label
@@ -404,7 +408,7 @@
 		<div class="flex flex-col gap-1">
 			<span class="block text-xs font-semibold text-emphasis">Extra headers (optional)</span>
 			<StringMapInput
-				value={cfg.extra_headers}
+				value={cfg().extra_headers}
 				onChange={(headers) => ($values['secret_backend'].extra_headers = headers)}
 				keyPlaceholder="X-Client"
 				addLabel="Add header"
