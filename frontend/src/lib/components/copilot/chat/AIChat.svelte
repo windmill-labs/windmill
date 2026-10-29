@@ -137,6 +137,10 @@
 		aiChatDisplay?.openAssistantSettings(section, root)
 	}
 
+	export function prefill(text: string) {
+		aiChatDisplay?.prefill(text)
+	}
+
 	export async function attachContext(element: import('./context').ContextElement) {
 		await aiChatDisplay?.attachContext(element)
 	}

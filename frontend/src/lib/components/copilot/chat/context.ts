@@ -10,7 +10,8 @@ import {
 	Table2,
 	LayoutDashboard,
 	MousePointer2,
-	Folder
+	Folder,
+	Play
 } from 'lucide-svelte'
 import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 import type { ScriptLang } from '$lib/gen/types.gen'
@@ -35,6 +36,7 @@ export const ContextIconMap = {
 	workspace_flow: BarsStaggered,
 	workspace_app: LayoutDashboard,
 	workspace_folder: Folder,
+	workspace_run: Play,
 	// Fallback — the badge renders attached_file with the per-extension file icon.
 	attached_file: FileText
 	// flow_module type is handled with FlowModuleIcon
@@ -310,6 +312,24 @@ export function isUserContextPath(path: string): boolean {
 	return /^u\/[^/]+$/.test(path)
 }
 
+/** One run of a script or flow, by job id: the chat reads it with `get_run`. */
+export interface WorkspaceRunElement {
+	type: 'workspace_run'
+	/** The job id. */
+	id: string
+	/** The script or flow that ran. */
+	path: string
+	title: string
+}
+
+export function runContextElement(
+	id: string,
+	path: string
+): WorkspaceRunElement & { deletable: boolean } {
+	// The id in the title: two runs of one item are two chips.
+	return { type: 'workspace_run', id, path, title: `${path} · run ${id.slice(0, 8)}`, deletable: true }
+}
+
 const DIR_PREFIX = dirKey('all', '')
 
 /** Opens every `f/` and `u/` directory of a flat workspace tree (any depth) on a leaf that picks
@@ -368,6 +388,7 @@ export type ContextElement = (
 	| WorkspaceFlowElement
 	| WorkspaceAppElement
 	| WorkspaceFolderElement
+	| WorkspaceRunElement
 	| AttachedFileElement
 ) & {
 	deletable?: boolean
@@ -386,7 +407,9 @@ export function contextElementKey(c: ContextElement): string {
  * GLOBAL these stay selected as chips the user removes by hand. */
 export type MentionContext = Extract<
 	ContextElement,
-	{ type: 'workspace_script' | 'workspace_flow' | 'workspace_app' | 'workspace_folder' }
+	{
+		type: 'workspace_script' | 'workspace_flow' | 'workspace_app' | 'workspace_folder' | 'workspace_run'
+	}
 >
 
 export function isMentionContext(c: ContextElement): c is MentionContext {
@@ -394,7 +417,8 @@ export function isMentionContext(c: ContextElement): c is MentionContext {
 		c.type === 'workspace_script' ||
 		c.type === 'workspace_flow' ||
 		c.type === 'workspace_app' ||
-		c.type === 'workspace_folder'
+		c.type === 'workspace_folder' ||
+		c.type === 'workspace_run'
 	)
 }
 

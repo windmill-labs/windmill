@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation'
 	import { workspaceStore } from '$lib/stores'
 	import { CircleCheck, CircleX, Loader2 } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 	import {
 		askAI,
 		canAskAI,
@@ -97,7 +98,7 @@
 		</span>
 		<span class="flex items-center gap-1.5 min-w-0 text-[10.5px] text-hint">
 			<span class="truncate">{item.path}</span>
-			{#if failing && canAskAI && latest}
+			{#if failing && canAskAI() && latest}
 				<button
 					class="hidden group-hover:inline group-focus-within:inline shrink-0 font-medium text-ai hover:underline"
 					onclick={(e) => {
@@ -110,6 +111,28 @@
 			{/if}
 		</span>
 	</span>
+
+	{#if canAskAI() && latest}
+		<!-- While Home's composer is open, on the hovered or focused row: the latest run as context,
+		     like the cards' `+@`. -->
+		<span
+			class="hidden shrink-0 group-has-[[data-composer-open]]/home:group-hover:inline-flex group-has-[[data-composer-open]]/home:group-focus-within:inline-flex"
+		>
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				btnClasses="!text-ai font-medium"
+				title="Add the latest run to AI session context"
+				aria-label="Add the latest run of {title} to AI session context"
+				onClick={(e) => {
+					e?.stopPropagation()
+					askAI({ kind: 'run', path: item.path, jobId: latest.id })
+				}}
+			>
+				+@
+			</Button>
+		</span>
+	{/if}
 
 	{#if strip}
 		<span class="flex items-center gap-0.5 shrink-0">

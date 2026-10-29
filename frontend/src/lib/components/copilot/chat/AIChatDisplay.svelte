@@ -332,6 +332,11 @@
 		aiChatInput?.focusInput()
 	}
 
+	/** `text` before what the draft already holds, the caret after it. */
+	export function prefill(text: string) {
+		aiChatInput?.prefill(text)
+	}
+
 	$effect(() => {
 		const input = aiChatInput
 		if (!input) return
