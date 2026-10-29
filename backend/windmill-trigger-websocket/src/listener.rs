@@ -78,18 +78,21 @@ fn is_transient_connect_error(err: &tungstenite::Error) -> bool {
     }
 }
 
-/// A URL runnable that ran and failed, or whose result could not be awaited, may
-/// succeed on the next run (worker group saturated, upstream API down); one that is
-/// missing, not permitted, or returns a non-string will not.
+/// A URL runnable that ran and failed, or whose result could not be awaited (the
+/// result wait times out, the DB blips), may succeed on the next run: worker group
+/// saturated, upstream API down. Anything else (missing runnable, no permission,
+/// non-string result, workers too old) fails the same way every time. An allowlist, so
+/// that a new error kind disables rather than re-running a job every few minutes forever.
 fn is_transient_runnable_error(err: &Error) -> bool {
-    !matches!(
+    matches!(
         err,
-        Error::NotFound(_)
-            | Error::BadConfig(_)
-            | Error::BadRequest(_)
-            | Error::NotAuthorized(_)
-            | Error::PermissionDenied(_)
-            | Error::RequireAdmin(_)
+        Error::InternalErr(_)
+            | Error::InternalErrLoc { .. }
+            | Error::InternalErrAt(..)
+            | Error::Anyhow { .. }
+            | Error::SqlErr { .. }
+            | Error::ConnectingToDatabase(_)
+            | Error::BadGateway(_)
     )
 }
 
@@ -493,6 +496,9 @@ impl Listener for WebsocketTrigger {
                 let ping_every = Duration::from_millis(PING_INTERVAL_MS.load(std::sync::atomic::Ordering::Relaxed));
                 let liveness_timeout = ping_every * MISSED_PINGS_BEFORE_RECONNECT;
                 let mut ping_interval = tokio::time::interval_at(Instant::now() + ping_every, ping_every);
+                // Capture is an interactive test against whatever endpoint the user is
+                // trying out: keep it to plain reads.
+                let liveness = listening_trigger.trigger_mode;
                 ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                 let mut last_received = Instant::now();
                 let mut close_frame = None;
@@ -548,12 +554,14 @@ impl Listener for WebsocketTrigger {
                                 }
                             }
                         },
-                        _ = ping_interval.tick() => {
+                        _ = ping_interval.tick(), if liveness => {
                             if last_received.elapsed() >= liveness_timeout {
                                 tracing::error!("No frame received from WebSocket {} in {:?}, reconnecting", url, liveness_timeout);
                                 break format!("No message or pong received from WebSocket in {:?}", liveness_timeout);
                             }
-                            if send_message_tx.send(Message::Ping(Vec::new())).await.is_err() {
+                            // Never wait on the queue: behind a peer that stopped reading it
+                            // can stay full, and blocking here would stall this liveness check.
+                            if let Err(mpsc::error::TrySendError::Closed(_)) = send_message_tx.try_send(Message::Ping(Vec::new())) {
                                 break "WebSocket writer stopped".to_string();
                             }
                         },
