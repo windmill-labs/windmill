@@ -173,7 +173,7 @@ import { scriptLangToEditorLang } from '$lib/scripts'
 import { appFileEditorLang } from '../appFileEditorLang'
 import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import { createDbSchemaTool } from '../script/core'
-import { isMentionContext, type ContextElement } from '../context'
+import { isMentionContext, isUserContextPath, type ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
 import { getDatatableMigrationTools } from '../datatableMigrationTools'
 import { getDucklakeTools } from '../ducklakeTools'
@@ -5886,7 +5886,9 @@ function createVariableToDraftState(
 		// `null` clears and omitted keeps the base's. The draft stores a cleared expiry as
 		// `undefined`, since a stored draft goes through a JSON round-trip.
 		value_valid_until:
-			args.value_valid_until === null ? undefined : (args.value_valid_until ?? base?.value_valid_until)
+			args.value_valid_until === null
+				? undefined
+				: (args.value_valid_until ?? base?.value_valid_until)
 	}
 }
 
@@ -9785,7 +9787,7 @@ export function prepareGlobalUserMessage(
 		content += '## SELECTED CONTEXT\n'
 		for (const context of selectedWorkspaceItems) {
 			if (context.type === 'workspace_folder') {
-				content += `- type: folder, path: ${context.path} (its items: list_workspace_items with path_prefix "${context.path}/")\n`
+				content += `- type: ${isUserContextPath(context.path) ? 'user' : 'folder'}, path: ${context.path} (its items: list_workspace_items with path_prefix "${context.path}/")\n`
 				continue
 			}
 			const itemType =

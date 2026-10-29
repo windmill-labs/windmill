@@ -39,6 +39,7 @@ import type { PasteAttachment } from './pasteTokens'
 import { dataUrlToImagePart, type AttachedImage } from './imageUtils'
 import type { AttachedTextFile } from './textFileUtils'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
+import { isUserContextPath } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
@@ -469,7 +470,7 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 			if (!workspaceItemsContext) {
 				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
 			}
-			workspaceItemsContext += `- type: folder, path: ${context.path}\n`
+			workspaceItemsContext += `- type: ${isUserContextPath(context.path) ? 'user' : 'folder'}, path: ${context.path}\n`
 		}
 	}
 
@@ -1162,10 +1163,7 @@ export async function processToolCall<T>({
 		// call back for a retry: asked before it, the user would answer twice.
 		const workingScope = toolCallbacks.workingScope
 		const writes =
-			!!tool &&
-			tool.planModeSafe !== true &&
-			!tool.viewOnly &&
-			!isRunTool(tool.def.function.name)
+			!!tool && tool.planModeSafe !== true && !tool.viewOnly && !isRunTool(tool.def.function.name)
 		const scope = writes ? workingScope?.scope() : undefined
 		const outsidePath = scope?.outsidePath(args)
 		let scopeNote = ''
