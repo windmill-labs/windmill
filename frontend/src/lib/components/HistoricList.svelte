@@ -7,7 +7,8 @@
 		type RunStartedBy
 	} from '$lib/gen'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
-	import { ChevronDown, ChevronRight, ExternalLink, Loader2 } from 'lucide-svelte'
+	import { ChevronRight, ExternalLink, Loader2 } from 'lucide-svelte'
+	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 	import InfiniteList from './InfiniteList.svelte'
 	import JobSchemaPicker from './schema/JobSchemaPicker.svelte'
@@ -78,11 +79,10 @@
 
 	export async function refresh(clearCurrentRuns: boolean = false) {
 		if (clearCurrentRuns) {
-			infiniteList?.reset()
 			openGroups = {}
 		}
 		if (infiniteList) {
-			await infiniteList.loadData('refresh')
+			await infiniteList.loadData(clearCurrentRuns ? 'replace' : 'refresh')
 		}
 	}
 	let cachedArgs: Record<string, any> = {}
@@ -217,6 +217,11 @@
 		}
 	}
 
+	/** Opened and still waiting for its runs: the toggle spins, and the rows slide open on arrival. */
+	function isFirstLoad(group: OpenGroup | undefined): boolean {
+		return !!group && group.loading && group.runs.length === 0
+	}
+
 	function toggleGroup(entry: Input) {
 		if (openGroups[entry.id]) {
 			delete openGroups[entry.id]
@@ -279,11 +284,7 @@
 	on:select={(e) => onSelect(e.detail)}
 >
 	{#snippet columns()}
-		<colgroup>
-			<col class="w-8" />
-			<col class="w-16" />
-			<col />
-		</colgroup>
+		{@render colgroup()}
 	{/snippet}
 	{#snippet children({ item, hover })}
 		{#if isGroupEntry(item)}
@@ -292,10 +293,13 @@
 			{@const origin = topRunIcon(top)}
 			<Cell>
 				<div class="center-center text-tertiary">
-					{#if openGroups[item.id]}
-						<ChevronDown size={14} />
+					{#if isFirstLoad(openGroups[item.id])}
+						<Loader2 size={14} class="animate-spin" />
 					{:else}
-						<ChevronRight size={14} />
+						<ChevronRight
+							size={14}
+							class={twMerge('transition duration-200', openGroups[item.id] && 'rotate-90')}
+						/>
 					{/if}
 				</div>
 			</Cell>
@@ -352,7 +356,12 @@
 				<Button
 					variant="subtle"
 					unifiedSize="xs"
-					endIcon={{ icon: openGroups[item.id] ? ChevronDown : ChevronRight }}
+					endIcon={isFirstLoad(openGroups[item.id])
+						? { icon: Loader2, classes: 'animate-spin' }
+						: {
+								icon: ChevronRight,
+								classes: twMerge('transition duration-200', openGroups[item.id] && 'rotate-90')
+							}}
 					onClick={() => toggleGroup(item)}
 				>
 					{inner}
@@ -388,57 +397,72 @@
 	{/snippet}
 	{#snippet afterRow({ item })}
 		{@const group = openGroups[item.id]}
-		{#if group}
-			{#each group.runs as run (run.id)}
-				<Row
-					on:click={() => dispatch('select', run)}
-					on:hover={(e) => (hoveredInner = e.detail ? run.id : undefined)}
-					class={twMerge(
-						selected === run.id ? 'bg-surface-selected' : 'hover:bg-surface-hover',
-						'cursor-pointer rounded-md'
-					)}
-				>
-					<JobSchemaPicker
-						job={run}
-						hovering={hoveredInner === run.id}
-						payloadData={run.payloadData}
-						{placement}
-						{viewerOpen}
-						nested
-						label={innerRunLabel(run)}
-						on:openChange={({ detail }) => {
-							updateViewerOpenState(run.id, detail)
-						}}
-						{limitPayloadSize}
-					/>
-				</Row>
-			{/each}
-			{#if group.loading && group.runs.length === 0}
-				<tr>
-					<td colspan="3" class="py-1.5">
-						<div class="flex justify-center text-tertiary">
-							<Loader2 size={14} class="animate-spin" />
-						</div>
-					</td>
-				</tr>
-			{:else if !group.loading && group.runs.length === 0}
-				<tr>
-					<td colspan="3" class="py-1.5 pl-10 text-2xs text-secondary">
-						No runs of the selected kinds in this run
-					</td>
-				</tr>
-			{:else if group.runs.length >= 500}
-				<tr>
-					<td colspan="3" class="py-1.5 pl-10 text-2xs text-secondary">
-						Showing the first 500 runs.
-						<a target="_blank" href="/run/{item.top_run?.id ?? item.id}?workspace={ws}">
-							Open the run
-						</a>
-						to see the rest.
-					</td>
-				</tr>
-			{/if}
+		<!-- A table row cannot animate its height, so the group's rows sit in a table of their own
+		     inside one full-width cell, sliding open once they have loaded. -->
+		{#if group && !isFirstLoad(group)}
+			<tr>
+				<td colspan="3" class="p-0">
+					<div transition:slide={{ duration: 200 }}>
+						<table class="table-fixed w-full">
+							{@render colgroup()}
+							<tbody>
+								{@render groupRuns(item, group)}
+							</tbody>
+						</table>
+					</div>
+				</td>
+			</tr>
 		{/if}
+	{/snippet}
+	{#snippet groupRuns(item: Input, group: OpenGroup)}
+		{#each group.runs as run (run.id)}
+			<Row
+				on:click={() => dispatch('select', run)}
+				on:hover={(e) => (hoveredInner = e.detail ? run.id : undefined)}
+				class={twMerge(
+					selected === run.id ? 'bg-surface-selected' : 'hover:bg-surface-hover',
+					'cursor-pointer rounded-md'
+				)}
+			>
+				<JobSchemaPicker
+					job={run}
+					hovering={hoveredInner === run.id}
+					payloadData={run.payloadData}
+					{placement}
+					{viewerOpen}
+					nested
+					label={innerRunLabel(run)}
+					on:openChange={({ detail }) => {
+						updateViewerOpenState(run.id, detail)
+					}}
+					{limitPayloadSize}
+				/>
+			</Row>
+		{/each}
+		{#if !group.loading && group.runs.length === 0}
+			<tr>
+				<td colspan="3" class="py-1.5 pl-10 text-2xs text-secondary">
+					No runs of the selected kinds in this run
+				</td>
+			</tr>
+		{:else if group.runs.length >= 500}
+			<tr>
+				<td colspan="3" class="py-1.5 pl-10 text-2xs text-secondary">
+					Showing the first 500 runs.
+					<a target="_blank" href="/run/{item.top_run?.id ?? item.id}?workspace={ws}">
+						Open the run
+					</a>
+					to see the rest.
+				</td>
+			</tr>
+		{/if}
+	{/snippet}
+	{#snippet colgroup()}
+		<colgroup>
+			<col class="w-8" />
+			<col class="w-16" />
+			<col />
+		</colgroup>
 	{/snippet}
 	{#snippet empty()}
 		<div class="text-center text-primary text-xs py-2">

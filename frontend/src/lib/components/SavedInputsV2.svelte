@@ -48,6 +48,9 @@
 	let savedArgs: any = undefined
 	let savedInputsPicker: SavedInputsPicker | undefined = $state(undefined)
 	let historicInputs: HistoricInputs | undefined = $state(undefined)
+	let panelWidth = $state(500)
+	// Narrower than this, the History header cannot fit the filter's label beside its other buttons.
+	const COMPACT_FILTER_BELOW = 420
 
 	let runnableId = $derived(scriptHash || scriptPath || flowPath || undefined)
 
@@ -93,25 +96,12 @@
 	})
 </script>
 
-<div class="min-w-[300px] h-full flex flex-col">
+<div class="min-w-[300px] h-full flex flex-col" bind:clientWidth={panelWidth}>
 	<Splitpanes horizontal={true}>
 		<Pane class="px-4 py-4 h-full" size={65}>
 			<Section label="History" wrapperClass="h-full" small={true}>
 				{#snippet action()}
 					<div class="flex items-center space-x-2">
-						{#if runnableType !== 'ScriptHash'}
-							<!-- The whole stored choice: a flow page hides AI agent tools but must
-							     not drop them from the choice script pages share. -->
-							<RunHistoryFilter
-								selected={storedSelection}
-								{runnableType}
-								onChange={async (selected) => {
-									storedStartedBy.val = selected.join(',')
-									await tick()
-									historicInputs?.refresh(true)
-								}}
-							/>
-						{/if}
 						<Popover
 							class="w-fit"
 							usePointerDownOutside
@@ -123,15 +113,15 @@
 						>
 							{#snippet trigger()}
 								<Button
-									variant="contained"
-									size="xs2"
-									color={emptySearchArgs ? 'light' : 'dark'}
+									variant="default"
+									unifiedSize="sm"
+									selected={!emptySearchArgs}
 									nonCaptureEvent
-									title="Search history"
+									title="Search history by args"
 									iconOnly={emptySearchArgs}
-									endIcon={{ icon: Search }}
+									startIcon={{ icon: Search }}
 								>
-									{emptySearchArgs ? '' : 'Active filters'}
+									{emptySearchArgs ? '' : 'Args filtered'}
 								</Button>
 							{/snippet}
 
@@ -142,25 +132,24 @@
 										<div class="flex flex-wrap gap-x-2">
 											{#if !emptySearchArgs}
 												<Button
-													on:click={async () => {
+													onClick={async () => {
 														searchArgs = {}
 														appliedSearchArgs = {}
 														await tick()
 														historicInputs?.refresh(true)
 													}}
-													variant="contained"
-													size="xs2"
-													color="light">Reset filters</Button
+													variant="default"
+													unifiedSize="xs">Reset filters</Button
 												>
 											{/if}
 											<Button
-												on:click={async () => {
+												onClick={async () => {
 													appliedSearchArgs = structuredClone($state.snapshot(searchArgs))
 													await tick()
 													historicInputs?.refresh(true)
 												}}
-												endIcon={{ icon: Search }}
-												size="xs2"
+												startIcon={{ icon: Search }}
+												unifiedSize="xs"
 												variant="accent">Search</Button
 											>
 										</div>
@@ -182,6 +171,20 @@
 								</div>
 							{/snippet}
 						</Popover>
+						{#if runnableType !== 'ScriptHash'}
+							<!-- The whole stored choice: a flow page hides AI agent tools but must
+							     not drop them from the choice script pages share. -->
+							<RunHistoryFilter
+								selected={storedSelection}
+								{runnableType}
+								compact={panelWidth < COMPACT_FILTER_BELOW}
+								onChange={async (selected) => {
+									storedStartedBy.val = selected.join(',')
+									await tick()
+									historicInputs?.refresh(true)
+								}}
+							/>
+						{/if}
 						<Button
 							unifiedSize="sm"
 							endIcon={{ icon: ExternalLink }}

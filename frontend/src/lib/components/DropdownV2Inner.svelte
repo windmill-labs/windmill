@@ -26,10 +26,15 @@
 	// Items returned synchronously render on the first frame: awaiting them would show the
 	// spinner first, the popover would be placed for the spinner's height, then flip.
 	const initial = untrack(() => (typeof items === 'function' ? items() : items))
-	let computedItems: Item[] | undefined = $state(
-		initial instanceof Promise ? undefined : visible(initial)
-	)
-	if (initial instanceof Promise) initial.then((result) => (computedItems = visible(result)))
+	let loadedItems: Item[] | undefined = $state(undefined)
+	if (initial instanceof Promise) initial.then((result) => (loadedItems = visible(result)))
+	// Synchronous items stay live, so a menu kept open by `closeOnItemClick={false}` shows the
+	// state its own clicks changed (a `toggle` row flipping). A loader runs once per opening.
+	let computedItems: Item[] | undefined = $derived.by(() => {
+		if (initial instanceof Promise) return loadedItems
+		const result = typeof items === 'function' ? items() : items
+		return result instanceof Promise ? loadedItems : visible(result)
+	})
 </script>
 
 {#snippet menuItem(item: Item)}

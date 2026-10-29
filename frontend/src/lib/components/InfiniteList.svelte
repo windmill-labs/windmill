@@ -73,7 +73,13 @@
 
 	let loadingMore = $state(false)
 
-	export async function loadData(loadOption: 'refresh' | 'forceRefresh' | 'loadMore' = 'loadMore') {
+	let loadSeq = 0
+
+	/** `replace` loads a new query's first page over the current rows, which stay until it
+	 * arrives: emptying them first flashes the empty state and collapses the table. */
+	export async function loadData(
+		loadOption: 'refresh' | 'forceRefresh' | 'loadMore' | 'replace' = 'loadMore'
+	) {
 		// console.log('loadData', loadOption, length, items?.length)
 
 		if (!loadInputs) return
@@ -81,7 +87,11 @@
 			if (loadingMore || loading) return
 			loadingMore = true
 		}
+		const seq = ++loadSeq
 		loading = true
+		if (loadOption === 'replace') {
+			page = 1
+		}
 		hasMore = length === perPage * page
 
 		if (hasMore && loadOption === 'loadMore') {
@@ -90,6 +100,8 @@
 
 		try {
 			const newItems = await loadInputs(1, page * perPage)
+			// A newer load (a query changed again meanwhile) owns the rows now.
+			if (seq !== loadSeq) return
 
 			if (
 				loadOption === 'refresh' &&
@@ -104,7 +116,7 @@
 			const existingIds = new Set(items?.map((i) => i.id) || [])
 			items = newItems.map((item) => ({
 				...item,
-				isNew: initLoad && !existingIds.has(item.id)
+				isNew: initLoad && loadOption !== 'replace' && !existingIds.has(item.id)
 			}))
 
 			setTimeout(() => {
@@ -120,6 +132,7 @@
 				hasMore = items.length === perPage * page
 				if (hasMore) {
 					const potentialNewItems = await loadInputs(page + 1, perPage)
+					if (seq !== loadSeq) return
 					hasMore = potentialNewItems.length > 0
 				}
 				initLoad = true
@@ -132,8 +145,10 @@
 			hasAlreadyFailed = true
 			dispatch('error', { type: 'load', error: err })
 		} finally {
-			loading = false
-			loadingMore = false
+			if (seq === loadSeq) {
+				loading = false
+				loadingMore = false
+			}
 		}
 	}
 

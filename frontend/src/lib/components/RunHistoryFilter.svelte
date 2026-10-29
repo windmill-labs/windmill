@@ -1,9 +1,9 @@
 <script lang="ts">
 	import type { RunStartedBy, RunnableType } from '$lib/gen'
-	import { ChevronDown } from 'lucide-svelte'
+	import type { Item } from '$lib/utils'
+	import { ChevronDown, ListFilter } from 'lucide-svelte'
 	import { Button } from './common'
-	import Checkbox from './common/checkbox/Checkbox.svelte'
-	import { Popover } from './meltComponents'
+	import DropdownV2 from './DropdownV2.svelte'
 	import {
 		availableCategories,
 		CATEGORY_LABELS,
@@ -18,86 +18,84 @@
 		selected: RunStartedBy[]
 		runnableType: RunnableType | undefined
 		onChange: (selected: RunStartedBy[]) => void
+		/** An icon instead of the labelled button, for a narrow panel. */
+		compact?: boolean
 	}
 
-	let { selected, runnableType, onChange }: Props = $props()
+	let { selected, runnableType, onChange, compact = false }: Props = $props()
 
 	let available = $derived(availableCategories(runnableType))
 	let isDefault = $derived(isDefaultSelection(available.filter((c) => selected.includes(c))))
+	let label = $derived(selectionLabel(selected, available))
 
-	const sections = [
-		{ title: 'Started on their own', categories: TOP_LEVEL_CATEGORIES },
-		{ title: 'Started inside another run', categories: INSIDE_CATEGORIES }
-	]
-
-	function toggle(category: RunStartedBy, on: boolean) {
+	function toggle(category: RunStartedBy) {
+		const on = !selected.includes(category)
 		const others = selected.filter((c) => c !== category)
 		onChange(on ? [...others, category] : others)
 		logRunHistoryFilter(`${category}:${on ? 'on' : 'off'}`)
 	}
+
+	function section(title: string, categories: RunStartedBy[], first: boolean): Item[] {
+		return categories
+			.filter((c) => available.includes(c))
+			.map((category, i) => ({
+				displayName: CATEGORY_LABELS[category].label,
+				description: CATEGORY_LABELS[category].hint,
+				toggle: selected.includes(category),
+				sectionTitle: i === 0 ? title : undefined,
+				separatorTop: i === 0 && !first,
+				action: () => toggle(category)
+			}))
+	}
+
+	const items = (): Item[] => [
+		...section('Started on their own', TOP_LEVEL_CATEGORIES, true),
+		...section('Started inside another run', INSIDE_CATEGORIES, false),
+		{
+			displayName: 'Reset to default',
+			description: 'Retries are listed under their first attempt.',
+			separatorTop: true,
+			disabled: isDefault,
+			action: () => {
+				onChange([...TOP_LEVEL_CATEGORIES])
+				logRunHistoryFilter('reset')
+			}
+		}
+	]
 </script>
 
-<Popover
-	class="w-fit"
+<DropdownV2
+	{items}
+	closeOnItemClick={false}
 	usePointerDownOutside
-	closeOnOtherPopoverOpen
-	on:click={(e) => {
-		e.stopPropagation()
-	}}
-	floatingConfig={{ placement: 'bottom-end' }}
+	fixedHeight={false}
+	customWidth={260}
 >
-	{#snippet trigger()}
-		<Button
-			unifiedSize="sm"
-			variant="default"
-			selected={!isDefault}
-			endIcon={{ icon: ChevronDown }}
-			nonCaptureEvent
-			title="Kinds of runs listed"
-		>
-			{selectionLabel(selected, available)}
-		</Button>
+	{#snippet buttonReplacement()}
+		<!-- Fixed width: the label changes with every click, and a button that resized would
+		     move the open menu anchored to it. -->
+		{#if compact}
+			<Button
+				unifiedSize="sm"
+				variant="default"
+				selected={!isDefault}
+				startIcon={{ icon: ListFilter }}
+				iconOnly
+				nonCaptureEvent
+				title={`Kinds of runs listed: ${label}`}
+			/>
+		{:else}
+			<Button
+				unifiedSize="sm"
+				variant="default"
+				selected={!isDefault}
+				endIcon={{ icon: ChevronDown }}
+				nonCaptureEvent
+				btnClasses="w-40 justify-between"
+				title={`Kinds of runs listed: ${label}`}
+			>
+				<span class="truncate">{label}</span>
+			</Button>
+		{/if}
 	{/snippet}
-	{#snippet content()}
-		<div class="p-3 w-[440px] max-w-[90vw] flex flex-col gap-2">
-			<div class="grid grid-cols-2 gap-x-6">
-				{#each sections as section (section.title)}
-					<div class="flex flex-col gap-1">
-						<div class="text-2xs font-semibold text-secondary pb-0.5">{section.title}</div>
-						{#each section.categories.filter((c) => available.includes(c)) as category (category)}
-							<label class="flex items-start gap-2 text-xs text-primary cursor-pointer py-0.5">
-								<!-- Toggled on click: the popover cancels the click's default, so no
-								     change event would follow. -->
-								<Checkbox
-									class="mt-0.5"
-									checked={selected.includes(category)}
-									onClick={() => toggle(category, !selected.includes(category))}
-								/>
-								<span class="flex flex-col">
-									{CATEGORY_LABELS[category].label}
-									{#if CATEGORY_LABELS[category].hint}
-										<span class="text-2xs text-tertiary">{CATEGORY_LABELS[category].hint}</span>
-									{/if}
-								</span>
-							</label>
-						{/each}
-					</div>
-				{/each}
-			</div>
-			<div class="flex items-center justify-between gap-2 border-t border-border-light pt-2">
-				<span class="text-2xs text-tertiary">Retries are listed under their first attempt.</span>
-				<Button
-					variant="subtle"
-					unifiedSize="xs"
-					disabled={isDefault}
-					onClick={() => {
-						onChange([...TOP_LEVEL_CATEGORIES])
-						logRunHistoryFilter('reset')
-					}}
-				>
-					Reset to default
-				</Button>
-			</div>
-		</div>
-	{/snippet}
-</Popover>
+</DropdownV2>
