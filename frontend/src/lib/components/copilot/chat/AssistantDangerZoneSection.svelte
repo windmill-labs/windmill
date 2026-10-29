@@ -9,11 +9,28 @@ chat itself. Each one is also in the workspace's AI settings, which stay the pla
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import { getAiChatManager } from './aiChatManagerContext'
 
 	let { ws }: { ws: string } = $props()
 
+	const aiChatManager = getAiChatManager()
+
 	let confirming = $state(false)
 	let saving = $state(false)
+
+	// Until a staged fork's first send creates it, `ws` is the parent: hiding here would hide AI
+	// for every member of the parent. Read at click, since the fork commits mid-session.
+	function openConfirm() {
+		const parent = aiChatManager.sessionContextResolver?.()?.pendingForkOf
+		if (parent !== undefined) {
+			sendUserToast(
+				`This session has not created its workspace yet, so AI sessions would be hidden in "${parent}" instead. Send a message first.`,
+				true
+			)
+			return
+		}
+		confirming = true
+	}
 
 	async function hideSessions() {
 		saving = true
@@ -51,7 +68,7 @@ chat itself. Each one is also in the workspace's AI settings, which stay the pla
 			destructive
 			unifiedSize="sm"
 			btnClasses="shrink-0"
-			onClick={() => (confirming = true)}
+			onClick={openConfirm}
 		>
 			Hide AI sessions
 		</Button>
