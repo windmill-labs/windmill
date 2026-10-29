@@ -1252,6 +1252,57 @@
 	export function isWorkspaceEmpty() {
 		return workspaceEmpty
 	}
+	let cardEl: HTMLDivElement | undefined = $state()
+	// Bumped to remount the tree, whose nodes read `treeOpenMemory` only when they mount.
+	let revealSeq = $state(0)
+	const REVEAL_WAIT_MS = 4000
+	const REVEAL_RING_MS = 1600
+
+	// A pipeline's steps have no rows of their own: the folder's Pipeline row stands for them.
+	function findRow(path: string) {
+		const folder = path.startsWith('f/') ? path.split('/')[1] : undefined
+		const targets = folder && pipelineFolders.has(folder) ? [path, `f/${folder}`] : [path]
+		for (const target of targets) {
+			const row = cardEl?.querySelector<HTMLElement>(`[data-row-path="${CSS.escape(target)}"]`)
+			if (row) return row
+		}
+		return null
+	}
+
+	/** Scrolls the list to `path`'s row (its pipeline's, for a pipeline step), opening its
+	 * folders, and rings it for a moment. Resolves false when the list does not show it. */
+	export async function revealItem(path: string): Promise<boolean> {
+		let row = findRow(path)
+		if (!row && !flatList) {
+			const segments = path.split('/')
+			for (let i = 2; i < segments.length; i++) {
+				treeOpenMemory.setOpen(segments.slice(0, i).join('/'), true)
+			}
+			revealSeq++
+			// The owner's rows load on open, so the row appears some frames later.
+			const deadline = Date.now() + REVEAL_WAIT_MS
+			while (!row && Date.now() < deadline) {
+				await new Promise((r) => setTimeout(r, 50))
+				row = findRow(path)
+			}
+		}
+		if (!row) return false
+		// A folder that just opened is still loading rows above this one and animating its
+		// height, so scrolling before the row stops moving lands short of it.
+		const settleBy = Date.now() + REVEAL_WAIT_MS
+		let top = NaN
+		while (Date.now() < settleBy) {
+			const next = row.getBoundingClientRect().top + window.scrollY
+			if (Math.abs(next - top) < 1) break
+			top = next
+			await new Promise((r) => setTimeout(r, 120))
+		}
+		row.scrollIntoView({ block: 'center', behavior: 'smooth' })
+		const shown = row
+		shown.dataset.revealed = 'true'
+		setTimeout(() => delete shown.dataset.revealed, REVEAL_RING_MS)
+		return true
+	}
 	/** The folder the list is scoped to, when its owner filter names one (`f/<folder>`). */
 	export function folderFilter(): string | undefined {
 		return ownerFilter?.startsWith('f/') ? ownerFilter.slice(2) : undefined
@@ -1951,6 +2002,7 @@
 	<!-- `data-works-with-composer`: a press in the card leaves Home's composer open
 	     (composerCollapse), since its menus add items to it. -->
 	<div
+		bind:this={cardEl}
 		data-works-with-composer
 		class="flex flex-col bg-surface-tertiary border border-border-light rounded-lg transition-colors duration-300 group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:border-transparent"
 	>
@@ -2201,7 +2253,7 @@
 			     and re-load fresh for the new mode. An in-place archive/library/kind
 			     change keeps treeKey stable, so folders stay open and refresh via
 			     reloadItems instead (see loadOwnerItems). -->
-				{#key treeKey}
+				{#key `${treeKey}|${revealSeq}`}
 					<TreeViewRoot
 						items={treeSource}
 						{collapseAll}

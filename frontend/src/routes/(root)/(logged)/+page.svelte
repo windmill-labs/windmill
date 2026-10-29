@@ -17,7 +17,7 @@
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import RecentRunsPanel from '$lib/components/home/RecentRunsPanel.svelte'
 	import RecentRunsHeaderStatus from '$lib/components/home/RecentRunsHeaderStatus.svelte'
-	import { usePanelOpen, useRecentRuns } from '$lib/components/home/recentRuns.svelte'
+	import { itemHref, usePanelOpen, useRecentRuns } from '$lib/components/home/recentRuns.svelte'
 	import { MediaQuery } from 'svelte/reactivity'
 	import PickHubApp from '$lib/components/flows/pickers/PickHubApp.svelte'
 	import { writable } from 'svelte/store'
@@ -108,6 +108,12 @@
 		tab == 'workspace' && itemsList != undefined && !itemsList.isWorkspaceEmpty()
 	)
 	let showRunsPanel = $derived(showRuns && wide.current && runsPanelOpen.val)
+	// A run's item is shown in place in the list, among its folder's; one the list does not show
+	// opens instead.
+	async function revealRunItem(path: string) {
+		const item = recentRuns.current?.items.find((i) => i.path === path)
+		if (!(await itemsList?.revealItem(path)) && item) await goto(itemHref(item))
+	}
 
 	// A workspace switch keeps this page mounted and swaps its contents under the reader, which
 	// the mount animation below never covers. Replay it by hand instead of keying the page on the
@@ -312,6 +318,7 @@
 		<RecentRunsHeaderStatus
 			runs={recentRuns}
 			folder={runsFolder}
+			onFocusItem={revealRunItem}
 			onShowPanel={wide.current ? () => (runsPanelOpen.val = true) : undefined}
 		/>
 	{/if}
@@ -445,12 +452,13 @@
 		     composer open, as one in the items card does. -->
 			<aside
 				data-works-with-composer
-				class="sticky top-3 self-start shrink-0 w-[380px] max-[1180px]:w-[300px] -ml-2 mr-8 mb-6 max-h-[calc(100dvh-48px-1.5rem)] flex flex-col bg-surface-tertiary border border-border-light rounded-lg px-5 py-3 group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:border-transparent"
+				class="sticky top-3 self-start shrink-0 w-[380px] max-[1180px]:w-[300px] -ml-2 mr-4 mt-3 mb-6 max-h-[calc(100dvh-48px-1.5rem)] flex flex-col bg-surface-tertiary border border-border-light rounded-lg px-5 pt-2 pb-3 group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:border-transparent"
 				aria-label="Recently run"
 			>
 				<RecentRunsPanel
 					runs={recentRuns}
 					folder={runsFolder}
+					onFocusItem={revealRunItem}
 					onCollapse={() => (runsPanelOpen.val = false)}
 				/>
 			</aside>

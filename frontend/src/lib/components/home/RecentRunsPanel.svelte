@@ -16,9 +16,10 @@
 		runs: RecentRunsState
 		folder: string | undefined
 		onCollapse: () => void
+		onFocusItem?: (path: string) => void
 	}
 
-	let { runs, folder, onCollapse }: Props = $props()
+	let { runs, folder, onCollapse, onFocusItem }: Props = $props()
 
 	let data = $derived(runs.current)
 	let windowText = $derived(data ? windowLabel(data.window_hours) : '')
@@ -26,7 +27,7 @@
 </script>
 
 <div class="flex flex-col h-full min-h-0">
-	<div class="flex items-center gap-2 shrink-0 pb-3">
+	<div class="flex items-center gap-2 shrink-0 pb-2">
 		<h2 class="flex items-baseline gap-1.5 min-w-0 flex-1 text-[13px] font-medium text-primary">
 			<span class="whitespace-nowrap">Recently run</span>
 			{#if folder}
@@ -89,7 +90,12 @@
 			<p class="px-2.5 text-xs text-hint">Runs show up here once something runs.</p>
 		{:else if data}
 			{#each data.items as item (item.path)}
-				<RecentRunRow {item} now={runs.now} prefix={prefixes.get(item.path)} />
+				<RecentRunRow
+					{item}
+					now={runs.now}
+					prefix={prefixes.get(item.path)}
+					onSelect={onFocusItem}
+				/>
 			{/each}
 		{/if}
 	</div>
