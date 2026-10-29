@@ -25,6 +25,7 @@
 	import SidebarUsage from '$lib/components/sidebar/SidebarUsage.svelte'
 	import SidebarScrollArea from '$lib/components/sidebar/SidebarScrollArea.svelte'
 	import AiChatsSection from '$lib/components/sidebar/AiChatsSection.svelte'
+	import FavoritesSection from '$lib/components/sidebar/FavoritesSection.svelte'
 	import AccountSetupBanner from '$lib/components/sidebar/AccountSetupBanner.svelte'
 	import FinishAccountSetup from '$lib/components/sidebar/FinishAccountSetup.svelte'
 	import { accountSetup } from '$lib/components/sidebar/accountSetup.svelte'
@@ -1188,7 +1189,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 
 <!-- Settings / instance section: the last section inside the nav's unified scroll area. -->
 {#snippet settingsMenu(collapsed: boolean)}
-	<div class="px-2 pb-1">
+	<div class="px-2">
 		<SettingsMenu
 			isCollapsed={collapsed}
 			workspaceSettingsTarget={sessionSettingsWorkspace}
@@ -1309,6 +1310,11 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 					/>
 				</div>
 
+				<!-- The starred items, when "Customize sidebar" turns them on; hidden in the rail. -->
+				<div class="px-2 empty:hidden">
+					<FavoritesSection isCollapsed={collapsed} />
+				</div>
+
 				<!-- Section 2: AI sessions, one row each; collapsed, a menu of them. -->
 				{#if sessionsShown}
 					<div class="px-2">
@@ -1320,14 +1326,13 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 				<div class="px-2 empty:hidden">
 					<AiChatsSection isCollapsed={collapsed} />
 				</div>
-
-				<!-- Section 3: instance settings — mt-auto drops it to the bottom
-				     when the column has spare room, and collapses back to the normal
-				     inter-section gap once the content overflows and scrolls. -->
-				<div class="mt-auto">
-					{@render settingsMenu(collapsed)}
-				</div>
 			</SidebarScrollArea>
+		</div>
+
+		<!-- Section 3: instance settings, pinned under the scrolled lists: inside them, long
+		     session and chat lists pushed it out of view under the bottom fade. -->
+		<div class="flex-shrink-0 pt-2">
+			{@render settingsMenu(collapsed)}
 		</div>
 
 		<div class="flex-shrink-0">
@@ -1336,7 +1341,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 		</div>
 
 		<div
-			class="flex-shrink-0 flex pt-3 pb-3.5 {collapsed
+			class="flex-shrink-0 flex pt-1 pb-3.5 {collapsed
 				? 'flex-col items-center gap-3'
 				: 'items-center justify-between px-4'}"
 		>

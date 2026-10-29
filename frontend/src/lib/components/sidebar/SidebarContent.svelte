@@ -54,6 +54,8 @@
 		getServiceIcon
 	} from '../triggers/native/utils'
 	import type { NativeServiceName } from '$lib/gen/types.gen'
+	import DataStoresMenuItems from './DataStoresMenuItems.svelte'
+	import { sidebarPrefs } from './sidebarPrefs.svelte'
 	import {
 		Menubar,
 		Menu,
@@ -250,15 +252,21 @@
 	let sharingLinks = $derived(
 		mainMenuLinks.filter((l) => SHARING_LABELS.includes(l.label) && !l.disabled)
 	)
-	const groupedLabels = new Set([...MAIN_MENU_GROUPS.flatMap((g) => g.members), ...SHARING_LABELS])
+	// "Customize sidebar" can split the groups back into links of their own.
+	let activeMenuGroups = $derived(sidebarPrefs.splitData.val ? [] : MAIN_MENU_GROUPS)
+	let groupedLabels = $derived(
+		new Set([...activeMenuGroups.flatMap((g) => g.members), ...SHARING_LABELS])
+	)
 	let ungroupedMainLinks = $derived(mainMenuLinks.filter((l) => !groupedLabels.has(l.label)))
 	// A disabled MenuLink renders nothing, so its page leaves the menu, and a group with no
 	// page left leaves the nav.
 	let mainMenuGroups = $derived(
-		MAIN_MENU_GROUPS.map((g) => ({
-			...g,
-			links: mainMenuLinks.filter((l) => g.members.includes(l.label) && !l.disabled)
-		})).filter((g) => g.links.length > 0)
+		activeMenuGroups
+			.map((g) => ({
+				...g,
+				links: mainMenuLinks.filter((l) => g.members.includes(l.label) && !l.disabled)
+			}))
+			.filter((g) => g.links.length > 0)
 	)
 	let defaultExtraTriggerLinks = $derived([
 		{
@@ -566,6 +574,9 @@
 											</div>
 										</MenuItem>
 									{/each}
+									{#if group.label === 'Data'}
+										<DataStoresMenuItems {item} {itemClass} />
+									{/if}
 								{/snippet}
 							</Menu>
 						{/each}

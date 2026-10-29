@@ -19,8 +19,12 @@
 		Gauge,
 		Trash2,
 		KeyRound,
-		GraduationCap
+		GraduationCap,
+		PanelLeft,
+		Star,
+		Database
 	} from 'lucide-svelte'
+	import { sidebarPrefs } from './sidebarPrefs.svelte'
 	import { goto } from '$lib/navigation'
 	import { type Item } from '$lib/utils'
 	import { logout } from '$lib/logoutKit'
@@ -226,6 +230,25 @@
 			displayName: 'Switch theme',
 			icon: darkMode ? Sun : Moon,
 			action: () => toggleDarkMode()
+		},
+		{
+			displayName: 'Customize sidebar',
+			icon: PanelLeft,
+			submenuItems: [
+				{
+					displayName: 'Favorites section',
+					icon: Star,
+					toggle: sidebarPrefs.favorites.val,
+					action: () => (sidebarPrefs.favorites.val = !sidebarPrefs.favorites.val)
+				},
+				{
+					displayName: 'Group data pages',
+					description: 'Variables, Resources and Assets under one Data menu',
+					icon: Database,
+					toggle: !sidebarPrefs.splitData.val,
+					action: () => (sidebarPrefs.splitData.val = !sidebarPrefs.splitData.val)
+				}
+			]
 		},
 		{
 			// The email is the label itself; the crown icon carries the admin role.
