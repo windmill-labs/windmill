@@ -1549,7 +1549,10 @@
 		// button asynchronously after the menu closes. Without overriding it, pressing
 		// an arrow key would re-open / re-highlight the workspace picker instead of
 		// moving the flat list's selection. Run several times to win the focus race.
+		// Never over Home's composer: New session in another workspace switches it too, and asks
+		// for the caret there.
 		const focusSearch = () => {
+			if (document.activeElement?.closest('[data-session-composer]')) return
 			const el = document.getElementById('home-search-input') as HTMLInputElement | null
 			el?.focus()
 		}
@@ -1932,10 +1935,19 @@
 	{/if}
 	<!-- The items section, one card: its controls, its filters and its rows. No `overflow-hidden`
 	     on it: the page scrolls, and that would stop the controls sticking. -->
-	<div class="flex flex-col bg-surface-tertiary border border-border-light rounded-lg">
+	<!-- While Home's composer is open the card loses its border and background, and so do the
+	     Favorites and Recent cards (HomeQuickAccess), the search field loses its background and New
+	     looks like a default button (CreateActionsMenu), so the lists sit quietly under the
+	     composer. The border turns transparent rather than going, so nothing moves. -->
+	<!-- `data-works-with-composer`: a press in the card leaves Home's composer open
+	     (composerCollapse), since its menus add items to it. -->
+	<div
+		data-works-with-composer
+		class="flex flex-col bg-surface-tertiary border border-border-light rounded-lg transition-colors duration-300 group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:border-transparent"
+	>
 		<div
 			bind:clientHeight={toolbarHeight}
-			class="sticky top-0 z-10 bg-surface-tertiary rounded-t-lg flex flex-wrap gap-2 items-center justify-between px-5 py-3 shrink-0"
+			class="sticky top-0 group-has-[[data-composer-open]]/home:top-[var(--home-pinned)] z-10 bg-surface-tertiary transition-colors duration-300 group-has-[[data-composer-open]]/home:bg-surface rounded-t-lg flex flex-wrap gap-2 items-center justify-between px-5 py-3 shrink-0"
 			use:triggerableByAI={{
 				id: 'home-items-list',
 				description: 'Lists of scripts, flows, and apps'
@@ -1957,6 +1969,7 @@
 						autofocus
 						hideDropdownOnFreeText
 						inputId="home-search-input"
+						class="group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:[&>*]:!bg-transparent"
 						onDropdownVisibleChange={(v) => (searchbarDropdownOpen = v)}
 					/>
 				</div>

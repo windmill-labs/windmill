@@ -63,6 +63,8 @@
 		subject?: 'flow' | 'agent'
 		/** The host's own controls, after the model's in the composer's footer. */
 		composerSettings?: import('svelte').Snippet
+		/** A conversation to show once the chat is up, as a link to it names one. */
+		openConversation?: string
 	}
 
 	let {
@@ -78,7 +80,8 @@
 		frame = 'top',
 		conversationKind = 'deployed',
 		subject = 'flow',
-		composerSettings = undefined
+		composerSettings = undefined,
+		openConversation = undefined
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
@@ -164,6 +167,10 @@
 			}
 		})
 		const unsubscribePool = createdPool.subscribe((s) => (poolState = s))
+		// Untracked: following the link once is the whole job; a later change of the prop must
+		// not rebuild every chat of the flow.
+		const linked = untrack(() => openConversation)
+		if (linked) createdPool.select(linked)
 		listChat = createdList
 		pool = createdPool
 		return () => {

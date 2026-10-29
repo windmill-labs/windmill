@@ -126,12 +126,12 @@
 		aiChatDisplay?.focusInput(selection)
 	}
 
-	export async function attachContext(element: import('./context').ContextElement) {
-		await aiChatDisplay?.attachContext(element)
+	export function flashComposer() {
+		aiChatDisplay?.flashComposer()
 	}
 
-	export function foldComposer() {
-		aiChatDisplay?.foldComposer()
+	export async function attachContext(element: import('./context').ContextElement) {
+		await aiChatDisplay?.attachContext(element)
 	}
 
 	const historyManager = aiChatManager.historyManager

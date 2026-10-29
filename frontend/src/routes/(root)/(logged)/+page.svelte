@@ -98,6 +98,8 @@
 	// the mount animation below never covers. Replay it by hand instead of keying the page on the
 	// workspace: a remount would drop the list's own state and refetch what it is already loading.
 	let pageEl: HTMLDivElement | undefined = $state(undefined)
+	// Height of the composer's column, which stays at the top while the composer is open.
+	let pinnedHeight = $state(0)
 
 	// Back from AI Sessions the view transition (homeSessionsTransition.svelte.ts) carries the arrival, so
 	// the page skips its own fade-in. Decided once at mount: gating the class on the attribute
@@ -292,8 +294,11 @@
 
 <div
 	bind:this={pageEl}
-	class="{fadeIn ? 'wm-page-in' : ''} flex flex-col w-full h-full overflow-y-auto items-center"
+	class="{fadeIn
+		? 'wm-page-in'
+		: ''} group/home flex flex-col w-full h-full overflow-y-auto items-center"
 	style="scrollbar-gutter: stable both-edges;"
+	style:--home-pinned="{pinnedHeight}px"
 >
 	<!-- Where edits to this workspace are made is a fact about the workspace, so it sits in the
 	     header with the workspace's own name rather than above the list. -->
@@ -301,7 +306,14 @@
 
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
-	<div class="{HOME_COLUMN_WIDTH} px-4 sm:px-8 md:px-8 h-fit w-full mb-6 shrink-0">
+	<!-- While the composer is open this column stays at the top and the lists scroll under it. It
+	     is the scroller's own child because a sticky element holds only inside its parent; its
+	     background covers what passes under it, and the items' search bar sticks below it
+	     (`--home-pinned`, ItemsList) rather than behind it. -->
+	<div
+		bind:clientHeight={pinnedHeight}
+		class="{HOME_COLUMN_WIDTH} px-4 sm:px-8 md:px-8 h-fit w-full pb-6 shrink-0 bg-surface group-has-[[data-composer-open]]/home:sticky group-has-[[data-composer-open]]/home:top-0 group-has-[[data-composer-open]]/home:z-20"
+	>
 		<!-- HomeAIChat carries both the AI composer and the AI-independent CLI/MCP connect row,
 		     so it shows whenever the sessions beta is on; the composer itself is gated on the
 		     workspace inside the component, which owns its own vertical spacing

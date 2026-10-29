@@ -1226,7 +1226,7 @@
 					<Loader2 class="animate-spin" />
 				</div>
 			{:else if aiHiddenVerdict}
-				<!-- The workspace hid the assistant, and the sidebar switch with it, so only a
+				<!-- The workspace hid the assistant, and the sidebar's sessions with it, so only a
 				     direct URL or a session acting on such a workspace lands here. -->
 				<!-- Centred like the loader above: the page header overlays this pane's top edge. -->
 				<div

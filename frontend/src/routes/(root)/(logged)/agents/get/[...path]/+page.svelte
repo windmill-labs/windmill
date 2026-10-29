@@ -281,6 +281,7 @@
 			enableAi={$copilotInfo.enabled}
 			view
 			onOpenConfig={() => configModal?.open()}
+			openConversation={page.url.searchParams.get('conversation') ?? undefined}
 		>
 			{#snippet viewForm({ schema, run, loading, actions })}
 				{#if config && !chatAvailable}

@@ -20,6 +20,8 @@
 		item?: MenubarMenuElements['item'] | undefined
 		class?: string
 		onclick?: (ev: MouseEvent) => any
+		// Further paths the row is selected on, for a link standing for several pages.
+		alsoSelectedOn?: string[]
 	}
 
 	let {
@@ -33,7 +35,8 @@
 		lightMode = false,
 		item = undefined,
 		class: classNames = '',
-		onclick = undefined
+		onclick = undefined,
+		alsoSelectedOn = []
 	}: Props = $props()
 
 	let isSelected = $state(false)
@@ -42,7 +45,7 @@
 		if (href === '/') {
 			isSelected = $page.url.pathname === href
 		} else {
-			isSelected = $page.url.pathname.startsWith(href)
+			isSelected = [href, ...alsoSelectedOn].some((p) => $page.url.pathname.startsWith(p))
 		}
 	})
 </script>
@@ -60,7 +63,7 @@
 			}}
 			{onclick}
 			class={twMerge(
-				'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-2',
+				'group flex items-center px-2 py-1 text-sm font-light rounded-md h-7 gap-2',
 				isSelected
 					? sidebarClasses.selectedBg
 					: item

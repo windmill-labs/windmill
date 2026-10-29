@@ -33,8 +33,7 @@
 		AlertCircle,
 		Database,
 		MailIcon,
-		ChevronDown,
-		ChevronRight
+		Users
 	} from 'lucide-svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { slide } from 'svelte/transition'
@@ -62,7 +61,8 @@
 		MenuItem,
 		MeltButton
 	} from '$lib/components/meltComponents'
-	import MenuButton from './MenuButton.svelte'
+	import MenuButton, { sidebarClasses } from './MenuButton.svelte'
+	import SidebarSectionHeader from './SidebarSectionHeader.svelte'
 	import GoogleCloudIcon from '../icons/triggers/GoogleCloudIcon.svelte'
 	import AzureIcon from '../icons/triggers/AzureIcon.svelte'
 	import { leaveCurrentWorkspace } from './leaveWorkspace'
@@ -233,6 +233,32 @@
 				...MAIN_MENU_EXTRAS[p.label]
 			}))
 			.filter((l) => !excludeMainLabels.includes(l.label))
+	)
+	// Main-menu pages folded under one menu each, to keep the nav short.
+	const MAIN_MENU_GROUPS = [
+		{
+			label: 'Data',
+			icon: Database,
+			members: ['Variables', 'Resources', 'Assets'],
+			aiId: 'sidebar-menu-data',
+			aiDescription: 'Menu with the variables, resources and assets pages'
+		}
+	]
+	// Folders and Groups are one Sharing page with a tab each (SharingTabs): one row, leading to
+	// the first of the two the role can see.
+	const SHARING_LABELS = ['Folders', 'Groups']
+	let sharingLinks = $derived(
+		mainMenuLinks.filter((l) => SHARING_LABELS.includes(l.label) && !l.disabled)
+	)
+	const groupedLabels = new Set([...MAIN_MENU_GROUPS.flatMap((g) => g.members), ...SHARING_LABELS])
+	let ungroupedMainLinks = $derived(mainMenuLinks.filter((l) => !groupedLabels.has(l.label)))
+	// A disabled MenuLink renders nothing, so its page leaves the menu, and a group with no
+	// page left leaves the nav.
+	let mainMenuGroups = $derived(
+		MAIN_MENU_GROUPS.map((g) => ({
+			...g,
+			links: mainMenuLinks.filter((l) => g.members.includes(l.label) && !l.disabled)
+		})).filter((g) => g.links.length > 0)
 	)
 	let defaultExtraTriggerLinks = $derived([
 		{
@@ -502,78 +528,134 @@
 <nav class={twMerge('flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-2 gap-2')}>
 	<div class={twMerge('flex flex-col')}>
 		{#if showMain}
-			<div class="space-y-1">
-				{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
+			<div class="space-y-0.5">
+				{#each ungroupedMainLinks as menuLink (menuLink.href ?? menuLink.label)}
 					<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 				{/each}
+				<Menubar class="flex flex-col gap-0.5">
+					{#snippet children({ createMenu })}
+						{#each mainMenuGroups as group (group.label)}
+							{@const onGroupPage = group.links.some((l) => page.url.pathname.startsWith(l.href))}
+							<Menu {createMenu} usePointerDownOutside placement="bottom-start">
+								{#snippet triggr({ trigger })}
+									<MenuButton
+										class="!text-xs"
+										icon={group.icon}
+										label={group.label}
+										{isCollapsed}
+										showChevron
+										buttonClass={onGroupPage ? sidebarClasses.selectedBg : undefined}
+										labelClass={onGroupPage ? sidebarClasses.selectedText : undefined}
+										aiId={group.aiId}
+										aiDescription={group.aiDescription}
+										{trigger}
+									/>
+								{/snippet}
+								{#snippet children({ item })}
+									{#each group.links as link (link.href)}
+										<MenuItem
+											class={itemClass}
+											href={link.href}
+											{item}
+											aiId={link.aiId}
+											aiDescription={link.aiDescription}
+										>
+											<div class="flex flex-row items-center gap-2">
+												<link.icon size={16} />
+												{link.label}
+											</div>
+										</MenuItem>
+									{/each}
+								{/snippet}
+							</Menu>
+						{/each}
+					{/snippet}
+				</Menubar>
+				{#if sharingLinks.length > 0}
+					<MenuLink
+						class="!text-xs"
+						label="Sharing"
+						href={sharingLinks[0].href}
+						alsoSelectedOn={sharingLinks.map((l) => l.href)}
+						icon={Users}
+						{isCollapsed}
+						aiId="sidebar-menu-link-sharing"
+						aiDescription="Button to navigate to sharing: the folders items are shared through, and the groups of users they are shared with"
+					/>
+				{/if}
 			</div>
 		{/if}
 		{#if showMain && showTriggersGroup}
-			<div class="pt-4">
+			<!-- Expanded, the + sits at the right of the section's title row, as the AI sessions
+			     section's options do; the collapsed rail has no title row, so it ends the list. -->
+			{#snippet addTriggerMenu(createMenu: any, inHeader: boolean)}
+				<Menu {createMenu} usePointerDownOutside placement={inHeader ? 'bottom-end' : undefined}>
+					{#snippet triggr({ trigger })}
+						<MeltButton
+							aiId="sidebar-menu-link-add-trigger"
+							aiDescription="Button to add a new trigger. Can be HTTP, WebSocket, Postgres, Kafka, NATS, SQS, GCP Pub/Sub, or MQTT"
+							class={twMerge(
+								inHeader
+									? 'h-7 w-7 shrink-0 flex items-center justify-center rounded-md text-secondary hover:bg-surface-hover'
+									: 'w-full text-secondary text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-surface-hover rounded',
+								'data-[highlighted]:bg-surface-hover'
+							)}
+							title="Add trigger"
+							meltElement={trigger}
+						>
+							<Plus size={14} />
+						</MeltButton>
+					{/snippet}
+					{#snippet children({ item })}
+						{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
+							<MenuItem
+								aiId={subItem.aiId}
+								aiDescription={subItem.aiDescription}
+								href={subItem.disabled ? '' : subItem.href}
+								class={twMerge(itemClass, subItem.disabled ? 'pointer-events-none opacity-50' : '')}
+								{item}
+								disabled={subItem.disabled}
+							>
+								<div class="flex flex-row items-center gap-2">
+									{#if subItem.icon}
+										<subItem.icon size={16} />
+									{/if}
+									{subItem.label}
+								</div>
+							</MenuItem>
+						{/each}
+					{/snippet}
+				</Menu>
+			{/snippet}
+			<div>
 				{#if isCollapsed}
 					<div class="text-secondary text-[0.5rem] uppercase transition-opacity opacity-0">
 						Triggers
 					</div>
 				{:else}
-					<button
-						type="button"
-						onclick={() => (triggersCollapsed.val = !triggersCollapsed.val)}
-						class="text-secondary text-[0.5rem] uppercase flex flex-row items-center gap-1 rounded px-1 -mx-1 py-0.5 hover:bg-surface-hover focus:outline-none"
-						aria-expanded={!triggersCollapsed.val}
-					>
-						Triggers
-						{#if triggersCollapsed.val}
-							<ChevronRight size={10} />
-						{:else}
-							<ChevronDown size={10} />
-						{/if}
-					</button>
+					<SidebarSectionHeader
+						title="Triggers"
+						collapsed={triggersCollapsed.val}
+						onToggle={() => (triggersCollapsed.val = !triggersCollapsed.val)}
+						actions={showAddTriggerMenu ? triggerHeaderActions : undefined}
+					/>
+					{#snippet triggerHeaderActions()}
+						<Menubar>
+							{#snippet children({ createMenu })}
+								{@render addTriggerMenu(createMenu, true)}
+							{/snippet}
+						</Menubar>
+					{/snippet}
 				{/if}
 				{#if isCollapsed || !triggersCollapsed.val}
 					<div transition:slide={{ duration: 180 }}>
-						<Menubar class="flex flex-col gap-1">
+						<Menubar class="flex flex-col gap-0.5">
 							{#snippet children({ createMenu })}
 								{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 									<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 								{/each}
-								{#if showAddTriggerMenu}
-									<Menu {createMenu} usePointerDownOutside>
-										{#snippet triggr({ trigger })}
-											<MeltButton
-												aiId="sidebar-menu-link-add-trigger"
-												aiDescription="Button to add a new trigger. Can be HTTP, WebSocket, Postgres, Kafka, NATS, SQS, GCP Pub/Sub, or MQTT"
-												class={twMerge(
-													'w-full text-secondary text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-surface-hover rounded',
-													'data-[highlighted]:bg-surface-hover'
-												)}
-												meltElement={trigger}
-											>
-												<Plus size={14} />
-											</MeltButton>
-										{/snippet}
-										{#snippet children({ item })}
-											{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
-												<MenuItem
-													aiId={subItem.aiId}
-													aiDescription={subItem.aiDescription}
-													href={subItem.disabled ? '' : subItem.href}
-													class={twMerge(
-														itemClass,
-														subItem.disabled ? 'pointer-events-none opacity-50' : ''
-													)}
-													{item}
-													disabled={subItem.disabled}
-												>
-													<div class="flex flex-row items-center gap-2">
-														{#if subItem.icon}
-															<subItem.icon size={16} />
-														{/if}
-														{subItem.label}
-													</div>
-												</MenuItem>
-											{/each}
-										{/snippet}
-									</Menu>
+								{#if showAddTriggerMenu && isCollapsed}
+									{@render addTriggerMenu(createMenu, false)}
 								{/if}
 							{/snippet}
 						</Menubar>

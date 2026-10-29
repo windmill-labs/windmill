@@ -23,8 +23,11 @@ export function composerBoxClass(disabled: boolean = false): string {
 }
 
 /** Added to a usable box that opens a session (Home, an empty session). Focus shows as the
- * base box's border colour alone: the brand has no focus ring. */
-export const HERO_BOX_CLASS = 'rounded-[10px]'
+ * base box's border colour alone: the brand has no focus ring. On Home, an open composer
+ * floats over the lists scrolling under it, so it takes the brand's elevation for moving
+ * elements. */
+export const HERO_BOX_CLASS =
+	'rounded-[10px] transition-[border-color,box-shadow] group-has-[[data-composer-open]]/home:shadow-md'
 
 /** Applied to the field inside the box; without it the field draws a second border. */
 export const COMPOSER_FIELD_RESET =

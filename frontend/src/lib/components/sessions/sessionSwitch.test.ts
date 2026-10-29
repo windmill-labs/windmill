@@ -6,7 +6,6 @@ import {
 	resumeAiSessions,
 	startSessionWithPrompt
 } from './sessionSwitch.svelte'
-import { chosenSidebarList } from './sidebarList.svelte'
 import {
 	getSessionAutoSendDomElement,
 	homeDraft,
@@ -95,28 +94,6 @@ describe('the sessions page resumes the last session opened', () => {
 			expect(goto).toHaveBeenLastCalledWith('/', { replaceState: false })
 			expect(homeDraft.id).toBe('sw-draft')
 		} finally {
-			vi.unstubAllGlobals()
-			homeDraft.id = undefined
-			restore()
-		}
-	})
-
-	// The sidebar's list is the switch's alone: neither a navigation nor opening a
-	// session in Home's composer may change it.
-	it('leaves the sidebar list to the switch', async () => {
-		const restore = withTwoFamilies('rootA')
-		vi.stubGlobal('window', { location: { pathname: '/runs' } })
-		const prev = chosenSidebarList.val
-		try {
-			chosenSidebarList.val = 'workspace'
-			noteArrival(new URL('http://localhost/sessions?session=sw-any'))
-			await resumeAiSessions()
-			expect(chosenSidebarList.val).toBe('workspace')
-			chosenSidebarList.val = 'sessions'
-			noteArrival(new URL('http://localhost/runs'))
-			expect(chosenSidebarList.val).toBe('sessions')
-		} finally {
-			chosenSidebarList.val = prev
 			vi.unstubAllGlobals()
 			homeDraft.id = undefined
 			restore()
