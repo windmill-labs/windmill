@@ -43,6 +43,8 @@
 	let rows: Row[] = $state([])
 	let deployers: string[] = $state([])
 	let setDefault = $state(false)
+	/** Whether the item's folder already names default users; unknown until loaded. */
+	let folderHasDefaults: boolean | undefined = $state(undefined)
 	let usernames: string[] = $state([])
 	let folderNames: string[] = $state([])
 	let detecting = $state(true)
@@ -70,6 +72,10 @@
 				}
 			]
 			deployers = [`f/${itemFolder}`]
+			FolderService.getFolder({ workspace, name: itemFolder }).then(
+				(f) => (folderHasDefaults = !!f.default_permissioned_as?.length),
+				() => (folderHasDefaults = true)
+			)
 		}
 		if (!itemPath) {
 			detecting = false
@@ -222,7 +228,12 @@
 		<DeployersPicker {principal} bind:deployers {reads} />
 	</div>
 
-	{#if itemFolder}
+	{#if itemFolder && folderHasDefaults}
+		<span class="text-2xs text-secondary">
+			<code>f/{itemFolder}</code> already sets who new items in it run as. Change that in the
+			folder's settings on the <a href="/folders">Folders</a> page.
+		</span>
+	{:else if itemFolder && folderHasDefaults === false}
 		<label class="flex items-start gap-2 cursor-pointer">
 			<Checkbox
 				class="mt-0.5"
