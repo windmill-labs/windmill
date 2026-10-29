@@ -61,12 +61,14 @@
 	// An account that already reads the item's folder, which the deployer may deploy as.
 	const folderAccount = $derived(
 		itemFolder
-			? serviceAccounts.current.find(
-					(a) =>
-						!a.pending &&
-						a.folders.includes(itemFolder) &&
-						canDeployAs(operatingUser.current, `u/${a.username}`, deployAs.current)
-				)
+			? serviceAccounts.current
+					.filter(
+						(a) =>
+							!a.pending &&
+							a.folders.includes(itemFolder) &&
+							canDeployAs(operatingUser.current, `u/${a.username}`, deployAs.current)
+					)
+					.sort((a, b) => a.username.localeCompare(b.username))[0]
 			: undefined
 	)
 	const suggestsAccount = $derived(
