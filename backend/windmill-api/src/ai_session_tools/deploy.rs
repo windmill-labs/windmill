@@ -323,7 +323,10 @@ async fn undeployed_runnable_targets(ctx: &Ctx<'_>, runnables: &Map<String, Valu
 
 /// Whether a saved agent, an `ai_agent` resource, is at `path`: another resource runs nothing.
 async fn agent_exists(ctx: &Ctx<'_>, path: &str) -> Result<bool, String> {
-    match ctx.get(&ctx.ws(&format!("resources/get/{}", path_enc(path)))).await {
+    match ctx
+        .get(&ctx.ws(&format!("resources/get/{}", path_enc(path))))
+        .await
+    {
         Ok(resource) => Ok(resource["resource_type"] == "ai_agent"),
         Err(e) if is_not_found(&e) => Ok(false),
         Err(e) => Err(e),

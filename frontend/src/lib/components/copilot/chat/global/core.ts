@@ -461,7 +461,7 @@ const readWorkspaceItemSchema = z.object({
 		),
 	trigger_kind: triggerKindSchema
 		.optional()
-		.describe('Required when type is trigger. Identifies which trigger service to call.'),
+		.describe('Required when type is trigger: the kind of trigger.'),
 	version: z
 		.enum(['deployed'])
 		.optional()
@@ -691,7 +691,7 @@ const deleteWorkspaceItemSchema = z.object({
 	path: z.string().describe('Workspace path of the item to delete.'),
 	trigger_kind: triggerKindSchema
 		.optional()
-		.describe('Required when type is trigger. Identifies which trigger service to call.')
+		.describe('Required when type is trigger: the kind of trigger.')
 })
 
 const discardLocalDraftSchema = z.object({
@@ -862,7 +862,7 @@ const testRunScriptSchema = z.object({
 const testRunScriptToolDef = createToolDef(
 	testRunScriptSchema,
 	'test_run_script',
-	'Execute a preview-style test run of a script by path, preferring draft content when it exists. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.',
+	'Execute a preview-style test run of a script by path, preferring draft content when it exists. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal also works, but stays in this conversation.',
 	{ strict: false }
 )
 
@@ -876,7 +876,7 @@ const runScriptSchema = z.object({
 const runScriptToolDef = createToolDef(
 	runScriptSchema,
 	'run_script',
-	'Run a DEPLOYED script for real, under the user\'s own permissions. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. In an AI session the user can open that form on the script\'s own deployed page instead; either way this call waits for them and runs what they confirm. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call. A required file is the user\'s to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version ("the deployed X", "in production", "for real").',
+	'Run a DEPLOYED script for real, under the user\'s own permissions. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. In an AI session the user can open that form on the script\'s own deployed page instead; either way this call waits for them and runs what they confirm. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal also works, but stays in this conversation. A required file is the user\'s to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version ("the deployed X", "in production", "for real").',
 	{ strict: false }
 )
 
@@ -901,7 +901,7 @@ const testRunFlowSchema = z.object({
 const testRunFlowToolDef = createToolDef(
 	testRunFlowSchema,
 	'test_run_flow',
-	'Execute a preview-style test run of a flow by path, preferring draft content when it exists. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.',
+	'Execute a preview-style test run of a flow by path, preferring draft content when it exists. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal also works, but stays in this conversation.',
 	{ strict: false }
 )
 
@@ -915,7 +915,7 @@ const runFlowSchema = z.object({
 const runFlowToolDef = createToolDef(
 	runFlowSchema,
 	'run_flow',
-	'Run a DEPLOYED flow for real, under the user\'s own permissions. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. In an AI session the user can open that form on the flow\'s own deployed page instead; either way this call waits for them and runs what they confirm. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call. A required file is the user\'s to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version ("the deployed X", "in production", "for real").',
+	'Run a DEPLOYED flow for real, under the user\'s own permissions. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. In an AI session the user can open that form on the flow\'s own deployed page instead; either way this call waits for them and runs what they confirm. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal also works, but stays in this conversation. A required file is the user\'s to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version ("the deployed X", "in production", "for real").',
 	{ strict: false }
 )
 
@@ -969,7 +969,7 @@ const testRunStepSchema = z.object({
 const testRunStepToolDef = createToolDef(
 	testRunStepSchema,
 	'test_run_step',
-	"Execute a test run of one step in a flow by path, preferring draft flow/script content when it exists. `args` are the step's OWN inputs, not the flow's: a step is normally fed by its input transforms, so send what that step's code takes, not what the flow takes. An AI agent step takes the inputs a run supplies rather than code arguments, `user_message` above all; its form opens on the step's own configuration, so send only what this run should change. An AI decision step takes `state`, what its questions are asked about; its provider and questions are the step's own. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.",
+	"Execute a test run of one step in a flow by path, preferring draft flow/script content when it exists. `args` are the step's OWN inputs, not the flow's: a step is normally fed by its input transforms, so send what that step's code takes, not what the flow takes. An AI agent step takes the inputs a run supplies rather than code arguments, `user_message` above all; its form opens on the step's own configuration, so send only what this run should change. An AI decision step takes `state`, what its questions are asked about; its provider and questions are the step's own. The user gets an argument form prefilled with `args` and may edit or dismiss it before it runs, so fill in every argument you can infer. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal also works, but stays in this conversation.",
 	{ strict: false }
 )
 
@@ -1385,6 +1385,39 @@ function buildFolderGuidance(
 const listJoin = (items: (string | false)[], type: 'conjunction' | 'disjunction' = 'conjunction') =>
 	new Intl.ListFormat('en', { type }).format(items.filter((i): i is string => !!i))
 
+// The prompt an external MCP client reads. A directory reviewer reads it as a description of
+// what the server does, so it names only the server's own tools and leaves how each one works
+// to its description and to get_instructions. OpenAI asks for the most important details in
+// the first 512 characters and some clients keep only the first 4096, so the drafts rule
+// opens and the rules come before the path conventions.
+function buildExternalPrompt(username: string, paths: string, skills: AiSkillListItem[]) {
+	return `This server works in a Windmill workspace as the user "${username}".
+
+Rules:
+- What you write is a per-user draft, saved server-side and visible only to this user. Nothing reaches the workspace until deploy_workspace_item deploys it, which you call only when the user asks.
+- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, a draft's editor (\`url\`), an app draft's editor with its live preview (\`preview_url\`), a deployed item's page. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves: show it with show_run, show_runs, show_item or show_deploy_review when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.
+- Find items with list_workspace_items and read one with read_workspace_item before changing it. An agent is a resource of type \`ai_agent\`: test it with test_run_agent and run a deployed one with run_agent, never run_flow or run_script.
+- Call get_instructions before writing a script, flow, agent, resource or app, a data pipeline or a datatable migration. For a script, pass its language. Call get_trigger_schema before write_trigger, since each trigger kind takes different fields, and get_db_schema before writing SQL against a database resource.
+- After writing a script, flow, agent or app runnable, test it with test_run_script, test_run_flow, test_run_step, test_run_agent or test_run_app_runnable before saying it works. They run the draft, so nothing needs deploying.
+- A request to run something also goes to the test_run tools. Use run_script, run_flow or run_agent only when the user asks for the deployed version, after reading it with version "deployed" so the arguments match.
+- To undo your own work, discard its draft with discard_local_draft. delete_workspace_item removes an item that is deployed.
+- Listings return only what this user can see. When an item they name is missing, say it may be in a folder they cannot read, not that it does not exist.
+- No one can read a variable's value through these tools. When editing a variable, pass only the fields that change.
+- Before writing code against a third-party API, look for its integration with search_hub_scripts and get_hub_integration.
+- Only raw apps (\`rawApp\` true) can be read, edited and deployed here. When a deploy says it widens who may open an app, tell the user in plain words.
+- Datatables are set up in the workspace settings. Start from list_datatables; one with \`migrations_enabled\` changes its schema through migrations only.
+- create_resource_type adds a resource type: show the user the schema first and create it once they agree.
+- For how Windmill itself works, use search_docs and read_docs_page, and link the page you relied on.${paths}${
+		skills.length > 0
+			? `
+
+Skills:
+- This workspace keeps skills, guidance documents for specific kinds of tasks, listed below by path and description. read_skill returns one: read it when a request matches its description, then do the work with the tools above.
+${skills.map((s) => `- ${s.path}: ${s.description}`).join('\n')}`
+			: ''
+	}`
+}
+
 const buildGlobalSystemPrompt = (
 	username: string,
 	previewTools: boolean,
@@ -1392,8 +1425,8 @@ const buildGlobalSystemPrompt = (
 	skills: AiSkillListItem[] = [],
 	mcpServers: McpServer[] = [],
 	access?: SessionAccess,
-	// The prompt as an external MCP client reads it: the same rules, minus the tools and
-	// surfaces only the Windmill UI has (pages, the run form, questions, the open editor).
+	// The prompt an external MCP client reads (`buildExternalPrompt`): it shares only the path
+	// conventions, which carry the folder guidance.
 	external = false
 ) => {
 	// Each `can*` mirrors the capability the matching tools declare in `requires`, so a
@@ -1534,23 +1567,14 @@ const buildGlobalSystemPrompt = (
 	const runRule = `${when(
 		canRunPreview,
 		`
-- Default to ${testRunTools} for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script or run_flow only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For those two, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema. ${
-			external
-				? `${testRunList}, run_script and run_flow run with exactly the arguments you send, so fill in every argument the schema asks for. test_run_step takes the step's own inputs, not the flow's.`
-				: `${testRunList}, run_script and run_flow all show the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat. test_run_step's form is the step's own inputs, not the flow's.`
-		}`
+- Default to ${testRunTools} for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script or run_flow only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For those two, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema. ${testRunList}, run_script and run_flow all show the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat. test_run_step's form is the step's own inputs, not the flow's.`
 	)}${when(
 		!canRunPreview,
 		`
 - run_script and run_flow are how you run anything here: they run the DEPLOYED item under this user's own permissions, and show them an argument form prefilled with what you sent. Read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema, and fill in every argument you can infer rather than asking for it in chat.`
 	)}`
 
-	const intro = `${external ? 'You are working in a Windmill workspace through its MCP server.' : "You are Windmill's global workspace assistant."}${when(
-		external,
-		`
-
-The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, a script, flow or agent draft's url (its editor), an app draft's preview_url (the app editor with its live preview, which these instructions call "the preview"), a deployed item's url. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves, open the link in a browser they can see from this conversation if you have one, and otherwise give them the link to open.`
-	)}
+	const intro = `You are Windmill's global workspace assistant.
 
 The current user's workspace username is "${username}".${instanceLine}
 
@@ -1602,33 +1626,25 @@ Path conventions:
 		canCreateFolder && !canWriteAnyDraft,
 		'\n- You can create a shared folder with `create_folder` when the user explicitly asks for one. You cannot create anything inside it here, so do not offer to.'
 	)}`
-	// An MCP client may keep only the first 4096 characters of its instructions, so there
-	// these rules come before the path conventions and are left out of the later list.
-	const coreRules = `${draftsOnlyRule}
-${findItemsRule}${deployRule}${when(canWriteDraft, `\n${instructionsRule}`)}${when(
-		canRunPreview && canWriteDraft,
-		`\n${testDraftRule}`
-	)}${runRule}`
+	if (external) return buildExternalPrompt(username, paths, skills)
 
-	return `${intro}${when(external, `\n\nRules:${coreRules}`)}${paths}
+	return `${intro}${paths}
 
-${external ? 'More rules:' : `Rules:${draftsOnlyRule}\n${findItemsRule}`}
+Rules:${draftsOnlyRule}
+${findItemsRule}
 ${groupMembershipRule}- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
 - An agent, as the Agents page lists it, is a resource of type \`ai_agent\`: read it with read_workspace_item type "resource".${when(
 		// An agent draft is a resource draft that the server checks under the flow builder right.
 		canDraftResources && canWriteFlowDraft,
-		` You may draft a new agent or a change to one, after calling get_instructions with subject "agent". The user can review it on the agent's page, ${external ? 'the url write_resource returns' : '\`/agents/edit/<path>\`'}.`
+		` You may draft a new agent or a change to one, after calling get_instructions with subject "agent". The user can review it on the agent's page, \`/agents/edit/<path>\`.`
 	)}${when(
 		buildsFlows,
 		' Its tools, like flow steps, may only reference deployed scripts and flows by path: the server refuses inline code and hub scripts.'
 	)}${when(
 		canRunFlowPreview,
 		' Test an agent, its draft included, with test_run_agent.'
-	)} Run a deployed agent with run_agent, never with run_flow or run_script.${when(
-		!external,
-		`
-- If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".`
-	)}${activePreviewRule}${when(!external, deployRule)}${when(
+	)} Run a deployed agent with run_agent, never with run_flow or run_script.
+- If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}${deployRule}${when(
 		canWriteAnyDraft,
 		`
 - To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft).${when(
@@ -1666,10 +1682,12 @@ ${groupMembershipRule}- Listings and reads return only what this user can see: i
 - Hub scripts are prebuilt, vetted integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Check search_hub_scripts before hand-writing code against a third-party API, even when the user never mentions the hub; read a result with read_workspace_item type "script" and its hub path to get its code, language, and input schema. Use what you find in whichever way fits: reference the hub path directly from a flow module or app runnable when a script already does the job, copy it into a workspace draft and adapt it when it is close (note the source hub path in a comment at the top of the code), or take it as a worked example and write your own. A script that does not do what the user asked is still worth reading when it is the only example of that integration: pass its \`integration\` back to search_hub_scripts to list that integration's other scripts with their descriptions, or use the \`suggested_integrations\` a search hands back when it finds nothing.
 - Before writing your own code against an integration the hub covers, call get_hub_integration with its slug: it returns the resource type to take, its auth fields and the integration's most-used scripts, which beats inferring them from script bodies. Call it for the integration you are about to write against, whichever it is. A search marks an integration \`documented\` when the hub additionally holds provider knowledge checked against the live API — pagination, enums, error codes and gotchas — so read that closely where it appears rather than trusting your own memory of the API.
 - If you have a web search tool and the hub does not cover a third-party API, search for the vendor's own API documentation rather than writing its endpoints and auth from memory, and link the page you relied on. Reserve it for external APIs: search_docs answers questions about Windmill itself.
-${when(canCreateResourceType, `- create_resource_type creates a resource type the workspace lacks. ${external ? 'Show the user the schema you propose and create it once they agree.' : 'The user confirms the schema in the call itself, so that is where you propose it rather than asking first in chat.'}\n`)}${when(!canCreateResourceType, '- This user cannot create a resource type here, in chat or on the Resources page, since the workspace refuses their direct deployment: when one is needed, give them its name and JSON Schema to pass to a workspace admin, who can add it.\n')}${when(canRunPreview, '- Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).\n')}${when(!external, `${instructionsRule}\n`)}${pipelineBullet}`
+${when(canCreateResourceType, `- create_resource_type creates a resource type the workspace lacks. The user confirms the schema in the call itself, so that is where you propose it rather than asking first in chat.\n`)}${when(!canCreateResourceType, '- This user cannot create a resource type here, in chat or on the Resources page, since the workspace refuses their direct deployment: when one is needed, give them its name and JSON Schema to pass to a workspace admin, who can add it.\n')}${when(canRunPreview, '- Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).\n')}${instructionsRule}
+${pipelineBullet}`
 	)}${when(
 		canRunPreview && canWriteDraft,
-		`${when(!external, `\n${testDraftRule}`)}
+		`
+${testDraftRule}
 - Do the same for a raw app: run test_run_app_runnable on each backend runnable you wrote or changed before saying the app works. A bundle that compiles proves nothing about whether the runnables run. An inline runnable executes the app's draft code; a path runnable executes the DEPLOYED script/flow it names, so a path runnable aimed at something you have not deployed fails here — that failure is the point: report it and offer to deploy that one target. The app itself does not need deploying to be tested.`
 	)}${when(
 		buildsFlows && (!access || access.has('run_flow_preview')),
@@ -1677,21 +1695,15 @@ ${when(canCreateResourceType, `- create_resource_type creates a resource type th
 - After creating or editing a flow draft, run test_run_flow with representative args before reporting that it works. It prefers drafts, so testing does not require deployment.`
 	)}
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_run with a returned id to see what that run was called with, what it returned and what it logged — without starting a new test run.
-- get_run also covers what a flow run did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — and works while the flow is still running. Pass step to read one step's result in full (capped at 12k chars).${when(
-		!external,
-		`
+- get_run also covers what a flow run did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — and works while the flow is still running. Pass step to read one step's result in full (capped at 12k chars).
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Carry over every filter the user described — Runs takes the page's whole filter set (time window, path, user, folder, label, tag, worker, trigger kind, args/result, ...), so don't drop a criterion just because it wasn't in the request's main clause. Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
-- Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its editor, or the page's filters otherwise). Never just describe where to click.`
-	)}${when(
-		canWriteDraft && !external,
+- Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its editor, or the page's filters otherwise). Never just describe where to click.${when(
+		canWriteDraft,
 		`
 - Do not offer or open the Compare & Deploy page for normal draft review. Only use open_page with page "compare" when the user explicitly asks to deploy a forked workspace's changes to its parent workspace.`
-	)}${when(!external, runRule)}${when(
-		!external,
-		`
+	)}${runRule}
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
-- When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.`
-	)}
+- When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
 		previewTools
 			? `${when(
@@ -1751,7 +1763,7 @@ Raw apps:
 - Use init_app for a new app, with framework react19 unless the user named one or points at an app to follow: do not ask about the framework, and write the summary and pick the path (path conventions above) yourself. ${
 			buildsApps
 				? 'An app this user builds reads and stores data only through the deployed runnables it calls: do not ask about a data setup or pass init_app a data config.'
-				: `When the app has to store data and the user did not say where, settle the data setup with ${external ? 'the user' : 'askUserQuestion'} BEFORE init_app or any SQL (get_instructions subject "app" lists the questions${external ? '' : ', one askUserQuestion each'}), then pass the outcome as init_app's data.`
+				: `When the app has to store data and the user did not say where, settle the data setup with askUserQuestion BEFORE init_app or any SQL (get_instructions subject "app" lists the questions, one askUserQuestion each), then pass the outcome as init_app's data.`
 		}
 ${when(canDeployAnyKind, '- Use deploy_workspace_item after explicit user deploy intent; raw app deploy bundles JS/CSS before saving.')}`
 	)}

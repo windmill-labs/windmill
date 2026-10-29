@@ -10,8 +10,8 @@ use windmill_common::utils::HTTP_CLIENT;
 use super::chat::Effect;
 use super::workspace::api_message;
 use super::{
-    array, enc, is_not_found, js_head, js_len, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult,
-    SCHEMAS,
+    array, enc, is_not_found, js_head, js_len, opt_str_arg, pretty, str_arg, truthy, Ctx,
+    ToolResult, SCHEMAS,
 };
 
 pub(super) const TOOLS: &[&str] = &[
@@ -568,15 +568,13 @@ async fn npm_search(ctx: &Ctx<'_>, query: &str, limit: usize) -> Result<Vec<Valu
         .get("objects")
         .and_then(Value::as_array)
         .ok_or("no `objects` in the registry answer")?;
-    let packages = confident_npm_matches(objects)
-        .into_iter()
-        .filter_map(|o| {
-            let package = o.get("package")?;
-            Some((
-                package.get("name")?.as_str()?,
-                package.get("version").and_then(Value::as_str),
-            ))
-        });
+    let packages = confident_npm_matches(objects).into_iter().filter_map(|o| {
+        let package = o.get("package")?;
+        Some((
+            package.get("name")?.as_str()?,
+            package.get("version").and_then(Value::as_str),
+        ))
+    });
     let sources = &NpmSources::new(ctx).await;
     Ok(join_all(packages.map(|(name, version)| async move {
         let documentation = match fetch(&format!("https://unpkg.com/{name}/readme.md")).await {

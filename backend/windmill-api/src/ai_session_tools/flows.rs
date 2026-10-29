@@ -9,11 +9,11 @@ use std::collections::{HashMap, HashSet};
 use serde_json::{json, Map, Value};
 use windmill_types::flows::FlowModule;
 
+use super::ai_providers::{self, CatalogFor};
 use super::workspace::{
     compact_flow, empty_schema, find_and_replace, finish_draft_write, load_flow, persist_draft,
     write_base, Persist, FLOW_VALUE_SETTINGS_KEYS,
 };
-use super::ai_providers::{self, CatalogFor};
 use super::{js_len, non_null, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult};
 
 pub(super) const TOOLS: &[&str] = &[
@@ -477,7 +477,6 @@ fn validate_modules(modules: &mut Value) -> Result<HashSet<String>, String> {
                 ));
             }
         }
-
     });
 
     if !shape_errors.is_empty() {
@@ -962,7 +961,10 @@ fn step_name(flow: Option<&Value>, module_id: &str) -> String {
     let mut summary = None;
     walk_flow(&mut flow, &mut |module, _| {
         if summary.is_none() && self::module_id(module) == module_id {
-            summary = module.get("summary").and_then(Value::as_str).map(String::from);
+            summary = module
+                .get("summary")
+                .and_then(Value::as_str)
+                .map(String::from);
         }
     });
     match summary.filter(|s| !s.is_empty()) {
@@ -997,10 +999,13 @@ async fn set_flow_module_code(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     scripts.insert(module_id.to_string(), code.to_string());
     let editable = compact.as_object().cloned().unwrap_or_default();
     // Several code edits of one flow read as identical rows under the generic flow label.
-    ctx.status_after_save(format!(
-        "Updated code of step {}",
-        step_name(base.flow.get("value"), module_id)
-    ), None);
+    ctx.status_after_save(
+        format!(
+            "Updated code of step {}",
+            step_name(base.flow.get("value"), module_id)
+        ),
+        None,
+    );
     write_flow_draft(
         ctx,
         FlowWrite {
@@ -1113,7 +1118,8 @@ mod tests {
             .to_string()
             .replace(",\"same_worker\":true", "")
             .replace("\"id\":\"b\"", "\"id\":\"c\"");
-        let editable = validate_editable(serde_json::from_str(&patched).unwrap(), None, &mut vec![]).unwrap();
+        let editable =
+            validate_editable(serde_json::from_str(&patched).unwrap(), None, &mut vec![]).unwrap();
         let mut applied = apply_editable(Some(&value), &editable, &scripts);
         finalize_inline_scripts(&mut applied).unwrap();
         assert_eq!(content(&applied, "/0"), "A");

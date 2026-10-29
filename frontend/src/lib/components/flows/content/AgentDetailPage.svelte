@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import { FlaskConical, FormInput, MessageSquare, Pen } from 'lucide-svelte'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { FlaskConical, FormInput, LayoutDashboard, MessageSquare, Pen } from 'lucide-svelte'
 	import { resource } from 'runed'
 	import { goto } from '$lib/navigation'
 	import { copilotInfo } from '$lib/aiStore'
@@ -16,6 +15,11 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import AgentEditorHost from '$lib/components/flows/content/AgentEditorHost.svelte'
+	import BuildChatAppCard from '$lib/components/details/BuildChatAppCard.svelte'
+	import {
+		createChatRawApp,
+		createRawAppFromAgent
+	} from '$lib/components/details/createRawAppFromScript'
 	import AgentConfigModal from '$lib/components/flows/content/AgentConfigModal.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import InputSelectedBadge from '$lib/components/schema/InputSelectedBadge.svelte'
@@ -86,6 +90,15 @@
 	const editRights = useEditRights(() => ws)
 	let canAuthor = $derived(editRights.roleCanAuthor('agent'))
 	let canCode = $derived(editRights.capabilities.code)
+
+	async function buildApp() {
+		const app = chatAvailable
+			? createChatRawApp({ path, runType: 'agent' })
+			: createRawAppFromAgent(path)
+		// The raw app editor reads the payload from sessionStorage on mount.
+		sessionStorage.setItem('rawAppImport', JSON.stringify(app))
+		await onNavigate('/apps_raw/add')
+	}
 	let canEdit = $derived(config != undefined && (agent?.canWrite ?? false) && canAuthor)
 
 	// Recorded once the agent is in: a path with nothing deployed never loads one. Not from a
@@ -133,11 +146,11 @@
 	let history: AgentHistory | undefined = $state(undefined)
 	let deleteOpen = $state(false)
 	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
-	let clientWidth = $state(window.innerWidth)
-	let pickedMobileTab = $state('agent')
+	let pickedTab = $state<'agent' | 'api' | 'slack'>('agent')
 	// The page is reused across agents, and an agent without managed memory has no Slack tab.
-	let mobileTab = $derived(pickedMobileTab === 'slack' && !chatAvailable ? 'api' : pickedMobileTab)
-	let wide = $derived(clientWidth >= 1024)
+	let tab = $derived(
+		pickedTab !== 'agent' && pickedTab !== 'api' && !chatAvailable ? 'api' : pickedTab
+	)
 
 	const slack = resource(
 		() => ({ workspace: ws, path }),
@@ -152,7 +165,7 @@
 	function onKeyDown(event: KeyboardEvent) {
 		if (!active) return
 		if (event.defaultPrevented || event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) return
-		if (!runForm || testPane?.mode === 'chat' || (!wide && mobileTab !== 'agent')) return
+		if (!runForm || testPane?.mode === 'chat' || tab !== 'agent') return
 		if (isValid) {
 			event.preventDefault()
 			runForm.run()
@@ -186,27 +199,45 @@
 		() => ws,
 		() => getDeployUiSettings()
 	)
-	// A role that cannot build agents gets no menu, as on a flow's page.
+	// The chat template runs the agent by path and holds no code, so raw app rights are enough, as
+	// on the sidebar card. The form app starts from the full template, as on a flow's page.
+	let buildAppItem = $derived(
+		(chatAvailable ? editRights.roleCanAuthor('raw_app') : editRights.capabilities.apps === 'full')
+			? { chat: chatAvailable, action: buildApp }
+			: undefined
+	)
+	// A role that cannot build agents gets no menu, as on a flow's page, but for the app.
 	let menuItems = $derived(
-		config != undefined && canAuthor
-			? agentMenuItems({
-					path,
-					canWrite: canEdit,
-					noCode: !canCode,
-					wsSpecific: agent?.state?.wsSpecific,
-					deployUiSettings: deployUiSettings.current,
-					onPermissions: () => shareModal?.openDrawer?.(path, 'resource'),
-					onDeploy: () => deploymentDrawer?.openDrawer(path, 'resource'),
-					onHistory: () => history?.open(),
-					onDelete: () => (deleteOpen = true)
-				}).map((item) => ({
-					label: item.displayName,
-					Icon: item.icon,
-					onclick: (e: MouseEvent) => item.action?.(e),
-					disabled: item.disabled,
-					color: item.type === 'delete' ? ('red' as const) : undefined
-				}))
-			: []
+		config == undefined
+			? []
+			: !canAuthor
+				? buildAppItem
+					? [
+							{
+								label: buildAppItem.chat ? 'Build chat app' : 'Build app',
+								Icon: LayoutDashboard,
+								onclick: buildApp
+							}
+						]
+					: []
+				: agentMenuItems({
+						path,
+						canWrite: canEdit,
+						noCode: !canCode,
+						wsSpecific: agent?.state?.wsSpecific,
+						deployUiSettings: deployUiSettings.current,
+						onPermissions: () => shareModal?.openDrawer?.(path, 'resource'),
+						onDeploy: () => deploymentDrawer?.openDrawer(path, 'resource'),
+						onHistory: () => history?.open(),
+						onDelete: () => (deleteOpen = true),
+						buildApp: buildAppItem
+					}).map((item) => ({
+						label: item.displayName,
+						Icon: item.icon,
+						onclick: (e: MouseEvent) => item.action?.(e),
+						disabled: item.disabled,
+						color: item.type === 'delete' ? ('red' as const) : undefined
+					}))
 	)
 </script>
 
@@ -319,15 +350,10 @@
 			{/if}
 		{/snippet}
 	</DetailPageHeader>
-	<!-- Below `lg` the split would squeeze the chat, so the panel's sections become tabs of the
-	     page, as on a script's or a flow's page. They cover the agent rather than replacing it:
-	     unmounting the host destroys the chat and any turn in flight, so the agent pane keeps one
-	     parent at every width. -->
-	{#if !wide && ws && config}
-		<Tabs
-			bind:selected={() => mobileTab, (t) => (pickedMobileTab = t)}
-			wrapperClass="flex-none no-scrollbar"
-		>
+	<!-- Tabs at every width, as a chat-mode flow's page has them. They cover the agent rather than
+	     replacing it: unmounting the host destroys the chat and any turn in flight. -->
+	{#if ws && config}
+		<Tabs bind:selected={() => tab, (t) => (pickedTab = t)} wrapperClass="flex-none no-scrollbar">
 			<Tab value="agent" label={testPane?.mode === 'chat' ? 'Chat' : 'Run form'} />
 			<Tab value="api" label="API" />
 			{#if chatAvailable}
@@ -335,22 +361,13 @@
 			{/if}
 		</Tabs>
 	{/if}
-	<div class="relative flex-1 min-h-0" bind:clientWidth>
-		<Splitpanes>
-			<Pane size={wide ? 65 : 100} minSize={50}>
-				<div class="h-full" inert={!wide && mobileTab !== 'agent'}>
-					{@render agentPane()}
-				</div>
-			</Pane>
-			{#if wide && ws && config}
-				<Pane size={35} minSize={15}>
-					{@render usePane(ws)}
-				</Pane>
-			{/if}
-		</Splitpanes>
-		{#if !wide && ws && config}
-			<div class={['absolute inset-0 z-10 bg-surface', mobileTab === 'agent' && 'hidden']}>
-				{@render usePane(ws, mobileTab === 'slack' ? 'slack' : 'api')}
+	<div class="relative flex-1 min-h-0">
+		<div class="h-full" inert={tab !== 'agent'}>
+			{@render agentPane()}
+		</div>
+		{#if ws && config}
+			<div class={['absolute inset-0 z-10 bg-surface', tab === 'agent' && 'hidden']}>
+				{@render usePane(tab === 'agent' ? 'api' : tab)}
 			</div>
 		{/if}
 	</div>
@@ -372,6 +389,11 @@
 			onOpenConfig={() => configModal?.open()}
 			onRunStarted={embedded || pendingRun ? runStarted : undefined}
 		>
+			{#snippet chatSidebarFooter({ expanded })}
+				{#if ws}
+					<BuildChatAppCard kind="agent" {path} workspace={ws} {expanded} {onNavigate} />
+				{/if}
+			{/snippet}
 			{#snippet viewForm({ schema, run, loading, actions })}
 				{#if config && !chatAvailable}
 					<Alert type="info" size="xs" title="Managed memory is off" class="mb-4">
@@ -408,10 +430,9 @@
 	{/key}
 {/snippet}
 
-{#snippet usePane(ws: string, section?: 'api' | 'slack')}
+{#snippet usePane(section: 'api' | 'slack')}
 	<AgentUsePanel
 		agentPath={path}
-		workspace={ws}
 		isAdmin={!!(operatingUser.current?.is_admin || operatingUser.current?.is_super_admin)}
 		chat={chatAvailable}
 		slackLoading={slack.loading && !slack.current}

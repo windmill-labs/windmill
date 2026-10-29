@@ -73,13 +73,54 @@ const DESCRIPTION_REWRITES: [tool: string, from: string, to: string][] = [
 	['set_workspace_settings', ' The user reviews the changes before they apply.', '']
 ]
 
+// The chat follows a backgrounded job in its jobs tray and tells the model when it ends; an
+// MCP client gets the job id back and follows it with get_run. Applied to every tool's
+// parameter of that name, and each must match at least once.
+const PARAM_REWRITES: [param: string, from: string, to: string][] = [
+	[
+		'background',
+		' — you will be notified when it finishes.',
+		': the result gives its job id, to follow with get_run.'
+	],
+	['wait_seconds', 'detaches into the background jobs tray', 'keeps running in the background']
+]
+
+// The step an MCP client should take next, said where the model decides on it: ChatGPT gives
+// the server instructions past their first lines little weight. The show tools exist only
+// for a client that draws cards, hence "if you have it".
+const GET_INSTRUCTIONS_FIRST = ' Call get_instructions first.'
+const SHOW_USER_RUN =
+	' When the user asked for this run, show it to them with show_run, if you have it.'
+const SHOW_DEPLOY_REVIEW =
+	' Once the draft works and the user wants to review it, show it with show_deploy_review, if you have it.'
+const DESCRIPTION_APPENDS: [tool: string, text: string][] = [
+	['write_script', GET_INSTRUCTIONS_FIRST],
+	['write_flow', GET_INSTRUCTIONS_FIRST],
+	['write_resource', GET_INSTRUCTIONS_FIRST],
+	['init_app', GET_INSTRUCTIONS_FIRST],
+	['run_script', ' Then show the run to the user with show_run, if you have it.'],
+	['run_flow', ' Then show the run to the user with show_run, if you have it.'],
+	['run_agent', ' Then show the run to the user with show_run, if you have it.'],
+	['test_run_script', SHOW_USER_RUN + SHOW_DEPLOY_REVIEW],
+	['test_run_flow', SHOW_USER_RUN + SHOW_DEPLOY_REVIEW],
+	['test_run_agent', SHOW_USER_RUN],
+	['list_runs', ' To show runs to the user, pass their ids to show_runs, if you have it.']
+]
+
 // A rewrite only proves its old sentence is still there; this catches one added next to it.
 const CHAT_ONLY_PROMISE = /argument form|the user (confirms|reviews|approves)/i
 
 function toolDefs() {
-	return globalToolsFor({ sessionPreview: false }).map((tool) => {
+	const unmatched = new Set(PARAM_REWRITES)
+	const unappended = new Set(DESCRIPTION_APPENDS.map(([name]) => name))
+	const defs = globalToolsFor({ sessionPreview: false }).map((tool) => {
 		const fn = tool.def.function
 		let description = fn.description ?? ''
+		for (const [name, text] of DESCRIPTION_APPENDS) {
+			if (name !== fn.name) continue
+			description += text
+			unappended.delete(name)
+		}
 		for (const [name, from, to] of DESCRIPTION_REWRITES) {
 			if (name !== fn.name) continue
 			if (!description.includes(from)) {
@@ -90,14 +131,31 @@ function toolDefs() {
 		if (CHAT_ONLY_PROMISE.test(description)) {
 			throw new Error(`${fn.name}: its description promises a chat-only confirmation`)
 		}
+		const parameters = structuredClone(fn.parameters) as {
+			properties?: Record<string, { description?: string }>
+		}
+		for (const rewrite of PARAM_REWRITES) {
+			const [param, from, to] = rewrite
+			const prop = parameters.properties?.[param]
+			if (!prop?.description?.includes(from)) continue
+			prop.description = prop.description.replace(from, to)
+			unmatched.delete(rewrite)
+		}
 		return {
 			name: fn.name,
 			description,
-			parameters: fn.parameters,
+			parameters,
 			// The session's own read-only marker: what plan mode lets through.
 			read_only: tool.planModeSafe === true
 		}
 	})
+	for (const [param, from] of unmatched) {
+		throw new Error(`no ${param} parameter contains "${from}" any more`)
+	}
+	for (const name of unappended) {
+		throw new Error(`${name} is no longer a session tool`)
+	}
+	return defs
 }
 
 const WRITABLE = '{{writable_folders}}'

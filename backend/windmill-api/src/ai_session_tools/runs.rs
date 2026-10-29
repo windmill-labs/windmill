@@ -1221,10 +1221,8 @@ async fn resolve_agent(
             "\"{path}\" is a {resource_type} resource, not an AI agent."
         ));
     }
-    let target = RunTarget::Agent {
-        path: path.to_string(),
-        memory_id: memory_id.map(String::from),
-    };
+    let target =
+        RunTarget::Agent { path: path.to_string(), memory_id: memory_id.map(String::from) };
     // A turn of a conversation stays on the card: the agent's page starts one of its own.
     Ok(agent_resolved(
         target,

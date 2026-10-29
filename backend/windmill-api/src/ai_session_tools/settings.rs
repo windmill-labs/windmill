@@ -99,8 +99,7 @@ async fn set_workspace_settings(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             }
         };
         if array(dry_run.get("changes")).is_empty() {
-            let warnings: Vec<String> =
-                array(dry_run.get("warnings")).iter().map(js_str).collect();
+            let warnings: Vec<String> = array(dry_run.get("warnings")).iter().map(js_str).collect();
             let warnings = if warnings.is_empty() {
                 String::new()
             } else {
@@ -124,7 +123,10 @@ async fn set_workspace_settings(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         Err(e) => {
             let error = api_message(&e);
             let mut failed = Map::new();
-            failed.insert("content".into(), json!("Failed to change workspace settings"));
+            failed.insert(
+                "content".into(),
+                json!("Failed to change workspace settings"),
+            );
             failed.insert("error".into(), json!(error));
             ctx.effect(Effect::Status(failed));
             return Ok(json!({ "success": false, "error": error }).to_string());
