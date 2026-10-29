@@ -89,7 +89,7 @@
 				const created = await createPendingServiceAccount(targetWorkspace, runsAs)
 				if (created) email = created
 			} catch (e) {
-				sendUserToast(`Could not create ${runsAs}: ${e?.body ?? e}`, true)
+				sendUserToast(`Could not create ${runsAs}: ${e?.body ?? e?.message ?? e}`, true)
 				return
 			} finally {
 				deploying = false

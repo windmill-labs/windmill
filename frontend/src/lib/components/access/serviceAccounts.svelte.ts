@@ -134,11 +134,13 @@ export async function createPendingServiceAccount(
 	const account = getPendingServiceAccount(workspace, permissionedAs)
 	if (!account || !permissionedAs) return undefined
 	const { username } = account
-	const exists = await UserService.getUser({ workspace, username }).then(
-		() => true,
-		() => false
-	)
-	if (!exists) {
+	const existing = await UserService.getUser({ workspace, username }).catch(() => undefined)
+	// Someone may have taken the name since it was picked: granting to it would hand a person, or
+	// a disabled account, what was meant for the new one.
+	if (existing && (!existing.is_service_account || existing.disabled)) {
+		throw new Error(`${username} is already taken by a user that is not an enabled service account`)
+	}
+	if (!existing) {
 		await WorkspaceService.createServiceAccount({
 			workspace,
 			requestBody: { username, operator: true }
@@ -184,7 +186,7 @@ export async function createPolicyServiceAccount(
 		if (email) policy.on_behalf_of_email = email
 		return true
 	} catch (e) {
-		sendUserToast(`Could not create ${policy.on_behalf_of}: ${e?.body ?? e}`, true)
+		sendUserToast(`Could not create ${policy.on_behalf_of}: ${e?.body ?? e?.message ?? e}`, true)
 		return false
 	}
 }
