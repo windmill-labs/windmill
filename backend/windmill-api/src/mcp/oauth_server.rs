@@ -1085,6 +1085,14 @@ pub async fn gateway_oauth_approve(
     if workspace_ids.is_empty() {
         workspace_ids.extend(form.workspace_id);
     }
+    // A selection of scripts and flows names paths, which only mean something in one workspace.
+    if !scope.split_whitespace().any(|s| s == "mcp:all")
+        && (form.all_workspaces || workspace_ids.len() > 1)
+    {
+        return Err(Error::BadRequest(
+            "Selected scripts and flows come from one workspace: pick one".to_string(),
+        ));
+    }
     let workspace_id = if form.all_workspaces {
         None
     } else {

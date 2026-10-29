@@ -140,11 +140,14 @@
 			The client can run these scripts and flows and nothing else: it cannot explore the workspace,
 			read runs, build, or run anything outside the selection.
 		</p>
-		<McpScopeSelector
-			{workspaceId}
-			bind:scope={selection}
-			initialScope={initialSelection}
-			runnablesOnly
-		/>
+		<!-- A selection names paths of one workspace, so switching workspace starts it over. -->
+		{#key workspaceId}
+			<McpScopeSelector
+				{workspaceId}
+				bind:scope={selection}
+				initialScope={initialSelection}
+				runnablesOnly
+			/>
+		{/key}
 	{/if}
 </div>
