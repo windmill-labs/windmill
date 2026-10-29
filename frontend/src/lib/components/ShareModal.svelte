@@ -22,6 +22,7 @@
 	import Toggle from './Toggle.svelte'
 	import { Trash } from 'lucide-svelte'
 	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
+	import GroupsPageLink from './GroupsPageLink.svelte'
 	import { useScheduleLock, useTriggerLock } from '$lib/operatorWriteRights'
 	import {
 		useOperatingWorkspace,
@@ -336,6 +337,9 @@
 								disabled={!newOwner}
 								on:click={() => addAcl(newOwner, write)}>Add member</Button
 							>
+						</div>
+						<div class="flex justify-end pt-1">
+							<GroupsPageLink />
 						</div>
 					{/if}
 					{#if acls?.length > 0}

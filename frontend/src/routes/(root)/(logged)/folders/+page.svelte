@@ -6,7 +6,6 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import FolderEditorDrawer from '$lib/components/FolderEditorDrawer.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import SharingTabs from '$lib/components/SharingTabs.svelte'
 	import { userStore, workspaceStore, roleCapabilities } from '$lib/stores'
 	import { Button, Drawer, DrawerContent, EmptyState, Skeleton } from '$lib/components/common'
 	import FolderInfo from '$lib/components/FolderInfo.svelte'
@@ -106,7 +105,6 @@
 	</div>
 {:else}
 	<CenteredPage>
-		<SharingTabs selected="folders" />
 		<PageHeader
 			title="Folders"
 			tooltip="Folders allow to group items such as scripts/flows/resources/schedule together and to grant homogenous RBAC permissions to groups and individual users towards them."
