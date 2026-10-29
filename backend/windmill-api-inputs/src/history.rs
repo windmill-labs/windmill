@@ -275,13 +275,17 @@ fn inline_args(alias: &str) -> String {
 /// created a whole period before it starts. A queued workflow-as-code run's `started_at` is its
 /// current segment's; its first start is in `extras`. A zombie script's start is stamped again
 /// by the pull after its recovery, later than the runs it started before; its restart counter
-/// marks it, and its creation is the key that precedes them. The queue, completed and counter
-/// rows carry no row-level security: this also works for a run the viewer cannot read.
+/// marks it, and its creation is the key that precedes them. When the viewer cannot read that
+/// creation, only the queue row still has it, while the run is not finished; after that no key
+/// readable to them precedes the runs, so it sorts last. The queue, completed and counter rows
+/// carry no row-level security: this also works for a run the viewer cannot read.
 fn start_key(id: &str, created: &str) -> String {
     format!(
         "COALESCE(\
             CASE WHEN EXISTS (SELECT 1 FROM zombie_job_counter z WHERE z.job_id = {id}) \
-                 THEN {created} END, \
+                 THEN COALESCE({created}, \
+                     (SELECT created_at FROM v2_job_queue WHERE id = {id} AND workspace_id = $2), \
+                     'epoch'::timestamptz) END, \
             (SELECT COALESCE((extras->>'wac_first_started_at')::timestamptz, started_at) \
              FROM v2_job_queue WHERE id = {id} AND workspace_id = $2), \
             (SELECT COALESCE(started_at, completed_at) FROM v2_job_completed \

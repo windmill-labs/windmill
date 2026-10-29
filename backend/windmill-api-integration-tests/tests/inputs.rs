@@ -347,6 +347,46 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
         in_loop.push(insert_run(&db, run).await?);
     }
 
+    // A script of test-user, restarted after a zombie recovery, that called the helper before
+    // its new start, between test-user-2's own runs of the helper.
+    let private_caller = insert_run(
+        &db,
+        Run { path: "u/test-user/private_caller", at: 40, ..Run::default() },
+    )
+    .await?;
+    let private_call = insert_run(
+        &db,
+        Run {
+            path: "u/test-user-2/helper",
+            permissioned_as: "u/test-user-2",
+            parent_job: Some(private_caller),
+            innermost_root: Some(private_caller),
+            at: 41,
+            ..Run::default()
+        },
+    )
+    .await?;
+    sqlx::query(
+        "UPDATE v2_job_completed SET started_at = started_at + interval '10 seconds' WHERE id = $1",
+    )
+    .bind(private_caller)
+    .execute(&db)
+    .await?;
+    sqlx::query("INSERT INTO zombie_job_counter (job_id, counter) VALUES ($1, 1)")
+        .bind(private_caller)
+        .execute(&db)
+        .await?;
+    let mut helper_runs = vec![];
+    for at in [45, 46] {
+        let run = Run {
+            path: "u/test-user-2/helper",
+            permissioned_as: "u/test-user-2",
+            at,
+            ..Run::default()
+        };
+        helper_runs.push(insert_run(&db, run).await?);
+    }
+
     // A flow sharing the script's path: its step is a flow step, not a run the parent lists.
     let same_path_flow = insert_run(
         &db,
@@ -579,6 +619,24 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     );
     // Dated by the user's first run, not by the flow run they cannot read.
     assert_eq!(steps[0]["created_at"], opened[0]["created_at"]);
+    // A restarted caller they cannot read has no key before its calls but the list's end, the
+    // same on every page size.
+    let all_helper = "&runnable_id=u/test-user-2/helper&started_by=manual,flow_step,script_call";
+    let whole = fetch("SECRET_TOKEN_2", all_helper.to_string()).await?;
+    assert_eq!(
+        ids(&whole),
+        [helper_runs[1], helper_runs[0], private_flow, private_call].map(|id| id.to_string())
+    );
+    let mut paged = vec![];
+    for page in 1..=4 {
+        let one = fetch(
+            "SECRET_TOKEN_2",
+            format!("{all_helper}&per_page=1&page={page}"),
+        )
+        .await?;
+        paged.extend(ids(&one));
+    }
+    assert_eq!(paged, ids(&whole));
 
     let busy = "&runnable_id=f/test/busy&started_by=flow_step";
     let listed = fetch("SECRET_TOKEN", busy.to_string()).await?;
