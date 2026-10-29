@@ -1983,7 +1983,7 @@
 				<div class="border h-full rounded-md" bind:clientHeight={wrapperHeight}>
 					<Splitpanes>
 						<Pane bind:size={graphPaneSize} minSize={30}>
-							<div class="bg-surface-secondary h-full max-h-screen">
+							<div class="bg-surface-secondary h-full max-h-[1200px]">
 								<div class="flex flex-col" bind:clientHeight={retryStatusHeight}>
 									{#each Object.values(retryStatus?.val ?? {}) as count}
 										{#if count}
@@ -2003,7 +2003,7 @@
 									triggerNode={true}
 									download={!hideDownloadInGraph}
 									minHeight={wrapperHeight - retryStatusHeight}
-									outerDivClass="max-h-screen"
+									outerDivClass="max-h-[1200px]"
 									success={jobId != undefined && isSuccess(job?.['success'])}
 									flowModuleStates={localModuleStates}
 									bind:expandedSubflows
@@ -2053,7 +2053,9 @@
 							</div>
 						</Pane>
 						<Pane bind:size={detailsPaneSize} minSize={25} class="!overflow-visible">
-							<div class="pt-1 min-h-[min(700px,100vh)] max-h-screen flex flex-col h-full relative">
+							<!-- A fixed height, not a cap: the node status content fills it through h-full, which
+							     resolves only against a definite height -->
+							<div class="pt-1 h-[1200px] flex flex-col relative">
 								<Tabs bind:selected={rightColumnSelect} wrapperClass="shrink-0">
 									{#if !hideTimeline}
 										<Tab value="timeline" label="Timeline" />
@@ -2067,7 +2069,7 @@
 									{/if}
 									<Tab value="tracing" label="Tracing" />
 								</Tabs>
-								<div class="overflow-auto">
+								<div class="overflow-auto grow min-h-0">
 									{#if rightColumnSelect == 'timeline'}
 										<FlowTimeline
 											{localModuleStates}
@@ -2084,7 +2086,7 @@
 											durationStatuses={localDurationStatuses}
 										/>
 									{:else if rightColumnSelect == 'node_status'}
-										<div class="p-4 grow flex flex-col gap-6">
+										<div class="p-4 h-full flex flex-col gap-6">
 											{#if selectedNode?.startsWith(AI_TOOL_MESSAGE_PREFIX)}
 												{@const [, agentModuleId, toolCallIndex] = selectedNode.split('-')}
 												{@const agentNode = localModuleStates?.[agentModuleId]}
@@ -2198,13 +2200,13 @@
 															</div>
 														</div>
 													{/if}
-													<div class="flex flex-col gap-2">
+													<div class="flex flex-col gap-2 flex-1 min-h-0">
 														{#if node.flow_jobs_results}
 															<span class="pl-1 text-xs font-medium text-emphasis pt-4"
 																>Selected subflow</span
 															>
 														{/if}
-														<div class="flex flex-col gap-6">
+														<div class="flex flex-col gap-6 flex-1 min-h-0">
 															<div class="flex flex-col gap-6">
 																<div class="flex gap-2 min-w-0 w-full items-center">
 																	<ModuleStatus
