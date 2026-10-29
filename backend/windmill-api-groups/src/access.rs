@@ -591,6 +591,7 @@ async fn set_deployers(
             )));
         }
     }
+    let mut tx = db.begin().await?;
     let updated = sqlx::query_scalar!(
         "UPDATE usr SET deployers = $3 WHERE workspace_id = $1 AND username = $2
          AND is_service_account RETURNING username",
@@ -598,7 +599,7 @@ async fn set_deployers(
         username,
         &deployers
     )
-    .fetch_optional(&db)
+    .fetch_optional(&mut *tx)
     .await?;
     if updated.is_none() {
         return Err(Error::NotFound(format!(
@@ -607,7 +608,7 @@ async fn set_deployers(
         )));
     }
     windmill_audit::audit_oss::audit_log(
-        &db,
+        &mut *tx,
         &authed,
         "users.set_deployers",
         windmill_audit::ActionKind::Update,
@@ -616,6 +617,7 @@ async fn set_deployers(
         Some([("deployers", deployers.join(",").as_str())].into()),
     )
     .await?;
+    tx.commit().await?;
     Ok(format!("deployers of {} updated", body.principal))
 }
 
