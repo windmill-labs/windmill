@@ -24,6 +24,9 @@
 	let { runs, folder, onCollapse, onFocusItem }: Props = $props()
 
 	let data = $derived(runs.current)
+	// The failed count also holds runs an item has since recovered from; Ask AI attaches only
+	// the items still failing, so it shows only when there is one.
+	let failing = $derived(data?.items.filter((i) => i.status === 'failure') ?? [])
 	let windowText = $derived(data ? windowLabel(data.window_hours) : '')
 	let prefixes = $derived(data && !folder ? collisionPrefixes(data.items) : new Map())
 </script>
@@ -45,15 +48,12 @@
 					{#if data.failed_runs > 0}
 						<span class="group/failed relative">
 							<span class="text-red-600 dark:text-red-400">{data.failed_runs}</span> failed
-							{#if canAskAI()}
+							{#if canAskAI() && failing.length > 0}
 								<button
 									class="absolute left-full top-1/2 -translate-y-1/2 ml-1 h-5 px-1.5 rounded text-[11px] font-medium text-ai bg-ai/10 hover:bg-ai/15 whitespace-nowrap opacity-0 pointer-events-none group-hover/failed:opacity-100 group-hover/failed:pointer-events-auto focus:opacity-100 focus:pointer-events-auto"
 									onclick={() =>
 										askAI(
-											{
-												kind: 'failing',
-												items: data.items.filter((i) => i.status === 'failure')
-											},
+											{ kind: 'failing', items: failing },
 											'Investigate why these items are failing'
 										)}
 								>

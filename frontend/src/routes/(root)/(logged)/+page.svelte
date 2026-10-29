@@ -141,7 +141,7 @@
 	// A run's item is shown in place in the list, among its folder's; one the list does not show
 	// opens instead.
 	async function revealRunItem(item: RecentRunItem) {
-		if (!(await itemsList?.revealItem(item.path))) await goto(itemHref(item))
+		if (!(await itemsList?.revealItem(item.path, item.kind))) await goto(itemHref(item))
 	}
 
 	// A workspace switch keeps this page mounted and swaps its contents under the reader, which

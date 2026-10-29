@@ -20,6 +20,20 @@ const SCAN_LIMIT: i64 = 5000;
 const MAX_ITEMS: usize = 50;
 const RUNS_PER_ITEM: usize = 10;
 
+/// The root runs the panel lists, on `j` (`v2_job`). An agent's run is filed under the agent's
+/// path as a raw flow; an editor's flow preview also carries a path, so only a raw flow whose
+/// path names a saved agent counts.
+const LISTED_ROOT_RUN: &str = "j.workspace_id = $1
+    AND j.parent_job IS NULL
+    AND j.runnable_path IS NOT NULL
+    AND ($3::text IS NULL OR starts_with(j.runnable_path, $3))
+    AND ($5::text[] IS NULL OR j.tag = ANY($5))
+    AND (j.kind IN ('script', 'singlestepflow', 'flow')
+         OR (j.kind = 'flowpreview' AND EXISTS (
+             SELECT 1 FROM resource res
+             WHERE res.workspace_id = j.workspace_id AND res.path = j.runnable_path
+               AND res.resource_type = 'ai_agent')))";
+
 #[derive(Deserialize)]
 pub(crate) struct RecentRunsQuery {
     folder: Option<String>,
@@ -73,21 +87,28 @@ pub(crate) async fn list_recent_runs(
     let mut tx = user_db.begin(&authed).await?;
 
     // A run counts when it completed in the window or is running now, whenever it was queued:
-    // a schedule is queued a full period ahead of its run. An agent's run is filed under the
-    // agent's path as a raw flow; an editor's flow preview also carries a path, so only a raw
-    // flow whose path names a saved agent counts. A `singlestepflow` wraps a script or a flow.
+    // a schedule is queued a full period ahead of its run. The completed side is filtered and
+    // limited before the join below, newest completion first, so a poll walks the
+    // (workspace_id, completed_at) index for at most SCAN_LIMIT root runs instead of sorting
+    // the whole window, child jobs included. A `singlestepflow` wraps a script or a flow.
     let scope_tags =
         get_scope_tags(&authed).map(|v| v.into_iter().map(str::to_string).collect::<Vec<_>>());
-    let runs = sqlx::query_as::<_, RecentRun>(
+    let runs = sqlx::query_as::<_, RecentRun>(&format!(
         "WITH ran AS (
-            SELECT c.id, c.status::text AS status, c.started_at, c.duration_ms::bigint AS duration_ms
-            FROM v2_job_completed c
-            WHERE c.workspace_id = $1 AND c.completed_at > now() - make_interval(hours => $2)
+            (SELECT c.id, c.status::text AS status, c.started_at,
+                    c.duration_ms::bigint AS duration_ms, c.completed_at
+             FROM v2_job_completed c
+             JOIN v2_job j ON j.id = c.id
+             WHERE c.workspace_id = $1 AND c.completed_at > now() - make_interval(hours => $2)
+               AND {LISTED_ROOT_RUN}
+             ORDER BY c.completed_at DESC
+             LIMIT $4)
             UNION ALL
-            SELECT q.id, NULL, q.started_at, NULL
-            FROM v2_job_queue q
-            WHERE q.workspace_id = $1 AND q.running
-              AND NOT EXISTS (SELECT 1 FROM v2_job_completed c WHERE c.id = q.id)
+            (SELECT q.id, NULL, q.started_at, NULL, NULL
+             FROM v2_job_queue q
+             JOIN v2_job j ON j.id = q.id
+             WHERE q.workspace_id = $1 AND q.running AND {LISTED_ROOT_RUN}
+               AND NOT EXISTS (SELECT 1 FROM v2_job_completed c WHERE c.id = q.id))
          )
          SELECT j.id, j.runnable_path AS path,
             CASE WHEN j.kind = 'flow' THEN 'flow'
@@ -107,19 +128,9 @@ pub(crate) async fn list_recent_runs(
             r.duration_ms
          FROM ran r
          JOIN v2_job j ON j.id = r.id
-         WHERE j.workspace_id = $1
-           AND j.parent_job IS NULL
-           AND j.runnable_path IS NOT NULL
-           AND ($3::text IS NULL OR starts_with(j.runnable_path, $3))
-           AND ($5::text[] IS NULL OR j.tag = ANY($5))
-           AND (j.kind IN ('script', 'singlestepflow', 'flow')
-                OR (j.kind = 'flowpreview' AND EXISTS (
-                    SELECT 1 FROM resource res
-                    WHERE res.workspace_id = j.workspace_id AND res.path = j.runnable_path
-                      AND res.resource_type = 'ai_agent')))
-         ORDER BY ran_at DESC
-         LIMIT $4",
-    )
+         ORDER BY r.completed_at DESC NULLS FIRST
+         LIMIT $4"
+    ))
     .bind(&w_id)
     .bind(WINDOW_HOURS)
     .bind(&folder)

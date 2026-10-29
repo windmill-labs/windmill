@@ -183,6 +183,7 @@
 	data-row-selection-key={rowSelection?.key}
 	data-row-keyboard-selected={keyboardSelected ? 'true' : undefined}
 	data-row-path={path}
+	data-row-kind={kind}
 	class={twMerge(
 		'group/row w-full inline-flex items-center gap-4 px-4 py-3 transition-shadow duration-300 data-[revealed]:ring-2 data-[revealed]:ring-inset data-[revealed]:ring-accent',
 		unruled

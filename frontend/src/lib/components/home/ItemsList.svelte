@@ -1260,20 +1260,23 @@
 	const REVEAL_RING_MS = 1600
 
 	// A pipeline's steps have no rows of their own: the folder's Pipeline row stands for them.
-	function findRow(path: string) {
+	// The kind is part of the match, since a script and a flow can share a path.
+	function findRow(path: string, kind: string) {
+		const own = cardEl?.querySelector<HTMLElement>(
+			`[data-row-path="${CSS.escape(path)}"][data-row-kind="${CSS.escape(kind)}"]`
+		)
+		if (own) return own
 		const folder = path.startsWith('f/') ? path.split('/')[1] : undefined
-		const targets = folder && pipelineFolders.has(folder) ? [path, `f/${folder}`] : [path]
-		for (const target of targets) {
-			const row = cardEl?.querySelector<HTMLElement>(`[data-row-path="${CSS.escape(target)}"]`)
-			if (row) return row
-		}
-		return null
+		if (!folder || !pipelineFolders.has(folder)) return null
+		return (
+			cardEl?.querySelector<HTMLElement>(`[data-row-path="${CSS.escape(`f/${folder}`)}"]`) ?? null
+		)
 	}
 
-	/** Scrolls the list to `path`'s row (its pipeline's, for a pipeline step), opening its
-	 * folders, and rings it for a moment. Resolves false when the list does not show it. */
-	export async function revealItem(path: string): Promise<boolean> {
-		let row = findRow(path)
+	/** Scrolls the list to the `kind` item at `path` (its pipeline's row, for a pipeline step),
+	 * opening its folders, and rings it for a moment. Resolves false when the list does not show it. */
+	export async function revealItem(path: string, kind: string): Promise<boolean> {
+		let row = findRow(path, kind)
 		if (!row && !flatList) {
 			const segments = path.split('/')
 			const closed = segments
@@ -1290,7 +1293,7 @@
 			const deadline = Date.now() + (closed.length > 0 ? REVEAL_WAIT_MS : REVEAL_GRACE_MS)
 			while (!row && Date.now() < deadline) {
 				await new Promise((r) => setTimeout(r, 50))
-				row = findRow(path)
+				row = findRow(path, kind)
 			}
 		}
 		if (!row) return false
