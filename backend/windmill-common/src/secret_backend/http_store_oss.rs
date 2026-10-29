@@ -40,6 +40,10 @@ impl SecretBackend for HttpStoreBackend {
     }
 }
 
+pub fn validate_http_store_settings(_settings: &HttpStoreSettings) -> Result<()> {
+    Ok(())
+}
+
 pub async fn test_http_store_connection(
     _settings: &HttpStoreSettings,
     _workspace_id: &str,

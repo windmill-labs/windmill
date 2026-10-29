@@ -1021,6 +1021,15 @@ async fn run_setting_pre_write_hook(
         // The instance AI config is written as an untyped blob through this generic
         // endpoint, so it never passes the typed check the workspace handler applies.
         // Rates that reach a cost total unbounded would make it negative or infinite.
+        // Settings that fail validation would only surface on the next secret read, as an error
+        // on every secret of every workspace.
+        windmill_common::global_settings::SECRET_BACKEND_SETTING => {
+            if let Ok(windmill_common::secret_backend::SecretBackendConfig::HttpStore(settings)) =
+                serde_json::from_value(value.clone())
+            {
+                windmill_common::secret_backend::validate_http_store_settings(&settings)?;
+            }
+        }
         AI_CONFIG_SETTING => {
             windmill_ai::ai_types::validate_model_pricing_json(value)
                 .map_err(error::Error::BadRequest)?;
