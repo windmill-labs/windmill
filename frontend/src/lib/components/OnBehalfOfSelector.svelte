@@ -35,6 +35,7 @@
 	import { userStore } from '$lib/stores'
 	import { UserService, type User } from '$lib/gen'
 	import TextInput from './text_input/TextInput.svelte'
+	import { useDeployAs } from './access/deployAs.svelte'
 
 	interface Props {
 		targetWorkspace: string
@@ -137,7 +138,20 @@
 		myPermissionedAs ?? ($userStore?.username ? `u/${$userStore.username}` : undefined)
 	)
 
-	let activeUsers = $derived(users.filter((u) => !u.disabled))
+	// Without `canPreserve`, the service accounts whose deployers list admits the user are still
+	// theirs to pick or keep.
+	const deployAs = useDeployAs(() => targetWorkspace)
+	const canPick = $derived(canPreserve || deployAs.current.length > 0)
+	function allowed(value: string | undefined): boolean {
+		const name = resolveDisplayName(value)
+		return canPreserve || (!!name && deployAs.current.includes(name))
+	}
+
+	let activeUsers = $derived(
+		users.filter(
+			(u) => !u.disabled && (canPreserve || deployAs.current.includes(`u/${u.username}`))
+		)
+	)
 	let filteredUsers = $derived(
 		searchQuery
 			? activeUsers.filter((u) => {
@@ -155,10 +169,10 @@
 	// When no target is set but a folder default is, preselect that as a custom value.
 	// We track `users.length` so the effect re-runs once the async user list loads.
 	$effect(() => {
-		if (selected !== undefined || !canPreserve) return
-		if (targetValue) {
+		if (selected !== undefined) return
+		if (targetValue && allowed(targetValue)) {
 			onSelect('target')
-		} else if (folderDefault && users.length > 0) {
+		} else if (folderDefault && allowed(folderDefault) && users.length > 0) {
 			const username = folderDefault.startsWith('u/') ? folderDefault.slice(2) : folderDefault
 			const email = users.find((u) => u.username === username)?.email ?? folderDefault
 			onSelect('custom', { email, permissionedAs: folderDefault })
@@ -193,7 +207,7 @@
 	})
 </script>
 
-{#if readOnlyWithoutPreserve && !canPreserve}
+{#if readOnlyWithoutPreserve && !canPick}
 	<span class="inline-flex items-center gap-1 text-xs text-secondary">
 		<UserIcon class="w-4 h-4" />
 		{myDisplayName}
@@ -226,10 +240,12 @@
 				<!-- Target option -->
 				{#if targetValue}
 					<button
-						class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve
+						class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!allowed(
+							targetValue
+						)
 							? 'opacity-50 cursor-not-allowed'
 							: ''}"
-						disabled={!canPreserve}
+						disabled={!allowed(targetValue)}
 						onclick={() => onSelect('target')}
 					>
 						<Check class="w-3 h-3 {selected === 'target' ? 'opacity-100' : 'opacity-0'}" />
@@ -248,10 +264,10 @@
 				</button>
 				<!-- Custom / Pick from workspace -->
 				<button
-					class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPreserve
+					class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPick
 						? 'opacity-50 cursor-not-allowed'
 						: ''}"
-					disabled={!canPreserve}
+					disabled={!canPick}
 					onclick={() => {
 						closePopover()
 						openModal()
@@ -264,7 +280,7 @@
 					{:else}
 						<Check class="w-3 h-3 opacity-0" />
 						<Users class="w-3 h-3 text-tertiary" />
-						<span>Pick from workspace&hellip;</span>
+						<span>{canPreserve ? 'Pick from workspace' : 'Pick a service account'}&hellip;</span>
 					{/if}
 				</button>
 			</div>

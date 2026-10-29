@@ -25094,6 +25094,96 @@ paths:
                     type: boolean
                 required: [items, has_more]
 
+  /w/{workspace}/access/deployers:
+    get:
+      summary: who may deploy items that run as a service account
+      operationId: getServiceAccountDeployers
+      tags:
+        - granular_acl
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: principal
+          description: "`u/<service account>`"
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: entries are `u/<user>`, `g/<group>` or `f/<folder>` (its writers)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deployers:
+                    type: array
+                    items:
+                      type: string
+                required: [deployers]
+
+  /w/{workspace}/access/set_deployers:
+    post:
+      summary: set who may deploy items that run as a service account (admins only)
+      operationId: setServiceAccountDeployers
+      tags:
+        - granular_acl
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                principal:
+                  description: "`u/<service account>`"
+                  type: string
+                deployers:
+                  type: array
+                  items:
+                    type: string
+              required: [principal, deployers]
+      responses:
+        "200":
+          description: deployers updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/access/deploy_as:
+    get:
+      summary: the service accounts the caller may deploy as
+      operationId: listDeployAs
+      tags:
+        - granular_acl
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: service accounts, and whether the caller may deploy as anyone
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  anyone:
+                    description: admins and wm_deployers may deploy as any member
+                    type: boolean
+                  service_accounts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        username:
+                          type: string
+                        email:
+                          type: string
+                      required: [username, email]
+                required: [anyone, service_accounts]
+
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
       summary: get granular acls

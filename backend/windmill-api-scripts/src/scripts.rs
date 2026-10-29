@@ -1188,7 +1188,8 @@ async fn resolve_folder_default_identity(
     db: &DB,
 ) -> Result<Option<(String, String, (Option<String>, Option<String>))>> {
     let Some((email, permissioned_as)) =
-        windmill_common::folders::resolve_folder_default_on_behalf_of(db, w_id, path).await?
+        windmill_common::folders::resolve_folder_default_on_behalf_of(authed, db, w_id, path)
+            .await?
     else {
         return Ok(None);
     };
@@ -1409,16 +1410,14 @@ async fn create_script_internal<'c>(
     // deploy taking a second connection while holding `tx` lets N concurrent deploys hold the
     // whole pool between them and each wait out the acquire timeout for one more.
     let explicit_preserve = (ns.on_behalf_of_email.is_some() || ns.on_behalf_of.is_some())
-        && ns.preserve_on_behalf_of.unwrap_or(false)
-        && windmill_common::can_preserve_on_behalf_of(&authed);
+        && ns.preserve_on_behalf_of.unwrap_or(false);
     // Held rather than raised: a rule naming a principal that no longer exists fails here, and
     // must fail only a first deploy, which is all the default applies to.
-    let folder_default =
-        if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
-            resolve_folder_default_identity(&authed, &w_id, &ns.path, &db).await
-        } else {
-            Ok(None)
-        };
+    let folder_default = if !explicit_preserve {
+        resolve_folder_default_identity(&authed, &w_id, &ns.path, &db).await
+    } else {
+        Ok(None)
+    };
     // Resolved here rather than at the INSERT so the no-op check below compares the identity
     // that would actually be stored: the parent row holds only the principal, while a
     // preserving push may name that same principal by address alone.
@@ -2740,7 +2739,6 @@ async fn create_script_internal<'c>(
         if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
             resolved_on_behalf_of.as_deref(),
             ns.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
             &authed_principal,
         ) {
             audit_log(
@@ -2788,7 +2786,6 @@ async fn create_script_internal<'c>(
         if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
             resolved_on_behalf_of.as_deref(),
             ns.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
             &authed_principal,
         ) {
             audit_log(

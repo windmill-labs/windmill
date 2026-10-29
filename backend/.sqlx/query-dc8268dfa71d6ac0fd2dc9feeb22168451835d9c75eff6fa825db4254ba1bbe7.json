@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT deployers FROM usr WHERE workspace_id = 'test-workspace' AND username = 'sa-bot'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "deployers",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "dc8268dfa71d6ac0fd2dc9feeb22168451835d9c75eff6fa825db4254ba1bbe7"
+}

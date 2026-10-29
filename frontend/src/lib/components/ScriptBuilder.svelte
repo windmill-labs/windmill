@@ -1,5 +1,6 @@
 <script lang="ts">
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
+	import { useDeployAs } from '$lib/components/access/deployAs.svelte'
 	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import {
@@ -236,6 +237,7 @@
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
 	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
+	const deployAs = useDeployAs(() => $operatingWorkspace)
 	const indicatorPath = $derived(autosavePath ?? userDraftPath)
 
 	// The shared `workerTags` store caches tags for the navigation workspace. A
@@ -675,7 +677,8 @@
 				permissionedAs: script.on_behalf_of,
 				savedEmail: deployed?.on_behalf_of_email,
 				savedPermissionedAs: deployed?.on_behalf_of,
-				folderDefault: folderDefault.value
+				folderDefault: folderDefault.value,
+				deployAs: deployAs.current
 			})
 		) {
 			deployDialogStay = stay

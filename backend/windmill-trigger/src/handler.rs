@@ -574,13 +574,13 @@ async fn create_trigger<T: TriggerCrud>(
     let new_path = new_trigger.base.path.clone();
     let labels = new_trigger.base.labels.clone();
 
-    // If the caller did not preserve a value but the user can preserve, fall back
-    // to the folder's default_permissioned_as rule (create-time only).
+    // If the caller did not preserve a value, fall back to the folder's
+    // default_permissioned_as rule (create-time only) when they may deploy as it.
     let explicit_preserve = new_trigger.base.permissioned_as.is_some()
-        && new_trigger.base.preserve_permissioned_as.unwrap_or(false)
-        && windmill_common::can_preserve_on_behalf_of(&authed);
-    if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
-        if let Some(default) = windmill_common::folders::resolve_folder_default_permissioned_as(
+        && new_trigger.base.preserve_permissioned_as.unwrap_or(false);
+    if !explicit_preserve {
+        if let Some(default) = windmill_common::folders::folder_default_for_deploy(
+            &authed,
             &db,
             &workspace_id,
             &new_trigger.base.path,
@@ -591,6 +591,10 @@ async fn create_trigger<T: TriggerCrud>(
             new_trigger.base.preserve_permissioned_as = Some(true);
         }
     }
+    new_trigger
+        .base
+        .check_deploy_as(&authed, &workspace_id, &db)
+        .await?;
 
     // Reject a forged superadmin run identity in a preserved permissioned_as
     // (the sentinel guard; a trigger's email is derived from it at execution).
@@ -598,9 +602,8 @@ async fn create_trigger<T: TriggerCrud>(
     windmill_common::auth::validate_on_behalf_of(Some(&resolved_permissioned_as), None)?;
 
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
-        new_trigger.base.permissioned_as.as_deref(),
+        Some(&resolved_permissioned_as),
         new_trigger.base.preserve_permissioned_as.unwrap_or(false),
-        &authed,
         &authed.username,
     );
 
@@ -862,15 +865,18 @@ async fn update_trigger<T: TriggerCrud>(
     let new_path = edit_trigger.base.path.to_string();
     let labels = edit_trigger.base.labels.clone();
 
+    edit_trigger
+        .base
+        .check_deploy_as(&authed, &workspace_id, &db)
+        .await?;
     // Reject a forged superadmin run identity in a preserved permissioned_as
     // (the sentinel guard; a trigger's email is derived from it at execution).
     let resolved_permissioned_as = edit_trigger.base.resolve_permissioned_as(&authed);
     windmill_common::auth::validate_on_behalf_of(Some(&resolved_permissioned_as), None)?;
 
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
-        edit_trigger.base.permissioned_as.as_deref(),
+        Some(&resolved_permissioned_as),
         edit_trigger.base.preserve_permissioned_as.unwrap_or(false),
-        &authed,
         &authed.username,
     );
 

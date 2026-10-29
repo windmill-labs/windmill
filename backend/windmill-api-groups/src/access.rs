@@ -10,7 +10,7 @@
 
 use axum::{
     extract::{Extension, Path, Query},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -28,6 +28,9 @@ pub fn workspaced_service() -> Router {
         .route("/get", get(get_access))
         .route("/browse_folders", get(browse_folders))
         .route("/browse_items", get(browse_items))
+        .route("/deployers", get(get_deployers))
+        .route("/set_deployers", post(set_deployers))
+        .route("/deploy_as", get(deploy_as))
 }
 
 const BROWSE_PAGE: i64 = 100;
@@ -479,4 +482,161 @@ async fn browse_items(
             .or_else(|| grant_blocked(&authed, &item.path));
     }
     Ok(Json(BrowseItems { items, has_more }))
+}
+
+#[derive(Serialize)]
+struct Deployers {
+    deployers: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct SetDeployers {
+    principal: String,
+    deployers: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct DeployAsAccount {
+    username: String,
+    email: String,
+}
+
+#[derive(Serialize)]
+struct DeployAs {
+    /// Admins and `wm_deployers` may deploy as anyone, not only the accounts listed.
+    anyone: bool,
+    service_accounts: Vec<DeployAsAccount>,
+}
+
+fn service_account_name(principal: &str) -> Result<&str> {
+    principal
+        .strip_prefix("u/")
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| Error::BadRequest("principal must be u/<service account>".into()))
+}
+
+async fn get_deployers(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Query(AccessQuery { principal }): Query<AccessQuery>,
+) -> JsonResult<Deployers> {
+    check_principal(&authed, &principal)?;
+    let username = service_account_name(&principal)?;
+    let deployers = sqlx::query_scalar!(
+        "SELECT deployers FROM usr WHERE workspace_id = $1 AND username = $2 AND is_service_account",
+        &w_id,
+        username
+    )
+    .fetch_optional(&db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("no service account {principal}")))?;
+    Ok(Json(Deployers { deployers }))
+}
+
+/// Admins only: an entry hands its holders everything the account can reach.
+async fn set_deployers(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(body): Json<SetDeployers>,
+) -> Result<String> {
+    if !authed.is_admin {
+        return Err(Error::PermissionDenied(
+            "only workspace admins can choose who deploys as a service account".into(),
+        ));
+    }
+    let username = service_account_name(&body.principal)?;
+    let mut deployers = body.deployers;
+    deployers.sort();
+    deployers.dedup();
+    for entry in &deployers {
+        let exists = match entry.split_once('/') {
+            Some(("u", name)) => {
+                sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND username = $2)",
+                    &w_id,
+                    name
+                )
+                .fetch_one(&db)
+                .await?
+            }
+            Some(("g", name)) => {
+                sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = $2)",
+                    &w_id,
+                    name
+                )
+                .fetch_one(&db)
+                .await?
+            }
+            Some(("f", name)) => {
+                sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM folder WHERE workspace_id = $1 AND name = $2)",
+                    &w_id,
+                    name
+                )
+                .fetch_one(&db)
+                .await?
+            }
+            _ => {
+                return Err(Error::BadRequest(format!(
+                    "{entry}: entries must be u/<user>, g/<group> or f/<folder>"
+                )))
+            }
+        };
+        if exists != Some(true) {
+            return Err(Error::BadRequest(format!(
+                "{entry} does not exist in {w_id}"
+            )));
+        }
+    }
+    let updated = sqlx::query_scalar!(
+        "UPDATE usr SET deployers = $3 WHERE workspace_id = $1 AND username = $2
+         AND is_service_account RETURNING username",
+        &w_id,
+        username,
+        &deployers
+    )
+    .fetch_optional(&db)
+    .await?;
+    if updated.is_none() {
+        return Err(Error::NotFound(format!(
+            "no service account {}",
+            body.principal
+        )));
+    }
+    windmill_audit::audit_oss::audit_log(
+        &db,
+        &authed,
+        "users.set_deployers",
+        windmill_audit::ActionKind::Update,
+        &w_id,
+        Some(&body.principal),
+        Some([("deployers", deployers.join(",").as_str())].into()),
+    )
+    .await?;
+    Ok(format!("deployers of {} updated", body.principal))
+}
+
+/// The service accounts the caller may deploy as, for the run-as pickers.
+async fn deploy_as(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<DeployAs> {
+    let anyone = windmill_common::can_preserve_on_behalf_of(&authed);
+    let rows = sqlx::query!(
+        "SELECT username, email, deployers FROM usr
+         WHERE workspace_id = $1 AND is_service_account AND NOT disabled ORDER BY username",
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
+    let service_accounts = rows
+        .into_iter()
+        .filter(|r| anyone || windmill_common::deployers_admit(&r.deployers, &authed))
+        .map(|r| DeployAsAccount { username: r.username, email: r.email })
+        .collect();
+    Ok(Json(DeployAs { anyone, service_accounts }))
 }

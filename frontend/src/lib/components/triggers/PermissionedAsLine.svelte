@@ -6,6 +6,7 @@
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import { userStore } from '$lib/stores'
 	import { AlertTriangle } from 'lucide-svelte'
+	import { useDeployAs } from '$lib/components/access/deployAs.svelte'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
@@ -39,6 +40,12 @@
 
 	const canPreserve = $derived(
 		actingUser?.is_admin || (actingUser?.groups ?? []).includes('wm_deployers')
+	)
+	const deployAs = useDeployAs(() => wsId)
+	// Someone a service account's deployers list names may pick it, and keep it on save.
+	const canPick = $derived(canPreserve || deployAs.current.length > 0)
+	const keepsCurrent = $derived(
+		canPreserve || (!!permissionedAs && deployAs.current.includes(permissionedAs))
 	)
 
 	const myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
@@ -84,9 +91,7 @@
 			permissionedAs !== effectivePermissionedAs
 	)
 
-	const shouldRender = $derived(
-		!!wsId && (permissionedAs !== undefined || (canPreserve && !disabled))
-	)
+	const shouldRender = $derived(!!wsId && (permissionedAs !== undefined || (canPick && !disabled)))
 
 	// For non-admin users editing a trigger owned by someone else: signal that
 	// permissioned_as will change to the current user (backend ignores preserve for non-admins).
@@ -94,7 +99,8 @@
 	$effect(() => {
 		if (
 			!disabled &&
-			!canPreserve &&
+			!canPick &&
+			!keepsCurrent &&
 			permissionedAs !== undefined &&
 			permissionedAs !== myPermissionedAs
 		) {
@@ -121,7 +127,7 @@
 {#if shouldRender && wsId}
 	<div class="flex items-center gap-1.5 text-2xs text-tertiary mb-4">
 		<span>Permissioned as</span>
-		{#if canPreserve && !disabled}
+		{#if canPick && !disabled}
 			<OnBehalfOfSelector
 				targetWorkspace={wsId}
 				targetValue={permissionedAs}

@@ -8,6 +8,7 @@
 	import { AlertTriangle } from 'lucide-svelte'
 	import SettingToggle from './SettingToggle.svelte'
 	import { canPreserveOnBehalfOf, deployedPermissionedAs, WM_DEPLOYERS_GROUP } from './onBehalfOf'
+	import { useDeployAs } from '$lib/components/access/deployAs.svelte'
 	const DOCS_LINK =
 		'https://www.windmill.dev/docs/core_concepts/roles_and_permissions#run-on-behalf-of'
 
@@ -61,6 +62,7 @@
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
 	let canPreserve = $derived(canPreserveOnBehalfOf(actingUser))
+	const deployAs = useDeployAs(() => targetWorkspace)
 	// "Me" is the acting user in the target workspace, its username and its email alike: usernames
 	// are per-workspace, and the backend rejects a pair that names two accounts.
 	let myPermissionedAs = $derived(actingUser?.username ? `u/${actingUser.username}` : undefined)
@@ -84,7 +86,9 @@
 
 	let enabled = $derived(required || !!email)
 	let deployPermissionedAs = $derived(
-		enabled ? deployedPermissionedAs(actingUser, permissionedAs, folderDefault) : undefined
+		enabled
+			? deployedPermissionedAs(actingUser, permissionedAs, folderDefault, deployAs.current)
+			: undefined
 	)
 	// Whoever cannot keep another user's identity deploys the item as themselves.
 	let chosenUser = $derived(
@@ -142,7 +146,12 @@
 	</div>
 	{#if !canPreserve}
 		<div class="text-2xs text-secondary">
-			Only workspace admins and members of {WM_DEPLOYERS_GROUP} can pick another user.
+			{#if deployAs.current.length}
+				You can pick the service accounts that list you as a deployer. Only workspace admins and
+				members of {WM_DEPLOYERS_GROUP} can pick anyone else.
+			{:else}
+				Only workspace admins and members of {WM_DEPLOYERS_GROUP} can pick another user.
+			{/if}
 		</div>
 	{/if}
 	{#if !hideDescription}

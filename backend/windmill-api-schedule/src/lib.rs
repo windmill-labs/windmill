@@ -23,7 +23,7 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::DB;
 use windmill_common::{
-    can_preserve_on_behalf_of,
+    can_deploy_as,
     db::UserDB,
     error::{Error, JsonResult, Result},
     schedule::Schedule,
@@ -44,21 +44,27 @@ use windmill_queue::schedule::push_scheduled_job;
 
 /// Resolves the permissioned_as value for a schedule.
 /// When preserving, uses the provided permissioned_as value directly.
-fn resolve_permissioned_as(
+async fn resolve_permissioned_as(
     permissioned_as: Option<&String>,
     preserve_permissioned_as: Option<bool>,
     authed: &ApiAuthed,
-) -> String {
+    db: &DB,
+    w_id: &str,
+) -> Result<String> {
     if let Some(permissioned_as) = permissioned_as {
-        if preserve_permissioned_as.unwrap_or(false) && can_preserve_on_behalf_of(authed) {
-            return permissioned_as.clone();
+        if preserve_permissioned_as.unwrap_or(false)
+            && can_deploy_as(authed, permissioned_as, w_id, db).await?
+        {
+            return Ok(permissioned_as.clone());
         }
     }
-    windmill_common::users::username_to_permissioned_as(&authed.username)
+    Ok(windmill_common::users::username_to_permissioned_as(
+        &authed.username,
+    ))
 }
 
 /// Create-time variant: applies the folder's `default_permissioned_as` rule when no
-/// explicit preserved value is provided and the caller can preserve (admin / wm_deployers).
+/// explicit preserved value is provided and the caller may deploy as the default.
 async fn resolve_permissioned_as_for_create(
     permissioned_as: Option<&String>,
     preserve_permissioned_as: Option<bool>,
@@ -68,16 +74,14 @@ async fn resolve_permissioned_as_for_create(
     w_id: &str,
 ) -> Result<String> {
     if let Some(pa) = permissioned_as {
-        if preserve_permissioned_as.unwrap_or(false) && can_preserve_on_behalf_of(authed) {
+        if preserve_permissioned_as.unwrap_or(false) && can_deploy_as(authed, pa, w_id, db).await? {
             return Ok(pa.clone());
         }
     }
-    if can_preserve_on_behalf_of(authed) {
-        if let Some(default) =
-            windmill_common::folders::resolve_folder_default_permissioned_as(db, w_id, path).await?
-        {
-            return Ok(default);
-        }
+    if let Some(default) =
+        windmill_common::folders::folder_default_for_deploy(authed, db, w_id, path).await?
+    {
+        return Ok(default);
     }
     Ok(windmill_common::users::username_to_permissioned_as(
         &authed.username,
@@ -331,6 +335,7 @@ async fn create_schedule(
         &w_id,
     )
     .await?;
+    let audited_permissioned_as = resolved_permissioned_as.clone();
     // email is still written for backwards compat with old workers that don't know about permissioned_as
     let resolved_email = windmill_common::users::get_email_from_permissioned_as_uncached(
         &resolved_permissioned_as,
@@ -491,9 +496,8 @@ async fn create_schedule(
     )
     .await?;
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-        ns.permissioned_as.as_deref(),
+        Some(&audited_permissioned_as),
         ns.preserve_permissioned_as.unwrap_or(false),
-        &authed,
         &authed.username,
     ) {
         audit_log(
@@ -558,7 +562,11 @@ async fn edit_schedule(
         es.permissioned_as.as_ref(),
         es.preserve_permissioned_as,
         &authed,
-    );
+        &db,
+        &w_id,
+    )
+    .await?;
+    let audited_permissioned_as = resolved_permissioned_as.clone();
 
     // email is still written for backwards compat with old workers that don't know about permissioned_as.
     // When permissioned_as is preserved to a different user, derive email from it.
@@ -731,9 +739,8 @@ async fn edit_schedule(
     .await?;
 
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-        es.permissioned_as.as_deref(),
+        Some(&audited_permissioned_as),
         es.preserve_permissioned_as.unwrap_or(false),
-        &authed,
         &authed.username,
     ) {
         audit_log(

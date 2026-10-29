@@ -6,12 +6,13 @@
 	import Head from './table/Head.svelte'
 	import Cell from './table/Cell.svelte'
 	import { GranularAclService, type AccessReason, type PrincipalAccess } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { Tab, Tabs } from './common'
 	import AccessGrantPanel from './access/AccessGrantPanel.svelte'
 	import AddNeededAccess from './access/AddNeededAccess.svelte'
 	import { KIND_LABELS } from './access/access'
+	import DeployersField from './access/DeployersField.svelte'
 
 	type Target = 'self' | 'user' | 'service_account' | 'group'
 
@@ -19,6 +20,7 @@
 
 	let drawer: Drawer | undefined = $state()
 	let principal = $state('')
+	let target: Target = $state('user')
 	let access: PrincipalAccess | undefined = $state()
 	let error: string | undefined = $state()
 	let search = $state('')
@@ -28,8 +30,9 @@
 	// Responses are not ordered: a slow answer for the previous principal must not land on this one.
 	let requestId = 0
 
-	export async function open(nextPrincipal: string, target: Target): Promise<void> {
+	export async function open(nextPrincipal: string, nextTarget: Target): Promise<void> {
 		principal = nextPrincipal
+		target = nextTarget
 		access = undefined
 		error = undefined
 		search = ''
@@ -37,7 +40,7 @@
 		nbDisplayed = PAGE
 		tab = 'access'
 		drawer?.openDrawer()
-		logFeatureUsage('access_view', 'opened', { key: target })
+		logFeatureUsage('access_view', 'opened', { key: nextTarget })
 		await reload()
 	}
 
@@ -138,6 +141,13 @@
 				<AddNeededAccess {principal} {reads} onGranted={reload} />
 				<AccessGrantPanel {principal} onChanged={reload} />
 			{:else if access && !access.is_admin}
+				{#if target === 'service_account' && $userStore?.is_admin}
+					<Section label="Who can deploy as it" small>
+						{#key principal}
+							<DeployersField {principal} {access} />
+						{/key}
+					</Section>
+				{/if}
 				<Section label="Groups" small>
 					{#if access.groups.length}
 						<div class="flex flex-wrap gap-1">

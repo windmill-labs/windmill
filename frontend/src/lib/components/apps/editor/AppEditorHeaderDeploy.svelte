@@ -23,6 +23,8 @@
 	import OnBehalfOfSelector, {
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
+	import { useDeployAs } from '$lib/components/access/deployAs.svelte'
+	import { canDeployAs } from '$lib/components/itemSettings/onBehalfOf'
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 	import { FRONTEND_SDK_SCOPES, sdkScopesToConfirm } from '$lib/components/raw_apps/sdkScopes'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
@@ -154,12 +156,13 @@
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
 	let myOnBehalfOf = $derived(actingUser?.username ? `u/${actingUser.username}` : undefined)
-	// Without the right to preserve, the backend runs the redeployed app as the deployer whatever
-	// the policy says, as it does for "me".
+	const deployAs = useDeployAs(() => opWs)
+	// The backend runs the redeployed app as the deployer whatever the policy says when they may
+	// not deploy as its user, as it does for "me".
 	let deployOnBehalfOf = $derived.by(() => {
-		if (!canPreserve || onBehalfOfChoice === 'me') return myOnBehalfOf
-		if (onBehalfOfChoice === 'custom') return policy.on_behalf_of
-		return savedOnBehalfOf
+		if (onBehalfOfChoice === 'me') return myOnBehalfOf
+		const kept = onBehalfOfChoice === 'custom' ? policy.on_behalf_of : savedOnBehalfOf
+		return canDeployAs(actingUser, kept, deployAs.current) ? kept : myOnBehalfOf
 	})
 	let onBehalfOfWillChange = $derived(
 		!newApp && !!savedOnBehalfOf && !!deployOnBehalfOf && deployOnBehalfOf !== savedOnBehalfOf
@@ -364,6 +367,10 @@
 			<div class="text-2xs text-secondary">
 				{#if canPreserve}
 					Viewers run the app's runnables as this user.
+				{:else if deployAs.current.length}
+					Viewers run the app's runnables as this user. You can pick the service accounts that list
+					you as a deployer; only workspace admins and members of {WM_DEPLOYERS_GROUP} can pick anyone
+					else.
 				{:else}
 					Only workspace admins and members of {WM_DEPLOYERS_GROUP} can pick another user.
 				{/if}

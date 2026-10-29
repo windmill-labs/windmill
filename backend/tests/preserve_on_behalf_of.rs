@@ -3043,3 +3043,87 @@ async fn test_reject_reserved_sentinel_on_behalf_of(db: Pool<Postgres>) -> anyho
 
     Ok(())
 }
+
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_service_account_deployers(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    // test-user-2 is a plain member: in group `devs`, a writer of f/team.
+    sqlx::raw_sql(
+        "INSERT INTO usr (workspace_id, email, username, is_service_account)
+             VALUES ('test-workspace', 'sa-bot@test.sa.wm.dev', 'sa-bot', true);
+         INSERT INTO group_ (workspace_id, name, summary, extra_perms)
+             VALUES ('test-workspace', 'devs', '', '{}');
+         INSERT INTO usr_to_group (workspace_id, group_, usr)
+             VALUES ('test-workspace', 'devs', 'test-user-2');
+         INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms)
+             VALUES ('test-workspace', 'team', 'team', '{}', '{\"u/test-user-2\": true}');
+         -- Its own token: the auth cache is process-wide and keyed by token, so a parallel
+         -- test caching SECRET_TOKEN_2 would hide the group and folder above.
+         INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin)
+             VALUES (encode(sha256('SA_DEPLOYERS_TOKEN'::bytea), 'hex'), 'SA_DEPLOYE',
+                     'SA_DEPLOYERS_TOKEN', 'test2@windmill.dev', 'deployers test', false);",
+    )
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace",
+        server.addr.port()
+    );
+
+    // Each deploy asks to keep sa-bot; the list decides whether it is kept.
+    let cases = [
+        ("empty", json!([]), "u/test-user-2"),
+        ("user", json!(["u/test-user-2"]), "u/sa-bot"),
+        ("group", json!(["g/devs"]), "u/sa-bot"),
+        ("folder", json!(["f/team"]), "u/sa-bot"),
+    ];
+    for (name, deployers, expected) in cases {
+        let resp = authed(
+            client().post(format!("{base}/access/set_deployers")),
+            "SECRET_TOKEN",
+        )
+        .json(&json!({ "principal": "u/sa-bot", "deployers": deployers }))
+        .send()
+        .await?;
+        assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+        let path = format!("u/test-user-2/sa_{name}");
+        let mut script = new_script_with_on_behalf_of(&path, None, true);
+        script["on_behalf_of"] = json!("u/sa-bot");
+        let resp = authed(
+            client().post(format!("{base}/scripts/create")),
+            "SA_DEPLOYERS_TOKEN",
+        )
+        .json(&script)
+        .send()
+        .await?;
+        assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+
+        let stored = sqlx::query_scalar!(
+            "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = 'test-workspace'",
+            path
+        )
+        .fetch_one(&db)
+        .await?;
+        assert_eq!(stored.as_deref(), Some(expected), "{name} entry");
+    }
+
+    // A folder re-created under the same name must not inherit the entry.
+    let resp = authed(
+        client().delete(format!("{base}/folders/delete/team")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let deployers = sqlx::query_scalar!(
+        "SELECT deployers FROM usr WHERE workspace_id = 'test-workspace' AND username = 'sa-bot'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert!(deployers.is_empty(), "{deployers:?}");
+
+    Ok(())
+}

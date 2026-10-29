@@ -181,9 +181,31 @@ pub struct BaseTriggerData {
     pub preserve_permissioned_as: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Set by [`Self::check_deploy_as`]: the caller is on the deployers list of the service
+    /// account `permissioned_as` names.
+    #[serde(skip)]
+    deploy_as_admitted: bool,
 }
 
 impl BaseTriggerData {
+    /// Lets [`Self::resolve_permissioned_as`], which every trigger kind calls synchronously, keep
+    /// a service account for someone its deployers list names. Without it only admins and
+    /// `wm_deployers` keep the requested identity.
+    pub async fn check_deploy_as(
+        &mut self,
+        authed: &impl Authable,
+        w_id: &str,
+        db: &sqlx::Pool<sqlx::Postgres>,
+    ) -> windmill_common::error::Result<()> {
+        self.deploy_as_admitted = match (&self.permissioned_as, self.preserve_permissioned_as) {
+            (Some(target), Some(true)) => {
+                windmill_common::can_deploy_as(authed, target, w_id, db).await?
+            }
+            _ => false,
+        };
+        Ok(())
+    }
+
     pub fn mode(&self) -> &TriggerMode {
         self.mode.as_ref().unwrap_or(
             #[allow(deprecated)]
@@ -213,7 +235,7 @@ impl BaseTriggerData {
     pub fn resolve_permissioned_as(&self, authed: &impl Authable) -> String {
         if let Some(ref permissioned_as) = self.permissioned_as {
             if self.preserve_permissioned_as.unwrap_or(false)
-                && windmill_common::can_preserve_on_behalf_of(authed)
+                && (self.deploy_as_admitted || windmill_common::can_preserve_on_behalf_of(authed))
             {
                 return permissioned_as.clone();
             }

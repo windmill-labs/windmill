@@ -2851,7 +2851,6 @@ async fn create_app_internal<'a>(
     // leaves with a concurrent rename or removal, including a freed username later
     // rebinding the stored principal, is known and accepted: see `resolve_on_behalf_of`.
     let should_preserve = app.preserve_on_behalf_of.unwrap_or(false)
-        && windmill_common::can_preserve_on_behalf_of(&authed)
         && (app.policy.on_behalf_of.is_some() || app.policy.on_behalf_of_email.is_some());
 
     let mut preserved_on_behalf_of: Option<String> = None;
@@ -2866,12 +2865,9 @@ async fn create_app_internal<'a>(
         )
         .await?;
     } else {
-        let folder_default = if windmill_common::can_preserve_on_behalf_of(&authed) {
-            windmill_common::folders::resolve_folder_default_permissioned_as(&db, w_id, &app.path)
-                .await?
-        } else {
-            None
-        };
+        let folder_default =
+            windmill_common::folders::folder_default_for_deploy(&authed, &db, w_id, &app.path)
+                .await?;
         app.policy.on_behalf_of =
             Some(folder_default.unwrap_or_else(|| username_to_permissioned_as(&authed.username)));
     }
@@ -3847,7 +3843,6 @@ async fn update_app_internal<'a>(
     let mut preserved_on_behalf_of: Option<String> = None;
     if let Some(npolicy) = ns.policy.as_mut() {
         let should_preserve = ns.preserve_on_behalf_of.unwrap_or(false)
-            && windmill_common::can_preserve_on_behalf_of(&authed)
             && (npolicy.on_behalf_of.is_some() || npolicy.on_behalf_of_email.is_some());
 
         if should_preserve {

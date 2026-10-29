@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT deployers FROM usr WHERE workspace_id = $1 AND username = $2 AND is_service_account",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "deployers",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1dbcf0682fff21c16aef4c6af3eeded1f0e8c94187bad8669b765b499a63376a"
+}

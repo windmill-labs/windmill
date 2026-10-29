@@ -9033,8 +9033,8 @@ fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
 /// The identity a preview asks to run as, or `None` when it runs as the caller.
 ///
 /// A preview is request-supplied code, so running it as someone else is impersonation, not
-/// "running their runnable": only those who may set a runnable's `on_behalf_of` on deploy
-/// (admins and `wm_deployers`) may ask for it. Naming oneself is always allowed. Operators are
+/// "running their runnable": only those who may set a runnable's `on_behalf_of` to that identity
+/// on deploy (`can_deploy_as`) may ask for it. Naming oneself is always allowed. Operators are
 /// refused even in `wm_deployers`: the datatable-query exemption lets them reach this route
 /// without being able to deploy anything.
 pub(crate) async fn preview_on_behalf_of(
@@ -9050,20 +9050,27 @@ pub(crate) async fn preview_on_behalf_of(
     if requested == own || requested == authed.email {
         return Ok(None);
     }
-    if !role_can_code(db, w_id, authed).await?
-        || !windmill_common::can_preserve_on_behalf_of(authed)
-    {
-        return Err(Error::PermissionDenied(
-            "Only admins and members of wm_deployers can run a preview on behalf of another user"
+    let refused = || {
+        Error::PermissionDenied(
+            "Only admins, members of wm_deployers and those a service account's deployers list \
+             names can run a preview on behalf of another user"
                 .to_string(),
-        ));
+        )
+    };
+    if !role_can_code(db, w_id, authed).await? {
+        return Err(refused());
     }
     let permissioned_as =
         windmill_common::resolve_on_behalf_of(None, Some(requested), true, authed, w_id, db)
             .await?
             .unwrap_or(own.clone());
     if permissioned_as == own {
-        return Ok(None);
+        // `resolve_on_behalf_of` falls back to the caller when the target's list refuses them.
+        return if windmill_common::can_preserve_on_behalf_of(authed) {
+            Ok(None)
+        } else {
+            Err(refused())
+        };
     }
     let email =
         windmill_common::users::get_email_from_permissioned_as_uncached(&permissioned_as, w_id, db)

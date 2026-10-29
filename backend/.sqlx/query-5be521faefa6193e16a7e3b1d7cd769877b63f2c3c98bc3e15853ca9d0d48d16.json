@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = 'test-workspace'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "on_behalf_of",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "5be521faefa6193e16a7e3b1d7cd769877b63f2c3c98bc3e15853ca9d0d48d16"
+}

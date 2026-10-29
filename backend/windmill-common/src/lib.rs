@@ -301,15 +301,58 @@ pub fn can_preserve_on_behalf_of(authed: &impl db::Authable) -> bool {
     authed.is_admin() || authed.groups().iter().any(|g| g == &WM_DEPLOYERS_GROUP)
 }
 
+/// Whether `authed` may deploy an item that runs as `target`. Admins and `wm_deployers` may name
+/// anyone. Anyone else may name a service account whose `deployers` list admits them: being on
+/// that list hands over everything the account can reach, so it is the only other way in.
+pub async fn can_deploy_as(
+    authed: &impl db::Authable,
+    target: &str,
+    w_id: &str,
+    db: &sqlx::Pool<Postgres>,
+) -> error::Result<bool> {
+    if can_preserve_on_behalf_of(authed)
+        || target == users::username_to_permissioned_as(authed.username())
+    {
+        return Ok(true);
+    }
+    let Some(username) = target.strip_prefix(users::PERMISSIONED_AS_USER_PREFIX) else {
+        return Ok(false);
+    };
+    let deployers = sqlx::query_scalar!(
+        "SELECT deployers FROM usr WHERE workspace_id = $1 AND username = $2 AND is_service_account",
+        w_id,
+        username
+    )
+    .fetch_optional(db)
+    .await?;
+    Ok(deployers.is_some_and(|d| deployers_admit(&d, authed)))
+}
+
+/// A `deployers` entry names a user (`u/`), a group (`g/`), or a folder (`f/`), the last meaning
+/// whoever can write in it when they deploy.
+pub fn deployers_admit(deployers: &[String], authed: &impl db::Authable) -> bool {
+    deployers.iter().any(|entry| match entry.split_once('/') {
+        Some(("u", user)) => user == authed.username(),
+        Some(("g", group)) => authed.groups().iter().any(|g| g == group),
+        Some(("f", folder)) => authed
+            .folders()
+            .iter()
+            .any(|(name, write, _)| name == folder && *write),
+        _ => false,
+    })
+}
+
 /// Checks if on-behalf-of preservation actually happened (the target user differs from the acting user).
 /// Returns Some(target_identifier) if preservation occurred, None otherwise.
+///
+/// `on_behalf_of_identifier` must be the identity being stored, already resolved through
+/// [`can_deploy_as`]: a requested one the caller may not keep would be audited as kept.
 pub fn check_on_behalf_of_preservation(
     on_behalf_of_identifier: Option<&str>,
     preserve: bool,
-    authed: &impl db::Authable,
     authed_identifier: &str,
 ) -> Option<String> {
-    if preserve && can_preserve_on_behalf_of(authed) {
+    if preserve {
         if let Some(id) = on_behalf_of_identifier {
             if id != authed_identifier {
                 return Some(id.to_string());
@@ -362,9 +405,35 @@ pub async fn resolve_on_behalf_of(
     // Through the same width check as every other branch: the caller's own identity is
     // address-shaped when they act without a `usr` row, and one too wide for a job row is no
     // more enqueueable for naming themselves.
-    if !(preserve && can_preserve_on_behalf_of(authed)) {
-        return reject_unenqueueable(users::username_to_permissioned_as(authed.username()));
+    let own = || reject_unenqueueable(users::username_to_permissioned_as(authed.username()));
+    if !preserve {
+        return own();
     }
+    if !can_preserve_on_behalf_of(authed) {
+        // Only a service account whose `deployers` list admits the caller is kept. Any other
+        // request, an unresolvable one included, falls back to the caller.
+        let Ok(target) =
+            resolve_requested_identity(on_behalf_of_email, on_behalf_of, w_id, db).await
+        else {
+            return own();
+        };
+        return if can_deploy_as(authed, &target, w_id, db).await? {
+            reject_unenqueueable(target)
+        } else {
+            own()
+        };
+    }
+    reject_unenqueueable(
+        resolve_requested_identity(on_behalf_of_email, on_behalf_of, w_id, db).await?,
+    )
+}
+
+async fn resolve_requested_identity(
+    on_behalf_of_email: Option<&str>,
+    on_behalf_of: Option<&str>,
+    w_id: &str,
+    db: &sqlx::Pool<Postgres>,
+) -> error::Result<String> {
     // Reserved superadmin sentinels are rejected by name, before resolution: the lookups
     // below only reject them while no account holds their address, and the runtime grants
     // superadmin on these emails by string comparison alone.
@@ -428,7 +497,7 @@ pub async fn resolve_on_behalf_of(
                 })?
         }
     };
-    reject_unenqueueable(permissioned_as)
+    Ok(permissioned_as)
 }
 
 /// Every principal ends up on `v2_job.permissioned_as`, which is narrower than the columns it is

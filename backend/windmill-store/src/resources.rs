@@ -2519,11 +2519,10 @@ async fn resolve_agent_on_behalf_of(
         return Ok(());
     }
     let mut preserve = preserve;
-    let explicit =
-        requested.is_some() && preserve && windmill_common::can_preserve_on_behalf_of(authed);
-    if created && !explicit && windmill_common::can_preserve_on_behalf_of(authed) {
-        if let Some((_, folder_default)) =
-            windmill_common::folders::resolve_folder_default_on_behalf_of(db, w_id, path).await?
+    let explicit = requested.is_some() && preserve;
+    if created && !explicit {
+        if let Some(folder_default) =
+            windmill_common::folders::folder_default_for_deploy(authed, db, w_id, path).await?
         {
             requested = Some(folder_default);
             preserve = true;
@@ -2543,12 +2542,9 @@ async fn resolve_agent_on_behalf_of(
     if let Some(resolved) = resolved.as_ref() {
         obj.insert("on_behalf_of".to_string(), resolved.clone().into());
     }
-    if let Some(kept) = windmill_common::check_on_behalf_of_preservation(
-        resolved.as_deref(),
-        preserve,
-        authed,
-        &own,
-    ) {
+    if let Some(kept) =
+        windmill_common::check_on_behalf_of_preservation(resolved.as_deref(), preserve, &own)
+    {
         audit_log(
             &mut **tx,
             authed,

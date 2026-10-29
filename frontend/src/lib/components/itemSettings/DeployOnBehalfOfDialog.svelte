@@ -4,6 +4,7 @@
 	import RunOnBehalfOfSetting from './RunOnBehalfOfSetting.svelte'
 	import { appOnBehalfOfTooltip, deployedPermissionedAs } from './onBehalfOf'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+	import { useDeployAs } from '$lib/components/access/deployAs.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
 
 	interface Props {
@@ -57,8 +58,9 @@
 	const on = $derived(required || !!email)
 	// A flow or script whose deployed version ran on behalf of someone, turned off by this deploy.
 	const stops = $derived(!on && !!savedUser)
+	const deployAs = useDeployAs(() => targetWorkspace)
 	const runsAs = $derived(
-		deployedPermissionedAs(operatingUser.current, permissionedAs, folderDefault)
+		deployedPermissionedAs(operatingUser.current, permissionedAs, folderDefault, deployAs.current)
 	)
 	const who = $derived(!runsAs ? 'you' : runsAs === me ? `${runsAs} (you)` : runsAs)
 	const unchanged = $derived(!isNew && !!savedPermissionedAs && runsAs === savedPermissionedAs)
@@ -132,8 +134,8 @@
 				<div class="flex items-start gap-1.5 text-2xs text-yellow-600 dark:text-yellow-400">
 					<AlertTriangle size={14} class="shrink-0 text-yellow-500" />
 					<span>
-						This folder's default user is <strong>{folderDefault}</strong>, so the {kind} won't run
-						with your access. Pick yourself above to change that.
+						This folder's default user is <strong>{folderDefault}</strong>, so the {kind} won't run with
+						your access. Pick yourself above to change that.
 					</span>
 				</div>
 			{/if}

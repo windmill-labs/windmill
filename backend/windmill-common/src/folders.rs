@@ -64,18 +64,42 @@ pub async fn resolve_folder_default_permissioned_as(
     Ok(None)
 }
 
-/// On-behalf-of variant of [`resolve_folder_default_permissioned_as`], for flows and
+/// [`resolve_folder_default_permissioned_as`] for a first deploy by `authed`: the default applies
+/// only when they may deploy as it ([`crate::can_deploy_as`]). Someone outside the admins and
+/// `wm_deployers` is not failed by a broken rule, since no rule could apply to them anyway.
+pub async fn folder_default_for_deploy(
+    authed: &impl crate::db::Authable,
+    db: &Pool<Postgres>,
+    w_id: &str,
+    path: &str,
+) -> Result<Option<String>> {
+    let default = if crate::can_preserve_on_behalf_of(authed) {
+        resolve_folder_default_permissioned_as(db, w_id, path).await?
+    } else {
+        resolve_folder_default_permissioned_as(db, w_id, path)
+            .await
+            .ok()
+            .flatten()
+    };
+    let Some(default) = default else {
+        return Ok(None);
+    };
+    Ok(crate::can_deploy_as(authed, &default, w_id, db)
+        .await?
+        .then_some(default))
+}
+
+/// On-behalf-of variant of [`folder_default_for_deploy`], for flows and
 /// scripts which store the identity as an `(email, permissioned_as)` pair.
 ///
-/// Reads folder rules through the non-RLS pool and authorizes nothing: callers must already
-/// be authorized for `w_id`.
+/// Reads folder rules through the non-RLS pool: callers must already be authorized for `w_id`.
 pub async fn resolve_folder_default_on_behalf_of(
+    authed: &impl crate::db::Authable,
     db: &Pool<Postgres>,
     w_id: &str,
     path: &str,
 ) -> Result<Option<(String, String)>> {
-    let Some(permissioned_as) = resolve_folder_default_permissioned_as(db, w_id, path).await?
-    else {
+    let Some(permissioned_as) = folder_default_for_deploy(authed, db, w_id, path).await? else {
         return Ok(None);
     };
     let email =

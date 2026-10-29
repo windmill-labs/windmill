@@ -20,17 +20,28 @@ export function canPreserveOnBehalfOf(user: DeployingUser): boolean {
 	)
 }
 
+/** Whether `user` may deploy an item running as `target`: anyone for admins and deployers, and
+ *  for everyone the service accounts in `deployAs` (see `useDeployAs`). */
+export function canDeployAs(
+	user: DeployingUser,
+	target: string | undefined,
+	deployAs: string[] = []
+): boolean {
+	return canPreserveOnBehalfOf(user) || (!!target && deployAs.includes(target))
+}
+
 /** The `u/username` a deploy leaves the item running on behalf of. The editors send the user their
- *  deploy dialog confirmed, which the backend keeps for a deployer who may preserve and replaces
- *  with the deployer for anyone else. With no user held, a create takes the folder's default for
- *  the path. */
+ *  deploy dialog confirmed, which the backend keeps for a deployer who may deploy as it and
+ *  replaces with the deployer otherwise. With no user held, a create takes the folder's default
+ *  for the path. */
 export function deployedPermissionedAs(
 	user: DeployingUser,
 	permissionedAs: string | undefined,
-	folderDefault?: string
+	folderDefault?: string,
+	deployAs: string[] = []
 ): string | undefined {
 	const kept = permissionedAs ?? folderDefault
-	if (kept && canPreserveOnBehalfOf(user)) return kept
+	if (kept && canDeployAs(user, kept, deployAs)) return kept
 	return user?.username ? `u/${user.username}` : undefined
 }
 
@@ -47,6 +58,7 @@ export function deployAsksOnBehalfOf(
 		savedEmail: string | undefined
 		savedPermissionedAs: string | undefined
 		folderDefault?: string
+		deployAs?: string[]
 	}
 ): boolean {
 	if (kind === 'app') return true
@@ -54,8 +66,12 @@ export function deployAsksOnBehalfOf(
 	if (!deploy.email && !deploy.folderDefault) return deployedHoldsUser
 	if (!deployedHoldsUser) return true
 	return (
-		deployedPermissionedAs(deploy.user, deploy.permissionedAs, deploy.folderDefault) !==
-		deploy.savedPermissionedAs
+		deployedPermissionedAs(
+			deploy.user,
+			deploy.permissionedAs,
+			deploy.folderDefault,
+			deploy.deployAs
+		) !== deploy.savedPermissionedAs
 	)
 }
 

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE usr SET deployers = $3 WHERE workspace_id = $1 AND username = $2\n         AND is_service_account RETURNING username",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "11e62160257578bef0453f3576caced2325a4944777ded79c4521edbf3998c0c"
+}
