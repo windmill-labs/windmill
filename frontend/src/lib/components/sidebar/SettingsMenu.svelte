@@ -19,8 +19,10 @@
 		Gauge,
 		Trash2,
 		KeyRound,
-		GraduationCap
+		GraduationCap,
+		ShieldCheck
 	} from 'lucide-svelte'
+	import AccessDrawer from '../AccessDrawer.svelte'
 	import { goto } from '$lib/navigation'
 	import { type Item } from '$lib/utils'
 	import { logout } from '$lib/logoutKit'
@@ -103,6 +105,7 @@
 
 	let leaveWorkspaceModal = $state(false)
 	let deleteForkModal = $state<DeleteForkedWorkspaceModal>()
+	let accessDrawer = $state<AccessDrawer>()
 
 	const { recent: recentChangelogs, hasNew } = readRecentChangelogs()
 	let hasNewChangelogs = $state(hasNew)
@@ -250,6 +253,17 @@
 					icon: Settings,
 					action: () => goto(USER_SETTINGS_HASH)
 				},
+				// A superadmin who is not a member has no `usr` row, so there is no access to list.
+				...($userStore && !$userStore.non_member
+					? [
+							{
+								displayName: 'My access',
+								icon: ShieldCheck,
+								action: () =>
+									setTimeout(() => accessDrawer?.open(`u/${$userStore?.username}`, 'self'), 50)
+							}
+						]
+					: []),
 				...(!$roleCapabilities.code
 					? [
 							{
@@ -277,9 +291,7 @@
 
 	const logsItems = $derived<Item[]>([
 		{ displayName: 'Audit logs', icon: Eye, href: '/audit_logs' },
-		...($devopsRole
-			? [{ displayName: 'Service logs', icon: Logs, href: '/service_logs' }]
-			: []),
+		...($devopsRole ? [{ displayName: 'Service logs', icon: Logs, href: '/service_logs' }] : []),
 		...($enterpriseLicense
 			? [
 					{
@@ -429,5 +441,7 @@
 </ConfirmationModal>
 
 <DeleteForkedWorkspaceModal bind:this={deleteForkModal} />
+
+<AccessDrawer bind:this={accessDrawer} />
 
 <DarkModeObserver bind:darkMode />

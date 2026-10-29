@@ -33,7 +33,18 @@
 		workspaceMembershipVersion
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Loader2, Mails, Search, Plus, UserMinus, X, Bot, LogIn } from 'lucide-svelte'
+	import {
+		Loader2,
+		Mails,
+		Search,
+		Plus,
+		UserMinus,
+		X,
+		Bot,
+		LogIn,
+		ShieldCheck
+	} from 'lucide-svelte'
+	import AccessDrawer from '$lib/components/AccessDrawer.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import SearchItems from '../SearchItems.svelte'
 	import Cell from '../table/Cell.svelte'
@@ -47,6 +58,7 @@
 	import { ArrowRightLeft } from 'lucide-svelte'
 
 	let offboardingUser: string | undefined = $state(undefined)
+	let accessDrawer: AccessDrawer | undefined = $state()
 	let offboardingReassignOnly = $state(false)
 
 	// `role` is the member's workspace role, which `listUsers` returns but the spec's `User` omits.
@@ -918,6 +930,26 @@
 						</Cell>
 						<Cell last actions class={index % 2 === 0 ? 'bg-surface-tertiary' : ''}>
 							<div class="flex gap-1">
+								<Button
+									unifiedSize="sm"
+									variant="subtle"
+									startIcon={{ icon: ShieldCheck }}
+									{disabled}
+									title={disabled
+										? 'Disabled: nothing runs as this user'
+										: 'What this user can reach, and why'}
+									onClick={() =>
+										accessDrawer?.open(
+											`u/${username}`,
+											user.is_service_account
+												? 'service_account'
+												: username === $userStore?.username
+													? 'self'
+													: 'user'
+										)}
+								>
+									Access
+								</Button>
 								{#if user.is_service_account && $userStore?.is_admin}
 									<Button
 										unifiedSize="sm"
@@ -1131,6 +1163,8 @@
 		{/if}
 	</Section>
 {/if}
+<AccessDrawer bind:this={accessDrawer} />
+
 {#if offboardingUser}
 	<UserOffboardingModal
 		open={offboardingUser != null}

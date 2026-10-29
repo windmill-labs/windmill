@@ -24973,6 +24973,31 @@ paths:
                 type: string
                 description: Minimum semantic version across all workers (e.g. "1.583.0")
 
+  /w/{workspace}/access/get:
+    get:
+      summary: list what a workspace member or group can reach, and why
+      description: |
+        Workspace admins can query any principal; other members only themselves and the groups
+        they belong to. An admin principal reaches everything, so `items` is empty.
+      operationId: getPrincipalAccess
+      tags:
+        - granular_acl
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: principal
+          description: "`u/<username>` or `g/<group>`"
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the principal's access
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrincipalAccess"
+
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
       summary: get granular acls
@@ -36884,6 +36909,66 @@ components:
         - path
         - script_path
         - is_flow
+
+    PrincipalAccess:
+      type: object
+      properties:
+        principal:
+          type: string
+        is_admin:
+          type: boolean
+        groups:
+          type: array
+          items:
+            type: string
+        folders:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              write:
+                type: boolean
+              owner:
+                type: boolean
+              via:
+                description: the `u/<user>` or `g/<group>` grants on the folder that reach the principal
+                type: array
+                items:
+                  type: string
+            required: [name, write, owner, via]
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              kind:
+                type: string
+              path:
+                type: string
+              write:
+                type: boolean
+              reasons:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AccessReason"
+            required: [kind, path, write, reasons]
+      required: [principal, is_admin, groups, folders, items]
+
+    AccessReason:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [own, group_path, user, group, folder]
+        group:
+          type: string
+        folder:
+          type: string
+        write:
+          type: boolean
+      required: [type]
 
     Group:
       type: object

@@ -1,3 +1,4 @@
+pub mod access;
 pub mod folder_history;
 pub mod folders;
 pub mod granular_acls;

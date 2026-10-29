@@ -669,6 +669,7 @@ pub async fn run_server(
                     "/w/{workspace_id}",
                     Router::new()
                         // Reordered alphabetically
+                        .nest("/access", windmill_api_groups::access::workspaced_service())
                         .nest("/acls", granular_acls::workspaced_service())
                         // CORS so the opaque-origin in-workspace app viewer (WIN-2006,
                         // sandboxed /apps/get) can read the app definition by path
