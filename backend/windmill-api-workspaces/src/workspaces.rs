@@ -13,7 +13,7 @@ use windmill_api_auth::{
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
 use windmill_common::ssrf::{validate_webhook_url, webhook_ssrf_error_message};
-use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
+use windmill_common::usernames::{get_instance_username_or_create_pending, validate_username};
 use windmill_common::webhook::WebhookShared;
 use windmill_common::{BASE_URL, DB};
 use windmill_dep_map::lock_hash::record_lock_hashes_for_workspace;
@@ -7448,8 +7448,11 @@ async fn create_workspace(
         }
         get_instance_username_or_create_pending(&mut tx, &authed.email).await?
     } else {
-        nw.username
-            .ok_or(Error::BadRequest("username is required".to_string()))?
+        let username = nw
+            .username
+            .ok_or(Error::BadRequest("username is required".to_string()))?;
+        validate_username(&username)?;
+        username
     };
 
     sqlx::query!(
@@ -12120,11 +12123,7 @@ async fn add_user(
             .username
             .ok_or(Error::BadRequest("username is required".to_string()))?;
 
-        if !VALID_USERNAME.is_match(&username) {
-            return Err(windmill_common::error::Error::BadRequest(format!(
-                "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
-            )));
-        }
+        validate_username(&username)?;
 
         username
     };
