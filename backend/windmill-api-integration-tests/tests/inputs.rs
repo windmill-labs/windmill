@@ -459,6 +459,15 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     .bind(restarted)
     .execute(&db)
     .await?;
+    sqlx::query("INSERT INTO zombie_job_counter (job_id, counter) VALUES ($1, 1)")
+        .bind(restarted)
+        .execute(&db)
+        .await?;
+    // Runs of the called script between that call and the run's new start.
+    let mut task_runs = vec![];
+    for at in [26, 27] {
+        task_runs.push(insert_run(&db, Run { path: "f/test/task", at, ..Run::default() }).await?);
+    }
     let mut late_calls = vec![];
     for at in [30, 31] {
         let run = Run {
@@ -568,6 +577,8 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
         ids(&opened),
         [own_step, in_loop[0], in_loop[1]].map(|id| id.to_string())
     );
+    // Dated by the user's first run, not by the flow run they cannot read.
+    assert_eq!(steps[0]["created_at"], opened[0]["created_at"]);
 
     let busy = "&runnable_id=f/test/busy&started_by=flow_step";
     let listed = fetch("SECRET_TOKEN", busy.to_string()).await?;
@@ -586,6 +597,21 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     let calls = format!("&runnable_id=f/test/task&started_by=script_call&top_run={restarted}");
     let opened = fetch("SECRET_TOKEN", calls).await?;
     assert_eq!(ids(&opened), [early_call.to_string()]);
+    // The restarted run sorts by its creation, before the call it made, so its group is whole
+    // and in the same place whatever the page size.
+    let task = "&runnable_id=f/test/task&started_by=manual,script_call";
+    let whole = fetch("SECRET_TOKEN", task.to_string()).await?;
+    assert_eq!(
+        ids(&whole),
+        [task_runs[1], task_runs[0], early_call].map(|id| id.to_string())
+    );
+    assert_eq!(whole[2]["top_run"]["id"], restarted.to_string());
+    let mut paged = vec![];
+    for page in 1..=3 {
+        let one = fetch("SECRET_TOKEN", format!("{task}&per_page=1&page={page}")).await?;
+        paged.extend(ids(&one));
+    }
+    assert_eq!(paged, ids(&whole));
     let opened = fetch("SECRET_TOKEN", format!("{busy}&top_run={long_flow}")).await?;
     assert_eq!(
         ids(&opened),

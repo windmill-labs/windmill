@@ -270,18 +270,23 @@ fn inline_args(alias: &str) -> String {
     )
 }
 
-/// When the run `{id}` started, or NULL before it does: the key the list is ordered by. Its
-/// creation time would misplace a scheduled run, created a whole period before it starts. A
-/// queued workflow-as-code run's `started_at` is its current segment's; its first start is in
-/// `extras`. After a zombie recovery it is the latest pull's. The queue and completed rows carry
-/// no row-level security: this also works for a run the viewer cannot read.
-fn run_start(id: &str) -> String {
+/// The key the list orders the top-level run `{id}` (created at `{created}`) by: when it
+/// started, which no run it started precedes. Its creation would misplace a scheduled run,
+/// created a whole period before it starts. A queued workflow-as-code run's `started_at` is its
+/// current segment's; its first start is in `extras`. A zombie script's start is stamped again
+/// by the pull after its recovery, later than the runs it started before; its restart counter
+/// marks it, and its creation is the key that precedes them. The queue, completed and counter
+/// rows carry no row-level security: this also works for a run the viewer cannot read.
+fn start_key(id: &str, created: &str) -> String {
     format!(
         "COALESCE(\
+            CASE WHEN EXISTS (SELECT 1 FROM zombie_job_counter z WHERE z.job_id = {id}) \
+                 THEN {created} END, \
             (SELECT COALESCE((extras->>'wac_first_started_at')::timestamptz, started_at) \
              FROM v2_job_queue WHERE id = {id} AND workspace_id = $2), \
             (SELECT COALESCE(started_at, completed_at) FROM v2_job_completed \
-             WHERE id = {id} AND workspace_id = $2))"
+             WHERE id = {id} AND workspace_id = $2), \
+            {created})"
     )
 }
 
@@ -334,6 +339,7 @@ struct EntryRow {
     running_runs: Option<i64>,
     retries: Option<i64>,
     handlers: Option<i64>,
+    first_run_at: Option<DateTime<Utc>>,
     root_retries: Option<i64>,
     root_retries_failed: Option<i64>,
     root_retries_running: Option<i64>,
@@ -414,7 +420,7 @@ pub(crate) async fn list(
         "WITH root_runs AS (\
             SELECT j.id, j.created_at, j.created_by, j.kind, j.trigger_kind::text AS trigger_kind, \
                    j.trigger, j.started_by, st.status, st.running, st.suspended, \
-                   COALESCE({root_start}, j.created_at) AS start_key \
+                   {root_key} AS start_key \
             FROM (\
                 SELECT id, created_at, created_by, kind, trigger_kind, trigger, \
                        {root_category} AS started_by \
@@ -460,7 +466,7 @@ pub(crate) async fn list(
               AND x.started_by = ANY($5) AND {STARTED}\
         ), \
         tops AS (\
-            SELECT w.first, w.top, COALESCE({top_start}, w.top_created_at) AS top_start \
+            SELECT w.first, w.top, {top_key} AS top_start \
             FROM (\
                 SELECT f.first, COALESCE(a4.id, a3.id, a2.id, a1.id, f.first) AS top, \
                        COALESCE(a4.created_at, a3.created_at, a2.created_at, a1.created_at) \
@@ -482,6 +488,7 @@ pub(crate) async fn list(
                    count(*) FILTER (WHERE running) AS running, \
                    count(*) FILTER (WHERE retry IS NOT NULL) AS retries, \
                    count(*) FILTER (WHERE started_by = 'handler') AS handlers, \
+                   min(created_at) AS first_run_at, \
                    (array_agg(id ORDER BY created_at DESC))[1] AS last_id \
             FROM inside_keyed GROUP BY top\
         ), \
@@ -506,7 +513,7 @@ pub(crate) async fn list(
                COALESCE(r.status, i.status)::text AS status, \
                COALESCE(r.running, i.running) AS running, \
                COALESCE(r.suspended, i.suspended) AS suspended, \
-               g.runs, g.failed, g.running AS running_runs, g.retries, g.handlers, \
+               g.runs, g.failed, g.running AS running_runs, g.retries, g.handlers, g.first_run_at, \
                rt.n AS root_retries, rt.failed AS root_retries_failed, \
                rt.running AS root_retries_running, \
                t.kind::text AS top_kind, t.runnable_path AS top_path, \
@@ -541,13 +548,13 @@ pub(crate) async fn list(
         root_category = top_level_category(""),
         singlestepflow_filter = singlestepflow_filter(q.runnable_type),
         root_state = run_state("j"),
-        root_start = run_start("j.id"),
+        root_key = start_key("j.id", "j.created_at"),
         own_category = own_category(""),
         inside_kind = inside_kind(q.runnable_type),
         classify = classify_inside(q.runnable_type),
         inside_state = run_state("s"),
         walk_up = walk_up("f.first"),
-        top_start = run_start("w.top"),
+        top_key = start_key("w.top", "w.top_created_at"),
         args = inline_args("a"),
     );
 
@@ -572,8 +579,13 @@ fn entry_to_input(row: EntryRow) -> Input {
     // The scan of runs inside others stopped at its cap: a group whose top-level run started
     // before the oldest run it read may have more runs.
     let complete = row.count_bound.is_none_or(|bound| row.start_key >= bound);
-    // The time the list is ordered by, so the column reads in order.
-    let time = row.start_key;
+    // The time the list is ordered by, so the column reads in order. Under a top-level run the
+    // viewer cannot read, the earliest run of the group instead: that run's start is not theirs
+    // to see.
+    let time = match (row.top, &row.top_kind) {
+        (Some(_), None) => row.first_run_at.unwrap_or(row.start_key),
+        _ => row.start_key,
+    };
     let created_by = row.created_by.unwrap_or_default();
     let success = row.status.as_deref() == Some("success");
     let run = |run_id: Uuid, top_run: Option<TopRun>, group: Option<RunGroup>| {
