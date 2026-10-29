@@ -125,17 +125,26 @@
 		}
 	}
 
-	// The row menus' actions that need nothing but the kind and path. Moving, deleting,
-	// deploying and sharing need the full item and the row's own drawers, so they stay there.
-	async function menuItems(item: Entry, favorite: boolean): Promise<Item[]> {
-		const kind = await editorKind(item)
-		const base = kind === 'raw_app' ? 'apps_raw' : `${kind}s`
-		const contextElement = itemContextElement({
+	function contextElementFor(item: Entry, kind: RecentKind) {
+		return itemContextElement({
 			kind: kind === 'raw_app' ? 'app' : kind,
 			rawApp: kind === 'raw_app',
 			path: item.path,
 			summary: item.title === item.path ? undefined : item.title
 		})
+	}
+
+	async function mention(item: Entry) {
+		const element = contextElementFor(item, await editorKind(item))
+		if (element) await homeComposerContext.attach(element)
+	}
+
+	// The row menus' actions that need nothing but the kind and path. Moving, deleting,
+	// deploying and sharing need the full item and the row's own drawers, so they stay there.
+	async function menuItems(item: Entry, favorite: boolean): Promise<Item[]> {
+		const kind = await editorKind(item)
+		const base = kind === 'raw_app' ? 'apps_raw' : `${kind}s`
+		const contextElement = contextElementFor(item, kind)
 		return [
 			{
 				displayName: 'Add to AI session context',
@@ -365,7 +374,7 @@
 		></a>
 		{#if !favorite && item.at}
 			<span
-				class="shrink-0 text-2xs text-secondary"
+				class="shrink-0 text-2xs text-secondary group-has-[[data-composer-open]]/home:group-hover:hidden group-has-[[data-composer-open]]/home:group-focus-within:hidden"
 				title={recentTooltip(item.at, item.via)}
 				onmouseenter={() => (now = Date.now())}
 				role="note"
@@ -373,8 +382,26 @@
 				<TimeAgo date={new Date(item.at).toISOString()} compact noSeconds />
 			</span>
 		{/if}
-		<div class="shrink-0 pr-1 text-secondary">
+		<!-- While Home's composer is open the menu gives way to Mention, like the items' rows
+		     (AskAiRowButton). -->
+		<div class="shrink-0 pr-1 text-secondary group-has-[[data-composer-open]]/home:hidden">
 			<DropdownV2 items={() => menuItems(item, favorite)} size="xs" fixedHeight={false} />
+		</div>
+		<!-- Takes the time's place on the hovered or focused card only: holding a place on every
+		     card would leave the narrow cards no room for their titles. -->
+		<div
+			class="shrink-0 pr-1 hidden group-has-[[data-composer-open]]/home:group-hover:block group-has-[[data-composer-open]]/home:group-focus-within:block"
+		>
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				btnClasses="!text-ai font-medium"
+				title="Mention"
+				aria-label="Mention {item.title}"
+				onClick={() => mention(item)}
+			>
+				+@
+			</Button>
 		</div>
 	</div>
 {/snippet}

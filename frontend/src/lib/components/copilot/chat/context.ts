@@ -290,7 +290,8 @@ export interface WorkspaceAppElement {
 	summary?: string
 }
 
-/** Workspace folder context element — a whole `f/<folder>`, its items read by the chat on
+/** Workspace folder context element — everything under a path prefix: a folder (`f/team`, or a
+ * subfolder of an owner) or a user's own items (`u/alice`). Its items are read by the chat on
  * demand like any other workspace reference. */
 export interface WorkspaceFolderElement {
 	type: 'workspace_folder'
@@ -298,26 +299,33 @@ export interface WorkspaceFolderElement {
 	title: string
 }
 
-export function folderContextElement(path: string): WorkspaceFolderElement & { deletable: boolean } {
+export function folderContextElement(
+	path: string
+): WorkspaceFolderElement & { deletable: boolean } {
 	return { type: 'workspace_folder', path, title: path, deletable: true }
 }
 
-const FOLDER_DIR_PREFIX = dirKey('all', 'f/')
+/** Whether a folder context path is a user's own items (`u/alice`) rather than a folder. */
+export function isUserContextPath(path: string): boolean {
+	return /^u\/[^/]+$/.test(path)
+}
 
-/** Opens every `f/` folder of a flat workspace tree (any depth) on a leaf that picks the folder
- * itself, so a folder is taken as context from inside it, or by searching its path. */
+const DIR_PREFIX = dirKey('all', '')
+
+/** Opens every `f/` and `u/` directory of a flat workspace tree (any depth) on a leaf that picks
+ * the directory itself, so it is taken as context from inside it, or by searching its path. */
 export function withFolderContextLeaves<L>(
 	nodes: DrillNode<L>[]
 ): DrillNode<L | WorkspaceFolderElement>[] {
 	return nodes.map((node) => {
 		if (node.type !== 'branch') return node
 		const children = withFolderContextLeaves(node.children)
-		if (!node.key.startsWith(FOLDER_DIR_PREFIX)) return { ...node, children }
-		const path = node.key.slice(FOLDER_DIR_PREFIX.length - 'f/'.length)
+		const path = node.key.startsWith(DIR_PREFIX) ? node.key.slice(DIR_PREFIX.length) : ''
+		if (!/^[fu]\/./.test(path)) return { ...node, children }
 		const leaf: DrillLeaf<WorkspaceFolderElement> = {
 			type: 'leaf',
 			key: `folder:${path}`,
-			label: 'Whole folder',
+			label: isUserContextPath(path) ? 'All their items' : 'Whole folder',
 			secondary: path,
 			icon: Folder,
 			data: folderContextElement(path),

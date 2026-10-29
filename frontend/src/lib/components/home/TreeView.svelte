@@ -109,6 +109,7 @@
 				? `f/${item.folderName}`
 				: undefined
 	)
+	const mentionRoot = $derived(homeComposerContext.available ? badgeRoot : undefined)
 
 	// Hidden while searching: pipelines aren't part of the text filter (the list
 	// view hides their rows on a query too), so a folder matching the search
@@ -287,10 +288,35 @@
 	}
 </script>
 
-{#snippet folderBadge()}
-	{#if badgeRoot}
-		<HomeFolderBadge root={badgeRoot} />
-	{/if}
+{#snippet folderTrailing()}
+	<span class="flex flex-row items-center gap-2">
+		{#if badgeRoot}
+			<HomeFolderBadge root={badgeRoot} />
+		{/if}
+		{#if mentionRoot}
+			{@const path = mentionRoot}
+			<!-- While Home's composer is open its place is kept on every row, so the badges stay put
+			     to its left, and it shows on the hovered or tabbed-into row. The row toggles on click,
+			     so the press stops here. -->
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<span
+				class="hidden group-has-[[data-composer-open]]/home:inline-flex invisible group-hover/row:visible group-has-[:focus-visible]/row:visible"
+				onclick={(e) => e.stopPropagation()}
+			>
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					btnClasses="!text-ai font-medium"
+					title="Add to AI session context"
+					aria-label="Add {path} to AI session context"
+					onClick={() => homeComposerContext.attach(folderContextElement(path))}
+				>
+					+@
+				</Button>
+			</span>
+		{/if}
+	</span>
 {/snippet}
 
 {#snippet manageFolderMenu()}
@@ -332,7 +358,7 @@
 			onToggle={toggleOwner}
 			indent={visualDepth * 16}
 			actions={onManageFolder && depth === 0 && isFolder(item) ? manageFolderMenu : undefined}
-			trailing={badgeRoot ? folderBadge : undefined}
+			trailing={badgeRoot ? folderTrailing : undefined}
 		>
 			{#snippet detail()}
 				{#if ownerCount != undefined}
