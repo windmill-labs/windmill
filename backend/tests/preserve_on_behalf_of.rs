@@ -3110,6 +3110,16 @@ async fn test_service_account_deployers(db: Pool<Postgres>) -> anyhow::Result<()
         assert_eq!(stored.as_deref(), Some(expected), "{name} entry");
     }
 
+    // A listed deployer must not be able to widen the list themselves.
+    let resp = authed(
+        client().post(format!("{base}/access/set_deployers")),
+        "SA_DEPLOYERS_TOKEN",
+    )
+    .json(&json!({ "principal": "u/sa-bot", "deployers": ["g/all"] }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 403, "{}", resp.text().await?);
+
     // A folder re-created under the same name must not inherit the entry.
     let resp = authed(
         client().delete(format!("{base}/folders/delete/team")),
