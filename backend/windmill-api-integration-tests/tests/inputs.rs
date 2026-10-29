@@ -290,7 +290,7 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     )
     .await?;
 
-    // A run still in progress, older than the two runs a one-entry page reads by creation time.
+    // A run still in progress, followed by two finished ones.
     let long_running = insert_run(
         &db,
         Run { path: "f/test/long", running: true, at: 13, ..Run::default() },
@@ -366,16 +366,17 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     )
     .await?;
 
-    // f/test/busy is called 5,000 times by one run. Before that: a call still in progress inside
-    // another flow, and a failed top-level run with its retry; the list's window passes over
-    // both. After: two calls from a long flow, which started a while after it was created, as a
-    // scheduled run does. Opening each group must find the runs the list counts.
+    // f/test/busy is called 5,000 times by one run, more than the list reads. Before that: a
+    // call still in progress inside another flow, past what the list reads, and a failed
+    // top-level run with its retry. After: two calls from a long flow, which started a while
+    // after it was created, as a scheduled run does. Opening each group must find the runs the
+    // list counts.
     let running_flow = insert_run(
         &db,
         Run { kind: "flow", path: "f/test/running_flow", running: true, at: 22, ..Run::default() },
     )
     .await?;
-    let running_call = insert_run(
+    insert_run(
         &db,
         Run {
             path: "f/test/busy",
@@ -509,12 +510,13 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     );
 
     let all = history(format!("&started_by={everything}")).await?;
+    // Ordered by when each entry's top-level run started, whatever ran inside it later.
     assert_eq!(
         ids(&all),
-        [same_path_step, handler, call, flow, manual, scheduled].map(|id| id.to_string())
+        [same_path_step, handler, call, flow, scheduled, manual].map(|id| id.to_string())
     );
     assert!(!ids(&all).contains(&wac_task.to_string()));
-    assert_eq!(all[4]["group"]["runs"], 1);
+    assert_eq!(all[5]["group"]["runs"], 1);
     let in_manual = history(format!("&started_by={everything}&top_run={manual}")).await?;
     assert_eq!(ids(&in_manual), [self_call.to_string()]);
     assert_eq!(in_manual[0]["started_by"], "script_call");
@@ -541,14 +543,20 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
     assert_eq!(retries[0]["retry"], 1);
     assert_eq!(retries[0]["started_by"], "schedule");
 
-    let first = fetch(
+    let long = fetch(
         "SECRET_TOKEN",
-        format!("&runnable_id=f/test/long&started_by={top_level}&per_page=1"),
+        format!("&runnable_id=f/test/long&started_by={top_level}"),
     )
     .await?;
-    assert_eq!(ids(&first), [long_running.to_string()]);
-    assert_eq!(first[0]["running"], true);
-    assert_eq!(first[0]["args"], serde_json::json!({}));
+    assert_eq!(ids(&long)[2], long_running.to_string());
+    assert_eq!(long[2]["running"], true);
+    assert_eq!(long[2]["args"], serde_json::json!({}));
+    let third = fetch(
+        "SECRET_TOKEN",
+        format!("&runnable_id=f/test/long&started_by={top_level}&per_page=1&page=3"),
+    )
+    .await?;
+    assert_eq!(ids(&third), [long_running.to_string()]);
 
     let helper = "&runnable_id=u/test-user-2/helper&started_by=flow_step";
     let steps = fetch("SECRET_TOKEN_2", helper.to_string()).await?;
@@ -563,13 +571,12 @@ async fn test_input_history_started_by(db: Pool<Postgres>) -> anyhow::Result<()>
 
     let busy = "&runnable_id=f/test/busy&started_by=flow_step";
     let listed = fetch("SECRET_TOKEN", busy.to_string()).await?;
-    assert_eq!(listed[0]["top_run"]["id"], running_flow.to_string());
-    assert_eq!(listed[0]["group"]["running"], 1);
-    assert_eq!(listed[1]["top_run"]["id"], long_flow.to_string());
-    assert_eq!(listed[1]["group"]["runs"], 2);
-    assert_eq!(listed[1]["group"]["complete"], true);
-    let opened = fetch("SECRET_TOKEN", format!("{busy}&top_run={running_flow}")).await?;
-    assert_eq!(ids(&opened), [running_call.to_string()]);
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed[0]["top_run"]["id"], long_flow.to_string());
+    assert_eq!(listed[0]["group"]["runs"], 2);
+    assert_eq!(listed[0]["group"]["complete"], true);
+    assert_eq!(listed[1]["top_run"]["id"], busy_flow.to_string());
+    assert_eq!(listed[1]["group"]["complete"], false);
     let manual = "&runnable_id=f/test/busy&started_by=manual";
     let retried = fetch("SECRET_TOKEN", manual.to_string()).await?;
     assert_eq!(ids(&retried), [failed_call.to_string()]);

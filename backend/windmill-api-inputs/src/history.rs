@@ -146,10 +146,8 @@ pub(crate) struct HistoryQuery<'a> {
     pub args: Option<serde_json::Value>,
 }
 
-/// Runs examined per side (top-level, inside) when a category of that side is unticked, and the
-/// most the inside window grows to.
+/// Most runs examined per side (top-level when a category of that side is unticked, inside).
 const CAP: i64 = 5000;
-const MIN_INSIDE_WINDOW: i64 = 200;
 const INSIDE_RUNS_LIMIT: i64 = 500;
 
 const HANDLER_CREATED_BY: &str = "('error_handler', 'schedule_error_handler', \
@@ -272,13 +270,11 @@ fn inline_args(alias: &str) -> String {
     )
 }
 
-/// When the run `{id}` started, or NULL before it does: a group's count is exact when its
-/// top-level run started after the oldest run the list's window read. Its creation time would
-/// leave a scheduled run's group inexact, since that run is created a whole period before it
-/// starts. A queued workflow-as-code run's `started_at` is its current segment's; its first
-/// start is in `extras`. After a zombie recovery it is the latest pull's, which can mark a
-/// group exact too early. The queue and completed rows carry no row-level security: this also
-/// works for a run the viewer cannot read.
+/// When the run `{id}` started, or NULL before it does: the key the list is ordered by. Its
+/// creation time would misplace a scheduled run, created a whole period before it starts. A
+/// queued workflow-as-code run's `started_at` is its current segment's; its first start is in
+/// `extras`. After a zombie recovery it is the latest pull's. The queue and completed rows carry
+/// no row-level security: this also works for a run the viewer cannot read.
 fn run_start(id: &str) -> String {
     format!(
         "COALESCE(\
@@ -316,12 +312,12 @@ fn inside_kind(runnable_type: &RunnableType) -> &'static str {
     }
 }
 
-/// A page entry, or the one row with no entry that carries the bounds of an empty page.
+/// A page entry.
 #[derive(FromRow)]
 struct EntryRow {
-    run_id: Option<Uuid>,
+    run_id: Uuid,
     top: Option<Uuid>,
-    latest_created: Option<DateTime<Utc>>,
+    start_key: DateTime<Utc>,
     created_by: Option<String>,
     started_by: Option<String>,
     is_preview: Option<bool>,
@@ -333,13 +329,11 @@ struct EntryRow {
     status: Option<String>,
     running: Option<bool>,
     suspended: Option<bool>,
-    time: Option<DateTime<Utc>>,
     runs: Option<i64>,
     failed: Option<i64>,
     running_runs: Option<i64>,
     retries: Option<i64>,
     handlers: Option<i64>,
-    top_started_at: Option<DateTime<Utc>>,
     root_retries: Option<i64>,
     root_retries_failed: Option<i64>,
     root_retries_running: Option<i64>,
@@ -352,51 +346,23 @@ struct EntryRow {
     /// A run in progress's args: a preprocessor replaces them while it runs, so the panel reads
     /// them on each refresh rather than once.
     args: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
-    window_bound: Option<DateTime<Utc>>,
     count_bound: Option<DateTime<Utc>>,
-    above: i64,
 }
 
-/// One page of history entries, newest activity first. An entry is a top-level run of the
-/// runnable (with a count of its own retries and of the runs of the runnable inside it), or the
-/// runs of the runnable inside one other top-level run.
+/// One page of history entries, newest first by when their top-level run started. An entry is a
+/// top-level run of the runnable (with a count of its own retries and of the runs of the
+/// runnable inside it), or the runs of the runnable inside one other top-level run.
 ///
-/// Runs come from two windows over `created_at`: the latest top-level runs, and the latest runs
-/// inside other runs. A run inside another starts after it, so a group's count is exact when its
-/// top-level run started after the oldest run the inside window examined.
+/// No index orders top-level runs by start, so they are read by creation, twice the runs a page
+/// needs, as the plain history does: a scheduled run is created a whole period before it starts.
+/// A run inside another is created after that run started, so the runs inside created since the
+/// page's oldest start hold every group the page can show, whole.
 pub(crate) async fn list(
     tx: &mut Transaction<'static, Postgres>,
     q: &HistoryQuery<'_>,
     per_page: usize,
     offset: usize,
 ) -> Result<Vec<Input>> {
-    let needed = (offset + per_page) as i64;
-    let mut inside_window = (10 * needed).clamp(MIN_INSIDE_WINDOW, CAP);
-    let mut rows = list_page(tx, q, per_page, offset, inside_window).await?;
-    // The page may hold entries older than the full inside window, where an older inner run
-    // could still belong before them: grow the window once, in proportion to the shortfall.
-    if let Some(first) = rows.first() {
-        if first.window_bound.is_some() && first.above < needed && inside_window < CAP {
-            inside_window = (inside_window * needed * 3 / (2 * first.above.max(1)))
-                .max(2 * inside_window)
-                .min(CAP);
-            rows = list_page(tx, q, per_page, offset, inside_window).await?;
-        }
-    }
-    Ok(rows
-        .into_iter()
-        .filter(|row| row.run_id.is_some() || row.top.is_some())
-        .map(entry_to_input)
-        .collect())
-}
-
-async fn list_page(
-    tx: &mut Transaction<'static, Postgres>,
-    q: &HistoryQuery<'_>,
-    per_page: usize,
-    offset: usize,
-    inside_window: i64,
-) -> Result<Vec<EntryRow>> {
     let needed = (offset + per_page) as i64;
     let root_categories: Vec<&str> = q
         .started_by
@@ -442,24 +408,13 @@ async fn list_page(
         _ => "AND r.status = 'failure'",
     };
 
-    let inside_filter = format!(
-        "s.script_entrypoint_override IS NULL \
-         AND ($11::jsonb IS NULL OR s.args @> $11::jsonb) \
-         AND (s.own_category = ANY($5) \
-              OR (s.own_category IS NULL AND $5 && '{{agent_tool,script_call,handler}}')) \
-         AND NOT x.hidden AND NOT (x.retry IS NOT NULL AND x.parent_is_top) \
-         AND x.started_by = ANY($5) AND {STARTED}"
-    );
-
     // `kind = 'script'` (or 'flow') stays a literal: the planner can only use the partial index
     // ix_v2_job_child_by_path when it proves the index predicate from the query text.
-    // root_runs and inside_runs add the runs in progress that their window passed over, however
-    // old: a flow suspended at an approval step or a hung run must stay in sight.
     let sql = format!(
-        "WITH root_window AS (\
+        "WITH root_runs AS (\
             SELECT j.id, j.created_at, j.created_by, j.kind, j.trigger_kind::text AS trigger_kind, \
-                   j.trigger, j.started_by, st.status, st.completed_at, st.running, st.suspended, \
-                   st.started_at \
+                   j.trigger, j.started_by, st.status, st.running, st.suspended, \
+                   COALESCE({root_start}, j.created_at) AS start_key \
             FROM (\
                 SELECT id, created_at, created_by, kind, trigger_kind, trigger, \
                        {root_category} AS started_by \
@@ -475,135 +430,73 @@ async fn list_page(
             ORDER BY j.created_at DESC \
             LIMIT $6\
         ), \
-        root_runs AS (\
-            SELECT id, created_at, created_by, kind, trigger_kind, trigger, started_by, status, \
-                   completed_at, running, suspended, started_at \
-            FROM root_window \
-            UNION ALL \
-            (SELECT j.id, j.created_at, j.created_by, j.kind, j.trigger_kind::text AS trigger_kind, \
-                   j.trigger, j.started_by, st.status, st.completed_at, st.running, st.suspended, \
-                   st.started_at \
-            FROM (\
-                SELECT q.id FROM v2_job_queue q \
-                WHERE q.workspace_id = $2 AND q.running AND cardinality($4) > 0\
-            ) running \
-            CROSS JOIN LATERAL (\
-                SELECT id, created_at, created_by, kind, trigger_kind, trigger, \
-                       {root_category} AS started_by \
-                FROM v2_job \
-                WHERE id = running.id AND workspace_id = $2 AND runnable_path = $1 \
-                  AND parent_job IS NULL AND kind = ANY($3) \
-                  AND script_entrypoint_override IS NULL {singlestepflow_filter} \
-                  AND ($11::jsonb IS NULL OR args @> $11::jsonb) \
-                LIMIT 1\
-            ) j \
-            {root_state} \
-            WHERE st.running {root_filter} \
-              AND NOT EXISTS (SELECT 1 FROM root_window w WHERE w.id = j.id) \
-            ORDER BY j.created_at DESC LIMIT 100)\
+        bound AS (\
+            SELECT COALESCE(\
+                (SELECT start_key FROM root_runs ORDER BY start_key DESC OFFSET $7 - 1 LIMIT 1), \
+                '-infinity') AS since\
         ), \
-        inside_window AS (\
-            SELECT s.id, s.created_at, s.created_by, s.trigger_kind, s.trigger, s.parent_job, \
-                   s.root_job, s.flow_innermost_root_job, s.flow_step_id, st.status, \
-                   st.completed_at, st.running, st.suspended, st.started_at, x.retry, \
-                   x.parent_path, x.started_by \
-            FROM (\
-                SELECT id, created_at, created_by, trigger_kind, trigger, parent_job, root_job, \
-                       flow_innermost_root_job, flow_step_id, script_entrypoint_override, args, \
-                       {own_category} AS own_category \
-                FROM v2_job \
-                WHERE workspace_id = $2 AND runnable_path = $1 AND parent_job IS NOT NULL \
-                  AND kind = {inside_kind} AND cardinality($5) > 0 \
-                ORDER BY created_at DESC LIMIT $8\
-            ) s \
-            {classify} \
-            {inside_state} \
-            WHERE {inside_filter} \
-            ORDER BY s.created_at DESC \
-            LIMIT $7\
+        inside_scan AS (\
+            SELECT id, created_at, created_by, trigger_kind, trigger, parent_job, root_job, \
+                   flow_innermost_root_job, flow_step_id, script_entrypoint_override, args, \
+                   {own_category} AS own_category \
+            FROM v2_job \
+            WHERE workspace_id = $2 AND runnable_path = $1 AND parent_job IS NOT NULL \
+              AND kind = {inside_kind} AND cardinality($5) > 0 \
+              AND created_at >= (SELECT since FROM bound) \
+            ORDER BY created_at DESC LIMIT $8\
         ), \
         inside_runs AS (\
-            SELECT * FROM inside_window \
-            UNION ALL \
-            (SELECT s.id, s.created_at, s.created_by, s.trigger_kind, s.trigger, s.parent_job, \
-                   s.root_job, s.flow_innermost_root_job, s.flow_step_id, st.status, \
-                   st.completed_at, st.running, st.suspended, st.started_at, x.retry, \
-                   x.parent_path, x.started_by \
-            FROM (\
-                SELECT q.id FROM v2_job_queue q \
-                WHERE q.workspace_id = $2 AND q.running AND cardinality($5) > 0\
-            ) running \
-            CROSS JOIN LATERAL (\
-                SELECT id, created_at, created_by, trigger_kind, trigger, parent_job, root_job, \
-                       flow_innermost_root_job, flow_step_id, script_entrypoint_override, args, \
-                       {own_category} AS own_category \
-                FROM v2_job \
-                WHERE id = running.id AND workspace_id = $2 AND runnable_path = $1 \
-                  AND parent_job IS NOT NULL AND kind = {inside_kind} \
-                LIMIT 1\
-            ) s \
+            SELECT s.id, s.created_at, s.created_by, s.trigger_kind, s.trigger, s.parent_job, \
+                   s.root_job, s.flow_innermost_root_job, s.flow_step_id, st.status, st.running, \
+                   st.suspended, x.retry, x.parent_path, x.started_by \
+            FROM inside_scan s \
             {classify} \
             {inside_state} \
-            WHERE st.running AND {inside_filter} \
-              AND NOT EXISTS (SELECT 1 FROM inside_window w WHERE w.id = s.id) \
-            ORDER BY s.created_at DESC LIMIT 100)\
-        ), \
-        firsts AS (\
-            SELECT DISTINCT COALESCE(root_job, flow_innermost_root_job, parent_job) AS first \
-            FROM inside_runs\
+            WHERE s.script_entrypoint_override IS NULL \
+              AND ($11::jsonb IS NULL OR s.args @> $11::jsonb) \
+              AND (s.own_category = ANY($5) \
+                   OR (s.own_category IS NULL AND $5 && '{{agent_tool,script_call,handler}}')) \
+              AND NOT x.hidden AND NOT (x.retry IS NOT NULL AND x.parent_is_top) \
+              AND x.started_by = ANY($5) AND {STARTED}\
         ), \
         tops AS (\
-            SELECT w.first, w.top, COALESCE({top_start}, w.top_created_at) AS top_started_at \
+            SELECT w.first, w.top, COALESCE({top_start}, w.top_created_at) AS top_start \
             FROM (\
                 SELECT f.first, COALESCE(a4.id, a3.id, a2.id, a1.id, f.first) AS top, \
                        COALESCE(a4.created_at, a3.created_at, a2.created_at, a1.created_at) \
                            AS top_created_at \
-                FROM firsts f {walk_up}\
+                FROM (SELECT DISTINCT COALESCE(root_job, flow_innermost_root_job, parent_job) \
+                          AS first \
+                      FROM inside_runs) f \
+                {walk_up}\
             ) w\
         ), \
         inside_keyed AS (\
-            SELECT r.*, t.top, t.top_started_at \
+            SELECT r.*, t.top, t.top_start \
             FROM inside_runs r \
             JOIN tops t ON t.first = COALESCE(r.root_job, r.flow_innermost_root_job, r.parent_job)\
         ), \
         groups AS (\
-            SELECT top, min(top_started_at) AS top_started_at, count(*) AS runs, \
+            SELECT top, COALESCE(min(top_start), min(created_at)) AS start_key, count(*) AS runs, \
                    count(*) FILTER (WHERE status IN ('failure', 'canceled')) AS failed, \
                    count(*) FILTER (WHERE running) AS running, \
                    count(*) FILTER (WHERE retry IS NOT NULL) AS retries, \
                    count(*) FILTER (WHERE started_by = 'handler') AS handlers, \
-                   max(COALESCE(completed_at, 'infinity')) AS latest, \
-                   max(created_at) AS latest_created, \
                    (array_agg(id ORDER BY created_at DESC))[1] AS last_id \
             FROM inside_keyed GROUP BY top\
         ), \
-        bounds AS (\
-            SELECT window_bound, \
-                   CASE WHEN window_bound IS NOT NULL THEN window_bound \
-                        ELSE (SELECT created_at FROM v2_job \
-                              WHERE workspace_id = $2 AND runnable_path = $1 AND parent_job IS NOT NULL \
-                                AND kind IN ('script', 'flow') AND cardinality($5) > 0 \
-                              ORDER BY created_at DESC OFFSET $8 - 1 LIMIT 1) END AS count_bound \
-            FROM (SELECT CASE WHEN count(*) >= $7 THEN min(created_at) END AS window_bound \
-                  FROM inside_window) w\
-        ), \
         entries AS (\
-            SELECT r.id AS run_id, NULL::uuid AS top, \
-                   GREATEST(COALESCE(r.completed_at, 'infinity'), g.latest) AS latest, \
-                   GREATEST(r.created_at, g.latest_created) AS latest_created \
-            FROM root_runs r LEFT JOIN groups g ON g.top = r.id \
+            SELECT r.id AS run_id, NULL::uuid AS top, r.start_key FROM root_runs r \
             UNION ALL \
-            SELECT g.last_id, g.top, g.latest, g.latest_created \
+            SELECT g.last_id, g.top, g.start_key \
             FROM groups g WHERE NOT EXISTS (SELECT 1 FROM root_runs r WHERE r.id = g.top)\
         ), \
         page AS (\
-            SELECT run_id, top, latest, latest_created FROM entries \
-            ORDER BY latest DESC, latest_created DESC, COALESCE(top, run_id) \
+            SELECT run_id, top, start_key FROM entries \
+            ORDER BY start_key DESC, COALESCE(top, run_id) \
             LIMIT $10 OFFSET $9\
         ) \
-        SELECT e.run_id, e.top, e.latest_created, \
-               (SELECT count(*) FROM entries a \
-                WHERE b.window_bound IS NULL OR a.latest_created >= b.window_bound) AS above, \
+        SELECT e.run_id, e.top, e.start_key, \
                COALESCE(r.created_by, i.created_by) AS created_by, \
                COALESCE(r.started_by, i.started_by) AS started_by, \
                r.kind IN ('preview', 'flowpreview') AS is_preview, \
@@ -613,18 +506,16 @@ async fn list_page(
                COALESCE(r.status, i.status)::text AS status, \
                COALESCE(r.running, i.running) AS running, \
                COALESCE(r.suspended, i.suspended) AS suspended, \
-               COALESCE(r.completed_at, i.completed_at, r.started_at, i.started_at, \
-                        r.created_at, i.created_at) AS time, \
                g.runs, g.failed, g.running AS running_runs, g.retries, g.handlers, \
-               COALESCE(g.top_started_at, r.started_at, r.created_at) AS top_started_at, \
                rt.n AS root_retries, rt.failed AS root_retries_failed, \
                rt.running AS root_retries_running, \
                t.kind::text AS top_kind, t.runnable_path AS top_path, \
                t.trigger_kind::text AS top_trigger_kind, t.trigger AS top_trigger, \
                tc.status::text AS top_status, tq.running IS TRUE AS top_running, \
-               ra.args, b.window_bound, b.count_bound \
-        FROM bounds b \
-        LEFT JOIN page e ON true \
+               ra.args, \
+               (SELECT CASE WHEN count(*) >= $8 THEN min(created_at) END FROM inside_scan) \
+                   AS count_bound \
+        FROM page e \
         LEFT JOIN root_runs r ON e.top IS NULL AND r.id = e.run_id \
         LEFT JOIN inside_keyed i ON e.top IS NOT NULL AND i.id = e.run_id \
         LEFT JOIN groups g ON g.top = COALESCE(e.top, e.run_id) \
@@ -646,10 +537,11 @@ async fn list_page(
         LEFT JOIN LATERAL (\
             SELECT {args} AS args FROM v2_job a WHERE a.id = e.run_id AND a.workspace_id = $2\
         ) ra ON COALESCE(r.running, i.running) \
-        ORDER BY e.latest DESC, e.latest_created DESC, COALESCE(e.top, e.run_id)",
+        ORDER BY e.start_key DESC, COALESCE(e.top, e.run_id)",
         root_category = top_level_category(""),
         singlestepflow_filter = singlestepflow_filter(q.runnable_type),
         root_state = run_state("j"),
+        root_start = run_start("j.id"),
         own_category = own_category(""),
         inside_kind = inside_kind(q.runnable_type),
         classify = classify_inside(q.runnable_type),
@@ -659,33 +551,29 @@ async fn list_page(
         args = inline_args("a"),
     );
 
-    // Entries are ordered by completion but the top-level window is read by creation: twice the
-    // runs a page needs, as the plain history reads, keeps a run that started before the newer
-    // ones and has just finished.
-    let root_window = 2 * needed;
     let rows = sqlx::query_as::<_, EntryRow>(&sql)
         .bind(q.path)
         .bind(q.w_id)
         .bind(root_kinds)
         .bind(root_categories.as_slice())
         .bind(inside_categories.as_slice())
-        .bind(root_window)
-        .bind(inside_window)
+        .bind(2 * needed)
+        .bind(needed)
         .bind(CAP)
         .bind(offset as i64)
         .bind(per_page as i64)
         .bind(q.args.as_ref())
         .fetch_all(&mut **tx)
         .await?;
-    Ok(rows)
+    Ok(rows.into_iter().map(entry_to_input).collect())
 }
 
 fn entry_to_input(row: EntryRow) -> Input {
-    let complete = match row.count_bound {
-        None => true,
-        Some(bound) => row.top_started_at.is_some_and(|t| t > bound),
-    };
-    let time = row.time.or(row.latest_created).unwrap_or_default();
+    // The scan of runs inside others stopped at its cap: a group whose top-level run started
+    // before the oldest run it read may have more runs.
+    let complete = row.count_bound.is_none_or(|bound| row.start_key >= bound);
+    // The time the list is ordered by, so the column reads in order.
+    let time = row.start_key;
     let created_by = row.created_by.unwrap_or_default();
     let success = row.status.as_deref() == Some("success");
     let run = |run_id: Uuid, top_run: Option<TopRun>, group: Option<RunGroup>| {
@@ -725,7 +613,7 @@ fn entry_to_input(row: EntryRow) -> Input {
             handlers: row.handlers.unwrap_or(0),
             complete,
         });
-        return run(row.run_id.unwrap_or_default(), None, group);
+        return run(row.run_id, None, group);
     };
 
     let top_run = TopRun {
@@ -739,7 +627,7 @@ fn entry_to_input(row: EntryRow) -> Input {
     };
     let runs = row.runs.unwrap_or(0);
     match row.run_id {
-        Some(run_id) if runs == 1 && complete => run(run_id, Some(top_run), None),
+        run_id if runs == 1 && complete => run(run_id, Some(top_run), None),
         _ => {
             let group = RunGroup {
                 runs,
@@ -791,9 +679,9 @@ struct InsideRow {
 
 /// The runs of the runnable inside the top-level run `top_run`, in execution order, with their
 /// args (or `"WINDMILL_TOO_BIG"`), since an opened group shows them all at once. These are the
-/// runs [`list`] groups under `top_run`, read from the sources it counts them from (its window,
-/// a top-level run's retries, the runs in progress) and kept when the walk up from each ends at
-/// `top_run`.
+/// runs [`list`] groups under `top_run`, read from the sources it counts them from (the runs
+/// inside created since `top_run`, a top-level run's retries) and kept when the walk up from
+/// each ends at `top_run`.
 ///
 /// Walking down from `top_run` instead would stop at a loop container or subflow the viewer
 /// cannot read, and its cost would grow with every job of the run, not only this runnable's.
@@ -803,8 +691,8 @@ pub(crate) async fn list_inside(
     top_run: Uuid,
 ) -> Result<Vec<Input>> {
     let categories: Vec<&str> = q.started_by.iter().map(|c| c.as_str()).collect();
-    // The latest CAP runs since `top_run` was created hold every run the list's window can
-    // count. Its creation time is the bound that holds whatever happened since: its start is
+    // The latest CAP runs since `top_run` was created hold every run the list's scan can count.
+    // Its creation time is the bound that holds whatever happened since: its start is
     // stamped again after a zombie recovery and on each workflow-as-code segment. The queue row
     // has no row-level security, for a queued run the viewer cannot read; a completed one leaves
     // the read unbounded, which the LIMIT still caps.
@@ -826,11 +714,7 @@ pub(crate) async fn list_inside(
             UNION \
             SELECT x.id FROM v2_job x JOIN native_retry_attempt n ON n.job_id = x.id \
             WHERE x.parent_job = $4 AND x.workspace_id = $2 AND x.runnable_path = $1 \
-              AND x.kind = {inside_kind} {retry_gate} \
-            UNION \
-            SELECT j.id FROM v2_job_queue q JOIN v2_job j ON j.id = q.id \
-            WHERE q.workspace_id = $2 AND q.running AND j.workspace_id = $2 \
-              AND j.runnable_path = $1 AND j.parent_job IS NOT NULL AND j.kind = {inside_kind}\
+              AND x.kind = {inside_kind} {retry_gate}\
         ), \
         runs AS (\
             SELECT id, created_at, created_by, trigger_kind, trigger, parent_job, root_job, \
@@ -849,7 +733,7 @@ pub(crate) async fn list_inside(
                s.flow_step_id, x.retry, \
                CASE WHEN x.started_by = 'script_call' THEN x.parent_path END AS parent_path, \
                x.started_by, st.status::text AS status, st.running, st.suspended, \
-               COALESCE(st.completed_at, st.started_at, s.created_at) AS time, \
+               COALESCE(st.started_at, s.created_at) AS time, \
                {args} AS args \
         FROM runs s \
         JOIN tops t ON t.first = COALESCE(s.root_job, s.flow_innermost_root_job, s.parent_job) \
