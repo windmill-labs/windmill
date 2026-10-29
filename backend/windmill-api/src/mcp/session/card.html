@@ -155,6 +155,9 @@
   /* An empty slot takes no gap in the card's rhythm. */
   #result-more:empty, #result-table:empty, #body:empty, #result-slot:not(:has(:not([hidden]))), .actions:not(:has(> :not([hidden]))) { display: none; }
   .section-title { font-size: var(--t-sm); font-weight: var(--w-semibold); color: var(--fg-em); }
+  /* A finished run's result is headed, with links to its fullscreen Logs and Inputs tabs. */
+  .result-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: -4px; }
+  .result-head .section-title { flex: 1; }
   /* Windmill sets titles in its sans, semibold; a path never goes bold. */
   .path { font: var(--w-semibold) var(--t-md)/1.3 var(--sans); color: var(--fg-em); overflow-wrap: anywhere; text-align: left; }
   button.path { border: 0; padding: 0; min-height: 0; background: none; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
@@ -324,6 +327,7 @@
   </div>
   <div class="progress-block" id="step" hidden></div>
   <div class="step" id="stale" hidden>No longer refreshing here. Open it in Windmill for its live status.</div>
+  <div class="result-head" id="result-head" hidden></div>
   <div class="error-line" id="error-line" hidden></div>
   <div id="result-slot"><pre class="clip" id="result" hidden></pre></div>
   <div id="result-more"></div>
@@ -837,6 +841,12 @@
     const failed = ['failure', 'not_started', 'error'].includes(status);
     // Fullscreen, the tabs carry the result; inline it shows here.
     const inline = !(fullscreen() && run?.id);
+    const head = $('result-head');
+    head.hidden = !inline || running || !run?.id;
+    head.replaceChildren(...(head.hidden ? [] : [el('span', { class: 'section-title' }, failed ? 'Error' : 'Result'),
+      ...[['logs', 'Logs'], ['inputs', 'Inputs']].map(([name, label]) => el('button', {
+        class: 'more-line', type: 'button', onclick: () => (canFullscreen() ? openTab(name) : openLink(run.url))
+      }, label))]));
     const errorLine = $('error-line');
     errorLine.hidden = !inline || !failed || run?.result == null;
     const errorText_ = failed ? run?.result ?? '' : '';
@@ -1239,7 +1249,7 @@
     window.clearTimeout(pollTimer);
     window.clearInterval(tickTimer);
     run = null;
-    for (const id of ['step', 'stale', 'error-line', 'result', 'details', 'cancel', 'expand', 'deploy']) $(id).hidden = true;
+    for (const id of ['step', 'stale', 'result-head', 'error-line', 'result', 'details', 'cancel', 'expand', 'deploy']) $(id).hidden = true;
     $('result-more').replaceChildren();
     $('duration').textContent = '';
     $('result-table').replaceChildren();
