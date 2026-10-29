@@ -7050,17 +7050,9 @@ async fn user_workspaces(
         };
         // The pre-roles shape the frontend gates on: present exactly for a restricted member.
         let operator_settings = (capabilities.is_restricted()).then(|| {
-            let v = &capabilities.visibility;
-            Some(serde_json::json!({
-                "runs": v.runs, "schedules": v.schedules, "resources": v.resources,
-                "variables": v.variables, "assets": v.assets, "triggers": v.triggers,
-                "audit_logs": v.audit_logs, "groups": v.groups, "folders": v.folders,
-                "workers": v.workers,
-                "builder_flows": capabilities.flows != windmill_common::roles::AuthorLevel::None,
-                "builder_apps": capabilities.apps != windmill_common::roles::AuthorLevel::None,
-                "manage_schedules": capabilities.manage_schedules,
-                "manage_triggers": capabilities.manage_triggers,
-            }))
+            Some(windmill_common::roles::legacy_operator_settings(
+                &capabilities,
+            ))
         });
         workspaces.push(UserWorkspace {
             id: r.id,
@@ -15757,6 +15749,8 @@ pub enum SettingsEdit {
     DefaultApp,
     Color,
     OperatorSettings,
+    /// Body: `{ overrides }`, the whole `role_overrides` map, workspace-only roles included.
+    RoleOverrides,
     Datatable,
     SlackCommand,
     SetSlackOAuth,
@@ -15820,6 +15814,15 @@ pub async fn apply_settings_edit(
                 settings_edit_body(edit, body)?,
             )
             .await?
+        }
+        RoleOverrides => {
+            #[derive(Deserialize)]
+            struct Body {
+                overrides: windmill_common::roles::RoleOverrides,
+            }
+            let Json(Body { overrides }) = settings_edit_body(edit, body)?;
+            crate::workspace_roles::write_role_overrides(&d.0, &a, &p.0, overrides, None).await?;
+            "Role overrides updated".to_string()
         }
         Datatable => {
             let Json(result) =

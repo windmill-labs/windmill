@@ -77,6 +77,8 @@ export interface SimplifiedSettings {
   error_handler_fallback_to_instance_alerts?: boolean;
   add_admins_and_developers_to_forks?: boolean;
   datatable_permissions?: Record<string, unknown> | null;
+  role_overrides?: Record<string, unknown> | null;
+  workspace_only_roles?: Record<string, unknown> | null;
 }
 
 /** Settings the server manages only when settings.yaml states them: a file written before
@@ -93,6 +95,8 @@ export const SETTINGS_MANAGED_ONLY_WHEN_PRESENT = [
   "error_handler_fallback_to_instance_alerts",
   "add_admins_and_developers_to_forks",
   "variable_expiration_handler",
+  "role_overrides",
+  "workspace_only_roles",
 ] as const;
 
 /** Keys earlier versions wrote that no longer configure anything; the server ignores them,

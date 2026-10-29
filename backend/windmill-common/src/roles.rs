@@ -310,6 +310,22 @@ pub fn diff_capabilities(
     }
 }
 
+/// A role's capabilities in the pre-roles `operator_settings` shape that older clients gate on and
+/// the settings document states beside the roles.
+pub fn legacy_operator_settings(c: &RoleCapabilities) -> serde_json::Value {
+    let v = &c.visibility;
+    serde_json::json!({
+        "runs": v.runs, "schedules": v.schedules, "resources": v.resources,
+        "variables": v.variables, "assets": v.assets, "triggers": v.triggers,
+        "audit_logs": v.audit_logs, "groups": v.groups, "folders": v.folders,
+        "workers": v.workers,
+        "builder_flows": c.flows != AuthorLevel::None,
+        "builder_apps": c.apps != AuthorLevel::None,
+        "manage_schedules": c.manage_schedules,
+        "manage_triggers": c.manage_triggers,
+    })
+}
+
 /// One entry of the instance's [`WORKSPACE_ROLES_SETTING`].
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct RoleDefinition {

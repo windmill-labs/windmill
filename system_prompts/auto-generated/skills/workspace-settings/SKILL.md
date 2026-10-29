@@ -52,7 +52,9 @@ write a secret you were not given: keep the placeholder.
 | `default_app` | Path of the app shown as the workspace home. |
 | `default_scripts` | `{ order?, hidden?, default_script_content? }` for the script language picker. |
 | `deploy_ui` | `{ include_path?, include_type? }`: what the deploy-to-workspace UI offers. |
-| `operator_settings` | What operators see and do: page visibility flags (`runs`, `schedules`, `resources`, `variables`, `assets`, `audit_logs`, `groups`, `folders`, `workers`, `triggers`) and write rights (`manage_schedules`, `manage_triggers`, `builder_flows`, `builder_apps`). A write right the value omits keeps its stored value. |
+| `operator_settings` | What operators see and do: page visibility flags (`runs`, `schedules`, `resources`, `variables`, `assets`, `audit_logs`, `groups`, `folders`, `workers`, `triggers`) and write rights (`manage_schedules`, `manage_triggers`, `builder_flows`, `builder_apps`). A write right the value omits keeps its stored value. Not applied when the document states `role_overrides` or `workspace_only_roles`: edit the operator role there. |
+| `role_overrides` | `{ <role>: { label?, capabilities: { code?, flows?, apps?, manage_schedules?, manage_triggers?, fork?, visibility? } } }`: this workspace's overrides of roles the instance defines. A capability left out follows the instance definition. A role the instance does not define is refused, not skipped. |
+| `workspace_only_roles` | Same shape: roles this workspace adds (Enterprise only). A role the instance defines is refused here. |
 | `mute_critical_alerts` | Mute the workspace's critical alerts. |
 | `slack_team_id`, `slack_name` | Read only: set by connecting Slack on the settings page. |
 | `slack_command_script` / `teams_command_script` | Script or flow handling the Slack / Teams command. |
@@ -77,8 +79,8 @@ With `includeSettings: true` in `wmill.yaml`, `wmill sync pull` writes the docum
 document: a setting the file omits is cleared, except `operator_settings`, `color`, the auto-invite
 instance groups, and the keys `ducklake`, `dbt_warehouses`, `deploy_ui`, `teams_command_script`,
 `public_app_execution_limit_per_minute`, `guest_jwt_public_key`, `guest_jwt_jwks_url`,
-`error_handler_fallback_to_instance_alerts` and
-`add_admins_and_developers_to_forks`, which are managed only when the file states them.
+`error_handler_fallback_to_instance_alerts`, `add_admins_and_developers_to_forks`,
+`role_overrides` and `workspace_only_roles`, which are managed only when the file states them.
 `datatable_permissions` is pushed only with `includeDatatablePermissions: true` (or
 `--include-datatable-permissions`). A push ignores `protection_rules`: `protection-rules.yaml` and
 `wmill protection-rules push` sync them.
