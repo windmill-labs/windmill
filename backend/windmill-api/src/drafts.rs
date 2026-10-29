@@ -1045,6 +1045,7 @@ pub struct TransferDraftsResponse {
 async fn transfer_drafts(
     authed: ApiAuthed,
     tokened: crate::auth::Tokened,
+    Extension(auth_cache): Extension<std::sync::Arc<crate::auth::AuthCache>>,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
@@ -1088,18 +1089,13 @@ async fn transfer_drafts(
                 "{target} is not in the same workspace family as {w_id}"
             )));
         }
-        // Authentication checked the token against `w_id` only. A token bound to that
-        // workspace, or a job token (not in `token`), must not reach into the target.
-        let token_valid_for_target = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM token WHERE token_hash = $1
-                 AND (expiration > NOW() OR expiration IS NULL)
-                 AND (workspace_id IS NULL OR workspace_id = $2))",
-            windmill_common::auth::hash_token(&tokened.token),
-            target,
-        )
-        .fetch_one(&db)
-        .await?
-        .unwrap_or(false);
+        // Authentication checked the token against `w_id` only. Re-resolving it against the
+        // target refuses a token bound to `w_id`, whatever its kind (an external JWT has no
+        // `token` row). A job token stays refused even where its claims list both workspaces.
+        let token_valid_for_target = auth_cache
+            .get_authed(Some(target.to_string()), &tokened.token)
+            .await
+            .is_some_and(|a| a.job_id.is_none());
         if !token_valid_for_target {
             return Err(Error::PermissionDenied(format!(
                 "this token cannot act on {target}"

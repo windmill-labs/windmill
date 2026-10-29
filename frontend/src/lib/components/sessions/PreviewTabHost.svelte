@@ -403,7 +403,7 @@
 			</div>
 		{:else if permissions.moving && slot.kind !== 'viewer'}
 			<div class="flex-1 flex items-center justify-center p-8 text-center text-sm text-secondary">
-				The editor reopens once the session has moved to its fork.
+				The editor reopens once the session has moved.
 			</div>
 		{:else if itemKind !== 'pipeline'}
 			<div class="absolute inset-0 flex flex-col min-h-0 bg-surface">

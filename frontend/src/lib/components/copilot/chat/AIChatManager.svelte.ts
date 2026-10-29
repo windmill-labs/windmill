@@ -3675,7 +3675,7 @@ export class AIChatManager implements ChatViewHost {
 				}
 				sendUserToast(
 					this.moveStarted
-						? 'This session is moving to a fork. Your message was kept.'
+						? 'This session is moving to another workspace. Your message was kept.'
 						: 'This session is running in another tab. Your message was kept.',
 					true
 				)
@@ -4859,7 +4859,7 @@ export class AIChatManager implements ChatViewHost {
 			// "Text", not "message": chip edits are the part that does not survive.
 			sendUserToast(
 				this.moveStarted
-					? 'This session is moving to a fork. Your text was kept.'
+					? 'This session is moving to another workspace. Your text was kept.'
 					: 'This session is running in another tab. Your text was kept.',
 				true
 			)

@@ -378,6 +378,43 @@ async fn test_transfer_drafts_to_fork(db: Pool<Postgres>) -> anyhow::Result<()> 
     assert_eq!(r.status(), 403);
     assert_eq!(fork_count("u/test-user/b").await?, 0);
 
+    // A JWT has no `token` row: its own claims decide which workspaces it reaches.
+    set_jwt_secret().await;
+    let jwt = |workspace_ids: Vec<&str>, job_id: Option<&str>| {
+        windmill_common::jwt::encode_with_internal_secret(windmill_common::auth::JWTAuthClaims {
+            email: me.to_string(),
+            username: "test-user".to_string(),
+            is_admin: true,
+            is_operator: false,
+            groups: vec![],
+            folders: vec![],
+            label: None,
+            workspace_id: None,
+            workspace_ids: Some(workspace_ids.into_iter().map(String::from).collect()),
+            exp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as usize
+                + 3600,
+            job_id: job_id.map(String::from),
+            scopes: None,
+            audit_span: None,
+        })
+    };
+    let job_id = uuid::Uuid::new_v4().to_string();
+    for (claims, status) in [
+        (jwt(vec![WS], None).await?, 403),
+        (jwt(vec![WS, fork], Some(&job_id)).await?, 403),
+        (jwt(vec![WS, fork], None).await?, 200),
+    ] {
+        let r = client_for(&format!("jwt_{claims}"))
+            .post(&transfer_url)
+            .json(&json!({ "target_workspace": fork, "items": [{ "kind": "script", "path": "u/test-user/a" }] }))
+            .send()
+            .await?;
+        assert_eq!(r.status(), status);
+    }
+
     // `a` was cloned into the fork: the whole transfer is refused and nothing moves.
     let body: serde_json::Value = c
         .post(&transfer_url)

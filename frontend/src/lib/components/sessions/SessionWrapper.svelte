@@ -532,7 +532,10 @@
 		// Another tab moved the session while this dialog was open.
 		if (actingWorkspaceId !== req.parent) {
 			moveRequest = undefined
-			sendUserToast('This session moved to another workspace meanwhile. Pick the fork again.', true)
+			sendUserToast(
+				'This session moved to another workspace meanwhile. Pick the workspace again.',
+				true
+			)
 			return
 		}
 		// A turn started while the dialog was open (a job's auto-resume) owns the cross-tab hold
@@ -612,7 +615,7 @@
 			moveRequest = undefined
 			await runtime?.manager
 				.queueModelNote(
-					`This session moved from workspace "${req.parent}" to its fork "${res.forkId}": every further tool call acts on "${res.forkId}". ` +
+					`This session moved from workspace "${req.parent}" to workspace "${res.forkId}": every further tool call acts on "${res.forkId}". ` +
 						(res.copied > 0
 							? `${res.copied} draft(s) of this session were copied there` +
 								(res.removed > 0 ? ` and removed from "${req.parent}". ` : '. ')
@@ -756,7 +759,7 @@
 					action: () => summaryInput?.edit()
 				},
 				{
-					displayName: 'Move to a fork…',
+					displayName: 'Move to another workspace…',
 					icon: GitFork,
 					// Before the first message, the "Run in" picker sets the workspace instead.
 					hide: !hasFirstUserMessage || isUnavailable || session.archived,
