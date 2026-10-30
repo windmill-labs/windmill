@@ -143,8 +143,9 @@
 			headAt?: string
 		}) => void
 		/** Collapsed state of the file/runnable sidebar, for a context that keeps its
-		 * own preference; the editor follows it live when the caller swaps it.
-		 * Defaults to the full-page editor's persisted preference. */
+		 * own preference; the editor follows it live when the caller swaps it and
+		 * never collapses it on a narrow open. Defaults to the full-page editor's
+		 * persisted preference. */
 		sidebarCollapsedState?: LayoutFlag
 		/** "Split with Preview" state, likewise owned by the caller and followed live.
 		 * Takes precedence over `defaultSplitWithPreview` and `compact`. */
@@ -599,9 +600,6 @@ addEventListener('message', function (e) {
 		},
 		set val(v) {
 			ownSplitWithPreview = v
-		},
-		setWithoutPersist(v) {
-			ownSplitWithPreview = v
 		}
 	}
 	const splitState = $derived(splitWithPreviewState ?? ownSplitState)
@@ -867,11 +865,12 @@ addEventListener('message', function (e) {
 	const ownSidebarCollapsed = useLocalStorageValue('raw-app-sidebar-collapsed', false, 'boolean')
 	const sidebarCollapsed = $derived(sidebarCollapsedState ?? ownSidebarCollapsed)
 
-	// Auto-compact when the editor opens in a narrow container (e.g. the session
-	// preview pane): drop to the merged single-pane view and retract the file
-	// sidebar. Applied once, on the first measured layout — later resizes are the
-	// user's call. The sidebar is set without persisting so a transient narrow
-	// open never overrides the user's saved expand/collapse preference.
+	// Auto-compact when the editor opens in a narrow container: drop to the merged
+	// single-pane view and retract the file sidebar. Applied once, on the first
+	// measured layout — later resizes are the user's call. The sidebar is set without
+	// persisting so a transient narrow open never overrides the saved preference.
+	// Caller-owned layout state is left alone: its owner already picks a default
+	// for the context it renders in.
 	let rootWidth = $state(0)
 	const NARROW_PX = 900
 	let appliedNarrowDefault = false
@@ -880,8 +879,8 @@ addEventListener('message', function (e) {
 		if (appliedNarrowDefault || w <= 0) return
 		appliedNarrowDefault = true
 		if (compact || w < NARROW_PX) {
-			splitState.setWithoutPersist(false)
-			sidebarCollapsed.setWithoutPersist(true)
+			if (!splitWithPreviewState) ownSplitWithPreview = false
+			if (!sidebarCollapsedState) ownSidebarCollapsed.setWithoutPersist(true)
 		}
 	})
 
