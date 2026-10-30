@@ -254,6 +254,9 @@
 	// `runtime.itemDeployed`, which discards the fork draft + reloads
 	// the preview to the deployed version.
 	const inSessionPane = !!getContext('aiChatManager')
+	// Share and the first-deploy dialog belong to Windmill's own editors: an embedding host can
+	// lock the path, which the dialog would let the user change.
+	const offersSharing = $derived(ownsPageHeader || inSessionPane)
 
 	// The header's buttons render under the page header, not under this component, so the contexts
 	// they look up have to travel with them. The app's own two carry everything the canvas toggles,
@@ -1056,8 +1059,10 @@
 	onAppChanged={applyAppAccess}
 />
 
-<ShareDialog bind:this={shareDialog} onAppChanged={applyAppAccess} />
-<FirstDeployDialog bind:this={firstDeployDialog} />
+{#if offersSharing}
+	<ShareDialog bind:this={shareDialog} onAppChanged={applyAppAccess} />
+	<FirstDeployDialog bind:this={firstDeployDialog} />
+{/if}
 
 <Drawer bind:open={inputsDrawerOpen} size="600px">
 	<DrawerContent title="App inputs configuration" on:close={() => (inputsDrawerOpen = false)}>
@@ -1425,7 +1430,9 @@
 					Settings
 				</Button>
 			</div>
-			<ShareButton deployed={!newApp} iconOnly={compactTopbar} onclick={openShare} />
+			{#if offersSharing}
+				<ShareButton deployed={!newApp} iconOnly={compactTopbar} onclick={openShare} />
+			{/if}
 		{/if}
 		<DeployButton
 			bind:this={deployButton}

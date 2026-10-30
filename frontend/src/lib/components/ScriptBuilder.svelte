@@ -1098,6 +1098,9 @@
 	// details page itself, so it switches the tab instead of leaving. Diff is exposed
 	// as a standalone top-bar button (rendered independently of the pane), not here.
 	const inSessionPane = !!getContext('aiChatManager')
+	// Share and the first-deploy dialog belong to Windmill's own editors: an embedding host (the
+	// SDK) can lock the path, which the dialog would let the user change.
+	const offersSharing = $derived(ownsPageHeader || inSessionPane)
 
 	/** Names the version on the deployed side of the diff. Without it the reader is
 	 *  shown two panes and told nothing about what the left one is — which matters
@@ -1584,8 +1587,10 @@
 	onCanceled={() => (perpetualRunsToConfirm = undefined)}
 />
 
-<ShareDialog bind:this={shareDialog} />
-<FirstDeployDialog bind:this={firstDeployDialog} />
+{#if offersSharing}
+	<ShareDialog bind:this={shareDialog} />
+	<FirstDeployDialog bind:this={firstDeployDialog} />
+{/if}
 
 {#if editRights.roleCanAuthor('script')}
 	<Drawer
@@ -2325,7 +2330,7 @@
 			{#if ownsPageHeader}
 				<OpenInSessionButton source={headerSessionOpen()} />
 			{/if}
-			{#if !phoneTopbar}
+			{#if offersSharing && !phoneTopbar}
 				<ShareButton
 					deployed={!neverDeployed}
 					iconOnly={compactTopbar}

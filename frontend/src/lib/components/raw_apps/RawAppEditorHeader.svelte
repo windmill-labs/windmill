@@ -274,6 +274,9 @@
 		onSavedNewAppPath
 	}: Props = $props()
 
+	// Share and the first-deploy dialog belong to Windmill's own editors: an embedding host can
+	// lock the path, which the dialog would let the user change.
+	const offersSharing = $derived(ownsPageHeader || inSessionPane)
 	const isNewApp = $derived(newApp || appPath == '')
 	// Only the app's first deploy takes the folder's default user.
 	const folderDefault = useFolderDefaultPermissionedAs(
@@ -1029,8 +1032,10 @@
 	onAppChanged={applyAppAccess}
 />
 
-<ShareDialog bind:this={shareDialog} onAppChanged={applyAppAccess} />
-<FirstDeployDialog bind:this={firstDeployDialog} />
+{#if offersSharing}
+	<ShareDialog bind:this={shareDialog} onAppChanged={applyAppAccess} />
+	<FirstDeployDialog bind:this={firstDeployDialog} />
+{/if}
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
@@ -1336,7 +1341,7 @@
 			{/if}
 		{/snippet}
 	</OpenInSessionButton>
-	{#if !phoneTopbar}
+	{#if offersSharing && !phoneTopbar}
 		<ShareButton
 			deployed={!neverDeployed}
 			iconOnly={compactTopbar}

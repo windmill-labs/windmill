@@ -371,6 +371,9 @@
 	// in the shared /sessions URL under the session's own workspace identity, so
 	// presence keyed on that URL leaks a phantom self-badge. Hide it here.
 	const inSessionPane = !!getContext('aiChatManager')
+	// Share and the first-deploy dialog belong to Windmill's own editors: an embedding host (the
+	// SDK, the flow drawer) can lock the path, which the dialog would let the user change.
+	const offersSharing = $derived(ownsPageHeader || inSessionPane)
 
 	setFlowPanelPlacementTelemetry(!inSessionPane)
 
@@ -1721,8 +1724,10 @@
 
 {@render children?.()}
 
-<ShareDialog bind:this={shareDialog} />
-<FirstDeployDialog bind:this={firstDeployDialog} />
+{#if offersSharing}
+	<ShareDialog bind:this={shareDialog} />
+	<FirstDeployDialog bind:this={firstDeployDialog} />
+{/if}
 
 <DeployOnBehalfOfDialog
 	kind="flow"
@@ -1865,12 +1870,14 @@
 							{@render previewButtons()}
 						{/if}
 
-						<ShareButton
-							deployed={!neverDeployed}
-							iconOnly={compactTopbar}
-							unifiedSize={headerBtnSize}
-							onclick={openShare}
-						/>
+						{#if offersSharing}
+							<ShareButton
+								deployed={!neverDeployed}
+								iconOnly={compactTopbar}
+								unifiedSize={headerBtnSize}
+								onclick={openShare}
+							/>
+						{/if}
 						<DeployButton
 							bind:this={deployButton}
 							on:save={async ({ detail }) => await handleSaveFlow(detail)}
