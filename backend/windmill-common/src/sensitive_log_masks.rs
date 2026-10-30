@@ -193,7 +193,14 @@ mod tests {
     fn short_secrets_are_not_registered() {
         let _g = lock();
         let job_id = running_job_with(&["1234567"]);
+        register_secret_for_all_running_jobs("7654321");
         assert!(snapshot(&job_id).is_none());
+
+        register_secret_for_job(job_id, "12345678");
+        register_secret_for_all_running_jobs("87654321");
+        let snap = snapshot(&job_id).expect("8-byte secrets are registered");
+        snap.mask("warmup 12345678");
+        assert_eq!(snap.mask("12345678 87654321"), "1*****8 8*****1");
         unregister_running_job(job_id);
     }
 
