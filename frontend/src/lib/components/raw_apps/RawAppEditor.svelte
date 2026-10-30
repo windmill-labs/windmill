@@ -836,8 +836,18 @@ addEventListener('message', function (e) {
 	// Entering split, whether toggled or by the caller swapping `splitWithPreviewState`:
 	// Preview leaves the left bar, so give the left pane the last file/runnable tab,
 	// or the default file when none is open (this also boots the UI Builder iframe).
+	// A swap to an unsplit state lands on Preview, the single-pane view's default; a
+	// manual unsplit keeps the tab the user is on.
+	let lastSplitState = untrack(() => splitState)
 	$effect(() => {
-		if (!splitWithPreview) return
+		const state = splitState
+		const split = splitWithPreview
+		const swapped = state !== lastSplitState
+		lastSplitState = state
+		if (!split) {
+			if (swapped) untrack(() => select({ kind: 'preview' }, { force: true }))
+			return
+		}
 		untrack(() => {
 			if (activeTabId !== PREVIEW_TAB_ID) return
 			const lastUserTab = tabs
