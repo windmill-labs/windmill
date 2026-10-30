@@ -5,6 +5,7 @@
 	import DataTable from './table/DataTable.svelte'
 	import Head from './table/Head.svelte'
 	import Cell from './table/Cell.svelte'
+	import RowIcon from './common/table/RowIcon.svelte'
 	import { GranularAclService, type AccessReason, type PrincipalAccess } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -347,8 +348,8 @@
 							>
 								<Head>
 									<tr>
-										<Cell head first>Path</Cell>
-										<Cell head>Kind</Cell>
+										<Cell head first>Kind</Cell>
+										<Cell head>Path</Cell>
 										<Cell head>Access</Cell>
 										<Cell head>Why</Cell>
 										<Cell head last />
@@ -358,8 +359,13 @@
 									{#each filteredItems.slice(0, nbDisplayed) as item (item.kind + ':' + item.path)}
 										{@const own = ownItemGrant(item)}
 										<tr>
-											<Cell first><span class="font-mono text-2xs">{item.path}</span></Cell>
-											<Cell>{KIND_LABELS[item.kind] ?? item.kind}</Cell>
+											<Cell first>
+												<span class="flex items-center gap-1.5">
+													<RowIcon kind={item.kind as 'script'} size={14} />
+													{KIND_LABELS[item.kind] ?? item.kind}
+												</span>
+											</Cell>
+											<Cell><span class="font-mono text-2xs">{item.path}</span></Cell>
 											<Cell>{item.write ? 'Write' : 'Read'}</Cell>
 											<Cell>
 												<div class="flex flex-wrap gap-1">
