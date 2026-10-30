@@ -591,8 +591,9 @@
 		navDetached.val = detached
 	}
 	function setSidebarMode(mode: 'expanded' | 'icons' | 'hidden') {
-		if (mode !== 'hidden') {
-			// The persisted preference, unlike the contextual auto-collapse.
+		// The collapse preference is one key for both roles, and only a developer's rail reads it:
+		// an operator writing it would reset the icon rail they chose as a developer elsewhere.
+		if (mode !== 'hidden' && $roleCapabilities.code) {
 			collapsedState = mode === 'icons'
 			collapsePref.val = collapsedState
 		}
@@ -1375,7 +1376,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 		>
 			{@render brandMark(collapsed)}
 			<!-- Below 768px the panel is the only shell there is, so there is no mode to pick. -->
-			{#if !panel || navDetached.val}
+			{#if !panel || (navDetached.val && innerWidth >= 768)}
 				{@render sidebarModeMenu()}
 			{/if}
 		</div>
