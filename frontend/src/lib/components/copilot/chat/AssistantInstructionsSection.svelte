@@ -188,17 +188,15 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		Object.entries(parkedFolderDrafts).filter(([, d]) => d.workspace === ws)
 	)
 
-	/** The same for a new folder instruction, with the path typed for it. */
-	let parkedNewDraft = $state<{ workspace: string; path: string; content: string } | undefined>(
-		undefined
-	)
+	/** The same for a new folder instruction, with the path typed for it, by workspace. */
+	let parkedNewDrafts = $state<Record<string, { path: string; content: string }>>({})
 
 	let dirty = $derived(
 		workspaceChanged ||
 			userChanged ||
 			folderChanged ||
 			parkedHere.length > 0 ||
-			parkedNewDraft?.workspace === ws
+			parkedNewDrafts[ws] !== undefined
 	)
 	/** Whether the block on the detail page has unsaved text. */
 	let pageChanged = $derived(
@@ -317,7 +315,7 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		userDraft = userSaved
 		setFolderContent(folderOriginal)
 		for (const [key] of parkedHere) delete parkedFolderDrafts[key]
-		if (parkedNewDraft?.workspace === ws) parkedNewDraft = undefined
+		delete parkedNewDrafts[ws]
 	}
 
 	function revertPage() {
@@ -332,7 +330,7 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 			bodyEditor?.flushPendingChanges()
 			// The path picker fills in a default, so a path alone is not a draft.
 			if (folderContent.trim()) {
-				parkedNewDraft = { workspace: ws, path: newPath, content: folderContent }
+				parkedNewDrafts[ws] = { path: newPath, content: folderContent }
 			}
 			return
 		}
@@ -400,8 +398,8 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 	function openNew() {
 		if (blockedByPendingFork()) return
 		parkFolderDraft()
-		const parked = parkedNewDraft?.workspace === ws ? parkedNewDraft : undefined
-		parkedNewDraft = undefined
+		const parked = parkedNewDrafts[ws]
+		delete parkedNewDrafts[ws]
 		visit++
 		editorSeq++
 		newPath = parked?.path ?? ''
