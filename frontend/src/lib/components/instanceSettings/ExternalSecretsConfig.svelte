@@ -293,9 +293,9 @@
 			secret under its prefixes, within what Windmill's Vault identity can read.
 		</span>
 		{#if allowed.length === 0}
-			<span class="text-2xs text-secondary"
-				>No references allowed yet. Add a prefix to allow one.</span
-			>
+			<Alert type="warning" size="xs" title="No prefixes allowed yet">
+				References are refused until you add a prefix and choose its workspaces.
+			</Alert>
 		{/if}
 		{#each allowed as a, i (i)}
 			<div class="flex flex-row gap-2 items-center">

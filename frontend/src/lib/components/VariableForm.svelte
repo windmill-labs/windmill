@@ -171,8 +171,9 @@
 					value="plain"
 					label="Non-secret"
 					{item}
-					disabled={kind !== 'plain' &&
-						(secretLocked || unsecureNeedsLoad || (edit && externalRef))}
+					disabled={kind === 'ref'
+						? !canEditRef
+						: kind === 'secret' && (secretLocked || unsecureNeedsLoad)}
 				/>
 				<ToggleButton
 					value="secret"
@@ -202,11 +203,11 @@
 			Only workspace admins can create or change a reference
 		</span>
 	{/if}
-	{#if unsecureNeedsLoad && can_write && (deployedRef || caps.code)}
+	{#if deployedRef && kind !== 'ref' && !hasStagedValue}
+		<span class="text-xs text-secondary">Enter a value to replace the Vault reference</span>
+	{:else if unsecureNeedsLoad && can_write && caps.code}
 		<span class="text-xs text-secondary">
-			{deployedRef
-				? 'Enter a value to replace the Vault reference'
-				: 'Load the secret value or enter a new one to make it non-secret'}
+			Load the secret value or enter a new one to make it non-secret
 		</span>
 	{/if}
 	{#if externalRef}
