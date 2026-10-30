@@ -165,3 +165,106 @@ pub fn register_secret_for_job(job_id: Uuid, secret: &str) {
         set.insert(secret.to_string());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, MutexGuard};
+
+    // The registries are process-global and `register_secret_for_all_running_jobs`
+    // writes to every registered job, so tests running in parallel would leak
+    // secrets into each other's snapshots.
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock() -> MutexGuard<'static, ()> {
+        TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn running_job_with(secrets: &[&str]) -> Uuid {
+        let job_id = Uuid::new_v4();
+        register_running_job(job_id);
+        for s in secrets {
+            register_secret_for_job(job_id, s);
+        }
+        job_id
+    }
+
+    #[test]
+    fn short_secrets_are_not_registered() {
+        let _g = lock();
+        let job_id = running_job_with(&["1234567"]);
+        assert!(snapshot(&job_id).is_none());
+        unregister_running_job(job_id);
+    }
+
+    #[test]
+    fn masks_secrets_keeping_edge_characters() {
+        let _g = lock();
+        let job_id = running_job_with(&["password1", "abcdefghijklmnopqrstuvwxyz"]);
+        let snap = snapshot(&job_id).expect("secrets registered");
+
+        let short = snap.mask("pw=password1");
+        assert!(short.starts_with("pw=p*****1\n"), "{short}");
+        assert!(short.ends_with(MASKED_NOTICE));
+
+        assert_eq!(snap.mask("k=abcdefghijklmnopqrstuvwxyz"), "k=abc*****xyz");
+        unregister_running_job(job_id);
+    }
+
+    #[test]
+    fn longer_secret_wins_over_its_substring() {
+        let _g = lock();
+        let job_id = running_job_with(&["supersecret", "supersecretvalue"]);
+        let snap = snapshot(&job_id).unwrap();
+        snap.mask("warmup supersecret");
+
+        assert_eq!(snap.mask("supersecretvalue"), "s*****e");
+        unregister_running_job(job_id);
+    }
+
+    #[test]
+    fn unmatched_text_is_borrowed_unchanged() {
+        let _g = lock();
+        let job_id = running_job_with(&["password1"]);
+        let snap = snapshot(&job_id).unwrap();
+
+        assert!(matches!(
+            snap.mask("nothing here"),
+            Cow::Borrowed("nothing here")
+        ));
+        assert!(matches!(snap.mask(""), Cow::Borrowed("")));
+        unregister_running_job(job_id);
+    }
+
+    #[test]
+    fn multibyte_secrets_are_masked_on_char_boundaries() {
+        let _g = lock();
+        let job_id = running_job_with(&["pässwört"]);
+        let snap = snapshot(&job_id).unwrap();
+        snap.mask("warmup pässwört");
+
+        assert_eq!(snap.mask("pässwört!"), "p*****t!");
+        unregister_running_job(job_id);
+    }
+
+    #[test]
+    fn secret_for_all_jobs_reaches_only_running_jobs() {
+        let _g = lock();
+        let a = running_job_with(&[]);
+        let b = running_job_with(&[]);
+        let finished = running_job_with(&[]);
+        unregister_running_job(finished);
+
+        register_secret_for_all_running_jobs("shared-secret");
+
+        for job_id in [a, b] {
+            let snap = snapshot(&job_id).expect("secret registered for running job");
+            assert!(snap.mask("shared-secret").starts_with("s*****t"));
+        }
+        assert!(snapshot(&finished).is_none());
+
+        unregister_running_job(a);
+        unregister_running_job(b);
+        assert!(snapshot(&a).is_none());
+    }
+}
