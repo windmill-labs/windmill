@@ -2,6 +2,7 @@
 	import { Section, Button, DrawerContent } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Label from '$lib/components/Label.svelte'
+	import ManageGroupsLink from '$lib/components/ManageGroupsLink.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { workspaceStore } from '$lib/stores'
@@ -17,7 +18,6 @@
 	import { DEV_WORKSPACE_LOCK_RULE_NAME } from '$lib/workspaceProtectionRules.svelte'
 	import { untrack } from 'svelte'
 	import { ArrowRight, Plus, Save, Trash2 } from 'lucide-svelte'
-	import GroupsPageLink from '$lib/components/GroupsPageLink.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 
@@ -308,7 +308,7 @@
 		>
 			<Label label="Groups">
 				{#snippet action()}
-					<GroupsPageLink />
+					<ManageGroupsLink onReturn={loadAvailableGroups} />
 				{/snippet}
 				<MultiSelect
 					bind:value={selectedGroups}
