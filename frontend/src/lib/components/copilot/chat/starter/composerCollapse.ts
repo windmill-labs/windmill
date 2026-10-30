@@ -10,7 +10,8 @@ const OVERLAY =
  * dialog, or one is open, and the press is closing it rather than leaving the composer. */
 export function isComposerOverlay(target: EventTarget | null): boolean {
 	if (target instanceof Element && target.closest(OVERLAY)) return true
-	return document.querySelector(OVERLAY) !== null
+	// An inert one is closed but kept mounted: the hidden sidebar's floating card is a dialog.
+	return [...document.querySelectorAll(OVERLAY)].some((el) => !el.closest('[inert]'))
 }
 
 /** Whether a pointer-down outside the composer leaves it open: it is on a control that brings

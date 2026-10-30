@@ -113,7 +113,7 @@
      state. Any loaded config will do, so a fork switch does not hide it while the fork's loads.
      The item count decides whether the composer rests collapsed, so it waits for that too
      rather than open and fold up a moment later. -->
-{#if session && $copilotWorkspace !== undefined && starterPrompts.fewItems !== undefined}
+{#if session && $copilotWorkspace !== undefined && starterPrompts.empty !== undefined}
 	<div bind:this={chatWrapper}>
 		<AIChat
 			bind:this={() => aiChat, bindChat}
@@ -126,7 +126,7 @@
 			onAttachmentsChange={(a) => setSessionDraftAttachments(sessionId, a)}
 			starter={{
 				suggestions: starterPrompts.suggestions,
-				restsOpen: starterPrompts.fewItems
+				restsOpen: starterPrompts.empty
 			}}
 			viewTransitionNames
 			{onSent}

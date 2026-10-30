@@ -924,12 +924,9 @@
 				bind:this={listRoot}
 				transition:slide={{ duration: 180 }}
 				class={twMerge(
-					'flex flex-col gap-0.5 overflow-y-auto',
+					'flex flex-col gap-0.5',
 					// Shift-clicking rows would otherwise paint a text selection across them.
-					selectionMode ? 'select-none' : '',
-					// In the rail the picker is the whole list and the rail scrolls;
-					// only cap height when it's one section among others (normal sidebar).
-					collapsible ? 'max-h-[40vh]' : ''
+					selectionMode ? 'select-none' : ''
 				)}
 				onkeydown={handleListKeydown}
 				role="listbox"
@@ -1213,7 +1210,11 @@
 				{/if}
 			</div>
 			{#if selectionMode}
-				<div class="flex flex-col gap-1 px-1 pt-1.5">
+				<!-- Pinned to the sidebar's bottom edge while the rows scroll under it; z-10 keeps it
+				     above the sidebar's bottom fade. -->
+				<div
+					class="sticky bottom-0 z-10 flex flex-col gap-1 px-1 pt-1.5 pb-2 bg-[var(--sidebar-bg-light)] dark:bg-[var(--sidebar-bg-dark)]"
+				>
 					<Button
 						unifiedSize="xs"
 						variant="default"

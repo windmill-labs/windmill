@@ -99,11 +99,11 @@ export class StarterPrompts {
 		return composerSuggestions(signals, builds ? role : { ...role, operator: true })
 	})
 
-	/** Whether the workspace holds fewer than `FEW_ITEMS`, below which Home's composer rests
-	 * open as the page's main way in; undefined until known. */
-	get fewItems(): boolean | undefined {
+	/** Whether the workspace holds no item the reader can list, where Home's composer rests
+	 * open as the page's only way in; undefined until known. */
+	get empty(): boolean | undefined {
 		const count = this.#currentSignals?.itemCount
-		return count === undefined ? undefined : count < FEW_ITEMS
+		return count === undefined ? undefined : count === 0
 	}
 }
 

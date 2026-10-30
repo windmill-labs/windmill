@@ -22,7 +22,6 @@
 		GraduationCap,
 		PanelLeft,
 		Star,
-		Database,
 		FolderOpen,
 		Users
 	} from 'lucide-svelte'
@@ -248,13 +247,6 @@
 					icon: Star,
 					toggle: sidebarPrefs.favorites.val,
 					action: () => (sidebarPrefs.favorites.val = !sidebarPrefs.favorites.val)
-				},
-				{
-					displayName: 'Group data pages',
-					description: 'Variables, Resources and Assets under one Data menu, rather than a Data section',
-					icon: Database,
-					toggle: !sidebarPrefs.splitData.val,
-					action: () => (sidebarPrefs.splitData.val = !sidebarPrefs.splitData.val)
 				}
 			]
 		},
