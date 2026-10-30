@@ -221,9 +221,17 @@ pub fn unregister_running_job(job_id: Uuid) {
 }
 
 /// `secret` and, when it spans several lines, each of them: `handle_child` masks a log
-/// line by line, so a multi-line secret such as a PEM key never matches as a whole.
+/// line by line, so a multi-line secret such as a PEM key never matches as a whole. Masks
+/// apply to every running job, so lines any job may print are left out: PEM armor, and the
+/// lines of a JSON document (`"type": "service_account",`).
 fn mask_patterns(secret: &str) -> impl Iterator<Item = &str> {
-    let lines = secret.contains('\n').then(|| secret.lines().map(str::trim));
+    let split = secret.contains('\n') && !secret.trim_start().starts_with(['{', '[']);
+    let lines = split.then(|| {
+        secret
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.starts_with("-----"))
+    });
     std::iter::once(secret)
         .chain(lines.into_iter().flatten())
         .filter(|s| s.len() >= MIN_SECRET_LENGTH)
@@ -260,23 +268,33 @@ pub fn register_secret_for_all_running_jobs(secret: &str) {
 
 /// Like [`register_secret_for_all_running_jobs`], and when `secret` is a JSON object or
 /// array also each string in it: `$jsonvar:` hands a job the parsed value, which can then
-/// print one field on its own.
+/// print one field on its own. Only for values whose every field is secret, such as a whole
+/// Vault secret: masks apply to every running job, and a JSON variable's other fields
+/// (`"user": "postgres"`) would mask unrelated logs.
 pub fn register_secret_and_fields_for_all_running_jobs(secret: &str) {
     register_secret_for_all_running_jobs(secret);
-    if !secret.trim_start().starts_with(['{', '[']) {
-        return;
+    for field in json_strings(secret) {
+        register_secret_for_all_running_jobs(&field);
     }
-    fn walk(v: &serde_json::Value) {
+}
+
+/// Every string inside `secret` when it is a JSON object or array.
+fn json_strings(secret: &str) -> Vec<String> {
+    fn walk(v: serde_json::Value, out: &mut Vec<String>) {
         match v {
-            serde_json::Value::String(s) => register_secret_for_all_running_jobs(s),
-            serde_json::Value::Array(a) => a.iter().for_each(walk),
-            serde_json::Value::Object(o) => o.values().for_each(walk),
+            serde_json::Value::String(s) => out.push(s),
+            serde_json::Value::Array(a) => a.into_iter().for_each(|v| walk(v, out)),
+            serde_json::Value::Object(o) => o.into_iter().for_each(|(_, v)| walk(v, out)),
             _ => {}
         }
     }
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(secret) {
-        walk(&v);
+    let mut out = vec![];
+    if secret.trim_start().starts_with(['{', '[']) {
+        if let Ok(v) = serde_json::from_str(secret) {
+            walk(v, &mut out);
+        }
     }
+    out
 }
 
 /// Register a secret value for a specific job.
@@ -328,7 +346,17 @@ mod tests {
         for line in ["firstlineofkey", "secondlineofkey"] {
             assert!(!snap.mask(line).contains(line), "{line}");
         }
+        assert_eq!(snap.mask("-----BEGIN KEY-----"), "-----BEGIN KEY-----");
         unregister_running_job(job_id);
+    }
+
+    #[test]
+    fn finds_each_string_of_a_whole_secret() {
+        assert_eq!(
+            json_strings(r#"{"a":"secretvalue1","b":["secretvalue2"],"n":12345678}"#),
+            ["secretvalue1", "secretvalue2"]
+        );
+        assert!(json_strings("not json").is_empty());
     }
 
     /// A line-by-line sink must not repeat the notice on every line, and must still

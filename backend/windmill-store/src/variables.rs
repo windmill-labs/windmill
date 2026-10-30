@@ -15,8 +15,8 @@ use windmill_common::workspaces::{check_deploy_rules, operator_can_draft, RuleCh
 
 use crate::secret_backend_ext::{
     check_external_ref, delete_secret_from_backend, get_secret_value, http_store_rename_error,
-    is_external_ref_value, is_http_store_stored_value, is_vault_stored_value, rename_vault_secret,
-    resolves_externally, store_managed_secret_value, store_secret_value,
+    is_external_ref_value, is_http_store_stored_value, is_vault_stored_value, parse_external_ref,
+    rename_vault_secret, resolves_externally, store_managed_secret_value, store_secret_value,
 };
 use windmill_common::utils::{
     check_proper_path, escape_ilike_pattern, sanitize_db_error, BulkDeleteRequest,
@@ -1641,7 +1641,7 @@ pub async fn get_value_internal<'a>(
             if cached.is_secret {
                 audit_decrypt_secret(db_with_opt_authed, &w_id, &path).await?;
                 if !cached.value.is_empty() {
-                    windmill_common::sensitive_log_masks::register_secret_and_fields_for_all_running_jobs(
+                    windmill_common::sensitive_log_masks::register_secret_for_all_running_jobs(
                         &cached.value,
                     );
                 }
@@ -1675,6 +1675,8 @@ pub async fn get_value_internal<'a>(
 
     // A reference is resolved on every read, so Vault rotation and allow-list changes apply at once.
     let cacheable = !is_external_ref_value(&variable.value);
+    let whole_secret_ref = is_external_ref_value(&variable.value)
+        && parse_external_ref(&variable.value).is_ok_and(|r| r.key.is_none());
     let r = if variable.is_secret {
         audit_decrypt_secret(db_with_opt_authed, &w_id, &variable.path).await?;
 
@@ -1704,7 +1706,13 @@ pub async fn get_value_internal<'a>(
     };
 
     if variable.is_secret && !r.is_empty() {
-        windmill_common::sensitive_log_masks::register_secret_and_fields_for_all_running_jobs(&r);
+        if whole_secret_ref {
+            windmill_common::sensitive_log_masks::register_secret_and_fields_for_all_running_jobs(
+                &r,
+            );
+        } else {
+            windmill_common::sensitive_log_masks::register_secret_for_all_running_jobs(&r);
+        }
     }
 
     // Cache the result when explicitly allowed. Secrets are cached too: their per-read side

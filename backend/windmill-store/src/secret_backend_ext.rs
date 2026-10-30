@@ -26,7 +26,7 @@ pub use windmill_common::secret_backend::{
     check_external_ref, get_secret_backend, get_secret_value, is_aws_sm_stored_value,
     is_azure_kv_stored_value, is_external_ref_value, is_external_stored_value,
     is_http_store_stored_value, is_vault_backend_configured, is_vault_stored_value,
-    resolves_externally,
+    parse_external_ref, resolves_externally,
 };
 
 /// The HTTP store's key is derived from the variable path, so moving a reference would point it
