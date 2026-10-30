@@ -158,6 +158,7 @@
 			{onPickerOpenChange}
 			{itemPath}
 			{needsSource}
+			offerCreate
 		/>
 		{#if willChange}
 			<AlertTriangle size={14} class="text-yellow-500" />

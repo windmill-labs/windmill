@@ -28,7 +28,7 @@
 </script>
 
 <script lang="ts">
-	import { Bot, ChevronDown, PlusIcon, User as UserIcon, UserCog } from 'lucide-svelte'
+	import { Bot, ChevronDown, PlusIcon, User as UserIcon, UserCog, Users } from 'lucide-svelte'
 	import Select from './select/Select.svelte'
 	import { Drawer, DrawerContent } from './common'
 	import { enterpriseLicense, userStore } from '$lib/stores'
@@ -89,6 +89,9 @@
 		itemPath?: string
 		/** The item as its editor holds it, read for what a new service account needs. */
 		needsSource?: () => NeedsSource | undefined
+		/** Offer to create a service account. Only a host whose deploy creates the pending account
+		 *  may pass it: elsewhere the item would be deployed as an account that never exists. */
+		offerCreate?: boolean
 		size?: 'sm' | 'md'
 		/** Width of the input, e.g. a fixed one in a table row so the row doesn't reflow. */
 		class?: string
@@ -110,6 +113,7 @@
 		readOnlyWithoutPreserve = false,
 		itemPath = undefined,
 		needsSource = undefined,
+		offerCreate = false,
 		size = 'md',
 		class: className = 'w-56'
 	}: Props = $props()
@@ -161,13 +165,20 @@
 		subtitle?: string
 		disabled?: boolean
 		group: string
-		kind: 'account' | 'person' | 'other'
+		kind: 'account' | 'person' | 'group'
 		email?: string
 		pending?: boolean
 	}
 
+	const GROUP_OF: Record<Row['kind'], string> = {
+		account: 'Service accounts',
+		person: 'People',
+		group: 'Groups'
+	}
+	const GROUP_ORDER = Object.values(GROUP_OF)
+
 	// One row per user: the saved value and "me" are tags on the account or person row when it is
-	// listed, and rows of their own above the groups when it is not.
+	// listed, and rows of their own, at the top of the group of what they name, when it is not.
 	let rows: Row[] = $derived.by(() => {
 		const tags = new Map<string, string[]>()
 		const tag = (name: string | undefined, t: string) =>
@@ -205,16 +216,26 @@
 		const listedNames = new Set(listed.map((r) => r.value))
 		const own: Omit<Row, 'label'>[] = [...tags.keys()]
 			.filter((name) => !listedNames.has(name))
-			.map((name) => ({
-				value: name,
-				group: '',
-				kind: 'other' as const,
-				disabled: name !== myDisplayName && !allowed(targetValue)
+			.map((name) => {
+				const rowKind: Row['kind'] = name.startsWith('g/')
+					? 'group'
+					: serviceAccounts.current.some((a) => `u/${a.username}` === name)
+						? 'account'
+						: 'person'
+				return {
+					value: name,
+					group: GROUP_OF[rowKind],
+					kind: rowKind,
+					disabled: name !== myDisplayName && !allowed(targetValue)
+				}
+			})
+		// Select draws a header wherever the group changes, so each group's rows must be contiguous.
+		return [...own, ...listed]
+			.sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group))
+			.map((r) => ({
+				...r,
+				label: [r.value, ...(tags.get(r.value) ?? [])].join(' ')
 			}))
-		return [...own, ...listed].map((r) => ({
-			...r,
-			label: [r.value, ...(tags.get(r.value) ?? [])].join(' ')
-		}))
 	})
 	let rowsByValue = $derived(new Map(rows.map((r) => [r.value, r])))
 
@@ -233,7 +254,7 @@
 	// Service accounts are created at deploy time for the runnables a deploy dialog confirms; a
 	// trigger's identity is set where it is saved, with no dialog to create one from.
 	const offersCreate = $derived(
-		kind === 'script' || kind === 'flow' || kind === 'app' || kind === 'raw_app'
+		offerCreate && (kind === 'script' || kind === 'flow' || kind === 'app' || kind === 'raw_app')
 	)
 	const canCreate = $derived(!!$enterpriseLicense && !!$userStore?.is_admin)
 
@@ -329,7 +350,8 @@
 			inputLeadingSnippet={statusIcon}
 		>
 			{#snippet startSnippet({ item })}
-				{@const Icon = rowsByValue.get(item.value)?.kind === 'account' ? Bot : UserIcon}
+				{@const rowKind = rowsByValue.get(item.value)?.kind}
+				{@const Icon = rowKind === 'account' ? Bot : rowKind === 'group' ? Users : UserIcon}
 				<Icon size={14} class="shrink-0 text-secondary" />
 			{/snippet}
 			{#snippet endSnippet({ item })}
