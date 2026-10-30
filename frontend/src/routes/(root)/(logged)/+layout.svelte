@@ -602,9 +602,8 @@
 	// card's (top at the band's bottom edge, bottom and left insets, rounded corners); detaching
 	// also slides it off the left edge, where the closed card lives. No opacity: the rail never
 	// fades.
-	// The footer's icon buttons wear the rail's own row box — 32px square, 16px glyph — so the
-	// pair that hides and collapses the sidebar lines up with the links above them, collapsed or
-	// not. Padding alone drifted: two different paddings, two icon sizes and a negative margin.
+	// The footer's mode button wears the rail's own row box — 32px square, 16px glyph — so it
+	// lines up with the links above it, collapsed or not.
 	const SIDEBAR_ICON_BUTTON =
 		'h-8 w-8 flex items-center justify-center rounded hover:bg-surface-hover flex-shrink-0'
 
