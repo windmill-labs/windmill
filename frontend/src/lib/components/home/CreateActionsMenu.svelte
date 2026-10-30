@@ -113,6 +113,11 @@
 
 	// kept static so tailwind doesn't purge the badge tones
 	const badgeAdvanced = 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+	// While Home's composer is open (`data-composer-open`) the button looks like the default
+	// variant: that state lives in the DOM, not in a prop. The border is an inset ring so the
+	// button keeps its width.
+	const QUIET_AS_DEFAULT =
+		'group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:hover:bg-surface-hover group-has-[[data-composer-open]]/home:text-primary group-has-[[data-composer-open]]/home:ring-1 group-has-[[data-composer-open]]/home:ring-inset group-has-[[data-composer-open]]/home:ring-border-light'
 	const badgeLegacy = 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
 	const badgeAlpha = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
 	const badgeRecommended = 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
@@ -535,6 +540,7 @@
 			aiDescription="Create a new script, flow or app"
 			unifiedSize="md"
 			variant="accent"
+			btnClasses={QUIET_AS_DEFAULT}
 			startIcon={{ icon: Plus }}
 			endIcon={{ icon: ChevronDown }}
 			bind:element={triggerEl}

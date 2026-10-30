@@ -284,35 +284,39 @@ not this component) — so the lead can run the whole line.
 			<ChevronDown size={ICON} class="flex-shrink-0" />
 		</span>
 	{:else}
-		<Menubar>
-			{#snippet children({ createMenu })}
-				<Menu
-					bind:this={workspaceMenu}
-					{createMenu}
-					usePointerDownOutside
-					placement="bottom-start"
-					class="h-auto"
-					contentStyle="margin-left: {-nameWidth}px"
-				>
-					{#snippet triggr({ trigger })}
-						<MeltButton
-							meltElement={trigger}
-							class="flex items-center h-9 px-1.5 rounded text-tertiary hover:bg-surface-hover hover:text-primary transition-colors"
-							title="Switch workspace"
-						>
-							<ChevronDown size={ICON} class="flex-shrink-0" />
-						</MeltButton>
-					{/snippet}
-					{#snippet children({ item: menuItem })}
-						<WorkspacePickerBody
-							item={menuItem}
-							collapseFamilies={actingWorkspaceId != undefined}
-							closeMenu={() => workspaceMenu?.close()}
-						/>
-					{/snippet}
-				</Menu>
-			{/snippet}
-		</Menubar>
+		<!-- `data-works-with-composer`: switching workspace leaves Home's composer open; the menu is
+		     portaled away from here, so WorkspacePickerBody carries the marker too. -->
+		<span data-works-with-composer class="contents">
+			<Menubar>
+				{#snippet children({ createMenu })}
+					<Menu
+						bind:this={workspaceMenu}
+						{createMenu}
+						usePointerDownOutside
+						placement="bottom-start"
+						class="h-auto"
+						contentStyle="margin-left: {-nameWidth}px"
+					>
+						{#snippet triggr({ trigger })}
+							<MeltButton
+								meltElement={trigger}
+								class="flex items-center h-9 px-1.5 rounded text-tertiary hover:bg-surface-hover hover:text-primary transition-colors"
+								title="Switch workspace"
+							>
+								<ChevronDown size={ICON} class="flex-shrink-0" />
+							</MeltButton>
+						{/snippet}
+						{#snippet children({ item: menuItem })}
+							<WorkspacePickerBody
+								item={menuItem}
+								collapseFamilies={actingWorkspaceId != undefined}
+								closeMenu={() => workspaceMenu?.close()}
+							/>
+						{/snippet}
+					</Menu>
+				{/snippet}
+			</Menubar>
+		</span>
 	{/if}
 {/snippet}
 

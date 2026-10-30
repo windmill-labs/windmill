@@ -368,7 +368,7 @@
 {#snippet card(item: Entry, favorite: boolean)}
 	{@const draft = draftByItem.get(`${item.starKind}/${item.path}`)}
 	<div
-		class="group flex items-center gap-1 rounded-md border border-light bg-surface-tertiary hover:bg-surface-hover transition-colors min-w-0"
+		class="group flex items-center gap-1 rounded-md border border-light bg-surface-tertiary hover:bg-surface-hover transition-colors min-w-0 group-has-[[data-composer-open]]/home:border-transparent group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:hover:bg-surface-hover"
 	>
 		<a
 			href={getFavoriteHref(item.path, item.kind)}
@@ -453,7 +453,7 @@
      landing in front of them would push every card over. -->
 {#if favoriteManager.loadedFor === workspace && (entries.length > 0 || emptiedBySettings) && !hidden}
 	<!-- 30px under the cards: the gap from the composer down to this section's heading text. -->
-	<section class="flex flex-col gap-2 px-4 sm:px-0 pb-[30px]">
+	<section data-works-with-composer class="flex flex-col gap-2 px-4 sm:px-0 pb-[30px]">
 		<div class="flex items-center gap-1 -my-1">
 			<HomeSectionLabel>
 				{#if favoriteCount > 0}

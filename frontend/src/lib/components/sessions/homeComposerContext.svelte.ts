@@ -1,5 +1,6 @@
 import type { ContextElement } from '$lib/components/copilot/chat/context'
 import type { BulkKind } from '$lib/components/home/homeSelection.svelte'
+import type { SessionRuntime } from './sessionRuntime.svelte'
 
 /** Resolves once the element is in the draft, so several attach in the order given. */
 type Attach = (element: ContextElement) => Promise<void>
@@ -25,7 +26,18 @@ export function itemContextElement(item: {
 	return { type, path: item.path, title: item.path, summary: item.summary, deletable: true }
 }
 
-let attach = $state<Attach | undefined>(undefined)
+type Registration = {
+	/** The draft the composer shows. */
+	sessionId: string
+	attach: Attach
+	focus: () => void
+	/** The box's accent outline, for a composer the user is sent to without it moving. */
+	flash: () => void
+	runtime: SessionRuntime
+}
+
+// Raw: the runtime is shared with the session page and must stay the same object there.
+let registered = $state.raw<Registration | undefined>(undefined)
 
 /**
  * The way from anywhere on Home into Home's composer: a row's "Ask AI" hands its item over
@@ -34,17 +46,32 @@ let attach = $state<Attach | undefined>(undefined)
  */
 export const homeComposerContext = {
 	get available(): boolean {
-		return attach !== undefined
+		return registered !== undefined
+	},
+	/** The runtime of the draft in Home's composer, whose preview tabs Home's panel shows. Read
+	 * from here because Home must not import the runtime's code (it reaches monaco). */
+	get runtime(): SessionRuntime | undefined {
+		return registered?.runtime
 	},
 	async attach(element: ContextElement): Promise<void> {
-		await attach?.(element)
+		await registered?.attach(element)
+	},
+	/** Whether Home's composer is on screen with this draft. */
+	holds(sessionId: string): boolean {
+		return registered?.sessionId === sessionId
+	},
+	focus(): void {
+		registered?.focus()
+	},
+	flash(): void {
+		registered?.flash()
 	},
 	/** Returns the unregister, which only clears its own registration: a remount registers
 	 * the new composer before the old one is destroyed. */
-	register(fn: Attach): () => void {
-		attach = fn
+	register(registration: Registration): () => void {
+		registered = registration
 		return () => {
-			if (attach === fn) attach = undefined
+			if (registered === registration) registered = undefined
 		}
 	}
 }

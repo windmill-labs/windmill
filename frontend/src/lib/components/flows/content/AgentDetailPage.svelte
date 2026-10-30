@@ -59,6 +59,8 @@
 		onLoadState?: (state: 'loaded' | 'not_found') => void
 		/** The deployed agent's summary, for a host that names the page after it. */
 		onSummary?: (summary: string | undefined) => void
+		/** A chat conversation to show once the chat is up, as a link to it names one. */
+		openConversation?: string
 	}
 
 	let {
@@ -69,7 +71,8 @@
 		onNavigate = (url) => goto(url),
 		pendingRun = undefined,
 		onLoadState = undefined,
-		onSummary = undefined
+		onSummary = undefined,
+		openConversation = undefined
 	}: Props = $props()
 
 	// Every workspace-scoped call below and in the drawers this page opens (the summary's save,
@@ -388,6 +391,7 @@
 			view
 			onOpenConfig={() => configModal?.open()}
 			onRunStarted={embedded || pendingRun ? runStarted : undefined}
+			{openConversation}
 		>
 			{#snippet chatSidebarFooter({ expanded })}
 				{#if ws}
