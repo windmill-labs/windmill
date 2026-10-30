@@ -364,7 +364,6 @@ mod tests {
         job_id
     }
 
-    /// Masking a short value would flood logs with false positives.
     #[test]
     fn secrets_shorter_than_min_length_are_not_registered() {
         let _guard = stable_secret_set();
@@ -421,6 +420,7 @@ mod tests {
         let job_id = job_with(&[]);
         assert!(snapshot(&job_id).is_none());
         register_secret_for_job(job_id, "supersecretvalue");
+        assert!(snapshot(&job_id).is_some());
         unregister_running_job(job_id);
         assert!(snapshot(&job_id).is_none());
     }
@@ -430,7 +430,8 @@ mod tests {
         let _guard = SECRET_SET.write().unwrap_or_else(|e| e.into_inner());
         let a = job_with(&[]);
         let b = job_with(&[]);
-        let unregistered = Uuid::new_v4();
+        let finished = job_with(&[]);
+        unregister_running_job(finished);
         let secret = format!("shared-{}", Uuid::new_v4());
         register_secret_for_all_running_jobs(&secret);
 
@@ -439,18 +440,22 @@ mod tests {
             assert!(!masked.contains(&secret), "{masked}");
             unregister_running_job(job_id);
         }
-        assert!(snapshot(&unregistered).is_none());
+        assert!(snapshot(&finished).is_none());
     }
 
-    /// Prefix/suffix are taken by char, so multi-byte secrets must not split a code point.
+    /// Prefix/suffix and the 20 threshold count chars, so multi-byte secrets must
+    /// neither split a code point nor switch format by byte length.
     #[test]
     fn multibyte_secrets_are_masked_on_char_boundaries() {
         let _guard = stable_secret_set();
-        let job_id = job_with(&["🔑éàü-secret-value-ñ€😀", "éàü🔑"]);
+        let twenty_chars = "é".repeat(20);
+        let job_id = job_with(&["🔑éàü-secret-value-ñ€😀", "éàü🔑", &twenty_chars]);
         let snap = snapshot(&job_id).unwrap();
         assert_eq!(
-            snap.mask("x 🔑éàü-secret-value-ñ€😀 y éàü🔑"),
-            format!("x 🔑éà*****ñ€😀 y é*****🔑\n{MASKED_NOTICE}")
+            snap.mask(&format!(
+                "x 🔑éàü-secret-value-ñ€😀 y éàü🔑 z {twenty_chars}"
+            )),
+            format!("x 🔑éà*****ñ€😀 y é*****🔑 z é*****é\n{MASKED_NOTICE}")
         );
         unregister_running_job(job_id);
     }
