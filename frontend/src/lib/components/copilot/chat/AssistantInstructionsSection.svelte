@@ -312,6 +312,8 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		if (!dirty) return
 		event.preventDefault()
 		event.stopPropagation()
+		// The editor may still hold another workspace's text, which this Escape must not drop.
+		if (opened && opened.workspace !== ws) parkFolderDraft()
 		workspaceDraft = workspaceSaved
 		userDraft = userSaved
 		setFolderContent(folderOriginal)
@@ -325,21 +327,25 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		else setFolderContent(folderOriginal)
 	}
 
-	/** Moves the open folder instruction's unsaved text aside, before the editor is reused. */
+	/** Moves the open folder instruction's unsaved text aside, before the editor is reused.
+	 * Read from `opened`, not `detail`: after a workspace switch `detail` is gone while the
+	 * editor still holds the text, which belongs to the workspace it was opened in. */
 	function parkFolderDraft() {
-		if (detail?.kind === 'new') {
+		if (!opened) return
+		const { workspace, detail: held } = opened
+		if (held.kind === 'new') {
 			bodyEditor?.flushPendingChanges()
 			// The path picker fills in a default, so a path alone is not a draft.
 			if (folderContent.trim()) {
-				parkedNewDrafts[ws] = { path: newPath, content: folderContent }
+				parkedNewDrafts[workspace] = { path: newPath, content: folderContent }
 			}
 			return
 		}
-		if (detail?.kind !== 'folder') return
+		if (held.kind !== 'folder') return
 		bodyEditor?.flushPendingChanges()
 		if (folderContent === folderOriginal) return
-		parkedFolderDrafts[draftKey(detail.row.path)] = {
-			workspace: ws,
+		parkedFolderDrafts[draftKey(held.row.path, workspace)] = {
+			workspace,
 			content: folderContent,
 			original: folderOriginal
 		}
