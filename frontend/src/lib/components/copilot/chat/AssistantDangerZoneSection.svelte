@@ -4,8 +4,7 @@ The Danger zone of the assistant settings modal: workspace-wide switches an admi
 chat itself. Each one is also in the workspace's AI settings, which stay the place to undo it.
 -->
 <script lang="ts">
-	import { Section } from '$lib/components/common'
-	import Button from '$lib/components/common/button/Button.svelte'
+	import { Alert, Section } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -52,27 +51,16 @@ chat itself. Each one is also in the workspace's AI settings, which stay the pla
 </script>
 
 <Section label="Danger zone" description="Settings that apply to every member of this workspace.">
-	<div
-		class="flex items-start justify-between gap-4 rounded-md border border-red-300 dark:border-red-800 p-3"
+	<Alert
+		type="error"
+		title="Hide AI sessions"
+		size="xs"
+		actions={[{ label: 'Hide AI sessions', variant: 'accent', onClick: openConfirm }]}
 	>
-		<div class="flex flex-col gap-1 min-w-0">
-			<span class="text-xs font-semibold text-emphasis">Hide AI sessions</span>
-			<span class="text-xs text-secondary">
-				Hides AI sessions and every other AI assistant button from all members of
-				<span class="font-mono">{ws}</span>. AI agent steps in flows keep working. Turn it back on
-				in the workspace settings, under Windmill AI.
-			</span>
-		</div>
-		<Button
-			variant="default"
-			destructive
-			unifiedSize="sm"
-			btnClasses="shrink-0"
-			onClick={openConfirm}
-		>
-			Hide AI sessions
-		</Button>
-	</div>
+		Hides AI sessions and every other AI assistant button from all members of
+		<span class="font-mono">{ws}</span>. AI agent steps in flows keep working. Turn it back on in
+		the workspace settings, under Windmill AI.
+	</Alert>
 </Section>
 
 <ConfirmationModal
