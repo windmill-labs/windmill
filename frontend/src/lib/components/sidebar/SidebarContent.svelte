@@ -53,8 +53,6 @@
 		getServiceIcon
 	} from '../triggers/native/utils'
 	import type { NativeServiceName } from '$lib/gen/types.gen'
-	import DataStoresMenuItems from './DataStoresMenuItems.svelte'
-	import { sidebarPrefs } from './sidebarPrefs.svelte'
 	import {
 		Menubar,
 		Menu,
@@ -62,7 +60,7 @@
 		MenuItem,
 		MeltButton
 	} from '$lib/components/meltComponents'
-	import MenuButton, { sidebarClasses } from './MenuButton.svelte'
+	import MenuButton from './MenuButton.svelte'
 	import SidebarSectionHeader from './SidebarSectionHeader.svelte'
 	import GoogleCloudIcon from '../icons/triggers/GoogleCloudIcon.svelte'
 	import AzureIcon from '../icons/triggers/AzureIcon.svelte'
@@ -233,29 +231,14 @@
 			}))
 			.filter((l) => !excludeMainLabels.includes(l.label))
 	)
-	// Main-menu pages folded under one menu each, to keep the nav short.
-	const MAIN_MENU_GROUPS = [
-		{
-			label: 'Data',
-			icon: Database,
-			members: ['Variables', 'Resources', 'Assets'],
-			aiId: 'sidebar-menu-data',
-			aiDescription: 'Menu with the variables, resources and assets pages'
-		}
-	]
-	const groupedLabels = new Set(MAIN_MENU_GROUPS.flatMap((g) => g.members))
-	let ungroupedMainLinks = $derived(mainMenuLinks.filter((l) => !groupedLabels.has(l.label)))
-	// A disabled MenuLink renders nothing, so its page leaves the menu, and a group with no
+	// Main-menu pages listed in a collapsible Data section of their own, as Triggers.
+	const DATA_LABELS = ['Variables', 'Resources', 'Assets']
+	let ungroupedMainLinks = $derived(mainMenuLinks.filter((l) => !DATA_LABELS.includes(l.label)))
+	// A disabled MenuLink renders nothing, so its page leaves the section, and a section with no
 	// page left leaves the nav.
-	let menuGroups = $derived(
-		MAIN_MENU_GROUPS.map((g) => ({
-			...g,
-			links: mainMenuLinks.filter((l) => g.members.includes(l.label) && !l.disabled)
-		})).filter((g) => g.links.length > 0)
+	let dataLinks = $derived(
+		mainMenuLinks.filter((l) => DATA_LABELS.includes(l.label) && !l.disabled)
 	)
-	// "Customize sidebar" can unfold the Data menu into a collapsible section of the nav, as Triggers.
-	let mainMenuGroups = $derived(sidebarPrefs.splitData.val ? [] : menuGroups)
-	let dataSection = $derived(sidebarPrefs.splitData.val ? menuGroups[0] : undefined)
 	const dataSectionCollapsed = useLocalStorageValue(
 		'windmill_data_section_collapsed',
 		false,
@@ -540,52 +523,10 @@
 				{#each ungroupedMainLinks as menuLink (menuLink.href ?? menuLink.label)}
 					<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 				{/each}
-				<Menubar class="flex flex-col gap-0.5">
-					{#snippet children({ createMenu })}
-						{#each mainMenuGroups as group (group.label)}
-							{@const onGroupPage = group.links.some((l) => page.url.pathname.startsWith(l.href))}
-							<Menu {createMenu} usePointerDownOutside placement="bottom-start">
-								{#snippet triggr({ trigger })}
-									<MenuButton
-										class="!text-xs"
-										icon={group.icon}
-										label={group.label}
-										{isCollapsed}
-										showChevron
-										buttonClass={onGroupPage ? sidebarClasses.selectedBg : undefined}
-										labelClass={onGroupPage ? sidebarClasses.selectedText : undefined}
-										aiId={group.aiId}
-										aiDescription={group.aiDescription}
-										{trigger}
-									/>
-								{/snippet}
-								{#snippet children({ item })}
-									{#each group.links as link (link.href)}
-										<MenuItem
-											class={itemClass}
-											href={link.href}
-											{item}
-											aiId={link.aiId}
-											aiDescription={link.aiDescription}
-										>
-											<div class="flex flex-row items-center gap-2">
-												<link.icon size={16} />
-												{link.label}
-											</div>
-										</MenuItem>
-									{/each}
-									{#if group.label === 'Data'}
-										<DataStoresMenuItems {item} {itemClass} />
-									{/if}
-								{/snippet}
-							</Menu>
-						{/each}
-					{/snippet}
-				</Menubar>
 			</div>
 		{/if}
 		{#if showMain}
-			{#if dataSection}
+			{#if dataLinks.length > 0}
 				<!-- 8px: the layout's 2px gap above this nav makes it 10 under Runs. -->
 				<div class={isCollapsed ? '' : 'mt-2'}>
 					<!-- Collapsed, no title row: the rail's icons keep one pitch across sections. -->
@@ -598,7 +539,7 @@
 					{/if}
 					{#if isCollapsed || !dataSectionCollapsed.val}
 						<div transition:slide={{ duration: 180 }} class="flex flex-col gap-0.5">
-							{#each dataSection.links as menuLink (menuLink.href)}
+							{#each dataLinks as menuLink (menuLink.href)}
 								<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 							{/each}
 						</div>
