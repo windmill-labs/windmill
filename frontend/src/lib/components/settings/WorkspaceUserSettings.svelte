@@ -52,7 +52,8 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import UserOffboardingModal from '$lib/components/UserOffboardingModal.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { truncate } from '$lib/utils'
+	import { truncate, type Item } from '$lib/utils'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { onDestroy, untrack } from 'svelte'
 	import { goto } from '$lib/navigation'
 	import { ArrowRightLeft } from 'lucide-svelte'
@@ -366,6 +367,90 @@
 
 	let removeInstanceGroupConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let convertConfirmedCallback: (() => void) | undefined = $state(undefined)
+
+	function openAccess(user: User): void {
+		accessDrawer?.open(
+			`u/${user.username}`,
+			user.is_service_account
+				? 'service_account'
+				: user.username === $userStore?.username
+					? 'self'
+					: 'user'
+		)
+	}
+
+	async function impersonate(username: string): Promise<void> {
+		try {
+			// Backend sets the impersonation cookie and returns the old token
+			const oldToken = await UserService.impersonateServiceAccount({
+				workspace: $workspaceStore ?? '',
+				requestBody: { username }
+			})
+			if (oldToken) {
+				sessionStorage.setItem('pre_impersonation_token', oldToken)
+				sessionStorage.setItem('pre_impersonation_email', $userStore?.email ?? '')
+			}
+			window.location.href = '/'
+		} catch (e) {
+			sendUserToast('Failed to impersonate service account', true)
+		}
+	}
+
+	function offboard(username: string, reassignOnly: boolean): void {
+		offboardingUser = username
+		offboardingReassignOnly = reassignOnly
+	}
+
+	function confirmConvert(username: string): void {
+		convertConfirmedCallback = async () => {
+			await convertUserToGroup(username)
+		}
+	}
+
+	const INSTANCE_GROUP_REMOVE_HINT =
+		'Cannot remove users synced from instance groups. Either disable the user or remove them from the SCIM group.'
+
+	function rowActions(user: User): Item[] {
+		const fromInstanceGroup = user.added_via?.source === 'instance_group'
+		const convertible = !fromInstanceGroup && canConvertToGroup(user)
+		return [
+			{
+				displayName: 'Access',
+				icon: ShieldCheck,
+				disabled: user.disabled,
+				description: user.disabled ? 'Disabled: nothing runs as this user' : undefined,
+				action: () => openAccess(user)
+			},
+			{
+				displayName: 'Impersonate',
+				icon: LogIn,
+				hide: !(user.is_service_account && $userStore?.is_admin),
+				disabled: !$enterpriseLicense,
+				description: !$enterpriseLicense ? 'Requires Enterprise Edition' : undefined,
+				action: () => impersonate(user.username)
+			},
+			{
+				displayName: 'Reassign',
+				icon: ArrowRightLeft,
+				hide: fromInstanceGroup || convertible,
+				action: () => offboard(user.username, true)
+			},
+			{
+				displayName: 'Convert',
+				hide: !convertible,
+				action: () => confirmConvert(user.username)
+			},
+			{
+				displayName: 'Remove',
+				icon: UserMinus,
+				type: 'delete',
+				hide: convertible,
+				disabled: fromInstanceGroup,
+				description: fromInstanceGroup ? INSTANCE_GROUP_REMOVE_HINT : undefined,
+				action: () => offboard(user.username, false)
+			}
+		]
+	}
 
 	// Auto-add/invite confirmation modal states
 	let autoAddConfirmCallback: (() => void) | undefined = $state(undefined)
@@ -929,107 +1014,7 @@
 							/>
 						</Cell>
 						<Cell last actions class={index % 2 === 0 ? 'bg-surface-tertiary' : ''}>
-							<div class="flex gap-1">
-								<Button
-									unifiedSize="sm"
-									variant="subtle"
-									startIcon={{ icon: ShieldCheck }}
-									{disabled}
-									title={disabled
-										? 'Disabled: nothing runs as this user'
-										: 'What this user can reach, and why'}
-									onClick={() =>
-										accessDrawer?.open(
-											`u/${username}`,
-											user.is_service_account
-												? 'service_account'
-												: username === $userStore?.username
-													? 'self'
-													: 'user'
-										)}
-								>
-									Access
-								</Button>
-								{#if user.is_service_account && $userStore?.is_admin}
-									<Button
-										unifiedSize="sm"
-										variant="default"
-										startIcon={{ icon: LogIn }}
-										disabled={!$enterpriseLicense}
-										title={!$enterpriseLicense ? 'Requires Enterprise Edition' : undefined}
-										onClick={async () => {
-											try {
-												// Backend sets the impersonation cookie and returns the old token
-												const oldToken = await UserService.impersonateServiceAccount({
-													workspace: $workspaceStore ?? '',
-													requestBody: { username }
-												})
-												if (oldToken) {
-													sessionStorage.setItem('pre_impersonation_token', oldToken)
-													sessionStorage.setItem('pre_impersonation_email', $userStore?.email ?? '')
-												}
-												window.location.href = '/'
-											} catch (e) {
-												sendUserToast('Failed to impersonate service account', true)
-											}
-										}}
-									>
-										Impersonate
-									</Button>
-								{/if}
-								{#snippet removeUserButton(disabled: boolean)}
-									<Button
-										unifiedSize="sm"
-										variant="subtle"
-										destructive
-										{disabled}
-										onClick={() => {
-											offboardingUser = username
-											offboardingReassignOnly = false
-										}}
-										startIcon={{ icon: UserMinus }}
-									>
-										Remove
-									</Button>
-								{/snippet}
-
-								{#if added_via?.source === 'instance_group'}
-									<div class="flex items-center gap-1">
-										{@render removeUserButton(true)}
-										<Tooltip
-											>Cannot remove users synced from instance groups. Either disable the user or
-											remove them from the SCIM group.</Tooltip
-										>
-									</div>
-								{:else if canConvertToGroup(user)}
-									<Button
-										variant="accent"
-										unifiedSize="sm"
-										on:click={() => {
-											convertConfirmedCallback = async () => {
-												await convertUserToGroup(username)
-											}
-										}}
-									>
-										Convert
-									</Button>
-								{:else}
-									<div class="flex items-center gap-1">
-										<Button
-											unifiedSize="sm"
-											variant="subtle"
-											onClick={() => {
-												offboardingUser = username
-												offboardingReassignOnly = true
-											}}
-											startIcon={{ icon: ArrowRightLeft }}
-										>
-											Reassign
-										</Button>
-										{@render removeUserButton(false)}
-									</div>
-								{/if}
-							</div>
+							<DropdownV2 items={rowActions(user)} />
 						</Cell>
 					</tr>
 				{/each}
