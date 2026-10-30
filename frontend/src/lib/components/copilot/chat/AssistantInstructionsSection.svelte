@@ -213,14 +213,15 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 
 	// Loaded on the first look and again on a workspace switch: B's instructions must not
 	// be saved over A's. A reload drops a draft, so it waits until one is saved or
-	// reverted — hence `dirty` tracked, and `loadedWorkspace` to pick the wait up against
-	// whatever `ws` is by then (a staged fork commits into a workspace of its own).
+	// reverted — hence the open drafts tracked, and `loadedWorkspace` to pick the wait up
+	// against whatever `ws` is by then (a staged fork commits into a workspace of its own).
+	// Parked folder drafts do not count: they are kept by workspace and a reload leaves them.
 	let loadSeq = 0
 	let loadedWorkspace: string | undefined = undefined
 	$effect(() => {
 		const target = ws
 		const shown = active
-		const clean = !dirty
+		const clean = !(workspaceChanged || userChanged || folderChanged)
 		untrack(() => {
 			// Parked: read again on the next visit, since every block is editable from
 			// elsewhere too.
