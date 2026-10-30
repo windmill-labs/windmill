@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.854.0](https://github.com/windmill-labs/windmill/compare/v1.853.1...v1.854.0) (2026-10-30)
+
+
+### Features
+
+* add a share dialog and a first-deploy dialog ([#11950](https://github.com/windmill-labs/windmill/issues/11950)) ([ef5fa21](https://github.com/windmill-labs/windmill/commit/ef5fa2160358a25bf3ea7a63b7235a30b40734a7))
+* add read-only generic HTTP secret store backend ([#12098](https://github.com/windmill-labs/windmill/issues/12098)) ([a2b3e98](https://github.com/windmill-labs/windmill/commit/a2b3e981c808db54430f5696ffad1ac3dda00cab))
+* deploy apps with a Settings drawer instead of the deploy drawer ([#11944](https://github.com/windmill-labs/windmill/issues/11944)) ([792dd27](https://github.com/windmill-labs/windmill/commit/792dd27771d46830c4943c948b1bb4d81a0c19f6))
+
+
+### Bug Fixes
+
+* bump uv to 0.13.6 so preinstalled pythons ship a patched certifi ([#12102](https://github.com/windmill-labs/windmill/issues/12102)) ([4ff5303](https://github.com/windmill-labs/windmill/commit/4ff5303f8837694d6899bd465c5da6a84d8e4320))
+* chat-sdk RawAppWmill backendAsync takes the memoryId option ([#12097](https://github.com/windmill-labs/windmill/issues/12097)) ([68a2f09](https://github.com/windmill-labs/windmill/commit/68a2f093880fa81268a28d3570a665848768160f))
+* **frontend:** drop legacy and invalid timezones from the cron picker ([#12108](https://github.com/windmill-labs/windmill/issues/12108)) ([1d40da5](https://github.com/windmill-labs/windmill/commit/1d40da5b5162f325157660eb2e0db12972477612))
+* keep websocket triggers connected through blips and dead peers ([#12099](https://github.com/windmill-labs/windmill/issues/12099)) ([5c5ff8f](https://github.com/windmill-labs/windmill/commit/5c5ff8f282f7d72e11ba6e3228e03a61eb06f490))
+* make flow step logs fill the node panel instead of clipping ([#12101](https://github.com/windmill-labs/windmill/issues/12101)) ([3a62d20](https://github.com/windmill-labs/windmill/commit/3a62d20e93f3a00e21fdcb886562c8727cb9efeb))
+* one username rule for all paths that create or rename a user ([#12107](https://github.com/windmill-labs/windmill/issues/12107)) ([09af2dd](https://github.com/windmill-labs/windmill/commit/09af2ddf7cc4c443b77583b810c1c9d409036db1))
+* run Hub script trigger targets that have a retry or error handler ([#12094](https://github.com/windmill-labs/windmill/issues/12094)) ([6df5705](https://github.com/windmill-labs/windmill/commit/6df570522304c9f82f5bd3b9718e5c038c0779e8))
+
 ## [1.853.1](https://github.com/windmill-labs/windmill/compare/v1.853.0...v1.853.1) (2026-10-29)
 
 
