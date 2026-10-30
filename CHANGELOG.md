@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.855.0](https://github.com/windmill-labs/windmill/compare/v1.854.2...v1.855.0) (2026-10-30)
+
+
+### Features
+
+* link to the groups page wherever a group can be picked ([#12125](https://github.com/windmill-labs/windmill/issues/12125)) ([efcffb5](https://github.com/windmill-labs/windmill/commit/efcffb511798442b69b027ccef1e53dffa7d895a))
+* one home and ai sessions in the sidebar ([#12126](https://github.com/windmill-labs/windmill/issues/12126)) ([af836f1](https://github.com/windmill-labs/windmill/commit/af836f1ca61c663fffdb87cfada6a0399f720733))
+
+
+### Bug Fixes
+
+* **debugger:** require coding capability to sign debug sessions ([#12119](https://github.com/windmill-labs/windmill/issues/12119)) ([384295b](https://github.com/windmill-labs/windmill/commit/384295b6bc2c4089ed6356b9b512d2054524189e))
+* hide empty folder chevrons and size tree skeleton to item count ([#12128](https://github.com/windmill-labs/windmill/issues/12128)) ([2f9a493](https://github.com/windmill-labs/windmill/commit/2f9a49320be3a8490f92540658d774457adc4208))
+* keep secret values out of stored step inputs from flow_env ([#12130](https://github.com/windmill-labs/windmill/issues/12130)) ([37b1ea2](https://github.com/windmill-labs/windmill/commit/37b1ea23f93dcf052351b7cdb2fb52ace5bf6469))
+* list hand-edited session items in the session changes bar ([#12131](https://github.com/windmill-labs/windmill/issues/12131)) ([df70cd1](https://github.com/windmill-labs/windmill/commit/df70cd14c527117847916bee7f2bdab64542f756))
+* merge auto-add and instance groups into one popover ([#12100](https://github.com/windmill-labs/windmill/issues/12100)) ([633d176](https://github.com/windmill-labs/windmill/commit/633d176a3eb5a801ce76ab27d37635010aae8ac6))
+* move a session's return route only for a deploy in its workspace ([#12117](https://github.com/windmill-labs/windmill/issues/12117)) ([ac795bc](https://github.com/windmill-labs/windmill/commit/ac795bcd2564a9a14bd06a5c92aad6ef5ae517a8))
+* move leave workspace out of the settings menu ([#12123](https://github.com/windmill-labs/windmill/issues/12123)) ([1c8d60d](https://github.com/windmill-labs/windmill/commit/1c8d60dd4397e25e778cca56bab2e0cbdad8783b))
+* report a failed flow unless its failure module succeeded ([#12127](https://github.com/windmill-labs/windmill/issues/12127)) ([068f959](https://github.com/windmill-labs/windmill/commit/068f95907f264208d711c1049e2459fc59b7907b))
+
 ## [1.854.2](https://github.com/windmill-labs/windmill/compare/v1.854.1...v1.854.2) (2026-10-30)
 
 
