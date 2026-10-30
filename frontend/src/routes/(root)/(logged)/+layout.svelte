@@ -133,6 +133,7 @@
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import CreateWorkspaceInner from '$lib/components/workspaceSettings/CreateWorkspaceInner.svelte'
 	import { recordForkParent, rememberForkParent } from '$lib/forkParentMemory'
+	import { recordWorkspaceVisit } from '$lib/utils/recentWorkspaces'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -373,6 +374,7 @@
 				} catch (e) {
 					console.error('Could not persist workspace to local storage', e)
 				}
+				recordWorkspaceVisit(String(workspace))
 			}
 			const user = await getUserExt(workspace)
 			// getUserExt resolves to undefined on failure, so a user is the only proof of a

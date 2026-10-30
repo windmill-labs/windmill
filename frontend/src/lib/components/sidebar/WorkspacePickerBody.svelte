@@ -44,6 +44,11 @@
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { workspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
 	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
+	import {
+		LONG_WORKSPACE_LIST,
+		recentWorkspaceRoots,
+		visitedWorkspaces
+	} from '$lib/utils/recentWorkspaces'
 
 	interface Props {
 		// The melt item builder of the menu (or submenu) hosting this list. Melt
@@ -176,8 +181,7 @@
 		return ancestors.at(-1) ?? $userWorkspaces?.find((w) => w.id === id)
 	})
 
-	const SEARCH_THRESHOLD = 8
-	const showSearch = $derived(($userWorkspaces?.length ?? 0) > SEARCH_THRESHOLD)
+	const showSearch = $derived(($userWorkspaces?.length ?? 0) > LONG_WORKSPACE_LIST)
 	let searchFilter = $state('')
 	let searchMatches: (UserWorkspace & { marked?: string })[] | undefined = $state()
 	const searching = $derived(showSearch && searchFilter.trim() !== '')
@@ -226,18 +230,30 @@
 					return !!rootId && isExpanded(rootId)
 				})
 		// The family the user is standing in leads the list, its forks travelling with it: the
-		// workspace they are in is the one they look for first, and the one the tick is on.
+		// workspace they are in is the one they look for first, and the one the tick is on. The
+		// other recently entered families follow, still alphabetical, then everything else.
 		const activeRoot = lineageRoot?.id
-		if (!activeRoot) return visible
+		if (!activeRoot && recentRoots.size === 0) return visible
 		const families: { root: string | undefined; rows: typeof visible }[] = []
 		for (const h of visible) {
 			if (h.depth === 0 || families.length === 0) families.push({ root: h.workspace.id, rows: [h] })
 			else families[families.length - 1].rows.push(h)
 		}
-		const at = families.findIndex((f) => f.root === activeRoot)
-		if (at <= 0) return visible
-		const [active] = families.splice(at, 1)
-		return [active, ...families].flatMap((f) => f.rows)
+		const rank = (root: string | undefined) =>
+			root === activeRoot ? 0 : root && recentRoots.has(root) ? 1 : 2
+		return families.sort((a, b) => rank(a.root) - rank(b.root)).flatMap((f) => f.rows)
+	})
+
+	// A search ranks by match, so the recent group only orders the unfiltered list.
+	const recentRoots = $derived(
+		searching ? new Set<string>() : recentWorkspaceRoots($visitedWorkspaces, $userWorkspaces ?? [])
+	)
+	// First row below the recent group, which a divider separates from it.
+	const firstOlderWorkspaceId = $derived.by(() => {
+		if (recentRoots.size === 0) return undefined
+		const isRecent = (id: string) => id === lineageRoot?.id || recentRoots.has(id)
+		if (!isRecent(familyWorkspaces[0]?.workspace.id ?? '')) return undefined
+		return familyWorkspaces.find((h) => h.depth === 0 && !isRecent(h.workspace.id))?.workspace.id
 	})
 
 	// With the search field shown, focus stays in it: the arrows move this highlight rather than
@@ -438,9 +454,15 @@
 			{#if searching && familyWorkspaces.length === 0}
 				<div class="px-3 py-2 text-xs text-secondary">No workspaces match your search</div>
 			{/if}
+			{#if firstOlderWorkspaceId}
+				<div class="px-3 pt-1 pb-0.5 text-2xs text-secondary">Recent</div>
+			{/if}
 			{#each familyWorkspaces as { workspace, depth, isForked, parentName, separatorBefore } (workspace.id)}
 				{@const isActive = $workspaceStore === workspace.id}
 				{@const forkAccent = isForked ? forkAccentStyle(workspace.color) : undefined}
+				{#if firstOlderWorkspaceId === workspace.id}
+					<div class="my-1 border-t border-border-light" role="separator"></div>
+				{/if}
 				<!-- A search filters out sibling forks, so the divider between the user's own forks
 				     and the others would mark the wrong boundary. -->
 				{#if separatorBefore && !searching}

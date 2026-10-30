@@ -4,6 +4,7 @@
 	import WorkspaceCard from './WorkspaceCard.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import type { UserWorkspace } from '$lib/stores'
+	import { recentWorkspaceRoots, visitedWorkspaces } from '$lib/utils/recentWorkspaces'
 
 	interface ExtendedWorkspace extends UserWorkspace {
 		_children?: ExtendedWorkspace[]
@@ -78,6 +79,11 @@
 
 		return { ...manualExpansionStates, ...autoExpanded }
 	})
+
+	// A search ranks by match, so the recent group only orders the unfiltered list.
+	let recentRoots = $derived(
+		searchFilter ? new Set<string>() : recentWorkspaceRoots($visitedWorkspaces, workspaces ?? [])
+	)
 
 	// Build nested hierarchy correctly - always use full workspace list for hierarchy
 	let rootWorkspaces = $derived.by(() => {
@@ -167,6 +173,7 @@
 		return visibleRoots
 			.map((workspace) => buildWorkspaceWithChildren(workspace))
 			.sort((a, b) => {
+				if (recentRoots.has(a.id) !== recentRoots.has(b.id)) return recentRoots.has(a.id) ? -1 : 1
 				// Admin workspace always goes first
 				if (a.id === 'admins') return -1
 				if (b.id === 'admins') return 1
@@ -174,6 +181,8 @@
 				return a.name.localeCompare(b.name)
 			})
 	})
+
+	let recentCount = $derived(rootWorkspaces.filter((w) => recentRoots.has(w.id)).length)
 
 	function handleToggleExpand(workspaceId: string) {
 		const currentState = expansionStates[workspaceId] ?? false
@@ -401,7 +410,12 @@
 <div class="space-y-4 max-h-[50vh] overflow-auto" bind:this={scrollContainer}>
 	<!-- Workspace Tree -->
 	<div class="space-y-2">
-		{#each rootWorkspaces as workspace (workspace.id)}
+		{#each rootWorkspaces as workspace, i (workspace.id)}
+			{#if recentCount > 0 && recentCount < rootWorkspaces.length && (i === 0 || i === recentCount)}
+				<div class="text-xs text-secondary {i === 0 ? '' : 'pt-2'}">
+					{i === 0 ? 'Recent' : 'Other workspaces'}
+				</div>
+			{/if}
 			<WorkspaceCard
 				{workspace}
 				dev={workspace._dev}
