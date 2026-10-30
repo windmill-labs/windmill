@@ -26,6 +26,8 @@
 	import SessionDiffDrawer from './SessionDiffDrawer.svelte'
 	import { TOKEN_TRIGGER_CLASS } from './SessionStatusToken.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { maskKey } from './modifiedItemsMask'
 	import { badgeCounts, badgeOf, buildDeployItems, type DeployItem } from './sessionDeployModel'
 	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
 	import { previewTargetForDeployKind } from './sessionPreviewTabs.svelte'
@@ -137,6 +139,18 @@
 			document.removeEventListener('visibilitychange', refreshIfCurrent)
 			window.removeEventListener('focus', refreshIfCurrent)
 		}
+	})
+
+	// A hand edit in a session tab creates its draft outside any turn, so the turn-end refresh
+	// above never sees it: re-read the list once a masked item's first draft lands.
+	$effect(() => {
+		if (!committedId) return
+		const ws = committedId
+		return UserDraftDbSyncer.onAnySaved((e) => {
+			if (e.workspace !== ws || !mask?.has(maskKey(e.itemKind, e.path))) return
+			if (drafts.items.some((d) => d.kind === e.itemKind && d.path === e.path)) return
+			drafts.refresh()
+		})
 	})
 
 	let diffDrawer: SessionDiffDrawer | undefined = $state(undefined)

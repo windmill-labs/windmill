@@ -136,7 +136,9 @@
 		path: () => path,
 		workspace: () => workspaceId,
 		ready: () => slot.loadedPath === path,
-		codec: () => codec
+		codec: () => codec,
+		// A hand edit is the session's change as much as a chat edit is, so its changes bar lists it.
+		onSaved: (itemKind, p) => void runtime.manager.recordEditedItem(itemKind, p)
 	})
 
 	// Stamp the tab's friendly label once this editor's cell knows how to name the

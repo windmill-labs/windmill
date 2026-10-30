@@ -989,6 +989,15 @@ export class AIChatManager implements ChatViewHost {
 		this.modifiedItems?.add(maskKey(itemKind, storagePath))
 	}
 
+	// Record an item the user edited by hand in one of the session's editor tabs.
+	// Persisted at once, like a discard: the edit lands outside any turn.
+	async recordEditedItem(itemKind: UserDraftItemKind, storagePath: string) {
+		const key = maskKey(itemKind, storagePath)
+		if (!this.modifiedItems || this.modifiedItems.has(key)) return
+		this.modifiedItems.add(key)
+		await this.#persistModifiedItems()
+	}
+
 	// Un-record an item whose chat-made change was discarded — without this the
 	// still-existing deployed item would keep reading as this chat's "Deployed"
 	// edit. Persisted immediately: unlike recordModifiedItem (whose persistence
