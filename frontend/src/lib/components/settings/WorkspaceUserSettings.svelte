@@ -548,7 +548,9 @@
 							<div class="flex flex-col gap-1">
 								<span class="flex items-center gap-1.5 text-xs font-semibold text-emphasis">
 									<LogIn size={14} />
-									{isCloudHosted() ? `Users from ${domain}` : 'New instance users'}
+									{isCloudHosted()
+										? `Users from ${autoInviteOrAddEnabled ? auto_invite_domain : domain}`
+										: 'New instance users'}
 								</span>
 								<span class="text-xs text-secondary">
 									{displayMode === 'invite' ? 'Invited' : 'Added'} once, when they join {isCloudHosted()
@@ -664,8 +666,9 @@
 								{/if}
 							</div>
 
-							<!-- Cloud has no instance groups of its own, so its admins get no empty state. -->
-							{#if instanceGroups.length > 0 || !isCloudHosted()}
+							<!-- No empty state on cloud (no instance groups of its own) or CE (adding a group
+							     to a workspace is EE-only), where it would point at a dead end. -->
+							{#if instanceGroups.length > 0 || (!isCloudHosted() && $enterpriseLicense)}
 								<div class="border-t border-light"></div>
 
 								<div class="flex flex-col gap-3">
