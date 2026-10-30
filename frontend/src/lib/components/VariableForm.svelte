@@ -17,6 +17,7 @@
 	import EncryptedDraftField from './EncryptedDraftField.svelte'
 	import DateTimeInput from './DateTimeInput.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { shouldBlockUnsecretWithoutLoad } from './variableSecretEditor'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -97,7 +98,9 @@
 
 	// Un-securing has to send the plaintext, and fetching it silently on the toggle would
 	// reveal the secret without the explicit, audited "Load secret value" action.
-	let unsecureNeedsLoad = $derived(edit && deployedSecret && variable.is_secret && !hasStagedValue)
+	let unsecureNeedsLoad = $derived(
+		shouldBlockUnsecretWithoutLoad({ edit, deployedSecret, variable })
+	)
 
 	const MAX_VARIABLE_LENGTH = 10000
 

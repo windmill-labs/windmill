@@ -31,6 +31,7 @@
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { applyVariableSecretToggle } from './variableSecretEditor'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -428,14 +429,22 @@
 	// Re-securing hides the deployed value again, back to the state before it was loaded.
 	// A value the user typed is theirs to keep: it is what the next save deploys.
 	function onSecretChange(isSecret: boolean): void {
-		if (!isSecret || !selected || !existedInitially[selected]) return
+		if (!selected || !existedInitially[selected]) return
 		const s = states[selected]?.draft
 		const ini = initialStates[selected]
-		if (!s || !ini?.variable.is_secret) return
-		if (s.variable.value !== '' && s.variable.value !== ini.variable.value) return
-		s.variable.value = ''
-		ini.variable.value = ''
-		form?.setCode('')
+		if (!s || !ini) return
+		const deployedSecret =
+			!!existedInitially[selected] && !!ini.variable.is_secret
+		const next = applyVariableSecretToggle({
+			isSecret,
+			deployedSecret,
+			draft: s.variable,
+			deployedBaseline: ini.variable
+		})
+		if (!next) return
+		s.variable.value = next.value
+		ini.variable.value = next.baselineValue
+		form?.setCode(next.value)
 	}
 
 	async function save(): Promise<void> {
