@@ -38,12 +38,13 @@ use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{Error, JsonResult, Result},
     scripts::ScriptHash,
+    secret_backend::allowed_prefixes,
     user_drafts::{
         decrypt_draft_secret_value, delete_all_drafts_for_path, delete_own_draft_for_path,
         fetch_draft_only, fetch_draft_only_list_rows, maybe_overlay_draft, UserDraftItemKind,
         WithDraftOverlay, ENCRYPTED_DRAFT_PREFIX,
     },
-    utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
+    utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath, WarnAfterExt},
     variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
     },
@@ -75,6 +76,10 @@ pub fn workspaced_service() -> Router {
         .route("/delete_bulk", delete(delete_variables_bulk))
         .route("/create", post(create_variable))
         .route("/encrypt", post(encrypt_value))
+        .route(
+            "/external_secret_prefixes",
+            get(list_external_secret_prefixes),
+        )
 }
 
 async fn list_contextual_variables(
@@ -837,6 +842,15 @@ pub async fn create_variable_with_account(
     );
 
     Ok(account_id)
+}
+
+async fn list_external_secret_prefixes(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<String>> {
+    require_admin(authed.is_admin, &authed.username)?;
+    Ok(Json(allowed_prefixes(&db, &w_id).await?))
 }
 
 async fn encrypt_value(
@@ -1612,7 +1626,7 @@ pub async fn get_value_internal<'a>(
             if cached.is_secret {
                 audit_decrypt_secret(db_with_opt_authed, &w_id, &path).await?;
                 if !cached.value.is_empty() {
-                    windmill_common::sensitive_log_masks::register_secret_for_all_running_jobs(
+                    windmill_common::sensitive_log_masks::register_secret_and_fields_for_all_running_jobs(
                         &cached.value,
                     );
                 }
@@ -1675,7 +1689,7 @@ pub async fn get_value_internal<'a>(
     };
 
     if variable.is_secret && !r.is_empty() {
-        windmill_common::sensitive_log_masks::register_secret_for_all_running_jobs(&r);
+        windmill_common::sensitive_log_masks::register_secret_and_fields_for_all_running_jobs(&r);
     }
 
     // Cache the result when explicitly allowed. Secrets are cached too: their per-read side

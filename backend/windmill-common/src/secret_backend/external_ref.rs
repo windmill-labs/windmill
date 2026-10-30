@@ -78,7 +78,8 @@ pub struct ExternalSecretRef {
     pub backend: ExternalSecretBackend,
     /// Normalized: no surrounding or doubled slashes.
     pub path: String,
-    pub key: String,
+    /// `None` reads the whole secret, as a JSON object of its fields.
+    pub key: Option<String>,
 }
 
 pub fn is_external_ref_value(value: &str) -> bool {
@@ -112,34 +113,47 @@ fn path_segments(path: &str) -> Result<Vec<&str>> {
 fn split_scheme(uri: &str) -> Result<(ExternalSecretBackend, &str)> {
     let (scheme, rest) = uri.trim().split_once("://").ok_or_else(|| {
         Error::BadRequest(format!(
-            "Invalid external secret reference `{uri}`: expected `<scheme>://<path>#<key>`, e.g. `vault://secret/team/app#token`"
+            "Invalid external secret reference `{uri}`: expected `<scheme>://<path>[#<key>]`, e.g. `vault://secret/team/app#token`"
         ))
     })?;
     Ok((ExternalSecretBackend::from_scheme(scheme)?, rest))
 }
 
-/// Parses `$external:<scheme>://<path>#<key>` (the marker is optional).
+/// Parses `$external:<scheme>://<path>[#<key>]` (the marker is optional).
 pub fn parse_external_ref(value: &str) -> Result<ExternalSecretRef> {
     let uri = value.strip_prefix(EXTERNAL_REF_MARKER).unwrap_or(value);
     let (backend, rest) = split_scheme(uri)?;
-    let (path, key) = rest.split_once('#').ok_or_else(|| {
-        Error::BadRequest(format!(
-            "Invalid external secret reference `{uri}`: missing `#<key>` after the path"
-        ))
-    })?;
-    let key = key.trim();
-    if key.is_empty() {
-        return Err(Error::BadRequest(format!(
-            "Invalid external secret reference `{uri}`: the key after `#` is empty"
-        )));
-    }
-    Ok(ExternalSecretRef { backend, path: path_segments(path)?.join("/"), key: key.to_string() })
+    let (path, key) = match rest.split_once('#') {
+        Some((path, key)) if key.trim().is_empty() => {
+            return Err(Error::BadRequest(format!(
+                "Invalid external secret reference `{uri}`: the key after `#` is empty"
+            )))
+        }
+        Some((path, key)) => (path, Some(key.trim().to_string())),
+        None => (rest, None),
+    };
+    Ok(ExternalSecretRef { backend, path: path_segments(path)?.join("/"), key })
+}
+
+fn applies_to(a: &ExternalSecretAllowedPrefix, w_id: &str) -> bool {
+    a.workspaces.is_empty() || a.workspaces.iter().any(|w| w == w_id)
+}
+
+/// The prefixes `w_id` may reference, as a superadmin wrote them.
+pub async fn allowed_prefixes(db: &DB, w_id: &str) -> Result<Vec<String>> {
+    Ok(load_settings(db)
+        .await?
+        .allowed
+        .into_iter()
+        .filter(|a| applies_to(a, w_id))
+        .map(|a| a.prefix)
+        .collect())
 }
 
 fn is_allowed(settings: &ExternalSecretsSettings, w_id: &str, r: &ExternalSecretRef) -> bool {
     let path: Vec<&str> = r.path.split('/').collect();
     settings.allowed.iter().any(|a| {
-        (a.workspaces.is_empty() || a.workspaces.iter().any(|w| w == w_id))
+        applies_to(a, w_id)
             && split_scheme(&a.prefix).is_ok_and(|(backend, prefix)| {
                 backend == r.backend && path_segments(prefix).is_ok_and(|p| path.starts_with(&p))
             })
@@ -191,11 +205,21 @@ async fn authorize(
     let r = parse_external_ref(value)?;
     let settings = load_settings(db).await?;
     if !is_allowed(&settings, w_id, &r) {
-        return Err(Error::PermissionDenied(format!(
-            "External secret `{}://{}` is outside the prefixes a superadmin allowed for workspace {w_id}",
-            r.backend.scheme(),
-            r.path
-        )));
+        let allowed: Vec<_> = settings
+            .allowed
+            .iter()
+            .filter(|a| applies_to(a, w_id))
+            .map(|a| format!("`{}/**`", a.prefix.trim_end_matches('/')))
+            .collect();
+        let target = format!("External secret `{}://{}`", r.backend.scheme(), r.path);
+        return Err(Error::PermissionDenied(if allowed.is_empty() {
+            format!("{target} is not allowed: no Vault paths are allowed for workspace {w_id} (instance settings > Secret storage)")
+        } else {
+            format!(
+                "{target} is outside the paths allowed for workspace {w_id}: {}",
+                allowed.join(", ")
+            )
+        }));
     }
     let managed = match load_value_from_global_settings(db, SECRET_BACKEND_SETTING)
         .await?
@@ -239,7 +263,7 @@ pub(crate) async fn resolve_external_ref(
                         .to_string(),
                 )
             })?;
-            super::read_vault_external_secret(db, vault, &r.path, &r.key).await
+            super::read_vault_external_secret(db, vault, &r.path, r.key.as_deref()).await
         }
     };
     read.map_err(|e| match e {
@@ -276,12 +300,17 @@ mod tests {
             ExternalSecretRef {
                 backend: ExternalSecretBackend::Vault,
                 path: "secret/team/app".to_string(),
-                key: "token".to_string()
+                key: Some("token".to_string())
             }
+        );
+        assert_eq!(
+            parse_external_ref("$external:vault://secret/team/app")
+                .unwrap()
+                .key,
+            None
         );
         for bad in [
             "$external:secret/app#k",
-            "$external:vault://secret/app",
             "$external:vault://secret/app#",
             "$external:vault://secret//app#k",
             "$external:vault://secret/../sys#k",

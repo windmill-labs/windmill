@@ -1,5 +1,6 @@
-// A secret variable whose stored value is `$external:<scheme>://<path>#<key>` is resolved
-// from an external secret store each time it is read; the backend parses and authorizes it
+// A secret variable whose stored value is `$external:<scheme>://<path>[#<key>]` is resolved
+// from an external secret store each time it is read, without a key as a JSON object of all
+// the secret's fields; the backend parses and authorizes it
 // (`secret_backend/external_ref.rs`). Only Vault is supported.
 export const EXTERNAL_REF_PREFIX = '$external:'
 const VAULT_PREFIX = `${EXTERNAL_REF_PREFIX}vault://`
@@ -15,11 +16,11 @@ export function parseVaultRef(value: string): { path: string; key: string } {
 }
 
 export function formatVaultRef(path: string, key: string): string {
-	return `${VAULT_PREFIX}${path}#${key}`
+	return `${VAULT_PREFIX}${path}${key ? `#${key}` : ''}`
 }
 
-/** "Vault · secret/team/app#token", for lists. */
+/** "Vault · secret/team/app#token", or "Vault · secret/team/app" for the whole secret, for lists. */
 export function describeExternalRef(value: string): string {
 	const { path, key } = parseVaultRef(value)
-	return `Vault · ${path}#${key}`
+	return `Vault · ${path}${key ? `#${key}` : ''}`
 }

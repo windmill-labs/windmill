@@ -31,6 +31,7 @@
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { isExternalRef } from '$lib/externalSecretRef'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -599,6 +600,9 @@
 						deployedSecret={!!selected &&
 							!!existedInitially[selected] &&
 							!!initialStates[selected]?.variable.is_secret}
+						deployedRef={!!selected &&
+							!!existedInitially[selected] &&
+							isExternalRef(initialStates[selected]?.variable.value ?? '')}
 						workspace={selected}
 						actingUser={acting.in(selected) ?? null}
 						oauthLinked={!!selected && !!oauthLinked[selected]}

@@ -216,6 +216,23 @@ pub fn unregister_running_job(job_id: Uuid) {
     }
 }
 
+/// `secret` and, when it spans several lines, each of them: `handle_child` masks a log
+/// line by line, so a multi-line secret such as a PEM key never matches as a whole.
+fn mask_patterns(secret: &str) -> impl Iterator<Item = &str> {
+    let lines = secret.contains('\n').then(|| secret.lines().map(str::trim));
+    std::iter::once(secret)
+        .chain(lines.into_iter().flatten())
+        .filter(|s| s.len() >= MIN_SECRET_LENGTH)
+}
+
+fn insert_masks(job: &mut JobMasks, secret: &str) {
+    for pattern in mask_patterns(secret) {
+        if job.secrets.insert(pattern.to_string()) {
+            job.compiled = None;
+        }
+    }
+}
+
 /// Register a secret value for ALL currently running jobs.
 /// Used when a secret is fetched via the embedded server (we don't know which job triggered it).
 pub fn register_secret_for_all_running_jobs(secret: &str) {
@@ -232,10 +249,29 @@ pub fn register_secret_for_all_running_jobs(secret: &str) {
     let mut masks = SENSITIVE_MASKS.write().unwrap_or_else(|e| e.into_inner());
     for job_id in job_ids {
         if let Some(job) = masks.get_mut(&job_id) {
-            if job.secrets.insert(secret.to_string()) {
-                job.compiled = None;
-            }
+            insert_masks(job, secret);
         }
+    }
+}
+
+/// Like [`register_secret_for_all_running_jobs`], and when `secret` is a JSON object or
+/// array also each string in it: `$jsonvar:` hands a job the parsed value, which can then
+/// print one field on its own.
+pub fn register_secret_and_fields_for_all_running_jobs(secret: &str) {
+    register_secret_for_all_running_jobs(secret);
+    if !secret.trim_start().starts_with(['{', '[']) {
+        return;
+    }
+    fn walk(v: &serde_json::Value) {
+        match v {
+            serde_json::Value::String(s) => register_secret_for_all_running_jobs(s),
+            serde_json::Value::Array(a) => a.iter().for_each(walk),
+            serde_json::Value::Object(o) => o.values().for_each(walk),
+            _ => {}
+        }
+    }
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(secret) {
+        walk(&v);
     }
 }
 
@@ -247,9 +283,7 @@ pub fn register_secret_for_job(job_id: Uuid, secret: &str) {
     }
     let mut masks = SENSITIVE_MASKS.write().unwrap_or_else(|e| e.into_inner());
     if let Some(job) = masks.get_mut(&job_id) {
-        if job.secrets.insert(secret.to_string()) {
-            job.compiled = None;
-        }
+        insert_masks(job, secret);
     }
 }
 
@@ -274,6 +308,22 @@ mod tests {
         let masked = snap.mask("firstsecretvalue then secondsecretvalue");
         assert!(!masked.contains("firstsecretvalue"), "{masked}");
         assert!(!masked.contains("secondsecretvalue"), "{masked}");
+        unregister_running_job(job_id);
+    }
+
+    /// Logs are masked line by line, so a multi-line secret must be masked one line at a time.
+    #[test]
+    fn masks_each_line_of_a_multi_line_secret() {
+        let job_id = Uuid::new_v4();
+        register_running_job(job_id);
+        register_secret_for_job(
+            job_id,
+            "-----BEGIN KEY-----\nfirstlineofkey\nsecondlineofkey\n",
+        );
+        let snap = snapshot(&job_id).expect("secret registered");
+        for line in ["firstlineofkey", "secondlineofkey"] {
+            assert!(!snap.mask(line).contains(line), "{line}");
+        }
         unregister_running_job(job_id);
     }
 
