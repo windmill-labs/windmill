@@ -187,7 +187,18 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		Object.entries(parkedFolderDrafts).filter(([, d]) => d.workspace === ws)
 	)
 
-	let dirty = $derived(workspaceChanged || userChanged || folderChanged || parkedHere.length > 0)
+	/** The same for a new folder instruction, with the path typed for it. */
+	let parkedNewDraft = $state<{ workspace: string; path: string; content: string } | undefined>(
+		undefined
+	)
+
+	let dirty = $derived(
+		workspaceChanged ||
+			userChanged ||
+			folderChanged ||
+			parkedHere.length > 0 ||
+			parkedNewDraft?.workspace === ws
+	)
 	/** Whether the block on the detail page has unsaved text. */
 	let pageChanged = $derived(
 		detail?.kind === 'workspace'
@@ -305,6 +316,7 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		userDraft = userSaved
 		setFolderContent(folderOriginal)
 		parkedFolderDrafts = {}
+		parkedNewDraft = undefined
 	}
 
 	function revertPage() {
@@ -315,6 +327,14 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 
 	/** Moves the open folder instruction's unsaved text aside, before the editor is reused. */
 	function parkFolderDraft() {
+		if (detail?.kind === 'new') {
+			bodyEditor?.flushPendingChanges()
+			// The path picker fills in a default, so a path alone is not a draft.
+			if (folderContent.trim()) {
+				parkedNewDraft = { workspace: ws, path: newPath, content: folderContent }
+			}
+			return
+		}
 		if (detail?.kind !== 'folder') return
 		bodyEditor?.flushPendingChanges()
 		if (folderContent === folderOriginal) return
@@ -379,10 +399,12 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 	function openNew() {
 		if (blockedByPendingFork()) return
 		parkFolderDraft()
+		const parked = parkedNewDraft?.workspace === ws ? parkedNewDraft : undefined
+		parkedNewDraft = undefined
 		visit++
 		editorSeq++
-		newPath = ''
-		setFolderContent('')
+		newPath = parked?.path ?? ''
+		setFolderContent(parked?.content ?? '')
 		folderOriginal = ''
 		folderMode = 'edit'
 		opened = { workspace: ws, detail: { kind: 'new' } }

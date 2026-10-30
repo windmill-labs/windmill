@@ -988,7 +988,11 @@ export class AIChatManager implements ChatViewHost {
 		if (!roots || roots.includes(root)) return
 		const next = [...roots, root]
 		this.onWorkingInChanged?.(next, 'manual')
-		if (this.#turnScope) this.#turnScope = { roots: next }
+		if (!this.#turnScope || this.mode !== AIMode.GLOBAL) return
+		this.#turnScope = { roots: next }
+		// The gate widened for this turn, so its prompt and skills widen with it.
+		void this.refreshGlobalFolderInstructions()
+		this.configureGlobalMode()
 	}
 	/** What a picker row badges: the instructions, skills and MCP servers under it. */
 	get scopeResources(): {
