@@ -7,25 +7,24 @@ import { maskKey } from './modifiedItemsMask'
 // Items the user edited by hand in a session's editor tabs, as mask keys
 // (`${UserDraftItemKind}:${storagePath}`). Kept out of the chat record: turns and
 // other tabs rewrite that record whole, so an entry written there outside a turn
-// is lost to the next writer. Each write here re-reads the stored list and
-// changes only its own key, so tabs never undo one another's entries.
+// is lost to the next writer. For the same reason each entry is a localStorage key
+// of its own: adding or removing one is a single setItem/removeItem, which no
+// other tab's write can undo, as a read-modify-write of a shared list could.
 
-const KEY_BASE = 'windmill-session-hand-edits'
+const KEY_BASE = 'windmill-session-hand-edit'
 
-function storageKey(sessionId: string): string | undefined {
+function sessionPrefix(sessionId: string): string | undefined {
 	const base = scopedKey(KEY_BASE)
-	return base ? `${base}:${sessionId}` : undefined
+	return base ? `${base}:${sessionId}:` : undefined
 }
 
-function readStored(sessionId: string): string[] {
-	const key = storageKey(sessionId)
-	if (!BROWSER || !key) return []
-	try {
-		const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? '[]')
-		return Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === 'string') : []
-	} catch {
-		return []
+function storedKeys(prefix: string): string[] {
+	const keys: string[] = []
+	for (let i = 0; i < localStorage.length; i++) {
+		const k = localStorage.key(i)
+		if (k?.startsWith(prefix)) keys.push(k)
 	}
+	return keys
 }
 
 const localWriters = new Set<() => void>()
@@ -43,14 +42,11 @@ const subscribe = createSubscriber((update) => {
 	}
 })
 
-function write(sessionId: string, change: (keys: Set<string>) => boolean): void {
-	const key = storageKey(sessionId)
-	if (!BROWSER || !key) return
-	const keys = new Set(readStored(sessionId))
-	if (!change(keys)) return
+function write(sessionId: string, change: (prefix: string) => void): void {
+	const prefix = sessionPrefix(sessionId)
+	if (!BROWSER || !prefix) return
 	try {
-		if (keys.size > 0) localStorage.setItem(key, JSON.stringify([...keys]))
-		else localStorage.removeItem(key)
+		change(prefix)
 	} catch (e) {
 		console.error('Could not store the session hand edits', e)
 	}
@@ -59,8 +55,14 @@ function write(sessionId: string, change: (keys: Set<string>) => boolean): void 
 
 /** The session's hand-edited items. Reactive. */
 export function sessionHandEdits(sessionId: string): ReadonlySet<string> {
-	if (BROWSER) subscribe()
-	return new Set(readStored(sessionId))
+	const prefix = sessionPrefix(sessionId)
+	if (!BROWSER || !prefix) return new Set()
+	subscribe()
+	try {
+		return new Set(storedKeys(prefix).map((k) => k.slice(prefix.length)))
+	} catch {
+		return new Set()
+	}
 }
 
 export function recordHandEdit(
@@ -68,8 +70,10 @@ export function recordHandEdit(
 	itemKind: UserDraftItemKind,
 	storagePath: string
 ): void {
-	const k = maskKey(itemKind, storagePath)
-	write(sessionId, (keys) => !keys.has(k) && !!keys.add(k))
+	const prefix = sessionPrefix(sessionId)
+	const k = prefix && prefix + maskKey(itemKind, storagePath)
+	if (!BROWSER || !k || localStorage.getItem(k) !== null) return
+	write(sessionId, () => localStorage.setItem(k, '1'))
 }
 
 /** For a discarded item, which would otherwise keep reading as this session's "Deployed" edit. */
@@ -78,7 +82,7 @@ export function removeHandEdit(
 	itemKind: UserDraftItemKind,
 	storagePath: string
 ): void {
-	write(sessionId, (keys) => keys.delete(maskKey(itemKind, storagePath)))
+	write(sessionId, (prefix) => localStorage.removeItem(prefix + maskKey(itemKind, storagePath)))
 }
 
 /** For a draft-only item that deployed from its `draft_{uuid}` storage path to its chosen one. */
@@ -89,17 +93,16 @@ export function renameHandEdit(
 	toPath: string
 ): void {
 	if (fromPath === toPath) return
-	write(sessionId, (keys) => {
-		if (!keys.delete(maskKey(itemKind, fromPath))) return false
-		keys.add(maskKey(itemKind, toPath))
-		return true
+	write(sessionId, (prefix) => {
+		const from = prefix + maskKey(itemKind, fromPath)
+		if (localStorage.getItem(from) === null) return
+		localStorage.setItem(prefix + maskKey(itemKind, toPath), '1')
+		localStorage.removeItem(from)
 	})
 }
 
 export function deleteSessionHandEdits(sessionId: string): void {
-	write(sessionId, (keys) => {
-		const had = keys.size > 0
-		keys.clear()
-		return had
+	write(sessionId, (prefix) => {
+		for (const k of storedKeys(prefix)) localStorage.removeItem(k)
 	})
 }
