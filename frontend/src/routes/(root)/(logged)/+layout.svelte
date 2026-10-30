@@ -73,17 +73,7 @@
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { parseSuperadminSettingsHash, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
-	import {
-		PanelLeft,
-		PanelLeftClose,
-		PanelLeftDashed,
-		PanelLeftOpen,
-		Home,
-		Play,
-		Search,
-		WandSparkles,
-		ArrowLeft
-	} from 'lucide-svelte'
+	import { PanelLeft, Home, Play, Search, WandSparkles, ArrowLeft } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { isInstanceRoute } from '$lib/instanceRoutes'
 	import { getUserExt } from '$lib/user'
@@ -109,7 +99,8 @@
 	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { cubicOut } from 'svelte/easing'
-	import { Menubar, Tooltip } from '$lib/components/meltComponents'
+	import { Menubar } from '$lib/components/meltComponents'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
@@ -599,13 +590,21 @@
 		menuOpen = false
 		navDetached.val = detached
 	}
+	function setSidebarMode(mode: 'expanded' | 'icons' | 'hidden') {
+		// The collapse preference is one key for both roles, and only a developer's rail reads it:
+		// an operator writing it would reset the icon rail they chose as a developer elsewhere.
+		if (mode !== 'hidden' && $roleCapabilities.code) {
+			collapsedState = mode === 'icons'
+			collapsePref.val = collapsedState
+		}
+		if (navDetached.val !== (mode === 'hidden')) setDetached(mode === 'hidden')
+	}
 	// Docking and detaching move and resize the rail itself between its docked box and the detached
 	// card's (top at the band's bottom edge, bottom and left insets, rounded corners); detaching
 	// also slides it off the left edge, where the closed card lives. No opacity: the rail never
 	// fades.
-	// The footer's icon buttons wear the rail's own row box — 32px square, 16px glyph — so the
-	// pair that hides and collapses the sidebar lines up with the links above them, collapsed or
-	// not. Padding alone drifted: two different paddings, two icon sizes and a negative margin.
+	// The footer's mode button wears the rail's own row box — 32px square, 16px glyph — so it
+	// lines up with the links above it, collapsed or not.
 	const SIDEBAR_ICON_BUTTON =
 		'h-8 w-8 flex items-center justify-center rounded hover:bg-surface-hover flex-shrink-0'
 
@@ -1184,28 +1183,40 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 
 <!-- Windmill brand mark anchoring the sidebar bottom (the header slot is taken
      by the workspace picker). -->
-<!-- Detaching is the operator's control: they have no icon-only rail to collapse to, so hiding the
-     sidebar is how they give the page its width back. A developer collapses instead, and never
-     detaches — but one who detached before this was so keeps the way back, or they would be stuck
-     with a sidebar they cannot return. -->
-{#snippet sidebarToggle()}
-	{@const hidden = navDetached.val}
-	{#if hidden || !$roleCapabilities.code}
-		<Tooltip class="flex" placement="bottom" small>
-			<button
-				class={SIDEBAR_ICON_BUTTON}
-				aria-label={hidden ? 'Show sidebar' : 'Hide sidebar'}
-				onclick={() => setDetached(!hidden)}
-			>
-				{#if hidden}
-					<PanelLeft size={16} class="flex-shrink-0 text-hint" />
-				{:else}
-					<PanelLeftDashed size={16} class="flex-shrink-0 text-hint" />
-				{/if}
-			</button>
-			{#snippet text()}{hidden ? 'Show sidebar' : 'Hide sidebar'}{/snippet}
-		</Tooltip>
-	{/if}
+<!-- Operators get no "Icons only": their docked sidebar is always expanded. -->
+{#snippet sidebarModeMenu()}
+	{@const mode = navDetached.val ? 'hidden' : isCollapsed ? 'icons' : 'expanded'}
+	<DropdownV2
+		placement="top-start"
+		fixedHeight={false}
+		class={SIDEBAR_ICON_BUTTON}
+		items={[
+			{
+				sectionTitle: 'Sidebar',
+				displayName: 'Expanded',
+				selected: mode === 'expanded',
+				action: () => setSidebarMode('expanded')
+			},
+			{
+				displayName: 'Icons only',
+				description: "Or drag the sidebar's edge",
+				selected: mode === 'icons',
+				hide: !$roleCapabilities.code,
+				action: () => setSidebarMode('icons')
+			},
+			{
+				displayName: 'Hidden, show on hover',
+				description: $roleCapabilities.code ? undefined : 'Or drag its edge to the left',
+				selected: mode === 'hidden',
+				action: () => setSidebarMode('hidden')
+			}
+		]}
+	>
+		{#snippet buttonReplacement()}
+			<PanelLeft size={16} class="flex-shrink-0 text-hint" />
+			<span class="sr-only">Sidebar mode</span>
+		{/snippet}
+	</DropdownV2>
 {/snippet}
 
 {#snippet brandMark(collapsed: boolean)}
@@ -1364,30 +1375,10 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 				: 'items-center justify-between px-4'}"
 		>
 			{@render brandMark(collapsed)}
-			<div class="flex {collapsed ? 'flex-col gap-3' : 'gap-3'}">
-				{#if !panel || navDetached.val}
-					{@render sidebarToggle()}
-				{/if}
-				<!-- Collapsing belongs to the rail: the panel is over the page already, and the way
-				     out of it is the handle in the band or a click outside. -->
-				{#if !panel && $roleCapabilities.code}
-					<button
-						class={SIDEBAR_ICON_BUTTON}
-						title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-						onclick={() => {
-							collapsedState = !collapsedState
-							// Manual toggle is the persisted preference (auto-collapse isn't).
-							collapsePref.val = collapsedState
-						}}
-					>
-						{#if collapsed}
-							<PanelLeftOpen size={16} class="flex-shrink-0 text-hint" />
-						{:else}
-							<PanelLeftClose size={16} class="flex-shrink-0 text-hint" />
-						{/if}
-					</button>
-				{/if}
-			</div>
+			<!-- Below 768px the panel is the only shell there is, so there is no mode to pick. -->
+			{#if !panel || (navDetached.val && innerWidth >= 768)}
+				{@render sidebarModeMenu()}
+			{/if}
 		</div>
 	</div>
 {/snippet}

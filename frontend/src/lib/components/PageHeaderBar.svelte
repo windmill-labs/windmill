@@ -209,7 +209,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		     is on the handle, on the card, or in a menu either opened, and sliding back out when it
 		     leaves. A click or tap pins it instead, until another one here, a press on the page or Esc
 		     puts it back. Attaching
-		     it for good belongs to the toggle in the sidebar's own footer, where detaching it
+		     it for good belongs to the mode menu in the sidebar's own footer, where detaching it
 		     happened. Docked, the sidebar speaks for itself and nothing leads the bar. -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
