@@ -124,7 +124,7 @@ pub fn parse_external_ref(value: &str) -> Result<ExternalSecretRef> {
     let uri = value.strip_prefix(EXTERNAL_REF_MARKER).unwrap_or(value);
     let (backend, rest) = split_scheme(uri)?;
     let (path, key) = match rest.split_once('#') {
-        Some((path, key)) if key.trim().is_empty() => {
+        Some((_, key)) if key.trim().is_empty() => {
             return Err(Error::BadRequest(format!(
                 "Invalid external secret reference `{uri}`: the key after `#` is empty"
             )))
