@@ -2964,17 +2964,25 @@ impl<'a> FlowEnvRefs<'a> {
         Ok(Self { raw, secrets, crypt })
     }
 
-    // Decided from the expression's text: a dynamic key (`flow_env[k]`) or a secret whose
-    // key never appears in the expression is not detected.
+    // Decided from the expression's text, by a literal `flow_env.KEY` / `flow_env["KEY"]`
+    // access: a dynamic key (`flow_env[k]`) or a destructured `flow_env` is not detected.
     fn reads_secret(&self, expr: &str) -> bool {
         let ident = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
-        expr.contains("flow_env")
-            && self.secrets.keys().filter(|k| !k.is_empty()).any(|k| {
-                expr.match_indices(k.as_str()).any(|(i, _)| {
+        self.secrets.keys().any(|k| {
+            let dotted = [format!("flow_env.{k}"), format!("flow_env?.{k}")];
+            let bracketed = ["\"", "'", "`"].map(|q| format!("[{q}{k}{q}]"));
+            dotted.iter().any(|p| {
+                expr.match_indices(p.as_str()).any(|(i, _)| {
                     !expr[..i].chars().next_back().is_some_and(ident)
-                        && !expr[i + k.len()..].chars().next().is_some_and(ident)
+                        && !expr[i + p.len()..].chars().next().is_some_and(ident)
+                })
+            }) || bracketed.iter().any(|b| {
+                ["flow_env", "flow_env?."].iter().any(|o| {
+                    expr.match_indices(&format!("{o}{b}"))
+                        .any(|(i, _)| !expr[..i].chars().next_back().is_some_and(ident))
                 })
             })
+        })
     }
 }
 
@@ -6840,7 +6848,42 @@ pub async fn get_previous_job_result(
 mod tests {
     use super::{
         effective_flow_step_timeout, extract_chat_message_from_flow_result, is_simple_modules,
+        FlowEnvRefs,
     };
+
+    // A subflow input computed from a secret fails the step, so a key that merely shares a
+    // secret entry's name must not count as reading it.
+    #[test]
+    fn reads_secret_only_through_a_flow_env_access() {
+        let raw = std::collections::HashMap::new();
+        let refs = FlowEnvRefs {
+            raw: &raw,
+            secrets: [(
+                "token".to_string(),
+                to_raw_value(&json!("$var:u/x/t")).unwrap(),
+            )]
+            .into(),
+            crypt: None,
+        };
+        for expr in [
+            "flow_env.token",
+            "\"Bearer \" + flow_env.token",
+            "`${flow_env?.token}`",
+            "flow_env[\"token\"] + 'x'",
+            "flow_env['token']",
+        ] {
+            assert!(refs.reads_secret(expr), "{expr}");
+        }
+        for expr in [
+            "flow_env.BASE + results.login.token",
+            "flow_env.tokens",
+            "flow_input.token",
+            "my_flow_env.token",
+            "flow_env[\"tokens\"]",
+        ] {
+            assert!(!refs.reads_secret(expr), "{expr}");
+        }
+    }
     use serde_json::{json, value::to_raw_value};
     use windmill_common::flows::FlowModule;
 
