@@ -186,9 +186,7 @@
 					<ToggleButton
 						value="ref"
 						label="Vault reference"
-						tooltip={canEditRef
-							? 'Read the value from an existing secret in HashiCorp Vault'
-							: 'Only workspace admins can create or change a reference'}
+						tooltip="Read the value from an existing secret in HashiCorp Vault"
 						{item}
 						disabled={kind !== 'ref' &&
 							(!canEditRef ||
@@ -199,8 +197,13 @@
 			{/snippet}
 		</ToggleButtonGroup>
 	</div>
+	{#if externalRef && can_write && !canEditRef}
+		<span class="text-xs text-secondary">
+			Only workspace admins can create or change a reference
+		</span>
+	{/if}
 	{#if unsecureNeedsLoad && can_write && (deployedRef || caps.code)}
-		<span class="text-2xs text-secondary">
+		<span class="text-xs text-secondary">
 			{deployedRef
 				? 'Enter a value to replace the Vault reference'
 				: 'Load the secret value or enter a new one to make it non-secret'}
@@ -235,7 +238,7 @@
 		<div class="flex flex-col gap-1">
 			<label for="external-ref-path" class="text-xs font-semibold text-emphasis">Vault path</label>
 			{#if allowedPrefixes.current?.length}
-				<span class="text-2xs text-secondary">
+				<span class="text-xs text-secondary">
 					Under <code
 						>{allowedPrefixes.current
 							.map((p) => p.replace(/^vault:\/\//, '').replace(/\/*$/, '/**'))
@@ -262,7 +265,7 @@
 			<label for="external-ref-key" class="text-xs font-semibold text-emphasis">
 				Key (optional)
 			</label>
-			<span class="text-2xs text-secondary">
+			<span class="text-xs text-secondary">
 				The entry to read from the secret, like <code>token</code>. Leave empty to get all its
 				entries as a JSON object.
 			</span>

@@ -494,13 +494,13 @@
 			{/snippet}
 		</ToggleButtonGroup>
 		{#if refsLoseConnection}
-			<Alert type="warning" size="xs" title="External secret references use this Vault connection">
-				<div class="flex flex-col gap-2 items-start">
-					<span>Keep it as their own connection, or they can no longer be read.</span>
-					<Button unifiedSize="sm" variant="default" onclick={keepConnectionForRefs}>
-						Keep the connection for references
-					</Button>
-				</div>
+			<Alert
+				type="warning"
+				size="xs"
+				title="External secret references use this Vault connection"
+				actions={[{ label: 'Keep the connection for references', onClick: keepConnectionForRefs }]}
+			>
+				Keep it as their own connection, or they can no longer be read.
 			</Alert>
 		{/if}
 		{#if vaultDisabled}

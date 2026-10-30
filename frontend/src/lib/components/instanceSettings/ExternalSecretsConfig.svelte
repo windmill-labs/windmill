@@ -108,8 +108,9 @@
 	{/if}
 	<span class="text-2xs text-secondary">
 		A secret variable can reference an existing secret, as
-		<code>$external:vault://&lt;path&gt;#&lt;key&gt;</code>, instead of holding its value. The value
-		is read from Vault each time the variable is read.
+		<code>$external:vault://&lt;path&gt;#&lt;key&gt;</code>, or the whole secret as JSON without
+		<code>#&lt;key&gt;</code>, instead of holding its value. The value is read from Vault each time
+		the variable is read.
 	</span>
 	<Alert type="info" size="xs" title="Prefer the Vault backend for secrets Windmill owns">
 		Use HashiCorp Vault as the secret backend for those. Use references for secrets that are managed
