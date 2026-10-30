@@ -412,7 +412,7 @@
 										use every role.
 									</Tooltip>
 									{#if !governing}
-										<ManageGroupsLink onReturn={() => loadTenantItems(workspace)} />
+										<ManageGroupsLink {workspace} onReturn={() => loadTenantItems(workspace)} />
 									{/if}
 								</Cell>
 								<Cell head>

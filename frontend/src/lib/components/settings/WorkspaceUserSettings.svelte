@@ -30,7 +30,8 @@
 		superadmin,
 		globalEmailInvite,
 		enterpriseLicense,
-		workspaceMembershipVersion
+		workspaceMembershipVersion,
+		roleCapabilities
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { Loader2, Mails, Search, Plus, UserMinus, X, Bot, LogIn, Users } from 'lucide-svelte'
@@ -496,9 +497,11 @@
 	link="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
 >
 	{#snippet actions()}
-		<Button variant="default" unifiedSize="sm" href="/groups" startIcon={{ icon: Users }}>
-			Groups
-		</Button>
+		{#if $roleCapabilities.visibility.groups}
+			<Button variant="default" unifiedSize="sm" href="/groups" startIcon={{ icon: Users }}>
+				Groups
+			</Button>
+		{/if}
 	{/snippet}
 </SettingsPageHeader>
 
