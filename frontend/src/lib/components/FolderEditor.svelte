@@ -22,6 +22,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { ArrowDown, ArrowUp, Eye, Pen, Plus, Trash } from 'lucide-svelte'
 	import Label from './Label.svelte'
+	import ManageGroupsLink from './ManageGroupsLink.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { onMount, tick, untrack } from 'svelte'
 	import Select from './select/Select.svelte'
@@ -35,7 +36,6 @@
 	import Badge from './common/badge/Badge.svelte'
 	import InputError from './InputError.svelte'
 	import Popover from './meltComponents/Popover.svelte'
-	import GroupsPageLink from './GroupsPageLink.svelte'
 	import { deepEqual } from 'fast-equals'
 	import {
 		folderPermissionDiff,
@@ -654,7 +654,9 @@
 							<span class="text-sm leading-6 font-semibold">Add a member</span>
 							<Label label="User or group">
 								{#snippet action()}
-									<GroupsPageLink />
+									{#if !offOperating}
+										<ManageGroupsLink onReturn={loadGroups} />
+									{/if}
 								{/snippet}
 								<div class="flex items-center gap-1">
 									<!-- The toggle group is `w-full`; unwrapped it takes half the row. -->
@@ -913,7 +915,14 @@
 								<Cell head first class="text-secondary">
 									path_glob <Tooltip>Glob relative to <code>f/{name}/</code></Tooltip>
 								</Cell>
-								<Cell head class="text-secondary">Permissioned as</Cell>
+								<Cell head class="text-secondary">
+									<div class="flex items-center gap-2">
+										Permissioned as
+										{#if !offOperating}
+											<ManageGroupsLink onReturn={loadGroups} />
+										{/if}
+									</div>
+								</Cell>
 								<Cell head last actions class="text-secondary">Actions</Cell>
 							</tr>
 						</Head>

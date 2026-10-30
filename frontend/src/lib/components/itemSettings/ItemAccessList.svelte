@@ -6,8 +6,8 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import { ChevronDown, Plus, Trash } from 'lucide-svelte'
 	import GroupEditorDrawer from '$lib/components/GroupEditorDrawer.svelte'
+	import ManageGroupsLink from '$lib/components/ManageGroupsLink.svelte'
 	import FolderEditorDrawer from '$lib/components/FolderEditorDrawer.svelte'
-	import GroupsPageLink from '$lib/components/GroupsPageLink.svelte'
 	import { Cell, DataTable, Row } from '$lib/components/table'
 	import Head from '$lib/components/table/Head.svelte'
 	import AccessHelp from './AccessHelp.svelte'
@@ -324,9 +324,7 @@
 			>
 				Cancel
 			</Button>
-		</div>
-		<div class="flex justify-end">
-			<GroupsPageLink />
+			<ManageGroupsLink onReturn={loadPrincipals} />
 		</div>
 	{/if}
 

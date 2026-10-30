@@ -62,7 +62,7 @@
 	import Item from './Item.svelte'
 	import PipelineRow from '../common/table/PipelineRow.svelte'
 	import { TreeOpenMemory } from './treeViewState.svelte'
-	import { effectivePath, type ItemType } from './treeViewUtils'
+	import { effectivePath, OWNER_PAGE_SIZE, type ItemType } from './treeViewUtils'
 	import { tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import BulkActionsBar from './BulkActionsBar.svelte'
@@ -517,10 +517,6 @@
 		loaded: boolean
 		gen: number
 	}
-	// Rows per request when loading a prefix in the tree. Larger than the global stream's
-	// page because a tree row is a single line and a folder is opened to see what it
-	// holds — most folders come in whole on the first click.
-	const OWNER_PAGE_SIZE = 300
 	// How far one "Load more" will page past rows it already has before giving up and
 	// leaving the rest to another click (see the catch-up loop in loadOwnerItems).
 	const OWNER_CATCH_UP_PAGES = 5
