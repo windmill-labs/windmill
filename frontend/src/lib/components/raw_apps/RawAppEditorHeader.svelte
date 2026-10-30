@@ -1361,7 +1361,7 @@
 		loading={app == undefined}
 		on:save={({ detail }) => deploy(detail)}
 		unifiedSize={headerBtnSize}
-		dropdownItems={appPath != ''
+		dropdownItems={appPath != '' && !inSessionPane
 			? () => [
 					// `appPath`, not the live edited path: a rename that has not been deployed yet
 					// would land on a details page for something that does not exist.

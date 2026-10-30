@@ -15,7 +15,6 @@
 		path,
 		workspaceId,
 		onNavigate,
-		onSeeDetails,
 		fullscreen = false,
 		isActiveSession = true,
 		active = true
@@ -24,9 +23,6 @@
 		path: string
 		workspaceId: string
 		onNavigate?: (item: WorkspaceItem) => void
-		/** `Exit & See details` — flips this tab to the item's deployed view rather than
-		 * navigating out of the session. */
-		onSeeDetails?: (e: { path: string }) => void
 		/** Preview panel is in full screen: collapse the test pane in the narrow
 		 * side-by-side layout, reopen it when there's room in full screen. */
 		fullscreen?: boolean
@@ -118,7 +114,6 @@
 				condensedHeader={true}
 				{diffDrawer}
 				{onNavigate}
-				{onSeeDetails}
 				testPanelCollapsed={!fullscreen}
 				onDeploy={(e) => {
 					// Fires on every deploy (primary, "Deploy & Stay here", and lib — we

@@ -1299,10 +1299,9 @@
 	}> = []
 
 	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
-		// The one option that stays in a session pane: the session hosts the details page
-		// itself, so this flips the tab to it rather than leaving the session. Everything
-		// below opens a details page or a new tab outside the session, so it stays hidden.
-		if (!newFlow && savedFlow?.no_deployed !== true) {
+		// None of these belong to a session pane: each leaves the editor for a details page or
+		// a new tab, which the session's own tabs already reach. The deploy button is then plain.
+		if (!newFlow && savedFlow?.no_deployed !== true && !inSessionPane) {
 			dropdownItems.push({
 				label: 'Exit & see details',
 				// Use the deployed path, not the live `$pathStore` — the latter

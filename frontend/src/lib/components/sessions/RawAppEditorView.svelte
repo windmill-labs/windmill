@@ -37,7 +37,6 @@
 		path,
 		workspaceId,
 		onNavigate,
-		onSeeDetails,
 		isActiveSession = true,
 		active = true,
 		newRawApp = false
@@ -46,9 +45,6 @@
 		path: string
 		workspaceId: string
 		onNavigate?: (item: WorkspaceItem) => void
-		/** `Exit & see details` — flips this tab to the item's deployed view rather than
-		 * navigating out of the session. */
-		onSeeDetails?: (e: { path: string }) => void
 		/** Forwarded to SessionEditorTarget — only the visible session claims the
 		 * workspace's single live-editor slot. */
 		isActiveSession?: boolean
@@ -398,7 +394,6 @@
 				newApp={!cell.saved.val || cell.saved.val.no_deployed === true}
 				{diffDrawer}
 				{onNavigate}
-				onDetails={onSeeDetails}
 				onOpenFork={openFork}
 				condensedHeader={true}
 				onResetToDeployed={reloadDeployed}

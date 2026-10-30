@@ -3,6 +3,8 @@ import { get } from 'svelte/store'
 import {
 	enterSessionMode,
 	enterSessionModeFromNav,
+	exitSessionMode,
+	navRouteItemMoved,
 	openSourceInSession,
 	rememberNavRoute,
 	startSessionWithPrompt,
@@ -438,6 +440,22 @@ describe('enterSessionModeFromNav', () => {
 			expect(resetSessionPreviewTabs).not.toHaveBeenCalled()
 		} finally {
 			restore()
+		}
+	})
+})
+
+describe('exitSessionMode after a first deploy from the session', () => {
+	it('returns to the deployed item, not the draft row the deploy discarded', async () => {
+		const prevWs = get(workspaceStore)
+		workspaceStore.set('w')
+		vi.mocked(goto).mockClear()
+		try {
+			rememberNavRoute('/flows/edit/u/me/draft_ab12_cd34?workspace=w&nodraft=true&new_draft=true')
+			navRouteItemMoved('flow', 'u/me/draft_ab12_cd34', 'f/ops/sync_invoices')
+			await exitSessionMode()
+			expect(goto).toHaveBeenCalledWith('/flows/edit/f/ops/sync_invoices?workspace=w')
+		} finally {
+			workspaceStore.set(prevWs)
 		}
 	})
 })

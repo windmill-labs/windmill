@@ -130,6 +130,7 @@ import {
 } from '$lib/components/copilot/chat/shared'
 import { readStoredChat } from '$lib/components/copilot/chat/HistoryManager.svelte'
 import { getCurrentUserEmail } from '$lib/userScopedStorage'
+import { navRouteItemMoved } from './sessionSwitch.svelte'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 
 // Per-kind load state for a session's editor target. Pure state container the
@@ -1221,6 +1222,7 @@ function createRuntime(session: Session): SessionRuntime {
 				UserDraft.stopSync(kind, storagePath, { workspace })
 				UserDraft.discard(kind, storagePath, undefined, { workspace })
 				previewTabs.retargetEditor({ kind, path: storagePath }, { kind, path: deployedPath })
+				navRouteItemMoved(kind === 'raw_app' ? 'app' : kind, storagePath, deployedPath)
 			}
 			const path = deployedPath
 			// After deploy the editor state equals the deployed value; the reload
