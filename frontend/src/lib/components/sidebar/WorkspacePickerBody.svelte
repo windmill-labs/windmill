@@ -161,7 +161,9 @@
 	// modal carries its own base-workspace picker). Hidden on non-premium cloud,
 	// in the admins workspace, or when forking is disabled.
 	const canForkHere = $derived(
-		(!isCloudHosted() || $maybePremium) && $workspaceStore !== 'admins' && canCreateFork($userStore, $roleCapabilities)
+		(!isCloudHosted() || $maybePremium) &&
+			$workspaceStore !== 'admins' &&
+			canCreateFork($userStore, $roleCapabilities)
 	)
 	// The row mechanics below — which family to expand, which collapsed row carries the tick — key on
 	// a depth-0 row of the list, which `buildWorkspaceHierarchy` puts at the highest workspace the
@@ -386,6 +388,7 @@
 
 <div
 	bind:this={rootEl}
+	data-works-with-composer
 	role="none"
 	onpointermovecapture={keepSearchFocus}
 	onpointerleavecapture={keepSearchFocus}

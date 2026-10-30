@@ -20,6 +20,8 @@
 		detail: Snippet
 		/** Controls rendered next to the name. Clicks on them do not toggle the row. */
 		actions?: Snippet
+		/** False for a row known to group nothing: it renders without a chevron and does not toggle. */
+		expandable?: boolean
 	}
 
 	let {
@@ -30,17 +32,20 @@
 		indent = 0,
 		toggleLabel,
 		detail,
-		actions
+		actions,
+		expandable = true
 	}: Props = $props()
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	onclick={onToggle}
+	onclick={expandable ? onToggle : undefined}
 	class="px-4 py-2 {rowRule(
 		unruled
-	)} group/row w-full flex flex-row items-center justify-between cursor-pointer hover:bg-surface-hover"
+	)} group/row w-full flex flex-row items-center justify-between {expandable
+		? 'cursor-pointer hover:bg-surface-hover'
+		: ''}"
 >
 	<div
 		class="flex flex-row items-center gap-4"
@@ -69,16 +74,18 @@
 			</div>
 		</div>
 	</div>
-	<!-- Keyboard access only: its click bubbles to the row, which does the toggling. -->
-	<button
-		class="w-full flex flex-row-reverse"
-		aria-expanded={opened}
-		aria-label={toggleLabel ?? name}
-	>
-		{#if opened}
-			<ChevronUp size={16} />
-		{:else}
-			<ChevronDown size={16} />
-		{/if}
-	</button>
+	{#if expandable}
+		<!-- Keyboard access only: its click bubbles to the row, which does the toggling. -->
+		<button
+			class="w-full flex flex-row-reverse"
+			aria-expanded={opened}
+			aria-label={toggleLabel ?? name}
+		>
+			{#if opened}
+				<ChevronUp size={16} />
+			{:else}
+				<ChevronDown size={16} />
+			{/if}
+		</button>
+	{/if}
 </div>

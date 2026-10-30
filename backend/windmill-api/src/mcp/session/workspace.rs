@@ -58,7 +58,7 @@ pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult 
 //                     is_template, language, kind`, + `parent_hash` once forked from a deploy)
 //   flow              the `Flow` object (`path, summary, description, value, schema`, +
 //                     `version_id` when forked from a deploy)
-//   raw_app           `{summary, files, runnables, data, policy?, custom_path?,
+//   raw_app           `{summary, files, runnables, data, policy?, custom_path?, labels?,
 //                     parent_version?, draft_path?}` (`normalize_app_draft`)
 //   trigger_schedule  the schedule request body; `trigger_<kind>` that trigger's body
 //   resource          `{path, description, args, labels, wsSpecific, resource_type}`
@@ -277,6 +277,18 @@ pub(super) async fn get_deployed(
         .await
 }
 
+/// Who can open the deployed app at `path`, which the Share dialog sets and a deploy keeps.
+pub(super) async fn deployed_execution_mode(
+    ctx: &Ctx<'_>,
+    path: &str,
+) -> Result<Option<Value>, String> {
+    Ok(ctx
+        .get(&ctx.ws(&format!("apps/get/lite/{}", path_enc(path))))
+        .await?
+        .pointer("/policy/execution_mode")
+        .cloned())
+}
+
 pub(super) struct Draft {
     pub value: Value,
     pub created_at: Option<String>,
@@ -384,7 +396,13 @@ pub(super) fn normalize_app_draft(value: &Value) -> Value {
             .cloned()
             .unwrap_or_else(|| json!({ "tables": [] })),
     );
-    for key in ["policy", "custom_path", "parent_version", "draft_path"] {
+    for key in [
+        "policy",
+        "custom_path",
+        "labels",
+        "parent_version",
+        "draft_path",
+    ] {
         put(&mut out, key, value.get(key).cloned());
     }
     Value::Object(out)
@@ -695,6 +713,7 @@ pub(super) fn app_source_to_draft_value(app: &Value, fallback: Option<&Value>) -
     out.insert("data".into(), data);
     put(&mut out, "policy", or_fallback("policy"));
     put(&mut out, "custom_path", or_fallback("custom_path"));
+    put(&mut out, "labels", or_fallback("labels"));
     // The fork base: the head of a deployed app's versions, or what a draft already pinned.
     let head = app
         .get("versions")
@@ -1486,12 +1505,19 @@ async fn read_workspace_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 
     if !deployed_only && !hub {
         if let Some((item, _)) = get_draft_item(ctx, item_type, path, trigger_kind).await? {
-            // The mode reported is the draft's, which is what deploying it will write.
+            // The mode reported is the one deploying the draft leaves: a deployed app keeps
+            // its own, which the Share dialog sets, and a never-deployed one takes the draft's.
             let mode = if item_type == "app" {
-                let mode = item
-                    .get("value")
-                    .and_then(|v| v.get("policy"))
-                    .and_then(|p| p.get("execution_mode"));
+                let deployed = if item_exists(ctx, "app", None, path).await? {
+                    deployed_execution_mode(ctx, path).await?
+                } else {
+                    None
+                };
+                let mode = deployed.as_ref().or_else(|| {
+                    item.get("value")
+                        .and_then(|v| v.get("policy"))
+                        .and_then(|p| p.get("execution_mode"))
+                });
                 describe_app_exposure(ctx, mode).await
             } else {
                 None
@@ -2025,6 +2051,17 @@ mod tests {
             json!({ "type": "script", "path": "u/a/s", "summary": "s", "language": "bun", "value": "x", "parentHash": "h", "isDraft": true })
         );
         assert!(draft_item("app", "u/a/s", &draft).is_none());
+    }
+
+    #[test]
+    fn normalize_app_draft_keeps_labels() {
+        // Every session save goes through this whitelist: a field missing here is
+        // stripped from a draft the editor wrote.
+        let draft = json!({ "files": {}, "labels": ["a"] });
+        assert_eq!(
+            normalize_app_draft(&draft).get("labels"),
+            Some(&json!(["a"]))
+        );
     }
 
     #[test]

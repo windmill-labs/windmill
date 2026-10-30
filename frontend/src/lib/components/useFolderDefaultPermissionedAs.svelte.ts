@@ -61,9 +61,12 @@ export function useFolderDefaultPermissionedAs(
 		get loading() {
 			const ws = workspace()
 			return (
-				folderResource.loading ||
-				(!!ws && !!pathGetter()?.startsWith('f/') && !acting.resolved(ws))
+				folderResource.loading || (!!ws && !!pathGetter()?.startsWith('f/') && !acting.resolved(ws))
 			)
+		},
+		/** Reads the default for the path as it is now: `value` follows a path change a fetch later. */
+		refetch() {
+			return folderResource.refetch()
 		}
 	}
 }

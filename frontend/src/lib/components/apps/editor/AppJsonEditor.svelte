@@ -83,8 +83,7 @@
 				path,
 				value: parsed,
 				summary: app?.summary,
-				policy: app?.policy,
-				customPath: app?.custom_path
+				policy: app?.policy
 			})
 			dispatch('change')
 			UserDraft.remove('raw_app', path)

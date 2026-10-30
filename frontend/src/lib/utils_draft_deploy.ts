@@ -32,14 +32,23 @@ import {
 	GcpTriggerService,
 	AzureTriggerService,
 	EmailTriggerService,
+	type Policy,
 	type UserDraftItemKind
 } from '$lib/gen'
+import type { App } from '$lib/components/apps/types'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import type { DeployResult } from '$lib/utils_workspace_deploy'
 import { TRIGGER_RUNTIME_IGNORE } from '$lib/utils_deployable'
 import { deployRawAppDraft } from '$lib/rawAppDeploy'
 import { canonicalRawAppDiffValue } from '$lib/components/raw_apps/utils'
 import { classicAppDraftParts } from '$lib/appDiffSides'
+import {
+	appDraftSettings,
+	draftOrDeployedSettings,
+	policySettings,
+	withDraftPolicySettings,
+	withoutSharedPolicySettings
+} from '$lib/components/apps/editor/appDraftSettings'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
@@ -188,7 +197,12 @@ export function canonicalDraftSideValue(kind: DraftKind, value: unknown): unknow
 	if (kind === 'raw_app') return canonicalRawAppDiffValue((value ?? {}) as Record<string, any>)
 	if (kind === 'app') {
 		const parts = classicAppDraftParts(value)
-		return { summary: parts.summary ?? '', value: parts.value }
+		return {
+			summary: parts.summary ?? '',
+			value: parts.value,
+			...(parts.policy ? { policy: policySettings(parts.policy) } : {}),
+			...(parts.labels ? { labels: parts.labels } : {})
+		}
 	}
 	if (kind === 'flow' && value !== null && typeof value === 'object') {
 		const { version_id: _v, ...rest } = value as Record<string, unknown>
@@ -253,6 +267,11 @@ function canonicalizeDraftDiffValue(kind: DraftKind, raw: any, isDraft: boolean)
 	// schedule + triggers: same field names on both sides — drop runtime noise.
 	return stripScheduleTriggerRuntime(raw)
 }
+
+/** What a draft-only app deploys with when its draft carries no policy, as a draft saved before
+ *  drafts carried one does: a new app's sandboxed policy, since an empty one deploys it
+ *  unsandboxed. The diff shows the same, or it would show a policy the deploy does not store. */
+const DRAFT_ONLY_APP_POLICY: Policy = { execution_mode: 'publisher', sandbox: true }
 
 /**
  * Fetch the deployed value and the draft value for an item, for the DiffDrawer
@@ -331,11 +350,14 @@ export async function getDraftDiffValues(
 			// A staged rename (`draft_path`) changes where deploy lands the app —
 			// compare it as `path` on both sides so a rename-only draft diffs.
 			const rawDraftPath = (r.draft?.draft_path as string | undefined) ?? r.path
+			// Who can open a deployed app is set from the Share dialog, never drafted.
+			const shared = (v: Record<string, any>) =>
+				draftOnly ? v : { ...v, policy: withoutSharedPolicySettings(v.policy) }
 			return {
 				deployed: draftOnly
 					? canonicalRawAppDiffValue({})
-					: { ...canonicalRawAppDiffValue(r), path: r.path },
-				draft: { ...canonicalRawAppDiffValue(r.draft ?? r), path: rawDraftPath },
+					: shared({ ...canonicalRawAppDiffValue(r), path: r.path }),
+				draft: shared({ ...canonicalRawAppDiffValue(r.draft ?? r), path: rawDraftPath }),
 				hasDraft: r.draft != null,
 				noDeployed: r.no_deployed === true
 			}
@@ -345,15 +367,23 @@ export async function getDraftDiffValues(
 		// `value`. Both sides reduce to `{ summary, value }` with the metadata
 		// extracted from the grid, so a summary edit diffs as a summary edit and
 		// the grid never diffs against draft-only markers.
+		// The settings are compared too, or a settings-only draft reads as equal to the deployed
+		// app and the auto-prune drops it.
 		const deployedParts = classicAppDraftParts(r.value)
 		const draftParts = r.draft != null ? classicAppDraftParts(r.draft) : deployedParts
-		const deployed = { summary: r.summary ?? '', value: deployedParts.value, path: r.path }
+		const deployed = {
+			summary: r.summary ?? '',
+			value: deployedParts.value,
+			path: r.path,
+			...appDraftSettings(r)
+		}
 		return {
 			deployed: draftOnly ? EMPTY_DEPLOYED.app!(undefined) : deployed,
 			draft: {
 				summary: draftParts.summary ?? r.summary ?? '',
 				value: draftParts.value,
-				path: draftParts.draftPath ?? r.path
+				path: draftParts.draftPath ?? r.path,
+				...draftOrDeployedSettings(draftParts, draftOnly ? { policy: DRAFT_ONLY_APP_POLICY } : r)
 			},
 			hasDraft: r.draft != null,
 			noDeployed: r.no_deployed === true
@@ -571,35 +601,37 @@ export async function deployDraft(
 			// plus a `draft_path` when the path was renamed) — NOT wrapped in
 			// { value, summary, policy } like script/flow drafts. So the deploy value
 			// is the draft object itself; fall back to the deployed value when there's
-			// no draft. `draft_path` and `summary` are draft-only fields mirrored onto
-			// the App value (the editor drops them on deploy), so strip them from the
-			// value and apply them as the deploy path / summary column.
-			// `parent_version` is the draft's stale-check base, never deployed.
-			const draft = r.draft as Record<string, any> | undefined
-			const {
-				draft_path: draftPath,
-				summary: draftSummary,
-				parent_version: _pv,
-				...appValue
-			} = draft ?? r.value ?? {}
-			// Policy isn't carried in the app draft, so it comes from the deployed app
-			// (or a default). custom_path requires admin on update; non-admins send
-			// undefined so the backend preserves the existing route. The draft has no
-			// custom_path, so admins fall back to the deployed route (`''` when none).
-			const isAdmin = await isAdminIn(workspace)
-			const policy = r.policy ?? { execution_mode: 'publisher', sandbox: true }
+			// no draft. The draft-only fields mirrored onto the App value (staged path,
+			// summary, settings, fork base) are stripped from it and applied as the
+			// app row's columns.
+			const parts = classicAppDraftParts(r.draft ?? r.value ?? {})
+			const appValue = parts.value as App
+			const deployedPolicy = draftOnly ? DRAFT_ONLY_APP_POLICY : (r.policy as Policy)
+			const settings = draftOrDeployedSettings(parts, draftOnly ? { policy: deployedPolicy } : r)
+			// The runnable whitelist is rebuilt from the value being deployed: the deployed
+			// policy's whitelist describes the previous value. Loaded lazily, as it pulls in the
+			// app component tree.
+			const { updatePolicy } = await import('$lib/components/apps/editor/appPolicy')
+			const policy = await updatePolicy(
+				appValue,
+				withDraftPolicySettings(deployedPolicy, settings.policy)
+			)
 			const requestBody = {
 				value: appValue,
-				summary: draftSummary ?? r.summary ?? '',
-				policy,
+				summary: parts.summary ?? r.summary ?? '',
+				// An update states no mode: the Share dialog sets it, and the server keeps the
+				// deployed one.
+				policy: draftOnly ? policy : withoutSharedPolicySettings(policy),
 				// Honor the draft's intended path; `draft_path` holds the user-typed path
 				// for a never-deployed app parked at a `u/{user}/draft_{uuid}` storage key.
-				path: draftPath ?? r.path ?? path,
-				custom_path: isAdmin ? (r.custom_path ?? '') : undefined,
+				path: parts.draftPath ?? r.path ?? path,
+				// A deploy never writes the custom URL: the Share dialog sets it, and an update
+				// without one keeps it.
+				custom_path: undefined,
+				labels: settings.labels,
 				deployment_message: deploymentMessage,
-				// The draft carries no on-behalf-of selector — the policy comes straight
-				// from the deployed app. Preserve its on_behalf_of (the backend resets it
-				// to the deploying user without this flag, gated by can_preserve_on_behalf_of).
+				// Preserve the drafted on_behalf_of (the backend resets it to the deploying
+				// user without this flag, gated by can_preserve_on_behalf_of).
 				preserve_on_behalf_of: policy?.on_behalf_of ? true : undefined
 			}
 			// Same as flows: draft-only apps have no app row → create;

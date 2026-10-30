@@ -26,6 +26,9 @@ Open-source platform for internal tools, workflows, API integrations, background
 
 - **Validation**: `docs/validation.md` — what checks to run based on what you changed
 - **Unreleased SDK changes**: `docs/wac-sdk-e2e.md` — exercising a client change on a real worker
+- **Performance work**: `docs/perf-profiling.md` — the in-process profiler for the job path
+  (allocation bytes, allocation sites and SQL statements per job), how to A/B a change with it, and
+  its measurement caveats. A perf change ships with before/after numbers from it.
 - **Agent workers**: `docs/agent-worker-e2e.md` — building and running one locally. An agent
   reaches the DB only through the API, so `Connection::Http` paths are never taken by a plain
   `cargo run`; a normal build cannot start one at all.

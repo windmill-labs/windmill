@@ -35,7 +35,6 @@
 		darkMode,
 		fullscreen = false,
 		onNavigate,
-		onSeeDetails,
 		onLoad
 	}: {
 		tab: SessionPreviewTab
@@ -60,9 +59,6 @@
 		darkMode: boolean
 		/** A link click inside a live editor re-points the active preview tab. */
 		onNavigate: (item: WorkspaceItem) => void
-		/** An editor's `Exit & see details` — re-points this tab at the item's deployed
-		 * view instead of navigating out of the session. */
-		onSeeDetails: (item: WorkspaceItem) => void
 		/** Iframe finished loading — the page reads back its observed location. */
 		onLoad: (frame: HTMLIFrameElement) => void
 	} = $props()
@@ -110,16 +106,6 @@
 	// another version — stops carrying the call rather than answering it from a page it was
 	// never confirmed against.
 	const pendingRunId = $derived(viewerUrl?.searchParams.get('pending_run') ?? undefined)
-
-	// The path an editor reports is its deployed one, which a staged rename can make
-	// differ from this tab's — so the view opens on what actually exists.
-	const seeDetails = (e: { path: string }) =>
-		onSeeDetails({
-			path: e.path,
-			summary: '',
-			kind: itemKind === 'raw_app' ? 'app' : (itemKind as 'script' | 'flow'),
-			raw_app: itemKind === 'raw_app'
-		})
 
 	// Where inside the editor the tab was opened on ("open this flow step in a
 	// session"). Only the in-process editors need it handed over — an iframe tab
@@ -353,7 +339,6 @@
 							path={itemPath}
 							{workspaceId}
 							{onNavigate}
-							onSeeDetails={seeDetails}
 							{isActiveSession}
 							{active}
 							initialSelectedId={selectedId}
@@ -368,7 +353,6 @@
 							path={itemPath}
 							{workspaceId}
 							{onNavigate}
-							onSeeDetails={seeDetails}
 							{isActiveSession}
 							{active}
 							{fullscreen}
@@ -392,7 +376,6 @@
 							path={itemPath}
 							{workspaceId}
 							{onNavigate}
-							onSeeDetails={seeDetails}
 							{isActiveSession}
 							{active}
 							{newRawApp}

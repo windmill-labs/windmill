@@ -1,5 +1,59 @@
 # Changelog
 
+## [1.854.2](https://github.com/windmill-labs/windmill/compare/v1.854.1...v1.854.2) (2026-10-30)
+
+
+### Bug Fixes
+
+* read a new app's links before its session draft is discarded ([#12114](https://github.com/windmill-labs/windmill/issues/12114)) ([48493f8](https://github.com/windmill-labs/windmill/commit/48493f8ad29ec97055c7478dbf6e6f7c80db7590))
+
+## [1.854.1](https://github.com/windmill-labs/windmill/compare/v1.854.0...v1.854.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* share and first deploy in ai sessions, app access in settings ([#12112](https://github.com/windmill-labs/windmill/issues/12112)) ([981baed](https://github.com/windmill-labs/windmill/commit/981baeda90e758feecda7f89a6f83d0aa479fb00))
+
+## [1.854.0](https://github.com/windmill-labs/windmill/compare/v1.853.1...v1.854.0) (2026-10-30)
+
+
+### Features
+
+* add a share dialog and a first-deploy dialog ([#11950](https://github.com/windmill-labs/windmill/issues/11950)) ([ef5fa21](https://github.com/windmill-labs/windmill/commit/ef5fa2160358a25bf3ea7a63b7235a30b40734a7))
+* add read-only generic HTTP secret store backend ([#12098](https://github.com/windmill-labs/windmill/issues/12098)) ([a2b3e98](https://github.com/windmill-labs/windmill/commit/a2b3e981c808db54430f5696ffad1ac3dda00cab))
+* deploy apps with a Settings drawer instead of the deploy drawer ([#11944](https://github.com/windmill-labs/windmill/issues/11944)) ([792dd27](https://github.com/windmill-labs/windmill/commit/792dd27771d46830c4943c948b1bb4d81a0c19f6))
+
+
+### Bug Fixes
+
+* bump uv to 0.13.6 so preinstalled pythons ship a patched certifi ([#12102](https://github.com/windmill-labs/windmill/issues/12102)) ([4ff5303](https://github.com/windmill-labs/windmill/commit/4ff5303f8837694d6899bd465c5da6a84d8e4320))
+* chat-sdk RawAppWmill backendAsync takes the memoryId option ([#12097](https://github.com/windmill-labs/windmill/issues/12097)) ([68a2f09](https://github.com/windmill-labs/windmill/commit/68a2f093880fa81268a28d3570a665848768160f))
+* **frontend:** drop legacy and invalid timezones from the cron picker ([#12108](https://github.com/windmill-labs/windmill/issues/12108)) ([1d40da5](https://github.com/windmill-labs/windmill/commit/1d40da5b5162f325157660eb2e0db12972477612))
+* keep websocket triggers connected through blips and dead peers ([#12099](https://github.com/windmill-labs/windmill/issues/12099)) ([5c5ff8f](https://github.com/windmill-labs/windmill/commit/5c5ff8f282f7d72e11ba6e3228e03a61eb06f490))
+* make flow step logs fill the node panel instead of clipping ([#12101](https://github.com/windmill-labs/windmill/issues/12101)) ([3a62d20](https://github.com/windmill-labs/windmill/commit/3a62d20e93f3a00e21fdcb886562c8727cb9efeb))
+* one username rule for all paths that create or rename a user ([#12107](https://github.com/windmill-labs/windmill/issues/12107)) ([09af2dd](https://github.com/windmill-labs/windmill/commit/09af2ddf7cc4c443b77583b810c1c9d409036db1))
+* run Hub script trigger targets that have a retry or error handler ([#12094](https://github.com/windmill-labs/windmill/issues/12094)) ([6df5705](https://github.com/windmill-labs/windmill/commit/6df570522304c9f82f5bd3b9718e5c038c0779e8))
+
+## [1.853.1](https://github.com/windmill-labs/windmill/compare/v1.853.0...v1.853.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* mcp one-workspace runnables, run card links, directory review ([#12072](https://github.com/windmill-labs/windmill/issues/12072)) ([32da930](https://github.com/windmill-labs/windmill/commit/32da930d255d6512d2af1818f64c44245541d6b5))
+
+## [1.853.0](https://github.com/windmill-labs/windmill/compare/v1.852.0...v1.853.0) (2026-10-28)
+
+
+### Features
+
+* agent to flow, tabbed agent page, one webhook panel with an AI prompt ([#11903](https://github.com/windmill-labs/windmill/issues/11903)) ([2e4c078](https://github.com/windmill-labs/windmill/commit/2e4c0789a25a51ec9fdb05ea6f57e1e70c73e591))
+
+
+### Performance Improvements
+
+* borrow cached script modules instead of cloning per job ([#12087](https://github.com/windmill-labs/windmill/issues/12087)) ([d03142b](https://github.com/windmill-labs/windmill/commit/d03142ba39f0ad2247ecd867da74890a7681cf85))
+* build log-mask automaton as a contiguous nfa ([#12088](https://github.com/windmill-labs/windmill/issues/12088)) ([97de072](https://github.com/windmill-labs/windmill/commit/97de072e7ff5f91d5b5494b78c409ce31bfde3b1))
+
 ## [1.852.0](https://github.com/windmill-labs/windmill/compare/v1.851.0...v1.852.0) (2026-10-28)
 
 

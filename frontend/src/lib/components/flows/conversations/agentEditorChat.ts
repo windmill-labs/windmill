@@ -13,6 +13,11 @@ export function agentChatPath(agentPath: string): string {
 	return `${agentPath}.chat`
 }
 
+/** The agent a conversation's path files it under, or undefined for a flow's own chat. */
+export function agentOfChatPath(chatPath: string): string | undefined {
+	return chatPath.endsWith('.chat') ? chatPath.slice(0, -'.chat'.length) : undefined
+}
+
 /** The id of the one step a saved agent's run is made of, as the server names it too: job-read
  *  scoping and the run's agent detection match on it, so it is only ever relabeled for display. */
 export const AGENT_STEP_ID = '__wm_agent_root'

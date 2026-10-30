@@ -6521,7 +6521,7 @@ pub async fn script_to_payload(
                     None,
                     db.clone(),
                     &flow_job.workspace_id,
-                    Some(true),
+                    Some(!apply_preprocessor.unwrap_or(false)),
                 )
                 .await?;
             (
