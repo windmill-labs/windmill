@@ -8092,6 +8092,15 @@ describe('prepareGlobalUserMessage', () => {
 		expect(message.content).not.toContain('Dashboard raw app')
 	})
 
+	it('ties a draft mentioned by its draft path to its storage path', () => {
+		const message = prepareGlobalUserMessage('Fix @u/me/report', [
+			{ type: 'workspace_flow', path: 'u/me/draft_1234', title: 'u/me/report' }
+		])
+		expect(message.content).toContain(
+			'- type: flow, path: u/me/draft_1234, mentioned as: u/me/report\n'
+		)
+	})
+
 	it('lists attached files as id references without their content', () => {
 		const message = prepareGlobalUserMessage('Summarize', [], {
 			files: [

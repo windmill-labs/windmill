@@ -147,7 +147,13 @@
 	{/snippet}
 	{#snippet actions()}
 		<span class="hidden md:inline-flex">
-			<AskAiRowButton kind="app" path={app.path} summary={app.summary} rawApp={!!app.raw_app} />
+			<AskAiRowButton
+				kind="app"
+				path={app.path}
+				displayPath={app.draft_only ? (app as any).draft_path : undefined}
+				summary={app.summary}
+				rawApp={!!app.raw_app}
+			/>
 			{#if showEditButton && app.canWrite}
 				<div>
 					<Button

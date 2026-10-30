@@ -6,6 +6,7 @@
 	import {
 		contextElementKey,
 		createAttachedFileContextElement,
+		isMentionContext,
 		isSameContextElement,
 		type AppDomSelectorElement,
 		type ContextElement
@@ -856,17 +857,12 @@
 	export async function addContextToSelection(contextElement: ContextElement) {
 		if (!selectedContext || !availableContext) return
 
-		const alreadySelected = selectedContext.find(
-			(c) => c.type === contextElement.type && c.title === contextElement.title
-		)
+		const alreadySelected = selectedContext.find((c) => isSameContextElement(c, contextElement))
 		if (alreadySelected) return
 
 		// Workspace items are fetched on-demand and not in availableContext,
 		// so skip the availableContext check for them
-		const isWorkspaceItem =
-			contextElement.type === 'workspace_script' ||
-			contextElement.type === 'workspace_flow' ||
-			contextElement.type === 'workspace_app'
+		const isWorkspaceItem = isMentionContext(contextElement)
 		if (
 			!isWorkspaceItem &&
 			!availableContext.find(
@@ -912,9 +908,7 @@
 			}
 		}
 
-		const duplicateAfterAwait = selectedContext.find(
-			(c) => c.type === contextToAdd.type && c.title === contextToAdd.title
-		)
+		const duplicateAfterAwait = selectedContext.find((c) => isSameContextElement(c, contextToAdd))
 		if (duplicateAfterAwait) return
 
 		selectedContext = [...selectedContext, contextToAdd]

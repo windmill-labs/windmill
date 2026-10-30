@@ -187,6 +187,7 @@ import { appFileEditorLang } from '../appFileEditorLang'
 import { searchDocsTool, readDocsPageTool } from '../docs/core'
 import { createDbSchemaTool } from '../script/core'
 import type { ContextElement } from '../context'
+import { mentionedAs } from '../mention'
 import { getDatatableTools } from '../datatableTools'
 import { getDatatableMigrationTools } from '../datatableMigrationTools'
 import { getDucklakeTools } from '../ducklakeTools'
@@ -10122,7 +10123,7 @@ export function prepareGlobalUserMessage(
 					: context.type === 'workspace_flow'
 						? 'flow'
 						: 'raw_app'
-			content += `- type: ${itemType}, path: ${context.path}\n`
+			content += `- type: ${itemType}, path: ${context.path}${mentionedAs(context)}\n`
 		}
 		content += '\n'
 	}

@@ -39,6 +39,7 @@ import type { PasteAttachment } from './pasteTokens'
 import { dataUrlToImagePart, type AttachedImage } from './imageUtils'
 import type { AttachedTextFile } from './textFileUtils'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
+import { mentionedAs } from './mention'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
@@ -444,17 +445,17 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 			if (!workspaceItemsContext) {
 				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
 			}
-			workspaceItemsContext += `- type: script, path: ${context.path}\n`
+			workspaceItemsContext += `- type: script, path: ${context.path}${mentionedAs(context)}\n`
 		} else if (context.type === 'workspace_flow') {
 			if (!workspaceItemsContext) {
 				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
 			}
-			workspaceItemsContext += `- type: flow, path: ${context.path}\n`
+			workspaceItemsContext += `- type: flow, path: ${context.path}${mentionedAs(context)}\n`
 		} else if (context.type === 'workspace_app') {
 			if (!workspaceItemsContext) {
 				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
 			}
-			workspaceItemsContext += `- type: raw_app, path: ${context.path}\n`
+			workspaceItemsContext += `- type: raw_app, path: ${context.path}${mentionedAs(context)}\n`
 		}
 	}
 
