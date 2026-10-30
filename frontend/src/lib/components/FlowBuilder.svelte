@@ -1,6 +1,5 @@
 <script lang="ts">
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
-	import { useDeployAs } from '$lib/components/access/deployAs.svelte'
 	import { dropStalePending } from '$lib/components/access/serviceAccounts.svelte'
 	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
@@ -143,7 +142,6 @@
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
-	const deployAs = useDeployAs(() => $operatingWorkspace)
 
 	let {
 		initialPath = $bindable(''),
@@ -511,8 +509,7 @@
 				permissionedAs: flowStore.val.on_behalf_of,
 				savedEmail: deployed?.on_behalf_of_email,
 				savedPermissionedAs: deployed?.on_behalf_of,
-				folderDefault: folderDefault.value,
-				deployAs: deployAs.current
+				folderDefault: folderDefault.value
 			})
 		) {
 			deployDialogMsg = deploymentMsg ?? ''

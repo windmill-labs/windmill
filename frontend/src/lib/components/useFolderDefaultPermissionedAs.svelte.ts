@@ -4,12 +4,11 @@ import { resource } from 'runed'
 import { fromStore } from 'svelte/store'
 import { workspaceStore } from '$lib/stores'
 import { useActingUser } from '$lib/actingUser.svelte'
-import { canDeployAs, canPreserveOnBehalfOf } from './itemSettings/onBehalfOf'
-import { useDeployAs } from './access/deployAs.svelte'
+import { canPreserveOnBehalfOf } from './itemSettings/onBehalfOf'
 
 /**
  * Resolves the folder's `default_permissioned_as` rule that matches a given item path.
- * Returns `undefined` when the user may not deploy as that default, the path is not under a
+ * Returns `undefined` when the user is not admin/wm_deployer, the path is not under a
  * folder, the folder has no matching rules, or the fetch fails.
  *
  * The rights are the acting user's in the resolved workspace, as the backend checks them there:
@@ -25,21 +24,11 @@ export function useFolderDefaultPermissionedAs(
 	const navWorkspace = fromStore(workspaceStore)
 	const workspace = () => wsGetter?.() ?? navWorkspace.current
 	const acting = useActingUser(workspace)
-	const deployAs = useDeployAs(workspace)
 
 	const folderResource = resource(
-		() => ({
-			path: pathGetter(),
-			workspace: workspace(),
-			user: acting.current,
-			deployAs: deployAs.current
-		}),
-		async ({ path, workspace, user, deployAs }) => {
-			if (
-				!(canPreserveOnBehalfOf(user) || deployAs.length > 0) ||
-				!workspace ||
-				!path?.startsWith('f/')
-			) {
+		() => ({ path: pathGetter(), workspace: workspace(), user: acting.current }),
+		async ({ path, workspace, user }) => {
+			if (!canPreserveOnBehalfOf(user) || !workspace || !path?.startsWith('f/')) {
 				return undefined
 			}
 			const parts = path.split('/')
@@ -58,10 +47,7 @@ export function useFolderDefaultPermissionedAs(
 						return false
 					}
 				})
-				// The backend applies the default only for someone who may deploy as it.
-				return canDeployAs(user, match?.permissioned_as, deployAs)
-					? match?.permissioned_as
-					: undefined
+				return match?.permissioned_as
 			} catch {
 				return undefined
 			}
@@ -75,7 +61,8 @@ export function useFolderDefaultPermissionedAs(
 		get loading() {
 			const ws = workspace()
 			return (
-				folderResource.loading || (!!ws && !!pathGetter()?.startsWith('f/') && !acting.resolved(ws))
+				folderResource.loading ||
+				(!!ws && !!pathGetter()?.startsWith('f/') && !acting.resolved(ws))
 			)
 		}
 	}

@@ -7,7 +7,7 @@
 	import Cell from './table/Cell.svelte'
 	import RowIcon from './common/table/RowIcon.svelte'
 	import { GranularAclService, type AccessReason, type PrincipalAccess } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import type { Item } from '$lib/utils'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
@@ -19,7 +19,6 @@
 	import GrantNavigator, { navigatorMaxHeight } from './access/GrantNavigator.svelte'
 	import { KIND_LABELS, setGrant, type GrantLevel } from './access/access'
 	import type { RunnableKind } from './access/detectNeeds'
-	import DeployersField from './access/DeployersField.svelte'
 
 	type Target = 'self' | 'user' | 'service_account' | 'group'
 
@@ -27,7 +26,6 @@
 
 	let drawer: Drawer | undefined = $state()
 	let principal = $state('')
-	let target: Target = $state('user')
 	let access: PrincipalAccess | undefined = $state()
 	let error: string | undefined = $state()
 	let search = $state('')
@@ -40,9 +38,8 @@
 	// Responses are not ordered: a slow answer for the previous principal must not land on this one.
 	let requestId = 0
 
-	export async function open(nextPrincipal: string, nextTarget: Target): Promise<void> {
+	export async function open(nextPrincipal: string, target: Target): Promise<void> {
 		principal = nextPrincipal
-		target = nextTarget
 		access = undefined
 		error = undefined
 		search = ''
@@ -51,7 +48,7 @@
 		grantOpen = false
 		needsOf = undefined
 		drawer?.openDrawer()
-		logFeatureUsage('access_view', 'opened', { key: nextTarget })
+		logFeatureUsage('access_view', 'opened', { key: target })
 		await reload()
 	}
 
@@ -214,13 +211,6 @@
 					{principal} is an admin of this workspace and can read and write every item in it.
 				</Alert>
 			{:else}
-				{#if target === 'service_account' && $userStore?.is_admin}
-					<Section label="Who can deploy as it" small>
-						{#key principal}
-							<DeployersField {principal} {access} />
-						{/key}
-					</Section>
-				{/if}
 				<Section label="Groups" small>
 					{#if access.groups.length}
 						<div class="flex flex-wrap gap-1">

@@ -4,7 +4,6 @@
 	import RunOnBehalfOfSetting from './RunOnBehalfOfSetting.svelte'
 	import { appOnBehalfOfTooltip, deployedPermissionedAs } from './onBehalfOf'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
-	import { useDeployAs } from '$lib/components/access/deployAs.svelte'
 	import {
 		createPendingServiceAccount,
 		getPendingServiceAccount
@@ -70,9 +69,8 @@
 	const on = $derived(required || !!email)
 	// A flow or script whose deployed version ran on behalf of someone, turned off by this deploy.
 	const stops = $derived(!on && !!savedUser)
-	const deployAs = useDeployAs(() => targetWorkspace)
 	const runsAs = $derived(
-		deployedPermissionedAs(operatingUser.current, permissionedAs, folderDefault, deployAs.current)
+		deployedPermissionedAs(operatingUser.current, permissionedAs, folderDefault)
 	)
 	const who = $derived(!runsAs ? 'you' : runsAs === me ? `${runsAs} (you)` : runsAs)
 	const unchanged = $derived(!isNew && !!savedPermissionedAs && runsAs === savedPermissionedAs)

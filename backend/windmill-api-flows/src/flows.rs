@@ -720,15 +720,14 @@ async fn create_flow(
     let authed = maybe_refresh_folders(&nf.path, &w_id, authed, &db).await;
 
     // Apply folder default_permissioned_as on create when the caller did not
-    // explicitly preserve a value and may deploy as the default.
+    // explicitly preserve a value and the user can preserve.
     let explicit_preserve = (nf.on_behalf_of_email.is_some() || nf.on_behalf_of.is_some())
-        && nf.preserve_on_behalf_of.unwrap_or(false);
-    if !explicit_preserve {
+        && nf.preserve_on_behalf_of.unwrap_or(false)
+        && windmill_common::can_preserve_on_behalf_of(&authed);
+    if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
         if let Some((default_email, default_permissioned_as)) =
-            windmill_common::folders::resolve_folder_default_on_behalf_of(
-                &authed, &db, &w_id, &nf.path,
-            )
-            .await?
+            windmill_common::folders::resolve_folder_default_on_behalf_of(&db, &w_id, &nf.path)
+                .await?
         {
             nf.on_behalf_of_email = Some(default_email);
             nf.on_behalf_of = Some(default_permissioned_as);
@@ -872,6 +871,7 @@ async fn create_flow(
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
         resolved_on_behalf_of.as_deref(),
         nf.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
         &windmill_common::users::username_to_permissioned_as(&authed.username),
     ) {
         audit_log(
@@ -1613,6 +1613,7 @@ async fn update_flow(
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
         resolved_on_behalf_of.as_deref(),
         nf.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
         &windmill_common::users::username_to_permissioned_as(&authed.username),
     ) {
         audit_log(

@@ -33,7 +33,6 @@
 	import { Drawer, DrawerContent } from './common'
 	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { UserService, type User } from '$lib/gen'
-	import { useDeployAs } from './access/deployAs.svelte'
 	import {
 		getPendingServiceAccount,
 		PENDING_EMAIL_DOMAIN,
@@ -148,15 +147,6 @@
 		myPermissionedAs ?? ($userStore?.username ? `u/${$userStore.username}` : undefined)
 	)
 
-	// Without `canPreserve`, the service accounts whose deployers list admits the user are still
-	// theirs to pick or keep.
-	const deployAs = useDeployAs(() => targetWorkspace)
-	const canPick = $derived(canPreserve || deployAs.current.length > 0)
-	function allowed(value: string | undefined): boolean {
-		const name = resolveDisplayName(value)
-		return canPreserve || (!!name && deployAs.current.includes(name))
-	}
-
 	const serviceAccounts = useServiceAccounts(() => targetWorkspace)
 
 	type Row = {
@@ -188,7 +178,7 @@
 
 		const listed: Omit<Row, 'label'>[] = [
 			...serviceAccounts.current
-				.filter((a) => a.pending || canPreserve || deployAs.current.includes(`u/${a.username}`))
+				.filter((a) => a.pending || canPreserve)
 				.sort(
 					(a, b) =>
 						Number(!!b.pending) - Number(!!a.pending) || a.username.localeCompare(b.username)
@@ -226,7 +216,7 @@
 					value: name,
 					group: GROUP_OF[rowKind],
 					kind: rowKind,
-					disabled: name !== myDisplayName && !allowed(targetValue)
+					disabled: name !== myDisplayName && !canPreserve
 				}
 			})
 		// Select draws a header wherever the group changes, so each group's rows must be contiguous.
@@ -241,7 +231,7 @@
 
 	function pick(value: string | undefined) {
 		if (!value) return
-		if (targetValue && value === targetDisplayName && allowed(targetValue)) {
+		if (targetValue && value === targetDisplayName && canPreserve) {
 			onSelect('target')
 		} else if (value === myDisplayName) {
 			onSelect('me')
@@ -300,9 +290,9 @@
 	// We track `users.length` so the effect re-runs once the async user list loads.
 	$effect(() => {
 		if (selected !== undefined) return
-		if (targetValue && allowed(targetValue)) {
+		if (targetValue && canPreserve) {
 			onSelect('target')
-		} else if (folderDefault && allowed(folderDefault) && users.length > 0) {
+		} else if (folderDefault && canPreserve && users.length > 0) {
 			const username = folderDefault.startsWith('u/') ? folderDefault.slice(2) : folderDefault
 			const email = users.find((u) => u.username === username)?.email ?? folderDefault
 			onSelect('custom', { email, permissionedAs: folderDefault })
@@ -325,7 +315,7 @@
 	<UserCog size={14} class={selected ? 'text-green-500' : 'text-yellow-500'} />
 {/snippet}
 
-{#if readOnlyWithoutPreserve && !canPick}
+{#if readOnlyWithoutPreserve && !canPreserve}
 	<span class="inline-flex items-center gap-1 text-xs text-secondary">
 		<UserIcon class="w-4 h-4" />
 		{myDisplayName}
