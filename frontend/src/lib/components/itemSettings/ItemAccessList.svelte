@@ -324,7 +324,7 @@
 			>
 				Cancel
 			</Button>
-			<ManageGroupsLink />
+			<ManageGroupsLink onReturn={loadPrincipals} />
 		</div>
 	{/if}
 

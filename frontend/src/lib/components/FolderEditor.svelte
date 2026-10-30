@@ -655,7 +655,7 @@
 							<Label label="User or group">
 								{#snippet action()}
 									{#if !offOperating}
-										<ManageGroupsLink />
+										<ManageGroupsLink onReturn={loadGroups} />
 									{/if}
 								{/snippet}
 								<div class="flex items-center gap-1">
@@ -919,7 +919,7 @@
 									<div class="flex items-center gap-2">
 										Permissioned as
 										{#if !offOperating}
-											<ManageGroupsLink />
+											<ManageGroupsLink onReturn={loadGroups} />
 										{/if}
 									</div>
 								</Cell>

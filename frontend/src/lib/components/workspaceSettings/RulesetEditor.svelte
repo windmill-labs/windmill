@@ -308,7 +308,7 @@
 		>
 			<Label label="Groups">
 				{#snippet action()}
-					<ManageGroupsLink />
+					<ManageGroupsLink onReturn={loadAvailableGroups} />
 				{/snippet}
 				<MultiSelect
 					bind:value={selectedGroups}

@@ -262,7 +262,7 @@
 									>Require approvers to be members of one of the following user groups (leave empty
 									for any)
 								</span>
-								<ManageGroupsLink />
+								<ManageGroupsLink onReturn={loadGroups} />
 							</div>
 							<PropPickerWrapper
 								sidePane
@@ -288,7 +288,7 @@
 						{#if Boolean(flowModule.suspend?.user_auth_required) && allUserGroups.length > 0 && allUserGroups.every((g) => g === 'all')}
 							<div class="flex items-center gap-2 text-xs text-secondary">
 								Create a group to restrict approval to its members.
-								<ManageGroupsLink label="Go to groups" />
+								<ManageGroupsLink label="Go to groups" onReturn={loadGroups} />
 							</div>
 						{/if}
 					</div>
