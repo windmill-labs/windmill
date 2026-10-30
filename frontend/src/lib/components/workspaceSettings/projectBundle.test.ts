@@ -129,6 +129,16 @@ describe('buildPathMap', () => {
 		expect(m.get('f/proj/a/x')).toBe('f/proj/a/x')
 		expect(m.get('f/proj/b/x')).toBe('f/proj/b/x')
 	})
+	it('keeps the sub-path of every item in a nested source folder', () => {
+		const m = buildPathMap(
+			['f/hub/billing/charge', 'f/hub/billing/utils/format', 'f/hub/billing/stripe/format'],
+			'billing',
+			'hub/billing'
+		)
+		expect(m.get('f/hub/billing/charge')).toBe('f/billing/charge')
+		expect(m.get('f/hub/billing/utils/format')).toBe('f/billing/utils/format')
+		expect(m.get('f/hub/billing/stripe/format')).toBe('f/billing/stripe/format')
+	})
 	it('relocates an external onto a suffix when its leaf collides with an internal path', () => {
 		const m = buildPathMap(['f/proj/db', 'u/admin/db'], 'proj')
 		expect(m.get('f/proj/db')).toBe('f/proj/db')
@@ -620,6 +630,15 @@ describe('retargetProjectExport', () => {
 		expect(out.triggers[0].runnable_path).toBe('f/dest/hello')
 		// Plain-string resource path in a trigger config is remapped too.
 		expect(out.triggers[1].config.kafka_resource_path).toBe('f/dest/db')
+	})
+
+	it('relocates into a nested destination folder', () => {
+		const out = retargetProjectExport(baseExport(), 'proj', 'hub/billing')
+		expect(out.scripts[0].path).toBe('f/hub/billing/hello')
+		expect(out.scripts[0].content).toContain('$res:f/hub/billing/db')
+		expect(out.flows[0].value.modules[0].value.path).toBe('f/hub/billing/hello')
+		expect(out.triggers[0].runnable_path).toBe('f/hub/billing/hello')
+		expect(out.triggers[1].config.kafka_resource_path).toBe('f/hub/billing/db')
 	})
 
 	it('leaves external and hub paths untouched', () => {

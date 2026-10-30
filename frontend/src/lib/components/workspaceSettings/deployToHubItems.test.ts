@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
 	canRecordSession,
+	folderSubPaths,
 	inputResourceTypes,
 	mergeAppTableOrigin,
 	type DeployItem
@@ -60,5 +61,16 @@ describe('inputResourceTypes', () => {
 		const all = ['postgresql', 'postgres']
 		expect(inputResourceTypes(schema, undefined)).toEqual(all)
 		expect(inputResourceTypes(schema, new Set())).toEqual(all)
+	})
+})
+
+describe('folderSubPaths', () => {
+	it('lists every sub-path that holds an item, at every depth', () => {
+		expect(
+			folderSubPaths(
+				['f/hub/top', 'f/hub/billing/utils/x', 'f/hub/notifications/send', 'f/other/a/b'],
+				'hub'
+			)
+		).toEqual(['hub/billing', 'hub/billing/utils', 'hub/notifications'])
 	})
 })

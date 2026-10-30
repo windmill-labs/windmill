@@ -66,6 +66,7 @@ export type Phase = 'predeploy' | 'draft' | 'under_review' | 'live'
 export {
 	canRecord,
 	canRecordSession,
+	folderSubPaths,
 	mergeAppTableOrigin,
 	type DeployItem,
 	type RecStatus
@@ -689,7 +690,14 @@ export class DeployToHubSession {
 		const triggerVars = this.#triggerVarPaths(this.relevantTriggers)
 		let cancelled = false
 		const timer = setTimeout(() => {
-			buildProjectBundle(seed, slug, this.#cachedBundleDeps(), triggerResources, triggerVars)
+			buildProjectBundle(
+				seed,
+				slug,
+				this.#cachedBundleDeps(),
+				triggerResources,
+				triggerVars,
+				this.folder
+			)
 				.then((b) => {
 					if (cancelled) return
 					this.bundlePreview = b
@@ -887,7 +895,7 @@ export class DeployToHubSession {
 
 	/** Prefill bundle metadata and start migration detection (bundle drawer opening). */
 	prepareBundle() {
-		this.hubName = this.hubName || this.folder
+		this.hubName = this.hubName || (this.folder.split('/').pop() ?? this.folder)
 		void this.regenerateMigrations()
 	}
 
@@ -1062,7 +1070,8 @@ export class DeployToHubSession {
 	): Promise<void> {
 		const pathMap = buildPathMap(
 			relevant.map((t) => t.path),
-			slug
+			slug,
+			this.folder
 		)
 		const triggers: Array<Record<string, unknown>> = []
 		const skipped: string[] = []
@@ -1157,7 +1166,8 @@ export class DeployToHubSession {
 				slug,
 				this.#buildBundleDeps(),
 				triggerResources,
-				triggerVars
+				triggerVars,
+				this.folder
 			)
 			// Full path map (incl. unresolved) so a trigger's resource path is always
 			// relocated — never leaks the publisher's original private path to the Hub.

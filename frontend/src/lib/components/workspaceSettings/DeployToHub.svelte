@@ -13,6 +13,7 @@
 		canRecordSession,
 		sanitizeSlug,
 		isValidSlug,
+		folderSubPaths,
 		type DeployItem,
 		type DeployToHubSession
 	} from './deployToHubSession.svelte'
@@ -43,17 +44,39 @@
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import Select from '$lib/components/select/Select.svelte'
+	import { untrack } from 'svelte'
 
 	// Folder name (no `f/`) this project is scoped to; provided by the /folders launcher.
 	let { folder: folderProp }: { folder: string } = $props()
+
+	// The whole folder or one of its sub-paths (`hub/billing`); each is its own Hub project.
+	let scope = $state(untrack(() => folderProp))
 
 	// All deploy state lives in a session keyed by (workspace, folder): switching
 	// either replaces the instance (and the {#key} below remounts the UI, closing
 	// drawers), so nothing here needs resetting by hand.
 	const deployHub = useDeployToHubSession({
 		workspace: () => $workspaceStore,
-		folder: () => folderProp,
+		folder: () => scope,
 		hasEeLicense: () => !!$enterpriseLicense
+	})
+
+	// A new scope's session starts with no items, so the list is held over from the
+	// last one that had them rather than emptying under the open select.
+	let lastSubPaths: string[] = []
+	const scopeItems = $derived.by(() => {
+		const items = deployHub.session?.workspaceItems ?? []
+		if (items.length) {
+			lastSubPaths = folderSubPaths(
+				items.map((i) => i.path),
+				folderProp
+			)
+		}
+		return [
+			{ label: `Whole folder f/${folderProp}/`, value: folderProp },
+			...lastSubPaths.map((p) => ({ label: `f/${p}/`, value: p }))
+		]
 	})
 
 	let recordDrawer = $state<Drawer | undefined>()
@@ -170,6 +193,15 @@
 			and cannot be recovered. Your published project is unaffected.
 		</span>
 	</ConfirmationModal>
+	{#if scopeItems.length > 1}
+		<div class="flex flex-col gap-1 pb-4 max-w-sm">
+			<span class="text-xs font-semibold text-emphasis">Scope</span>
+			<span class="text-xs text-secondary">
+				Publish the whole folder, or one sub-path of it as its own project.
+			</span>
+			<Select items={scopeItems} bind:value={scope} size="sm" />
+		</div>
+	{/if}
 	{#key deployHub.session}
 		{@const s = deployHub.session}
 		<div>
