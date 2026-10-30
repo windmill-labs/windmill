@@ -18,6 +18,7 @@ use crate::{
     JobCompletedSender, PreviousResult, SameWorkerSender, SendResultPayload, StepFailureKind,
     UpdateFlow, KEEP_JOB_DIR,
 };
+use windmill_common::variables::{build_crypt_with_key_suffix, encrypt, WorkspaceCrypt};
 
 use anyhow::Context;
 use async_once_cell::Lazy;
@@ -2888,11 +2889,93 @@ where
     }
 }
 
+/// The unresolved `flow_env` and which of its entries are secrets, so that the args stored
+/// on a step job never hold a resolved secret: an exact `flow_env.X` read stores the
+/// entry's reference, resolved (audited and masked) when the step runs like a static
+/// input, and any other expression reading a secret entry stores its result encrypted.
+pub(crate) struct FlowEnvRefs<'a> {
+    raw: &'a HashMap<String, Box<RawValue>>,
+    secret_keys: Vec<String>,
+    // Keyed on the root job id, which is what the step's worker decrypts `$encrypted:`
+    // args with. Present only when `secret_keys` is non-empty.
+    crypt: Option<WorkspaceCrypt>,
+}
+
+impl<'a> FlowEnvRefs<'a> {
+    async fn new(
+        db: &DB,
+        flow_job: &MiniPulledJob,
+        raw: &'a HashMap<String, Box<RawValue>>,
+    ) -> error::Result<Self> {
+        let mut secret_keys = vec![];
+        let mut var_keys: Vec<(String, String)> = vec![];
+        for (k, v) in raw {
+            if !v.get().starts_with("\"$") {
+                continue;
+            }
+            let Ok(s) = serde_json::from_str::<String>(v.get()) else {
+                continue;
+            };
+            if s.starts_with("$encrypted:") {
+                secret_keys.push(k.clone());
+            } else if let Some(path) = s
+                .strip_prefix("$var:")
+                .or_else(|| s.strip_prefix("$jsonvar:"))
+            {
+                var_keys.push((k.clone(), path.to_string()));
+            }
+        }
+        if !var_keys.is_empty() {
+            let paths: Vec<String> = var_keys.iter().map(|(_, p)| p.clone()).collect();
+            let secret_paths = sqlx::query_scalar!(
+                "SELECT path FROM variable WHERE workspace_id = $1 AND path = ANY($2) AND is_secret",
+                &flow_job.workspace_id,
+                &paths
+            )
+            .fetch_all(db)
+            .await?;
+            secret_keys.extend(
+                var_keys
+                    .into_iter()
+                    .filter(|(_, p)| secret_paths.contains(p))
+                    .map(|(k, _)| k),
+            );
+        }
+        let crypt = if secret_keys.is_empty() {
+            None
+        } else {
+            Some(
+                build_crypt_with_key_suffix(
+                    db,
+                    &flow_job.workspace_id,
+                    &get_root_job_id(flow_job).to_string(),
+                )
+                .await?,
+            )
+        };
+        Ok(Self { raw, secret_keys, crypt })
+    }
+
+    // Decided from the expression's text: a dynamic key (`flow_env[k]`) or a secret whose
+    // key never appears in the expression is not detected.
+    fn reads_secret(&self, expr: &str) -> bool {
+        let ident = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+        expr.contains("flow_env")
+            && self.secret_keys.iter().filter(|k| !k.is_empty()).any(|k| {
+                expr.match_indices(k.as_str()).any(|(i, _)| {
+                    !expr[..i].chars().next_back().is_some_and(ident)
+                        && !expr[i + k.len()..].chars().next().is_some_and(ident)
+                })
+            })
+    }
+}
+
 /// resumes should be in order of timestamp ascending, so that more recent are at the end
 #[instrument(level = "trace", skip_all)]
 async fn transform_input(
     flow_args: Marc<HashMap<String, Box<RawValue>>>,
     flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    env_refs: Option<&FlowEnvRefs<'_>>,
     last_result: Arc<Box<RawValue>>,
     input_transforms: &HashMap<String, InputTransform>,
     resumes: Arc<Box<RawValue>>,
@@ -2930,6 +3013,12 @@ async fn transform_input(
                 mapped.insert(key.to_string(), to_raw_value(&value));
             }
             InputTransform::Javascript { expr } => {
+                if let Some(raw) = env_refs.and_then(|r| {
+                    windmill_jseval::try_exact_property_access(expr.trim(), None, Some(r.raw))
+                }) {
+                    mapped.insert(key.to_string(), raw);
+                    continue;
+                }
                 let v = eval_timeout(
                     expr.to_string(),
                     env.clone(),
@@ -2945,6 +3034,12 @@ async fn transform_input(
                         "Error during isolated evaluation of expression `{expr}`:\n{e:#}"
                     ))
                 })?;
+                let v = match env_refs {
+                    Some(r @ FlowEnvRefs { crypt: Some(crypt), .. }) if r.reads_secret(expr) => {
+                        to_raw_value(&format!("$encrypted:{}", encrypt(crypt, v.get())))
+                    }
+                    _ => v,
+                };
                 mapped.insert(key.to_string(), v);
             }
             InputTransform::Ai => (),
@@ -3042,6 +3137,11 @@ pub async fn handle_flow(
             }
         }
     }
+
+    let env_refs = match env_source {
+        Some(raw) => Some(FlowEnvRefs::new(db, &flow_job, raw).await?),
+        None => None,
+    };
 
     let schedule_path = flow_job.schedule_path();
     if !flow_job.is_flow_step()
@@ -3186,6 +3286,7 @@ pub async fn handle_flow(
             status,
             flow,
             flow_env,
+            env_refs.as_ref(),
             no_flow_env,
             db,
             client,
@@ -3475,6 +3576,7 @@ async fn push_next_flow_job(
     mut status: FlowStatus,
     flow: &FlowValue,
     flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    env_refs: Option<&FlowEnvRefs<'_>>,
     // Neither this flow nor any ancestor defines `flow_env`.
     no_flow_env: bool,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -4296,6 +4398,7 @@ async fn push_next_flow_job(
                 transform_input(
                     arc_flow_job_args.clone(),
                     flow_env,
+                    env_refs,
                     arc_last_job_result.clone(),
                     input_transforms,
                     resumes.clone(),
@@ -4539,6 +4642,7 @@ async fn push_next_flow_job(
                     let ti = transform_input(
                         args,
                         flow_env,
+                        env_refs,
                         arc_last_job_result.clone(),
                         input_transforms,
                         resumes.clone(),
@@ -4594,6 +4698,7 @@ async fn push_next_flow_job(
                         let ti = transform_input(
                             Marc::new(hm),
                             flow_env,
+                            env_refs,
                             arc_last_job_result.clone(),
                             input_transforms,
                             resumes.clone(),
