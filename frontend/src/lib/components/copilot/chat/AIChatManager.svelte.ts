@@ -647,6 +647,8 @@ export class AIChatManager implements ChatViewHost {
 	/** Sessions wiring (see sessionRuntime); undefined for the global
 	 *  side-panel chat, whose transcript no other tab renders. */
 	onRunningChanged: ((running: boolean) => void) | undefined = undefined
+	/** Sessions wiring: this tab wrote the chat's record outside any turn. */
+	onRecordWritten: ((chatId: string) => void) | undefined = undefined
 	currentReply = $state<string>('')
 	currentReasoning = $state<string>('')
 	currentReasoningActive = $state<boolean>(false)
@@ -989,12 +991,28 @@ export class AIChatManager implements ChatViewHost {
 		this.modifiedItems?.add(maskKey(itemKind, storagePath))
 	}
 
+	// Hand edits made while another tab drives a turn. Writing them then would put this
+	// tab's older transcript over the driver's, so they wait for that turn's catch-up
+	// reload (flushHeldEditedItems), which also replaces the mask they were added to.
+	#heldEditedItems = new Set<string>()
+
 	// Record an item the user edited by hand in one of the session's editor tabs.
 	// Persisted at once, like a discard: the edit lands outside any turn.
 	async recordEditedItem(itemKind: UserDraftItemKind, storagePath: string) {
 		const key = maskKey(itemKind, storagePath)
 		if (!this.modifiedItems || this.modifiedItems.has(key)) return
 		this.modifiedItems.add(key)
+		if (this.runHeldElsewhere) {
+			this.#heldEditedItems.add(key)
+			return
+		}
+		await this.#persistModifiedItems()
+	}
+
+	async flushHeldEditedItems() {
+		if (!this.modifiedItems || this.#heldEditedItems.size === 0) return
+		for (const key of this.#heldEditedItems) this.modifiedItems.add(key)
+		this.#heldEditedItems.clear()
 		await this.#persistModifiedItems()
 	}
 
@@ -1078,6 +1096,10 @@ export class AIChatManager implements ChatViewHost {
 						this.modifiedItems ? [...this.modifiedItems] : undefined,
 						jobs
 					)
+					.then(() => {
+						// Mid-turn, the turn's own end tells the other tabs.
+						if (!this.loading) this.onRecordWritten?.(this.historyManager.getCurrentChatId())
+					})
 					// Swallow (and log) a failed write so it can't wedge the queue as a
 					// rejected link — the next persist snapshots the full current set, so
 					// a lost write self-heals on the next mutation or turn-end save.

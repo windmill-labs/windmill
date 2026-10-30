@@ -175,6 +175,13 @@ export function localRunEnded(sessionId: string, chatId: string): void {
 	post({ kind: 'turn-end', sessionId, chatId, from: TAB_ID })
 }
 
+/** Posted after this tab writes the session's record outside any turn (a hand edit, a
+ *  dock discard): watchers re-read it as after a turn, or their next save would put
+ *  their older copy back over it. */
+export function localRecordWritten(sessionId: string, chatId: string): void {
+	post({ kind: 'turn-end', sessionId, chatId, from: TAB_ID })
+}
+
 if (BROWSER) {
 	// The run dies with the page: a turn-end farewell (which also has watchers
 	// re-read the last checkpoint) beats making them wait out STALE_MS. Not on
