@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import Password from '../Password.svelte'
-	import { SettingService } from '$lib/gen'
+	import { SettingService, WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from '../text_input/TextInput.svelte'
 	import Toggle from '../Toggle.svelte'
@@ -11,6 +11,8 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import EEOnly from '../EEOnly.svelte'
+	import MultiSelect from '../select/MultiSelect.svelte'
+	import { resource } from 'runed'
 
 	interface Props {
 		values: Writable<Record<string, any>>
@@ -27,6 +29,19 @@
 			| undefined
 	)
 	let vault = $derived(config?.vault)
+	let backendVault = $derived(
+		$values['secret_backend']?.type === 'HashiCorpVault' ? $values['secret_backend'] : undefined
+	)
+	let workspaces = resource(
+		() => disabled,
+		async (disabled) =>
+			disabled
+				? []
+				: (await WorkspaceService.listWorkspacesAsSuperAdmin()).map((w) => ({
+						label: w.id,
+						value: w.id
+					}))
+	)
 	let allowed = $derived(config?.allowed ?? [])
 
 	let authMethod: 'token' | 'approle' | 'jwt' = $derived(
@@ -38,6 +53,16 @@
 	function update(patch: { vault?: Record<string, any> | undefined; allowed?: AllowedPrefix[] }) {
 		const next = { ...(config ?? {}), ...patch }
 		$values['external_secrets'] = next.vault || next.allowed?.length ? next : undefined
+	}
+
+	function setConnection(mode: string | undefined) {
+		if (mode === 'same') {
+			update({ vault: undefined })
+		} else if (mode === 'separate' && backendVault && !vault) {
+			// The backend's storage location does not apply to references, only how to reach Vault.
+			const { type: _t, mount_path: _m, kv_secret_path_prefix: _p, ...conn } = backendVault
+			update({ vault: conn })
+		}
 	}
 
 	function setVaultField(field: string, value: any) {
@@ -84,17 +109,51 @@
 	<span class="text-2xs text-secondary">
 		A secret variable can reference an existing secret, as
 		<code>$external:vault://&lt;path&gt;#&lt;key&gt;</code>, instead of holding its value. The value
-		is read from Vault each time the variable is read. This works whatever the backend type above.
+		is read from Vault each time the variable is read.
 	</span>
+	<Alert type="info" size="xs" title="Prefer the Vault backend for secrets Windmill owns">
+		Use HashiCorp Vault as the secret backend for those. Use references for secrets that are managed
+		outside Windmill and must stay there.
+	</Alert>
 
-	<Toggle
-		{disabled}
-		checked={!!vault}
-		on:change={(e) =>
-			update({ vault: e.detail ? { address: '', jwt_role: 'windmill-secrets' } : undefined })}
-		size="xs"
-		options={{ right: 'HashiCorp Vault connection' }}
-	/>
+	{#if backendVault}
+		<div class="flex flex-col gap-2">
+			<span class="text-xs font-semibold text-emphasis">Vault connection</span>
+			<ToggleButtonGroup selected={vault ? 'separate' : 'same'} onSelected={setConnection}>
+				{#snippet children({ item })}
+					<ToggleButton
+						value="same"
+						label="Same as secret backend"
+						tooltip="Read references through the secret backend's Vault connection"
+						{item}
+						{disabled}
+					/>
+					<ToggleButton
+						value="separate"
+						label="Separate connection"
+						tooltip="Read references through their own Vault connection, for another Vault or a narrower identity"
+						{item}
+						{disabled}
+					/>
+				{/snippet}
+			</ToggleButtonGroup>
+			{#if !vault}
+				<span class="text-2xs text-secondary">
+					References are read from {backendVault.address || 'the Vault address above'} with the secret
+					backend's authentication.
+				</span>
+			{/if}
+		</div>
+	{:else}
+		<Toggle
+			{disabled}
+			checked={!!vault}
+			on:change={(e) =>
+				update({ vault: e.detail ? { address: '', jwt_role: 'windmill-secrets' } : undefined })}
+			size="xs"
+			options={{ right: 'HashiCorp Vault connection' }}
+		/>
+	{/if}
 
 	{#if vault}
 		<div class="flex flex-col gap-4 p-4 border rounded-lg">
@@ -229,9 +288,14 @@
 		<span class="text-xs font-semibold text-emphasis">Allowed prefixes</span>
 		<span class="text-2xs text-secondary">
 			A reference resolves only under one of these prefixes, matched on whole path segments, for the
-			listed workspaces (all workspaces when empty). Anyone who can create a variable in a workspace
-			can read every secret under its prefixes, within what Windmill's Vault identity can read.
+			listed workspaces (all workspaces when empty). Any admin of a listed workspace can read every
+			secret under its prefixes, within what Windmill's Vault identity can read.
 		</span>
+		{#if allowed.length === 0}
+			<span class="text-2xs text-secondary"
+				>No references allowed yet. Add a prefix to allow one.</span
+			>
+		{/if}
 		{#each allowed as a, i (i)}
 			<div class="flex flex-row gap-2 items-center">
 				<TextInput
@@ -239,21 +303,12 @@
 					inputProps={{ placeholder: 'vault://secret/team', disabled }}
 					bind:value={() => a.prefix, (v) => setAllowed(i, { prefix: v ?? '' })}
 				/>
-				<TextInput
+				<MultiSelect
 					class="flex-1"
-					inputProps={{
-						placeholder: 'All workspaces (or ws1, ws2)',
-						disabled,
-						// Parsed on change, not per keystroke, so a trailing comma survives typing.
-						onchange: (e) =>
-							setAllowed(i, {
-								workspaces: e.currentTarget.value
-									.split(',')
-									.map((w) => w.trim())
-									.filter(Boolean)
-							})
-					}}
-					value={a.workspaces.join(', ')}
+					items={workspaces.current ?? []}
+					placeholder="All workspaces"
+					{disabled}
+					bind:value={() => a.workspaces, (v) => setAllowed(i, { workspaces: v })}
 				/>
 				<Button
 					unifiedSize="md"

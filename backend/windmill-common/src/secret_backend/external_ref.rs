@@ -180,12 +180,14 @@ fn is_managed_storage(managed: &VaultSettings, conn: &VaultSettings, path: &str)
     target.starts_with(&storage)
 }
 
-/// Parses a reference and checks it is allowed for `w_id`.
+/// Parses a reference, checks it is allowed for `w_id`, and returns the Vault
+/// connection to read it through: the `external_secrets` one, or else the
+/// managed backend's when that is Vault.
 async fn authorize(
     db: &DB,
     w_id: &str,
     value: &str,
-) -> Result<(ExternalSecretsSettings, ExternalSecretRef)> {
+) -> Result<(Option<VaultSettings>, ExternalSecretRef)> {
     let r = parse_external_ref(value)?;
     let settings = load_settings(db).await?;
     if !is_allowed(&settings, w_id, &r) {
@@ -195,25 +197,25 @@ async fn authorize(
             r.path
         )));
     }
+    let managed = match load_value_from_global_settings(db, SECRET_BACKEND_SETTING)
+        .await?
+        .and_then(|v| serde_json::from_value(v).ok())
+    {
+        Some(SecretBackendConfig::HashiCorpVault(managed)) => Some(managed),
+        _ => None,
+    };
+    let conn = settings.vault.or_else(|| managed.clone());
     // The managed backend's storage holds every workspace's secrets, so no
     // allow-list entry may open it.
-    if let Some(SecretBackendConfig::HashiCorpVault(managed)) =
-        load_value_from_global_settings(db, SECRET_BACKEND_SETTING)
-            .await?
-            .and_then(|v| serde_json::from_value(v).ok())
-    {
-        if is_managed_storage(
-            &managed,
-            settings.vault.as_ref().unwrap_or(&managed),
-            &r.path,
-        ) {
+    if let (Some(managed), Some(conn)) = (&managed, &conn) {
+        if is_managed_storage(managed, conn, &r.path) {
             return Err(Error::PermissionDenied(format!(
                 "External secret `vault://{}` points into the storage of Windmill's own Vault secret backend",
                 r.path
             )));
         }
     }
-    Ok((settings, r))
+    Ok((conn, r))
 }
 
 /// Write-time check of an `$external:` value. Does not contact the store, so a
@@ -228,10 +230,10 @@ pub(crate) async fn resolve_external_ref(
     variable_path: &str,
     value: &str,
 ) -> Result<String> {
-    let (settings, r) = authorize(db, w_id, value).await?;
+    let (conn, r) = authorize(db, w_id, value).await?;
     let read = match r.backend {
         ExternalSecretBackend::Vault => {
-            let vault = settings.vault.as_ref().ok_or_else(|| {
+            let vault = conn.as_ref().ok_or_else(|| {
                 Error::BadRequest(
                     "No Vault connection is configured for external secrets (instance settings > Secret storage)"
                         .to_string(),

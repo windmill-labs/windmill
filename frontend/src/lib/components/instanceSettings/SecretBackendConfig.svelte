@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import Password from '../Password.svelte'
 	import { SettingService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -56,6 +56,22 @@
 
 	let vaultDisabled = $derived(!$enterpriseLicense)
 
+	// The Vault connection being switched away from, while external secret references
+	// still read through it.
+	let droppedVault: Record<string, any> | undefined = $state()
+	let refsLoseConnection = $derived(
+		!!droppedVault &&
+			selectedType !== 'HashiCorpVault' &&
+			!$values['external_secrets']?.vault &&
+			($values['external_secrets']?.allowed?.length ?? 0) > 0
+	)
+
+	function keepConnectionForRefs() {
+		if (!droppedVault) return
+		const { type: _t, mount_path: _m, kv_secret_path_prefix: _p, ...conn } = droppedVault
+		$values['external_secrets'] = { ...$values['external_secrets'], vault: conn }
+	}
+
 	function setBackendType(type: string | undefined) {
 		if (!type) return
 		if (
@@ -63,6 +79,9 @@
 			vaultDisabled
 		)
 			return
+		if ($values['secret_backend']?.type === 'HashiCorpVault' && type !== 'HashiCorpVault') {
+			droppedVault = $values['secret_backend']
+		}
 		if (type === 'Database') {
 			$values['secret_backend'] = { type: 'Database' }
 		} else if (type === 'HashiCorpVault') {
@@ -449,6 +468,16 @@
 				/>
 			{/snippet}
 		</ToggleButtonGroup>
+		{#if refsLoseConnection}
+			<Alert type="warning" size="xs" title="External secret references use this Vault connection">
+				<div class="flex flex-col gap-2 items-start">
+					<span>Keep it as their own connection, or they can no longer be read.</span>
+					<Button unifiedSize="sm" variant="default" onclick={keepConnectionForRefs}>
+						Keep the connection for references
+					</Button>
+				</div>
+			</Alert>
+		{/if}
 		{#if vaultDisabled}
 			<div class="flex items-center gap-1">
 				<EEOnly>External secret store integrations require Enterprise Edition</EEOnly>
