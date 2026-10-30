@@ -842,6 +842,59 @@ pub async fn handle_delete_after_completion(
     Ok(())
 }
 
+/// Clears a flow job's own result, and its early-return node's, once its synchronous caller
+/// has read them, when the flow's delete_after_secs is 0. The worker clears the rest of the
+/// run but leaves these for the caller; for a delay above 0 it schedules every job itself.
+///
+/// Authorization: checks nothing. Callers MUST pass only a flow job they have just pushed.
+pub async fn delete_flow_result_after_read(db: &DB, job_uuid: Uuid) -> Result<(), Error> {
+    #[cfg(feature = "enterprise")]
+    {
+        // Only a completed flow: after an early return or a timed-out wait the flow is still
+        // running, and its args are still read by its remaining steps.
+        let version = sqlx::query_scalar!(
+            "SELECT j.runnable_id FROM v2_job j JOIN v2_job_completed c ON c.id = j.id
+            WHERE j.id = $1 AND j.kind = 'flow'",
+            job_uuid
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten();
+        if let Some(version) = version {
+            let flow = match windmill_common::cache::flow::fetch_version_lite(db, version).await {
+                Ok(flow) => flow,
+                Err(_) => windmill_common::cache::flow::fetch_version(db, version).await?,
+            };
+            let flow_value = flow.value();
+            if resolve_delete_after_secs(flow_value.delete_after_use, flow_value.delete_after_secs)
+                == Some(0)
+            {
+                delete_job_metadata_after_use(db, job_uuid).await?;
+                if let Some(early_return) = flow_value.early_return.as_deref() {
+                    let early_return_ids: Vec<Uuid> =
+                        windmill_common::jobs::completed_flow_run_jobs(db, job_uuid)
+                            .await?
+                            .into_iter()
+                            .filter(|j| {
+                                !j.in_subflow && j.flow_step_id.as_deref() == Some(early_return)
+                            })
+                            .map(|j| j.id)
+                            .collect();
+                    sqlx::query!(
+                        "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = ANY($1)",
+                        &early_return_ids,
+                    )
+                    .execute(db)
+                    .await?;
+                }
+            }
+        }
+    }
+    #[cfg(not(feature = "enterprise"))]
+    let _ = (db, job_uuid);
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Queue limit check
 // ---------------------------------------------------------------------------
@@ -1174,7 +1227,7 @@ pub async fn run_flow_and_wait_result(
     )
     .await?;
 
-    run_wait_result(
+    let wait_result = run_wait_result(
         &db,
         uuid,
         w_id,
@@ -1182,7 +1235,9 @@ pub async fn run_flow_and_wait_result(
         has_failure_module,
         &authed.username,
     )
-    .await
+    .await;
+    delete_flow_result_after_read(db, uuid).await?;
+    wait_result
 }
 
 // ---------------------------------------------------------------------------

@@ -1986,70 +1986,13 @@ pub async fn update_flow_status_after_job_completion_internal(
                 }
             }
 
-            // Flow-level delete_after_secs: apply to ALL child jobs + the parent flow job
             let flow_value = flow_data.value();
-            let flow_delete_secs = windmill_common::jobs::resolve_delete_after_secs(
+            if let Some(secs) = windmill_common::jobs::resolve_delete_after_secs(
                 flow_value.delete_after_use,
                 flow_value.delete_after_secs,
-            );
-            if let Some(secs) = flow_delete_secs {
-                let w_id = &flow_job.workspace_id;
-                let mut all_ids: Vec<Uuid> =
-                    sqlx::query_scalar!("SELECT id FROM v2_job WHERE root_job = $1", flow_job.id)
-                        .fetch_all(db)
-                        .await
-                        .map_err(|e| {
-                            Error::internal_err(format!(
-                                "error fetching child jobs for flow-level deletion: {e:#}"
-                            ))
-                        })?;
-                all_ids.push(flow_job.id);
-
-                if secs == 0 {
-                    sqlx::query!(
-                        "UPDATE v2_job SET args = '{}'::jsonb WHERE id = ANY($1)",
-                        &all_ids,
-                    )
-                    .execute(db)
-                    .await
-                    .map_err(|e| {
-                        Error::internal_err(format!(
-                            "error while cleaning up completed job args: {e:#}"
-                        ))
-                    })?;
-                    sqlx::query!(
-                        "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = ANY($1)",
-                        &all_ids,
-                    )
-                    .execute(db)
-                    .await
-                    .map_err(|e| {
-                        Error::internal_err(format!(
-                            "error while cleaning up completed job results: {e:#}"
-                        ))
-                    })?;
-                    sqlx::query!(
-                        "UPDATE job_logs SET logs = '##DELETED##' WHERE job_id = ANY($1)",
-                        &all_ids,
-                    )
-                    .execute(db)
-                    .await
-                    .map_err(|e| {
-                        Error::internal_err(format!(
-                            "error while cleaning up completed job logs: {e:#}"
-                        ))
-                    })?;
-                } else {
-                    for id in &all_ids {
-                        windmill_common::jobs::schedule_job_deletion(db, *id, w_id, secs)
-                            .await
-                            .map_err(|e| {
-                                Error::internal_err(format!(
-                                    "error scheduling job deletion for {id}: {e:#}"
-                                ))
-                            })?;
-                    }
-                }
+            ) {
+                delete_flow_run_data(db, &flow_job, secs, flow_value.early_return.as_deref())
+                    .await?;
             }
         }
 
@@ -2234,6 +2177,77 @@ pub async fn update_flow_status_after_job_completion_internal(
     } else {
         Ok(UpdateFlowStatusAfterJobCompletion::NotDone)
     }
+}
+
+/// Applies a flow's own delete_after_secs to the flow job and every job of its run.
+#[cfg(feature = "enterprise")]
+async fn delete_flow_run_data(
+    db: &DB,
+    flow_job: &MiniPulledJob,
+    secs: i32,
+    early_return: Option<&str>,
+) -> error::Result<()> {
+    let run = windmill_common::jobs::completed_flow_run_jobs(db, flow_job.id)
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "error fetching child jobs for flow-level deletion: {e:#}"
+            ))
+        })?;
+    let mut all_ids: Vec<Uuid> = run.iter().map(|j| j.id).collect();
+    all_ids.push(flow_job.id);
+    // A synchronous caller of an early-return flow reads the early-return node's result,
+    // possibly after the flow has completed; it clears that result once read, like the flow's.
+    let result_ids: Vec<Uuid> = run
+        .iter()
+        .filter(|j| {
+            j.in_subflow || early_return.is_none() || j.flow_step_id.as_deref() != early_return
+        })
+        .map(|j| j.id)
+        .collect();
+
+    if secs == 0 {
+        sqlx::query!(
+            "UPDATE v2_job SET args = '{}'::jsonb WHERE id = ANY($1)",
+            &all_ids,
+        )
+        .execute(db)
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!("error while cleaning up completed job args: {e:#}"))
+        })?;
+        // The flow's own completed row is written after this, so its result is kept: a
+        // synchronous caller clears it once it has read it (`delete_flow_result_after_read`).
+        sqlx::query!(
+            "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = ANY($1)",
+            &result_ids,
+        )
+        .execute(db)
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "error while cleaning up completed job results: {e:#}"
+            ))
+        })?;
+        sqlx::query!(
+            "UPDATE job_logs SET logs = '##DELETED##' WHERE job_id = ANY($1)",
+            &all_ids,
+        )
+        .execute(db)
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!("error while cleaning up completed job logs: {e:#}"))
+        })?;
+    } else {
+        for id in &all_ids {
+            windmill_common::jobs::schedule_job_deletion(db, *id, &flow_job.workspace_id, secs)
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!("error scheduling job deletion for {id}: {e:#}"))
+                })?;
+        }
+    }
+    Ok(())
 }
 
 fn find_flow_job_index(flow_jobs: &Vec<Uuid>, job_id_for_status: &Uuid) -> Option<usize> {
