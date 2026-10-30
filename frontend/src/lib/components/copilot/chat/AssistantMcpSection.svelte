@@ -41,6 +41,7 @@ switch that decides whether this chat carries its tools.
 	let {
 		ws,
 		active,
+		focusRoot,
 		count = $bindable(),
 		blocksClose = $bindable()
 	}: {
@@ -50,6 +51,9 @@ switch that decides whether this chat carries its tools.
 		 * costs a read of the instance OAuth connects — not worth paying for on a modal
 		 * opened for one of the other three sections. */
 		active: boolean
+		/** The folder (`f/x` or `u/x`) the modal was opened on: the list shows its servers
+		 * until the user asks for all of them. */
+		focusRoot?: string
 		/** Number of connected servers, for the sidebar badge. */
 		count: number
 		/** True while this section is in the middle of something the modal must not
@@ -150,6 +154,18 @@ switch that decides whether this chat carries its tools.
 	let detailSeq = $state(0)
 
 	let page = $derived(connectOpen ? 'connect' : detailOpen ? 'detail' : 'list')
+
+	let showAll = $state(false)
+	let shown = $derived(
+		focusRoot && !showAll ? servers.filter((s) => ownerRoot(s.path) === focusRoot) : servers
+	)
+
+	/** Back on the list narrowed to `focusRoot`. A connection holding unsaved edits stays
+	 * open, as the Skills editor does. */
+	export function showFolder() {
+		showAll = false
+		if (!editingChanged) detailOpen = false
+	}
 
 	$effect(() => {
 		count = servers.length
@@ -481,7 +497,7 @@ switch that decides whether this chat carries its tools.
 				/>
 			{:else}
 				<div class="flex flex-col gap-0.5">
-					{#each servers as server (server.path)}
+					{#each shown as server (server.path)}
 						{#snippet icon()}
 							<McpServerIcon icon={server.icon} size={16} />
 						{/snippet}
@@ -531,6 +547,17 @@ switch that decides whether this chat carries its tools.
 							onClick={() => openServer(server)}
 						/>
 					{/each}
+					{#if shown.length < servers.length}
+						<Button
+							variant="subtle"
+							unifiedSize="xs"
+							wrapperClasses="self-start"
+							btnClasses="text-secondary"
+							onClick={() => (showAll = true)}
+						>
+							Show all {servers.length} connections
+						</Button>
+					{/if}
 				</div>
 			{/if}
 		</Section>

@@ -83,9 +83,7 @@ export default class ContextManager {
 		this.workspace = workspace
 		this.selectedContext = currentlySelectedContext.filter(
 			(context) =>
-				context.type === 'workspace_script' ||
-				context.type === 'workspace_flow' ||
-				context.type === 'workspace_app'
+				isMentionContext(context)
 		)
 	}
 
@@ -164,9 +162,7 @@ export default class ContextManager {
 			newSelectedContext = newSelectedContext
 				.filter(
 					(c) =>
-						c.type === 'workspace_script' ||
-						c.type === 'workspace_flow' ||
-						c.type === 'workspace_app' ||
+						isMentionContext(c) ||
 						newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title)
 				)
 				.map((c) =>
@@ -293,9 +289,7 @@ export default class ContextManager {
 						c.type === 'code' ||
 						// Workspace references are user-picked via @-mention and not in
 						// availableContext; preserve so badges survive editor refreshes.
-						c.type === 'workspace_script' ||
-						c.type === 'workspace_flow' ||
-						c.type === 'workspace_app' ||
+						isMentionContext(c) ||
 						newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title)
 				)
 				.map((c) => {
