@@ -199,7 +199,7 @@ RUN curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmo
 
 RUN if [ "$WITH_GIT" = "true" ]; then \
     apt-get update  -y \
-    && apt-get install -y git \
+    && apt-get install -y --no-install-recommends git openssh-client less \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*; \
     else echo 'Building the image without git'; fi;
@@ -235,6 +235,26 @@ RUN if [ "$WITH_KUBECTL" = "true" ]; then \
     install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl; \
     else echo 'Building the image without kubectl'; fi
 
+# The official bundle, not Debian's awscli: that package lags upstream by years and pulls in
+# python3-* libraries (urllib3, cryptography, ...) that nothing else in the image uses. Bumping the
+# version means updating both checksums (the zips are signed by the AWS CLI key, FB5DB77F...4672475C).
+ARG WITH_AWSCLI=true
+ARG AWSCLI_VERSION=2.39.1
+ARG AWSCLI_SHA256_X86_64=5b6c10e0a8ccdcf30c84bd643fea511f103d257a4787a7cef878691d63169804
+ARG AWSCLI_SHA256_AARCH64=5adf0b5052843e542b55a846d49ba2a2b3f3fb4960f35c11df9ac7c395cffaaf
+RUN if [ "$WITH_AWSCLI" = "true" ]; then \
+    case "$(dpkg --print-architecture)" in \
+    amd64) aws_arch=x86_64; aws_sha="$AWSCLI_SHA256_X86_64" ;; \
+    arm64) aws_arch=aarch64; aws_sha="$AWSCLI_SHA256_AARCH64" ;; \
+    *) echo >&2 "error: unsupported arch for awscli"; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/awscli.zip "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}-${AWSCLI_VERSION}.zip" \
+    && echo "${aws_sha}  /tmp/awscli.zip" | sha256sum -c - \
+    && unzip -q /tmp/awscli.zip -d /tmp/awscli \
+    && /tmp/awscli/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli \
+    && rm -rf /tmp/awscli /tmp/awscli.zip; \
+    else echo 'Building the image without awscli'; fi
+
 
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
@@ -268,7 +288,7 @@ RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_r
 
 
 RUN curl -sL https://deb.nodesource.com/setup_${NODE_VERSION%%.*}.x | bash -
-RUN apt-get -y update && apt-get install -y --no-install-recommends curl procps nodejs=${NODE_VERSION}-1nodesource1 awscli && apt-get clean \
+RUN apt-get -y update && apt-get install -y --no-install-recommends curl procps nodejs=${NODE_VERSION}-1nodesource1 && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # The npm bundled with nodejs is replaced by a pinned one: it is what `//npm` scripts install with

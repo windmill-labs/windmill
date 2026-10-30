@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use crate::db::{ApiAuthed, OptJobAuthed};
-use crate::secret_backend_ext::rename_vault_secrets_with_prefix;
+use crate::secret_backend_ext::{
+    reject_http_store_refs_under_prefix, rename_vault_secrets_with_prefix,
+};
 use axum::{
     extract::{Extension, Path},
     Json,
@@ -1073,6 +1075,7 @@ async fn offboard_user_from_workspace<'c>(
     // ---- variables (with Vault secret handling) ----
     let old_var_prefix = format!("u/{}/", username);
     let new_var_prefix = format!("{}/", reassign_to);
+    reject_http_store_refs_under_prefix(&mut **tx, w_id, &old_var_prefix).await?;
 
     let vault_secrets: Vec<(String, String)> = sqlx::query!(
         r#"SELECT path, value::text AS "value!" FROM variable

@@ -14,8 +14,9 @@ use windmill_common::db::{Authable, DB};
 use windmill_common::workspaces::{check_deploy_rules, operator_can_draft, RuleCheckResult};
 
 use crate::secret_backend_ext::{
-    delete_secret_from_backend, get_secret_value, is_external_stored_value, is_vault_stored_value,
-    rename_vault_secret, store_secret_value,
+    delete_secret_from_backend, get_secret_value, http_store_rename_error,
+    is_external_stored_value, is_http_store_stored_value, is_vault_stored_value,
+    rename_vault_secret, store_managed_secret_value, store_secret_value,
 };
 use windmill_common::utils::{
     check_proper_path, escape_ilike_pattern, sanitize_db_error, BulkDeleteRequest,
@@ -576,7 +577,7 @@ async fn check_path_conflict(db: &DB, w_id: &str, path: &str) -> Result<()> {
 /// `encrypt` (AES-256-GCM, or legacy AES-256-CBC; see `windmill_common::workspace_crypt`)
 /// always yields standard base64 decoding to a non-zero
 /// multiple of the 16-byte block size; anything else cannot be our ciphertext.
-/// Values stored by an external backend ($vault:/$aws_sm:/$azure_kv: markers)
+/// Values stored by an external backend ($vault:/$aws_sm:/$azure_kv:/$http_store: markers)
 /// are not workspace ciphertext and are passed through untouched.
 fn validate_already_encrypted_secret(path: &str, value: &str) -> Result<()> {
     if is_external_stored_value(value) {
@@ -687,8 +688,11 @@ pub async fn create_variable_with_account(
         } else {
             variable.value.clone()
         };
-        // Use secret backend for encryption (supports both DB and Vault)
-        store_secret_value(&db, &w_id, &variable.path, &plain).await?
+        if account.is_some() {
+            store_managed_secret_value(&db, &w_id, &variable.path, &plain).await?
+        } else {
+            store_secret_value(&db, &w_id, &variable.path, &plain).await?
+        }
     } else {
         if variable.is_secret {
             // already_encrypted == true: value is stored verbatim, so it must be
@@ -1280,6 +1284,9 @@ async fn update_variable(
             .await?;
 
             if let Some(var) = current_var {
+                if var.is_secret && is_http_store_stored_value(&var.value) {
+                    return Err(http_store_rename_error(path));
+                }
                 if var.is_secret && is_vault_stored_value(&var.value) {
                     if ns.value.is_some() {
                         // New value was provided and already stored at new path
@@ -1686,7 +1693,12 @@ mod tests {
     #[test]
     fn passes_through_external_backend_markers() {
         // External secret backends store $-prefixed markers, not workspace ciphertext.
-        for marker in ["$vault:f/x/cfg", "$aws_sm:f/x/cfg", "$azure_kv:f/x/cfg"] {
+        for marker in [
+            "$vault:f/x/cfg",
+            "$aws_sm:f/x/cfg",
+            "$azure_kv:f/x/cfg",
+            "$http_store:f/x/cfg",
+        ] {
             assert!(validate_already_encrypted_secret("f/x/cfg", marker).is_ok());
         }
     }
