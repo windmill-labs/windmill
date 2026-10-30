@@ -70,6 +70,7 @@ export interface Setting {
 		| 'otel'
 		| 'otel_tracing_proxy'
 		| 'secret_backend'
+		| 'external_secrets'
 		| 'external_instance_pg'
 		| 'instance_pg'
 		| 'github_enterprise_app'
@@ -1270,6 +1271,15 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only:
 				'External secret store integrations are Enterprise Edition features'
+		},
+		{
+			label: 'External secret references',
+			description:
+				'Let secret variables reference existing secrets in HashiCorp Vault, read when the variable is read, under the path prefixes allowed here.',
+			key: 'external_secrets',
+			fieldType: 'external_secrets',
+			storage: 'setting',
+			ee_only: 'External secret references are an Enterprise Edition feature'
 		}
 	],
 	'GitHub App': [

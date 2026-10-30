@@ -986,6 +986,10 @@ pub(crate) async fn tarball_workspace(
             if plain_secret.or(plain_secrets).unwrap_or(false)
                 && var.value.is_some()
                 && var.is_secret
+                && !var
+                    .value
+                    .as_deref()
+                    .is_some_and(windmill_common::secret_backend::is_external_ref_value)
             {
                 var.value = Some(decrypt(&mc, var.value.unwrap()).map_err(|e| {
                     Error::internal_err(format!("Error decrypting variable {}: {}", var.path, e))
