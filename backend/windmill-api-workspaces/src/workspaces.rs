@@ -8242,6 +8242,13 @@ async fn clone_variables(
     // exist. Replicate every secret, not just marker-valued ones: migration writes
     // to the store without rewriting `value` to a `$...:` marker.
     if is_vault_backend_configured(db).await? {
+        let backend = get_secret_backend(db).await?;
+        // A read-only store is never written: the fork's references resolve under its own
+        // workspace id, and its database-encrypted secrets came with the rows above.
+        if backend.backend_name() == "http_store" {
+            return Ok(());
+        }
+
         let secret_variables = sqlx::query!(
             "SELECT path FROM variable
              WHERE workspace_id = $1 AND is_secret = true AND value != ''",
@@ -8250,7 +8257,6 @@ async fn clone_variables(
         .fetch_all(&mut **tx)
         .await?;
 
-        let backend = get_secret_backend(db).await?;
         for variable in secret_variables {
             match backend
                 .get_secret(source_workspace_id, &variable.path)

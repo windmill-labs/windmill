@@ -86,6 +86,13 @@ pub async fn create_secret_backend(
             );
             Ok(Arc::new(DatabaseBackend::new(db)))
         }
+        SecretBackendConfig::HttpStore(_) => {
+            tracing::warn!(
+                "The HTTP secret store is configured but requires Enterprise Edition. \
+                 Falling back to database backend."
+            );
+            Ok(Arc::new(DatabaseBackend::new(db)))
+        }
     }
 }
 
