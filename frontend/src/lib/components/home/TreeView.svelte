@@ -433,9 +433,17 @@
 										</div>
 									{/each}
 									{#if ownerTotal != undefined && ownerTotal > skeletonRows}
-										<!-- The one footer the loaded rows end on, "Show more" or "Load more":
-										     py-2 around a 28px button. -->
-										<div class="h-11"></div>
+										<!-- The one footer the loaded rows end on, "Show more" or "Load more",
+										     drawn as the footers below: py-2 around a 28px button. -->
+										<div
+											class="h-11 px-4 {rowRule(
+												unruled
+											)} flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+											style="padding-left: {(visualDepth + 1) * 16}px;"
+										>
+											<span class="animate-skeleton dark:bg-frost-900/50 h-3 w-40"></span>
+											<span class="animate-skeleton dark:bg-frost-900/50 h-7 w-24 shrink-0"></span>
+										</div>
 									{/if}
 								</div>
 							{:else}
