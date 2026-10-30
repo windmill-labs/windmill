@@ -3,14 +3,12 @@
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import {
-		canDeployAs,
 		canPreserveOnBehalfOf,
 		WM_DEPLOYERS_GROUP
 	} from '$lib/components/itemSettings/onBehalfOf'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import { enterpriseLicense } from '$lib/stores'
-	import { Bot, Folder, Users } from 'lucide-svelte'
-	import { useDeployAs } from './deployAs.svelte'
+	import { Bot, Folder } from 'lucide-svelte'
 	import type { NeedsSource } from './detectNeeds'
 	import NewServiceAccountForm from './NewServiceAccountForm.svelte'
 	import {
@@ -47,27 +45,19 @@
 	const me = $derived(
 		operatingUser.current?.username ? `u/${operatingUser.current.username}` : undefined
 	)
-	const deployAs = useDeployAs(() => targetWorkspace)
 	const serviceAccounts = useServiceAccounts(() => targetWorkspace)
 
 	const pending = $derived(getPendingServiceAccount(targetWorkspace, runsAs))
 	const itemFolder = $derived(
 		itemPath?.startsWith('f/') ? itemPath.split('/')[1] || undefined : undefined
 	)
-	const canPick = $derived(
-		canPreserveOnBehalfOf(operatingUser.current) || deployAs.current.length > 0
-	)
+	const canPick = $derived(canPreserveOnBehalfOf(operatingUser.current))
 	const canCreate = $derived(!!$enterpriseLicense && !!operatingUser.current?.is_admin)
 	// An account that already reads the item's folder, which the deployer may deploy as.
 	const folderAccount = $derived(
-		itemFolder
+		itemFolder && canPick
 			? serviceAccounts.current
-					.filter(
-						(a) =>
-							!a.pending &&
-							a.folders.includes(itemFolder) &&
-							canDeployAs(operatingUser.current, `u/${a.username}`, deployAs.current)
-					)
+					.filter((a) => !a.pending && a.folders.includes(itemFolder))
 					.sort((a, b) => a.username.localeCompare(b.username))[0]
 			: undefined
 	)
@@ -84,7 +74,7 @@
 		!isNew &&
 			!!savedPermissionedAs &&
 			runsAs !== savedPermissionedAs &&
-			!canDeployAs(operatingUser.current, savedPermissionedAs, deployAs.current) &&
+			!canPreserveOnBehalfOf(operatingUser.current) &&
 			serviceAccounts.current.some((a) => `u/${a.username}` === savedPermissionedAs)
 	)
 
@@ -140,30 +130,13 @@
 				</span>
 			</span>
 		{/if}
-		{#if pending.deployers.length}
-			<span class="flex items-start gap-2">
-				<Users size={14} class="mt-0.5 shrink-0 text-secondary" />
-				<span>
-					Lets {pending.deployers
-						.map((d) => (d.startsWith('f/') ? `writers of ${d}` : d))
-						.join(', ')} deploy as it
-				</span>
-			</span>
-		{/if}
-		{#if pending.defaultFor}
-			<span class="flex items-start gap-2">
-				<Folder size={14} class="mt-0.5 shrink-0 text-secondary" />
-				<span>Makes it the default user of new items in f/{pending.defaultFor}</span>
-			</span>
-		{/if}
 	</div>
 {/if}
 
 {#if dropsAccount}
 	<Alert type="warning" size="xs" title={`This takes ${savedPermissionedAs} off the ${kind}`}>
-		Only the people on {savedPermissionedAs}'s deploy list, workspace admins and members of
-		{WM_DEPLOYERS_GROUP} can deploy as it. The {kind} will run with your access, and stop working for
-		everyone if you leave.
+		Only workspace admins and members of {WM_DEPLOYERS_GROUP} can deploy as it. The {kind} will run with
+		your access, and stop working for everyone if you leave.
 	</Alert>
 {/if}
 

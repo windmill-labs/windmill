@@ -1,8 +1,7 @@
 import { resource } from 'runed'
 import { SvelteMap } from 'svelte/reactivity'
-import { FolderService, GranularAclService, UserService, WorkspaceService } from '$lib/gen'
+import { FolderService, UserService, WorkspaceService } from '$lib/gen'
 import { setGrant } from './access'
-import { forgetDeployAs } from './deployAs.svelte'
 import { sendUserToast } from '$lib/toast'
 
 export type ServiceAccount = {
@@ -23,9 +22,6 @@ export type PendingServiceAccount = {
 	username: string
 	/** Read access, folders by name. */
 	grants: Grant[]
-	deployers: string[]
-	/** Folder whose default user becomes the account for every new item in it. */
-	defaultFor?: string
 }
 
 // The deploy dialog's run-as field needs an email for the account before it exists; the deploy
@@ -149,28 +145,9 @@ export async function createPendingServiceAccount(
 	for (const grant of account.grants) {
 		await setGrant(workspace, grant.kind, grant.path, permissionedAs, 'read')
 	}
-	await GranularAclService.setServiceAccountDeployers({
-		workspace,
-		requestBody: { principal: permissionedAs, deployers: account.deployers }
-	})
-	if (account.defaultFor) {
-		const folder = await FolderService.getFolder({ workspace, name: account.defaultFor })
-		const rules = folder.default_permissioned_as ?? []
-		if (!rules.some((r) => r.permissioned_as === permissionedAs)) {
-			// Appended: a rule the folder already has for some of its paths keeps precedence.
-			await FolderService.updateFolder({
-				workspace,
-				name: account.defaultFor,
-				requestBody: {
-					default_permissioned_as: [...rules, { path_glob: '**', permissioned_as: permissionedAs }]
-				}
-			})
-		}
-	}
 	const { email } = await UserService.getUser({ workspace, username })
 	pending.delete(key(workspace, permissionedAs))
 	asked.delete(workspace)
-	forgetDeployAs(workspace)
 	return email
 }
 

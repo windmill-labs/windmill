@@ -5,7 +5,6 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { FolderService, UserService } from '$lib/gen'
 	import { Database, Folder, Info, KeyRound } from 'lucide-svelte'
-	import DeployersPicker from './DeployersPicker.svelte'
 	import { detectNeeds, type NeedsSource, type RunnableKind } from './detectNeeds'
 	import { setPendingServiceAccount, type Grant } from './serviceAccounts.svelte'
 
@@ -41,8 +40,6 @@
 
 	let name = $state('')
 	let rows: Row[] = $state([])
-	let deployers: string[] = $state([])
-	let setDefault = $state(false)
 	/** Whether the item's folder already names default users; unknown until loaded. */
 	let folderHasDefaults: boolean | undefined = $state(undefined)
 	let usernames: string[] = $state([])
@@ -71,7 +68,6 @@
 					checked: true
 				}
 			]
-			deployers = [`f/${itemFolder}`]
 			FolderService.getFolder({ workspace, name: itemFolder }).then(
 				(f) => (folderHasDefaults = !!f.default_permissioned_as?.length),
 				() => (folderHasDefaults = true)
@@ -115,7 +111,6 @@
 	)
 	const principal = $derived(`u/${name}`)
 	const chosen = $derived(rows.filter((r) => r.checked))
-	const reads = $derived(chosen.map((r) => (r.kind === 'folder' ? `f/${r.path}` : r.path)))
 	const addableFolders = $derived(
 		folderNames
 			.filter((f) => !rows.some((r) => r.kind === 'folder' && r.path === f))
@@ -126,9 +121,7 @@
 		if (nameError) return
 		setPendingServiceAccount(workspace, {
 			username: name,
-			grants: chosen.map(({ kind, path }) => ({ kind, path })),
-			deployers,
-			defaultFor: setDefault ? itemFolder : undefined
+			grants: chosen.map(({ kind, path }) => ({ kind, path }))
 		})
 		onUse(principal)
 	}
@@ -217,39 +210,11 @@
 		{/if}
 	</div>
 
-	<div class="flex flex-col gap-2">
-		<div class="flex flex-col">
-			<span class="text-xs font-semibold text-emphasis">Who can deploy as it</span>
-			<span class="text-2xs text-secondary">
-				They can make what they deploy run as {name || 'it'}. Anyone else who redeploys this
-				{itemKind} makes it run as themselves.
-			</span>
-		</div>
-		<DeployersPicker {principal} bind:deployers {reads} />
-	</div>
-
 	{#if itemFolder && folderHasDefaults}
 		<span class="text-2xs text-secondary">
 			<code>f/{itemFolder}</code> already sets who new items in it run as. Change that in the
 			folder's settings on the <a href="/folders">Folders</a> page.
 		</span>
-	{:else if itemFolder && folderHasDefaults === false}
-		<label class="flex items-start gap-2 cursor-pointer">
-			<Checkbox
-				class="mt-0.5"
-				checked={setDefault}
-				onChange={() => (setDefault = !setDefault)}
-			/>
-			<span class="flex flex-col">
-				<span class="text-xs text-primary">
-					Also run new items in <code>f/{itemFolder}</code> as {name || 'it'}
-				</span>
-				<span class="text-2xs text-secondary">
-					Sets the folder's default user: a new script, flow or app there runs as {name || 'it'}
-					when the person creating it can deploy as it.
-				</span>
-			</span>
-		</label>
 	{/if}
 
 	<div class="flex items-center justify-between gap-2 border-t pt-3">
