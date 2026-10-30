@@ -44,6 +44,8 @@ export interface UserDraftSyncOptions<Draft> {
 	 * once, or the sync would read/write the previously-targeted cell.
 	 */
 	codec: () => DraftSyncCodec<Draft>
+	/** Called after an editor edit is saved: never for a draft that came in. */
+	onSaved?: (itemKind: UserDraftItemKind, path: string) => void
 }
 
 /**
@@ -132,6 +134,7 @@ export function useUserDraftSync<Draft>(opts: UserDraftSyncOptions<Draft>): void
 				// Our own write comes back through the handle; the inbound side must skip it.
 				lastInboundSig = codec.sig(toSave)
 				UserDraft.save<Draft>(codec.itemKind, path, toSave, { workspace })
+				opts.onSaved?.(codec.itemKind, path)
 			})
 		}
 		pendingFlush = save
