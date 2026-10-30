@@ -15,7 +15,7 @@
 	import Popover from './meltComponents/Popover.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import AddNeededAccess from './access/AddNeededAccess.svelte'
-	import GrantNavigator from './access/GrantNavigator.svelte'
+	import GrantNavigator, { navigatorMaxHeight } from './access/GrantNavigator.svelte'
 	import { KIND_LABELS, setGrant, type GrantLevel } from './access/access'
 	import type { RunnableKind } from './access/detectNeeds'
 	import DeployersField from './access/DeployersField.svelte'
@@ -33,6 +33,8 @@
 	let kind: string | undefined = $state()
 	let nbDisplayed = $state(PAGE)
 	let grantOpen = $state(false)
+	let grantPopover: Popover | undefined = $state()
+	let grantAnchor: HTMLElement | undefined = $state()
 	let needsOf: { kind: RunnableKind; path: string } | undefined = $state()
 	// Responses are not ordered: a slow answer for the previous principal must not land on this one.
 	let requestId = 0
@@ -66,8 +68,29 @@
 	}
 
 	function setGrantOpen(next: boolean) {
+		if (next) placeGrantPopover()
 		grantOpen = next
 		if (next) logFeatureUsage('access_view', 'grant_opened')
+	}
+
+	// The side is picked once, for the navigator's tallest height: melt fits the popover to the room
+	// on the side it first lands on, so a list that grows later would never flip on its own.
+	function placeGrantPopover() {
+		if (!grantAnchor) return
+		const rect = grantAnchor.getBoundingClientRect()
+		const gutter = 8
+		const spaceBelow = window.innerHeight - rect.bottom - gutter
+		const spaceAbove = rect.top - gutter
+		const below = navigatorMaxHeight() <= spaceBelow || spaceBelow >= spaceAbove
+		grantPopover?.updatePositioning({
+			placement: below ? 'bottom-end' : 'top-end',
+			strategy: 'absolute',
+			gutter,
+			overflowPadding: 16,
+			flip: false,
+			fitViewport: true,
+			overlap: false
+		})
 	}
 
 	function findReads(kind: RunnableKind, path: string) {
@@ -251,31 +274,39 @@
 
 				<Section label={`Items (${access.items.length})`} small>
 					{#snippet action()}
-						<Popover
-							placement="bottom-end"
-							usePointerDownOutside
-							disableFocusTrap
-							closeOnOtherPopoverOpen
-							bind:isOpen={() => grantOpen, setGrantOpen}
-							openFocus="[data-workspace-picker-search]"
-							contentClasses="flex flex-col overflow-hidden"
-						>
-							{#snippet trigger()}
-								<Button
-									variant="default"
-									unifiedSize="sm"
-									nonCaptureEvent
-									startIcon={{ icon: Plus }}
-								>
-									Grant
-								</Button>
-							{/snippet}
-							{#snippet content()}
-								{#if access}
-									<GrantNavigator {principal} {access} onGranted={reload} onFindReads={findReads} />
-								{/if}
-							{/snippet}
-						</Popover>
+						<div bind:this={grantAnchor}>
+							<Popover
+								bind:this={grantPopover}
+								placement="bottom-end"
+								usePointerDownOutside
+								disableFocusTrap
+								closeOnOtherPopoverOpen
+								bind:isOpen={() => grantOpen, setGrantOpen}
+								openFocus="[data-workspace-picker-search]"
+								contentClasses="flex flex-col overflow-hidden"
+							>
+								{#snippet trigger()}
+									<Button
+										variant="default"
+										unifiedSize="sm"
+										nonCaptureEvent
+										startIcon={{ icon: Plus }}
+									>
+										Grant
+									</Button>
+								{/snippet}
+								{#snippet content()}
+									{#if access}
+										<GrantNavigator
+											{principal}
+											{access}
+											onGranted={reload}
+											onFindReads={findReads}
+										/>
+									{/if}
+								{/snippet}
+							</Popover>
+						</div>
 					{/snippet}
 					<div class="flex flex-col gap-2">
 						{#if needsOf}

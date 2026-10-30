@@ -3,6 +3,13 @@
 The access view's "+ Grant" list: the caller's own `u/` folder and every folder, with their items.
 Picking a row grants the principal read on it; the "All of f/x" row grants the whole folder.
 -->
+<script module lang="ts">
+	/** The navigator's tallest height, `max-h-[min(420px,60vh)]` below, for its host to place it. */
+	export function navigatorMaxHeight(): number {
+		return Math.min(420, window.innerHeight * 0.6)
+	}
+</script>
+
 <script lang="ts">
 	import DrillPicker from '$lib/components/DrillPicker.svelte'
 	import type { DrillLeaf, DrillNode } from '$lib/components/drillPicker'
@@ -224,10 +231,8 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 	<RowIcon kind={leaf.data.kind as 'folder'} size={12} />
 {/snippet}
 
-<!-- A fixed height, so the popover places itself for the full list rather than the first rows. -->
-<div class="w-[min(420px,calc(100vw-20px))] h-[min(420px,60vh)]">
+<div class="flex flex-col max-h-[min(420px,60vh)]">
 	<DrillPicker
-		flush
 		{tree}
 		onPick={grant}
 		{leafIcon}
