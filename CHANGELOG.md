@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.854.1](https://github.com/windmill-labs/windmill/compare/v1.854.0...v1.854.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* share and first deploy in ai sessions, app access in settings ([#12112](https://github.com/windmill-labs/windmill/issues/12112)) ([981baed](https://github.com/windmill-labs/windmill/commit/981baeda90e758feecda7f89a6f83d0aa479fb00))
+
 ## [1.854.0](https://github.com/windmill-labs/windmill/compare/v1.853.1...v1.854.0) (2026-10-30)
 
 
