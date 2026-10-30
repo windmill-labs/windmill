@@ -48,17 +48,16 @@ export interface UsernamePolicy {
 const USERNAME_MAX_LENGTH = 50
 
 /**
- * A username the whole `usr.username` contract accepts: the `proper_username` constraint
- * (`^[\w-]+$`, so word characters and hyphens and nothing else) and the column's own 50
- * characters. Anything outside the class is dropped rather than substituted — `O'Connor` is
- * `oconnor`, not `o-connor`.
+ * A username the server's rule accepts (`validate_username`: letters, digits and underscores,
+ * at most 50 characters). Anything outside the class is dropped rather than substituted —
+ * `O'Connor` is `oconnor`, `Jean-Luc` is `jeanluc`.
  *
  * Undefined where nothing usable is left or where what is left is too long, which is the
- * caller's cue to ask for one: `create_workspace` inserts this value with no truncation, so a
- * name the column refuses would fail on insert with nothing on screen naming the field.
+ * caller's cue to ask for one: the quick form submits this without showing it, so a name the
+ * server refuses would fail with nothing on screen naming the field.
  */
 export function usernameFromName(name: string): string | undefined {
-	const cleaned = name.toLowerCase().replace(/[^\w-]/g, '')
+	const cleaned = name.toLowerCase().replace(/\W/g, '')
 	return cleaned === '' || cleaned.length > USERNAME_MAX_LENGTH ? undefined : cleaned
 }
 

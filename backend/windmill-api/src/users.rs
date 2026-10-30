@@ -29,7 +29,7 @@ use windmill_api_auth::{
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
-use windmill_common::usernames::VALID_USERNAME;
+use windmill_common::usernames::validate_username;
 use windmill_common::{
     error::{self, Error, Result},
     DB,
@@ -314,11 +314,7 @@ async fn rename_user(
         )));
     }
 
-    if !VALID_USERNAME.is_match(&ru.new_username) {
-        return Err(windmill_common::error::Error::BadRequest(format!(
-            "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
-        )));
-    }
+    validate_username(&ru.new_username)?;
 
     let old_instance_username =
         sqlx::query_scalar!("SELECT username FROM password WHERE email = $1", user_email)

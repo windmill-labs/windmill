@@ -5,7 +5,7 @@
 	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
-	import { decodeState, emptySchema, type StateStore } from '$lib/utils'
+	import { decodeState, emptySchema, userPathPrefix, type StateStore } from '$lib/utils'
 	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { goto } from '$lib/navigation'
 
@@ -241,7 +241,7 @@
 			// Seed priority: YAML/JSON import > fork/URL-state > template > hub >
 			// empty. Fork seeds carry an explicit path; the others keep '' for the
 			// friendly auto-name.
-			const forkOwner = `u/${$userStore?.username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')}`
+			const forkOwner = userPathPrefix($userStore?.username)
 			let seed: Flow = empty
 			let seedSelectedId: string | undefined = undefined
 			if (imported) {
@@ -275,7 +275,7 @@
 					seed = {
 						...empty,
 						...template,
-						path: `${forkOwner}/${oldPath[oldPath.length - 1]}_fork`,
+						path: `${forkOwner}${oldPath[oldPath.length - 1]}_fork`,
 						extra_perms: {}
 					} as unknown as Flow
 				} catch (err: any) {
@@ -291,7 +291,7 @@
 					seed = {
 						...empty,
 						...hub.flow,
-						path: `${forkOwner}/flow_${hubId}`,
+						path: `${forkOwner}flow_${hubId}`,
 						extra_perms: {}
 					} as unknown as Flow
 					if (seed.value.preprocessor_module?.value.type === 'rawscript') {
