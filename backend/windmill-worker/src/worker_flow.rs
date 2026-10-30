@@ -2889,15 +2889,19 @@ where
     }
 }
 
-/// The unresolved `flow_env` and which of its entries are secrets, so that the args stored
-/// on a step job never hold a resolved secret: an exact `flow_env.X` read stores the
-/// entry's reference, resolved (audited and masked) when the step runs like a static
-/// input, and any other expression reading a secret entry stores its result encrypted.
+/// The unresolved `flow_env` and its secret entries, so that the args stored on a step job
+/// never hold a resolved secret: an exact `flow_env.X` read stores the entry's reference,
+/// resolved (audited and masked) when the step runs like a static input, and any other
+/// expression reading a secret entry stores its result encrypted.
+///
+/// A subflow step resolves no reference in its args, so it gets the resolved value of a
+/// non-secret entry, the reference of a secret one, and cannot take a value computed from a
+/// secret.
 pub(crate) struct FlowEnvRefs<'a> {
     raw: &'a HashMap<String, Box<RawValue>>,
-    secret_keys: Vec<String>,
+    secrets: HashMap<String, Box<RawValue>>,
     // Keyed on the root job id, which is what the step's worker decrypts `$encrypted:`
-    // args with. Present only when `secret_keys` is non-empty.
+    // args with. Present only when `secrets` is non-empty.
     crypt: Option<WorkspaceCrypt>,
 }
 
@@ -2941,7 +2945,11 @@ impl<'a> FlowEnvRefs<'a> {
                     .map(|(k, _)| k),
             );
         }
-        let crypt = if secret_keys.is_empty() {
+        let secrets: HashMap<String, Box<RawValue>> = secret_keys
+            .into_iter()
+            .map(|k| (k.clone(), raw[&k].clone()))
+            .collect();
+        let crypt = if secrets.is_empty() {
             None
         } else {
             Some(
@@ -2953,7 +2961,7 @@ impl<'a> FlowEnvRefs<'a> {
                 .await?,
             )
         };
-        Ok(Self { raw, secret_keys, crypt })
+        Ok(Self { raw, secrets, crypt })
     }
 
     // Decided from the expression's text: a dynamic key (`flow_env[k]`) or a secret whose
@@ -2961,7 +2969,7 @@ impl<'a> FlowEnvRefs<'a> {
     fn reads_secret(&self, expr: &str) -> bool {
         let ident = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
         expr.contains("flow_env")
-            && self.secret_keys.iter().filter(|k| !k.is_empty()).any(|k| {
+            && self.secrets.keys().filter(|k| !k.is_empty()).any(|k| {
                 expr.match_indices(k.as_str()).any(|(i, _)| {
                     !expr[..i].chars().next_back().is_some_and(ident)
                         && !expr[i + k.len()..].chars().next().is_some_and(ident)
@@ -2976,6 +2984,7 @@ async fn transform_input(
     flow_args: Marc<HashMap<String, Box<RawValue>>>,
     flow_env: Option<&HashMap<String, Box<RawValue>>>,
     env_refs: Option<&FlowEnvRefs<'_>>,
+    into_subflow: bool,
     last_result: Arc<Box<RawValue>>,
     input_transforms: &HashMap<String, InputTransform>,
     resumes: Arc<Box<RawValue>>,
@@ -3014,7 +3023,8 @@ async fn transform_input(
             }
             InputTransform::Javascript { expr } => {
                 if let Some(raw) = env_refs.and_then(|r| {
-                    windmill_jseval::try_exact_property_access(expr.trim(), None, Some(r.raw))
+                    let env = if into_subflow { &r.secrets } else { r.raw };
+                    windmill_jseval::try_exact_property_access(expr.trim(), None, Some(env))
                 }) {
                     mapped.insert(key.to_string(), raw);
                     continue;
@@ -3036,6 +3046,14 @@ async fn transform_input(
                 })?;
                 let v = match env_refs {
                     Some(r @ FlowEnvRefs { crypt: Some(crypt), .. }) if r.reads_secret(expr) => {
+                        if into_subflow {
+                            return Err(Error::ExecutionErr(format!(
+                                "Input `{key}` of a subflow step is computed from a secret \
+                                 flow_env entry, which a subflow cannot receive: pass the \
+                                 secret as an exact `flow_env.<key>` read and use it in a \
+                                 step of the subflow"
+                            )));
+                        }
                         to_raw_value(&format!("$encrypted:{}", encrypt(crypt, v.get())))
                     }
                     _ => v,
@@ -4399,6 +4417,7 @@ async fn push_next_flow_job(
                     arc_flow_job_args.clone(),
                     flow_env,
                     env_refs,
+                    module.is_flow(),
                     arc_last_job_result.clone(),
                     input_transforms,
                     resumes.clone(),
@@ -4643,6 +4662,7 @@ async fn push_next_flow_job(
                         args,
                         flow_env,
                         env_refs,
+                        matches!(payload_tag.payload, JobPayload::Flow { .. }),
                         arc_last_job_result.clone(),
                         input_transforms,
                         resumes.clone(),
@@ -4699,6 +4719,7 @@ async fn push_next_flow_job(
                             Marc::new(hm),
                             flow_env,
                             env_refs,
+                            matches!(payload_tag.payload, JobPayload::Flow { .. }),
                             arc_last_job_result.clone(),
                             input_transforms,
                             resumes.clone(),

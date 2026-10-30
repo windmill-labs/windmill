@@ -370,9 +370,9 @@ pub async fn transform_json_value(
                     })
                 }
                 Connection::Http(_) => Err(Error::ExecutionErr(format!(
-                    "`{name}` is encrypted, which an agent worker cannot decrypt. It is built \
-                     from a secret flow_env entry: pass the secret to the step directly or as \
-                     an exact `flow_env.<key>` read, and build the value inside the script"
+                    "`{name}` is an `$encrypted:` value, which an agent worker cannot decrypt: \
+                     pass the secret as a `$var:` reference (in a flow, a static input or an \
+                     exact `flow_env.<key>` read) and build the value inside the script"
                 ))),
             }
 
