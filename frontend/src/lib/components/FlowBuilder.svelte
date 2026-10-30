@@ -507,9 +507,9 @@
 
 	async function handleSaveFlow(deploymentMsg?: string) {
 		pendingFirstDeploy = undefined
-		if (ownsPageHeader && neverDeployed) {
+		if (neverDeployed && firstDeployDialog) {
 			// The dialog also asks who the flow runs on behalf of, for the path it chose.
-			const choice = await firstDeployDialog?.ask({
+			const choice = await firstDeployDialog.ask({
 				kind: 'flow',
 				summary: flowStore.val.summary ?? '',
 				path: $pathStore,
@@ -1721,10 +1721,8 @@
 
 {@render children?.()}
 
-{#if ownsPageHeader}
-	<ShareDialog bind:this={shareDialog} />
-	<FirstDeployDialog bind:this={firstDeployDialog} />
-{/if}
+<ShareDialog bind:this={shareDialog} />
+<FirstDeployDialog bind:this={firstDeployDialog} />
 
 <DeployOnBehalfOfDialog
 	kind="flow"
@@ -1867,6 +1865,12 @@
 							{@render previewButtons()}
 						{/if}
 
+						<ShareButton
+							deployed={!neverDeployed}
+							iconOnly={compactTopbar}
+							unifiedSize={headerBtnSize}
+							onclick={openShare}
+						/>
 						<DeployButton
 							bind:this={deployButton}
 							on:save={async ({ detail }) => await handleSaveFlow(detail)}

@@ -19,6 +19,10 @@
 	import { FRONTEND_SDK_SCOPES, sdkScopesToConfirm } from '$lib/components/raw_apps/sdkScopes'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import AppAccessSection from '$lib/components/itemSettings/AppAccessSection.svelte'
+	import DeployedAppAccess from '$lib/components/itemSettings/DeployedAppAccess.svelte'
+	import { accessModeOf } from '$lib/components/itemSettings/appAccess'
+	import { AppService, type AppWithLastVersion } from '$lib/gen'
 
 	const operatingWorkspaceStore = useOperatingWorkspace()
 	const roleCaps = useRoleCapabilities()
@@ -37,7 +41,9 @@
 		labels = $bindable(),
 		rawApp = false,
 		newApp = false,
-		operatingWorkspace = undefined
+		operatingWorkspace = undefined,
+		customPath = $bindable(),
+		onAppChanged
 	}: {
 		open: boolean
 		/** Mutated in place; deployed with the app, like every other setting here. */
@@ -57,6 +63,10 @@
 		/** Workspace the app is deployed to. The path and on-behalf-of lookups target it;
 		 *  defaults to the operating workspace. */
 		operatingWorkspace?: string
+		/** Taken by the first deploy. A deployed app's custom URL is written at once instead. */
+		customPath?: string | undefined
+		/** Called after a write to the deployed app row, with the row as it now is. */
+		onAppChanged?: (row: AppWithLastVersion) => void
 	} = $props()
 
 	let body: HTMLElement | undefined = $state()
@@ -73,6 +83,23 @@
 
 	let path: Path | undefined = $state(undefined)
 	let dirtyPath = $state(false)
+
+	// Who can open a deployed app is not deployed with it: it is read from, and written to, the
+	// deployed row, as in Share.
+	let deployedPath = $derived(newApp ? undefined : savedApp?.path)
+	let deployedApp: AppWithLastVersion | undefined = $state()
+	async function loadDeployedApp() {
+		const asked = deployedPath
+		if (!asked || !opWs) return
+		const row = await AppService.getAppLiteByPath({ workspace: opWs, path: asked })
+		if (deployedPath === asked) deployedApp = row
+	}
+	$effect(() => {
+		if (open && deployedPath) {
+			deployedApp = undefined
+			loadDeployedApp().catch(() => {})
+		}
+	})
 </script>
 
 {#snippet sandboxHint()}
@@ -146,6 +173,40 @@
 								path={newEditedPath}
 							/>
 						</Label>
+					</div>
+				</Section>
+
+				<Section label="Who can open the app">
+					<div class="flex flex-col gap-2">
+						{#if deployedPath}
+							{#if deployedApp}
+								<span class="text-xs text-secondary">
+									Changes here apply to the deployed app right away.
+								</span>
+								<DeployedAppAccess
+									workspace={opWs ?? ''}
+									bind:app={deployedApp}
+									reload={loadDeployedApp}
+									{onAppChanged}
+								/>
+							{:else}
+								<span class="text-xs text-secondary">Loading…</span>
+							{/if}
+						{:else}
+							<AppAccessSection
+								workspace={opWs ?? ''}
+								appPath={newEditedPath}
+								{rawApp}
+								mode={accessModeOf(policy)}
+								onModeChange={(m) => {
+									policy.execution_mode = m
+								}}
+								{customPath}
+								onCustomPathChange={(p) => {
+									customPath = p ?? undefined
+								}}
+							/>
+						{/if}
 					</div>
 				</Section>
 

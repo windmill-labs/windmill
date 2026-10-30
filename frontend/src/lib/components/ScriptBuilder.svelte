@@ -697,9 +697,9 @@
 		// Every deploy path of the full-page editor comes through here, the message popover and
 		// "Deploy & Stay here" included.
 		pendingFirstDeploy = undefined
-		if (ownsPageHeader && neverDeployed) {
+		if (neverDeployed && firstDeployDialog) {
 			// The dialog also asks who the script runs on behalf of, for the path it chose.
-			const choice = await firstDeployDialog?.ask({
+			const choice = await firstDeployDialog.ask({
 				kind: 'script',
 				summary: script.summary,
 				path: script.path,
@@ -1584,10 +1584,8 @@
 	onCanceled={() => (perpetualRunsToConfirm = undefined)}
 />
 
-{#if ownsPageHeader}
-	<ShareDialog bind:this={shareDialog} />
-	<FirstDeployDialog bind:this={firstDeployDialog} />
-{/if}
+<ShareDialog bind:this={shareDialog} />
+<FirstDeployDialog bind:this={firstDeployDialog} />
 
 {#if editRights.roleCanAuthor('script')}
 	<Drawer
@@ -2327,7 +2325,7 @@
 			{#if ownsPageHeader}
 				<OpenInSessionButton source={headerSessionOpen()} />
 			{/if}
-			{#if ownsPageHeader && !phoneTopbar}
+			{#if !phoneTopbar}
 				<ShareButton
 					deployed={!neverDeployed}
 					iconOnly={compactTopbar}

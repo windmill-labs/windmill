@@ -11,6 +11,8 @@
 		members: Record<string, boolean>
 		/** Apps only. */
 		appMode?: AppAccessMode
+		/** Apps only. */
+		customPath?: string
 		message: string
 		/** The user the item runs on behalf of as the dialog leaves it, when the caller passed one
 		 *  in: the second step can change it or turn it off, and the deploy asks nothing more. */
@@ -68,6 +70,7 @@
 	let dirtyPath = $state(false)
 	let members: Record<string, boolean> = $state({})
 	let appMode = $state<AppAccessMode>('publisher')
+	let customPath: string | undefined = $state()
 	let message = $state('')
 	/** Where the item's run-as user is looked up; unset when the caller asks nothing about it. */
 	let runAsWorkspace: string | undefined = $state()
@@ -127,6 +130,7 @@
 		/** The caller picked the path, so it does not follow the summary. */
 		pathChosen?: boolean
 		appMode?: AppAccessMode
+		customPath?: string
 		/** The user the item holds to run on behalf of, which the second step confirms. */
 		runAs?: {
 			email: string | undefined
@@ -153,6 +157,7 @@
 		path = !dirtyPath && name ? [...segments.slice(0, -1), name].join('/') : opts.path
 		members = {}
 		appMode = opts.appMode ?? 'publisher'
+		customPath = opts.customPath
 		message = ''
 		open = true
 		return new Promise((r) => (resolve = r))
@@ -184,6 +189,7 @@
 			path,
 			members: $state.snapshot(members),
 			appMode: isApp ? appMode : undefined,
+			customPath: isApp ? customPath : undefined,
 			message,
 			runAs:
 				runAsWorkspace !== undefined
@@ -280,6 +286,10 @@
 					mode={appMode}
 					onModeChange={(m) => {
 						appMode = m
+					}}
+					{customPath}
+					onCustomPathChange={(p) => {
+						customPath = p ?? undefined
 					}}
 				/>
 			</section>

@@ -745,13 +745,14 @@
 		}
 		deploymentMsg = message
 		firstDeployMembers = {}
-		if (isNewApp && ownsPageHeader) {
+		if (isNewApp && firstDeployDialog) {
 			// The dialog also asks who the app runs on behalf of, for the path it chose.
-			const choice = await firstDeployDialog?.ask({
+			const choice = await firstDeployDialog.ask({
 				kind: 'raw_app',
 				summary,
 				path: newEditedPath,
 				appMode: accessModeOf(policy),
+				customPath,
 				runAs: {
 					email: policy.on_behalf_of_email,
 					permissionedAs: policy.on_behalf_of,
@@ -762,6 +763,7 @@
 			summary = choice.summary
 			newEditedPath = choice.path
 			policy.execution_mode = choice.appMode
+			customPath = choice.customPath
 			if (choice.runAs) {
 				policy.on_behalf_of_email = choice.runAs.email
 				policy.on_behalf_of = choice.runAs.permissionedAs
@@ -948,6 +950,16 @@
 	])
 
 	let customPath = $state(savedApp?.custom_path)
+	/** Share and the settings drawer write who can open the deployed app and its custom URL at
+	 *  once: the editor follows, so its next deploy and diff see them. */
+	function applyAppAccess(row: { policy: Policy; custom_path?: string | null }) {
+		policy.execution_mode = row.policy.execution_mode
+		customPath = row.custom_path ?? undefined
+		if (savedApp) {
+			savedApp.policy = { ...savedApp.policy, execution_mode: row.policy.execution_mode }
+			savedApp.custom_path = row.custom_path ?? undefined
+		}
+	}
 	// Derived, so a draft synced in from another session reaches the header; an edit here overrides
 	// the value until the next one arrives.
 	let labels = $derived(initialLabels)
@@ -1013,22 +1025,12 @@
 	bind:pathError
 	bind:newEditedPath
 	bind:labels
+	bind:customPath
+	onAppChanged={applyAppAccess}
 />
 
-{#if ownsPageHeader}
-	<ShareDialog
-		bind:this={shareDialog}
-		onAppChanged={(row) => {
-			policy.execution_mode = row.policy.execution_mode
-			customPath = row.custom_path ?? undefined
-			if (savedApp) {
-				savedApp.policy = { ...savedApp.policy, execution_mode: row.policy.execution_mode }
-				savedApp.custom_path = row.custom_path ?? undefined
-			}
-		}}
-	/>
-	<FirstDeployDialog bind:this={firstDeployDialog} />
-{/if}
+<ShareDialog bind:this={shareDialog} onAppChanged={applyAppAccess} />
+<FirstDeployDialog bind:this={firstDeployDialog} />
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
@@ -1334,7 +1336,7 @@
 			{/if}
 		{/snippet}
 	</OpenInSessionButton>
-	{#if ownsPageHeader && !phoneTopbar}
+	{#if !phoneTopbar}
 		<ShareButton
 			deployed={!neverDeployed}
 			iconOnly={compactTopbar}
