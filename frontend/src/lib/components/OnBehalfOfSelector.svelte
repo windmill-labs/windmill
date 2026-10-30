@@ -28,19 +28,16 @@
 </script>
 
 <script lang="ts">
-	import { Bot, Check, User as UserIcon, UserCog, Users, ExternalLink, Plus } from 'lucide-svelte'
-	import MeltPopover from './meltComponents/Popover.svelte'
-	import Portal from './Portal.svelte'
-	import Modal from './common/modal/Modal.svelte'
+	import { Bot, ChevronDown, PlusIcon, User as UserIcon, UserCog } from 'lucide-svelte'
+	import Select from './select/Select.svelte'
+	import { Drawer, DrawerContent } from './common'
 	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { UserService, type User } from '$lib/gen'
-	import TextInput from './text_input/TextInput.svelte'
 	import { useDeployAs } from './access/deployAs.svelte'
 	import {
 		getPendingServiceAccount,
 		PENDING_EMAIL_DOMAIN,
-		useServiceAccounts,
-		type ServiceAccount
+		useServiceAccounts
 	} from './access/serviceAccounts.svelte'
 	import NewServiceAccountForm from './access/NewServiceAccountForm.svelte'
 	import type { NeedsSource } from './access/detectNeeds'
@@ -60,7 +57,7 @@
 		canPreserve: boolean
 		/** The value of the custom-selected user (for display) */
 		customValue?: string | undefined
-		/** When false, labels say "current" instead of "target" and modal text refers to "this workspace" */
+		/** When false, the saved value is labelled "current" instead of "target" */
 		isDeployment?: boolean
 		/**
 		 * Folder default permissioned_as for this item path — resolved by the parent via
@@ -70,14 +67,14 @@
 		 */
 		folderDefault?: string | undefined
 		/**
-		 * Raises the popover and user picker above a `ConfirmationModal`, which renders at a
-		 * z-index above the popover layer — without this they open behind the dialog hosting them.
+		 * Raises the list and the creation drawer above a `ConfirmationModal`, which renders at a
+		 * z-index above both — without this they open behind the dialog hosting them.
 		 */
 		aboveConfirmationModal?: boolean
 		/**
-		 * Fires as the user picker opens and closes. A host that binds its own Enter/Escape handler
-		 * must suspend it meanwhile: both handlers sit on `window`, where `stopPropagation` can't
-		 * separate them, so Escape in the picker would also dismiss the host.
+		 * Fires as the list or the creation drawer opens and closes. A host that binds its own
+		 * Enter/Escape handler must suspend it meanwhile: both handlers sit on `window`, where
+		 * `stopPropagation` can't separate them, so Escape in the picker would also dismiss the host.
 		 */
 		onPickerOpenChange?: (open: boolean) => void
 		/**
@@ -85,13 +82,16 @@
 		 * one is the wrong name whenever the deploy targets a different workspace.
 		 */
 		myPermissionedAs?: string
-		/** Without `canPreserve`, show the current user as plain text instead of a popover whose
+		/** Without `canPreserve`, show the current user as plain text instead of a list whose
 		 *  only enabled option is "me". The host must treat that as the choice already made. */
 		readOnlyWithoutPreserve?: boolean
 		/** The item's path, which a new service account is named after and given read on. */
 		itemPath?: string
 		/** The item as its editor holds it, read for what a new service account needs. */
 		needsSource?: () => NeedsSource | undefined
+		size?: 'sm' | 'md'
+		/** Width of the input, e.g. a fixed one in a table row so the row doesn't reflow. */
+		class?: string
 	}
 
 	let {
@@ -109,24 +109,15 @@
 		myPermissionedAs = undefined,
 		readOnlyWithoutPreserve = false,
 		itemPath = undefined,
-		needsSource = undefined
+		needsSource = undefined,
+		size = 'md',
+		class: className = 'w-56'
 	}: Props = $props()
-
-	const isTrigger = $derived(kind === 'trigger' || isTriggerOrScheduleKind(kind))
-
-	let label = $derived(
-		isTrigger
-			? 'Set the user this will be permissioned as:'
-			: 'Set the user this will be run on behalf of:'
-	)
 
 	let users = $state<User[]>([])
 	let usersLoaded = $state(false)
-	let modalOpen = $state(false)
-	let searchQuery = $state('')
 
 	async function loadUsers() {
-		if (usersLoaded) return
 		try {
 			users = await UserService.listUsers({ workspace: targetWorkspace })
 		} catch {
@@ -163,30 +154,81 @@
 	}
 
 	const serviceAccounts = useServiceAccounts(() => targetWorkspace)
-	const q = $derived(searchQuery.trim().toLowerCase())
-	let people = $derived(
-		users.filter(
-			(u) =>
-				!u.disabled &&
-				!u.is_service_account &&
-				canPreserve &&
-				(!q ||
-					u.username.toLowerCase().includes(q) ||
-					u.email.toLowerCase().includes(q) ||
-					(u.name?.toLowerCase()?.includes(q) ?? false))
-		)
-	)
-	let accounts = $derived(
-		serviceAccounts.current
-			.filter(
-				(a) =>
-					(a.pending || canPreserve || deployAs.current.includes(`u/${a.username}`)) &&
-					(!q || a.username.toLowerCase().includes(q))
-			)
-			.sort(
-				(a, b) => Number(!!b.pending) - Number(!!a.pending) || a.username.localeCompare(b.username)
-			)
-	)
+
+	type Row = {
+		value: string
+		label: string
+		subtitle?: string
+		disabled?: boolean
+		group: string
+		kind: 'account' | 'person' | 'other'
+		email?: string
+		pending?: boolean
+	}
+
+	// One row per user: the saved value and "me" are tags on the account or person row when it is
+	// listed, and rows of their own above the groups when it is not.
+	let rows: Row[] = $derived.by(() => {
+		const tags = new Map<string, string[]>()
+		const tag = (name: string | undefined, t: string) =>
+			name && tags.set(name, [...(tags.get(name) ?? []), t])
+		if (targetValue) tag(targetDisplayName, isDeployment ? '(target)' : '(current)')
+		tag(myDisplayName, '(me)')
+
+		const listed: Omit<Row, 'label'>[] = [
+			...serviceAccounts.current
+				.filter((a) => a.pending || canPreserve || deployAs.current.includes(`u/${a.username}`))
+				.sort(
+					(a, b) =>
+						Number(!!b.pending) - Number(!!a.pending) || a.username.localeCompare(b.username)
+				)
+				.map((a) => ({
+					value: `u/${a.username}`,
+					group: 'Service accounts',
+					kind: 'account' as const,
+					email: a.email,
+					pending: a.pending,
+					subtitle: a.folders.length
+						? `reads ${a.folders.map((f) => `f/${f}`).join(', ')}`
+						: 'no folder shared'
+				})),
+			...(canPreserve ? users : [])
+				.filter((u) => !u.disabled && !u.is_service_account)
+				.map((u) => ({
+					value: `u/${u.username}`,
+					group: 'People',
+					kind: 'person' as const,
+					email: u.email,
+					subtitle: u.email
+				}))
+		]
+		const listedNames = new Set(listed.map((r) => r.value))
+		const own: Omit<Row, 'label'>[] = [...tags.keys()]
+			.filter((name) => !listedNames.has(name))
+			.map((name) => ({
+				value: name,
+				group: '',
+				kind: 'other' as const,
+				disabled: name !== myDisplayName && !allowed(targetValue)
+			}))
+		return [...own, ...listed].map((r) => ({
+			...r,
+			label: [r.value, ...(tags.get(r.value) ?? [])].join(' ')
+		}))
+	})
+	let rowsByValue = $derived(new Map(rows.map((r) => [r.value, r])))
+
+	function pick(value: string | undefined) {
+		if (!value) return
+		if (targetValue && value === targetDisplayName && allowed(targetValue)) {
+			onSelect('target')
+		} else if (value === myDisplayName) {
+			onSelect('me')
+		} else {
+			const email = rowsByValue.get(value)?.email
+			if (email) onSelect('custom', { email, permissionedAs: value })
+		}
+	}
 
 	// Service accounts are created at deploy time for the runnables a deploy dialog confirms; a
 	// trigger's identity is set where it is saved, with no dialog to create one from.
@@ -194,12 +236,38 @@
 		kind === 'script' || kind === 'flow' || kind === 'app' || kind === 'raw_app'
 	)
 	const canCreate = $derived(!!$enterpriseLicense && !!$userStore?.is_admin)
-	let mode: 'pick' | 'create' = $state('pick')
+
+	let filterText = $state('')
+	let selectOpen = $state(false)
+	let drawerOpen = $state(false)
 	let createName: string | undefined = $state()
 
-	function startCreate(name?: string) {
-		createName = name
-		mode = 'create'
+	function setSelectOpen(open: boolean) {
+		selectOpen = open
+		onPickerOpenChange?.(selectOpen || drawerOpen)
+	}
+	function setDrawerOpen(open: boolean) {
+		drawerOpen = open
+		onPickerOpenChange?.(selectOpen || drawerOpen)
+	}
+
+	function startCreate() {
+		createName = filterText.trim() || undefined
+		// Cleared first, as Select's own pick does: Select reopens the list while a search is typed.
+		filterText = ''
+		setDrawerOpen(true)
+		setSelectOpen(false)
+	}
+
+	let noMatchingItems = $derived(
+		!!filterText && !rows.some((r) => r.label.toLowerCase().includes(filterText.toLowerCase()))
+	)
+
+	function handleSelectKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter' && selectOpen && noMatchingItems && offersCreate && canCreate) {
+			e.preventDefault()
+			startCreate()
+		}
 	}
 
 	function isPending(value: string | undefined): boolean {
@@ -224,27 +292,6 @@
 		selected === 'custom' && folderDefault !== undefined && customValue === folderDefault
 	)
 
-	function openModal() {
-		loadUsers()
-		searchQuery = ''
-		mode = 'pick'
-		modalOpen = true
-	}
-
-	function selectUser(user: Pick<User, 'email' | 'username'> | ServiceAccount) {
-		onSelect('custom', { email: user.email, permissionedAs: `u/${user.username}` })
-		modalOpen = false
-	}
-
-	function isSelected(username: string, email: string): boolean {
-		return selected === 'custom' && (customValue === `u/${username}` || customValue === email)
-	}
-
-	// Covers every close path — the X, the overlay, Escape — not just `selectUser`.
-	$effect(() => {
-		onPickerOpenChange?.(modalOpen)
-	})
-
 	let selectedDisplayName = $derived.by(() => {
 		if (selected === 'target') return targetDisplayName
 		if (selected === 'me') return myDisplayName
@@ -253,235 +300,111 @@
 	})
 </script>
 
+{#snippet statusIcon()}
+	<UserCog size={14} class={selected ? 'text-green-500' : 'text-yellow-500'} />
+{/snippet}
+
 {#if readOnlyWithoutPreserve && !canPick}
 	<span class="inline-flex items-center gap-1 text-xs text-secondary">
 		<UserIcon class="w-4 h-4" />
 		{myDisplayName}
 	</span>
 {:else}
-	<MeltPopover
-		placement="bottom"
-		contentClasses={aboveConfirmationModal ? 'z-[10001]' : ''}
-		on:openChange={(e) => e.detail && loadUsers()}
-	>
-		{#snippet trigger()}
-			<span class="inline-flex items-center gap-1">
-				<UserCog class="w-4 h-4 {selected ? 'text-green-500' : 'text-yellow-500'}" />
-				{#if selectedDisplayName}
-					<span class="text-xs truncate max-w-24">{selectedDisplayName}</span>
-					{#if selected === 'custom' && isPending(customValue)}
-						<span
-							class="text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300"
-							title="Created when you deploy">new</span
-						>
-					{/if}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+	<div class="inline-flex items-center gap-2" role="group" onkeydown={handleSelectKeydown}>
+		<Select
+			items={rows}
+			bind:value={() => selectedDisplayName, pick}
+			bind:filterText
+			bind:open={() => selectOpen, setSelectOpen}
+			groupBy={(r) => r.group}
+			loading={!usersLoaded}
+			noItemsMsg="No user or service account found"
+			placeholder="Select a user"
+			{size}
+			class={className}
+			dropdownClass={aboveConfirmationModal ? 'z-[10001]' : undefined}
+			RightIcon={ChevronDown}
+			inputLeadingSnippet={statusIcon}
+		>
+			{#snippet startSnippet({ item })}
+				{@const Icon = rowsByValue.get(item.value)?.kind === 'account' ? Bot : UserIcon}
+				<Icon size={14} class="shrink-0 text-secondary" />
+			{/snippet}
+			{#snippet endSnippet({ item })}
+				{#if rowsByValue.get(item.value)?.pending}
+					<span class="text-2xs text-blue-700 dark:text-blue-300">new</span>
 				{/if}
-				{#if isFolderDefaultSelected}
-					<span
-						class="text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900"
-						title="From this folder's default_permissioned_as rule"
-					>
-						folder default
-					</span>
-				{/if}
-			</span>
-		{/snippet}
-		{#snippet content({ close: closePopover })}
-			<div class="p-3 flex flex-col gap-2 min-w-48">
-				<div class="text-xs font-medium text-secondary mb-1">{label}</div>
-				<!-- Target option -->
-				{#if targetValue}
+			{/snippet}
+			{#snippet bottomSnippet()}
+				{#if offersCreate}
 					<button
-						class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!allowed(
-							targetValue
-						)
-							? 'opacity-50 cursor-not-allowed'
+						class="sticky py-2 px-4 w-full text-left text-xs font-medium flex items-center justify-center gap-2 border-t border-border-light {canCreate
+							? 'hover:bg-surface-hover'
+							: 'text-disabled cursor-not-allowed'} {noMatchingItems && canCreate
+							? 'bg-surface-hover'
 							: ''}"
-						disabled={!allowed(targetValue)}
-						onclick={() => onSelect('target')}
+						disabled={!canCreate}
+						onclick={startCreate}
 					>
-						<Check class="w-3 h-3 {selected === 'target' ? 'opacity-100' : 'opacity-0'}" />
-						<span class="truncate max-w-40">{targetDisplayName}</span>
-						<span class="text-xs text-tertiary">{isDeployment ? '(target)' : '(current)'}</span>
+						<PlusIcon class="inline" size={16} />
+						Create service account
+						{#if !$enterpriseLicense}
+							<span class="text-2xs font-medium px-1.5 rounded bg-surface-secondary text-secondary"
+								>EE</span
+							>
+						{/if}
 					</button>
+					{#if $enterpriseLicense && !canCreate}
+						<div class="px-4 pb-2 text-center text-2xs text-secondary">
+							Only workspace admins can create one.
+						</div>
+					{/if}
 				{/if}
-				<!-- Me option -->
-				<button
-					class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover"
-					onclick={() => onSelect('me')}
-				>
-					<Check class="w-3 h-3 {selected === 'me' ? 'opacity-100' : 'opacity-0'}" />
-					<span class="truncate max-w-40">{myDisplayName}</span>
-					<span class="text-xs text-tertiary">(me)</span>
-				</button>
-				<!-- Custom / Pick from workspace -->
-				<button
-					class="flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-surface-hover {!canPick
-						? 'opacity-50 cursor-not-allowed'
-						: ''}"
-					disabled={!canPick}
-					onclick={() => {
-						closePopover()
-						openModal()
-					}}
-				>
-					{#if selected === 'custom' && customDisplayName}
-						<Check class="w-3 h-3 opacity-100" />
-						<span class="truncate max-w-40">{customDisplayName}</span>
-						<span class="text-xs text-tertiary">(custom)</span>
-					{:else}
-						<Check class="w-3 h-3 opacity-0" />
-						<Users class="w-3 h-3 text-tertiary" />
-						<span>{canPreserve ? 'Pick from workspace' : 'Pick a service account'}&hellip;</span>
-					{/if}
-				</button>
-			</div>
-		{/snippet}
-	</MeltPopover>
-{/if}
-
-<!-- User selection modal. Portalled: the modal positions itself with `fixed`, which resolves
-     against the nearest transformed ancestor — inside a dialog card (which is transformed for
-     its open transition) it would be laid out within that card instead of the viewport. -->
-<Portal>
-	<Modal
-		title={mode === 'create' ? 'New service account' : 'Select a user'}
-		bind:open={modalOpen}
-		kind="X"
-		minZIndex={aboveConfirmationModal ? 10001 : undefined}
-	>
-		{#if mode === 'create'}
-			<div class="w-[32rem] max-w-full">
-				<NewServiceAccountForm
-					workspace={targetWorkspace}
-					itemKind={kind === 'raw_app' ? 'app' : (kind as 'script' | 'flow' | 'app')}
-					{itemPath}
-					{needsSource}
-					initialName={createName}
-					onBack={() => (mode = 'pick')}
-					onUse={(permissionedAs) => {
-						onSelect('custom', {
-							email: `${permissionedAs.slice(2)}@${PENDING_EMAIL_DOMAIN}`,
-							permissionedAs
-						})
-						modalOpen = false
-					}}
-				/>
-			</div>
-		{:else}
-			<div class="flex flex-col gap-4">
-				<div class="text-xs text-secondary">
-					{#if isTrigger}
-						Choose the user this trigger will be permissioned as {isDeployment
-							? 'in the target workspace'
-							: 'in this workspace'}. The selected user's permissions will be used when the trigger
-						fires.
-					{:else}
-						Choose the user this {kind} will run on behalf of {isDeployment
-							? 'in the target workspace'
-							: 'in this workspace'}. The selected user's permissions will be used when executing.
-					{/if}
-					<a
-						href="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
-						target="_blank"
-						rel="noopener noreferrer"
-						class="text-blue-500 hover:underline inline-flex items-center gap-0.5"
-					>
-						Learn more
-						<ExternalLink class="w-3 h-3" />
-					</a>
-				</div>
-
-				<TextInput
-					bind:value={searchQuery}
-					inputProps={{ placeholder: 'Search people and service accounts' }}
-				/>
-
-				<div class="max-h-72 overflow-y-auto border rounded">
-					{#if accounts.length}
-						<div class="px-3 pt-2 pb-1 text-2xs font-semibold text-secondary">Service accounts</div>
-						{#each accounts as account (account.username)}
-							<button
-								class="w-full flex items-center gap-3 px-3 py-2 text-left text-sm hover:bg-surface-hover"
-								onclick={() => selectUser(account)}
-							>
-								<Bot class="w-4 h-4 text-secondary flex-shrink-0" />
-								<span class="font-medium truncate">u/{account.username}</span>
-								{#if account.pending}
-									<span class="text-2xs text-blue-700 dark:text-blue-300">new</span>
-								{/if}
-								<span class="ml-auto text-xs text-tertiary truncate">
-									{account.folders.length
-										? `reads ${account.folders.map((f) => `f/${f}`).join(', ')}`
-										: 'no folder shared'}
-								</span>
-								{#if isSelected(account.username, account.email)}
-									<Check class="w-4 h-4 text-green-500 flex-shrink-0" />
-								{/if}
-							</button>
-						{/each}
-					{/if}
-					{#if people.length}
-						<div class="px-3 pt-2 pb-1 text-2xs font-semibold text-secondary">People</div>
-						{#each people as user (user.email)}
-							<button
-								class="w-full flex items-center gap-3 px-3 py-2 text-left text-sm hover:bg-surface-hover"
-								onclick={() => selectUser(user)}
-							>
-								<UserIcon class="w-4 h-4 text-secondary flex-shrink-0" />
-								<span class="font-medium truncate">u/{user.username}</span>
-								<span class="ml-auto text-xs text-tertiary truncate">{user.email}</span>
-								{#if isSelected(user.username, user.email)}
-									<Check class="w-4 h-4 text-green-500 flex-shrink-0" />
-								{/if}
-							</button>
-						{/each}
-					{/if}
-					{#if !accounts.length && !people.length}
-						<div class="px-3 py-4 text-sm text-tertiary text-center">
-							{#if !usersLoaded}
-								Loading users&hellip;
-							{:else if q}
-								No one matches “{searchQuery.trim()}”
-							{:else}
-								No users found
-							{/if}
-						</div>
-					{/if}
-					{#if offersCreate}
-						<div class="border-t">
-							<button
-								class="w-full flex items-center gap-2 px-3 py-2 text-left text-sm font-semibold {canCreate
-									? 'text-accent hover:bg-surface-hover'
-									: 'text-disabled cursor-not-allowed'}"
-								disabled={!canCreate}
-								onclick={() =>
-									startCreate(!accounts.length && !people.length ? searchQuery.trim() : undefined)}
-							>
-								<Plus class="w-4 h-4" />
-								<span class="grow">
-									{#if canCreate && q && !accounts.length && !people.length}
-										Create service account “{searchQuery.trim()}”
-									{:else}
-										New service account
-									{/if}
-								</span>
-								{#if !$enterpriseLicense}
-									<span
-										class="text-2xs font-medium px-1.5 rounded bg-surface-secondary text-secondary"
-										>EE</span
-									>
-								{/if}
-							</button>
-							{#if $enterpriseLicense && !canCreate}
-								<div class="px-3 pb-2 pl-9 text-2xs text-secondary">
-									Only workspace admins can create one.
-								</div>
-							{/if}
-						</div>
-					{/if}
-				</div>
-			</div>
+			{/snippet}
+		</Select>
+		{#if selected === 'custom' && isPending(customValue)}
+			<span
+				class="text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300"
+				title="Created when you deploy">new</span
+			>
 		{/if}
-	</Modal>
-</Portal>
+		{#if isFolderDefaultSelected}
+			<span
+				class="text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900 whitespace-nowrap"
+				title="From this folder's default_permissioned_as rule"
+			>
+				folder default
+			</span>
+		{/if}
+	</div>
+
+	{#if offersCreate}
+		<Drawer
+			bind:open={() => drawerOpen, setDrawerOpen}
+			size="600px"
+			minZIndex={aboveConfirmationModal ? 10001 : undefined}
+		>
+			<DrawerContent title="New service account" on:close={() => setDrawerOpen(false)}>
+				{#if drawerOpen}
+					<NewServiceAccountForm
+						workspace={targetWorkspace}
+						itemKind={kind === 'raw_app' ? 'app' : (kind as 'script' | 'flow' | 'app')}
+						{itemPath}
+						{needsSource}
+						initialName={createName}
+						onBack={() => setDrawerOpen(false)}
+						onUse={(permissionedAs) => {
+							onSelect('custom', {
+								email: `${permissionedAs.slice(2)}@${PENDING_EMAIL_DOMAIN}`,
+								permissionedAs
+							})
+							setDrawerOpen(false)
+						}}
+					/>
+				{/if}
+			</DrawerContent>
+		</Drawer>
+	{/if}
+{/if}

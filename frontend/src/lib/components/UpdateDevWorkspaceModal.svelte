@@ -324,6 +324,8 @@
 						aboveConfirmationModal
 						onPickerOpenChange={(open) => (pickerOpen = open)}
 						myPermissionedAs={access?.value.me?.permissionedAs}
+						size="sm"
+						class="w-44"
 					/>
 				</div>
 				{#if onBehalfOfUnset}

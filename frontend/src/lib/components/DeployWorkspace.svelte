@@ -643,6 +643,8 @@
 						kind={item.kind}
 						canPreserve={canPreserveOnBehalfOf}
 						customValue={customOnBehalfOf[statusPath]?.permissionedAs}
+						size="sm"
+						class="w-44"
 					/>
 				{/if}
 
