@@ -1,14 +1,12 @@
 <script lang="ts">
-	import { Alert, Button } from '$lib/components/common'
-	import Modal from '$lib/components/common/modal/Modal.svelte'
-	import Portal from '$lib/components/Portal.svelte'
+	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import {
 		canPreserveOnBehalfOf,
 		WM_DEPLOYERS_GROUP
 	} from '$lib/components/itemSettings/onBehalfOf'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import { enterpriseLicense } from '$lib/stores'
-	import { Bot, Folder } from 'lucide-svelte'
+	import { Bot, Folder, PlusIcon } from 'lucide-svelte'
 	import type { NeedsSource } from './detectNeeds'
 	import ItemReads from './ItemReads.svelte'
 	import NewServiceAccountForm from './NewServiceAccountForm.svelte'
@@ -83,6 +81,7 @@
 	)
 
 	let creatingOpen = $state(false)
+	let createForm: NewServiceAccountForm | undefined = $state()
 	function setCreating(open: boolean) {
 		creatingOpen = open
 		onCreatingChange?.(open)
@@ -152,28 +151,32 @@
 	</Alert>
 {/if}
 
-<Portal>
-	<Modal
-		title="New service account"
-		bind:open={() => creatingOpen, setCreating}
-		kind="X"
-		minZIndex={10001}
-	>
+<Drawer bind:open={() => creatingOpen, setCreating} size="600px" minZIndex={10001}>
+	<DrawerContent title="New service account" on:close={() => setCreating(false)}>
+		{#snippet actions()}
+			<Button
+				variant="accent"
+				unifiedSize="md"
+				startIcon={{ icon: PlusIcon }}
+				disabled={!createForm?.canCreate()}
+				onClick={() => createForm?.create()}
+			>
+				Create service account
+			</Button>
+		{/snippet}
 		{#if creatingOpen}
-			<div class="w-[32rem] max-w-full">
-				<NewServiceAccountForm
-					workspace={targetWorkspace}
-					itemKind={kind}
-					{itemPath}
-					{needsSource}
-					onBack={() => setCreating(false)}
-					onUse={(account) => {
-						const username = account.slice(2)
-						onUseAccount(username, `${username}@${PENDING_EMAIL_DOMAIN}`)
-						setCreating(false)
-					}}
-				/>
-			</div>
+			<NewServiceAccountForm
+				bind:this={createForm}
+				workspace={targetWorkspace}
+				itemKind={kind}
+				{itemPath}
+				{needsSource}
+				onCreate={(account) => {
+					const username = account.slice(2)
+					onUseAccount(username, `${username}@${PENDING_EMAIL_DOMAIN}`)
+					setCreating(false)
+				}}
+			/>
 		{/if}
-	</Modal>
-</Portal>
+	</DrawerContent>
+</Drawer>

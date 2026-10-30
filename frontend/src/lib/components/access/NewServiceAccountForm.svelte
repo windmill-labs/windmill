@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, Skeleton } from '$lib/components/common'
+	import { Skeleton } from '$lib/components/common'
 	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -14,8 +14,7 @@
 		itemPath,
 		needsSource,
 		initialName,
-		onUse,
-		onBack
+		onCreate
 	}: {
 		workspace: string
 		itemKind: RunnableKind
@@ -26,8 +25,7 @@
 		/** Typed in the picker's search. */
 		initialName?: string
 		/** The account is pending: the deploy creates it. */
-		onUse: (permissionedAs: string) => void
-		onBack: () => void
+		onCreate: (permissionedAs: string) => void
 	} = $props()
 
 	type Row = Grant & { detail: string; checked: boolean }
@@ -117,13 +115,18 @@
 			.map((f) => ({ value: f, label: `f/${f}` }))
 	)
 
-	function use(): void {
-		if (nameError) return
+	/** For the host's header action. */
+	export function canCreate(): boolean {
+		return !nameError && !detecting
+	}
+
+	export function create(): void {
+		if (!canCreate()) return
 		setPendingServiceAccount(workspace, {
 			username: name,
 			grants: chosen.map(({ kind, path }) => ({ kind, path }))
 		})
-		onUse(principal)
+		onCreate(principal)
 	}
 </script>
 
@@ -217,13 +220,7 @@
 		</span>
 	{/if}
 
-	<div class="flex items-center justify-between gap-2 border-t pt-3">
-		<span class="text-2xs text-secondary">Counts as half a seat.</span>
-		<div class="flex gap-2">
-			<Button variant="default" unifiedSize="md" onClick={onBack}>Back</Button>
-			<Button variant="accent" unifiedSize="md" disabled={!!nameError || detecting} onClick={use}>
-				Use {name || 'it'}
-			</Button>
-		</div>
-	</div>
+	<span class="border-t pt-3 text-2xs text-secondary">
+		Created when you deploy, with the access above. Counts as half a seat.
+	</span>
 </div>

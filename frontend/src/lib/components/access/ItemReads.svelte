@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import CollapseLink from '$lib/components/CollapseLink.svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import Cell from '$lib/components/table/Cell.svelte'
+	import DataTable from '$lib/components/table/DataTable.svelte'
+	import Head from '$lib/components/table/Head.svelte'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import { GranularAclService } from '$lib/gen'
 	import { AlertTriangle, Check } from 'lucide-svelte'
@@ -55,8 +58,8 @@
 
 	let report: Report | undefined = $state()
 	let grantErrors: Record<string, string> = $state({})
-	let granting = $state(false)
-	let toggled: { key: string; open: boolean } | undefined = $state()
+	let granting: string | undefined = $state()
+	let confirming: NeededItem | undefined = $state()
 	// Responses are not ordered: a slow answer for the previous identity must not land.
 	let requestId = 0
 
@@ -114,118 +117,121 @@
 		}
 		return undefined
 	})
-	const missing = $derived(readable ? items.filter((i) => !readable(i)) : [])
-	const open = $derived(
-		toggled && toggled.key === key ? toggled.open : missing.length > 0 || !!shown?.accessError
-	)
 
-	function plural(n: number, word: string): string {
-		return `${n} ${word}${n === 1 ? '' : 's'}`
-	}
-	const summary = $derived.by(() => {
-		const resources = items.filter((i) => i.kind === 'resource').length
-		const variables = items.length - resources
-		const counts = [
-			resources ? plural(resources, 'resource') : undefined,
-			variables ? plural(variables, 'variable') : undefined
-		]
-			.filter(Boolean)
-			.join(' and ')
-		return readable && !missing.length
-			? `Reads ${counts}, all readable by ${account}`
-			: `Reads ${counts}`
-	})
-
-	async function grantRead(): Promise<void> {
+	async function grantRead(item: NeededItem): Promise<void> {
 		if (!account) return
-		const principal = account
-		granting = true
-		const errors: Record<string, string> = {}
-		for (const item of missing) {
-			try {
-				await setGrant(workspace, item.kind, item.path, principal, 'read')
-			} catch (e) {
-				errors[`${item.kind}:${item.path}`] = `${e?.body ?? e}`
-			}
+		const itemKey = `${item.kind}:${item.path}`
+		granting = itemKey
+		try {
+			await setGrant(workspace, item.kind, item.path, account, 'read')
+			delete grantErrors[itemKey]
+		} catch (e) {
+			grantErrors[itemKey] = `${e?.body ?? e}`
 		}
-		grantErrors = errors
-		toggled = undefined
 		await check()
-		granting = false
+		granting = undefined
+		confirming = undefined
 	}
 </script>
 
+<!-- Portalled and raised: this section also renders inside the deploy drawer and its run-as
+     confirmation dialog. -->
+<ConfirmationModal
+	open={!!confirming}
+	title="Grant read access"
+	confirmationText="Grant read to {account}"
+	type="info"
+	loading={!!granting}
+	alwaysPortal
+	zIndexClass="z-[10000]"
+	onConfirmed={() => confirming && grantRead(confirming)}
+	onCanceled={() => (confirming = undefined)}
+>
+	{#if confirming}
+		<p class="text-xs text-primary">
+			{account} gets read access to the {confirming.kind}
+			<span class="font-mono">{confirming.path}</span>. The grant applies now, before you deploy.
+		</p>
+	{/if}
+</ConfirmationModal>
+
 {#if items.length}
-	<CollapseLink
-		text={summary}
-		class="mb-0 text-2xs font-normal text-secondary"
-		bind:open={() => open, (o) => key && (toggled = { key, open: o })}
-	>
-		<div class="flex flex-col gap-1.5 text-2xs">
-			<div
-				class="grid {readable
-					? 'grid-cols-[max-content_minmax(0,max-content)_max-content_minmax(0,1fr)]'
-					: 'grid-cols-[minmax(0,max-content)_max-content]'} items-center gap-x-3 gap-y-0.5"
-			>
+	<div class="flex flex-col gap-1.5 text-2xs">
+		<span class="text-secondary">This {kind} needs read access to:</span>
+		<DataTable size="xs">
+			<Head>
+				<tr>
+					<Cell head first>Path</Cell>
+					<Cell head last={!readable}>Kind</Cell>
+					{#if readable}
+						<Cell head>{account}</Cell>
+						<Cell head last actions />
+					{/if}
+				</tr>
+			</Head>
+			<tbody class="divide-y">
 				{#each items as item (item.kind + ':' + item.path)}
 					{@const itemKey = `${item.kind}:${item.path}`}
 					{@const ok = readable?.(item)}
-					{#if readable}
-						{#if ok}
-							<Check size={12} class="text-green-600 dark:text-green-400" />
-						{:else}
-							<AlertTriangle size={12} class="text-yellow-500" />
+					<tr>
+						<Cell first><span class="font-mono text-2xs">{item.path}</span></Cell>
+						<Cell last={!readable}>{item.kind}</Cell>
+						{#if readable}
+							<Cell>
+								{#if grantErrors[itemKey]}
+									<span class="text-red-600 dark:text-red-400">{grantErrors[itemKey]}</span>
+								{:else if ok}
+									<span class="flex items-center gap-1.5">
+										<Check size={12} class="text-green-600 dark:text-green-400" />
+										Can read
+									</span>
+								{:else}
+									<span class="flex items-center gap-1.5 text-yellow-600 dark:text-yellow-400">
+										<AlertTriangle size={12} class="text-yellow-500" />
+										{mode === 'pending' ? "Won't be able to read" : "Can't read"}
+									</span>
+								{/if}
+							</Cell>
+							<Cell last actions>
+								{#if !ok && mode === 'checked' && isAdmin}
+									<Button
+										variant="default"
+										unifiedSize="xs"
+										disabled={!!granting}
+										onClick={() => (confirming = item)}
+									>
+										Grant read to {account}
+									</Button>
+								{/if}
+							</Cell>
 						{/if}
-					{/if}
-					<span class="font-mono text-primary truncate">{item.path}</span>
-					<span class="text-secondary">{item.kind}</span>
-					{#if readable}
-						{#if grantErrors[itemKey]}
-							<span class="text-red-600 dark:text-red-400 truncate" title={grantErrors[itemKey]}>
-								{grantErrors[itemKey]}
-							</span>
-						{:else if !ok}
-							<span class="text-yellow-600 dark:text-yellow-400 truncate">
-								{account}
-								{mode === 'pending' ? "won't be able to read it" : "can't read it"}
-							</span>
-						{:else}
-							<span></span>
-						{/if}
-					{/if}
+					</tr>
 				{/each}
-			</div>
-			{#if missing.length && mode === 'checked' && isAdmin}
-				<div class="flex justify-end">
-					<Button variant="default" unifiedSize="xs" loading={granting} onClick={grantRead}>
-						Grant read
-					</Button>
-				</div>
-			{/if}
-			{#if shown?.accessError}
-				<span class="text-secondary">Couldn't check {account}'s access: {shown.accessError}</span>
-			{/if}
-			{#if mode === 'caller'}
-				<span class="text-secondary">
-					It runs as whoever runs it, so each of them needs read access to these.
-				</span>
-			{/if}
-			{#if shown?.needs.others.length}
-				<span class="text-secondary">
-					Also uses {shown.needs.others.map((o) => `${o.kind} ${o.path}`).join(', ')}; access to
-					these is set on the storage or data table itself.
-				</span>
-			{/if}
-			{#if shown?.needs.errors.length}
-				<span class="text-secondary">
-					Some of it could not be read, so this list may be incomplete: {shown.needs.errors.join(
-						'; '
-					)}.
-				</span>
-			{/if}
+			</tbody>
+		</DataTable>
+		{#if shown?.accessError}
+			<span class="text-secondary">Couldn't check {account}'s access: {shown.accessError}</span>
+		{/if}
+		{#if mode === 'caller'}
 			<span class="text-secondary">
-				Only paths written out in the code are found; a path the code builds while it runs isn't.
+				It runs as whoever runs it, so each of them needs read access to these.
 			</span>
-		</div>
-	</CollapseLink>
+		{/if}
+		{#if shown?.needs.others.length}
+			<span class="text-secondary">
+				Also uses {shown.needs.others.map((o) => `${o.kind} ${o.path}`).join(', ')}; access to these
+				is set on the storage or data table itself.
+			</span>
+		{/if}
+		{#if shown?.needs.errors.length}
+			<span class="text-secondary">
+				Some of it could not be read, so this list may be incomplete: {shown.needs.errors.join(
+					'; '
+				)}.
+			</span>
+		{/if}
+		<span class="text-secondary">
+			Only paths written out in the code are found; a path the code builds while it runs isn't.
+		</span>
+	</div>
 {/if}

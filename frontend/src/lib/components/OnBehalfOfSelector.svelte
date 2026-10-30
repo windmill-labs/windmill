@@ -30,7 +30,7 @@
 <script lang="ts">
 	import { Bot, ChevronDown, PlusIcon, User as UserIcon, UserCog, Users } from 'lucide-svelte'
 	import Select from './select/Select.svelte'
-	import { Drawer, DrawerContent } from './common'
+	import { Button, Drawer, DrawerContent } from './common'
 	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { UserService, type User } from '$lib/gen'
 	import {
@@ -251,6 +251,7 @@
 	let filterText = $state('')
 	let selectOpen = $state(false)
 	let drawerOpen = $state(false)
+	let createForm: NewServiceAccountForm | undefined = $state()
 	let createName: string | undefined = $state()
 
 	function setSelectOpen(open: boolean) {
@@ -399,15 +400,26 @@
 			minZIndex={aboveConfirmationModal ? 10001 : undefined}
 		>
 			<DrawerContent title="New service account" on:close={() => setDrawerOpen(false)}>
+				{#snippet actions()}
+					<Button
+						variant="accent"
+						unifiedSize="md"
+						startIcon={{ icon: PlusIcon }}
+						disabled={!createForm?.canCreate()}
+						onClick={() => createForm?.create()}
+					>
+						Create service account
+					</Button>
+				{/snippet}
 				{#if drawerOpen}
 					<NewServiceAccountForm
+						bind:this={createForm}
 						workspace={targetWorkspace}
 						itemKind={kind === 'raw_app' ? 'app' : (kind as 'script' | 'flow' | 'app')}
 						{itemPath}
 						{needsSource}
 						initialName={createName}
-						onBack={() => setDrawerOpen(false)}
-						onUse={(permissionedAs) => {
+						onCreate={(permissionedAs) => {
 							onSelect('custom', {
 								email: `${permissionedAs.slice(2)}@${PENDING_EMAIL_DOMAIN}`,
 								permissionedAs

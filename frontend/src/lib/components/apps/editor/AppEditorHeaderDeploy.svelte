@@ -24,7 +24,10 @@
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import RunAsNotes from '$lib/components/access/RunAsNotes.svelte'
-	import { dropStalePending } from '$lib/components/access/serviceAccounts.svelte'
+	import {
+		dropStalePending,
+		useServiceAccounts
+	} from '$lib/components/access/serviceAccounts.svelte'
 	import type { NeedsSource } from '$lib/components/access/detectNeeds'
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 	import { FRONTEND_SDK_SCOPES, sdkScopesToConfirm } from '$lib/components/raw_apps/sdkScopes'
@@ -179,6 +182,10 @@
 		if (onBehalfOfChoice === 'custom') return policy.on_behalf_of
 		return savedOnBehalfOf
 	})
+	const serviceAccounts = useServiceAccounts(() => opWs)
+	const runsAsServiceAccount = $derived(
+		serviceAccounts.current.some((a) => `u/${a.username}` === deployOnBehalfOf)
+	)
 	let onBehalfOfWillChange = $derived(
 		!newApp && !!savedOnBehalfOf && !!deployOnBehalfOf && deployOnBehalfOf !== savedOnBehalfOf
 	)
@@ -384,7 +391,14 @@
 			</div>
 			<div class="text-2xs text-secondary">
 				{#if canPreserve}
-					Viewers run the app's runnables as this user.
+					{#if deployOnBehalfOf}
+						Viewers run the app's runnables as the {runsAsServiceAccount
+							? 'service account'
+							: 'user'}
+						{deployOnBehalfOf}.
+					{:else}
+						Viewers run the app's runnables as the chosen user.
+					{/if}
 				{:else}
 					Only workspace admins and members of {WM_DEPLOYERS_GROUP} can pick another user.
 				{/if}
