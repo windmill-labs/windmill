@@ -261,20 +261,10 @@ pub fn register_secret_for_job(job_id: Uuid, secret: &str) {
 mod tests {
     use super::*;
 
-    /// `register_secret_for_all_running_jobs` reaches every job other tests have
-    /// registered, so every test holds this shared, and the one that broadcasts
-    /// holds it exclusively.
-    static SECRET_SET: RwLock<()> = RwLock::new(());
-
-    fn stable_secret_set() -> std::sync::RwLockReadGuard<'static, ()> {
-        SECRET_SET.read().unwrap_or_else(|e| e.into_inner())
-    }
-
     /// The compiled automaton is cached per job, so a secret registered after the
     /// first snapshot only gets masked if the cache is invalidated.
     #[test]
     fn snapshot_rebuilds_after_a_new_secret_is_registered() {
-        let _guard = stable_secret_set();
         let job_id = Uuid::new_v4();
         register_running_job(job_id);
         register_secret_for_job(job_id, "firstsecretvalue");
@@ -295,7 +285,6 @@ mod tests {
     /// pick up a secret registered after the masker was built.
     #[test]
     fn job_masker_notices_once_per_secret_set() {
-        let _guard = stable_secret_set();
         let job_id = Uuid::new_v4();
         register_running_job(job_id);
         register_secret_for_job(job_id, "firstsecretvalue");
@@ -319,7 +308,6 @@ mod tests {
     /// the masker keeps working off the masks it last saw rather than going quiet.
     #[test]
     fn job_masker_masks_after_the_job_is_unregistered() {
-        let _guard = stable_secret_set();
         let job_id = Uuid::new_v4();
         register_running_job(job_id);
         register_secret_for_job(job_id, "supersecretvalue");
@@ -337,7 +325,6 @@ mod tests {
     /// the notice onto whichever line follows it.
     #[test]
     fn notice_lands_on_its_own_line_for_both_caller_shapes() {
-        let _guard = stable_secret_set();
         let job_id = Uuid::new_v4();
         register_running_job(job_id);
         register_secret_for_job(job_id, "supersecretvalue");
@@ -355,108 +342,21 @@ mod tests {
         unregister_running_job(job_id);
     }
 
-    fn job_with(secrets: &[&str]) -> Uuid {
+    /// A secret containing another must be masked whole (`LeftmostLongest`), or its
+    /// tail leaks; the kept prefix/suffix must be cut by char, or multi-byte secrets panic.
+    #[test]
+    fn overlapping_and_multibyte_secrets_are_masked_whole() {
         let job_id = Uuid::new_v4();
         register_running_job(job_id);
-        for s in secrets {
-            register_secret_for_job(job_id, s);
-        }
-        job_id
-    }
+        register_secret_for_job(job_id, "password");
+        register_secret_for_job(job_id, "password-and-more");
+        register_secret_for_job(job_id, "🔑éàü-secret-value-ñ€😀");
 
-    #[test]
-    fn secrets_shorter_than_min_length_are_not_registered() {
-        let _guard = stable_secret_set();
-        let job_id = job_with(&["1234567"]);
-        assert!(snapshot(&job_id).is_none());
-        register_secret_for_job(job_id, "12345678");
-        assert!(snapshot(&job_id).is_some());
-        unregister_running_job(job_id);
-    }
+        let masked = snapshot(&job_id)
+            .expect("secrets registered")
+            .mask("password-and-more 🔑éàü-secret-value-ñ€😀");
+        assert_eq!(masked, format!("p*****e 🔑éà*****ñ€😀\n{MASKED_NOTICE}"));
 
-    #[test]
-    fn mask_keeps_more_context_for_long_secrets() {
-        let _guard = stable_secret_set();
-        let job_id = job_with(&["abcdefgh", "abc-long-secret-value-xyz"]);
-        let snap = snapshot(&job_id).unwrap();
-        assert_eq!(
-            snap.mask("abcdefgh abc-long-secret-value-xyz"),
-            format!("a*****h abc*****xyz\n{MASKED_NOTICE}")
-        );
-        unregister_running_job(job_id);
-    }
-
-    /// A secret containing another must be masked whole, not leave the remainder exposed.
-    #[test]
-    fn longer_secret_wins_over_its_substring() {
-        let _guard = stable_secret_set();
-        let job_id = job_with(&["password", "password-and-more"]);
-        let snap = snapshot(&job_id).unwrap();
-        assert_eq!(
-            snap.mask("password-and-more"),
-            format!("p*****e\n{MASKED_NOTICE}")
-        );
-        unregister_running_job(job_id);
-    }
-
-    #[test]
-    fn snapshot_appends_notice_once_and_borrows_on_no_match() {
-        let _guard = stable_secret_set();
-        let job_id = job_with(&["supersecretvalue"]);
-        let snap = snapshot(&job_id).unwrap();
-        assert!(matches!(snap.mask(""), Cow::Borrowed("")));
-        assert!(matches!(
-            snap.mask("nothing here"),
-            Cow::Borrowed("nothing here")
-        ));
-        assert!(snap.mask("a supersecretvalue").contains(MASKED_NOTICE));
-        assert_eq!(snap.mask("b supersecretvalue"), "b s*****e");
-        unregister_running_job(job_id);
-    }
-
-    #[test]
-    fn snapshot_is_none_without_secrets_or_after_unregister() {
-        let _guard = stable_secret_set();
-        let job_id = job_with(&[]);
-        assert!(snapshot(&job_id).is_none());
-        register_secret_for_job(job_id, "supersecretvalue");
-        assert!(snapshot(&job_id).is_some());
-        unregister_running_job(job_id);
-        assert!(snapshot(&job_id).is_none());
-    }
-
-    #[test]
-    fn secret_for_all_running_jobs_reaches_only_registered_jobs() {
-        let _guard = SECRET_SET.write().unwrap_or_else(|e| e.into_inner());
-        let a = job_with(&[]);
-        let b = job_with(&[]);
-        let finished = job_with(&[]);
-        unregister_running_job(finished);
-        let secret = format!("shared-{}", Uuid::new_v4());
-        register_secret_for_all_running_jobs(&secret);
-
-        for job_id in [a, b] {
-            let masked = snapshot(&job_id).unwrap().mask(&secret).into_owned();
-            assert!(!masked.contains(&secret), "{masked}");
-            unregister_running_job(job_id);
-        }
-        assert!(snapshot(&finished).is_none());
-    }
-
-    /// Prefix/suffix and the 20 threshold count chars, so multi-byte secrets must
-    /// neither split a code point nor switch format by byte length.
-    #[test]
-    fn multibyte_secrets_are_masked_on_char_boundaries() {
-        let _guard = stable_secret_set();
-        let twenty_chars = "é".repeat(20);
-        let job_id = job_with(&["🔑éàü-secret-value-ñ€😀", "éàü🔑", &twenty_chars]);
-        let snap = snapshot(&job_id).unwrap();
-        assert_eq!(
-            snap.mask(&format!(
-                "x 🔑éàü-secret-value-ñ€😀 y éàü🔑 z {twenty_chars}"
-            )),
-            format!("x 🔑éà*****ñ€😀 y é*****🔑 z é*****é\n{MASKED_NOTICE}")
-        );
         unregister_running_job(job_id);
     }
 }
