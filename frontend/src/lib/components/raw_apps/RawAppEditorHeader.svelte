@@ -816,11 +816,12 @@
 			const members = firstDeployMembers
 			const workspace = opWorkspace!
 			const path = newEditedPath
+			// Read before the create: in a session pane `policy` is bound to the session's draft,
+			// which the create's `onDeploy` discards.
+			const links = { workspace, path, mode: accessModeOf(policy), customPath }
 			if (await createApp(path)) {
 				await applyFirstDeployMembers(workspace, 'raw_app', path, members)
-				if (offersSharing) {
-					showAppLinks({ workspace, path, mode: accessModeOf(policy), customPath })
-				}
+				if (offersSharing) showAppLinks(links)
 			}
 		} else {
 			await handleUpdateApp(newEditedPath)

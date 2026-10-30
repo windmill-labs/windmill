@@ -610,11 +610,10 @@
 			const members = firstDeployMembers
 			const workspace = $workspaceStore!
 			const path = newEditedPath
+			const links = { workspace, path, mode: accessModeOf(policy), customPath }
 			if (await createApp(path)) {
 				await applyFirstDeployMembers(workspace, 'app', path, members)
-				if (offersSharing) {
-					showAppLinks({ workspace, path, mode: accessModeOf(policy), customPath })
-				}
+				if (offersSharing) showAppLinks(links)
 			}
 		} else {
 			await handleUpdateApp(newEditedPath)
