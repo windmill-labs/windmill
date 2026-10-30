@@ -483,7 +483,7 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 			sendUserToast(`Deleted ${row.path}`)
 			delete parkedFolderDrafts[draftKey(row.path, target)]
 			// Whatever was opened while the delete was in flight owns the editor now.
-			if (detail?.kind === 'folder' && detail.row.path === row.path) {
+			if (target === ws && detail?.kind === 'folder' && detail.row.path === row.path) {
 				setFolderContent('')
 				folderOriginal = ''
 				closeDetail()
