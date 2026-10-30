@@ -432,6 +432,11 @@
 											</div>
 										</div>
 									{/each}
+									{#if ownerTotal != undefined && ownerTotal > skeletonRows}
+										<!-- The one footer the loaded rows end on, "Show more" or "Load more":
+										     py-2 around a 28px button. -->
+										<div class="h-11"></div>
+									{/if}
 								</div>
 							{:else}
 								<div class="text-center text-xs py-2 text-secondary">Loading…</div>
