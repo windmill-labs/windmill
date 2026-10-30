@@ -38,6 +38,7 @@
 		WandSparkles
 	} from 'lucide-svelte'
 	import ShareDialog from '$lib/components/itemSettings/ShareDialog.svelte'
+	import { showAppLinks } from '$lib/components/itemSettings/AppLinksModal.svelte'
 	import FirstDeployDialog, {
 		applyFirstDeployMembers
 	} from '$lib/components/itemSettings/FirstDeployDialog.svelte'
@@ -274,6 +275,9 @@
 		onSavedNewAppPath
 	}: Props = $props()
 
+	// Share and the first-deploy dialog belong to Windmill's own editors: an embedding host can
+	// lock the path, which the dialog would let the user change.
+	const offersSharing = $derived(ownsPageHeader || inSessionPane)
 	const isNewApp = $derived(newApp || appPath == '')
 	// Only the app's first deploy takes the folder's default user.
 	const folderDefault = useFolderDefaultPermissionedAs(
@@ -745,13 +749,14 @@
 		}
 		deploymentMsg = message
 		firstDeployMembers = {}
-		if (isNewApp && ownsPageHeader) {
+		if (isNewApp && firstDeployDialog) {
 			// The dialog also asks who the app runs on behalf of, for the path it chose.
-			const choice = await firstDeployDialog?.ask({
+			const choice = await firstDeployDialog.ask({
 				kind: 'raw_app',
 				summary,
 				path: newEditedPath,
 				appMode: accessModeOf(policy),
+				customPath,
 				runAs: {
 					email: policy.on_behalf_of_email,
 					permissionedAs: policy.on_behalf_of,
@@ -762,6 +767,7 @@
 			summary = choice.summary
 			newEditedPath = choice.path
 			policy.execution_mode = choice.appMode
+			customPath = choice.customPath
 			if (choice.runAs) {
 				policy.on_behalf_of_email = choice.runAs.email
 				policy.on_behalf_of = choice.runAs.permissionedAs
@@ -809,8 +815,12 @@
 		if (isNewApp) {
 			const members = firstDeployMembers
 			const workspace = opWorkspace!
-			if (await createApp(newEditedPath)) {
-				await applyFirstDeployMembers(workspace, 'raw_app', newEditedPath, members)
+			const path = newEditedPath
+			if (await createApp(path)) {
+				await applyFirstDeployMembers(workspace, 'raw_app', path, members)
+				if (offersSharing) {
+					showAppLinks({ workspace, path, mode: accessModeOf(policy), customPath })
+				}
 			}
 		} else {
 			await handleUpdateApp(newEditedPath)
@@ -948,6 +958,16 @@
 	])
 
 	let customPath = $state(savedApp?.custom_path)
+	/** Share and the settings drawer write who can open the deployed app and its custom URL at
+	 *  once: the editor follows, so its next deploy and diff see them. */
+	function applyAppAccess(row: { policy: Policy; custom_path?: string | null }) {
+		policy.execution_mode = row.policy.execution_mode
+		customPath = row.custom_path ?? undefined
+		if (savedApp) {
+			savedApp.policy = { ...savedApp.policy, execution_mode: row.policy.execution_mode }
+			savedApp.custom_path = row.custom_path ?? undefined
+		}
+	}
 	// Derived, so a draft synced in from another session reaches the header; an edit here overrides
 	// the value until the next one arrives.
 	let labels = $derived(initialLabels)
@@ -1013,20 +1033,12 @@
 	bind:pathError
 	bind:newEditedPath
 	bind:labels
+	bind:customPath
+	onAppChanged={applyAppAccess}
 />
 
-{#if ownsPageHeader}
-	<ShareDialog
-		bind:this={shareDialog}
-		onAppChanged={(row) => {
-			policy.execution_mode = row.policy.execution_mode
-			customPath = row.custom_path ?? undefined
-			if (savedApp) {
-				savedApp.policy = { ...savedApp.policy, execution_mode: row.policy.execution_mode }
-				savedApp.custom_path = row.custom_path ?? undefined
-			}
-		}}
-	/>
+{#if offersSharing}
+	<ShareDialog bind:this={shareDialog} onAppChanged={applyAppAccess} />
 	<FirstDeployDialog bind:this={firstDeployDialog} />
 {/if}
 
@@ -1334,7 +1346,7 @@
 			{/if}
 		{/snippet}
 	</OpenInSessionButton>
-	{#if ownsPageHeader && !phoneTopbar}
+	{#if offersSharing && !phoneTopbar}
 		<ShareButton
 			deployed={!neverDeployed}
 			iconOnly={compactTopbar}

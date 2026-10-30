@@ -697,9 +697,9 @@
 		// Every deploy path of the full-page editor comes through here, the message popover and
 		// "Deploy & Stay here" included.
 		pendingFirstDeploy = undefined
-		if (ownsPageHeader && neverDeployed) {
+		if (neverDeployed && firstDeployDialog) {
 			// The dialog also asks who the script runs on behalf of, for the path it chose.
-			const choice = await firstDeployDialog?.ask({
+			const choice = await firstDeployDialog.ask({
 				kind: 'script',
 				summary: script.summary,
 				path: script.path,
@@ -1098,6 +1098,9 @@
 	// details page itself, so it switches the tab instead of leaving. Diff is exposed
 	// as a standalone top-bar button (rendered independently of the pane), not here.
 	const inSessionPane = !!getContext('aiChatManager')
+	// Share and the first-deploy dialog belong to Windmill's own editors: an embedding host (the
+	// SDK) can lock the path, which the dialog would let the user change.
+	const offersSharing = $derived(ownsPageHeader || inSessionPane)
 
 	/** Names the version on the deployed side of the diff. Without it the reader is
 	 *  shown two panes and told nothing about what the left one is — which matters
@@ -1584,7 +1587,7 @@
 	onCanceled={() => (perpetualRunsToConfirm = undefined)}
 />
 
-{#if ownsPageHeader}
+{#if offersSharing}
 	<ShareDialog bind:this={shareDialog} />
 	<FirstDeployDialog bind:this={firstDeployDialog} />
 {/if}
@@ -2327,7 +2330,7 @@
 			{#if ownsPageHeader}
 				<OpenInSessionButton source={headerSessionOpen()} />
 			{/if}
-			{#if ownsPageHeader && !phoneTopbar}
+			{#if offersSharing && !phoneTopbar}
 				<ShareButton
 					deployed={!neverDeployed}
 					iconOnly={compactTopbar}

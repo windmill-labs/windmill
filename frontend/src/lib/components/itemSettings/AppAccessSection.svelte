@@ -15,7 +15,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
-	import { customPathError, type AppAccessMode } from './appAccess'
+	import { customPathError, customUrlBaseOf, secretUrlOf, type AppAccessMode } from './appAccess'
 
 	interface Props {
 		workspace: string
@@ -24,11 +24,12 @@
 		rawApp?: boolean
 		mode: AppAccessMode
 		onModeChange: (mode: AppAccessMode) => void | Promise<void>
-		/** Links, embedding and the custom URL, which exist only for a deployed app. */
-		deployed?: {
-			customPath: string | undefined
-			onCustomPathChange: (customPath: string | null) => Promise<void>
-		}
+		/** The link, the secret URL and embedding, which exist only once the app is deployed. */
+		deployed?: boolean
+		customPath?: string | undefined
+		/** Shows the custom URL. On a deployed app it writes at once; before the first deploy it is
+		 *  taken by the create. */
+		onCustomPathChange?: (customPath: string | null) => void | Promise<void>
 		disabled?: boolean
 	}
 
@@ -38,7 +39,9 @@
 		rawApp = false,
 		mode,
 		onModeChange,
-		deployed,
+		deployed = false,
+		customPath,
+		onCustomPathChange,
 		disabled = false
 	}: Props = $props()
 
@@ -84,10 +87,12 @@
 		WorkspaceService.getGuestUsage({ workspace })
 			.then((u) => (guestUsage = u))
 			.catch(() => (guestUsage = undefined))
+		if (onCustomPathChange) {
+			SettingService.getGlobal({ key: 'app_workspaced_route' })
+				.then((s) => (globalWorkspacedRoute = (s as boolean) ?? false))
+				.catch(() => (globalWorkspacedRoute = false))
+		}
 		if (!deployed) return
-		SettingService.getGlobal({ key: 'app_workspaced_route' })
-			.then((s) => (globalWorkspacedRoute = (s as boolean) ?? false))
-			.catch(() => (globalWorkspacedRoute = false))
 		AppService.getPublicSecretOfApp({ workspace, path: appPath })
 			.then((s) => (secretUrl = s))
 			.catch(() => (secretUrl = undefined))
@@ -95,9 +100,7 @@
 	load()
 
 	let embedMode = $state(false)
-	let secretUrlHref = $derived(
-		secretUrl ? `${window.location.origin}/public/${workspace}/${secretUrl}` : undefined
-	)
+	let secretUrlHref = $derived(secretUrl ? secretUrlOf(workspace, secretUrl) : undefined)
 	let appUrl = $derived(
 		`${window.location.origin}/${rawApp ? 'apps_raw' : 'apps'}/get/${appPath}?workspace=${workspace}`
 	)
@@ -110,41 +113,35 @@
 	// Shown to admins on EE; the dialog's own writes disable the controls rather than hide them.
 	let mayEditCustomPath = $derived(!!$enterpriseLicense && isAdmin)
 	let canSaveCustomPath = $derived(
-		!disabled &&
-			!savingCustomPath &&
-			customPathInput !== '' &&
-			customPathInput !== deployed?.customPath
+		!disabled && !savingCustomPath && customPathInput !== '' && customPathInput !== customPath
 	)
 	// The Embed toggle only shows outside Members, so it must not linger on from another mode.
 	let customUrlEmbed = $derived(embedMode && mode != 'publisher')
-	let customUrlBase = $derived(
-		`${window.location.origin}/a/${isCloudHosted() || globalWorkspacedRoute ? workspace + '/' : ''}`
-	)
-	let fullCustomUrl = $derived(customUrlBase + (deployed?.customPath ?? ''))
+	let customUrlBase = $derived(customUrlBaseOf(workspace, globalWorkspacedRoute))
+	let fullCustomUrl = $derived(customUrlBase + (customPath ?? ''))
 	// The guest JWT rides on the custom URL when set, else on the secret URL.
-	let guestJwtBase = $derived(deployed?.customPath ? fullCustomUrl : secretUrlHref)
+	let guestJwtBase = $derived(customPath ? fullCustomUrl : secretUrlHref)
 
 	function editCustomPath() {
-		customPathInput = deployed?.customPath ?? ''
+		customPathInput = customPath ?? ''
 		customPathErr = undefined
 		editingCustomPath = true
 	}
 
 	async function saveCustomPath(next: string | null) {
-		if (!deployed || savingCustomPath) return
+		if (!onCustomPathChange || savingCustomPath) return
 		savingCustomPath = true
 		try {
-			customPathErr =
-				next === null ? undefined : await customPathError(workspace, next, deployed.customPath)
+			customPathErr = next === null ? undefined : await customPathError(workspace, next, customPath)
 			if (customPathErr) return
-			await deployed.onCustomPathChange(next)
+			await onCustomPathChange(next)
 		} catch (err) {
 			customPathErr = `Could not check whether the path is free: ${err}`
 		} finally {
 			savingCustomPath = false
 		}
 		// A refused write leaves the deployed path as it was: keep the field open to retry.
-		if ((deployed.customPath ?? null) === next) editingCustomPath = false
+		if ((customPath ?? null) === next) editingCustomPath = false
 	}
 
 	function toEmbedSnippet(url: string): string {
@@ -221,7 +218,7 @@
 					{/if}
 				{/if}
 			{:else}
-				The people with access above, signed in to Windmill.
+				The people with access to the app, signed in to Windmill.
 			{/if}
 		</div>
 	</div>
@@ -266,7 +263,16 @@
 				<Loader2 size={16} class="animate-spin" />
 			{/if}
 		</Label>
+	{:else if mode != 'publisher'}
+		<Label label="Secret URL">
+			<span class="text-xs text-secondary">
+				The first deploy creates an unguessable link to this app. Copy it from Share or Settings
+				once the app is deployed.
+			</span>
+		</Label>
+	{/if}
 
+	{#if onCustomPathChange}
 		<Label
 			label="Custom URL"
 			for="customPath"
@@ -274,7 +280,7 @@
 			tooltip="Serve the app at a path you pick, on top of its link."
 		>
 			{#snippet action()}
-				{#if !deployed.customPath && !editingCustomPath}
+				{#if !customPath && !editingCustomPath}
 					<Button
 						variant="default"
 						unifiedSize="sm"
@@ -328,13 +334,20 @@
 						Cancel
 					</Button>
 				</div>
-			{:else if deployed.customPath}
+			{:else if customPath}
 				<div class="flex flex-row gap-1 items-center">
 					<div class="grow min-w-0">
-						<ClipboardPanel
-							content={customUrlEmbed ? toEmbedSnippet(fullCustomUrl) : fullCustomUrl}
-							size="md"
-						/>
+						{#if deployed}
+							<ClipboardPanel
+								content={customUrlEmbed ? toEmbedSnippet(fullCustomUrl) : fullCustomUrl}
+								size="md"
+							/>
+						{:else}
+							<div class="flex flex-col gap-0.5">
+								<span class="text-xs text-primary truncate">{fullCustomUrl}</span>
+								<span class="text-2xs text-secondary">Served once the app is deployed.</span>
+							</div>
+						{/if}
 					</div>
 					{#if mayEditCustomPath}
 						<Button
@@ -364,7 +377,9 @@
 				<span class="text-2xs text-secondary">Only workspace admins can set a custom URL.</span>
 			{/if}
 		</Label>
+	{/if}
 
+	{#if deployed}
 		{#if embedMode && mode == 'guest' && guestJwtBase && guestsAvailable}
 			<Label label="Embed for your own authenticated users (guest JWT)">
 				<div class="text-xs text-secondary">

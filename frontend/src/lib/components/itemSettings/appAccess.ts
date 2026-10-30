@@ -1,8 +1,19 @@
 import { AppService, type AppWithLastVersion, type Policy } from '$lib/gen'
+import { isCloudHosted } from '$lib/cloud'
 
 export type AppAccessMode = 'publisher' | 'guest' | 'anonymous'
 
 export const CUSTOM_PATH_RE = /^[\w-]+(\/[\w-]+)*$/
+
+/** What a custom path is appended to. The workspace is in it on the shared cloud and wherever the
+ *  instance setting `app_workspaced_route` is on. */
+export function customUrlBaseOf(workspace: string, workspacedRoute: boolean): string {
+	return `${window.location.origin}/a/${isCloudHosted() || workspacedRoute ? workspace + '/' : ''}`
+}
+
+export function secretUrlOf(workspace: string, secret: string): string {
+	return `${window.location.origin}/public/${workspace}/${secret}`
+}
 
 /** The access a policy grants, on the three rungs the Share dialog offers. `viewer` runs the
  *  app as its viewer, which a guest cannot be, so it shows as members-only. */

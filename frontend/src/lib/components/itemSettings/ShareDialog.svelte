@@ -15,20 +15,9 @@
 		type AppWithLastVersion,
 		type Folder
 	} from '$lib/gen'
-	import { sendUserToast } from '$lib/toast'
-	import {
-		useOperatingUser,
-		useOperatingWorkspace
-	} from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import ItemAccessList from './ItemAccessList.svelte'
-	import AppAccessSection from './AppAccessSection.svelte'
-	import {
-		accessModeOf,
-		modeChangeRefusal,
-		updateDeployedAppAccess,
-		type AppAccessMode
-	} from './appAccess'
-	import { canPreserveOnBehalfOf } from './onBehalfOf'
+	import DeployedAppAccess from './DeployedAppAccess.svelte'
 	import {
 		accessLostByMove,
 		folderOfPath,
@@ -39,7 +28,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import { logShareOpen, type ShareOpenSource } from './sharingTelemetry'
-	import { useEditRights, useRoleCapabilities } from '$lib/operatorWriteRights'
+	import { useEditRights } from '$lib/operatorWriteRights'
 
 	interface Props {
 		/** Called after a write to the app row, with the row as it now is. */
@@ -51,9 +40,7 @@
 	let { onAppChanged, onChange }: Props = $props()
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatingUser = useOperatingUser()
 	const editRights = useEditRights()
-	const roleCaps = useRoleCapabilities()
 
 	let open = $state(false)
 	let kind = $state<ShareKind>('flow')
@@ -70,7 +57,6 @@
 	let answerDeploy: ((deploy: boolean) => void) | undefined = undefined
 
 	let app: AppWithLastVersion | undefined = $state()
-	let appBusy = $state(false)
 	/** Who the deployed flow or script runs as, and whether the user may change it, once read. An
 	 *  app's run-as user is in its policy. */
 	let runnableIdentity: { runAs: string | undefined; canEdit: boolean } | undefined = $state()
@@ -83,14 +69,6 @@
 	// rewrite; the lists and detail pages open this dialog for readers too.
 	let canWriteApp = $derived(
 		!!app && editRights.canEditItem(app.raw_app ? 'raw_app' : 'app', app.path, app.extra_perms)
-	)
-	let modeRefusal = $derived(
-		app &&
-			modeChangeRefusal(app.policy, {
-				username: operatingUser.current?.username,
-				canPreserveRunAs: canPreserveOnBehalfOf(operatingUser.current),
-				composeOnly: $roleCaps.apps === 'compose'
-			})
 	)
 	let itemUrl = $derived(
 		`${window.location.origin}/${kind === 'flow' ? 'flows' : 'scripts'}/get/${path}?workspace=${$operatingWorkspace}`
@@ -271,35 +249,6 @@
 		}
 	})
 
-	const ACCESS_MODE_LABELS: Record<AppAccessMode, string> = {
-		publisher: 'Members',
-		guest: 'Guests',
-		anonymous: 'Public'
-	}
-
-	async function changeApp(
-		change: { execution_mode: AppAccessMode } | { custom_path: string | null }
-	) {
-		appBusy = true
-		try {
-			app = await updateDeployedAppAccess($operatingWorkspace!, path, change)
-			onAppChanged?.(app)
-			onChange?.()
-			sendUserToast(
-				'execution_mode' in change
-					? `Who can open ${name} changed to ${ACCESS_MODE_LABELS[change.execution_mode]}`
-					: change.custom_path
-						? `Custom URL of ${name} set to ${change.custom_path}`
-						: `Custom URL of ${name} removed`
-			)
-		} catch (err) {
-			sendUserToast(`Could not change the app's access: ${err?.body ?? err}`, true)
-			// Re-read so the controls show what is deployed, not the choice that was refused.
-			await loadApp()
-		} finally {
-			appBusy = false
-		}
-	}
 </script>
 
 <!-- Closed by Escape, the backdrop, the close button or Cancel: a deploy waiting on it does not go
@@ -339,40 +288,15 @@
 			<section class="flex flex-col gap-2">
 				<h3 class="text-sm font-semibold text-emphasis">Who can open the app</h3>
 				{#if app}
-					{#if !canWriteApp}
-						<span class="text-xs text-secondary">
-							Only people who can edit this app can change who can open it.
-						</span>
-					{:else if modeRefusal}
-						<span class="text-xs text-secondary">
-							{#if modeRefusal === 'unsandboxed'}
-								This app is not sandboxed yet. Deploy it so it is sandboxed, then change who can
-								open it.
-							{:else if modeRefusal === 'builder_run_as'}
-								This app runs on behalf of {runAs}. Pick yourself in the editor's Settings ›
-								Permissions and deploy it, then change who can open it. An admin can change it
-								without taking the app over.
-							{:else}
-								This app runs on behalf of {runAs}. Deploy it so it runs on behalf of you, then
-								change who can open it. An admin or a member of <code>wm_deployers</code> can change
-								it without taking the app over.
-							{/if}
-						</span>
-					{/if}
-					{#key path}
-						<AppAccessSection
-							workspace={$operatingWorkspace!}
-							appPath={path}
-							rawApp={kind === 'raw_app' || app.raw_app}
-							mode={accessModeOf(app.policy)}
-							onModeChange={(m) => changeApp({ execution_mode: m })}
-							deployed={{
-								customPath: app.custom_path ?? undefined,
-								onCustomPathChange: (p) => changeApp({ custom_path: p })
-							}}
-							disabled={appBusy || !canWriteApp || !!modeRefusal}
-						/>
-					{/key}
+					<DeployedAppAccess
+						workspace={$operatingWorkspace!}
+						bind:app
+						reload={loadApp}
+						onAppChanged={(row) => {
+							onAppChanged?.(row)
+							onChange?.()
+						}}
+					/>
 				{:else}
 					<span class="text-xs text-secondary">Loading…</span>
 				{/if}
