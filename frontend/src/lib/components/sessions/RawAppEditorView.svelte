@@ -58,9 +58,9 @@
 		fullscreen?: boolean
 	} = $props()
 
-	// The side panel leaves little room for the file sidebar and a split preview, full
-	// screen leaves plenty: each keeps its own preferences, both shown by default only in
-	// full screen.
+	// The side panel leaves little room for the file sidebar, full screen leaves plenty:
+	// each keeps its own sidebar and split preferences, the sidebar open by default only
+	// in full screen.
 	const panelSidebarCollapsed = useLocalStorageValue(
 		'raw-app-sidebar-collapsed-preview',
 		true,
@@ -78,7 +78,7 @@
 	)
 	const fullscreenSplitWithPreview = useLocalStorageValue(
 		'raw-app-split-with-preview-preview-fullscreen',
-		true,
+		false,
 		'boolean'
 	)
 
