@@ -312,11 +312,10 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		if (!dirty) return
 		event.preventDefault()
 		event.stopPropagation()
-		// The editor may still hold another workspace's text, which this Escape must not drop.
-		if (opened && opened.workspace !== ws) parkFolderDraft()
 		workspaceDraft = workspaceSaved
 		userDraft = userSaved
-		setFolderContent(folderOriginal)
+		// The editor may still hold another workspace's open draft, which is not this one's to drop.
+		if (opened?.workspace === ws) setFolderContent(folderOriginal)
 		for (const [key] of parkedHere) delete parkedFolderDrafts[key]
 		delete parkedNewDrafts[ws]
 	}
