@@ -31,7 +31,12 @@
 		account: string | undefined
 	} = $props()
 
-	type Report = { key: string; needs: Needs; reads?: Set<string> | 'all' }
+	type Report = {
+		key: string
+		needs: Needs
+		reads?: Set<string> | 'all'
+		accessError?: string
+	}
 
 	const operatingUser = useOperatingUser()
 	const me = $derived(
@@ -60,19 +65,24 @@
 		const forKey = key
 		if (!forKey) return
 		const principal = mode === 'checked' ? account : undefined
+		// A saved run-as user that is disabled or deleted fails the access check; the list still
+		// matters most then, so only the scan failing hides the section.
+		const access = principal
+			? GranularAclService.getPrincipalAccess({ workspace, principal }).then(
+					(a) => ({
+						reads: a.is_admin
+							? ('all' as const)
+							: new Set(a.items.map((i) => `${i.kind}:${i.path}`))
+					}),
+					(e: any) => ({ accessError: `${e?.body ?? e}` })
+				)
+			: Promise.resolve({})
 		try {
-			const [needs, access] = await Promise.all([
+			const [needs, result] = await Promise.all([
 				detectNeeds(workspace, kind, itemPath ?? '', needsSource?.()),
-				principal
-					? GranularAclService.getPrincipalAccess({ workspace, principal })
-					: Promise.resolve(undefined)
+				access
 			])
-			const reads = access
-				? access.is_admin
-					? ('all' as const)
-					: new Set(access.items.map((i) => `${i.kind}:${i.path}`))
-				: undefined
-			if (id === requestId) report = { key: forKey, needs, reads }
+			if (id === requestId) report = { key: forKey, needs, ...result }
 		} catch {
 			if (id === requestId) report = undefined
 		}
@@ -189,6 +199,9 @@
 						Grant read
 					</Button>
 				</div>
+			{/if}
+			{#if shown?.accessError}
+				<span class="text-secondary">Couldn't check {account}'s access: {shown.accessError}</span>
 			{/if}
 			{#if mode === 'caller'}
 				<span class="text-secondary">
