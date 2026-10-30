@@ -43,6 +43,7 @@ and the actions that create, edit, import and delete them.
 	import { useListHighlight } from '$lib/components/common/listRow/listHighlight.svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { forgetSkill, isSkillEnabled, setSkillEnabled } from './skills/enabledSkills'
+	import { ownerRoot } from './workingScope'
 	import {
 		ambiguousSkillNames,
 		deleteSkillResource,
@@ -90,6 +91,17 @@ and the actions that create, edit, import and delete them.
 	} = $props()
 
 	const aiChatManager = getAiChatManager()
+
+	// While the session works in some folders, a skill saved in another one stays switched on here,
+	// as it is the user's own preference, but is off for the assistant, and the row says so. One
+	// saved in the folder itself is badged as coming from it.
+	function scopeNote(path: string): { off: boolean; root: string } | undefined {
+		const scope = aiChatManager.workingScope
+		if (!scope?.roots) return undefined
+		if (!scope.loadsSkill(path)) return { off: true, root: scope.label }
+		const root = ownerRoot(path)
+		return root && scope.roots.includes(root) ? { off: false, root } : undefined
+	}
 
 	// A session whose fork is still staged has no workspace of its own yet, so `ws`
 	// resolves to the PARENT. Authoring here would then edit the live parent, and a
@@ -865,7 +877,7 @@ What the assistant should do when this skill applies.
 	>
 		<Section
 			label="Skills"
-			description="Reusable instruction sets the assistant loads when they apply. Every skill in the workspace is on; turning one off is personal to you and to this workspace."
+			description="Reusable instruction sets the assistant loads when they apply. Every skill in the workspace is on, except those saved in other folders while the session works in one; turning one off is personal to you and to this workspace."
 		>
 			{#snippet action()}
 				<div class="flex items-center gap-2 shrink-0">
@@ -962,7 +974,15 @@ What the assistant should do when this skill applies.
 			{!grouped && ambiguous.has(skill.name) ? skill.path : skill.name}
 		</span>
 	{/snippet}
-	{#snippet subtitle()}{skill.description}{/snippet}
+	{@const note = scopeNote(skill.path)}
+	{#snippet subtitle()}
+		{#if note?.off}
+			<span class="text-hint">Off while working in {note.root}.</span>
+		{:else if note}
+			<span class="text-accent">From {note.root}, where this session works.</span>
+		{/if}
+		{skill.description}
+	{/snippet}
 	{#snippet trailing()}
 		<Toggle
 			size="xs"
@@ -998,7 +1018,7 @@ What the assistant should do when this skill applies.
 		id={entryDomId(skillKey(skill.path))}
 		highlighted={entryIndexByKey.get(skillKey(skill.path)) === highlight.index}
 		onMouseEnter={() => highlight.hovered(entryIndexByKey.get(skillKey(skill.path)) ?? -1)}
-		subtitle={skill.description ? subtitle : undefined}
+		subtitle={skill.description || note ? subtitle : undefined}
 		onClick={() => openSkill(skill)}
 	/>
 {/snippet}

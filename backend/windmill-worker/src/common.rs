@@ -369,9 +369,11 @@ pub async fn transform_json_value(
                         })
                     })
                 }
-                Connection::Http(_) => {
-                    Err(Error::NotFound("Http connection not supported".to_string()))
-                }
+                Connection::Http(_) => Err(Error::ExecutionErr(format!(
+                    "`{name}` is an `$encrypted:` value, which an agent worker cannot decrypt: \
+                     pass the secret as a `$var:` reference (in a flow, a static input or an \
+                     exact `flow_env.<key>` read) and build the value inside the script"
+                ))),
             }
 
             // let path = y.strip_prefix("$res:").unwrap();
@@ -576,6 +578,17 @@ pub async fn get_reserved_variables(
     )
     .await
     .to_vec();
+    let mut variables = variables;
+    if let Some(client) = &job.mcp_client {
+        variables.push(variables::ContextualVariable {
+            name: "WM_MCP_CLIENT".to_string(),
+            value: client.clone(),
+            description: "OAuth client of the external identity provider the run was started \
+                          through on the user's behalf, propagated to flow steps"
+                .to_string(),
+            is_custom: false,
+        });
+    }
 
     Ok(build_envs_map(variables).await)
 }
@@ -2634,6 +2647,7 @@ mod tests {
             viewer_data_access: None,
             runnable_settings_handle: None,
             job_token_scopes: None,
+            mcp_client: None,
         }
     }
 

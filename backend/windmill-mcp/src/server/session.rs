@@ -374,7 +374,7 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
             let text = self.backend.workspace_context(&auth, &workspace_id).await;
             return Ok(CallToolResult::success(vec![ContentBlock::text(text)]).into());
         }
-        let mut result = self
+        let result = self
             .backend
             .call_session_tool(
                 &auth,
@@ -384,7 +384,12 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
                 access(&auth, &caller.scope),
                 caller.origin.as_deref(),
             )
-            .await?;
+            .await;
+        let refusal = result.as_ref().err().map(|e| e.message.as_ref());
+        self.backend
+            .after_tool_call(&auth, &workspace_id, &request.name, refusal)
+            .await;
+        let mut result = result?;
         for block in result.content.iter_mut() {
             if let Some(text) = block.as_text() {
                 *block = ContentBlock::text(truncate_tool_result(text.text.clone()));

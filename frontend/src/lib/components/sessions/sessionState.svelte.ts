@@ -21,6 +21,7 @@ import { userScopedDb } from '$lib/userScopedDb'
 import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
+import { deleteSessionHandEdits } from './sessionHandEdits.svelte'
 import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
 import type { DraftAttachments } from '../copilot/chat/messageDraft.svelte'
 import type { AppDomSelectorElement } from '../copilot/chat/context'
@@ -160,6 +161,11 @@ export type Session = {
 	previewSize?: number
 	// Use or Build, as the chat's mode picker last left it. Absent reads as Build.
 	workMode?: AIWorkMode.USE | AIWorkMode.BUILD
+	// The owner roots (`f/<folder>`, `u/<user>`) the AI changes items in, sorted. Empty: none,
+	// so every change asks. Absent: the whole workspace. Per browser, like workMode: the backup leaves it out.
+	workingIn?: string[]
+	// How the scope was set, for its usage counter. Absent: the default.
+	workingInSource?: 'preset' | 'manual'
 	// Unsent composer text for a pending (uncommitted) session, persisted with
 	// the record so each parallel draft restores its own typed-but-unsent prompt.
 	// Only tracked while unsent; cleared once the workspace commits at first send.
@@ -683,6 +689,7 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 				// here would orphan the session's attached-file blobs/handles.
 				void deleteItemsForSession(s.id)
 				void deleteArtifactsForSession(s.id)
+				deleteSessionHandEdits(s.id)
 				deletedIds.add(s.id)
 				continue
 			}
@@ -1398,6 +1405,21 @@ export function setSessionWorkMode(id: string, mode: AIWorkMode): void {
 	persistTouched(s)
 }
 
+/** Not a touch: picking a scope on Home's untouched draft must not keep it in the sidebar. */
+export function setSessionWorkingIn(
+	id: string,
+	roots: readonly string[] | undefined,
+	source: 'preset' | 'manual' | undefined
+): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	if (roots) s.workingIn = [...new Set(roots)].sort()
+	else delete s.workingIn
+	if (source) s.workingInSource = source
+	else delete s.workingInSource
+	if (!s.transient) void putSession(s)
+}
+
 export function selectSession(id: string) {
 	sessionState.currentSessionId = id
 }
@@ -1601,6 +1623,7 @@ export function deleteSession(id: string) {
 	// GC any linked files and artifacts persisted for this session.
 	void deleteItemsForSession(id)
 	void deleteArtifactsForSession(id)
+	deleteSessionHandEdits(id)
 	// Only a delete the user asked for takes the backup with it: the workspace-lifecycle
 	// removals above keep theirs, so a session dropped by a wrong reconcile can be restored.
 	markSessionRemoved(id, s.workspace_id)
