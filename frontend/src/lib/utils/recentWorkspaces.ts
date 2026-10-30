@@ -6,9 +6,9 @@ import { findWorkspaceAncestors } from './workspaceHierarchy'
 const STORAGE_KEY = 'recentWorkspaces'
 const MAX_REMEMBERED = 20
 
-/** Workspace lists at or below this length stay alphabetical: a recent group in a short list
- *  only moves rows the user can already see. Same threshold as the picker's search field. */
-export const RECENT_WORKSPACES_MIN_LIST = 8
+/** Above this many workspaces a list gets a search field and a recent group. A shorter list stays
+ *  alphabetical: a recent group there only moves rows the user can already see. */
+export const LONG_WORKSPACE_LIST = 8
 export const RECENT_WORKSPACES_COUNT = 3
 
 function readVisited(): string[] {
@@ -48,7 +48,7 @@ export function recentWorkspaceRoots(
 	count = RECENT_WORKSPACES_COUNT
 ): Set<string> {
 	const roots = new Set<string>()
-	if (workspaces.length <= RECENT_WORKSPACES_MIN_LIST) return roots
+	if (workspaces.length <= LONG_WORKSPACE_LIST) return roots
 	for (const id of visited) {
 		if (roots.size >= count) break
 		const workspace = workspaces.find((w) => w.id === id)

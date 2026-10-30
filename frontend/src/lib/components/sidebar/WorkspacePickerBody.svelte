@@ -44,7 +44,11 @@
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { workspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
 	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
-	import { recentWorkspaceRoots, visitedWorkspaces } from '$lib/utils/recentWorkspaces'
+	import {
+		LONG_WORKSPACE_LIST,
+		recentWorkspaceRoots,
+		visitedWorkspaces
+	} from '$lib/utils/recentWorkspaces'
 
 	interface Props {
 		// The melt item builder of the menu (or submenu) hosting this list. Melt
@@ -162,7 +166,9 @@
 	// modal carries its own base-workspace picker). Hidden on non-premium cloud,
 	// in the admins workspace, or when forking is disabled.
 	const canForkHere = $derived(
-		(!isCloudHosted() || $maybePremium) && $workspaceStore !== 'admins' && canCreateFork($userStore, $roleCapabilities)
+		(!isCloudHosted() || $maybePremium) &&
+			$workspaceStore !== 'admins' &&
+			canCreateFork($userStore, $roleCapabilities)
 	)
 	// The row mechanics below — which family to expand, which collapsed row carries the tick — key on
 	// a depth-0 row of the list, which `buildWorkspaceHierarchy` puts at the highest workspace the
@@ -175,8 +181,7 @@
 		return ancestors.at(-1) ?? $userWorkspaces?.find((w) => w.id === id)
 	})
 
-	const SEARCH_THRESHOLD = 8
-	const showSearch = $derived(($userWorkspaces?.length ?? 0) > SEARCH_THRESHOLD)
+	const showSearch = $derived(($userWorkspaces?.length ?? 0) > LONG_WORKSPACE_LIST)
 	let searchFilter = $state('')
 	let searchMatches: (UserWorkspace & { marked?: string })[] | undefined = $state()
 	const searching = $derived(showSearch && searchFilter.trim() !== '')
@@ -454,11 +459,11 @@
 			{#each familyWorkspaces as { workspace, depth, isForked, parentName, separatorBefore } (workspace.id)}
 				{@const isActive = $workspaceStore === workspace.id}
 				{@const forkAccent = isForked ? forkAccentStyle(workspace.color) : undefined}
-				<!-- A search filters out sibling forks, so the divider between the user's own forks
-				     and the others would mark the wrong boundary. -->
 				{#if firstOlderWorkspaceId === workspace.id}
 					<div class="my-1 border-t border-border-light" role="separator"></div>
 				{/if}
+				<!-- A search filters out sibling forks, so the divider between the user's own forks
+				     and the others would mark the wrong boundary. -->
 				{#if separatorBefore && !searching}
 					<div
 						class="my-1 border-t border-border-light"
