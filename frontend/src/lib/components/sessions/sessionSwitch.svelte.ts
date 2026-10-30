@@ -1,6 +1,7 @@
 import { get } from 'svelte/store'
 import { goto } from '$lib/navigation'
 import { workspaceStore } from '$lib/stores'
+import { DraftService } from '$lib/gen'
 import {
 	createSession,
 	holdSessionUntilStarted,
@@ -52,6 +53,28 @@ let navRouteOffered = false
 export function rememberNavRoute(pathnameWithSearch: string): void {
 	lastNavRoute = pathnameWithSearch
 	navRouteOffered = false
+}
+
+/**
+ * A deploy from the session moved an item from `fromPath` (a new item's `draft_<uuid>` row) to
+ * `toPath`. When the remembered route is that item's editor, point it at the new path: the old one
+ * no longer exists, so leaving session mode would open an editor that cannot load it.
+ */
+export function navRouteItemMoved(
+	kind: 'flow' | 'script' | 'app',
+	fromPath: string,
+	toPath: string
+): void {
+	if (fromPath === toPath) return
+	const route = parsePreviewItemRoute(lastNavRoute)
+	if (route?.kind !== kind || route.itemPath !== fromPath) return
+	const [pathname, query] = lastNavRoute.split('?')
+	if (!pathname.endsWith(`/${fromPath}`)) return
+	const prefix = pathname.slice(0, pathname.length - fromPath.length)
+	// The flags a new item's editor carries (`new_draft`, `nodraft`) describe the draft, not the
+	// deployed item: keep only the workspace.
+	const workspace = query ? new URLSearchParams(query).get('workspace') : null
+	lastNavRoute = prefix + toPath + (workspace ? `?workspace=${encodeURIComponent(workspace)}` : '')
 }
 
 /** An item editor the user reached session mode from, as the in-app href a new
@@ -169,9 +192,32 @@ export async function exitSessionMode(): Promise<void> {
 	const ws = get(workspaceStore)
 	if (ws && wsParam && decodeURIComponent(wsParam) !== ws) {
 		target = '/'
+	} else if (ws && !(await newItemDraftStillThere(target, ws))) {
+		target = '/'
 	}
 	await goto(target)
 }
+
+/**
+ * Whether an editor route on a never-deployed item still has the draft it edits. Such an item
+ * lives only as its `draft_<uuid>` row, which a first deploy discards; `navRouteItemMoved`
+ * follows the deploys this window's session sees, but a low-code app deploys inside its preview
+ * frame, out of sight. Any other route counts as there.
+ */
+async function newItemDraftStillThere(url: string, workspace: string): Promise<boolean> {
+	const route = parsePreviewItemRoute(url)
+	if (route?.mode !== 'edit' || !NEW_ITEM_DRAFT_RE.test(route.itemPath.split('/').pop() ?? '')) {
+		return true
+	}
+	const kind = route.kind === 'app' ? (route.raw_app ? 'raw_app' : 'app') : route.kind
+	try {
+		return !!(await DraftService.getOwnDraft({ workspace, kind, path: route.itemPath }))
+	} catch {
+		return true
+	}
+}
+
+const NEW_ITEM_DRAFT_RE = /^draft_[0-9a-f_]+$/
 
 // Open a fresh AI session showing an editor (flow/script/raw_app) in its preview,
 // then route into session mode. The preview loads the item from its live draft,

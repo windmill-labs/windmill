@@ -80,6 +80,7 @@
 	import { appDraftSettings, withoutSharedPolicySettings } from './appDraftSettings'
 	import ShareDialog from '$lib/components/itemSettings/ShareDialog.svelte'
 	import { showAppLinks } from '$lib/components/itemSettings/AppLinksModal.svelte'
+	import { isSessionPreviewFrame } from '$lib/components/sessions/sessionMode.svelte'
 	import FirstDeployDialog, {
 		applyFirstDeployMembers
 	} from '$lib/components/itemSettings/FirstDeployDialog.svelte'
@@ -1445,7 +1446,7 @@
 			iconOnly={phoneTopbar}
 			unifiedSize={phoneTopbar ? 'sm' : 'md'}
 			on:save={({ detail }) => deploy(detail)}
-			dropdownItems={$appPath != ''
+			dropdownItems={$appPath != '' && !isSessionPreviewFrame()
 				? () => [
 						{
 							label: 'Fork',

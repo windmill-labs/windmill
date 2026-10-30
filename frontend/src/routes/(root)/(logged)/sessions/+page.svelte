@@ -969,15 +969,6 @@
 		owner?.navigate({ type: 'item', item })
 	}
 
-	// An editor's `Exit & see details`: the session hosts the details page itself, so the
-	// tab moves to the item's deployed view rather than the browser leaving the session.
-	// `open`, not `navigate`: leaving the editor to look at what is deployed is not a
-	// redirect of the tab you are working in — you are stepping away from an editor you
-	// still want, so the deployed page arrives beside it.
-	function seeDetailsInPreview(item: WorkspaceItem) {
-		owner?.open({ type: 'item', item, mode: 'view' })
-	}
-
 	// A preview iframe that navigates to an editor route posts up to us instead of
 	// booting the editor inside the frame (see the logged layout's beforeNavigate).
 	// Retarget the active tab — the navigating frame is the visible one the user
@@ -1297,7 +1288,6 @@
 													darkMode={isDarkMode.val}
 													{fullscreen}
 													onNavigate={navigateEditorTo}
-													onSeeDetails={seeDetailsInPreview}
 													onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
 												/>
 											{/each}

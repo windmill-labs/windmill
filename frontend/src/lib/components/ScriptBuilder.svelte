@@ -1274,7 +1274,10 @@
 										: [])
 								]
 							: []),
-						...(savedScript?.no_deployed !== true && script.kind === 'script' && !script.auto_kind
+						...(!inSessionPane &&
+						savedScript?.no_deployed !== true &&
+						script.kind === 'script' &&
+						!script.auto_kind
 							? [
 									{
 										label: 'Exit & See details',
