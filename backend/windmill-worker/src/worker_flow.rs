@@ -4662,7 +4662,8 @@ async fn push_next_flow_job(
                         args,
                         flow_env,
                         env_refs,
-                        matches!(payload_tag.payload, JobPayload::Flow { .. }),
+                        // A `flow` module is never a simple loop body.
+                        false,
                         arc_last_job_result.clone(),
                         input_transforms,
                         resumes.clone(),
@@ -4719,7 +4720,7 @@ async fn push_next_flow_job(
                             Marc::new(hm),
                             flow_env,
                             env_refs,
-                            matches!(payload_tag.payload, JobPayload::Flow { .. }),
+                            false,
                             arc_last_job_result.clone(),
                             input_transforms,
                             resumes.clone(),

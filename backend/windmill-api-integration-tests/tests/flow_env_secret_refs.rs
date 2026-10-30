@@ -99,5 +99,27 @@ async fn test_flow_env_secret_kept_out_of_step_args(db: Pool<Postgres>) -> anyho
     assert_eq!(step_args["url"], "https://example.com");
     assert!(!step_args.to_string().contains(secret));
 
+    let computed_into_subflow: FlowValue = serde_json::from_value(json!({
+        "flow_env": {"TOKEN": "$var:u/test-user/tok"},
+        "modules": [{"id": "s", "value": {
+            "type": "flow",
+            "path": "u/test-user/sub",
+            "input_transforms": {
+                "hdr": {"type": "javascript", "expr": "\"Bearer \" + flow_env.TOKEN"}
+            }
+        }}]
+    }))?;
+    let failed = RunJob::from(JobPayload::RawFlow {
+        value: computed_into_subflow,
+        path: None,
+        restarted_from: None,
+    })
+    .run_until_complete(&db, false, port)
+    .await;
+    assert!(!failed.success);
+    let error = failed.json_result().unwrap().to_string();
+    assert!(error.contains("subflow cannot receive"), "{error}");
+    assert!(!error.contains(secret), "{error}");
+
     Ok(())
 }
