@@ -86,6 +86,7 @@
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
 	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
+	import { page } from '$app/state'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 	import CiTestResults from '$lib/components/CiTestResults.svelte'
@@ -869,6 +870,7 @@
 								flowModules={flow?.value?.modules}
 								wideLayout
 								frame="none"
+								openConversation={page.url.searchParams.get('conversation') ?? undefined}
 							>
 								{#snippet sidebarFooter({ expanded })}
 									{#if workspace && flow}

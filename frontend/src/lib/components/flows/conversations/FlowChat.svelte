@@ -12,6 +12,7 @@
 	import FlowConversationsSidebar from './FlowConversationsSidebar.svelte'
 	import FlowChatInterface from './FlowChatInterface.svelte'
 	import { getContext, untrack } from 'svelte'
+	import { afterNavigate } from '$app/navigation'
 	import type { FlowEditorContext } from '../types'
 	import { ApiError, type FlowModule } from '$lib/gen'
 	import { FlowChatPool, type FlowChatPoolState } from './flowChatPool'
@@ -63,6 +64,8 @@
 		subject?: 'flow' | 'agent'
 		/** The host's own controls, after the model's in the composer's footer. */
 		composerSettings?: import('svelte').Snippet
+		/** A conversation to show once the chat is up, as a link to it names one. */
+		openConversation?: string
 		/** Pinned at the foot of the conversations sidebar. */
 		sidebarFooter?: import('svelte').Snippet<[{ expanded: boolean }]>
 	}
@@ -81,6 +84,7 @@
 		conversationKind = 'deployed',
 		subject = 'flow',
 		composerSettings = undefined,
+		openConversation = undefined,
 		sidebarFooter = undefined
 	}: Props = $props()
 
@@ -167,6 +171,10 @@
 			}
 		})
 		const unsubscribePool = createdPool.subscribe((s) => (poolState = s))
+		// Untracked: a later change of the prop must not rebuild every chat of the flow; the
+		// navigation below follows it instead.
+		const linked = untrack(() => openConversation)
+		if (linked) createdPool.select(linked)
 		listChat = createdList
 		pool = createdPool
 		return () => {
@@ -175,6 +183,16 @@
 			createdPool.destroy()
 			createdList.destroy()
 		}
+	})
+
+	// A link to another chat of this flow changes only the query, so the page is not remounted
+	// and the pool stays: it is shown here. Compared with what the panel shows, not with the
+	// link last followed: picking a chat in the panel's own sidebar leaves the query as it was,
+	// and the reader can still link back to it.
+	afterNavigate(() => {
+		const linked = openConversation
+		if (!linked || !pool || linked === poolState?.selectedId) return
+		pool.select(linked)
 	})
 
 	// The panel on screen. Every other panel the pool holds stays mounted behind it.

@@ -429,6 +429,25 @@ input[type='time']::-webkit-calendar-picker-indicator {
 	outline: 2px solid rgb(var(--color-border-accent, 59 130 246));
 }
 
+/* Home's composer, pointed at by New session (AIChatDisplay's flashComposer): its box's outline
+   lights up in the accent color and fades, as a setting does when the settings search lands on
+   it. Scoped to the flash, so the box carries no outline otherwise. */
+[data-composer-flash] [data-composer-box] {
+	outline: 2px solid transparent;
+	outline-offset: 1px;
+	animation: wm-composer-flash 0.8s ease-in;
+}
+@keyframes wm-composer-flash {
+	from {
+		outline-color: rgb(var(--color-border-accent, 59 130 246));
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	[data-composer-flash] [data-composer-box] {
+		animation: none;
+	}
+}
+
 .svelte-flow__edges {
 	z-index: -10;
 }

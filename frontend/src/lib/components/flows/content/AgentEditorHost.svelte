@@ -71,6 +71,8 @@
 		view?: boolean
 		/** Opens the agent's configuration, offered beside the model it runs with. */
 		onOpenConfig?: () => void
+		/** A chat conversation to show once the chat is up, as a link to it names one. */
+		openConversation?: string
 		/** Takes a view's run once it has started, instead of opening its run page: for a host that
 		 *  is not the app's top-level route (a session tab), or a call waiting on that run. */
 		onRunStarted?: (jobId: string, args: Record<string, any>) => void
@@ -102,6 +104,7 @@
 		isNew = false,
 		view = false,
 		onOpenConfig = undefined,
+		openConversation = undefined,
 		onRunStarted = undefined,
 		viewForm = undefined,
 		configFooter = undefined,
@@ -770,6 +773,7 @@
 							inputSchema={AGENT_CHAT_SCHEMA}
 							flowModules={chatModules}
 							composerSettings={onOpenConfig ? configButton : undefined}
+							{openConversation}
 							sidebarFooter={chatSidebarFooter}
 						/>
 					</div>

@@ -7,6 +7,7 @@
 	import { ChevronDown, Plus, Trash } from 'lucide-svelte'
 	import GroupEditorDrawer from '$lib/components/GroupEditorDrawer.svelte'
 	import FolderEditorDrawer from '$lib/components/FolderEditorDrawer.svelte'
+	import GroupsPageLink from '$lib/components/GroupsPageLink.svelte'
 	import { Cell, DataTable, Row } from '$lib/components/table'
 	import Head from '$lib/components/table/Head.svelte'
 	import AccessHelp from './AccessHelp.svelte'
@@ -323,6 +324,9 @@
 			>
 				Cancel
 			</Button>
+		</div>
+		<div class="flex justify-end">
+			<GroupsPageLink />
 		</div>
 	{/if}
 

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { classes as alertClasses, icons as alertIcons } from '$lib/components/common/alert/model'
-	import { clearSessionsBetaOptOut } from '$lib/components/copilot/chat/global/gate'
+	import { activateAiSessions } from './sidebarList.svelte'
 
 	const InfoIcon = alertIcons.info
 </script>
@@ -18,12 +18,6 @@
 		<InfoIcon size={14} class="shrink-0 {alertClasses.info.iconClass}" />
 		<span class="font-medium">Try AI Sessions (beta)</span>
 		<span>·</span>
-		<Button
-			variant="subtle"
-			unifiedSize="xs"
-			onclick={() => clearSessionsBetaOptOut('/sessions')}
-		>
-			Activate
-		</Button>
+		<Button variant="subtle" unifiedSize="xs" onclick={activateAiSessions}>Activate</Button>
 	</div>
 </div>
