@@ -208,6 +208,9 @@ mod tests {
         assert!(short.ends_with(MASKED_NOTICE));
 
         assert_eq!(snap.mask("k=abcdefghijklmnopqrstuvwxyz"), "k=abc*****xyz");
+
+        let next_batch = snapshot(&job_id).unwrap();
+        assert!(next_batch.mask("pw=password1").ends_with(MASKED_NOTICE));
         unregister_running_job(job_id);
     }
 
