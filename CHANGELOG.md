@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.853.1](https://github.com/windmill-labs/windmill/compare/v1.853.0...v1.853.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* mcp one-workspace runnables, run card links, directory review ([#12072](https://github.com/windmill-labs/windmill/issues/12072)) ([32da930](https://github.com/windmill-labs/windmill/commit/32da930d255d6512d2af1818f64c44245541d6b5))
+
 ## [1.853.0](https://github.com/windmill-labs/windmill/compare/v1.852.0...v1.853.0) (2026-10-28)
 
 

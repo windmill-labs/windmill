@@ -1,6 +1,7 @@
 <script lang="ts">
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
 	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import { movesToAnotherOwner } from '$lib/components/itemSettings/inheritedAccess'
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import {
 		FlowService,
@@ -78,9 +79,24 @@
 	import { setNoteEditorContext } from './graph/noteEditor.svelte'
 	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
 	import { cleanFlow } from './flows/utils.svelte'
-	import { DiffIcon, HistoryIcon, FileJson, Settings, Undo, Redo, Disc } from 'lucide-svelte'
+	import {
+		DiffIcon,
+		HistoryIcon,
+		FileJson,
+		Settings,
+		Undo,
+		Redo,
+		Disc,
+		UserPlus
+	} from 'lucide-svelte'
 	import { muteErrorHandlerMenuItem } from './details/errorHandlerToggle'
 	import { useDeployedItem } from './details/deployedItem.svelte'
+	import ShareDialog from './itemSettings/ShareDialog.svelte'
+	import FirstDeployDialog, {
+		applyFirstDeployMembers,
+		type FirstDeployChoice
+	} from './itemSettings/FirstDeployDialog.svelte'
+	import ShareButton from './itemSettings/ShareButton.svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
@@ -206,7 +222,6 @@
 
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
 	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(savedFlow?.on_behalf_of)
-	const isNewFlow = $derived(newFlow || initialPath == '')
 	let deployDialogOpen = $state(false)
 	let deployDialogMsg = $state('')
 	let deployButton: DeployButton | undefined = $state(undefined)
@@ -215,7 +230,7 @@
 	// who the flow runs as: `savedFlow` carries its draft's user. A flow that runs on behalf of
 	// nobody has no email field at all, so its absence is synced too.
 	$effect(() => {
-		const saved = deployedFlowPath ? deployedItem.current : savedFlow
+		const saved = deployedRowPath ? deployedItem.current : savedFlow
 		if (saved) {
 			savedOnBehalfOfEmail.set(saved.on_behalf_of_email)
 			savedOnBehalfOfPermissionedAs.set(saved.on_behalf_of)
@@ -491,11 +506,35 @@
 	}
 
 	async function handleSaveFlow(deploymentMsg?: string) {
+		pendingFirstDeploy = undefined
+		if (ownsPageHeader && neverDeployed) {
+			// The dialog also asks who the flow runs on behalf of, for the path it chose.
+			const choice = await firstDeployDialog?.ask({
+				kind: 'flow',
+				summary: flowStore.val.summary ?? '',
+				path: $pathStore,
+				runAs: {
+					email: flowStore.val.on_behalf_of_email,
+					permissionedAs: flowStore.val.on_behalf_of,
+					targetWorkspace: opWorkspace ?? ''
+				}
+			})
+			if (!choice) return
+			flowStore.val.summary = choice.summary
+			$pathStore = choice.path
+			if (choice.runAs) {
+				flowStore.val.on_behalf_of_email = choice.runAs.email
+				flowStore.val.on_behalf_of = choice.runAs.permissionedAs
+			}
+			pendingFirstDeploy = choice
+			await deployFlow(choice.message)
+			return
+		}
 		// Compares against the user deployed right now, which updates the saved stores; a failed
 		// lookup asks rather than trusting the draft's user.
-		const deployed = deployedFlowPath ? await deployedItem.refetch() : undefined
-		if (
-			(deployedFlowPath && !deployed) ||
+		const deployed = deployedRowPath ? await deployedItem.refetch() : undefined
+		const asksRunAs =
+			(!!deployedRowPath && !deployed) ||
 			// Asks while the folder default is loading: the backend would apply it unconfirmed.
 			folderDefault.loading ||
 			deployAsksOnBehalfOf('flow', {
@@ -506,7 +545,16 @@
 				savedPermissionedAs: deployed?.on_behalf_of,
 				folderDefault: folderDefault.value
 			})
+		const from = deployedRowPath
+		if (
+			shareDialog &&
+			from &&
+			movesToAnotherOwner(from, $pathStore) &&
+			!(await shareDialog.confirmMove('flow', from, $pathStore, asksRunAs ? 'Next' : 'Deploy'))
 		) {
+			return
+		}
+		if (asksRunAs) {
 			deployDialogMsg = deploymentMsg ?? ''
 			deployDialogOpen = true
 			return
@@ -517,6 +565,30 @@
 	async function deployFlow(deploymentMsg?: string) {
 		withAIChangesWarning(async () => {
 			await handleSaveFlowInternal(deploymentMsg)
+		})
+	}
+
+	let shareDialog: ShareDialog | undefined = $state()
+	let firstDeployDialog: FirstDeployDialog | undefined = $state()
+	/** Where a deploy from this editor left the flow, which an embedder may keep mounted: the
+	 *  route's path then still names the draft or the pre-rename row. */
+	let deployedPath: string | undefined = $state()
+	const neverDeployed = $derived(
+		deployedPath === undefined && (newFlow || initialPath == '' || savedFlow?.no_deployed === true)
+	)
+	let pendingFirstDeploy: FirstDeployChoice | undefined = undefined
+	// Where the deployed flow is, which a staged path change moves it from: `initialPath` is
+	// re-seeded from a staged rename.
+	const deployedRowPath = $derived(
+		neverDeployed ? undefined : (deployedPath ?? (userDraftPath || initialPath))
+	)
+
+	function openShare() {
+		if (!deployedRowPath) return
+		shareDialog?.openDialog('flow', deployedRowPath, {
+			source: 'editor_header',
+			fromEditor: true,
+			stagedPath: $pathStore
 		})
 	}
 
@@ -779,6 +851,12 @@
 				path: $pathStore
 			} as Flow
 			setDraftTriggers([])
+			deployedPath = $pathStore
+			if (pendingFirstDeploy) {
+				const { members } = pendingFirstDeploy
+				pendingFirstDeploy = undefined
+				await applyFirstDeployMembers(opWorkspace!, 'flow', $pathStore, members)
+			}
 			loadingSave = false
 			// Settings shows the deployed run-as user while the editor stays open, a session's
 			// included: read the version just written.
@@ -816,7 +894,7 @@
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
 	// Only the flow's first deploy takes the folder's default user.
 	const folderDefault = useFolderDefaultPermissionedAs(
-		() => (isNewFlow ? $pathStore : undefined),
+		() => (neverDeployed ? $pathStore : undefined),
 		() => opWorkspace
 	)
 
@@ -1051,7 +1129,8 @@
 		outputPickerOpenFns,
 		savedOnBehalfOfEmail,
 		savedOnBehalfOfPermissionedAs,
-		opWorkspace: () => opWorkspace
+		opWorkspace: () => opWorkspace,
+		deployedPath: () => deployedRowPath
 	})
 
 	// Set up NoteEditor context for note editing capabilities
@@ -1402,7 +1481,20 @@
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	function getMoreItems(): Item[] {
-		const leadingItems = [...diffMenuItems, ...baseMenuItems]
+		const leadingItems = [
+			...diffMenuItems,
+			...(ownsPageHeader
+				? [
+						{
+							displayName: 'Share',
+							icon: UserPlus,
+							disabled: neverDeployed,
+							action: openShare
+						}
+					]
+				: []),
+			...baseMenuItems
+		]
 		return [
 			...leadingItems,
 			{
@@ -1428,27 +1520,21 @@
 			// Before the first deploy the switch edits the flow, and the create sends it.
 			muteErrorHandlerMenuItem({
 				kind: 'flow',
-				deployed: !!deployedFlowPath,
-				muted: deployedFlowPath ? deployedItem.muted : !!editedFlow().ws_error_handler_muted,
+				deployed: !!deployedRowPath,
+				muted: deployedRowPath ? deployedItem.muted : !!editedFlow().ws_error_handler_muted,
 				hasEnterpriseLicense: !!$enterpriseLicense,
 				onToggle: () => {
-					if (deployedFlowPath) deployedItem.toggle()
+					if (deployedRowPath) deployedItem.toggle()
 					else editedFlow().ws_error_handler_muted = !editedFlow().ws_error_handler_muted
 				}
 			})
 		]
 	}
 	const editedFlow = () => flowStore.val as ExtendedOpenFlow
-	// The URL path: `initialPath` is the staged name once a draft that renames the flow reloads.
-	const deployedFlowPath = $derived(
-		!newFlow && savedFlow && savedFlow.no_deployed !== true
-			? userDraftPath || initialPath || undefined
-			: undefined
-	)
 	const deployedItem = useDeployedItem(
 		'flow',
 		() => opWorkspace,
-		() => deployedFlowPath
+		() => deployedRowPath
 	)
 
 	function onCustomUiChange(
@@ -1635,15 +1721,20 @@
 
 {@render children?.()}
 
+{#if ownsPageHeader}
+	<ShareDialog bind:this={shareDialog} />
+	<FirstDeployDialog bind:this={firstDeployDialog} />
+{/if}
+
 <DeployOnBehalfOfDialog
 	kind="flow"
 	bind:open={deployDialogOpen}
 	bind:message={deployDialogMsg}
 	bind:email={flowStore.val.on_behalf_of_email}
 	bind:permissionedAs={flowStore.val.on_behalf_of}
-	savedEmail={isNewFlow ? undefined : $savedOnBehalfOfEmail}
-	savedPermissionedAs={isNewFlow ? undefined : $savedOnBehalfOfPermissionedAs}
-	isNew={isNewFlow}
+	savedEmail={neverDeployed ? undefined : $savedOnBehalfOfEmail}
+	savedPermissionedAs={neverDeployed ? undefined : $savedOnBehalfOfPermissionedAs}
+	isNew={neverDeployed}
 	folderDefault={folderDefault.value}
 	folderDefaultLoading={folderDefault.loading}
 	targetWorkspace={opWorkspace ?? ''}
@@ -1892,6 +1983,14 @@
 				{/if}
 
 				<OpenInSessionButton source={headerSessionOpen} />
+				{#if !phoneTopbar}
+					<ShareButton
+						deployed={!neverDeployed}
+						iconOnly={compactTopbar}
+						unifiedSize={headerBtnSize}
+						onclick={openShare}
+					/>
+				{/if}
 				<DeployButton
 					bind:this={deployButton}
 					on:save={async ({ detail }) => await handleSaveFlow(detail)}

@@ -375,11 +375,21 @@
 				bind:data={cell.store.val.data}
 				bind:summary={cell.store.val.summary}
 				bind:pendingDraftPath
+				bind:pendingDraftSettings={
+					() => undefined,
+					(s: { labels: string[] } | undefined) => {
+						// The header reports its labels on mount too: only a change reaches the draft.
+						const v = cell.store.val
+						if (!s || !v) return
+						if ((v.labels ?? []).join('\n') !== s.labels.join('\n')) v.labels = s.labels
+					}
+				}
+				labels={cell.store.val.labels}
 				newPath={cell.store.val.draft_path ?? cell.store.val.path}
 				{path}
 				autosaveWorkspace={workspaceId}
 				autosavePath={path}
-				policy={cell.store.val.policy}
+				bind:policy={cell.store.val.policy}
 				bind:savedApp={cell.saved.val}
 				version={cell.store.val?.parent_version ?? cell.saved.val?.deployed_version}
 				draftBaseVersion={cell.store.val?.parent_version != null
