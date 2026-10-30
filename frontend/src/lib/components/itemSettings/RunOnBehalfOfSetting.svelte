@@ -10,7 +10,7 @@
 	import { canPreserveOnBehalfOf, deployedPermissionedAs, WM_DEPLOYERS_GROUP } from './onBehalfOf'
 	import { useServiceAccounts } from '$lib/components/access/serviceAccounts.svelte'
 	import type { NeedsSource } from '$lib/components/access/detectNeeds'
-	import MissingReadsNote from '$lib/components/access/MissingReadsNote.svelte'
+	import ItemReads from '$lib/components/access/ItemReads.svelte'
 	const DOCS_LINK =
 		'https://www.windmill.dev/docs/core_concepts/roles_and_permissions#run-on-behalf-of'
 
@@ -174,16 +174,6 @@
 				: 'No folder is shared with it.'}
 		</div>
 	{/if}
-	<!-- The deploy dialog shows it through RunAsNotes. -->
-	{#if !aboveConfirmationModal}
-		<MissingReadsNote
-			workspace={targetWorkspace}
-			{kind}
-			{itemPath}
-			{needsSource}
-			account={deployPermissionedAs}
-		/>
-	{/if}
 	{#if !canPreserve}
 		<div class="text-2xs text-secondary">
 			Only workspace admins and members of {WM_DEPLOYERS_GROUP} can pick another user.
@@ -242,4 +232,17 @@
 	>
 		{@render picker()}
 	</SettingToggle>
+{/if}
+
+<!-- The deploy dialog shows it through RunAsNotes. pl-9 lines it up under the switch's label. -->
+{#if !aboveConfirmationModal}
+	<div class={required ? 'mt-1' : 'mt-1 pl-9'}>
+		<ItemReads
+			workspace={targetWorkspace}
+			{kind}
+			{itemPath}
+			{needsSource}
+			account={deployPermissionedAs}
+		/>
+	</div>
 {/if}

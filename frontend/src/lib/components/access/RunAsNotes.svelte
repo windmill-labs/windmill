@@ -10,7 +10,7 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import { Bot, Folder } from 'lucide-svelte'
 	import type { NeedsSource } from './detectNeeds'
-	import MissingReadsNote from './MissingReadsNote.svelte'
+	import ItemReads from './ItemReads.svelte'
 	import NewServiceAccountForm from './NewServiceAccountForm.svelte'
 	import {
 		getPendingServiceAccount,
@@ -26,6 +26,7 @@
 		runsAs,
 		isNew,
 		savedPermissionedAs,
+		runnablesRunAsCaller = false,
 		onUseAccount,
 		onCreatingChange
 	}: {
@@ -37,6 +38,8 @@
 		runsAs: string | undefined
 		isNew: boolean
 		savedPermissionedAs: string | undefined
+		/** An app in viewer mode runs its runnables as each viewer, whoever `runsAs` names. */
+		runnablesRunAsCaller?: boolean
 		onUseAccount: (username: string, email: string) => void
 		/** See `OnBehalfOfSelector`'s `onPickerOpenChange`. */
 		onCreatingChange?: (open: boolean) => void
@@ -114,7 +117,13 @@
 	</div>
 {/if}
 
-<MissingReadsNote workspace={targetWorkspace} {kind} {itemPath} {needsSource} account={runsAs} />
+<ItemReads
+	workspace={targetWorkspace}
+	{kind}
+	{itemPath}
+	{needsSource}
+	account={runnablesRunAsCaller ? undefined : runsAs}
+/>
 
 {#if pending}
 	<div class="flex flex-col gap-1.5 rounded-md border bg-surface-secondary px-3 py-2 text-xs">

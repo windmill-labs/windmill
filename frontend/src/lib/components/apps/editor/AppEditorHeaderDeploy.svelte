@@ -397,6 +397,7 @@
 				runsAs={deployOnBehalfOf}
 				isNew={newApp}
 				savedPermissionedAs={savedOnBehalfOf}
+				runnablesRunAsCaller={policy.execution_mode == 'viewer'}
 				onUseAccount={(username, email) => {
 					onBehalfOfChoice = 'custom'
 					policy.on_behalf_of_email = email
