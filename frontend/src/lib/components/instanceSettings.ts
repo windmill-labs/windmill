@@ -832,8 +832,9 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Auto-login SSO provider',
-			description:
-				'If set, the login page redirects automatically to this provider. Use the OAuth provider key (e.g. "okta", "google") or "saml". The provider must be configured; otherwise the setting is ignored. Visit /user/login?no_sso=1 to bypass the redirect and fall back to the normal login form.',
+			description: 'Send the login page straight to this provider.',
+			tooltip:
+				'Use the OAuth provider key (okta, google) or saml. Ignored when that provider is not configured. /user/login?no_sso=1 shows the normal login form.',
 			key: 'auto_login_provider',
 			fieldType: 'text',
 			placeholder: 'okta',
@@ -842,7 +843,9 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'SSO groups claim',
 			description:
-				'Name of the SAML attribute or OIDC userinfo claim carrying the user\'s IdP groups ("http://schemas.microsoft.com/ws/2008/06/identity/claims/groups" on Entra SAML, "groups" for most OIDC providers). Its values must be the same group ids that SCIM stored as the instance groups\' external id (Entra emits object ids in both), since matching is by external id only. When set, every SSO login reconciles the user\'s membership in those SCIM-provisioned instance groups against the claim, so IdP group changes take effect at the next login instead of waiting for the SCIM push. Instance groups without an external id are never touched, and a login whose claim is absent or empty changes nothing. Leave empty to disable.',
+				"The claim or SAML attribute listing a user's IdP groups. Each SSO login then updates their membership in the groups SCIM created.",
+			tooltip:
+				'Usually groups on OIDC, or http://schemas.microsoft.com/ws/2008/06/identity/claims/groups on Entra SAML. Values must match the external id SCIM stored for each group (Entra uses object ids). Groups without an external id are never changed, and a login without the claim changes nothing. MCP requests signed in through the external identity provider use the groups in their token the same way.',
 			key: 'sso_groups_claim',
 			fieldType: 'text',
 			placeholder: 'groups',

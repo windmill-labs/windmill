@@ -54,8 +54,8 @@
 		return {
 			issuer: v?.issuer ?? '',
 			audience: v?.audience ?? '',
-			client_claim: v?.client_claim ?? 'azp',
-			email_claim: v?.email_claim ?? 'email',
+			client_claim: v?.client_claim === 'azp' ? '' : (v?.client_claim ?? ''),
+			email_claim: v?.email_claim === 'email' ? '' : (v?.email_claim ?? ''),
 			clients: (v?.clients ?? []).map((c: any) => ({
 				id: nextId++,
 				client_id: c.client_id ?? '',
@@ -77,8 +77,8 @@
 		return {
 			issuer: f.issuer.trim(),
 			...(f.audience.trim() ? { audience: f.audience.trim() } : {}),
-			client_claim: f.client_claim.trim() || 'azp',
-			email_claim: f.email_claim.trim() || 'email',
+			...(f.client_claim.trim() ? { client_claim: f.client_claim.trim() } : {}),
+			...(f.email_claim.trim() ? { email_claim: f.email_claim.trim() } : {}),
 			clients: f.clients.map((c) => ({
 				client_id: c.client_id.trim(),
 				workspace_id: c.workspace_id,
@@ -161,11 +161,11 @@
 				tooltip="The claim naming the OAuth client: azp on Keycloak, Auth0, Entra and Google, cid on Okta, client_id on servers following RFC 9068."
 			>
 				<TextInput bind:value={form.client_claim} inputProps={{ placeholder: 'azp', disabled }} />
-				<span class="text-2xs text-hint">Default azp</span>
+				<span class="text-2xs text-hint">Leave empty for azp</span>
 			</Label>
 			<Label class="grow" label="User email claim">
 				<TextInput bind:value={form.email_claim} inputProps={{ placeholder: 'email', disabled }} />
-				<span class="text-2xs text-hint">Default email</span>
+				<span class="text-2xs text-hint">Leave empty for email</span>
 			</Label>
 		</div>
 	</div>
