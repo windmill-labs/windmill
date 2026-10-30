@@ -146,8 +146,8 @@
 	// Account / instance actions gathered under one "Settings" dropdown, shared by
 	// the session rail and the global sidebar so both expose the same entry point.
 	// Workspace- and instance-scoped entries sit between the account entries and Logout.
-	// Leaving a workspace lives on the workspace settings page, which every member reaches:
-	// next to Logout it was clicked by mistake, and only a workspace admin can undo it.
+	// Leaving a workspace lives on the workspace settings page, which every member reaches,
+	// not in this menu next to Logout: only a workspace admin can undo a leave.
 	const workspaceInstanceItems = $derived<Item[]>([
 		// Fork deletion is a global-sidebar action on the active workspace, so keep it
 		// out of the session rail's per-target settings entry (`workspaceSettingsTarget`).
