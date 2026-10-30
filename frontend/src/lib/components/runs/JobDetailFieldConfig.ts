@@ -25,7 +25,6 @@ export type JobField =
 	| 'created_at'
 	| 'started_at'
 	| 'created_by'
-	| 'mcp_client'
 	| 'permissioned_as'
 	| 'memory_peak'
 	| 'run_id'
@@ -55,8 +54,7 @@ export interface FieldConfig {
 /**
  * Configuration for field presence per job category
  */
-// `mcp_client` shows whenever the run has one, whatever its category.
-export type FieldPresenceConfig = Record<JobCategory, Record<Exclude<JobField, 'mcp_client'>, boolean>>
+export type FieldPresenceConfig = Record<JobCategory, Record<JobField, boolean>>
 
 /**
  * Categorizes a job based on its job_kind
@@ -176,12 +174,6 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 		field: 'created_by',
 		label: 'By',
 		getValue: (job) => job.created_by || 'unknown'
-	},
-
-	mcp_client: {
-		field: 'mcp_client',
-		label: 'Via MCP client',
-		getValue: (job) => job.mcp_client || null
 	},
 
 	permissioned_as: {
@@ -513,7 +505,6 @@ export function getRelevantFields(job: Job): FieldConfig[] {
 		'created_at',
 		'started_at',
 		'created_by',
-		'mcp_client',
 		'permissioned_as',
 		'worker',
 		'run_id',
@@ -536,9 +527,6 @@ export function getRelevantFields(job: Job): FieldConfig[] {
 		.filter((fieldName) => {
 			if (fieldName === 'permissioned_as') {
 				return shouldShowPermissionedAs
-			}
-			if (fieldName === 'mcp_client') {
-				return !!job.mcp_client
 			}
 			if (fieldName === 'parent_job') {
 				// Always show parent_job when it exists, regardless of category configuration

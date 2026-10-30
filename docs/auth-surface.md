@@ -167,7 +167,7 @@ Symbols, not line numbers, are cited: they drift less.
   the next token. Roles (admin, superadmin, operator) are not derived from the token: they stay as
   stored, which SCIM and SSO login keep current. Entra's overage pointer (`_claim_names`) is refused rather than read as no
   groups. The resolved identity is cached per token for at most a minute. Runs
-  record the client in `v2_job.mcp_client` and `job_perms.mcp_client`, from the pushing identity
+  record the client in `job_perms.mcp_client` (and the job-start audit entry), from the pushing identity
   rather than `job_authed`, so a run on behalf of another identity still names it; the
   session toolset reaches the API through a JWT minted for the caller, which carries the client
   in its `mcp_client` claim for the same reason, and so does a job's `WM_TOKEN`.

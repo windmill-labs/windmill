@@ -7903,8 +7903,7 @@ async fn push_inner<'c, 'd>(
                 trigger_kind, -- 39
                 script_entrypoint_override, -- 12
                 preprocessed, -- 27,
-                labels, -- 44
-                mcp_client -- 48
+                labels -- 44
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $38, $21, $22, $23, $24, $25, $26, $39::job_trigger_kind,
             ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27,
@@ -7913,7 +7912,7 @@ async fn push_inner<'c, 'd>(
             (SELECT CASE WHEN fl.labels IS NULL THEN $44
                 ELSE (SELECT array_agg(DISTINCT lbl) FROM unnest(COALESCE($44, ARRAY[]::TEXT[]) || fl.labels) lbl)
             END
-            FROM folder_labels($46, $45) AS fl(labels)), $48)
+            FROM folder_labels($46, $45) AS fl(labels)))
         ),
         inserted_runtime AS (
             INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)
