@@ -36,6 +36,7 @@ switch that decides whether this chat carries its tools.
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { clearMcpToolsCache } from './global/mcpTools'
 	import { forgetMcpServerMarks } from '$lib/components/mcp/serverMark'
+	import { ownerRoot } from './workingScope'
 
 	let {
 		ws,
@@ -487,7 +488,15 @@ switch that decides whether this chat carries its tools.
 						{#snippet title()}
 							<span class="truncate leading-5">{server.path}</span>
 						{/snippet}
-						{#snippet subtitle()}{server.description}{/snippet}
+						{@const scopeRoots = aiChatManager.workingScope?.roots}
+						{@const fromRoot = scopeRoots?.find((r) => ownerRoot(server.path) === r)}
+						{@const fromScope = !!fromRoot}
+						{#snippet subtitle()}
+							{#if fromRoot}
+								<span class="text-accent">From {fromRoot}, where this session works.</span>
+							{/if}
+							{server.description}
+						{/snippet}
 						{#snippet trailing()}
 							<Toggle
 								size="xs"
@@ -518,7 +527,7 @@ switch that decides whether this chat carries its tools.
 							{icon}
 							{title}
 							{trailing}
-							subtitle={server.description ? subtitle : undefined}
+							subtitle={server.description || fromScope ? subtitle : undefined}
 							onClick={() => openServer(server)}
 						/>
 					{/each}
