@@ -104,6 +104,7 @@
 	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
 	import { pruneMeaninglessDrafts } from '$lib/userDraftPrune'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
+	import AppLinksModal from '$lib/components/itemSettings/AppLinksModal.svelte'
 	import InstanceBanner from '$lib/components/InstanceBanner.svelte'
 	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
@@ -1407,6 +1408,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 	/>
 {/if}
 <DraftMigrationErrorModal />
+<AppLinksModal />
 {#if page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login" loading={true}></CenteredModal>
 {:else if $userStore}

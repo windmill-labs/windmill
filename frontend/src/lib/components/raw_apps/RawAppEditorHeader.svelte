@@ -38,6 +38,7 @@
 		WandSparkles
 	} from 'lucide-svelte'
 	import ShareDialog from '$lib/components/itemSettings/ShareDialog.svelte'
+	import { showAppLinks } from '$lib/components/itemSettings/AppLinksModal.svelte'
 	import FirstDeployDialog, {
 		applyFirstDeployMembers
 	} from '$lib/components/itemSettings/FirstDeployDialog.svelte'
@@ -814,8 +815,12 @@
 		if (isNewApp) {
 			const members = firstDeployMembers
 			const workspace = opWorkspace!
-			if (await createApp(newEditedPath)) {
-				await applyFirstDeployMembers(workspace, 'raw_app', newEditedPath, members)
+			const path = newEditedPath
+			if (await createApp(path)) {
+				await applyFirstDeployMembers(workspace, 'raw_app', path, members)
+				if (offersSharing) {
+					showAppLinks({ workspace, path, mode: accessModeOf(policy), customPath })
+				}
 			}
 		} else {
 			await handleUpdateApp(newEditedPath)

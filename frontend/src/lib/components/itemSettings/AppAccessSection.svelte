@@ -15,7 +15,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
-	import { customPathError, type AppAccessMode } from './appAccess'
+	import { customPathError, customUrlBaseOf, secretUrlOf, type AppAccessMode } from './appAccess'
 
 	interface Props {
 		workspace: string
@@ -100,9 +100,7 @@
 	load()
 
 	let embedMode = $state(false)
-	let secretUrlHref = $derived(
-		secretUrl ? `${window.location.origin}/public/${workspace}/${secretUrl}` : undefined
-	)
+	let secretUrlHref = $derived(secretUrl ? secretUrlOf(workspace, secretUrl) : undefined)
 	let appUrl = $derived(
 		`${window.location.origin}/${rawApp ? 'apps_raw' : 'apps'}/get/${appPath}?workspace=${workspace}`
 	)
@@ -119,9 +117,7 @@
 	)
 	// The Embed toggle only shows outside Members, so it must not linger on from another mode.
 	let customUrlEmbed = $derived(embedMode && mode != 'publisher')
-	let customUrlBase = $derived(
-		`${window.location.origin}/a/${isCloudHosted() || globalWorkspacedRoute ? workspace + '/' : ''}`
-	)
+	let customUrlBase = $derived(customUrlBaseOf(workspace, globalWorkspacedRoute))
 	let fullCustomUrl = $derived(customUrlBase + (customPath ?? ''))
 	// The guest JWT rides on the custom URL when set, else on the secret URL.
 	let guestJwtBase = $derived(customPath ? fullCustomUrl : secretUrlHref)

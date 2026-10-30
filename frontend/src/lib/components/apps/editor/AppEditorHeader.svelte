@@ -79,6 +79,7 @@
 	import { updatePolicy } from './appPolicy'
 	import { appDraftSettings, withoutSharedPolicySettings } from './appDraftSettings'
 	import ShareDialog from '$lib/components/itemSettings/ShareDialog.svelte'
+	import { showAppLinks } from '$lib/components/itemSettings/AppLinksModal.svelte'
 	import FirstDeployDialog, {
 		applyFirstDeployMembers
 	} from '$lib/components/itemSettings/FirstDeployDialog.svelte'
@@ -607,8 +608,13 @@
 		// `$appPath` — its `draft_{uuid}` is a poor create signal.
 		if (newApp) {
 			const members = firstDeployMembers
-			if (await createApp(newEditedPath)) {
-				await applyFirstDeployMembers($workspaceStore!, 'app', newEditedPath, members)
+			const workspace = $workspaceStore!
+			const path = newEditedPath
+			if (await createApp(path)) {
+				await applyFirstDeployMembers(workspace, 'app', path, members)
+				if (offersSharing) {
+					showAppLinks({ workspace, path, mode: accessModeOf(policy), customPath })
+				}
 			}
 		} else {
 			await handleUpdateApp(newEditedPath)
