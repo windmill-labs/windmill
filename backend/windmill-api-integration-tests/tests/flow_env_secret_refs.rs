@@ -1,7 +1,7 @@
 //! A secret reached through `flow_env` is stored on the step job as a reference (exact
 //! `flow_env.X` read) or encrypted (computed from it), and still resolves when the step runs.
-//! A subflow step, which resolves nothing in its args, gets the reference of a secret entry
-//! and the resolved value of a non-secret one.
+//! A subflow step, which resolves nothing in its args, gets a secret entry as a reference or
+//! encrypted, and the resolved value of a non-secret one.
 //!
 //!   cargo test -p windmill-api-integration-tests --features deno_core --test flow_env_secret_refs
 #![cfg(feature = "deno_core")]
@@ -65,6 +65,7 @@ async fn test_flow_env_secret_kept_out_of_step_args(db: Pool<Postgres>) -> anyho
                 "path": "u/test-user/sub",
                 "input_transforms": {
                     "tok": {"type": "javascript", "expr": "flow_env.TOKEN"},
+                    "hdr": {"type": "javascript", "expr": "\"Bearer \" + flow_env.TOKEN"},
                     "host": {"type": "javascript", "expr": "flow_env.HOST"}
                 }
             }}
@@ -75,10 +76,10 @@ async fn test_flow_env_secret_kept_out_of_step_args(db: Pool<Postgres>) -> anyho
         RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
             .run_until_complete(&db, false, port)
             .await;
-    assert_eq!(
-        flow_job.json_result().unwrap(),
-        json!({"tok": "$var:u/test-user/tok", "host": "example.com"})
-    );
+    let sub_args = flow_job.json_result().unwrap();
+    assert_eq!(sub_args["tok"], "$var:u/test-user/tok");
+    assert!(sub_args["hdr"].as_str().unwrap().starts_with("$encrypted:"));
+    assert_eq!(sub_args["host"], "example.com");
 
     let (step_args, step_result): (serde_json::Value, serde_json::Value) = sqlx::query_as(
         "SELECT j.args, c.result FROM v2_job j JOIN v2_job_completed c ON c.id = j.id
@@ -98,28 +99,6 @@ async fn test_flow_env_secret_kept_out_of_step_args(db: Pool<Postgres>) -> anyho
         .starts_with("$encrypted:"));
     assert_eq!(step_args["url"], "https://example.com");
     assert!(!step_args.to_string().contains(secret));
-
-    let computed_into_subflow: FlowValue = serde_json::from_value(json!({
-        "flow_env": {"TOKEN": "$var:u/test-user/tok"},
-        "modules": [{"id": "s", "value": {
-            "type": "flow",
-            "path": "u/test-user/sub",
-            "input_transforms": {
-                "hdr": {"type": "javascript", "expr": "\"Bearer \" + flow_env.TOKEN"}
-            }
-        }}]
-    }))?;
-    let failed = RunJob::from(JobPayload::RawFlow {
-        value: computed_into_subflow,
-        path: None,
-        restarted_from: None,
-    })
-    .run_until_complete(&db, false, port)
-    .await;
-    assert!(!failed.success);
-    let error = failed.json_result().unwrap().to_string();
-    assert!(error.contains("subflow cannot receive"), "{error}");
-    assert!(!error.contains(secret), "{error}");
 
     Ok(())
 }

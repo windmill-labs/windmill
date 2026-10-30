@@ -2894,9 +2894,9 @@ where
 /// resolved (audited and masked) when the step runs like a static input, and any other
 /// expression reading a secret entry stores its result encrypted.
 ///
-/// A subflow step resolves no reference in its args, so it gets the resolved value of a
-/// non-secret entry, the reference of a secret one, and cannot take a value computed from a
-/// secret.
+/// A subflow step resolves nothing in its args, so it gets the resolved value of a
+/// non-secret entry, while a secret one reaches it as a reference or encrypted, which its own
+/// steps resolve or decrypt (they share its root job id).
 pub(crate) struct FlowEnvRefs<'a> {
     raw: &'a HashMap<String, Box<RawValue>>,
     secrets: HashMap<String, Box<RawValue>>,
@@ -3054,14 +3054,6 @@ async fn transform_input(
                 })?;
                 let v = match env_refs {
                     Some(r @ FlowEnvRefs { crypt: Some(crypt), .. }) if r.reads_secret(expr) => {
-                        if into_subflow {
-                            return Err(Error::ExecutionErr(format!(
-                                "Input `{key}` of a subflow step is computed from a secret \
-                                 flow_env entry, which a subflow cannot receive: pass the \
-                                 secret as an exact `flow_env.<key>` read and use it in a \
-                                 step of the subflow"
-                            )));
-                        }
                         to_raw_value(&format!("$encrypted:{}", encrypt(crypt, v.get())))
                     }
                     _ => v,
@@ -6851,8 +6843,8 @@ mod tests {
         FlowEnvRefs,
     };
 
-    // A subflow input computed from a secret fails the step, so a key that merely shares a
-    // secret entry's name must not count as reading it.
+    // An input computed from a secret is stored encrypted, which an agent worker cannot
+    // decrypt, so a key that merely shares a secret entry's name must not count as reading it.
     #[test]
     fn reads_secret_only_through_a_flow_env_access() {
         let raw = std::collections::HashMap::new();
