@@ -1099,8 +1099,6 @@ async fn decline_invite(
     }
 }
 
-pub use windmill_common::usernames::VALID_USERNAME;
-
 async fn accept_invite(
     authed: ApiAuthed,
     Extension(webhook): Extension<WebhookShared>,
@@ -1244,11 +1242,7 @@ async fn join_workspace<'c>(
             )));
         }
 
-        if !VALID_USERNAME.is_match(&username) {
-            return Err(windmill_common::error::Error::BadRequest(format!(
-                "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
-            )));
-        }
+        windmill_common::usernames::validate_username(&username)?;
         username.to_string()
     };
 

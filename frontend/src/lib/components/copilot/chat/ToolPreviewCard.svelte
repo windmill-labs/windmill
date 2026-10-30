@@ -7,7 +7,7 @@
 	import { openItemPreviewAction, type PreviewCardKind } from './shared'
 
 	interface Props {
-		card: { kind: PreviewCardKind; path: string }
+		card: { kind: PreviewCardKind | 'agent'; path: string }
 		/** Opens something other than the item's own preview — the run card opens the call
 		 * it owns, which is a form before it is a run. */
 		onOpen?: () => void
@@ -34,7 +34,18 @@
 		}
 		opening = true
 		try {
-			await runToolDisplayAction(openItemPreviewAction(card.kind, card.path, mode))
+			// An agent is not a live editor the panel hosts: its editor opens as a page tab.
+			await runToolDisplayAction(
+				card.kind === 'agent'
+					? {
+							id: `open-agent:${card.path}`,
+							type: 'open_created_resource',
+							label: 'Open agent',
+							resource: 'agent',
+							path: card.path
+						}
+					: openItemPreviewAction(card.kind, card.path, mode)
+			)
 		} finally {
 			opening = false
 		}

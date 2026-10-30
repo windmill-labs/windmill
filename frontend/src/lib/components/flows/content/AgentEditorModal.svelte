@@ -9,7 +9,10 @@
 	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import ResourceVersionHistory from '$lib/components/ResourceVersionHistory.svelte'
-	import { clearPageDrawerAnchor } from '$lib/components/sessions/pageDrawerSession'
+	import {
+		clearPageDrawerAnchor,
+		persistDraftForSession
+	} from '$lib/components/sessions/pageDrawerSession'
 	import { RESOURCES_PATH } from '$lib/components/sessions/previewPaths'
 	import EvalsPane from '$lib/components/aiEvals/EvalsPane.svelte'
 	import type { EvalsLocation } from '$lib/components/aiEvals/evalUtils'
@@ -25,6 +28,10 @@
 		showAgentEditorView
 	} from '../agentEditorStore.svelte'
 	import { agentConfigToInputTransforms } from '../agentResourceUtils'
+	import { openAgentInFlow } from '../agentActions'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+	import { useEditRights } from '$lib/operatorWriteRights'
+	import { userStore } from '$lib/stores'
 	import { publishLinkedAgentTools } from '../flowState'
 	import { linkedModulesForAgent, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import AgentEditorHost from './AgentEditorHost.svelte'
@@ -35,7 +42,11 @@
 	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
 	import { emptyString } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { useEditRights } from '$lib/operatorWriteRights'
+	import { itemDisplayName } from '$lib/components/sessions/previewRouter'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -50,8 +61,10 @@
 		/** A deploy moved the agent from `from` to `to`. What names the old path belongs to the surface
 		 *  that opened the editor: a flow's own steps, a page's URL. */
 		onRenamed?: (from: string, to: string) => void
-		/** `page` fills its container with the editor's header and body instead of opening a dialog. */
-		layout?: 'modal' | 'page'
+		/** `page` fills its container with the editor's header and body instead of opening a dialog,
+		 *  the header going to the route's page header; `pane` draws that header itself, for a host
+		 *  nested in another page (a session tab) whose page header is not this editor's. */
+		layout?: 'modal' | 'page' | 'pane'
 		/** Where closing leads, for a layout that has no dialog to dismiss. `deployed` is false for an
 		 *  agent that exists only as a draft, which has no page of its own to return to. */
 		onClose?: (deployed: boolean) => void
@@ -59,6 +72,13 @@
 		onDeployed?: (path: string) => void
 		/** Open on the settings, as a link to them does. */
 		startInSettings?: boolean
+		/** The agent this mount shows, held here rather than in the editor every other mount shares,
+		 *  for a host that shows several at once (a session's tabs). Navigating and closing then stay
+		 *  with this mount, and `owns` is not consulted. */
+		fixedTarget?: AgentEditorTarget
+		/** The agent's name as it stands in the editor, edits included, for a host that names it: its
+		 *  summary, or for a never-deployed agent parked at `draft_<uuid>`, the path it will deploy to. */
+		onSummary?: (summary: string | undefined) => void
 	}
 
 	let {
@@ -68,17 +88,29 @@
 		layout = 'modal',
 		onClose = undefined,
 		onDeployed = undefined,
-		startInSettings = false
+		startInSettings = false,
+		fixedTarget = undefined,
+		onSummary = undefined
 	}: Props = $props()
 
 	// Every target names the surface that opened it, and only a flow step or a resource row can:
 	// an agent used as a tool of the agent being edited stays part of it, with no way in this editor
 	// to link it to a saved agent of its own. So `owns` decides alone — nothing here has to adopt a
 	// target opened from inside another editor.
+	let local = $state<AgentEditorTarget | undefined>(untrack(() => fixedTarget))
 	let target = $derived.by(() => {
+		if (local) return local
 		const t = agentEditorTarget()
 		return t && owns(t) ? t : undefined
 	})
+	function showTool(toolId: string | undefined) {
+		if (local) local = { ...local, toolId, view: undefined }
+		else showAgentEditorTool(toolId)
+	}
+	function showView(view: AgentEditorTarget['view']) {
+		if (local) local = { ...local, view, toolId: undefined }
+		else showAgentEditorView(view)
+	}
 	// The last agent this dialog showed. The version pane keeps working after `onRestore` returns —
 	// it reloads its list keyed on the path it was given — while the restore handler has already
 	// closed the dialog and dropped the target. Reading the live one there throws, and the throw
@@ -90,6 +122,23 @@
 	})
 
 	let ws = $derived(target?.workspace ?? $operatingWorkspace)
+	// On its own route, the hand-off the script and flow editors have: a session on this agent's
+	// editor tab, opened once what is on screen is saved.
+	let sessionSource = $derived.by((): OpenInSessionSource | undefined => {
+		const path = target?.path
+		const workspace = ws
+		if (layout !== 'page' || !path || !workspace) return undefined
+		return {
+			page: () => `${RESOURCES_PATH}#/resource/${path}`,
+			workspaceId: workspace,
+			beforeOpen: async () => {
+				await persistDraftForSession(workspace, 'resource', path)
+				// A new agent has no draft row until an edit autosaves one, and the session reads the
+				// agent from the server. Only for one never deployed, which has no baseline to skip.
+				if (draftOnly) await UserDraft.forcePersist('resource', path, { workspace })
+			}
+		}
+	})
 	let host = $state<ReturnType<typeof AgentEditorHost> | undefined>(undefined)
 	let versionDrawer: Drawer | undefined = $state(undefined)
 	let settingsDrawer: Drawer | undefined = $state(undefined)
@@ -151,6 +200,13 @@
 	// stored at a minted `draft_<uuid>` path and named by the path its first deploy will create,
 	// as the home list names it. Falls back to the target while the draft is still loading.
 	let shownPath = $derived(draft?.state?.path || target?.path)
+	// Reported once loaded, then on every rename: from the first report on, the host names the tab by
+	// it rather than by its listing, an empty name included.
+	$effect(() => {
+		if (!draft?.state) return
+		const name = itemDisplayName(target?.path ?? '', draft.state.path, draft.state.description)
+		untrack(() => onSummary?.(name))
+	})
 
 	// Where the evals pane is within itself, so its levels extend this dialog's trail rather than
 	// opening a dialog of their own. Cleared on the way in: the pane reports a level once it is on
@@ -166,7 +222,7 @@
 
 	let root = $derived<ModalTrailSegment>({
 		label: shownPath ?? 'Agent',
-		onclick: inEvals || inSettings ? () => showAgentEditorView(undefined) : undefined
+		onclick: inEvals || inSettings ? () => showView(undefined) : undefined
 	})
 	let trail = $derived<ModalTrailSegment[]>(
 		inEvals
@@ -185,12 +241,12 @@
 
 	// The dialog's levels are its pages; a page has none, so evals open over it as a dialog.
 	function openEvals() {
-		if (layout === 'modal') showAgentEditorView('evals')
+		if (layout === 'modal') showView('evals')
 		else evalsModal?.openModal()
 	}
 
 	function openSettings() {
-		if (layout === 'modal') showAgentEditorView('settings')
+		if (layout === 'modal') showView('settings')
 		else settingsDrawer?.openDrawer()
 	}
 
@@ -219,7 +275,7 @@
 	function close() {
 		// Unknown until the load answers, and a detail page that does not exist is the worse guess.
 		const deployed = draft != undefined && !draft.loading && !draftOnly && !refused
-		closeAgentEditor()
+		if (!local) closeAgentEditor()
 		if (layout === 'modal') void clearPageDrawerAnchor(RESOURCES_PATH)
 		onClose?.(deployed)
 	}
@@ -229,6 +285,7 @@
 	// way back and tells the flow editor a dialog is over its graph. Only its own, so a mount going
 	// down never drops a target another one is showing.
 	onDestroy(() => {
+		if (local) return
 		const t = agentEditorTarget()
 		if (t && owns(t)) closeAgentEditor()
 	})
@@ -274,20 +331,79 @@
 
 	let deployingFor = $state<WriteTarget | undefined>(undefined)
 
-	async function onDeploy() {
+	async function onDeploy(): Promise<boolean> {
 		saving = true
 		deployingFor = currentWriteTarget()
 		try {
-			await host?.deploy()
+			return (await host?.deploy()) ?? false
 		} finally {
 			saving = false
 			deployingFor = undefined
 		}
 	}
 
+	// Only where the agent stands alone: opened from a flow's step, it is already in one. Linking
+	// a deployed agent as it is only reads it. Not for operators: the server refuses their flows
+	// a linked agent, and an inlined one's tools may hold code.
+	let offerFlow = $derived(
+		target?.host === undefined &&
+			draft?.state != undefined &&
+			!draft.loading &&
+			!refused &&
+			!$userStore?.operator &&
+			editRights.roleCanAuthor('flow') &&
+			(!readOnly || (!draft.noDeployed && !draft.sync.hasDraft))
+	)
+	let openingFlow = $state(false)
+	/** Set while a deploy is followed by the flow's page: the page loads next, so the deploy's own
+	 *  navigation would race it. Holds the path the deploy wrote. */
+	let handOff = $state<{ savedPath?: string } | undefined>(undefined)
+
+	async function useInFlow() {
+		const state = draft?.state
+		const at = target
+		const workspace = ws
+		if (!draft || !state || !at || !workspace) return
+		openingFlow = true
+		try {
+			if (draft.noDeployed) {
+				// Never a workspace item: it becomes the flow's step, and its draft goes. Through the
+				// sync, so an autosave still pending cannot write it back.
+				const sync = draft.sync
+				await openAgentInFlow({
+					workspace,
+					path: state.path,
+					config: state.args,
+					inline: true,
+					beforeOpen: async () => sync.discard(at.path, undefined)
+				})
+				return
+			}
+			// The flow links the deployed agent, so it has to run what is shown here.
+			const config = state.args
+			let path = at.path
+			if (draft.sync.hasDraft) {
+				handOff = {}
+				try {
+					if (!(await onDeploy()) || !handOff.savedPath) return
+					path = handOff.savedPath
+				} finally {
+					handOff = undefined
+				}
+			}
+			await openAgentInFlow({ workspace, path, config, inline: false })
+		} finally {
+			openingFlow = false
+		}
+	}
+
 	/** What a successful deploy has to reconcile. `savedPath` is the path it wrote, which a rename
 	 *  moves off the one the editor opened. */
 	async function onSaved(savedPath: string) {
+		if (handOff) {
+			handOff.savedPath = savedPath
+			return
+		}
 		const at = deployingFor ?? currentWriteTarget()
 		// Before the rename is announced: it finds the steps to refresh under the old path.
 		const reconciled = reconcile(at, savedPath)
@@ -298,7 +414,9 @@
 			// The dialog is keyed on the path, so this reloads it on the renamed agent. Only while it
 			// still shows the one deployed: it can be closed or pointed elsewhere mid-request.
 			if (target?.path === at.path) {
-				openAgentEditor({ path: savedPath, workspace: target.workspace, host: target.host })
+				const next = { path: savedPath, workspace: target.workspace, host: target.host }
+				if (local) local = next
+				else openAgentEditor(next)
 			}
 		}
 		await reconciled
@@ -331,6 +449,19 @@
 			>
 				{@render body()}
 			</Modal>
+		{:else if layout === 'pane'}
+			<div class="h-full min-h-0 flex flex-col">
+				<div class="flex items-center gap-2 px-4 sm:px-6 py-2 border-b min-w-0 shrink-0">
+					<div class="min-w-0 flex-1 flex items-center gap-1">
+						{@render agentSummary()}
+						{@render agentHint()}
+					</div>
+					{@render settings()}
+				</div>
+				<div class="flex-1 min-h-0 px-4 sm:px-6">
+					{@render body()}
+				</div>
+			</div>
 		{:else}
 			<!-- On its own route the editor's header is the page header: the agent's path is the
 			     breadcrumb, the level it is on reads after that name, and its controls are the band's
@@ -346,6 +477,7 @@
 				}}
 				afterName={agentHint}
 				actions={settings}
+				{sessionSource}
 				separator="always"
 			/>
 			<div class="h-full min-h-0 flex flex-col">
@@ -533,6 +665,7 @@
 					title="Version history"
 					on:click={() => versionDrawer?.openDrawer()}
 				/>
+				<OpenInSessionButton source={sessionSource} />
 				<Button
 					unifiedSize="sm"
 					variant="accent"
@@ -566,9 +699,11 @@
 			     them for its own levels. Warmed, as those levels are: a page built on its first visit
 			     lands inside the transition and arrives empty. The page layout has no levels: it opens
 			     settings in a drawer and evals in a dialog, so warming them there would build them twice. -->
+			<!-- Full-bleed as the banner is, each page padding itself: the editor drops its padding
+			     when its panes become tabs, and this clips anything that reaches past it. -->
 			<PagedContent
 				warm
-				class="flex-1 min-h-0"
+				class="flex-1 min-h-0 -mx-4 sm:-mx-6"
 				current={inEvals ? 'evals' : inSettings ? 'settings' : 'agent'}
 				pages={[
 					{ key: 'agent', content: agentPage },
@@ -589,10 +724,35 @@
 			workspace={ws}
 			{enableAi}
 			toolId={target?.toolId}
-			onSelectTool={(id) => showAgentEditorTool(id)}
+			onSelectTool={(id) => showTool(id)}
 			{onSaved}
 			isNew={target?.isNew}
+			configFooter={offerFlow ? flowFooter : undefined}
 		/>
+	{/snippet}
+
+	{#snippet flowFooter()}
+		<div class="flex flex-wrap items-center gap-x-1.5 text-xs text-hint">
+			Need to fetch context first, process the output, or add other steps?
+			<Button
+				unifiedSize="xs"
+				variant="subtle"
+				startIcon={{ icon: BarsStaggered, props: { style: 'fill: currentColor;' } }}
+				loading={openingFlow}
+				onClick={useInFlow}
+				title={draft?.noDeployed
+					? 'It becomes the step of a new flow, and this draft is discarded.'
+					: draft?.sync.hasDraft
+						? 'Your changes are deployed, then a new flow links this agent.'
+						: 'A new flow links this agent, which stays configured here.'}
+			>
+				{draft?.noDeployed
+					? 'Turn into a flow'
+					: draft?.sync.hasDraft
+						? 'Deploy and use in a flow'
+						: 'Use in a flow'}
+			</Button>
+		</div>
 	{/snippet}
 
 	{#snippet settingsFields()}
@@ -608,20 +768,22 @@
 	{/snippet}
 
 	{#snippet settingsPage()}
-		<div class="max-w-2xl py-6">{@render settingsFields()}</div>
+		<div class="max-w-2xl py-6 px-4 sm:px-6">{@render settingsFields()}</div>
 	{/snippet}
 
 	{#snippet evalsPage()}
-		<EvalsPane
-			agentPath={target?.path ?? ''}
-			opWorkspace={ws}
-			editedConfig={draft?.sync.hasDraft ? editedConfig : undefined}
-			bind:location={evalsLocation}
-			active={inEvals}
-		/>
+		<div class="h-full min-h-0 px-4 sm:px-6">
+			<EvalsPane
+				agentPath={target?.path ?? ''}
+				opWorkspace={ws}
+				editedConfig={draft?.sync.hasDraft ? editedConfig : undefined}
+				bind:location={evalsLocation}
+				active={inEvals}
+			/>
+		</div>
 	{/snippet}
 
-	{#if layout === 'page' && ws}
+	{#if layout !== 'modal' && ws}
 		<AgentEvalsModal
 			bind:this={evalsModal}
 			agentPath={target?.path ?? ''}

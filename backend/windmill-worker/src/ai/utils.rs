@@ -307,6 +307,40 @@ pub async fn update_flow_status_module_with_actions_success(
     Ok(())
 }
 
+/// Record the outcome of the last of `action_count` actions, dropping any recorded past it.
+pub async fn set_flow_status_module_last_action_success(
+    db: &DB,
+    parent_job: &Uuid,
+    action_count: usize,
+    action_success: bool,
+) -> Result<(), Error> {
+    if let Step::Step { idx: step, .. } = get_step_of_flow_status(db, parent_job.to_owned()).await?
+    {
+        sqlx::query(
+            "UPDATE v2_job_status SET
+                flow_status = jsonb_set(
+                    flow_status,
+                    array['modules', $2::TEXT, 'agent_actions_success'],
+                    COALESCE((
+                        SELECT jsonb_agg(e ORDER BY i)
+                        FROM jsonb_array_elements(
+                            flow_status->'modules'->$2->'agent_actions_success'
+                        ) WITH ORDINALITY AS t(e, i)
+                        WHERE i < $3
+                    ), '[]'::jsonb) || to_jsonb(ARRAY[$4::bool])
+                )
+            WHERE id = $1",
+        )
+        .bind(parent_job)
+        .bind(step as i32)
+        .bind(action_count as i64)
+        .bind(action_success)
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
 /// Get step name from the flow module (summary if exists, else id)
 pub fn get_step_name_from_flow(
     summary: Option<&str>,
@@ -405,6 +439,8 @@ fn convert_mcp_tools_to_windmill_tools(
                     tool_name: mcp_tool.name.to_string(),
                     resource_path: resource_path.to_string(),
                 }),
+                requires_approval: false,
+                question_timeout_secs: None,
             })
         })
         .collect()

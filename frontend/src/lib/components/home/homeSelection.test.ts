@@ -24,7 +24,7 @@ function selectionOf(...items: BulkItem[]): HomeSelection {
 	s.available = true
 	for (const i of items) {
 		s.register(i)
-		s.toggle(i)
+		s.toggle(i.key)
 	}
 	return s
 }

@@ -1,6 +1,5 @@
 import type { ListableApp, Script, Flow, ListableRawApp, ListableResource } from '$lib/gen'
 type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app' | 'agent'> = T & {
-	canWrite: boolean
 	marked?: string
 	type?: U
 	time?: number

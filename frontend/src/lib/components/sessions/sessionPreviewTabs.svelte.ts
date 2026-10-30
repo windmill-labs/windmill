@@ -136,6 +136,7 @@ function retargetTab(tab: SessionPreviewTab, url: string): void {
 		tab.friendlyLabel = undefined
 		tab.friendlyPath = undefined
 		tab.editorNamed = undefined
+		tab.agentEditor = undefined
 	}
 	tab.url = url
 	tab.loc = url
@@ -645,6 +646,27 @@ export class SessionPreviewTabs {
 		const tab = this.#tabs.find((t) => t.url === fromUrl)
 		if (!tab) return
 		retargetTab(tab, toUrl)
+		this.#flush()
+	}
+
+	/** Name a tab after what the page in it shows, for a page that is not one of the live editors
+	 * (an agent's deployed page); undefined falls back to the location's label. */
+	setTabFriendlyLabel(tabId: string, label: string | undefined): void {
+		const tab = this.#tabs.find((t) => t.id === tabId)
+		if (!tab || (tab.editorNamed && tab.friendlyLabel === label)) return
+		tab.friendlyLabel = label
+		tab.editorNamed = true
+		this.#flush()
+	}
+
+	/** Mark a resource tab as an agent's editor, named after its summary as `setEditorFriendlyLabel`
+	 * names the live editors' tabs; an undefined summary falls back to the path. */
+	stampAgentTab(ref: PageItemRef, summary: string | undefined): void {
+		const tab = this.#tabs.find((t) => t.url === pageItemUrl(ref))
+		if (!tab || (tab.agentEditor && tab.editorNamed && tab.friendlyLabel === summary)) return
+		tab.agentEditor = true
+		tab.friendlyLabel = summary
+		tab.editorNamed = true
 		this.#flush()
 	}
 

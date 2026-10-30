@@ -20,7 +20,6 @@
 		wideLayout = false,
 		emptyHint,
 		starter = undefined,
-		viewTransitionNames = false,
 		onSent = undefined,
 		inputPreface,
 		workModeLock = undefined,
@@ -44,7 +43,6 @@
 		wideLayout?: boolean
 		emptyHint?: import('svelte').Snippet
 		starter?: import('./starter/starterPrompts.svelte').ChatStarter
-		viewTransitionNames?: boolean
 		onSent?: () => void
 		inputPreface?: import('svelte').Snippet
 		workModeLock?: import('./workMode').WorkModeLock
@@ -230,7 +228,6 @@
 	{wideLayout}
 	{emptyHint}
 	{starter}
-	{viewTransitionNames}
 	{onSent}
 	{inputPreface}
 	{workModeLock}

@@ -13,17 +13,21 @@
 		Pen,
 		Star as StarIcon,
 		StarOff,
+		UserPlus,
 		X
 	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { useEditRights } from '$lib/operatorWriteRights'
-	import { roleCapabilities } from '$lib/stores'
+	import { roleCapabilities, userStore } from '$lib/stores'
 	import { AppService } from '$lib/gen'
 	import { SvelteMap } from 'svelte/reactivity'
 	import { copyToClipboard, type Item } from '$lib/utils'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import Star from '$lib/components/Star.svelte'
+	import { useWorkspaceDrafts, type DraftItem } from '$lib/workspaceDrafts.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import {
 		favoriteManager,
@@ -112,6 +116,7 @@
 	// Only the role is checked: the cards don't carry the item's own permissions, and an
 	// editor opened without write access says so itself.
 	const editRights = useEditRights()
+	let shareModal: ShareModal | undefined = $state()
 
 	// A favorite app arrives as plain `app` (the layout lists apps without their subtype), and
 	// `/apps/edit` mounts the low-code editor whatever it opens, so the editor routes ask which
@@ -151,8 +156,8 @@
 		if (element) await homeComposerContext.attach(element)
 	}
 
-	// The row menus' actions that need nothing but the kind and path. Moving, deleting,
-	// deploying and sharing need the full item and the row's own drawers, so they stay there.
+	// The row menus' actions that need nothing but the kind and path. Moving, deleting and
+	// deploying need the full item and the row's own drawers, so they stay there.
 	async function menuItems(item: Entry, favorite: boolean): Promise<Item[]> {
 		const kind = await editorKind(item)
 		const base = kind === 'raw_app' ? 'apps_raw' : `${kind}s`
@@ -176,6 +181,12 @@
 				icon: GitFork,
 				href: `/${base}/add?template=${item.path}`,
 				hide: !showEditButtons || !$roleCapabilities.code || kind === 'agent'
+			},
+			{
+				displayName: 'Share',
+				icon: UserPlus,
+				action: () => kind !== 'agent' && shareModal?.openDrawer(item.path, kind),
+				hide: kind === 'agent' || !editRights.roleCanAuthor(kind)
 			},
 			{
 				displayName: 'View runs',
@@ -234,6 +245,27 @@
 				via: r.via
 			}))
 	})
+	// The cards know only kind and path, so their drafts come from the workspace's draft list,
+	// keyed the way favorites are: a raw app's card can be an `app` one, its draft is `raw_app`.
+	// An agent is a resource and drafts as one; no other resource can sit at its path.
+	// The list holds the user's own drafts and legacy ones, so an item only another user drafted
+	// shows its badge in the list below but not on its card.
+	const drafts = useWorkspaceDrafts(() => workspace)
+	function cardKind(kind: DraftItem['kind']): FavoriteKind | undefined {
+		if (kind === 'script' || kind === 'flow' || kind === 'app' || kind === 'raw_app') {
+			return asStarKind(kind)
+		}
+		return kind === 'resource' ? 'agent' : undefined
+	}
+	let draftByItem = $derived(
+		new Map<string, DraftItem>(
+			drafts.items.flatMap((d) => {
+				const kind = cardKind(d.kind)
+				return kind ? [[`${kind}/${d.path}`, d]] : []
+			})
+		)
+	)
+
 	// Grows by a page from the "Load next" card; back to one page on the next visit.
 	let recentLimit = $state(RECENT_COUNT)
 	let recentMore = $derived(Math.max(0, recentAll.length - recentLimit))
@@ -356,6 +388,7 @@
 
 {#snippet card(item: Entry, favorite: boolean)}
 	{@const mentionable = canMention(item)}
+	{@const draft = draftByItem.get(`${item.starKind}/${item.path}`)}
 	<div
 		onpointerenter={() => homeComposerContext.available && void editorKind(item)}
 		onfocusin={() => homeComposerContext.available && void editorKind(item)}
@@ -387,6 +420,21 @@
 			tabindex="-1"
 			aria-hidden="true"
 		></a>
+		<!-- After the filler, so the badges line up down the column whatever the title's length. -->
+		{#if draft}
+			<span class="shrink-0 inline-flex">
+				<DraftBadge
+					is_draft={draft.mine && !draft.legacy_draft}
+					draft_only={draft.draft_only}
+					draft_users={draft.draft_users}
+					currentUsername={$userStore?.username}
+					{workspace}
+					itemKind={draft.kind}
+					path={draft.path}
+					onMigrated={drafts.refresh}
+				/>
+			</span>
+		{/if}
 		{#if !favorite && item.at}
 			<span
 				class="shrink-0 text-2xs text-secondary {mentionable
@@ -529,3 +577,5 @@
 		{/if}
 	</HomeSectionLabel>
 {/if}
+
+<ShareModal bind:this={shareModal} source="home" />

@@ -3,19 +3,24 @@
 	import { Save, CornerDownLeft } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
+	type DropdownItem = {
+		label: string
+		/** Gets the message typed in the hover popover, for items that deploy. */
+		onClick: (deploymentMsg: string) => void
+	}
+
 	const {
 		loading = false,
 		loadingSave = false,
 		dropdownItems = [],
-		unifiedSize = 'md'
+		unifiedSize = 'md',
+		iconOnly = false
 	}: {
 		loading?: boolean
 		loadingSave?: boolean
-		dropdownItems?: Array<{
-			label: string
-			onClick: () => void
-		}>
+		dropdownItems?: DropdownItem[] | (() => DropdownItem[]) | undefined
 		unifiedSize?: 'sm' | 'md' | 'lg'
+		iconOnly?: boolean
 	} = $props()
 
 	const dispatch = createEventDispatcher()
@@ -24,6 +29,20 @@
 	let hideDropdown = $state(false)
 	let deploymentMsg = $state('')
 	let dropdownOpen = $state(false)
+
+	/** Call after a successful deploy: the next deploy from the same editor would store it again. */
+	export function clearMessage() {
+		deploymentMsg = ''
+	}
+
+	function withMessage(items: DropdownItem[]) {
+		return items.map((item) => ({ ...item, onClick: () => item.onClick(deploymentMsg) }))
+	}
+	let items = $derived(
+		typeof dropdownItems === 'function'
+			? () => withMessage(dropdownItems())
+			: dropdownItems && withMessage(dropdownItems)
+	)
 </script>
 
 <Button
@@ -31,9 +50,11 @@
 	loading={loadingSave}
 	variant="accent"
 	{unifiedSize}
+	{iconOnly}
+	title={iconOnly ? 'Deploy' : undefined}
 	startIcon={{ icon: Save }}
-	on:click={() => dispatch('save')}
-	{dropdownItems}
+	on:click={() => dispatch('save', deploymentMsg)}
+	dropdownItems={items}
 	tooltipPopover={{
 		placement: 'bottom-end',
 		openDelay: dropdownOpen ? 200 : 0,

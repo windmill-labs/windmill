@@ -50,8 +50,12 @@ Symbols, not line numbers, are cited: they drift less.
   delivered to the global chat of everyone who can read the resource, with no opt-in, whenever the
   chat touches a path under its folder (`copilot/chat/folderInstructions.ts`); the chat then acts
   with that reader's permissions, outside the folder too. `ai_skill` bodies are likewise in play
-  for every reader until turned off. The resource ACL is the only control, so granting write on a
-  folder grants that influence.
+  for every reader until turned off. An `ai_review_instruction` steers the AI review of every
+  deployment request touching its folder, for anyone who can read it in the parent workspace
+  (`deploymentRequest/aiReview.ts`); a fork's own copy is never read. The prompt tells the model to
+  keep reporting secrets and unintended deletions whatever they say, but that is a request to the
+  model, not enforcement: an instruction body can still talk it out of them. The resource ACL is the only
+  control, so granting write on a folder grants that influence.
 - **Restricted job tokens** (`job_token_scopes` on scripts and flows): a job's effective scopes
   are stored on its `job_perms` row at push and minted into its token
   (`create_token_for_owner`); an empty set is minted as `NO_API_ACCESS_SCOPE`, since

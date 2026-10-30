@@ -367,7 +367,8 @@ describe('cleanValueProperties', () => {
 		'edited_by',
 		'workspace_id',
 		'parent_hashes',
-		'lock_error_logs'
+		'lock_error_logs',
+		'starred'
 	]
 
 	it('strips every server-managed bookkeeping key', () => {

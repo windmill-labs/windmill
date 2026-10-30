@@ -238,3 +238,14 @@ describe("protection-rules.yaml read/write", () => {
     }
   });
 });
+
+describe("fork_role_mapping", () => {
+  test("a changed mapping is an update, an empty one is no change", () => {
+    const local = { ...rule("forks", []), fork_role_mapping: { operator: "developer" } };
+    const plan = ProtectionRulesConverter.computePlan([local], [rule("forks", [])]);
+    expect(plan.toUpdate.map((e) => e.name)).toEqual(["forks"]);
+
+    const empty = { ...rule("forks", []), fork_role_mapping: {} };
+    expect(ProtectionRulesConverter.entriesEqual(empty, rule("forks", []))).toBe(true);
+  });
+});

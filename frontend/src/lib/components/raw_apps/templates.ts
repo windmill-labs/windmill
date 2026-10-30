@@ -516,7 +516,7 @@ const app = mount(App, { target: document.getElementById("root")! });
 export default app;
 `
 
-const indexCss = `/* The app renders inside an iframe whose host page has its own theme the
+export const themeCss = `/* The app renders inside an iframe whose host page has its own theme the
    iframe cannot read, so paint an opaque surface here: without one the host's
    background shows through and dark text lands on it unreadable. */
 :root {
@@ -575,7 +575,9 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
+`
 
+const indexCss = `${themeCss}
 h1,
 h2 {
   margin: 0;

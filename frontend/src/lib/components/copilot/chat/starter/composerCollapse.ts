@@ -11,7 +11,7 @@ const OVERLAY =
 export function isComposerOverlay(target: EventTarget | null): boolean {
 	if (target instanceof Element && target.closest(OVERLAY)) return true
 	// An inert one is closed but kept mounted: the hidden sidebar's floating card is a dialog.
-	return [...document.querySelectorAll(OVERLAY)].some((el) => !el.closest('[inert]'))
+	return Array.from(document.querySelectorAll(OVERLAY)).some((el) => !el.closest('[inert]'))
 }
 
 /** Whether a pointer-down outside the composer leaves it open: it is on a control that brings

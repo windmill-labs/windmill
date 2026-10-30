@@ -7,13 +7,13 @@ describe('raw app agent runnable', () => {
   test('chats through the runnable without a request of its own', async () => {
     const calls: unknown[] = []
     let refuse = false
-    const start = async (args: unknown) => {
+    const start = async (args: unknown, opts: { memoryId: string }) => {
       // As the host relays a 409: the server's body behind the error's stack.
       if (refuse) {
         const body = { error: 'still answering', running_turn: { job_id: 'job-1', user_seq: 1 } }
         throw new Error(`Error: ${JSON.stringify(body)}\n    at x`)
       }
-      calls.push(args)
+      calls.push([args, opts])
       return `job-${calls.length}`
     }
     const streamJob = async (jobId: string, onUpdate?: (u: { new_result_stream?: string }) => void) => {
@@ -36,8 +36,8 @@ describe('raw app agent runnable', () => {
     await chat.sendMessage('again')
     const conversationId = chat.getState().conversationId
     expect(calls).toEqual([
-      { user_message: 'hi', memory_id: conversationId },
-      { user_message: 'again', memory_id: conversationId }
+      [{ user_message: 'hi' }, { memoryId: conversationId }],
+      [{ user_message: 'again' }, { memoryId: conversationId }]
     ])
     expect(chat.getState().messages.map((m) => m.content)).toEqual(['hi', 'answer job-1', 'again', 'answer job-2'])
 

@@ -41,19 +41,19 @@ describe('HomeSelection shift-range', () => {
 
 	it('selects the span between the anchor and the clicked row', () => {
 		const s = rendered(a, b, c)
-		s.toggle(a)
+		s.toggle(a.key)
 
-		s.toggle(c, true)
+		s.toggle(c.key, true)
 
 		expect(s.items.map((i) => i.key)).toEqual([a.key, b.key, c.key])
 	})
 
 	it('does not reach back into a selection the user already emptied', () => {
 		const s = rendered(a, b, c)
-		s.toggle(a)
-		s.toggle(a)
+		s.toggle(a.key)
+		s.toggle(a.key)
 
-		s.toggle(c, true)
+		s.toggle(c.key, true)
 
 		expect(s.items.map((i) => i.key)).toEqual([c.key])
 	})

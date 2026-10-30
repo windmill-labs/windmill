@@ -250,7 +250,9 @@ export async function getTriggersDeployData(
 			...gcpTrigger,
 			delivery_config: gcpTrigger.delivery_config ?? undefined,
 			base_endpoint:
-				gcpTrigger.delivery_type === 'push' ? (targetBaseUrl ?? apiBaseUrl()) : undefined,
+				gcpTrigger.delivery_type === 'push'
+					? (targetBaseUrl ?? apiBaseUrl('push_triggers'))
+					: undefined,
 			permissioned_as: onBehalfOf,
 			preserve_permissioned_as: preservePermissionedAs
 		}
@@ -318,7 +320,7 @@ export async function getTriggersDeployData(
 				base_endpoint:
 					azureTrigger.azure_mode === 'namespace_pull'
 						? undefined
-						: (targetBaseUrl ?? apiBaseUrl()),
+						: (targetBaseUrl ?? apiBaseUrl('push_triggers')),
 				permissioned_as: onBehalfOf,
 				preserve_permissioned_as: preservePermissionedAs
 			},

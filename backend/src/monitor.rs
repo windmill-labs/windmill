@@ -54,7 +54,8 @@ use windmill_common::{
     error,
     flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
-        get_or_create_jwt_secret, load_value_from_global_settings,
+        get_or_create_jwt_secret, load_value_from_global_settings, API_BASE_URL,
+        API_BASE_URL_APPLIES_TO_MCP, API_BASE_URL_APPLIES_TO_SETTING, API_BASE_URL_SETTING,
         AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
         BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CONCURRENCY_KEY_MAX_QUEUED_SETTING,
         CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
@@ -310,6 +311,12 @@ pub async fn initial_load(
             false,
             |v| async move { apply_mcp_disable_token_query_param(v) },
         );
+        pass.setting(API_BASE_URL_SETTING, false, |v| async move {
+            apply_api_base_url(v)
+        });
+        pass.setting(API_BASE_URL_APPLIES_TO_SETTING, false, |v| async move {
+            apply_api_base_url_applies_to(v)
+        });
         pass.setting(DEFAULT_TAGS_PER_WORKSPACE_SETTING, false, |v| async move {
             apply_tag_per_workspace_enabled(v)
         });
@@ -1737,6 +1744,38 @@ pub fn apply_mcp_disable_token_query_param(value: Option<serde_json::Value>) {
         None => MCP_DISABLE_TOKEN_QUERY_PARAM.store(false, Ordering::Relaxed),
         _ => (),
     };
+}
+
+pub async fn load_api_base_url(db: &DB) {
+    match load_value_from_global_settings(db, API_BASE_URL_SETTING).await {
+        Ok(v) => apply_api_base_url(v),
+        Err(e) => tracing::error!("Error loading api_base_url setting: {e:#}"),
+    };
+}
+
+pub fn apply_api_base_url(value: Option<serde_json::Value>) {
+    let url = match value {
+        Some(serde_json::Value::String(s)) => s.trim().trim_end_matches('/').to_string(),
+        None => String::new(),
+        _ => return,
+    };
+    API_BASE_URL.store(Arc::new(url));
+}
+
+pub async fn load_api_base_url_applies_to(db: &DB) {
+    match load_value_from_global_settings(db, API_BASE_URL_APPLIES_TO_SETTING).await {
+        Ok(v) => apply_api_base_url_applies_to(v),
+        Err(e) => tracing::error!("Error loading api_base_url_applies_to setting: {e:#}"),
+    };
+}
+
+pub fn apply_api_base_url_applies_to(value: Option<serde_json::Value>) {
+    let mcp = match value {
+        Some(serde_json::Value::Array(items)) => items.iter().any(|i| i.as_str() == Some("mcp")),
+        None => true,
+        _ => return,
+    };
+    API_BASE_URL_APPLIES_TO_MCP.store(mcp, Ordering::Relaxed);
 }
 
 struct LogFile {
@@ -4171,6 +4210,9 @@ pub async fn monitor_db(
             if let Some(db) = conn.as_sql() {
                 if let Err(e) = cleanup_flow_iterator_data_orphaned_jobs(&db).await {
                     tracing::error!("Error cleaning up flow_iterator_data: {:?}", e);
+                }
+                if let Err(e) = cleanup_ai_agent_checkpoint_orphaned_jobs(&db).await {
+                    tracing::error!("Error cleaning up ai_agent_checkpoint: {:?}", e);
                 }
             }
         }
@@ -7725,6 +7767,22 @@ async fn cleanup_job_result_stream_orphaned_jobs(db: &DB) -> error::Result<()> {
     if total > 0 {
         tracing::info!("Cleaned up {total} orphaned job_result_stream_v2 rows");
         vacuum_after_sweep(db, "job_result_stream_v2").await;
+    }
+    Ok(())
+}
+
+/// A parked agent cancelled from outside, or a worker that died mid-segment, never deletes its
+/// checkpoint itself.
+async fn cleanup_ai_agent_checkpoint_orphaned_jobs(db: &DB) -> error::Result<()> {
+    let deleted = sqlx::query(
+        "DELETE FROM ai_agent_checkpoint c
+         WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = c.job_id)",
+    )
+    .execute(db)
+    .await?
+    .rows_affected();
+    if deleted > 0 {
+        tracing::info!("Cleaned up {deleted} orphaned ai_agent_checkpoint rows");
     }
     Ok(())
 }

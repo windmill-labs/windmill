@@ -7,6 +7,8 @@
 	import { Loader2 } from 'lucide-svelte'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
+	import { goto } from '$app/navigation'
+	import { agentEditHref } from './workspaceItems.svelte'
 	import type { CreatedResourceTriggerKind, ToolDisplayAction } from './shared'
 
 	type DrawerKey = 'schedule' | CreatedResourceTriggerKind
@@ -119,6 +121,11 @@
 
 	export async function openCreatedResource(action: ToolDisplayAction) {
 		if (action.type !== 'open_created_resource') {
+			return
+		}
+
+		if (action.resource === 'agent') {
+			await goto(agentEditHref(action.path))
 			return
 		}
 

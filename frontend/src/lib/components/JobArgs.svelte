@@ -247,7 +247,7 @@ ${Object.entries(displayArgs)
 		If using the wmill client in your code, set the following env variables:
 		<pre
 			><code
-				>BASE_URL="{apiBaseUrl()}"
+				>BASE_URL="{apiBaseUrl('cli')}"
 WM_TOKEN="{'<TOKEN>'}"</code
 			></pre
 		>

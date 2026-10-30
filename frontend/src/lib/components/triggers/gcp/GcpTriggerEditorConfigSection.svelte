@@ -32,7 +32,7 @@
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
 	const wsId = $derived($operatingWorkspace)
-	const base_endpoint = $derived(`${apiBaseUrl()}/api/gcp/w/${wsId!}`)
+	const base_endpoint = $derived(`${apiBaseUrl('push_triggers')}/api/gcp/w/${wsId!}`)
 
 	let topic_items: string[] = $state([])
 	let subscription_items: string[] = $state([])

@@ -4,6 +4,7 @@ import { workspaceStore } from '$lib/stores'
 import {
 	blankHomeDraft,
 	createSession,
+	holdSessionUntilStarted,
 	homeDraft,
 	opensOnHome,
 	selectSession,
@@ -12,6 +13,7 @@ import {
 	sessionPageHref,
 	sessionState,
 	setSessionAutoSend,
+	setNewSessionWorkspace,
 	setSessionDraftPrompt,
 	setSessionPendingWorkspace,
 	setSessionWorkingIn,
@@ -30,7 +32,14 @@ import type { AppDomSelectorElement } from '../copilot/chat/context'
 import { presetScopeFor } from '../copilot/chat/workingScope'
 
 // `seedDomElement` rides only with `autoSend`: it is the chip of the prompt being sent.
-type SeedOpts = { seedPrompt?: string; autoSend?: boolean; seedDomElement?: AppDomSelectorElement }
+// `untilStarted` keeps the session out of storage until the user starts it, for an item that
+// is kept on its own (a new app's draft) and so loses nothing when the session goes.
+type SeedOpts = {
+	seedPrompt?: string
+	autoSend?: boolean
+	seedDomElement?: AppDomSelectorElement
+	untilStarted?: boolean
+}
 
 // The session last opened, on its page or in Home's composer. Plain module state: a
 // reload forgets it, and the family's most recently used session stands in.
@@ -184,7 +193,10 @@ async function sessionHrefFor(
 	// straight onto what the caller wants (resetSessionPreviewTabs also writes
 	// through a live runtime if one already exists for this id).
 	const session = createSession()
-	if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
+	if (opts?.untilStarted) {
+		holdSessionUntilStarted(session.id)
+		if (workspaceId) setNewSessionWorkspace(session.id, workspaceId)
+	} else if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
 	// A reused blank may carry a scope picked on it; the item's folder, or none, replaces it.
 	setSessionWorkingIn(session.id, workingIn, workingIn ? 'preset' : undefined)
 	if (opts?.seedPrompt) {
@@ -214,7 +226,8 @@ export async function openSourceInSession(
 	const opts = {
 		seedPrompt: overrides?.seedPrompt ?? source.seedPrompt,
 		autoSend: overrides?.autoSend ?? source.autoSend,
-		seedDomElement: overrides?.seedDomElement
+		seedDomElement: overrides?.seedDomElement,
+		untilStarted: overrides?.untilStarted
 	}
 	if (source.target) {
 		await openEditorInSession(

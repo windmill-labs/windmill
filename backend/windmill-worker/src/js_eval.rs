@@ -107,6 +107,31 @@ pub async fn eval_timeout(
     }
 }
 
+/// Adds `step_id`, `job_id` and `flow_path` to a native script's thrown error, as the
+/// subprocess wrappers do from the same env vars.
+pub fn with_step_context(
+    e: windmill_common::error::Error,
+    reserved_variables: &HashMap<String, String>,
+) -> windmill_common::error::Error {
+    use windmill_common::error::Error;
+    let Error::ExecutionRawError(raw) = &e else {
+        return e;
+    };
+    let Ok(serde_json::Value::Object(mut err)) = serde_json::from_str(raw.get()) else {
+        return e;
+    };
+    for (key, var) in [
+        ("step_id", "WM_FLOW_STEP_ID"),
+        ("job_id", "WM_JOB_ID"),
+        ("flow_path", "WM_FLOW_PATH"),
+    ] {
+        if let Some(v) = reserved_variables.get(var).filter(|v| !v.is_empty()) {
+            err.insert(key.to_string(), serde_json::Value::String(v.clone()));
+        }
+    }
+    Error::ExecutionRawError(windmill_common::worker::to_raw_value(&err))
+}
+
 #[cfg(feature = "deno_core")]
 pub fn transpile_ts(expr: String) -> anyhow::Result<String> {
     windmill_runtime_nativets::transpile_ts(expr)
