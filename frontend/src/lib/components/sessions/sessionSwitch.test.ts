@@ -451,9 +451,23 @@ describe('exitSessionMode after a first deploy from the session', () => {
 		vi.mocked(goto).mockClear()
 		try {
 			rememberNavRoute('/flows/edit/u/me/draft_ab12_cd34?workspace=w&nodraft=true&new_draft=true')
-			navRouteItemMoved('flow', 'u/me/draft_ab12_cd34', 'f/ops/sync_invoices')
+			navRouteItemMoved('flow', 'w', 'u/me/draft_ab12_cd34', 'f/ops/sync_invoices')
 			await exitSessionMode()
 			expect(goto).toHaveBeenCalledWith('/flows/edit/f/ops/sync_invoices?workspace=w')
+		} finally {
+			workspaceStore.set(prevWs)
+		}
+	})
+
+	it('keeps the route when the move happened in a fork of its workspace', async () => {
+		const prevWs = get(workspaceStore)
+		workspaceStore.set('w')
+		vi.mocked(goto).mockClear()
+		try {
+			rememberNavRoute('/flows/edit/f/ops/existing?workspace=w')
+			navRouteItemMoved('flow', 'wm-fork-w', 'f/ops/existing', 'f/ops/fork_only')
+			await exitSessionMode()
+			expect(goto).toHaveBeenCalledWith('/flows/edit/f/ops/existing?workspace=w')
 		} finally {
 			workspaceStore.set(prevWs)
 		}
