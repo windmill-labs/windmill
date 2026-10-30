@@ -324,25 +324,6 @@ async fn resolve(
         .fetch_all(db)
         .await
         .map_err(err)?;
-        // Admin rights a managed group can grant (an instance superadmin role, or the admin
-        // role this workspace gives its members) follow the token as well. Where no managed
-        // group grants them they were granted directly, and stand.
-        if authed.is_admin {
-            let admin_groups: Vec<String> = sqlx::query_scalar(
-                "SELECT name FROM instance_group WHERE external_id IS NOT NULL \
-                 AND (instance_role = 'superadmin' OR name IN (\
-                   SELECT key FROM workspace_settings, \
-                     jsonb_each_text(auto_invite->'instance_groups_roles') \
-                   WHERE workspace_id = $1 AND value = 'admin'))",
-            )
-            .bind(w_id)
-            .fetch_all(db)
-            .await
-            .map_err(err)?;
-            if !admin_groups.is_empty() && !idp_groups.iter().any(|g| admin_groups.contains(g)) {
-                authed.is_admin = false;
-            }
-        }
         groups.extend(idp_groups);
         authed.folders =
             windmill_common::auth::get_folders_for_user(w_id, &authed.username, &groups, db)

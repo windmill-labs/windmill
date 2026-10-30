@@ -164,7 +164,8 @@ Symbols, not line numbers, are cited: they drift less.
   the instance groups with an `external_id` come from that claim of the token alone, for that
   request only (nested paths counting for their ancestors): nothing is written, unlike an SSO
   login, and an absent claim means no IdP groups, so removing a user from every group revokes at
-  the next token. Entra's overage pointer (`_claim_names`) is refused rather than read as no
+  the next token. Roles (admin, superadmin, operator) are not derived from the token: they stay as
+  stored, which SCIM and SSO login keep current. Entra's overage pointer (`_claim_names`) is refused rather than read as no
   groups. The resolved identity is cached per token for at most a minute. Runs
   record the client in `v2_job.mcp_client` and `job_perms.mcp_client`, from the pushing identity
   rather than `job_authed`, so a run on behalf of another identity still names it; the
