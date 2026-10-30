@@ -1316,9 +1316,11 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 					<FavoritesSection isCollapsed={collapsed} />
 				</div>
 
-				<!-- Section 2: AI sessions, one row each; collapsed, a menu of them. -->
+				<!-- Section 2: AI sessions, one row each; collapsed, a menu of them. The one section
+				     that shrinks: a long list gives up its overflow and scrolls on its own down to
+				     the pinned rows, while a short one keeps its height. -->
 				{#if sessionsShown}
-					<div class="px-2">
+					<div class="px-2 !shrink min-h-0 flex flex-col">
 						<SessionPicker isCollapsed={collapsed} embedded />
 					</div>
 				{/if}
