@@ -453,10 +453,13 @@ pub struct SignedDebugPayload {
 /// - An audit log entry identical to "jobs.run.preview"
 async fn sign_debug_request(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(request): Json<SignDebugRequest>,
 ) -> JsonResult<SignedDebugPayload> {
+    windmill_common::workspaces::check_role_can_code(&db, &w_id, &authed, "run the debugger")
+        .await?;
     let key_guard = DEBUG_SIGNING_KEY.read().await;
     let signing_key = key_guard.as_ref().ok_or_else(|| {
         windmill_common::error::Error::InternalErr("Debug signing key not initialized".to_string())
@@ -493,8 +496,7 @@ async fn sign_debug_request(
         // who can run a preview job. For npm that discloses nothing new, since a worker leaves
         // the same `.npmrc` / `bunfig.toml` in the directory the previewed script runs in; the
         // Python index URL only ever appears as uv's argv, so serving it here does widen what
-        // a member of the workspace can read. Operators cannot run previews at all, so their
-        // sessions install from the public registries.
+        // a member of the workspace can read.
         registry_config: !authed.is_operator,
     };
 
@@ -627,10 +629,13 @@ pub struct SignedExpressionPayload {
 /// Creates an audit log entry with the full expression for traceability.
 async fn sign_expression(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(request): Json<SignExpressionRequest>,
 ) -> JsonResult<SignedExpressionPayload> {
+    windmill_common::workspaces::check_role_can_code(&db, &w_id, &authed, "run the debugger")
+        .await?;
     let key_guard = DEBUG_SIGNING_KEY.read().await;
     let signing_key = key_guard.as_ref().ok_or_else(|| {
         windmill_common::error::Error::InternalErr("Debug signing key not initialized".to_string())
