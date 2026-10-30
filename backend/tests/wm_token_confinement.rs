@@ -51,6 +51,7 @@ async fn wm_token(email: &str, is_admin: bool) -> String {
         folders: vec![],
         scopes: None,
         token_prefix: None,
+        mcp_client: None,
     };
     create_jwt_token(
         authed,
@@ -1127,6 +1128,7 @@ async fn test_privilege_gates_reject_a_job_token_directly(
             read_only: false,
             job_id,
             credential_expiry: None,
+            mcp_client: None,
         }
     }
 

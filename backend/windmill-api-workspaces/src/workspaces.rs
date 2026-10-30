@@ -14297,6 +14297,7 @@ async fn load_workspace_authed(
             read_only: base_authed.read_only,
             job_id: base_authed.job_id,
             credential_expiry: base_authed.credential_expiry,
+            mcp_client: base_authed.mcp_client.clone(),
         });
     };
 
@@ -14337,6 +14338,7 @@ async fn load_workspace_authed(
         read_only: base_authed.read_only,
         job_id: base_authed.job_id,
         credential_expiry: base_authed.credential_expiry,
+        mcp_client: base_authed.mcp_client.clone(),
     })
 }
 
