@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.855.1](https://github.com/windmill-labs/windmill/compare/v1.855.0...v1.855.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* list only the reader's own ai chats in the sidebar ([#12134](https://github.com/windmill-labs/windmill/issues/12134)) ([a8b84fc](https://github.com/windmill-labs/windmill/commit/a8b84fc21149a49304bd41af583c1cf9d2205c9c))
+
 ## [1.855.0](https://github.com/windmill-labs/windmill/compare/v1.854.2...v1.855.0) (2026-10-30)
 
 
