@@ -457,7 +457,13 @@
 						path: ini.path,
 						requestBody: {
 							path: ini.path != s.path ? s.path : undefined,
-							value: s.variable.value == '' ? undefined : s.variable.value,
+							// An empty value keeps the stored one, except when it replaces a
+							// reference: the reference is then dropped for the empty value.
+							value:
+								s.variable.value == '' &&
+								!(isExternalRef(ini.variable.value) && !isExternalRef(s.variable.value))
+									? undefined
+									: s.variable.value,
 							is_secret:
 								ini.variable.is_secret != s.variable.is_secret ? s.variable.is_secret : undefined,
 							description:
