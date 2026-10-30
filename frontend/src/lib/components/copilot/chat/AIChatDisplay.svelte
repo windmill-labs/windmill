@@ -628,7 +628,17 @@
 	}
 	function onComposerPointerDown(e: PointerEvent) {
 		if (!homeComposer || !composerOpened || composerEl?.contains(e.target as Node)) return
-		if (!isComposerOverlay(e.target)) closeComposer()
+		if (isComposerOverlay(e.target)) return
+		// Folding moves the page up under the pointer: done on the press, the click that follows
+		// lands on whatever slid into place instead of what was pressed. So the press decides, and
+		// the fold waits until that click has been delivered.
+		const done = new AbortController()
+		const fold = () => {
+			done.abort()
+			setTimeout(closeComposer)
+		}
+		window.addEventListener('pointerup', fold, { capture: true, signal: done.signal })
+		window.addEventListener('pointercancel', fold, { capture: true, signal: done.signal })
 	}
 
 	// Home's composer is one block of the page and takes the page's column as it is.
