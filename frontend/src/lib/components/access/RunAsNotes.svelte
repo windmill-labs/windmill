@@ -10,6 +10,7 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import { Bot, Folder } from 'lucide-svelte'
 	import type { NeedsSource } from './detectNeeds'
+	import MissingReadsNote from './MissingReadsNote.svelte'
 	import NewServiceAccountForm from './NewServiceAccountForm.svelte'
 	import {
 		getPendingServiceAccount,
@@ -112,6 +113,8 @@
 		{/if}
 	</div>
 {/if}
+
+<MissingReadsNote workspace={targetWorkspace} {kind} {itemPath} {needsSource} account={runsAs} />
 
 {#if pending}
 	<div class="flex flex-col gap-1.5 rounded-md border bg-surface-secondary px-3 py-2 text-xs">

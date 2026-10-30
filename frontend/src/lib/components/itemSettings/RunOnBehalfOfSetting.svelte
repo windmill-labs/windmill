@@ -10,6 +10,7 @@
 	import { canPreserveOnBehalfOf, deployedPermissionedAs, WM_DEPLOYERS_GROUP } from './onBehalfOf'
 	import { useServiceAccounts } from '$lib/components/access/serviceAccounts.svelte'
 	import type { NeedsSource } from '$lib/components/access/detectNeeds'
+	import MissingReadsNote from '$lib/components/access/MissingReadsNote.svelte'
 	const DOCS_LINK =
 		'https://www.windmill.dev/docs/core_concepts/roles_and_permissions#run-on-behalf-of'
 
@@ -172,6 +173,16 @@
 				? `Reads ${serviceAccountReads.join(', ')}.`
 				: 'No folder is shared with it.'}
 		</div>
+	{/if}
+	<!-- The deploy dialog shows it through RunAsNotes. -->
+	{#if !aboveConfirmationModal}
+		<MissingReadsNote
+			workspace={targetWorkspace}
+			{kind}
+			{itemPath}
+			{needsSource}
+			account={deployPermissionedAs}
+		/>
 	{/if}
 	{#if !canPreserve}
 		<div class="text-2xs text-secondary">
