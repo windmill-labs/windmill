@@ -154,6 +154,10 @@
             },
             "description": "Paths outside relative_path that scripts import, relative to wmill.yaml; hashed recursively"
           },
+          "bundle_digest": {
+            "type": "boolean",
+            "description": "Give each script its own digest, hashed from its bundle, so only scripts whose bundle changed are pushed. Ignored with customBundler"
+          },
           "includes": {
             "type": "array",
             "items": {
