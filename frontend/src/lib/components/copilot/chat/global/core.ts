@@ -2734,6 +2734,23 @@ async function listAccessEntities(
 	return rows
 }
 
+// Each list call is capped per type, and per trigger kind for triggers, so the page is cut
+// on the same key.
+function pageAcrossPrefixes(
+	listings: WorkspaceItem[][],
+	perPage: number,
+	page: number
+): WorkspaceItem[] {
+	const seenByKey = new Map<string, number>()
+	const start = (page - 1) * perPage
+	return listings.flat().filter((item) => {
+		const key = item.type === 'trigger' ? `trigger:${item.triggerKind}` : item.type
+		const index = seenByKey.get(key) ?? 0
+		seenByKey.set(key, index + 1)
+		return index >= start && index < start + perPage
+	})
+}
+
 async function listWorkspaceItems(
 	types: WorkspaceItemType[],
 	workspace: string,
@@ -4286,19 +4303,23 @@ export const globalTools: SessionTool<{}>[] = [
 			const prefixes: (string | undefined)[] = scopedByDefault
 				? scopeRoots!.map((r) => `${r}/`)
 				: [parsed.path_prefix || undefined]
-			const workspaceItems = (
-				await Promise.all(
-					prefixes.map((prefix) =>
-						listWorkspaceItems(
-							types,
-							workspace,
-							prefix,
-							Math.min(limit, MAX_LIST_LIMIT),
-							parsed.page
+			const perPage = Math.min(limit, MAX_LIST_LIMIT)
+			const page = parsed.page ?? 1
+			// Several folders read as one listing, folder after folder, so `limit` stays one cap
+			// per type: page N is rows (N-1)*limit..N*limit of each type's concatenation, which
+			// takes every folder's first N*limit rows.
+			const workspaceItems =
+				prefixes.length === 1
+					? await listWorkspaceItems(types, workspace, prefixes[0], perPage, parsed.page)
+					: pageAcrossPrefixes(
+							await Promise.all(
+								prefixes.map((prefix) =>
+									listWorkspaceItems(types, workspace, prefix, perPage * page, 1)
+								)
+							),
+							perPage,
+							page
 						)
-					)
-				)
-			).flat()
 			for (const item of workspaceItems) {
 				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 			}
