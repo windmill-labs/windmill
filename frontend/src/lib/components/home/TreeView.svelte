@@ -9,7 +9,13 @@
 	import TreeOwnerRow from './TreeOwnerRow.svelte'
 	import PipelineRow from '../common/table/PipelineRow.svelte'
 	import Item from './Item.svelte'
-	import { countLeaves, type FolderItem, type ItemType, type UserItem } from './treeViewUtils'
+	import {
+		countLeaves,
+		OWNER_PAGE_SIZE,
+		type FolderItem,
+		type ItemType,
+		type UserItem
+	} from './treeViewUtils'
 	import { pluralize } from '$lib/utils'
 	import { Button } from '$lib/components/common'
 	import { inUnruledList, rowRule } from '../common/table/unruledList'
@@ -169,7 +175,8 @@
 	let ownerCount = $derived(
 		ownerTotal != undefined ? ownerTotal + (hasPipeline ? 1 : 0) : undefined
 	)
-	// Known to hold nothing, so opening it could only show an empty body.
+	// Known to hold nothing, so opening it could only show an empty body. An open node whose
+	// count drops to 0 stays toggleable: closing it is what untracks it from reloads.
 	let empty = $derived(ownerCount === 0)
 
 	// How many children a node renders before "Show more". Kept well above a screenful
@@ -199,18 +206,22 @@
 	$effect(() => {
 		if (!nodeState?.loading) loadingAll = false
 	})
+	// Placeholder rows for an owner's first load: as many rows as that load brings (one page)
+	// and `effectiveMax` then renders. Exact when the owner holds no subfolders, since every
+	// leaf row is 56px; each subfolder later collapses its leaves into one row.
+	let skeletonRows = $derived(
+		ownerTotal != undefined
+			? Math.min(
+					ownerTotal,
+					OWNER_PAGE_SIZE,
+					collapseAll ? Math.max(showMax, LAZY_RENDER_MAX) : showMax
+				)
+			: undefined
+	)
 	// One "Show more" reveals a slice the size of the ceiling once a node holds more than
 	// that, so thousands of loaded rows don't take hundreds of clicks to unfold. Keyed off
 	// what the node holds rather than what it renders: under "expand all" only the small
 	// client slice is on screen however many rows arrived.
-	// Placeholder rows for an owner's first load: as many as `effectiveMax` will let it render
-	// once its rows arrive. Exact when the owner holds no subfolders, since every leaf row is
-	// 56px; each subfolder later collapses its leaves into one row.
-	let skeletonRows = $derived(
-		ownerTotal != undefined
-			? Math.min(ownerTotal, collapseAll ? Math.max(showMax, LAZY_RENDER_MAX) : showMax)
-			: undefined
-	)
 	let showMoreStep = $derived(
 		(isFolder(item) || isUser(item)) && item.items.length >= LAZY_RENDER_MAX ? LAZY_RENDER_MAX : 30
 	)
@@ -316,7 +327,7 @@
 			name={isUser(item) ? `u/${item.username}` : `${depth === 0 ? 'f/' : ''}${item.folderName}`}
 			{opened}
 			onToggle={toggleOwner}
-			expandable={!empty}
+			expandable={!empty || opened}
 			indent={visualDepth * 16}
 			actions={onManageFolder && depth === 0 && isFolder(item) ? manageFolderMenu : undefined}
 		>
@@ -409,10 +420,10 @@
 							{#if skeletonRows != undefined}
 								<div aria-busy="true" aria-label="Loading {nodePrefix}">
 									{#each { length: skeletonRows }}
-										<!-- h-14: the height of every leaf row (Row.svelte). -->
+										<!-- h-14 and the indent of a leaf row at depth visualDepth + 1 (Row.svelte). -->
 										<div
 											class="h-14 px-4 {rowRule(unruled)} flex flex-row items-center gap-4"
-											style="padding-left: {(visualDepth + 1) * 16}px;"
+											style="padding-left: {(visualDepth + 2) * 16}px;"
 										>
 											<span class="animate-skeleton dark:bg-frost-900/50 w-4 h-4 shrink-0"></span>
 											<div class="flex flex-col gap-1.5">
