@@ -2,6 +2,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
 	import { Button } from '$lib/components/common'
+	import SidebarSectionHeader from '$lib/components/sidebar/SidebarSectionHeader.svelte'
 	import {
 		Archive,
 		ArchiveRestore,
@@ -23,6 +24,7 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { goto } from '$lib/navigation'
 	import { leaveForHome, openDraftOnHome, openNewSession } from './sessionSwitch.svelte'
+	import { homeComposerContext } from './homeComposerContext.svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { slide } from 'svelte/transition'
 	import {
@@ -424,10 +426,14 @@
 		}
 	}
 
-	// Whatever page is on screen, a new session starts on Home: a session about an item
-	// is started from that item, by its Open in AI session button.
-	async function createAndOpen() {
-		await openNewSession()
+	// The rail menu hands focus back to its trigger once it has closed, after New session has
+	// focused Home's composer: the composer takes it back instead.
+	let newSessionFromRail = false
+	function railMenuCloseFocus(trigger?: HTMLElement | null): HTMLElement | null {
+		if (!newSessionFromRail) return trigger ?? null
+		newSessionFromRail = false
+		homeComposerContext.focus()
+		return null
 	}
 
 	// The `+` on a workspace group header: a new session in that group's workspace,
@@ -669,17 +675,9 @@
 	     explanatory message, mirroring the sidebar AI chat. -->
 {:else if isCollapsed}
 	<div class={embedded ? '' : 'px-2 pt-3 pb-2 border-b border-light'}>
-		<MenuButton
-			stopPropagationOnClick={true}
-			on:click={createAndOpen}
-			{isCollapsed}
-			icon={Plus}
-			label="New session"
-			class="!text-xs"
-		/>
 		<Menubar>
 			{#snippet children({ createMenu })}
-				<Menu {createMenu} usePointerDownOutside submenuSafe>
+				<Menu {createMenu} usePointerDownOutside submenuSafe closeFocus={railMenuCloseFocus}>
 					{#snippet triggr({ trigger })}
 						<div class="relative">
 							<MenuButton
@@ -701,8 +699,15 @@
 					{/snippet}
 					{#snippet children({ item, builders })}
 						<div class="divide-y min-w-48" role="none">
-							<div class="py-1" role="none">
-								<MenuItem class={menuItemBase} onClick={createAndOpen} {item}>
+							<div class="py-1" role="none" data-asks-for-composer>
+								<MenuItem
+									class={menuItemBase}
+									onClick={() => {
+										newSessionFromRail = true
+										void openNewSession()
+									}}
+									{item}
+								>
 									<Plus size={14} />
 									New session
 								</MenuItem>
@@ -782,8 +787,8 @@
 			? 'border-b border-light'
 			: ''}"
 	>
-		<!-- Selection mode reuses the New session row (same h-8 slot, same px-2) so
-		     the list below it never moves. -->
+		<!-- Selection mode reuses the options row (same h-8 slot) so the list below it
+		     never moves. -->
 		{#if selectionMode}
 			<div class="flex flex-row items-center gap-1.5 h-8 px-2">
 				<Checkbox
@@ -826,17 +831,7 @@
 					{GROUP_BY_OPTIONS.find((o) => o.value === groupBy.val)?.hint ?? ''}
 				</span>
 			{/snippet}
-			<div class="flex flex-row items-center gap-0.5 pr-0.5">
-				<div class="flex-1 min-w-0">
-					<MenuButton
-						stopPropagationOnClick={true}
-						on:click={createAndOpen}
-						isCollapsed={false}
-						icon={Plus}
-						label="New session"
-						class="!text-xs"
-					/>
-				</div>
+			{#snippet listOptions(size: 'sm' | 'md')}
 				<DropdownV2
 					fixedHeight={false}
 					placement="bottom-end"
@@ -884,7 +879,7 @@
 					{#snippet buttonReplacement()}
 						<Button
 							nonCaptureEvent
-							unifiedSize="md"
+							unifiedSize={size}
 							variant="subtle"
 							iconOnly
 							startIcon={{ icon: EllipsisVertical }}
@@ -894,41 +889,44 @@
 						/>
 					{/snippet}
 				</DropdownV2>
-			</div>
-		{/if}
-		{#if collapsible}
-			<!-- Only the collapsible sidebar section needs a title: it doubles as the
-			     fold toggle. In the rail the list owns the pane, so the label is noise. -->
-			<div class="flex flex-row items-center pl-1 pr-0.5">
-				<button
-					type="button"
-					onclick={() => (sectionCollapsed.val = !sectionCollapsed.val)}
-					class="text-secondary text-[0.5rem] uppercase flex flex-row items-center gap-1 rounded px-1 -mx-1 py-0.5 hover:bg-surface-hover focus:outline-none"
-					aria-expanded={!sectionCollapsed.val}
+			{/snippet}
+			{#if collapsible}
+				<SidebarSectionHeader
+					title="AI sessions"
+					collapsed={sectionCollapsed.val}
+					onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
 					disabled={visibleSessions.length === 0}
 				>
-					AI sessions
-					{#if visibleSessions.length > 0}
-						{#if sectionCollapsed.val}
-							<ChevronRight size={10} />
-						{:else}
-							<ChevronDown size={10} />
-						{/if}
-					{/if}
-				</button>
-			</div>
+					{#snippet actions()}
+						{@render listOptions('sm')}
+						<Button
+							unifiedSize="sm"
+							variant="subtle"
+							iconOnly
+							startIcon={{ icon: Plus }}
+							title="New session"
+							aria-label="New session"
+							data-asks-for-composer
+							btnClasses="text-secondary"
+							onClick={() => openNewSession()}
+						/>
+					{/snippet}
+				</SidebarSectionHeader>
+			{:else}
+				<!-- Where the list owns the pane, a title would only repeat what the pane is. -->
+				<div class="flex flex-row items-center gap-0.5 h-8 pr-0.5 justify-end">
+					{@render listOptions('md')}
+				</div>
+			{/if}
 		{/if}
 		{#if !collapsible || !sectionCollapsed.val}
 			<div
 				bind:this={listRoot}
 				transition:slide={{ duration: 180 }}
 				class={twMerge(
-					'flex flex-col gap-0.5 overflow-y-auto',
+					'flex flex-col gap-0.5',
 					// Shift-clicking rows would otherwise paint a text selection across them.
-					selectionMode ? 'select-none' : '',
-					// In the rail the picker is the whole list and the rail scrolls;
-					// only cap height when it's one section among others (normal sidebar).
-					collapsible ? 'max-h-[40vh]' : ''
+					selectionMode ? 'select-none' : ''
 				)}
 				onkeydown={handleListKeydown}
 				role="listbox"
@@ -1172,7 +1170,7 @@
 							     plain text, no workspace icon or chip. -->
 							<div
 								class={twMerge(
-									'group flex flex-row items-center gap-1 pl-1 pr-0.5 pt-2 pb-1 min-w-0',
+									'group flex flex-row items-center gap-1 pl-2 pr-0.5 pt-2 pb-1 min-w-0',
 									// Space groups apart so their boundaries read clearly.
 									groupIdx > 0 ? 'mt-4' : ''
 								)}
@@ -1198,6 +1196,7 @@
 										on:click={() => createAndOpenIn(groupWsId)}
 										title="New session in {group.label}"
 										aria-label="New session in {group.label}"
+										data-asks-for-composer
 										wrapperClasses="ml-auto shrink-0"
 										btnClasses="text-tertiary opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
 									/>
@@ -1211,7 +1210,11 @@
 				{/if}
 			</div>
 			{#if selectionMode}
-				<div class="flex flex-col gap-1 px-1 pt-1.5">
+				<!-- Pinned to the sidebar's bottom edge while the rows scroll under it; z-10 keeps it
+				     above the sidebar's bottom fade. -->
+				<div
+					class="sticky bottom-0 z-10 flex flex-col gap-1 px-1 pt-1.5 pb-2 bg-[var(--sidebar-bg-light)] dark:bg-[var(--sidebar-bg-dark)]"
+				>
 					<Button
 						unifiedSize="xs"
 						variant="default"

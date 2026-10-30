@@ -113,8 +113,6 @@
 			     fork shares its parent's, and remounting for it only flashes the block. Also keyed
 			     on the asks for another draft (New session, a draft picked in the session list). -->
 			{#if HomeSessionStarter && sessionState.hydrated}
-				<!-- Home is the same page beside either sidebar list. The switch only opens the
-				     composer (AI Sessions) or folds it (Workspace); a focus moves nothing. -->
 				{#key `${$currentWorkspaceRootId}:${homeDraft.requests}`}
 					<HomeSessionStarter
 						{placeholder}

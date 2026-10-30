@@ -35,6 +35,7 @@
 	import Badge from './common/badge/Badge.svelte'
 	import InputError from './InputError.svelte'
 	import Popover from './meltComponents/Popover.svelte'
+	import GroupsPageLink from './GroupsPageLink.svelte'
 	import { deepEqual } from 'fast-equals'
 	import {
 		folderPermissionDiff,
@@ -652,6 +653,9 @@
 						<div class="flex flex-col w-72 p-4 gap-4">
 							<span class="text-sm leading-6 font-semibold">Add a member</span>
 							<Label label="User or group">
+								{#snippet action()}
+									<GroupsPageLink />
+								{/snippet}
 								<div class="flex items-center gap-1">
 									<!-- The toggle group is `w-full`; unwrapped it takes half the row. -->
 									<div>

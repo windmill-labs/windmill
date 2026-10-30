@@ -19,8 +19,13 @@
 		Gauge,
 		Trash2,
 		KeyRound,
-		GraduationCap
+		GraduationCap,
+		PanelLeft,
+		Star,
+		FolderOpen,
+		Users
 	} from 'lucide-svelte'
+	import { sidebarPrefs } from './sidebarPrefs.svelte'
 	import { goto } from '$lib/navigation'
 	import { type Item } from '$lib/utils'
 	import { logout } from '$lib/logoutKit'
@@ -161,6 +166,12 @@
 	// Workspace- and instance-scoped entries anchor the bottom of the menu,
 	// instance settings last.
 	const workspaceInstanceItems = $derived<Item[]>([
+		...($roleCapabilities.visibility.folders
+			? [{ displayName: 'Folders', icon: FolderOpen, href: '/folders' }]
+			: []),
+		...($roleCapabilities.visibility.groups
+			? [{ displayName: 'Groups', icon: Users, href: '/groups' }]
+			: []),
 		...(!canManageWorkspace && !workspaceSettingsTarget
 			? [
 					{
@@ -228,6 +239,18 @@
 			action: () => toggleDarkMode()
 		},
 		{
+			displayName: 'Customize sidebar',
+			icon: PanelLeft,
+			submenuItems: [
+				{
+					displayName: 'Favorites section',
+					icon: Star,
+					toggle: sidebarPrefs.favorites.val,
+					action: () => (sidebarPrefs.favorites.val = !sidebarPrefs.favorites.val)
+				}
+			]
+		},
+		{
 			// The email is the label itself; the crown icon carries the admin role.
 			displayName: $userStore?.non_member
 				? `${$userStore?.email} (superadmin, not a member)`
@@ -277,9 +300,7 @@
 
 	const logsItems = $derived<Item[]>([
 		{ displayName: 'Audit logs', icon: Eye, href: '/audit_logs' },
-		...($devopsRole
-			? [{ displayName: 'Service logs', icon: Logs, href: '/service_logs' }]
-			: []),
+		...($devopsRole ? [{ displayName: 'Service logs', icon: Logs, href: '/service_logs' }] : []),
 		...($enterpriseLicense
 			? [
 					{
@@ -312,7 +333,7 @@
 
 <!-- Workers and Logs are full pages (not account/instance actions), so they sit
      as plain links above the Settings dropdown rather than inside it. -->
-<div class="flex flex-col gap-1 pb-1">
+<div class="flex flex-col gap-0.5 mb-0.5">
 	<MenuLink
 		class="!text-xs"
 		label="Workers"
@@ -328,15 +349,16 @@
 			items={logsItems}
 			placement="top-start"
 			class="w-full"
+			fixedHeight={false}
 			enableFlyTransition
 			aiId="sidebar-menu-link-logs"
 			aiDescription="Button to open the logs menu (audit logs, service logs, critical alerts)"
 		>
 			{#snippet buttonReplacement()}
 				<span
-					class="relative flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
-						? 'justify-center'
-						: ''}"
+					class="relative flex items-center gap-2 w-full px-2 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
+						? 'h-8 justify-center'
+						: 'h-[30px]'}"
 				>
 					<Logs size={16} />
 					{#if !isCollapsed}
@@ -378,14 +400,15 @@
 	{items}
 	placement="top-start"
 	class="w-full"
+	fixedHeight={false}
 	enableFlyTransition
 	on:close={onChangelogsOpened}
 >
 	{#snippet buttonReplacement()}
 		<span
-			class="relative flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
-				? 'justify-center'
-				: ''}"
+			class="relative flex items-center gap-2 w-full px-2 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
+				? 'h-8 justify-center'
+				: 'h-[30px]'}"
 		>
 			<Settings size={16} />
 			{#if !isCollapsed}

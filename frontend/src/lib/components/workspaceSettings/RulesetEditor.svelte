@@ -17,6 +17,7 @@
 	import { DEV_WORKSPACE_LOCK_RULE_NAME } from '$lib/workspaceProtectionRules.svelte'
 	import { untrack } from 'svelte'
 	import { Save } from 'lucide-svelte'
+	import GroupsPageLink from '$lib/components/GroupsPageLink.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
 	interface Props {
@@ -271,6 +272,9 @@
 			class="flex flex-col gap-4"
 		>
 			<Label label="Groups">
+				{#snippet action()}
+					<GroupsPageLink />
+				{/snippet}
 				<MultiSelect
 					bind:value={selectedGroups}
 					items={safeSelectItems(availableGroups)}

@@ -24,6 +24,8 @@
 	import SettingsMenu from '$lib/components/sidebar/SettingsMenu.svelte'
 	import SidebarUsage from '$lib/components/sidebar/SidebarUsage.svelte'
 	import SidebarScrollArea from '$lib/components/sidebar/SidebarScrollArea.svelte'
+	import AiChatsSection from '$lib/components/sidebar/AiChatsSection.svelte'
+	import FavoritesSection from '$lib/components/sidebar/FavoritesSection.svelte'
 	import AccountSetupBanner from '$lib/components/sidebar/AccountSetupBanner.svelte'
 	import FinishAccountSetup from '$lib/components/sidebar/FinishAccountSetup.svelte'
 	import { accountSetup } from '$lib/components/sidebar/accountSetup.svelte'
@@ -66,7 +68,7 @@
 	import type SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { page } from '$app/state'
-	import FavoriteMenu, {
+	import {
 		favoriteManager,
 		getFavoriteHref,
 		getFavoriteLabel
@@ -108,11 +110,10 @@
 	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { cubicOut } from 'svelte/easing'
-	import { Menubar, Tooltip } from '$lib/components/meltComponents'
+	import { Tooltip } from '$lib/components/meltComponents'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
-	import SessionModeSwitch from '$lib/components/sessions/SessionModeSwitch.svelte'
 	import { isGlobalAiEnabled, sessionsAllowedFor } from '$lib/components/copilot/chat/global/gate'
 	import { copilotInfo } from '$lib/aiStore'
 	import {
@@ -120,7 +121,7 @@
 		parsePreviewItemRoute,
 		barePath
 	} from '$lib/components/sessions/previewPaths'
-	import { sessionsSwitchShown, sidebarListFor } from '$lib/components/sessions/sidebarList.svelte'
+	import { sidebarSessionsShown } from '$lib/components/sessions/sidebarList.svelte'
 	import { noteArrival } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { sessionState } from '$lib/components/sessions/sessionState.svelte'
 	import { restoreSessionBackups } from '$lib/components/sessions/sessionMirror.svelte'
@@ -154,10 +155,6 @@
 		})
 	)
 	let menuOpen = $state(false)
-	// Set by the Workspace ⇄ AI Sessions switch before it navigates, so the mobile menu
-	// drawer stays open across it to show the list it switched to (unlike a normal link
-	// navigation, which dismisses it). Consumed once in beforeNavigate.
-	let preserveMenuOnNextNav = false
 	let globalSearchModal: GlobalSearchModal | undefined = $state(undefined)
 	// Persisted nav-rail collapse preference. A deliberate collapse writes to it —
 	// the manual toggle and a drag past the collapse threshold. The contextual
@@ -215,9 +212,7 @@
 	// which tracks the pointer. Easing that one leaves the band lying over the panel it is
 	// meant to stop beside — an empty strip across that panel's own header until it catches up.
 	let bandTransitionClass = $derived(
-		resizingSidebar && !sidebarSnapping
-			? ''
-			: 'transition-[left,padding-left] duration-200 ease-in-out'
+		resizingSidebar && !sidebarSnapping ? '' : 'transition-[padding-left] duration-200 ease-in-out'
 	)
 	// Set while a drag is live so it can be torn down if the layout unmounts
 	// mid-drag (otherwise the window listeners would leak).
@@ -303,8 +298,8 @@
 	let isDarkMode = useIsDarkMode()
 	let darkMode = $derived(isDarkMode.val)
 
-	// An operator without the opt-in (`gate.ts`) is refused by /sessions, so their sidebar is not
-	// handed over to a session list the page behind it declines, and they keep the docked chat.
+	// An operator without the opt-in (`gate.ts`) is refused by /sessions, so their sidebar lists
+	// no sessions the page behind it declines, and they keep the docked chat.
 	const sessionsAllowed = $derived(sessionsAllowedFor(!$roleCapabilities.code))
 	let onSessionsPage = $derived(page.url.pathname.startsWith('/sessions') && sessionsAllowed)
 	// A session's page points the bottom settings entry at the open session's own
@@ -319,18 +314,13 @@
 	const embedded = BROWSER && window.self !== window.top
 
 	// AI sessions (beta) are on unless this browser opted out earlier (see
-	// `global/gate.ts`). The Workspace ⇄ AI Sessions switch follows the gate;
+	// `global/gate.ts`). The sidebar's session section follows the gate;
 	// opted-out users get the legacy Ask-AI pane instead.
 	// The /sessions page has its own gate for direct navigation.
 	const globalAiEnabled = isGlobalAiEnabled()
 	// A workspace that hid the assistant (`ai_config.copilot_disabled`) loses both entry
-	// points: the Workspace ⇄ AI Sessions switch and the legacy Ask-AI button.
-	const switchRowShown = $derived(sessionsSwitchShown())
-	// The page picks the list: a session's page lists sessions and a workspace page shows
-	// the workspace nav. Home keeps the list you came from. Where the switch is hidden, so
-	// is the session list.
-	const sidebarList = $derived(sidebarListFor(page.url.pathname))
-	const sidebarListsSessions = $derived(switchRowShown && sidebarList === 'sessions')
+	// points: the session section and the legacy Ask-AI button.
+	const sessionsShown = $derived(sidebarSessionsShown())
 	const askAiShown = $derived(
 		(!globalAiEnabled || !sessionsAllowed) && !$copilotInfo.workspaceDisabled
 	)
@@ -450,11 +440,7 @@
 	onNavigate(homeSessionsTransition)
 
 	beforeNavigate((navigation) => {
-		if (preserveMenuOnNextNav) {
-			preserveMenuOnNextNav = false
-		} else {
-			menuOpen = false
-		}
+		menuOpen = false
 
 		// Inside a sessions-preview iframe, hand an editor-route navigation up to the
 		// parent so it mounts the in-process editor (sharing the session runtime)
@@ -791,9 +777,7 @@
 		$usedTriggerKinds = usedKinds
 	}
 
-	// Where each side of the Workspace ⇄ AI Sessions switch was left, so the switch comes
-	// back there. Not inside a preview iframe: it has no switch, and Home's list is stored
-	// per browser, so the frame's own navigation would set the list of the page around it.
+	// Not inside a preview iframe: it opens no session page of its own.
 	afterNavigate((n) => {
 		if (!embedded && n.to) noteArrival(n.to.url)
 	})
@@ -1136,9 +1120,8 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 	<meta name="apple-mobile-web-app-title" content="Windmill" />
 </svelte:head>
 
-<!-- Runs lifted to the top of the workspace nav, sitting with Favorites and Search as the
-     primary quick-access cluster. Excluded from SidebarContent (via excludeMainLabels), as
-     Home is, so neither is rendered twice. -->
+<!-- Runs lifted to the top of the workspace nav. Excluded from SidebarContent (via
+     excludeMainLabels), as Home is, so neither is rendered twice. -->
 {#snippet quickLinks(collapsed: boolean)}
 	<MenuLink
 		class="!text-xs"
@@ -1157,7 +1140,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 	/>
 {/snippet}
 
-<!-- In the rail's pinned footer, right above the plan usage, in both rails and both lists:
+<!-- In the rail's pinned footer, right above the plan usage, in both rails:
      an account with no credentials of its own needs to see this wherever it is on the
      page and however far the nav has scrolled, and the footer is where the rail already
      keeps what is about the account rather than the workspace. -->
@@ -1204,11 +1187,9 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 	</div>
 {/snippet}
 
-<!-- Settings / instance section. Shared by both sidebar surfaces and both lists
-     (under the workspace nav it's the last section inside the unified scroll area;
-     under the session list it stays pinned below it). -->
+<!-- Settings / instance section: the last section inside the nav's unified scroll area. -->
 {#snippet settingsMenu(collapsed: boolean)}
-	<div class="px-2 pb-1">
+	<div class="px-2">
 		<SettingsMenu
 			isCollapsed={collapsed}
 			workspaceSettingsTarget={sessionSettingsWorkspace}
@@ -1250,101 +1231,110 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			></div>
 		{/if}
 		<!-- Top row: Home, level with the page header's own row so the two read as one band.
-		     It sits above the switch because both lists start from it: Home is one page for
-		     workspace and sessions alike. The workspace picker itself lives in that header,
+		     Home is one page for workspace and sessions alike. The workspace picker itself lives in that header,
 		     which is why nothing names the workspace here. -->
-		<div class="flex-shrink-0 px-2 h-12 flex flex-col justify-center">
-			<MenuLink
-				class="!text-xs"
-				label="Home"
-				href="/"
-				icon={Home}
-				isCollapsed={collapsed}
-				aiId="sidebar-menu-link-home"
-				aiDescription="Button to navigate to home which contains all the user's scripts, flows and apps"
-			/>
-		</div>
-		{#if switchRowShown}
-			<div class="flex-shrink-0 px-2 pb-1 flex {collapsed ? 'flex-col items-center' : ''}">
-				<div class="min-w-0 flex-1">
-					<SessionModeSwitch
-						list={sidebarList}
-						isCollapsed={collapsed}
-						onToggle={panel ? () => (preserveMenuOnNextNav = true) : undefined}
-					/>
-				</div>
-			</div>
-		{/if}
-
-		{#if sidebarListsSessions}
-			<!-- The session list owns the column. A session's page shows workspace pages in
-			     its preview side panel (the iframe renders its own nav). -->
-			<div class="wm-vt-sidebar-list px-2 py-2 flex flex-col gap-1 flex-1 min-h-0 overflow-y-auto">
-				<SessionPicker isCollapsed={collapsed} embedded collapsible={false} />
-			</div>
-			{@render settingsMenu(collapsed)}
-		{:else}
-			<!-- The workspace nav: Runs → Settings scroll as ONE block with an
-			     overflow fade hint. The three sections (Runs + Favorites + Search /
-			     workspace items / instance settings) are spaced by the scroll area's
-			     gap rather than each scrolling on its own. -->
-			<SidebarScrollArea class="wm-vt-sidebar-list" color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
-				<!-- Section 1: Runs + Favorites + Search. -->
-				<div class="px-2 flex flex-col gap-1 pt-1">
-					{@render quickLinks(collapsed)}
-					<Menubar class="flex flex-col gap-1">
-						{#snippet children({ createMenu })}
-							<FavoriteMenu
-								{createMenu}
-								favoriteLinks={favoriteManager.current}
-								isCollapsed={collapsed}
-							/>
-						{/snippet}
-					</Menubar>
-					<MenuButton
-						stopPropagationOnClick={true}
-						on:click={() => openSearchModal()}
-						isCollapsed={collapsed}
-						icon={Search}
-						label="Search"
-						class="!text-xs"
-						shortcut={`${getModifierKey()}k`}
-					/>
-					{#if askAiShown}
-						<!-- Legacy Ask-AI pane, shown only when the user opted out of the
-						     AI Sessions beta (otherwise SessionModeSwitch replaces it). -->
-						<MenuButton
-							stopPropagationOnClick={true}
-							on:click={() => aiChatManager.toggleOpen()}
-							isCollapsed={collapsed}
-							icon={WandSparkles}
-							iconProps={{ forceDarkMode: true }}
-							label="Ask AI"
-							class="!text-xs"
-							iconClasses="!text-ai"
-							shortcut={`${getModifierKey()}L`}
-						/>
-					{/if}
-				</div>
-
-				<!-- Section 2: workspace items -->
-				<SidebarContent
+		<div class="flex-shrink-0 px-2 h-12 flex flex-row items-center gap-0.5">
+			<div class="flex-1 min-w-0">
+				<MenuLink
+					class="!text-xs"
+					label="Home"
+					href="/"
+					icon={Home}
 					isCollapsed={collapsed}
-					showSecondary={false}
-					excludeMainLabels={['Home', 'Runs']}
-					numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
-						? 0
-						: numUnacknowledgedCriticalAlerts}
+					aiId="sidebar-menu-link-home"
+					aiDescription="Button to navigate to home which contains all the user's scripts, flows and apps"
 				/>
+			</div>
+			<!-- Expanded, Search shares Home's row; the collapsed rail keeps it in the nav below. -->
+			{#if !collapsed}
+				<Button
+					unifiedSize="sm"
+					variant="subtle"
+					startIcon={{ icon: Search }}
+					title="Search"
+					aria-label="Search"
+					btnClasses="text-secondary gap-1 px-1.5"
+					onClick={() => openSearchModal()}
+				>
+					<span class="text-2xs text-hint font-normal">{getModifierKey()}K</span>
+				</Button>
+			{/if}
+		</div>
+		<!-- Pulled up into the Home band's slack under its centred row (48px band; rows 30px, 32px
+		     on the rail), so the next row sits 2px under Home, as the nav's rows sit apart. Kept
+		     outside the scroll area: a negative margin inside it would clip that row. -->
+		<div class={twMerge('flex flex-col flex-1 min-h-0', collapsed ? '-mt-1.5' : '-mt-[7px]')}>
+			<!-- The workspace nav: Runs → Settings scroll as ONE block with an
+			     overflow fade hint. The sections (Runs + workspace items / AI sessions /
+			     instance settings) are spaced by the scroll area's
+			     gap rather than each scrolling on its own. -->
+			<SidebarScrollArea color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
+				<!-- Section 1: Search (collapsed) + Runs, then the workspace items, spaced as one list. -->
+				<div class="flex flex-col gap-0.5">
+					<div class="px-2 flex flex-col gap-0.5">
+						<!-- Collapsed, Search stays right under Home, where it sits beside it expanded. -->
+						{#if collapsed}
+							<MenuButton
+								stopPropagationOnClick={true}
+								on:click={() => openSearchModal()}
+								isCollapsed={collapsed}
+								icon={Search}
+								label="Search"
+								class="!text-xs"
+								shortcut={`${getModifierKey()}k`}
+							/>
+						{/if}
+						{@render quickLinks(collapsed)}
+						{#if askAiShown}
+							<!-- Legacy Ask-AI pane, shown only when the user opted out of the
+						     AI Sessions beta (otherwise the AI sessions section replaces it). -->
+							<MenuButton
+								stopPropagationOnClick={true}
+								on:click={() => aiChatManager.toggleOpen()}
+								isCollapsed={collapsed}
+								icon={WandSparkles}
+								iconProps={{ forceDarkMode: true }}
+								label="Ask AI"
+								class="!text-xs"
+								iconClasses="!text-ai"
+								shortcut={`${getModifierKey()}L`}
+							/>
+						{/if}
+					</div>
+					<SidebarContent
+						isCollapsed={collapsed}
+						showSecondary={false}
+						excludeMainLabels={['Home', 'Runs']}
+						numUnacknowledgedCriticalAlerts={isCriticalAlertsUiMuted
+							? 0
+							: numUnacknowledgedCriticalAlerts}
+					/>
+				</div>
 
-				<!-- Section 3: instance settings — mt-auto drops it to the bottom
-				     when the column has spare room, and collapses back to the normal
-				     inter-section gap once the content overflows and scrolls. -->
-				<div class="mt-auto">
-					{@render settingsMenu(collapsed)}
+				<!-- The starred items, when "Customize sidebar" turns them on; hidden in the rail. -->
+				<div class="px-2 empty:hidden">
+					<FavoritesSection isCollapsed={collapsed} />
+				</div>
+
+				<!-- Section 2: AI sessions, one row each; collapsed, a menu of them. -->
+				{#if sessionsShown}
+					<div class="px-2">
+						<SessionPicker isCollapsed={collapsed} embedded />
+					</div>
+				{/if}
+
+				<!-- The flow and agent chats stored in the workspace; hidden in the collapsed rail. -->
+				<div class="px-2 empty:hidden">
+					<AiChatsSection isCollapsed={collapsed} />
 				</div>
 			</SidebarScrollArea>
-		{/if}
+		</div>
+
+		<!-- Section 3: instance settings, pinned under the scrolled lists: inside them, long
+		     session and chat lists pushed it out of view under the bottom fade. -->
+		<div class="flex-shrink-0 pt-2">
+			{@render settingsMenu(collapsed)}
+		</div>
 
 		<div class="flex-shrink-0">
 			{@render accountSetupBanner(collapsed)}
@@ -1352,12 +1342,12 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 		</div>
 
 		<div
-			class="flex-shrink-0 flex pt-3 pb-3.5 {collapsed
-				? 'flex-col items-center gap-3'
-				: 'items-center justify-between px-4'}"
+			class="flex-shrink-0 flex pb-3.5 {collapsed
+				? 'flex-col items-center gap-1 pt-4'
+				: 'items-center justify-between px-4 pt-1'}"
 		>
 			{@render brandMark(collapsed)}
-			<div class="flex {collapsed ? 'flex-col gap-3' : 'gap-3'}">
+			<div class="flex {collapsed ? 'flex-col gap-1' : 'gap-3'}">
 				{#if !panel || navDetached.val}
 					{@render sidebarToggle()}
 				{/if}
@@ -1518,12 +1508,17 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 				     up into the gap and the workspace menu losing the trigger it hangs from.
 				     In flow, the band spans the content beside the rail. With an inset, a page owns
 				     the right edge from the top (a session's side panel): the band floats, stopping
-				     where that column starts, and the page pads its own content to clear it. -->
+				     where that column starts, and the page pads its own content to clear it.
+				     The rail offset must be padding in both placements, never `left` in the floating one:
+				     a switch between placements (sessions with and without a side panel) would then ease
+				     the padding to or from zero and slide the whole breadcrumb across. -->
 				<div
-					class={classNames(floatBand ? 'absolute top-0 z-30' : 'shrink-0', bandTransitionClass)}
-					style:left={floatBand ? `${leftInset}rem` : undefined}
+					class={classNames(
+						floatBand ? 'absolute top-0 left-0 z-30' : 'shrink-0',
+						bandTransitionClass
+					)}
 					style:right={floatBand ? `${rightInset ?? 0}px` : undefined}
-					style:padding-left={floatBand ? undefined : `${leftInset}rem`}
+					style:padding-left="{leftInset}rem"
 				>
 					<PageHeaderBar navHidden={menuHidden} panelled={useDrawer} />
 				</div>

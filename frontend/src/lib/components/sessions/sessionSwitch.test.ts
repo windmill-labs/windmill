@@ -4,7 +4,6 @@ import {
 	noteArrival,
 	openSourceInSession,
 	resumeAiSessions,
-	returnToWorkspace,
 	startSessionWithPrompt
 } from './sessionSwitch.svelte'
 import {
@@ -52,7 +51,7 @@ function withTwoFamilies(activeWorkspace: string): () => void {
 	}
 }
 
-describe('the sidebar switch comes back where each side was left', () => {
+describe('the sessions page resumes the last session opened', () => {
 	beforeEach(() => {
 		vi.mocked(goto).mockClear()
 	})
@@ -87,7 +86,7 @@ describe('the sidebar switch comes back where each side was left', () => {
 		sessionState.sessions.push(
 			session({ id: 'sw-draft', pending_workspace_id: 'rootA', draftPrompt: 'half typed' })
 		)
-		// Switched from a workspace page, so Home is not already open.
+		// Not on Home already, so the resume navigates there.
 		vi.stubGlobal('window', { location: { pathname: '/runs' } })
 		try {
 			noteArrival(new URL('http://localhost/sessions?session=sw-draft'))
@@ -97,29 +96,6 @@ describe('the sidebar switch comes back where each side was left', () => {
 		} finally {
 			vi.unstubAllGlobals()
 			homeDraft.id = undefined
-			restore()
-		}
-	})
-
-	it('returns to the workspace page left, moved by the picker’s rule after a switch', async () => {
-		const restore = withTwoFamilies('rootA')
-		try {
-			noteArrival(new URL('http://localhost/runs?workspace=rootA'))
-			// Home with the session list beside it is not a workspace page to come back to.
-			noteArrival(new URL('http://localhost/sessions?session=sw-any'))
-			noteArrival(new URL('http://localhost/'))
-			await returnToWorkspace()
-			expect(goto).toHaveBeenLastCalledWith('/runs?workspace=rootA')
-
-			workspaceStore.set('rootB')
-			await returnToWorkspace()
-			expect(goto).toHaveBeenLastCalledWith('/runs?workspace=rootB')
-
-			noteArrival(new URL('http://localhost/flows/edit/f/foo'))
-			workspaceStore.set('rootA')
-			await returnToWorkspace()
-			expect(goto).toHaveBeenLastCalledWith('/')
-		} finally {
 			restore()
 		}
 	})

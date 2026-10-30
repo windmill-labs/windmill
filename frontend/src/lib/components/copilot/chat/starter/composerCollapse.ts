@@ -10,5 +10,17 @@ const OVERLAY =
  * dialog, or one is open, and the press is closing it rather than leaving the composer. */
 export function isComposerOverlay(target: EventTarget | null): boolean {
 	if (target instanceof Element && target.closest(OVERLAY)) return true
-	return document.querySelector(OVERLAY) !== null
+	// An inert one is closed but kept mounted: the hidden sidebar's floating card is a dialog.
+	return [...document.querySelectorAll(OVERLAY)].some((el) => !el.closest('[inert]'))
+}
+
+/** Whether a pointer-down outside the composer leaves it open: it is on a control that brings
+ * the user to it (`data-asks-for-composer`, New session), where folding it on the way in would
+ * collapse it and open it again under the user's eyes, or on what the user works in alongside
+ * it (`data-works-with-composer`, Home's lists), where a click adds an item to it. */
+export function asksForComposer(target: EventTarget | null): boolean {
+	return (
+		target instanceof Element &&
+		target.closest('[data-asks-for-composer], [data-works-with-composer]') !== null
+	)
 }

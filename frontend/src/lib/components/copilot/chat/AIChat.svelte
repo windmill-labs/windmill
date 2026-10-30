@@ -89,7 +89,7 @@
 							: $aiUserDisabled
 								? 'Windmill AI is disabled in your account settings'
 								: isAdmin
-									? 'Enable Windmill AI in your [workspace settings](/workspace_settings?tab=ai) to use this chat'
+									? 'Enable Windmill AI in your [workspace settings](/workspace_settings?tab=ai) to use this chat, or hide AI sessions there'
 									: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
 						: aiChatManager.mode === AIMode.SCRIPT &&
 							  aiChatManager.scriptEditorOptions?.lang &&
@@ -126,12 +126,12 @@
 		aiChatDisplay?.focusInput(selection)
 	}
 
-	export async function attachContext(element: import('./context').ContextElement) {
-		await aiChatDisplay?.attachContext(element)
+	export function flashComposer() {
+		aiChatDisplay?.flashComposer()
 	}
 
-	export function foldComposer() {
-		aiChatDisplay?.foldComposer()
+	export async function attachContext(element: import('./context').ContextElement) {
+		await aiChatDisplay?.attachContext(element)
 	}
 
 	const historyManager = aiChatManager.historyManager

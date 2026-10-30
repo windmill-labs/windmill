@@ -71,6 +71,8 @@
 		view?: boolean
 		/** Opens the agent's configuration, offered beside the model it runs with. */
 		onOpenConfig?: () => void
+		/** A chat conversation to show once the chat is up, as a link to it names one. */
+		openConversation?: string
 		/** A view's form mode: the run form, drawn by the page. Kept out of this component because
 		 *  the flow editor reaches it, and the run form reads the navigation workspace. */
 		viewForm?: import('svelte').Snippet<
@@ -95,6 +97,7 @@
 		isNew = false,
 		view = false,
 		onOpenConfig = undefined,
+		openConversation = undefined,
 		viewForm = undefined
 	}: Props = $props()
 
@@ -726,6 +729,7 @@
 							inputSchema={AGENT_CHAT_SCHEMA}
 							flowModules={chatModules}
 							composerSettings={onOpenConfig ? configButton : undefined}
+							{openConversation}
 						/>
 					</div>
 				</div>
