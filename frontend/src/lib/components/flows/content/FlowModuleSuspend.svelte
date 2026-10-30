@@ -44,14 +44,12 @@
 	let schema = $state(emptySchema())
 
 	let allUserGroups: string[] = $state([])
-	let groupsLoaded = $state(false)
 	let suspendTabSelected: 'core' | 'form' | 'permissions' = $state('core')
 
 	let isSuspendEnabled = $derived(Boolean(flowModule.suspend))
 
 	async function loadGroups(): Promise<void> {
 		allUserGroups = await GroupService.listGroupNames({ workspace: opWs! })
-		groupsLoaded = true
 		schema.properties['groups'] = {
 			type: 'array',
 			items: {
@@ -285,7 +283,9 @@
 									bind:editor
 								/>
 							</PropPickerWrapper>
-						{:else if Boolean(flowModule.suspend?.user_auth_required) && groupsLoaded && allUserGroups.length === 0}
+						{/if}
+						<!-- Every workspace has the undeletable `all` group, which restricts nothing. -->
+						{#if Boolean(flowModule.suspend?.user_auth_required) && allUserGroups.length > 0 && allUserGroups.every((g) => g === 'all')}
 							<div class="flex items-center gap-2 text-xs text-secondary">
 								Create a group to restrict approval to its members.
 								<ManageGroupsLink label="Go to groups" />
