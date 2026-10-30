@@ -119,10 +119,11 @@
 	>
 		{#each processedItems ?? [] as item, itemIndex}
 			{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
+				<!-- Same section title as DropdownV2's `sectionTitle`, so grouped menus read alike. -->
 				<li
 					class={twMerge(
-						'mx-4 pb-1 mb-2 text-xs font-semibold text-primary border-b border-border-light',
-						itemIndex === 0 ? 'mt-3' : 'mt-6'
+						'px-4 pt-1.5 pb-1 text-2xs uppercase tracking-wide text-secondary',
+						itemIndex === 0 ? 'mt-1' : 'mt-1 border-t border-border-light pt-2.5'
 					)}
 				>
 					{item.__select_group}
