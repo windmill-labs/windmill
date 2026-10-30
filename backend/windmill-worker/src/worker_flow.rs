@@ -2899,18 +2899,38 @@ where
 /// steps resolve or decrypt (they share its root job id).
 pub(crate) struct FlowEnvRefs<'a> {
     raw: &'a HashMap<String, Box<RawValue>>,
-    secrets: HashMap<String, Box<RawValue>>,
+    db: &'a DB,
+    workspace_id: String,
+    root_job_id: Uuid,
+    // Loaded by the first input whose expression mentions `flow_env`, so that the steps
+    // reading none of it cost no query.
+    secrets: tokio::sync::OnceCell<FlowEnvSecrets>,
+}
+
+struct FlowEnvSecrets {
+    entries: HashMap<String, Box<RawValue>>,
     // Keyed on the root job id, which is what the step's worker decrypts `$encrypted:`
-    // args with. Present only when `secrets` is non-empty.
+    // args with. Present only when `entries` is non-empty.
     crypt: Option<WorkspaceCrypt>,
 }
 
 impl<'a> FlowEnvRefs<'a> {
-    async fn new(
-        db: &DB,
-        flow_job: &MiniPulledJob,
-        raw: &'a HashMap<String, Box<RawValue>>,
-    ) -> error::Result<Self> {
+    fn new(db: &'a DB, flow_job: &MiniPulledJob, raw: &'a HashMap<String, Box<RawValue>>) -> Self {
+        Self {
+            raw,
+            db,
+            workspace_id: flow_job.workspace_id.clone(),
+            root_job_id: get_root_job_id(flow_job),
+            secrets: tokio::sync::OnceCell::new(),
+        }
+    }
+
+    async fn secrets(&self) -> error::Result<&FlowEnvSecrets> {
+        self.secrets.get_or_try_init(|| self.load_secrets()).await
+    }
+
+    async fn load_secrets(&self) -> error::Result<FlowEnvSecrets> {
+        let raw = self.raw;
         let mut secret_keys = vec![];
         let mut var_keys: Vec<(String, String)> = vec![];
         for (k, v) in raw {
@@ -2933,10 +2953,10 @@ impl<'a> FlowEnvRefs<'a> {
             let paths: Vec<String> = var_keys.iter().map(|(_, p)| p.clone()).collect();
             let secret_paths = sqlx::query_scalar!(
                 "SELECT path FROM variable WHERE workspace_id = $1 AND path = ANY($2) AND is_secret",
-                &flow_job.workspace_id,
+                &self.workspace_id,
                 &paths
             )
-            .fetch_all(db)
+            .fetch_all(self.db)
             .await?;
             secret_keys.extend(
                 var_keys
@@ -2945,30 +2965,32 @@ impl<'a> FlowEnvRefs<'a> {
                     .map(|(k, _)| k),
             );
         }
-        let secrets: HashMap<String, Box<RawValue>> = secret_keys
+        let entries: HashMap<String, Box<RawValue>> = secret_keys
             .into_iter()
             .map(|k| (k.clone(), raw[&k].clone()))
             .collect();
-        let crypt = if secrets.is_empty() {
+        let crypt = if entries.is_empty() {
             None
         } else {
             Some(
                 build_crypt_with_key_suffix(
-                    db,
-                    &flow_job.workspace_id,
-                    &get_root_job_id(flow_job).to_string(),
+                    self.db,
+                    &self.workspace_id,
+                    &self.root_job_id.to_string(),
                 )
                 .await?,
             )
         };
-        Ok(Self { raw, secrets, crypt })
+        Ok(FlowEnvSecrets { entries, crypt })
     }
+}
 
+impl FlowEnvSecrets {
     // Decided from the expression's text, by a literal `flow_env.KEY` / `flow_env["KEY"]`
     // access: a dynamic key (`flow_env[k]`) or a destructured `flow_env` is not detected.
     fn reads_secret(&self, expr: &str) -> bool {
         let ident = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
-        self.secrets.keys().any(|k| {
+        self.entries.keys().any(|k| {
             let dotted = [format!("flow_env.{k}"), format!("flow_env?.{k}")];
             let bracketed = ["\"", "'", "`"].map(|q| format!("[{q}{k}{q}]"));
             dotted.iter().any(|p| {
@@ -3030,12 +3052,21 @@ async fn transform_input(
                 mapped.insert(key.to_string(), to_raw_value(&value));
             }
             InputTransform::Javascript { expr } => {
-                if let Some(raw) = env_refs.and_then(|r| {
-                    let env = if into_subflow { &r.secrets } else { r.raw };
-                    windmill_jseval::try_exact_property_access(expr.trim(), None, Some(env))
-                }) {
-                    mapped.insert(key.to_string(), raw);
-                    continue;
+                let env_refs = env_refs.filter(|_| expr.contains("flow_env"));
+                if let Some(r) = env_refs {
+                    let exact_env = if into_subflow {
+                        &r.secrets().await?.entries
+                    } else {
+                        r.raw
+                    };
+                    if let Some(raw) = windmill_jseval::try_exact_property_access(
+                        expr.trim(),
+                        None,
+                        Some(exact_env),
+                    ) {
+                        mapped.insert(key.to_string(), raw);
+                        continue;
+                    }
                 }
                 let v = eval_timeout(
                     expr.to_string(),
@@ -3052,8 +3083,12 @@ async fn transform_input(
                         "Error during isolated evaluation of expression `{expr}`:\n{e:#}"
                     ))
                 })?;
-                let v = match env_refs {
-                    Some(r @ FlowEnvRefs { crypt: Some(crypt), .. }) if r.reads_secret(expr) => {
+                let secrets = match env_refs {
+                    Some(r) => Some(r.secrets().await?),
+                    None => None,
+                };
+                let v = match secrets {
+                    Some(s @ FlowEnvSecrets { crypt: Some(crypt), .. }) if s.reads_secret(expr) => {
                         to_raw_value(&format!("$encrypted:{}", encrypt(crypt, v.get())))
                     }
                     _ => v,
@@ -3156,10 +3191,7 @@ pub async fn handle_flow(
         }
     }
 
-    let env_refs = match env_source {
-        Some(raw) => Some(FlowEnvRefs::new(db, &flow_job, raw).await?),
-        None => None,
-    };
+    let env_refs = env_source.map(|raw| FlowEnvRefs::new(db, &flow_job, raw));
 
     let schedule_path = flow_job.schedule_path();
     if !flow_job.is_flow_step()
@@ -6840,17 +6872,15 @@ pub async fn get_previous_job_result(
 mod tests {
     use super::{
         effective_flow_step_timeout, extract_chat_message_from_flow_result, is_simple_modules,
-        FlowEnvRefs,
+        FlowEnvSecrets,
     };
 
     // An input computed from a secret is stored encrypted, which an agent worker cannot
     // decrypt, so a key that merely shares a secret entry's name must not count as reading it.
     #[test]
     fn reads_secret_only_through_a_flow_env_access() {
-        let raw = std::collections::HashMap::new();
-        let refs = FlowEnvRefs {
-            raw: &raw,
-            secrets: [(
+        let refs = FlowEnvSecrets {
+            entries: [(
                 "token".to_string(),
                 to_raw_value(&json!("$var:u/x/t")).unwrap(),
             )]
