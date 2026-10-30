@@ -115,7 +115,9 @@
 		return undefined
 	})
 	const missing = $derived(readable ? items.filter((i) => !readable(i)) : [])
-	const open = $derived(toggled && toggled.key === key ? toggled.open : missing.length > 0)
+	const open = $derived(
+		toggled && toggled.key === key ? toggled.open : missing.length > 0 || !!shown?.accessError
+	)
 
 	function plural(n: number, word: string): string {
 		return `${n} ${word}${n === 1 ? '' : 's'}`
