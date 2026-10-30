@@ -3858,6 +3858,9 @@ pub struct MiniPulledJob {
     /// unrestricted token.
     #[serde(default)]
     pub job_token_scopes: Option<Vec<String>>,
+    /// `job_perms.mcp_client`, read only on pull: see `ApiAuthed::mcp_client`.
+    #[serde(default)]
+    pub mcp_client: Option<String>,
 }
 
 impl MiniPulledJob {
@@ -3930,6 +3933,7 @@ impl MiniPulledJob {
             concurrent_limit: None,
             concurrency_time_window_s: None,
             job_token_scopes: None,
+            mcp_client: None,
         }
     }
 }
@@ -4244,6 +4248,7 @@ impl PulledJob {
                 end_user_email: self.job.permissioned_as_end_user_email.clone(),
                 job_token_scopes: self.job.job_token_scopes.clone(),
                 viewer_data_access: self.job.viewer_data_access.unwrap_or(false),
+                mcp_client: self.job.mcp_client.clone(),
             }),
             _ => None,
         };
@@ -4352,7 +4357,8 @@ pub async fn get_mini_pulled_job<'c>(
         visible_to_owner,
         NULL as permissioned_as_end_user_email,
         NULL::boolean as viewer_data_access,
-        job_perms.job_token_scopes
+        job_perms.job_token_scopes,
+        job_perms.mcp_client
         FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
         LEFT JOIN job_perms ON job_perms.job_id = v2_job_queue.id WHERE v2_job_queue.id = $1",
         job_id,
@@ -7780,7 +7786,8 @@ async fn push_inner<'c, 'd>(
             authed.clone()
         }
         _ => {
-            if authed.is_some() {
+            // An on-behalf-of run passes its MCP caller only to record the client.
+            if authed.is_some_and(|a| a.mcp_client.is_none()) {
                 tracing::warn!("Authed passed to push is not the same as permissioned_as, refetching direclty permissions for job {job_id}...")
             }
             windmill_common::auth::fetch_authed_from_permissioned_as(
@@ -7914,9 +7921,9 @@ async fn push_inner<'c, 'd>(
             INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)
         ),
         inserted_job_perms AS (
-            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, end_user_email, job_token_scopes)
-            values ($1, $32, $33, $34, $35, $36, $37, $2, $41, $47)
-            ON CONFLICT (job_id) DO UPDATE SET email = EXCLUDED.email, username = EXCLUDED.username, is_admin = EXCLUDED.is_admin, is_operator = EXCLUDED.is_operator, folders = EXCLUDED.folders, groups = EXCLUDED.groups, workspace_id = EXCLUDED.workspace_id, end_user_email = EXCLUDED.end_user_email, job_token_scopes = EXCLUDED.job_token_scopes
+            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, end_user_email, job_token_scopes, mcp_client)
+            values ($1, $32, $33, $34, $35, $36, $37, $2, $41, $47, $48)
+            ON CONFLICT (job_id) DO UPDATE SET email = EXCLUDED.email, username = EXCLUDED.username, is_admin = EXCLUDED.is_admin, is_operator = EXCLUDED.is_operator, folders = EXCLUDED.folders, groups = EXCLUDED.groups, workspace_id = EXCLUDED.workspace_id, end_user_email = EXCLUDED.end_user_email, job_token_scopes = EXCLUDED.job_token_scopes, mcp_client = EXCLUDED.mcp_client
         )
         INSERT INTO v2_job_queue
             (workspace_id, id, running, scheduled_for, started_at, tag, priority, cache_ignore_s3_path, runnable_settings_handle)
@@ -7972,6 +7979,9 @@ async fn push_inner<'c, 'd>(
         runnable_path,
         workspace_id,
         job_token_scopes.as_deref() as Option<&[String]>,
+        // From the pusher's identity, not `job_authed`: a run on behalf of another identity
+        // re-fetches its permissions, but was still started through the same client.
+        authed.and_then(|a| a.mcp_client.as_deref()),
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)
@@ -8024,6 +8034,9 @@ async fn push_inner<'c, 'd>(
         let uuid_str = uuid_string.as_str();
 
         let mut hm = HashMap::from([("uuid", uuid_str), ("permissioned_as", &permissioned_as)]);
+        if let Some(client) = authed.and_then(|a| a.mcp_client.as_deref()) {
+            hm.insert("mcp_client", client);
+        }
 
         let s: String;
         let operation_name = match job_kind {
@@ -8969,7 +8982,7 @@ pub async fn get_same_worker_job(
                     COALESCE(pj.runnable_path, v2_job.args->>'_FLOW_PATH') as parent_runnable_path,
                     p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
                     p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email,
-                    p.viewer_data_access
+                    p.viewer_data_access, p.mcp_client
                     FROM v2_job_queue
                     INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
                     LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id

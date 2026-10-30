@@ -13,7 +13,7 @@
 	import { agentOfChatPath } from '$lib/components/flows/conversations/agentEditorChat'
 	import { sidebarClasses } from './MenuButton.svelte'
 
-	// The workspace's flow and agent chats, the ones a flow's or an agent's own page shows: the
+	// The reader's own flow and agent chats, the ones a flow's or an agent's own page shows: the
 	// editors' test chats stay with the editors.
 	let { isCollapsed = false }: { isCollapsed?: boolean } = $props()
 
@@ -32,7 +32,8 @@
 			const rows = await FlowConversationsService.listFlowConversations({
 				workspace: ws,
 				perPage: 30,
-				kind: 'deployed'
+				kind: 'deployed',
+				mine: true
 			})
 			return { ws, rows }
 		}

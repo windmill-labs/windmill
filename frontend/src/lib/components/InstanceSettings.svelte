@@ -1261,7 +1261,7 @@
 		<div class="flex-col flex gap-6 pb-6">
 			{#each settings[category] as setting}
 				<!-- slack connect is handled with the alert channels settings, smtp_connect is handled in InstanceSetting -->
-				{#if setting.fieldType != 'slack_connect' && !(quickSetup && setting.hideInQuickSetup) && !(quickSetup && category === 'Core' && setting.key === 'license_key')}
+				{#if setting.fieldType != 'slack_connect' && !(quickSetup && setting.hideInQuickSetup) && !(quickSetup && category === 'Core' && setting.key === 'license_key') && !(setting.key === 'mcp_external_idp' && authSubTab !== 'sso')}
 					<InstanceSetting
 						{openSmtpSettings}
 						on:closeDrawer={() => closeDrawer?.()}

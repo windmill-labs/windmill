@@ -341,4 +341,22 @@ mod tests {
 
         unregister_running_job(job_id);
     }
+
+    /// A secret containing another must be masked whole (`LeftmostLongest`), or its
+    /// tail leaks; the kept prefix/suffix must be cut by char, or multi-byte secrets panic.
+    #[test]
+    fn overlapping_and_multibyte_secrets_are_masked_whole() {
+        let job_id = Uuid::new_v4();
+        register_running_job(job_id);
+        register_secret_for_job(job_id, "password");
+        register_secret_for_job(job_id, "password-and-more");
+        register_secret_for_job(job_id, "🔑éàü-secret-value-ñ€😀");
+
+        let masked = snapshot(&job_id)
+            .expect("secrets registered")
+            .mask("password-and-more 🔑éàü-secret-value-ñ€😀");
+        assert_eq!(masked, format!("p*****e 🔑éà*****ñ€😀\n{MASKED_NOTICE}"));
+
+        unregister_running_job(job_id);
+    }
 }

@@ -22,6 +22,7 @@
 	import CriticalAlertChannels from './instanceSettings/CriticalAlertChannels.svelte'
 	import RetentionPeriodOverrides from './instanceSettings/RetentionPeriodOverrides.svelte'
 	import AgentWorkloadIdentityIssuers from './instanceSettings/AgentWorkloadIdentityIssuers.svelte'
+	import McpExternalIdp from './instanceSettings/McpExternalIdp.svelte'
 	import WorkspaceRolesSetting from './instanceSettings/WorkspaceRolesSetting.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
@@ -636,6 +637,8 @@
 					</div>
 				{:else if setting.fieldType == 'agent_workload_identity_issuers'}
 					<AgentWorkloadIdentityIssuers {values} disabled={!$enterpriseLicense} />
+				{:else if setting.fieldType == 'mcp_external_idp'}
+					<McpExternalIdp {values} disabled={!$enterpriseLicense} />
 				{:else if setting.fieldType == 'critical_error_channels'}
 					<CriticalAlertChannels {values} {openSmtpSettings} {oauths} />
 				{:else if setting.fieldType == 'otel'}

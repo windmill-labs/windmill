@@ -105,6 +105,7 @@ async fn test_preview_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
             folders: vec![],
             scopes: None,
             token_prefix: None,
+            mcp_client: None,
         },
         "test-workspace",
         3600,

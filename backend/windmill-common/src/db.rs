@@ -20,6 +20,8 @@ pub struct Authed {
     pub folders: Vec<(String, bool, bool)>,
     pub scopes: Option<Vec<String>>,
     pub token_prefix: Option<String>,
+    /// See `ApiAuthed::mcp_client`.
+    pub mcp_client: Option<String>,
 }
 
 impl Authed {
