@@ -33,7 +33,7 @@
 		workspaceMembershipVersion
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Loader2, Mails, Search, Plus, UserMinus, X, Bot, LogIn } from 'lucide-svelte'
+	import { Loader2, Mails, Search, Plus, UserMinus, X, Bot, LogIn, Users } from 'lucide-svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import SearchItems from '../SearchItems.svelte'
 	import Cell from '../table/Cell.svelte'
@@ -494,7 +494,13 @@
 		: ''}"
 	description="Add members to your workspace and manage their roles. You can also auto-add users to join your workspace."
 	link="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
-/>
+>
+	{#snippet actions()}
+		<Button variant="default" unifiedSize="sm" href="/groups" startIcon={{ icon: Users }}>
+			Groups
+		</Button>
+	{/snippet}
+</SettingsPageHeader>
 
 {#if isAdminsWorkspaceWithoutEE}
 	<Alert type="info" title="Admins workspace">

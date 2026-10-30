@@ -13,6 +13,7 @@
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import type { FlowEditorContext } from '../types'
 	import Label from '$lib/components/Label.svelte'
+	import ManageGroupsLink from '$lib/components/ManageGroupsLink.svelte'
 	import SuspendDrawer from './SuspendDrawer.svelte'
 	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
@@ -43,12 +44,14 @@
 	let schema = $state(emptySchema())
 
 	let allUserGroups: string[] = $state([])
+	let groupsLoaded = $state(false)
 	let suspendTabSelected: 'core' | 'form' | 'permissions' = $state('core')
 
 	let isSuspendEnabled = $derived(Boolean(flowModule.suspend))
 
 	async function loadGroups(): Promise<void> {
 		allUserGroups = await GroupService.listGroupNames({ workspace: opWs! })
+		groupsLoaded = true
 		schema.properties['groups'] = {
 			type: 'array',
 			items: {
@@ -256,10 +259,13 @@
 						<div class="mb-4"></div>
 
 						{#if Boolean(flowModule.suspend?.user_auth_required) && allUserGroups.length !== 0 && flowModule.suspend && schema.properties['groups']}
-							<span class="text-xs font-bold"
-								>Require approvers to be members of one of the following user groups (leave empty
-								for any)
-							</span>
+							<div class="flex items-center justify-between gap-2">
+								<span class="text-xs font-bold"
+									>Require approvers to be members of one of the following user groups (leave empty
+									for any)
+								</span>
+								<ManageGroupsLink />
+							</div>
 							<PropPickerWrapper
 								sidePane
 								notSelectable
@@ -279,6 +285,11 @@
 									bind:editor
 								/>
 							</PropPickerWrapper>
+						{:else if Boolean(flowModule.suspend?.user_auth_required) && groupsLoaded && allUserGroups.length === 0}
+							<div class="flex items-center gap-2 text-xs text-secondary">
+								Create a group to restrict approval to its members.
+								<ManageGroupsLink label="Go to groups" />
+							</div>
 						{/if}
 					</div>
 				</div>
