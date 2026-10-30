@@ -178,7 +178,7 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 	</Label>
 {/if}
 
-{#if variable.is_secret}
+{#if variable.is_secret && (canEditRef || externalRef)}
 	<div class="flex flex-col gap-1">
 		<span class="text-xs font-semibold text-emphasis">External reference</span>
 		<Toggle
