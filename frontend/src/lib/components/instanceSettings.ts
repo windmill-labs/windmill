@@ -852,7 +852,9 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'MCP external identity provider',
 			description:
-				"Accept access tokens issued by an external OpenID Connect provider on the MCP endpoints. MCP clients then sign in there instead of with Windmill, and tokens Windmill issued keep working. The token's client claim picks one of the clients below, which sets the workspace and the access, as for a Windmill token; the request acts as the Windmill user whose email is in the token, so the client never does more than that user can. The user must already exist: they sign in to Windmill once first. When the SSO groups claim above is set, each request uses the groups listed in its token, matched to the groups SCIM linked, so a change in the IdP applies once the client gets a new token. Runs record the client, and their steps read it as WM_MCP_CLIENT.",
+				'Let MCP clients sign in with your OpenID Connect provider. Each client acts as the signed-in Windmill user, within the access you set for it below.',
+			tooltip:
+				'Tokens Windmill issued keep working. The user must already exist in Windmill: they sign in once first. When the SSO groups claim is set, each request uses the groups listed in its token, so a change in the IdP applies at the next token. Runs record the client, and their steps read it as WM_MCP_CLIENT.',
 			key: 'mcp_external_idp',
 			fieldType: 'mcp_external_idp',
 			storage: 'setting',

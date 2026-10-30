@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Writable } from 'svelte/store'
 	import { Badge, Button } from '../common'
+	import Label from '../Label.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
 	import McpAccessPicker, {
@@ -137,29 +138,35 @@
 
 <div class="flex flex-col gap-4">
 	<div class="flex flex-col gap-4 p-4 rounded-md border">
-		<label class="flex flex-col gap-1">
-			<span class="text-xs text-secondary">Issuer (must equal the token's iss)</span>
+		<Label label="Issuer">
 			<TextInput
 				bind:value={form.issuer}
 				inputProps={{ placeholder: 'https://idp.example.com/realms/main', disabled }}
 			/>
-		</label>
-		<label class="flex flex-col gap-1">
-			<span class="text-xs text-secondary"
-				>Audience (checked against the token's aud; when empty, only tokens typed as access tokens
-				are accepted)</span
-			>
+			<span class="text-2xs text-hint">Must equal the token's iss</span>
+		</Label>
+		<Label
+			label="Audience"
+			tooltip="Without an audience, only tokens marked as access tokens are accepted (an at+jwt header, or Keycloak's Bearer typ), so a client can't replay a user's ID token."
+		>
 			<TextInput bind:value={form.audience} inputProps={{ placeholder: 'windmill', disabled }} />
-		</label>
+			<span class="text-2xs text-hint"
+				>Recommended. The aud your IdP puts in tokens for Windmill</span
+			>
+		</Label>
 		<div class="flex gap-2">
-			<label class="flex flex-col gap-1 grow">
-				<span class="text-xs text-secondary">Client claim</span>
+			<Label
+				class="grow"
+				label="Client claim"
+				tooltip="The claim naming the OAuth client: azp on Keycloak, Auth0, Entra and Google, cid on Okta, client_id on servers following RFC 9068."
+			>
 				<TextInput bind:value={form.client_claim} inputProps={{ placeholder: 'azp', disabled }} />
-			</label>
-			<label class="flex flex-col gap-1 grow">
-				<span class="text-xs text-secondary">User email claim</span>
+				<span class="text-2xs text-hint">Default azp</span>
+			</Label>
+			<Label class="grow" label="User email claim">
 				<TextInput bind:value={form.email_claim} inputProps={{ placeholder: 'email', disabled }} />
-			</label>
+				<span class="text-2xs text-hint">Default email</span>
+			</Label>
 		</div>
 	</div>
 
@@ -203,21 +210,19 @@
 				</div>
 				{#if client.open}
 					<div class="flex gap-2">
-						<label class="flex flex-col gap-1 grow">
-							<span class="text-xs text-secondary">Client id</span>
+						<Label class="grow" label="Client id">
 							<TextInput
 								bind:value={client.client_id}
 								inputProps={{ placeholder: 'my-agent', disabled }}
 							/>
-						</label>
-						<label class="flex flex-col gap-1 w-56">
-							<span class="text-xs text-secondary">Workspace</span>
+						</Label>
+						<Label class="w-56" label="Workspace">
 							<Select
 								items={workspaces.map((w) => ({ value: w }))}
 								bind:value={client.workspace_id}
 								{disabled}
 							/>
-						</label>
+						</Label>
 					</div>
 					{#if client.workspace_id}
 						{#key client.workspace_id}
