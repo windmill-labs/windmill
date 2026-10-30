@@ -1085,12 +1085,13 @@ if (BROWSER) {
 
 // Home's draft acts on the workspace the page header names, so a switch to another
 // workspace of its family takes the draft along. A switch to another family leaves
-// it where it was: Home shows that family's own draft. Not a touch, so the draft's
-// last activity stays when the user last worked on it.
+// it where it was: Home shows that family's own draft. A draft already sending stays
+// too: its send commits the workspace it started in, but only after the pre-flight.
+// Not a touch, so the draft's last activity stays when the user last worked on it.
 function followHomeDraft(): void {
 	const s = homeDraft.id ? sessionState.sessions.find((x) => x.id === homeDraft.id) : undefined
 	const ws = get(workspaceStore)
-	if (!s || !ws || s.workspace_id) return
+	if (!s || !ws || s.workspace_id || sendUnderWay(s.id)) return
 	if (s.pending_workspace_id === ws && !s.pending_fork) return
 	if (s.pending_workspace_id && workspaceRootId(ws, get(userWorkspaces)) !== sessionRootId(s)) {
 		return

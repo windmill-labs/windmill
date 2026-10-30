@@ -988,7 +988,11 @@ export class AIChatManager implements ChatViewHost {
 		if (!roots || roots.includes(root)) return
 		const next = [...roots, root]
 		this.onWorkingInChanged?.(next, 'manual')
-		if (this.#turnScope) this.#turnScope = { roots: next }
+		if (!this.#turnScope || this.mode !== AIMode.GLOBAL) return
+		this.#turnScope = { roots: next }
+		// The gate widened for this turn, so its prompt and skills widen with it.
+		void this.refreshGlobalFolderInstructions()
+		this.configureGlobalMode()
 	}
 	/** What a picker row badges: the instructions, skills and MCP servers under it. */
 	get scopeResources(): {
@@ -1026,8 +1030,9 @@ export class AIChatManager implements ChatViewHost {
 	}
 	/** The scoped folders' instructions, formatted for the system prompt, and the paths they
 	 * carry, which first-touch delivery then skips. `scope` is the label they were read for. */
-	#scopeInstructions: { scope: string; workspace: string; text: string; paths: string[] } | undefined =
-		undefined
+	#scopeInstructions:
+		| { scope: string; workspace: string; text: string; paths: string[] }
+		| undefined = undefined
 	/** Folders a whole-workspace session wrote to, for the `written:` counter. */
 	#writtenRoots = new Set<string>()
 	#loggedScopeSet = false
@@ -2938,14 +2943,18 @@ export class AIChatManager implements ChatViewHost {
 
 	private globalAssemblyOpts = (): GlobalAssemblyOpts => {
 		const workingScope = this.#workingScope()
+		const inPrompt = this.#currentScopeInstructions(workingScope)
 		return {
 			previewTools: this.isSessionChat,
 			user: this.globalIdentity,
 			skills: this.#loadedSkills(),
-			folderInstructions: this.globalFolderInstructions,
+			// The scoped folders' instructions are in the prompt already, not delivered on first touch.
+			folderInstructions: inPrompt
+				? this.globalFolderInstructions.filter((i) => !inPrompt.paths.includes(i.path))
+				: this.globalFolderInstructions,
 			mcpServers: this.mcpServers,
 			workingScope,
-			scopeInstructions: this.#currentScopeInstructions(workingScope)?.text,
+			scopeInstructions: inPrompt?.text,
 			access: this.#toolAccess,
 			sessionContext: this.#sessionPromptContext(),
 			pipelineFolders: this.#pipelineFolders()
@@ -3001,7 +3010,10 @@ export class AIChatManager implements ChatViewHost {
 			await Promise.all(
 				covering.map(async (instruction) => {
 					try {
-						return { instruction, body: await readFolderInstructionBody(workspace, instruction.path) }
+						return {
+							instruction,
+							body: await readFolderInstructionBody(workspace, instruction.path)
+						}
 					} catch (e) {
 						console.error(`Failed to read folder instructions ${instruction.path}`, e)
 						return undefined

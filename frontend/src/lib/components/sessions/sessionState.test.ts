@@ -735,6 +735,24 @@ describe('homeStarterSession', () => {
 		}
 	})
 
+	it('keeps a draft whose first send is under way in the workspace it was sent from', () => {
+		const restore = withTwoFamilies('forkA')
+		sessionState.sessions.push(session({ id: 'sending-draft', pending_workspace_id: 'forkA' }))
+		const sendingNow = () => sessionState.sessions.find((s) => s.id === 'sending-draft')
+		try {
+			holdHomeDraft('sending-draft')
+			setSendUnderWayCheck((id) => id === 'sending-draft')
+			workspaceStore.set('rootA')
+			holdHomeDraft('sending-draft')
+			expect(sendingNow()?.pending_workspace_id).toBe('forkA')
+		} finally {
+			setSendUnderWayCheck(() => false)
+			homeDraft.id = undefined
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'sending-draft')
+			restore()
+		}
+	})
+
 	it('lets go of its blank once a hand-off reuses it for an item', () => {
 		const restore = withTwoFamilies('forkA')
 		const prevCurrent = sessionState.currentSessionId

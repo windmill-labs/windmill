@@ -735,9 +735,9 @@ export type ToolDisplayMessage = {
 	blockedByPlanMode?: boolean
 	/** Held back until the model has read the folder instructions it was handed. */
 	heldForFolderInstructions?: boolean
-	/** A change or run in a folder that is not a working folder, stopped for the user to allow.
-	 * `decision` is set once they answer. */
-	/** `scope` is the scope as copy reads it: `f/a` or `f/a and f/b`. */
+	/** A change outside the session's scope, held for the user to allow; runs are never held.
+	 * `scope` is the scope as copy reads it (`f/a` or `f/a and f/b`); `decision` is set once
+	 * they answer. */
 	outOfScope?: {
 		path: string
 		/** The owner root of `path`, which "Allow writes in" adds. */
