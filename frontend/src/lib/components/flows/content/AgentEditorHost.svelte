@@ -71,6 +71,8 @@
 		view?: boolean
 		/** Opens the agent's configuration, offered beside the model it runs with. */
 		onOpenConfig?: () => void
+		/** A chat conversation to show once the chat is up, as a link to it names one. */
+		openConversation?: string
 		/** Takes a view's run once it has started, instead of opening its run page: for a host that
 		 *  is not the app's top-level route (a session tab), or a call waiting on that run. */
 		onRunStarted?: (jobId: string, args: Record<string, any>) => void
@@ -86,6 +88,10 @@
 				}
 			]
 		>
+		/** A hint pinned under the configuration, outside its scroll. */
+		configFooter?: import('svelte').Snippet
+		/** Pinned at the foot of the chat's conversations sidebar. */
+		chatSidebarFooter?: import('svelte').Snippet<[{ expanded: boolean }]>
 	}
 
 	let {
@@ -98,8 +104,11 @@
 		isNew = false,
 		view = false,
 		onOpenConfig = undefined,
+		openConversation = undefined,
 		onRunStarted = undefined,
-		viewForm = undefined
+		viewForm = undefined,
+		configFooter = undefined,
+		chatSidebarFooter = undefined
 	}: Props = $props()
 
 	/** The one module the editor edits. Standalone (no `agent` key) so `initFlowState` loads a
@@ -611,31 +620,40 @@
 	</div>
 
 	{#snippet configPane()}
-		<div class="h-full min-h-0 overflow-auto">
-			<PropPickerWrapper pickableProperties={stepPropPicker?.pickableProperties} noPadding sidePane>
-				<AiAgentStepInputs
-					class="px-4 pt-4 pb-8"
-					{schema}
-					filter={brainFilter}
-					previousModuleId={undefined}
+		<div class="h-full min-h-0 flex flex-col">
+			<div class="flex-1 min-h-0 overflow-auto">
+				<PropPickerWrapper
 					pickableProperties={stepPropPicker?.pickableProperties}
-					extraLib={stepPropPicker?.extraLib ?? 'missing extraLib'}
-					{enableAi}
-					{workspace}
-					staticOnly
-					visibilityKey={`agent:${path}`}
-					{tools}
-					{readOnly}
-					onSelectTool={(id) => onSelectTool?.(id)}
-					onAddTool={readOnly ? undefined : addTool}
-					onDeleteTool={readOnly ? undefined : deleteTool}
-					toolPickerPortal="#agent-editor"
-					bind:args={
-						() => (agentValue?.input_transforms ?? {}) as Record<string, InputTransform>,
-						(v) => agentValue && (agentValue.input_transforms = v)
-					}
-				/>
-			</PropPickerWrapper>
+					noPadding
+					sidePane
+				>
+					<AiAgentStepInputs
+						class="px-4 pt-4 pb-8"
+						{schema}
+						filter={brainFilter}
+						previousModuleId={undefined}
+						pickableProperties={stepPropPicker?.pickableProperties}
+						extraLib={stepPropPicker?.extraLib ?? 'missing extraLib'}
+						{enableAi}
+						{workspace}
+						staticOnly
+						visibilityKey={`agent:${path}`}
+						{tools}
+						{readOnly}
+						onSelectTool={(id) => onSelectTool?.(id)}
+						onAddTool={readOnly ? undefined : addTool}
+						onDeleteTool={readOnly ? undefined : deleteTool}
+						toolPickerPortal="#agent-editor"
+						bind:args={
+							() => (agentValue?.input_transforms ?? {}) as Record<string, InputTransform>,
+							(v) => agentValue && (agentValue.input_transforms = v)
+						}
+					/>
+				</PropPickerWrapper>
+			</div>
+			{#if configFooter}
+				<div class="shrink-0 px-3 py-1.5">{@render configFooter()}</div>
+			{/if}
 		</div>
 	{/snippet}
 
@@ -755,6 +773,8 @@
 							inputSchema={AGENT_CHAT_SCHEMA}
 							flowModules={chatModules}
 							composerSettings={onOpenConfig ? configButton : undefined}
+							{openConversation}
+							sidebarFooter={chatSidebarFooter}
 						/>
 					</div>
 				</div>

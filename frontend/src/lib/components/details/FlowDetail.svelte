@@ -42,7 +42,6 @@
 		Archive,
 		Trash,
 		ChevronUpSquare,
-		Shield,
 		Loader2,
 		GitFork,
 		Play,
@@ -55,7 +54,11 @@
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
-	import { createRawAppFromFlow } from '$lib/components/details/createRawAppFromScript'
+	import {
+		createChatRawApp,
+		createRawAppFromFlow
+	} from '$lib/components/details/createRawAppFromScript'
+	import BuildChatAppCard from '$lib/components/details/BuildChatAppCard.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
@@ -83,6 +86,7 @@
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
 	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
+	import { page } from '$app/state'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 	import CiTestResults from '$lib/components/CiTestResults.svelte'
@@ -466,19 +470,28 @@
 			}
 		})
 
-		if (!flow || !canAuthorFlow || !can_write) {
-			return buttons
-		}
-
-		// Build app starts from the full template, not the builder one a compose-only role deploys.
-		if (caps.apps === 'full') {
+		// A chat-mode flow gets the chat template rather than a form over its inputs. It holds no
+		// inline code, so authoring raw apps is enough, as on the sidebar card. The form app starts
+		// from the full template, not the builder one a compose-only role deploys.
+		const chat = !!flow?.value?.chat_input_enabled
+		const canBuildApp = chat
+			? editRights.roleCanAuthor('raw_app')
+			: canAuthorFlow && can_write && caps.apps === 'full'
+		if (flow && canBuildApp) {
 			buttons.push({
-				label: 'Build app',
+				label: chat ? 'Build chat app' : 'Build app',
 				placement: 'menu',
 				alwaysPlaced: true,
 				buttonProps: {
 					onClick: async () => {
-						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
+						const app = chat
+							? createChatRawApp({
+									path: flow.path,
+									runType: 'flow',
+									summary: flow.summary,
+									schema: flow.schema
+								})
+							: createRawAppFromFlow(flow.path, flow.summary, flow.schema)
 						// The raw app editor reads the payload from sessionStorage on mount.
 						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
 						await onNavigate('/apps_raw/add')
@@ -489,6 +502,10 @@
 					startIcon: LayoutDashboard
 				}
 			})
+		}
+
+		if (!flow || !canAuthorFlow || !can_write) {
+			return buttons
 		}
 
 		buttons.push({
@@ -524,13 +541,6 @@
 		if (!flow || !canAuthorFlow) return []
 
 		const menuItems: any = []
-
-		menuItems.push({
-			label: 'Permissions',
-			onclick: () => shareModal?.openDrawer(flow?.path ?? '', 'flow'),
-			Icon: Shield,
-			disabled: !can_write
-		})
 
 		if (showEditButtons) {
 			menuItems.push({
@@ -662,7 +672,7 @@
 
 <svelte:window onkeydown={onKeyDown} />
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<ShareModal bind:this={shareModal} />
+<ShareModal bind:this={shareModal} source="detail" />
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={async (e) => {
@@ -696,6 +706,9 @@
 			}}
 			{mainButtons}
 			menuItems={getMenuItems(flow, deployUiSettings)}
+			onShare={flow && canAuthorFlow
+				? () => shareModal?.openDrawer(flow?.path ?? '', 'flow')
+				: undefined}
 			bind:errorHandlerMuted={
 				() => flow?.ws_error_handler_muted ?? false,
 				(v) => {
@@ -857,7 +870,22 @@
 								flowModules={flow?.value?.modules}
 								wideLayout
 								frame="none"
-							/>
+								openConversation={page.url.searchParams.get('conversation') ?? undefined}
+							>
+								{#snippet sidebarFooter({ expanded })}
+									{#if workspace && flow}
+										<BuildChatAppCard
+											kind="flow"
+											path={flow.path}
+											{workspace}
+											{expanded}
+											summary={flow.summary}
+											schema={flow.schema}
+											{onNavigate}
+										/>
+									{/if}
+								{/snippet}
+							</FlowChat>
 						{:else}
 							{@const hasSchema =
 								flow.schema && Object.keys(flow.schema.properties ?? {}).length > 0}
@@ -1016,6 +1044,7 @@
 				isDeployed={true}
 				noCapture={true}
 				isEditor={false}
+				chatMode={chatInputEnabled}
 			/>
 		{/if}
 	{/snippet}

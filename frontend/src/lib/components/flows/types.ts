@@ -107,6 +107,9 @@ export type FlowEditorContext = {
 	// $workspaceStore inside a fork-scoped session; worker-tag pickers read it so
 	// their tag list and availability match the deploy target. Getter for reactivity.
 	opWorkspace?: () => string | undefined
+	// Where the deployed flow is, which a path change in its settings moves it from on deploy.
+	// Undefined before the first deploy. Getter for reactivity.
+	deployedPath?: () => string | undefined
 	// The agent whose editor hosts this flow, when one does. An agent editor hosts its flow under
 	// that agent's own path, so `pathStore` alone cannot say whether a step belongs to a flow or to
 	// an agent being edited — a flow and a resource may share a path string.

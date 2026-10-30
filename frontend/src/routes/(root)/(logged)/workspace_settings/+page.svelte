@@ -28,6 +28,7 @@
 	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
 	import ForkMemberSettings from '$lib/components/settings/ForkMemberSettings.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
+	import MemberWorkspaceSettings from '$lib/components/settings/MemberWorkspaceSettings.svelte'
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
 	import {
 		OauthService,
@@ -2840,10 +2841,8 @@ export async function main(
 			</div>
 		</div>
 	{:else}
-		<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4" role="alert">
-			<p class="font-bold">Not an admin</p>
-			<p>Workspace settings are only available for admin of workspaces</p>
-		</div>
+		<PageHeaderContent separator="always" />
+		<MemberWorkspaceSettings />
 	{/if}
 </CenteredPage>
 

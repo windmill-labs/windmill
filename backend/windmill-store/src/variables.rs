@@ -14,8 +14,9 @@ use windmill_common::db::{Authable, DB};
 use windmill_common::workspaces::{check_deploy_rules, operator_can_draft, RuleCheckResult};
 
 use crate::secret_backend_ext::{
-    check_external_ref, delete_secret_from_backend, get_secret_value, is_external_ref_value,
-    is_vault_stored_value, rename_vault_secret, resolves_externally, store_secret_value,
+    check_external_ref, delete_secret_from_backend, get_secret_value, http_store_rename_error,
+    is_external_ref_value, is_http_store_stored_value, is_vault_stored_value, rename_vault_secret,
+    resolves_externally, store_managed_secret_value, store_secret_value,
 };
 use windmill_common::utils::{
     check_proper_path, escape_ilike_pattern, sanitize_db_error, BulkDeleteRequest,
@@ -492,6 +493,9 @@ fn describe_authed(authed: Option<&(impl Authable + Sync)>) -> String {
     }
 }
 
+/// Including the variable's and its folder's `extra_perms` in the error is intended, not a
+/// leak: who holds access to an item is not secret within a workspace, and it tells the
+/// denied caller whom to ask. Keep the maps in the message.
 async fn explain_variable_perm_error(
     path: &str,
     w_id: &str,
@@ -579,7 +583,7 @@ async fn check_path_conflict(db: &DB, w_id: &str, path: &str) -> Result<()> {
 /// `encrypt` (AES-256-GCM, or legacy AES-256-CBC; see `windmill_common::workspace_crypt`)
 /// always yields standard base64 decoding to a non-zero
 /// multiple of the 16-byte block size; anything else cannot be our ciphertext.
-/// Values stored by an external backend ($vault:/$aws_sm:/$azure_kv: markers)
+/// Values stored by an external backend ($vault:/$aws_sm:/$azure_kv:/$http_store: markers)
 /// are not workspace ciphertext and are passed through untouched.
 fn validate_already_encrypted_secret(path: &str, value: &str) -> Result<()> {
     if resolves_externally(value) {
@@ -621,7 +625,8 @@ fn check_external_ref_change(
 /// `old_ref` when the variable currently holds a reference. An `$external:`
 /// reference is checked against the workspace's allowed prefixes and kept
 /// verbatim, including when pushed as already encrypted by sync; any other
-/// value goes to the configured secret backend.
+/// value goes to the configured secret backend, or with `windmill_writes`
+/// (an OAuth token Windmill refreshes) to [`store_managed_secret_value`].
 async fn secret_value_to_store(
     db: &DB,
     w_id: &str,
@@ -631,6 +636,7 @@ async fn secret_value_to_store(
     op: &'static str,
     is_admin: bool,
     old_ref: Option<&str>,
+    windmill_writes: bool,
 ) -> Result<String> {
     if already_encrypted && !is_external_ref_value(&value) {
         check_external_ref_change(is_admin, old_ref, None)?;
@@ -655,7 +661,11 @@ async fn secret_value_to_store(
         windmill_common::feature_usage::log_feature_usage("external_secret_ref", "saved", op);
         return Ok(value);
     }
-    store_secret_value(db, w_id, path, &value).await
+    if windmill_writes {
+        store_managed_secret_value(db, w_id, path, &value).await
+    } else {
+        store_secret_value(db, w_id, path, &value).await
+    }
 }
 
 async fn create_variable(
@@ -752,6 +762,7 @@ pub async fn create_variable_with_account(
             "create",
             authed.is_admin,
             None,
+            account.is_some(),
         )
         .await?
     } else {
@@ -1291,6 +1302,7 @@ async fn update_variable(
                 "update",
                 authed.is_admin,
                 old_ref,
+                false,
             )
             .await?
         } else {
@@ -1351,6 +1363,9 @@ async fn update_variable(
             .await?;
 
             if let Some(var) = current_var {
+                if var.is_secret && is_http_store_stored_value(&var.value) {
+                    return Err(http_store_rename_error(path));
+                }
                 if var.is_secret && is_vault_stored_value(&var.value) {
                     if ns.value.is_some() {
                         // New value was provided and already stored at new path
@@ -1759,7 +1774,12 @@ mod tests {
     #[test]
     fn passes_through_external_backend_markers() {
         // External secret backends store $-prefixed markers, not workspace ciphertext.
-        for marker in ["$vault:f/x/cfg", "$aws_sm:f/x/cfg", "$azure_kv:f/x/cfg"] {
+        for marker in [
+            "$vault:f/x/cfg",
+            "$aws_sm:f/x/cfg",
+            "$azure_kv:f/x/cfg",
+            "$http_store:f/x/cfg",
+        ] {
             assert!(validate_already_encrypted_secret("f/x/cfg", marker).is_ok());
         }
     }

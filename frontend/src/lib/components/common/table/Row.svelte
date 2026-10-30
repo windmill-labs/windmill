@@ -294,7 +294,9 @@
 				</span>
 			{/if}
 			{#if titleBadge}
-				<span class="shrink-0">{@render titleBadge()}</span>
+				<!-- Flex so the badge's smaller text sits in its own line box: inline, it makes the
+				     title line 1px taller, and the tree's loading skeleton assumes every row is 56px. -->
+				<span class="shrink-0 flex">{@render titleBadge()}</span>
 			{/if}
 			{#if canFavorite && (kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow' || kind == 'agent')}
 				<!-- Beside the title it marks: a star already set stays, an unset one shows on the

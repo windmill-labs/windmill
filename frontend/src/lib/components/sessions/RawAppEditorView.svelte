@@ -37,7 +37,6 @@
 		path,
 		workspaceId,
 		onNavigate,
-		onSeeDetails,
 		isActiveSession = true,
 		active = true,
 		newRawApp = false
@@ -46,9 +45,6 @@
 		path: string
 		workspaceId: string
 		onNavigate?: (item: WorkspaceItem) => void
-		/** `Exit & see details` — flips this tab to the item's deployed view rather than
-		 * navigating out of the session. */
-		onSeeDetails?: (e: { path: string }) => void
 		/** Forwarded to SessionEditorTarget — only the visible session claims the
 		 * workspace's single live-editor slot. */
 		isActiveSession?: boolean
@@ -375,11 +371,21 @@
 				bind:data={cell.store.val.data}
 				bind:summary={cell.store.val.summary}
 				bind:pendingDraftPath
+				bind:pendingDraftSettings={
+					() => undefined,
+					(s: { labels: string[] } | undefined) => {
+						// The header reports its labels on mount too: only a change reaches the draft.
+						const v = cell.store.val
+						if (!s || !v) return
+						if ((v.labels ?? []).join('\n') !== s.labels.join('\n')) v.labels = s.labels
+					}
+				}
+				labels={cell.store.val.labels}
 				newPath={cell.store.val.draft_path ?? cell.store.val.path}
 				{path}
 				autosaveWorkspace={workspaceId}
 				autosavePath={path}
-				policy={cell.store.val.policy}
+				bind:policy={cell.store.val.policy}
 				bind:savedApp={cell.saved.val}
 				version={cell.store.val?.parent_version ?? cell.saved.val?.deployed_version}
 				draftBaseVersion={cell.store.val?.parent_version != null
@@ -388,7 +394,6 @@
 				newApp={!cell.saved.val || cell.saved.val.no_deployed === true}
 				{diffDrawer}
 				{onNavigate}
-				onDetails={onSeeDetails}
 				onOpenFork={openFork}
 				condensedHeader={true}
 				onResetToDeployed={reloadDeployed}

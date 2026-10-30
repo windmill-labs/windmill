@@ -147,8 +147,9 @@
 					type="info"
 					title="Preprocessor is called when the flow is triggered by API or email"
 				>
-					It prepares arguments for the flow. Besides request arguments, the preprocessor receives a
-					`wm_trigger` argument with trigger details.
+					It prepares arguments for the flow. It receives an `event` argument: the trigger's `kind`
+					(such as `webhook` or `email`) and what the trigger received, a webhook's `body` and
+					`headers` for instance.
 				</Alert>
 			</div>
 		{/if}

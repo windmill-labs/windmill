@@ -69,7 +69,7 @@
 	)
 	const isFork = $derived(!!parentWorkspaceId)
 
-	// Same gate as the sidebar WorkspaceMenu / SessionWorkspaceBar. On cloud,
+	// Same gate as the sidebar WorkspaceMenu. On cloud,
 	// forking is a premium-only feature (backend caps it per paid seat).
 	const forksAllowed = $derived(
 		(!isCloudHosted() || $maybePremium) &&

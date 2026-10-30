@@ -13,6 +13,7 @@
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import type { FlowEditorContext } from '../types'
 	import Label from '$lib/components/Label.svelte'
+	import ManageGroupsLink from '$lib/components/ManageGroupsLink.svelte'
 	import SuspendDrawer from './SuspendDrawer.svelte'
 	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
@@ -256,10 +257,13 @@
 						<div class="mb-4"></div>
 
 						{#if Boolean(flowModule.suspend?.user_auth_required) && allUserGroups.length !== 0 && flowModule.suspend && schema.properties['groups']}
-							<span class="text-xs font-bold"
-								>Require approvers to be members of one of the following user groups (leave empty
-								for any)
-							</span>
+							<div class="flex items-center justify-between gap-2">
+								<span class="text-xs font-bold"
+									>Require approvers to be members of one of the following user groups (leave empty
+									for any)
+								</span>
+								<ManageGroupsLink onReturn={loadGroups} />
+							</div>
 							<PropPickerWrapper
 								sidePane
 								notSelectable
@@ -279,6 +283,13 @@
 									bind:editor
 								/>
 							</PropPickerWrapper>
+						{/if}
+						<!-- Every workspace is created with `all` and `wm_deployers`; neither is a group
+						     anyone made to pick approvers from. -->
+						{#if Boolean(flowModule.suspend?.user_auth_required) && allUserGroups.length > 0 && allUserGroups.every((g) => g === 'all' || g === 'wm_deployers')}
+							<ManageGroupsLink label="Go to groups" onReturn={loadGroups}>
+								Create a group to restrict approval to its members.
+							</ManageGroupsLink>
 						{/if}
 					</div>
 				</div>

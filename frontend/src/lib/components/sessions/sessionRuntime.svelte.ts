@@ -61,6 +61,7 @@ import {
 	setSessionPreviewSize,
 	setSessionTabs,
 	setDraftsDiscardedHandler,
+	setSendUnderWayCheck,
 	setSessionWorkMode,
 	type Session
 } from './sessionState.svelte'
@@ -166,6 +167,7 @@ export interface RawAppRuntimeValue {
 	summary: string
 	path: string
 	custom_path?: string
+	labels?: string[]
 	draft_path?: string
 	/** The app_version this cell's content forked from, carried so the editor's deploy
 	 *  guard and diff drawer compare the same pair the full-page editor does. */
@@ -1157,6 +1159,7 @@ function createRuntime(session: Session): SessionRuntime {
 					summary: draftValue?.summary ?? result.summary ?? '',
 					path: result.path,
 					custom_path: draftValue?.custom_path ?? result.custom_path,
+					labels: draftValue?.labels ?? result.labels,
 					draft_path: draftValue?.draft_path,
 					// Only a fresh checkout forks from the head; a draft keeps its own base,
 					// unknown included, or it would read as up to date. See loadScript.
@@ -1189,9 +1192,8 @@ function createRuntime(session: Session): SessionRuntime {
 						files: { ...(builder ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template) },
 						runnables: builder ? {} : structuredClone(STARTER_RUNNABLES),
 						data: { ...DEFAULT_DATA },
+						// No run-as user: the deploy dialog resolves it, the folder's default first.
 						policy: {
-							on_behalf_of: user?.username.includes('@') ? user.username : `u/${user?.username}`,
-							on_behalf_of_email: user?.email,
 							execution_mode: 'publisher',
 							sandbox: true
 						},
@@ -1494,6 +1496,9 @@ export function resetSessionPreviewTabs(sessionId: string, seedUrl: string): voi
 	const rt = runtimes.get(sessionId)
 	if (rt) {
 		rt.previewTabs.reset(tabs, 'session')
+		// Written to the record now, not after the owner's debounce: the sessions page judges
+		// the arrival by the record's tabs, and a draft without any opens on Home instead.
+		rt.previewTabs.flushNow()
 	} else {
 		setSessionTabs(sessionId, tabs, 'session')
 		setSessionPreviewCollapsed(sessionId, false)
@@ -1520,6 +1525,10 @@ export function removeSession(sessionId: string): void {
 }
 
 setDraftsDiscardedHandler((ids) => ids.forEach(disposeRuntime))
+setSendUnderWayCheck((id) => {
+	const m = runtimes.get(id)?.manager
+	return !!m && (m.loading || m.sendInFlight || m.sendPending)
+})
 
 // The chat calls a new item by its chosen name while its draft is stored at
 // `draft_<uuid>`; resolve the name the way the chat's write tools do.

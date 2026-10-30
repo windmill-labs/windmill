@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { deployAsksOnBehalfOf, deployedPermissionedAs } from './onBehalfOf'
+import {
+	deployAsksOnBehalfOf,
+	deployOnBehalfOfQuestion,
+	deployedPermissionedAs
+} from './onBehalfOf'
 
 // The deploy dialog names who the backend will leave the item running on behalf of, and asks only
 // when that differs from the deployed version.
@@ -15,7 +19,7 @@ describe('onBehalfOf', () => {
 		expect(deployedPermissionedAs(member, 'u/bot', 'u/folder')).toBe('u/alice')
 	})
 
-	it('asks on every app deploy, and on flow or script deploys that change the run-as user', () => {
+	it('asks on a first deploy, and on deploys that change the run-as user', () => {
 		const none = {
 			email: undefined,
 			permissionedAs: undefined,
@@ -25,8 +29,11 @@ describe('onBehalfOf', () => {
 		const bot = { email: 'bot@x.dev', permissionedAs: 'u/bot' }
 		const deployedAsBot = { savedEmail: 'bot@x.dev', savedPermissionedAs: 'u/bot' }
 
-		expect(deployAsksOnBehalfOf('app', { user: admin, ...none })).toBe(true)
 		expect(deployAsksOnBehalfOf('flow', { user: admin, ...none })).toBe(false)
+		// An app runs on behalf of someone from its first deploy.
+		expect(deployAsksOnBehalfOf('app', { user: admin, ...none })).toBe(true)
+		expect(deployAsksOnBehalfOf('app', { user: admin, ...bot, ...deployedAsBot })).toBe(false)
+		expect(deployAsksOnBehalfOf('app', { user: member, ...bot, ...deployedAsBot })).toBe(true)
 		// A first deploy, or one that turns it on.
 		expect(deployAsksOnBehalfOf('script', { user: admin, ...none, ...bot })).toBe(true)
 		expect(deployAsksOnBehalfOf('flow', { user: admin, ...none, folderDefault: 'u/f' })).toBe(true)
@@ -45,5 +52,43 @@ describe('onBehalfOf', () => {
 		).toBe(true)
 		// The backend replaces the user with a deployer who may not preserve it.
 		expect(deployAsksOnBehalfOf('flow', { user: member, ...bot, ...deployedAsBot })).toBe(true)
+	})
+
+	it('asks to run on behalf of someone or to stop, and says when the user is the deployed one', () => {
+		const held = {
+			email: undefined,
+			permissionedAs: undefined,
+			savedEmail: undefined,
+			savedPermissionedAs: undefined,
+			isNew: true
+		}
+		expect(deployOnBehalfOfQuestion('app', admin, held)).toMatchObject({
+			title: 'Run this app on behalf of u/admin (you)?',
+			folderDefaultNotMe: false
+		})
+		expect(
+			deployOnBehalfOfQuestion('app', admin, { ...held, folderDefault: 'u/folder' })
+		).toMatchObject({ title: 'Run this app on behalf of u/folder?', folderDefaultNotMe: true })
+		expect(
+			deployOnBehalfOfQuestion('flow', admin, {
+				...held,
+				savedPermissionedAs: 'u/bot',
+				isNew: false
+			})
+		).toMatchObject({ stops: true, title: 'Stop running this flow on behalf of u/bot?' })
+		expect(
+			deployOnBehalfOfQuestion('flow', admin, {
+				...held,
+				email: 'bot@x.dev',
+				permissionedAs: 'u/bot',
+				savedPermissionedAs: 'u/bot',
+				isNew: false
+			})
+		).toMatchObject({ stops: false, runsAs: 'u/bot', unchanged: true })
+		expect(deployOnBehalfOfQuestion('flow', admin, held)).toMatchObject({
+			required: false,
+			on: false,
+			title: 'Deploy this flow?'
+		})
 	})
 })

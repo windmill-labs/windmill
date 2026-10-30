@@ -12,6 +12,7 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import EEOnly from '../EEOnly.svelte'
+	import HttpStoreSecretBackendConfig from './HttpStoreSecretBackendConfig.svelte'
 
 	interface Props {
 		values: Writable<Record<string, any>>
@@ -26,8 +27,12 @@
 		}
 	})
 
-	let selectedType: 'Database' | 'HashiCorpVault' | 'AzureKeyVault' | 'AwsSecretsManager' =
-		$derived($values['secret_backend']?.type ?? 'Database')
+	let selectedType:
+		| 'Database'
+		| 'HashiCorpVault'
+		| 'AzureKeyVault'
+		| 'AwsSecretsManager'
+		| 'HttpStore' = $derived($values['secret_backend']?.type ?? 'Database')
 
 	let authMethod: 'token' | 'approle' | 'jwt' = $derived.by(() => {
 		const config = $values['secret_backend']
@@ -75,7 +80,10 @@
 	function setBackendType(type: string | undefined) {
 		if (!type) return
 		if (
-			(type === 'HashiCorpVault' || type === 'AzureKeyVault' || type === 'AwsSecretsManager') &&
+			(type === 'HashiCorpVault' ||
+				type === 'AzureKeyVault' ||
+				type === 'AwsSecretsManager' ||
+				type === 'HttpStore') &&
 			vaultDisabled
 		)
 			return
@@ -113,6 +121,14 @@
 				secret_access_key: $values['secret_backend']?.secret_access_key ?? null,
 				endpoint_url: $values['secret_backend']?.endpoint_url ?? null,
 				prefix: $values['secret_backend']?.prefix ?? 'windmill/'
+			}
+		} else if (type === 'HttpStore') {
+			$values['secret_backend'] = {
+				type: 'HttpStore',
+				base_url: '',
+				read: { path: '/v1/secrets/{workspace}/{path}' },
+				auth: { type: 'None' },
+				skip_ssl_verify: false
 			}
 		}
 	}
@@ -463,6 +479,15 @@
 					tooltip={vaultDisabled
 						? 'Requires Enterprise Edition'
 						: 'Store secrets in AWS Secrets Manager'}
+					item={toggleButton}
+					disabled={vaultDisabled}
+				/>
+				<ToggleButton
+					value="HttpStore"
+					label="Generic HTTP store"
+					tooltip={vaultDisabled
+						? 'Requires Enterprise Edition'
+						: 'Read secrets from any secret store with an HTTP API'}
 					item={toggleButton}
 					disabled={vaultDisabled}
 				/>
@@ -1007,6 +1032,8 @@ vault write auth/{jwtMount}/role/{$values['secret_backend']?.jwt_role || 'windmi
 				</div>
 			</div>
 		</div>
+	{:else if selectedType === 'HttpStore'}
+		<HttpStoreSecretBackendConfig {values} {disabled} {reportMigrationFailures} />
 	{/if}
 </div>
 

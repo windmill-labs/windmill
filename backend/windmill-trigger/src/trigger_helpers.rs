@@ -702,6 +702,38 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     trigger_path: String,
     trigger: TriggerMetadata,
 ) -> Result<(Box<RawValue>, bool)> {
+    let (_, result, success) = trigger_runnable_and_wait_for_job(
+        db,
+        user_db,
+        authed,
+        workspace_id,
+        runnable_path,
+        is_flow,
+        args,
+        retry,
+        error_handler_path,
+        error_handler_args,
+        trigger_path,
+        trigger,
+    )
+    .await?;
+    Ok((result, success))
+}
+
+async fn trigger_runnable_and_wait_for_job(
+    db: &DB,
+    user_db: Option<UserDB>,
+    authed: ApiAuthed,
+    workspace_id: &str,
+    runnable_path: &str,
+    is_flow: bool,
+    args: PushArgsOwned,
+    retry: Option<&sqlx::types::Json<Retry>>,
+    error_handler_path: Option<&str>,
+    error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
+    trigger_path: String,
+    trigger: TriggerMetadata,
+) -> Result<(Uuid, Box<RawValue>, bool)> {
     let username = authed.username.clone();
     let (uuid, resolved_delete_secs, early_return, has_failure_module, _) = trigger_runnable_inner(
         db,
@@ -733,9 +765,10 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     .await
     .with_context(|| {
         format!(
-            "Error fetching job result for {} {}",
+            "Error fetching job result for {} {} (job {})",
             if is_flow { "flow" } else { "script" },
-            runnable_path
+            runnable_path,
+            uuid
         )
     })?;
 
@@ -745,7 +778,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
         None => {}
     }
 
-    Ok((result, success))
+    Ok((uuid, result, success))
 }
 
 pub async fn trigger_runnable_and_wait_for_raw_result_with_error_ctx(
@@ -762,7 +795,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result_with_error_ctx(
     trigger_path: String,
     trigger: TriggerMetadata,
 ) -> Result<Box<RawValue>> {
-    let (result, success) = trigger_runnable_and_wait_for_raw_result(
+    let (uuid, result, success) = trigger_runnable_and_wait_for_job(
         db,
         user_db,
         authed,
@@ -780,9 +813,9 @@ pub async fn trigger_runnable_and_wait_for_raw_result_with_error_ctx(
 
     if !success {
         Err(windmill_common::error::Error::internal_err(format!(
-            "{} {runnable_path} failed: {:?}",
+            "{} {runnable_path} failed (job {uuid}): {}",
             if is_flow { "Flow" } else { "Script" },
-            result
+            result.get()
         )))
     } else {
         Ok(result)
@@ -950,6 +983,25 @@ async fn trigger_script_with_retry_and_error_handler<'c>(
             trigger_path: Some(trigger_path.clone()),
             concurrency_settings,
             debouncing_settings,
+        },
+        JobPayload::ScriptHub { path, apply_preprocessor } => JobPayload::SingleStepFlow {
+            path,
+            hash: None,
+            flow_version: None,
+            language: None,
+            args: HashMap::from(&push_args),
+            retry,
+            error_handler_path,
+            error_handler_args,
+            skip_handler: None,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            priority: None,
+            tag_override: tag.clone(),
+            apply_preprocessor,
+            trigger_path: Some(trigger_path.clone()),
+            concurrency_settings: Default::default(),
+            debouncing_settings: Default::default(),
         },
         _ => {
             return Err(windmill_common::error::Error::internal_err(format!(
