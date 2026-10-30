@@ -16,7 +16,7 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { debounce } from '$lib/utils'
-	import { Folder, ScanSearch, User } from 'lucide-svelte'
+	import { Folder, ScanSearch, User, Users } from 'lucide-svelte'
 	import { setGrant } from './access'
 	import type { RunnableKind } from './detectNeeds'
 
@@ -129,7 +129,7 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 	const tree = $derived.by<DrillNode<Leaf>[]>(() => {
 		const folderNames = new Set((folders ?? []).map((f) => `f/${f.name}`))
 		const others = Object.keys(rows)
-			.filter((b) => b.startsWith('u/') && b !== own)
+			.filter((b) => b !== own && !folderNames.has(b))
 			.sort()
 		return [
 			{
@@ -168,19 +168,17 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 					]
 				})
 			),
-			// Other users' items appear once a search finds them.
-			...others
-				.filter((b) => !folderNames.has(b))
-				.map(
-					(b): DrillNode<Leaf> => ({
-						type: 'branch',
-						key: b,
-						label: b,
-						icon: User,
-						searchGroup: true,
-						children: itemLeaves(b)
-					})
-				)
+			// Other users' and groups' items appear once a search finds them.
+			...others.map(
+				(b): DrillNode<Leaf> => ({
+					type: 'branch',
+					key: b,
+					label: b,
+					icon: b.startsWith('g/') ? Users : User,
+					searchGroup: true,
+					children: itemLeaves(b)
+				})
+			)
 		]
 	})
 

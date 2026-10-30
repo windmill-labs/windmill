@@ -10,7 +10,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import type { Item } from '$lib/utils'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
-	import { Plus } from 'lucide-svelte'
+	import { Lock, Plus } from 'lucide-svelte'
+	import Tooltip from './meltComponents/Tooltip.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import AddNeededAccess from './access/AddNeededAccess.svelte'
@@ -92,8 +93,8 @@
 		await reload()
 	}
 
-	/** `current` is the grant's level when known; a folder's entry is only known to exist. */
-	function grantActions(kind: string, path: string, current?: boolean): Item[] {
+	/** `current` is the grant's level: `true` for write, `false` for read. */
+	function grantActions(kind: string, path: string, current: boolean): Item[] {
 		return [
 			{
 				displayName: 'Read',
@@ -155,6 +156,17 @@
 		return via === principal ? 'Shared directly' : `Through ${via}`
 	}
 </script>
+
+{#snippet grantMenu(kind: string, path: string, current: boolean, blocked: string | undefined)}
+	{#if blocked}
+		<Tooltip>
+			<Lock size={14} class="text-secondary" aria-label={blocked} />
+			{#snippet text()}{blocked}{/snippet}
+		</Tooltip>
+	{:else}
+		<DropdownV2 items={grantActions(kind, path, current)} />
+	{/if}
+{/snippet}
 
 <Drawer bind:this={drawer} size="1000px">
 	<DrawerContent title={`Access of ${principal}`} on:close={() => drawer?.closeDrawer()}>
@@ -224,8 +236,8 @@
 											</div>
 										</Cell>
 										<Cell last>
-											{#if !folder.owner && folder.via.includes(principal)}
-												<DropdownV2 items={grantActions('folder', folder.name)} />
+											{#if !folder.owner && folder.grant != undefined}
+												{@render grantMenu('folder', folder.name, folder.grant, folder.blocked)}
 											{/if}
 										</Cell>
 									</tr>
@@ -332,7 +344,7 @@
 											</Cell>
 											<Cell last>
 												{#if own !== undefined}
-													<DropdownV2 items={grantActions(item.kind, item.path, own)} />
+													{@render grantMenu(item.kind, item.path, own, item.blocked)}
 												{/if}
 											</Cell>
 										</tr>

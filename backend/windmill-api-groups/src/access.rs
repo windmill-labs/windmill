@@ -83,6 +83,12 @@ struct FolderAccess {
     owner: bool,
     /// The `extra_perms` keys (`u/<user>` or `g/<group>`) that grant the folder.
     via: Vec<String>,
+    /// The principal's own entry in `extra_perms`: absent when none, false for read, true for write.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    grant: Option<bool>,
+    /// Why the caller cannot change the principal's own entry. Set only where there is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocked: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -91,6 +97,9 @@ struct ItemAccess {
     path: String,
     write: bool,
     reasons: Vec<Reason>,
+    /// Why the caller cannot change the principal's own grant. Set only where there is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocked: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -184,7 +193,7 @@ impl From<ItemRow> for ItemAccess {
                 *write
             }
         });
-        ItemAccess { kind: r.kind, path: r.path, write, reasons }
+        ItemAccess { kind: r.kind, path: r.path, write, reasons, blocked: None }
     }
 }
 
@@ -282,39 +291,54 @@ async fn get_access(
         .iter()
         .map(|f| f.0.clone())
         .collect::<Vec<_>>();
-    let mut via = sqlx::query!(
-        "SELECT name, ARRAY(SELECT k FROM jsonb_object_keys(extra_perms) k WHERE k = ANY($3) ORDER BY k) AS \"via!\"
+    let mut via = sqlx::query_as::<_, (String, Vec<String>, Option<bool>)>(
+        "SELECT name, ARRAY(SELECT k FROM jsonb_object_keys(extra_perms) k WHERE k = ANY($3) ORDER BY k),
+            (extra_perms ->> $4)::boolean
          FROM folder WHERE workspace_id = $1 AND name = ANY($2)",
-        &w_id,
-        &folder_names,
-        &perms
     )
+    .bind(&w_id)
+    .bind(&folder_names)
+    .bind(&perms)
+    .bind(&principal)
     .fetch_all(&db)
     .await?
     .into_iter()
-    .map(|r| (r.name, r.via))
+    .map(|(name, via, grant)| (name, (via, grant)))
     .collect::<std::collections::HashMap<_, _>>();
     let mut folders = target
         .folders
         .iter()
-        .map(|(name, write, owner)| FolderAccess {
-            name: name.clone(),
-            write: *write,
-            owner: *owner,
-            via: via.remove(name).unwrap_or_default(),
+        .map(|(name, write, owner)| {
+            let (via, grant) = via.remove(name).unwrap_or_default();
+            // An owner keeps write whatever its entry says, so there is nothing to change.
+            let blocked = (grant.is_some() && !*owner && !windmill_api_auth::is_owner(&authed, name))
+                .then(|| folder_blocked(name));
+            FolderAccess { name: name.clone(), write: *write, owner: *owner, via, grant, blocked }
         })
         .collect::<Vec<_>>();
     folders.sort_by(|a, b| a.name.cmp(&b.name));
 
     let mut tx = user_db.begin(&target).await?;
-    let items = sqlx::query_as::<_, ItemRow>(&items_query())
+    let rows = sqlx::query_as::<_, ItemRow>(&items_query())
         .bind(&w_id)
         .fetch_all(&mut *tx)
-        .await?
-        .into_iter()
-        .map(ItemAccess::from)
-        .collect();
+        .await?;
     tx.commit().await?;
+    let denied = manage_denied(&db, &w_id, &authed).await;
+    let items = rows
+        .into_iter()
+        .map(|r| {
+            let direct = match prefix {
+                "u" => r.user_grant.is_some(),
+                _ => r.group_read.iter().any(|g| g == name),
+            };
+            let mut item = ItemAccess::from(r);
+            if direct {
+                item.blocked = item_blocked(&authed, &denied, &item.kind, &item.path);
+            }
+            item
+        })
+        .collect();
 
     let mut groups = target.groups;
     groups.sort();
@@ -457,31 +481,41 @@ async fn browse_items(
     let has_more = items.len() as i64 > BROWSE_PAGE;
     items.truncate(BROWSE_PAGE as usize);
 
-    // Operators may be barred from managing schedules and triggers, `/acls` included.
-    let mut manage_denied = vec![];
+    let denied = manage_denied(&db, &w_id, &authed).await;
+    for item in &mut items {
+        item.blocked = item_blocked(&authed, &denied, &item.kind, &item.path);
+    }
+    Ok(Json(BrowseItems { items, has_more }))
+}
+
+/// Operators may be barred from managing schedules and triggers, `/acls` included.
+async fn manage_denied(db: &DB, w_id: &str, authed: &ApiAuthed) -> Vec<(ManageKind, String)> {
+    let mut denied = vec![];
     if !authed.is_admin {
         for kind in [ManageKind::Schedules, ManageKind::Triggers] {
-            if let Err(e) = check_operator_can_manage(&db, &w_id, &authed, kind.clone()).await {
-                manage_denied.push((kind, e.to_string()));
+            if let Err(e) = check_operator_can_manage(db, w_id, authed, kind).await {
+                denied.push((kind, e.to_string()));
             }
         }
     }
-    for item in &mut items {
-        let manage_kind = match item.kind.as_str() {
-            "schedule" => Some(ManageKind::Schedules),
-            k if k.ends_with("_trigger") => Some(ManageKind::Triggers),
-            _ => None,
-        };
-        item.blocked = manage_kind
-            .and_then(|mk| {
-                manage_denied
-                    .iter()
-                    .find(|(k, _)| *k == mk)
-                    .map(|(_, e)| e.clone())
-            })
-            .or_else(|| grant_blocked(&authed, &item.path));
-    }
-    Ok(Json(BrowseItems { items, has_more }))
+    denied
+}
+
+/// Why the caller cannot change grants on this item: the operator gate first, then the path.
+fn item_blocked(
+    authed: &ApiAuthed,
+    denied: &[(ManageKind, String)],
+    kind: &str,
+    path: &str,
+) -> Option<String> {
+    let manage_kind = match kind {
+        "schedule" => Some(ManageKind::Schedules),
+        k if k.ends_with("_trigger") => Some(ManageKind::Triggers),
+        _ => None,
+    };
+    manage_kind
+        .and_then(|mk| denied.iter().find(|(k, _)| *k == mk).map(|(_, e)| e.clone()))
+        .or_else(|| grant_blocked(authed, path))
 }
 
 #[derive(Serialize)]

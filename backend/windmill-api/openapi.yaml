@@ -37123,6 +37123,12 @@ components:
                 type: array
                 items:
                   type: string
+              grant:
+                description: the principal's own entry on the folder; absent when none, false for read, true for write
+                type: boolean
+              blocked:
+                description: why the caller cannot change the principal's own entry; set only where there is one
+                type: string
             required: [name, write, owner, via]
         items:
           type: array
@@ -37139,6 +37145,9 @@ components:
                 type: array
                 items:
                   $ref: "#/components/schemas/AccessReason"
+              blocked:
+                description: why the caller cannot change the principal's own grant; set only where there is one
+                type: string
             required: [kind, path, write, reasons]
       required: [principal, is_admin, groups, folders, items]
 
