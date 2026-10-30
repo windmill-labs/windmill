@@ -141,6 +141,7 @@ mod job_helpers_oss;
 pub mod job_metrics;
 pub mod jobs;
 pub mod jobs_export;
+mod jobs_recent_runs;
 #[cfg(all(feature = "oauth2", feature = "private"))]
 pub mod oauth2_ee;
 #[cfg(feature = "oauth2")]

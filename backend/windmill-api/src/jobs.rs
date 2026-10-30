@@ -297,6 +297,10 @@ pub fn workspaced_service() -> Router {
         .route("/run/dynamic_select", post(run_dynamic_select))
         .route("/list", get(list_jobs))
         .route("/oldest", get(get_oldest_job))
+        .route(
+            "/recent_runs",
+            get(crate::jobs_recent_runs::list_recent_runs),
+        )
         .route("/asset_dispatch_edges", get(list_asset_dispatch_edges))
         .route(
             "/list_selected_job_groups",

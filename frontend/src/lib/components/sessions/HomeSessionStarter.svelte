@@ -91,6 +91,7 @@
 			},
 			focus: () => aiChat?.focusInput(),
 			flash: () => aiChat?.flashComposer(),
+			prefill: (text) => aiChat?.prefill(text),
 			openSettings: (section, root) => aiChat?.openAssistantSettings(section, root),
 			runtime
 		})

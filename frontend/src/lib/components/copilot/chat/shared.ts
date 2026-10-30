@@ -471,6 +471,11 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
 			}
 			workspaceItemsContext += `- type: ${isUserContextPath(context.path) ? 'user' : 'folder'}, path: ${context.path}\n`
+		} else if (context.type === 'workspace_run') {
+			if (!workspaceItemsContext) {
+				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
+			}
+			workspaceItemsContext += `- type: run, id: ${context.id}, of: ${context.path}\n`
 		}
 	}
 
