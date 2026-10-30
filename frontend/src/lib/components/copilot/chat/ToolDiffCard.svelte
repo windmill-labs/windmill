@@ -4,7 +4,6 @@
 	import ToolCodeDiffView from './ToolCodeDiffView.svelte'
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
 	import ToolConfirmationFooter from './ToolConfirmationFooter.svelte'
-	import OutOfScopeFooter from './OutOfScopeFooter.svelte'
 	import { Check, XCircle } from 'lucide-svelte'
 	import {
 		diffIsWholeFile,
@@ -25,15 +24,8 @@
 	const isStreaming = $derived(Boolean(message.isStreamingArguments))
 	const hasDiff = $derived(Boolean(diff && (diff.before !== '' || diff.after !== '')))
 	const awaitingConfirmation = $derived(Boolean(message.isLoading && message.needsConfirmation))
-	const pendingOutOfScope = $derived(
-		message.isLoading && message.outOfScope && !message.outOfScope.decision
-			? message.outOfScope
-			: undefined
-	)
-	// Either answer row sits in the body, so the card stays open while one waits.
-	const awaitingAnswer = $derived(awaitingConfirmation || !!pendingOutOfScope)
 	// The card body is a bordered box: opened with nothing in it, it draws an empty line.
-	const hasBody = $derived(hasDiff || Boolean(message.error) || awaitingAnswer)
+	const hasBody = $derived(hasDiff || Boolean(message.error) || awaitingConfirmation)
 
 	// Keyed by call id: a bare flag would carry the expansion onto the next message that
 	// reuses this instance. An active or failed call opens by itself, and remains open
@@ -43,12 +35,9 @@
 	// the error.
 	const toggleKey = $derived(`${message.tool_call_id}:${message.error ? 'error' : ''}`)
 	let toggled = $state<{ id: string; open: boolean } | undefined>(undefined)
-	// A change the user declined is their decision, not a failure: it stays closed and neutral,
-	// or its diff reads as a change that happened.
-	const declined = $derived(Boolean(message.declinedByUser))
 	const opensByDefault = $derived(
 		Boolean(
-			(message.error && !declined) ||
+			message.error ||
 				(hasDiff &&
 					!diffIsWholeFile(message) &&
 					(message.isLoading || message.isQueued || message.isStreamingArguments))
@@ -61,7 +50,7 @@
 	})
 	// The Apply/Reject footer is inside the body, so a pending confirmation keeps it open.
 	const expanded = $derived(
-		awaitingAnswer ||
+		awaitingConfirmation ||
 			(hasBody && (toggled?.id === toggleKey ? toggled.open : opensByDefault))
 	)
 	const lines = $derived(diff && expanded ? toolDiffLines(diff, isStreaming) : undefined)
@@ -73,7 +62,7 @@
 			: undefined
 	)
 
-	const isRunning = $derived(Boolean(message.isLoading && !awaitingAnswer))
+	const isRunning = $derived(Boolean(message.isLoading && !message.needsConfirmation))
 	const showPreviewChip = $derived(
 		Boolean(!hidePreviewChip && message.previewCard && !message.isLoading && !message.error)
 	)
@@ -97,7 +86,7 @@
 	label={message.content}
 	{expanded}
 	onToggle={() => (toggled = { id: toggleKey, open: !expanded })}
-	toggleable={hasBody && !awaitingAnswer}
+	toggleable={hasBody && !awaitingConfirmation}
 	shimmer={isRunning}
 	class={message.isQueued && !message.error
 		? 'opacity-60 hover:opacity-100 transition-opacity'
@@ -118,21 +107,10 @@
 			confirmLabel="Apply"
 			confirmIcon={Check}
 		/>
-	{:else if pendingOutOfScope}
-		<OutOfScopeFooter
-			class="px-3 py-2 border-t border-border-light"
-			toolCallId={message.tool_call_id}
-			path={pendingOutOfScope.path}
-			root={pendingOutOfScope.root}
-			scope={pendingOutOfScope.scope}
-			verb={pendingOutOfScope.verb}
-		/>
 	{/if}
 	{#if message.error}
 		<div
-			class="px-3 py-2 text-2xs {declined
-				? 'text-secondary'
-				: 'text-red-600 dark:text-red-400'} whitespace-pre-wrap break-words {hasDiff
+			class="px-3 py-2 text-2xs text-red-600 dark:text-red-400 whitespace-pre-wrap break-words {hasDiff
 				? 'border-t border-border-light'
 				: ''}"
 		>

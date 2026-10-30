@@ -61,7 +61,6 @@ export function readOnlyChatViewHost(options: {
 		restartGeneration: noop,
 		handleUserQuestionAnswer: () => false,
 		handleToolConfirmation: noop,
-		handleScopeDecision: noop,
 		hasPendingRunForm: false,
 		isRunFormPending: () => false,
 

@@ -14,7 +14,6 @@ import {
 import { createMcpTools } from './mcpTools'
 import { getPipelinePromptSection, pipelineTools } from '../pipeline/core'
 import { getFolderInstructionsPromptSection, type FolderInstruction } from '../folderInstructions'
-import type { WorkingScope } from '../workingScope'
 
 // Derived, not retyped: an option added to prepareGlobalSystemMessage is reachable
 // here at once. Hand-listing the four would compile fine while leaving the new one
@@ -25,9 +24,6 @@ export type GlobalAssemblyOpts = NonNullable<Parameters<typeof prepareGlobalSyst
 	/** Folders of the open pipeline editors; the pipeline tools and prompt come with any. */
 	pipelineFolders?: readonly string[]
 	folderInstructions?: readonly FolderInstruction[]
-	workingScope?: WorkingScope
-	/** The scoped folder's instructions, formatted. */
-	scopeInstructions?: string
 }
 
 export function assembleGlobalSystemMessage(
@@ -36,7 +32,6 @@ export function assembleGlobalSystemMessage(
 ): ChatCompletionSystemMessageParam {
 	const systemMessage = prepareGlobalSystemMessage(instructions, opts)
 	systemMessage.content += getFolderInstructionsPromptSection(opts.folderInstructions ?? [])
-	systemMessage.content += opts.workingScope?.promptSection(opts.scopeInstructions ?? '') ?? ''
 	if (opts.sessionContext) {
 		systemMessage.content += getSessionContextPromptSection(opts.sessionContext, opts.access)
 	}

@@ -82,16 +82,6 @@ describe('groupToolRuns', () => {
 		expect(
 			shape([
 				tool('patch_flow_json', flow),
-				tool('patch_flow_json', flow, {
-					isLoading: true,
-					outOfScope: { path: 'f/a/x', root: 'f/a', scope: 'f/b', verb: 'edit' }
-				}),
-				tool('patch_flow_json', flow)
-			])
-		).toEqual([0, 1, 2])
-		expect(
-			shape([
-				tool('patch_flow_json', flow),
 				tool('patch_flow_json', flow, { declinedByUser: true, error: 'Cancelled by user' }),
 				tool('patch_flow_json', flow)
 			])
