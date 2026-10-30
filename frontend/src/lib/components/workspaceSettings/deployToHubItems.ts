@@ -82,3 +82,18 @@ export function mergeAppTableOrigin(
 	})
 	return changed ? merged : draftItems
 }
+
+/**
+ * Every sub-path of `folder` that holds at least one item, at every depth, sorted:
+ * `hub` with `f/hub/billing/utils/x` gives `['hub/billing', 'hub/billing/utils']`.
+ */
+export function folderSubPaths(paths: string[], folder: string): string[] {
+	const prefix = `f/${folder}/`
+	const out = new Set<string>()
+	for (const p of paths) {
+		if (!p.startsWith(prefix)) continue
+		const dirs = p.slice(prefix.length).split('/').slice(0, -1)
+		for (let i = 1; i <= dirs.length; i++) out.add(`${folder}/${dirs.slice(0, i).join('/')}`)
+	}
+	return [...out].sort()
+}

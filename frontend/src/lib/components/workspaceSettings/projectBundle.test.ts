@@ -129,6 +129,16 @@ describe('buildPathMap', () => {
 		expect(m.get('f/proj/a/x')).toBe('f/proj/a/x')
 		expect(m.get('f/proj/b/x')).toBe('f/proj/b/x')
 	})
+	it('keeps the sub-path of every item in a nested source folder', () => {
+		const m = buildPathMap(
+			['f/hub/billing/charge', 'f/hub/billing/utils/format', 'f/hub/billing/stripe/format'],
+			'billing',
+			'hub/billing'
+		)
+		expect(m.get('f/hub/billing/charge')).toBe('f/billing/charge')
+		expect(m.get('f/hub/billing/utils/format')).toBe('f/billing/utils/format')
+		expect(m.get('f/hub/billing/stripe/format')).toBe('f/billing/stripe/format')
+	})
 	it('relocates an external onto a suffix when its leaf collides with an internal path', () => {
 		const m = buildPathMap(['f/proj/db', 'u/admin/db'], 'proj')
 		expect(m.get('f/proj/db')).toBe('f/proj/db')
