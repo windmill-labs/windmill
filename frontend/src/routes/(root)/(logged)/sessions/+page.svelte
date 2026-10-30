@@ -94,11 +94,7 @@
 		tabsToReload,
 		viewerTabsToReload
 	} from '$lib/components/sessions/previewReload'
-	import {
-		isPreviewListPath,
-		barePath,
-		agentPagePath
-	} from '$lib/components/sessions/previewPaths'
+	import { isPreviewListPath, barePath, agentPagePath } from '$lib/components/sessions/previewPaths'
 	import { listWorkspaceAgents } from '$lib/components/sessions/workspaceAgents'
 	import {
 		leafKeyFor,
@@ -267,6 +263,15 @@
 		listRuntimes()
 			.map((r) => sessionState.sessions.find((s) => s.id === r.sessionId))
 			.filter((s): s is NonNullable<typeof s> => s != null)
+	)
+	// The preview hosts take their runtime from the item rather than a lookup by id: a
+	// removed session's hosts are torn down after its runtime has left the map, and their
+	// teardowns (an editor unregistering from the runtime) still read the prop.
+	const warmHosts = $derived(
+		listRuntimes().flatMap((runtime) => {
+			const session = sessionState.sessions.find((s) => s.id === runtime.sessionId)
+			return session ? [{ session, runtime }] : []
+		})
 	)
 
 	// Chat columns stay mounted (stacked, visibility-toggled) so switching back
@@ -964,15 +969,6 @@
 		owner?.navigate({ type: 'item', item })
 	}
 
-	// An editor's `Exit & see details`: the session hosts the details page itself, so the
-	// tab moves to the item's deployed view rather than the browser leaving the session.
-	// `open`, not `navigate`: leaving the editor to look at what is deployed is not a
-	// redirect of the tab you are working in — you are stepping away from an editor you
-	// still want, so the deployed page arrives beside it.
-	function seeDetailsInPreview(item: WorkspaceItem) {
-		owner?.open({ type: 'item', item, mode: 'view' })
-	}
-
 	// A preview iframe that navigates to an editor route posts up to us instead of
 	// booting the editor inside the frame (see the logged layout's beforeNavigate).
 	// Retarget the active tab — the navigating frame is the visible one the user
@@ -1272,9 +1268,8 @@
 								<div class="relative flex-1 min-h-0">
 									{#if previewTabHostComponent.current}
 										{@const TabHost = previewTabHostComponent.current}
-										{#each warmSessions as s (s.id)}
-											{@const rt = getRuntime(s.id)}
-											{@const tabs = rt?.previewTabs}
+										{#each warmHosts as { session: s, runtime: rt } (s.id)}
+											{@const tabs = rt.previewTabs}
 											{#each tabs?.tabs ?? [] as tab (tab.id)}
 												<!-- tabHosts is an imperative ref-bag (only tabHosts[key]?.reload() in
 										     reloadTabs); it is intentionally a plain object so component
@@ -1293,7 +1288,6 @@
 													darkMode={isDarkMode.val}
 													{fullscreen}
 													onNavigate={navigateEditorTo}
-													onSeeDetails={seeDetailsInPreview}
 													onLoad={(frame) => tabs && onTabLoad(tabs, tab, frame)}
 												/>
 											{/each}

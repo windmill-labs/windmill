@@ -1,5 +1,5 @@
 // What the review asks of the model and how its answer is read, for every place it runs: the
-// deployment request panel here, and `wmill review` on a git sync pull request, which carries
+// deployment request panel and the drafts review here, and `wmill review` on a git sync pull request, which carries
 // this module through cli/generate-ai-review.ts. Keep it free of `$lib` imports; the
 // staleness test in cli/test/ai_review_bundle_unit.test.ts fails when the CLI's copy drifts.
 import {
@@ -43,32 +43,47 @@ export const TOTAL_CHAR_BUDGET = 160_000
 // Under the Anthropic SDK's non-streaming pre-flight max_tokens limit.
 export const MAX_OUTPUT_TOKENS = 8_000
 
-/** What is being reviewed: a fork's deployment request, or a pull request on a git sync repo. */
-export type ReviewSubject = 'deployment_request' | 'pull_request'
+/**
+ * What is being reviewed: a fork's deployment request, a workspace's undeployed drafts, or a
+ * pull request on a git sync repo.
+ */
+export type ReviewSubject = 'deployment_request' | 'draft' | 'pull_request'
 
 const INTRO: Record<ReviewSubject, string> = {
 	deployment_request:
 		'You review a Windmill deployment request: a set of changes made in a fork workspace that will be merged into its parent workspace. Each changed item is given with its parent version (what is deployed now) and its fork version (what will be deployed).',
+	draft:
+		'You review drafts in a Windmill workspace: changes saved to items of the workspace but not deployed yet. Each changed item is given with its deployed version (what is deployed now) and its draft version (what will be deployed).',
 	pull_request:
 		"You review a pull request on a git repository that Windmill's git sync keeps in step with a workspace: merging it deploys its changes. Each changed item is given with the files that make it up in the repository, each as a unified diff of the base branch (what is deployed now) against the pull request (what will be deployed). Every diff line starts with its line number: R<n> for line n of the pull request's version of the file, L<n> for line n of the base version, then + for an added line, - for a removed one and a space for unchanged context."
 }
 
+const ITEM_ANSWER_SHAPE =
+	'{"summary": "<one or two sentences on what the change does and its overall risk>", "findings": [{"kind": "<item kind as given>", "path": "<item path as given>", "severity": "high" | "medium" | "low", "comment": "<the issue and what to do about it, under 80 words>"}]}'
+
 const ANSWER_SHAPE: Record<ReviewSubject, string> = {
-	deployment_request:
-		'{"summary": "<one or two sentences on what the change does and its overall risk>", "findings": [{"kind": "<item kind as given>", "path": "<item path as given>", "severity": "high" | "medium" | "low", "comment": "<the issue and what to do about it, under 80 words>"}]}',
+	deployment_request: ITEM_ANSWER_SHAPE,
+	draft: ITEM_ANSWER_SHAPE,
 	pull_request:
 		'{"summary": "<one or two sentences on what the change does and its overall risk>", "findings": [{"kind": "<item kind as given>", "path": "<item path as given>", "file": "<the file the issue is in, as given>", "line": "<the R or L line number the issue is on, as given, such as R12, or null for the file as a whole>", "severity": "high" | "medium" | "low", "comment": "<the issue and what to do about it, under 80 words>"}]}'
 }
 
 const SOURCE: Record<ReviewSubject, string> = {
 	deployment_request: 'The parent workspace',
+	draft: 'The workspace',
 	pull_request: "The repository's base branch"
+}
+
+const APPROVED: Record<ReviewSubject, string> = {
+	deployment_request: 'the merge',
+	draft: 'the deployment',
+	pull_request: 'the merge'
 }
 
 export function reviewSystemPrompt(subject: ReviewSubject): string {
 	return `${INTRO[subject]} An item can be a script, flow, app, schedule, trigger, folder, resource type, datatable migration, variable or resource.
 
-Report only issues a reviewer should act on before approving the merge:
+Report only issues a reviewer should act on before approving ${APPROVED[subject]}:
 - bugs and logic errors introduced by the change
 - breaking changes: removed or renamed inputs, changed input types, changed outputs that callers may rely on
 - risky operational changes: schedules retimed, triggers pointed at a different script or flow, folder owners or permissions, app policies, destructive migrations

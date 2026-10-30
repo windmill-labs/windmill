@@ -48,7 +48,7 @@
 		Link,
 		Pen,
 		RefreshCw,
-		Shield,
+		UserPlus,
 		Trash,
 		Building,
 		CalendarClock,
@@ -647,11 +647,11 @@
 																]
 															: []),
 														{
-															displayName: 'Permissions',
+															displayName: 'Share',
 															action: () => {
 																shareModal?.openDrawer(path, 'variable')
 															},
-															icon: Shield
+															icon: UserPlus
 														},
 														...(account != undefined
 															? [

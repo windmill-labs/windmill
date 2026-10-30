@@ -122,7 +122,7 @@ impl KnownAdapter {
             "duckdb" => Some(KnownAdapter::Duckdb),
             "clickhouse" => Some(KnownAdapter::Clickhouse),
             "snowflake" | "snowflake_oauth" => Some(KnownAdapter::Snowflake),
-            "bigquery" | "gcp_service_account" => Some(KnownAdapter::Bigquery),
+            "bigquery" | "google_service_account" | "gcp_service_account" => Some(KnownAdapter::Bigquery),
             "databricks" => Some(KnownAdapter::Databricks),
             "salesforce" => Some(KnownAdapter::Salesforce),
             "ms_sql_server" | "mssql" | "sqlserver" | "fabric" => Some(KnownAdapter::Mssql),
@@ -1097,6 +1097,10 @@ mod tests {
         assert_eq!(
             KnownAdapter::from_resource_type("fabric"),
             Some(KnownAdapter::Mssql)
+        );
+        assert_eq!(
+            KnownAdapter::from_resource_type("google_service_account"),
+            Some(KnownAdapter::Bigquery)
         );
     }
 

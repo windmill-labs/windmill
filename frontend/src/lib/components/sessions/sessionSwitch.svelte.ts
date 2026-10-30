@@ -1,8 +1,10 @@
 import { get } from 'svelte/store'
 import { goto } from '$lib/navigation'
 import { workspaceStore } from '$lib/stores'
+import { DraftService } from '$lib/gen'
 import {
 	createSession,
+	holdSessionUntilStarted,
 	selectSession,
 	sessionPageHref,
 	sessionInCurrentFamily,
@@ -10,6 +12,7 @@ import {
 	sessionState,
 	setSessionAutoSend,
 	setSessionDraftPrompt,
+	setNewSessionWorkspace,
 	setSessionPendingWorkspace,
 	type Session,
 	type SessionTarget
@@ -23,7 +26,14 @@ import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
 import type { AppDomSelectorElement } from '../copilot/chat/context'
 
 // `seedDomElement` rides only with `autoSend`: it is the chip of the prompt being sent.
-type SeedOpts = { seedPrompt?: string; autoSend?: boolean; seedDomElement?: AppDomSelectorElement }
+// `untilStarted` keeps the session out of storage until the user starts it, for an item that
+// is kept on its own (a new app's draft) and so loses nothing when the session goes.
+type SeedOpts = {
+	seedPrompt?: string
+	autoSend?: boolean
+	seedDomElement?: AppDomSelectorElement
+	untilStarted?: boolean
+}
 
 // The session/navigation switch turns the global rail into either the workspace
 // navigation (navigation mode) or the sessions sidebar (session mode). Session
@@ -43,6 +53,33 @@ let navRouteOffered = false
 export function rememberNavRoute(pathnameWithSearch: string): void {
 	lastNavRoute = pathnameWithSearch
 	navRouteOffered = false
+}
+
+/**
+ * A deploy from the session moved an item from `fromPath` (a new item's `draft_<uuid>` row) to
+ * `toPath`. When the remembered route is that item's editor, point it at the new path: the old one
+ * no longer exists, so leaving session mode would open an editor that cannot load it.
+ */
+export function navRouteItemMoved(
+	kind: 'flow' | 'script' | 'app',
+	workspace: string,
+	fromPath: string,
+	toPath: string
+): void {
+	if (fromPath === toPath) return
+	const route = parsePreviewItemRoute(lastNavRoute)
+	if (route?.kind !== kind || route.itemPath !== fromPath) return
+	const [pathname, query] = lastNavRoute.split('?')
+	if (!pathname.endsWith(`/${fromPath}`)) return
+	// A session may deploy to a fork of the workspace the route is on, where the same path names
+	// another item: only a move in the route's own workspace is this item's.
+	const routeWorkspace = (query && new URLSearchParams(query).get('workspace')) || undefined
+	if ((routeWorkspace ?? get(workspaceStore)) !== workspace) return
+	const prefix = pathname.slice(0, pathname.length - fromPath.length)
+	// The flags a new item's editor carries (`new_draft`, `nodraft`) describe the draft, not the
+	// deployed item: keep only the workspace.
+	lastNavRoute =
+		prefix + toPath + (routeWorkspace ? `?workspace=${encodeURIComponent(routeWorkspace)}` : '')
 }
 
 /** An item editor the user reached session mode from, as the in-app href a new
@@ -160,9 +197,32 @@ export async function exitSessionMode(): Promise<void> {
 	const ws = get(workspaceStore)
 	if (ws && wsParam && decodeURIComponent(wsParam) !== ws) {
 		target = '/'
+	} else if (ws && !(await newItemDraftStillThere(target, ws))) {
+		target = '/'
 	}
 	await goto(target)
 }
+
+/**
+ * Whether an editor route on a never-deployed item still has the draft it edits. Such an item
+ * lives only as its `draft_<uuid>` row, which a first deploy discards; `navRouteItemMoved`
+ * follows the deploys this window's session sees, but a low-code app deploys inside its preview
+ * frame, out of sight. Any other route counts as there.
+ */
+async function newItemDraftStillThere(url: string, workspace: string): Promise<boolean> {
+	const route = parsePreviewItemRoute(url)
+	if (route?.mode !== 'edit' || !NEW_ITEM_DRAFT_RE.test(route.itemPath.split('/').pop() ?? '')) {
+		return true
+	}
+	const kind = route.kind === 'app' ? (route.raw_app ? 'raw_app' : 'app') : route.kind
+	try {
+		return !!(await DraftService.getOwnDraft({ workspace, kind, path: route.itemPath }))
+	} catch {
+		return true
+	}
+}
+
+const NEW_ITEM_DRAFT_RE = /^draft_[0-9a-f_]+$/
 
 // Open a fresh AI session showing an editor (flow/script/raw_app) in its preview,
 // then route into session mode. The preview loads the item from its live draft,
@@ -222,7 +282,10 @@ async function sessionHrefFor(
 	// straight onto what the caller wants (resetSessionPreviewTabs also writes
 	// through a live runtime if one already exists for this id).
 	const session = createSession()
-	if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
+	if (opts?.untilStarted) {
+		holdSessionUntilStarted(session.id)
+		if (workspaceId) setNewSessionWorkspace(session.id, workspaceId)
+	} else if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
 	if (opts?.seedPrompt) {
 		setSessionDraftPrompt(session.id, opts.seedPrompt)
 		if (opts.autoSend) setSessionAutoSend(session.id, opts.seedDomElement)
@@ -253,7 +316,8 @@ export async function openSourceInSession(
 	const opts = {
 		seedPrompt: overrides?.seedPrompt ?? source.seedPrompt,
 		autoSend: overrides?.autoSend ?? source.autoSend,
-		seedDomElement: overrides?.seedDomElement
+		seedDomElement: overrides?.seedDomElement,
+		untilStarted: overrides?.untilStarted
 	}
 	if (source.target) {
 		await openEditorInSession(

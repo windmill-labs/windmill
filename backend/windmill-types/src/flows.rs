@@ -539,6 +539,7 @@ pub struct ExponentialDelay {
     pub attempts: u32,
     pub multiplier: u16,
     pub seconds: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub random_factor: Option<i8>,
 }
 
@@ -925,7 +926,9 @@ pub struct Branch {
     pub modules: Vec<FlowModule>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modules_node: Option<FlowNodeId>,
-    #[serde(default = "default_true")]
+    // The worker reads an absent skip_failure as false (BranchWithSkipFailures),
+    // so a round-trip through this struct must not turn it into true.
+    #[serde(default)]
     pub skip_failure: bool,
     #[serde(default = "default_true")]
     pub parallel: bool,
@@ -1698,6 +1701,39 @@ mod tests {
         // A fully-default retry serializes to an empty object.
         let empty = serde_json::to_value(&Retry::default()).unwrap();
         assert_eq!(empty, json!({}));
+    }
+
+    #[test]
+    fn exponential_retry_without_random_factor_omits_it() {
+        // A non-default exponential retry with no random_factor must not gain
+        // random_factor:null on a round-trip (the flow-dependencies job writes
+        // that value back to flow.yaml, and the CLI linter rejects null).
+        let input = json!({ "exponential": { "attempts": 3, "multiplier": 1, "seconds": 2 } });
+        let retry: Retry = serde_json::from_value(input.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&retry).unwrap(), input);
+
+        // A set random_factor still round-trips.
+        let input = json!({
+            "exponential": { "attempts": 3, "multiplier": 1, "seconds": 2, "random_factor": 10 }
+        });
+        let retry: Retry = serde_json::from_value(input.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&retry).unwrap(), input);
+    }
+
+    #[test]
+    fn branch_without_skip_failure_keeps_failing_the_flow() {
+        // An absent skip_failure means "a failing branch fails the flow" to the
+        // worker and the flow editor; a round-trip must preserve that.
+        let input = json!({
+            "type": "branchall",
+            "branches": [{ "modules": [] }, { "modules": [], "skip_failure": true }]
+        });
+        let val: FlowModuleValue = serde_json::from_value(input).unwrap();
+        let output = serde_json::to_value(&val).unwrap();
+        let reparsed: FlowModuleWithBranches = serde_json::from_value(output).unwrap();
+        let skips: Vec<bool> =
+            reparsed.branches.iter().map(|b| b.skip_failure.unwrap_or(false)).collect();
+        assert_eq!(skips, vec![false, true]);
     }
 
     #[test]

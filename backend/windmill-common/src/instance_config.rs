@@ -1202,7 +1202,13 @@ const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
     ("smtp_settings", &["smtp_password"]),
     (
         "secret_backend",
-        &["token", "client_secret", "secret_access_key"],
+        &[
+            "token",
+            "client_secret",
+            "secret_access_key",
+            "auth",
+            "extra_headers",
+        ],
     ),
     (
         "object_store_cache_config",
@@ -2953,6 +2959,20 @@ mod tests {
         });
         let formatted = format_setting_value("github_enterprise_app", &val);
         assert!(!formatted.contains("MIIEsecretbody"));
+    }
+
+    #[test]
+    fn format_setting_value_redacts_http_store_credentials() {
+        let val = serde_json::json!({
+            "type": "HttpStore",
+            "base_url": "https://store.example",
+            "auth": {"type": "StaticHeader", "header_name": "X-Key", "header_value": "store-api-key-12345"},
+            "extra_headers": {"X-Tenant-Key": "tenant-key-67890"}
+        });
+        let formatted = format_setting_value("secret_backend", &val);
+        assert!(!formatted.contains("store-api-key-12345"));
+        assert!(!formatted.contains("tenant-key-67890"));
+        assert!(formatted.contains("store.example"));
     }
 
     #[test]

@@ -129,6 +129,10 @@ export type Session = {
 	// untouched draft never persists, so idle `+` clicks vanish on reload
 	// instead of littering the sidebar.
 	transient?: boolean
+	// In memory only, on a transient session opened onto an item that lives on its own (a new
+	// app's draft): its preview writes are not a touch, so a session the user never starts
+	// vanishes on reload instead of reopening onto the item. Cleared with `transient`.
+	untilStarted?: boolean
 	// Epoch ms of the last write to this record — typing, renaming, archiving,
 	// changing preview tabs, or catching up on new messages. Stamped by the two
 	// write funnels (persistTouched, markSessionSeen), so it tracks use rather
@@ -475,8 +479,15 @@ export function takeSessionAutoSend(sessionId: string): boolean {
 // stays in memory and vanishes on reload.
 function persistTouched(s: Session): void {
 	if (s.transient) delete s.transient
+	delete s.untilStarted
 	s.lastActivityAt = Date.now()
 	void putSession(s)
+}
+
+// Preview state (tabs, collapse, width) is a touch except on an `untilStarted` session.
+function persistPreviewTouch(s: Session): void {
+	if (s.transient && s.untilStarted) return
+	persistTouched(s)
 }
 
 // When the session was last used. Pre-dates-the-field records report their
@@ -1072,8 +1083,10 @@ export function requestComposerFocus(): void {
 // drop. `draftPrompt === undefined` (never edited), not falsiness: a draft typed
 // then erased to '' still has a pending flush and is a real session. Every other
 // touch clears `transient` synchronously, so only the draft prompt needs checking.
+// An `untilStarted` session is not blank: reused it would reopen its item, and dropped
+// while on screen it would leave the page showing a session that is gone.
 function isDiscardableDraft(s: Session): boolean {
-	return !!s.transient && s.draftPrompt === undefined
+	return !!s.transient && s.draftPrompt === undefined && !s.untilStarted
 }
 
 // Somewhere empty to put the user, for a URL naming a session this browser
@@ -1084,6 +1097,7 @@ export function findEmptyLandingSession(): Session | undefined {
 	return sessionState.sessions.find(
 		(s) =>
 			!!s.transient &&
+			!s.untilStarted &&
 			!s.archived &&
 			!s.workspace_id &&
 			// Falsiness, not `=== undefined`: we only navigate into the session, so a
@@ -1194,6 +1208,7 @@ export function materializeTransient(id: string): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || !s.transient) return
 	delete s.transient
+	delete s.untilStarted
 	void putSession(s)
 }
 
@@ -1212,6 +1227,12 @@ export function stopFollowingHome(id: string) {
 	if (!s?.followsHome) return
 	delete s.followsHome
 	if (!s.transient) void putSession(s)
+}
+
+// Keep a just-created session in memory until the user starts it (see `untilStarted`).
+export function holdSessionUntilStarted(id: string) {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (s?.transient) s.untilStarted = true
 }
 
 // Park a just-created session on a workspace. Deliberately does not persist a
@@ -1332,7 +1353,7 @@ export function setSessionTabs(id: string, tabs: SessionPreviewTab[], activeTabI
 	if (!s) return
 	s.previewTabs = tabs.map((t) => ({ ...t }))
 	s.activePreviewTabId = activeTabId
-	persistTouched(s)
+	persistPreviewTouch(s)
 }
 
 // Persist whether the preview panel is collapsed for this session (a touch).
@@ -1340,7 +1361,7 @@ export function setSessionPreviewCollapsed(id: string, collapsed: boolean): void
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || !!s.previewCollapsed === collapsed) return
 	s.previewCollapsed = collapsed
-	persistTouched(s)
+	persistPreviewTouch(s)
 }
 
 // Persist the preview split size the user dragged for this session (a touch).
@@ -1348,7 +1369,7 @@ export function setSessionPreviewSize(id: string, size: number): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || s.previewSize === size) return
 	s.previewSize = size
-	persistTouched(s)
+	persistPreviewTouch(s)
 }
 
 // Persist the session's Use or Build choice (a touch). Plan is left out: a reload ends the
