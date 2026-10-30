@@ -20,6 +20,8 @@
 		detail: Snippet
 		/** Controls rendered next to the name. Clicks on them do not toggle the row. */
 		actions?: Snippet
+		/** Always-visible controls before the chevron. They stop their own clicks. */
+		trailing?: Snippet
 	}
 
 	let {
@@ -30,7 +32,8 @@
 		indent = 0,
 		toggleLabel,
 		detail,
-		actions
+		actions,
+		trailing
 	}: Props = $props()
 </script>
 
@@ -69,9 +72,14 @@
 			</div>
 		</div>
 	</div>
+	{#if trailing}
+		<div class="shrink-0 ml-auto pr-3">
+			{@render trailing()}
+		</div>
+	{/if}
 	<!-- Keyboard access only: its click bubbles to the row, which does the toggling. -->
 	<button
-		class="w-full flex flex-row-reverse"
+		class="{trailing ? 'shrink-0' : 'w-full'} flex flex-row-reverse"
 		aria-expanded={opened}
 		aria-label={toggleLabel ?? name}
 	>

@@ -16,6 +16,7 @@ import {
 	setNewSessionWorkspace,
 	setSessionDraftPrompt,
 	setSessionPendingWorkspace,
+	setSessionWorkingIn,
 	showOnHome,
 	syncWorkspaceTo,
 	type Session,
@@ -29,6 +30,7 @@ import { homeComposerContext } from './homeComposerContext.svelte'
 // navigation seam (see the dynamic import in openEditorInSession).
 import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
 import type { AppDomSelectorElement } from '../copilot/chat/context'
+import { presetScopeFor } from '../copilot/chat/workingScope'
 
 // `seedDomElement` rides only with `autoSend`: it is the chip of the prompt being sent.
 // `untilStarted` keeps the session out of storage until the user starts it, for an item that
@@ -144,7 +146,8 @@ export async function openEditorInSession(
 	await openInSession(
 		withPreviewParams(sessionTargetHref(target), previewParams),
 		workspaceId,
-		opts
+		opts,
+		presetScopeFor(target.path)
 	)
 }
 
@@ -162,9 +165,10 @@ export async function openPageInSession(
 async function openInSession(
 	url: string | undefined,
 	workspaceId?: string,
-	opts?: SeedOpts
+	opts?: SeedOpts,
+	workingIn?: string[]
 ): Promise<void> {
-	await goto(await sessionHrefFor(url, workspaceId, opts))
+	await goto(await sessionHrefFor(url, workspaceId, opts, workingIn))
 }
 
 /** A fresh session's page, with an editor in its preview. For a `load` that sends the
@@ -174,13 +178,19 @@ export function editorSessionHref(
 	workspaceId?: string,
 	previewParams?: Record<string, string>
 ): Promise<string> {
-	return sessionHrefFor(withPreviewParams(sessionTargetHref(target), previewParams), workspaceId)
+	return sessionHrefFor(
+		withPreviewParams(sessionTargetHref(target), previewParams),
+		workspaceId,
+		undefined,
+		presetScopeFor(target.path)
+	)
 }
 
 async function sessionHrefFor(
 	url: string | undefined,
 	workspaceId?: string,
-	opts?: SeedOpts
+	opts?: SeedOpts,
+	workingIn?: string[]
 ): Promise<string> {
 	// Seed the fresh session's preview with a single tab on `url` so it opens
 	// straight onto what the caller wants (resetSessionPreviewTabs also writes
@@ -190,6 +200,8 @@ async function sessionHrefFor(
 		holdSessionUntilStarted(session.id)
 		if (workspaceId) setNewSessionWorkspace(session.id, workspaceId)
 	} else if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
+	// A reused blank may carry a scope picked on it; the item's folder, or none, replaces it.
+	setSessionWorkingIn(session.id, workingIn, workingIn ? 'preset' : undefined)
 	if (opts?.seedPrompt) {
 		setSessionDraftPrompt(session.id, opts.seedPrompt)
 		if (opts.autoSend) setSessionAutoSend(session.id, opts.seedDomElement)
