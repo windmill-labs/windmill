@@ -369,9 +369,11 @@ pub async fn transform_json_value(
                         })
                     })
                 }
-                Connection::Http(_) => {
-                    Err(Error::NotFound("Http connection not supported".to_string()))
-                }
+                Connection::Http(_) => Err(Error::ExecutionErr(format!(
+                    "`{name}` is an `$encrypted:` value, which an agent worker cannot decrypt: \
+                     pass the secret as a `$var:` reference (in a flow, a static input or an \
+                     exact `flow_env.<key>` read) and build the value inside the script"
+                ))),
             }
 
             // let path = y.strip_prefix("$res:").unwrap();
