@@ -170,6 +170,8 @@
 		/** User-typed path when it differs from `savedApp.path`. The route injects
 		 *  it as `draft_path` so the home row shows the friendly name, not `draft_{uuid}`. */
 		pendingDraftPath?: string | undefined
+		/** The labels being edited, for the route's autosaved draft. */
+		pendingDraftSettings?: { labels: string[] } | undefined
 		// Threaded to the AutosaveIndicator's "Reset to deployed" button.
 		/** `Exit & see details`: see RawAppEditorHeader. */
 		onDetails?: (e: { path: string }) => void
@@ -228,7 +230,7 @@
 		runnables = $bindable({}),
 		data = $bindable(DEFAULT_DATA),
 		newApp,
-		policy,
+		policy = $bindable(),
 		summary = $bindable(''),
 		path,
 		newPath = undefined,
@@ -245,6 +247,7 @@
 		defaultSplitWithPreview = true,
 		compact = false,
 		pendingDraftPath = $bindable(undefined),
+		pendingDraftSettings = $bindable(),
 		onDetails,
 		onOpenFork,
 		onResetToDeployed,
@@ -1902,15 +1905,9 @@ addEventListener('message', function (e) {
 		return $state.snapshot({ ctx: operatingUser.current, workspace: opWorkspace, path })
 	}
 
-	// A build fed before the viewer is known keeps that viewer until the next one. Outside
-	// the navigation workspace the viewer is looked up; in it, `$userStore` still holds the
-	// previous workspace's membership right after a switch. A failed lookup also settles
-	// this: the app then runs with no viewer, as we don't know who it is.
-	const previewUserPending = $derived(
-		!!opWorkspace &&
-			(!operatingUser.resolved(opWorkspace) ||
-				(!!operatingUser.current && operatingUser.current.workspace_id !== opWorkspace))
-	)
+	// A build fed before the viewer is known keeps that viewer until the next one. A failed
+	// lookup also settles this: the app then runs with no viewer, as we don't know who it is.
+	const previewUserPending = $derived(!!opWorkspace && !operatingUser.resolved(opWorkspace))
 	$effect(() => {
 		if (previewUserPending) return
 		untrack(() => {
@@ -2702,6 +2699,7 @@ addEventListener('message', function (e) {
 		bind:savedApp
 		bind:summary
 		bind:pendingDraftPath
+		bind:pendingDraftSettings
 		{version}
 		{onTakeLatest}
 		{draftBaseVersion}
@@ -2712,7 +2710,7 @@ addEventListener('message', function (e) {
 			}
 			onSavedNewAppPath?.(newAppPath)
 		}}
-		{policy}
+		bind:policy
 		{diffDrawer}
 		{newApp}
 		{newPath}

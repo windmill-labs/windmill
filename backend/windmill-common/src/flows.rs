@@ -18,7 +18,7 @@ use crate::{
     db::DB,
     error::{to_anyhow, Error},
     scripts::ScriptHash,
-    utils::{http_get_from_hub, StripPath},
+    utils::{http_get_from_hub, parse_hub_id, StripPath},
     worker::{to_raw_value, Connection},
     DEFAULT_HUB_BASE_URL, HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION,
 };
@@ -33,45 +33,13 @@ struct HubFlowResponse {
     flow: HubFlow,
 }
 
-fn extract_hub_flow_id_from_path(path: &str) -> Result<i32, Error> {
-    let hub_flow_path = path.strip_prefix("hub/flows/").ok_or_else(|| {
-        Error::BadRequest(format!(
-            "expected hub flow path to start with hub/flows/ (got {path})"
-        ))
-    })?;
-
-    let flow_id = hub_flow_path
-        .split('/')
-        .next()
-        .filter(|segment| !segment.is_empty())
-        .ok_or_else(|| {
-            Error::BadRequest(format!(
-                "expected hub flow path to include a numeric id after hub/flows/ (got {path})"
-            ))
-        })?;
-
-    let flow_id = flow_id.parse::<i32>().map_err(|_| {
-        Error::BadRequest(format!(
-            "expected hub flow path to include a numeric id after hub/flows/ (got {path})"
-        ))
-    })?;
-
-    if flow_id <= 0 {
-        return Err(Error::BadRequest(format!(
-            "expected hub flow path to include a positive numeric id after hub/flows/ (got {path})"
-        )));
-    }
-
-    Ok(flow_id)
-}
-
 pub async fn get_full_hub_flow_by_path(
     path: StripPath,
     http_client: &reqwest::Client,
     db: Option<&DB>,
 ) -> crate::error::Result<HubFlow> {
     let path = path.to_path();
-    let flow_id = extract_hub_flow_id_from_path(&path)?;
+    let flow_id = parse_hub_id(&path, "hub/flows/")?;
     let hub_base_url = (**HUB_BASE_URL.load()).clone();
     let hub_url = format!("{hub_base_url}/flows/{flow_id}/json");
 
@@ -472,33 +440,36 @@ mod tests {
 
     #[test]
     fn extract_hub_flow_id_accepts_id_only_paths() {
-        assert_eq!(extract_hub_flow_id_from_path("hub/flows/76").unwrap(), 76);
+        assert_eq!(parse_hub_id("hub/flows/76", "hub/flows/").unwrap(), 76);
     }
 
     #[test]
     fn extract_hub_flow_id_accepts_id_and_slug_paths() {
         assert_eq!(
-            extract_hub_flow_id_from_path("hub/flows/76/send-message-to-company-ai-assistant")
-                .unwrap(),
+            parse_hub_id(
+                "hub/flows/76/send-message-to-company-ai-assistant",
+                "hub/flows/"
+            )
+            .unwrap(),
             76
         );
     }
 
     #[test]
     fn extract_hub_flow_id_rejects_non_numeric_ids() {
-        let err = extract_hub_flow_id_from_path("hub/flows/send_message").unwrap_err();
+        let err = parse_hub_id("hub/flows/send_message", "hub/flows/").unwrap_err();
         assert!(matches!(err, Error::BadRequest(_)));
     }
 
     #[test]
     fn extract_hub_flow_id_rejects_missing_ids() {
-        let err = extract_hub_flow_id_from_path("hub/flows/").unwrap_err();
+        let err = parse_hub_id("hub/flows/", "hub/flows/").unwrap_err();
         assert!(matches!(err, Error::BadRequest(_)));
     }
 
     #[test]
     fn extract_hub_flow_id_rejects_zero_ids() {
-        let err = extract_hub_flow_id_from_path("hub/flows/0").unwrap_err();
+        let err = parse_hub_id("hub/flows/0", "hub/flows/").unwrap_err();
         assert!(matches!(err, Error::BadRequest(_)));
     }
 

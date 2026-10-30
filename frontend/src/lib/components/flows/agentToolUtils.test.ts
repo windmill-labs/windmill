@@ -49,4 +49,11 @@ describe('toolEnabledName', () => {
 			`'${WEBSEARCH_ENABLED_NAME}' is a reserved name`
 		)
 	})
+
+	it("names the question tool by the worker's reserved name", () => {
+		expect(
+			toolEnabledName({ id: 't', summary: 'label', value: { tool_type: 'question' } } as any)
+		).toBe('__wm_question')
+		expect(getToolNameError('__wm_question')).toBe(`'__wm_question' is a reserved name`)
+	})
 })

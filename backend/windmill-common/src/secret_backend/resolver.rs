@@ -11,8 +11,8 @@
 //! Lives in `windmill-common` (rather than the API/store crates) so that
 //! lower-level helpers such as [`crate::variables::get_variable_or_self`] can
 //! route secret reads through the configured backend. With an external backend
-//! (Vault / Azure Key Vault / AWS Secrets Manager), the `variable.value` column
-//! holds a `$vault:`/`$azure_kv:`/`$aws_sm:` marker rather than base64
+//! (Vault / Azure Key Vault / AWS Secrets Manager / HTTP store), the `variable.value` column
+//! holds a `$vault:`/`$azure_kv:`/`$aws_sm:`/`$http_store:` marker rather than base64
 //! ciphertext, so decrypting it directly fails — reads must go through the
 //! backend instead.
 //!
@@ -33,7 +33,8 @@ use crate::{
     global_settings::{load_value_from_global_settings, SECRET_BACKEND_SETTING},
     secret_backend::{
         AwsSecretsManagerBackend, AwsSecretsManagerSettings, AzureKeyVaultBackend,
-        AzureKeyVaultSettings, SecretBackendConfig, VaultBackend, VaultSettings,
+        AzureKeyVaultSettings, HttpStoreBackend, HttpStoreSettings, SecretBackendConfig,
+        VaultBackend, VaultSettings,
     },
 };
 
@@ -76,6 +77,17 @@ lazy_static::lazy_static! {
     static ref AWS_SM_BACKEND_CACHE: RwLock<Option<CachedAwsSmBackend>> = RwLock::new(None);
 }
 
+#[cfg(all(feature = "private", feature = "enterprise"))]
+struct CachedHttpStoreBackend {
+    backend: Arc<dyn SecretBackend>,
+    settings: HttpStoreSettings,
+}
+
+#[cfg(all(feature = "private", feature = "enterprise"))]
+lazy_static::lazy_static! {
+    static ref HTTP_STORE_BACKEND_CACHE: RwLock<Option<CachedHttpStoreBackend>> = RwLock::new(None);
+}
+
 /// Get the current secret backend based on global settings
 ///
 /// OSS: Always returns DatabaseBackend
@@ -102,6 +114,9 @@ pub async fn get_secret_backend(db: &DB) -> Result<Arc<dyn SecretBackend>> {
         }
         SecretBackendConfig::AwsSecretsManager(settings) => {
             get_or_create_aws_sm_backend(db, settings).await
+        }
+        SecretBackendConfig::HttpStore(settings) => {
+            get_or_create_http_store_backend(settings).await
         }
     }
 }
@@ -217,6 +232,36 @@ async fn get_or_create_aws_sm_backend(
     Ok(backend)
 }
 
+/// Get a cached HTTP store backend or create a new one if settings changed. Credential files are
+/// re-read by the backend itself, so the cache only follows settings changes.
+#[cfg(all(feature = "private", feature = "enterprise"))]
+async fn get_or_create_http_store_backend(
+    settings: HttpStoreSettings,
+) -> Result<Arc<dyn SecretBackend>> {
+    {
+        let cache = HTTP_STORE_BACKEND_CACHE.read().await;
+        if let Some(ref cached) = *cache {
+            if cached.settings == settings {
+                return Ok(cached.backend.clone());
+            }
+        }
+    }
+
+    let mut cache = HTTP_STORE_BACKEND_CACHE.write().await;
+
+    if let Some(ref cached) = *cache {
+        if cached.settings == settings {
+            return Ok(cached.backend.clone());
+        }
+    }
+
+    let backend: Arc<dyn SecretBackend> = Arc::new(HttpStoreBackend::new(settings.clone()).await?);
+
+    *cache = Some(CachedHttpStoreBackend { backend: backend.clone(), settings });
+
+    Ok(backend)
+}
+
 /// Check if a Vault backend is currently configured
 ///
 /// OSS: Always returns false
@@ -238,6 +283,7 @@ pub async fn is_vault_backend_configured(db: &DB) -> Result<bool> {
         SecretBackendConfig::HashiCorpVault(_)
             | SecretBackendConfig::AzureKeyVault(_)
             | SecretBackendConfig::AwsSecretsManager(_)
+            | SecretBackendConfig::HttpStore(_)
     ))
 }
 
@@ -268,6 +314,17 @@ pub async fn get_secret_value(
         }
         "azure_key_vault" => backend.get_secret(workspace_id, path).await,
         "aws_secrets_manager" => backend.get_secret(workspace_id, path).await,
+        // The store is read-only and has no migrate-to, so secrets that were encrypted in the
+        // database before it was configured stay there and keep decrypting.
+        "http_store" if is_http_store_stored_value(encrypted_value) => {
+            backend.get_secret(workspace_id, path).await
+        }
+        "http_store" => {
+            let mc = build_crypt(db, workspace_id).await?;
+            decrypt(&mc, encrypted_value.to_string()).map_err(|e| {
+                Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
+            })
+        }
         _ => Err(Error::internal_err(format!(
             "Unknown backend: {}",
             backend.backend_name()
@@ -290,9 +347,17 @@ pub fn is_aws_sm_stored_value(value: &str) -> bool {
     value.starts_with("$aws_sm:")
 }
 
+/// Check if a value is a reference to a key of the HTTP secret store (the $http_store: prefix)
+pub fn is_http_store_stored_value(value: &str) -> bool {
+    value.starts_with("$http_store:")
+}
+
 /// Check if a value is stored in any external secret backend
 pub fn is_external_stored_value(value: &str) -> bool {
-    is_vault_stored_value(value) || is_azure_kv_stored_value(value) || is_aws_sm_stored_value(value)
+    is_vault_stored_value(value)
+        || is_azure_kv_stored_value(value)
+        || is_aws_sm_stored_value(value)
+        || is_http_store_stored_value(value)
 }
 
 #[cfg(test)]
@@ -304,6 +369,7 @@ mod tests {
         assert!(is_external_stored_value("$vault:u/admin/secret"));
         assert!(is_external_stored_value("$azure_kv:u/admin/secret"));
         assert!(is_external_stored_value("$aws_sm:u/admin/secret"));
+        assert!(is_external_stored_value("$http_store:u/admin/secret"));
     }
 
     #[test]

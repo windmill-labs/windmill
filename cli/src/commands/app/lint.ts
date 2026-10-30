@@ -6,7 +6,7 @@ import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import { GlobalOptions } from "../../types.ts";
-import { createBundle, detectFrameworks } from "./bundle.ts";
+import { createBundle, detectFrameworks, findSharedUiDir } from "./bundle.ts";
 import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
 import { loadRunnablesFromBackend } from "./raw_apps.ts";
 import { inferSchema } from "../../utils/metadata.ts";
@@ -173,6 +173,7 @@ async function validateBuild(
       entryPoint,
       production: true,
       minify: false,
+      sharedUiDir: findSharedUiDir(appDir),
     });
 
     log.info(colors.green("✅ Build successful"));

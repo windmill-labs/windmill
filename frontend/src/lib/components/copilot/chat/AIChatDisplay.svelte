@@ -119,7 +119,6 @@
 		wideLayout = false,
 		emptyHint,
 		starter = undefined,
-		viewTransitionNames = false,
 		onSent = undefined,
 		inputPreface,
 		workModeLock = undefined,
@@ -159,10 +158,6 @@
 		/** Open an empty chat as the block that starts a session: Home's composer, collapsed
 		 * to one line at rest. Replaces `emptyHint`. */
 		starter?: ChatStarter
-		/** Names the composer for the view transition of a send from Home, so it glides from
-		 * Home to its place under the session's first message. Only one chat on the page may
-		 * carry the name: a duplicate makes the browser skip the transition. */
-		viewTransitionNames?: boolean
 		/** After the composer hands a new turn to the host. */
 		onSent?: () => void
 		inputPreface?: Snippet
@@ -1030,7 +1025,6 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		aria-label="Message composer"
 		bind:this={composerEl}
 		class="relative {columnClass} pb-2"
-		style:view-transition-name={viewTransitionNames ? 'composer' : undefined}
 		onanimationend={(e) => {
 			if (e.animationName === 'wm-composer-flash') flashing = false
 		}}

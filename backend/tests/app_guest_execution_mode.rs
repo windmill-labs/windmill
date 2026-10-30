@@ -35,19 +35,6 @@ fn authed(builder: reqwest::RequestBuilder, token: &str) -> reqwest::RequestBuil
     builder.header("Authorization", format!("Bearer {}", token))
 }
 
-async fn enable_guests(port: u16, ws: &str) -> anyhow::Result<()> {
-    authed(
-        client().post(format!(
-            "http://localhost:{port}/api/w/{ws}/workspaces/edit_guest_access"
-        )),
-        ADMIN_TOKEN,
-    )
-    .json(&json!({ "guest_access_enabled": true }))
-    .send()
-    .await?;
-    Ok(())
-}
-
 fn guest_scopes() -> Vec<String> {
     vec![
         "guest".to_string(),
@@ -86,7 +73,6 @@ async fn guest_session_is_confined_to_its_app(db: Pool<Postgres>) -> anyhow::Res
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    enable_guests(port, "test-workspace").await?;
     insert_guest_token(&db, "test-workspace").await?;
 
     // Its own identity resolves, and reports the role rather than falling through to
@@ -166,9 +152,7 @@ async fn guest_token_does_not_cross_workspaces(db: Pool<Postgres>) -> anyhow::Re
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn guest_entry_needs_both_the_app_mode_and_the_workspace_switch(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
+async fn guest_entry_follows_the_app_mode(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -194,25 +178,6 @@ async fn guest_entry_needs_both_the_app_mode_and_the_workspace_switch(
     .text()
     .await?;
 
-    // The app says guest, the workspace has not opted in: inert.
-    let resp = client()
-        .get(format!("{ws}/apps_u/guest_entry/{secret}"))
-        .send()
-        .await?;
-    assert_eq!(
-        resp.status(),
-        404,
-        "a guest app in a workspace that has not enabled guests must not advertise entry"
-    );
-
-    authed(
-        client().post(format!("{ws}/workspaces/edit_guest_access")),
-        ADMIN_TOKEN,
-    )
-    .json(&json!({ "guest_access_enabled": true }))
-    .send()
-    .await?;
-
     // Unauthenticated on purpose: this is what a signed-out visitor reads.
     let resp = client()
         .get(format!("{ws}/apps_u/guest_entry/{secret}"))
@@ -222,15 +187,15 @@ async fn guest_entry_needs_both_the_app_mode_and_the_workspace_switch(
     let entry: serde_json::Value = resp.json().await?;
     assert_eq!(entry["app_path"], json!(APP_PATH));
 
-    // Turning the switch back off closes the door again even though the app's own
-    // policy is unchanged.
-    authed(
-        client().post(format!("{ws}/workspaces/edit_guest_access")),
+    // Back to members only: the door closes.
+    let resp = authed(
+        client().post(format!("{ws}/apps/update/{APP_PATH}")),
         ADMIN_TOKEN,
     )
-    .json(&json!({ "guest_access_enabled": false }))
+    .json(&json!({ "policy": { "execution_mode": "publisher", "triggerables": {} } }))
     .send()
     .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     let resp = client()
         .get(format!("{ws}/apps_u/guest_entry/{secret}"))
         .send()
@@ -238,7 +203,7 @@ async fn guest_entry_needs_both_the_app_mode_and_the_workspace_switch(
     assert_eq!(
         resp.status(),
         404,
-        "turning guests off must stop advertising entry for an app already set to guest"
+        "an app taken out of guest mode must stop advertising entry"
     );
 
     Ok(())
@@ -363,12 +328,11 @@ fn execute(port: u16, ws: &str, app: &str, token: &str) -> reqwest::RequestBuild
     }))
 }
 
-/// The workspace switch is enforced at the auth door for every guest request, not
-/// remembered per handler. This is what stands between a `guest` policy pushed by
-/// git-sync and execution once an admin has turned guests off — and it closes the
-/// app to sessions already issued.
+/// Taking an app out of guest mode is what closes it to guests, sessions already issued
+/// included: the mode is re-read on every run, not when the session was minted. This is
+/// what stands between a guest and an app an admin has closed again.
 #[sqlx::test(fixtures("base"))]
-async fn the_door_re_checks_the_workspace_switch(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn leaving_guest_mode_closes_issued_sessions(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -381,38 +345,40 @@ async fn the_door_re_checks_the_workspace_switch(db: Pool<Postgres>) -> anyhow::
     assert_eq!(resp.status(), 201, "{}", resp.text().await?);
     insert_guest_token(&db, "test-workspace").await?;
 
-    // Switch off: the session does not authenticate at all, even though the app's
-    // policy says guest and the session was (in this fixture) issued regardless. On
-    // the authed route that is a 401; on the optional-auth run route the rejected
-    // token reads as no token, and a guest-mode app then refuses the anonymous
-    // caller — a denial either way.
-    let resp = authed(client().get(format!("{ws}/users/whoami")), GUEST_TOKEN)
-        .send()
-        .await?;
-    assert_eq!(
-        resp.status(),
-        401,
-        "a guest must not authenticate while guests are off"
-    );
-    let resp = execute(port, "test-workspace", APP_PATH, GUEST_TOKEN)
-        .send()
-        .await?;
-    assert!(
-        resp.status().is_client_error() && resp.status() != 404,
-        "a guest must not run while guests are off, got {}",
-        resp.status()
-    );
-
-    // Switch on: through the door. What follows the run is the runnable lookup,
-    // which fails on the nonexistent script — the point is that it is no longer a
-    // denial.
-    enable_guests(port, "test-workspace").await?;
+    // In guest mode: through the door. What follows the run is the runnable lookup,
+    // which fails on the nonexistent script; the point is that it is not a denial.
     let resp = execute(port, "test-workspace", APP_PATH, GUEST_TOKEN)
         .send()
         .await?;
     assert!(
         resp.status() != 401 && resp.status() != 403,
-        "with guests on, the door must let the run through: {}",
+        "a guest must reach its guest-mode app: {}",
+        resp.status()
+    );
+
+    let resp = authed(
+        client().post(format!("{ws}/apps/update/{APP_PATH}")),
+        ADMIN_TOKEN,
+    )
+    .json(&app_with_runnable(APP_PATH, "publisher", false))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    // Evict the cached policy as the server's notify poller would.
+    for e in windmill_common::notify_events::poll_notify_events(&db, 0).await? {
+        if e.channel == "notify_app_policy_change" {
+            if let Some((ws, path)) = e.payload.split_once(':') {
+                windmill_api::invalidate_app_policy_cache(ws, path);
+            }
+        }
+    }
+
+    let resp = execute(port, "test-workspace", APP_PATH, GUEST_TOKEN)
+        .send()
+        .await?;
+    assert!(
+        resp.status() == 401 || resp.status() == 403,
+        "an issued guest session must not run an app taken out of guest mode: {}",
         resp.status()
     );
 
@@ -428,13 +394,6 @@ async fn guest_cannot_run_another_guest_app(db: Pool<Postgres>) -> anyhow::Resul
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    authed(
-        client().post(format!("{ws}/workspaces/edit_guest_access")),
-        ADMIN_TOKEN,
-    )
-    .json(&json!({ "guest_access_enabled": true }))
-    .send()
-    .await?;
     let other = "u/test-user/other_guest_app";
     let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
         .json(&guest_app_with_runnable(other, false))
@@ -510,7 +469,6 @@ async fn a_guest_cannot_read_a_job_it_did_not_launch(db: Pool<Postgres>) -> anyh
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    enable_guests(port, "test-workspace").await?;
     insert_guest_token(&db, "test-workspace").await?;
     let resp = authed(client().post(format!("{ws}/scripts/create")), ADMIN_TOKEN)
         .json(&json!({
@@ -611,15 +569,14 @@ async fn guests_mode_needs_a_scopable_path(db: Pool<Postgres>) -> anyhow::Result
     Ok(())
 }
 
-/// Renaming a workspace copies its settings; the guest switch and the guest JWT key must
-/// travel with them, or the rename silently shuts every guest app or drops the key.
+/// Renaming a workspace copies its settings; the guest JWT key must travel with them,
+/// or the rename silently drops the key.
 #[sqlx::test(fixtures("base"))]
-async fn a_workspace_rename_keeps_the_guest_switch(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn a_workspace_rename_keeps_the_guest_jwt_key(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    enable_guests(port, "test-workspace").await?;
     sqlx::query(
         "INSERT INTO guest_activity (email, workspace_id, day)
          VALUES ('guest@example.com', 'test-workspace', CURRENT_DATE)",
@@ -641,12 +598,6 @@ async fn a_workspace_rename_keeps_the_guest_switch(db: Pool<Postgres>) -> anyhow
     .send()
     .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
-    let enabled: bool = sqlx::query_scalar(
-        "SELECT guest_access_enabled FROM workspace_settings WHERE workspace_id = 'test-workspace-2'",
-    )
-    .fetch_one(&db)
-    .await?;
-    assert!(enabled, "the guest switch travels with the workspace");
     let jwt_key: Option<String> = sqlx::query_scalar(
         "SELECT guest_jwt_public_key FROM workspace_settings WHERE workspace_id = 'test-workspace-2'",
     )
@@ -668,70 +619,6 @@ async fn a_workspace_rename_keeps_the_guest_switch(db: Pool<Postgres>) -> anyhow
     Ok(())
 }
 
-/// The superadmin switch sits above every workspace's: off, no guest session stands and
-/// no app discovers as open, whatever the workspace and the app say.
-#[sqlx::test(fixtures("base"))]
-async fn the_instance_switch_closes_every_workspace(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let port = server.addr.port();
-    let ws = format!("http://localhost:{port}/api/w/test-workspace");
-
-    enable_guests(port, "test-workspace").await?;
-    let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
-        .json(&guest_app_with_runnable(APP_PATH, false))
-        .send()
-        .await?;
-    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
-    insert_guest_token(&db, "test-workspace").await?;
-    let set_instance_switch = |disabled: bool| {
-        authed(
-            client().post(format!(
-                "http://localhost:{port}/api/settings/global/guest_access_disabled"
-            )),
-            ADMIN_TOKEN,
-        )
-        .json(&json!({ "value": disabled }))
-        .send()
-    };
-
-    let secret: String = authed(
-        client().get(format!("{ws}/apps/secret_of/{APP_PATH}")),
-        ADMIN_TOKEN,
-    )
-    .send()
-    .await?
-    .text()
-    .await?;
-
-    set_instance_switch(true).await?.error_for_status()?;
-    let resp = authed(client().get(format!("{ws}/users/whoami")), GUEST_TOKEN)
-        .send()
-        .await?;
-    assert_eq!(
-        resp.status(),
-        401,
-        "the instance switch closes an issued session"
-    );
-    let resp = client()
-        .get(format!("{ws}/apps_u/guest_entry/{secret}"))
-        .send()
-        .await?;
-    assert_eq!(
-        resp.status(),
-        404,
-        "and nothing discovers as open to guests"
-    );
-
-    set_instance_switch(false).await?.error_for_status()?;
-    let resp = authed(client().get(format!("{ws}/users/whoami")), GUEST_TOKEN)
-        .send()
-        .await?;
-    assert_eq!(resp.status(), 200, "back on, the session stands again");
-
-    Ok(())
-}
-
 /// An account holder is never a guest, and that holds after the mint too: a session
 /// minted before the account existed ends at the door the moment one does, so an
 /// account provisioned in a race with the mint cannot outlive the rule.
@@ -742,7 +629,6 @@ async fn an_account_ends_the_guest_session(db: Pool<Postgres>) -> anyhow::Result
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    enable_guests(port, "test-workspace").await?;
     insert_guest_token(&db, "test-workspace").await?;
     let resp = authed(client().get(format!("{ws}/users/whoami")), GUEST_TOKEN)
         .send()
@@ -778,7 +664,6 @@ async fn a_guest_cannot_upload_outside_a_policy(db: Pool<Postgres>) -> anyhow::R
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    enable_guests(port, "test-workspace").await?;
     let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
         .json(&guest_app_with_runnable(APP_PATH, false)) // no `s3_inputs`
         .send()
@@ -825,7 +710,6 @@ async fn a_guest_uses_an_anonymous_app_as_itself(db: Pool<Postgres>) -> anyhow::
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    enable_guests(port, "test-workspace").await?;
     let resp = authed(client().post(format!("{ws}/scripts/create")), ADMIN_TOKEN)
         .json(&json!({
             "path": "u/test-user/noop",
@@ -878,7 +762,6 @@ async fn a_guest_minted_embed_token_stays_a_guest(db: Pool<Postgres>) -> anyhow:
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    enable_guests(port, "test-workspace").await?;
     let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
         .json(&guest_app_with_runnable(APP_PATH, true))
         .send()
@@ -937,13 +820,13 @@ async fn a_guest_minted_embed_token_stays_a_guest(db: Pool<Postgres>) -> anyhow:
     let me: serde_json::Value = resp.json().await?;
     assert_eq!(me["role"], json!("guest"));
 
-    // Governed: the workspace switch closes it at the door, iframe or not.
-    authed(
-        client().post(format!("{ws}/workspaces/edit_guest_access")),
-        ADMIN_TOKEN,
+    // Governed: the door's no-account rule closes it, iframe or not, once the guest's
+    // email is promoted to an account.
+    sqlx::query(
+        "INSERT INTO password (email, password_hash, login_type, super_admin, verified, name)
+         VALUES ('guest@example.com', 'not-a-real-hash', 'password', false, true, 'Guest')",
     )
-    .json(&json!({ "guest_access_enabled": false }))
-    .send()
+    .execute(&db)
     .await?;
     let resp = authed(client().get(format!("{ws}/users/whoami")), &embed)
         .send()
@@ -951,7 +834,7 @@ async fn a_guest_minted_embed_token_stays_a_guest(db: Pool<Postgres>) -> anyhow:
     assert_eq!(
         resp.status(),
         401,
-        "turning guests off must stop a guest's embed token authenticating"
+        "an account for the guest's email must stop its embed token authenticating"
     );
     let resp = execute(port, "test-workspace", APP_PATH, &embed)
         .send()
@@ -961,7 +844,6 @@ async fn a_guest_minted_embed_token_stays_a_guest(db: Pool<Postgres>) -> anyhow:
         "and running components, got {}",
         resp.status()
     );
-    enable_guests(port, "test-workspace").await?;
 
     // And its scopes are not something the guest's email can later rewrite. The
     // guest session itself cannot reach `/users/*` (workspace pin), so model the real
@@ -1006,7 +888,6 @@ async fn a_guest_label_is_governed_without_the_sentinel(db: Pool<Postgres>) -> a
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    enable_guests(port, "test-workspace").await?;
     let scopes: Vec<String> = guest_scopes()
         .into_iter()
         .filter(|s| s != "guest")
@@ -1051,13 +932,6 @@ async fn a_disabled_account_cannot_become_a_guest(db: Pool<Postgres>) -> anyhow:
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    authed(
-        client().post(format!("{ws}/workspaces/edit_guest_access")),
-        ADMIN_TOKEN,
-    )
-    .json(&json!({ "guest_access_enabled": true }))
-    .send()
-    .await?;
     let resp = authed(client().post(format!("{ws}/apps/create")), ADMIN_TOKEN)
         .json(&guest_app_with_runnable(APP_PATH, false))
         .send()

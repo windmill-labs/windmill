@@ -591,7 +591,9 @@ pub fn ensure_scopes_within_caller(
 
         for requested in requested_restrictions {
             if requested.starts_with("mcp:") {
-                if !caller_mcp.contains(requested.as_str()) {
+                // `mcp:session` (windmill_mcp's SESSION_SCOPE) grants nothing: it only picks
+                // the toolset an `mcp:all` token gets, and `mcp:all` is matched here itself.
+                if requested != "mcp:session" && !caller_mcp.contains(requested.as_str()) {
                     return Err(Error::PermissionDenied(format!(
                         "A scope-restricted token cannot grant MCP scope '{requested}' unless the \
                          caller holds the same scope verbatim"
@@ -1964,6 +1966,11 @@ mod tests {
             opt_scopes(Some(vec!["mcp:scripts:*"])).as_deref()
         )
         .is_err());
+        assert!(ensure_scopes_within_caller(
+            &mcp_all,
+            opt_scopes(Some(vec!["mcp:all", "mcp:session"])).as_deref()
+        )
+        .is_ok());
     }
 
     #[test]

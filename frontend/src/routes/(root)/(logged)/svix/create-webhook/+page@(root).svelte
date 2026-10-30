@@ -28,11 +28,11 @@
 			let webhook: string
 			switch (kind) {
 				case 'script':
-					webhook = `${apiBaseUrl()}/api/w/${$workspaceStore}/jobs/run/p/${path}`
+					webhook = `${apiBaseUrl('webhooks')}/api/w/${$workspaceStore}/jobs/run/p/${path}`
 					redirectSuccess(webhook, token)
 					break
 				case 'flow':
-					webhook = `${apiBaseUrl()}/api/w/${$workspaceStore}/jobs/run/f/${path}`
+					webhook = `${apiBaseUrl('webhooks')}/api/w/${$workspaceStore}/jobs/run/f/${path}`
 					redirectSuccess(webhook, token)
 					break
 				default:

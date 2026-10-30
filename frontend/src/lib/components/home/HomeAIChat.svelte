@@ -2,8 +2,8 @@
 	import type HomeSessionStarterComponent from '../sessions/HomeSessionStarter.svelte'
 
 	// The starter is a full AIChat, which reaches monaco, and the build refuses monaco in Home's
-	// static imports. Kept once loaded, so a return to Home renders it in its first frame: the
-	// AI Sessions → Home view transition snapshots that frame.
+	// static imports. Kept once loaded, so a return to Home renders it in its first frame
+	// instead of a skeleton.
 	let loadedStarter: typeof HomeSessionStarterComponent | undefined
 	function loadStarter() {
 		return import('../sessions/HomeSessionStarter.svelte').then((m) => (loadedStarter = m.default))

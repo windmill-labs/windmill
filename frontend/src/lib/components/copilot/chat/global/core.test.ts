@@ -233,6 +233,8 @@ vi.mock('$lib/gen', async () => {
 			getAppByVersion: vi.fn(async () => {
 				throw new Error('getAppByVersion mock not configured')
 			}),
+			// A row without an access mode, so a deploy keeps the drafted one.
+			getAppLiteByPath: vi.fn(async () => ({ policy: {} }) as any),
 			listApps: vi.fn(async () => [])
 		}),
 		ResourceService: wrapService(actual.ResourceService, {
@@ -260,10 +262,9 @@ vi.mock('$lib/gen', async () => {
 		WorkerService: wrapService(actual.WorkerService, {
 			listWorkers: vi.fn(async () => [])
 		}),
-		// Guests off by default, as a fresh workspace has them.
+		// Guests unavailable by default, as on the shared cloud.
 		WorkspaceService: wrapService(actual.WorkspaceService, {
-			getGuestUsage: vi.fn(async () => ({ available: false, instance_enabled: false })),
-			getPublicSettings: vi.fn(async () => ({ guest_access_enabled: false }))
+			getGuestUsage: vi.fn(async () => ({ available: false }))
 		}),
 		FolderService: wrapService(actual.FolderService, {
 			createFolder: vi.fn(async () => 'created')
@@ -513,6 +514,21 @@ describe('global AI tools', () => {
 		expect(result).toContain('fetchOne')
 		// Defaults to TypeScript only — no Python noise.
 		expect(result).not.toContain('Python Datatable API')
+	})
+
+	it('gives agent guidance only to a session that may also draft flows', async () => {
+		const resourcesOnly = await callGlobalTool(
+			'get_instructions',
+			{ subject: 'agent' },
+			toolCallbacks,
+			{ access: new Set(['write_resource_draft']) }
+		)
+		expect(resourcesOnly).not.toContain('Windmill agent authoring reference')
+		const builder = await callGlobalTool('get_instructions', { subject: 'agent' }, toolCallbacks, {
+			access: new Set(['write_resource_draft', 'write_flow_draft'])
+		})
+		expect(builder).toContain('Windmill agent authoring reference')
+		expect(builder).toContain('This user cannot write inline code')
 	})
 
 	it('returns only the requested language SDK for the datatable subject', async () => {
@@ -3733,7 +3749,7 @@ describe('global AI tools', () => {
 		})
 	})
 
-	// The draft carries the deployed policy from the fork, so nothing is fetched to answer.
+	// Deploying the draft keeps the deployed app's mode, which the draft does not carry.
 	it('reports exposure for an app that has a draft over it', async () => {
 		seedBackendDraft(
 			'raw_app',
@@ -3741,10 +3757,14 @@ describe('global AI tools', () => {
 			{
 				files: { '/src/App.tsx': 'x' },
 				runnables: {},
-				policy: { execution_mode: 'anonymous' }
+				policy: {}
 			} as any,
 			{ workspace: WORKSPACE }
 		)
+		vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
+		vi.mocked(AppService.getAppLiteByPath).mockResolvedValueOnce({
+			policy: { execution_mode: 'anonymous' }
+		} as any)
 
 		const read = await callGlobalTool('read_workspace_item', {
 			type: 'app',
@@ -3918,11 +3938,7 @@ describe('global AI tools', () => {
 		}
 
 		vi.mocked(WorkspaceService.getGuestUsage).mockResolvedValueOnce({
-			available: true,
-			instance_enabled: true
-		} as any)
-		vi.mocked(WorkspaceService.getPublicSettings).mockResolvedValueOnce({
-			guest_access_enabled: true
+			available: true
 		} as any)
 		expect(await readMode(guestApp)).toBe('guest')
 
@@ -3936,19 +3952,8 @@ describe('global AI tools', () => {
 			})
 		).toBe('anonymous')
 
-		// The same app, with each switch crossed in turn: either one alone admits nobody, so
-		// reporting the mode bare would name an exposure the server refuses. Both off needs
-		// no case of its own — whichever half of the check were dropped, one of these two
-		// still catches it.
-		vi.mocked(WorkspaceService.getPublicSettings).mockResolvedValueOnce({
-			guest_access_enabled: true
-		} as any)
-		expect(await readMode(guestApp)).toContain('inert')
-
-		vi.mocked(WorkspaceService.getGuestUsage).mockResolvedValueOnce({
-			available: true,
-			instance_enabled: true
-		} as any)
+		// The same app where the deployment admits no guest: reporting the mode bare would
+		// name an exposure the server refuses.
 		expect(await readMode(guestApp)).toContain('inert')
 	})
 
@@ -4659,11 +4664,18 @@ describe('global AI tools', () => {
 		)
 
 		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
+		// The deployed mode, read for the exposure note.
+		vi.mocked(AppService.getAppLiteByPath).mockResolvedValueOnce({
+			policy: { execution_mode: 'publisher' }
+		} as any)
 
 		await callGlobalTool('deploy_workspace_item', {
 			type: 'app',
 			path: 'f/apps/report'
 		})
+
+		// Who can open a deployed app is set from the Share dialog: the update states no mode, so
+		// the server keeps the deployed one rather than the drafted `anonymous`.
 
 		expect(AppService.updateAppRaw).toHaveBeenCalledWith({
 			workspace: WORKSPACE,
@@ -4677,7 +4689,7 @@ describe('global AI tools', () => {
 						data: { tables: ['orders'] }
 					},
 					summary: 'Updated report',
-					policy: expect.objectContaining({ execution_mode: 'anonymous' }),
+					policy: expect.not.objectContaining({ execution_mode: expect.anything() }),
 					deployment_message: undefined
 				},
 				js: 'bundled js',
@@ -4691,9 +4703,17 @@ describe('global AI tools', () => {
 	// Deploying is what makes an app's runnables reachable, so it is the one moment the
 	// exposure is both true and known.
 	it('discloses who can open an app after a deploy', async () => {
-		const deployApp = async (path: string, policy: Record<string, unknown>) => {
+		// The deployed app is in the mode its draft names, unless `deployedMode` says otherwise.
+		const deployApp = async (
+			path: string,
+			policy: Record<string, unknown>,
+			deployedMode = policy.execution_mode
+		) => {
 			vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
 			vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
+			vi.mocked(AppService.getAppLiteByPath).mockResolvedValueOnce({
+				policy: { execution_mode: deployedMode }
+			} as any)
 			seedBackendDraft(
 				'raw_app',
 				path,
@@ -4719,36 +4739,31 @@ describe('global AI tools', () => {
 		// anyone outside the deployers group — so the note must not name an identity.
 		expect(open.message).not.toContain('u/alice')
 
-		// Guest is a real widening only where the deployment, the instance and the
-		// workspace all admit guests; stored below that, it is inert.
+		// A deploy keeps the deployed app's mode, so the note follows the deployed row: a draft naming
+		// a wider mode discloses nothing, and one naming a narrower mode still discloses the wider one.
+		const kept = await deployApp('f/apps/kept', { execution_mode: 'anonymous' }, 'publisher')
+		expect(kept.success).toBe(true)
+		expect(kept.message).not.toContain('anyone with the URL')
+		const keptPublic = await deployApp(
+			'f/apps/kept_public',
+			{ execution_mode: 'publisher' },
+			'anonymous'
+		)
+		expect(keptPublic.message).toContain('anyone with the URL, without logging in')
+
+		// Guest is a real widening only where the deployment admits guests; stored on one
+		// that does not, it is inert and the note would announce an exposure that does not
+		// exist.
 		vi.mocked(WorkspaceService.getGuestUsage).mockResolvedValueOnce({
-			available: true,
-			instance_enabled: true
-		} as any)
-		vi.mocked(WorkspaceService.getPublicSettings).mockResolvedValueOnce({
-			guest_access_enabled: true
+			available: true
 		} as any)
 		const guestOn = await deployApp('f/apps/guest', { execution_mode: 'guest' })
 		expect(guestOn.success).toBe(true)
 		expect(guestOn.message).toContain('identity provider authenticates')
 
-		// Each switch crossed in turn, because either one alone admits nobody and the note
-		// would then announce an exposure that does not exist. Both off needs no case of its
-		// own: whichever half of the check were dropped, one of these two still catches it.
-		vi.mocked(WorkspaceService.getPublicSettings).mockResolvedValueOnce({
-			guest_access_enabled: true
-		} as any)
-		const instanceOff = await deployApp('f/apps/guest_inst_off', { execution_mode: 'guest' })
-		expect(instanceOff.success).toBe(true)
-		expect(instanceOff.message).not.toContain('identity provider')
-
-		vi.mocked(WorkspaceService.getGuestUsage).mockResolvedValueOnce({
-			available: true,
-			instance_enabled: true
-		} as any)
-		const workspaceOff = await deployApp('f/apps/guest_ws_off', { execution_mode: 'guest' })
-		expect(workspaceOff.success).toBe(true)
-		expect(workspaceOff.message).not.toContain('identity provider')
+		const unavailable = await deployApp('f/apps/guest_unavailable', { execution_mode: 'guest' })
+		expect(unavailable.success).toBe(true)
+		expect(unavailable.message).not.toContain('identity provider')
 	})
 
 	it('forwards preserve_on_behalf_of when the deployed policy carries an on_behalf_of', async () => {

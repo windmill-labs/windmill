@@ -17,6 +17,15 @@ export type DiffVersionOption = {
  *  this is the picker's own appetite, not their default. */
 export const VERSION_PAGE_SIZE = 20
 
+/** Offers an AI review of the shown change, for a diff of a draft against its deployed version. */
+export type DiffAiReview = {
+	workspaceId: string
+	kind: string
+	path: string
+	/** Never deployed: the left side is a placeholder, not a version. */
+	added?: boolean
+}
+
 export type DiffDrawerDiff =
 	| {
 			mode: 'normal'
@@ -52,6 +61,7 @@ export type DiffDrawerDiff =
 			current: Value
 			defaultDiffType?: 'deployed' | 'draft'
 			button?: { text: string; onClick: () => void }
+			aiReview?: DiffAiReview
 	  }
 	| {
 			mode: 'simple'
@@ -59,6 +69,7 @@ export type DiffDrawerDiff =
 			current: Value
 			title: string
 			button?: { text: string; onClick: () => void }
+			aiReview?: DiffAiReview
 	  }
 
 export interface DiffDrawerI {

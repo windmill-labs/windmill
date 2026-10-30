@@ -1,19 +1,25 @@
 import {
-	Gauge,
-	Database,
-	Timer,
-	Hourglass,
-	Repeat,
-	Cpu,
-	Trash2,
 	ChevronsUp,
-	Tag
+	CircleStop,
+	Combine,
+	CornerDownLeft,
+	Cpu,
+	Database,
+	EyeOff,
+	FolderOpen,
+	Gauge,
+	KeyRound,
+	Repeat,
+	Tag,
+	Timer,
+	Trash2,
+	UserCog
 } from 'lucide-svelte'
-import type { ScriptLang } from '$lib/gen'
+import type { FlowValue, ScriptLang } from '$lib/gen'
 
-// Subset of Script/NewScript fields that make up the "advanced runtime settings"
-// surfaced both in the standalone script editor and, via the mini settings drawer,
-// from within the flow editor for workspace-script steps.
+// Subset of Script/NewScript fields that make up the runtime settings surfaced both in the
+// standalone script editor and, via the mini settings drawer, from within the flow editor for
+// workspace-script steps.
 export type ScriptAdvancedSettingsFields = {
 	path?: string
 	language?: ScriptLang
@@ -34,27 +40,94 @@ export type ScriptAdvancedSettingsFields = {
 	dedicated_worker?: boolean
 	delete_after_secs?: number
 	priority?: number
+	envs?: string[]
 }
 
 export type ScriptSettingsBadge = {
 	key: string
 	label: string
+	/** The label in a word or two, for the chips in the settings header. */
+	short: string
+	/** The `data-setting` of the setting's row in its tab. */
+	setting: string
 	icon: any
 	detail: string
 }
 
-// Compute the list of active advanced settings for a script, used to render
-// at-a-glance badges in the editor top bar and in the flow drawers.
+/** Runtime settings only a flow has. */
+export type FlowOnlyRuntimeFields = {
+	skip_expr?: string
+	early_return?: string
+	same_worker?: boolean
+}
+
+/** A flow's runtime settings, which it splits between itself and its value, in the shape the
+ *  badges read. */
+export function flowRuntimeFields(flow: {
+	tag?: string
+	dedicated_worker?: boolean
+	value: FlowValue
+}): ScriptAdvancedSettingsFields & FlowOnlyRuntimeFields {
+	const v = flow.value
+	return {
+		tag: flow.tag,
+		dedicated_worker: flow.dedicated_worker,
+		concurrent_limit: v.concurrent_limit,
+		concurrency_time_window_s: v.concurrency_time_window_s,
+		cache_ttl: v.cache_ttl,
+		debounce_delay_s: v.debounce_delay_s,
+		delete_after_secs: v.delete_after_secs,
+		priority: v.priority,
+		skip_expr: v.skip_expr,
+		early_return: v.early_return,
+		same_worker: v.same_worker
+	}
+}
+
+// The active runtime settings of a script or flow, in the order their Runtime tab lists them,
+// for the at-a-glance badges of the editor top bar, the settings header and tabs, and the flow drawers.
 export function getActiveScriptSettingsBadges(
-	settings: ScriptAdvancedSettingsFields | undefined
+	settings: (ScriptAdvancedSettingsFields & FlowOnlyRuntimeFields) | undefined
 ): ScriptSettingsBadge[] {
 	if (!settings) return []
 	const badges: ScriptSettingsBadge[] = []
+	if (settings.skip_expr) {
+		badges.push({
+			key: 'early_stop',
+			short: 'Stop if',
+			setting: 'early-stop',
+			label: 'Stop flow if',
+			icon: CircleStop,
+			detail: 'Stops early when the inputs match the expression'
+		})
+	}
+	if (settings.early_return) {
+		badges.push({
+			key: 'early_return',
+			short: 'Early return',
+			setting: 'early-return',
+			label: 'Early return',
+			icon: CornerDownLeft,
+			detail: `Sync webhooks return the result of step ${settings.early_return}`
+		})
+	}
 	// Non-positive concurrent_limit / timeout are treated as unset by the runtime
 	// (legacy zero rows), so don't surface them as active settings.
+	if (settings.timeout != undefined && settings.timeout > 0) {
+		badges.push({
+			key: 'timeout',
+			short: 'Timeout',
+			setting: 'timeout',
+			label: 'Timeout',
+			icon: Timer,
+			detail: `${settings.timeout}s`
+		})
+	}
 	if (settings.concurrent_limit != undefined && settings.concurrent_limit > 0) {
 		badges.push({
 			key: 'concurrency',
+			short: 'Concurrency',
+			setting: 'concurrency',
 			label: 'Concurrency',
 			icon: Gauge,
 			detail: `Max ${settings.concurrent_limit} execution${
@@ -66,49 +139,51 @@ export function getActiveScriptSettingsBadges(
 			}`
 		})
 	}
+	if (settings.debounce_delay_s != undefined && settings.debounce_delay_s > 0) {
+		badges.push({
+			key: 'debounce',
+			short: 'Debounce',
+			setting: 'debounce',
+			label: 'Debounce',
+			icon: Combine,
+			detail: `Debounced by ${settings.debounce_delay_s}s`
+		})
+	}
 	if (settings.cache_ttl != undefined && settings.cache_ttl > 0) {
 		badges.push({
 			key: 'cache',
+			short: 'Cache',
+			setting: 'cache',
 			label: 'Cache',
 			icon: Database,
 			detail: `Cached for ${settings.cache_ttl}s`
 		})
 	}
-	if (settings.timeout != undefined && settings.timeout > 0) {
+	if (settings.priority != undefined && settings.priority > 0) {
 		badges.push({
-			key: 'timeout',
-			label: 'Timeout',
-			icon: Timer,
-			detail: `${settings.timeout}s`
-		})
-	}
-	if (settings.debounce_delay_s != undefined && settings.debounce_delay_s > 0) {
-		badges.push({
-			key: 'debounce',
-			label: 'Debounce',
-			icon: Hourglass,
-			detail: `Debounced by ${settings.debounce_delay_s}s`
+			key: 'priority',
+			short: 'Priority',
+			setting: 'priority',
+			label: 'High priority',
+			icon: ChevronsUp,
+			detail: `Priority ${settings.priority}`
 		})
 	}
 	if (settings.restart_unless_cancelled) {
 		badges.push({
 			key: 'perpetual',
+			short: 'Perpetual',
+			setting: 'perpetual',
 			label: 'Perpetual',
 			icon: Repeat,
 			detail: 'Restarts unless cancelled'
 		})
 	}
-	if (settings.dedicated_worker) {
-		badges.push({
-			key: 'dedicated',
-			label: 'Dedicated',
-			icon: Cpu,
-			detail: 'Runs on dedicated workers'
-		})
-	}
 	if (settings.delete_after_secs != undefined) {
 		badges.push({
 			key: 'delete_after_use',
+			short: 'Auto-delete',
+			setting: 'lifetime',
 			label: 'Delete after use',
 			icon: Trash2,
 			detail:
@@ -117,20 +192,77 @@ export function getActiveScriptSettingsBadges(
 					: `Deleted ${settings.delete_after_secs}s after completion`
 		})
 	}
-	if (settings.priority != undefined && settings.priority > 0) {
-		badges.push({
-			key: 'priority',
-			label: 'High priority',
-			icon: ChevronsUp,
-			detail: `Priority ${settings.priority}`
-		})
-	}
 	if (settings.tag) {
 		badges.push({
 			key: 'tag',
+			short: settings.tag,
+			setting: 'worker-group',
 			label: settings.tag,
 			icon: Tag,
 			detail: `Worker tag: ${settings.tag}`
+		})
+	}
+	if (settings.dedicated_worker) {
+		badges.push({
+			key: 'dedicated',
+			short: 'Dedicated',
+			setting: 'dedicated-worker',
+			label: 'Dedicated',
+			icon: Cpu,
+			detail: 'Runs on dedicated workers'
+		})
+	}
+	if (settings.same_worker) {
+		badges.push({
+			key: 'same_worker',
+			short: 'Shared dir',
+			setting: 'same-worker',
+			label: 'Shared directory',
+			icon: FolderOpen,
+			detail: 'Steps run on the same worker and share ./shared'
+		})
+	}
+	return badges
+}
+
+// The active settings of a script's or flow's Permissions tab, in the order the tab lists them.
+export function getActivePermissionBadges(settings: {
+	on_behalf_of_email?: string
+	job_token_scopes?: string[] | null
+	visible_to_runner_only?: boolean
+}): ScriptSettingsBadge[] {
+	const badges: ScriptSettingsBadge[] = []
+	if (settings.on_behalf_of_email) {
+		badges.push({
+			key: 'on_behalf_of',
+			short: 'On behalf',
+			setting: 'on-behalf-of',
+			label: 'Run on behalf of',
+			icon: UserCog,
+			detail: settings.on_behalf_of_email
+		})
+	}
+	if (settings.visible_to_runner_only) {
+		badges.push({
+			key: 'invisible_runs',
+			short: 'Invisible',
+			setting: 'invisible-runs',
+			label: 'Invisible runs',
+			icon: EyeOff,
+			detail: 'Manual runs are visible only to whoever ran them'
+		})
+	}
+	if (settings.job_token_scopes != null) {
+		badges.push({
+			key: 'job_token',
+			short: 'Job token',
+			setting: 'job-token',
+			label: 'Restricted job token',
+			icon: KeyRound,
+			detail:
+				settings.job_token_scopes.length === 0
+					? 'No API access'
+					: settings.job_token_scopes.join(', ')
 		})
 	}
 	return badges

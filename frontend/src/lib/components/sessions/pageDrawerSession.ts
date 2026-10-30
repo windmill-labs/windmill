@@ -127,11 +127,19 @@ export function pageDrawerSessionSource(
 		// Text that does not parse never reaches the draft, so routing is refused instead.
 		beforeOpen:
 			itemKind && workspaceId
-				? async () => {
-						flushAllPendingEditorChanges()
-						await tick()
-						await flushOrRefuse({ workspace: workspaceId, itemKind, path: itemPath })
-					}
+				? () => persistDraftForSession(workspaceId, itemKind, itemPath)
 				: undefined
 	}
+}
+
+/** Save the draft of the item on screen before a session opens it, or throw saying why it cannot
+ *  be: the preview reads the draft back through the server, from a document of its own. */
+export async function persistDraftForSession(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	path: string
+): Promise<void> {
+	flushAllPendingEditorChanges()
+	await tick()
+	await flushOrRefuse({ workspace, itemKind, path })
 }

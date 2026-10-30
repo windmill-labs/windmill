@@ -119,7 +119,7 @@
 		resolvedCount={resolvedModuleIds.length}
 	/>
 {:else if selectedId?.startsWith('settings')}
-	<FlowSettings {enableAi} {noEditor} />
+	<FlowSettings {enableAi} {noEditor} {selectedId} {newFlow} />
 {:else if selectedId === 'Input'}
 	<FlowInput
 		{noEditor}
@@ -176,6 +176,7 @@
 		isDeployed={savedFlow && !savedFlow?.draft_only}
 		schema={flowStore.val.schema}
 		{onDeployTrigger}
+		chatMode={!!flowStore.val.value.chat_input_enabled}
 	/>
 {:else if selectedId?.startsWith('subflow:')}
 	<ExpandedSubflowStep

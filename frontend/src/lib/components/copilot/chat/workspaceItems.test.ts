@@ -27,7 +27,7 @@ vi.mock('$lib/gen', () => {
 	}
 })
 
-import { FlowService } from '$lib/gen'
+import { FlowService, ResourceService } from '$lib/gen'
 import {
 	extractCandidatePaths,
 	itemHref,
@@ -51,6 +51,18 @@ describe('workspaceItemRegistry', () => {
 		const entry = workspaceItemRegistry.resolve('ws-draft', 'u/me/report')
 		expect(entry).toMatchObject({ kind: 'flow', path: 'u/me/draft_1234', draftOnly: true })
 		expect(itemHref(entry!, 'ws-draft')).toBe('/flows/edit/u/me/draft_1234?workspace=ws-draft')
+	})
+
+	it('links an AI agent to its own editor, not to the resources page', async () => {
+		vi.mocked(ResourceService.listResource).mockResolvedValueOnce([
+			{ path: 'u/me/helper', resource_type: 'ai_agent' },
+			{ path: 'u/me/db', resource_type: 'postgresql' }
+		] as any)
+		await workspaceItemRegistry.ensureLoaded('ws-agent')
+		const agent = workspaceItemRegistry.resolve('ws-agent', 'u/me/helper')!
+		expect(itemHref(agent, 'ws-agent')).toBe('/agents/edit/u/me/helper?workspace=ws-agent')
+		expect(workspaceItemAction(agent.kind, agent.path)).toMatchObject({ resource: 'agent' })
+		expect(workspaceItemRegistry.resolve('ws-agent', 'u/me/db')?.kind).toBe('resource')
 	})
 })
 

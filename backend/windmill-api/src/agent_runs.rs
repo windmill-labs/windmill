@@ -34,7 +34,7 @@ use crate::jobs::{
 
 /// The id the agent's step carries in the run, as the editor's chat names it. A token scoped to
 /// `jobs:run:agents:<path>` reads its runs back by it (`require_job_within_read_scope`).
-const AGENT_NODE_ID: &str = "__wm_agent_root";
+pub(crate) const AGENT_NODE_ID: &str = "__wm_agent_root";
 
 /// A turn of the agent's chat when `memory_id` names a conversation, a single run otherwise.
 /// Returns the job id.

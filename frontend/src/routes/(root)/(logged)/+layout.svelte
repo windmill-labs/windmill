@@ -60,8 +60,7 @@
 		type UserWorkspace
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
-	import { afterNavigate, beforeNavigate, onNavigate } from '$app/navigation'
-	import { homeSessionsTransition } from '$lib/components/sessions/homeSessionsTransition.svelte'
+	import { afterNavigate, beforeNavigate } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
 	import type UserSettings from '$lib/components/UserSettings.svelte'
@@ -106,6 +105,7 @@
 	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
 	import { pruneMeaninglessDrafts } from '$lib/userDraftPrune'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
+	import AppLinksModal from '$lib/components/itemSettings/AppLinksModal.svelte'
 	import InstanceBanner from '$lib/components/InstanceBanner.svelte'
 	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
@@ -436,8 +436,6 @@
 						: undefined
 		return kind ? { kind, path: route.itemPath } : undefined
 	}
-
-	onNavigate(homeSessionsTransition)
 
 	beforeNavigate((navigation) => {
 		menuOpen = false
@@ -1391,6 +1389,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 	/>
 {/if}
 <DraftMigrationErrorModal />
+<AppLinksModal />
 {#if page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login" loading={true}></CenteredModal>
 {:else if $userStore}

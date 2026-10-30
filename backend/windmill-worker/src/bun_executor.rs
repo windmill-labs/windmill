@@ -3170,7 +3170,8 @@ try {{
                     None,
                     has_stream,
                 )
-                .await?;
+                .await
+                .map_err(|e| crate::js_eval::with_step_context(e, &reserved_variables))?;
 
                 let preprocessed: HashMap<String, Box<RawValue>> =
                     serde_json::from_str(pre_result.get()).map_err(|e| {
@@ -3202,7 +3203,8 @@ try {{
                     stream_notifier,
                     has_stream,
                 )
-                .await?;
+                .await
+                .map_err(|e| crate::js_eval::with_step_context(e, &reserved_variables))?;
                 tracing::info!(
                     "Executed native code (with preprocessor) in {}ms",
                     started_at.elapsed().as_millis()
@@ -3230,7 +3232,8 @@ try {{
                 stream_notifier,
                 has_stream,
             )
-            .await?;
+            .await
+            .map_err(|e| crate::js_eval::with_step_context(e, &reserved_variables))?;
             tracing::info!(
                 "Executed native code in {}ms",
                 started_at.elapsed().as_millis()
@@ -4190,8 +4193,7 @@ pub async fn handle_wac_v2_output(
             let resume_id: u32 = windmill_common::wac::approval_resume_id(&key);
             // Read before the tx: it holds the queue row lock, and a pool checkout under it
             // waits on the connections every other suspending parent is holding.
-            let wkey =
-                windmill_common::variables::get_workspace_key(&job.workspace_id, db).await?;
+            let wkey = windmill_common::variables::get_workspace_key(&job.workspace_id, db).await?;
             let approval_token =
                 windmill_common::variables::approval_token_from_key(&wkey, job.id)?;
 

@@ -4,14 +4,12 @@
 		superadmin,
 		usedTriggerKinds,
 		userStore,
-		userWorkspaces,
 		workspaceStore,
 		isCriticalAlertsUIOpen,
 		enterpriseLicense,
 		devopsRole,
 		roleCapabilities
 	} from '$lib/stores'
-	import { isForkOwner } from '$lib/utils/workspaceHierarchy'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import { NAV_PAGES } from './navPages'
 	import {
@@ -23,7 +21,6 @@
 		FolderCog,
 		Github,
 		HelpCircle,
-		LogOut,
 		Newspaper,
 		Route,
 		Settings,
@@ -38,7 +35,6 @@
 	import { slide } from 'svelte/transition'
 	import UserMenu from './UserMenu.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
-	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { page } from '$app/state'
 	import SideBarNotification from './SideBarNotification.svelte'
@@ -64,7 +60,6 @@
 	import SidebarSectionHeader from './SidebarSectionHeader.svelte'
 	import GoogleCloudIcon from '../icons/triggers/GoogleCloudIcon.svelte'
 	import AzureIcon from '../icons/triggers/AzureIcon.svelte'
-	import { leaveCurrentWorkspace } from './leaveWorkspace'
 	import type { VisibilityKey } from '$lib/roleCapabilities'
 	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
 
@@ -172,8 +167,6 @@
 		excludeMainLabels = []
 	}: Props = $props()
 
-	let leaveWorkspaceModal = $state(false)
-
 	function computeAllNotificationsCount(menuItems: any[]) {
 		let count = 0
 		for (const menuItem of menuItems) {
@@ -182,7 +175,6 @@
 		return count
 	}
 
-	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
 	function allows(key: VisibilityKey) {
 		return $roleCapabilities.visibility[key]
 	}
@@ -382,11 +374,6 @@
 	let showTriggersGroup = $derived(
 		showAddTriggerMenu || triggerMenuLinks.some((link) => !link.disabled)
 	)
-	// Admins, superadmins, and fork creators reach workspace settings (the latter
-	// for the fork members screen; see isForkOwner / backend authorize_fork_owner_add_user).
-	const canManageWorkspace = $derived(
-		$userStore?.is_admin || $superadmin || isForkOwner(currentWs, $userStore?.email)
-	)
 	let secondaryMenuLinks = $derived([
 		// {
 		// 	label: 'Workspace',
@@ -409,18 +396,14 @@
 					aiDescription: 'Button to navigate to account settings',
 					faIcon: undefined
 				},
-				...(canManageWorkspace
-					? [
-							{
-								label: 'Workspace',
-								href: '/workspace_settings',
-								icon: FolderCog,
-								aiId: 'sidebar-menu-link-workspace',
-								aiDescription: 'Button to navigate to workspace settings',
-								faIcon: undefined
-							}
-						]
-					: []),
+				{
+					label: 'Workspace',
+					href: '/workspace_settings',
+					icon: FolderCog,
+					aiId: 'sidebar-menu-link-workspace',
+					aiDescription: 'Button to navigate to workspace settings',
+					faIcon: undefined
+				},
 				...($superadmin
 					? [
 							{
@@ -429,19 +412,6 @@
 								icon: ServerCog,
 								aiId: 'sidebar-menu-link-instance',
 								aiDescription: 'Button to navigate to instance settings',
-								faIcon: undefined
-							}
-						]
-					: []),
-				...(!$superadmin && !$userStore?.is_admin
-					? [
-							{
-								label: 'Leave workspace',
-								action: () => {
-									leaveWorkspaceModal = true
-								},
-								class: 'text-red-400',
-								icon: LogOut,
 								faIcon: undefined
 							}
 						]
@@ -762,22 +732,3 @@
 		{/if}
 	</div></nav
 >
-
-<!-- `alwaysPortal`: the sidebar's mobile slide-in panel keeps a `transform` that would
-     otherwise confine the dialog to the panel's width. -->
-<ConfirmationModal
-	open={leaveWorkspaceModal}
-	alwaysPortal
-	title="Leave workspace"
-	confirmationText="Leave workspace"
-	on:canceled={() => {
-		leaveWorkspaceModal = false
-	}}
-	on:confirmed={() => {
-		void leaveCurrentWorkspace()
-	}}
->
-	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to leave this workspace?</span>
-	</div>
-</ConfirmationModal>

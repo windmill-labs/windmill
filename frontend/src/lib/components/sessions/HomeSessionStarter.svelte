@@ -22,7 +22,6 @@
 	} from './sessionState.svelte'
 	import { useWorkModeLock } from './workModeLock.svelte'
 	import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
-	import { composerSentFromHome } from './homeSessionsTransition.svelte'
 	import { homeComposerContext } from './homeComposerContext.svelte'
 
 	// Home's block is the unsent session's own chat, run by that session's manager: the
@@ -57,7 +56,6 @@
 
 	// The turn is already running on the session's manager; the page it belongs to takes over.
 	function onSent() {
-		composerSentFromHome()
 		selectSession(sessionId)
 		void goto(sessionPageHref(sessionId))
 	}
@@ -127,7 +125,6 @@
 				suggestions: starterPrompts.suggestions,
 				restsOpen: starterPrompts.empty
 			}}
-			viewTransitionNames
 			{onSent}
 			workModeLock={workModeLock.current}
 		/>

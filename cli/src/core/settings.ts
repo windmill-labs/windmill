@@ -72,7 +72,6 @@ export interface SimplifiedSettings {
   deploy_ui?: any;
   teams_command_script?: string | null;
   public_app_execution_limit_per_minute?: number | null;
-  guest_access_enabled?: boolean;
   guest_jwt_public_key?: string | null;
   guest_jwt_jwks_url?: string | null;
   error_handler_fallback_to_instance_alerts?: boolean;
@@ -89,13 +88,16 @@ export const SETTINGS_MANAGED_ONLY_WHEN_PRESENT = [
   "deploy_ui",
   "teams_command_script",
   "public_app_execution_limit_per_minute",
-  "guest_access_enabled",
   "guest_jwt_public_key",
   "guest_jwt_jwks_url",
   "error_handler_fallback_to_instance_alerts",
   "add_admins_and_developers_to_forks",
   "variable_expiration_handler",
 ] as const;
+
+/** Keys earlier versions wrote that no longer configure anything; the server ignores them,
+ * so a file that still carries one must not show as differing from the workspace. */
+export const RETIRED_SETTINGS = ["guest_access_enabled"] as const;
 
 // Legacy settings interface for reading old settings.yaml files
 interface LegacySimplifiedSettings {

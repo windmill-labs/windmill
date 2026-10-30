@@ -41,11 +41,11 @@
 
 <div
 	class={twMerge(
-		'grow overflow-hidden text-xs',
-		!col ? 'grid grid-cols-2 gap-2' : 'flex flex-col max-h-screen gap-6 overflow-hidden'
+		'grow text-xs',
+		!col ? 'grid grid-cols-2 gap-2 overflow-hidden' : 'flex flex-col gap-6 min-h-0'
 	)}
 >
-	<div class="relative flex flex-col gap-1">
+	<div class="relative flex flex-col gap-1 {col ? 'min-h-[120px] max-h-[50%]' : ''}">
 		<span class="text-emphasis text-xs font-semibold">Result</span>
 		<div
 			class="{col
@@ -69,10 +69,13 @@
 			{/if}
 		</div>
 	</div>
-	<div class="relative flex flex-col gap-1">
+	<div class="relative flex flex-col gap-1 {col ? 'flex-1 min-h-[400px]' : ''}">
 		<span class="text-emphasis text-xs font-semibold">Logs</span>
 		<div class="rounded-md grow min-h-0 border bg-surface-tertiary overflow-hidden">
+			<!-- In col mode the caller gives this column a definite height and the log box fills it:
+			     a max-h cap of its own would overflow the column and get its tail clipped -->
 			<LogViewer
+				noMaxH={col}
 				{tagLabel}
 				download={downloadLogs}
 				content={logs ?? ''}

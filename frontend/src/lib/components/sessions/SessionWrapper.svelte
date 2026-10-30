@@ -33,7 +33,6 @@
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { Archive, ArchiveRestore, EllipsisVertical, Pencil, Trash2 } from 'lucide-svelte'
-	import { arrivingFromHomeSend } from './homeSessionsTransition.svelte'
 	import SessionChangesBar from './SessionChangesBar.svelte'
 	import SessionShareButton from './SessionShareButton.svelte'
 	import {
@@ -54,22 +53,29 @@
 		setSessionArchived,
 		syncWorkspaceTo,
 		withOpenSessionTeardown,
-		type Session
+		type Session,
+		type SessionPreviewTab
 	} from './sessionState.svelte'
 	import { leaveForHome } from './sessionSwitch.svelte'
 	import { getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
+	import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
+	import { resolvePreviewTab } from './previewRouter'
+	import { whereIs } from './sessionPreviewTabs.svelte'
 
 	let {
 		sessionId,
 		headerInPage = false,
-		covered = false
+		covered = false,
+		previewTabName
 	}: {
 		sessionId: string
 		/** True for the session the page is showing: its header rides the page header bar. */
 		headerInPage?: boolean
 		/** True while the page holds this wrapper inert under an overlay, where nothing takes focus. */
 		covered?: boolean
+		/** The name the preview's tab strip shows for a tab, without its side marker. */
+		previewTabName: (tab: SessionPreviewTab) => string
 	} = $props()
 
 	// Parent keys by sessionId; this wrapper only mounts when the session exists.
@@ -81,14 +87,36 @@
 		setContext<AIChatManager>('aiChatManager', runtime.manager)
 	}
 
-	// Reactive session reference (mutations to summary/target propagate via the $state proxy)
-	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
+	// Reactive session reference (mutations to summary/target propagate via the $state proxy).
+	// Falls back to the mounted session once it is deleted: the layout's header reads this
+	// through PageHeaderContent, outside the page's tree, once more before the wrapper unmounts.
+	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId) ?? initialSession)
 
 	const permissions = useSessionPermissions(
 		() => runtime?.manager.operatingWorkspace,
 		() => runtime?.manager
 	)
 	const workModeLock = useWorkModeLock(() => session)
+	// Whether the first message goes out in Use. Not `permissions.readOnly`: before that send a
+	// staged fork's session reads the workspace it forks, while the message builds in the fork.
+	const heldInUse = $derived(!!workModeLock.current || runtime?.manager.workMode === AIWorkMode.USE)
+	// The item an unsent session opened on ("Open in AI session", or a tab opened before the
+	// first send): the chat reads the displayed tab with each message, so the empty chat asks
+	// about that item. What is on screen only: a collapsed panel hides it. Named as its tab is,
+	// so a deployed item in View mode gets its summary from the listing. The first send commits
+	// the workspace, so an unsent session is one without it.
+	const previewedItem = $derived.by(() => {
+		if (session?.workspace_id) return undefined
+		const tab = runtime?.previewTabs.displayedTab
+		if (!tab) return undefined
+		const slot = resolvePreviewTab(whereIs(tab))
+		if (slot.kind !== 'editor' && slot.kind !== 'viewer') return undefined
+		const kind = slot.kind === 'editor' ? slot.editorKind : slot.viewerKind
+		return {
+			kind: kind === 'raw_app' ? 'app' : kind,
+			name: previewTabName(tab)
+		}
+	})
 
 	// Seed the composer with the unsent prompt a reload preserved on the session
 	// record (script-init: AIChatInput reads it once at mount).
@@ -327,6 +355,13 @@
 	// utilities on one element resolve by stylesheet order, not attribute order.
 	const bannerClass =
 		'flex flex-row items-center justify-between gap-2 py-2 px-3 text-xs border rounded-md'
+
+	const previewedItemPlaceholder = $derived(
+		previewedItem &&
+			(heldInUse
+				? `Ask about the ${previewedItem.kind} ${previewedItem.name}, or run it…`
+				: `Ask about the ${previewedItem.kind} ${previewedItem.name}, or describe a change…`)
+	)
 </script>
 
 {#if !session || !runtime}
@@ -478,14 +513,13 @@
 							onDraftChange={(text) => setSessionDraftPrompt(sessionId, text)}
 							initialAttachments={armedAtInit ? undefined : getSessionDraftAttachments(sessionId)}
 							onAttachmentsChange={(a) => setSessionDraftAttachments(sessionId, a)}
-							placeholder={composerPlaceholder}
+							placeholder={previewedItemPlaceholder ?? composerPlaceholder}
 							forceDisabled={isUnavailable || !!session.archived}
 							forceDisabledMessage={isUnavailable
 								? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
 								: session.archived
 									? 'This session is archived. Unarchive it from the banner above to keep working.'
 									: ''}
-							viewTransitionNames={headerInPage && arrivingFromHomeSend()}
 							emptyHint={sessionEmptyHint}
 							{inputPreface}
 							workModeLock={workModeLock.current}
@@ -505,7 +539,7 @@
 									bind:value={() => draftText, setPlaceholderText}
 									placeholder={runtime.manager.displayMessages.length > 0
 										? 'Ask followup'
-										: composerPlaceholder}
+										: (previewedItemPlaceholder ?? composerPlaceholder)}
 									disabled={isUnavailable || !!session.archived}
 									autofocus={sessionState.currentSessionId === sessionId && !covered}
 									onSelectionChange={(selection) => (handoff = selection ?? null)}

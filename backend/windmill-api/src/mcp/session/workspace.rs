@@ -58,7 +58,7 @@ pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult 
 //                     is_template, language, kind`, + `parent_hash` once forked from a deploy)
 //   flow              the `Flow` object (`path, summary, description, value, schema`, +
 //                     `version_id` when forked from a deploy)
-//   raw_app           `{summary, files, runnables, data, policy?, custom_path?,
+//   raw_app           `{summary, files, runnables, data, policy?, custom_path?, labels?,
 //                     parent_version?, draft_path?}` (`normalize_app_draft`)
 //   trigger_schedule  the schedule request body; `trigger_<kind>` that trigger's body
 //   resource          `{path, description, args, labels, wsSpecific, resource_type}`
@@ -277,6 +277,18 @@ pub(super) async fn get_deployed(
         .await
 }
 
+/// Who can open the deployed app at `path`, which the Share dialog sets and a deploy keeps.
+pub(super) async fn deployed_execution_mode(
+    ctx: &Ctx<'_>,
+    path: &str,
+) -> Result<Option<Value>, String> {
+    Ok(ctx
+        .get(&ctx.ws(&format!("apps/get/lite/{}", path_enc(path))))
+        .await?
+        .pointer("/policy/execution_mode")
+        .cloned())
+}
+
 pub(super) struct Draft {
     pub value: Value,
     pub created_at: Option<String>,
@@ -384,7 +396,13 @@ pub(super) fn normalize_app_draft(value: &Value) -> Value {
             .cloned()
             .unwrap_or_else(|| json!({ "tables": [] })),
     );
-    for key in ["policy", "custom_path", "parent_version", "draft_path"] {
+    for key in [
+        "policy",
+        "custom_path",
+        "labels",
+        "parent_version",
+        "draft_path",
+    ] {
         put(&mut out, key, value.get(key).cloned());
     }
     Value::Object(out)
@@ -695,6 +713,7 @@ pub(super) fn app_source_to_draft_value(app: &Value, fallback: Option<&Value>) -
     out.insert("data".into(), data);
     put(&mut out, "policy", or_fallback("policy"));
     put(&mut out, "custom_path", or_fallback("custom_path"));
+    put(&mut out, "labels", or_fallback("labels"));
     // The fork base: the head of a deployed app's versions, or what a draft already pinned.
     let head = app
         .get("versions")
@@ -800,20 +819,15 @@ pub(super) async fn describe_app_exposure(ctx: &Ctx<'_>, mode: Option<&Value>) -
     if mode.and_then(Value::as_str) != Some("guest") {
         return mode.cloned();
     }
-    let usage = ctx.get(&ctx.ws("workspaces/guest_usage")).await;
-    let settings = ctx.get(&ctx.ws("workspaces/get_public_settings")).await;
-    // A switch that could not be read proves nothing either way: report the mode bare.
-    let (Ok(usage), Ok(settings)) = (usage, settings) else {
+    // A deployment that could not be read proves nothing either way: report the mode bare.
+    let Ok(usage) = ctx.get(&ctx.ws("workspaces/guest_usage")).await else {
         return mode.cloned();
     };
-    let live = truthy(usage.get("available"))
-        && truthy(usage.get("instance_enabled"))
-        && truthy(settings.get("guest_access_enabled"));
-    if live {
+    if truthy(usage.get("available")) {
         mode.cloned()
     } else {
         Some(json!(
-            "guest, but inert: the instance or workspace admits no guest, so this app admits members only"
+            "guest, but inert: this deployment admits no guest, so this app admits members only"
         ))
     }
 }
@@ -1023,7 +1037,7 @@ pub(super) fn is_agent(value: &Value) -> bool {
 }
 
 /// The editor that shows the user's draft: a detail page shows only the deployed version.
-fn draft_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
+pub(super) fn draft_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
     Some(match item_type {
         "script" => format!("/scripts/edit/{path}?nomenubar=true"),
         "flow" => format!("/flows/edit/{path}?nomenubar=true"),
@@ -1414,6 +1428,64 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     Ok(pretty(&Value::Array(results)))
 }
 
+/// The card of one workspace item: what `read_workspace_item` returns, under a one-line
+/// answer, with the item's page and the editor its draft opens in.
+pub(super) async fn show_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let item_type = item_type_arg(args)?;
+    // A variable's value never reaches a tool, which leaves its card nothing to show.
+    if item_type == "variable" {
+        return Err("show_item does not show variables.".to_string());
+    }
+    let path = str_arg(args, "path")?;
+    let text = read_workspace_item(ctx, args).await?;
+    let item: Value = serde_json::from_str(&text).map_err(|_| text.clone())?;
+    if item.get("success") == Some(&Value::Bool(false)) {
+        return Err(item["error"].as_str().unwrap_or(&text).to_string());
+    }
+    // Triggers have no page of their own: their kind's list is where one is seen.
+    let page = match (item_type, opt_str_arg(args, "trigger_kind")) {
+        ("trigger", Some("http")) => Some("/routes".to_string()),
+        ("trigger", Some(kind)) => Some(format!("/{kind}_triggers")),
+        // The value tells an AI agent, which has pages of its own, from a resource.
+        _ => super::deploy::deployed_page(item_type, path, &item["value"]),
+    };
+    let url = |page: Option<String>| page.map(|page| ctx.page_url(&page));
+    let edit_url = url(edit_page(item_type, path, &item));
+    // What a schedule or a trigger runs, on its own page.
+    let value = &item["value"];
+    let runs_url = url(value["script_path"].as_str().and_then(|target| {
+        let kind = if truthy(value.get("is_flow")) {
+            "flow"
+        } else {
+            "script"
+        };
+        super::deploy::deployed_page(kind, target, &Value::Null)
+    }));
+    ctx.set_view(
+        "windmill/item",
+        json!({
+            "workspace": ctx.w_id,
+            "item": item,
+            "url": url(page),
+            "edit_url": edit_url,
+            "runs_url": runs_url,
+        }),
+    );
+    Ok(format!(
+        "Showing {item_type} \"{path}\" to the user as a card."
+    ))
+}
+
+/// The editor an item's draft opens in. An app's is its own editor: its page shows only the
+/// deployed version, and a new app has none.
+fn edit_page(item_type: &str, path: &str, item: &Value) -> Option<String> {
+    match item_type {
+        "app" if truthy(item.get("rawApp")) => Some(format!("/apps_raw/edit/{path}")),
+        "app" => Some(format!("/apps/edit/{path}")),
+        _ => draft_page(item_type, path, &item["value"]),
+    }
+}
+
 async fn read_workspace_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     if let Some(access_type) = opt_str_arg(args, "type").filter(|t| ACCESS_TYPES.contains(t)) {
         return read_access_entity(ctx, access_type, str_arg(args, "path")?).await;
@@ -1433,12 +1505,19 @@ async fn read_workspace_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 
     if !deployed_only && !hub {
         if let Some((item, _)) = get_draft_item(ctx, item_type, path, trigger_kind).await? {
-            // The mode reported is the draft's, which is what deploying it will write.
+            // The mode reported is the one deploying the draft leaves: a deployed app keeps
+            // its own, which the Share dialog sets, and a never-deployed one takes the draft's.
             let mode = if item_type == "app" {
-                let mode = item
-                    .get("value")
-                    .and_then(|v| v.get("policy"))
-                    .and_then(|p| p.get("execution_mode"));
+                let deployed = if item_exists(ctx, "app", None, path).await? {
+                    deployed_execution_mode(ctx, path).await?
+                } else {
+                    None
+                };
+                let mode = deployed.as_ref().or_else(|| {
+                    item.get("value")
+                        .and_then(|v| v.get("policy"))
+                        .and_then(|p| p.get("execution_mode"))
+                });
                 describe_app_exposure(ctx, mode).await
             } else {
                 None
@@ -1972,6 +2051,17 @@ mod tests {
             json!({ "type": "script", "path": "u/a/s", "summary": "s", "language": "bun", "value": "x", "parentHash": "h", "isDraft": true })
         );
         assert!(draft_item("app", "u/a/s", &draft).is_none());
+    }
+
+    #[test]
+    fn normalize_app_draft_keeps_labels() {
+        // Every session save goes through this whitelist: a field missing here is
+        // stripped from a draft the editor wrote.
+        let draft = json!({ "files": {}, "labels": ["a"] });
+        assert_eq!(
+            normalize_app_draft(&draft).get("labels"),
+            Some(&json!(["a"]))
+        );
     }
 
     #[test]

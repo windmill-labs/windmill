@@ -38,8 +38,9 @@ use windmill_ai::ai_cache::bump_instance_ai_config_revision;
 use windmill_common::{
     agent_workers::AgentConfig,
     global_settings::{
-        AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUDIT_LOG_RETENTION_DAYS_SETTING,
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, BUN_INSTALL_MIN_RELEASE_AGE_SETTING,
+        AI_CONFIG_SETTING, API_BASE_URL_APPLIES_TO_SETTING, API_BASE_URL_SETTING,
+        APP_WORKSPACED_ROUTE_SETTING, AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING,
+        BUNFIG_INSTALL_SCOPES_SETTING, BUN_INSTALL_MIN_RELEASE_AGE_SETTING,
         CONCURRENCY_KEY_MAX_QUEUED_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
         CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
@@ -129,10 +130,10 @@ use windmill_worker::{
 };
 
 use crate::monitor::{
-    initial_load, load_concurrency_key_max_queued, load_dependency_job_tag,
-    load_dev_workspace_isolation, load_dev_workspace_isolation_skip_non_dev_forks,
-    load_dev_workspace_tag_suffix, load_disable_password_login,
-    load_fork_workspace_tag_append_fork_suffix, load_keep_job_dir,
+    initial_load, load_api_base_url, load_api_base_url_applies_to, load_concurrency_key_max_queued,
+    load_dependency_job_tag, load_dev_workspace_isolation,
+    load_dev_workspace_isolation_skip_non_dev_forks, load_dev_workspace_tag_suffix,
+    load_disable_password_login, load_fork_workspace_tag_append_fork_suffix, load_keep_job_dir,
     load_mcp_disable_token_query_param, load_metrics_debug_enabled, load_preview_tags_override,
     load_require_preexisting_user, load_retention_period_overrides, load_tag_per_workspace_enabled,
     load_tag_per_workspace_workspaces, load_workspace_fairness_duration_secs,
@@ -310,6 +311,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     for git_sync_path in [
         windmill_common::workspaces::LATEST_GIT_SYNC_SCRIPT_PATH,
         windmill_common::workspaces::GIT_SYNC_PULL_SCRIPT_PATH,
+        windmill_common::workspaces::GIT_SYNC_REVIEW_SCRIPT_PATH,
     ] {
         let git_sync_path = git_sync_path.to_string();
         if !all_paths.contains(&git_sync_path) {
@@ -2050,6 +2052,12 @@ async fn process_notify_event(
                 }
                 MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING => {
                     load_mcp_disable_token_query_param(db).await;
+                }
+                API_BASE_URL_SETTING => {
+                    load_api_base_url(db).await;
+                }
+                API_BASE_URL_APPLIES_TO_SETTING => {
+                    load_api_base_url_applies_to(db).await;
                 }
                 EXPOSE_METRICS_SETTING => {
                     tracing::info!("Metrics setting changed, restarting");
