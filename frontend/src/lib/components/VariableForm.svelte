@@ -131,7 +131,7 @@
 		if (next === 'ref') variable.value = formatVaultRef('', '')
 	}
 	let allowedPrefixes = resource(
-		() => (externalRef && canEditRef ? ws : undefined),
+		() => (canEditRef ? ws : undefined),
 		async (ws) =>
 			ws ? await VariableService.listExternalSecretPrefixes({ workspace: ws }) : undefined
 	)
@@ -186,7 +186,9 @@
 						? secretLocked
 						: kind === 'ref' && (!canEditRef || isEncryptedDraftValue(variable.value))}
 				/>
-				{#if canEditRef || externalRef}
+				<!-- Without an allowed prefix (the `external_secrets` setting unset, or naming no
+				prefix for this workspace) every reference is refused, so none can be created. -->
+				{#if externalRef || (canEditRef && allowedPrefixes.current?.length)}
 					<ToggleButton
 						value="ref"
 						label="Vault reference"
