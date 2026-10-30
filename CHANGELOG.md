@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.854.2](https://github.com/windmill-labs/windmill/compare/v1.854.1...v1.854.2) (2026-10-30)
+
+
+### Bug Fixes
+
+* read a new app's links before its session draft is discarded ([#12114](https://github.com/windmill-labs/windmill/issues/12114)) ([48493f8](https://github.com/windmill-labs/windmill/commit/48493f8ad29ec97055c7478dbf6e6f7c80db7590))
+
 ## [1.854.1](https://github.com/windmill-labs/windmill/compare/v1.854.0...v1.854.1) (2026-10-30)
 
 
