@@ -21,6 +21,7 @@ import { userScopedDb } from '$lib/userScopedDb'
 import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
+import { deleteSessionHandEdits } from './sessionHandEdits.svelte'
 import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
 import type { DraftAttachments } from '../copilot/chat/messageDraft.svelte'
 import type { AppDomSelectorElement } from '../copilot/chat/context'
@@ -683,6 +684,7 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 				// here would orphan the session's attached-file blobs/handles.
 				void deleteItemsForSession(s.id)
 				void deleteArtifactsForSession(s.id)
+				deleteSessionHandEdits(s.id)
 				deletedIds.add(s.id)
 				continue
 			}
@@ -1601,6 +1603,7 @@ export function deleteSession(id: string) {
 	// GC any linked files and artifacts persisted for this session.
 	void deleteItemsForSession(id)
 	void deleteArtifactsForSession(id)
+	deleteSessionHandEdits(id)
 	// Only a delete the user asked for takes the backup with it: the workspace-lifecycle
 	// removals above keep theirs, so a session dropped by a wrong reconcile can be restored.
 	markSessionRemoved(id, s.workspace_id)

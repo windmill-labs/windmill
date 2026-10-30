@@ -47,8 +47,7 @@ import {
 	localRunEnded,
 	localRunStarted,
 	onRemoteTurnEnd,
-	runHeldElsewhere,
-	localRecordWritten
+	runHeldElsewhere
 } from './sessionSync.svelte'
 import {
 	commitSessionWorkspace,
@@ -449,7 +448,6 @@ function createRuntime(session: Session): SessionRuntime {
 		if (running) localRunStarted(session.id, manager.historyManager.getCurrentChatId())
 		else localRunEnded(session.id, manager.historyManager.getCurrentChatId())
 	}
-	manager.onRecordWritten = (chatId) => localRecordWritten(session.id, chatId)
 	// The chat targets the session's OWN (possibly forked) workspace without
 	// switching the global workspaceStore. Resolved live from the session record
 	// so it tracks the pending → committed (and staged-fork) transitions.
@@ -1480,7 +1478,6 @@ async function applyRemoteTurnEnd(sessionId: string, chatId: string): Promise<vo
 	// draft queued here (a refused send's kept message, a failed turn's card)
 	// is unsent user input the re-read must not destroy.
 	await m.loadPastChat(chatId, { preserveQueue: true })
-	await m.flushHeldEditedItems()
 	// loadPastChat's own artifact sync no-ops for an unchanged session id, so
 	// artifacts the driver wrote during the turn need this forced re-read.
 	await m.artifacts.resyncFromStore()

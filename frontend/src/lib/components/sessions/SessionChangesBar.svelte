@@ -28,6 +28,7 @@
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { maskKey } from './modifiedItemsMask'
+	import { removeHandEdit, renameHandEdit, sessionHandEdits } from './sessionHandEdits.svelte'
 	import { badgeCounts, badgeOf, buildDeployItems, type DeployItem } from './sessionDeployModel'
 	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
 	import { previewTargetForDeployKind } from './sessionPreviewTabs.svelte'
@@ -89,7 +90,13 @@
 	// The chat's modified-items mask (`${UserDraftItemKind}:${storagePath}`).
 	// undefined = legacy/untracked chat → fall back to showing every draft.
 	// A Set (even empty) → filter to just this chat's items.
-	const mask = $derived(runtime?.manager.modifiedItems)
+	// Plus the items the user edited by hand in the session's tabs, which are as much its
+	// changes as the chat's are.
+	const mask = $derived.by(() => {
+		const chatMask = runtime?.manager.modifiedItems
+		if (!chatMask) return undefined
+		return new Set([...chatMask, ...sessionHandEdits(session.id)])
+	})
 
 	// Workspace Drafts (fetches on mount and on every Server-Draft invalidation);
 	// scoped to the chat's mask inside the deploy model below.
@@ -440,10 +447,13 @@
 		keys={mask}
 		agentPaths={agentPaths.current}
 		onDataChanged={refreshDock}
-		onItemDeployed={(item) =>
-			void runtime?.manager.renameModifiedItem(item.draftKind, item.path, item.displayPath)}
+		onItemDeployed={(item) => {
+			void runtime?.manager.renameModifiedItem(item.draftKind, item.path, item.displayPath)
+			renameHandEdit(session.id, item.draftKind, item.path, item.displayPath)
+		}}
 		onItemDiscarded={(item) => {
 			void runtime?.manager.removeModifiedItem(item.draftKind, item.path)
+			removeHandEdit(session.id, item.draftKind, item.path)
 			const folder = pipelineFolderFromBundlePath(item.path)
 			if (item.draftKind === PIPELINE_DRAFT_KIND && folder)
 				void runtime?.forgetPipelineDrafts(folder)

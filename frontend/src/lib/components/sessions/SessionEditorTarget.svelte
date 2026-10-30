@@ -5,6 +5,7 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import type { SessionRuntime, SessionTargetKind } from './sessionRuntime.svelte'
 	import { useUserDraftSync, type DraftSyncCodec } from './useUserDraftSync.svelte'
+	import { recordHandEdit } from './sessionHandEdits.svelte'
 	import { makeFlowCodec, makeScriptCodec, makeRawAppCodec } from './sessionDraftCodecs'
 	import { itemDisplayName } from './previewRouter'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
@@ -138,7 +139,7 @@
 		ready: () => slot.loadedPath === path,
 		codec: () => codec,
 		// A hand edit is the session's change as much as a chat edit is, so its changes bar lists it.
-		onSaved: (itemKind, p) => void runtime.manager.recordEditedItem(itemKind, p)
+		onSaved: (itemKind, p) => recordHandEdit(runtime.sessionId, itemKind, p)
 	})
 
 	// Stamp the tab's friendly label once this editor's cell knows how to name the
