@@ -573,7 +573,7 @@ leaves and ignores the current scope.
 		{#if leafBadge || leafAction}
 			<!-- Both sit in one grid cell so they cross-fade in place rather than sitting
 			     side by side or shifting the row as one replaces the other. -->
-			<div class="shrink-0 w-[4.5rem] grid justify-items-end items-center pl-2">
+			<div class="shrink-0 min-w-[4.5rem] grid justify-items-end items-center pl-2">
 				{#if action}
 					<!-- `invisible`, not `hidden`: display cannot be transitioned, while
 					     visibility both fades with opacity and keeps the button out of the tab
@@ -583,7 +583,7 @@ leaves and ignores the current scope.
 					     twMerged with the button's own `flex`, which drops a conflicting
 					     display and leaves it showing beside the badge. -->
 					<div
-						class="col-start-1 row-start-1 invisible opacity-0 transition-[opacity,visibility] duration-150 group-hover:visible group-hover:opacity-100"
+						class="col-start-1 row-start-1 whitespace-nowrap invisible opacity-0 transition-[opacity,visibility] duration-150 group-hover:visible group-hover:opacity-100"
 					>
 						<Button
 							unifiedSize="xs"

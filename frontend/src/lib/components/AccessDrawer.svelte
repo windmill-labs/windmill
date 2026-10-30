@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Badge, Drawer, DrawerContent, Section, Skeleton } from './common'
+	import { Alert, Badge, Button, Drawer, DrawerContent, Section, Skeleton } from './common'
 	import TextInput from './text_input/TextInput.svelte'
 	import Select from './select/Select.svelte'
 	import DataTable from './table/DataTable.svelte'
@@ -7,11 +7,16 @@
 	import Cell from './table/Cell.svelte'
 	import { GranularAclService, type AccessReason, type PrincipalAccess } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
+	import type { Item } from '$lib/utils'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
-	import { Tab, Tabs } from './common'
-	import AccessGrantPanel from './access/AccessGrantPanel.svelte'
+	import { Plus } from 'lucide-svelte'
+	import Popover from './meltComponents/Popover.svelte'
+	import DropdownV2 from './DropdownV2.svelte'
 	import AddNeededAccess from './access/AddNeededAccess.svelte'
-	import { KIND_LABELS } from './access/access'
+	import GrantNavigator from './access/GrantNavigator.svelte'
+	import { KIND_LABELS, setGrant, type GrantLevel } from './access/access'
+	import type { RunnableKind } from './access/detectNeeds'
 	import DeployersField from './access/DeployersField.svelte'
 
 	type Target = 'self' | 'user' | 'service_account' | 'group'
@@ -26,7 +31,8 @@
 	let search = $state('')
 	let kind: string | undefined = $state()
 	let nbDisplayed = $state(PAGE)
-	let tab: 'access' | 'grant' = $state('access')
+	let grantOpen = $state(false)
+	let needsOf: { kind: RunnableKind; path: string } | undefined = $state()
 	// Responses are not ordered: a slow answer for the previous principal must not land on this one.
 	let requestId = 0
 
@@ -38,7 +44,8 @@
 		search = ''
 		kind = undefined
 		nbDisplayed = PAGE
-		tab = 'access'
+		grantOpen = false
+		needsOf = undefined
 		drawer?.openDrawer()
 		logFeatureUsage('access_view', 'opened', { key: nextTarget })
 		await reload()
@@ -57,9 +64,49 @@
 		}
 	}
 
-	function selectTab(next: 'access' | 'grant') {
-		tab = next
-		if (next === 'grant') logFeatureUsage('access_view', 'grant_opened')
+	function setGrantOpen(next: boolean) {
+		grantOpen = next
+		if (next) logFeatureUsage('access_view', 'grant_opened')
+	}
+
+	function findReads(kind: RunnableKind, path: string) {
+		grantOpen = false
+		needsOf = { kind, path }
+	}
+
+	/** The principal's own entry on an item: `true` for write, `false` for read. */
+	function ownItemGrant(item: PrincipalAccess['items'][number]): boolean | undefined {
+		const reason = item.reasons.find((r) =>
+			isGroup ? r.type === 'group' && r.group === name : r.type === 'user'
+		)
+		return reason ? !!reason.write : undefined
+	}
+
+	async function changeGrant(kind: string, path: string, level: GrantLevel) {
+		try {
+			await setGrant($workspaceStore!, kind, path, principal, level)
+		} catch (e) {
+			const what = kind === 'folder' ? `f/${path}` : path
+			sendUserToast(`Could not change access to ${what}: ${e?.body ?? e}`, true)
+		}
+		await reload()
+	}
+
+	/** `current` is the grant's level when known; a folder's entry is only known to exist. */
+	function grantActions(kind: string, path: string, current?: boolean): Item[] {
+		return [
+			{
+				displayName: 'Read',
+				disabled: current === false,
+				action: () => changeGrant(kind, path, 'read')
+			},
+			{
+				displayName: 'Write',
+				disabled: current === true,
+				action: () => changeGrant(kind, path, 'write')
+			},
+			{ displayName: 'Remove', type: 'delete', action: () => changeGrant(kind, path, 'none') }
+		]
 	}
 
 	const reads = $derived(new Set((access?.items ?? []).map((i) => `${i.kind}:${i.path}`)))
@@ -131,16 +178,6 @@
 					{principal} is an admin of this workspace and can read and write every item in it.
 				</Alert>
 			{:else}
-				<Tabs bind:selected={() => tab, (v) => selectTab(v as 'access' | 'grant')}>
-					<Tab value="access" label="Access" />
-					<Tab value="grant" label="Grant" />
-				</Tabs>
-			{/if}
-
-			{#if access && !access.is_admin && tab === 'grant'}
-				<AddNeededAccess {principal} {reads} onGranted={reload} />
-				<AccessGrantPanel {principal} onChanged={reload} />
-			{:else if access && !access.is_admin}
 				{#if target === 'service_account' && $userStore?.is_admin}
 					<Section label="Who can deploy as it" small>
 						{#key principal}
@@ -167,7 +204,8 @@
 								<tr>
 									<Cell head first>Folder</Cell>
 									<Cell head>Access</Cell>
-									<Cell head last>Why</Cell>
+									<Cell head>Why</Cell>
+									<Cell head last />
 								</tr>
 							</Head>
 							<tbody class="divide-y">
@@ -175,7 +213,7 @@
 									<tr>
 										<Cell first>f/{folder.name}</Cell>
 										<Cell>{folder.write ? 'Write' : 'Read'}</Cell>
-										<Cell last>
+										<Cell>
 											<div class="flex flex-wrap gap-1">
 												{#if folder.owner}
 													<Badge color="blue">Owner</Badge>
@@ -184,6 +222,11 @@
 													<Badge color="gray">{folderVia(via)}</Badge>
 												{/each}
 											</div>
+										</Cell>
+										<Cell last>
+											{#if !folder.owner && folder.via.includes(principal)}
+												<DropdownV2 items={grantActions('folder', folder.name)} />
+											{/if}
 										</Cell>
 									</tr>
 								{/each}
@@ -195,7 +238,46 @@
 				</Section>
 
 				<Section label={`Items (${access.items.length})`} small>
+					{#snippet action()}
+						<Popover
+							placement="bottom-end"
+							usePointerDownOutside
+							disableFocusTrap
+							closeOnOtherPopoverOpen
+							bind:isOpen={() => grantOpen, setGrantOpen}
+							openFocus="[data-workspace-picker-search]"
+							contentClasses="flex flex-col overflow-hidden"
+						>
+							{#snippet trigger()}
+								<Button
+									variant="default"
+									unifiedSize="sm"
+									nonCaptureEvent
+									startIcon={{ icon: Plus }}
+								>
+									Grant
+								</Button>
+							{/snippet}
+							{#snippet content()}
+								{#if access}
+									<GrantNavigator {principal} {access} onGranted={reload} onFindReads={findReads} />
+								{/if}
+							{/snippet}
+						</Popover>
+					{/snippet}
 					<div class="flex flex-col gap-2">
+						{#if needsOf}
+							{#key `${needsOf.kind}:${needsOf.path}`}
+								<AddNeededAccess
+									{principal}
+									kind={needsOf.kind}
+									path={needsOf.path}
+									{reads}
+									onGranted={reload}
+									onClose={() => (needsOf = undefined)}
+								/>
+							{/key}
+						{/if}
 						<div class="flex gap-2">
 							<TextInput
 								bind:value={search}
@@ -225,16 +307,18 @@
 										<Cell head first>Path</Cell>
 										<Cell head>Kind</Cell>
 										<Cell head>Access</Cell>
-										<Cell head last>Why</Cell>
+										<Cell head>Why</Cell>
+										<Cell head last />
 									</tr>
 								</Head>
 								<tbody class="divide-y">
 									{#each filteredItems.slice(0, nbDisplayed) as item (item.kind + ':' + item.path)}
+										{@const own = ownItemGrant(item)}
 										<tr>
 											<Cell first><span class="font-mono text-2xs">{item.path}</span></Cell>
 											<Cell>{KIND_LABELS[item.kind] ?? item.kind}</Cell>
 											<Cell>{item.write ? 'Write' : 'Read'}</Cell>
-											<Cell last>
+											<Cell>
 												<div class="flex flex-wrap gap-1">
 													{#each item.reasons as reason, i (i)}
 														{@const level = reasonAccess(reason)}
@@ -245,6 +329,11 @@
 														</Badge>
 													{/each}
 												</div>
+											</Cell>
+											<Cell last>
+												{#if own !== undefined}
+													<DropdownV2 items={grantActions(item.kind, item.path, own)} />
+												{/if}
 											</Cell>
 										</tr>
 									{/each}
