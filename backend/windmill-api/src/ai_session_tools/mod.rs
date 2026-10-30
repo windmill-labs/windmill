@@ -691,12 +691,14 @@ pub(crate) async fn mint_caller_jwt(
     // Carry the caller's job provenance into the JWT: a job's WM_TOKEN is capped at
     // workspace admin (GHSA-hfh4-cx4h-3fcr), and dropping `job_id` here would re-mint an
     // uncapped token that satisfies require_super_admin / require_devops_role.
+    // A browser caller stays a session: runs, trigger history and schedules attribute a
+    // session's actions to the UI, and anything else to the API (`webhook`).
     create_jwt_token(
         windmill_common::db::Authed::from(api_authed.clone()),
         workspace_id,
         3600,
         api_authed.job_id,
-        None,
+        api_authed.is_session_token.then(|| "session".to_string()),
         None,
         scopes,
     )
