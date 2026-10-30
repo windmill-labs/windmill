@@ -1222,7 +1222,7 @@ function createRuntime(session: Session): SessionRuntime {
 				UserDraft.stopSync(kind, storagePath, { workspace })
 				UserDraft.discard(kind, storagePath, undefined, { workspace })
 				previewTabs.retargetEditor({ kind, path: storagePath }, { kind, path: deployedPath })
-				navRouteItemMoved(kind === 'raw_app' ? 'app' : kind, storagePath, deployedPath)
+				navRouteItemMoved(kind === 'raw_app' ? 'app' : kind, workspace, storagePath, deployedPath)
 			}
 			const path = deployedPath
 			// After deploy the editor state equals the deployed value; the reload

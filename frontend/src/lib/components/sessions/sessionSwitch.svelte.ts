@@ -62,6 +62,7 @@ export function rememberNavRoute(pathnameWithSearch: string): void {
  */
 export function navRouteItemMoved(
 	kind: 'flow' | 'script' | 'app',
+	workspace: string,
 	fromPath: string,
 	toPath: string
 ): void {
@@ -70,11 +71,15 @@ export function navRouteItemMoved(
 	if (route?.kind !== kind || route.itemPath !== fromPath) return
 	const [pathname, query] = lastNavRoute.split('?')
 	if (!pathname.endsWith(`/${fromPath}`)) return
+	// A session may deploy to a fork of the workspace the route is on, where the same path names
+	// another item: only a move in the route's own workspace is this item's.
+	const routeWorkspace = (query && new URLSearchParams(query).get('workspace')) || undefined
+	if ((routeWorkspace ?? get(workspaceStore)) !== workspace) return
 	const prefix = pathname.slice(0, pathname.length - fromPath.length)
 	// The flags a new item's editor carries (`new_draft`, `nodraft`) describe the draft, not the
 	// deployed item: keep only the workspace.
-	const workspace = query ? new URLSearchParams(query).get('workspace') : null
-	lastNavRoute = prefix + toPath + (workspace ? `?workspace=${encodeURIComponent(workspace)}` : '')
+	lastNavRoute =
+		prefix + toPath + (routeWorkspace ? `?workspace=${encodeURIComponent(routeWorkspace)}` : '')
 }
 
 /** An item editor the user reached session mode from, as the in-app href a new
