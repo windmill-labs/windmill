@@ -121,6 +121,10 @@ export function canonicalRawAppDiffValue(source: Record<string, any>) {
 	return stripRawAppDiffNoise(appSourceToDraftValue(source))
 }
 
+/** A boolean editor-layout preference (file sidebar, split with preview), owned and
+ * typically persisted by whoever passes it. */
+export type LayoutFlag = { val: boolean }
+
 export type RawAppRuntimeLogLevel = 'log' | 'info' | 'warn' | 'error' | 'debug'
 export type RawAppRuntimeLogEntry = {
 	level: RawAppRuntimeLogLevel

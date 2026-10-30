@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.854.2
+  version: 1.855.1
   title: Windmill API
 
   contact:
@@ -13732,6 +13732,11 @@ paths:
               - test
               - deployed
               - all
+        - name: mine
+          description: only list the caller's own conversations (an admin otherwise lists every user's)
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: flow conversations list
