@@ -4355,7 +4355,7 @@ pub async fn get_mini_pulled_job<'c>(
         NULL as permissioned_as_end_user_email,
         NULL::boolean as viewer_data_access,
         job_perms.job_token_scopes,
-        NULL::varchar as mcp_client
+        job_perms.mcp_client
         FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
         LEFT JOIN job_perms ON job_perms.job_id = v2_job_queue.id WHERE v2_job_queue.id = $1",
         job_id,
@@ -7783,7 +7783,8 @@ async fn push_inner<'c, 'd>(
             authed.clone()
         }
         _ => {
-            if authed.is_some() {
+            // An on-behalf-of run passes its MCP caller only to record the client.
+            if authed.is_some_and(|a| a.mcp_client.is_none()) {
                 tracing::warn!("Authed passed to push is not the same as permissioned_as, refetching direclty permissions for job {job_id}...")
             }
             windmill_common::auth::fetch_authed_from_permissioned_as(

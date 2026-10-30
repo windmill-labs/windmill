@@ -81,7 +81,7 @@ pub(crate) async fn run_agent_as(
         (
             &obo.email,
             obo.permissioned_as.clone(),
-            None,
+            authed.mcp_client.is_some().then(|| authed.clone().into()),
             PushIsolationLevel::IsolatedRoot(db.clone()),
         )
     } else {
