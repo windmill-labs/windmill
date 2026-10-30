@@ -28,6 +28,7 @@
 		type RawAppRunSummary,
 		type RawAppRunsProvider,
 		type RawAppScreenshotRequester,
+		type LayoutFlag,
 		RAW_APP_SANDBOX_FLAGS,
 		RAW_APP_PREVIEW_RELAY,
 		rawAppStorageKey,
@@ -141,14 +142,13 @@
 			headBy?: string
 			headAt?: string
 		}) => void
-		/** Initial collapsed state for the file/runnable sidebar. The user's
-		 * toggled preference is persisted under `sidebarStorageKey`; this prop
-		 * only seeds the very first open. */
-		defaultSidebarCollapsed?: boolean
-		/** localStorage key for the persisted sidebar state. Pass a different
-		 * key when the editor is rendered in a context that wants its own
-		 * preference. */
-		sidebarStorageKey?: string
+		/** Collapsed state of the file/runnable sidebar, for a context that keeps its
+		 * own preference; the editor follows it live when the caller swaps it.
+		 * Defaults to the full-page editor's persisted preference. */
+		sidebarCollapsedState?: LayoutFlag
+		/** "Split with Preview" state, likewise owned by the caller and followed live.
+		 * Takes precedence over `defaultSplitWithPreview` and `compact`. */
+		splitWithPreviewState?: LayoutFlag
 		liveEditorDraftStoragePath?: string
 		/** Indicator-only overrides forwarded to RawAppEditorHeader so the
 		 *  sessions preview's AutosaveIndicator watches the session's
@@ -239,8 +239,8 @@
 		diffDrawer = undefined,
 		onNavigate,
 		onDeploy = undefined,
-		defaultSidebarCollapsed = false,
-		sidebarStorageKey = 'raw-app-sidebar-collapsed',
+		sidebarCollapsedState = undefined,
+		splitWithPreviewState = undefined,
 		liveEditorDraftStoragePath = undefined,
 		autosaveWorkspace = undefined,
 		autosavePath = undefined,
@@ -592,7 +592,20 @@ addEventListener('message', function (e) {
 	let activeTabId: string = $state(PREVIEW_TAB_ID)
 	// Seed from the prop, then own the state locally so the user's toggle
 	// after mount sticks even if the prop reference changes.
-	let splitWithPreview: boolean = $state(untrack(() => defaultSplitWithPreview && !compact))
+	let ownSplitWithPreview: boolean = $state(untrack(() => defaultSplitWithPreview && !compact))
+	const ownSplitState: LayoutFlag = {
+		get val() {
+			return ownSplitWithPreview
+		},
+		set val(v) {
+			ownSplitWithPreview = v
+		},
+		setWithoutPersist(v) {
+			ownSplitWithPreview = v
+		}
+	}
+	const splitState = $derived(splitWithPreviewState ?? ownSplitState)
+	const splitWithPreview = $derived(splitState.val)
 	const activeTabKind = $derived<'file' | 'runnable' | 'preview'>(
 		activeTabId === PREVIEW_TAB_ID
 			? 'preview'
@@ -819,21 +832,28 @@ addEventListener('message', function (e) {
 	}
 
 	function toggleSplit() {
-		if (splitWithPreview) {
-			splitWithPreview = false
-			return
-		}
-		// single → split: if Preview is active, move focus to the last
-		// file/runnable tab (it's leaving the left bar).
-		if (activeTabId === PREVIEW_TAB_ID) {
+		splitState.val = !splitWithPreview
+	}
+
+	// Entering split, whether toggled or by the caller swapping `splitWithPreviewState`:
+	// Preview leaves the left bar, so give the left pane the last file/runnable tab,
+	// or the default file when none is open (this also boots the UI Builder iframe).
+	$effect(() => {
+		if (!splitWithPreview) return
+		untrack(() => {
+			if (activeTabId !== PREVIEW_TAB_ID) return
 			const lastUserTab = tabs
 				.slice()
 				.reverse()
 				.find((t) => t.id !== PREVIEW_TAB_ID)
-			if (lastUserTab) activateTab(lastUserTab.id)
-		}
-		splitWithPreview = true
-	}
+			if (lastUserTab) {
+				activateTab(lastUserTab.id)
+				return
+			}
+			const def = pickDefaultFile(files)
+			if (def) select({ kind: 'file', path: def })
+		})
+	})
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
 
 	// Sidebar: honor the user's `%` but never shrink below SIDEBAR_PX_MIN.
@@ -844,15 +864,8 @@ addEventListener('message', function (e) {
 	const sidebarMinPercent = $derived(paneMinPercent(splitContainerWidth, SIDEBAR_PX_MIN))
 	const sidebarPanelSize = $derived(Math.max(rawSidebarSize, sidebarMinPercent))
 
-	// Persisted across opens. Seeded with `defaultSidebarCollapsed` only when
-	// localStorage has no entry yet — callers (like the session preview pane)
-	// can default the initial state without overriding a user who has already
-	// expressed a preference.
-	const sidebarCollapsed = useLocalStorageValue(
-		sidebarStorageKey,
-		defaultSidebarCollapsed,
-		'boolean'
-	)
+	const ownSidebarCollapsed = useLocalStorageValue('raw-app-sidebar-collapsed', false, 'boolean')
+	const sidebarCollapsed = $derived(sidebarCollapsedState ?? ownSidebarCollapsed)
 
 	// Auto-compact when the editor opens in a narrow container (e.g. the session
 	// preview pane): drop to the merged single-pane view and retract the file
@@ -867,7 +880,7 @@ addEventListener('message', function (e) {
 		if (appliedNarrowDefault || w <= 0) return
 		appliedNarrowDefault = true
 		if (compact || w < NARROW_PX) {
-			splitWithPreview = false
+			splitState.setWithoutPersist(false)
 			sidebarCollapsed.setWithoutPersist(true)
 		}
 	})
@@ -2465,20 +2478,6 @@ addEventListener('message', function (e) {
 			}
 			prevSelectedRunnable = selectedRunnable
 			prevSelectedDocument = selectedDocument
-		}
-	})
-
-	// Open a default file on mount (boots the iframe in split mode and gives
-	// the user something to edit on the left). When the caller seeded
-	// `defaultSplitWithPreview=false` we instead want the Preview tab as the
-	// only-visible / active surface, so skip the file-tab activation — the
-	// iframe still boots via `populateFiles`/`setFilesInIframe` even without
-	// a selected document.
-	onMount(() => {
-		if (!splitWithPreview) return
-		if (tabs.length === 1) {
-			const def = pickDefaultFile(files)
-			if (def) select({ kind: 'file', path: def })
 		}
 	})
 
