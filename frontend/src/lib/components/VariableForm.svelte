@@ -103,8 +103,11 @@
 	let hasStagedValue = $derived(variable.value !== '')
 
 	// Un-securing has to send the plaintext, and fetching it silently on the toggle would
-	// reveal the secret without the explicit, audited "Load secret value" action.
-	let unsecureNeedsLoad = $derived(edit && deployedSecret && variable.is_secret && !hasStagedValue)
+	// reveal the secret without the explicit, audited "Load secret value" action. A saved
+	// reference holds no value to load: whatever is typed, even nothing, replaces it.
+	let unsecureNeedsLoad = $derived(
+		edit && deployedSecret && !deployedRef && variable.is_secret && !hasStagedValue
+	)
 
 	// The API refuses anyone else creating, repointing or removing a reference.
 	let canEditRef = $derived(can_write && !!actingUser?.is_admin)

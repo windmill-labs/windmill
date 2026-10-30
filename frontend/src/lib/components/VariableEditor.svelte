@@ -432,7 +432,8 @@
 		if (!isSecret || !selected || !existedInitially[selected]) return
 		const s = states[selected]?.draft
 		const ini = initialStates[selected]
-		if (!s || !ini?.variable.is_secret) return
+		// A reference was never loaded, and its baseline is what tells save() to replace it.
+		if (!s || !ini?.variable.is_secret || isExternalRef(ini.variable.value)) return
 		if (s.variable.value !== '' && s.variable.value !== ini.variable.value) return
 		s.variable.value = ''
 		ini.variable.value = ''
