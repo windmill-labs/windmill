@@ -21,7 +21,8 @@
 	import { clickOutside, isJobCancelable, isJobReRunnable, isJobResolvable } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { useHostedPage } from '../hostedPage'
-	import { useOperatingUser, useOperatingWorkspace } from '../operatingWorkspace.svelte'
+	import { useOperatingWorkspace } from '../operatingWorkspace.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { withWorkspaceParam } from '../sessions/sessionMode.svelte'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 
@@ -205,7 +206,7 @@
 	const dispatch = createEventDispatcher()
 	const hosted = useHostedPage()
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatingUser = useOperatingUser()
+	const roleCaps = useRoleCapabilities()
 
 	// Under a host the link opens where it decides, in the workspace the run belongs to: the
 	// document's own router would leave the host for the navigation workspace.
@@ -331,8 +332,8 @@
 				onClick: () => onCancelJobs?.(selectedIdsPossibleActions.cancellableJobIds),
 				onHover: (hover) => (hoveredDropdownAction = hover ? 'cancel' : null)
 			})
-		// Operators are rejected by the endpoint, so offering the action would only 403.
-		const canResolve = !operatingUser.current?.operator
+		// A role without `code` is rejected by the endpoint, so offering the action would only 403.
+		const canResolve = $roleCaps.code
 		const resolvable = canResolve ? selectedIdsPossibleActions.resolvableJobIds.length : 0
 		const unresolvable = canResolve ? selectedIdsPossibleActions.unresolvableJobIds.length : 0
 		if (resolvable)

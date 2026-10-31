@@ -485,12 +485,13 @@ export const emailTriggerRequestSchema = z.object({
 
 export const variableRequestSchema = z.object({
 	"path": z.string().describe("The path to the variable"),
-	"value": z.string().describe("The value of the variable"),
+	"value": z.string().describe("The value of the variable. For a secret, `$external:vault://<path>#<key>` stores a reference to an existing secret in the instance's external HashiCorp Vault (path as `vault kv get` takes it) instead of a value; without `#<key>` it reads the whole secret as a JSON object of its fields. It is resolved on each read, only under the path prefixes a superadmin allowed for the workspace, and is returned as-is when the secret is not decrypted.\n"),
 	"is_secret": z.boolean().describe("Whether the variable is a secret"),
 	"description": z.string().describe("The description of the variable"),
-	"account": z.number().int().describe("The account identifier").optional(),
+	"account": z.number().int().describe("Ignored. A variable is linked to an OAuth account only when `createAccount` creates both.").optional(),
 	"is_oauth": z.boolean().describe("Whether the variable is an OAuth variable").optional(),
-	"expires_at": z.string().datetime({ offset: true }).describe("The expiration date of the variable").optional(),
+	"expires_at": z.string().datetime({ offset: true }).describe("When to garbage-collect the variable. Used for ephemeral secrets; the variable is deleted once this is reached. Not the value's expiry \u2014 see value_valid_until.\n").optional(),
+	"value_valid_until": z.string().datetime({ offset: true }).describe("When the value stored in this variable stops working. Triggers the workspace's variable expiration handler ahead of it, by the handler's `notify_before_secs` (1 day by default); never causes the variable to be deleted.\n").optional(),
 	"labels": z.array(z.string()).optional(),
 	"ws_specific": z.boolean().optional()
 })

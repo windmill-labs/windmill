@@ -21,6 +21,7 @@
 		Code2Icon,
 		Database,
 		DollarSignIcon,
+		FolderOpenIcon,
 		HomeIcon,
 		LayoutDashboardIcon,
 		MailIcon,
@@ -29,6 +30,7 @@
 		Search,
 		SearchCode,
 		Unplug,
+		UsersIcon,
 		WandSparkles
 	} from 'lucide-svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -39,7 +41,7 @@
 	import ContentSearchInner from '../ContentSearchInner.svelte'
 	import { goto } from '$app/navigation'
 	import QuickMenuItem from '../search/QuickMenuItem.svelte'
-	import { devopsRole, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { devopsRole, enterpriseLicense, roleCapabilities, workspaceStore } from '$lib/stores'
 	import uFuzzy from '@leeoniya/ufuzzy'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 	import { Alert } from '../common'
@@ -106,77 +108,77 @@
 			label: 'Go to HTTP routes',
 			action: (newtab: boolean = false) => gotoPage('/routes', newtab),
 			icon: Route,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:web_sockets',
 			label: 'Go to WebSockets',
 			action: (newtab: boolean = false) => gotoPage('/websocket_triggers', newtab),
 			icon: Unplug,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:postgres_triggers',
 			label: 'Go to Postgres triggers',
 			action: (newtab: boolean = false) => gotoPage('/postgres_triggers', newtab),
 			icon: Database,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:kafka_triggers',
 			label: 'Go to Kafka triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
 			action: (newtab: boolean = false) => gotoPage('/kafka_triggers', newtab),
 			icon: KafkaIcon,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:nats_triggers',
 			label: 'Go to NATS triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
 			action: (newtab: boolean = false) => gotoPage('/nats_triggers', newtab),
 			icon: NatsIcon,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:sqs_triggers',
 			label: 'Go to SQS triggers' + (!$enterpriseLicense ? '' : ' (EE)'),
 			action: (newtab: boolean = false) => gotoPage('/sqs_triggers', newtab),
 			icon: AwsIcon,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:gcp_pub_sub',
 			label: 'Go to GCP Pub/Sub' + (!$enterpriseLicense ? '' : ' (EE)'),
 			action: (newtab: boolean = false) => gotoPage('/gcp_triggers', newtab),
 			icon: GoogleCloudIcon,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:azure_event_grid',
 			label: 'Go to Azure Event Grid' + (!$enterpriseLicense ? '' : ' (EE)'),
 			action: (newtab: boolean = false) => gotoPage('/azure_triggers', newtab),
 			icon: AzureIcon,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:mqtt_triggers',
 			label: 'Go to MQTT triggers',
 			action: (newtab: boolean = false) => gotoPage('/mqtt_triggers', newtab),
 			icon: MqttIcon,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:amqp_triggers',
 			label: 'Go to AMQP triggers',
 			action: (newtab: boolean = false) => gotoPage('/amqp_triggers', newtab),
 			icon: AmqpIcon,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		},
 		{
 			search_id: 'nav:email_triggers',
 			label: 'Go to Email triggers',
 			action: (newtab: boolean = false) => gotoPage('/email_triggers', newtab),
 			icon: MailIcon,
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.visibility.triggers
 		}
 	]
 
@@ -215,6 +217,20 @@
 			action: (newtab: boolean = false) => gotoPage('/schedules', newtab),
 			icon: CalendarIcon,
 			disabled: false
+		},
+		{
+			search_id: 'nav:folders',
+			label: 'Go to Folders',
+			action: (newtab: boolean = false) => gotoPage('/folders', newtab),
+			icon: FolderOpenIcon,
+			disabled: !$roleCapabilities.visibility.folders
+		},
+		{
+			search_id: 'nav:groups',
+			label: 'Go to Groups',
+			action: (newtab: boolean = false) => gotoPage('/groups', newtab),
+			icon: UsersIcon,
+			disabled: !$roleCapabilities.visibility.groups
 		},
 		...switchModeItems,
 		{

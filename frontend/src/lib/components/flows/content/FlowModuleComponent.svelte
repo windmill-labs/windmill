@@ -40,7 +40,7 @@
 	import type { ButtonProp } from '$lib/components/diffEditorTypes'
 	import { loadSchemaFromModule } from '../flowInfers'
 	import { type Job } from '$lib/gen'
-	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { checkIfParentLoop } from '../utils.svelte'
 	import { useWorkspaceScriptSettings } from '../useWorkspaceScriptSettings.svelte'
 	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
@@ -71,12 +71,14 @@
 		signDebugRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
-	import { Bug, Terminal } from 'lucide-svelte'
+	import { Bug, Hand, Terminal } from 'lucide-svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const roleCaps = useRoleCapabilities()
+	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
 
 	const {
 		selectionManager,
@@ -132,6 +134,8 @@
 		/** Lets the agent's Tools section add a tool through the graph's own insert path. */
 		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 		toolDescription?: string | undefined
+		/** The tool's `requires_approval` setting; only an agent tool has one. */
+		toolRequiresApproval?: boolean
 		siblingToolNames?: string[]
 	}
 
@@ -152,6 +156,7 @@
 		staticOnly = false,
 		flowModuleSchemaMap = undefined,
 		toolDescription = $bindable(undefined),
+		toolRequiresApproval = $bindable(),
 		siblingToolNames = undefined
 	}: Props = $props()
 
@@ -244,11 +249,11 @@
 			!flowModule.value.path?.startsWith('hub/') &&
 			flowModule.value.hash == undefined &&
 			customUi?.scriptEdit != false &&
-			!$operatorBuilderFlows &&
+			!composeOnlyFlows &&
 			$workspaceScriptSettingsDrawer != undefined
 	)
 	// Same rule as the graph node's Run button (FlowModuleSchemaItem).
-	let builderCannotTestStep = $derived($operatorBuilderFlows && flowModule.value.type === 'script')
+	let builderCannotTestStep = $derived(composeOnlyFlows && flowModule.value.type === 'script')
 	let workspaceScriptNoEditReason = $derived(
 		flowModule.value.type !== 'script' || canEditWorkspaceScriptSettings
 			? undefined
@@ -1148,6 +1153,20 @@
 												label="Chat"
 											/>
 										{/if}
+										{#if isAgentTool}
+											<Tab value="tool_settings" label="Tool settings">
+												{#snippet extra()}
+													{#if toolRequiresApproval}
+														<div class="flex flex-row items-center gap-1 text-secondary">
+															<Popover notClickable>
+																<Hand size={12} />
+																{#snippet text()}Require approval · On{/snippet}
+															</Popover>
+														</div>
+													{/if}
+												{/snippet}
+											</Tab>
+										{/if}
 										{#if !preprocessorModule && !isAgentTool}
 											<Tab value="advanced" label="Run settings">
 												{#snippet extra()}
@@ -1390,6 +1409,24 @@
 														right: 'Omit assistant and tool messages from the flow conversation',
 														rightTooltip:
 															'When enabled, this AI agent still runs normally, but its assistant response and tool-use messages are not stored in chat-mode conversation history.'
+													}}
+												/>
+											</Section>
+										</div>
+									{:else if visibleSelected === 'tool_settings' && isAgentTool}
+										<div class="flex-1 overflow-auto p-4">
+											<Section label="Approval">
+												<Toggle
+													size="xs"
+													textClass="text-xs font-normal text-primary"
+													disabled={noEditor}
+													bind:checked={
+														() => toolRequiresApproval ?? false, (v) => (toolRequiresApproval = v)
+													}
+													options={{
+														right: 'Require approval',
+														rightTooltip:
+															'Each call waits for someone to approve or reject it from the run page or the chat, without holding a worker. Other calls in the same turn run right away. A rejected call is reported to the agent as not run. An agent used as a tool of another agent cannot wait, so it leaves such tools out.'
 													}}
 												/>
 											</Section>

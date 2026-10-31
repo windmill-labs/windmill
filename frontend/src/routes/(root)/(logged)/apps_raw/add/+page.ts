@@ -2,7 +2,7 @@ import { redirect } from '@sveltejs/kit'
 import { get } from 'svelte/store'
 import { makeDraftAddLoad } from '$lib/draftAddRedirect'
 import { mintDraftPath } from '$lib/mintDraftPath'
-import { userStore, workspaceStore } from '$lib/stores'
+import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
 import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
@@ -26,7 +26,7 @@ async function newAppSessionHref(url: URL): Promise<string | undefined> {
 	const user = get(userStore)
 	const workspace = get(workspaceStore)
 	// Neither is known yet on a cold load of this URL, which then opens the editor.
-	if (!user || !workspace || !prefersSessionHandoff(user.operator)) return undefined
+	if (!user || !workspace || !prefersSessionHandoff(!get(roleCapabilities).code)) return undefined
 	if ((url.searchParams.get('workspace') ?? workspace) !== workspace) return undefined
 	if (get(copilotWorkspace) !== workspace) await loadCopilot(workspace)
 	if (get(copilotWorkspace) !== workspace || !get(copilotInfo).enabled) return undefined

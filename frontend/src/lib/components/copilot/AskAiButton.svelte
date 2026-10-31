@@ -5,7 +5,7 @@
 	import { AIBtnClasses } from './chat/AIButtonStyle'
 	import { prefersSessionHandoff } from './chat/global/gate'
 	import { startSessionWithPrompt } from '$lib/components/sessions/sessionSwitch.svelte'
-	import { userStore } from '$lib/stores'
+	import { roleCapabilities } from '$lib/stores'
 	interface Props {
 		label?: string
 		initialInput?: string
@@ -16,7 +16,7 @@
 
 	// The label stays short ("Ask AI") for the search bar's inline row; the hover
 	// text is where "new AI session" fits.
-	const handsOffToSession = $derived(prefersSessionHandoff($userStore?.operator))
+	const handsOffToSession = $derived(prefersSessionHandoff(!$roleCapabilities.code))
 
 	export function onClick() {
 		// No item to preview here — this carries a question, not a target — so the

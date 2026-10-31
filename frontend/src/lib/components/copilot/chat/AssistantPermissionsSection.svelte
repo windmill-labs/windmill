@@ -3,7 +3,7 @@
 The Permissions section of the assistant settings modal: what the user's role lets them create
 and edit in the chat's workspace, next to what the assistant can make for them from the chat.
 The assistant acts with the user's own rights, but its write tools go through drafts, so for
-operators the second column is narrower.
+a restricted role the second column can be narrower.
 -->
 <script lang="ts">
 	import { Badge, Section } from '$lib/components/common'
@@ -11,6 +11,7 @@ operators the second column is narrower.
 	import { userWorkspaces } from '$lib/stores'
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import { capitalize } from '$lib/utils/capitalize'
+	import { capabilitiesIn, isRestricted } from '$lib/roleCapabilities'
 	import { OPERATOR_SETTINGS_LOCATION, permissionRows, roleName } from './assistantPermissions'
 
 	let { ws }: { ws: string } = $props()
@@ -18,9 +19,11 @@ operators the second column is narrower.
 	const acting = useActingUser(() => ws)
 
 	let user = $derived(acting.current)
-	let operatorSettings = $derived($userWorkspaces.find((w) => w.id === ws)?.operator_settings)
-	let role = $derived(user ? roleName(user) : undefined)
-	let rows = $derived(user ? permissionRows(user, operatorSettings) : [])
+	let entry = $derived($userWorkspaces.find((w) => w.id === ws))
+	let caps = $derived(capabilitiesIn(user, entry))
+	let restricted = $derived(isRestricted(caps))
+	let role = $derived(user ? roleName(user, entry) : undefined)
+	let rows = $derived(user ? permissionRows(user, caps) : [])
 	let chatNarrower = $derived(rows.some((r) => r.user && !r.assistant))
 </script>
 
@@ -31,7 +34,7 @@ operators the second column is narrower.
 >
 	{#snippet action()}
 		{#if role}
-			<Badge color={role === 'operator' ? 'yellow' : 'gray'}>{capitalize(role)}</Badge>
+			<Badge color={restricted ? 'yellow' : 'gray'}>{capitalize(role)}</Badge>
 		{/if}
 	{/snippet}
 
@@ -76,9 +79,9 @@ operators the second column is narrower.
 				Items in folders you can't read are hidden from you and from the assistant. Someone with
 				access to the folder can run them.
 			</p>
-			{#if role === 'operator'}
+			{#if restricted}
 				<p>
-					A workspace admin can give operators more rights in {OPERATOR_SETTINGS_LOCATION}.
+					A workspace admin can give your role more rights in {OPERATOR_SETTINGS_LOCATION}.
 				</p>
 			{/if}
 		</div>

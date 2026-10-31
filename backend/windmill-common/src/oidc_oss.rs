@@ -98,6 +98,7 @@ pub enum OidcCaller {
     Vault,
     Sqs,
     Bedrock,
+    Anthropic,
 }
 
 #[cfg(not(feature = "private"))]

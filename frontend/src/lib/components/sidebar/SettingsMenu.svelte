@@ -19,17 +19,20 @@
 		Gauge,
 		Trash2,
 		KeyRound,
-		GraduationCap
+		GraduationCap,
+		PanelLeft,
+		Star,
+		FolderOpen,
+		Users
 	} from 'lucide-svelte'
+	import { sidebarPrefs } from './sidebarPrefs.svelte'
 	import { goto } from '$lib/navigation'
 	import { type Item } from '$lib/utils'
 	import { logout } from '$lib/logoutKit'
-	import { leaveCurrentWorkspace } from './leaveWorkspace'
 	import { isCloudHosted } from '$lib/cloud'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import DeleteForkedWorkspaceModal from './DeleteForkedWorkspaceModal.svelte'
-	import { workspaceIsFork, isForkOwner } from '$lib/utils/workspaceHierarchy'
+	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
 	import MenuLink from './MenuLink.svelte'
@@ -38,7 +41,6 @@
 	import { USER_SETTINGS_HASH, SUPERADMIN_SETTINGS_HASH } from './settings'
 	import { accountSetup } from './accountSetup.svelte'
 	import { EXECUTIONS_HINT } from './executionsHint'
-	import { sidebarPageAllowed } from './operatorRoutes'
 	import { TOUR_PARAM, TOUR_PARAM_VALUE } from '$lib/components/tutorials/operatorTour'
 	import {
 		userWorkspaces,
@@ -49,7 +51,8 @@
 		enterpriseLicense,
 		isCriticalAlertsUIOpen,
 		usageStore,
-		isPremiumStore
+		isPremiumStore,
+		roleCapabilities
 	} from '$lib/stores'
 
 	let {
@@ -57,9 +60,8 @@
 		// Session mode: workspace the workspace-settings entry should target —
 		// the session's own (possibly forked) workspace, which can differ from
 		// the rail's active workspace, so the entry's href carries it as the
-		// `workspace` query param. Also hides "Leave workspace" (leaving a
-		// workspace from the session rail makes no sense). Unset = navigation
-		// mode, entry targets the active workspace.
+		// `workspace` query param. Unset = navigation mode, entry targets the
+		// active workspace.
 		workspaceSettingsTarget = undefined,
 		numUnacknowledgedCriticalAlerts = 0,
 		// Overridable so the kitchen-sink page can preview the cloud variant
@@ -80,14 +82,6 @@
 			: undefined
 	)
 
-	// The fork-owner grant must be checked against the workspace the settings entry
-	// actually points at — the session target when in session mode, else the active
-	// workspace — otherwise ownership of the wrong workspace could hide the entry or
-	// expose a dead link to a fork the user doesn't own.
-	const settingsWs = $derived(workspaceSettingsTarget ? settingsTargetWs : currentWs)
-	const canManageWorkspace = $derived(
-		$userStore?.is_admin || $superadmin || isForkOwner(settingsWs, $userStore?.email)
-	)
 	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix. A dev
 	// workspace is excluded: it is a standing environment its whole team works in, torn down by
 	// detaching it in the dev-workspace settings, so offering a one-click delete beside the account
@@ -101,7 +95,6 @@
 			!currentWs.is_dev_workspace
 	)
 
-	let leaveWorkspaceModal = $state(false)
 	let deleteForkModal = $state<DeleteForkedWorkspaceModal>()
 
 	const { recent: recentChangelogs, hasNew } = readRecentChangelogs()
@@ -157,19 +150,15 @@
 
 	// Account / instance actions gathered under one "Settings" dropdown, shared by
 	// the session rail and the global sidebar so both expose the same entry point.
-	// Logout lives inside the user submenu with the other account-scoped entries.
-	// Workspace- and instance-scoped entries anchor the bottom of the menu,
-	// instance settings last.
+	// Workspace- and instance-scoped entries sit between the account entries and Logout.
+	// Leaving a workspace lives on the workspace settings page, which every member reaches,
+	// not in this menu next to Logout: only a workspace admin can undo a leave.
 	const workspaceInstanceItems = $derived<Item[]>([
-		...(!canManageWorkspace && !workspaceSettingsTarget
-			? [
-					{
-						displayName: 'Leave workspace',
-						icon: LogOut,
-						type: 'delete' as const,
-						action: () => (leaveWorkspaceModal = true)
-					}
-				]
+		...($roleCapabilities.visibility.folders
+			? [{ displayName: 'Folders', icon: FolderOpen, href: '/folders' }]
+			: []),
+		...($roleCapabilities.visibility.groups
+			? [{ displayName: 'Groups', icon: Users, href: '/groups' }]
 			: []),
 		// Fork deletion is a global-sidebar action on the active workspace, so keep it
 		// out of the session rail's per-target settings entry (`workspaceSettingsTarget`).
@@ -183,23 +172,19 @@
 					}
 				]
 			: []),
-		...(canManageWorkspace
-			? [
-					workspaceSettingsTarget
-						? {
-								displayName: `${settingsTargetWs?.name ?? workspaceSettingsTarget} settings`,
-								icon: Building,
-								// The `workspace` query param switches the app to the target
-								// workspace on arrival (full loads and client-side navs alike).
-								href: `/workspace_settings?workspace=${workspaceSettingsTarget}`
-							}
-						: {
-								displayName: `${currentWs?.name ?? $workspaceStore ?? 'Workspace'} settings`,
-								icon: Building,
-								href: '/workspace_settings'
-							}
-				]
-			: []),
+		workspaceSettingsTarget
+			? {
+					displayName: `${settingsTargetWs?.name ?? workspaceSettingsTarget} settings`,
+					icon: Building,
+					// The `workspace` query param switches the app to the target
+					// workspace on arrival (full loads and client-side navs alike).
+					href: `/workspace_settings?workspace=${workspaceSettingsTarget}`
+				}
+			: {
+					displayName: `${currentWs?.name ?? $workspaceStore ?? 'Workspace'} settings`,
+					icon: Building,
+					href: '/workspace_settings'
+				},
 		...($superadmin
 			? [
 					{
@@ -228,6 +213,18 @@
 			action: () => toggleDarkMode()
 		},
 		{
+			displayName: 'Customize sidebar',
+			icon: PanelLeft,
+			submenuItems: [
+				{
+					displayName: 'Favorites section',
+					icon: Star,
+					toggle: sidebarPrefs.favorites.val,
+					action: () => (sidebarPrefs.favorites.val = !sidebarPrefs.favorites.val)
+				}
+			]
+		},
+		{
 			// The email is the label itself; the crown icon carries the admin role.
 			displayName: $userStore?.non_member
 				? `${$userStore?.email} (superadmin, not a member)`
@@ -250,7 +247,7 @@
 					icon: Settings,
 					action: () => goto(USER_SETTINGS_HASH)
 				},
-				...($userStore?.operator
+				...(!$roleCapabilities.code
 					? [
 							{
 								displayName: 'Take the tour',
@@ -268,18 +265,16 @@
 								disabled: true
 							}
 						]
-					: []),
-				{ displayName: 'Logout', icon: LogOut, action: () => logout() }
+					: [])
 			]
 		},
-		...workspaceInstanceItems.map((item, i) => (i === 0 ? { ...item, separatorTop: true } : item))
+		...workspaceInstanceItems.map((item, i) => (i === 0 ? { ...item, separatorTop: true } : item)),
+		{ displayName: 'Logout', icon: LogOut, action: () => logout(), separatorTop: true }
 	])
 
 	const logsItems = $derived<Item[]>([
 		{ displayName: 'Audit logs', icon: Eye, href: '/audit_logs' },
-		...($devopsRole
-			? [{ displayName: 'Service logs', icon: Logs, href: '/service_logs' }]
-			: []),
+		...($devopsRole ? [{ displayName: 'Service logs', icon: Logs, href: '/service_logs' }] : []),
 		...($enterpriseLicense
 			? [
 					{
@@ -312,13 +307,13 @@
 
 <!-- Workers and Logs are full pages (not account/instance actions), so they sit
      as plain links above the Settings dropdown rather than inside it. -->
-<div class="flex flex-col gap-1 pb-1">
+<div class="flex flex-col gap-0.5 mb-0.5">
 	<MenuLink
 		class="!text-xs"
 		label="Workers"
 		href="/workers"
 		icon={ServerCog}
-		disabled={!sidebarPageAllowed($userStore?.operator, currentWs, 'workers')}
+		disabled={!$roleCapabilities.visibility.workers}
 		{isCollapsed}
 		aiId="sidebar-menu-link-workers"
 		aiDescription="Button to navigate to workers"
@@ -328,15 +323,16 @@
 			items={logsItems}
 			placement="top-start"
 			class="w-full"
+			fixedHeight={false}
 			enableFlyTransition
 			aiId="sidebar-menu-link-logs"
 			aiDescription="Button to open the logs menu (audit logs, service logs, critical alerts)"
 		>
 			{#snippet buttonReplacement()}
 				<span
-					class="relative flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
-						? 'justify-center'
-						: ''}"
+					class="relative flex items-center gap-2 w-full px-2 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
+						? 'h-8 justify-center'
+						: 'h-[30px]'}"
 				>
 					<Logs size={16} />
 					{#if !isCollapsed}
@@ -364,7 +360,7 @@
 			label="Audit logs"
 			href="/audit_logs"
 			icon={Eye}
-			disabled={!sidebarPageAllowed($userStore?.operator, currentWs, 'audit_logs')}
+			disabled={!$roleCapabilities.visibility.audit_logs}
 			{isCollapsed}
 			aiId="sidebar-menu-link-audit-logs"
 			aiDescription="Button to navigate to audit logs"
@@ -378,14 +374,15 @@
 	{items}
 	placement="top-start"
 	class="w-full"
+	fixedHeight={false}
 	enableFlyTransition
 	on:close={onChangelogsOpened}
 >
 	{#snippet buttonReplacement()}
 		<span
-			class="relative flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
-				? 'justify-center'
-				: ''}"
+			class="relative flex items-center gap-2 w-full px-2 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
+				? 'h-8 justify-center'
+				: 'h-[30px]'}"
 		>
 			<Settings size={16} />
 			{#if !isCollapsed}
@@ -407,26 +404,6 @@
 		</span>
 	{/snippet}
 </DropdownV2>
-
-<!-- `alwaysPortal`: the sidebar's mobile slide-in panel keeps a `transform` that would
-     otherwise confine the dialog to the panel's width. -->
-<ConfirmationModal
-	open={leaveWorkspaceModal}
-	alwaysPortal
-	title="Leave workspace"
-	confirmationText="Leave workspace"
-	on:canceled={() => {
-		leaveWorkspaceModal = false
-	}}
-	on:confirmed={() => {
-		leaveWorkspaceModal = false
-		void leaveCurrentWorkspace()
-	}}
->
-	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to leave this workspace?</span>
-	</div>
-</ConfirmationModal>
 
 <DeleteForkedWorkspaceModal bind:this={deleteForkModal} />
 

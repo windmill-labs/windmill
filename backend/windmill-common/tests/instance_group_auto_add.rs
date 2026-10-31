@@ -440,8 +440,13 @@ mod tests {
             .and_then(|ig| serde_json::from_value(ig).ok())
             .unwrap_or_default();
 
-        let (best_group, is_admin, is_operator) =
-            compute_highest_workspace_role(&user_igroups, &ws_configured_groups, &ws_roles);
+        let (best_group, is_admin, role) = compute_highest_workspace_role(
+            &user_igroups,
+            &ws_configured_groups,
+            &ws_roles,
+            &["developer".to_string(), "operator".to_string()],
+        );
+        let is_operator = role == "operator";
 
         let instance_group_source = json!({
             "source": "instance_group",
@@ -528,8 +533,13 @@ mod tests {
         let ws_roles: std::collections::HashMap<String, String> =
             serde_json::from_value(roles).unwrap();
 
-        let (best_group, is_admin, is_operator) =
-            compute_highest_workspace_role(&user_igroups, &ws_configured_groups, &ws_roles);
+        let (best_group, is_admin, role) = compute_highest_workspace_role(
+            &user_igroups,
+            &ws_configured_groups,
+            &ws_roles,
+            &["developer".to_string(), "operator".to_string()],
+        );
+        let is_operator = role == "operator";
 
         let instance_group_source = json!({"source": "instance_group", "group": &best_group});
         sqlx::query!(

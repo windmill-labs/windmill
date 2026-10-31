@@ -1,5 +1,14 @@
 ARG DEBIAN_IMAGE=debian:trixie-slim
 ARG RUST_IMAGE=rust:1.97-slim-trixie
+# NOTE: If changing, also change go version in workspace dependencies template at WorkspaceDependenciesEditor.svelte
+ARG GO_VERSION=1.27.3
+
+# crane is built from source rather than downloaded: its release binaries are built with whatever
+# Go was current at release time, so their stdlib lags behind the Go the image installs.
+FROM golang:${GO_VERSION}-trixie AS crane
+ARG CRANE_VERSION=v0.22.1
+RUN CGO_ENABLED=0 GOBIN=/out go install -trimpath -ldflags="-s -w" \
+    "github.com/google/go-containerregistry/cmd/crane@${CRANE_VERSION}"
 
 FROM debian:trixie-slim AS nsjail
 
@@ -139,11 +148,13 @@ COPY --from=builder /windmill/target/release/windmill.debug /windmill.debug
 FROM ${DEBIAN_IMAGE}
 
 ARG TARGETPLATFORM
-ARG POWERSHELL_VERSION=7.5.0
-ARG KUBECTL_VERSION=1.37.1
-ARG HELM_VERSION=3.21.4
-# NOTE: If changing, also change go version in workspace dependencies template at WorkspaceDependenciesEditor.svelte
-ARG GO_VERSION=1.27.1
+ARG POWERSHELL_VERSION=7.5.13
+ARG KUBECTL_VERSION=1.37.2
+ARG HELM_VERSION=3.22.1
+ARG GO_VERSION
+# Pinned to the patch: an unpinned install is cached by the image build and stops picking up
+# security releases.
+ARG NODE_VERSION=24.22.1
 ARG APP=/usr/src/app
 ARG WITH_POWERSHELL=true
 ARG WITH_KUBECTL=true
@@ -166,8 +177,12 @@ ENV UV_TOOL_DIR=/usr/local/uv
 
 ENV PATH /usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
-
-RUN apt-get update \
+# The build cache keeps the apt layer while the base image digest and this line are unchanged, so
+# Debian security updates are not picked up by later builds. Bump to force a fresh apt-get upgrade;
+# bump it in docker/DockerfileSlim and docker/DockerfileSlimEe too.
+ARG APT_REFRESH=1
+RUN echo "apt refresh ${APT_REFRESH}" \
+    && apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends netbase tzdata ca-certificates wget curl jq unzip build-essential unixodbc xmlsec1 tini gnupg libargon2-1 \
     && if echo "$features" | grep -q "ee"; then apt-get install -y --no-install-recommends libsasl2-modules-gssapi-mit krb5-user; fi \
@@ -184,7 +199,7 @@ RUN curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmo
 
 RUN if [ "$WITH_GIT" = "true" ]; then \
     apt-get update  -y \
-    && apt-get install -y git \
+    && apt-get install -y --no-install-recommends git openssh-client less \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*; \
     else echo 'Building the image without git'; fi;
@@ -220,6 +235,26 @@ RUN if [ "$WITH_KUBECTL" = "true" ]; then \
     install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl; \
     else echo 'Building the image without kubectl'; fi
 
+# The official bundle, not Debian's awscli: that package lags upstream by years and pulls in
+# python3-* libraries (urllib3, cryptography, ...) that nothing else in the image uses. Bumping the
+# version means updating both checksums (the zips are signed by the AWS CLI key, FB5DB77F...4672475C).
+ARG WITH_AWSCLI=true
+ARG AWSCLI_VERSION=2.39.1
+ARG AWSCLI_SHA256_X86_64=5b6c10e0a8ccdcf30c84bd643fea511f103d257a4787a7cef878691d63169804
+ARG AWSCLI_SHA256_AARCH64=5adf0b5052843e542b55a846d49ba2a2b3f3fb4960f35c11df9ac7c395cffaaf
+RUN if [ "$WITH_AWSCLI" = "true" ]; then \
+    case "$(dpkg --print-architecture)" in \
+    amd64) aws_arch=x86_64; aws_sha="$AWSCLI_SHA256_X86_64" ;; \
+    arm64) aws_arch=aarch64; aws_sha="$AWSCLI_SHA256_AARCH64" ;; \
+    *) echo >&2 "error: unsupported arch for awscli"; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/awscli.zip "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}-${AWSCLI_VERSION}.zip" \
+    && echo "${aws_sha}  /tmp/awscli.zip" | sha256sum -c - \
+    && unzip -q /tmp/awscli.zip -d /tmp/awscli \
+    && /tmp/awscli/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli \
+    && rm -rf /tmp/awscli /tmp/awscli.zip; \
+    else echo 'Building the image without awscli'; fi
+
 
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
@@ -241,7 +276,7 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.13.0/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.13.6/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Preinstall python runtimes to temp build location (will copy with world-writable perms later)
 # --compile-bytecode precompiles the stdlib to .pyc so jobs don't recompile it on every run
@@ -252,14 +287,21 @@ RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_r
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $NEW_INSTANCE_PY --compile-bytecode
 
 
-RUN curl -sL https://deb.nodesource.com/setup_24.x | bash -
-RUN apt-get -y update && apt-get install -y --no-install-recommends curl procps nodejs awscli && apt-get clean \
+RUN curl -sL https://deb.nodesource.com/setup_${NODE_VERSION%%.*}.x | bash -
+RUN apt-get -y update && apt-get install -y --no-install-recommends curl procps nodejs=${NODE_VERSION}-1nodesource1 && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # The npm bundled with nodejs is replaced by a pinned one: it is what `//npm` scripts install with
 # (NPM_PATH=/usr/bin/npm). npm 12 skips dependency install scripts not covered by an allowScripts
 # policy (package.json or .npmrc).
-RUN npm install -g npm@12.2.0 && npm cache clean --force
+RUN npm install -g npm@12.2.1 && npm cache clean --force
+# npm 12.2.1 bundles undici 6.29.0 (node-gyp's), below the 6.29.1 fix for its TLS and DoS
+# advisories. undici 6 has no dependencies, so the package is swapped in place. Drop this once an
+# npm release bundles undici >= 6.29.1.
+RUN d="$(npm root -g)/npm/node_modules/undici" \
+    && grep -q '"version": "6.29.0"' "$d/package.json" \
+    && rm -rf "$d" && mkdir "$d" \
+    && curl -fsSL https://registry.npmjs.org/undici/-/undici-6.29.1.tgz | tar -xz -C "$d" --strip-components=1
 
 # go build is slower the first time it is ran, so we prewarm it in the build
 # This mirrors Windmill's Go wrapper structure: main.go imports inner package, uses encoding/json, os, fmt
@@ -293,7 +335,7 @@ COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 # DuckDB jobs run in this binary, which the worker looks for next to its own.
 COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/target/release/windmill_duckdb_runner ${APP}/windmill_duckdb_runner
 
-COPY --from=oven/bun:1.4.0 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.4.4 /usr/local/bin/bun /usr/bin/bun
 
 # Install windmill CLI
 RUN bun install -g windmill-cli \
@@ -304,9 +346,6 @@ RUN bun install -g windmill-cli \
 # Copy it to /usr/bin/claude so it's accessible inside nsjail sandbox (which mounts /usr but not /root)
 RUN curl -fsSL https://claude.ai/install.sh | bash \
     && cp /root/.local/share/claude/versions/* /usr/bin/claude
-
-COPY --from=php:8.3.33-cli-trixie /usr/local/bin/php /usr/bin/php
-COPY --from=composer:2.9.5 /usr/bin/composer /usr/bin/composer
 
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:29-dind /usr/local/bin/docker /usr/local/bin/
@@ -322,13 +361,7 @@ COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
 # crane: pulls + flattens images for the sandboxed container runtime (`# sandbox <image>`).
 # Single static binary — no daemon/store/root needed. See docs/docker-v2-runtime.md.
-ARG CRANE_VERSION=v0.22.1
-RUN arch="$(dpkg --print-architecture)"; \
-    case "$arch" in amd64) crane_arch=x86_64 ;; arm64) crane_arch=arm64 ;; *) echo >&2 "error: unsupported arch '$arch' for crane"; exit 1 ;; esac; \
-    wget -O /tmp/crane.tgz "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_${crane_arch}.tar.gz" \
-    && tar -xzf /tmp/crane.tgz -C /usr/local/bin crane \
-    && rm /tmp/crane.tgz \
-    && chmod +x /usr/local/bin/crane
+COPY --from=crane /out/crane /usr/local/bin/crane
 
 WORKDIR ${APP}
 

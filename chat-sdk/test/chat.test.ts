@@ -1829,6 +1829,7 @@ describe('createChat with server history', () => {
     await chat.selectConversation(older)
     await new Promise((r) => setTimeout(r, 400))
     const again = createChat(options({ token: 'tok', storage }, fetch))
+    expect(again.getState().conversations.map((c) => c.id)).toEqual([newer, older])
     expect((await again.loadConversations()).map((c) => c.id)).toEqual([newer, older])
   })
 

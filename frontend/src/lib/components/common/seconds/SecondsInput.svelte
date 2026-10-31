@@ -23,6 +23,10 @@
 		size?: ButtonType.UnifiedSize
 		clearable?: boolean
 		defaultValue?: number | undefined
+		/** For a value consumed at a coarser granularity, where seconds would have no effect. */
+		hideSeconds?: boolean
+		/** Hides the "= N seconds" caption below the input. */
+		hideTotal?: boolean
 		onfocus?: (e: FocusEvent) => void
 	}
 
@@ -33,6 +37,8 @@
 		size = 'md',
 		clearable = false,
 		defaultValue = undefined,
+		hideSeconds = false,
+		hideTotal = false,
 		onfocus
 	}: Props = $props()
 
@@ -193,30 +199,32 @@
 					><span class="invisible">mins</span><span>{min && min > 1 ? 'mins' : 'min'}</span></span
 				>
 			</div>
-			<div class="flex items-baseline">
-				<input
-					type="number"
-					class={segmentClass}
-					value={hasValue ? sec || 0 : ''}
-					placeholder="_ _"
-					min="0"
-					max="59"
-					{disabled}
-					oninput={(e) => handleInput(e, (v) => (sec = v), 59)}
-					onkeydown={(e) =>
-						handleKeydown(
-							e,
-							() => sec,
-							(v) => (sec = v),
-							59
-						)}
-					onfocus={handleFocus}
-					onblur={handleBlur}
-				/>
-				<span class="text-secondary text-2xs inline-grid [&>*]:col-start-1 [&>*]:row-start-1"
-					><span class="invisible">secs</span><span>{sec && sec > 1 ? 'secs' : 'sec'}</span></span
-				>
-			</div>
+			{#if !hideSeconds}
+				<div class="flex items-baseline">
+					<input
+						type="number"
+						class={segmentClass}
+						value={hasValue ? sec || 0 : ''}
+						placeholder="_ _"
+						min="0"
+						max="59"
+						{disabled}
+						oninput={(e) => handleInput(e, (v) => (sec = v), 59)}
+						onkeydown={(e) =>
+							handleKeydown(
+								e,
+								() => sec,
+								(v) => (sec = v),
+								59
+							)}
+						onfocus={handleFocus}
+						onblur={handleBlur}
+					/>
+					<span class="text-secondary text-2xs inline-grid [&>*]:col-start-1 [&>*]:row-start-1"
+						><span class="invisible">secs</span><span>{sec && sec > 1 ? 'secs' : 'sec'}</span></span
+					>
+				</div>
+			{/if}
 		</div>
 		{#if clearable && !disabled && seconds != null && seconds !== defaultValue}
 			<CloseButton
@@ -229,11 +237,13 @@
 			/>
 		{/if}
 	</div>
-	{#if seconds != null}
-		<span class="text-2xs text-hint">
-			= {seconds.toLocaleString()} second{seconds === 1 ? '' : 's'}
-		</span>
-	{:else}
-		<span class="text-2xs text-hint"> no time set </span>
+	{#if !hideTotal}
+		{#if seconds != null}
+			<span class="text-2xs text-hint">
+				= {seconds.toLocaleString()} second{seconds === 1 ? '' : 's'}
+			</span>
+		{:else}
+			<span class="text-2xs text-hint"> no time set </span>
+		{/if}
 	{/if}
 </div>

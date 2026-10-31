@@ -74,7 +74,7 @@ describe('genWmillTs', () => {
 
 		const dts = genWmillTs(runnables)
 
-		expect(dts).toContain('myflow: (args: { string_input: string }) => Promise<any>;')
+		expect(dts).toContain('myflow: (args: { string_input: string }, opts?: { memoryId?: string }) => Promise<any>;')
 	})
 
 	it('leaves ctx fields out of the args type, the server fills them', () => {
@@ -91,7 +91,7 @@ describe('genWmillTs', () => {
 			}
 		}
 
-		expect(genWmillTs(runnables)).toContain('myflow: (args: { count?: number }) => Promise<any>;')
+		expect(genWmillTs(runnables)).toContain('myflow: (args: { count?: number }, opts?: { memoryId?: string }) => Promise<any>;')
 	})
 
 	it('quotes flow input names that are not valid identifiers', () => {
@@ -112,7 +112,7 @@ describe('genWmillTs', () => {
 
 		// `user-name: string` is unparseable, so the whole generated d.ts is
 		// rejected and every backend call in the editor loses its types.
-		expect(genWmillTs(runnables)).toContain('myflow: (args: { "user-name": string })')
+		expect(genWmillTs(runnables)).toContain('myflow: (args: { "user-name": string }, ')
 	})
 })
 

@@ -88,7 +88,6 @@
 	}: Props = $props()
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
-	const actingUser = $derived(operatingUser.current)
 	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
@@ -561,7 +560,7 @@
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!actingUser?.operator}
+						allowEdit={editRights.roleCanAuthor(itemKind)}
 						promptText="Pick a script or flow to be triggered "
 					>
 						{#snippet createButton()}

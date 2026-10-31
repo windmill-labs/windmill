@@ -11,7 +11,7 @@ import {
 	Unplug,
 	Users
 } from 'lucide-svelte'
-import type { OperatorPageKey } from './operatorRoutes'
+import type { VisibilityKey } from '$lib/roleCapabilities'
 
 /**
  * The names the page header's breadcrumb gives the workspace's own pages, and the rows the
@@ -20,7 +20,7 @@ import type { OperatorPageKey } from './operatorRoutes'
  * Every entry names a page for the breadcrumb, and its `icon` goes there too. Only the entries
  * `SidebarContent`'s `MAIN_MENU_EXTRAS` also lists become sidebar links from here — Schedules,
  * HTTP routes, Workers and Audit logs are grouped differently there and carry their own row, so
- * for those four the `operatorKey` below goes unread. Keep the labels in step with those rows by
+ * for those four the `visibilityKey` below goes unread. Keep the labels in step with those rows by
  * hand.
  */
 export type NavPage = {
@@ -28,23 +28,23 @@ export type NavPage = {
 	/** Path under `base`, matched against the current route by longest prefix. */
 	path: string
 	icon: any
-	/** The `operator_settings` key that admits an operator, when the page has one. */
-	operatorKey?: OperatorPageKey
+	/** The role visibility flag that shows the page, when the page has one. */
+	visibilityKey?: VisibilityKey
 }
 
 export const NAV_PAGES: NavPage[] = [
 	{ label: 'Home', path: '/', icon: Home },
-	{ label: 'Runs', path: '/runs', icon: Play, operatorKey: 'runs' },
-	{ label: 'Variables', path: '/variables', icon: DollarSign, operatorKey: 'variables' },
-	{ label: 'Resources', path: '/resources', icon: Boxes, operatorKey: 'resources' },
-	{ label: 'Assets', path: '/assets', icon: Pyramid, operatorKey: 'assets' },
-	{ label: 'Folders', path: '/folders', icon: FolderOpen, operatorKey: 'folders' },
-	{ label: 'Groups', path: '/groups', icon: Users, operatorKey: 'groups' },
-	{ label: 'Schedules', path: '/schedules', icon: Calendar, operatorKey: 'schedules' },
+	{ label: 'Runs', path: '/runs', icon: Play, visibilityKey: 'runs' },
+	{ label: 'Variables', path: '/variables', icon: DollarSign, visibilityKey: 'variables' },
+	{ label: 'Resources', path: '/resources', icon: Boxes, visibilityKey: 'resources' },
+	{ label: 'Assets', path: '/assets', icon: Pyramid, visibilityKey: 'assets' },
+	{ label: 'Folders', path: '/folders', icon: FolderOpen, visibilityKey: 'folders' },
+	{ label: 'Groups', path: '/groups', icon: Users, visibilityKey: 'groups' },
+	{ label: 'Schedules', path: '/schedules', icon: Calendar, visibilityKey: 'schedules' },
 	// "Triggers" is the group the sidebar files this under, not the page: the row there reads HTTP.
-	{ label: 'HTTP routes', path: '/routes', icon: Unplug, operatorKey: 'triggers' },
-	{ label: 'Workers', path: '/workers', icon: HardHat, operatorKey: 'workers' },
-	{ label: 'Audit logs', path: '/audit_logs', icon: Eye, operatorKey: 'audit_logs' }
+	{ label: 'HTTP routes', path: '/routes', icon: Unplug, visibilityKey: 'triggers' },
+	{ label: 'Workers', path: '/workers', icon: HardHat, visibilityKey: 'workers' },
+	{ label: 'Audit logs', path: '/audit_logs', icon: Eye, visibilityKey: 'audit_logs' }
 ]
 
 /**

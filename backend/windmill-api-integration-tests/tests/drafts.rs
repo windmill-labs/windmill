@@ -143,6 +143,12 @@ async fn test_update_draft_write_authorization(db: Pool<Postgres>) -> anyhow::Re
         .send()
         .await?;
     assert_eq!(r.status(), 200, "own namespace allowed");
+    let r = user2
+        .post(save_url(port, "data_pipeline", "u/test-user-2/pipeline"))
+        .json(&json!({ "value": { "a": 1 } }))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 200, "a developer saves data pipeline drafts");
 
     // Another user's namespace, no grant → rejected.
     let r = user2
@@ -166,6 +172,16 @@ async fn test_update_draft_write_authorization(db: Pool<Postgres>) -> anyhow::Re
         .send()
         .await?;
     assert_eq!(r.status(), 403, "operator rejected");
+    let r = op
+        .post(save_url(port, "data_pipeline", "u/test-user-3/pipeline"))
+        .json(&json!({ "value": { "a": 1 } }))
+        .send()
+        .await?;
+    assert_eq!(
+        r.status(),
+        403,
+        "a role that cannot code has no pipeline drafts"
+    );
 
     Ok(())
 }

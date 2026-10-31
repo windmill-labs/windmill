@@ -9,9 +9,15 @@
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import type { TriggerContext } from '../triggers'
 	import type { Item } from '$lib/utils'
-	import { Bell, BellOff, Calendar } from 'lucide-svelte'
+	import { Bell, BellOff, Calendar, UserPlus } from 'lucide-svelte'
 	import { toggleWorkspaceErrorHandler } from './errorHandlerToggle'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		operatingWorkspaceContextEntry,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -42,7 +48,10 @@
 	const triggerContext = getContext<TriggerContext | undefined>('TriggerContext')
 	const { triggersCount, triggersState } = $state(triggerContext ?? ({} as Partial<TriggerContext>))
 	// The buttons below render in the page header, away from this page's tree.
-	const headerContexts = new Map<any, any>([['TriggerContext', triggerContext]])
+	const headerContexts = new Map<any, any>([
+		['TriggerContext', triggerContext],
+		operatingWorkspaceContextEntry()
+	])
 
 	interface Props {
 		mainButtons?: MainButton[]
@@ -75,6 +84,8 @@
 		/** Marks that belong to the item's name, such as its favorite star: drawn right after the
 		 *  summary rather than among the badges and buttons at the far end. */
 		name_marks?: import('svelte').Snippet
+		/** Opens the item's Share dialog, from a Share button placed right before Edit. */
+		onShare?: () => void
 	}
 
 	let {
@@ -95,7 +106,8 @@
 		ownsPageHeader = false,
 		wide = true,
 		leading_actions,
-		name_marks
+		name_marks,
+		onShare
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -103,6 +115,23 @@
 	// A flow and a script are renamed as what their error handler already names them; an agent has
 	// no error handler and says so itself.
 	const renameKind = $derived(itemKind ?? errorHandlerKind)
+
+	// The session's preview opens on this same deployed page (`/get/`), not the item's editor:
+	// someone here came to run the item, not to change it.
+	const sessionPage = $derived(
+		!path
+			? undefined
+			: errorHandlerKind
+				? `/${errorHandlerKind}s/get/${path}`
+				: itemKind === 'agent'
+					? `/agents/get/${path}`
+					: undefined
+	)
+	const sessionSource: OpenInSessionSource | undefined = $derived(
+		sessionPage
+			? { page: () => sessionPage, workspaceId: $operatingWorkspace ?? undefined }
+			: undefined
+	)
 
 	// The band folds the buttons once its breadcrumb has given all it can (`actionFolds` below):
 	// first the secondary ones go to their `placement`, then every bar button but the last, which
@@ -113,10 +142,27 @@
 	const fold = $derived(ownsPageHeader ? pageHeader.actionFold : wide ? 0 : 1)
 	const wideRow = $derived(wide && fold <= 1)
 
-	const rowButtons = $derived(mainButtons.filter((b) => !b.placement))
+	// Share is a main button the header places itself: right before Edit, or last for someone
+	// who gets no Edit. It folds like the other main buttons, before Edit does.
+	const shareButton: MainButton | undefined = $derived(
+		onShare
+			? {
+					label: 'Share',
+					buttonProps: { onClick: onShare, variant: 'default', startIcon: UserPlus }
+				}
+			: undefined
+	)
+	const buttons = $derived.by(() => {
+		if (!shareButton) return mainButtons
+		const edit = mainButtons.findIndex((b) => b.label === 'Edit')
+		const at = edit === -1 ? mainButtons.length : edit
+		return [...mainButtons.slice(0, at), shareButton, ...mainButtons.slice(at)]
+	})
+
+	const rowButtons = $derived(buttons.filter((b) => !b.placement))
 	const barButtons = $derived(
 		fold === 0
-			? mainButtons.filter((b) => !b.alwaysPlaced)
+			? buttons.filter((b) => !b.alwaysPlaced)
 			: fold === 1
 				? rowButtons
 				: fold === 2
@@ -134,7 +180,7 @@
 	 *  dropdown would have held, then the secondary actions with no bar button to hang from. */
 	const menuButtons = $derived.by(() => {
 		const folded = rowButtons.filter((b) => !barButtons.includes(b))
-		const homeless = mainButtons.filter(
+		const homeless = buttons.filter(
 			(b) => b.placement && !barButtons.includes(b) && !dropdownHost(b)
 		)
 		const childOf = (host: MainButton) =>
@@ -189,8 +235,14 @@
 		}))
 	])
 
+	// The session button goes right before the page's main action, the last bar button (Edit), and
+	// before Share too when Share sits beside it, so the two stay together.
+	const sessionAt = $derived(
+		barButtons.length - (barButtons.length >= 2 && barButtons.at(-2) === shareButton ? 2 : 1)
+	)
+
 	function dropdownItemsOf(host: MainButton) {
-		const items = mainButtons
+		const items = buttons
 			.filter((b) => dropdownHost(b) === host)
 			.map((b) => ({
 				label: b.label,
@@ -277,8 +329,14 @@
 			unifiedSize={size}
 		/>
 	{/if}
-	{#each barButtons as btn (btn.label)}
+	{#if ownsPageHeader && barButtons.length === 0}
+		<OpenInSessionButton source={sessionSource} />
+	{/if}
+	{#each barButtons as btn, i (btn.label)}
 		{@const dropdownItems = dropdownItemsOf(btn)}
+		{#if ownsPageHeader && i === sessionAt}
+			<OpenInSessionButton source={sessionSource} />
+		{/if}
 		<Button
 			{...btn.buttonProps}
 			startIcon={{ icon: btn.buttonProps.startIcon }}
@@ -313,6 +371,7 @@
 			pathTrigger: onSaved ? pathTrigger : undefined
 		}}
 		{actions}
+		{sessionSource}
 		actionFolds={3}
 		earlyActionFolds={1}
 		contexts={headerContexts}

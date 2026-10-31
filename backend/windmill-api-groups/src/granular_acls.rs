@@ -117,7 +117,7 @@ async fn add_granular_acl(
     }
 
     if let Some(manage_kind) = manage_kind_for_acl_kind(kind) {
-        check_operator_can_manage(&db, &w_id, authed.is_operator, manage_kind).await?;
+        check_operator_can_manage(&db, &w_id, &authed, manage_kind).await?;
     }
 
     let identifier = if kind == "group_" || kind == "folder" || kind == "volume" {
@@ -368,7 +368,7 @@ async fn remove_granular_acl(
     }
 
     if let Some(manage_kind) = manage_kind_for_acl_kind(kind) {
-        check_operator_can_manage(&db, &w_id, authed.is_operator, manage_kind).await?;
+        check_operator_can_manage(&db, &w_id, &authed, manage_kind).await?;
     }
 
     if !authed.is_admin {

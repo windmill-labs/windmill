@@ -337,12 +337,29 @@
     "auth_url": "https://www.linkedin.com/oauth/v2/authorization",
     "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
     "grant_types": ["authorization_code", "client_credentials"],
-    "scopes": ["w_member_social", "r_liteprofile", "r_emailaddress"],
+    "scopes": ["openid", "profile", "email", "w_member_social"],
+    "scope_options": [
+      "openid",
+      "profile",
+      "email",
+      "w_member_social",
+      "r_member_social",
+      "w_organization_social",
+      "r_organization_social",
+      "r_organization_admin",
+      "rw_organization_admin",
+      "r_ads",
+      "r_basicprofile"
+    ],
     "req_body_auth": true
   },
   "quickbooks": {
     "auth_url": "https://appcenter.intuit.com/connect/oauth2",
     "token_url": "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+    "connect_fields": {
+      "realmId": "callback.realmId"
+    },
+    "resource_fields": ["realmId", "isSandBox"],
     "scopes": ["com.intuit.quickbooks.accounting"]
   },
   "visma": {
@@ -468,15 +485,26 @@
   "docusign": {
     "auth_url": "https://account.docusign.com/oauth/auth",
     "token_url": "https://account.docusign.com/oauth/token",
+    "userinfo_url": "https://account.docusign.com/oauth/userinfo",
+    "connect_fields": {
+      "account_id": "userinfo.accounts[is_default=true].account_id",
+      "base_uri": "userinfo.accounts[is_default=true].base_uri"
+    },
+    "resource_fields": ["account_id", "base_uri"],
     "scopes": ["signature"],
     "sandbox": {
       "auth_url": "https://account-d.docusign.com/oauth/auth",
-      "token_url": "https://account-d.docusign.com/oauth/token"
+      "token_url": "https://account-d.docusign.com/oauth/token",
+      "userinfo_url": "https://account-d.docusign.com/oauth/userinfo"
     }
   },
   "salesforce": {
     "auth_url": "https://login.salesforce.com/services/oauth2/authorize",
     "token_url": "https://login.salesforce.com/services/oauth2/token",
+    "connect_fields": {
+      "instance_url": "token.instance_url"
+    },
+    "resource_fields": ["instance_url"],
     "scopes": ["api", "refresh_token", "offline_access"],
     "sandbox": {
       "auth_url": "https://test.salesforce.com/services/oauth2/authorize",

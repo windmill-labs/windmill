@@ -2,6 +2,7 @@
 	import { setContext, untrack } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { enterpriseLicense } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 	import { resource } from 'runed'
 	import { Button } from '$lib/components/common'
 	import { lookupPageItem } from './pageItemLookup'
@@ -10,12 +11,15 @@
 	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import {
 		pageItemKindLabel,
+		pageItemPageHref,
 		pageItemUrl,
 		TRIGGER_PAGES,
 		type PageItemRef,
 		type TriggerKind
 	} from './previewPaths'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
+	import { useSessionPermissions } from './sessionPermissions.svelte'
+	import { withWorkspaceParam } from './sessionMode.svelte'
 
 	let {
 		runtime,
@@ -78,9 +82,7 @@
 		const t = triggerEditor
 		untrack(() => {
 			v?.editVariable(path)
-			// An agent opens on JSON: the generic form would render its configuration field by
-			// field and write a default into each one the value leaves out, drafting just by opening.
-			void r?.initEdit(path, { json: lookup.current?.resourceType === 'ai_agent' })
+			void r?.initEdit(path)
 			void t?.openEdit(path, false)
 		})
 	})
@@ -101,6 +103,13 @@
 				(found) => ({ exists: !!found, resourceType: found?.resource_type as string | undefined }),
 				() => ({ exists: true, resourceType: undefined })
 			)
+	)
+
+	// These editors save on click, and a schedule or trigger save passes a production
+	// workspace's deploy rules, so a read-only session mounts none of them.
+	const permissions = useSessionPermissions(
+		() => workspaceId,
+		() => runtime.manager
 	)
 
 	function closeTab() {
@@ -135,6 +144,21 @@
 			</p>
 			<Button variant="default" unifiedSize="sm" onClick={closeTab}>Close tab</Button>
 		</div>
+	{:else if permissions.readOnly}
+		<div class="flex flex-col items-start gap-3 p-4 text-sm text-secondary">
+			<p>
+				{pageItemKindLabel(item)} <span class="font-mono">{item.path}</span> can't be edited while the
+				session is in Use mode.
+			</p>
+			<Button
+				variant="default"
+				unifiedSize="sm"
+				href={withWorkspaceParam(pageItemPageHref(item), workspaceId)}
+				target="_blank"
+			>
+				Open in workspace
+			</Button>
+		</div>
 	{:else}
 		{#key `${item.kind}:${triggerKey}:${item.path}:${workspaceId}:${reloadNonce}:${savedNonce}`}
 			{#if item.kind === 'variable'}
@@ -145,6 +169,21 @@
 					{onSaved}
 					onClose={closeTab}
 				/>
+			{:else if item.kind === 'resource' && lookup.current.resourceType === 'ai_agent'}
+				<!-- An agent has an editor of its own, which the resource editor would show as JSON. -->
+				{#await import('$lib/components/flows/content/AgentEditorModal.svelte')}
+					{@render loading()}
+				{:then Module}
+					<Module.default
+						layout="pane"
+						fixedTarget={{ path: item.path, workspace: workspaceId }}
+						owns={() => false}
+						enableAi={$copilotInfo.enabled}
+						onClose={closeTab}
+						onRenamed={(_, to) => onSaved(to)}
+						onSummary={(summary) => runtime.previewTabs.stampAgentTab(item, summary)}
+					/>
+				{/await}
 			{:else if item.kind === 'resource'}
 				<ResourceEditorDrawer
 					bind:this={resourceEditor}

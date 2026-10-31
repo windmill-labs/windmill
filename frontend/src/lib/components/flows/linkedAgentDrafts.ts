@@ -3,7 +3,7 @@ import {
 	type FlowModule,
 	type FlowValue,
 	type InputTransform,
-	type OperatorSettings,
+	type RoleCapabilities,
 	type Resource
 } from '$lib/gen'
 import { UserDraft } from '$lib/userDraft.svelte'
@@ -123,15 +123,15 @@ export interface LinkedAgentDraft {
 	extraPerms: Record<string, boolean>
 }
 
-/** Whether `user` may write this agent's resource, in a workspace with these `operator_settings`.
+/** Whether `user`, holding a role with `caps`, may write this agent's resource.
  *  Split from the load so that resolving the drafts of a whole flow costs no `whoami` — only the
  *  deploy dialog needs the answer, and it looks the user up once for every agent it lists. */
 export function agentDraftCanWrite(
 	draft: LinkedAgentDraft,
 	user: UserExt | undefined,
-	operatorSettings: OperatorSettings | undefined
+	caps: RoleCapabilities
 ): boolean {
-	return canEditItem('agent', draft.path, draft.extraPerms, user, operatorSettings)
+	return canEditItem('agent', draft.path, draft.extraPerms, user, caps)
 }
 
 /** A link that cannot resolve for the user rather than because something went wrong: the agent was

@@ -11,8 +11,9 @@
 	import GroupInfo from '$lib/components/GroupInfo.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
+	import { userStore, workspaceStore, roleCapabilities } from '$lib/stores'
 	import { useEditRights } from '$lib/operatorWriteRights'
+	import { latestRequest } from '$lib/utils/latestRequest'
 	import { Pen, Plus, Trash } from 'lucide-svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
@@ -22,22 +23,22 @@
 	import { Tooltip } from '$lib/components/meltComponents'
 	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
 
-	type GroupW = Group & { canWrite: boolean }
-
 	const editRights = useEditRights()
 
 	let restricted = $derived(
 		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
 	)
 
-	let groups: GroupW[] | undefined = $state(undefined)
+	let groups: Group[] | undefined = $state(undefined)
 	let instanceGroups: InstanceGroupWithWorkspaces[] | undefined = $state(undefined)
 	let groupEditorDrawer: GroupEditorDrawer | undefined = $state()
 
+	const groupLoads = latestRequest()
 	async function loadGroups(): Promise<void> {
-		groups = (await GroupService.listGroups({ workspace: $workspaceStore! })).map((x) => {
-			return { canWrite: editRights.canEditItem('group', x.name, x.extra_perms), ...x }
-		})
+		const isLatest = groupLoads.start()
+		const result = await GroupService.listGroups({ workspace: $workspaceStore! })
+		if (!isLatest()) return
+		groups = result
 	}
 
 	async function loadInstanceGroups(): Promise<void> {
@@ -50,7 +51,7 @@
 
 	$effect(() => {
 		untrack(() => loadInstanceGroups())
-		if ($workspaceStore && $userStore) {
+		if ($workspaceStore) {
 			untrack(() => loadGroups())
 		}
 	})
@@ -70,10 +71,10 @@
 	</DrawerContent>
 </Drawer>
 
-{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.groups}
+{#if $workspaceStore && !$roleCapabilities.visibility.groups}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+		<p>Page not available for your role</p>
 	</div>
 {:else}
 	<CenteredPage>
@@ -127,7 +128,8 @@
 							</tr>
 						{/each}
 					{:else}
-						{#each groups as { name, summary, extra_perms, canWrite } (name)}
+						{#each groups as { name, summary, extra_perms } (name)}
+							{@const canWrite = editRights.canEditItem('group', name, extra_perms)}
 							<Row hoverable on:click={() => groupEditorDrawer?.initEdit(name)}>
 								<Cell first>
 									<div class="flex flex-row gap-2 justify-between">

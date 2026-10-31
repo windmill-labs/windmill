@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT workspace_role, operator FROM usr WHERE workspace_id = $1 AND email = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_role",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "operator",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "0be5632227efca9d58cfa67bf3ce5326c5d344a0106e219867acc2447f417160"
+}

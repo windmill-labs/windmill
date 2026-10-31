@@ -2,7 +2,7 @@ import type { ErrorHandler } from '$lib/gen'
 import { WORKSPACE_SLACK_BOT_TOKEN_PATH } from '$lib/consts'
 import hubPaths from '$lib/hubPaths.json'
 
-export type HandlerMode = 'error' | 'recovery' | 'success'
+export type HandlerMode = 'error' | 'recovery' | 'success' | 'variableExpiration'
 type BuiltinDestination = 'slack' | 'teams' | 'email'
 
 export type HandlerSlot = { path?: string; args: Record<string, any> }
@@ -32,6 +32,10 @@ const BUILTIN_SUFFIXES: Record<HandlerMode, Record<'slack' | 'teams', string>> =
 	success: {
 		slack: '/schedule-success-handler-slack',
 		teams: '/schedule-success-handler-teams'
+	},
+	variableExpiration: {
+		slack: '/variable-expiration-handler-slack',
+		teams: '/variable-expiration-handler-teams'
 	}
 }
 

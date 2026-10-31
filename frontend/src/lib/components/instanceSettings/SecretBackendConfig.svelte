@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import Password from '../Password.svelte'
 	import { SettingService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -12,6 +12,7 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import EEOnly from '../EEOnly.svelte'
+	import HttpStoreSecretBackendConfig from './HttpStoreSecretBackendConfig.svelte'
 
 	interface Props {
 		values: Writable<Record<string, any>>
@@ -26,12 +27,17 @@
 		}
 	})
 
-	let selectedType: 'Database' | 'HashiCorpVault' | 'AzureKeyVault' | 'AwsSecretsManager' =
-		$derived($values['secret_backend']?.type ?? 'Database')
+	let selectedType:
+		| 'Database'
+		| 'HashiCorpVault'
+		| 'AzureKeyVault'
+		| 'AwsSecretsManager'
+		| 'HttpStore' = $derived($values['secret_backend']?.type ?? 'Database')
 
-	let authMethod: 'token' | 'jwt' = $derived.by(() => {
+	let authMethod: 'token' | 'approle' | 'jwt' = $derived.by(() => {
 		const config = $values['secret_backend']
 		if (!config || config.type !== 'HashiCorpVault') return 'jwt'
+		if (config.approle_role_id != null) return 'approle'
 		return config.jwt_role === null ? 'token' : 'jwt'
 	})
 
@@ -55,13 +61,35 @@
 
 	let vaultDisabled = $derived(!$enterpriseLicense)
 
+	// The Vault connection being switched away from, while external secret references
+	// still read through it.
+	let droppedVault: Record<string, any> | undefined = $state()
+	let refsLoseConnection = $derived(
+		!!droppedVault &&
+			selectedType !== 'HashiCorpVault' &&
+			!$values['external_secrets']?.vault &&
+			($values['external_secrets']?.allowed?.length ?? 0) > 0
+	)
+
+	function keepConnectionForRefs() {
+		if (!droppedVault) return
+		const { type: _t, mount_path: _m, kv_secret_path_prefix: _p, ...conn } = droppedVault
+		$values['external_secrets'] = { ...$values['external_secrets'], vault: conn }
+	}
+
 	function setBackendType(type: string | undefined) {
 		if (!type) return
 		if (
-			(type === 'HashiCorpVault' || type === 'AzureKeyVault' || type === 'AwsSecretsManager') &&
+			(type === 'HashiCorpVault' ||
+				type === 'AzureKeyVault' ||
+				type === 'AwsSecretsManager' ||
+				type === 'HttpStore') &&
 			vaultDisabled
 		)
 			return
+		if ($values['secret_backend']?.type === 'HashiCorpVault' && type !== 'HashiCorpVault') {
+			droppedVault = $values['secret_backend']
+		}
 		if (type === 'Database') {
 			$values['secret_backend'] = { type: 'Database' }
 		} else if (type === 'HashiCorpVault') {
@@ -94,6 +122,14 @@
 				endpoint_url: $values['secret_backend']?.endpoint_url ?? null,
 				prefix: $values['secret_backend']?.prefix ?? 'windmill/'
 			}
+		} else if (type === 'HttpStore') {
+			$values['secret_backend'] = {
+				type: 'HttpStore',
+				base_url: '',
+				read: { path: '/v1/secrets/{workspace}/{path}' },
+				auth: { type: 'None' },
+				skip_ssl_verify: false
+			}
 		}
 	}
 
@@ -108,12 +144,21 @@
 			$values['secret_backend'] = {
 				...$values['secret_backend'],
 				jwt_role: null,
+				approle_role_id: undefined,
 				token: $values['secret_backend'].token ?? ''
+			}
+		} else if (method === 'approle') {
+			$values['secret_backend'] = {
+				...$values['secret_backend'],
+				jwt_role: null,
+				token: null,
+				approle_role_id: $values['secret_backend'].approle_role_id ?? ''
 			}
 		} else if (method === 'jwt') {
 			$values['secret_backend'] = {
 				...$values['secret_backend'],
 				token: null,
+				approle_role_id: undefined,
 				jwt_role: $values['secret_backend'].jwt_role ?? 'windmill-secrets'
 			}
 		}
@@ -126,6 +171,8 @@
 			kv_secret_path_prefix: $values['secret_backend'].kv_secret_path_prefix || undefined,
 			jwt_role: $values['secret_backend'].jwt_role,
 			jwt_mount_path: $values['secret_backend'].jwt_mount_path || undefined,
+			approle_role_id: $values['secret_backend'].approle_role_id ?? undefined,
+			approle_mount_path: $values['secret_backend'].approle_mount_path || undefined,
 			namespace: $values['secret_backend'].namespace || undefined,
 			token: $values['secret_backend'].token || undefined,
 			skip_ssl_verify: $values['secret_backend'].skip_ssl_verify || undefined
@@ -238,7 +285,8 @@
 		const hasMountPath = $values['secret_backend'].mount_path?.trim() !== ''
 		const hasToken = $values['secret_backend'].token?.trim()
 		const hasJwtRole = $values['secret_backend'].jwt_role?.trim()
-		return hasAddress && hasMountPath && (hasToken || hasJwtRole)
+		const hasAppRole = $values['secret_backend'].approle_role_id?.trim()
+		return hasAddress && hasMountPath && (hasToken || hasJwtRole || hasAppRole)
 	}
 
 	function getAzureKvSettings() {
@@ -434,8 +482,27 @@
 					item={toggleButton}
 					disabled={vaultDisabled}
 				/>
+				<ToggleButton
+					value="HttpStore"
+					label="Generic HTTP store"
+					tooltip={vaultDisabled
+						? 'Requires Enterprise Edition'
+						: 'Read secrets from any secret store with an HTTP API'}
+					item={toggleButton}
+					disabled={vaultDisabled}
+				/>
 			{/snippet}
 		</ToggleButtonGroup>
+		{#if refsLoseConnection}
+			<Alert
+				type="warning"
+				size="xs"
+				title="External secret references use this Vault connection"
+				actions={[{ label: 'Keep the connection for references', onClick: keepConnectionForRefs }]}
+			>
+				Keep it as their own connection, or they can no longer be read.
+			</Alert>
+		{/if}
 		{#if vaultDisabled}
 			<div class="flex items-center gap-1">
 				<EEOnly>External secret store integrations require Enterprise Edition</EEOnly>
@@ -523,6 +590,13 @@
 								{disabled}
 							/>
 							<ToggleButton
+								value="approle"
+								label="AppRole"
+								tooltip="Log in with an AppRole role_id and secret_id"
+								item={toggleButton}
+								{disabled}
+							/>
+							<ToggleButton
 								value="token"
 								label="Static Token"
 								tooltip="Use a static Vault token"
@@ -532,7 +606,34 @@
 						{/snippet}
 					</ToggleButtonGroup>
 				</div>
-				{#if authMethod === 'token'}
+				{#if authMethod === 'approle'}
+					<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-lg">
+						<label for="vault_approle_role_id" class="block text-xs font-semibold text-emphasis"
+							>Role ID</label
+						>
+						<TextInput
+							inputProps={{ type: 'text', id: 'vault_approle_role_id', disabled }}
+							bind:value={$values['secret_backend'].approle_role_id}
+						/>
+						<span class="text-2xs text-secondary"
+							>The secret_id is read from the <code>VAULT_APPROLE_SECRET_ID</code> environment
+							variable of every server and worker, so it is never stored in Windmill. Leave it unset
+							for a role with <code>bind_secret_id=false</code>.</span
+						>
+						<label for="vault_approle_mount_path" class="block text-xs font-semibold text-emphasis"
+							>AppRole Mount Path (optional)</label
+						>
+						<TextInput
+							inputProps={{
+								type: 'text',
+								id: 'vault_approle_mount_path',
+								placeholder: 'approle',
+								disabled
+							}}
+							bind:value={$values['secret_backend'].approle_mount_path}
+						/>
+					</div>
+				{:else if authMethod === 'token'}
 					<div class="flex flex-col gap-1 p-3 bg-surface-secondary rounded-lg">
 						<label for="vault_token" class="block text-xs font-semibold text-emphasis"
 							>Vault Token</label
@@ -931,6 +1032,8 @@ vault write auth/{jwtMount}/role/{$values['secret_backend']?.jwt_role || 'windmi
 				</div>
 			</div>
 		</div>
+	{:else if selectedType === 'HttpStore'}
+		<HttpStoreSecretBackendConfig {values} {disabled} {reportMigrationFailures} />
 	{/if}
 </div>
 

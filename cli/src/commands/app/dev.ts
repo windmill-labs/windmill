@@ -19,8 +19,10 @@ import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   createFrameworkPlugins,
+  createSharedUiPlugin,
   detectFrameworks,
   ensureNodeModules,
+  findSharedUiDir,
   getDevBuildOptions,
 } from "./bundle.ts";
 import { wmillTsDev as wmillTs } from "./wmillTsDev.ts";
@@ -593,6 +595,12 @@ async function dev(opts: DevOptions, appFolder?: string) {
   // Load framework-specific plugins (svelte) based on package.json
   const frameworkPlugins = await createFrameworkPlugins(appDir);
 
+  const sharedUiDir = findSharedUiDir(appDir);
+  const sharedUiPlugins =
+    sharedUiDir && fs.existsSync(sharedUiDir)
+      ? [createSharedUiPlugin(sharedUiDir, appDir)]
+      : [];
+
   const wmillPlugin = {
     name: "wmill-virtual",
     setup(build: any) {
@@ -663,6 +671,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
         },
       },
       wmillPlugin,
+      ...sharedUiPlugins,
     ],
   });
 
@@ -1155,7 +1164,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
           colors.cyan(`[WebSocket] Received: ${JSON.stringify(message)}`),
         );
 
-        const { type, reqId, runnable_id, v, jobId } = message;
+        const { type, reqId, runnable_id, v, jobId, memoryId } = message;
 
         // Helper to send response
         const respond = (responseType: string, result: any, error: boolean) => {
@@ -1166,6 +1175,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
         const runAndWaitForResult = async (
           runnableId: string,
           args: any,
+          memoryId?: string,
         ): Promise<{ uuid: string; result: any }> => {
           const runnables = await loadRunnables();
           const runnable = runnables[runnableId];
@@ -1182,6 +1192,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
             args,
             appTempRefs,
             previewModules(runnables, runnableId),
+            memoryId,
           );
           log.info(colors.gray(`[backend] Job started: ${uuid}`));
 
@@ -1194,7 +1205,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
             // Run a runnable synchronously and wait for result
             log.info(colors.blue(`[backend] Running runnable: ${runnable_id}`));
             try {
-              const { result } = await runAndWaitForResult(runnable_id, v);
+              const { result } = await runAndWaitForResult(runnable_id, v, memoryId);
               respond("backendRes", result, false);
             } catch (error: any) {
               log.error(colors.red(`[backend] Error: ${error.message}`));
@@ -1230,6 +1241,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
                 v,
                 appTempRefs,
                 previewModules(runnables, runnable_id),
+                memoryId,
               );
               log.info(colors.gray(`[backendAsync] Job started: ${uuid}`));
 
@@ -1712,6 +1724,43 @@ export function buildWmillTs(
 }
 
 /**
+ * The inputs of an agent runnable, after the agent's memory (see the frontend's
+ * `agentRunnableSchema`): `previous_messages` when it keeps no memory. The conversation of one
+ * that does is `backendAsync`'s `memoryId` option, not an input.
+ */
+function agentRunnableSchema(memory: any) {
+  const managed =
+    memory?.kind === "compaction" ||
+    ((memory?.kind === "window" || memory?.kind === "auto") &&
+      Boolean(memory.context_length));
+  const legacy = memory?.kind === "manual";
+  const history: Record<string, any> = {};
+  if (!managed && !legacy) {
+    history.previous_messages = {
+      type: "array",
+      description:
+        "The history to answer from, as chat messages: this agent keeps no memory",
+      items: { type: "object" },
+    };
+  }
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    type: "object",
+    properties: {
+      user_message: { type: "string", description: "The message to answer" },
+      ...history,
+      user_attachments: {
+        type: "array",
+        description: "Files the message carries, as object storage references",
+        items: { type: "object", resourceType: "s3object" },
+      },
+    },
+    required: ["user_message"],
+    order: ["user_message", ...Object.keys(history), "user_attachments"],
+  };
+}
+
+/**
  * Fetches schemas from the Windmill API for path-based runnables (script / flow).
  * Returns a map of runnableId -> schema. Path-based runnables don't store their
  * schema locally (the script or flow at the path is the source of truth), so we
@@ -1741,6 +1790,12 @@ export async function fetchPathRunnableSchemas(
           path: runnable.path,
         });
         if (script.schema) schemas[runnableId] = script.schema;
+      } else if (runnable.runType === "agent") {
+        const agent = await wmill.getResource({
+          workspace: workspaceId,
+          path: runnable.path,
+        });
+        schemas[runnableId] = agentRunnableSchema((agent.value as any)?.memory);
       } else if (runnable.runType === "flow") {
         const flow = await wmill.getFlowByPath({
           workspace: workspaceId,
@@ -1771,7 +1826,8 @@ function convertRunnablesToApiFormat(runnables: Record<string, any>): void {
     if (
       runnable?.type === "script" ||
       runnable?.type === "hubscript" ||
-      runnable?.type === "flow"
+      runnable?.type === "flow" ||
+      runnable?.type === "agent"
     ) {
       // Convert from file format to API format
       // { type: "script" } -> { type: "path", runType: "script" }
@@ -1872,10 +1928,12 @@ async function executeRunnable(
   args: any,
   tempScriptRefs?: Record<string, string>,
   modules?: Record<string, { content: string; language: string }>,
+  memoryId?: string,
 ): Promise<string> {
   const requestBody: any = {
     component: runnableId,
     args: args ?? {},
+    ...(memoryId ? { run_query_params: { memory_id: memoryId } } : {}),
     force_viewer_static_fields: {},
     force_viewer_one_of_fields: {},
     force_viewer_allow_user_resources: [],
@@ -2029,9 +2087,11 @@ async function streamJobWithSSE(
   ws: WebSocket,
   baseUrl: string,
   token: string,
+  streamOffset?: number,
 ): Promise<void> {
   const sseUrl =
-    `${baseUrl}api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?fast=true`;
+    `${baseUrl}api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?fast=true` +
+    (streamOffset !== undefined ? `&stream_offset=${streamOffset}` : "");
 
   const extraHeaders = getHeaders();
   const response = await fetch(sseUrl, {
@@ -2057,6 +2117,7 @@ async function streamJobWithSSE(
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let lastOffset = streamOffset;
 
   try {
     while (true) {
@@ -2076,8 +2137,17 @@ async function streamJobWithSSE(
 
             if (type === "ping" || type === "timeout") {
               if (type === "timeout") {
+                // The server ends every stream after a while; the job goes on, so it is resumed.
                 reader.cancel();
-                return;
+                return streamJobWithSSE(
+                  workspace,
+                  jobId,
+                  reqId,
+                  ws,
+                  baseUrl,
+                  token,
+                  lastOffset,
+                );
               }
               continue;
             }
@@ -2108,6 +2178,9 @@ async function streamJobWithSSE(
               return;
             }
 
+            if (update.stream_offset !== undefined) {
+              lastOffset = update.stream_offset;
+            }
             // Send stream update if there's new stream data
             if (update.new_result_stream !== undefined) {
               ws.send(

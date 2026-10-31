@@ -53,6 +53,10 @@ RUN apt-get -y update && apt-get install -y libaio1t64 \
     && ln -s "$(basename "$libaio")" "$(dirname "$libaio")/libaio.so.1"
 RUN echo /opt/oracle/23/lib > /etc/ld.so.conf.d/oracle-instantclient.conf && ldconfig
 
+# PHP
+COPY --from=php:8.3.36-cli-trixie /usr/local/bin/php /usr/bin/php
+COPY --from=composer:2.9.5 /usr/bin/composer /usr/bin/composer
+
 # Nushell
 COPY --from=ghcr.io/nushell/nushell:0.101.0-bookworm /usr/bin/nu /usr/bin/nu
 

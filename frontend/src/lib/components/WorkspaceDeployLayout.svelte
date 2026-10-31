@@ -57,6 +57,8 @@
 		itemPath?: Snippet<[DeployableItem]>
 		itemActions?: Snippet<[DeployableItem]>
 		footer?: Snippet
+		/** A resource row that is an AI agent, drawn with the agent's icon. */
+		isAgent?: (item: DeployableItem) => boolean
 
 		// Callbacks
 		onToggleItem?: (item: DeployableItem) => void
@@ -83,6 +85,7 @@
 		itemPath,
 		itemActions,
 		footer,
+		isAgent,
 		onToggleItem,
 		onSelectAll,
 		onDeselectAll
@@ -251,8 +254,12 @@
 						{@const isDeployed = status?.status === 'deployed'}
 						{@const blockedReason =
 							!isSelectable && !isDeployed ? selectBlockedReason?.(item) : undefined}
+						<!-- A resource is titled by its path, except an agent, titled by its summary. -->
 						{@const showPath =
-							item.kind !== 'resource' && item.kind !== 'variable' && item.kind !== 'resource_type'}
+							isAgent?.(item) ||
+							(item.kind !== 'resource' &&
+								item.kind !== 'variable' &&
+								item.kind !== 'resource_type')}
 						<!-- The group header already names the folder — the path line only
 						     carries what's below it. -->
 						{@const subPath =
@@ -270,7 +277,7 @@
 							onSelect={() => handleSelect(item)}
 							path={showPath ? item.path : ''}
 							marked={undefined}
-							kind={item.kind}
+							kind={isAgent?.(item) ? 'agent' : item.kind}
 							triggerKind={item.triggerKind}
 							canFavorite={false}
 							workspaceId=""

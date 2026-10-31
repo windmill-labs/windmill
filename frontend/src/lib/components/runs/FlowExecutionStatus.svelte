@@ -1,5 +1,7 @@
 <script lang="ts">
 	import FlowStatusWaitingForEvents from '../FlowStatusWaitingForEvents.svelte'
+	import AgentApprovalRequest from '../AgentApprovalRequest.svelte'
+	import { pendingAgentApproval } from '../agentRequest'
 	import type { FlowStatusModule, Job } from '$lib/gen'
 	import { type StateStore } from '$lib/utils'
 	import { fade, slide } from 'svelte/transition'
@@ -18,7 +20,9 @@
 	)
 	const isSuspended = $derived(suspendStatus.val && Object.keys(suspendStatus.val).length > 0)
 
-	const anyStatusActive = $derived(isWaitingForEvents || isSuspended)
+	const pendingApproval = $derived(pendingAgentApproval(job))
+
+	const anyStatusActive = $derived(isWaitingForEvents || isSuspended || !!pendingApproval)
 </script>
 
 {#if job && anyStatusActive}
@@ -28,6 +32,15 @@
 	>
 		{#if isWaitingForEvents}
 			<FlowStatusWaitingForEvents workspaceId={job.workspace_id} {job} {isOwner} />
+		{:else if pendingApproval}
+			{#key pendingApproval.action.call_id}
+				<AgentApprovalRequest
+					workspaceId={job.workspace_id ?? ''}
+					agentJobId={pendingApproval.agentJobId}
+					request={pendingApproval.action}
+					pending
+				/>
+			{/key}
 		{:else if isSuspended}
 			<div class="flex gap-2 flex-col" in:fade={{ duration: 150 }}>
 				{#each Object.values(suspendStatus.val) as suspendCount (suspendCount.job.id)}

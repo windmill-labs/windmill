@@ -123,17 +123,15 @@ pub async fn list_datasets(
 
 pub async fn create_dataset(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(payload): Json<CreateDataset>,
 ) -> Result<String> {
     check_proper_path(&payload.path)?;
     check_summary(payload.summary.as_deref())?;
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot create eval datasets".to_string(),
-        ));
-    }
+    windmill_common::workspaces::check_role_can_code(&db, &w_id, &authed, "create eval datasets")
+        .await?;
     check_case_set(
         payload
             .cases
@@ -207,15 +205,13 @@ pub async fn get_dataset(
 /// or not at all.
 pub async fn update_dataset(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, String)>,
     Json(payload): Json<EditDataset>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot modify eval datasets".to_string(),
-        ));
-    }
+    windmill_common::workspaces::check_role_can_code(&db, &w_id, &authed, "modify eval datasets")
+        .await?;
     check_summary(payload.summary.as_deref())?;
     let new_path = match payload.path.filter(|p| *p != path) {
         Some(new_path) => {
@@ -301,15 +297,13 @@ pub async fn update_dataset(
 /// own retention.
 pub async fn delete_dataset(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, String)>,
 ) -> Result<String> {
     check_proper_path(&path)?;
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot delete eval datasets".to_string(),
-        ));
-    }
+    windmill_common::workspaces::check_role_can_code(&db, &w_id, &authed, "delete eval datasets")
+        .await?;
     let mut tx = user_db.clone().begin(&authed).await?;
     let deleted = sqlx::query_scalar!(
         "DELETE FROM eval_dataset WHERE workspace_id = $1 AND path = $2 RETURNING path",

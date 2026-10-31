@@ -87,6 +87,8 @@ lazy_static::lazy_static! {
     static ref CARGO_PATH: String = find_cargo_path();
     static ref SWEEP_MAXSIZE: String = std::env::var("CARGO_SWEEP_MAXSIZE").unwrap_or("25GB".to_owned());
     static ref NO_SHARED_BUILD_DIR: bool = std::env::var("RUST_NO_SHARED_BUILD_DIR").ok().map(|flag| flag == "true").unwrap_or(false);
+    /// Parent of the worker-owned working directories of host-side cargo invocations, see [`HostCargoCwd`].
+    static ref HOST_CARGO_CWD_DIR: String = format!("{}/host_cargo_cwd", *RUST_CACHE_DIR);
 }
 
 #[cfg(windows)]
@@ -242,13 +244,10 @@ pub fn __WINDMILL_RUN__(_args: __WINDMILL_ARGS__) -> Result<String, Box<dyn std:
     Ok(())
 }
 
-async fn write_cargo_config(
-    job_dir: &str,
-    job_id: &Uuid,
-    w_id: &str,
-    conn: &Connection,
-) -> anyhow::Result<()> {
-    if let Some(cargo_registries) = read_ee_registry_with_workspace_override(
+/// The instance/workspace cargo registry configuration, if any is set, as the body of a
+/// `.cargo/config.toml`.
+async fn cargo_registries_config(job_id: &Uuid, w_id: &str, conn: &Connection) -> Option<String> {
+    read_ee_registry_with_workspace_override(
         CARGO_REGISTRIES.read().await.clone(),
         "cargo_registries",
         "cargo registries",
@@ -257,14 +256,148 @@ async fn write_cargo_config(
         conn,
     )
     .await
-    {
-        if !cargo_registries.trim().is_empty() {
-            let cargo_dir = format!("{job_dir}/.cargo");
-            create_dir_all(&cargo_dir).await?;
-            write_file(&cargo_dir, "config.toml", &cargo_registries)?;
-        }
+    .filter(|cargo_registries| !cargo_registries.trim().is_empty())
+}
+
+/// Write `{dir}/.cargo/config.toml`. cargo only reads it when `dir` is the working
+/// directory of the invocation (or an ancestor of it), never because `dir` holds the
+/// manifest the invocation was pointed at.
+async fn write_cargo_registries_config(dir: &str, registries: &str) -> anyhow::Result<()> {
+    let cargo_dir = format!("{dir}/.cargo");
+    create_dir_all(&cargo_dir).await?;
+    write_file(&cargo_dir, "config.toml", registries)?;
+    Ok(())
+}
+
+async fn write_cargo_config(
+    job_dir: &str,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> anyhow::Result<()> {
+    if let Some(cargo_registries) = cargo_registries_config(job_id, w_id, conn).await {
+        write_cargo_registries_config(job_dir, &cargo_registries).await?;
     }
     Ok(())
+}
+
+/// Stub manifest for a [`HostCargoCwd`]. Nothing is ever built from it; `cargo sweep`
+/// only needs *a* manifest in its working directory to ask `cargo metadata` where the
+/// target directory is, and `[workspace]` keeps cargo from walking further up.
+const HOST_CARGO_CWD_MANIFEST: &str = r#"# Worker-owned stub crate. Host-side cargo invocations run from here so that their
+# configuration discovery never reaches a job directory. Nothing is built from it.
+[workspace]
+
+[package]
+name = "windmill_host_cargo_cwd"
+version = "0.0.0"
+
+[lib]
+path = "src/lib.rs"
+"#;
+
+/// Working directory for cargo invocations that run outside the build jail. cargo reads
+/// `.cargo/config.toml` from its working directory and that directory's ancestors (not
+/// from the manifest's directory), so this is a worker-owned directory under the rust
+/// cache dir, outside any job directory and outside the build dirs.
+struct HostCargoCwd {
+    path: String,
+}
+
+impl HostCargoCwd {
+    /// `registries` is the worker's own cargo registry configuration (never the job's), to
+    /// be made visible to the invocation as this directory's `.cargo/config.toml`.
+    async fn new(kind: &str, registries: Option<&str>) -> anyhow::Result<Self> {
+        let path = format!("{}/{kind}-{}", *HOST_CARGO_CWD_DIR, Uuid::new_v4());
+        create_dir_all(format!("{path}/src")).await.map_err(|e| {
+            anyhow::anyhow!("Could not create host cargo working dir {path}.\ne: {e}")
+        })?;
+        let cwd = HostCargoCwd { path };
+        write_file(&cwd.path, "Cargo.toml", HOST_CARGO_CWD_MANIFEST)?;
+        write_file(&format!("{}/src", cwd.path), "lib.rs", "")?;
+        if let Some(registries) = registries {
+            write_cargo_registries_config(&cwd.path, registries).await?;
+        }
+        Ok(cwd)
+    }
+
+    fn path(&self) -> &str {
+        &self.path
+    }
+}
+
+impl Drop for HostCargoCwd {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+/// `cargo generate-lockfile` for the crate in `job_dir`, run from `cwd`.
+///
+/// `cwd` is a [`HostCargoCwd`] and not `job_dir`, so the crate is named with
+/// `--manifest-path`; cargo writes `Cargo.lock` next to that manifest, i.e. still at
+/// `{job_dir}/Cargo.lock`.
+fn build_generate_lockfile_command(cwd: &str, job_dir: &str) -> Command {
+    let mut gen_lockfile_cmd = Command::new(CARGO_PATH.as_str());
+    gen_lockfile_cmd
+        .current_dir(cwd)
+        .env_clear()
+        .env("PATH", PATH_ENV.as_str())
+        .env("HOME", HOME_ENV.as_str())
+        .env("CARGO_HOME", CARGO_HOME.as_str())
+        .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
+        .envs(PROXY_ENVS.clone())
+        .args([
+            "generate-lockfile",
+            "--manifest-path",
+            &format!("{job_dir}/Cargo.toml"),
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        gen_lockfile_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+        gen_lockfile_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+        gen_lockfile_cmd.env(
+            "TMP",
+            std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+        );
+    }
+    gen_lockfile_cmd
+}
+
+/// `cargo sweep` over the shared build dir's target dir, run from `cwd`.
+///
+/// `cwd` is a [`HostCargoCwd`] and not `job_dir`. `cargo sweep` resolves the target
+/// directory to prune by running `cargo metadata` for the manifest in its working
+/// directory, and `CARGO_TARGET_DIR` overrides what that resolves to — which is how this
+/// invocation has always reached `{build_dir}/target`, the stub manifest in `cwd` standing
+/// in for the job's crate.
+fn build_cargo_sweep_command(cwd: &str, build_dir: &str) -> Command {
+    let mut sweep_cmd = Command::new(CARGO_PATH.as_str());
+    let sweep_path = format!("{}/bin:{}", CARGO_HOME.as_str(), PATH_ENV.as_str());
+    sweep_cmd
+        .current_dir(cwd)
+        .env_clear()
+        .env("PATH", &sweep_path)
+        .env("CARGO_HOME", CARGO_HOME.as_str())
+        .env("HOME", HOME_ENV.as_str())
+        .env("CARGO_TARGET_DIR", &format!("{build_dir}/target"))
+        .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
+        .args(["sweep", "--maxsize", SWEEP_MAXSIZE.as_str()])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    {
+        sweep_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+        sweep_cmd.env(
+            "TMP",
+            std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
+        );
+        sweep_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+    }
+    sweep_cmd
 }
 
 pub async fn generate_cargo_lockfile(
@@ -282,29 +415,14 @@ pub async fn generate_cargo_lockfile(
     check_executor_binary_exists("cargo", CARGO_PATH.as_str(), "rust")?;
 
     gen_cargo_crate(code, job_dir)?;
-    write_cargo_config(job_dir, job_id, w_id, conn).await?;
-
-    let mut gen_lockfile_cmd = Command::new(CARGO_PATH.as_str());
-    gen_lockfile_cmd
-        .current_dir(job_dir)
-        .env_clear()
-        .env("PATH", PATH_ENV.as_str())
-        .env("HOME", HOME_ENV.as_str())
-        .env("CARGO_HOME", CARGO_HOME.as_str())
-        .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
-        .envs(PROXY_ENVS.clone())
-        .args(vec!["generate-lockfile"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        gen_lockfile_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
-        gen_lockfile_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
-        gen_lockfile_cmd.env(
-            "TMP",
-            std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
-        );
+    let registries = cargo_registries_config(job_id, w_id, conn).await;
+    if let Some(registries) = registries.as_deref() {
+        write_cargo_registries_config(job_dir, registries).await?;
     }
+
+    // Run outside `job_dir`; the registry configuration is carried over explicitly.
+    let cwd = HostCargoCwd::new("lockfile", registries.as_deref()).await?;
+    let gen_lockfile_cmd = build_generate_lockfile_command(cwd.path(), job_dir);
     let gen_lockfile_process =
         start_child_process(gen_lockfile_cmd, CARGO_PATH.as_str(), false).await?;
     handle_child(
@@ -334,7 +452,6 @@ pub async fn generate_cargo_lockfile(
 
 async fn get_build_dir(
     job: &MiniPulledJob,
-    job_dir: &str,
     conn: &Connection,
     worker_name: &str,
     is_preview: bool,
@@ -387,38 +504,29 @@ async fn get_build_dir(
 
     if run_sweep {
         // Also run sweep to make sure target isn't using too much disk
-        let mut sweep_cmd = Command::new(CARGO_PATH.as_str());
-        let sweep_path = format!("{}/bin:{}", CARGO_HOME.as_str(), PATH_ENV.as_str());
-        sweep_cmd
-            .current_dir(job_dir)
-            .env_clear()
-            .env("PATH", &sweep_path)
-            .env("CARGO_HOME", CARGO_HOME.as_str())
-            .env("HOME", HOME_ENV.as_str())
-            .env("CARGO_TARGET_DIR", &(bd.clone() + "/target"))
-            .env("RUSTUP_HOME", RUSTUP_HOME.as_str())
-            .args(["sweep", "--maxsize", SWEEP_MAXSIZE.as_str()])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        #[cfg(windows)]
-        {
-            sweep_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
-            sweep_cmd.env(
-                "TMP",
-                std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
-            );
-            sweep_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
-        }
-
-        let (job_id, conn, w_id, wk_name) = (
+        let (job_id, conn, w_id, wk_name, build_dir) = (
             job.id.clone(),
             conn.clone(),
             job.workspace_id.clone(),
             worker_name.to_owned(),
+            bd.clone(),
         );
 
         tokio::spawn(async move {
+            // Run from a dedicated directory rather than the job directory. `cwd` is held
+            // for the whole sweep; dropping it removes the directory.
+            let cwd = match HostCargoCwd::new("sweep", None).await {
+                Ok(cwd) => cwd,
+                Err(e) => {
+                    tracing::warn!(
+                        workspace_id = %w_id,
+                        job_id = %job_id,
+                        "Failed to prepare working directory for `cargo sweep`. Rust cache may grow over time, cargo sweep is meant to clean up unused cache.\ne: {e}\n"
+                    );
+                    return;
+                }
+            };
+            let sweep_cmd = build_cargo_sweep_command(cwd.path(), &build_dir);
             if let Err(e) = match start_child_process(sweep_cmd, CARGO_PATH.as_str(), false).await {
                 Ok(sweep_process) => {
                     handle_child(
@@ -467,7 +575,7 @@ pub async fn build_rust_crate(
     ensure_rust_runtime_dirs();
     let bin_path = format!("{}/{hash}", *RUST_CACHE_DIR);
 
-    let build_dir = get_build_dir(job, job_dir, conn, worker_name, is_preview).await?;
+    let build_dir = get_build_dir(job, conn, worker_name, is_preview).await?;
 
     let child = if is_sandboxing_enabled() {
         let _ = write_file(
@@ -850,4 +958,154 @@ pub async fn handle_rust_job(
     )
     .await?;
     read_result(job_dir, None).await
+}
+
+#[cfg(test)]
+mod host_cargo_cwd_tests {
+    use super::*;
+    use std::ffi::OsStr;
+    use std::path::Path;
+
+    /// A plausible job directory: `{TMP}/windmill/{worker}/{job_id}`.
+    const JOB_DIR: &str = "/tmp/windmill/wk-default-xyz-AbCdE/01a12c99-6620-74b9-a4ca-189c60de272c";
+
+    fn args(cmd: &Command) -> Vec<String> {
+        cmd.as_std()
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    fn env(cmd: &Command, key: &str) -> Option<String> {
+        cmd.as_std()
+            .get_envs()
+            .find(|(k, _)| *k == OsStr::new(key))
+            .map(|(_, v)| v.unwrap_or(OsStr::new("")).to_string_lossy().into_owned())
+    }
+
+    /// The working directory is neither inside the job directory nor an ancestor of it.
+    fn assert_cwd_is_isolated_from_job_dir(cmd: &Command, job_dir: &str) {
+        let cwd = cmd
+            .as_std()
+            .get_current_dir()
+            .expect("host-side cargo must set an explicit working directory");
+        let job_dir = Path::new(job_dir);
+        assert!(
+            cwd.ancestors().all(|a| a != job_dir),
+            "cwd {cwd:?} is inside the job dir {job_dir:?}"
+        );
+        assert!(
+            job_dir.ancestors().all(|a| a != cwd),
+            "cwd {cwd:?} is an ancestor of the job dir {job_dir:?}"
+        );
+        assert!(
+            cwd.starts_with(Path::new(HOST_CARGO_CWD_DIR.as_str())),
+            "cwd {cwd:?} is not one of the worker-owned dirs under {}",
+            *HOST_CARGO_CWD_DIR
+        );
+    }
+
+    #[test]
+    fn generate_lockfile_runs_outside_the_job_dir_and_names_the_manifest() {
+        let cwd = format!("{}/lockfile-deadbeef", *HOST_CARGO_CWD_DIR);
+        let cmd = build_generate_lockfile_command(&cwd, JOB_DIR);
+
+        assert_eq!(cmd.as_std().get_current_dir(), Some(Path::new(&cwd)));
+        assert_cwd_is_isolated_from_job_dir(&cmd, JOB_DIR);
+        // Cargo writes Cargo.lock next to the manifest it is given, which is where
+        // `generate_cargo_lockfile` reads it back from.
+        assert_eq!(
+            args(&cmd),
+            vec![
+                "generate-lockfile".to_string(),
+                "--manifest-path".to_string(),
+                format!("{JOB_DIR}/Cargo.toml"),
+            ]
+        );
+    }
+
+    #[test]
+    fn cargo_sweep_runs_outside_the_job_dir_and_still_targets_the_build_dir() {
+        let cwd = format!("{}/sweep-deadbeef", *HOST_CARGO_CWD_DIR);
+        let build_dir = format!("{}/build/acme@u.dev.script@dev", *RUST_CACHE_DIR);
+        let cmd = build_cargo_sweep_command(&cwd, &build_dir);
+
+        assert_eq!(cmd.as_std().get_current_dir(), Some(Path::new(&cwd)));
+        assert_cwd_is_isolated_from_job_dir(&cmd, JOB_DIR);
+        assert_eq!(
+            args(&cmd),
+            vec![
+                "sweep".to_string(),
+                "--maxsize".to_string(),
+                SWEEP_MAXSIZE.to_string(),
+            ]
+        );
+        // `cargo sweep` prunes the target dir that `cargo metadata` reports, and
+        // CARGO_TARGET_DIR is what decides that -- not the cwd's manifest.
+        assert_eq!(
+            env(&cmd, "CARGO_TARGET_DIR").as_deref(),
+            Some(format!("{build_dir}/target").as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn host_cargo_cwd_is_a_worker_owned_stub_crate_removed_on_drop() {
+        let registries = "[registries.acme]\nindex = \"sparse+https://acme.test/index/\"\n";
+        let path = {
+            let cwd = HostCargoCwd::new("unittest", Some(registries))
+                .await
+                .expect("could not create host cargo cwd");
+            let path = cwd.path().to_string();
+
+            assert!(
+                path.starts_with(&format!("{}/unittest-", *HOST_CARGO_CWD_DIR)),
+                "unexpected host cargo cwd {path}"
+            );
+            assert!(
+                !path.starts_with(&format!("{}/build/", *RUST_CACHE_DIR)),
+                "host cargo cwd {path} is under the build dirs"
+            );
+
+            // `cargo sweep` needs a manifest in its cwd to ask `cargo metadata` for the
+            // target dir; `[workspace]` keeps cargo from walking further up.
+            let manifest = std::fs::read_to_string(format!("{path}/Cargo.toml"))
+                .expect("stub Cargo.toml missing");
+            assert!(
+                manifest.contains("[workspace]"),
+                "stub manifest is not its own workspace root: {manifest}"
+            );
+            assert!(
+                manifest.contains("path = \"src/lib.rs\""),
+                "stub manifest does not point at its stub target: {manifest}"
+            );
+            assert_eq!(
+                std::fs::read_to_string(format!("{path}/src/lib.rs")).expect("stub lib.rs missing"),
+                ""
+            );
+            // The worker's own registry configuration has to follow the invocation out
+            // of the job dir, since cargo only reads it from the cwd and CARGO_HOME.
+            assert_eq!(
+                std::fs::read_to_string(format!("{path}/.cargo/config.toml"))
+                    .expect("registry config missing"),
+                registries
+            );
+            path
+        };
+
+        assert!(
+            !Path::new(&path).exists(),
+            "host cargo cwd {path} outlived its guard"
+        );
+    }
+
+    #[tokio::test]
+    async fn host_cargo_cwd_has_no_config_when_no_registries_are_set() {
+        let cwd = HostCargoCwd::new("unittest", None)
+            .await
+            .expect("could not create host cargo cwd");
+        assert!(
+            !Path::new(&format!("{}/.cargo", cwd.path())).exists(),
+            "host cargo cwd has a .cargo dir although no registries are configured"
+        );
+    }
 }

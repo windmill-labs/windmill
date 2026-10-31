@@ -1,8 +1,9 @@
+use crate::ai::pause::{start_approval, start_question, PendingPause};
 use crate::ai::stream_event_processor::StreamEventProcessor;
 use crate::ai::utils::{
     add_message_to_conversation, execute_mcp_tool, get_step_name_from_flow,
-    is_completed_input_transform, update_flow_status_module_with_actions,
-    update_flow_status_module_with_actions_success, FlowContext,
+    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
+    FlowContext,
 };
 use crate::common::{get_root_job_id, OccupancyMetrics};
 use crate::result_processor::handle_non_flow_job_error;
@@ -97,12 +98,35 @@ pub async fn execute_tool_calls(
     actions: &mut Vec<AgentAction>,
     final_events_str: &mut String,
     structured_output_tool_name: &Option<String>,
-) -> Result<(Vec<OpenAIMessage>, Option<OpenAIContent>, bool), Error> {
+    gate: ApprovalGate<'_>,
+) -> Result<ToolCallsOutcome, Error> {
     let mut messages = Vec::new();
     let mut used_structured_output_tool = false;
     let mut final_content = None;
 
-    let mut calls = tool_calls.iter().peekable();
+    let CallPlan { to_run, refusals, deferred, pause } = plan_calls(
+        tool_calls,
+        tools,
+        &gate,
+        structured_output_tool_name.as_deref(),
+    );
+
+    // Answered calls were streamed as running when the agent parked.
+    let announced = matches!(gate, ApprovalGate::Ask);
+    for call in deferred.iter().chain(refusals.iter().map(|(call, _)| call)) {
+        if let Some(stream_event_processor) = ctx.stream_event_processor.filter(|_| announced) {
+            let event = StreamingEvent::ToolExecution {
+                call_id: call.id.clone(),
+                function_name: call.function.name.clone(),
+            };
+            stream_event_processor.send(event, final_events_str).await?;
+        }
+    }
+    for (call, refusal) in refusals {
+        refuse_tool_call(&mut ctx, call, &refusal, &mut messages, final_events_str).await?;
+    }
+
+    let mut calls = to_run.into_iter().peekable();
     while let Some(tool_call) = calls.next() {
         // Stream tool call progress
         if let Some(stream_event_processor) = ctx.stream_event_processor {
@@ -142,7 +166,6 @@ pub async fn execute_tool_calls(
             .find(|t| t.def.function.name == tool_call.function.name);
 
         if let Some(tool) = tool {
-            // Check if this is an MCP tool
             if let Some(mcp_source) = &tool.mcp_source {
                 execute_mcp_tool_call(
                     &mut ctx,
@@ -155,7 +178,17 @@ pub async fn execute_tool_calls(
                 )
                 .await?;
             } else if tool.module.is_some() && interpolating_args(tool_call) {
-                refuse_tool_call(&mut ctx, tool_call, &mut messages, final_events_str).await?;
+                let error_msg = "Tool call refused: its arguments could not be read, or reference \
+                                 variables, resources or reserved names ($var:, $jsonvar:, \
+                                 $res:, $encrypted:, $WM_)";
+                refuse_tool_call(
+                    &mut ctx,
+                    tool_call,
+                    error_msg,
+                    &mut messages,
+                    final_events_str,
+                )
+                .await?;
             } else if tool.module.is_some() {
                 let mut batch = vec![(tool_call, tool)];
                 while let Some(next_call) = calls.peek() {
@@ -192,7 +225,114 @@ pub async fn execute_tool_calls(
         }
     }
 
-    Ok((messages, final_content, used_structured_output_tool))
+    Ok(ToolCallsOutcome { messages, final_content, used_structured_output_tool, pause })
+}
+
+/// A turn's calls: run now, refused with a message, or held for a person's answer.
+struct CallPlan<'a> {
+    to_run: Vec<&'a OpenAIToolCall>,
+    refusals: Vec<(&'a OpenAIToolCall, String)>,
+    deferred: Vec<&'a OpenAIToolCall>,
+    pause: Option<PendingPause>,
+}
+
+fn plan_calls<'a>(
+    tool_calls: &'a [OpenAIToolCall],
+    tools: &[Tool],
+    gate: &ApprovalGate<'_>,
+    structured_output_tool_name: Option<&str>,
+) -> CallPlan<'a> {
+    let tool_of = |call: &OpenAIToolCall| {
+        tools
+            .iter()
+            .find(|t| t.def.function.name == call.function.name)
+    };
+    let mut plan = CallPlan { to_run: vec![], refusals: vec![], deferred: vec![], pause: None };
+    match gate {
+        ApprovalGate::Answered(Some(refusal)) => plan
+            .refusals
+            .extend(tool_calls.iter().map(|call| (call, refusal.to_string()))),
+        ApprovalGate::Answered(None) => {
+            for call in tool_calls {
+                match tool_of(call) {
+                    Some(_) => plan.to_run.push(call),
+                    None => plan
+                        .refusals
+                        .push((call, "Not run: this tool is no longer available.".into())),
+                }
+            }
+        }
+        // Calls that need a person wait for the answer; every other call runs now.
+        ApprovalGate::Ask => {
+            // A call the run would refuse anyway is refused now rather than shown to the approver.
+            let held = |call: &OpenAIToolCall| {
+                tool_of(call).is_some_and(|t| {
+                    t.requires_approval && !(t.module.is_some() && interpolating_args(call))
+                })
+            };
+            let approval_calls: Vec<_> = tool_calls.iter().filter(|call| held(call)).collect();
+            for call in tool_calls {
+                match tool_of(call) {
+                    _ if held(call) => {}
+                    Some(Tool { question_timeout_secs: Some(timeout_secs), .. }) => {
+                        let refusal = if !approval_calls.is_empty() {
+                            "Not run: ask it again once the pending approval is answered."
+                        } else if plan.pause.is_some() {
+                            "Not run: ask one question at a time."
+                        } else {
+                            match start_question(*timeout_secs, call) {
+                                Ok(question) => {
+                                    plan.pause = Some(question);
+                                    plan.deferred.push(call);
+                                    continue;
+                                }
+                                Err(e) => {
+                                    plan.refusals.push((call, e));
+                                    continue;
+                                }
+                            }
+                        };
+                        plan.refusals.push((call, refusal.to_string()));
+                    }
+                    _ => plan.to_run.push(call),
+                }
+            }
+            if !approval_calls.is_empty() {
+                plan.deferred.extend(approval_calls.iter().copied());
+                plan.pause = Some(start_approval(approval_calls));
+            }
+            // The structured answer ends the run, so it cannot come before the answer it waits on.
+            if plan.pause.is_some() {
+                if let Some(at) = plan
+                    .to_run
+                    .iter()
+                    .position(|c| Some(c.function.name.as_str()) == structured_output_tool_name)
+                {
+                    plan.refusals.push((
+                        plan.to_run.remove(at),
+                        "Not run: give your answer once the pending request is answered.".into(),
+                    ));
+                }
+            }
+        }
+    }
+    plan
+}
+
+pub struct ToolCallsOutcome {
+    pub messages: Vec<OpenAIMessage>,
+    pub final_content: Option<OpenAIContent>,
+    pub used_structured_output_tool: bool,
+    /// The turn asked a person something: the agent parks, those calls unanswered.
+    pub pause: Option<PendingPause>,
+}
+
+pub enum ApprovalGate<'a> {
+    /// Park on calls of tools that require approval, and on a question.
+    Ask,
+    /// A person answered an approval request for these calls: run them, or refuse each with
+    /// this message.
+    Answered(Option<&'a str>),
 }
 
 /// Whether the model wrote an argument the tool's job would interpolate with the agent's token,
@@ -207,15 +347,13 @@ fn interpolating_args(tool_call: &OpenAIToolCall) -> bool {
 async fn refuse_tool_call(
     ctx: &mut ToolExecutionContext<'_>,
     tool_call: &OpenAIToolCall,
+    error_msg: &str,
     messages: &mut Vec<OpenAIMessage>,
     final_events_str: &mut String,
 ) -> Result<(), Error> {
-    let error_msg = "Tool call refused: its arguments could not be read, or reference variables, \
-                     resources or reserved names ($var:, $jsonvar:, $res:, $encrypted:, $WM_)"
-        .to_string();
     messages.push(OpenAIMessage {
         role: "tool".to_string(),
-        content: Some(OpenAIContent::Text(error_msg.clone())),
+        content: Some(OpenAIContent::Text(error_msg.to_string())),
         tool_call_id: Some(tool_call.id.clone()),
         ..Default::default()
     });
@@ -223,12 +361,12 @@ async fn refuse_tool_call(
         let event = StreamingEvent::ToolResult {
             call_id: tool_call.id.clone(),
             function_name: tool_call.function.name.clone(),
-            result: error_msg.clone(),
+            result: error_msg.to_string(),
             success: false,
         };
         stream_event_processor.send(event, final_events_str).await?;
     }
-    let (content, extras) = windmill_tool_row(tool_call, false, &error_msg);
+    let (content, extras) = windmill_tool_row(tool_call, false, error_msg);
     let agent_job_id = ctx.job.id;
     add_tool_message_to_chat(ctx, Some(agent_job_id), &content, false, Some(extras)).await;
     Ok(())
@@ -444,7 +582,7 @@ async fn enqueue_windmill_tool(
     // Evaluate each input transform and merge with AI-provided args
     for (key, transform) in input_transforms.iter() {
         // We skip static empty / null values, those are the one the AI will fill in
-        if !is_completed_input_transform(transform) {
+        if !transform.is_completed() {
             continue;
         }
         let result = evaluate_input_transform::<Box<RawValue>>(
@@ -1132,6 +1270,82 @@ mod tests {
             extras.tool_result.as_deref(),
             Some("Error running tool: ExecutionErr: boom")
         );
+    }
+
+    #[test]
+    fn only_calls_that_need_a_person_wait_for_one() {
+        use super::{plan_calls, ApprovalGate};
+        use crate::ai::pause::PendingRequest;
+        use windmill_ai::types::{Tool, ToolDef, ToolDefFunction};
+        let tool = |name: &str, requires_approval: bool, question: bool| Tool {
+            module: None,
+            def: ToolDef {
+                r#type: "function".to_string(),
+                function: ToolDefFunction {
+                    name: name.to_string(),
+                    description: None,
+                    parameters: RawValue::from_string("{}".to_string()).unwrap(),
+                },
+            },
+            mcp_source: None,
+            requires_approval,
+            question_timeout_secs: question.then_some(60),
+        };
+        let call = |id: &str, name: &str| OpenAIToolCall {
+            id: id.to_string(),
+            function: OpenAIFunction {
+                name: name.to_string(),
+                arguments: r#"{"question":"which one?"}"#.to_string(),
+            },
+            r#type: "function".to_string(),
+            extra_content: None,
+        };
+        let tools = [
+            tool("list", false, false),
+            tool("delete", true, false),
+            tool("ask", false, true),
+        ];
+        let ids =
+            |calls: &[&OpenAIToolCall]| calls.iter().map(|c| c.id.clone()).collect::<Vec<_>>();
+
+        let calls = [
+            call("1", "list"),
+            call("2", "delete"),
+            call("3", "ask"),
+            call("4", "delete"),
+            call("5", "answer"),
+        ];
+        let plan = plan_calls(&calls, &tools, &ApprovalGate::Ask, Some("answer"));
+        assert_eq!(ids(&plan.to_run), ["1"]);
+        assert_eq!(ids(&plan.deferred), ["2", "4"]);
+        assert_eq!(
+            plan.refusals
+                .iter()
+                .map(|(c, _)| c.id.as_str())
+                .collect::<Vec<_>>(),
+            ["3", "5"]
+        );
+        let pause = plan.pause.unwrap();
+        assert_eq!(pause.call_id, "2");
+        assert!(matches!(pause.request, PendingRequest::Approval { calls } if calls.len() == 2));
+
+        let calls = [call("1", "ask"), call("2", "list"), call("3", "ask")];
+        let plan = plan_calls(&calls, &tools, &ApprovalGate::Ask, Some("answer"));
+        assert_eq!(ids(&plan.to_run), ["2"]);
+        assert_eq!(ids(&plan.deferred), ["1"]);
+        assert_eq!(plan.refusals.len(), 1);
+
+        let calls = [call("1", "delete"), call("2", "gone")];
+        let plan = plan_calls(&calls, &tools, &ApprovalGate::Answered(None), None);
+        assert_eq!(ids(&plan.to_run), ["1"]);
+        assert_eq!(plan.refusals[0].0.id, "2");
+        let plan = plan_calls(
+            &calls,
+            &tools,
+            &ApprovalGate::Answered(Some("rejected")),
+            None,
+        );
+        assert!(plan.to_run.is_empty() && plan.refusals.len() == 2);
     }
 
     #[test]

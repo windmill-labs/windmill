@@ -28,7 +28,16 @@ import { pipelineTools } from '../pipeline/core'
 import { assembleGlobalSystemMessage, assembleGlobalTools } from './globalAssembly'
 import { filterSessionTools, sessionToolAllowed } from './sessionToolset'
 import { capabilitiesForRole, fullSessionAccess } from './sessionAccess'
-import type { SessionAccess, SessionCapability, SessionTool } from '../sessionCapabilities'
+import {
+	canBuild,
+	USE_MODE_ACCESS,
+	type SessionAccess,
+	type SessionCapability,
+	type SessionTool
+} from '../sessionCapabilities'
+import { FULL_CAPABILITIES, legacyOperatorCapabilities } from '$lib/roleCapabilities'
+import { buildsAnything } from '$lib/editRights'
+import type { AuthorLevel, OperatorSettings, RoleCapabilities } from '$lib/gen'
 
 const ASSEMBLY_OPTS = {
 	previewTools: true,
@@ -68,40 +77,49 @@ function shippedSessionTools(access: SessionAccess) {
 	return filterSessionTools(assembleGlobalTools(ASSEMBLY_OPTS), access)
 }
 
+/** A session that can change the workspace, holding `capabilities` besides. */
 function accessWith(capabilities: SessionCapability[]): SessionAccess {
-	return new Set(capabilities)
+	return new Set<SessionCapability>(['modify_workspace', ...capabilities])
 }
 
-/** The profiles a real session can hold, keyed for the test name, over every combination
- * of the role facts `capabilitiesForRole` reads. */
-const REACHABLE_PROFILES = [
-	...new Map(
-		[false, true].flatMap((isAdmin) =>
-			[false, true].flatMap((operator) =>
-				// `checkDeployRules` bypasses on admin, so an admin has only the one outcome.
-				(isAdmin ? [true] : [false, true]).flatMap((deployRulesPass) =>
-					// The operator rights a workspace can set: none, either builder right or both, either lock, both locks.
-					[
-						undefined,
-						{ builder_flows: true },
-						{ builder_apps: true },
-						{ builder_flows: true, builder_apps: true },
-						{ manage_schedules: false },
-						{ manage_triggers: false },
-						{ manage_schedules: false, manage_triggers: false }
-					].map((operatorSettings) => {
-						const access = capabilitiesForRole({
-							isAdmin,
-							operator,
-							deployRulesPass,
-							operatorSettings
-						})
-						return [[...access].sort().join(',') || 'none', access] as const
-					})
+const LEVELS: AuthorLevel[] = ['none', 'compose', 'full']
+
+/** Every role a workspace can define, over the capabilities `capabilitiesForRole` reads: `full`
+ * flows or apps require `code`, as `RoleCapabilities::validate` refuses otherwise. */
+const ROLES: RoleCapabilities[] = [false, true]
+	.flatMap((code) =>
+		LEVELS.flatMap((flows) =>
+			LEVELS.flatMap((apps) =>
+				[false, true].flatMap((manage_schedules) =>
+					[false, true].map((manage_triggers) => ({
+						...FULL_CAPABILITIES,
+						code,
+						flows,
+						apps,
+						manage_schedules,
+						manage_triggers
+					}))
 				)
 			)
 		)
-	).entries()
+	)
+	.filter((c) => c.code || (c.flows !== 'full' && c.apps !== 'full'))
+
+/** The profiles a real session can hold, keyed for the test name, over every combination
+ * of the role facts `capabilitiesForRole` reads, and the read-only one. */
+const REACHABLE_PROFILES: [string, SessionAccess][] = [
+	...new Map(
+		[false, true].flatMap((isAdmin) =>
+			// `checkDeployRules` bypasses on admin, so an admin has only the one outcome.
+			(isAdmin ? [true] : [false, true]).flatMap((deployRulesPass) =>
+				ROLES.map((capabilities) => {
+					const access = capabilitiesForRole({ isAdmin, deployRulesPass, capabilities })
+					return [[...access].sort().join(',') || 'none', access] as const
+				})
+			)
+		)
+	).entries(),
+	['read-only', USE_MODE_ACCESS]
 ]
 
 /** One per branch of getSessionContextPromptSection — each words the deploy target
@@ -123,6 +141,15 @@ describe('session tool policies', () => {
 		const filtered = filterSessionTools(tools, fullSessionAccess())
 		expect(filtered).toHaveLength(tools.length)
 		filtered.forEach((tool, i) => expect(tool).toBe(tools[i]))
+	})
+
+	// The mode picker reads the role and the toolset reads the access built from it: if they
+	// disagree, the picker offers Build while the chat holds only Use's tools, or the reverse.
+	it('agrees with the role on whether the session can build', () => {
+		for (const capabilities of ROLES) {
+			const access = capabilitiesForRole({ isAdmin: false, deployRulesPass: true, capabilities })
+			expect(canBuild(access)).toBe(buildsAnything(capabilities))
+		}
 	})
 
 	it('withholds a tool that arrives without a policy', () => {
@@ -201,6 +228,17 @@ describe('session tool policies', () => {
 		// And narrowing never writes through to it: the def is shared by every session, so a
 		// mutation here would strip one user's kinds from everyone else's schema.
 		expect((original.def.function.parameters as any).properties.type.enum).toContain('script')
+	})
+
+	// Keyed on the tags, so a tool added untagged stays out of a production workspace.
+	it('ships a read-only session the reads and the deployed runs, and nothing that writes', () => {
+		const shipped = shippedSessionTools(USE_MODE_ACCESS)
+		expect(shipped.filter((t) => !t.planModeSafe && !t.readOnlySafe)).toEqual([])
+		const names = shipped.map((t) => t.def.function.name)
+		expect(names).toEqual(expect.arrayContaining(['read_workspace_item', 'list_runs', 'run_flow']))
+		for (const write of ['write_script', 'test_run_script', 'deploy_workspace_item']) {
+			expect(names).not.toContain(write)
+		}
 	})
 
 	it('offers the workspace settings tools to admins only', () => {
@@ -306,14 +344,13 @@ describe('session tool policies', () => {
 	// The operator's own rights outrun the chat's tools: what they schedule in the UI must not
 	// be sent to an admin.
 	it("sends an operator to the UI for what their role allows and the chat's tools do not", () => {
-		const prompt = (operatorSettings: { manage_schedules?: boolean }): string =>
+		const prompt = (operatorSettings: Partial<OperatorSettings>): string =>
 			prepareGlobalSystemMessage(undefined, {
 				user: { username: 'op' },
 				access: capabilitiesForRole({
 					isAdmin: false,
-					operator: true,
 					deployRulesPass: true,
-					operatorSettings
+					capabilities: legacyOperatorCapabilities(operatorSettings as OperatorSettings)
 				})
 			}).content as string
 

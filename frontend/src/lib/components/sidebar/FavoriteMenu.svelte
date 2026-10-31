@@ -30,6 +30,9 @@
 			href: string
 			kind: FavoriteKind
 		}[] = $state([])
+		/** The workspace `current` was last loaded for, so a reader can tell "none yet" from
+		 * "none". */
+		loadedFor: string | undefined = $state(undefined)
 
 		async unstar(path: string, favorite_kind: FavoriteKind, workspaceId?: string) {
 			this.current = this.current.filter(

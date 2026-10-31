@@ -17,7 +17,8 @@
                 "script",
                 "flow",
                 "raw_app",
-                "asset"
+                "asset",
+                "agent"
               ]
             }
           }

@@ -386,8 +386,9 @@ impl FlowValue {
                     for tool in tools {
                         match &tool.value {
                             ToolValue::FlowModule(module_value) => cb(module_value, &tool.id)?,
-                            ToolValue::Mcp(_) => {}
-                            ToolValue::Websearch(_) => {}
+                            ToolValue::Mcp(_)
+                            | ToolValue::Websearch(_)
+                            | ToolValue::Question(_) => {}
                         }
                     }
                 }
@@ -538,6 +539,7 @@ pub struct ExponentialDelay {
     pub attempts: u32,
     pub multiplier: u16,
     pub seconds: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub random_factor: Option<i8>,
 }
 
@@ -843,6 +845,19 @@ impl InputTransform {
     pub fn new_javascript_expr(expr: &str) -> InputTransform {
         InputTransform::Javascript { expr: expr.to_owned() }
     }
+
+    /// Whether this transform fills its input. On an agent tool, an input it does not fill is
+    /// left to the model, which sees only those.
+    pub fn is_completed(&self) -> bool {
+        match self {
+            InputTransform::Static { value } => {
+                let val = value.get().trim();
+                !val.is_empty() && val != "null"
+            }
+            InputTransform::Javascript { expr } => !expr.trim().is_empty(),
+            InputTransform::Ai => false,
+        }
+    }
 }
 
 impl TryFrom<UntaggedInputTransform> for InputTransform {
@@ -911,7 +926,9 @@ pub struct Branch {
     pub modules: Vec<FlowModule>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modules_node: Option<FlowNodeId>,
-    #[serde(default = "default_true")]
+    // The worker reads an absent skip_failure as false (BranchWithSkipFailures),
+    // so a round-trip through this struct must not turn it into true.
+    #[serde(default)]
     pub skip_failure: bool,
     #[serde(default = "default_true")]
     pub parallel: bool,
@@ -930,6 +947,10 @@ pub struct AgentTool {
     /// Caps the token of this tool's jobs, on top of the agent step's own restriction.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_token_scopes: Option<Vec<String>>,
+    /// A person approves each call before it runs; the agent waits without holding a worker.
+    /// Flow module and MCP tools only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub requires_approval: bool,
     pub value: ToolValue,
 }
 
@@ -959,8 +980,7 @@ impl From<&AgentTool> for Option<FlowModule> {
                 job_token_scopes: tool.job_token_scopes.clone(),
                 ..Default::default()
             }),
-            ToolValue::Mcp(_) => None,
-            ToolValue::Websearch(_) => None,
+            ToolValue::Mcp(_) | ToolValue::Websearch(_) | ToolValue::Question(_) => None,
         }
     }
 }
@@ -971,6 +991,7 @@ pub enum ToolValue {
     FlowModule(FlowModuleValue),
     Mcp(McpToolValue),
     Websearch(WebsearchToolValue),
+    Question(QuestionToolValue),
 }
 
 // Custom deserializer for backward compatibility with old flows
@@ -989,6 +1010,7 @@ impl<'de> Deserialize<'de> for ToolValue {
             FlowModule(FlowModuleValue),
             Mcp(McpToolValue),
             Websearch(WebsearchToolValue),
+            Question(QuestionToolValue),
         }
 
         if let Ok(tagged) = TaggedToolValue::deserialize(&content) {
@@ -996,6 +1018,7 @@ impl<'de> Deserialize<'de> for ToolValue {
                 TaggedToolValue::FlowModule(v) => ToolValue::FlowModule(v),
                 TaggedToolValue::Mcp(v) => ToolValue::Mcp(v),
                 TaggedToolValue::Websearch(v) => ToolValue::Websearch(v),
+                TaggedToolValue::Question(v) => ToolValue::Question(v),
             });
         }
 
@@ -1020,6 +1043,14 @@ pub struct McpToolValue {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct WebsearchToolValue {}
+
+/// Lets the agent stop and wait for a person to answer a question it asks.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct QuestionToolValue {
+    /// Seconds to wait for an answer before the question is reported to the model as timed out.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u32>,
+}
 
 fn is_none_or_empty_vec<T>(expr: &Option<Vec<T>>) -> bool {
     expr.is_none() || expr.as_ref().unwrap().is_empty()
@@ -1670,6 +1701,39 @@ mod tests {
         // A fully-default retry serializes to an empty object.
         let empty = serde_json::to_value(&Retry::default()).unwrap();
         assert_eq!(empty, json!({}));
+    }
+
+    #[test]
+    fn exponential_retry_without_random_factor_omits_it() {
+        // A non-default exponential retry with no random_factor must not gain
+        // random_factor:null on a round-trip (the flow-dependencies job writes
+        // that value back to flow.yaml, and the CLI linter rejects null).
+        let input = json!({ "exponential": { "attempts": 3, "multiplier": 1, "seconds": 2 } });
+        let retry: Retry = serde_json::from_value(input.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&retry).unwrap(), input);
+
+        // A set random_factor still round-trips.
+        let input = json!({
+            "exponential": { "attempts": 3, "multiplier": 1, "seconds": 2, "random_factor": 10 }
+        });
+        let retry: Retry = serde_json::from_value(input.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&retry).unwrap(), input);
+    }
+
+    #[test]
+    fn branch_without_skip_failure_keeps_failing_the_flow() {
+        // An absent skip_failure means "a failing branch fails the flow" to the
+        // worker and the flow editor; a round-trip must preserve that.
+        let input = json!({
+            "type": "branchall",
+            "branches": [{ "modules": [] }, { "modules": [], "skip_failure": true }]
+        });
+        let val: FlowModuleValue = serde_json::from_value(input).unwrap();
+        let output = serde_json::to_value(&val).unwrap();
+        let reparsed: FlowModuleWithBranches = serde_json::from_value(output).unwrap();
+        let skips: Vec<bool> =
+            reparsed.branches.iter().map(|b| b.skip_failure.unwrap_or(false)).collect();
+        assert_eq!(skips, vec![false, true]);
     }
 
     #[test]

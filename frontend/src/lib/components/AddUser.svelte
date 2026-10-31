@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
 	import { globalEmailInvite, superadmin, workspaceStore, enterpriseLicense } from '$lib/stores'
-	import { SettingService, UserService, WorkspaceService } from '$lib/gen'
+	import { SettingService, UserService, WorkspaceService, type EffectiveRole } from '$lib/gen'
 	import { Button } from './common'
 	import Popover from './meltComponents/Popover.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -14,6 +14,15 @@
 	import { UserPlus } from 'lucide-svelte'
 	import Select from './select/Select.svelte'
 	import { resource } from 'runed'
+	import RolePicker from './settings/RolePicker.svelte'
+	import { roleRequestFields, validRoleOr } from '$lib/workspaceRoles'
+
+	interface Props {
+		/** The workspace's roles; undefined while loading. */
+		roles: EffectiveRole[] | undefined
+	}
+
+	let { roles }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -84,7 +93,7 @@
 	getAutomateUsernameCreationSetting()
 
 	async function addUser() {
-		if (selected === 'service_account') {
+		if (isServiceAccount) {
 			if (!username) return
 			await WorkspaceService.createServiceAccount({
 				workspace: $workspaceStore!,
@@ -99,15 +108,19 @@
 		} else {
 			// Read once: the picker's own state changes as soon as the request lands.
 			const email = effectiveEmail!
-			await WorkspaceService.addUser({
-				workspace: $workspaceStore!,
-				requestBody: {
-					email,
-					username: automateUsernameCreation ? undefined : username,
-					is_admin: selected == 'admin',
-					operator: selected == 'operator'
-				}
-			})
+			try {
+				await WorkspaceService.addUser({
+					workspace: $workspaceStore!,
+					requestBody: {
+						email,
+						username: automateUsernameCreation ? undefined : username,
+						...roleRequestFields(selected)
+					}
+				})
+			} catch (e) {
+				sendUserToast(`Failed to add ${email}: ${e?.body ?? e}`, true)
+				return
+			}
 			sendUserToast(`Added ${email}`)
 			// The picker excludes members server-side, so it has to refetch to drop this one.
 			addedCount++
@@ -140,12 +153,13 @@
 		dispatch('new')
 	}
 
-	type UserRole = 'operator' | 'developer' | 'admin' | 'service_account'
 	type ServiceAccountRole = 'operator' | 'developer' | 'admin'
-	let selected: UserRole = $state('developer' as UserRole)
+	// A role name, or `admin`.
+	let picked: string | undefined = $state(undefined)
+	const selected = $derived(validRoleOr(roles, picked))
 	let serviceAccountRole: ServiceAccountRole = $state('operator' as ServiceAccountRole)
 	let addToDeployers: boolean = $state(true)
-	let isServiceAccount = $derived(selected === 'service_account')
+	let isServiceAccount = $state(false)
 </script>
 
 <Popover placement="bottom-end" bind:isOpen={popoverOpen} onClose={() => (typedEmail = '')}>
@@ -157,6 +171,18 @@
 	{#snippet content()}
 		<div class="flex flex-col w-[28rem] p-4">
 			<span class="text-sm mb-2 leading-6 font-semibold">Add a new user</span>
+			<div class="mb-2">
+				<Toggle
+					bind:checked={isServiceAccount}
+					disabled={!$enterpriseLicense}
+					size="xs"
+					options={{
+						right: $enterpriseLicense ? 'Service account' : 'Service account (EE)',
+						rightTooltip:
+							'A service account is a workspace-scoped identity for automation. It cannot log in directly and can be impersonated by admins.'
+					}}
+				/>
+			</div>
 
 			{#if isServiceAccount}
 				<span class="text-xs mb-1 leading-6">Username</span>
@@ -217,38 +243,12 @@
 				{/if}
 			{/if}
 
-			<span class="text-xs mb-1 pt-6 leading-6">Role</span>
-			<ToggleButtonGroup bind:selected class="mb-4">
-				{#snippet children({ item })}
-					<ToggleButton
-						value="operator"
-						label="Operator"
-						tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-						{item}
-					/>
-					<ToggleButton
-						value="developer"
-						label="Developer"
-						tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-						{item}
-					/>
-					<ToggleButton
-						value="admin"
-						label="Admin"
-						tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
-						{item}
-					/>
-					<ToggleButton
-						value="service_account"
-						label={$enterpriseLicense ? 'Service Account' : 'Service Account (EE)'}
-						tooltip="A service account is a workspace-scoped identity for automation. It cannot log in directly and can be impersonated by admins."
-						disabled={!$enterpriseLicense}
-						{item}
-					/>
-				{/snippet}
-			</ToggleButtonGroup>
-
-			{#if isServiceAccount}
+			{#if !isServiceAccount}
+				<span class="text-xs mb-1 pt-6 leading-6">Role</span>
+				<div class="mb-4">
+					<RolePicker {roles} disablePortal value={selected} onchange={(v) => (picked = v)} />
+				</div>
+			{:else}
 				<span class="text-xs mb-1 leading-6">Service account role</span>
 				<ToggleButtonGroup bind:selected={serviceAccountRole} class="mb-4">
 					{#snippet children({ item })}

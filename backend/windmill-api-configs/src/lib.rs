@@ -35,6 +35,7 @@ pub fn global_service() -> Router {
             "/list_autoscaling_events/{worker_group}",
             get(list_autoscaling_events),
         )
+        .route("/test_autoscaling/{worker_group}", post(test_autoscaling))
         .route(
             "/native_kubernetes_autoscaling_healthcheck",
             get(native_kubernetes_autoscaling_healthcheck),
@@ -224,13 +225,15 @@ async fn update_config(
 
     #[cfg(not(feature = "enterprise"))]
     let config = if name.starts_with("worker__") {
-        // In CE, only allow setting worker_tags, cache_clear, init_bash, native_mode and paused
+        // In CE, only allow setting worker_tags, cache_clear, init_bash, native_mode, paused and
+        // disable_job_proxy
         serde_json::json!({
             "worker_tags": config.get("worker_tags"),
             "cache_clear": config.get("cache_clear"),
             "init_bash": config.get("init_bash"),
             "native_mode": config.get("native_mode"),
-            "paused": config.get("paused")
+            "paused": config.get("paused"),
+            "disable_job_proxy": config.get("disable_job_proxy")
         })
     } else {
         config
@@ -414,6 +417,48 @@ async fn native_kubernetes_autoscaling_healthcheck(
 async fn native_kubernetes_autoscaling_healthcheck() -> Result<(), error::Error> {
     Err(error::Error::BadRequest(
         "Native Kubernetes autoscaling available only in the enterprise version".to_string(),
+    ))
+}
+
+#[derive(Serialize)]
+struct TestAutoscalingResponse {
+    job_id: Option<String>,
+}
+
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn test_autoscaling(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(worker_group): Path<String>,
+    Json(test): Json<windmill_autoscaling::autoscaling_ee::TestAutoscaling>,
+) -> error::JsonResult<TestAutoscalingResponse> {
+    require_devops_role(&db, &authed).await?;
+    audit_log(
+        &db,
+        &authed,
+        "worker_config.test_autoscaling",
+        ActionKind::Execute,
+        "global",
+        Some(&worker_group),
+        None,
+    )
+    .await?;
+    let job_id = windmill_autoscaling::autoscaling_ee::test_autoscaling(
+        &db,
+        &worker_group,
+        test,
+        &authed.email,
+    )
+    .await?;
+    Ok(Json(TestAutoscalingResponse {
+        job_id: job_id.map(|id| id.to_string()),
+    }))
+}
+
+#[cfg(not(all(feature = "enterprise", feature = "private")))]
+async fn test_autoscaling() -> error::JsonResult<TestAutoscalingResponse> {
+    Err(error::Error::BadRequest(
+        "Autoscaling available only in the enterprise version".to_string(),
     ))
 }
 

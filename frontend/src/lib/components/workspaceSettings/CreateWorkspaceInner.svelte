@@ -34,7 +34,7 @@
 		devWorkspacesInChainAbove
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
-	import { isOperatorInWorkspace } from '$lib/components/sidebar/operatorRoutes'
+	import { canFork, capabilitiesIn } from '$lib/roleCapabilities'
 	import {
 		canUserBypassRuleKindInRulesets,
 		fetchProtectionRulesForWorkspace,
@@ -137,15 +137,14 @@
 	})
 	let forkableWorkspaces = $derived(forkable.current)
 
-	// Base candidates are the current workspace's family: its root first, then every fork/dev under it.
-	// Never one the user is an operator in: a fork does not carry the role, so forking such a base
-	// would hand them a full-rights copy of it.
+	// Base candidates are the current workspace's family: its root first, then every fork/dev under it,
+	// except those the user's role there may not fork.
 	let familyRoot = $derived(findWorkspaceRoot($workspaceStore, forkableWorkspaces))
 	let baseCandidates = $derived(
 		(familyRoot
 			? [familyRoot, ...findWorkspaceDescendants(familyRoot.id, forkableWorkspaces)]
 			: []
-		).filter((w) => !isOperatorInWorkspace(w))
+		).filter((w) => canFork(capabilitiesIn(undefined, w)))
 	)
 	let baseItems = $derived(
 		baseCandidates.map((w) => ({
@@ -1112,7 +1111,7 @@
 							<span class="text-2xs text-secondary">(optional but recommended)</span>
 						</label>
 
-						<ToggleButtonGroup bind:selected>
+						<ToggleButtonGroup bind:selected wrap>
 							{#snippet children({ item })}
 								<ToggleButton value="openai" label="OpenAI" {item} />
 								<ToggleButton value="anthropic" label="Anthropic" {item} />
@@ -1123,6 +1122,7 @@
 						<div class="flex flex-row gap-1">
 							<input
 								id="ai-key"
+								class="flex-1 min-w-0"
 								type="password"
 								autocomplete="new-password"
 								bind:value={aiKey}

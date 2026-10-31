@@ -135,7 +135,7 @@ export async function main(
 	const nonEmpty = (v: unknown) => typeof v === 'string' && v.length > 0
 	// The prefixes `execute_component` resolves a run against; anything else is a
 	// grant no run can match.
-	const RUN_TYPES = ['script', 'flow', 'hubscript']
+	const RUN_TYPES = ['script', 'flow', 'hubscript', 'agent']
 	const malformed = Object.entries(runnables ?? {})
 		.filter(([, r]) => r != null)
 		.filter(([, r]) => {

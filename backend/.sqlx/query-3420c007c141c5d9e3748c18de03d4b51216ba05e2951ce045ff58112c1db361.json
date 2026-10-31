@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path, value::text AS \"value!\", is_secret FROM variable WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "value!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "is_secret",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "3420c007c141c5d9e3748c18de03d4b51216ba05e2951ce045ff58112c1db361"
+}

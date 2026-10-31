@@ -11,19 +11,31 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import SessionStatusPopover from './SessionStatusPopover.svelte'
 	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
-	import { maybePremium, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		maybePremium,
+		roleCapabilities,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { sessionState, type Session } from './sessionState.svelte'
 	import { getRuntime } from './sessionRuntime.svelte'
+	import { useSessionPermissions } from './sessionPermissions.svelte'
 	import SessionDiffDrawer from './SessionDiffDrawer.svelte'
 	import { TOKEN_TRIGGER_CLASS } from './SessionStatusToken.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { maskKey } from './modifiedItemsMask'
+	import { removeHandEdit, renameHandEdit, sessionHandEdits } from './sessionHandEdits.svelte'
 	import { badgeCounts, badgeOf, buildDeployItems, type DeployItem } from './sessionDeployModel'
 	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
 	import { previewTargetForDeployKind } from './sessionPreviewTabs.svelte'
 	import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
 	import type { PreviewTarget } from './previewRouter'
+	import { ResourceService } from '$lib/gen'
+	import { resource } from 'runed'
 	import JobsSegment from '$lib/components/copilot/chat/JobsSegment.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import ArtifactsSegment from '$lib/components/copilot/chat/artifacts/ArtifactsSegment.svelte'
@@ -60,18 +72,31 @@
 	)
 	const isFork = $derived(!!parentWorkspaceId)
 
-	// Same gate as the sidebar WorkspaceMenu / SessionWorkspaceBar. On cloud,
+	// Same gate as the sidebar WorkspaceMenu. On cloud,
 	// forking is a premium-only feature (backend caps it per paid seat).
 	const forksAllowed = $derived(
-		(!isCloudHosted() || $maybePremium) && canCreateFork($userStore) && $workspaceStore !== 'admins'
+		(!isCloudHosted() || $maybePremium) &&
+			canCreateFork($userStore, $roleCapabilities) &&
+			$workspaceStore !== 'admins'
 	)
 
 	const runtime = $derived(getRuntime(session.id))
+	// A session in Use deploys and discards nothing, as its chat does not.
+	const permissions = useSessionPermissions(
+		() => committedId,
+		() => runtime?.manager
+	)
 
 	// The chat's modified-items mask (`${UserDraftItemKind}:${storagePath}`).
 	// undefined = legacy/untracked chat → fall back to showing every draft.
 	// A Set (even empty) → filter to just this chat's items.
-	const mask = $derived(runtime?.manager.modifiedItems)
+	// Plus the items the user edited by hand in the session's tabs, which are as much its
+	// changes as the chat's are.
+	const mask = $derived.by(() => {
+		const chatMask = runtime?.manager.modifiedItems
+		if (!chatMask) return undefined
+		return new Set([...chatMask, ...sessionHandEdits(session.id)])
+	})
 
 	// Workspace Drafts (fetches on mount and on every Server-Draft invalidation);
 	// scoped to the chat's mask inside the deploy model below.
@@ -123,6 +148,18 @@
 		}
 	})
 
+	// A hand edit in a session tab creates its draft outside any turn, so the turn-end refresh
+	// above never sees it: re-read the list once a masked item's first draft lands.
+	$effect(() => {
+		if (!committedId) return
+		const ws = committedId
+		return UserDraftDbSyncer.onAnySaved((e) => {
+			if (e.workspace !== ws || !mask?.has(maskKey(e.itemKind, e.path))) return
+			if (drafts.items.some((d) => d.kind === e.itemKind && d.path === e.path)) return
+			drafts.refresh()
+		})
+	})
+
 	let diffDrawer: SessionDiffDrawer | undefined = $state(undefined)
 
 	// Opening the drawer re-fetches its own data, so it can show fresher state
@@ -149,6 +186,31 @@
 			: []
 	)
 	const dockCounts = $derived(badgeCounts(dockItems))
+	// An agent is a resource the draft list cannot tell apart, but it has an icon of its own.
+	// Keyed on the joined paths so a re-derived list doesn't re-fetch.
+	const resourcePaths = $derived(
+		dockItems
+			.filter((i) => i.deployKind === 'resource')
+			.map((i) => i.path)
+			.join('\n')
+	)
+	const agentPaths = resource(
+		() => [committedId, resourcePaths] as const,
+		async ([workspace, joined]) => {
+			if (!workspace || !joined) return new Set<string>()
+			const types = await Promise.all(
+				joined.split('\n').map((path) =>
+					ResourceService.getResource({ workspace, path, getDraft: true }).then(
+						(r) => (r.resource_type === 'ai_agent' ? path : undefined),
+						() => undefined
+					)
+				)
+			)
+			return new Set(types.filter((p) => p !== undefined))
+		}
+	)
+	const isAgentRow = (item: DeployItem) =>
+		item.deployKind === 'resource' && (agentPaths.current?.has(item.path) ?? false)
 
 	// Deletion-only fork chat: the mask has entries but every one failed the
 	// (resolved) existence check — the chat's edits were deletions, which have no
@@ -196,7 +258,11 @@
 	function previewTargetFor(item: DeployItem): PreviewTarget | undefined {
 		// `done` means this session already deployed it, so there is a deployed
 		// version to show even though the row was built from a draft-only item.
-		return previewTargetForDeployKind(item.deployKind, item.path, item.draftOnly && !item.done)
+		const draftOnly = item.draftOnly && !item.done
+		if (isAgentRow(item) && !draftOnly) {
+			return { type: 'page', href: `/agents/get/${item.path}`, label: rowLabel(item) }
+		}
+		return previewTargetForDeployKind(item.deployKind, item.path, draftOnly)
 	}
 
 	// The row's primary action is the preview; kinds the panel can't host fall back
@@ -317,7 +383,11 @@
 					maxHeightClass="max-h-[min(9rem,50vh)]"
 				>
 					{#snippet row(item)}
-						<RowIcon kind={item.deployKind} path={item.path} size={14} />
+						<RowIcon
+							kind={isAgentRow(item) ? 'agent' : item.deployKind}
+							path={item.path}
+							size={14}
+						/>
 						<span class="min-w-0 flex-1 truncate font-mono font-normal text-primary">
 							{rowLabel(item)}
 						</span>
@@ -375,14 +445,20 @@
 		{parentWorkspaceId}
 		chatId={session.chatId}
 		keys={mask}
+		agentPaths={agentPaths.current}
 		onDataChanged={refreshDock}
-		onItemDeployed={(item) =>
-			void runtime?.manager.renameModifiedItem(item.draftKind, item.path, item.displayPath)}
+		onItemDeployed={(item) => {
+			void runtime?.manager.renameModifiedItem(item.draftKind, item.path, item.displayPath)
+			renameHandEdit(session.id, item.draftKind, item.path, item.displayPath)
+		}}
 		onItemDiscarded={(item) => {
 			void runtime?.manager.removeModifiedItem(item.draftKind, item.path)
+			removeHandEdit(session.id, item.draftKind, item.path)
 			const folder = pipelineFolderFromBundlePath(item.path)
-			if (item.draftKind === PIPELINE_DRAFT_KIND && folder) void runtime?.forgetPipelineDrafts(folder)
+			if (item.draftKind === PIPELINE_DRAFT_KIND && folder)
+				void runtime?.forgetPipelineDrafts(folder)
 		}}
 		deployPipeline={runtime?.deployPipeline}
+		readOnly={permissions.readOnly}
 	/>
 {/if}

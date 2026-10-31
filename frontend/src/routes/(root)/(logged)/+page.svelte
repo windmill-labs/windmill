@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { AppService, FlowService, type OpenFlow, type Script } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
+	import { HOME_COLUMN_WIDTH } from '$lib/consts'
 	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -97,6 +98,9 @@
 	// the mount animation below never covers. Replay it by hand instead of keying the page on the
 	// workspace: a remount would drop the list's own state and refetch what it is already loading.
 	let pageEl: HTMLDivElement | undefined = $state(undefined)
+	// Height of the composer's column, which stays at the top while the composer is open.
+	let pinnedHeight = $state(0)
+
 	const reducedMotion = useReducedMotion()
 	let animatedWorkspace = $workspaceStore
 	$effect(() => {
@@ -131,7 +135,7 @@
 			replaceState(url, page.state)
 			// Gated here too: the parameter is part of a URL anyone can type, and the tour
 			// describes a home page that only operators see.
-			if (user.operator) startTour()
+			if (!$roleCapabilities.code) startTour()
 		})
 	})
 
@@ -139,7 +143,7 @@
 		// Operators get the tour once, and only when they have not been through it: they cannot
 		// create anything, so the home page is the whole product to them and it is worth naming
 		// its three tabs. Anyone who can build gets nothing — they have the create button.
-		if (!$userStore?.operator || page.url.searchParams.has(TOUR_PARAM)) return
+		if ($roleCapabilities.code || page.url.searchParams.has(TOUR_PARAM)) return
 		if (await hasSeenOperatorTour()) return
 		startTour()
 	})
@@ -285,8 +289,9 @@
 
 <div
 	bind:this={pageEl}
-	class="wm-page-in flex flex-col w-full h-full overflow-y-auto items-center"
+	class="wm-page-in group/home flex flex-col w-full h-full overflow-y-auto items-center"
 	style="scrollbar-gutter: stable both-edges;"
+	style:--home-pinned="{pinnedHeight}px"
 >
 	<!-- Where edits to this workspace are made is a fact about the workspace, so it sits in the
 	     header with the workspace's own name rather than above the list. -->
@@ -294,7 +299,14 @@
 
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
-	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full mb-6">
+	<!-- While the composer is open this column stays at the top and the lists scroll under it. It
+	     is the scroller's own child because a sticky element holds only inside its parent; its
+	     background covers what passes under it, and the items' search bar sticks below it
+	     (`--home-pinned`, ItemsList) rather than behind it. -->
+	<div
+		bind:clientHeight={pinnedHeight}
+		class="{HOME_COLUMN_WIDTH} px-4 sm:px-8 md:px-8 h-fit w-full pb-6 shrink-0 bg-surface group-has-[[data-composer-open]]/home:sticky group-has-[[data-composer-open]]/home:top-0 group-has-[[data-composer-open]]/home:z-20"
+	>
 		<!-- HomeAIChat carries both the AI composer and the AI-independent CLI/MCP connect row,
 		     so it shows whenever the sessions beta is on; the composer itself is gated on the
 		     workspace inside the component, which owns its own vertical spacing
@@ -391,7 +403,7 @@
 	{/if}
 </div>
 
-{#if $userStore?.operator}
+{#if !$roleCapabilities.code}
 	<OperatorTour bind:this={operatorTour} />
 {/if}
 

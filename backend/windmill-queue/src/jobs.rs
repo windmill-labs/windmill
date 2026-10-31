@@ -42,8 +42,8 @@ use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::jobs::{
-    script_path_to_payload, JobTriggerKind, TriggerKindLabel, EMAIL_ERROR_HANDLER_USER_EMAIL,
-    MODULES_ARG,
+    args_contain_nul, normalize_nul_in_args, sanitize_untrusted_args, script_path_to_payload,
+    JobTriggerKind, TriggerKindLabel, EMAIL_ERROR_HANDLER_USER_EMAIL, MODULES_ARG,
 };
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
@@ -170,12 +170,15 @@ const ERROR_HANDLER_USERNAME: &str = "error_handler";
 pub const SCHEDULE_ERROR_HANDLER_USERNAME: &str = "schedule_error_handler";
 const GLOBAL_ERROR_HANDLER_USERNAME: &str = "global";
 const SUCCESS_HANDLER_USERNAME: &str = "success_handler";
+const VARIABLE_EXPIRATION_HANDLER_USERNAME: &str = "variable_expiration_handler";
 
 pub const ERROR_HANDLER_USER_GROUP: &str = "g/error_handler";
 pub const ERROR_HANDLER_USER_EMAIL: &str = "error_handler@windmill.dev";
 pub const SCHEDULE_ERROR_HANDLER_USER_EMAIL: &str = "schedule_error_handler@windmill.dev";
 pub const SUCCESS_HANDLER_USER_GROUP: &str = "g/success_handler";
 pub const SUCCESS_HANDLER_USER_EMAIL: &str = "success_handler@windmill.dev";
+pub const VARIABLE_EXPIRATION_HANDLER_USER_GROUP: &str = "g/variable_expiration_handler";
+pub const VARIABLE_EXPIRATION_HANDLER_USER_EMAIL: &str = "variable_expiration_handler@windmill.dev";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CanceledBy {
@@ -480,6 +483,9 @@ pub const PERIODIC_SCRIPT_TAG: &str = "periodic_bash_script";
 pub const INIT_SCRIPT_TAG: &str = "init_script";
 pub const INIT_SCRIPT_PATH_PREFIX: &str = "init_script_";
 pub const PERIODIC_SCRIPT_PATH_PREFIX: &str = "periodic_script_";
+/// The email the worker's own init/periodic scripts are pushed under by [`push_init_job`]
+/// and [`push_periodic_bash_job`].
+pub const WORKER_SCRIPT_EMAIL: &str = "worker@windmill.dev";
 
 pub async fn push_init_job<'c>(
     db: &Pool<Postgres>,
@@ -508,7 +514,7 @@ pub async fn push_init_job<'c>(
         }),
         PushArgs::from(&ehm),
         worker_name,
-        "worker@windmill.dev",
+        WORKER_SCRIPT_EMAIL,
         SUPERADMIN_SECRET_EMAIL.to_string(),
         Some("worker_init_job"),
         None,
@@ -569,7 +575,7 @@ pub async fn push_periodic_bash_job<'c>(
         }),
         PushArgs::from(&ehm),
         worker_name,
-        "worker@windmill.dev",
+        WORKER_SCRIPT_EMAIL,
         SUPERADMIN_SECRET_EMAIL.to_string(),
         Some("worker_periodic_script_job"),
         None,
@@ -3389,7 +3395,7 @@ const ERROR_HANDLER_PATH_EMAIL: &str = "/workspace-or-error-handler-email";
 /// Every handler version the frontend has offered as a preset (`frontend/src/lib/hubPaths.json`
 /// and its history, which stored schedules still point at). Matched whole: a hub script is
 /// resolved by its numeric id alone, so the name after it proves nothing about its code.
-const PRESET_HANDLER_PATHS: [&str; 23] = [
+const PRESET_HANDLER_PATHS: [&str; 26] = [
     "hub/6512/workspace-or-schedule-error-handler-slack",
     "hub/5792/workspace-or-schedule-error-handler-slack",
     "hub/9079/workspace-or-schedule-error-handler-slack",
@@ -3397,17 +3403,20 @@ const PRESET_HANDLER_PATHS: [&str; 23] = [
     "hub/19741/workspace-or-schedule-error-handler-slack",
     "hub/28241/workspace-or-schedule-error-handler-slack",
     "hub/28794/workspace-or-schedule-error-handler-slack",
+    "hub/30057/workspace-or-schedule-error-handler-slack",
     "hub/2431/slack/schedule-error-handler-slack",
     "hub/2430/slack/schedule-recovery-handler-slack",
     "hub/9067/slack/schedule-recovery-handler-slack",
     "hub/9080/slack/schedule-recovery-handler-slack",
     "hub/28239/slack/schedule-recovery-handler-slack",
     "hub/28791/slack/schedule-recovery-handler-slack",
+    "hub/30054/slack/schedule-recovery-handler-slack",
     "hub/9069/slack/schedule-success-handler-slack",
     "hub/9072/slack/schedule-success-handler-slack",
     "hub/28220/slack/schedule-success-handler-slack",
     "hub/28240/slack/schedule-success-handler-slack",
     "hub/28793/slack/schedule-success-handler-slack",
+    "hub/30056/slack/schedule-success-handler-slack",
     "hub/11598/workspace-or-schedule-error-handler-teams",
     "hub/19742/workspace-or-schedule-error-handler-teams",
     "hub/11593/schedule-recovery-handler-teams",
@@ -3599,6 +3608,100 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
     return Ok(uuid);
 }
 
+/// Handler arguments, so the field names are wire format. Never add the value: job args and
+/// results are stored in cleartext and shown in Runs.
+#[derive(Serialize)]
+pub struct ExpiringVariable {
+    pub workspace_id: String,
+    pub variable_path: String,
+    pub description: String,
+    pub value_valid_until: DateTime<Utc>,
+    pub is_secret: bool,
+}
+
+/// Takes and returns the caller's transaction so the claim and the push commit together.
+pub(crate) async fn push_variable_expiration_handler<'c>(
+    db: &Pool<Postgres>,
+    tx: Transaction<'c, Postgres>,
+    w_id: &str,
+    (payload, tag, on_behalf_of): (
+        JobPayload,
+        Option<String>,
+        Option<windmill_common::jobs::OnBehalfOf>,
+    ),
+    expiring: &ExpiringVariable,
+    extra_args: Option<Json<Box<RawValue>>>,
+) -> windmill_common::error::Result<(Uuid, Transaction<'c, Postgres>)> {
+    // Serialized whole so a new `ExpiringVariable` field reaches handlers. Any writer of the
+    // variable controls these, so only they are neutralized: the admin's `extra_args` keep their
+    // `$res:` references, which is how the handler gets its token.
+    let mut extra = omit_untrusted_interpolation(
+        serde_json::from_value(serde_json::to_value(expiring)?)?,
+        "The following resource has been omitted for security reasons: ",
+    );
+
+    if let Some(args_v) = extra_args {
+        if let Ok(args_m) = serde_json::from_str::<HashMap<String, Box<RawValue>>>(args_v.get()) {
+            extra.extend(args_m);
+        } else {
+            return Err(error::Error::ExecutionErr(
+                "args of scripts needs to be dict".to_string(),
+            ));
+        }
+    }
+
+    let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
+        (
+            on_behalf_of.email.as_str(),
+            on_behalf_of.permissioned_as.clone(),
+        )
+    } else {
+        (
+            VARIABLE_EXPIRATION_HANDLER_USER_EMAIL,
+            VARIABLE_EXPIRATION_HANDLER_USER_GROUP.to_string(),
+        )
+    };
+
+    let empty: HashMap<String, Box<RawValue>> = HashMap::new();
+    let args = PushArgs { extra: Some(extra), args: &empty };
+    push(
+        db,
+        PushIsolationLevel::Transaction(tx),
+        w_id,
+        payload,
+        args,
+        VARIABLE_EXPIRATION_HANDLER_USERNAME,
+        email,
+        permissioned_as,
+        Some(&format!(
+            "variable.expiration.{}",
+            expiring.variable_path.replace('/', ".")
+        )),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        tag,
+        None,
+        None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+}
+
 pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
     db: &Pool<Postgres>,
     job_id: Uuid,
@@ -3755,9 +3858,31 @@ pub struct MiniPulledJob {
     /// unrestricted token.
     #[serde(default)]
     pub job_token_scopes: Option<Vec<String>>,
+    /// `job_perms.mcp_client`, read only on pull: see `ApiAuthed::mcp_client`.
+    #[serde(default)]
+    pub mcp_client: Option<String>,
 }
 
 impl MiniPulledJob {
+    /// Whether this is an init or periodic script a worker queued for itself
+    /// ([`push_init_job`], [`push_periodic_bash_job`]). These run outside any sandbox, so every
+    /// executor that skips isolation uses this check.
+    pub fn is_worker_own_script(&self) -> bool {
+        let own_script = |own_tag: &str, path_prefix: &str| {
+            self.tag == own_tag
+                && self
+                    .runnable_path
+                    .as_ref()
+                    .is_some_and(|p| p.starts_with(path_prefix))
+        };
+        self.workspace_id == "admins"
+            && self.permissioned_as == SUPERADMIN_SECRET_EMAIL
+            && self.permissioned_as_email == WORKER_SCRIPT_EMAIL
+            && self.parent_job.is_none()
+            && (own_script(INIT_SCRIPT_TAG, INIT_SCRIPT_PATH_PREFIX)
+                || own_script(PERIODIC_SCRIPT_TAG, PERIODIC_SCRIPT_PATH_PREFIX))
+    }
+
     pub fn new_inline(
         workspace_id: String,
         args: Option<HashMap<String, Box<RawValue>>>,
@@ -3808,6 +3933,7 @@ impl MiniPulledJob {
             concurrent_limit: None,
             concurrency_time_window_s: None,
             job_token_scopes: None,
+            mcp_client: None,
         }
     }
 }
@@ -4122,6 +4248,7 @@ impl PulledJob {
                 end_user_email: self.job.permissioned_as_end_user_email.clone(),
                 job_token_scopes: self.job.job_token_scopes.clone(),
                 viewer_data_access: self.job.viewer_data_access.unwrap_or(false),
+                mcp_client: self.job.mcp_client.clone(),
             }),
             _ => None,
         };
@@ -4230,7 +4357,8 @@ pub async fn get_mini_pulled_job<'c>(
         visible_to_owner,
         NULL as permissioned_as_end_user_email,
         NULL::boolean as viewer_data_access,
-        job_perms.job_token_scopes
+        job_perms.job_token_scopes,
+        job_perms.mcp_client
         FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
         LEFT JOIN job_perms ON job_perms.job_id = v2_job_queue.id WHERE v2_job_queue.id = $1",
         job_id,
@@ -6034,6 +6162,31 @@ impl PushArgsOwned {
     pub fn empty() -> Self {
         PushArgsOwned { extra: None, args: HashMap::new() }
     }
+
+    /// Mark these args as coming from an untrusted third party: see
+    /// [`windmill_common::jobs::sanitize_untrusted_args`]. Applied to both maps, because a
+    /// name in `extra` wins over the same name in `args` when the job is serialized, and no
+    /// source that builds args from a third party's payload sets a reserved control key of
+    /// its own.
+    pub fn sanitize_untrusted(&mut self) {
+        sanitize_untrusted_args(&mut self.args);
+        if let Some(extra) = self.extra.as_mut() {
+            sanitize_untrusted_args(extra);
+        }
+    }
+
+    /// For args built from a third party's payload, pushed as someone else: see
+    /// [`omit_untrusted_interpolation`]. Not part of [`Self::sanitize_untrusted`], because
+    /// some trigger pushes carry args their author wrote, whose references must resolve.
+    pub fn omit_untrusted_interpolation(self) -> Self {
+        let omit = |args| {
+            omit_untrusted_interpolation(
+                args,
+                "The following resource has been omitted for security reasons: ",
+            )
+        };
+        PushArgsOwned { args: omit(self.args), extra: self.extra.map(omit) }
+    }
 }
 
 pub fn empty_result() -> Box<RawValue> {
@@ -6279,21 +6432,34 @@ async fn push_inner<'c, 'd>(
     suspended_mode: Option<bool>,
     scope_ceiling: Option<&[String]>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
-    // The worker builds a preview's `_MODULES` arg into the job as its module code. Every
-    // caller-reachable value lands in `args` or `extra` (webhook query and headers go to
-    // `extra`, WAC children copy their parent's args), so it is dropped from both and only
-    // the `JobPayload::Code` arm below sets it, from the server-side `RawCode::modules`.
-    let args_without_modules;
+    // Normalize the names and values to what the INSERT below will actually store before
+    // anything here goes by a name: `strip_json_nul` runs over the serialized args just
+    // before that INSERT and removes `\u0000` escapes from keys as well as values, so a
+    // name compared as sent is not the name that lands in the job. Without this, `_MODULES`
+    // is dropped below while `_MODULES\0` is stored as `_MODULES` and built into a preview's
+    // job directory as module code; likewise the serializer's "`extra` wins this name" rule
+    // (which is how an app policy's `static_inputs` override a viewer's args) compares the
+    // name as sent, so `tenant\0` is written after the pinned `tenant` and jsonb keeps the
+    // viewer's, as the later of two equal keys. The final strip stays, harmless once this
+    // has run.
+    let normalized_args;
     let mut args = {
         let mut extra = args.extra;
         if let Some(extra) = extra.as_mut() {
+            normalize_nul_in_args(extra);
+            // The worker builds a preview's `_MODULES` arg into the job as its module code.
+            // Every caller-reachable value lands in `args` or `extra` (webhook query and
+            // headers go to `extra`, WAC children copy their parent's args), so it is
+            // dropped from both and only the `JobPayload::Code` arm below sets it, from the
+            // server-side `RawCode::modules`.
             extra.remove(MODULES_ARG);
         }
-        let args = if args.args.contains_key(MODULES_ARG) {
+        let args = if args_contain_nul(args.args) || args.args.contains_key(MODULES_ARG) {
             let mut stripped = args.args.clone();
+            normalize_nul_in_args(&mut stripped);
             stripped.remove(MODULES_ARG);
-            args_without_modules = stripped;
-            &args_without_modules
+            normalized_args = stripped;
+            &normalized_args
         } else {
             args.args
         };
@@ -6357,6 +6523,7 @@ async fn push_inner<'c, 'd>(
                 if !team_plan_status.premium
                     && email != ERROR_HANDLER_USER_EMAIL
                     && email != SCHEDULE_ERROR_HANDLER_USER_EMAIL
+                    && email != VARIABLE_EXPIRATION_HANDLER_USER_EMAIL
                     && email != recovery_email
                     && email != "worker@windmill.dev"
                     && email != SUPERADMIN_SECRET_EMAIL
@@ -6809,9 +6976,7 @@ async fn push_inner<'c, 'd>(
                             restarted_from_val.branch_or_iteration_n,
                             restarted_from_val.flow_version,
                             restarted_from_val.nested.is_some(),
-                            // RawFlow queues the request's (possibly edited) definition, not the
-                            // stored one, so zombie reuse of the stored step is unsafe here.
-                            false,
+                            Some(&value),
                         )
                         .await?;
                     FlowStatus {
@@ -7207,7 +7372,7 @@ async fn push_inner<'c, 'd>(
                 nested.is_some(),
                 // RestartedFlow resolves and queues the completed job's stored definition, so the
                 // step validated for reuse is the one that will run.
-                true,
+                None,
             )
             .await?;
 
@@ -7621,7 +7786,8 @@ async fn push_inner<'c, 'd>(
             authed.clone()
         }
         _ => {
-            if authed.is_some() {
+            // An on-behalf-of run passes its MCP caller only to record the client.
+            if authed.is_some_and(|a| a.mcp_client.is_none()) {
                 tracing::warn!("Authed passed to push is not the same as permissioned_as, refetching direclty permissions for job {job_id}...")
             }
             windmill_common::auth::fetch_authed_from_permissioned_as(
@@ -7755,9 +7921,9 @@ async fn push_inner<'c, 'd>(
             INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)
         ),
         inserted_job_perms AS (
-            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, end_user_email, job_token_scopes)
-            values ($1, $32, $33, $34, $35, $36, $37, $2, $41, $47)
-            ON CONFLICT (job_id) DO UPDATE SET email = EXCLUDED.email, username = EXCLUDED.username, is_admin = EXCLUDED.is_admin, is_operator = EXCLUDED.is_operator, folders = EXCLUDED.folders, groups = EXCLUDED.groups, workspace_id = EXCLUDED.workspace_id, end_user_email = EXCLUDED.end_user_email, job_token_scopes = EXCLUDED.job_token_scopes
+            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, end_user_email, job_token_scopes, mcp_client)
+            values ($1, $32, $33, $34, $35, $36, $37, $2, $41, $47, $48)
+            ON CONFLICT (job_id) DO UPDATE SET email = EXCLUDED.email, username = EXCLUDED.username, is_admin = EXCLUDED.is_admin, is_operator = EXCLUDED.is_operator, folders = EXCLUDED.folders, groups = EXCLUDED.groups, workspace_id = EXCLUDED.workspace_id, end_user_email = EXCLUDED.end_user_email, job_token_scopes = EXCLUDED.job_token_scopes, mcp_client = EXCLUDED.mcp_client
         )
         INSERT INTO v2_job_queue
             (workspace_id, id, running, scheduled_for, started_at, tag, priority, cache_ignore_s3_path, runnable_settings_handle)
@@ -7813,6 +7979,9 @@ async fn push_inner<'c, 'd>(
         runnable_path,
         workspace_id,
         job_token_scopes.as_deref() as Option<&[String]>,
+        // From the pusher's identity, not `job_authed`: a run on behalf of another identity
+        // re-fetches its permissions, but was still started through the same client.
+        authed.and_then(|a| a.mcp_client.as_deref()),
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)
@@ -7865,6 +8034,9 @@ async fn push_inner<'c, 'd>(
         let uuid_str = uuid_string.as_str();
 
         let mut hm = HashMap::from([("uuid", uuid_str), ("permissioned_as", &permissioned_as)]);
+        if let Some(client) = authed.and_then(|a| a.mcp_client.as_deref()) {
+            hm.insert("mcp_client", client);
+        }
 
         let s: String;
         let operation_name = match job_kind {
@@ -8416,6 +8588,29 @@ pub async fn fetch_restart_flow_version(
     cache::flow::fetch_version(db, version).await
 }
 
+// A restart copies the steps before the restart step as completed, and the worker only gates the
+// restart step on a copied approval when that gate opened in the original run. So a copied step
+// whose gate never opened (timed out, disapproved) would let the restart skip its approval.
+fn refuse_restart_past_unopened_suspend_gate(
+    flow_value: &FlowValue,
+    copied_modules: &[FlowStatusModule],
+) -> Result<(), Error> {
+    for module in copied_modules {
+        let id = module.id();
+        let suspend = flow_value
+            .modules
+            .iter()
+            .find(|m| m.id == id)
+            .and_then(|m| m.suspend.as_ref());
+        if module.suspend_gate_never_opened(suspend) {
+            return Err(Error::BadRequest(format!(
+                "Step {id} was never approved. Restart the flow from step {id} to request the approval again."
+            )));
+        }
+    }
+    Ok(())
+}
+
 async fn restarted_flows_resolution(
     db: &Pool<Postgres>,
     workspace_id: &str,
@@ -8426,12 +8621,12 @@ async fn restarted_flows_resolution(
     // A nested restart chain (RestartedFrom.nested) descends into the restart step's child to
     // re-run an inner step; zombie reuse would skip the whole container and ignore it.
     nested_restart: bool,
-    // Zombie reuse validates the restart step against the completed job's STORED definition and
-    // synthesizes Success from its recorded children. That is only sound when the run being queued
-    // uses that same definition (JobPayload::RestartedFlow). A JobPayload::RawFlow restart queues
-    // the editor's current, possibly EDITED, definition instead, so reuse would skip the edited
-    // step and reuse the old child result; disable it there.
-    allow_zombie_reuse: bool,
+    // The definition the restart queues when it is not the completed job's stored one
+    // (JobPayload::RawFlow queues the editor's, possibly EDITED, definition). Approval gates are
+    // read from it. Zombie reuse validates the restart step against the STORED definition and
+    // synthesizes Success from its recorded children, so it is disabled when this is set: reuse
+    // would skip the edited step and reuse the old child result.
+    queued_flow: Option<&FlowValue>,
 ) -> Result<
     (
         Option<i64>,
@@ -8492,6 +8687,8 @@ async fn restarted_flows_resolution(
     };
 
     let flow_value = flow_data.value();
+    let allow_zombie_reuse = queued_flow.is_none();
+    let gate_flow = queued_flow.unwrap_or(flow_value);
     let flow_status = row
         .flow_status
         .as_ref()
@@ -8512,6 +8709,7 @@ async fn restarted_flows_resolution(
             let module_id = &module_definition.id;
 
             if module_id == restart_step_id {
+                refuse_restart_past_unopened_suspend_gate(gate_flow, &truncated_modules)?;
                 // Mark this and all following modules as WaitingForPriorSteps
                 if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
                     truncated_modules
@@ -8563,6 +8761,7 @@ async fn restarted_flows_resolution(
                 continue;
             };
             if module.id() == restart_step_id {
+                refuse_restart_past_unopened_suspend_gate(gate_flow, &truncated_modules)?;
                 // Reuse is only safe when there is a NEXT step to advance into (advancing past the
                 // last module lands on the failure step) and the step's definition carries no
                 // completion/arming semantics that reuse would skip (stop predicates, skip_if,
@@ -8783,7 +8982,7 @@ pub async fn get_same_worker_job(
                     COALESCE(pj.runnable_path, v2_job.args->>'_FLOW_PATH') as parent_runnable_path,
                     p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
                     p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email,
-                    p.viewer_data_access
+                    p.viewer_data_access, p.mcp_client
                     FROM v2_job_queue
                     INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
                     LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
@@ -8837,6 +9036,111 @@ mod git_sync_concurrency_key_tests {
 }
 
 #[cfg(test)]
+mod worker_own_script_tests {
+    use super::*;
+
+    const WK: &str = "wk-default-host-a1b2c";
+
+    /// Built exactly as [`push_init_job`] and [`push_periodic_bash_job`] queue them.
+    fn own_script(path: &str, tag: &str) -> MiniPulledJob {
+        MiniPulledJob::new_inline(
+            "admins".to_string(),
+            None,
+            WK.to_string(),
+            SUPERADMIN_SECRET_EMAIL.to_string(),
+            WORKER_SCRIPT_EMAIL.to_string(),
+            Some(path.to_string()),
+            JobKind::Preview,
+            None,
+            tag.to_string(),
+            Some(ScriptLang::Bash),
+        )
+    }
+
+    /// The init and periodic scripts the worker queues for itself are recognised.
+    #[test]
+    fn what_the_worker_queues_for_itself_is_recognized() {
+        assert!(
+            own_script(&format!("{INIT_SCRIPT_PATH_PREFIX}{WK}"), INIT_SCRIPT_TAG)
+                .is_worker_own_script()
+        );
+        assert!(own_script(
+            &format!("{PERIODIC_SCRIPT_PATH_PREFIX}{WK}_1700000000"),
+            PERIODIC_SCRIPT_TAG
+        )
+        .is_worker_own_script());
+    }
+
+    /// Only the exact shape the worker queues is recognised.
+    #[test]
+    fn other_job_shapes_are_not_recognized() {
+        let init = || own_script(&format!("{INIT_SCRIPT_PATH_PREFIX}x"), INIT_SCRIPT_TAG);
+        let periodic = || {
+            own_script(
+                &format!("{PERIODIC_SCRIPT_PATH_PREFIX}x"),
+                PERIODIC_SCRIPT_TAG,
+            )
+        };
+        for (what, job) in [
+            (
+                "other workspace",
+                MiniPulledJob { workspace_id: "ws-a".to_string(), ..init() },
+            ),
+            (
+                "other permissioned_as",
+                MiniPulledJob { permissioned_as: "u/deva".to_string(), ..init() },
+            ),
+            (
+                "other email",
+                MiniPulledJob { permissioned_as_email: "deva@example.com".to_string(), ..init() },
+            ),
+            (
+                "flow step",
+                MiniPulledJob { parent_job: Some(Uuid::from_u128(1)), ..init() },
+            ),
+            (
+                "flow step",
+                MiniPulledJob { parent_job: Some(Uuid::from_u128(1)), ..periodic() },
+            ),
+            (
+                "user tag",
+                own_script(&format!("{INIT_SCRIPT_PATH_PREFIX}x"), "bash"),
+            ),
+            (
+                "crossed tag",
+                own_script(&format!("{INIT_SCRIPT_PATH_PREFIX}x"), PERIODIC_SCRIPT_TAG),
+            ),
+            (
+                "crossed tag",
+                own_script(&format!("{PERIODIC_SCRIPT_PATH_PREFIX}x"), INIT_SCRIPT_TAG),
+            ),
+            ("ordinary path", own_script("u/admin/s", INIT_SCRIPT_TAG)),
+            (
+                "ordinary path",
+                own_script("u/admin/s", PERIODIC_SCRIPT_TAG),
+            ),
+        ] {
+            assert!(
+                !job.is_worker_own_script(),
+                "{what}: {:?}/{:?}/{} must not be recognised as a worker script",
+                job.workspace_id,
+                job.runnable_path,
+                job.tag
+            );
+        }
+    }
+
+    /// A job without a path is not a worker script.
+    #[test]
+    fn a_job_without_a_path_is_not_an_own_script() {
+        assert!(
+            !MiniPulledJob { runnable_path: None, ..own_script("x", INIT_SCRIPT_TAG) }
+                .is_worker_own_script()
+        );
+    }
+}
+
+#[cfg(test)]
 mod preset_handler_path_tests {
     use super::is_preset_handler_path;
 
@@ -8861,7 +9165,8 @@ mod preset_handler_path_tests {
         let hub_paths: std::collections::HashMap<String, String> =
             serde_json::from_str(include_str!("../../../frontend/src/lib/hubPaths.json")).unwrap();
         for (name, path) in hub_paths {
-            if path.contains("-handler-") {
+            // Variable expiration handlers run as their own group whatever their path.
+            if path.contains("-handler-") && !path.contains("variable-expiration") {
                 assert!(
                     is_preset_handler_path(&path),
                     "{name}: {path} is not pinned"
@@ -8948,5 +9253,40 @@ mod render_tag_path_tests {
 
     fn raw(json: &str) -> Box<RawValue> {
         RawValue::from_string(json.to_string()).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod restart_past_suspend_gate_tests {
+    use super::refuse_restart_past_unopened_suspend_gate;
+    use serde_json::json;
+    use windmill_common::{flow_status::FlowStatusModule, flows::FlowValue};
+
+    #[test]
+    fn refuses_only_a_blocking_gate_that_never_opened() {
+        let flow = |suspend: serde_json::Value| -> FlowValue {
+            serde_json::from_value(json!({"modules": [
+                {"id": "a", "value": {"type": "identity"}, "suspend": suspend},
+                {"id": "b", "value": {"type": "identity"}},
+            ]}))
+            .unwrap()
+        };
+        let copied_a = |approvers: serde_json::Value| -> Vec<FlowStatusModule> {
+            vec![serde_json::from_value(json!({
+                "type": "Success", "id": "a", "job": uuid::Uuid::new_v4(), "approvers": approvers
+            }))
+            .unwrap()]
+        };
+        let blocking = flow(json!({"required_events": 1}));
+        let approved = json!([{"resume_id": 0, "approver": "admin"}]);
+
+        assert!(
+            refuse_restart_past_unopened_suspend_gate(&blocking, &copied_a(json!([]))).is_err()
+        );
+        assert!(refuse_restart_past_unopened_suspend_gate(&blocking, &copied_a(approved)).is_ok());
+        let continues = flow(json!({"required_events": 1, "continue_on_disapprove_timeout": true}));
+        assert!(
+            refuse_restart_past_unopened_suspend_gate(&continues, &copied_a(json!([]))).is_ok()
+        );
     }
 }

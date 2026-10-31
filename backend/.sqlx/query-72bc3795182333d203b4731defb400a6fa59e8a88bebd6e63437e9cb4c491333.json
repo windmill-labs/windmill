@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM workspace_invite WHERE workspace_id = $1 AND email = $2 RETURNING is_admin, operator, workspace_role",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "is_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "operator",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "workspace_role",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "72bc3795182333d203b4731defb400a6fa59e8a88bebd6e63437e9cb4c491333"
+}

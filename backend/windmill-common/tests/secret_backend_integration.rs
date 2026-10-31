@@ -79,6 +79,8 @@ mod tests {
             kv_secret_path_prefix: None,
             jwt_role: None, // Static token mode
             jwt_mount_path: None,
+            approle_role_id: None,
+            approle_mount_path: None,
             namespace: None,
             token: Some(
                 std::env::var("VAULT_TOKEN").unwrap_or_else(|_| "test-root-token".to_string()),
@@ -96,6 +98,8 @@ mod tests {
             kv_secret_path_prefix: None,
             jwt_role: Some("windmill-secrets".to_string()), // JWT mode
             jwt_mount_path: None,
+            approle_role_id: None,
+            approle_mount_path: None,
             namespace: None,
             token: None, // No static token - use JWT
             skip_ssl_verify: None,

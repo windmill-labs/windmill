@@ -700,13 +700,13 @@ async fn list_triggers<T: TriggerCrud>(
         && query.is_flow.is_none()
         && query.path_start.is_none()
         && query.label.is_none()
-        && (!authed.is_operator
-            || windmill_common::workspaces::operator_can_draft(
-                &db,
-                &workspace_id,
-                T::user_draft_item_kind(),
-            )
-            .await?)
+        && windmill_common::workspaces::operator_can_draft(
+            &db,
+            &workspace_id,
+            &authed,
+            T::user_draft_item_kind(),
+        )
+        .await?
     {
         let draft_only_rows = fetch_draft_only_list_rows(
             &db,

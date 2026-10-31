@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO usr (workspace_id, username, email, is_admin, operator, added_via, workspace_role) VALUES ($1, $2, $3, false, $4, $5, $6) ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Jsonb",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3b01c43a828ec5d61ed92a27bdb16b526db8e60887d6279b0e66197da686fbf8"
+}

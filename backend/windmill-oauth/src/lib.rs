@@ -51,7 +51,8 @@ lazy_static::lazy_static! {
     pub static ref OAUTH_CLIENTS: arc_swap::ArcSwap<AllClients> = arc_swap::ArcSwap::from_pointee(AllClients {
         logins: HashMap::new(),
         connects: HashMap::new(),
-        slack: None
+        slack: None,
+        slack_signing_secret: None,
     });
 }
 
@@ -65,6 +66,8 @@ pub struct ClientWithScopes {
     pub extra_params_callback: Option<HashMap<String, String>>,
     pub allowed_domains: Option<Vec<String>>,
     pub userinfo_url: Option<String>,
+    /// See [`OAuthConfig::connect_fields`].
+    pub connect_fields: Option<HashMap<String, String>>,
     pub grant_types: Vec<String>,
     pub token_response_path: Option<String>,
     /// Resolved token endpoint, exposed so the connect dialog can prefill and
@@ -87,6 +90,15 @@ pub struct OAuthConfig {
     #[serde(default = "empty_string")]
     pub token_url: String,
     pub userinfo_url: Option<String>,
+    /// Resource fields the connect callback fills from what the provider returns,
+    /// as field -> path (see [`connect_resource_fields`]). A path starts with its
+    /// source: `token.` (the raw token response, before `token_response_path`
+    /// unwraps it), `userinfo.` (`userinfo_url`'s response, fetched only when a
+    /// path needs it) or `callback.` (the callback URL's query params). The browser
+    /// relays `callback.` values, so they only prefill the user's own resource:
+    /// nothing server-side may trust them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connect_fields: Option<HashMap<String, String>>,
     /// The registry JSON may also carry frontend-only keys for the connect
     /// dialog, deliberately not modelled here: `scope_options`, a scope pick
     /// list, `resource_fields`, the fields of the resource type the dialog
@@ -252,6 +264,13 @@ pub struct OAuthClient {
     pub tenant: Option<String>,
     #[serde(default = "default_grant_types")]
     pub grant_types: Vec<String>,
+    /// The Slack app's signing secret, which authenticates the requests Slack sends Windmill.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "windmill_common::utils::empty_as_none"
+    )]
+    pub signing_secret: Option<String>,
 }
 
 impl std::fmt::Debug for OAuthClient {
@@ -265,6 +284,10 @@ impl std::fmt::Debug for OAuthClient {
             .field("login_config", &self.login_config)
             .field("tenant", &self.tenant)
             .field("grant_types", &self.grant_types)
+            .field(
+                "signing_secret",
+                &self.signing_secret.as_ref().map(|_| "***"),
+            )
             .finish()
     }
 }
@@ -286,11 +309,23 @@ fn default_grant_types() -> Vec<String> {
 }
 
 /// Container for all OAuth clients (login, connect, and slack)
-#[derive(Debug)]
 pub struct AllClients {
     pub logins: BasicClientsMap,
     pub connects: BasicClientsMap,
     pub slack: Option<OClient>,
+    /// The instance Slack app's signing secret, from its OAuth setting.
+    pub slack_signing_secret: Option<String>,
+}
+
+impl std::fmt::Debug for AllClients {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AllClients")
+            .field("logins", &self.logins)
+            .field("connects", &self.connects)
+            .field("slack", &self.slack)
+            .field("slack_signing_secret", &self.slack_signing_secret.as_ref().map(|_| "***"))
+            .finish()
+    }
 }
 
 /// Slack token response from OAuth flow
@@ -329,6 +364,10 @@ pub struct SlackTeam {
 pub struct OAuthCallback {
     pub code: String,
     pub state: String,
+    /// The callback URL's other query params (QuickBooks' `realmId`), read by
+    /// `connect_fields` paths under `callback.`.
+    #[serde(default)]
+    pub params: HashMap<String, String>,
 }
 
 /// Build a basic OAuth client from configuration
@@ -515,6 +554,7 @@ pub async fn build_client_credentials_oauth_client(
             .map(|e| e.grant_types.clone())
             .unwrap_or_else(default_grant_types),
         tenant: instance_entry.as_ref().and_then(|e| e.tenant.clone()),
+        signing_secret: None,
     };
 
     let base_url = (**BASE_URL.load()).clone();
@@ -877,6 +917,48 @@ pub fn parse_token_response(
     })
 }
 
+/// What the connect callback returns: the token, and the resource fields its
+/// `connect_fields` picked, which the connect dialog prefills.
+#[derive(Debug, Serialize)]
+pub struct ConnectCallbackResponse {
+    #[serde(flatten)]
+    pub token: TokenResponse,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub resource_fields: HashMap<String, serde_json::Value>,
+}
+
+/// Picks each field's value out of `sources` (`{token, userinfo, callback}`). A path
+/// is dot-separated keys, and a `key[k=v]` segment takes the element of array `key`
+/// whose `k` is `v` (`userinfo.accounts[is_default=true].base_uri`). Only the listed
+/// paths leave the server, and fields whose path misses are left out.
+pub fn connect_resource_fields(
+    sources: &serde_json::Value,
+    fields: &HashMap<String, String>,
+) -> HashMap<String, serde_json::Value> {
+    fn get<'a>(v: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+        path.split('.')
+            .try_fold(v, |v, seg| match seg.split_once('[') {
+                Some((key, filter)) => {
+                    let (k, want) = filter.strip_suffix(']')?.split_once('=')?;
+                    v.get(key)?.as_array()?.iter().find(|e| match e.get(k) {
+                        Some(serde_json::Value::String(s)) => s == want,
+                        Some(other) => other.to_string() == want,
+                        None => false,
+                    })
+                }
+                None => v.get(seg),
+            })
+    }
+    fields
+        .iter()
+        .filter_map(|(field, path)| {
+            get(sources, path)
+                .filter(|v| !v.is_null())
+                .map(|v| (field.clone(), v.clone()))
+        })
+        .collect()
+}
+
 /// Pre-fetched account fields needed for token refresh.
 pub struct OAuthAccountInfo {
     pub client: String,
@@ -1235,11 +1317,50 @@ mod tests {
         assert_eq!(&*token.access_token, "xoxe.xoxp-new");
     }
 
+    #[test]
+    fn connect_fields_pick_from_each_source() {
+        let registry: HashMap<String, OAuthConfig> =
+            serde_json::from_str(include_str!("../../oauth_connect.json")).unwrap();
+        let fields = |p: &str| registry[p].connect_fields.clone().unwrap();
+
+        let docusign = serde_json::json!({"userinfo": {"accounts": [
+            {"account_id": "a1", "is_default": false, "base_uri": "https://na2.docusign.net"},
+            {"account_id": "a2", "is_default": true, "base_uri": "https://demo.docusign.net"}
+        ]}});
+        let got = connect_resource_fields(&docusign, &fields("docusign"));
+        assert_eq!(got["account_id"], "a2");
+        assert_eq!(got["base_uri"], "https://demo.docusign.net");
+        let no_account = serde_json::json!({"userinfo": {"accounts": []}});
+        assert!(connect_resource_fields(&no_account, &fields("docusign")).is_empty());
+
+        let salesforce = serde_json::json!({"token": {
+            "access_token": "t", "instance_url": "https://acme.my.salesforce.com", "id_token": "x"
+        }});
+        let want = HashMap::from([(
+            "instance_url".to_string(),
+            serde_json::json!("https://acme.my.salesforce.com"),
+        )]);
+        assert_eq!(
+            connect_resource_fields(&salesforce, &fields("salesforce")),
+            want
+        );
+        let sandbox = registry["salesforce"].as_sandbox().unwrap();
+        assert_eq!(sandbox.connect_fields, registry["salesforce"].connect_fields);
+
+        let quickbooks = serde_json::json!({"callback": {"realmId": "9130"}});
+        let got = connect_resource_fields(&quickbooks, &fields("quickbooks"));
+        assert_eq!(
+            got,
+            HashMap::from([("realmId".to_string(), serde_json::json!("9130"))])
+        );
+    }
+
     fn sample_oauth_config(with_sandbox: bool) -> OAuthConfig {
         OAuthConfig {
             auth_url: "https://account.example.com/oauth/auth".to_string(),
             token_url: "https://account.example.com/oauth/token".to_string(),
             userinfo_url: Some("https://account.example.com/userinfo".to_string()),
+            connect_fields: None,
             scopes: Some(vec!["signature".to_string()]),
             cc_scopes: None,
             extra_params: None,

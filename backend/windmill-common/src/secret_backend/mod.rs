@@ -14,8 +14,10 @@
 
 pub mod database;
 pub mod resolver;
+pub mod external_ref;
 
 pub use resolver::*;
+pub use external_ref::*;
 
 #[cfg(feature = "private")]
 pub mod vault_ee;
@@ -28,6 +30,10 @@ pub mod vault_oss;
 #[cfg(feature = "private")]
 pub mod aws_sm_ee;
 pub mod aws_sm_oss;
+
+#[cfg(feature = "private")]
+pub mod http_store_ee;
+pub mod http_store_oss;
 
 #[cfg(test)]
 mod tests;
@@ -49,6 +55,14 @@ pub use aws_sm_ee::*;
 
 #[cfg(not(feature = "private"))]
 pub use aws_sm_oss::*;
+
+#[cfg(feature = "private")]
+pub use http_store_ee::*;
+
+#[cfg(not(feature = "private"))]
+pub use http_store_oss::*;
+
+use std::collections::BTreeMap;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -87,6 +101,11 @@ pub trait SecretBackend: Send + Sync {
     /// * `path` - The path/name of the secret variable
     async fn delete_secret(&self, workspace_id: &str, path: &str) -> Result<()>;
 
+    /// Check that a variable path can be stored by this backend, before a reference to it is saved
+    fn check_path(&self, _path: &str) -> Result<()> {
+        Ok(())
+    }
+
     /// Get the name of this backend for logging/debugging
     fn backend_name(&self) -> &'static str;
 }
@@ -106,6 +125,8 @@ pub enum SecretBackendConfig {
     AzureKeyVault(AzureKeyVaultSettings),
     /// Store secrets in AWS Secrets Manager (Enterprise Edition only)
     AwsSecretsManager(AwsSecretsManagerSettings),
+    /// Read secrets from any HTTPS secret store (Enterprise Edition only, read-only)
+    HttpStore(HttpStoreSettings),
 }
 
 impl Default for SecretBackendConfig {
@@ -119,7 +140,9 @@ impl Default for SecretBackendConfig {
 pub struct VaultSettings {
     /// Vault server address (e.g., "https://vault.company.com:8200")
     pub address: String,
-    /// KV v2 mount path (e.g., "windmill")
+    /// KV v2 mount path (e.g., "windmill"). Empty for the external-secrets
+    /// connection, which reads whatever mount a reference names.
+    #[serde(default)]
     pub mount_path: String,
     /// Optional path prefix inserted between the KV `data`/`metadata` segment
     /// and the workspace id, e.g. "apps/windmill". When set, secrets live at
@@ -137,6 +160,15 @@ pub struct VaultSettings {
     /// e.g. via `vault auth enable -path=my-mount jwt`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jwt_mount_path: Option<String>,
+    /// AppRole role_id. When set (and no static token), Windmill logs in with
+    /// AppRole; the secret_id is read from the `VAULT_APPROLE_SECRET_ID`
+    /// environment variable of servers and workers, never from settings, and
+    /// is omitted when unset (a role with `bind_secret_id=false`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approle_role_id: Option<String>,
+    /// Mount path of the AppRole auth method (defaults to "approle").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approle_mount_path: Option<String>,
     /// Vault Enterprise namespace (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
@@ -187,6 +219,95 @@ pub struct AwsSecretsManagerSettings {
     /// Prefix for secret names in AWS Secrets Manager (e.g., "windmill/")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prefix: Option<String>,
+}
+
+/// Settings for the generic HTTP secret store backend.
+///
+/// The backend is read-only: a secret variable is a reference whose store key is derived from the
+/// workspace id and the variable path through the `read` template, and values are managed in the
+/// store itself.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HttpStoreSettings {
+    /// Scheme, host and optional path prefix of the store (e.g. "https://secrets.example.internal")
+    pub base_url: String,
+    pub read: HttpStoreRead,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path_encoding: Option<HttpStorePathEncoding>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra_headers: BTreeMap<String, String>,
+    pub auth: HttpStoreAuth,
+    /// PEM bundle of additional CA certificates trusted for the store's server certificate
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ca_bundle_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_ssl_verify: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HttpStoreRead {
+    /// Path template appended to `base_url`, with `{workspace}` and `{path}` placeholders
+    pub path: String,
+    /// Query parameters; values may use the same placeholders
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub query: BTreeMap<String, String>,
+    /// RFC 6901 JSON pointer to the value in the response body; empty or absent means the whole
+    /// body is the value
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_pointer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_encoding: Option<HttpStoreValueEncoding>,
+}
+
+/// How a variable path becomes a store key
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum HttpStorePathEncoding {
+    /// The whole path is one percent-encoded segment (`u/alice/db` -> `u%2Falice%2Fdb`)
+    #[default]
+    Url,
+    /// Segments joined with `--` (`u/alice/db` -> `u--alice--db`)
+    DoubleDash,
+    /// The path is used as-is, as several URL segments
+    Raw,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum HttpStoreValueEncoding {
+    #[default]
+    Plain,
+    Base64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+pub enum HttpStoreAuth {
+    None,
+    StaticHeader {
+        header_name: String,
+        header_value: String,
+    },
+    /// A token read from a file (e.g. a Kubernetes projected service-account token), re-read
+    /// when it changes on disk
+    BearerTokenFile {
+        token_path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        header_name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prefix: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reload_interval_secs: Option<u64>,
+    },
+    /// A TLS client certificate and key read from PEM files, re-read when they change on disk.
+    /// `cert_path` may hold the full chain.
+    ClientCertificate {
+        cert_path: String,
+        key_path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reload_interval_secs: Option<u64>,
+    },
 }
 
 /// Result of a secret migration operation

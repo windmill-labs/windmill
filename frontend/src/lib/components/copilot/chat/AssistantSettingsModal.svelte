@@ -208,6 +208,11 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	{#snippet headerLeft()}
 		<p class="pl-3 pt-1 text-xs text-secondary truncate">
 			What the assistant can see and use in this session.
+			{#if aiChatManager.workingScope?.roots?.length === 0}
+				No folder selected: every change asks.
+			{:else if aiChatManager.workingScope?.roots}
+				Working in <span class="font-mono">{aiChatManager.workingScope.label}</span>.
+			{/if}
 		</p>
 	{/snippet}
 
@@ -234,9 +239,9 @@ callers that already know which section they mean, such as the "+" menu's Manage
 
 		<div class="grow min-w-0 flex flex-col min-h-0">
 			<!-- Every section stays mounted while the modal is open: the sidebar badges
-			     count what each one loaded, so hiding is display-only. Tools, Skills and MCP
-			     own their own scrolling — each is a list and a detail page laid over each
-			     other — so only Instructions scrolls here. -->
+			     count what each one loaded, so hiding is display-only. Tools, Skills,
+			     Instructions and MCP own their own scrolling — each is a list and a detail page
+			     laid over each other — so only Files and Permissions scroll here. -->
 			<div class="{section === 'tools' ? 'flex' : 'hidden'} grow min-h-0 flex-col overflow-hidden">
 				<AssistantToolsSection
 					{tools}
@@ -256,7 +261,9 @@ callers that already know which section they mean, such as the "+" menu's Manage
 				/>
 			</div>
 			<div
-				class="{section === 'instructions' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2"
+				class="{section === 'instructions'
+					? 'flex'
+					: 'hidden'} grow min-h-0 flex-col overflow-hidden"
 			>
 				<AssistantInstructionsSection
 					{ws}

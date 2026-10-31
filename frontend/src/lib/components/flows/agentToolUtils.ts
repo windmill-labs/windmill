@@ -10,6 +10,26 @@ import { forbiddenIds } from './idUtils'
  *  search. */
 export const WEBSEARCH_ENABLED_NAME = '__wm_web_search'
 
+/** Tools the worker answers itself rather than by running a module. None is named by its
+ *  `summary`: each has a reserved `enabledName` (mirroring the `*_ENABLED_NAME`s in the worker),
+ *  and the model sees a fixed name the worker picks. `question` parks the agent until someone
+ *  answers (`windmill-worker/src/ai/pause.rs`). */
+export const BUILTIN_TOOLS = {
+	websearch: { label: 'Web search', enabledName: WEBSEARCH_ENABLED_NAME },
+	question: { label: 'Ask a question', enabledName: '__wm_question' }
+} as const
+export type BuiltinToolType = keyof typeof BUILTIN_TOOLS
+
+export function builtinToolType(tool: AgentTool | undefined): BuiltinToolType | undefined {
+	const type = tool?.value?.tool_type
+	return type && type in BUILTIN_TOOLS ? (type as BuiltinToolType) : undefined
+}
+
+/** Whether a tool is named by its `summary`, which only the model-facing kinds are. */
+export function isNamedTool(tool: AgentTool | undefined): boolean {
+	return tool?.value?.tool_type !== 'mcp' && builtinToolType(tool) === undefined
+}
+
 /**
  * A tool's `summary` is the name the LLM sees, and the worker rejects any name that does not match
  * `^[a-zA-Z0-9_]+$` (`ai_executor.rs`), so an unvalidated name fails on every run of the flow.
@@ -21,10 +41,10 @@ export const WEBSEARCH_ENABLED_NAME = '__wm_web_search'
  */
 export function getToolNameError(
 	name: string,
-	kind?: 'mcp' | 'websearch' | (string & {}),
+	kind?: 'mcp' | BuiltinToolType | (string & {}),
 	siblingNames?: string[]
 ): string | undefined {
-	if (kind === 'websearch') return undefined
+	if (kind && kind in BUILTIN_TOOLS) return undefined
 	if (kind === 'mcp') {
 		return name.length > 0 ? undefined : 'Tool name must not be empty'
 	}
@@ -36,7 +56,10 @@ export function getToolNameError(
 	if (!/^[a-zA-Z0-9_]+$/.test(name)) {
 		return 'Tool name must only contain letters, numbers and underscores'
 	}
-	if (forbiddenIds.includes(name) || name === WEBSEARCH_ENABLED_NAME) {
+	if (
+		forbiddenIds.includes(name) ||
+		Object.values(BUILTIN_TOOLS).some((builtin) => builtin.enabledName === name)
+	) {
 		return `'${name}' is a reserved name`
 	}
 	if (siblingNames && siblingNames.filter((n) => n === name).length > 1) {
@@ -48,6 +71,7 @@ export function getToolNameError(
 export const SPECIAL_TOOL_KINDS = [
 	'mcpTool',
 	'websearchTool',
+	'questionTool',
 	'aiAgentTool',
 	'aiDecisionTool'
 ] as const
@@ -154,8 +178,9 @@ export function toolEnabledName(tool: AgentTool): string | undefined {
 	if (value?.tool_type === 'mcp') {
 		return (value?.resource_path as string | undefined)?.replace(/^\$res:/, '') || undefined
 	}
-	if (value?.tool_type === 'websearch') {
-		return WEBSEARCH_ENABLED_NAME
+	const builtin = builtinToolType(tool)
+	if (builtin) {
+		return BUILTIN_TOOLS[builtin].enabledName
 	}
 	return toolDisplayName(tool)
 }
@@ -233,11 +258,15 @@ export function createMcpTool(id: string): McpTool {
 export function createWebsearchTool(id: string): WebsearchTool {
 	return {
 		id,
-		summary: 'Web Search',
+		summary: 'Web search',
 		value: {
 			tool_type: 'websearch'
 		}
 	}
+}
+
+export function createQuestionTool(id: string): AgentTool {
+	return { id, summary: BUILTIN_TOOLS.question.label, value: { tool_type: 'question' } }
 }
 
 /**

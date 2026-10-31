@@ -50,8 +50,12 @@ Symbols, not line numbers, are cited: they drift less.
   delivered to the global chat of everyone who can read the resource, with no opt-in, whenever the
   chat touches a path under its folder (`copilot/chat/folderInstructions.ts`); the chat then acts
   with that reader's permissions, outside the folder too. `ai_skill` bodies are likewise in play
-  for every reader until turned off. The resource ACL is the only control, so granting write on a
-  folder grants that influence.
+  for every reader until turned off. An `ai_review_instruction` steers the AI review of every
+  deployment request touching its folder, for anyone who can read it in the parent workspace
+  (`deploymentRequest/aiReview.ts`); a fork's own copy is never read. The prompt tells the model to
+  keep reporting secrets and unintended deletions whatever they say, but that is a request to the
+  model, not enforcement: an instruction body can still talk it out of them. The resource ACL is the only
+  control, so granting write on a folder grants that influence.
 - **Restricted job tokens** (`job_token_scopes` on scripts and flows): a job's effective scopes
   are stored on its `job_perms` row at push and minted into its token
   (`create_token_for_owner`); an empty set is minted as `NO_API_ACCESS_SCOPE`, since
@@ -149,6 +153,24 @@ Symbols, not line numbers, are cited: they drift less.
   "true"/"false" strings) and is only consulted for the claim above; only GitHub is filtered to
   `primary && verified`; a missing email is fabricated from `name` as `<name>@windmill.dev` and
   reaches `login_externally` with `email_asserted = false`.
+- **MCP access tokens from an external issuer** (`mcp_external_idp`, EE, `mcp/external_idp.rs`):
+  taken only for a JWT whose unverified `iss` is the configured issuer, then verified against its
+  discovery JWKS. With no audience configured, only a token typed as an access token (`at+jwt`
+  header, or a `Bearer` `typ` claim) is taken, so a client's ID token cannot stand in for one;
+  an instance-deactivated account (`password.disabled`) is refused, since this path has no
+  Windmill token for deactivation to revoke. The token's client claim (`azp` by default) must name a configured client, and
+  its email claim an existing, enabled member of that client's workspace: no account is created,
+  and a client-credentials token (no user) is refused with 403. When `sso_groups_claim` is set,
+  the instance groups with an `external_id` come from that claim of the token alone, for that
+  request only (nested paths counting for their ancestors): nothing is written, unlike an SSO
+  login, and an absent claim means no IdP groups, so removing a user from every group revokes at
+  the next token. Roles (admin, superadmin, operator) are not derived from the token: they stay as
+  stored, which SCIM and SSO login keep current. Entra's overage pointer (`_claim_names`) is refused rather than read as no
+  groups. The resolved identity is cached per token for at most a minute. Runs
+  record the client in `job_perms.mcp_client` (and the job-start audit entry), from the pushing identity
+  rather than `job_authed`, so a run on behalf of another identity still names it; the
+  session toolset reaches the API through a JWT minted for the caller, which carries the client
+  in its `mcp_client` claim for the same reason, and so does a job's `WM_TOKEN`.
 - **`GET /api/oauth/login/{client}`** is an unauthenticated 302 to the provider — a plain link
   from any page starts SSO.
 - **`CLOUD_HOSTED`** is presence-tested (`windmill-common/src/worker.rs`): `CLOUD_HOSTED=false`

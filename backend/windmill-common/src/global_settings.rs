@@ -76,10 +76,6 @@ pub const EXPOSE_METRICS_SETTING: &str = "expose_metrics";
 pub const EXPOSE_DEBUG_METRICS_SETTING: &str = "expose_debug_metrics";
 pub const KEEP_JOB_DIR_SETTING: &str = "keep_job_dir";
 pub const REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING: &str = "require_preexisting_user_for_oauth";
-/// Superadmin switch over guest sessions for the whole instance, above the per-workspace
-/// one. Read from the table, uncached, by the same gates that read the workspace switch;
-/// the superadmin Guests list writes it through `/settings/global/{key}` by this name.
-pub const GUEST_ACCESS_DISABLED_SETTING: &str = "guest_access_disabled";
 pub const JOB_ISOLATION_SETTING: &str = "job_isolation";
 pub const NSJAIL_TMPFS_SIZE_MB_SETTING: &str = "nsjail_tmpfs_size_mb";
 pub const NSJAIL_TMP_BACKING_SETTING: &str = "nsjail_tmp_backing";
@@ -117,6 +113,9 @@ pub const DISABLE_PASSWORD_LOGIN_SETTING: &str = "disable_password_login";
 /// in. A URL-borne credential ends up in browser history, proxy logs and referrers, so an
 /// instance that cares sends MCP clients through the OAuth flow instead.
 pub const MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING: &str = "mcp_disable_token_query_param";
+/// An external OIDC issuer whose access tokens the MCP endpoints accept, and the OAuth clients
+/// of that issuer they serve. Read and validated by [`parse_mcp_external_idp`].
+pub const MCP_EXTERNAL_IDP_SETTING: &str = "mcp_external_idp";
 /// Ceiling, in days, on how far ahead a token minted through `POST /users/tokens/create` or
 /// `POST /users/tokens/impersonate` may expire; a request asking for more, or for no
 /// expiration at all, is shortened to it rather than refused. On those routes only: server-side
@@ -181,6 +180,7 @@ pub const APP_WORKSPACED_ROUTE_SETTING: &str = "app_workspaced_route";
 pub const HTTP_ROUTE_WORKSPACED_ROUTE_SETTING: &str = "http_route_workspaced_route";
 pub const HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING: &str = "http_route_default_allowed_origins";
 pub const SECRET_BACKEND_SETTING: &str = "secret_backend";
+pub const EXTERNAL_SECRETS_SETTING: &str = "external_secrets";
 pub const MIN_KEEP_ALIVE_VERSION_SETTING: &str = "min_keep_alive_version";
 pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
 /// Base URL GitHub delivers git-sync repository webhooks to. Falls back to
@@ -188,11 +188,17 @@ pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
 /// from GitHub and a separate ingress fronts the API for inbound webhooks.
 pub const GITHUB_APP_WEBHOOK_BASE_URL_SETTING: &str = "github_app_webhook_base_url";
 /// Base URL the UI shows for the endpoints external clients call (webhooks, HTTP
-/// routes, push trigger endpoints, the CLI), instead of the origin the UI is browsed on.
-/// For deployments that serve the API on a separate domain or behind a gateway.
+/// routes, push trigger endpoints, the CLI, the MCP server), instead of the origin the UI is
+/// browsed on. For deployments that serve the API on a separate domain or behind a gateway.
+/// The server reads it too, through [`mcp_base_url`], for the MCP gateway's OAuth metadata.
 /// EE only. Readable by any authenticated user, like [`INSTANCE_BANNER_SETTING`]:
 /// every user is shown URLs built from it.
 pub const API_BASE_URL_SETTING: &str = "api_base_url";
+/// Which of [`API_BASE_URL_SURFACES`] [`API_BASE_URL_SETTING`] applies to; unset means all,
+/// so a surface added later follows the API base url until an admin narrows the list.
+/// Lets an instance expose a single surface (say, only MCP) on a public host.
+pub const API_BASE_URL_APPLIES_TO_SETTING: &str = "api_base_url_applies_to";
+pub const API_BASE_URL_SURFACES: [&str; 4] = ["webhooks", "push_triggers", "cli", "mcp"];
 /// Instance-wide announcement rendered above every page of the app (maintenance
 /// windows, incidents). Readable by any authenticated user, unlike most settings:
 /// the banner exists to be shown to everyone, so it must never hold anything the
@@ -341,6 +347,7 @@ pub struct InstanceUi {
     pub instance_banner: Option<serde_json::Value>,
     pub accent_color: Option<serde_json::Value>,
     pub api_base_url: Option<serde_json::Value>,
+    pub api_base_url_applies_to: Option<serde_json::Value>,
 }
 
 pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<InstanceUi> {
@@ -349,7 +356,8 @@ pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<InstanceUi> {
         &[
             INSTANCE_BANNER_SETTING,
             ACCENT_COLOR_SETTING,
-            API_BASE_URL_SETTING
+            API_BASE_URL_SETTING,
+            API_BASE_URL_APPLIES_TO_SETTING
         ] as &[&str]
     )
     .fetch_all(db)
@@ -360,10 +368,32 @@ pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<InstanceUi> {
             INSTANCE_BANNER_SETTING => ui.instance_banner = Some(row.value),
             ACCENT_COLOR_SETTING => ui.accent_color = Some(row.value),
             API_BASE_URL_SETTING => ui.api_base_url = Some(row.value),
+            API_BASE_URL_APPLIES_TO_SETTING => ui.api_base_url_applies_to = Some(row.value),
             _ => {}
         }
     }
     Ok(ui)
+}
+
+/// Validate an [`API_BASE_URL_APPLIES_TO_SETTING`] value: a list of
+/// [`API_BASE_URL_SURFACES`]. An unknown name is refused rather than ignored, since a
+/// misspelt `mcp` would silently leave the MCP server on `base_url`.
+pub fn validate_api_base_url_applies_to(value: &serde_json::Value) -> Result<(), String> {
+    let serde_json::Value::Array(items) = value else {
+        return Err("must be a list of surfaces".to_string());
+    };
+    for item in items {
+        match item.as_str() {
+            Some(s) if API_BASE_URL_SURFACES.contains(&s) => {}
+            _ => {
+                return Err(format!(
+                    "must only list surfaces among {}",
+                    API_BASE_URL_SURFACES.join(", ")
+                ))
+            }
+        }
+    }
+    Ok(())
 }
 
 const SHELL_ACTIVE_CHARS: [char; 16] = [
@@ -432,6 +462,9 @@ pub const WORKSPACE_REGISTRIES_SETTING: &str = "workspace_registries";
 pub const RESTART_COORDINATION_SETTING: &str = "_restart_coordination";
 pub const ALERT_CONFIG_SETTING: &str = "alert_job_queue_waiting";
 
+/// The instance's workspace roles (EE), a list of `crate::roles::RoleDefinition`.
+pub const WORKSPACE_ROLES_SETTING: &str = "workspace_roles";
+
 // Workspace fairness: cloud-only mechanism that caps any single workspace at
 // `workspace_fairness_max_percent`% of the shared worker pool once it has been
 // occupying it for more than `workspace_fairness_duration_secs` seconds. See
@@ -484,6 +517,7 @@ pub const AGENT_WORKER_BLOCKED_SETTINGS: &[&str] = &[
     SCIM_TOKEN_SETTING,
     SAML_METADATA_SETTING,
     SECRET_BACKEND_SETTING,
+    EXTERNAL_SECRETS_SETTING,
     GITHUB_ENTERPRISE_APP_SETTING,
     OBJECT_STORE_CONFIG_SETTING,
     AI_CONFIG_SETTING,
@@ -517,10 +551,161 @@ lazy_static::lazy_static! {
     pub static ref HTTP_ROUTE_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);
     pub static ref DISABLE_PASSWORD_LOGIN: AtomicBool = AtomicBool::new(false);
     pub static ref MCP_DISABLE_TOKEN_QUERY_PARAM: AtomicBool = AtomicBool::new(false);
+    /// `None` when [`MCP_EXTERNAL_IDP_SETTING`] is unset or has no issuer.
+    pub static ref MCP_EXTERNAL_IDP: arc_swap::ArcSwapOption<McpExternalIdp> =
+        arc_swap::ArcSwapOption::empty();
+    /// Empty means unset. See [`API_BASE_URL_SETTING`].
+    pub static ref API_BASE_URL: arc_swap::ArcSwap<String> =
+        arc_swap::ArcSwap::from_pointee(String::new());
+    /// Whether [`API_BASE_URL_APPLIES_TO_SETTING`] includes `mcp`.
+    pub static ref API_BASE_URL_APPLIES_TO_MCP: AtomicBool = AtomicBool::new(true);
     /// Origins HTTP routes allow cross-origin when they configure none of their
     /// own. Empty means unset, which keeps the historical `*`.
     pub static ref HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS: arc_swap::ArcSwap<Vec<String>> =
         arc_swap::ArcSwap::from_pointee(vec![]);
+}
+
+/// [`MCP_EXTERNAL_IDP_SETTING`]: the MCP endpoints accept an access token signed by `issuer`
+/// when its `client_claim` names one of `clients`, acting as the Windmill user whose email is
+/// in `email_claim`, limited to that client's selection in that client's workspace.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct McpExternalIdp {
+    pub issuer: String,
+    /// Checked against the token's `aud` when set. Many issuers stamp an audience the
+    /// resource server cannot choose, so it is optional.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audience: Option<String>,
+    #[serde(default = "default_mcp_client_claim")]
+    pub client_claim: String,
+    #[serde(default = "default_mcp_email_claim")]
+    pub email_claim: String,
+    #[serde(default)]
+    pub clients: Vec<McpExternalClient>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct McpExternalClient {
+    pub client_id: String,
+    pub workspace_id: String,
+    /// Selection scopes, as a token scoped to runnables-as-tools carries them.
+    pub scopes: Vec<String>,
+}
+
+fn default_mcp_client_claim() -> String {
+    "azp".to_string()
+}
+
+fn default_mcp_email_claim() -> String {
+    "email".to_string()
+}
+
+impl McpExternalIdp {
+    pub fn client(&self, client_id: &str) -> Option<&McpExternalClient> {
+        self.clients.iter().find(|c| c.client_id == client_id)
+    }
+}
+
+/// Reads [`MCP_EXTERNAL_IDP_SETTING`]; `None` when unset. A client may only be given
+/// individual tools: `mcp:all` would hand it the whole session toolset and endpoint scopes
+/// the raw API, neither of which the user's own grant to the client is meant to cover.
+pub fn parse_mcp_external_idp(
+    value: Option<&serde_json::Value>,
+) -> Result<Option<McpExternalIdp>, String> {
+    let value = match value {
+        None | Some(serde_json::Value::Null) => return Ok(None),
+        Some(v) => v,
+    };
+    let idp: McpExternalIdp = serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+    if idp.issuer.trim().is_empty() {
+        return if idp.clients.is_empty() {
+            Ok(None)
+        } else {
+            Err("clients need an issuer".to_string())
+        };
+    }
+    // Its keys are fetched from it: over plain http anyone on the path could forge tokens.
+    let url = url::Url::parse(&idp.issuer).map_err(|e| format!("issuer: {e}"))?;
+    let local = matches!(url.host_str(), Some("localhost" | "127.0.0.1"));
+    if !(url.scheme() == "https" || url.scheme() == "http" && local) {
+        return Err("issuer must be an https URL".to_string());
+    }
+    if idp.client_claim.trim().is_empty() || idp.email_claim.trim().is_empty() {
+        return Err("claim names must not be empty".to_string());
+    }
+    for (i, client) in idp.clients.iter().enumerate() {
+        if client.client_id.trim().is_empty() || client.workspace_id.trim().is_empty() {
+            return Err("every client needs a client id and a workspace".to_string());
+        }
+        // Recorded on every run it starts, in a VARCHAR(255) column.
+        if client.client_id.len() > 255 {
+            return Err(format!("client id {} is too long", client.client_id));
+        }
+        if idp.clients[..i]
+            .iter()
+            .any(|c| c.client_id == client.client_id)
+        {
+            return Err(format!("client {} is listed twice", client.client_id));
+        }
+        client_access(&client.scopes).map_err(|e| format!("client {}: {e}", client.client_id))?;
+    }
+    Ok(Some(idp))
+}
+
+/// Whether an external MCP client's scopes give the AI session's toolset (`mcp:all`, alone or
+/// narrowed by `mcp:read_only` / `mcp:read_run`) rather than a selection of scripts, flows and
+/// hub scripts. Endpoint scopes, path-narrowed `mcp:all` and `mcp:workspaces:` are refused:
+/// a client reaches its one workspace, and only through these two shapes.
+pub fn client_access(scopes: &[String]) -> Result<bool, String> {
+    // Markers the token form adds; they grant nothing.
+    let scopes: Vec<&str> = scopes
+        .iter()
+        .map(String::as_str)
+        .filter(|s| !["mcp:runnables_as_tools", "mcp:session"].contains(s))
+        .collect();
+    if scopes.contains(&"mcp:all") {
+        let narrowed: Vec<&str> = scopes.iter().copied().filter(|s| *s != "mcp:all").collect();
+        return match narrowed.as_slice() {
+            [] | ["mcp:read_only"] | ["mcp:read_run"] => Ok(true),
+            other => Err(format!(
+                "mcp:all takes at most one of mcp:read_only and mcp:read_run, not {}",
+                other.join(" ")
+            )),
+        };
+    }
+    if scopes.is_empty() {
+        return Err("selects no tools".to_string());
+    }
+    if let Some(scope) = scopes.iter().find(|s| {
+        !(**s == "mcp:favorites"
+            || ["mcp:scripts:", "mcp:flows:", "mcp:hub:"]
+                .iter()
+                .any(|p| s.strip_prefix(p).is_some_and(|rest| !rest.is_empty())))
+    }) {
+        return Err(format!(
+            "{scope} is not an access level nor a selection of scripts, flows or hub scripts"
+        ));
+    }
+    Ok(false)
+}
+
+/// [`API_BASE_URL_SETTING`] when it applies to MCP, else `base_url`. The MCP gateway builds every URL it hands a
+/// client to call from it: its resource identifier, the authorization server it names, and
+/// that server's issuer, token and registration endpoints. Not the authorization endpoint:
+/// the user's browser opens it, and the consent page it redirects to is served on `base_url`.
+///
+/// Enterprise only, like the UI that shows the MCP URL: an MCP client rejects metadata
+/// naming a host other than the URL it was given, so the two must agree.
+pub fn mcp_base_url() -> String {
+    #[cfg(feature = "enterprise")]
+    {
+        let configured = API_BASE_URL.load();
+        if !configured.is_empty()
+            && API_BASE_URL_APPLIES_TO_MCP.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return configured.to_string();
+        }
+    }
+    crate::BASE_URL.load().to_string()
 }
 
 /// Whether an allowlist places no restriction at all.
@@ -945,6 +1130,7 @@ pub fn workspace_integration_oauth_key(client_name: &str) -> &str {
 pub fn workspace_integration_token_endpoint(client_name: &str, base_url: &str) -> String {
     match client_name {
         "google" => "https://oauth2.googleapis.com/token".to_string(),
+        "github" => "https://github.com/login/oauth/access_token".to_string(),
         _ => format!("{}/apps/oauth2/api/v1/token", base_url),
     }
 }
@@ -953,6 +1139,7 @@ pub fn workspace_integration_token_endpoint(client_name: &str, base_url: &str) -
 pub fn workspace_integration_auth_endpoint(client_name: &str, base_url: &str) -> String {
     match client_name {
         "google" => "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
+        "github" => "https://github.com/login/oauth/authorize".to_string(),
         _ => format!("{}/apps/oauth2/authorize", base_url),
     }
 }
@@ -960,6 +1147,56 @@ pub fn workspace_integration_auth_endpoint(client_name: &str, base_url: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn api_base_url_applies_to_accepts_only_known_surfaces() {
+        use serde_json::json;
+        assert!(validate_api_base_url_applies_to(&json!(["mcp", "webhooks"])).is_ok());
+        assert!(validate_api_base_url_applies_to(&json!([])).is_ok());
+        assert!(validate_api_base_url_applies_to(&json!(["mpc"])).is_err());
+        assert!(validate_api_base_url_applies_to(&json!("mcp")).is_err());
+    }
+
+    #[test]
+    fn mcp_external_clients_get_an_access_level_or_a_selection() {
+        let with_scopes = |scopes: &[&str]| {
+            parse_mcp_external_idp(Some(&serde_json::json!({
+                "issuer": "https://idp.example.com/realms/main",
+                "clients": [{ "client_id": "a", "workspace_id": "w", "scopes": scopes }]
+            })))
+        };
+        let idp = with_scopes(&["mcp:flows:f/x/run", "mcp:scripts:f/x/*", "mcp:favorites"])
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (idp.client_claim.as_str(), idp.email_claim.as_str()),
+            ("azp", "email")
+        );
+        for (scopes, session) in [
+            (&["mcp:all"][..], true),
+            (&["mcp:all", "mcp:read_run", "mcp:session"], true),
+            (&["mcp:favorites", "mcp:runnables_as_tools"], false),
+        ] {
+            let scopes: Vec<String> = scopes.iter().map(|s| s.to_string()).collect();
+            assert_eq!(client_access(&scopes), Ok(session), "{scopes:?}");
+        }
+        for refused in [
+            &["mcp:all", "mcp:read_only", "mcp:read_run"][..],
+            &["mcp:all", "mcp:scripts:f/x/run"],
+            &["mcp:all", "mcp:workspaces:a,b"],
+            &["mcp:all:f/x/*"],
+            &["mcp:endpoints:listJobs"],
+            &["mcp:scripts:"],
+            &[],
+        ] {
+            assert!(with_scopes(refused).is_err(), "{refused:?}");
+        }
+        assert_eq!(parse_mcp_external_idp(None), Ok(None));
+        assert_eq!(
+            parse_mcp_external_idp(Some(&serde_json::json!({"issuer": ""}))),
+            Ok(None)
+        );
+    }
 
     // `frontend/src/lib/tokenExpiration.test.ts` holds the same table for the token form's
     // parser; the two must stay in step.
@@ -1200,6 +1437,7 @@ mod tests {
             SCIM_TOKEN_SETTING,
             SAML_METADATA_SETTING,
             SECRET_BACKEND_SETTING,
+            EXTERNAL_SECRETS_SETTING,
             GITHUB_ENTERPRISE_APP_SETTING,
             OBJECT_STORE_CONFIG_SETTING,
             AI_CONFIG_SETTING,

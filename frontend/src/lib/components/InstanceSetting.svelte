@@ -22,12 +22,16 @@
 	import CriticalAlertChannels from './instanceSettings/CriticalAlertChannels.svelte'
 	import RetentionPeriodOverrides from './instanceSettings/RetentionPeriodOverrides.svelte'
 	import AgentWorkloadIdentityIssuers from './instanceSettings/AgentWorkloadIdentityIssuers.svelte'
+	import McpExternalIdp from './instanceSettings/McpExternalIdp.svelte'
+	import WorkspaceRolesSetting from './instanceSettings/WorkspaceRolesSetting.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
+	import ExternalSecretsConfig from './instanceSettings/ExternalSecretsConfig.svelte'
 	import ExternalInstancePgSettings from './instanceSettings/ExternalInstancePgSettings.svelte'
 	import InstancePgSettings from './instanceSettings/InstancePgSettings.svelte'
 	import GhesAppSettings from './instanceSettings/GhesAppSettings.svelte'
 	import WebhookBaseUrlSetting from './instanceSettings/WebhookBaseUrlSetting.svelte'
+	import ApiBaseUrlSetting from './instanceSettings/ApiBaseUrlSetting.svelte'
 	import WsConnectivityTest from './instanceSettings/WsConnectivityTest.svelte'
 	import InstanceBannerSetting from './instanceSettings/InstanceBannerSetting.svelte'
 	import AccentColorSetting from './instanceSettings/AccentColorSetting.svelte'
@@ -342,6 +346,8 @@
 		     getInstanceConfig() has populated the persisted overrides (which would let a save drop
 		     them). -->
 		<RetentionPeriodOverrides {values} disabled={!$enterpriseLicense || loading} />
+	{:else if setting.fieldType == 'workspace_roles'}
+		<WorkspaceRolesSetting {values} {loading} unlicensed={!$enterpriseLicense} />
 	{:else}
 		<SettingCard
 			label={setting.key === 'disable_stats'
@@ -632,6 +638,8 @@
 					</div>
 				{:else if setting.fieldType == 'agent_workload_identity_issuers'}
 					<AgentWorkloadIdentityIssuers {values} disabled={!$enterpriseLicense} />
+				{:else if setting.fieldType == 'mcp_external_idp'}
+					<McpExternalIdp {values} disabled={!$enterpriseLicense} />
 				{:else if setting.fieldType == 'critical_error_channels'}
 					<CriticalAlertChannels {values} {openSmtpSettings} {oauths} />
 				{:else if setting.fieldType == 'otel'}
@@ -872,6 +880,8 @@
 					<SmtpSettings {values} disabled={loading} />
 				{:else if setting.fieldType == 'secret_backend'}
 					<SecretBackendConfig {values} disabled={loading} />
+				{:else if setting.fieldType == 'external_secrets'}
+					<ExternalSecretsConfig {values} disabled={loading} />
 				{:else if setting.fieldType == 'external_instance_pg'}
 					<ExternalInstancePgSettings
 						{values}
@@ -882,6 +892,12 @@
 					<InstancePgSettings {values} {markSettingSaved} disabled={loading} />
 				{:else if setting.fieldType == 'github_enterprise_app'}
 					<GhesAppSettings {values} disabled={loading || !$enterpriseLicense} />
+				{:else if setting.fieldType == 'api_base_url'}
+					<ApiBaseUrlSetting
+						{values}
+						placeholder={setting.placeholder}
+						disabled={loading || !$enterpriseLicense}
+					/>
 				{:else if setting.fieldType == 'webhook_base_url'}
 					<WebhookBaseUrlSetting {values} disabled={loading || !$enterpriseLicense} />
 				{:else if setting.fieldType == 'ws_connectivity'}

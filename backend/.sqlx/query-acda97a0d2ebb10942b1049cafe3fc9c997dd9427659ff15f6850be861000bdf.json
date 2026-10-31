@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.agent_path FROM slack_agent_channel c\n         JOIN workspace_settings ws ON ws.workspace_id = c.workspace_id\n            AND ws.slack_team_id = c.slack_team_id\n         WHERE c.slack_team_id = $1 AND c.channel_id = $2\n           AND ws.workspace_id = ANY($3)\n         ORDER BY c.agent_path LIMIT 11",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "agent_path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "acda97a0d2ebb10942b1049cafe3fc9c997dd9427659ff15f6850be861000bdf"
+}

@@ -6,14 +6,15 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import FolderEditorDrawer from '$lib/components/FolderEditorDrawer.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
+	import { userStore, workspaceStore, roleCapabilities } from '$lib/stores'
 	import { Button, Drawer, DrawerContent, EmptyState, Skeleton } from '$lib/components/common'
 	import FolderInfo from '$lib/components/FolderInfo.svelte'
 	import FolderUsageInfo from '$lib/components/FolderUsageInfo.svelte'
 	import { sendUserToast } from '$lib/utils'
+	import { latestRequest } from '$lib/utils/latestRequest'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
-	import { Pen, Trash, Plus, UploadCloud, FolderOpen } from 'lucide-svelte'
+	import { Pen, Trash, Plus, UploadCloud, FolderOpen, Users } from 'lucide-svelte'
 	import DeployToHub from '$lib/components/workspaceSettings/DeployToHub.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Row from '$lib/components/table/Row.svelte'
@@ -21,28 +22,21 @@
 	import { untrack } from 'svelte'
 	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
 
-	type FolderW = Folder & { canWrite: boolean }
-
 	let restricted = $derived(
 		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
 	)
 
-	let folders: FolderW[] | undefined = $state(undefined)
+	let folders: Folder[] | undefined = $state(undefined)
 	let folderEditorDrawer: FolderEditorDrawer | undefined = $state()
 	let hubDrawer: Drawer | undefined = $state()
 	let publishFolderName: string = $state('')
 
+	const folderLoads = latestRequest()
 	async function loadFolders(): Promise<void> {
-		folders = (await FolderService.listFolders({ workspace: $workspaceStore! })).map((x) => {
-			return {
-				canWrite:
-					$userStore != undefined &&
-					($userStore?.is_admin ||
-						$userStore?.is_super_admin ||
-						$userStore?.folders_owners.includes(x.name)),
-				...x
-			}
-		})
+		const isLatest = folderLoads.start()
+		const result = await FolderService.listFolders({ workspace: $workspaceStore! })
+		if (!isLatest()) return
+		folders = result
 	}
 
 	function onFolderSaved(name: string, created: boolean) {
@@ -53,7 +47,7 @@
 	}
 
 	$effect(() => {
-		if ($workspaceStore && $userStore) {
+		if ($workspaceStore) {
 			untrack(() => {
 				loadFolders()
 			})
@@ -98,10 +92,10 @@
 	</DrawerContent>
 </Drawer>
 
-{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.folders}
+{#if $workspaceStore && !$roleCapabilities.visibility.folders}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+		<p>Page not available for your role</p>
 	</div>
 {:else}
 	<CenteredPage>
@@ -110,7 +104,12 @@
 			tooltip="Folders allow to group items such as scripts/flows/resources/schedule together and to grant homogenous RBAC permissions to groups and individual users towards them."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/groups_and_folders"
 		>
-			<div class="flex flex-row">
+			<div class="flex flex-row gap-2">
+				{#if $roleCapabilities.visibility.groups}
+					<Button variant="default" unifiedSize="md" href="/groups" startIcon={{ icon: Users }}>
+						Groups
+					</Button>
+				{/if}
 				{#if restricted}
 					<Button
 						variant="accent"
@@ -164,7 +163,12 @@
 								</tr>
 							{/each}
 						{:else}
-							{#each folders as { name, extra_perms, owners, canWrite, summary, labels } (name)}
+							{#each folders as { name, extra_perms, owners, summary, labels } (name)}
+								{@const canWrite =
+									$userStore != undefined &&
+									($userStore.is_admin ||
+										$userStore.is_super_admin ||
+										$userStore.folders_owners.includes(name))}
 								<Row hoverable on:click={() => folderEditorDrawer?.initEdit(name)}>
 									<Cell first>
 										<span class="text-emphasis text-xs font-semibold">{name}</span>

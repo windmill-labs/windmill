@@ -2,23 +2,35 @@
 	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
-	import { Building, Globe2, MousePointer, Plus } from 'lucide-svelte'
+	import { Bot, Building, Globe2, MousePointer, Plus } from 'lucide-svelte'
 	import InlineScriptList from './InlineScriptList.svelte'
-	import type { InlineScript, Runnable, StaticAppInput } from '$lib/components/apps/inputType'
+	import type {
+		InlineScript,
+		PathRunType,
+		Runnable,
+		StaticAppInput
+	} from '$lib/components/apps/inputType'
 	import WorkspaceScriptList from './WorkspaceScriptList.svelte'
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
+	import WorkspaceAgentList from './WorkspaceAgentList.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import type { Schema } from '$lib/common'
 	import { emptySchema } from '$lib/utils'
 	import { loadSchema } from '$lib/infer'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatorBuilderApps = useOperatorBuilderApps()
+	const roleCaps = useRoleCapabilities()
 	import { buildPathRunnableSelection } from './runnableSelectorUtils'
 
-	type TabType = 'hubscripts' | 'hubflows' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
+	type TabType =
+		| 'hubscripts'
+		| 'hubflows'
+		| 'workspacescripts'
+		| 'workspaceflows'
+		| 'workspaceagents'
+		| 'inlinescripts'
 
 	interface Props {
 		defaultUserInput?: boolean
@@ -47,6 +59,13 @@
 	)
 	let filter: string = $state('')
 	let picker: Drawer | undefined = $state()
+	const selectLabel = $derived(
+		onlyFlow
+			? 'Select a flow'
+			: rawApps
+				? 'Select a script, flow or agent'
+				: 'Select a script or flow'
+	)
 
 	const dispatch = createEventDispatcher<{
 		pick: {
@@ -57,7 +76,7 @@
 
 	async function loadSchemaFromTriggerable(
 		path: string,
-		runType: 'script' | 'flow' | 'hubscript'
+		runType: PathRunType
 	): Promise<{ schema: Schema; summary: string | undefined }> {
 		const schema = await loadSchema($operatingWorkspace!, path, runType)
 		if (!schema.schema.order) {
@@ -85,6 +104,20 @@
 			path,
 			'flow',
 			await loadSchemaFromTriggerable(path, 'flow'),
+			defaultUserInput,
+			rawApps
+		)
+		dispatch('pick', {
+			runnable: selection.runnable,
+			fields: selection.fields
+		})
+	}
+
+	async function pickAgent(path: string) {
+		const selection = buildPathRunnableSelection(
+			path,
+			'agent',
+			await loadSchemaFromTriggerable(path, 'agent'),
 			defaultUserInput,
 			rawApps
 		)
@@ -154,22 +187,25 @@
 </script>
 
 <Drawer bind:this={picker} size="1000px">
-	<DrawerContent title="Script/Flow Picker" on:close={picker.closeDrawer}>
+	<DrawerContent title={selectLabel} on:close={picker.closeDrawer}>
 		<div>
 			<div class="max-w-6xl">
 				<Tabs bind:selected={tab}>
 					{#if !onlyFlow}
 						{#if !rawApps}
-							<Tab value="inlinescripts" label="Detached Inline Scripts" icon={Building} />
+							<Tab value="inlinescripts" label="Detached inline scripts" icon={Building} />
 						{/if}
-						<Tab value="workspacescripts" label="Workspace Scripts" icon={Building} />
+						<Tab value="workspacescripts" label="Workspace scripts" icon={Building} />
 					{/if}
-					<Tab value="workspaceflows" label="Workspace Flows" icon={Building} />
-					{#if !$operatorBuilderApps}
+					<Tab value="workspaceflows" label="Workspace flows" icon={Building} />
+					{#if rawApps && !onlyFlow}
+						<Tab value="workspaceagents" label="AI agents" icon={Bot} />
+					{/if}
+					{#if $roleCaps.apps !== 'compose'}
 						{#if !onlyFlow}
-							<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
+							<Tab value="hubscripts" label="Hub scripts" icon={Globe2} />
 						{/if}
-						<Tab value="hubflows" label="Hub Flows" icon={Globe2} />
+						<Tab value="hubflows" label="Hub flows" icon={Globe2} />
 					{/if}
 				</Tabs>
 				<div class="my-2"></div>
@@ -186,6 +222,8 @@
 							<WorkspaceScriptList on:pick={(e) => pickScript(e.detail)} />
 						{:else if tab == 'workspaceflows'}
 							<WorkspaceFlowList on:pick={(e) => pickFlow(e.detail)} />
+						{:else if tab == 'workspaceagents'}
+							<WorkspaceAgentList on:pick={(e) => pickAgent(e.detail)} />
 						{:else if tab == 'hubscripts'}
 							<PickHubScript bind:filter on:pick={(e) => pickHubScript(e.detail.path)} />
 						{:else if tab == 'hubflows'}
@@ -218,6 +256,6 @@
 		startIcon={{ icon: MousePointer }}
 		btnClasses="truncate w-full"
 	>
-		{#if onlyFlow}Select a flow{:else}Select a script or flow{/if}
+		{selectLabel}
 	</Button>
 </div>

@@ -15,7 +15,8 @@
 		scriptPath: string
 		initialScriptPath: string
 		canWrite: boolean
-		isOperator: boolean
+		/** Whether to link to the picked runnable's editor: the role must author its kind. */
+		allowEdit: boolean
 		promptText?: string
 		promptClass?: string
 		workspace?: string
@@ -30,7 +31,7 @@
 		scriptPath = $bindable(),
 		initialScriptPath,
 		canWrite,
-		isOperator,
+		allowEdit,
 		promptText = 'Pick a script or flow to be triggered',
 		promptClass = 'text-xs mb-1 text-primary',
 		workspace = undefined,
@@ -53,7 +54,7 @@
 			bind:itemKind
 			bind:scriptPath
 			allowRefresh={canWrite}
-			allowEdit={!isOperator}
+			{allowEdit}
 			{workspace}
 			clearable
 		/>

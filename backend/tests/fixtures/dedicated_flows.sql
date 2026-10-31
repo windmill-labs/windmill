@@ -321,12 +321,13 @@ E'{"modules":[{"id":"a","value":{"type":"forloopflow","iterator":{"type":"javasc
 
 -- ============================================================
 -- Test: Python runner group
--- Two Python scripts sharing a workspace dependency annotation.
+-- Two Python scripts sharing a workspace dependency annotation. Script a has a
+-- relative import (helper defined below), so the group's loader.py is written.
 -- ============================================================
 INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock, dedicated_worker) VALUES (
 'test-workspace',
 'system',
-E'# extra_requirements: f/system/dedicated_double\ndef main(x: int):\n    return x + 100',
+E'# extra_requirements: f/system/dedicated_double\nfrom .py_dedicated_helper import helper\n\ndef main(x: int):\n    return helper(x) + 100',
 '{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"x":{"type":"number","description":""}},"required":["x"],"type":"object"}',
 '', '',
 'f/system/py_rg_script_a', 300050, 'python3', '', true);

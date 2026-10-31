@@ -14,7 +14,7 @@ export type Runnable =
   }
   | {
     type: "path" | "runnableByPath";
-    runType: "script" | "hubscript" | "flow";
+    runType: "script" | "hubscript" | "flow" | "agent";
     path: string;
     fields?: Record<string, any>;
   };

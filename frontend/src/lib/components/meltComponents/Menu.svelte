@@ -42,6 +42,12 @@
 		// the trigger to the content.
 		debounceDelay?: number
 		classNames?: string
+		/** Element to focus when the menu closes; defaults to the trigger, `null` leaves focus alone. */
+		closeFocus?:
+			| string
+			| HTMLElement
+			| ((trigger?: HTMLElement | null) => HTMLElement | null)
+			| null
 		triggr?: import('svelte').Snippet<[any]>
 		children?: import('svelte').Snippet<[any]>
 		class?: string
@@ -64,6 +70,7 @@
 		openOnHover = false,
 		debounceDelay = 150,
 		class: classNames = '',
+		closeFocus = undefined,
 		triggr,
 		children
 	}: Props = $props()
@@ -80,6 +87,7 @@
 			strategy: 'fixed'
 		},
 		loop: true,
+		closeFocus: untrack(() => closeFocus),
 		// Hover tooltips (e.g. NameIdTooltip on menu rows) portal to body, so a
 		// click inside one — like its copy button — registers as an outside click.
 		// Veto the close so interacting with a tooltip doesn't tear the menu down.

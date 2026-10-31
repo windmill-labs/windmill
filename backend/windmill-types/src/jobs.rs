@@ -724,6 +724,26 @@ pub const ENTRYPOINT_OVERRIDE: &str = "_ENTRYPOINT_OVERRIDE";
 /// `RawCode::modules`: a caller-supplied one is dropped there.
 pub const MODULES_ARG: &str = "_MODULES";
 
+/// Job-arg key mapping a runnable's workspace imports to contents of the temporary script
+/// store (`scripts/raw_temp/store`, writable by any workspace member). The preview routes
+/// set it server-side from their `temp_script_refs` field; the bun and python executors
+/// honor it on every `JobKind::Preview` job.
+pub const TEMP_SCRIPT_REFS_ARG: &str = "_TEMP_SCRIPT_REFS";
+
+/// Job-arg keys that steer *how* a runnable runs rather than what it is given: which
+/// function the worker calls instead of `main` ([`ENTRYPOINT_OVERRIDE`]), what module files
+/// are written into the job directory ([`MODULES_ARG`]) and where its workspace imports
+/// resolve from ([`TEMP_SCRIPT_REFS_ARG`]).
+///
+/// Each is legitimate for a caller that runs code it authored under its own identity (the
+/// script editor's preprocessor test, dynamic-select helpers, the CLI, workflow-as-code), so
+/// they are not dropped for every job. None of them may come from a third party whose
+/// payload runs under somebody else's identity — an HTTP route body, a native trigger
+/// message, a public app viewer's inputs — which is what `sanitize_untrusted_args` in
+/// `windmill_common::jobs` drops.
+pub const RESERVED_CONTROL_ARGS: [&str; 3] =
+    [ENTRYPOINT_OVERRIDE, MODULES_ARG, TEMP_SCRIPT_REFS_ARG];
+
 /// Reserved job-arg key holding the inbound W3C `traceparent` captured from the
 /// request that enqueued the job (run endpoints). It rides the `args` jsonb like
 /// [`ENTRYPOINT_OVERRIDE`]; normal scripts never see it because args are bound by

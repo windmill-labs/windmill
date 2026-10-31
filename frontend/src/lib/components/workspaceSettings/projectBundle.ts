@@ -148,6 +148,8 @@ function runnableRef(node: Record<string, any>): Ref | undefined {
 	if (!isRunnableByPath(node as any) || typeof node.path !== 'string') return undefined
 	if (node.runType === 'flow') return { kind: 'flow', path: node.path }
 	if (node.runType === 'script') return { kind: 'script', path: node.path }
+	// A saved agent is an `ai_agent` resource.
+	if (node.runType === 'agent') return { kind: 'resource', path: node.path }
 	return undefined // hubscript -> external hub, ignored
 }
 

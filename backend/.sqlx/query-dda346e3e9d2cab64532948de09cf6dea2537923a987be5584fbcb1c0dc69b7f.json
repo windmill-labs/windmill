@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings\n         SET slack_oauth_client_id = $1, slack_oauth_client_secret = $2,\n             slack_signing_secret = CASE WHEN slack_oauth_client_id = $1::varchar\n                 THEN slack_signing_secret END\n         WHERE workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dda346e3e9d2cab64532948de09cf6dea2537923a987be5584fbcb1c0dc69b7f"
+}

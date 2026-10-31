@@ -627,7 +627,7 @@ async fn run<'a>(
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(&reserved_variables)
-            .envs(if no_network {
+            .envs(if no_network || !crate::passes_proxy_to_jobs() {
                 vec![]
             } else {
                 R_PROXY_ENVS.clone()
@@ -703,7 +703,11 @@ async fn run<'a>(
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(reserved_variables)
-            .envs(R_PROXY_ENVS.clone())
+            .envs(if crate::passes_proxy_to_jobs() {
+                R_PROXY_ENVS.clone()
+            } else {
+                vec![]
+            })
             .envs(
                 get_proxy_envs_for_lang(
                     &ScriptLang::Rlang,

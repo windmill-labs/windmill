@@ -6,8 +6,10 @@
 	import { Loader2, X, RefreshCw } from 'lucide-svelte'
 	import GoogleCalendarIcon from '$lib/components/icons/GoogleCalendarIcon.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useNativeConnection } from '../../utils'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const connectionPath = useNativeConnection()
 
 	interface Props {
 		calendarId: string
@@ -26,7 +28,8 @@
 		loading = true
 		try {
 			calendars = await NativeTriggerService.listGoogleCalendars({
-				workspace: $operatingWorkspace
+				workspace: $operatingWorkspace,
+				connectionPath: connectionPath()
 			})
 			if (calendarId && !calendarName) {
 				const found = calendars.find((c) => c.id === calendarId)

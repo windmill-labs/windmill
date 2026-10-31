@@ -12,7 +12,9 @@ pub use windmill_api_users::users::*;
 use std::sync::Arc;
 
 use crate::db::{ApiAuthed, OptJobAuthed};
-use crate::secret_backend_ext::rename_vault_secrets_with_prefix;
+use crate::secret_backend_ext::{
+    reject_http_store_refs_under_prefix, rename_vault_secrets_with_prefix,
+};
 use argon2::Argon2;
 use axum::{
     extract::{Extension, Path, Query},
@@ -27,7 +29,7 @@ use windmill_api_auth::{
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
-use windmill_common::usernames::VALID_USERNAME;
+use windmill_common::usernames::validate_username;
 use windmill_common::{
     error::{self, Error, Result},
     DB,
@@ -194,6 +196,41 @@ async fn list_guests(
     Ok(Json(GuestList { usage, guests }))
 }
 
+/// Shared while issuing an MCP OAuth grant, exclusive while revoking: no grant outlives a revoke.
+pub(crate) async fn lock_mcp_oauth_grants(
+    conn: &mut sqlx::PgConnection,
+    email: &str,
+    exclusive: bool,
+) -> std::result::Result<(), sqlx::Error> {
+    let q = if exclusive {
+        "SELECT pg_advisory_xact_lock(hashtext('mcp_oauth_grant:' || $1))"
+    } else {
+        "SELECT pg_advisory_xact_lock_shared(hashtext('mcp_oauth_grant:' || $1))"
+    };
+    sqlx::query(q).bind(email).execute(conn).await?;
+    Ok(())
+}
+
+async fn revoke_mcp_oauth_grants(tx: &mut sqlx::PgConnection, email: &str) -> Result<()> {
+    lock_mcp_oauth_grants(&mut *tx, email, true).await?;
+    // The token trigger only notifies for sessions, so evict deleted MCP access tokens explicitly.
+    sqlx::query!(
+        "WITH revoked AS (
+             DELETE FROM token WHERE email = $1 AND label LIKE 'mcp-oauth-%' RETURNING token_prefix
+         ), refresh AS (
+             DELETE FROM mcp_oauth_refresh_token WHERE user_email = $1
+         ), code AS (
+             DELETE FROM mcp_oauth_server_code WHERE user_email = $1
+         )
+         INSERT INTO notify_event (channel, payload)
+         SELECT 'notify_token_invalidation', token_prefix FROM revoked",
+        email
+    )
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
 async fn set_password(
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
@@ -215,6 +252,9 @@ async fn set_password(
     )
     .execute(&db)
     .await?;
+    let mut tx = db.begin().await?;
+    revoke_mcp_oauth_grants(&mut *tx, &email).await?;
+    tx.commit().await?;
     Ok(res)
 }
 
@@ -235,6 +275,9 @@ async fn set_password_of_user(
     )
     .execute(&db)
     .await?;
+    let mut tx = db.begin().await?;
+    revoke_mcp_oauth_grants(&mut *tx, &email).await?;
+    tx.commit().await?;
     Ok(res)
 }
 
@@ -271,11 +314,7 @@ async fn rename_user(
         )));
     }
 
-    if !VALID_USERNAME.is_match(&ru.new_username) {
-        return Err(windmill_common::error::Error::BadRequest(format!(
-            "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
-        )));
-    }
+    validate_username(&ru.new_username)?;
 
     let old_instance_username =
         sqlx::query_scalar!("SELECT username FROM password WHERE email = $1", user_email)
@@ -402,9 +441,10 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
-        "UPDATE usr_to_group SET usr = $1 WHERE usr = $2",
+        "UPDATE usr_to_group SET usr = $1 WHERE usr = $2 AND workspace_id = $3",
         new_username,
-        old_username
+        old_username,
+        w_id
     )
     .execute(&mut **tx)
     .await?;
@@ -588,10 +628,11 @@ async fn update_username_in_workpsace<'c>(
     // Handle Vault secret renames before updating paths in DB
     let old_prefix = format!("u/{}/", old_username);
     let new_prefix = format!("u/{}/", new_username);
+    reject_http_store_refs_under_prefix(&mut **tx, w_id, &old_prefix).await?;
 
     // Fetch all externally-stored secret variables under this user's path
     let vault_secrets: Vec<(String, String)> = sqlx::query!(
-        r#"SELECT path, value FROM variable
+        r#"SELECT path, value::text AS "value!" FROM variable
            WHERE path LIKE ('u/' || $1 || '/%')
            AND workspace_id = $2
            AND is_secret = true
@@ -628,6 +669,15 @@ async fn update_username_in_workpsace<'c>(
         old_username,
         w_id
     ).execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE native_trigger SET connection_path = REGEXP_REPLACE(connection_path, 'u/' || $2 || '/(.*)', 'u/' || $1 || '/\1') WHERE connection_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
     .await?;
 
     sqlx::query!(
@@ -1087,6 +1137,7 @@ async fn reset_password(
     )
     .execute(&mut *tx)
     .await?;
+    revoke_mcp_oauth_grants(&mut *tx, &email).await?;
 
     // Audit log
     let audit_author = AuditAuthor {

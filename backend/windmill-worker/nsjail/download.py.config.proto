@@ -30,7 +30,8 @@ clone_newnet: false
 clone_newuser: {CLONE_NEWUSER}
 
 skip_setsid: true
-keep_caps: true
+# No capability needed: writes go to the rw-mounted dirs as the jail's own uid, like the run.* profiles.
+keep_caps: false
 keep_env: true
 mount_proc: true
 

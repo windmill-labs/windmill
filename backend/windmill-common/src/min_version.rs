@@ -27,9 +27,13 @@ pub const MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES: VC = vc(1, 822, 0, "Restricted 
 // stored secret variables. Reading it ships one release earlier (1.831), so a rollback to
 // that release still reads every secret; below it, secrets written after the switch stay
 // unreadable until rolled forward. Only worker versions are seen here, not servers.
-// Also gates widening `variable.value`, which needs every process to retire the connections
-// the widening poisons (`db::retire_connections_opened_before_now`): that also ships in 1.832.
 pub const MIN_VERSION_SUPPORTS_AEAD_SECRETS: VC = vc(1, 832, 0, "AES-GCM secret encryption");
+// Gates widening `variable.value`. Every query returning that column casts it to text from
+// this release, so the widening changes no result type: before it, each statement prepared on
+// the column fails once per connection, and behind PgBouncer until its server connection
+// closes. Must name the release this ships in.
+pub const MIN_VERSION_SUPPORTS_VARIABLE_VALUE_WIDENING: VC =
+    vc(1, 848, 0, "variable.value widening");
 // A renewed license key replaces the one every process reads, and a worker that predates
 // Ed25519 support rejects an Ed25519-signed key and stops pulling jobs, so renewal only offers
 // to accept one once this is met. Only worker versions are seen here, not servers. Must name

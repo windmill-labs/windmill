@@ -904,6 +904,7 @@ async function fetchForkSideValue(
 			value: {
 				description: variable.description,
 				is_secret: variable.is_secret,
+				value_valid_until: variable.value_valid_until,
 				value: VARIABLE_VALUE_PLACEHOLDER
 			},
 			valueMasked: true

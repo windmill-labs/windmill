@@ -60,7 +60,7 @@
 	{@render children?.()}
 	<TextInput
 		inputProps={{
-			placeholder: 'Search Hub Flows'
+			placeholder: 'Search Hub flows'
 		}}
 		bind:value={filter}
 		{size}

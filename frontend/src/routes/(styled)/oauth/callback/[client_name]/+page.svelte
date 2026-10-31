@@ -29,16 +29,16 @@
 			// goto('/resources')
 		} else if (code && state) {
 			try {
-				const extraParams = Object.fromEntries(
+				const params = Object.fromEntries(
 					Array.from(Object.entries(urlParamsToObject(page.url.searchParams))).filter(
 						([key]) => key !== 'code' && key !== 'state' && key !== 'error'
 					)
 				)
 				const res = await OauthService.connectCallback({
 					clientName: client_name ?? '',
-					requestBody: { code, state }
+					requestBody: { code, state, params }
 				})
-				const message = { type: 'success', res, resource_type: client_name, extra: extraParams }
+				const message = { type: 'success', res, resource_type: client_name }
 				sendUserToast('successful', false)
 				if (window.opener) {
 					console.log('Sending oauth popup message')

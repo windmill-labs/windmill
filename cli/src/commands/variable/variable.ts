@@ -98,6 +98,7 @@ export interface VariableFile {
   description: string;
   account?: number;
   is_oauth?: boolean;
+  value_valid_until?: string;
   extra_perms?: Record<string, boolean>;
 }
 
@@ -110,14 +111,17 @@ export interface VariableFile {
  * ciphertext (AES-256-GCM or legacy AES-256-CBC, base64) is standard base64
  * decoding to a non-zero
  * multiple of the 16-byte block size. External secret-backend markers
- * ($vault:/$aws_sm:/$azure_kv:) are stored verbatim too, so they count as
- * already-encrypted. This is a shape check only — it never decrypts.
+ * ($vault:/$aws_sm:/$azure_kv:/$http_store:) and `$external:` references to a secret in
+ * an external store are stored verbatim too, so they count as already-encrypted.
+ * This is a shape check only — it never decrypts.
  */
 export function looksLikeWorkspaceCiphertext(value: string): boolean {
   if (
     value.startsWith("$vault:") ||
     value.startsWith("$aws_sm:") ||
-    value.startsWith("$azure_kv:")
+    value.startsWith("$azure_kv:") ||
+    value.startsWith("$http_store:") ||
+    value.startsWith("$external:")
   ) {
     return true;
   }
@@ -162,7 +166,14 @@ export async function pushVariable(
   const { extra_perms: localPerms, ...localVariableBody } = localVariable;
 
   if (variable) {
-    if (isSuperset(localVariableBody, variable)) {
+    // An expiry removed from the file is sent as `null` (absent keeps the stored date), and
+    // `isSuperset` cannot see a removed key, so the clear is detected here.
+    const clearsValueValidUntil =
+      localVariableBody.value_valid_until === undefined &&
+      variable.value_valid_until !== undefined &&
+      variable.value_valid_until !== null;
+
+    if (!clearsValueValidUntil && isSuperset(localVariableBody, variable)) {
       log.debug(`Variable ${remotePath} is up-to-date`);
     } else {
       log.debug(`Variable ${remotePath} is not up-to-date, updating`);
@@ -188,6 +199,7 @@ export async function pushVariable(
           ...localVariableBody,
           is_secret: nextIsSecret,
           ...(wsSpecific !== undefined ? { ws_specific: wsSpecific } : {}),
+          ...(clearsValueValidUntil ? { value_valid_until: null } : {}),
         },
       });
     }

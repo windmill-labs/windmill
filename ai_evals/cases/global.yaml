@@ -3231,6 +3231,33 @@
       - - admin
   skipJudge: true
 
+# A role with schedules and triggers withdrawn builds nothing, which holds the session in Use.
+# Its user cannot create a script by hand either, so the way forward is an admin, not steps.
+- id: global-use-role-script-goes-to-admin
+  prompt: |-
+    Write a Python script that checks whether https://status.example.com is up and returns
+    true or false.
+  initial: ai_evals/fixtures/frontend/global/initial/operator_ops_scripts.json
+  runtime:
+    maxTurns: 6
+    sessionChat: true
+    profile:
+      operator: true
+      operatorSettings:
+        manage_schedules: false
+        manage_triggers: false
+  validate:
+    draftCountExactly: 0
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - admin
+  judgeAssistantText: true
+  judgeChecklist:
+    - the reply puts the refusal on the user's role in this workspace, not only on this session or its mode
+    - the reply suggests asking a workspace admin, who can create the script or give the role more rights
+    - the reply does not tell or invite the user to create the script themselves with the role they have now, with steps or with code offered for them to paste in; code offered for an admin to add, or saying they could once an admin grants their role more, is fine
+    - the reply does not suggest switching this session to Use & build or Plan; saying a role with more rights could build is fine
+
 # An agent from the Agents page is an `ai_agent` resource. Asked about one by name, the model
 # has to read it as a resource rather than look for a flow or script of that name.
 - id: global-agent-read-as-resource
@@ -3283,3 +3310,626 @@
         - Agents page
         - agent editor
   skipJudge: true
+
+# --- Composer suggestions ---
+# The prompts the pills under Home's composer put in the box
+# (frontend/src/lib/components/copilot/chat/starter/composerSuggestions.ts), word for word.
+# A pill is only worth offering if the session chat can act on its prompt, so each one is
+# pinned here against a workspace where the prompt has something to find.
+
+- id: global-composer-run-queue
+  prompt: |-
+    Is anything stuck in this workspace's queue? Which jobs are waiting or suspended, and why?
+  initial: ai_evals/fixtures/frontend/global/initial/composer_incidents.json
+  runtime:
+    maxTurns: 10
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_runs
+      - list_workers
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - gpu-renderer
+      - - refund_approval
+        - approval
+        - approve
+  skipJudge: true
+  judgeChecklist:
+    - finds the 12 gpu_render runs queued on the gpu-renderer tag that no connected worker serves
+    - finds the refund_approval flow suspended on its approval step, and says approving it unblocks it
+
+- id: global-composer-worker-health
+  prompt: |-
+    Are the workers healthy and keeping up with the queue? Compare how long jobs wait before they start with how busy each worker group is.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_incidents.json
+  runtime:
+    maxTurns: 10
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_workers
+      - list_runs
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - gpu-renderer
+  skipJudge: true
+  judgeChecklist:
+    - reads the connected workers and the queued runs instead of guessing
+    - points out that the gpu-renderer runs wait because no worker serves that tag
+
+- id: global-composer-schedules
+  prompt: |-
+    Do any schedules in this workspace keep failing? If so, which ones and why?
+  initial: ai_evals/fixtures/frontend/global/initial/composer_incidents.json
+  runtime:
+    maxTurns: 10
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_runs
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - charge_cards_every_minute
+      - - insufficient funds
+        - declined
+  skipJudge: true
+  judgeChecklist:
+    - names f/billing/charge_cards_every_minute as the failing schedule, not import_orders_hourly
+    - gives the cause from its runs' logs (card declined, insufficient funds)
+
+- id: global-composer-recent-runs
+  prompt: |-
+    Look at the recent runs in this workspace: did any fail, and why? Is anything getting slower?
+  initial: ai_evals/fixtures/frontend/global/initial/composer_incidents.json
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_runs
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - charge_cards
+      - - insufficient funds
+        - declined
+  skipJudge: true
+  judgeChecklist:
+    - names charge_cards as the failing script and gives the cause from its logs
+    - does not invent a slowdown the run durations do not show
+
+# The empty-workspace examples, sent as the composer sends them. The workspace holds nothing,
+# so the model has to stage what it needs; one answer covers a question about the Slack setup.
+- id: global-composer-example-daily-metrics
+  prompt: |-
+    Every weekday at 9am, query postgres for yesterday's signups and revenue and post a summary to the #metrics Slack channel
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 16
+    sessionChat: true
+    userAnswers:
+      - Use placeholders for the postgres and Slack connections, I'll fill them in later
+  validate:
+    draftCountAtLeast: 1
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - stages a script or flow that queries postgres for the previous day's signups and revenue
+    - posts the summary to the #metrics Slack channel
+    - runs it on a schedule at 9am on weekdays only
+
+- id: global-composer-example-refund-approval
+  prompt: |-
+    Build a flow that asks for approval in Slack before issuing a refund in Stripe, and only refunds if someone approves
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 16
+    sessionChat: true
+    userAnswers:
+      - Use placeholders for the Stripe and Slack connections, I'll fill them in later
+  validate:
+    requiredDrafts:
+      - type: flow
+        valueIncludes:
+          - suspend
+  toolExpect:
+    requiredToolsUsed:
+      - write_flow
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - posts an approval request to Slack before any refund is issued
+    - suspends the flow on an approval step and continues only once someone approves
+    - issues the refund through Stripe only on approval, never when it is rejected
+
+- id: global-composer-example-ticket-triage
+  prompt: |-
+    When a support ticket arrives by webhook, classify its urgency with an LLM and post the urgent ones to the #support Slack channel
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 16
+    sessionChat: true
+    userAnswers:
+      - Use placeholders for the LLM and Slack connections, I'll fill them in later
+  validate:
+    draftCountAtLeast: 1
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - stages a script or flow that takes the ticket as the input a webhook delivers
+    - classifies the ticket's urgency with an LLM call; an `aidecision` step (Windmill's built-in LLM decision, with `choice` or `noul` questions) counts
+    - posts only the urgent tickets to the #support Slack channel
+
+# The pills that name what an established workspace holds: a teammate's flow, a starred
+# script, a connected database and channel.
+- id: global-composer-walk-through-flow
+  prompt: |-
+    Walk me through what the flow f/billing/charge_customers does, step by step.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 6
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - read_workspace_item
+    forbiddenToolsUsed:
+      - write_flow
+      - patch_flow_json
+      - deploy_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - due today
+        - invoices due
+        - fetch_due
+      - - receipt
+  skipJudge: true
+  judgeChecklist:
+    - reads the flow and describes its three steps in order
+
+- id: global-composer-run-favorite
+  prompt: |-
+    Run the script f/ops/check_ssl_expiry for me.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+    userAnswers:
+      - windmill.dev
+  validate:
+    draftCountExactly: 0
+  # The script needs a domain the prompt does not give. Opening the run form for the user to
+  # fill and asking for the domain in chat are both right, so neither is pinned; what is pinned
+  # is that the deployed script is read and nothing is previewed or written.
+  toolExpect:
+    requiredToolsUsed:
+      - read_workspace_item
+    forbiddenToolsUsed:
+      - test_run_script
+      - write_script
+      - deploy_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - domain
+  # Running produces no draft, and the judge cannot observe runs; validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - reads the deployed script and either opens its run form or asks for the domain it needs
+
+- id: global-composer-daily-summary
+  prompt: |-
+    Every weekday at 9am, summarize yesterday's activity in the Postgres database f/data/warehouse and post it to Slack with the resource f/team/slack
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 16
+    sessionChat: true
+    userAnswers:
+      - Post it in #metrics, with new signups, new invoices and what they add up to
+  validate:
+    draftCountAtLeast: 1
+  toolExpect:
+    # "Yesterday's activity" means whatever the tables hold, so they are read first.
+    requiredToolsUsed:
+      - get_db_schema
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - queries the warehouse's real tables (signups, invoices) for the previous day through f/data/warehouse
+    - posts the summary to Slack through the resource f/team/slack; a channel parameter with a default is fine, since the prompt names none
+    - runs on a schedule at 9am on weekdays only
+
+# Pills that teach the piece a workspace is missing.
+- id: global-composer-setup-datatable
+  prompt: |-
+    This workspace has no data table yet. Walk me through setting one up in the workspace settings, then show me how a script writes to it.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_fresh_workspace.json
+  runtime:
+    maxTurns: 20
+    sessionChat: true
+    userAnswers:
+      - Back it with the Postgres resource f/data/warehouse and call it main
+  # Opening the data table settings for the admin and writing them after a confirmation are
+  # both a way through; either way the script example is what teaches the concept.
+  toolExpect:
+    requiredToolsAnyOf:
+      - - open_page
+        - set_workspace_settings
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - datatable(
+        - datatable()
+  skipJudge: true
+  judgeChecklist:
+    - shows where data tables are set up and a script writing to one with wmill.datatable()
+
+- id: global-composer-store-data
+  prompt: |-
+    How should my scripts store data in Windmill? Explain data tables and show me how a script reads and writes one.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_fresh_workspace.json
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+    # The pill is for developers: an admin is offered "Set up a data table" instead.
+    profile:
+      operator: false
+  toolExpect:
+    forbiddenToolsUsed:
+      - set_workspace_settings
+      - deploy_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - datatable(
+        - datatable()
+  skipJudge: true
+  judgeChecklist:
+    - explains data tables and shows a script reading and writing one with wmill.datatable()
+
+- id: global-composer-connect-slack
+  prompt: |-
+    Help me connect Slack to this workspace so my scripts can post messages.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_fresh_workspace.json
+  runtime:
+    maxTurns: 12
+    sessionChat: true
+    userAnswers:
+      - Use a bot token, I will paste it myself
+  # A Slack resource whose token is a secret variable, or the workspace's own Slack connection
+  # in settings: both connect Slack, so either path is accepted.
+  toolExpect:
+    requiredToolsAnyOf:
+      - - write_resource
+        - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - stages a Slack resource with its token in a secret variable, or opens the workspace's Slack settings
+
+- id: global-composer-store-secret
+  prompt: |-
+    I have an API key my scripts need. Store it as a secret and show me how a script reads it with wmill.getVariable.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_fresh_workspace.json
+  runtime:
+    maxTurns: 10
+    sessionChat: true
+    userAnswers:
+      - It is for the Stripe API; I will paste the value myself
+  validate:
+    requiredDrafts:
+      - type: variable
+        valueIncludes:
+          - '"is_secret": true'
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - getVariable
+        - get_variable
+        - "$var:"
+  judgeChecklist:
+    - stages a secret variable with a placeholder value instead of inventing the key
+    - any example script reads the variable rather than embedding the key; an example given only in the chat is checked separately, so do not score its absence here
+
+# Pills that name what an established workspace holds, read from composer_connected_workspace.
+- id: global-composer-explore-datatable
+  prompt: |-
+    List the tables in the data table main and tell me what each one holds.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 6
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsAnyOf:
+      - - list_datatables
+        - get_datatable_table_schema
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - feedback
+      - - onboarding_tasks
+  skipJudge: true
+  judgeChecklist:
+    - names the feedback and onboarding_tasks tables and what each holds
+
+- id: global-composer-app-on-datatable
+  prompt: |-
+    Build a full-code app to browse and edit the rows of a table in the data table main.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 30
+    sessionChat: true
+    userAnswers:
+      - The feedback table
+  validate:
+    requiredDrafts:
+      - type: app
+  toolExpect:
+    requiredToolsUsed:
+      - init_app
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  judgeChecklist:
+    - builds a full-code app whose backend reads the rows of a table in the main data table through wmill.datatable(); `sql.raw` is the documented way to inline a table or column name
+    - lets the user edit a row and saves the change back to the table
+
+- id: global-composer-add-app-page
+  prompt: |-
+    Add a page to the app f/ops/console, and ask me what it should show.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 24
+    sessionChat: true
+    userAnswers:
+      - A page listing the latest feedback from the main data table
+  # The pill asks the chat to ask: in chat or through askUserQuestion. A question in chat ends
+  # the run before the page is written, so the page itself is not pinned.
+  toolExpect:
+    requiredToolsAnyOf:
+      - - read_app_file
+        - read_workspace_item
+    forbiddenToolsUsed:
+      - init_app
+      - deploy_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - reads the app, then asks what the new page should show before writing it
+
+- id: global-composer-walk-through-agent
+  prompt: |-
+    Walk me through what the AI agent f/support/triage_agent does and which tools it can use.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 6
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - read_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - billing
+      - - no tools
+        - any tools
+        - no tool
+  skipJudge: true
+  judgeChecklist:
+    - explains that the agent labels tickets as billing, bug or question and has no tools
+
+- id: global-composer-channel-in-script
+  prompt: |-
+    Show me how a script uses the resource f/team/slack to post a Slack message, with a short example.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - chat.postMessage
+  skipJudge: true
+  judgeChecklist:
+    - shows a script that takes the f/team/slack resource and posts a message with chat.postMessage
+
+- id: global-composer-postgres-trigger
+  prompt: |-
+    Run a script whenever a row is inserted into a table of the Postgres database f/data/warehouse, and explain how Postgres triggers work.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 20
+    sessionChat: true
+    userAnswers:
+      - The signups table
+  validate:
+    requiredDrafts:
+      - type: trigger
+        triggerKind: postgres
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - publication
+        - replication
+  judgeChecklist:
+    - stages a Postgres trigger on f/data/warehouse that fires on inserts, limited to one table rather than every table
+    - the triggered script takes the inserted row as its input
+
+- id: global-composer-http-endpoint
+  prompt: |-
+    Expose the script f/ops/check_ssl_expiry as an HTTP API endpoint that requires a Windmill token, and show me how to call it.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 12
+    sessionChat: true
+  # "Expose" asks for a live route, so deploying it, behind the user's confirmation, is right.
+  validate:
+    requiredDrafts:
+      - type: trigger
+        triggerKind: http
+        valueIncludes:
+          - f/ops/check_ssl_expiry
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - curl
+        - fetch(
+  judgeChecklist:
+    - stages an HTTP route that runs f/ops/check_ssl_expiry and passes it the domain
+    - the route requires a Windmill token (authentication_method windmill), so it is not public
+    - how to call it is explained in the chat, which is checked separately; do not score it
+
+- id: global-composer-schedule-script
+  prompt: |-
+    Run the script f/ops/check_ssl_expiry every weekday at 9am. Ask me for any input it needs, and explain how schedules work.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 12
+    sessionChat: true
+    userAnswers:
+      - windmill.dev
+  # The script needs a domain the prompt does not give, so the chat reads the script and asks
+  # for it: in chat, which ends the run, or with askUserQuestion, which goes on to the schedule.
+  toolExpect:
+    requiredToolsUsed:
+      - read_workspace_item
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - domain
+      - - cron
+        - schedule
+  skipJudge: true
+  judgeChecklist:
+    - reads the script, asks for the domain it needs, and explains how schedules work
+
+- id: global-composer-webhook
+  prompt: |-
+    How do I start the flow f/billing/charge_customers from another app with its webhook? Show me the URL and an example request.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - jobs/run
+      - - token
+        - Authorization
+  skipJudge: true
+  judgeChecklist:
+    - gives the flow's webhook URL and an example request with a token
+
+- id: global-composer-who-can-see
+  prompt: |-
+    Who can see and edit the flow f/billing/charge_customers, and why?
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - read_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - finance
+      - - bob
+  skipJudge: true
+  judgeChecklist:
+    - explains that access comes from the billing folder - its owner ada, bob with write, the finance group with read
+
+- id: global-composer-operator-what-can-i-run
+  prompt: |-
+    Which scripts and flows can I run in this workspace, and what does each one do?
+  initial: ai_evals/fixtures/frontend/global/initial/operator_ops_scripts.json
+  runtime:
+    maxTurns: 6
+    sessionChat: true
+    profile:
+      operator: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_workspace_items
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - list_open_orders
+        - List open orders
+  skipJudge: true
+  judgeChecklist:
+    - lists the runnable scripts and flows with what each does
+
+- id: global-composer-hub-scripts
+  prompt: |-
+    Find scripts on the Windmill Hub for Slack that I could use with the resource f/team/slack.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsAnyOf:
+      - - search_hub_scripts
+        - get_hub_integration
+  skipJudge: true
+  judgeChecklist:
+    - lists Slack scripts from the Hub that take a Slack resource
+
+- id: global-composer-mcp
+  prompt: |-
+    How do I connect Claude to this workspace with MCP so it can run my scripts and flows?
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsAnyOf:
+      - - search_docs
+        - read_docs_page
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - token
+        - MCP URL
+  skipJudge: true
+  judgeChecklist:
+    - explains the MCP setup from the docs: the MCP URL with a token, added to Claude

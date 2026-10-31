@@ -54,7 +54,6 @@
 	let mode = $state<TriggerMode>('enabled')
 	let dirtyPath = $state(false)
 	const operatingUser = useOperatingUser()
-	const actingUser = $derived(operatingUser.current)
 	let permsPath = $state<string | undefined>(undefined)
 	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
@@ -79,7 +78,7 @@
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
-	let base_endpoint = $derived(apiBaseUrl())
+	let base_endpoint = $derived(apiBaseUrl('push_triggers'))
 
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandler = $state(handlerDraftFromStored('error', undefined))
@@ -526,7 +525,7 @@
 							bind:itemKind
 							bind:scriptPath={script_path}
 							allowRefresh={can_write}
-							allowEdit={!actingUser?.operator}
+							allowEdit={editRights.roleCanAuthor(itemKind)}
 							clearable
 						/>
 						{#if emptyString(script_path)}

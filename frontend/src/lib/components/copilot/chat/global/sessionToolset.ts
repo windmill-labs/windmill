@@ -1,10 +1,12 @@
 import type { ChatCompletionFunctionTool } from 'openai/resources/index.mjs'
-import type { SessionAccess, SessionToolPolicy } from '../sessionCapabilities'
+import { isReadOnlyAccess, type SessionAccess, type SessionToolPolicy } from '../sessionCapabilities'
 
 type FilterableTool = {
 	def: ChatCompletionFunctionTool
 	requires?: SessionToolPolicy
 	kindRequires?: Readonly<Partial<Record<string, SessionToolPolicy>>>
+	planModeSafe?: boolean
+	readOnlySafe?: boolean
 }
 
 const satisfies = (policy: SessionToolPolicy, access: SessionAccess) =>
@@ -13,7 +15,15 @@ const satisfies = (policy: SessionToolPolicy, access: SessionAccess) =>
 /** Fails closed: every array that feeds a session is typed to declare `requires`, so a tool
  * without one arrived some other way, and leaking it is the worse of the two answers. */
 export function sessionToolAllowed(tool: FilterableTool, access: SessionAccess): boolean {
-	return tool.requires ? satisfies(tool.requires, access) : false
+	if (!tool.requires || !satisfies(tool.requires, access)) return false
+	return !isReadOnlyAccess(access) || readOnlyToolAllowed(tool)
+}
+
+/** A read-only session keeps the reads `planModeSafe` already marks, plus what opts in with
+ * `readOnlySafe`. Keyed on the tags rather than a list of writes, so a tool added untagged
+ * stays out of a production workspace until someone decides it belongs there. */
+function readOnlyToolAllowed(tool: FilterableTool): boolean {
+	return tool.planModeSafe === true || tool.readOnlySafe === true
 }
 
 /** Filter an assembled toolset, and cut each kind-taking tool's `type` enum to the kinds

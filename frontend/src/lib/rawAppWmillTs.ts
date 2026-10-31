@@ -13,8 +13,8 @@ export const backend = new Proxy(
 	{},
 	{
 		get(_, runnable_id: string) {
-			return (v: any) => {
-				return doRequest('backend', { runnable_id, v })
+			return (v: any, opts?: { memoryId?: string }) => {
+				return doRequest('backend', { runnable_id, v, memoryId: opts?.memoryId })
 			}
 		}
 	}
@@ -24,8 +24,8 @@ export const backendAsync = new Proxy(
 	{},
 	{
 		get(_, runnable_id: string) {
-			return (v: any) => {
-				return doRequest('backendAsync', { runnable_id, v })
+			return (v: any, opts?: { memoryId?: string }) => {
+				return doRequest('backendAsync', { runnable_id, v, memoryId: opts?.memoryId })
 			}
 		}
 	}

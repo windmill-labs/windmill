@@ -1,7 +1,6 @@
 use serde_json::json;
 use serial_test::serial;
 use sqlx::{Pool, Postgres};
-use windmill_common::workspaces::invalidate_operator_rights_cache;
 use windmill_test_utils::*;
 
 /// Every test here must be `#[serial]`, and start by dropping the cache entry. The rights cache is
@@ -44,7 +43,7 @@ async fn set_settings(api: &str, body: serde_json::Value) -> anyhow::Result<u16>
         .send()
         .await?;
     let status = resp.status().as_u16();
-    invalidate_operator_rights_cache(WS);
+    windmill_common::roles::invalidate_all_roles_cache();
     Ok(status)
 }
 
@@ -53,7 +52,7 @@ async fn set_settings(api: &str, body: serde_json::Value) -> anyhow::Result<u16>
 #[serial]
 async fn test_operator_manage_rights(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
-    invalidate_operator_rights_cache(WS);
+    windmill_common::roles::invalidate_all_roles_cache();
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let api = format!("http://localhost:{port}/api/w/{WS}");
@@ -146,7 +145,7 @@ async fn test_manage_triggers_covers_a_route_outside_the_shared_handler(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
-    invalidate_operator_rights_cache(WS);
+    windmill_common::roles::invalidate_all_roles_cache();
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let api = format!("http://localhost:{port}/api/w/{WS}");
@@ -223,7 +222,7 @@ async fn test_manage_triggers_covers_a_route_outside_the_shared_handler(
 #[serial]
 async fn test_manage_rights_admit_matching_drafts(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
-    invalidate_operator_rights_cache(WS);
+    windmill_common::roles::invalidate_all_roles_cache();
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let api = format!("http://localhost:{port}/api/w/{WS}");
@@ -253,7 +252,9 @@ async fn test_manage_rights_admit_matching_drafts(db: Pool<Postgres>) -> anyhow:
     };
 
     let resp = c
-        .post(format!("{api}/drafts/update/trigger_schedule/u/operator/sched_draft"))
+        .post(format!(
+            "{api}/drafts/update/trigger_schedule/u/operator/sched_draft"
+        ))
         .json(&json!({ "value": {
             "path": "u/operator/sched_draft",
             "schedule": "0 0 12 * * *",
@@ -315,7 +316,7 @@ async fn test_manage_rights_admit_matching_drafts(db: Pool<Postgres>) -> anyhow:
 #[serial]
 async fn test_operators_draft_resources_and_variables(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
-    invalidate_operator_rights_cache(WS);
+    windmill_common::roles::invalidate_all_roles_cache();
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let api = format!("http://localhost:{port}/api/w/{WS}");
@@ -402,6 +403,65 @@ async fn test_operators_draft_resources_and_variables(db: Pool<Postgres>) -> any
         .send()
         .await?;
     assert_eq!(resp.json::<String>().await?, "hunter2");
+
+    Ok(())
+}
+
+/// The two endpoints that make the API server run `pg_dump`/`psql` against a database a request
+/// names are closed to a role that cannot run code.
+///
+/// Both polarities on each route: a 403 alone would equally be a route that does not exist or one
+/// refusing the source for some other reason, and the admin's 400 shows the gate is about the role
+/// rather than the request. The source is deliberately unresolvable, so the gate is the only thing
+/// that can answer 403 and no database is ever reached.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+#[serial]
+async fn test_dumping_a_database_needs_the_code_right(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    windmill_common::roles::invalidate_all_roles_cache();
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let api = format!("http://localhost:{port}/api/w/{WS}");
+
+    let cases = [
+        (
+            "workspaces/export_pg_schema",
+            json!({"source": "u/operator/not-a-source"}),
+            "export a database schema",
+        ),
+        (
+            "workspaces/import_pg_database",
+            json!({"source": "u/operator/not-a-source", "target": "u/operator/not-a-source",
+                   "fork_behavior": "schema_only"}),
+            "import a database",
+        ),
+    ];
+
+    for (route, body, action) in cases {
+        let resp = operator_client()
+            .post(format!("{api}/{route}"))
+            .json(&body)
+            .send()
+            .await?;
+        let status = resp.status();
+        let text = resp.text().await?;
+        assert_eq!(status, 403, "{route}: {text}");
+        assert!(
+            text.contains(&format!("Your role cannot {action} in this workspace")),
+            "{route} refused for another reason: {text}"
+        );
+
+        let resp = reqwest::Client::new()
+            .post(format!("{api}/{route}"))
+            .header("Authorization", "Bearer SECRET_TOKEN")
+            .json(&body)
+            .send()
+            .await?;
+        let status = resp.status();
+        let text = resp.text().await?;
+        assert_eq!(status, 400, "{route}: {text}");
+        assert!(text.contains("Invalid source format"), "{route}: {text}");
+    }
 
     Ok(())
 }

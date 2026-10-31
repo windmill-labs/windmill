@@ -55,7 +55,7 @@
 {#snippet aiButton(unifiedSize: 'sm' | 'md')}
 	<!-- The fallback is a plain Button rather than AskAiButton, whose own session branch
 	     would fire here too and open an empty session. -->
-	<OpenInSessionButton source={sessionSource} btnProps={{ unifiedSize }}>
+	<OpenInSessionButton source={sessionSource} btnProps={{ unifiedSize }} deferToHeader>
 		{#snippet fallback()}
 			<Button
 				{unifiedSize}

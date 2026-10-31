@@ -28,16 +28,14 @@
 		type FieldConfig
 	} from './JobDetailFieldConfig'
 	import { flowPathToHref } from '$lib/scripts'
+	import { agentRunHref } from '$lib/components/flows/conversations/agentEditorChat'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
-	import {
-		useOperatingUser,
-		useOperatingWorkspace
-	} from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatingUser = useOperatingUser()
-	const actingUser = $derived(operatingUser.current)
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		job: Job
@@ -476,7 +474,7 @@
 								{@const isScript = job.job_kind === 'script'}
 								{@const viewHref = isScript
 									? `/${stem}/get/${job?.script_hash}`
-									: flowPathToHref(job?.script_path ?? '')}
+									: (agentRunHref(job, $operatingWorkspace) ?? flowPathToHref(job?.script_path ?? ''))}
 								<a
 									href={viewHref}
 									target="_blank"
@@ -503,7 +501,7 @@
 						<div class="flex items-baseline flex-wrap gap-x-2 gap-y-1">
 							<JobStatus {job} />
 
-							{#if isJobResolvable(job) && !actingUser?.operator}
+							{#if isJobResolvable(job) && $roleCaps.code}
 								<!-- No startIcon on these: the row is baseline-aligned, and a Button is
 								     itself a flex container whose baseline comes from its icon rather
 								     than its label, which sits the text ~3px above the badges. Text

@@ -141,9 +141,9 @@
 			? editRights.roleCanAuthor('schedule')
 			: editRights.canEditItem('schedule', permsPath, extraPerms)
 	)
-	// Editing the runnable is closed to operators, and an unresolved acting user is no
-	// evidence that this one isn't.
-	const canEditRunnable = $derived(actingUser !== undefined && !actingUser.operator)
+	// Editing the runnable needs a role that authors its kind; an unresolved acting user is no
+	// evidence of that role.
+	const canEditRunnable = $derived(actingUser !== undefined && editRights.roleCanAuthor(itemKind))
 	const saveDisabled = $derived(
 		!allowSchedule ||
 			pathError != '' ||

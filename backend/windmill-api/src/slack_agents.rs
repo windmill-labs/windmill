@@ -62,19 +62,190 @@ struct SlackAgentsStatus {
     signing_secret_set: bool,
 }
 
-async fn status(_authed: ApiAuthed) -> Json<SlackAgentsStatus> {
-    Json(SlackAgentsStatus { signing_secret_set: signing_secret_set() })
+async fn status(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<SlackAgentsStatus> {
+    Ok(Json(SlackAgentsStatus {
+        signing_secret_set: signing_secret_set(&db, &w_id).await?,
+    }))
 }
 
-/// Agents answer only when the server verifies Slack's request signatures.
-fn signing_secret_set() -> bool {
+/// Which of the workspaces connected to a Slack team a request may reach.
+#[derive(Clone, Debug, Default)]
+pub struct SlackRequest {
+    /// Those whose app's signing secret verified it or, when none did, those whose app has none
+    /// set, which take requests unauthenticated.
+    pub reachable: Vec<String>,
+    /// Those whose app's signing secret verified it, the only ones agents answer for.
+    pub verified: Vec<String>,
+}
+
+fn env_signing_secret() -> Option<String> {
+    std::env::var("SLACK_SIGNING_SECRET")
+        .ok()
+        .filter(|s| !s.is_empty())
+}
+
+fn instance_signing_secrets() -> Vec<String> {
     #[cfg(feature = "oauth2")]
     {
-        crate::SLACK_SIGNING_SECRET.is_some()
+        env_signing_secret()
+            .into_iter()
+            .chain(crate::OAUTH_CLIENTS.load().slack_signing_secret.clone())
+            .filter(|s| !s.is_empty())
+            .collect()
     }
     #[cfg(not(feature = "oauth2"))]
     {
-        false
+        vec![]
+    }
+}
+
+/// Agents answer only when the server verifies Slack's request signatures, with the secret of the
+/// app the workspace is connected through: its own app's, or else the instance's.
+async fn signing_secret_set(db: &DB, w_id: &str) -> Result<bool> {
+    let own_app = sqlx::query!(
+        "SELECT slack_oauth_client_id IS NOT NULL AS \"own_app!\",
+                slack_signing_secret IS NOT NULL AS \"own_secret!\"
+         FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    Ok(match own_app {
+        Some(r) if r.own_app => r.own_secret || env_signing_secret().is_some(),
+        _ => !instance_signing_secrets().is_empty(),
+    })
+}
+
+/// Whether a Slack request was signed by the app a workspace is connected through: `None` when that
+/// app has no secret set, which leaves the request unauthenticated. A workspace's own app is checked
+/// against its own secret, never the instance setting's: the instance's app signs nothing for it, so
+/// setting an instance secret must not start rejecting its requests. Without its own secret it falls
+/// back to `SLACK_SIGNING_SECRET`, which may hold that app's secret from before workspaces had one.
+#[cfg(feature = "oauth2")]
+fn workspace_verified(
+    own_app: bool,
+    own_secret: Option<String>,
+    instance_verified: Option<bool>,
+    matches: impl Fn(&str) -> bool,
+) -> Option<bool> {
+    if own_app {
+        own_secret.or_else(env_signing_secret).map(|s| matches(&s))
+    } else {
+        instance_verified
+    }
+}
+
+#[cfg(feature = "oauth2")]
+fn slack_signature_matcher<'a>(
+    sig: &'a str,
+    ts: &'a str,
+    body: &'a str,
+) -> impl Fn(&str) -> bool + 'a {
+    // Slack's recommended replay window: a captured request stops verifying after it.
+    let fresh = ts
+        .parse::<i64>()
+        .is_ok_and(|t| chrono::Utc::now().timestamp().abs_diff(t) <= 5 * 60);
+    move |secret: &str| {
+        fresh
+            && windmill_oauth::SlackVerifier::new(secret)
+                .is_ok_and(|v| v.verify(ts, body, sig).is_ok())
+    }
+}
+
+#[cfg(feature = "oauth2")]
+fn instance_verified(matches: &impl Fn(&str) -> bool) -> Option<bool> {
+    let instance = instance_signing_secrets();
+    (!instance.is_empty()).then(|| instance.iter().any(|s| matches(s)))
+}
+
+#[cfg(feature = "oauth2")]
+fn signature_rejected<T>() -> Result<T> {
+    Err(Error::BadRequest(
+        "Slack signature verification failed".to_string(),
+    ))
+}
+
+/// Checks a Slack request, for each workspace connected to `team_id`, against the signing secret
+/// of the app it is connected through (see [`workspace_verified`]). For a team no workspace is
+/// connected to, only the instance's secret applies. An error when the request can reach no
+/// workspace.
+#[cfg(feature = "oauth2")]
+pub async fn verify_slack_request(
+    db: &DB,
+    team_id: &str,
+    sig: &str,
+    ts: &str,
+    body: &str,
+) -> Result<SlackRequest> {
+    let matches = slack_signature_matcher(sig, ts, body);
+    let instance_verified = instance_verified(&matches);
+
+    let workspaces = sqlx::query!(
+        "SELECT workspace_id, slack_oauth_client_id IS NOT NULL AS \"own_app!\",
+                slack_signing_secret
+         FROM workspace_settings WHERE slack_team_id = $1",
+        team_id
+    )
+    .fetch_all(db)
+    .await?;
+    if workspaces.is_empty() {
+        return match instance_verified {
+            Some(false) => signature_rejected(),
+            _ => Ok(SlackRequest::default()),
+        };
+    }
+    let mut req = SlackRequest::default();
+    for w in workspaces {
+        let verified = workspace_verified(
+            w.own_app,
+            w.slack_signing_secret,
+            instance_verified,
+            &matches,
+        );
+        if verified != Some(false) {
+            req.reachable.push(w.workspace_id.clone());
+        }
+        if verified == Some(true) {
+            req.verified.push(w.workspace_id);
+        }
+    }
+    if req.reachable.is_empty() {
+        return signature_rejected();
+    }
+    // A matching secret proves which app sent the request, so a workspace that merely has no secret
+    // to rule it out must not take it.
+    if !req.verified.is_empty() {
+        req.reachable = req.verified.clone();
+    }
+    Ok(req)
+}
+
+/// Checks a Slack approval callback sent through `w_id`'s Slack connection against the secret of
+/// the app it is connected through (see [`workspace_verified`]).
+#[cfg(feature = "oauth2")]
+pub async fn verify_approval_slack_request(
+    db: &DB,
+    w_id: &str,
+    sig: &str,
+    ts: &str,
+    body: &str,
+) -> Result<()> {
+    let matches = slack_signature_matcher(sig, ts, body);
+    let (own_app, own_secret) = sqlx::query!(
+        "SELECT slack_oauth_client_id IS NOT NULL AS \"own_app!\", slack_signing_secret
+         FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .map_or((false, None), |s| (s.own_app, s.slack_signing_secret));
+    match workspace_verified(own_app, own_secret, instance_verified(&matches), &matches) {
+        Some(false) => signature_rejected(),
+        _ => Ok(()),
     }
 }
 
@@ -199,7 +370,7 @@ async fn get_agent_slack(
     };
     Ok(Json(AgentSlack {
         slack_team_name,
-        signing_secret_set: signing_secret_set(),
+        signing_secret_set: signing_secret_set(&db, &w_id).await?,
         bot_name,
         missing_scopes: missing_scopes.unwrap_or_default(),
         runs_as,
@@ -454,9 +625,9 @@ pub struct SlackMessage {
     pub text: String,
     pub ts: String,
     pub thread_ts: Option<String>,
-    /// Whether this request's Slack signature was verified. Carried from the check rather than
-    /// re-read from the setting, which can be enabled between the two.
-    pub signed: bool,
+    /// The workspaces whose Slack app's signing secret verified this request. Carried from the
+    /// check rather than re-read from the settings, which can change between the two.
+    pub verified: Vec<String>,
 }
 
 enum Route {
@@ -477,7 +648,7 @@ struct SharedHere {
 /// `false` leaves the message to the workspace's command script.
 pub async fn try_answer(db: &DB, msg: SlackMessage) -> Result<bool> {
     // Without it the Slack endpoints take unsigned requests, and anyone could post as a channel.
-    if !msg.signed {
+    if msg.verified.is_empty() {
         return Ok(false);
     }
     let text = decode_entities(&msg.text);
@@ -490,9 +661,12 @@ pub async fn try_answer(db: &DB, msg: SlackMessage) -> Result<bool> {
         "SELECT c.workspace_id, c.agent_path, c.is_default FROM slack_agent_channel c
          JOIN workspace_settings ws ON ws.workspace_id = c.workspace_id
             AND ws.slack_team_id = c.slack_team_id
-         WHERE c.slack_team_id = $1 AND c.channel_id = $2 ORDER BY c.agent_path",
+         WHERE c.slack_team_id = $1 AND c.channel_id = $2
+           AND ws.workspace_id = ANY($3)
+         ORDER BY c.agent_path",
         msg.team_id,
-        msg.channel_id
+        msg.channel_id,
+        &msg.verified
     )
     .fetch_all(db)
     .await?;
@@ -543,20 +717,22 @@ pub async fn try_answer(db: &DB, msg: SlackMessage) -> Result<bool> {
                     "channel_default"
                 },
             ),
-            None => match workspace_without_command_script(db, &msg.team_id).await? {
-                Some(w_id) => {
-                    return start_answer(
-                        db,
-                        w_id,
-                        Route::Help { note: None },
-                        "help",
-                        question,
-                        msg,
-                    )
-                    .await;
+            None => {
+                match workspace_without_command_script(db, &msg.team_id, &msg.verified).await? {
+                    Some(w_id) => {
+                        return start_answer(
+                            db,
+                            w_id,
+                            Route::Help { note: None },
+                            "help",
+                            question,
+                            msg,
+                        )
+                        .await;
+                    }
+                    None => return Ok(false),
                 }
-                None => return Ok(false),
-            },
+            }
         },
     };
     let w_id = here.workspace_id.clone();
@@ -671,12 +847,18 @@ fn decode_entities(text: &str) -> String {
 
 /// The team's workspace when no workspace of the team has a command script to take the message:
 /// the only one connected to it.
-async fn workspace_without_command_script(db: &DB, team_id: &str) -> Result<Option<String>> {
+async fn workspace_without_command_script(
+    db: &DB,
+    team_id: &str,
+    verified: &[String],
+) -> Result<Option<String>> {
     let rows = sqlx::query!(
         "SELECT workspace_id, slack_command_script IS NOT NULL AS \"has_script!\"
-         FROM workspace_settings WHERE slack_team_id = $1
+         FROM workspace_settings ws WHERE slack_team_id = $1
+           AND ws.workspace_id = ANY($2)
          ORDER BY slack_command_script IS NOT NULL DESC LIMIT 2",
-        team_id
+        team_id,
+        verified
     )
     .fetch_all(db)
     .await?;
@@ -692,9 +874,12 @@ async fn help_text(db: &DB, msg: &SlackMessage, note: Option<String>) -> Result<
         "SELECT c.agent_path FROM slack_agent_channel c
          JOIN workspace_settings ws ON ws.workspace_id = c.workspace_id
             AND ws.slack_team_id = c.slack_team_id
-         WHERE c.slack_team_id = $1 AND c.channel_id = $2 ORDER BY c.agent_path LIMIT 11",
+         WHERE c.slack_team_id = $1 AND c.channel_id = $2
+           AND ws.workspace_id = ANY($3)
+         ORDER BY c.agent_path LIMIT 11",
         msg.team_id,
-        msg.channel_id
+        msg.channel_id,
+        &msg.verified
     )
     .fetch_all(db)
     .await?;

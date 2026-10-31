@@ -41,7 +41,7 @@
 	<div
 		bind:this={viewport}
 		onscroll={measure}
-		class="sidebar-scroll h-full overflow-y-auto overflow-x-hidden scrollbar-hidden flex flex-col gap-3"
+		class="sidebar-scroll h-full overflow-y-auto overflow-x-hidden scrollbar-subtle flex flex-col gap-2.5"
 	>
 		{@render children()}
 	</div>

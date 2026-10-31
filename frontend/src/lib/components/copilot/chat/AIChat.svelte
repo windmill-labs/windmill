@@ -19,9 +19,14 @@
 		forceDisabledMessage = '',
 		wideLayout = false,
 		emptyHint,
+		starter = undefined,
+		onSent = undefined,
 		inputPreface,
+		workModeLock = undefined,
 		initialInstructions = undefined,
 		onDraftChange = undefined,
+		initialAttachments = undefined,
+		onAttachmentsChange = undefined,
 		placeholder = undefined
 	}: {
 		hideHeader?: boolean
@@ -37,10 +42,15 @@
 		// in; the narrow global-chat panel leaves it off.
 		wideLayout?: boolean
 		emptyHint?: import('svelte').Snippet
+		starter?: import('./starter/starterPrompts.svelte').ChatStarter
+		onSent?: () => void
 		inputPreface?: import('svelte').Snippet
-		// Seed / observe the composer's draft text (forwarded to AIChatDisplay).
+		workModeLock?: import('./workMode').WorkModeLock
+		// Seed / observe the composer's draft (forwarded to AIChatDisplay).
 		initialInstructions?: string
 		onDraftChange?: (text: string) => void
+		initialAttachments?: import('./messageDraft.svelte').DraftAttachments
+		onAttachmentsChange?: (attachments: import('./messageDraft.svelte').DraftAttachments) => void
 		/** Composer placeholder for the first message. Falls back to the per-AI-mode wording. */
 		placeholder?: string
 	} = $props()
@@ -77,7 +87,7 @@
 							: $aiUserDisabled
 								? 'Windmill AI is disabled in your account settings'
 								: isAdmin
-									? 'Enable Windmill AI in your [workspace settings](/workspace_settings?tab=ai) to use this chat'
+									? 'Enable Windmill AI in your [workspace settings](/workspace_settings?tab=ai) to use this chat, or hide AI sessions there'
 									: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
 						: aiChatManager.mode === AIMode.SCRIPT &&
 							  aiChatManager.scriptEditorOptions?.lang &&
@@ -112,6 +122,14 @@
 
 	export function focusInput(selection?: ComposerSelection) {
 		aiChatDisplay?.focusInput(selection)
+	}
+
+	export function flashComposer() {
+		aiChatDisplay?.flashComposer()
+	}
+
+	export async function attachContext(element: import('./context').ContextElement) {
+		await aiChatDisplay?.attachContext(element)
 	}
 
 	const historyManager = aiChatManager.historyManager
@@ -202,8 +220,13 @@
 	{hideModeSelector}
 	{wideLayout}
 	{emptyHint}
+	{starter}
+	{onSent}
 	{inputPreface}
+	{workModeLock}
 	{initialInstructions}
 	{onDraftChange}
+	{initialAttachments}
+	{onAttachmentsChange}
 	{placeholder}
 ></AIChatDisplay>

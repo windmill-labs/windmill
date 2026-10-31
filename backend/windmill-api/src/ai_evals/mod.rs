@@ -267,16 +267,14 @@ pub(crate) async fn read_dataset_and_cases(
 /// being mirrored here.
 async fn require_dataset_writable(
     authed: &ApiAuthed,
+    db: &DB,
     user_db: &UserDB,
     w_id: &str,
     path: &str,
 ) -> Result<()> {
     check_proper_path(path)?;
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot modify eval datasets".to_string(),
-        ));
-    }
+    windmill_common::workspaces::check_role_can_code(db, w_id, authed, "modify eval datasets")
+        .await?;
     let mut tx = user_db.clone().begin(authed).await?;
     let writable = sqlx::query_scalar!(
         "SELECT path FROM eval_dataset WHERE workspace_id = $1 AND path = $2 FOR UPDATE",

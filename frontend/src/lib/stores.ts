@@ -5,6 +5,7 @@ import type { IntrospectionQuery } from 'graphql'
 import {
 	CancelablePromise,
 	type OperatorSettings,
+	type RoleCapabilities,
 	type TokenResponse,
 	type UserWorkspaceList,
 	type Workspace,
@@ -12,6 +13,7 @@ import {
 	WorkspaceService
 } from './gen'
 import { getLocalSetting, type StateStore } from './utils'
+import { capabilitiesIn } from './roleCapabilities'
 import { createState } from './svelte5Utils.svelte'
 import { DEFAULT_HUB_BASE_URL } from './hub'
 import type { DbManagerUriState } from './components/dbManagerDrawerModel.svelte'
@@ -46,6 +48,9 @@ export interface UserWorkspace {
 	username: string
 	color?: string
 	operator_settings?: OperatorSettings
+	/** Absent from a server that predates roles; read it through `capabilitiesIn`. */
+	role?: string
+	capabilities?: RoleCapabilities
 	parent_workspace_id?: string | null
 	is_dev_workspace?: boolean
 	dev_workspace_label?: string | null
@@ -189,6 +194,18 @@ export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 		)
 		return extra.length > 0 ? [...workspaces, ...extra] : workspaces
 	}
+)
+
+/** The user's role capabilities in the navigation workspace. A component acting on another
+ * workspace (an AI session) reads `useRoleCapabilities` instead. */
+export const roleCapabilities: Readable<RoleCapabilities> = derived(
+	[userStore, userWorkspaces, workspaceStore],
+	([user, workspaces, workspace]) =>
+		capabilitiesIn(
+			// Mid-switch `user` still describes the workspace being left: only superadmin carries over.
+			user?.workspace_id === workspace ? user : { is_super_admin: user?.is_super_admin },
+			workspaces.find((w) => w.id === workspace)
+		)
 )
 
 export const codeCompletionLoading = writable<boolean>(false)

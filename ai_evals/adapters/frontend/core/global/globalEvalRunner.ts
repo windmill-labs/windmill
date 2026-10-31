@@ -5,9 +5,17 @@ import type { ChatCompletionMessageParam } from "openai/resources/chat/completio
 import type { AIProvider, OperatorSettings } from "$lib/gen/types.gen";
 import {
   globalToolsFor,
-  prepareGlobalSystemMessage,
   prepareGlobalUserMessage,
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/core";
+import { assembleGlobalSystemMessage } from "../../../../../frontend/src/lib/components/copilot/chat/global/globalAssembly";
+import {
+  canBuild,
+  USE_MODE_ACCESS,
+} from "../../../../../frontend/src/lib/components/copilot/chat/sessionCapabilities";
+import {
+  FULL_CAPABILITIES,
+  legacyOperatorCapabilities,
+} from "../../../../../frontend/src/lib/roleCapabilities";
 import {
   clearGlobalDrafts,
   getGlobalDraft,
@@ -155,15 +163,24 @@ export async function runGlobalEval(
     options.workspaceFixtures ?? {},
   );
   seedLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
-  // No deploy rules in the mock workspace, so they always pass.
-  const access =
+  // No deploy rules in the mock workspace, so they always pass. The role is read as a server
+  // that predates workspace roles describes it, from `operator_settings`.
+  const roleAccess =
     options.profile &&
     capabilitiesForRole({
       isAdmin: false,
-      operator: options.profile.operator,
       deployRulesPass: true,
-      operatorSettings: options.profile.operatorSettings as OperatorSettings,
+      capabilities: options.profile.operator
+        ? legacyOperatorCapabilities(
+            options.profile.operatorSettings as OperatorSettings,
+          )
+        : FULL_CAPABILITIES,
     });
+  // A session whose role builds nothing is held in Use, as the chat manager holds it: the
+  // read-only toolset, and the session section that names the role as the reason.
+  const heldInUse =
+    !!options.sessionChat && !!roleAccess && !canBuild(roleAccess);
+  const access = heldInUse ? USE_MODE_ACCESS : roleAccess;
   seedOperatorSettings(workspaceRoot, options.profile);
   // Declared out here only so `finally` can reach it; a malformed fixture throws while
   // building it, and everything seeded above still has to be torn down.
@@ -179,7 +196,7 @@ export async function runGlobalEval(
       );
     }
     // Production resolves a profile for session chats only; elsewhere every tool ships.
-    if (!options.sessionChat && access) {
+    if (!options.sessionChat && roleAccess) {
       throw new Error(
         "This case sets runtime.profile, which only a session chat applies — set runtime.sessionChat: true on the case.",
       );
@@ -203,10 +220,13 @@ export async function runGlobalEval(
       : undefined;
     // Pass the seeded identity straight to the prompt builder rather than mutating
     // the process-global `userStore`, so concurrent cases never race on it.
-    const baseSystemMessage = prepareGlobalSystemMessage(undefined, {
+    const baseSystemMessage = assembleGlobalSystemMessage(undefined, {
       user: options.user,
       previewTools: options.sessionChat ?? false,
       access,
+      ...(heldInUse && {
+        sessionContext: { workspaceId: workspaceRoot, useMode: "role" as const },
+      }),
     });
     const helpers = {
       ...evalArtifacts.helpers,

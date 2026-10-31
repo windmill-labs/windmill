@@ -22,6 +22,11 @@ pub struct WorkspaceId(pub String);
 #[derive(Clone, Debug)]
 pub struct MultiWorkspaceMcp;
 
+/// Marker extension: the tools server lists a token's scripts and flows and no endpoint
+/// tools. Set on `/api/mcp`, where the full toolset is what reaches the API.
+#[derive(Clone, Debug)]
+pub struct NoEndpointTools;
+
 /// Raw bearer token wrapper for Axum extensions. In multi-workspace mode the
 /// runner needs the raw token to re-resolve auth for each requested workspace.
 #[derive(Clone, Debug)]

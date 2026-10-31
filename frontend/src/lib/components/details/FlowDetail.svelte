@@ -42,7 +42,6 @@
 		Archive,
 		Trash,
 		ChevronUpSquare,
-		Shield,
 		Loader2,
 		GitFork,
 		Play,
@@ -55,7 +54,11 @@
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
-	import { createRawAppFromFlow } from '$lib/components/details/createRawAppFromScript'
+	import {
+		createChatRawApp,
+		createRawAppFromFlow
+	} from '$lib/components/details/createRawAppFromScript'
+	import BuildChatAppCard from '$lib/components/details/BuildChatAppCard.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import FlowGraphViewerStep from '$lib/components/FlowGraphViewerStep.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
@@ -79,9 +82,11 @@
 	import {
 		setOperatingWorkspace,
 		useOperatingUser,
+		useReadOnlyWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
 	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
+	import { page } from '$app/state'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 	import CiTestResults from '$lib/components/CiTestResults.svelte'
@@ -95,6 +100,7 @@
 		openEditInFork
 	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 
 	let {
 		path: routePath,
@@ -138,13 +144,16 @@
 	const operatingHref = useOperatingWorkspaceHref()
 	const actingUser = $derived(operatingUser.current)
 	const editRights = useEditRights()
+	const readOnly = useReadOnlyWorkspace()
 
 	let flow: Flow | undefined = $state()
 	// Derived, not assigned during the load: in a fork the acting user is looked up
 	// asynchronously, and a value read after `getFlowByPath` resolves can land before that
 	// lookup does. Assigned once, that leaves the page permanently read-only — `canWrite`
 	// refuses an unknown user — with nothing to recompute it.
-	const can_write = $derived(!!flow && canWrite(flow.path, flow.extra_perms!, actingUser))
+	const can_write = $derived(
+		!!flow && !readOnly(workspace) && canWrite(flow.path, flow.extra_perms!, actingUser)
+	)
 	const promptForAi = $derived((flow?.schema?.prompt_for_ai as string | undefined) ?? '')
 	let shareModal: ShareModal | undefined = $state()
 
@@ -263,6 +272,15 @@
 		if (!flow.path.startsWith(`u/${actingUser?.username}`) && flow.path.split('/').length > 2) {
 			invisible_to_owner = flow.visible_to_runner_only
 		}
+		// Opened from a session's preview tab, it was the session's doing, not a visit.
+		if (!embedded) {
+			recentItems.record(workspace!, {
+				kind: 'flow',
+				path: flow.path,
+				summary: flow.summary,
+				via: 'view'
+			})
+		}
 		intervalId && clearInterval(intervalId)
 		deploymentInProgress = flow.lock_error_logs == ''
 		if (deploymentInProgress) {
@@ -374,6 +392,7 @@
 	if (pendingRun) args = { ...untrack(() => pendingRun.proposedArgs) }
 
 	let canAuthorFlow = $derived(editRights.roleCanAuthor('flow'))
+	const caps = $derived(editRights.capabilities)
 
 	let moveDrawer: MoveDrawer | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
@@ -410,12 +429,7 @@
 			})
 		}
 
-		if (
-			flow &&
-			!actingUser?.operator &&
-			!isCloudHosted() &&
-			editInForkAllowed(workspace, $userWorkspaces)
-		) {
+		if (flow && caps.code && !isCloudHosted() && editInForkAllowed(workspace, $userWorkspaces)) {
 			buttons.push({
 				label: editInForkLabel(workspace, $userWorkspaces),
 				description: editInForkDescription('flow', workspace, $userWorkspaces),
@@ -456,19 +470,28 @@
 			}
 		})
 
-		if (!flow || !canAuthorFlow || !can_write) {
-			return buttons
-		}
-
-		// Build app makes a low-code app, which no builder right covers.
-		if (!actingUser?.operator) {
+		// A chat-mode flow gets the chat template rather than a form over its inputs. It holds no
+		// inline code, so authoring raw apps is enough, as on the sidebar card. The form app starts
+		// from the full template, not the builder one a compose-only role deploys.
+		const chat = !!flow?.value?.chat_input_enabled
+		const canBuildApp = chat
+			? editRights.roleCanAuthor('raw_app')
+			: canAuthorFlow && can_write && caps.apps === 'full'
+		if (flow && canBuildApp) {
 			buttons.push({
-				label: 'Build app',
+				label: chat ? 'Build chat app' : 'Build app',
 				placement: 'menu',
 				alwaysPlaced: true,
 				buttonProps: {
 					onClick: async () => {
-						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
+						const app = chat
+							? createChatRawApp({
+									path: flow.path,
+									runType: 'flow',
+									summary: flow.summary,
+									schema: flow.schema
+								})
+							: createRawAppFromFlow(flow.path, flow.summary, flow.schema)
 						// The raw app editor reads the payload from sessionStorage on mount.
 						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
 						await onNavigate('/apps_raw/add')
@@ -479,6 +502,10 @@
 					startIcon: LayoutDashboard
 				}
 			})
+		}
+
+		if (!flow || !canAuthorFlow || !can_write) {
+			return buttons
 		}
 
 		buttons.push({
@@ -515,13 +542,6 @@
 
 		const menuItems: any = []
 
-		menuItems.push({
-			label: 'Permissions',
-			onclick: () => shareModal?.openDrawer(flow?.path ?? '', 'flow'),
-			Icon: Shield,
-			disabled: !can_write
-		})
-
 		if (showEditButtons) {
 			menuItems.push({
 				label: 'Move/Rename',
@@ -530,11 +550,8 @@
 			})
 		}
 
-		// The builder right opens this menu to operators; audit logs stay behind their own setting.
-		if (
-			!actingUser?.operator ||
-			$userWorkspaces.find((w) => w.id === workspace)?.operator_settings?.audit_logs
-		) {
+		// A flow-composing role opens this menu; audit logs stay behind their own visibility flag.
+		if (caps.visibility.audit_logs) {
 			menuItems.push({
 				label: 'Audit logs',
 				Icon: Eye,
@@ -544,7 +561,7 @@
 			})
 		}
 
-		if (isDeployable('flow', flow?.path ?? '', deployUiSettings) && !actingUser?.operator) {
+		if (isDeployable('flow', flow?.path ?? '', deployUiSettings) && caps.flows === 'full') {
 			menuItems.push({
 				label: 'Deploy to staging/prod',
 				onclick: () => deploymentDrawer?.openDrawer(flow?.path ?? '', 'flow'),
@@ -655,7 +672,7 @@
 
 <svelte:window onkeydown={onKeyDown} />
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<ShareModal bind:this={shareModal} />
+<ShareModal bind:this={shareModal} source="detail" />
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={async (e) => {
@@ -670,7 +687,7 @@
 <DetailPageLayout
 	bind:this={detailLayout}
 	bind:selected={rightPaneSelected}
-	isOperator={actingUser?.operator}
+	isOperator={!caps.code}
 	forceSmallScreen={chatInputEnabled}
 	isChatMode={chatInputEnabled}
 	flow_json={{
@@ -689,6 +706,9 @@
 			}}
 			{mainButtons}
 			menuItems={getMenuItems(flow, deployUiSettings)}
+			onShare={flow && canAuthorFlow
+				? () => shareModal?.openDrawer(flow?.path ?? '', 'flow')
+				: undefined}
 			bind:errorHandlerMuted={
 				() => flow?.ws_error_handler_muted ?? false,
 				(v) => {
@@ -696,7 +716,8 @@
 				}
 			}
 			scriptOrFlowPath={flow?.path ?? ''}
-			errorHandlerKind="flow"
+			itemKind="flow"
+			errorHandlerKind={readOnly(workspace) ? undefined : 'flow'}
 			tag={flow?.tag ?? ''}
 			labels={flow?.labels}
 			inheritedLabels={flow?.inherited_labels}
@@ -849,7 +870,22 @@
 								flowModules={flow?.value?.modules}
 								wideLayout
 								frame="none"
-							/>
+								openConversation={page.url.searchParams.get('conversation') ?? undefined}
+							>
+								{#snippet sidebarFooter({ expanded })}
+									{#if workspace && flow}
+										<BuildChatAppCard
+											kind="flow"
+											path={flow.path}
+											{workspace}
+											{expanded}
+											summary={flow.summary}
+											schema={flow.schema}
+											{onNavigate}
+										/>
+									{/if}
+								{/snippet}
+							</FlowChat>
 						{:else}
 							{@const hasSchema =
 								flow.schema && Object.keys(flow.schema.properties ?? {}).length > 0}
@@ -1008,6 +1044,7 @@
 				isDeployed={true}
 				noCapture={true}
 				isEditor={false}
+				chatMode={chatInputEnabled}
 			/>
 		{/if}
 	{/snippet}

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { ProtectionRuleset } from '$lib/gen'
-	import { userStore, type UserExt } from '$lib/stores'
+	import { roleCapabilities, type UserExt } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import {
 		fetchProtectionRulesForWorkspace,
@@ -71,7 +71,7 @@
 	})
 </script>
 
-{#if !$userStore?.operator && activeDeployRulesets.length > 0}
+{#if ($roleCapabilities.code || $roleCapabilities.flows !== 'none' || $roleCapabilities.apps !== 'none') && activeDeployRulesets.length > 0}
 	<!-- Named for the deploy destination, not the lineage: the merge UI also points
 	     this at a target outside the fork lineage. -->
 	<Alert type="info" title="Target workspace protection active" class="my-2">

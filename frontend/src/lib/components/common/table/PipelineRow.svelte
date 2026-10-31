@@ -6,7 +6,7 @@
 		planPipelineDelete,
 		type PipelineDeletePlan
 	} from '$lib/components/assets/AssetGraph/pipelineDelete'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { Loader2, Trash } from 'lucide-svelte'
 	import Row from './Row.svelte'
@@ -78,8 +78,9 @@
 	{depth}
 >
 	{#snippet actions()}
-		{#if !$userStore?.operator}
+		{#if $roleCapabilities.code}
 			<Dropdown
+				size="sm"
 				items={[
 					{
 						displayName: 'Delete',

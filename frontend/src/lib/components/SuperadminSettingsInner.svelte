@@ -813,7 +813,6 @@
 									loading={guestLoading}
 									onLoadMore={() =>
 										loadGuestPage(Math.floor((guestList?.guests.length ?? 0) / guestPerPage) + 1)}
-									onInstanceSwitch={() => loadGuestPage(1)}
 								/>
 							{/if}
 						</div>

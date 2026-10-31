@@ -14,7 +14,8 @@
 		userWorkspaces,
 		workspaceStore,
 		userStore,
-		getWorkspaceFromStorage
+		getWorkspaceFromStorage,
+		roleCapabilities
 	} from '$lib/stores'
 	import { Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -235,7 +236,7 @@
 		workspaceStore.set(undefined)
 		workspaceStore.set(workspaceId)
 		$userStore = await getUserExt($workspaceStore!)
-		if (!$userStore?.is_super_admin && $userStore?.operator) {
+		if (!$roleCapabilities.code) {
 			let defaultApp = await WorkspaceService.getWorkspaceDefaultApp({
 				workspace: $workspaceStore!
 			})

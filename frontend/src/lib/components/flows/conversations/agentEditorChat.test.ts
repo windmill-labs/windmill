@@ -1,12 +1,39 @@
 import { describe, expect, it } from 'vitest'
 import type { FlowModule } from '$lib/gen'
-import { agentChatFlow, agentChatGap, agentChatPath, agentStepLabel } from './agentEditorChat'
+import {
+	agentChatFlow,
+	agentChatGap,
+	agentChatPath,
+	agentRunHref,
+	agentStepLabel
+} from './agentEditorChat'
 
 describe('agentChatPath', () => {
 	it('is a path no flow can take, so a same-path flow never shares its conversations', () => {
 		const flowPath = /^[ufg](\/[\w-]+){2,}$/
 		expect('f/support/agent').toMatch(flowPath)
 		expect(agentChatPath('f/support/agent')).not.toMatch(flowPath)
+	})
+})
+
+describe('agentRunHref', () => {
+	const agentFlow = { modules: [{ id: '__wm_agent_root' }] }
+	it('links a chat run to the agent editor and a one-shot run to its page', () => {
+		expect(agentRunHref({ job_kind: 'flowpreview', script_path: 'u/a/bot.chat' }, 'ws')).toBe(
+			'/agents/edit/u/a/bot?workspace=ws'
+		)
+		expect(
+			agentRunHref({ job_kind: 'flowpreview', script_path: 'u/a/bot', raw_flow: agentFlow }, 'ws')
+		).toBe('/agents/get/u/a/bot?workspace=ws')
+	})
+	it('leaves any other flow preview alone', () => {
+		expect(
+			agentRunHref(
+				{ job_kind: 'flowpreview', script_path: 'u/a/flow', raw_flow: { modules: [{ id: 'a' }] } },
+				'ws'
+			)
+		).toBeUndefined()
+		expect(agentRunHref({ job_kind: 'flow', script_path: 'u/a/bot.chat' }, 'ws')).toBeUndefined()
 	})
 })
 

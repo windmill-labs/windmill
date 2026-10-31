@@ -171,10 +171,10 @@ impl AuthCache {
         // from a job's WM_TOKEN, even on an AUTH_CACHE hit whose cached authed
         // predates this field.
         opt_job_authed.authed.job_id = opt_job_authed.job_id;
-        // The workspace's guest switch is enforced here, once, for every guest request
-        // — not per handler, where each guest-reachable route would have to remember
-        // it. Uncached, so turning guests off takes effect on the next request of every
-        // guest session and every token derived from one.
+        // The no-account rule is enforced here, once, for every guest request — not per
+        // handler, where each guest-reachable route would have to remember it. Uncached,
+        // so an account provisioned after the mint ends the guest session, and every
+        // token derived from one, on its next request.
         if crate::scopes::has_guest_sentinel(opt_job_authed.authed.scopes.as_deref()) {
             let Some(w_id) = w_id else { return None };
             let email = &opt_job_authed.authed.email;
@@ -277,11 +277,9 @@ impl AuthCache {
                             return None;
                         }
                     };
-                // The workspace switch, the instance switch and the app being in guest
-                // mode, in one answer (guest_app_admits). The door re-reads the switches
-                // and the no-account rule per request through the sentinel below
-                // (guest_session_stands), so turning any of them off stops a cached JWT
-                // session on its next call.
+                // The app being in guest mode (guest_app_admits). The door re-reads the
+                // no-account rule per request through the sentinel below
+                // (guest_session_stands), and the on-behalf resolver re-reads the mode.
                 match windmill_common::workspaces::guest_app_admits(
                     &self.db,
                     w_id,
@@ -349,6 +347,7 @@ impl AuthCache {
                     read_only: false,
                     job_id: None,
                     credential_expiry: Some(credential_expiry),
+                    mcp_client: None,
                 };
                 AUTH_CACHE.insert(
                     key,
@@ -394,6 +393,7 @@ impl AuthCache {
                             read_only: false,
                             job_id: None,
                             credential_expiry: None,
+                            mcp_client: claims.mcp_client,
                         };
                         // Fail closed: a `job_id` claim that does not parse must reject
                         // the token rather than resolve to `None`, which would clear the
@@ -466,8 +466,8 @@ impl AuthCache {
                                         let lookup = if super_admin {
                                             Some((true, false))
                                         } else {
-                                            sqlx::query!(
-                                                "SELECT is_admin, operator FROM usr where username = $1 AND \
+                                            let row = sqlx::query!(
+                                                "SELECT is_admin, operator, workspace_role FROM usr where username = $1 AND \
                                                  workspace_id = $2 AND disabled = false",
                                                 name,
                                                 &w_id.as_ref().unwrap()
@@ -475,8 +475,24 @@ impl AuthCache {
                                             .fetch_optional(&self.db)
                                             .await
                                             .ok()
-                                            .flatten()
-                                            .map(|r| (r.is_admin, r.operator))
+                                            .flatten();
+                                            match row {
+                                                Some(r) => {
+                                                    // Fails closed: an unreadable role config
+                                                    // gates the member rather than freeing it.
+                                                    let restricted =
+                                                        windmill_common::roles::member_is_restricted_db(
+                                                            &self.db,
+                                                            w_id.as_ref().unwrap(),
+                                                            r.workspace_role,
+                                                            r.operator,
+                                                        )
+                                                        .await
+                                                        .unwrap_or(true);
+                                                    Some((r.is_admin, restricted && !r.is_admin))
+                                                }
+                                                None => None,
+                                            }
                                         };
 
                                         if let Some((is_admin, is_operator)) = lookup {
@@ -509,6 +525,7 @@ impl AuthCache {
                                                 read_only,
                                                 job_id: None,
                                                 credential_expiry: None,
+                                                mcp_client: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -563,6 +580,7 @@ impl AuthCache {
                                                 read_only,
                                                 job_id: None,
                                                 credential_expiry: None,
+                                                mcp_client: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -596,15 +614,35 @@ impl AuthCache {
                                     username_override_from_label(label);
                                 if w_id.is_some() {
                                     let row_o = sqlx::query!(
-                                        "SELECT username, is_admin, operator FROM usr WHERE
+                                        "SELECT username, is_admin, operator, workspace_role FROM usr WHERE
                                             email = $1 AND workspace_id = $2 AND disabled = false",
                                         &email,
                                         w_id.as_ref().unwrap()
                                     )
-                                    .map(|x| (x.username, x.is_admin, x.operator))
+                                    .map(|x| (x.username, x.is_admin, x.operator, x.workspace_role))
                                     .fetch_optional(&self.db)
                                     .await
-                                    .unwrap_or(Some(("error".to_string(), false, false)));
+                                    .unwrap_or(Some(("error".to_string(), false, false, None)));
+                                    let row_o = match row_o {
+                                        Some((username, is_admin, operator, workspace_role)) => {
+                                            // Fails closed, as above.
+                                            let restricted =
+                                                windmill_common::roles::member_is_restricted_db(
+                                                    &self.db,
+                                                    w_id.as_ref().unwrap(),
+                                                    workspace_role,
+                                                    operator,
+                                                )
+                                                .await
+                                                .unwrap_or(true);
+                                            Some((
+                                                username,
+                                                is_admin,
+                                                restricted && !is_admin && !super_admin,
+                                            ))
+                                        }
+                                        None => None,
+                                    };
 
                                     match row_o {
                                         Some((username, is_admin, is_operator)) => {
@@ -642,6 +680,7 @@ impl AuthCache {
                                                 read_only,
                                                 job_id: None,
                                                 credential_expiry: None,
+                                                mcp_client: None,
                                             })
                                         }
                                         None if super_admin => {
@@ -667,6 +706,7 @@ impl AuthCache {
                                                     read_only,
                                                     job_id: None,
                                                     credential_expiry: None,
+                                                    mcp_client: None,
                                                 }),
                                                 Err(e) => {
                                                     tracing::error!(
@@ -705,6 +745,7 @@ impl AuthCache {
                                                 read_only,
                                                 job_id: None,
                                                 credential_expiry: None,
+                                                mcp_client: None,
                                             })
                                         }
                                         None => None,
@@ -725,6 +766,7 @@ impl AuthCache {
                                         read_only,
                                         job_id: None,
                                         credential_expiry: None,
+                                        mcp_client: None,
                                     })
                                 }
                             }
@@ -764,6 +806,7 @@ impl AuthCache {
                         read_only: false,
                         job_id: None,
                         credential_expiry: None,
+                        mcp_client: None,
                     };
                     Some(OptJobAuthed { authed, job_id: None })
                 } else {
@@ -775,8 +818,8 @@ impl AuthCache {
 }
 
 /// How long a guest JWT resolves from the auth cache before the arm re-runs (and
-/// re-reads the key). A guest JWT is not revocable except by the workspace switch or
-/// by rotating the key, so the entry must be short enough that a rotated key bites
+/// re-reads the key). A guest JWT is not revocable except by taking its app out of
+/// guest mode or by rotating the key, so the entry must be short enough that a rotated key bites
 /// soon, unlike a normal token whose row can be deleted. Also what makes the
 /// day-keyed activity dedupe below reachable across a midnight.
 const GUEST_JWT_CACHE_TTL: chrono::Duration = chrono::Duration::minutes(5);
@@ -867,10 +910,9 @@ async fn admit_and_record_guest_jwt(db: &DB, w_id: &str, email: &str, app_path: 
         return false;
     }
     GUEST_JWT_ACTIVITY_CACHE.insert(cache_key, ());
-    // Audit last, best-effort, on its own connection: the EE writer swallows an
-    // `audit_partitioned` failure but that failing statement still aborts the
-    // transaction it runs in, so auditing before the commit would let the whole
-    // activity row roll back while this returned success, admitting an uncounted guest.
+    // Audit last, best-effort, on its own connection: a failed `audit_partitioned`
+    // insert aborts the transaction it runs in, so auditing before the commit would
+    // let an audit failure drop the activity row that counts this guest.
     if first_jwt {
         let author = windmill_common::audit::AuditAuthor {
             email: email.to_string(),
@@ -1139,6 +1181,7 @@ fn no_auth_admin_authed() -> ApiAuthed {
         read_only: false,
         job_id: None,
         credential_expiry: None,
+        mcp_client: None,
     }
 }
 
@@ -1244,6 +1287,7 @@ pub async fn resolve_opt_job_authed(
                     // could approve an OAuth flow that mints a new non-read-only
                     // token.
                     let is_mcp_transport = path == "/api/mcp/gateway"
+                        || path == "/api/mcp"
                         || (path.starts_with("/api/mcp/w/")
                             && (path.ends_with("/mcp")
                                 || path.ends_with("/sse")

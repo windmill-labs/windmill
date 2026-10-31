@@ -2098,7 +2098,7 @@ fi
         nsjail_cmd
             .current_dir(job_dir)
             .env_clear()
-            .envs(PROXY_ENVS.clone())
+            .envs(crate::job_proxy_envs())
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())

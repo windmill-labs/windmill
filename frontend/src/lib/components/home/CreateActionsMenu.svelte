@@ -16,8 +16,10 @@
 		Workflow,
 		Import,
 		Store,
-		PanelLeftClose
+		PanelLeftClose,
+		Folder
 	} from 'lucide-svelte'
+	import MenuItem from '$lib/components/meltComponents/MenuItem.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
 	import { PythonIcon, TypeScriptIcon } from '$lib/components/common/languageIcons'
@@ -27,6 +29,7 @@
 	import { importStore } from '$lib/components/apps/store'
 	import { conditionalMelt, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { useEditRights } from '$lib/operatorWriteRights'
+	import type { EditKind } from '$lib/editRights'
 	import { createDropdownMenu, melt } from '@melt-ui/svelte'
 	import YAML from 'yaml'
 	import type { Snippet } from 'svelte'
@@ -47,9 +50,17 @@
 		 * serve both this menu and the empty state's own link.
 		 */
 		onImportHubProject?: () => void
+		/** Opens the host's folder drawer. The entry is offered only when this is set. */
+		onCreateFolder?: () => void
 	}
 
-	let { trigger, triggerElement, source = 'toolbar', onImportHubProject }: Props = $props()
+	let {
+		trigger,
+		triggerElement,
+		source = 'toolbar',
+		onImportHubProject,
+		onCreateFolder
+	}: Props = $props()
 
 	type Variant = {
 		label: string
@@ -102,6 +113,11 @@
 
 	// kept static so tailwind doesn't purge the badge tones
 	const badgeAdvanced = 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+	// While Home's composer is open (`data-composer-open`) the button looks like the default
+	// variant: that state lives in the DOM, not in a prop. The border is an inset ring so the
+	// button keeps its width.
+	const QUIET_AS_DEFAULT =
+		'group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:hover:bg-surface-hover group-has-[[data-composer-open]]/home:text-primary group-has-[[data-composer-open]]/home:ring-1 group-has-[[data-composer-open]]/home:ring-inset group-has-[[data-composer-open]]/home:ring-border-light'
 	const badgeLegacy = 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
 	const badgeAlpha = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
 	const badgeRecommended = 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
@@ -313,11 +329,15 @@
 		}
 	}
 
-	// Only the kinds this user's role authors: a builder operator gets the kinds its rights grant.
+	// The edit kind of an option whose key is not one: a low-code app needs `full` apps, a
+	// full-code one `compose`. Every other key is itself a kind (`wac` falls to `code`).
+	const EDIT_KIND: Record<string, EditKind> = { 'app-fullcode': 'raw_app', 'app-lowcode': 'app' }
+
+	// Only the kinds this user's role authors.
 	// Derived, not computed once: switching workspace only sets `workspaceStore`, it does not
 	// remount this component, so a snapshot would keep the previous workspace's kinds.
 	const options: Option[] = $derived(
-		allOptions.filter((o) => editRights.roleCanAuthor(o.key === 'app-fullcode' ? 'raw_app' : o.key))
+		allOptions.filter((o) => editRights.roleCanAuthor(EDIT_KIND[o.key] ?? o.key))
 	)
 
 	// the doc panel only shows while an option is hovered or focused, so the menu opens compact
@@ -520,6 +540,7 @@
 			aiDescription="Create a new script, flow or app"
 			unifiedSize="md"
 			variant="accent"
+			btnClasses={QUIET_AS_DEFAULT}
 			startIcon={{ icon: Plus }}
 			endIcon={{ icon: ChevronDown }}
 			bind:element={triggerEl}
@@ -708,8 +729,26 @@
 					{/if}
 				{/each}
 
-				<!-- bottom import section: one entry whose submenu imports any artifact -->
+				<!-- bottom section: a folder, then one entry whose submenu imports any artifact -->
 				<div class="mx-1 my-1 border-t border-gray-200 dark:border-gray-700"></div>
+				{#if onCreateFolder}
+					<!-- Focus also arrives on hover: melt focuses the highlighted item. -->
+					<MenuItem
+						{item}
+						class="w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
+						onFocusIn={() => highlightOption(undefined)}
+						onClick={() => onCreateFolder()}
+					>
+						<div
+							class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-gray-100 dark:bg-gray-700"
+						>
+							<Folder size={14} class="text-gray-600 dark:text-gray-300" />
+						</div>
+						<span class="text-xs font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
+							Folder
+						</span>
+					</MenuItem>
+				{/if}
 				<button
 					use:melt={$importSubTrigger}
 					class="w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
