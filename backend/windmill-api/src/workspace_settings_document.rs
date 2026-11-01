@@ -2232,12 +2232,24 @@ mod tests {
                 "reviewer": { "label": "Reviewer", "capabilities": { "code": false } },
             },
         }));
-        let p = plan_document(cur, d, false, &mc, &DatatableNames::default()).unwrap();
+        let p = plan_document(cur.clone(), d, false, &mc, &DatatableNames::default()).unwrap();
         assert_eq!(keys(&p), ["operator_settings", "role_overrides"]);
         assert!(matches!(
             p.writes.last().unwrap().target,
             Target::Edit(SettingsEdit::RoleOverrides)
         ));
+
+        // An empty map is stated, so it clears the workspace's overrides.
+        let p = plan_document(
+            cur,
+            doc(json!({ "role_overrides": {} })),
+            false,
+            &mc,
+            &DatatableNames::default(),
+        )
+        .unwrap();
+        assert_eq!(keys(&p), ["role_overrides"]);
+        assert_eq!(p.writes[0].body, json!({}));
     }
 
     #[test]
