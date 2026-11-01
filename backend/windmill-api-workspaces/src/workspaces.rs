@@ -15771,6 +15771,8 @@ pub enum SettingsEdit {
     DefaultApp,
     Color,
     OperatorSettings,
+    /// Body: the workspace's role overrides as a whole, `{ "<role>": { label?, capabilities } }`.
+    RoleOverrides,
     Datatable,
     SlackCommand,
     SetSlackOAuth,
@@ -15834,6 +15836,10 @@ pub async fn apply_settings_edit(
                 settings_edit_body(edit, body)?,
             )
             .await?
+        }
+        RoleOverrides => {
+            crate::workspace_roles::update_role_overrides(a, p, d, settings_edit_body(edit, body)?)
+                .await?
         }
         Datatable => {
             let Json(result) =

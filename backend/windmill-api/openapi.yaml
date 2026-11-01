@@ -32364,6 +32364,9 @@ components:
           format: date-time
         operator:
           type: boolean
+        role:
+          type: string
+          description: The member's workspace role by name (`developer`, `operator` or a custom role). Admin is the separate `is_admin` flag.
         disabled:
           type: boolean
         groups:
