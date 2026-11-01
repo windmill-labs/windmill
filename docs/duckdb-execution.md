@@ -81,19 +81,36 @@ affects its own connection, and is no more than a Python job could do.
 
 ## The engine
 
-The runner links duckdb-rs pinned exactly (`=` on crates.io, or a git `rev`) so `cargo update`
-cannot move the engine. The engine loads the **prebuilt** extensions from `extensions.duckdb.org`,
+The runner links duckdb-rs pinned exactly (`=`) so `cargo update` cannot move the engine. The engine loads the **prebuilt** extensions from `extensions.duckdb.org`,
 compiled for the exact release it reports, so an engine bump is a version change in `Cargo.toml`
 and nothing else. The reported version comes from the vendored sources' `pragma_version.cpp`: a
 build that calls itself `vX.Y.Z-devN` downloads from a per-commit path that does not exist, and
 every extension `INSTALL` 404s. Check `SELECT version()` after a bump.
 
+The engine is built from source with baseline flags, but the prebuilt 2.0 linux_amd64 extensions
+are compiled for x86-64-v3: on a CPU without AVX2 (pre-Haswell, or a VM CPU model such as
+Proxmox's `x86-64-v2-AES` or a low VMware EVC baseline) `LOAD httpfs` dies with SIGILL, and
+every job loads httpfs. linux_arm64 extensions run on Cortex-A53 and later.
+
 What a bump can break is user scripts and shared state, so a major one keeps the previous major's
 behavior and leaves the new one opt-in:
 
-- `setup_duckdb_connection` reverts the SQL defaults DuckDB 2.0 changed: `x -> …` lambdas and
-  `NULL` for integer `//` / `%` by zero. A script can `SET` either back. DuckDB 2.1 removes
-  `lambda_syntax`, and the setting has to go then.
+- `setup_duckdb_connection` reverts the defaults DuckDB 2.0 changed that would make a query that
+  worked on 1.x return something else: `x -> …` lambdas, `NULL` for integer `//` / `%` by zero,
+  untyped `NULL` columns typed INTEGER (the 2.0 NULL type makes duckdb-rs panic on read),
+  whole-string `~`, `.duckdb` files written at a version 1.x can open, and the 800GB S3 upload
+  cap. A script can `SET` any of them back. DuckDB 2.1 removes `lambda_syntax`, and the setting
+  has to go then.
+- `ieee_floating_point_ops` stays at 2.0's default on purpose. Turning it off does not restore
+  1.x: `/` by zero then returns `NULL` where 1.x returned infinity. Left on, the only change is
+  that `sqrt(-1)`, `ln(0)` and the like return NaN instead of erroring.
+- MySQL resource attaches turn off `mysql_enable_remote_pushdown`, which is read when the
+  ATTACH runs. Left on, binary-collated text comes back as BLOB and grouping follows MySQL's
+  collation.
+- What no setting restores: auto-generated names of unaliased expressions (`main.` prefixes
+  dropped), unnamed structs rendered as `element1`… instead of a single `""` key, JSON
+  auto-detection typing offset timestamps as TIMESTAMPTZ, `GROUP BY ALL` over an `UNNEST`
+  erroring, `X'..'` literals typed BLOB, and Parquet columns from constants written REQUIRED.
 - `transform_attach_ducklake` attaches lakes with `DUCKLAKE_VERSION '1.0'` unless the lake's
   extra args name one. Windmill also passes `AUTOMATIC_MIGRATION TRUE`, which unpinned migrates to
   the newest catalog format. A migrated catalog cannot be downgraded and older engines cannot read

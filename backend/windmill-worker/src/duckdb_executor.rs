@@ -2233,11 +2233,18 @@ async fn db_resource_to_attach_statements(
     )
     .to_string();
 
-    Ok(vec![
+    let mut statements = vec![
         get_attach_db_install_str(db_type)?.to_string(),
         format!("LOAD {};", db_type),
-        attach_str,
-    ])
+    ];
+    // DuckDB 2.0's MySQL scanner hands whole queries to the server by default, which turns
+    // binary-collated text into BLOB and moves grouping to MySQL's collation. Read when the
+    // ATTACH runs, so it has to precede it.
+    if db_type == "mysql" {
+        statements.push("SET mysql_enable_remote_pushdown=false;".to_string());
+    }
+    statements.push(attach_str);
+    Ok(statements)
 }
 
 async fn transform_attach_ducklake(
