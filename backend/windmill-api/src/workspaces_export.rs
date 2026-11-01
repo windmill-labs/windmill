@@ -1466,26 +1466,26 @@ pub(crate) async fn tarball_workspace(
     }
 
     if include_users.unwrap_or(false) {
-        let users = sqlx::query!(
-            "SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via FROM usr
+        // `role` is the member's workspace role by name, so a custom role survives the round trip.
+        // Admin is a flag on top of the role and is written as `admin`, as it always was.
+        let users = sqlx::query_as::<_, (String, String, bool, bool, bool, Option<String>)>(
+            "SELECT username, email, is_admin, operator, disabled, workspace_role FROM usr
              WHERE workspace_id = $1",
-            &w_id
         )
+        .bind(&w_id)
         .fetch_all(&mut *tx)
         .await?;
 
-        for user in users {
+        for (username, email, is_admin, operator, disabled, workspace_role) in users {
             let user = SimplifiedUser {
-                username: user.username,
-                role: if user.is_admin {
+                username,
+                role: if is_admin {
                     "admin".to_string()
-                } else if user.operator {
-                    "operator".to_string()
                 } else {
-                    "developer".to_string()
+                    windmill_common::roles::resolve_role_name(workspace_role, operator)
                 },
-                disabled: user.disabled,
-                email: user.email,
+                disabled,
+                email,
             };
             let user_str =
                 &to_string_without_metadata(&user, ExtraPermsBehavior::Drop, Some(vec!["email"]))

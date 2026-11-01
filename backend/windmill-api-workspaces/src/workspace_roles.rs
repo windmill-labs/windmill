@@ -67,7 +67,7 @@ async fn list_roles(
     }))
 }
 
-async fn update_role_overrides(
+pub(crate) async fn update_role_overrides(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
     Extension(db): Extension<DB>,
