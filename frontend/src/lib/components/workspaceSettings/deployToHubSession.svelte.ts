@@ -354,9 +354,10 @@ export class DeployToHubSession {
 				this.filteredWorkspaceItems.filter((i) => !this.isBlocked(i.path)).length
 	)
 	/** The project the selection describes: the whole base folder while everything is
-	 * selected, else the deepest sub-path holding all of it. */
+	 * selected and no other project holds part of it, else the deepest sub-path holding
+	 * all of it. */
 	selectionScope = $derived.by(() =>
-		this.allSelected
+		this.allSelected && !this.blockedFolders.length
 			? this.listFolder
 			: (commonFolderPath(this.selectedItems.map((i) => i.path)) ?? this.folder)
 	)

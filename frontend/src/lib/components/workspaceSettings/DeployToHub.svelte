@@ -23,6 +23,7 @@
 	import RawAppRecordSession from './RawAppRecordSession.svelte'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import {
+		ArrowLeft,
 		Check,
 		ChevronDown,
 		ChevronRight,
@@ -118,11 +119,12 @@
 		})
 	})
 
-	// A new project cannot take in items another project already holds.
+	// No project takes in items another one holds: not a new one, and not an update of
+	// one created above a sub-path that was published first.
 	$effect(() => {
 		const s = deployHub.session
 		if (!s || !projects) return
-		s.blockedFolders = s.effectiveSlug ? [] : projects.map((p) => p.folder)
+		s.blockedFolders = projects.map((p) => p.folder).filter((f) => f !== s.folder)
 	})
 
 	// Once the folder has projects, a new one is a sub-path: the whole folder would
@@ -375,6 +377,16 @@
 							</li>
 						</ol>
 						<div class="flex flex-wrap items-center gap-2 pt-4">
+							{#if (s.effectiveSlug && projects && projects.length > 1) || (!s.effectiveSlug && projects?.length)}
+								<Button
+									unifiedSize="sm"
+									variant="subtle"
+									iconOnly
+									startIcon={{ icon: ArrowLeft }}
+									title={s.effectiveSlug ? 'All Hub projects' : 'Back to Hub projects'}
+									onclick={s.effectiveSlug ? () => (showList = true) : backToProjects}
+								/>
+							{/if}
 							{#if s.phase === 'predeploy'}
 								<span class="text-sm font-semibold text-primary">
 									Step 1: Bundle your project
@@ -400,15 +412,6 @@
 								>
 									<ExternalLink size={12} /> Open in Hub
 								</a>
-							{/if}
-							{#if s.effectiveSlug && projects && projects.length > 1}
-								<Button variant="subtle" unifiedSize="xs" onclick={() => (showList = true)}>
-									All projects
-								</Button>
-							{:else if !s.effectiveSlug && projects?.length}
-								<Button variant="subtle" unifiedSize="xs" onclick={backToProjects}>
-									Back to Hub projects
-								</Button>
 							{/if}
 							<div class="ml-auto flex items-center gap-2">
 								{#if s.effectiveSlug && !wholeIsProject}
