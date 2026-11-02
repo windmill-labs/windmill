@@ -686,17 +686,31 @@
 	// code being edited, which an Escape must neither count nor drop.
 	const userContext = $derived(chatHost.mode === AIMode.GLOBAL ? selectedContext : [])
 
-	/** Whether there is anything for `clearDraft` to drop: the draft or a context chip. */
+	const attachmentsInFlight = $derived(
+		pendingImages > 0 || pendingFiles > 0 || pendingBlobs > 0 || ingestionHolds > 0
+	)
+
+	/** Whether there is anything for `clearDraft` to drop: the draft, a context chip, or an
+	 * attachment still being read. */
 	export function hasClearableContent(): boolean {
-		return !draft.isEmpty || userContext.length > 0
+		return !draft.isEmpty || userContext.length > 0 || attachmentsInFlight
 	}
 
-	/** Drops everything the user put in the composer: text, attachments and context chips. */
-	export function clearDraft() {
+	/** Whether an `@` or `/` picker is open: an Escape then belongs to it. */
+	export function hasOpenPicker(): boolean {
+		return showAppContextTooltip || (contextTextareaComponent?.hasOpenPicker() ?? false)
+	}
+
+	/** Drops everything the user put in the composer: text, attachments and context chips.
+	 * Refused while an attachment is still being read, as a send is: it would land after the
+	 * clear. Returns whether it cleared. */
+	export function clearDraft(): boolean {
+		if (attachmentsInFlight) return false
 		// Zapped first, so wiping the text does not also dispatch a removal per `@` mention.
 		contextTextareaComponent?.clearForSend()
 		draft.clear()
 		if (userContext.length > 0) selectedContext = []
+		return true
 	}
 
 	export function focusInput(selection?: ComposerSelection) {

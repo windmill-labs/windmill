@@ -626,7 +626,8 @@
 	}
 
 	// The composer clears on a second Escape: the first only shows the hint, so a single
-	// stray press cannot throw a draft away. Typing or leaving the composer disarms it.
+	// stray press cannot throw a draft away. Any other key, a click in the composer or
+	// leaving it disarms it.
 	const CLEAR_ARM_MS = 2000
 	let clearArmed = $state(false)
 	let clearArmTimer: ReturnType<typeof setTimeout> | undefined
@@ -637,8 +638,8 @@
 	function onComposerEscape() {
 		if (!aiChatInput?.hasClearableContent()) return false
 		if (clearArmed) {
-			disarmClear()
-			aiChatInput.clearDraft()
+			// Still armed if refused (an attachment still being read): the next press retries.
+			if (aiChatInput.clearDraft()) disarmClear()
 		} else {
 			clearArmed = true
 			clearArmTimer = setTimeout(disarmClear, CLEAR_ARM_MS)
@@ -1061,13 +1062,20 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			if (starterLayout && e.target instanceof HTMLTextAreaElement) composerOpened = true
 		}}
 		oninput={() => disarmClear()}
+		onpointerdown={() => disarmClear()}
 		onfocusout={(e) => {
 			if (!composerEl?.contains(e.relatedTarget as Node | null)) disarmClear()
 		}}
 		onkeydown={(e) => {
-			// A prevented Escape closed something inside first, such as the @-mention picker.
-			// A running turn's Escape stops it and arrives prevented too.
-			if (e.key !== 'Escape' || e.defaultPrevented) return
+			// A prevented Escape was handled inside, such as a running turn's stop. An IME
+			// cancel is the input method's.
+			if (e.key !== 'Escape') {
+				disarmClear()
+				return
+			}
+			if (e.defaultPrevented || e.isComposing) return
+			// The `@` and `/` pickers close on this press reaching `document` unprevented.
+			if (aiChatInput?.hasOpenPicker()) return
 			if (onComposerEscape()) {
 				// Kept from the panel or drawer around the chat, which would close on it.
 				e.preventDefault()
@@ -1483,7 +1491,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		<div use:smoothHeight={{ enabled: starterLayout, key: composerCollapsed }}>
 			<div>
 				<!-- Right under the box; on Home it stands in for the suggestions, at their height. -->
-				{#if clearArmed}
+				{#if clearArmed && aiChatInput?.hasClearableContent()}
 					<div class="pt-2 h-9 flex items-center gap-1 text-xs text-hint" role="status">
 						Press <Kbd small>Esc</Kbd> again to clear
 					</div>
