@@ -88,6 +88,7 @@
 	import { Button } from '$lib/components/common'
 	import { isInstanceRoute } from '$lib/instanceRoutes'
 	import { getUserExt } from '$lib/user'
+	import { forgetLastSession, optimisticUser, rememberUser } from '$lib/lastSession'
 	import { confirmPendingLoginMethod } from '$lib/lastLoginMethod'
 	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
@@ -374,7 +375,19 @@
 					console.error('Could not persist workspace to local storage', e)
 				}
 			}
+			// Rendering as the user whoami last confirmed for this session saves its round trip on
+			// a reload; whoami below confirms or replaces them. See lastSession.ts for the binding.
+			// A task later, not now: setting the user here renders the whole page in this effect
+			// flush, ahead of the effects that send whoami and the page's other requests.
+			const last = $userStore ? undefined : optimisticUser(workspace)
+			let answered = false
+			if (last) {
+				setTimeout(() => {
+					if (!answered && !$userStore && $workspaceStore === workspace) userStore.set(last)
+				}, 0)
+			}
 			const user = await getUserExt(workspace)
+			answered = true
 			// getUserExt resolves to undefined on failure, so a user is the only proof of a
 			// session: without it a cancelled SSO round trip would claim the "Last used" badge.
 			if (user) confirmPendingLoginMethod()
@@ -388,6 +401,8 @@
 			if (!deepEqual(user, $userStore)) {
 				userStore.set(user)
 			}
+			if (user) rememberUser(user)
+			else forgetLastSession()
 			// Persist the workspace username so the synchronous `/add` →
 			// `/edit/u/{user}/draft_{uuid}` redirects (in each editor's
 			// `+page.ts`) can land on the right namespace without waiting
