@@ -319,9 +319,14 @@ export class DeployToHubSession {
 
 	/** Set once the Hub has said whether this scope already has a project. */
 	hubChecked = $state(false)
-	/** Sub-paths of an unpublished base folder that are Hub projects of their own. */
-	subProjects = $state<{ folder: string; status: string }[]>([])
+	/** Sub-paths of the base folder that are Hub projects of their own. */
+	subProjects = $state<{ folder: string; status: string; name: string }[]>([])
+	/** Set once `subProjects` has been looked up. */
+	subProjectsChecked = $state(false)
 	#subProjectsLoaded = false
+	/** Folders already published as other projects: their items cannot join this one. */
+	blockedFolders = $state<string[]>([])
+	isBlocked = (path: string) => this.blockedFolders.some((f) => path.startsWith(`f/${f}/`))
 	// A scope with a Hub project offers only its own items, so an update cannot drift
 	// into another scope's project; until then the whole base folder is offered.
 	filteredWorkspaceItems = $derived(
@@ -337,13 +342,16 @@ export class DeployToHubSession {
 	)
 	selectedItems = $derived(
 		this.phase === 'predeploy'
-			? this.filteredWorkspaceItems.filter((i) => !this.manualDeselected.has(i.key))
+			? this.filteredWorkspaceItems.filter(
+					(i) => !this.manualDeselected.has(i.key) && !this.isBlocked(i.path)
+				)
 			: []
 	)
 	selectedItemKeys = $derived(this.selectedItems.map((i) => i.key))
 	allSelected = $derived(
 		this.phase === 'predeploy' &&
-			this.selectedItemKeys.length === this.filteredWorkspaceItems.length
+			this.selectedItemKeys.length ===
+				this.filteredWorkspaceItems.filter((i) => !this.isBlocked(i.path)).length
 	)
 	/** The project the selection describes: the whole base folder while everything is
 	 * selected, else the deepest sub-path holding all of it. */
@@ -645,7 +653,9 @@ export class DeployToHubSession {
 					)
 					if (!res.ok) return undefined
 					const p = await res.json()
-					return p?.slug ? { folder, status: String(p.status ?? 'draft') } : undefined
+					return p?.slug
+						? { folder, status: String(p.status ?? 'draft'), name: String(p.name || p.slug) }
+						: undefined
 				} catch {
 					return undefined
 				}
@@ -653,6 +663,7 @@ export class DeployToHubSession {
 		)
 		if (this.#disposed) return
 		this.subProjects = found.filter((p) => p !== undefined)
+		this.subProjectsChecked = true
 	}
 
 	async rehydrateFromHub() {
@@ -1990,17 +2001,11 @@ export function useDeployToHubSession(args: {
 		})
 	})
 
-	// An unpublished base folder looks up which of its sub-paths are published on their
-	// own, once its items have loaded.
+	// The base folder looks up which of its sub-paths are published on their own, once
+	// its items have loaded.
 	$effect(() => {
 		const s = session
-		if (
-			s &&
-			s.hubChecked &&
-			!s.effectiveSlug &&
-			s.folder === s.listFolder &&
-			s.workspaceItems.length
-		)
+		if (s && s.hubChecked && !s.loading && s.folder === s.listFolder)
 			untrack(() => void s.loadSubProjects())
 	})
 

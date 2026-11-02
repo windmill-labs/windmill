@@ -25,16 +25,19 @@
 	import {
 		Check,
 		ChevronDown,
+		ChevronRight,
 		Cloud,
 		Code2,
 		Database,
 		Eye,
 		ExternalLink,
+		FolderTree,
 		Image as ImageIcon,
 		Info,
 		LayoutDashboard,
 		Loader2,
 		Play,
+		Plus,
 		RotateCcw,
 		TriangleAlert,
 		X,
@@ -69,8 +72,83 @@
 		if (s.selectedItems.length && s.selectionScope !== s.folder) scope = s.selectionScope
 	})
 
-	function hubStatusLabel(status: string): string {
-		return status === 'live' ? 'live' : status === 'under_review' ? 'in review' : 'draft'
+	type HubProject = { folder: string; status: string; name: string }
+	// The folder's Hub projects (the whole folder and any sub-paths), found once when the
+	// drawer opens; undefined until then. None: the tree. One: that project, as for any
+	// folder. Several: a list to pick from.
+	let projects = $state<HubProject[] | undefined>(undefined)
+	let showList = $state(false)
+	const wholeIsProject = $derived(!!projects?.some((p) => p.folder === folderProp))
+
+	function statusOf(s: DeployToHubSession): string {
+		return s.liveOnHub || s.phase === 'live'
+			? 'live'
+			: s.phase === 'under_review'
+				? 'under_review'
+				: 'draft'
+	}
+
+	$effect(() => {
+		const s = deployHub.session
+		if (projects || !s || s.folder !== folderProp || !s.hubChecked || !s.subProjectsChecked) return
+		const found: HubProject[] = [
+			...(s.effectiveSlug
+				? [{ folder: folderProp, status: statusOf(s), name: s.hubName || s.hubSlug }]
+				: []),
+			...s.subProjects
+		]
+		projects = found
+		if (found.length === 1) scope = found[0].folder
+		else if (found.length > 1) showList = true
+	})
+
+	// The open project keeps its list entry current: one created here joins the list,
+	// and a submit or approval shows up when going back to it.
+	$effect(() => {
+		const s = deployHub.session
+		if (!s?.effectiveSlug) return
+		const entry = { folder: s.folder, status: statusOf(s), name: s.hubName || s.hubSlug }
+		untrack(() => {
+			if (!projects) return
+			const cur = projects.find((p) => p.folder === entry.folder)
+			if (cur?.status === entry.status && cur.name === entry.name) return
+			projects = [...projects.filter((p) => p.folder !== entry.folder), entry].sort((a, b) =>
+				a.folder.localeCompare(b.folder)
+			)
+		})
+	})
+
+	// A new project cannot take in items another project already holds.
+	$effect(() => {
+		const s = deployHub.session
+		if (!s || !projects) return
+		s.blockedFolders = s.effectiveSlug ? [] : projects.map((p) => p.folder)
+	})
+
+	// Once the folder has projects, a new one is a sub-path: the whole folder would
+	// take in their items.
+	function needsSubFolder(s: DeployToHubSession): boolean {
+		return !s.effectiveSlug && s.folder === folderProp && !!projects?.length
+	}
+
+	function startNewProject() {
+		showList = false
+		scope = folderProp
+	}
+	function backToProjects() {
+		if (projects && projects.length > 1) showList = true
+		else if (projects?.length === 1) scope = projects[0].folder
+	}
+	function openProject(folder: string) {
+		showList = false
+		scope = folder
+	}
+	function statusBadge(status: string): { color: 'green' | 'yellow' | 'gray'; label: string } {
+		return status === 'live'
+			? { color: 'green', label: 'Live on Hub' }
+			: status === 'under_review'
+				? { color: 'yellow', label: 'In review on Hub' }
+				: { color: 'gray', label: 'Draft on Hub' }
 	}
 
 	let recordDrawer = $state<Drawer | undefined>()
@@ -171,13 +249,58 @@
 </script>
 
 {#snippet subProjectNote(prefix: string)}
-	{@const sp = deployHub.session?.subProjects.find((p) => `f/${p.folder}` === prefix)}
+	{@const sp = projects?.find((p) => `f/${p.folder}` === prefix)}
 	{#if sp}
-		· on Hub ({hubStatusLabel(sp.status)})
+		{@const b = statusBadge(sp.status)}
+		<Badge small color={b.color} wrapperClass="ml-1">
+			<Cloud size={10} class="mr-1" />
+			{b.label}
+		</Badge>
 	{/if}
 {/snippet}
 
-{#if deployHub.session}
+{#if !projects}
+	<div class="flex items-center gap-2 py-8 text-xs text-secondary">
+		<Loader2 size={14} class="animate-spin" /> Looking for Hub projects…
+	</div>
+{:else if showList}
+	<div class="flex flex-col gap-3 max-w-2xl">
+		<span class="text-sm font-semibold text-emphasis">Hub projects from this folder</span>
+		<span class="text-xs text-primary">Pick a project to update, record or submit.</span>
+		<div class="flex flex-col border rounded-md bg-surface-tertiary divide-y">
+			{#each projects as p (p.folder)}
+				{@const b = statusBadge(p.status)}
+				<button
+					class="flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-hover"
+					onclick={() => openProject(p.folder)}
+				>
+					<FolderTree size={16} class="text-secondary shrink-0" />
+					<span class="flex flex-col gap-0.5 min-w-0">
+						<span class="text-xs font-semibold text-emphasis truncate">{p.name}</span>
+						<span class="text-2xs font-mono text-secondary truncate">f/{p.folder}/</span>
+					</span>
+					<Badge small color={b.color} wrapperClass="ml-auto">
+						<Cloud size={10} class="mr-1" />
+						{b.label}
+					</Badge>
+					<ChevronRight size={16} class="text-secondary shrink-0" />
+				</button>
+			{/each}
+		</div>
+		{#if !wholeIsProject}
+			<div class="flex">
+				<Button
+					variant="default"
+					unifiedSize="sm"
+					startIcon={{ icon: Plus }}
+					onclick={startNewProject}
+				>
+					New project from another sub-folder
+				</Button>
+			</div>
+		{/if}
+	</div>
+{:else if deployHub.session}
 	<ConfirmationModal
 		open={discardTarget !== undefined}
 		title="Discard update"
@@ -201,6 +324,8 @@
 				items={s.items}
 				nested
 				folderDetail={subProjectNote}
+				selectablePredicate={(i) => !s.isBlocked(i.path)}
+				selectBlockedReason={() => 'Already part of another Hub project'}
 				selectedItems={s.selectedItemKeys}
 				deploymentStatus={s.deploymentStatus}
 				hideSelection={s.phase !== 'predeploy'}
@@ -276,17 +401,27 @@
 									<ExternalLink size={12} /> Open in Hub
 								</a>
 							{/if}
-							{#if scope !== folderProp && (s.phase !== 'predeploy' || s.effectiveSlug)}
-								<Button variant="subtle" unifiedSize="xs" onclick={() => (scope = folderProp)}>
-									Back to f/{folderProp}/
+							{#if s.effectiveSlug && projects && projects.length > 1}
+								<Button variant="subtle" unifiedSize="xs" onclick={() => (showList = true)}>
+									All projects
+								</Button>
+							{:else if !s.effectiveSlug && projects?.length}
+								<Button variant="subtle" unifiedSize="xs" onclick={backToProjects}>
+									Back to Hub projects
 								</Button>
 							{/if}
 							<div class="ml-auto flex items-center gap-2">
+								{#if s.effectiveSlug && !wholeIsProject}
+									<Button variant="default" unifiedSize="sm" onclick={startNewProject}>
+										New project from another sub-folder
+									</Button>
+								{/if}
 								{#if s.phase === 'predeploy'}
 									<Button
 										variant="accent"
 										loading={s.deploying || s.triggersLoading}
 										disabled={s.selectedItems.length === 0 ||
+											needsSubFolder(s) ||
 											s.triggersLoading ||
 											s.triggerDiscoveryFailed}
 										startIcon={{ icon: Cloud }}
@@ -356,29 +491,14 @@
 									<span class="font-mono">{s.selectedFolder}/</span>.
 									{s.selectedItems.length} of {s.filteredWorkspaceItems.length} items selected.
 								</span>
-								{#each s.subProjects as sp (sp.folder)}
-									<!-- Publishing the whole folder takes in a sub-path published on its own. -->
-									{@const overlaps = s.selectedItems.some((i) =>
-										i.path.startsWith(`f/${sp.folder}/`)
-									)}
-									<div
-										class="flex flex-wrap items-center gap-1.5 text-xs {overlaps
-											? 'text-yellow-700 dark:text-yellow-400'
-											: 'text-secondary'}"
+								{#if needsSubFolder(s) && s.selectedItems.length}
+									<span
+										class="flex items-center gap-1.5 text-xs text-yellow-700 dark:text-yellow-400"
 									>
-										{#if overlaps}
-											<TriangleAlert size={12} class="shrink-0" />
-										{/if}
-										<span>
-											<span class="font-mono">f/{sp.folder}/</span> is already a Hub project ({hubStatusLabel(
-												sp.status
-											)}){overlaps ? ', and this bundle includes its items too' : ''}.
-										</span>
-										<Button variant="subtle" unifiedSize="xs" onclick={() => (scope = sp.folder)}>
-											Open it
-										</Button>
-									</div>
-								{/each}
+										<TriangleAlert size={12} class="shrink-0" />
+										Select items inside one sub-folder: the whole folder already holds other Hub projects.
+									</span>
+								{/if}
 							</div>
 							<div class="flex flex-wrap items-center gap-2 text-xs">
 								<span class="font-semibold text-primary shrink-0">
@@ -820,7 +940,8 @@
 				<div class="flex flex-col gap-3">
 					<p class="text-xs text-secondary">
 						Run this {s.recordTarget?.kind} once with the inputs below. The full execution — args, logs,
-						intermediate step outputs and final result — is saved as a <b>replayable recording</b>
+						intermediate step outputs and final result — is saved as a
+						<b>replayable recording</b>
 						shown on the Hub page. Visitors can step through it to see how the {s.recordTarget
 							?.kind} works without running anything themselves.
 					</p>
