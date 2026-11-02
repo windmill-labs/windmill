@@ -391,8 +391,10 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		collapsed = {}
 		pulse++
 	}
-	/** Replays the focused folder's flash, so the eye finds it in the list. */
+	/** Replays the focused folder's flash, so the eye finds it in the list. A reload remounts
+	 * the rows, so the flash already played is remembered rather than replayed. */
 	let pulse = $state(0)
+	let played = $state(0)
 	const reducedMotion = useReducedMotion()
 
 	/** Lands on the rendered instructions: reading them is the common reason to open
@@ -703,10 +705,11 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 {#snippet focusPulse(focused: boolean)}
 	<!-- `opacity-0` at rest: the keyframes carry no fill mode, so the overlay would come back
 	     at full strength once the animation ends. -->
-	{#if focused && pulse > 0 && !reducedMotion.val}
+	{#if focused && pulse !== played && !reducedMotion.val}
 		{#key pulse}
 			<span
 				aria-hidden="true"
+				onanimationend={() => (played = pulse)}
 				class="pointer-events-none absolute inset-0 rounded-lg ring-2 ring-inset ring-blue-500/60 bg-blue-500/10 opacity-0 animate-fade-out"
 			></span>
 		{/key}
