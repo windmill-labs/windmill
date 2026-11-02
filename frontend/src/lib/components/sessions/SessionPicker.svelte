@@ -2,7 +2,12 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
 	import { Button } from '$lib/components/common'
-	import SidebarSection from '$lib/components/sidebar/SidebarSection.svelte'
+	import SidebarSection, {
+		flyoutRowClass,
+		type SectionActionsArgs
+	} from '$lib/components/sidebar/SidebarSection.svelte'
+	import DropdownSubmenuItem from '$lib/components/DropdownSubmenuItem.svelte'
+	import type { Item } from '$lib/utils'
 	import {
 		Archive,
 		ArchiveRestore,
@@ -164,8 +169,6 @@
 	// only when a second family shows up); the others always draw headers.
 	const groupBy = useLocalStorageValue<GroupBy>('windmill_sessions_group_by', 'none', 'string')
 	let listRoot: HTMLDivElement | undefined = $state()
-	// The list options menu, from the section row and from its popover.
-	let optionsOpen = $state([false, false])
 
 	// A session's family root: the stored grouping id, else derived live.
 	function sessionRootOf(s: Session): string | undefined {
@@ -506,6 +509,51 @@
 		sectionCollapsed.val = false
 	}
 
+	// The session list's options, for the ⋮ menu of the open list and the View submenu of the
+	// folded section's menu.
+	function listOptionItems(inFlyout: boolean): Item[] {
+		return [
+			{
+				displayName: archivedCount > 0 ? `Show archived (${archivedCount})` : 'Show archived',
+				icon: Archive,
+				toggle: showArchived.val,
+				action: () => (showArchived.val = !showArchived.val)
+			},
+			{
+				displayName: 'Last activity',
+				icon: Clock,
+				extra: lastActivityHint,
+				submenuItems: LAST_ACTIVITY_OPTIONS.map((o) => ({
+					displayName: o.label,
+					selected: lastActivityDays.val === o.days,
+					action: () => (lastActivityDays.val = o.days)
+				}))
+			},
+			{
+				displayName: 'Group by',
+				icon: Rows3,
+				extra: groupByHint,
+				submenuItems: GROUP_BY_OPTIONS.map((o) => ({
+					displayName: o.label,
+					selected: groupBy.val === o.value,
+					action: () => (groupBy.val = o.value)
+				}))
+			},
+			{
+				displayName: 'Edit sessions',
+				icon: ListChecks,
+				action: enterSelectionMode,
+				separatorTop: true,
+				// Selection is built from `visibleSessions`, which the tree render
+				// path doesn't follow — it drops workspace-less sessions and hides
+				// rows under a collapsed workspace, so "Select all" there would
+				// reach rows that never showed a checkbox.
+				// The rail's menu lists the rail's own rows, which have no names to select by.
+				hide: visibleSessions.length === 0 || workspaceTree || (isCollapsed && inFlyout)
+			}
+		]
+	}
+
 	function exitSelectionMode() {
 		selectionMode = false
 		selectedIds = []
@@ -697,123 +745,44 @@
 			</div>
 			{@render sessionList(false)}
 		{:else}
-			<!-- The submenu collapses to one row, so the picked cutoff would otherwise
-			     only be visible after opening it. -->
-			{#snippet lastActivityHint()}
-				<span class="text-2xs text-tertiary whitespace-nowrap">
-					{LAST_ACTIVITY_OPTIONS.find((o) => o.days === lastActivityDays.val)?.hint ?? ''}
-				</span>
-			{/snippet}
-			{#snippet groupByHint()}
-				<span class="text-2xs text-tertiary whitespace-nowrap">
-					{GROUP_BY_OPTIONS.find((o) => o.value === groupBy.val)?.hint ?? ''}
-				</span>
-			{/snippet}
-			{#snippet listOptions(
-				size: 'xs' | 'sm' | 'md',
-				inPopover = false,
-				hold?: (held: boolean) => void,
-				label?: string
-			)}
-				<!-- From the section's popover the options are a row like its others, opening their menu
-				     beside it on hover, as a submenu does. -->
+			{#snippet listOptions(size: 'xs' | 'sm' | 'md')}
 				<DropdownV2
-					class={label ? 'w-full justify-start' : undefined}
 					fixedHeight={false}
-					placement={inPopover ? 'right-start' : 'bottom-end'}
-					bind:open={
-						() => optionsOpen[inPopover ? 1 : 0],
-						(v) => {
-							optionsOpen[inPopover ? 1 : 0] = v
-							hold?.(v)
-						}
-					}
+					placement="bottom-end"
 					enableFlyTransition
-					items={[
-						{
-							displayName: archivedCount > 0 ? `Show archived (${archivedCount})` : 'Show archived',
-							icon: Archive,
-							toggle: showArchived.val,
-							action: () => (showArchived.val = !showArchived.val)
-						},
-						{
-							displayName: 'Last activity',
-							icon: Clock,
-							extra: lastActivityHint,
-							submenuItems: LAST_ACTIVITY_OPTIONS.map((o) => ({
-								displayName: o.label,
-								selected: lastActivityDays.val === o.days,
-								action: () => (lastActivityDays.val = o.days)
-							}))
-						},
-						{
-							displayName: 'Group by',
-							icon: Rows3,
-							extra: groupByHint,
-							submenuItems: GROUP_BY_OPTIONS.map((o) => ({
-								displayName: o.label,
-								selected: groupBy.val === o.value,
-								action: () => (groupBy.val = o.value)
-							}))
-						},
-						{
-							displayName: 'Edit sessions',
-							icon: ListChecks,
-							action: enterSelectionMode,
-							separatorTop: true,
-							// Selection is built from `visibleSessions`, which the tree render
-							// path doesn't follow — it drops workspace-less sessions and hides
-							// rows under a collapsed workspace, so "Select all" there would
-							// reach rows that never showed a checkbox.
-							// The rail's popover lists the rail's own rows, which have no names to select by.
-							hide: visibleSessions.length === 0 || workspaceTree || (isCollapsed && inPopover)
-						}
-					]}
+					items={listOptionItems(false)}
 				>
 					{#snippet buttonReplacement()}
-						{#if label}
-							<!-- svelte-ignore a11y_no_static_element_interactions -->
-							<span
-								class={twMerge(
-									'flex flex-row items-center gap-2 w-full h-[30px] px-2 rounded-md text-xs font-normal text-secondary hover:bg-surface-hover',
-									optionsOpen[1] ? sidebarClasses.selectedBg : ''
-								)}
-								onmouseenter={() => {
-									optionsOpen[1] = true
-									hold?.(true)
-								}}
-								onclickcapture={(e) => {
-									// Hover opened it already, so the trigger's toggle would close it.
-									if (optionsOpen[1]) e.stopPropagation()
-								}}
-							>
-								<SlidersHorizontal size={16} class="shrink-0 text-hint" />
-								<span class="grow text-left">{label}</span>
-								<ChevronRight size={14} class="shrink-0 text-tertiary" />
-							</span>
-						{:else}
-							<Button
-								nonCaptureEvent
-								unifiedSize={size}
-								variant="subtle"
-								iconOnly
-								startIcon={{ icon: EllipsisVertical }}
-								title="Session list options"
-								aria-label="Session list options"
-								btnClasses="text-secondary"
-							/>
-						{/if}
+						<Button
+							nonCaptureEvent
+							unifiedSize={size}
+							variant="subtle"
+							iconOnly
+							startIcon={{ icon: EllipsisVertical }}
+							title="Session list options"
+							aria-label="Session list options"
+							btnClasses="text-secondary"
+						/>
 					{/snippet}
 				</DropdownV2>
 			{/snippet}
-			{#snippet sectionOptions({
-				inPopover,
-				hold
-			}: {
-				inPopover: boolean
-				hold: (held: boolean) => void
-			})}
-				{@render listOptions('sm', inPopover, hold, inPopover ? 'View' : undefined)}
+			{#snippet sectionOptions({ menu }: SectionActionsArgs)}
+				<!-- In the folded section's menu the options are one of its rows, opening beside it as a
+				     submenu. -->
+				{#if menu}
+					<DropdownSubmenuItem
+						item={{
+							displayName: 'View',
+							icon: SlidersHorizontal,
+							submenuItems: listOptionItems(true)
+						}}
+						builders={menu.builders}
+						meltItem={menu.item}
+						class={flyoutRowClass}
+					/>
+				{:else}
+					{@render listOptions('sm')}
+				{/if}
 			{/snippet}
 			{#if collapsible}
 				<SidebarSection
@@ -826,13 +795,14 @@
 					actions={sectionOptions}
 					{isCollapsed}
 				>
-					{#snippet children(inPopover)}
+					{#snippet children(inPopover, menu)}
 						<!-- Outside the listbox, so arrow keys move through sessions only. -->
 						<div class="mb-0.5" data-asks-for-composer>
 							<MenuButton
 								icon={Plus}
 								label="New session"
 								isCollapsed={isCollapsed && !inPopover}
+								item={menu?.item}
 								on:click={() => openNewSession()}
 							/>
 						</div>
@@ -1236,3 +1206,16 @@
 		{/if}
 	</div>
 </ConfirmationModal>
+
+<!-- The submenu collapses to one row, so the picked cutoff would otherwise only be visible after
+     opening it. -->
+{#snippet lastActivityHint()}
+	<span class="text-2xs text-tertiary whitespace-nowrap">
+		{LAST_ACTIVITY_OPTIONS.find((o) => o.days === lastActivityDays.val)?.hint ?? ''}
+	</span>
+{/snippet}
+{#snippet groupByHint()}
+	<span class="text-2xs text-tertiary whitespace-nowrap">
+		{GROUP_BY_OPTIONS.find((o) => o.value === groupBy.val)?.hint ?? ''}
+	</span>
+{/snippet}

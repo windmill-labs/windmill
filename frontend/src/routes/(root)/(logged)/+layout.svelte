@@ -514,7 +514,7 @@
 	// its own menus or it slides out from under the one being read, so it holds while one is open,
 	// hovered or not: the way from a menu to its submenu crosses neither.
 	function menuIsOpen(): boolean {
-		return !!document.querySelector('[role="menu"]:not([hidden]), [data-sidebar-flyout]')
+		return !!document.querySelector('[role="menu"]:not([hidden])')
 	}
 	// Once its menus close, a surface the pointer is back on stays: its own leave closes it later.
 	function pointerOnSidebar(): boolean {

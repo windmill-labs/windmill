@@ -51,7 +51,8 @@
 	import type { NativeServiceName } from '$lib/gen/types.gen'
 	import { Menubar, Menu, MenuSingleItem, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton from './MenuButton.svelte'
-	import SidebarSection from './SidebarSection.svelte'
+	import SidebarSection, { flyoutRowClass } from './SidebarSection.svelte'
+	import DropdownSubmenuItem from '$lib/components/DropdownSubmenuItem.svelte'
 	import GoogleCloudIcon from '../icons/triggers/GoogleCloudIcon.svelte'
 	import AzureIcon from '../icons/triggers/AzureIcon.svelte'
 	import type { VisibilityKey } from '$lib/roleCapabilities'
@@ -496,13 +497,14 @@
 						onToggle={() => (dataSectionCollapsed.val = !dataSectionCollapsed.val)}
 						{isCollapsed}
 					>
-						{#snippet children(inPopover)}
+						{#snippet children(inPopover, menu)}
 							<div class="flex flex-col gap-0.5">
 								{#each dataLinks as menuLink (menuLink.href)}
 									<MenuLink
 										class="!text-xs"
 										{...menuLink}
 										isCollapsed={isCollapsed && !inPopover}
+										item={menu?.item}
 									/>
 								{/each}
 							</div>
@@ -559,17 +561,40 @@
 					onToggle={() => (triggersCollapsed.val = !triggersCollapsed.val)}
 					{isCollapsed}
 				>
-					{#snippet children(inPopover)}
+					{#snippet children(inPopover, menu)}
 						<div class="flex flex-col gap-0.5">
 							{#if showAddTriggerMenu}
-								<Menubar class="w-full">
-									{#snippet children({ createMenu })}
-										{@render addTriggerMenu(createMenu, isCollapsed && !inPopover)}
-									{/snippet}
-								</Menubar>
+								{#if menu}
+									<DropdownSubmenuItem
+										item={{
+											displayName: 'New trigger',
+											icon: Plus,
+											submenuItems: extraTriggerLinks.map((l) => ({
+												displayName: l.label,
+												icon: l.icon,
+												href: l.disabled ? undefined : l.href,
+												disabled: l.disabled
+											}))
+										}}
+										builders={menu.builders}
+										meltItem={menu.item}
+										class={flyoutRowClass}
+									/>
+								{:else}
+									<Menubar class="w-full">
+										{#snippet children({ createMenu })}
+											{@render addTriggerMenu(createMenu, isCollapsed)}
+										{/snippet}
+									</Menubar>
+								{/if}
 							{/if}
 							{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-								<MenuLink class="!text-xs" {...menuLink} isCollapsed={isCollapsed && !inPopover} />
+								<MenuLink
+									class="!text-xs"
+									{...menuLink}
+									isCollapsed={isCollapsed && !inPopover}
+									item={menu?.item}
+								/>
 							{/each}
 						</div>
 					{/snippet}

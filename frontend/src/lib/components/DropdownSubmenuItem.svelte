@@ -8,15 +8,18 @@
 	import type { Item } from '$lib/utils'
 	import type { MenubarMenuElements, createDropdownMenu } from '@melt-ui/svelte'
 	import { Tooltip } from './meltComponents'
+	import DropdownSubmenuItem from './DropdownSubmenuItem.svelte'
 
 	interface Props {
 		item: Item
 		builders: ReturnType<typeof createDropdownMenu>['builders']
 		meltItem: MenubarMenuElements['item']
 		close?: (afterClose?: () => void) => void
+		/** Classes merged onto the row that opens the submenu. */
+		class?: string
 	}
 
-	let { item, builders, meltItem, close }: Props = $props()
+	let { item, builders, meltItem, close, class: className = '' }: Props = $props()
 
 	const {
 		elements: { subTrigger, subMenu },
@@ -33,11 +36,12 @@
 	class={twMerge(
 		'px-4 py-2 text-primary font-normal hover:bg-surface-hover cursor-pointer text-xs transition-colors w-full',
 		'data-[highlighted]:bg-surface-hover',
-		'flex flex-row gap-2 items-center rounded-sm'
+		'flex flex-row gap-2 items-center rounded-sm',
+		className
 	)}
 >
 	{#if item.icon}
-		<item.icon size={14} color={item.iconColor} class="shrink-0" />
+		<item.icon size={className ? 16 : 14} color={item.iconColor} class="shrink-0" />
 	{/if}
 	<p class="truncate grow min-w-0 whitespace-nowrap text-left">
 		{item.displayName}
@@ -67,7 +71,9 @@
 {/if}
 
 {#snippet subMenuItem(subItem: Item)}
-	{#if subItem.disabled && subItem.tooltip}
+	{#if subItem.submenuItems || subItem.customSubmenu}
+		<DropdownSubmenuItem item={subItem} {builders} {meltItem} {close} />
+	{:else if subItem.disabled && subItem.tooltip}
 		<!-- Wrapper carries the native `title`: the disabled button swallows the pointer events
 		     the ⓘ tooltip would need, and its `pointer-events-none` lets the hover reach here. -->
 		<div title={subItem.tooltip} class="w-full">
@@ -94,7 +100,12 @@
 		item={meltItem}
 	>
 		{#if subItem.icon}
-			<subItem.icon size={14} color={subItem.iconColor} class="shrink-0" {...subItem.iconProps ?? {}} />
+			<subItem.icon
+				size={14}
+				color={subItem.iconColor}
+				class="shrink-0"
+				{...subItem.iconProps ?? {}}
+			/>
 		{/if}
 		<p
 			title={subItem.disabled && subItem.tooltip ? undefined : subItem.displayName}

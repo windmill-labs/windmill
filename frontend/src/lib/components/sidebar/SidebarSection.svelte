@@ -2,17 +2,32 @@
 @component
 A foldable sidebar section whose rows keep their places in every sidebar mode. Its title row is the
 same row folded or not, so folding moves nothing but the items under it. The row behaves the same in
-every mode: a click folds or unfolds it, and hovering a folded row shows its items in a popover.
+every mode: a click folds or unfolds it, and hovering a folded row shows its items in a menu.
 A fold is a layout the reader keeps, so reaching a folded section's items never unfolds it.
 -->
+<script module lang="ts">
+	import type { MenubarMenuElements, createDropdownMenu } from '@melt-ui/svelte'
+
+	/** The folded section's menu, for rows that should be its items. */
+	export type SectionMenu = {
+		item: MenubarMenuElements['item']
+		builders: ReturnType<typeof createDropdownMenu>['builders']
+	}
+	export type SectionActionsArgs = { inPopover: boolean; menu?: SectionMenu }
+	/** A row of the folded section's menu that is not a link, styled as its links are. */
+	export const flyoutRowClass =
+		'h-[30px] px-2 py-0 rounded-md text-xs font-normal text-secondary [&>svg:first-child]:text-hint'
+</script>
+
 <script lang="ts">
 	import type { Snippet } from 'svelte'
 	import { slide } from 'svelte/transition'
 	import { ChevronDown, ChevronRight } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { Button } from '$lib/components/common'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { debounce } from '$lib/utils'
+	import Menubar from '$lib/components/meltComponents/Menubar.svelte'
+	import Menu from '$lib/components/meltComponents/Menu.svelte'
+	import MeltButton from '$lib/components/meltComponents/MeltButton.svelte'
 	import { sidebarClasses } from './MenuButton.svelte'
 
 	interface Props {
@@ -26,15 +41,15 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 		/** A section with nothing to fold: the row stays, without its chevron. */
 		disabled?: boolean
 		/**
-		 * Buttons at the end of an unfolded row in the open sidebar, and at the top of a folded row's
-		 * popover. A menu they open from the popover sits outside it, so `hold(true)` keeps the popover
-		 * open when the pointer leaves it, until `hold(false)`. Outside clicks need no hold: melt hands
-		 * them to the top-most overlay only, which is that menu. Changing the popover's
-		 * `closeOnOutsideClick` on hold would re-register it above the menu, and neither would close.
+		 * Buttons at the end of an unfolded row in the open sidebar, and rows at the top of a folded
+		 * row's menu, where `menu` lets them be its items and open submenus from it.
 		 */
-		actions?: Snippet<[{ inPopover: boolean; hold: (held: boolean) => void }]>
-		/** The section's items; `inPopover` asks for them with their names, whatever the mode. */
-		children: Snippet<[boolean]>
+		actions?: Snippet<[SectionActionsArgs]>
+		/**
+		 * The section's items; `inPopover` asks for them with their names, whatever the mode, and
+		 * `menu` is the folded row's menu they are listed in.
+		 */
+		children: Snippet<[boolean, SectionMenu | undefined]>
 	}
 
 	let {
@@ -54,41 +69,9 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 	const rowClass =
 		'relative flex items-center justify-start w-full h-[30px] px-2 gap-2 rounded-lg text-left font-normal'
 
-	// The open delay keeps a pointer moving down the sidebar from opening every folded section it
-	// crosses; the close delay lets it cross the gap into the popover.
-	const OPEN_DELAY_MS = 120
-	const CLOSE_DELAY_MS = 150
 	let open = $state(false)
-	let held = $state(false)
-	let popoverContent: HTMLElement | undefined = $state()
-	const { debounced: scheduleOpen, clearDebounce: cancelOpen } = debounce(
-		() => (open = true),
-		OPEN_DELAY_MS
-	)
-	const { debounced: scheduleClose, clearDebounce: cancelClose } = debounce(() => {
-		if (!held) open = false
-	}, CLOSE_DELAY_MS)
-	function onEnter() {
-		cancelOpen()
-		cancelClose()
-		if (!open) scheduleOpen()
-	}
-	function onLeave() {
-		cancelOpen()
-		scheduleClose()
-	}
-	function closeNow() {
-		cancelOpen()
-		cancelClose()
-		held = false
-		open = false
-	}
-	function hold(next: boolean) {
-		held = next
-		if (!next && !popoverContent?.matches(':hover')) scheduleClose()
-	}
 	function toggle() {
-		closeNow()
+		open = false
 		onToggle()
 	}
 </script>
@@ -148,7 +131,8 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 		<div class="relative flex flex-row items-center gap-0.5 h-[30px]">
 			<div class="flex-1 min-w-0 flex items-center">
 				{#if isFolded}
-					<!-- The click folds rather than toggling the popover: caught before melt's own handler. -->
+					<!-- The click folds rather than pinning the menu: caught before melt's own handler. Only
+					     the user's: the menu opens on hover by clicking its own trigger from script. -->
 					<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
 					<div
 						class={twMerge(
@@ -156,58 +140,61 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 							'px-0',
 							open ? sidebarClasses.selectedBg : sidebarClasses.hoverBg
 						)}
-						onmouseenter={onEnter}
-						onmouseleave={onLeave}
 						onclickcapture={(e) => {
+							if (!e.isTrusted) return
 							e.stopPropagation()
 							toggle()
 						}}
 					>
-						<Popover
-							bind:isOpen={open}
-							placement="right-start"
-							disableFocusTrap
-							openFocus={null}
-							closeFocus={null}
-							closeOnOutsideClick
-							extraProps={{ 'data-sidebar-flyout': '' }}
-							triggerAttrs={{
-								'aria-label': toggleLabel,
-								'aria-expanded': false,
-								title: toggleLabel
-							}}
-							class="w-full h-full min-w-0 flex items-center gap-2 px-2 text-left"
-						>
-							{#snippet trigger()}
-								{@render rowContent()}
-							{/snippet}
-							{#snippet content()}
-								<!-- A link or a session picked here leaves the popover with the page it opened. -->
-								<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-								<div
-									bind:this={popoverContent}
-									class="flex flex-col gap-0.5 p-1 w-56 max-h-[60vh] overflow-y-auto"
-									onmouseenter={onEnter}
-									onmouseleave={onLeave}
-									onclick={(e) => {
-										if ((e.target as Element).closest('a, [role="option"]')) closeNow()
-									}}
+						<Menubar class="w-full h-full">
+							{#snippet children({ createMenu })}
+								<Menu
+									{createMenu}
+									bind:open
+									openOnHover
+									submenuSafe
+									placement="right-start"
+									closeFocus={null}
+									class="h-full"
+									menuClass="w-56"
+									maxHeight={600}
 								>
-									<!-- Icons only shows no title on the row, so its popover does. A folded row
-									     shows no actions either, so they open the popover's list. -->
-									{#if isCollapsed}
-										<div class="flex flex-row items-center h-7 pl-2">
-											<span
-												class="flex-1 truncate text-secondary text-[0.5rem] font-normal uppercase"
-												>{title}</span
-											>
+									{#snippet triggr({ trigger })}
+										<MeltButton
+											meltElement={trigger}
+											title={toggleLabel}
+											class="w-full h-full min-w-0 flex items-center gap-2 px-2 text-left"
+										>
+											{@render rowContent()}
+										</MeltButton>
+									{/snippet}
+									{#snippet children({ item, builders })}
+										{@const menu = { item, builders } as SectionMenu}
+										<!-- A session picked here leaves the menu with the page it opened, as a
+										     link does on its own. -->
+										<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+										<div
+											class="flex flex-col gap-0.5 px-1"
+											onclick={(e) => {
+												if ((e.target as Element).closest('[role="option"]')) open = false
+											}}
+										>
+											<!-- Icons only shows no title on the row, so its menu does. -->
+											{#if isCollapsed}
+												<div class="flex flex-row items-center h-7 pl-2">
+													<span
+														class="flex-1 truncate text-secondary text-[0.5rem] font-normal uppercase"
+														>{title}</span
+													>
+												</div>
+											{/if}
+											{@render actions?.({ inPopover: true, menu })}
+											{@render children(true, menu)}
 										</div>
-									{/if}
-									{@render actions?.({ inPopover: true, hold })}
-									{@render children(true)}
-								</div>
+									{/snippet}
+								</Menu>
 							{/snippet}
-						</Popover>
+						</Menubar>
 					</div>
 				{:else if disabled}
 					<div class={rowClass}>
@@ -228,12 +215,12 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 				{/if}
 			</div>
 			{#if !isCollapsed && !isFolded}
-				{@render actions?.({ inPopover: false, hold })}
+				{@render actions?.({ inPopover: false })}
 			{/if}
 		</div>
 		{#if !isFolded}
 			<div transition:slide={{ duration: 180 }}>
-				{@render children(false)}
+				{@render children(false, undefined)}
 			</div>
 		{/if}
 	</div>
