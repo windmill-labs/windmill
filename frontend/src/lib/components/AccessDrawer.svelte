@@ -7,7 +7,7 @@
 	import Cell from './table/Cell.svelte'
 	import RowIcon from './common/table/RowIcon.svelte'
 	import { GranularAclService, type AccessReason, type PrincipalAccess } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from './operatingWorkspace.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import type { Item } from '$lib/utils'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
@@ -19,6 +19,8 @@
 	import GrantNavigator, { navigatorMaxHeight } from './access/GrantNavigator.svelte'
 	import { KIND_LABELS, setGrant, type GrantLevel } from './access/access'
 	import type { RunnableKind } from './access/detectNeeds'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type Target = 'self' | 'user' | 'service_account' | 'group'
 
@@ -56,7 +58,7 @@
 		const id = ++requestId
 		try {
 			const result = await GranularAclService.getPrincipalAccess({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				principal
 			})
 			if (id === requestId) access = result
@@ -106,7 +108,7 @@
 
 	async function changeGrant(kind: string, path: string, level: GrantLevel) {
 		try {
-			await setGrant($workspaceStore!, kind, path, principal, level)
+			await setGrant($operatingWorkspace!, kind, path, principal, level)
 		} catch (e) {
 			const what = kind === 'folder' ? `f/${path}` : path
 			sendUserToast(`Could not change access to ${what}: ${e?.body ?? e}`, true)

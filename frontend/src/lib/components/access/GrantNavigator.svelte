@@ -20,12 +20,15 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 		type BrowseAccessItemsResponse,
 		type PrincipalAccess
 	} from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { debounce } from '$lib/utils'
 	import { Folder, ScanSearch, User, Users } from 'lucide-svelte'
 	import { setGrant } from './access'
 	import type { RunnableKind } from './detectNeeds'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type Row = BrowseAccessItemsResponse['items'][number]
 	/** `kind` `folder` is the "All of f/x" row, its `path` the folder name. */
@@ -66,7 +69,7 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 	async function loadFolders() {
 		try {
 			folders = await GranularAclService.browseAccessFolders({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				principal
 			})
 		} catch (e) {
@@ -82,7 +85,7 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 			let offset = 0
 			while (true) {
 				const page = await GranularAclService.browseAccessItems({
-					workspace: $workspaceStore!,
+					workspace: $operatingWorkspace!,
 					principal,
 					prefix: `${branch}/`,
 					offset
@@ -105,7 +108,7 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 	const searchSoon = debounce(async (search: string) => {
 		try {
 			const page = await GranularAclService.browseAccessItems({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				principal,
 				search
 			})
@@ -202,7 +205,7 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 		const row = leaf.data
 		if (row.grant != undefined) return
 		try {
-			await setGrant($workspaceStore!, row.kind, row.path, principal, 'read')
+			await setGrant($operatingWorkspace!, row.kind, row.path, principal, 'read')
 			row.grant = false
 			if (row.kind === 'folder') {
 				const folder = folders?.find((f) => f.name === row.path)
