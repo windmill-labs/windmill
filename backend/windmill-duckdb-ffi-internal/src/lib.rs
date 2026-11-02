@@ -221,16 +221,14 @@ fn configure_duckdb_resource_limits(
 
 // DuckDB 2.0 defaults that would change what a script written for 1.x returns, reverted so it
 // keeps running unchanged; a script can SET any of them back. Without `legacy_disable_null_type`
-// an untyped `NULL` column has the NULL type, which duckdb-rs cannot read and panics on. The
-// storage version keeps `.duckdb` files a script writes readable by 1.x. `lambda_syntax` is
-// removed in DuckDB 2.1, which will make `x -> ...` lambdas an error again.
+// an untyped `NULL` column has the NULL type, which duckdb-rs cannot read and panics on.
+// `lambda_syntax` is removed in DuckDB 2.1, which will make `x -> ...` lambdas an error again.
 fn keep_duckdb_1x_semantics(conn: &duckdb::Connection) -> Result<(), String> {
     conn.execute_batch(
         "SET lambda_syntax='enable_single_arrow';
         SET error_on_division_by_zero=false;
         SET legacy_disable_null_type=true;
-        SET regex_match_operator_semantics='full';
-        SET storage_compatibility_version='v0.10.2';",
+        SET regex_match_operator_semantics='full';",
     )
     .map_err(|e| format!("Error applying DuckDB 1.x compatibility settings: {e}"))
 }

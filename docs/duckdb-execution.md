@@ -100,9 +100,11 @@ behavior and leaves the new one opt-in:
 - `setup_duckdb_connection` reverts the defaults DuckDB 2.0 changed that would make a query that
   worked on 1.x return something else: `x -> …` lambdas, `NULL` for integer `//` / `%` by zero,
   untyped `NULL` columns typed INTEGER (the 2.0 NULL type makes duckdb-rs panic on read),
-  whole-string `~`, `.duckdb` files written at a version 1.x can open, and the 800GB S3 upload
-  cap. A script can `SET` any of them back. DuckDB 2.1 removes `lambda_syntax`, and the setting
-  has to go then.
+  whole-string `~`, and the 800GB S3 upload cap. A script can `SET` any of them back. DuckDB 2.1
+  removes `lambda_syntax`, and the setting has to go then.
+- `.duckdb` files are written at 2.0's storage version, which DuckDB 1.x cannot open. Windmill
+  keeps none of its own state in them, so it only reaches a script that persists one outside
+  its job dir for a 1.x reader; that script can `SET storage_compatibility_version`.
 - `ieee_floating_point_ops` stays at 2.0's default on purpose. Turning it off does not restore
   1.x: `/` by zero then returns `NULL` where 1.x returned infinity. Left on, the only change is
   that `sqrt(-1)`, `ln(0)` and the like return NaN instead of erroring.
