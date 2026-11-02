@@ -350,8 +350,37 @@ async fn process_secret_args(
         return Ok(args);
     }
 
-    let mut pending: Vec<(String, &'static str, Value)> = Vec::new();
-    map_arg_leaves(&args, schema, is_secret_prop, &mut |value, prop, path| {
+    let mut minted: HashMap<String, String> = HashMap::new();
+    for (key, prefix, value) in secrets_to_mint(&args, schema) {
+        let variable = format!(
+            "u/{username}/secret_arg/{}",
+            windmill_common::utils::rd_string(12)
+        );
+        let expires_at = (chrono::Utc::now() + chrono::Duration::days(7))
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        ctx.post(
+            &ctx.ws("variables/create"),
+            json!({
+                "value": secret_text(prefix, &value),
+                "is_secret": true,
+                "path": variable,
+                "description": "Ephemeral secret variable",
+                "expires_at": expires_at,
+            }),
+        )
+        .await?;
+        minted.insert(key, format!("{prefix}{variable}"));
+    }
+    Ok(substitute_secrets(&args, schema, &minted))
+}
+
+/// The sensitive literals to mint, each keyed by its path, with the reference it becomes.
+fn secrets_to_mint(
+    args: &Map<String, Value>,
+    schema: &Value,
+) -> Vec<(String, &'static str, Value)> {
+    let mut pending = Vec::new();
+    map_arg_leaves(args, schema, is_secret_prop, &mut |value, prop, path| {
         let holds_secret = !value.is_null() && value != "" && !is_reference(value);
         if holds_secret {
             pending.push((
@@ -362,51 +391,37 @@ async fn process_secret_args(
         }
         Some(value.clone())
     });
+    pending
+}
 
-    let mut minted: HashMap<String, String> = HashMap::new();
-    for (key, prefix, value) in pending {
-        let variable = format!(
-            "u/{username}/secret_arg/{}",
-            windmill_common::utils::rd_string(12)
-        );
-        let secret = match &value {
-            Value::String(text) if prefix == "$var:" => text.clone(),
-            other => other.to_string(),
-        };
-        let expires_at = (chrono::Utc::now() + chrono::Duration::days(7))
-            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        ctx.post(
-            &ctx.ws("variables/create"),
-            json!({
-                "value": secret,
-                "is_secret": true,
-                "path": variable,
-                "description": "Ephemeral secret variable",
-                "expires_at": expires_at,
-            }),
-        )
-        .await?;
-        minted.insert(key, format!("{prefix}{variable}"));
+/// What the secret variable stores: the text for `$var:`, the JSON for `$jsonvar:`.
+fn secret_text(prefix: &str, value: &Value) -> String {
+    match value {
+        Value::String(text) if prefix == "$var:" => text.clone(),
+        other => other.to_string(),
     }
+}
 
-    Ok(map_arg_leaves(
-        &args,
-        schema,
-        is_secret_prop,
-        &mut |value, prop, path| {
-            if let Some(reference) = minted.get(&Value::from(path).to_string()) {
-                return Some(reference.as_str().into());
+/// The arguments with each minted literal replaced by its reference, keyed as
+/// `secrets_to_mint` keys them.
+fn substitute_secrets(
+    args: &Map<String, Value>,
+    schema: &Value,
+    minted: &HashMap<String, String>,
+) -> Map<String, Value> {
+    map_arg_leaves(args, schema, is_secret_prop, &mut |value, prop, path| {
+        if let Some(reference) = minted.get(&Value::from(path).to_string()) {
+            return Some(reference.as_str().into());
+        }
+        // A plain variable named for a field that cannot hold a string: its contents
+        // are meant, read the way the field needs them.
+        match value.as_str().and_then(|s| s.strip_prefix("$var:")) {
+            Some(variable) if reference_prefix(prop, value) == "$jsonvar:" => {
+                Some(format!("$jsonvar:{variable}").into())
             }
-            // A plain variable named for a field that cannot hold a string: its contents
-            // are meant, read the way the field needs them.
-            match value.as_str().and_then(|s| s.strip_prefix("$var:")) {
-                Some(variable) if reference_prefix(prop, value) == "$jsonvar:" => {
-                    Some(format!("$jsonvar:{variable}").into())
-                }
-                _ => Some(value.clone()),
-            }
-        },
-    ))
+            _ => Some(value.clone()),
+        }
+    })
 }
 
 fn file_marker(base64: &str) -> String {
@@ -2974,6 +2989,51 @@ fn step_result(response: &Value, step: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The chat settles a run's arguments in the browser with `job_args.ts`, read against the
+    // same cases by `runArgsCases.test.ts`.
+    #[test]
+    fn run_args_match_the_shared_cases() {
+        let cases: Value = serde_json::from_str(include_str!("run_args_cases.json")).unwrap();
+        for case in cases["cases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let schema = &case["schema"];
+            let args = case["args"].as_object().cloned().unwrap();
+            if let Some(expected) = case.get("declared") {
+                let (kept, undeclared) = drop_undeclared_args(args.clone(), schema);
+                assert_eq!(Value::Object(kept), expected["args"], "{name}");
+                assert_eq!(json!(undeclared), expected["undeclared"], "{name}");
+            }
+            if let Some(expected) = case.get("disabled_defaults") {
+                let mut settled = args.clone();
+                let reset = enforce_disabled_defaults(&mut settled, schema);
+                assert_eq!(Value::Object(settled), expected["args"], "{name}");
+                assert_eq!(json!(reset), expected["reset"], "{name}");
+            }
+            if let Some(expected) = case.get("secrets") {
+                let pending = secrets_to_mint(&args, schema);
+                let mut stored: Vec<String> = pending
+                    .iter()
+                    .map(|(_, prefix, value)| secret_text(prefix, value))
+                    .collect();
+                stored.sort();
+                assert_eq!(json!(stored), expected["stored"], "{name}");
+                let minted = pending
+                    .into_iter()
+                    .map(|(key, prefix, _)| (key, format!("{prefix}<minted>")))
+                    .collect();
+                let out = substitute_secrets(&args, schema, &minted);
+                assert_eq!(Value::Object(out), expected["args"], "{name}");
+            }
+            if let Some(expected) = case.get("redacted") {
+                assert_eq!(
+                    Value::Object(redact_args(&args, schema)),
+                    *expected,
+                    "{name}"
+                );
+            }
+        }
+    }
 
     fn entry(overrides: Value) -> Value {
         let mut entry = json!({
