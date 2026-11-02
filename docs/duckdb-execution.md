@@ -90,7 +90,9 @@ every extension `INSTALL` 404s. Check `SELECT version()` after a bump.
 The engine is built from source with baseline flags, but the prebuilt 2.0 linux_amd64 extensions
 are compiled for x86-64-v3: on a CPU without AVX2 (pre-Haswell, or a VM CPU model such as
 Proxmox's `x86-64-v2-AES` or a low VMware EVC baseline) `LOAD httpfs` dies with SIGILL, and
-every job loads httpfs. linux_arm64 extensions run on Cortex-A53 and later.
+every job loads httpfs. `duckdb_runner::run` therefore fails the job up front on such a CPU, with
+a message naming the VM settings to change, rather than letting the runner crash. linux_arm64
+extensions run on Cortex-A53 and later.
 
 What a bump can break is user scripts and shared state, so a major one keeps the previous major's
 behavior and leaves the new one opt-in:
