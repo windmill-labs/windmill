@@ -8,7 +8,7 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 <script lang="ts">
 	import type { Snippet } from 'svelte'
 	import { slide } from 'svelte/transition'
-	import { ChevronRight } from 'lucide-svelte'
+	import { ChevronDown, ChevronRight } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -28,7 +28,9 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 		/**
 		 * Buttons at the end of an unfolded row in the open sidebar, and at the top of a folded row's
 		 * popover. A menu they open from the popover sits outside it, so `hold(true)` keeps the popover
-		 * open until `hold(false)`.
+		 * open when the pointer leaves it, until `hold(false)`. Outside clicks need no hold: melt hands
+		 * them to the top-most overlay only, which is that menu. Changing the popover's
+		 * `closeOnOutsideClick` on hold would re-register it above the menu, and neither would close.
 		 */
 		actions?: Snippet<[{ inPopover: boolean; hold: (held: boolean) => void }]>
 		/** The section's items; `inPopover` asks for them with their names, whatever the mode. */
@@ -91,28 +93,19 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 	}
 </script>
 
-<!-- The fold chevron takes an item icon's place, so the row reads as something to open. The title
-     names the section in the open sidebar, and an unfolded section's items name it in the rail; a
-     folded section in the rail has neither, so the section's icon marks the chevron's corner. With
-     nothing to fold, the rail shows the icon alone. -->
-{#snippet iconContent()}
-	<span class="relative flex-shrink-0 flex items-center justify-center w-4 h-4">
-		{#if disabled}
-			{#if isCollapsed}
-				<Icon size={16} class="text-hint" />
-			{/if}
-		{:else}
-			<!-- 2.67 keeps the 1.33px stroke a 16px item icon draws at strokeWidth 2. -->
-			<ChevronRight
-				size={12}
-				strokeWidth={2.67}
-				class={twMerge('text-hint transition-transform duration-200', !isFolded && 'rotate-90')}
-				aria-hidden="true"
-			/>
-			{#if isCollapsed && isFolded}
-				<Icon size={9} strokeWidth={2.5} class="absolute -right-1 -bottom-1 text-hint" />
-			{/if}
-		{/if}
+<!-- An unfolded section shows a down chevron in an item icon's place: its items, right under it,
+     name it. A folded section shows its icon there, with a right chevron after the title in the
+     open sidebar, or in the strip right of the icon in the rail, where there is no title. The icon
+     keeps the item icons' column in every mode, so collapsing the sidebar does not move it. -->
+{#snippet foldChevron(size: number, extraClass: string)}
+	<ChevronRight {size} class={twMerge('flex-shrink-0 text-hint', extraClass)} aria-hidden="true" />
+{/snippet}
+
+{#snippet sectionIcon()}
+	<!-- Under an item icon's 16px, to leave the rail's chevron room beside it; the same size in
+	     every mode, so expanding or collapsing the sidebar does not resize it. -->
+	<span class="relative flex-shrink-0 flex">
+		<Icon size={12} class="text-hint" />
 		{#if notify}
 			<span class="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-surface-accent-primary"
 			></span>
@@ -120,16 +113,23 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 	</span>
 {/snippet}
 
-{#snippet titleContent()}
-	{#if !isCollapsed}
-		<!-- The chevron draws narrower than an item icon, so the items' 8px gap would read as more. -->
-		<span class="-ml-1 truncate uppercase text-[0.5rem] font-normal text-secondary">{title}</span>
-	{/if}
-{/snippet}
-
 {#snippet rowContent()}
-	{@render iconContent()}
-	{@render titleContent()}
+	<span class="flex-shrink-0 flex items-center justify-center w-4 h-4">
+		{#if isFolded || disabled}
+			{@render sectionIcon()}
+		{:else}
+			<!-- 2.67 keeps the 1.33px stroke a 16px item icon draws at strokeWidth 2. -->
+			<ChevronDown size={12} strokeWidth={2.67} class="text-hint" aria-hidden="true" />
+		{/if}
+	</span>
+	{#if !isCollapsed}
+		<span class="truncate uppercase text-[0.5rem] font-normal text-secondary">{title}</span>
+		{#if isFolded}
+			{@render foldChevron(12, 'ml-auto')}
+		{/if}
+	{:else if isFolded}
+		{@render foldChevron(10, 'absolute right-0.5 top-[10px]')}
+	{/if}
 {/snippet}
 
 <!-- Padding, not a margin, widens the gap above the section: a margin would collapse into the
@@ -169,7 +169,7 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 							disableFocusTrap
 							openFocus={null}
 							closeFocus={null}
-							closeOnOutsideClick={!held}
+							closeOnOutsideClick
 							extraProps={{ 'data-sidebar-flyout': '' }}
 							triggerAttrs={{
 								'aria-label': toggleLabel,

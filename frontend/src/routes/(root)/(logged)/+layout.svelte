@@ -593,7 +593,7 @@
 		if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === '\\') {
 			if (!$roleCapabilities.code || navDetached.val || innerWidth < 768) return
 			e.preventDefault()
-			setSidebarMode(isCollapsed ? 'expanded' : hoverExpandPref.val ? 'hover' : 'icons')
+			setSidebarMode(isCollapsed ? 'expanded' : 'icons')
 			return
 		}
 		if (e.key !== 'Escape' || !menuOpen || !useDrawer) return
@@ -665,8 +665,7 @@
 		if (mode !== 'hidden' && $roleCapabilities.code) {
 			collapsedState = mode !== 'expanded'
 			collapsePref.val = collapsedState
-			// "Expanded" keeps the hover choice, so Cmd+\ returns to the rail the user had.
-			if (mode !== 'expanded') hoverExpandPref.val = mode === 'hover'
+			hoverExpandPref.val = mode === 'hover'
 		}
 		if (navDetached.val !== (mode === 'hidden')) setDetached(mode === 'hidden')
 	}
