@@ -1,11 +1,12 @@
 import { BROWSER } from 'esm-env'
 import { get } from 'svelte/store'
 import { SvelteMap } from 'svelte/reactivity'
-import type { DBSchema } from 'idb'
+import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
 import { OpenAPI } from '$lib/gen'
 import { userStore } from '$lib/stores'
 import { userScopedDb } from '$lib/userScopedDb'
-import { getCurrentUserEmail, onUserChange } from '$lib/userScopedStorage'
+import { getCurrentUserEmail, onUserChange, scopedKeyFor } from '$lib/userScopedStorage'
+import { rememberedEmail } from '$lib/lastSession'
 
 // Last-known API responses, kept so a page can paint them before its requests return. Every
 // row in them was filtered by row-level security for one user, so an entry is only ever served
@@ -35,14 +36,15 @@ export const MAX_AGE_MS = 7 * 24 * 3600 * 1000
 /** Per user. A write past it evicts the oldest entries. */
 export const MAX_ENTRIES = 64
 
-const db = userScopedDb<CacheSchema>('windmill-persisted-cache', {
-	version: 1,
-	upgrade(database) {
-		if (!database.objectStoreNames.contains('entries')) {
-			database.createObjectStore('entries', { keyPath: 'key' }).createIndex('savedAt', 'savedAt')
-		}
+const DB_NAME = 'windmill-persisted-cache'
+const DB_VERSION = 1
+function upgrade(database: IDBPDatabase<CacheSchema>) {
+	if (!database.objectStoreNames.contains('entries')) {
+		database.createObjectStore('entries', { keyPath: 'key' }).createIndex('savedAt', 'savedAt')
 	}
-})
+}
+
+const db = userScopedDb<CacheSchema>(DB_NAME, { version: DB_VERSION, upgrade })
 
 const memory = new SvelteMap<string, CacheEntry>()
 // Read by cacheIdentity so a key derived in a component follows an in-place account switch.
@@ -169,19 +171,44 @@ async function hydrate() {
 	try {
 		const entries = await handle.getAll('entries')
 		if (cacheIdentity() !== identity) return
-		const now = Date.now()
-		const expired: string[] = []
-		for (const entry of entries) {
-			// The version is the call site's to check on read; only age is known here.
-			if (now - entry.savedAt > MAX_AGE_MS) expired.push(entry.key)
-			else if (!memory.has(entry.key)) memory.set(entry.key, entry)
-		}
-		if (expired.length) {
-			const tx = handle.transaction('entries', 'readwrite')
-			await Promise.all([...expired.map((k) => tx.store.delete(k)), tx.done])
-		}
+		await keep(entries, handle)
 	} catch (e) {
 		console.warn('persistedCache: could not read entries', e)
+	}
+}
+
+/**
+ * Reads the store of the user the browser's session still names (`lastSession`) while the app
+ * boots, before the layout knows who is logged in, so the entries are in memory by the time
+ * the page mounts. Memory keys carry the identity, so nothing read here is shown to anyone else.
+ */
+async function hydrateAhead(email: string) {
+	let handle: IDBPDatabase<CacheSchema> | undefined
+	try {
+		// Same version and upgrade as `db`: an open at the version without its upgrade would
+		// leave a new database with no store.
+		handle = await openDB<CacheSchema>(scopedKeyFor(DB_NAME, email), DB_VERSION, { upgrade })
+		const entries = await handle.getAll('entries')
+		const current = getCurrentUserEmail()
+		if (current === undefined || current === email) await keep(entries)
+	} catch (e) {
+		console.warn('persistedCache: could not read entries ahead', e)
+	} finally {
+		handle?.close()
+	}
+}
+
+async function keep(entries: CacheEntry[], handle?: IDBPDatabase<CacheSchema>) {
+	const now = Date.now()
+	const expired: string[] = []
+	for (const entry of entries) {
+		// The version is the call site's to check on read; only age is known here.
+		if (now - entry.savedAt > MAX_AGE_MS) expired.push(entry.key)
+		else if (!memory.has(entry.key)) memory.set(entry.key, entry)
+	}
+	if (expired.length && handle) {
+		const tx = handle.transaction('entries', 'readwrite')
+		await Promise.all([...expired.map((k) => tx.store.delete(k)), tx.done])
 	}
 }
 
@@ -201,11 +228,15 @@ export async function clearPersistedCache(): Promise<void> {
 }
 
 if (BROWSER) {
-	// Loads the whole (bounded) store into memory as soon as the user is known, which is before
-	// the page that reads it mounts: its first frame can then paint from memory synchronously.
+	const ahead = rememberedEmail()
+	if (ahead) void hydrateAhead(ahead)
+	// Loads the whole (bounded) store into memory once the user is known, and keeps only what
+	// belongs to them: the entries read ahead for the same identity survive.
 	onUserChange(() => {
 		userTick++
-		memory.clear()
+		const identity = cacheIdentity()
+		const mine = identity ? `[${JSON.stringify(identity)},` : undefined
+		for (const key of [...memory.keys()]) if (!mine || !key.startsWith(mine)) memory.delete(key)
 		void hydrate()
 	})
 }

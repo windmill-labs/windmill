@@ -88,7 +88,12 @@
 	import { Button } from '$lib/components/common'
 	import { isInstanceRoute } from '$lib/instanceRoutes'
 	import { getUserExt } from '$lib/user'
-	import { forgetLastSession, optimisticUser, rememberUser } from '$lib/lastSession'
+	import {
+		forgetLastSession,
+		optimisticUser,
+		readSessionHint,
+		rememberUser
+	} from '$lib/lastSession'
 	import { confirmPendingLoginMethod } from '$lib/lastLoginMethod'
 	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
@@ -386,6 +391,7 @@
 					if (!answered && !$userStore && $workspaceStore === workspace) userStore.set(last)
 				}, 0)
 			}
+			const sentWith = readSessionHint()
 			const user = await getUserExt(workspace)
 			answered = true
 			// getUserExt resolves to undefined on failure, so a user is the only proof of a
@@ -401,7 +407,7 @@
 			if (!deepEqual(user, $userStore)) {
 				userStore.set(user)
 			}
-			if (user) rememberUser(user)
+			if (user) rememberUser(user, sentWith)
 			else forgetLastSession()
 			// Persist the workspace username so the synchronous `/add` →
 			// `/edit/u/{user}/draft_{uuid}` redirects (in each editor's

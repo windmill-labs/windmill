@@ -7,6 +7,15 @@ import {
 	saveEntry,
 	type CacheScope
 } from '$lib/persistedCache.svelte'
+import { readSessionHint } from '$lib/lastSession'
+
+/**
+ * A response may be filed only under the session that answered it: another tab logging in
+ * while a request is in flight swaps the cookie under this tab, whose user stays the old one.
+ */
+function sameSessionSince(sentWith: string | undefined): boolean {
+	return readSessionHint() === sentWith
+}
 
 export interface PersistOptions<A> {
 	/** Names the response; part of every key. */
@@ -55,8 +64,10 @@ export function persistedResource<A, T>(
 	const res = resource<A, Tagged<T>>(source, async (args) => {
 		const keys = keysFor(opts, args)
 		if (keys) void loadEntry(keys.key, opts.version)
+		const sentWith = readSessionHint()
 		const value = await fetcher(args)
-		if (keys && value !== undefined) saveEntry(keys.key, opts.version, value)
+		if (keys && value !== undefined && sameSessionSince(sentWith))
+			saveEntry(keys.key, opts.version, value)
 		return { keys, value }
 	})
 	const keys = $derived(keysFor(opts, source()))
@@ -94,9 +105,10 @@ export function persistedValue<T>(name: string, version: number) {
 			const key = keyOf(scope)
 			return key ? loadEntry<T>(key, version) : undefined
 		},
-		save(scope: CacheScope, value: T) {
+		/** `sentWith`: the session hint when the request was sent (`readSessionHint`). */
+		save(scope: CacheScope, value: T, sentWith: string | undefined) {
 			const key = keyOf(scope)
-			if (key) saveEntry(key, version, value)
+			if (key && sameSessionSince(sentWith)) saveEntry(key, version, value)
 		}
 	}
 }

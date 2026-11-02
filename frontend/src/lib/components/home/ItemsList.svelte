@@ -15,6 +15,7 @@
 		type RunnableItem
 	} from '$lib/gen'
 	import { persistedResource, persistedValue } from '$lib/persistedResource.svelte'
+	import { readSessionHint } from '$lib/lastSession'
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
 	import { disableHubStore, roleCapabilities, userStore, workspaceStore } from '$lib/stores'
 	import { shareEditRights, useEditRights } from '$lib/operatorWriteRights'
@@ -409,20 +410,8 @@
 		// Snapshot the cursor now: a later request must not consume a cursor minted
 		// by an order/filter that has since changed.
 		const cursor = reset ? undefined : serverCursor
-		const params = {
-			...sortToParams(sortOrder),
-			showArchived: archived ? true : undefined,
-			includeWithoutMain: includeWithoutMain ? true : undefined,
-			kinds: runnableKinds,
-			// Selecting an owner/folder scopes the paged stream to it server-side,
-			// so a folder's full contents load on demand rather than relying on the
-			// folder happening to be within the loaded browse window.
-			pathStart: ownerFilter ? ownerFilter + '/' : undefined,
-			// Your own not-yet-deployed work belongs in the list you browse; the
-			// endpoint sorts and pages it with everything else.
-			includeDraftOnly: true,
-			perPage: 100
-		}
+		const params = browseParams()
+		const sentWith = readSessionHint()
 		const request = ScriptService.listRunnables({ workspace: ws, ...params, cursor })
 		const cacheScope = { workspace: ws, args: params }
 		// Rows of this workspace already on screen are replaced on arrival, as for any filter
@@ -444,9 +433,26 @@
 		// A newer request superseded this one (e.g. order changed mid-flight); drop
 		// this response so a stale page/cursor can't be mixed with the new order.
 		if (gen !== loadGen) return
-		if (reset) firstPageCache.save(cacheScope, res)
+		if (reset) firstPageCache.save(cacheScope, res, sentWith)
 		applyRunnables(res, reset, ws)
 		serverCursor = res.next_cursor ?? undefined
+	}
+
+	function browseParams() {
+		return {
+			...sortToParams(sortOrder),
+			showArchived: archived ? true : undefined,
+			includeWithoutMain: includeWithoutMain ? true : undefined,
+			kinds: runnableKinds,
+			// Selecting an owner/folder scopes the paged stream to it server-side,
+			// so a folder's full contents load on demand rather than relying on the
+			// folder happening to be within the loaded browse window.
+			pathStart: ownerFilter ? ownerFilter + '/' : undefined,
+			// Your own not-yet-deployed work belongs in the list you browse; the
+			// endpoint sorts and pages it with everything else.
+			includeDraftOnly: true,
+			perPage: 100
+		}
 	}
 
 	// The browse stream's first page as last fetched, painted while its request is in flight.
@@ -1431,6 +1437,13 @@
 	// matches against it, so later pages hold matches the first one lacks. In lazy mode each
 	// folder paginates within itself; users past the window are reached via their owner chip.
 	let treeGlobalHasMore = $derived(!treeLazyMode && !searching ? hasMoreServer : false)
+	// The cached first page, applied as the list is created rather than by the reload effect
+	// below, which runs after the first render: the rows are then in the frame that mounts it.
+	{
+		const ws = $workspaceStore
+		const cached = ws ? firstPageCache.peek({ workspace: ws, args: browseParams() }) : undefined
+		if (ws && cached) applyRunnables(cached, true, ws)
+	}
 	$effect(() => {
 		if ($workspaceStore) {
 			;[archived, includeWithoutMain, sortOrder, searching, ownerFilter, itemKind]

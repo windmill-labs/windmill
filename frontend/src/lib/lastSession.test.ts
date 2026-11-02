@@ -26,7 +26,7 @@ describe('lastSession', () => {
 
 	it('renders as the remembered user only while the session hint still matches', () => {
 		hint('h1')
-		rememberUser(bob)
+		rememberUser(bob, 'h1')
 		expect(optimisticUser('demo')).toEqual(bob)
 		// Another login on the browser: another session, another hint.
 		hint('h2')
@@ -38,15 +38,24 @@ describe('lastSession', () => {
 
 	it('only for the workspace it was confirmed in, and never after a logout', () => {
 		hint('h1')
-		rememberUser(bob)
+		rememberUser(bob, 'h1')
 		expect(optimisticUser('other')).toBeUndefined()
 		forgetLastSession()
 		expect(optimisticUser('demo')).toBeUndefined()
 	})
 
 	it('remembers nothing without a session hint', () => {
-		rememberUser(bob)
+		rememberUser(bob, 'h1')
 		hint('h1')
+		expect(optimisticUser('demo')).toBeUndefined()
+	})
+
+	it("never files a whoami answer under a session that changed while it was in flight", () => {
+		hint('alice')
+		const sentWith = readSessionHint()
+		// Another tab logs in as bob before alice's whoami answers.
+		hint('bob')
+		rememberUser({ ...bob, email: 'alice@x.dev' } as UserExt, sentWith)
 		expect(optimisticUser('demo')).toBeUndefined()
 	})
 })
