@@ -34,6 +34,8 @@
 		/** Show the items as the home page's folder tree, each folder row selecting
 		 * everything under it, instead of grouped by top-level folder. */
 		nested?: boolean
+		/** With `nested`, appended to a folder row's item count, given its full path prefix. */
+		folderDetail?: Snippet<[string]>
 		selectedItems: string[]
 		selectablePredicate?: (item: DeployableItem) => boolean
 		/** Selectable on its own row, but never swept in by a bulk action (the group
@@ -78,6 +80,7 @@
 	let {
 		items,
 		nested = false,
+		folderDetail,
 		selectedItems,
 		selectablePredicate = () => true,
 		bulkExcluded = () => false,
@@ -316,6 +319,7 @@
 				sortCompare={(a, b) => a.path.localeCompare(b.path)}
 				leaf={treeLeaf}
 				ownerLead={hideSelection ? undefined : prefixCheckbox}
+				ownerDetail={folderDetail}
 			/>
 		</div>
 	{:else if items.length > 0}

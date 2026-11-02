@@ -138,6 +138,10 @@ describe('buildPathMap', () => {
 		expect(m.get('f/hub/billing/charge')).toBe('f/billing/charge')
 		expect(m.get('f/hub/billing/utils/format')).toBe('f/billing/utils/format')
 		expect(m.get('f/hub/billing/stripe/format')).toBe('f/billing/stripe/format')
+		// The same for a top-level folder whose name is not its slug.
+		expect(buildPathMap(['f/my_tools/a/x'], 'my-tools', 'my_tools').get('f/my_tools/a/x')).toBe(
+			'f/my-tools/a/x'
+		)
 	})
 	it('relocates an external onto a suffix when its leaf collides with an internal path', () => {
 		const m = buildPathMap(['f/proj/db', 'u/admin/db'], 'proj')

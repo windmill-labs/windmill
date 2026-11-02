@@ -38,6 +38,7 @@ import {
 	canRecord,
 	canRecordSession,
 	commonFolderPath,
+	folderSubPaths,
 	inputResourceTypes,
 	mergeAppTableOrigin,
 	HIDDEN_RESOURCE_TYPES,
@@ -318,6 +319,9 @@ export class DeployToHubSession {
 
 	/** Set once the Hub has said whether this scope already has a project. */
 	hubChecked = $state(false)
+	/** Sub-paths of an unpublished base folder that are Hub projects of their own. */
+	subProjects = $state<{ folder: string; status: string }[]>([])
+	#subProjectsLoaded = false
 	// A scope with a Hub project offers only its own items, so an update cannot drift
 	// into another scope's project; until then the whole base folder is offered.
 	filteredWorkspaceItems = $derived(
@@ -622,6 +626,33 @@ export class DeployToHubSession {
 		} finally {
 			if (!this.#disposed && tok === this.#triggerLoadTok) this.triggersLoading = false
 		}
+	}
+
+	// ponytail: one lookup per sub-path; a by-prefix Hub query if folders grow deep.
+	async loadSubProjects() {
+		if (this.#subProjectsLoaded) return
+		this.#subProjectsLoaded = true
+		const subs = folderSubPaths(
+			this.workspaceItems.map((i) => i.path),
+			this.listFolder
+		)
+		const found = await Promise.all(
+			subs.map(async (folder) => {
+				try {
+					const res = await fetch(
+						`/api/w/${this.workspace}/hub/project?folder=${encodeURIComponent(folder)}`,
+						{ credentials: 'include', headers: { accept: 'application/json' } }
+					)
+					if (!res.ok) return undefined
+					const p = await res.json()
+					return p?.slug ? { folder, status: String(p.status ?? 'draft') } : undefined
+				} catch {
+					return undefined
+				}
+			})
+		)
+		if (this.#disposed) return
+		this.subProjects = found.filter((p) => p !== undefined)
 	}
 
 	async rehydrateFromHub() {
@@ -1957,6 +1988,20 @@ export function useDeployToHubSession(args: {
 			if (phaseSeen?.s === s && phaseSeen.phase !== phase) s.manualDeselected = new Set()
 			phaseSeen = { s, phase }
 		})
+	})
+
+	// An unpublished base folder looks up which of its sub-paths are published on their
+	// own, once its items have loaded.
+	$effect(() => {
+		const s = session
+		if (
+			s &&
+			s.hubChecked &&
+			!s.effectiveSlug &&
+			s.folder === s.listFolder &&
+			s.workspaceItems.length
+		)
+			untrack(() => void s.loadSubProjects())
 	})
 
 	// Schedule previews for relevant schedule triggers (deduped in the session).

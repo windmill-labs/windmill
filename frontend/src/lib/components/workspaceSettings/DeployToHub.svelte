@@ -69,6 +69,10 @@
 		if (s.selectedItems.length && s.selectionScope !== s.folder) scope = s.selectionScope
 	})
 
+	function hubStatusLabel(status: string): string {
+		return status === 'live' ? 'live' : status === 'under_review' ? 'in review' : 'draft'
+	}
+
 	let recordDrawer = $state<Drawer | undefined>()
 	let appRecordDrawer = $state<Drawer | undefined>()
 	let appRecordTarget = $state<DeployItem | undefined>(undefined)
@@ -166,6 +170,13 @@
 	}
 </script>
 
+{#snippet subProjectNote(prefix: string)}
+	{@const sp = deployHub.session?.subProjects.find((p) => `f/${p.folder}` === prefix)}
+	{#if sp}
+		· on Hub ({hubStatusLabel(sp.status)})
+	{/if}
+{/snippet}
+
 {#if deployHub.session}
 	<ConfirmationModal
 		open={discardTarget !== undefined}
@@ -189,6 +200,7 @@
 			<WorkspaceDeployLayout
 				items={s.items}
 				nested
+				folderDetail={subProjectNote}
 				selectedItems={s.selectedItemKeys}
 				deploymentStatus={s.deploymentStatus}
 				hideSelection={s.phase !== 'predeploy'}
@@ -344,6 +356,29 @@
 									<span class="font-mono">{s.selectedFolder}/</span>.
 									{s.selectedItems.length} of {s.filteredWorkspaceItems.length} items selected.
 								</span>
+								{#each s.subProjects as sp (sp.folder)}
+									<!-- Publishing the whole folder takes in a sub-path published on its own. -->
+									{@const overlaps = s.selectedItems.some((i) =>
+										i.path.startsWith(`f/${sp.folder}/`)
+									)}
+									<div
+										class="flex flex-wrap items-center gap-1.5 text-xs {overlaps
+											? 'text-yellow-700 dark:text-yellow-400'
+											: 'text-secondary'}"
+									>
+										{#if overlaps}
+											<TriangleAlert size={12} class="shrink-0" />
+										{/if}
+										<span>
+											<span class="font-mono">f/{sp.folder}/</span> is already a Hub project ({hubStatusLabel(
+												sp.status
+											)}){overlaps ? ', and this bundle includes its items too' : ''}.
+										</span>
+										<Button variant="subtle" unifiedSize="xs" onclick={() => (scope = sp.folder)}>
+											Open it
+										</Button>
+									</div>
+								{/each}
 							</div>
 							<div class="flex flex-wrap items-center gap-2 text-xs">
 								<span class="font-semibold text-primary shrink-0">

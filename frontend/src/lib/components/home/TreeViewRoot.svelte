@@ -57,6 +57,8 @@
 		onManageFolder?: (folderName: string) => void
 		// See TreeView's `ownerLead`.
 		ownerLead?: Snippet<[string]>
+		// See TreeView's `ownerDetail`.
+		ownerDetail?: Snippet<[string]>
 		// Inject folders `ownerCounts` calls empty, as "0 items". Off under a kind filter,
 		// where those counts are per kind and every folder lacking that kind would show.
 		keepEmptyFolders?: boolean
@@ -88,6 +90,7 @@
 		openMemory,
 		onManageFolder,
 		ownerLead,
+		ownerDetail,
 		keepEmptyFolders = false,
 		keptFolders
 	}: Props = $props()
@@ -299,6 +302,7 @@
 		{openMemory}
 		{onManageFolder}
 		{ownerLead}
+		{ownerDetail}
 	/>
 {/snippet}
 

@@ -64,6 +64,8 @@
 		// An always-visible control before a folder/user row's icon, given the node's
 		// full path prefix (e.g. a checkbox selecting everything under it).
 		ownerLead?: Snippet<[string]>
+		// Appended to a folder/user row's item count, given the node's full path prefix.
+		ownerDetail?: Snippet<[string]>
 	}
 
 	let {
@@ -85,7 +87,8 @@
 		leaf,
 		openMemory,
 		onManageFolder,
-		ownerLead
+		ownerLead,
+		ownerDetail
 	}: Props = $props()
 
 	const unruled = inUnruledList()
@@ -335,6 +338,9 @@
 				{:else}
 					({pluralize(loadedHere, ' item')})
 				{/if}
+				{#if ownerDetail && nodePrefix != undefined}
+					{@render ownerDetail(nodePrefix)}
+				{/if}
 			{/snippet}
 		</TreeOwnerRow>
 		<!-- ResizeObserver, not a slide: a freshly-opened owner fetches its rows, so its height
@@ -374,6 +380,7 @@
 							{leaf}
 							{onManageFolder}
 							{ownerLead}
+							{ownerDetail}
 						/>
 					{/each}
 					{#if effectiveMax < item.items.length}
