@@ -232,23 +232,22 @@ fn check_principal<'a>(authed: &ApiAuthed, principal: &'a str) -> Result<(&'a st
     Ok((prefix, name))
 }
 
-async fn get_access(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Query(AccessQuery { principal }): Query<AccessQuery>,
-) -> JsonResult<AccessReport> {
-    let (prefix, name) = check_principal(&authed, &principal)?;
-
+/// The principal as it would be authenticated, with its groups and the folders it reaches.
+async fn fetch_target(
+    db: &DB,
+    w_id: &str,
+    prefix: &str,
+    name: &str,
+    principal: &str,
+) -> Result<windmill_common::db::Authed> {
     let email = match prefix {
         "u" => {
             let usr = sqlx::query!(
                 "SELECT email, disabled FROM usr WHERE workspace_id = $1 AND username = $2",
-                &w_id,
+                w_id,
                 name
             )
-            .fetch_optional(&db)
+            .fetch_optional(db)
             .await?
             .ok_or_else(|| Error::NotFound(format!("user {name} not found")))?;
             if usr.disabled {
@@ -261,10 +260,10 @@ async fn get_access(
         "g" => {
             let exists = sqlx::query_scalar!(
                 "SELECT EXISTS(SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = $2)",
-                &w_id,
+                w_id,
                 name
             )
-            .fetch_one(&db)
+            .fetch_one(db)
             .await?
             .unwrap_or(false);
             if !exists {
@@ -279,10 +278,23 @@ async fn get_access(
         }
     };
 
-    let mut target = fetch_authed_from_permissioned_as(&principal, &email, &w_id, &db).await?;
+    let mut target = fetch_authed_from_permissioned_as(principal, &email, w_id, db).await?;
     // A workspace group and an instance group can share a name, and both come back.
     target.groups.sort();
     target.groups.dedup();
+    Ok(target)
+}
+
+async fn get_access(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(AccessQuery { principal }): Query<AccessQuery>,
+) -> JsonResult<AccessReport> {
+    let (prefix, name) = check_principal(&authed, &principal)?;
+
+    let target = fetch_target(&db, &w_id, prefix, name, &principal).await?;
 
     if target.is_admin {
         return Ok(Json(AccessReport {
@@ -427,11 +439,20 @@ fn folder_blocked(folder: &str) -> String {
 
 async fn browse_folders(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(AccessQuery { principal }): Query<AccessQuery>,
 ) -> JsonResult<Vec<BrowseFolder>> {
-    check_principal(&authed, &principal)?;
+    let (prefix, name) = check_principal(&authed, &principal)?;
+    // Ownership can come through one of the principal's groups, as in `/access/get`.
+    let target = fetch_target(&db, &w_id, prefix, name, &principal).await?;
+    let owned = target
+        .folders
+        .iter()
+        .filter(|(_, _, owner)| *owner)
+        .map(|(name, ..)| name.as_str())
+        .collect::<std::collections::HashSet<_>>();
     let mut tx = user_db.begin(&authed).await?;
     let mut folders = sqlx::query_as::<_, BrowseFolder>(
         "SELECT name, (extra_perms ->> $2)::boolean AS \"grant\", $2 = ANY(owners) AS target_owner
@@ -443,6 +464,7 @@ async fn browse_folders(
     .await?;
     tx.commit().await?;
     for folder in &mut folders {
+        folder.target_owner |= owned.contains(folder.name.as_str());
         if !windmill_api_auth::is_owner(&authed, &folder.name) {
             folder.blocked = Some(folder_blocked(&folder.name));
         }

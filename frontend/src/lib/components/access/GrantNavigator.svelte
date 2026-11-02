@@ -20,8 +20,10 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 		type BrowseAccessItemsResponse,
 		type PrincipalAccess
 	} from '$lib/gen'
-	import { userStore } from '$lib/stores'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { debounce } from '$lib/utils'
 	import { Folder, ScanSearch, User, Users } from 'lucide-svelte'
@@ -29,6 +31,7 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 	import type { RunnableKind } from './detectNeeds'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
 
 	type Row = BrowseAccessItemsResponse['items'][number]
 	/** `kind` `folder` is the "All of f/x" row, its `path` the folder name. */
@@ -46,7 +49,7 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 		onFindReads: (kind: RunnableKind, path: string) => void
 	} = $props()
 
-	const own = $derived(`u/${$userStore?.username}`)
+	const own = $derived(`u/${operatingUser.current?.username}`)
 
 	let folders: BrowseAccessFoldersResponse | undefined = $state()
 	/** Rows by top-level branch (`u/alice`, `f/billing`), then by `kind:path`. */

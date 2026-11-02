@@ -15,21 +15,28 @@ async fn test_member_cannot_read_another_members_access(db: Pool<Postgres>) -> a
     );
     let client = reqwest::Client::new();
 
-    let resp = client
-        .get(&url)
-        .query(&[("principal", "u/test-user")])
-        .header("Authorization", "Bearer SECRET_TOKEN_2")
-        .send()
-        .await?;
-    assert_eq!(resp.status(), 403, "{}", resp.text().await?);
+    sqlx::raw_sql(
+        "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ('test-workspace', 'ops', '', '{}');
+         INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ('test-workspace', 'test-user-2', 'ops')",
+    )
+    .execute(&db)
+    .await?;
 
-    let resp = client
-        .get(&url)
-        .query(&[("principal", "u/test-user-2")])
-        .header("Authorization", "Bearer SECRET_TOKEN_2")
-        .send()
-        .await?;
-    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    // A member may read their own access and their groups', nobody else's.
+    for (principal, status) in [
+        ("u/test-user", 403),
+        ("g/all", 403),
+        ("u/test-user-2", 200),
+        ("g/ops", 200),
+    ] {
+        let resp = client
+            .get(&url)
+            .query(&[("principal", principal)])
+            .header("Authorization", "Bearer SECRET_TOKEN_2")
+            .send()
+            .await?;
+        assert_eq!(resp.status(), status, "{principal}: {}", resp.text().await?);
+    }
 
     // A scoped token reaches the route only if `/access` maps to a scope domain.
     let scoped = client

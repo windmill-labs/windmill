@@ -8,7 +8,9 @@ vi.mock('$lib/gen', () => ({
 		getAppByPath: vi.fn(async () => ({
 			value: {
 				files: {
-					'/App.tsx': `const key = await wmill.getVariable("f/x/browser_secret")`,
+					'/App.tsx': `export default () => <div>{wmill.getVariable("f/x/browser_secret")}</div>`,
+					'/Db.svelte': `<script>const db = wmill.getResource('f/x/app_db')</script>\n<p>{db}</p>`,
+					'/Secret.svelte': `<script>import * as wmill from 'windmill-client'</script>\n{#await wmill.getVariable("f/x/template_secret") then s}<p>{s}</p>{/await}`,
 					'/notes.md': `getVariable("f/x/not_code")`
 				},
 				runnables: {}
@@ -55,7 +57,9 @@ vi.mock('$lib/gen', () => ({
 			value:
 				path === 'f/x/db'
 					? { password: '$var:f/x/db_password', tls: { ca: '$res:f/x/ca' } }
-					: { cert: '$jsonvar:f/x/ca_cert' }
+					: path === 'f/x/ca'
+						? { cert: '$jsonvar:f/x/ca_cert' }
+						: {}
 		}))
 	}
 }))
@@ -76,8 +80,12 @@ describe('detectNeeds', () => {
 		expect(needs.errors).toEqual([])
 	})
 
-	it("reads a full-code app's frontend source files", async () => {
+	it("reads a full-code app's JSX and Svelte source files", async () => {
 		const needs = await detectNeeds('w', 'app', 'f/x/app')
-		expect(needs.items.map((i) => `${i.kind}:${i.path}`)).toEqual(['variable:f/x/browser_secret'])
+		expect(needs.items.map((i) => `${i.kind}:${i.path}`)).toEqual([
+			'resource:f/x/app_db',
+			'variable:f/x/browser_secret',
+			'variable:f/x/template_secret'
+		])
 	})
 })
