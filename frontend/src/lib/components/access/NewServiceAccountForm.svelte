@@ -6,7 +6,7 @@
 	import { FolderService, UserService } from '$lib/gen'
 	import { Database, Folder, Info, KeyRound } from 'lucide-svelte'
 	import { detectNeeds, type NeedsSource, type RunnableKind } from './detectNeeds'
-	import { setPendingServiceAccount, type Grant } from './serviceAccounts.svelte'
+	import { pendingUsernames, setPendingServiceAccount, type Grant } from './serviceAccounts.svelte'
 
 	let {
 		workspace,
@@ -41,6 +41,8 @@
 	/** Whether the item's folder already names default users; unknown until loaded. */
 	let folderHasDefaults: boolean | undefined = $state(undefined)
 	let usernames: string[] = $state([])
+	// Another item in this tab may already plan to create a name; reusing it would merge both.
+	const pendingNames = $derived(pendingUsernames(workspace))
 	let folderNames: string[] = $state([])
 	let detecting = $state(true)
 	let detectionErrors: string[] = $state([])
@@ -55,7 +57,9 @@
 		folderNames = folders
 		const wanted = initialName?.trim() ? base : `${base.replace(/[^a-zA-Z0-9_]/g, '_')}_bot`
 		let candidate = wanted
-		for (let i = 2; users.includes(candidate); i++) candidate = `${wanted}_${i}`
+		const pendingAtStart = pendingUsernames(workspace)
+		for (let i = 2; users.includes(candidate) || pendingAtStart.includes(candidate); i++)
+			candidate = `${wanted}_${i}`
 		name = candidate
 		if (itemFolder) {
 			rows = [
@@ -105,7 +109,9 @@
 				? 'Letters, digits and _ only'
 				: usernames.includes(name)
 					? `u/${name} already exists`
-					: undefined
+					: pendingNames.includes(name)
+						? `u/${name} is already waiting to be created at deploy`
+						: undefined
 	)
 	const principal = $derived(`u/${name}`)
 	const chosen = $derived(rows.filter((r) => r.checked))

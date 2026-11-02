@@ -49,6 +49,13 @@ export function getPendingServiceAccount(
 	return permissionedAs ? pending.get(key(workspace, permissionedAs)) : undefined
 }
 
+/** Usernames this tab plans to create in `workspace`, which a new account must not reuse. */
+export function pendingUsernames(workspace: string): string[] {
+	return [...pending.entries()]
+		.filter(([k]) => k.startsWith(`${workspace}:`))
+		.map(([, a]) => a.username)
+}
+
 /** Clears a run-as that names a placeholder email this tab no longer holds an account for, as a
  *  draft saved before its deploy does after a reload: the server knows no such user. */
 export function dropStalePending(
