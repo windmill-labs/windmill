@@ -135,6 +135,8 @@ export async function detectNeeds(
 				await walk(app.value, runnablePath, depth)
 			}
 		} catch (e) {
+			// The item itself unreadable is a failure of the whole scan, not a partial result.
+			if (depth === 0) throw e
 			errors.push(`${runnablePath}: ${e?.body ?? e}`)
 		}
 	}
