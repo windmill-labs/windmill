@@ -293,11 +293,28 @@ fn parse_duckdb_size(s: &str) -> Option<u64> {
     Some((num * mult) as u64)
 }
 
+/// DuckDB's prebuilt linux_amd64 extensions target x86-64-v3, and every job loads httpfs, so
+/// on a CPU without AVX2 the runner would die with SIGILL and an opaque crash message.
+fn check_cpu_supported() -> Result<()> {
+    #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+    if !std::arch::is_x86_feature_detected!("avx2") {
+        return Err(Error::ExecutionErr(
+            "DuckDB requires a CPU with AVX2 (x86-64-v3): its extensions crash on this worker's \
+             CPU. On a VM, set the CPU type to `host` or `x86-64-v3` (Proxmox's default \
+             `x86-64-v2-AES` hides AVX2; on VMware, raise the EVC mode to Haswell or later), or \
+             run DuckDB jobs on a worker group with a newer CPU."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) async fn run(
     mode: RunnerMode,
     req: &RunnerRequest<'_>,
     job_dir: &str,
 ) -> Result<RunnerOutput> {
+    check_cpu_supported()?;
     let spill_dir = format!("{}/spill", work_dir(job_dir));
     tokio::fs::create_dir_all(&spill_dir).await?;
     let req = RunnerRequest { temp_directory: &spill_dir, ..*req };

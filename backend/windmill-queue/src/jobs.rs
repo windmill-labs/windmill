@@ -299,7 +299,7 @@ pub async fn cancel_job<'c>(
 
     let mut job = job.unwrap();
 
-    if require_anonymous && job.created_by != "anonymous" {
+    if require_anonymous && job.created_by != windmill_common::usernames::ANONYMOUS_USERNAME {
         return Err(Error::BadRequest(
             "You are not logged in and this job was not created by an anonymous user like you so you cannot cancel it".to_string(),
         ));
