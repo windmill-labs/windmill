@@ -53,7 +53,9 @@ import {
 	commitSessionWorkspace,
 	deleteSession as deleteSessionState,
 	getEffectiveWorkspaceId,
+	markSessionStateChanged,
 	materializeTransient,
+	noteRemoteStateChange,
 	sessionState,
 	setGeneratedSessionSummary,
 	setSessionChatId,
@@ -453,6 +455,7 @@ function createRuntime(session: Session): SessionRuntime {
 	// tabs re-read whichever record it ended on.
 	manager.runHeldElsewhereResolver = () => runHeldElsewhere(session.id)
 	manager.onRunningChanged = (running) => {
+		markSessionStateChanged(session.id)
 		if (running) localRunStarted(session.id, manager.historyManager.getCurrentChatId())
 		else localRunEnded(session.id, manager.historyManager.getCurrentChatId())
 	}
@@ -1436,6 +1439,7 @@ export function getRuntime(sessionId: string): SessionRuntime | undefined {
 const catchUps = new Map<string, Promise<void>>()
 
 onRemoteTurnEnd((sessionId, chatId) => {
+	noteRemoteStateChange(sessionId)
 	const next = (catchUps.get(sessionId) ?? Promise.resolve())
 		.then(() => applyRemoteTurnEnd(sessionId, chatId))
 		.catch((e) => console.error('Failed to catch up on a turn from another tab', e))
