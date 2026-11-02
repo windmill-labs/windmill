@@ -9,7 +9,7 @@ import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "../../utils/yaml.ts";
 import { readTextFile, validateRequiredArgs } from "../../utils/utils.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { buildFolderPath, getMetadataFileName, loadNonDottedPathsSetting } from "../../utils/resource_folders.ts";
 
 import { requireLogin } from "../../core/auth.ts";
@@ -651,6 +651,10 @@ async function preview(
   const cwdBeforeConfig = process.cwd();
   if (useLocalPathScripts) {
     opts = await mergeConfigWithConfigFile(opts);
+  } else {
+    // --remote skips the config read, but resolving the flow folder still
+    // needs the configured suffix (nonDottedPaths).
+    await loadNonDottedPathsSetting();
   }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -660,26 +664,7 @@ async function preview(
   const argPath = flowPath;
   flowPath = toSyncRootRelativePath(flowPath, cwdBeforeConfig);
 
-  // Normalize path - ensure it's a directory path to a .flow or __flow folder
-  const isFlowDir = flowPath.endsWith(".flow") || flowPath.endsWith(".flow" + SEP)
-    || flowPath.endsWith("__flow") || flowPath.endsWith("__flow" + SEP);
-  if (!isFlowDir) {
-    // Check if it's a flow.yaml file
-    if (flowPath.endsWith("flow.yaml") || flowPath.endsWith("flow.json")) {
-      // Use dirname so a bare "flow.yaml" (no parent dir) becomes "."
-      // instead of "" — the latter, after appending SEP below, becomes "/"
-      // and silently reads from filesystem root.
-      flowPath = dirname(flowPath);
-    } else {
-      throw new Error(
-        "Flow path must be a .flow/__flow directory or a flow.yaml file"
-      );
-    }
-  }
-
-  if (!flowPath.endsWith(SEP)) {
-    flowPath += SEP;
-  }
+  flowPath = resolveFlowFolderArg(flowPath);
 
   // The flow's windmill path (e.g. "f/cli_smoke/myrelflow"). It is what the
   // preview job runs under, and the anchor for relative-import resolution:
@@ -852,20 +837,13 @@ async function previewStep(
     // Falls through here only when the deployed PathScript is what we want —
     // either --remote was passed, or no local file exists for this path.
     log.info(colors.yellow(`Previewing step '${stepId}' (script ${moduleValue.path})...`));
-    const script = moduleValue.hash
-      ? await wmill.getScriptByHash({
-          workspace: workspace.workspaceId,
-          hash: moduleValue.hash,
-        })
-      : await wmill.getScriptByPath({
-          workspace: workspace.workspaceId,
-          path: moduleValue.path,
-        });
+    const script = await loadStepScript(workspace.workspaceId, moduleValue);
     jobId = await wmill.runScriptPreview({
       workspace: workspace.workspaceId,
       requestBody: {
         content: script.content,
         language: script.language as any,
+        lock: script.lock,
         // Anchor to the script's own deployed path so its relative imports
         // resolve against the workspace tree (or temp_script_refs).
         path: moduleValue.path,
@@ -914,6 +892,54 @@ async function previewStep(
     log.info(colors.bold.underline.green(`Step '${stepId}' completed`));
     log.info(JSON.stringify(result, null, 2));
   }
+}
+
+/**
+ * Resolve a `flow preview` argument to its local flow folder, with a trailing
+ * separator. Accepts the folder itself, its flow.yaml, or the flow's Windmill
+ * path (`f/x/my_flow`), which other commands take without the folder suffix.
+ */
+export function resolveFlowFolderArg(flowPath: string): string {
+  const withSep = (p: string) => (p.endsWith(SEP) ? p : p + SEP);
+  const isFlowDir = flowPath.endsWith(".flow") || flowPath.endsWith(".flow" + SEP)
+    || flowPath.endsWith("__flow") || flowPath.endsWith("__flow" + SEP);
+  if (isFlowDir) {
+    return withSep(flowPath);
+  }
+  if (flowPath.endsWith("flow.yaml") || flowPath.endsWith("flow.json")) {
+    // dirname, so a bare "flow.yaml" becomes "." rather than "", which would
+    // turn into "/" and read from the filesystem root.
+    return withSep(dirname(flowPath));
+  }
+  const bare = flowPath.endsWith(SEP) ? flowPath.slice(0, -SEP.length) : flowPath;
+  // The configured suffix first, then the other one: a workspace can hold both.
+  const candidates = [...new Set([buildFolderPath(bare, "flow"), bare + ".flow", bare + "__flow"])];
+  const found = candidates.find((c) => existsSync(c) && statSync(c).isDirectory());
+  if (found) {
+    return withSep(found);
+  }
+  throw new Error(
+    `Flow path must be a .flow/__flow directory, a flow.yaml file, or the Windmill path of a local flow; found none of ${candidates.join(", ")}`
+  );
+}
+
+/**
+ * Fetch the code and lockfile a `script` step runs, the way a whole-flow run
+ * resolves them: hub paths (`hub/<id>/...`) from the hub, others from the
+ * workspace.
+ */
+export async function loadStepScript(
+  workspaceId: string,
+  moduleValue: { path: string; hash?: string },
+): Promise<{ content: string; language: string; lock?: string }> {
+  if (moduleValue.path.startsWith("hub/")) {
+    const hub = await wmill.getHubScriptByPath({ path: moduleValue.path });
+    return { content: hub.content, language: hub.language, lock: hub.lockfile };
+  }
+  const script = moduleValue.hash
+    ? await wmill.getScriptByHash({ workspace: workspaceId, hash: moduleValue.hash })
+    : await wmill.getScriptByPath({ workspace: workspaceId, path: moduleValue.path });
+  return { content: script.content, language: script.language, lock: script.lock };
 }
 
 // Strip the `.flow`/`__flow` directory suffix to recover the flow's logical
@@ -1204,7 +1230,7 @@ const command = new Command()
   .action(run as any)
   .command(
     "preview",
-    "preview a local flow without deploying it. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow)."
+    "preview a local flow without deploying it. <flow_path> is the flow's Windmill path (f/x/my_flow), its .flow/__flow folder or its flow.yaml. Runs the flow definition from local files and uses local PathScripts by default. Pass --step <id> to run only one module in isolation (resolves nested steps inside branchone/branchall/forloopflow/whileloopflow plus the special preprocessor/failure modules; supported step types: rawscript, script, flow)."
   )
   .arguments("<flow_path:string>")
   .option(

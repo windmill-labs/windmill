@@ -2,11 +2,28 @@ import { describe, expect, it } from 'vitest'
 
 import {
 	RESERVED_LOCALS,
+	createRawAppFromAgent,
 	createRawAppFromFlow,
 	createRawAppFromScript
 } from './createRawAppFromScript'
 
 describe('createRawAppFromScript', () => {
+	it('builds an agent form over its message that shows only the answer', () => {
+		const app = createRawAppFromAgent('u/dev/helper')
+		const runnable = app.value.runnables.helper as {
+			runType: string
+			schema: { properties: object }
+		}
+		expect(runnable.runType).toBe('agent')
+		expect(Object.keys(runnable.schema.properties)).toEqual(['user_message'])
+		const appTsx = app.value.files['/App.tsx']
+		expect(appTsx).toContain('setResult((await backend.helper({')
+		expect(appTsx).toContain('))?.output)')
+		expect(appTsx).toContain(
+			"typeof result === 'string' ? result : JSON.stringify(result, null, 2)"
+		)
+	})
+
 	it('builds a path runnable and a form calling it', () => {
 		const app = createRawAppFromScript('u/dev/greet_user', 'Greet a user', {
 			type: 'object',

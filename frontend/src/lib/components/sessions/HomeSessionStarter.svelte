@@ -22,7 +22,6 @@
 	} from './sessionState.svelte'
 	import { useWorkModeLock } from './workModeLock.svelte'
 	import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
-	import { composerSentFromHome } from './homeSessionsTransition.svelte'
 	import { homeComposerContext } from './homeComposerContext.svelte'
 
 	// Home's block is the unsent session's own chat, run by that session's manager: the
@@ -57,7 +56,6 @@
 
 	// The turn is already running on the session's manager; the page it belongs to takes over.
 	function onSent() {
-		composerSentFromHome()
 		selectSession(sessionId)
 		void goto(sessionPageHref(sessionId))
 	}
@@ -114,7 +112,7 @@
      state. Any loaded config will do, so a fork switch does not hide it while the fork's loads.
      The item count decides whether the composer rests collapsed, so it waits for that too
      rather than open and fold up a moment later. -->
-{#if session && $copilotWorkspace !== undefined && starterPrompts.fewItems !== undefined}
+{#if session && $copilotWorkspace !== undefined && starterPrompts.empty !== undefined}
 	<div bind:this={chatWrapper}>
 		<AIChat
 			bind:this={() => aiChat, bindChat}
@@ -127,9 +125,8 @@
 			onAttachmentsChange={(a) => setSessionDraftAttachments(sessionId, a)}
 			starter={{
 				suggestions: starterPrompts.suggestions,
-				restsOpen: starterPrompts.fewItems
+				restsOpen: starterPrompts.empty
 			}}
-			viewTransitionNames
 			{onSent}
 			workModeLock={workModeLock.current}
 		/>

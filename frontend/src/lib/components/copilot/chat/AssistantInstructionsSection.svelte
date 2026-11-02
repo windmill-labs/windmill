@@ -188,7 +188,26 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 					(folderContent !== folderOriginal || newPath !== detail.row.path)
 	)
 
-	let dirty = $derived(workspaceChanged || userChanged || folderChanged)
+	/** Unsaved folder instructions the user moved away from, by workspace and path: the editor
+	 * holds one at a time, and opening another would otherwise drop this one's text. */
+	let parkedFolderDrafts = $state<
+		Record<string, { workspace: string; content: string; original: string }>
+	>({})
+	const draftKey = (path: string, workspace = ws) => `${workspace}\0${path}`
+	let parkedHere = $derived(
+		Object.entries(parkedFolderDrafts).filter(([, d]) => d.workspace === ws)
+	)
+
+	/** The same for a new folder instruction, with the path typed for it, by workspace. */
+	let parkedNewDrafts = $state<Record<string, { path: string; content: string }>>({})
+
+	let dirty = $derived(
+		workspaceChanged ||
+			userChanged ||
+			folderChanged ||
+			parkedHere.length > 0 ||
+			parkedNewDrafts[ws] !== undefined
+	)
 	/** Whether the block on the detail page has unsaved text. */
 	let pageChanged = $derived(
 		detail?.kind === 'workspace'
@@ -204,14 +223,15 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 
 	// Loaded on the first look and again on a workspace switch: B's instructions must not
 	// be saved over A's. A reload drops a draft, so it waits until one is saved or
-	// reverted — hence `dirty` tracked, and `loadedWorkspace` to pick the wait up against
-	// whatever `ws` is by then (a staged fork commits into a workspace of its own).
+	// reverted — hence the open drafts tracked, and `loadedWorkspace` to pick the wait up
+	// against whatever `ws` is by then (a staged fork commits into a workspace of its own).
+	// Parked folder drafts do not count: they are kept by workspace and a reload leaves them.
 	let loadSeq = 0
 	let loadedWorkspace: string | undefined = undefined
 	$effect(() => {
 		const target = ws
 		const shown = active
-		const clean = !dirty
+		const clean = !(workspaceChanged || userChanged || folderChanged)
 		untrack(() => {
 			// Parked: read again on the next visit, since every block is editable from
 			// elsewhere too.
@@ -304,7 +324,10 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		event.stopPropagation()
 		workspaceDraft = workspaceSaved
 		userDraft = userSaved
-		setFolderContent(folderOriginal)
+		// The editor may still hold another workspace's open draft, which is not this one's to drop.
+		if (opened?.workspace === ws) setFolderContent(folderOriginal)
+		for (const [key] of parkedHere) delete parkedFolderDrafts[key]
+		delete parkedNewDrafts[ws]
 	}
 
 	function revertPage() {
@@ -313,7 +336,33 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		else setFolderContent(folderOriginal)
 	}
 
+	/** Moves the open folder instruction's unsaved text aside, before the editor is reused.
+	 * Read from `opened`, not `detail`: after a workspace switch `detail` is gone while the
+	 * editor still holds the text, which belongs to the workspace it was opened in. */
+	function parkFolderDraft() {
+		if (!opened) return
+		const { workspace, detail: held } = opened
+		if (held.kind === 'new') {
+			bodyEditor?.flushPendingChanges()
+			// The path picker fills in a default, so a path alone is not a draft.
+			if (folderContent.trim()) {
+				parkedNewDrafts[workspace] = { path: newPath, content: folderContent }
+			}
+			return
+		}
+		if (held.kind !== 'folder') return
+		bodyEditor?.flushPendingChanges()
+		if (folderContent === folderOriginal) return
+		parkedFolderDrafts[draftKey(held.row.path, workspace)] = {
+			workspace,
+			content: folderContent,
+			original: folderOriginal
+		}
+		folderOriginal = folderContent
+	}
+
 	function openBlock(kind: 'workspace' | 'user') {
+		parkFolderDraft()
 		opened = { workspace: ws, detail: { kind } }
 		detailOpen = true
 	}
@@ -339,6 +388,18 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 			detailOpen = true
 			return
 		}
+		parkFolderDraft()
+		const parked = parkedFolderDrafts[draftKey(row.path)]
+		if (parked) {
+			delete parkedFolderDrafts[draftKey(row.path)]
+			visit++
+			setFolderContent(parked.content)
+			folderOriginal = parked.original
+			folderMode = 'edit'
+			opened = { workspace: ws, detail: { kind: 'folder', row } }
+			detailOpen = true
+			return
+		}
 		// Pinned across the await, and re-checked after it: a switch in between must not
 		// open A's body under B, where Save would write it.
 		const source = ws
@@ -360,10 +421,13 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 
 	function openNew() {
 		if (blockedByPendingFork()) return
+		parkFolderDraft()
+		const parked = parkedNewDrafts[ws]
+		delete parkedNewDrafts[ws]
 		visit++
 		editorSeq++
-		newPath = ''
-		setFolderContent('')
+		newPath = parked?.path ?? ''
+		setFolderContent(parked?.content ?? '')
 		folderOriginal = ''
 		folderMode = 'edit'
 		opened = { workspace: ws, detail: { kind: 'new' } }
@@ -443,9 +507,13 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		try {
 			await ResourceService.deleteResource({ workspace: target, path: row.path })
 			sendUserToast(`Deleted ${row.path}`)
-			setFolderContent('')
-			folderOriginal = ''
-			closeDetail()
+			delete parkedFolderDrafts[draftKey(row.path, target)]
+			// Whatever was opened while the delete was in flight owns the editor now.
+			if (target === ws && detail?.kind === 'folder' && detail.row.path === row.path) {
+				setFolderContent('')
+				folderOriginal = ''
+				closeDetail()
+			}
 			await loadFolders(target)
 			refreshChat(target)
 		} catch (e) {
@@ -661,7 +729,7 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		<span class="truncate leading-5">{row.name}</span>
 	{/snippet}
 	{#snippet subtitle()}
-		{#if folderChanged && detail?.kind === 'folder' && detail.row.path === row.path}
+		{#if (folderChanged && detail?.kind === 'folder' && detail.row.path === row.path) || parkedFolderDrafts[draftKey(row.path)]}
 			<span class="text-hint">Unsaved changes ·</span>
 		{/if}
 		{@const inScope = aiChatManager.workingScope?.roots?.find((r) => `${r}/`.startsWith(row.scope))}

@@ -6,6 +6,7 @@ import {
 	decideSessionLifecycle,
 	getSessionDraftAttachments,
 	holdHomeDraft,
+	holdSessionUntilStarted,
 	homeDraft,
 	homeStarterSession,
 	isForkSession,
@@ -19,6 +20,7 @@ import {
 	setSessionDraftPrompt,
 	setSendUnderWayCheck,
 	setSessionPendingWorkspace,
+	setSessionTabs,
 	sessionState,
 	withOpenSessionTeardown,
 	type Session
@@ -487,6 +489,36 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 		}
 	})
 
+	it('keeps a session held until started in memory, and does not reuse it', () => {
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const held = session({
+			id: 'held-on-app',
+			name: 'session-905',
+			pending_workspace_id: 'forkA',
+			transient: true
+		})
+		sessionState.sessions.push(held)
+		let createdId: string | undefined
+		try {
+			holdSessionUntilStarted('held-on-app')
+			const tabs = [
+				{ id: 'session', url: '/apps_raw/edit/u/me/app', loc: '/apps_raw/edit/u/me/app' }
+			]
+			setSessionTabs('held-on-app', tabs, 'session')
+			expect(held.transient).toBe(true)
+			createdId = createSession().id
+			expect(createdId).not.toBe('held-on-app')
+			expect(sessionState.sessions).toContain(held)
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== 'held-on-app' && s.id !== createdId
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
 	it('drops an untouched draft left over from another family and starts in the active workspace', () => {
 		const restore = withTwoFamilies('rootB')
 		const prevCurrent = sessionState.currentSessionId
@@ -699,6 +731,24 @@ describe('homeStarterSession', () => {
 			sessionState.sessions = sessionState.sessions.filter(
 				(s) => !['recent-draft', 'held-draft'].includes(s.id)
 			)
+			restore()
+		}
+	})
+
+	it('keeps a draft whose first send is under way in the workspace it was sent from', () => {
+		const restore = withTwoFamilies('forkA')
+		sessionState.sessions.push(session({ id: 'sending-draft', pending_workspace_id: 'forkA' }))
+		const sendingNow = () => sessionState.sessions.find((s) => s.id === 'sending-draft')
+		try {
+			holdHomeDraft('sending-draft')
+			setSendUnderWayCheck((id) => id === 'sending-draft')
+			workspaceStore.set('rootA')
+			holdHomeDraft('sending-draft')
+			expect(sendingNow()?.pending_workspace_id).toBe('forkA')
+		} finally {
+			setSendUnderWayCheck(() => false)
+			homeDraft.id = undefined
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'sending-draft')
 			restore()
 		}
 	})

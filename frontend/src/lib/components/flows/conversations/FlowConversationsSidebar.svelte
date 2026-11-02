@@ -45,6 +45,8 @@
 		 * put editor scratch in front of the flow's users.
 		 */
 		canFilterKind?: boolean
+		/** Pinned under the list, open or collapsed. */
+		footer?: import('svelte').Snippet<[{ expanded: boolean }]>
 	}
 
 	let {
@@ -52,7 +54,8 @@
 		pool,
 		poolState,
 		defaultKind = 'deployed',
-		canFilterKind = false
+		canFilterKind = false,
+		footer = undefined
 	}: Props = $props()
 
 	let expanded = $state(false)
@@ -450,4 +453,8 @@
 			{/snippet}
 		</InfiniteList>
 	</div>
+	{#if footer}
+		<!-- mt-auto: collapsed, the list above is hidden and no longer pushes it down. -->
+		<div class="flex-shrink-0 mt-auto p-1">{@render footer({ expanded })}</div>
+	{/if}
 </div>

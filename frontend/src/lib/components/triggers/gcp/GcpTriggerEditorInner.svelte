@@ -88,7 +88,7 @@
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
-	let base_endpoint = $derived(apiBaseUrl())
+	let base_endpoint = $derived(apiBaseUrl('push_triggers'))
 	let auto_acknowledge_msg = $state(true)
 	let ack_deadline: number | undefined = $state()
 	let optionTabSelected: 'settings' | 'error_handler' | 'retries' = $state('error_handler')

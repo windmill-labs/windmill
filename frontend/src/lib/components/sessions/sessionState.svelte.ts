@@ -21,6 +21,7 @@ import { userScopedDb } from '$lib/userScopedDb'
 import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
+import { deleteSessionHandEdits } from './sessionHandEdits.svelte'
 import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
 import type { DraftAttachments } from '../copilot/chat/messageDraft.svelte'
 import type { AppDomSelectorElement } from '../copilot/chat/context'
@@ -125,6 +126,10 @@ export type Session = {
 	// untouched draft never persists, so idle `+` clicks vanish on reload
 	// instead of littering the sidebar.
 	transient?: boolean
+	// In memory only, on a transient session opened onto an item that lives on its own (a new
+	// app's draft): its preview writes are not a touch, so a session the user never starts
+	// vanishes on reload instead of reopening onto the item. Cleared with `transient`.
+	untilStarted?: boolean
 	// Epoch ms of the last write to this record — typing, renaming, archiving,
 	// changing preview tabs, or catching up on new messages. Stamped by the two
 	// write funnels (persistTouched, markSessionSeen), so it tracks use rather
@@ -200,6 +205,9 @@ export type SessionPreviewTab = {
 	// from the workspace listing; after, the editor is the only source, else
 	// clearing a summary would fall back to the listing's stale copy of it.
 	editorNamed?: boolean
+	// Stamped by an agent's editor in a resource tab, which is what makes that tab the chat's
+	// ACTIVE EDITOR rather than a page it previews.
+	agentEditor?: boolean
 }
 
 // Sessions live in one per-user IndexedDB, one record per session in the
@@ -473,8 +481,15 @@ export function takeSessionAutoSend(sessionId: string): boolean {
 // stays in memory and vanishes on reload.
 function persistTouched(s: Session): void {
 	if (s.transient) delete s.transient
+	delete s.untilStarted
 	s.lastActivityAt = Date.now()
 	void putSession(s)
+}
+
+// Preview state (tabs, collapse, width) is a touch except on an `untilStarted` session.
+function persistPreviewTouch(s: Session): void {
+	if (s.transient && s.untilStarted) return
+	persistTouched(s)
 }
 
 // When the session was last used. Pre-dates-the-field records report their
@@ -674,6 +689,7 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 				// here would orphan the session's attached-file blobs/handles.
 				void deleteItemsForSession(s.id)
 				void deleteArtifactsForSession(s.id)
+				deleteSessionHandEdits(s.id)
 				deletedIds.add(s.id)
 				continue
 			}
@@ -1071,12 +1087,13 @@ if (BROWSER) {
 
 // Home's draft acts on the workspace the page header names, so a switch to another
 // workspace of its family takes the draft along. A switch to another family leaves
-// it where it was: Home shows that family's own draft. Not a touch, so the draft's
-// last activity stays when the user last worked on it.
+// it where it was: Home shows that family's own draft. A draft already sending stays
+// too: its send commits the workspace it started in, but only after the pre-flight.
+// Not a touch, so the draft's last activity stays when the user last worked on it.
 function followHomeDraft(): void {
 	const s = homeDraft.id ? sessionState.sessions.find((x) => x.id === homeDraft.id) : undefined
 	const ws = get(workspaceStore)
-	if (!s || !ws || s.workspace_id) return
+	if (!s || !ws || s.workspace_id || sendUnderWay(s.id)) return
 	if (s.pending_workspace_id === ws && !s.pending_fork) return
 	if (s.pending_workspace_id && workspaceRootId(ws, get(userWorkspaces)) !== sessionRootId(s)) {
 		return
@@ -1124,8 +1141,10 @@ export function sessionPageHref(id: string): string {
 // draft typed then erased to '' still has a pending flush and is a real session.
 // Every other touch clears `transient` synchronously, so only the draft prompt
 // needs checking.
+// An `untilStarted` session is not blank: reused it would reopen its item, and dropped
+// while on screen it would leave the page showing a session that is gone.
 function isDiscardableDraft(s: Session): boolean {
-	return !!s.transient && s.draftPrompt === undefined
+	return !!s.transient && s.draftPrompt === undefined && !s.untilStarted
 }
 
 // The family's untouched blank, reused rather than piling a blank entry on every
@@ -1229,6 +1248,7 @@ export function materializeTransient(id: string): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || !s.transient) return
 	delete s.transient
+	delete s.untilStarted
 	void putSession(s)
 }
 
@@ -1240,6 +1260,23 @@ export function setSessionPendingWorkspace(id: string, workspace_id: string) {
 	// Picking an existing workspace cancels any pending fork intent.
 	s.pending_fork = undefined
 	if (changed) persistTouched(s)
+}
+
+// Keep a just-created session in memory until the user starts it (see `untilStarted`).
+export function holdSessionUntilStarted(id: string) {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (s?.transient) s.untilStarted = true
+}
+
+// Park a just-created session on a workspace. Deliberately does not persist a
+// still-transient draft: picking where it will live is part of creating it, not a
+// user touch, so an unused draft still vanishes on reload (see `transient`).
+export function setNewSessionWorkspace(id: string, workspace_id: string) {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	s.pending_workspace_id = workspace_id
+	s.pending_fork = undefined
+	if (!s.transient) persistTouched(s)
 }
 
 // One-shot commit: locks in workspace_id at first user-message send.
@@ -1339,7 +1376,7 @@ export function setSessionTabs(id: string, tabs: SessionPreviewTab[], activeTabI
 	if (!s) return
 	s.previewTabs = tabs.map((t) => ({ ...t }))
 	s.activePreviewTabId = activeTabId
-	persistTouched(s)
+	persistPreviewTouch(s)
 }
 
 // Persist whether the preview panel is collapsed for this session (a touch).
@@ -1347,7 +1384,7 @@ export function setSessionPreviewCollapsed(id: string, collapsed: boolean): void
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || !!s.previewCollapsed === collapsed) return
 	s.previewCollapsed = collapsed
-	persistTouched(s)
+	persistPreviewTouch(s)
 }
 
 // Persist the preview split size the user dragged for this session (a touch).
@@ -1355,7 +1392,7 @@ export function setSessionPreviewSize(id: string, size: number): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || s.previewSize === size) return
 	s.previewSize = size
-	persistTouched(s)
+	persistPreviewTouch(s)
 }
 
 // Persist the session's Use or Build choice (a touch). Plan is left out: a reload ends the
@@ -1586,6 +1623,7 @@ export function deleteSession(id: string) {
 	// GC any linked files and artifacts persisted for this session.
 	void deleteItemsForSession(id)
 	void deleteArtifactsForSession(id)
+	deleteSessionHandEdits(id)
 	// Only a delete the user asked for takes the backup with it: the workspace-lifecycle
 	// removals above keep theirs, so a session dropped by a wrong reconcile can be restored.
 	markSessionRemoved(id, s.workspace_id)

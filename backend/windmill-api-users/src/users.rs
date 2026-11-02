@@ -772,7 +772,8 @@ async fn whoami(
     authed: ApiAuthed,
 ) -> JsonResult<UserInfo> {
     let is_guest = windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref());
-    let ApiAuthed { username, email, is_admin, is_operator, groups, folders, .. } = authed;
+    let ApiAuthed { username, email, is_admin, is_operator, groups, folders, mcp_client, .. } =
+        authed;
     // A guest would otherwise fall through to the non-member branch below and be
     // handed a `superadmin` role. Answer it here, as the operator-shaped identity it is.
     if is_guest {
@@ -804,10 +805,23 @@ async fn whoami(
         // The frontend gates pages on `operator`, so it reports what `caller_capabilities`
         // decides rather than the raw column: an admin (or superadmin) whose row still carries
         // `operator` holds everything.
-        Ok(Json(UserInfo {
-            operator: is_operator && !is_admin,
-            ..user
-        }))
+        let user = UserInfo { operator: is_operator && !is_admin, ..user };
+        // An external MCP token brings its own groups, which the request and the jobs it starts
+        // act with, so report those rather than the stored memberships.
+        if mcp_client.is_some() {
+            return Ok(Json(UserInfo {
+                groups,
+                folders_read: folders.iter().map(|x| x.0.clone()).collect(),
+                folders_owners: folders
+                    .iter()
+                    .filter(|x| x.2)
+                    .map(|x| x.0.clone())
+                    .collect(),
+                folders: folders.into_iter().filter(|x| x.1).map(|x| x.0).collect(),
+                ..user
+            }));
+        }
+        Ok(Json(user))
     } else {
         Ok(Json(UserInfo {
             workspace_id: w_id,
@@ -1099,8 +1113,6 @@ async fn decline_invite(
     }
 }
 
-pub use windmill_common::usernames::VALID_USERNAME;
-
 async fn accept_invite(
     authed: ApiAuthed,
     Extension(webhook): Extension<WebhookShared>,
@@ -1244,11 +1256,7 @@ async fn join_workspace<'c>(
             )));
         }
 
-        if !VALID_USERNAME.is_match(&username) {
-            return Err(windmill_common::error::Error::BadRequest(format!(
-                "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
-            )));
-        }
+        windmill_common::usernames::validate_username(&username)?;
         username.to_string()
     };
 

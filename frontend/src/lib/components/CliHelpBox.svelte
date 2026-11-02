@@ -6,7 +6,7 @@
 
 	const operatingWorkspace = useOperatingWorkspace()
 
-	let url = $derived(`${apiBaseUrl()}/`)
+	let url = $derived(`${apiBaseUrl('cli')}/`)
 </script>
 
 <Section label="CLI quick setup">

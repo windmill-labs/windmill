@@ -1,4 +1,8 @@
 <script lang="ts">
+	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
+	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import { movesToAnotherOwner } from '$lib/components/itemSettings/inheritedAccess'
+	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import {
 		FlowService,
 		type Flow,
@@ -63,14 +67,36 @@
 	} from './flows/flowState'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
-	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
+	import type {
+		ExtendedOpenFlow,
+		FlowEditorContext,
+		FlowInput,
+		FlowInputEditorState
+	} from './flows/types'
 	import { setFlowPanelPlacementTelemetry } from './flows/flowEditorTelemetry'
 	import { SelectionManager } from './graph/selectionUtils.svelte'
 	import { NoteEditor } from './graph/noteEditor.svelte'
 	import { setNoteEditorContext } from './graph/noteEditor.svelte'
 	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
 	import { cleanFlow } from './flows/utils.svelte'
-	import { DiffIcon, HistoryIcon, FileJson, Settings, Undo, Redo, Disc } from 'lucide-svelte'
+	import {
+		DiffIcon,
+		HistoryIcon,
+		FileJson,
+		Settings,
+		Undo,
+		Redo,
+		Disc,
+		UserPlus
+	} from 'lucide-svelte'
+	import { muteErrorHandlerMenuItem } from './details/errorHandlerToggle'
+	import { useDeployedItem } from './details/deployedItem.svelte'
+	import ShareDialog from './itemSettings/ShareDialog.svelte'
+	import FirstDeployDialog, {
+		applyFirstDeployMembers,
+		type FirstDeployChoice
+	} from './itemSettings/FirstDeployDialog.svelte'
+	import ShareButton from './itemSettings/ShareButton.svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
@@ -194,16 +220,20 @@
 
 	let initialPathStore = writable(initialPath)
 
-	// For preserve_on_behalf_of feature
-	let preserveOnBehalfOf = writable(false)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
 	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(savedFlow?.on_behalf_of)
+	let deployDialogOpen = $state(false)
+	let deployDialogMsg = $state('')
+	let deployButton: DeployButton | undefined = $state(undefined)
 
-	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
+	// Keep savedOnBehalfOfEmail in sync as the flow loads. Once deployed, the deployed row says
+	// who the flow runs as: `savedFlow` carries its draft's user. A flow that runs on behalf of
+	// nobody has no email field at all, so its absence is synced too.
 	$effect(() => {
-		if (savedFlow?.on_behalf_of_email !== undefined) {
-			savedOnBehalfOfEmail.set(savedFlow.on_behalf_of_email)
-			savedOnBehalfOfPermissionedAs.set(savedFlow.on_behalf_of)
+		const saved = deployedRowPath ? deployedItem.current : savedFlow
+		if (saved) {
+			savedOnBehalfOfEmail.set(saved.on_behalf_of_email)
+			savedOnBehalfOfPermissionedAs.set(saved.on_behalf_of)
 		}
 	})
 
@@ -341,6 +371,9 @@
 	// in the shared /sessions URL under the session's own workspace identity, so
 	// presence keyed on that URL leaks a phantom self-badge. Hide it here.
 	const inSessionPane = !!getContext('aiChatManager')
+	// Share and the first-deploy dialog belong to Windmill's own editors: an embedding host (the
+	// SDK, the flow drawer) can lock the path, which the dialog would let the user change.
+	const offersSharing = $derived(ownsPageHeader || inSessionPane)
 
 	setFlowPanelPlacementTelemetry(!inSessionPane)
 
@@ -476,8 +509,89 @@
 	}
 
 	async function handleSaveFlow(deploymentMsg?: string) {
+		pendingFirstDeploy = undefined
+		if (neverDeployed && firstDeployDialog) {
+			// The dialog also asks who the flow runs on behalf of, for the path it chose.
+			const choice = await firstDeployDialog.ask({
+				kind: 'flow',
+				summary: flowStore.val.summary ?? '',
+				path: $pathStore,
+				runAs: {
+					email: flowStore.val.on_behalf_of_email,
+					permissionedAs: flowStore.val.on_behalf_of,
+					targetWorkspace: opWorkspace ?? ''
+				}
+			})
+			if (!choice) return
+			flowStore.val.summary = choice.summary
+			$pathStore = choice.path
+			if (choice.runAs) {
+				flowStore.val.on_behalf_of_email = choice.runAs.email
+				flowStore.val.on_behalf_of = choice.runAs.permissionedAs
+			}
+			pendingFirstDeploy = choice
+			await deployFlow(choice.message)
+			return
+		}
+		// Compares against the user deployed right now, which updates the saved stores; a failed
+		// lookup asks rather than trusting the draft's user.
+		const deployed = deployedRowPath ? await deployedItem.refetch() : undefined
+		const asksRunAs =
+			(!!deployedRowPath && !deployed) ||
+			// Asks while the folder default is loading: the backend would apply it unconfirmed.
+			folderDefault.loading ||
+			deployAsksOnBehalfOf('flow', {
+				user: actingUser,
+				email: flowStore.val.on_behalf_of_email,
+				permissionedAs: flowStore.val.on_behalf_of,
+				savedEmail: deployed?.on_behalf_of_email,
+				savedPermissionedAs: deployed?.on_behalf_of,
+				folderDefault: folderDefault.value
+			})
+		const from = deployedRowPath
+		if (
+			shareDialog &&
+			from &&
+			movesToAnotherOwner(from, $pathStore) &&
+			!(await shareDialog.confirmMove('flow', from, $pathStore, asksRunAs ? 'Next' : 'Deploy'))
+		) {
+			return
+		}
+		if (asksRunAs) {
+			deployDialogMsg = deploymentMsg ?? ''
+			deployDialogOpen = true
+			return
+		}
+		await deployFlow(deploymentMsg)
+	}
+
+	async function deployFlow(deploymentMsg?: string) {
 		withAIChangesWarning(async () => {
 			await handleSaveFlowInternal(deploymentMsg)
+		})
+	}
+
+	let shareDialog: ShareDialog | undefined = $state()
+	let firstDeployDialog: FirstDeployDialog | undefined = $state()
+	/** Where a deploy from this editor left the flow, which an embedder may keep mounted: the
+	 *  route's path then still names the draft or the pre-rename row. */
+	let deployedPath: string | undefined = $state()
+	const neverDeployed = $derived(
+		deployedPath === undefined && (newFlow || initialPath == '' || savedFlow?.no_deployed === true)
+	)
+	let pendingFirstDeploy: FirstDeployChoice | undefined = undefined
+	// Where the deployed flow is, which a staged path change moves it from: `initialPath` is
+	// re-seeded from a staged rename.
+	const deployedRowPath = $derived(
+		neverDeployed ? undefined : (deployedPath ?? (userDraftPath || initialPath))
+	)
+
+	function openShare() {
+		if (!deployedRowPath) return
+		shareDialog?.openDialog('flow', deployedRowPath, {
+			source: 'editor_header',
+			fromEditor: true,
+			stagedPath: $pathStore
 		})
 	}
 
@@ -514,8 +628,7 @@
 			// the draft's `draft_path` so the topbar shows the pending name, which after
 			// someone renames the item still names the old location. Comparing against
 			// that fetches the row left behind there instead of the live one.
-			path: userDraftPath || initialPath,
-			withStarredInfo: true
+			path: userDraftPath || initialPath
 		})
 		// A superseded opening must not write these: the current one would then render
 		// and offer Take latest against the older head.
@@ -639,12 +752,13 @@
 			// The editor clears a step's lock when its code is edited, but a draft written elsewhere
 			// can hold a step whose code changed and whose lock did not. A failed lookup skips the
 			// check rather than blocking the deploy.
-			const liveFlowValue = isNewFlow
+			const liveFlow = isNewFlow
 				? undefined
-				: await FlowService.getFlowByPath({ workspace: opWorkspace!, path: initialPath })
-						.then((f) => f.value)
-						.catch(() => undefined)
-			dropStaleStepLocks(flow.value, liveFlowValue)
+				: await FlowService.getFlowByPath({
+						workspace: opWorkspace!,
+						path: userDraftPath || initialPath
+					}).catch(() => undefined)
+			dropStaleStepLocks(flow.value, liveFlow?.value)
 
 			if (isNewFlow) {
 				await FlowService.createFlow({
@@ -661,7 +775,7 @@
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
 						on_behalf_of: flow.on_behalf_of,
-						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
+						preserve_on_behalf_of: flow.on_behalf_of_email ? true : undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels,
 						// Sent explicitly: an omitted field keeps the deployed value.
@@ -711,11 +825,15 @@
 						schema: flow.schema,
 						tag: flow.tag,
 						dedicated_worker: flow.dedicated_worker,
-						ws_error_handler_muted: flow.ws_error_handler_muted,
+						// Muting applies to the deployed flow at once, from the editor menu or the flow's
+						// page, and the backend unmutes on an omitted value: keep the one deployed now.
+						ws_error_handler_muted: liveFlow
+							? liveFlow.ws_error_handler_muted
+							: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
 						on_behalf_of: flow.on_behalf_of,
-						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
+						preserve_on_behalf_of: flow.on_behalf_of_email ? true : undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels,
 						// Sent explicitly: an omitted field keeps the deployed value.
@@ -736,7 +854,17 @@
 				path: $pathStore
 			} as Flow
 			setDraftTriggers([])
+			deployedPath = $pathStore
+			if (pendingFirstDeploy) {
+				const { members } = pendingFirstDeploy
+				pendingFirstDeploy = undefined
+				await applyFirstDeployMembers(opWorkspace!, 'flow', $pathStore, members)
+			}
 			loadingSave = false
+			// Settings shows the deployed run-as user while the editor stays open, a session's
+			// included: read the version just written.
+			void deployedItem.refetch()
+			deployButton?.clearMessage()
 			onDeploy?.({ path: $pathStore })
 		} catch (err) {
 			onDeployError?.({ error: err })
@@ -767,6 +895,11 @@
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
 	const history = initHistory(untrack(() => flowStore).val)
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
+	// Only the flow's first deploy takes the folder's default user.
+	const folderDefault = useFolderDefaultPermissionedAs(
+		() => (neverDeployed ? $pathStore : undefined),
+		() => opWorkspace
+	)
 
 	// Linked-agent tool resolutions are scoped by workspace + flow path, but publishers key by the
 	// flow doc's own path while readers use the live-edited $pathStore — which diverge for renames
@@ -997,10 +1130,10 @@
 		flowInputEditorState: flowInputEditorStateStore,
 		modulesTestStates,
 		outputPickerOpenFns,
-		preserveOnBehalfOf,
 		savedOnBehalfOfEmail,
 		savedOnBehalfOfPermissionedAs,
-		opWorkspace: () => opWorkspace
+		opWorkspace: () => opWorkspace,
+		deployedPath: () => deployedRowPath
 	})
 
 	// Set up NoteEditor context for note editing capabilities
@@ -1166,10 +1299,9 @@
 	}> = []
 
 	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
-		// The one option that stays in a session pane: the session hosts the details page
-		// itself, so this flips the tab to it rather than leaving the session. Everything
-		// below opens a details page or a new tab outside the session, so it stays hidden.
-		if (!newFlow && savedFlow?.no_deployed !== true) {
+		// None of these belong to a session pane: each leaves the editor for a details page or
+		// a new tab, which the session's own tabs already reach. The deploy button is then plain.
+		if (!newFlow && savedFlow?.no_deployed !== true && !inSessionPane) {
 			dropdownItems.push({
 				label: 'Exit & see details',
 				// Use the deployed path, not the live `$pathStore` — the latter
@@ -1306,7 +1438,10 @@
 					...currentFlow,
 					path: $pathStore,
 					draft_triggers: currentDraftTriggers
-				}
+				},
+				aiReview: opWorkspace
+					? { workspaceId: opWorkspace, kind: 'flow', path: $pathStore }
+					: undefined
 			},
 			opening
 		)
@@ -1348,7 +1483,20 @@
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	function getMoreItems(): Item[] {
-		const leadingItems = [...diffMenuItems, ...baseMenuItems]
+		const leadingItems = [
+			...diffMenuItems,
+			...(ownsPageHeader
+				? [
+						{
+							displayName: 'Share',
+							icon: UserPlus,
+							disabled: neverDeployed,
+							action: openShare
+						}
+					]
+				: []),
+			...baseMenuItems
+		]
 		return [
 			...leadingItems,
 			{
@@ -1370,9 +1518,26 @@
 				displayName: 'Test flow & record',
 				icon: Disc,
 				action: () => flowPreviewButtons?.openRecordingPreview()
-			}
+			},
+			// Before the first deploy the switch edits the flow, and the create sends it.
+			muteErrorHandlerMenuItem({
+				kind: 'flow',
+				deployed: !!deployedRowPath,
+				muted: deployedRowPath ? deployedItem.muted : !!editedFlow().ws_error_handler_muted,
+				hasEnterpriseLicense: !!$enterpriseLicense,
+				onToggle: () => {
+					if (deployedRowPath) deployedItem.toggle()
+					else editedFlow().ws_error_handler_muted = !editedFlow().ws_error_handler_muted
+				}
+			})
 		]
 	}
+	const editedFlow = () => flowStore.val as ExtendedOpenFlow
+	const deployedItem = useDeployedItem(
+		'flow',
+		() => opWorkspace,
+		() => deployedRowPath
+	)
 
 	function onCustomUiChange(
 		customUi: FlowBuilderWhitelabelCustomUi | undefined,
@@ -1558,6 +1723,26 @@
 
 {@render children?.()}
 
+{#if offersSharing}
+	<ShareDialog bind:this={shareDialog} />
+	<FirstDeployDialog bind:this={firstDeployDialog} />
+{/if}
+
+<DeployOnBehalfOfDialog
+	kind="flow"
+	bind:open={deployDialogOpen}
+	bind:message={deployDialogMsg}
+	bind:email={flowStore.val.on_behalf_of_email}
+	bind:permissionedAs={flowStore.val.on_behalf_of}
+	savedEmail={neverDeployed ? undefined : $savedOnBehalfOfEmail}
+	savedPermissionedAs={neverDeployed ? undefined : $savedOnBehalfOfPermissionedAs}
+	isNew={neverDeployed}
+	folderDefault={folderDefault.value}
+	folderDefaultLoading={folderDefault.loading}
+	targetWorkspace={opWorkspace ?? ''}
+	onConfirmed={() => deployFlow(deployDialogMsg)}
+/>
+
 <DeployOverrideConfirmationModal
 	{deployedBy}
 	{confirmCallback}
@@ -1684,7 +1869,16 @@
 							{@render previewButtons()}
 						{/if}
 
+						{#if offersSharing}
+							<ShareButton
+								deployed={!neverDeployed}
+								iconOnly={compactTopbar}
+								unifiedSize={headerBtnSize}
+								onclick={openShare}
+							/>
+						{/if}
 						<DeployButton
+							bind:this={deployButton}
 							on:save={async ({ detail }) => await handleSaveFlow(detail)}
 							{loading}
 							{loadingSave}
@@ -1799,7 +1993,16 @@
 				{/if}
 
 				<OpenInSessionButton source={headerSessionOpen} />
+				{#if !phoneTopbar}
+					<ShareButton
+						deployed={!neverDeployed}
+						iconOnly={compactTopbar}
+						unifiedSize={headerBtnSize}
+						onclick={openShare}
+					/>
+				{/if}
 				<DeployButton
+					bind:this={deployButton}
 					on:save={async ({ detail }) => await handleSaveFlow(detail)}
 					{loading}
 					{loadingSave}

@@ -16,7 +16,7 @@ describe('getActiveScriptSettingsBadges', () => {
 			priority: 50,
 			tag: 'gpu'
 		}).map((b) => b.key)
-		expect(keys).toEqual(['concurrency', 'cache', 'timeout', 'priority', 'tag'])
+		expect(keys).toEqual(['timeout', 'concurrency', 'cache', 'priority', 'tag'])
 	})
 
 	it('treats a zero/absent priority and non-positive debounce as inactive', () => {

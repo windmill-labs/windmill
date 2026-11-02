@@ -19,12 +19,13 @@ export function useWorkingInOptions(
 			void manager.refreshGlobalFolderInstructions()
 		}
 		const names = await FolderService.listFolderNames({ workspace: ws })
-		// "Acting on" can move an unsent session to a workspace without some chosen folders:
-		// they drop out, and with none left the session works in the whole workspace.
+		// Home's unsent draft follows the header's workspace within its family, which can lack
+		// some chosen folders: they drop out, and with none left it works in the whole workspace.
 		const roots = manager.workingIn
 		const kept = roots?.filter((r) => !r.startsWith('f/') || names.includes(r.slice(2)))
 		if (roots && kept && kept.length < roots.length && manager.messages.length === 0) {
-			if (ws === workspace()) manager.setWorkingIn(kept.length ? kept : undefined, { fallback: true })
+			if (ws === workspace())
+				manager.setWorkingIn(kept.length ? kept : undefined, { fallback: true })
 		}
 		return names
 	})

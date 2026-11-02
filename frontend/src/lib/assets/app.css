@@ -414,12 +414,18 @@ input[type='time']::-webkit-calendar-picker-indicator {
 }
 
 /* Settings search highlight (used by both the drawer and the setup page) */
-[data-setting-key] {
+[data-setting-key],
+[data-setting] {
 	transition: outline 0.8s ease;
 	outline: 2px solid transparent;
 	outline-offset: -2px;
 }
-[data-setting-key].setting-highlight {
+[data-setting].setting-highlight {
+	outline-offset: 4px;
+	border-radius: 4px;
+}
+[data-setting-key].setting-highlight,
+[data-setting].setting-highlight {
 	outline: 2px solid rgb(var(--color-border-accent, 59 130 246));
 }
 
@@ -444,21 +450,4 @@ input[type='time']::-webkit-calendar-picker-indicator {
 
 .svelte-flow__edges {
 	z-index: -10;
-}
-
-/* Home → AI Sessions on a send from Home (homeSessionsTransition.svelte.ts). The composer
-   glides from where it was to where it lands; everything else, Home's list included, is the
-   page cross-fading, kept short. The pseudo-elements hang off :root itself, so no space
-   before `::view-transition-*`: with one, the selector looks for a descendant and never
-   matches. */
-:root[data-home-sessions-transition]::view-transition-group(composer) {
-	animation-duration: 380ms;
-	animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-:root[data-home-sessions-transition]::view-transition-old(root),
-:root[data-home-sessions-transition]::view-transition-new(root) {
-	animation-duration: 150ms;
-}
-:root[data-home-sessions-transition='fade'] * {
-	view-transition-name: none !important;
 }

@@ -3,7 +3,7 @@
 	import { writable } from 'svelte/store'
 	import { MessageCircleOff, SlidersHorizontal } from 'lucide-svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
-	import { Alert, Button } from '$lib/components/common'
+	import { Alert, Button, Tab, Tabs } from '$lib/components/common'
 	import FlowChat from '../conversations/FlowChat.svelte'
 	import {
 		AGENT_CHAT_SCHEMA,
@@ -73,6 +73,9 @@
 		onOpenConfig?: () => void
 		/** A chat conversation to show once the chat is up, as a link to it names one. */
 		openConversation?: string
+		/** Takes a view's run once it has started, instead of opening its run page: for a host that
+		 *  is not the app's top-level route (a session tab), or a call waiting on that run. */
+		onRunStarted?: (jobId: string, args: Record<string, any>) => void
 		/** A view's form mode: the run form, drawn by the page. Kept out of this component because
 		 *  the flow editor reaches it, and the run form reads the navigation workspace. */
 		viewForm?: import('svelte').Snippet<
@@ -85,6 +88,10 @@
 				}
 			]
 		>
+		/** A hint pinned under the configuration, outside its scroll. */
+		configFooter?: import('svelte').Snippet
+		/** Pinned at the foot of the chat's conversations sidebar. */
+		chatSidebarFooter?: import('svelte').Snippet<[{ expanded: boolean }]>
 	}
 
 	let {
@@ -98,7 +105,10 @@
 		view = false,
 		onOpenConfig = undefined,
 		openConversation = undefined,
-		viewForm = undefined
+		onRunStarted = undefined,
+		viewForm = undefined,
+		configFooter = undefined,
+		chatSidebarFooter = undefined
 	}: Props = $props()
 
 	/** The one module the editor edits. Standalone (no `agent` key) so `initFlowState` loads a
@@ -189,7 +199,6 @@
 		}),
 		currentEditor: writable(undefined),
 		outputPickerOpenFns: {},
-		preserveOnBehalfOf: writable(false),
 		savedOnBehalfOfEmail: writable<string | undefined>(undefined),
 		savedOnBehalfOfPermissionedAs: writable<string | undefined>(undefined),
 		...(outer ?? {}),
@@ -274,6 +283,13 @@
 		testMode = mode
 		if (mode === 'chat') chatMounted = true
 	}
+
+	// Too narrow for the two panes side by side (a session's side panel), they take turns as tabs:
+	// each needs about 400px, the test pane's floor in the script editor too. Both stay mounted,
+	// sized to nothing when hidden: unmounting the test pane would end its chat.
+	let editorWidth = $state(0)
+	let narrow = $derived(editorWidth > 0 && editorWidth < 900)
+	let narrowTab = $state<'config' | 'test'>('config')
 
 	// draft.args -> module. Only when the draft moved on its own (a load, an external write, a
 	// discard); an edit made in the form arrives here as its own echo and is skipped.
@@ -410,7 +426,8 @@
 		runLoading = true
 		try {
 			const id = await JobService.runAgent({ workspace, path, requestBody: args })
-			await goto(`/run/${id}?workspace=${workspace}`)
+			if (onRunStarted) onRunStarted(id, args)
+			else await goto(`/run/${id}?workspace=${workspace}`)
 		} finally {
 			runLoading = false
 		}
@@ -512,7 +529,9 @@
 				return testMode
 			},
 			set mode(mode: 'form' | 'chat' | undefined) {
-				if (mode) showTestMode(mode)
+				if (!mode) return
+				showTestMode(mode)
+				narrowTab = 'test'
 			}
 		}
 	}
@@ -570,46 +589,71 @@
 {:else if agentModule && agentValue}
 	<!-- Named and positioned so the tool picker's popover can portal here: the `#flow-editor` it
 	     otherwise targets is behind this dialog, and does not exist at all on the resources page. -->
-	<div id="agent-editor" class="relative h-full min-h-0">
+	<!-- The editor's hosts leave the horizontal padding to it: side by side the panes sit inside
+	     it, and as tabs the strip runs edge to edge while each pane keeps its own. -->
+	<div
+		id="agent-editor"
+		class="relative h-full min-h-0 flex flex-col {!view && !narrow ? 'px-4 sm:px-6' : ''}"
+		bind:clientWidth={editorWidth}
+	>
 		{#if view}
 			<!-- A view only runs the agent: the page beside it summarizes the configuration. -->
 			{@render runPane()}
 		{:else}
+			{#if narrow}
+				<Tabs bind:selected={narrowTab} class="shrink-0">
+					<Tab value="config" label="Configuration" />
+					<Tab value="test" label="Test" />
+				</Tabs>
+			{/if}
 			<!-- Resizable as the step panel's config and test are: a long system prompt and a long
 			     answer want opposite splits, and only the reader knows which they are on. -->
-			<Splitpanes class="h-full">
-				<Pane size={55} minSize={30}>{@render configPane()}</Pane>
-				<Pane size={45} minSize={20}>{@render runPane()}</Pane>
+			<Splitpanes class="flex-1 min-h-0 {narrow ? '[&>.splitpanes__splitter]:!hidden' : ''}">
+				<Pane size={narrow ? (narrowTab === 'config' ? 100 : 0) : 55} minSize={narrow ? 0 : 30}>
+					{@render configPane()}
+				</Pane>
+				<Pane size={narrow ? (narrowTab === 'test' ? 100 : 0) : 45} minSize={narrow ? 0 : 20}>
+					{@render runPane()}
+				</Pane>
 			</Splitpanes>
 		{/if}
 	</div>
 
 	{#snippet configPane()}
-		<div class="h-full min-h-0 overflow-auto">
-			<PropPickerWrapper pickableProperties={stepPropPicker?.pickableProperties} noPadding sidePane>
-				<AiAgentStepInputs
-					class="px-4 pt-4 pb-8"
-					{schema}
-					filter={brainFilter}
-					previousModuleId={undefined}
+		<div class="h-full min-h-0 flex flex-col">
+			<div class="flex-1 min-h-0 overflow-auto">
+				<PropPickerWrapper
 					pickableProperties={stepPropPicker?.pickableProperties}
-					extraLib={stepPropPicker?.extraLib ?? 'missing extraLib'}
-					{enableAi}
-					{workspace}
-					staticOnly
-					visibilityKey={`agent:${path}`}
-					{tools}
-					{readOnly}
-					onSelectTool={(id) => onSelectTool?.(id)}
-					onAddTool={readOnly ? undefined : addTool}
-					onDeleteTool={readOnly ? undefined : deleteTool}
-					toolPickerPortal="#agent-editor"
-					bind:args={
-						() => (agentValue?.input_transforms ?? {}) as Record<string, InputTransform>,
-						(v) => agentValue && (agentValue.input_transforms = v)
-					}
-				/>
-			</PropPickerWrapper>
+					noPadding
+					sidePane
+				>
+					<AiAgentStepInputs
+						class="px-4 pt-4 pb-8"
+						{schema}
+						filter={brainFilter}
+						previousModuleId={undefined}
+						pickableProperties={stepPropPicker?.pickableProperties}
+						extraLib={stepPropPicker?.extraLib ?? 'missing extraLib'}
+						{enableAi}
+						{workspace}
+						staticOnly
+						visibilityKey={`agent:${path}`}
+						{tools}
+						{readOnly}
+						onSelectTool={(id) => onSelectTool?.(id)}
+						onAddTool={readOnly ? undefined : addTool}
+						onDeleteTool={readOnly ? undefined : deleteTool}
+						toolPickerPortal="#agent-editor"
+						bind:args={
+							() => (agentValue?.input_transforms ?? {}) as Record<string, InputTransform>,
+							(v) => agentValue && (agentValue.input_transforms = v)
+						}
+					/>
+				</PropPickerWrapper>
+			</div>
+			{#if configFooter}
+				<div class="shrink-0 px-3 py-1.5">{@render configFooter()}</div>
+			{/if}
 		</div>
 	{/snippet}
 
@@ -730,6 +774,7 @@
 							flowModules={chatModules}
 							composerSettings={onOpenConfig ? configButton : undefined}
 							{openConversation}
+							sidebarFooter={chatSidebarFooter}
 						/>
 					</div>
 				</div>

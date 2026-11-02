@@ -66,6 +66,8 @@
 		composerSettings?: import('svelte').Snippet
 		/** A conversation to show once the chat is up, as a link to it names one. */
 		openConversation?: string
+		/** Pinned at the foot of the conversations sidebar. */
+		sidebarFooter?: import('svelte').Snippet<[{ expanded: boolean }]>
 	}
 
 	let {
@@ -82,7 +84,8 @@
 		conversationKind = 'deployed',
 		subject = 'flow',
 		composerSettings = undefined,
-		openConversation = undefined
+		openConversation = undefined,
+		sidebarFooter = undefined
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
@@ -220,6 +223,7 @@
 				{poolState}
 				defaultKind={conversationKind}
 				canFilterKind={conversationKind !== 'deployed' && subject === 'flow'}
+				footer={sidebarFooter}
 			/>
 		{/if}
 		<!-- pb-3 on the chat alone, not on the row: the transcript and composer stop short of

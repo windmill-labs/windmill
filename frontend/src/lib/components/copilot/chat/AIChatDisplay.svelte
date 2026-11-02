@@ -122,7 +122,6 @@
 		wideLayout = false,
 		emptyHint,
 		starter = undefined,
-		viewTransitionNames = false,
 		onSent = undefined,
 		inputPreface,
 		workModeLock = undefined,
@@ -162,10 +161,6 @@
 		/** Open an empty chat as the block that starts a session: Home's composer, collapsed
 		 * to one line at rest. Replaces `emptyHint`. */
 		starter?: ChatStarter
-		/** Names the composer for the view transition of a send from Home, so it glides from
-		 * Home to its place under the session's first message. Only one chat on the page may
-		 * carry the name: a duplicate makes the browser skip the transition. */
-		viewTransitionNames?: boolean
 		/** After the composer hands a new turn to the host. */
 		onSent?: () => void
 		inputPreface?: Snippet
@@ -678,14 +673,15 @@
 
 	// The turns sent in another scope than the turn before, with the scope they took.
 	const scopeChanges = $derived.by(() => {
-		const changes = new Map<number, string | null>()
+		// The whole workspace (`null`) and no folders (`[]`) both have an empty scopeLabel.
+		const changes = new Map<number, string[] | null>()
 		let previous: string | undefined
 		messages.forEach((m, i) => {
 			// Read back from saved chats, so only a list or `null` counts.
 			if (m.role !== 'user' || (m.workingIn !== null && !Array.isArray(m.workingIn))) return
-			const label = m.workingIn ? scopeLabel(m.workingIn) : ''
-			if (previous !== undefined && label !== previous) changes.set(i, label || null)
-			previous = label
+			const key = m.workingIn ? JSON.stringify(m.workingIn) : 'null'
+			if (previous !== undefined && key !== previous) changes.set(i, m.workingIn)
+			previous = key
 		})
 		return changes
 	})
@@ -932,10 +928,15 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						inGroup: boolean
 					)}
 						{#if scopeChanges.has(messageIndex)}
-							{@const root = scopeChanges.get(messageIndex)}
+							{@const roots = scopeChanges.get(messageIndex)}
 							<p class="mt-4 text-center text-2xs text-tertiary">
-								Now working in {#if root}<span class="font-mono">{root}</span>{:else}the whole
-									workspace{/if}
+								{#if !roots}
+									Now working in the whole workspace
+								{:else if roots.length === 0}
+									Now working in no folders: every change asks first
+								{:else}
+									Now working in <span class="font-mono">{scopeLabel(roots)}</span>
+								{/if}
 							</p>
 						{/if}
 						<AIChatMessage
@@ -1044,7 +1045,6 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		aria-label="Message composer"
 		bind:this={composerEl}
 		class="relative {columnClass} pb-2"
-		style:view-transition-name={viewTransitionNames ? 'composer' : undefined}
 		onanimationend={(e) => {
 			if (e.animationName === 'wm-composer-flash') flashing = false
 		}}

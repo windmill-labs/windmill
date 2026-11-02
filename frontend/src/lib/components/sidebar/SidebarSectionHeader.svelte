@@ -7,6 +7,7 @@ are `sm` (h-7) buttons.
 <script lang="ts">
 	import type { Snippet } from 'svelte'
 	import { ChevronDown, ChevronRight } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 
 	interface Props {
 		title: string
@@ -18,24 +19,30 @@ are `sm` (h-7) buttons.
 	}
 
 	let { title, collapsed, onToggle, disabled = false, actions }: Props = $props()
+
+	const titleClasses = 'px-2 text-secondary text-[0.5rem] font-normal uppercase'
 </script>
 
 <div class="flex flex-row items-center h-7 gap-0.5">
-	<button
-		type="button"
-		onclick={onToggle}
-		{disabled}
-		aria-expanded={!collapsed}
-		class="flex-1 min-w-0 h-7 px-2 rounded-md text-secondary text-[0.5rem] font-normal uppercase flex flex-row items-center gap-1 transition-colors hover:bg-surface-hover disabled:hover:bg-transparent focus:outline-none"
-	>
-		{title}
-		{#if !disabled}
+	{#if disabled}
+		<!-- A label rather than a disabled Button, which would grey the title out. -->
+		<span class="flex-1 min-w-0 h-7 flex flex-row items-center {titleClasses}">{title}</span>
+	{:else}
+		<Button
+			variant="subtle"
+			unifiedSize="sm"
+			onClick={onToggle}
+			aria-expanded={!collapsed}
+			wrapperClasses="flex-1 min-w-0"
+			btnClasses="justify-start text-left gap-1 {titleClasses}"
+		>
+			{title}
 			{#if collapsed}
 				<ChevronRight size={10} />
 			{:else}
 				<ChevronDown size={10} />
 			{/if}
-		{/if}
-	</button>
+		</Button>
+	{/if}
 	{@render actions?.()}
 </div>

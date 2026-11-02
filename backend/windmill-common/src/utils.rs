@@ -216,6 +216,21 @@ impl StripPath {
     }
 }
 
+/// The Hub serves scripts and flows by their numeric id alone and ignores the rest of the
+/// path, so URLs and cache keys must be built from the parsed id: passing the path through
+/// lets dot segments make the URL name one item while the cache key names another.
+pub(crate) fn parse_hub_id(path: &str, prefix: &str) -> Result<i32> {
+    path.strip_prefix(prefix)
+        .and_then(|p| p.split('/').next())
+        .and_then(|id| id.parse::<i32>().ok())
+        .filter(|id| *id > 0)
+        .ok_or_else(|| {
+            Error::BadRequest(format!(
+                "expected a positive numeric id after {prefix} (got {path})"
+            ))
+        })
+}
+
 /// Escape ILIKE special characters (`%`, `_`, `\`) so user input is matched
 /// literally. Use this when building `ILIKE '%…%'` patterns from user-supplied
 /// strings to prevent wildcard injection.

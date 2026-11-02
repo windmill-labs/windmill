@@ -2,6 +2,7 @@
 	import { displayDate, msToReadableTime } from '$lib/utils'
 	import type { CompletedJob, QueuedJob } from '$lib/gen'
 	import Badge from './common/badge/Badge.svelte'
+	import { isSuspended } from './agentRequest'
 	import { forLater } from '$lib/forLater'
 	import { Circle } from 'lucide-svelte'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
@@ -58,7 +59,7 @@
 			/>
 		{/if}
 	</Badge>
-{:else if job && 'running' in job && job.running && job.suspend}
+{:else if job && 'running' in job && job.running && isSuspended(job)}
 	<div>
 		<Badge {large} color="violet">
 			Suspended

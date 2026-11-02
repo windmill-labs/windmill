@@ -4,14 +4,12 @@
 		superadmin,
 		usedTriggerKinds,
 		userStore,
-		userWorkspaces,
 		workspaceStore,
 		isCriticalAlertsUIOpen,
 		enterpriseLicense,
 		devopsRole,
 		roleCapabilities
 	} from '$lib/stores'
-	import { isForkOwner } from '$lib/utils/workspaceHierarchy'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import { NAV_PAGES } from './navPages'
 	import {
@@ -23,7 +21,6 @@
 		FolderCog,
 		Github,
 		HelpCircle,
-		LogOut,
 		Newspaper,
 		Route,
 		Settings,
@@ -38,7 +35,6 @@
 	import { slide } from 'svelte/transition'
 	import UserMenu from './UserMenu.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
-	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { page } from '$app/state'
 	import SideBarNotification from './SideBarNotification.svelte'
@@ -53,8 +49,6 @@
 		getServiceIcon
 	} from '../triggers/native/utils'
 	import type { NativeServiceName } from '$lib/gen/types.gen'
-	import DataStoresMenuItems from './DataStoresMenuItems.svelte'
-	import { sidebarPrefs } from './sidebarPrefs.svelte'
 	import {
 		Menubar,
 		Menu,
@@ -62,11 +56,10 @@
 		MenuItem,
 		MeltButton
 	} from '$lib/components/meltComponents'
-	import MenuButton, { sidebarClasses } from './MenuButton.svelte'
+	import MenuButton from './MenuButton.svelte'
 	import SidebarSectionHeader from './SidebarSectionHeader.svelte'
 	import GoogleCloudIcon from '../icons/triggers/GoogleCloudIcon.svelte'
 	import AzureIcon from '../icons/triggers/AzureIcon.svelte'
-	import { leaveCurrentWorkspace } from './leaveWorkspace'
 	import type { VisibilityKey } from '$lib/roleCapabilities'
 	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
 
@@ -174,8 +167,6 @@
 		excludeMainLabels = []
 	}: Props = $props()
 
-	let leaveWorkspaceModal = $state(false)
-
 	function computeAllNotificationsCount(menuItems: any[]) {
 		let count = 0
 		for (const menuItem of menuItems) {
@@ -184,7 +175,6 @@
 		return count
 	}
 
-	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
 	function allows(key: VisibilityKey) {
 		return $roleCapabilities.visibility[key]
 	}
@@ -233,29 +223,14 @@
 			}))
 			.filter((l) => !excludeMainLabels.includes(l.label))
 	)
-	// Main-menu pages folded under one menu each, to keep the nav short.
-	const MAIN_MENU_GROUPS = [
-		{
-			label: 'Data',
-			icon: Database,
-			members: ['Variables', 'Resources', 'Assets'],
-			aiId: 'sidebar-menu-data',
-			aiDescription: 'Menu with the variables, resources and assets pages'
-		}
-	]
-	const groupedLabels = new Set(MAIN_MENU_GROUPS.flatMap((g) => g.members))
-	let ungroupedMainLinks = $derived(mainMenuLinks.filter((l) => !groupedLabels.has(l.label)))
-	// A disabled MenuLink renders nothing, so its page leaves the menu, and a group with no
+	// Main-menu pages listed in a collapsible Data section of their own, as Triggers.
+	const DATA_LABELS = ['Variables', 'Resources', 'Assets']
+	let ungroupedMainLinks = $derived(mainMenuLinks.filter((l) => !DATA_LABELS.includes(l.label)))
+	// A disabled MenuLink renders nothing, so its page leaves the section, and a section with no
 	// page left leaves the nav.
-	let menuGroups = $derived(
-		MAIN_MENU_GROUPS.map((g) => ({
-			...g,
-			links: mainMenuLinks.filter((l) => g.members.includes(l.label) && !l.disabled)
-		})).filter((g) => g.links.length > 0)
+	let dataLinks = $derived(
+		mainMenuLinks.filter((l) => DATA_LABELS.includes(l.label) && !l.disabled)
 	)
-	// "Customize sidebar" can unfold the Data menu into a collapsible section of the nav, as Triggers.
-	let mainMenuGroups = $derived(sidebarPrefs.splitData.val ? [] : menuGroups)
-	let dataSection = $derived(sidebarPrefs.splitData.val ? menuGroups[0] : undefined)
 	const dataSectionCollapsed = useLocalStorageValue(
 		'windmill_data_section_collapsed',
 		false,
@@ -399,11 +374,6 @@
 	let showTriggersGroup = $derived(
 		showAddTriggerMenu || triggerMenuLinks.some((link) => !link.disabled)
 	)
-	// Admins, superadmins, and fork creators reach workspace settings (the latter
-	// for the fork members screen; see isForkOwner / backend authorize_fork_owner_add_user).
-	const canManageWorkspace = $derived(
-		$userStore?.is_admin || $superadmin || isForkOwner(currentWs, $userStore?.email)
-	)
 	let secondaryMenuLinks = $derived([
 		// {
 		// 	label: 'Workspace',
@@ -426,18 +396,14 @@
 					aiDescription: 'Button to navigate to account settings',
 					faIcon: undefined
 				},
-				...(canManageWorkspace
-					? [
-							{
-								label: 'Workspace',
-								href: '/workspace_settings',
-								icon: FolderCog,
-								aiId: 'sidebar-menu-link-workspace',
-								aiDescription: 'Button to navigate to workspace settings',
-								faIcon: undefined
-							}
-						]
-					: []),
+				{
+					label: 'Workspace',
+					href: '/workspace_settings',
+					icon: FolderCog,
+					aiId: 'sidebar-menu-link-workspace',
+					aiDescription: 'Button to navigate to workspace settings',
+					faIcon: undefined
+				},
 				...($superadmin
 					? [
 							{
@@ -446,19 +412,6 @@
 								icon: ServerCog,
 								aiId: 'sidebar-menu-link-instance',
 								aiDescription: 'Button to navigate to instance settings',
-								faIcon: undefined
-							}
-						]
-					: []),
-				...(!$superadmin && !$userStore?.is_admin
-					? [
-							{
-								label: 'Leave workspace',
-								action: () => {
-									leaveWorkspaceModal = true
-								},
-								class: 'text-red-400',
-								icon: LogOut,
 								faIcon: undefined
 							}
 						]
@@ -540,52 +493,10 @@
 				{#each ungroupedMainLinks as menuLink (menuLink.href ?? menuLink.label)}
 					<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 				{/each}
-				<Menubar class="flex flex-col gap-0.5">
-					{#snippet children({ createMenu })}
-						{#each mainMenuGroups as group (group.label)}
-							{@const onGroupPage = group.links.some((l) => page.url.pathname.startsWith(l.href))}
-							<Menu {createMenu} usePointerDownOutside placement="bottom-start">
-								{#snippet triggr({ trigger })}
-									<MenuButton
-										class="!text-xs"
-										icon={group.icon}
-										label={group.label}
-										{isCollapsed}
-										showChevron
-										buttonClass={onGroupPage ? sidebarClasses.selectedBg : undefined}
-										labelClass={onGroupPage ? sidebarClasses.selectedText : undefined}
-										aiId={group.aiId}
-										aiDescription={group.aiDescription}
-										{trigger}
-									/>
-								{/snippet}
-								{#snippet children({ item })}
-									{#each group.links as link (link.href)}
-										<MenuItem
-											class={itemClass}
-											href={link.href}
-											{item}
-											aiId={link.aiId}
-											aiDescription={link.aiDescription}
-										>
-											<div class="flex flex-row items-center gap-2">
-												<link.icon size={16} />
-												{link.label}
-											</div>
-										</MenuItem>
-									{/each}
-									{#if group.label === 'Data'}
-										<DataStoresMenuItems {item} {itemClass} />
-									{/if}
-								{/snippet}
-							</Menu>
-						{/each}
-					{/snippet}
-				</Menubar>
 			</div>
 		{/if}
 		{#if showMain}
-			{#if dataSection}
+			{#if dataLinks.length > 0}
 				<!-- 8px: the layout's 2px gap above this nav makes it 10 under Runs. -->
 				<div class={isCollapsed ? '' : 'mt-2'}>
 					<!-- Collapsed, no title row: the rail's icons keep one pitch across sections. -->
@@ -598,7 +509,7 @@
 					{/if}
 					{#if isCollapsed || !dataSectionCollapsed.val}
 						<div transition:slide={{ duration: 180 }} class="flex flex-col gap-0.5">
-							{#each dataSection.links as menuLink (menuLink.href)}
+							{#each dataLinks as menuLink (menuLink.href)}
 								<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 							{/each}
 						</div>
@@ -821,22 +732,3 @@
 		{/if}
 	</div></nav
 >
-
-<!-- `alwaysPortal`: the sidebar's mobile slide-in panel keeps a `transform` that would
-     otherwise confine the dialog to the panel's width. -->
-<ConfirmationModal
-	open={leaveWorkspaceModal}
-	alwaysPortal
-	title="Leave workspace"
-	confirmationText="Leave workspace"
-	on:canceled={() => {
-		leaveWorkspaceModal = false
-	}}
-	on:confirmed={() => {
-		void leaveCurrentWorkspace()
-	}}
->
-	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to leave this workspace?</span>
-	</div>
-</ConfirmationModal>

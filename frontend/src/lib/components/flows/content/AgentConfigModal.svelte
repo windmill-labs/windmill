@@ -15,7 +15,12 @@ is that one, since both answer the same question about what an assistant can see
 		summarizeAgentBrain,
 		type AIAgentConfig
 	} from '../agentResourceUtils'
-	import { toolDisplayName, type AgentTool } from '../agentToolUtils'
+	import {
+		BUILTIN_TOOLS,
+		builtinToolType,
+		toolDisplayName,
+		type AgentTool
+	} from '../agentToolUtils'
 
 	type Section = 'model' | 'instructions' | 'tools'
 
@@ -71,7 +76,8 @@ is that one, since both answer the same question about what an assistant can see
 	function toolKind(tool: AgentTool): string {
 		const value = tool?.value as Record<string, any> | undefined
 		if (value?.tool_type === 'mcp') return 'MCP server'
-		if (value?.tool_type === 'websearch') return 'Web search'
+		const builtin = builtinToolType(tool)
+		if (builtin) return BUILTIN_TOOLS[builtin].label
 		switch (value?.type) {
 			case 'script':
 				return `Script ${value.path ?? ''}`.trim()

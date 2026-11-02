@@ -60,6 +60,11 @@ pub struct Tool {
     pub module: Option<FlowModule>,
     pub def: ToolDef,
     pub mcp_source: Option<McpToolSource>,
+    /// Each call waits for a person to approve it, without the agent holding a worker.
+    pub requires_approval: bool,
+    /// Set on the built-in question tool, which the worker answers by parking the agent until
+    /// someone answers or this many seconds pass.
+    pub question_timeout_secs: Option<u32>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]

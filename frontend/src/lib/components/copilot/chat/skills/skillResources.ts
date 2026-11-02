@@ -92,19 +92,7 @@ export function truncateChars(text: string, maxChars: number): string {
 	return points.length <= maxChars ? text : `${points.slice(0, maxChars).join('')}… [truncated]`
 }
 
-/** Cut `text` to `maxBytes` of UTF-8, marking the cut so a reader (the model
- * included) can tell truncation from a body that simply ends there.
- *
- * For the body, whose cap is a byte budget: 64k CJK characters are ~192 KiB, so a
- * code-unit cut would let three times the intended payload through. */
-export function truncateForPrompt(text: string, maxBytes: number): string {
-	const encoded = new TextEncoder().encode(text)
-	if (encoded.byteLength <= maxBytes) return text
-	// `fatal: false` replaces the partial code point a byte-aligned cut can leave
-	// with U+FFFD; dropping it keeps the tail clean.
-	const cut = new TextDecoder('utf-8').decode(encoded.slice(0, maxBytes)).replace(/�$/, '')
-	return `${cut}… [truncated]`
-}
+export { truncateForPrompt } from '../folderInstructionScopes'
 
 /** The SKILL.md body of one skill. Throws rather than returning `''` when the
  * resource holds no readable body: an empty string reaches the model as a

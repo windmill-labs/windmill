@@ -5910,6 +5910,15 @@ async fn insert_resume_job<'c>(
     approved: bool,
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<()> {
+    // The approver, possibly anonymous, writes this payload, and later steps receive it as
+    // `resume`, interpolated with the flow's own token.
+    if windmill_common::variables::untrusted_arg_interpolates(&value.to_string()) {
+        return Err(Error::BadRequest(
+            "The resume payload cannot hold $var:, $jsonvar:, $res: or $encrypted: references, \
+             or a $WM_* variable name"
+                .to_string(),
+        ));
+    }
     sqlx::query!(
         r#"
             INSERT INTO resume_job
@@ -7730,6 +7739,12 @@ pub async fn get_args_and_trigger_metadata(
         )
         .await?
     };
+    // A native trigger's payload is the provider's, whichever branch built the args.
+    let args = if run_query.service_name.is_some() {
+        args.omit_untrusted_interpolation()
+    } else {
+        args
+    };
 
     Ok(WebhookRun::Run(args, trigger_metadata))
 }
@@ -7891,7 +7906,7 @@ pub async fn run_workflow_as_code(
             (
                 on_behalf_of.email.as_str(),
                 on_behalf_of.permissioned_as.clone(),
-                None,
+                authed.mcp_client.is_some().then(|| authed.clone().into()),
                 PushIsolationLevel::IsolatedRoot(db.clone()),
             )
         } else {
@@ -8207,7 +8222,7 @@ pub async fn run_wait_result_job_by_path_get(
             (
                 on_behalf_of.email.as_str(),
                 on_behalf_of.permissioned_as.clone(),
-                None,
+                authed.mcp_client.is_some().then(|| authed.clone().into()),
                 PushIsolationLevel::IsolatedRoot(db.clone()),
             )
         } else {
@@ -8358,7 +8373,7 @@ pub async fn run_wait_result_script_by_path_internal(
             (
                 on_behalf_of.email.as_str(),
                 on_behalf_of.permissioned_as.clone(),
-                None,
+                authed.mcp_client.is_some().then(|| authed.clone().into()),
                 PushIsolationLevel::IsolatedRoot(db.clone()),
             )
         } else {
@@ -8477,7 +8492,7 @@ pub async fn run_wait_result_script_by_hash(
         (
             &obo.email,
             obo.permissioned_as.clone(),
-            None,
+            authed.mcp_client.is_some().then(|| authed.clone().into()),
             PushIsolationLevel::IsolatedRoot(db.clone()),
         )
     } else {
@@ -9115,7 +9130,7 @@ fn preview_push_identity(
         Some(obo) => (
             obo.email.clone(),
             obo.permissioned_as.clone(),
-            None,
+            authed.mcp_client.is_some().then(|| authed.clone().into()),
             PushIsolationLevel::IsolatedRoot(db.clone()),
         ),
         None => (
@@ -10813,7 +10828,7 @@ pub async fn run_job_by_hash_inner(
         (
             &obo.email,
             obo.permissioned_as.clone(),
-            None,
+            authed.mcp_client.is_some().then(|| authed.clone().into()),
             PushIsolationLevel::IsolatedRoot(db.clone()),
         )
     } else {
@@ -12845,6 +12860,7 @@ mod approval_view_gate_tests {
             read_only: false,
             job_id: None,
             credential_expiry: None,
+            mcp_client: None,
         }
     }
 

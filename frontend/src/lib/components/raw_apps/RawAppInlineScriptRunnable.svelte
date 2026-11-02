@@ -228,15 +228,11 @@
 					// A turn of the agent as it is deployed, as the editor: the direct run has no way
 					// to ask for the app's identity.
 					const path = runnable.path
-					const { user_message, memory_id, user_attachments, previous_messages } = args as Record<
-						string,
-						any
-					>
+					const { user_message, user_attachments, previous_messages } = args as Record<string, any>
 					await jobLoader.abstractRun(() =>
 						JobService.runAgent({
 							workspace: opWs!,
 							path,
-							memoryId: memory_id || undefined,
 							requestBody: { user_message, user_attachments, previous_messages }
 						})
 					)

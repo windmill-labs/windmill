@@ -20,7 +20,6 @@
 		wideLayout = false,
 		emptyHint,
 		starter = undefined,
-		viewTransitionNames = false,
 		onSent = undefined,
 		inputPreface,
 		workModeLock = undefined,
@@ -44,7 +43,6 @@
 		wideLayout?: boolean
 		emptyHint?: import('svelte').Snippet
 		starter?: import('./starter/starterPrompts.svelte').ChatStarter
-		viewTransitionNames?: boolean
 		onSent?: () => void
 		inputPreface?: import('svelte').Snippet
 		workModeLock?: import('./workMode').WorkModeLock
@@ -89,7 +87,7 @@
 							: $aiUserDisabled
 								? 'Windmill AI is disabled in your account settings'
 								: isAdmin
-									? 'Enable Windmill AI in your [workspace settings](/workspace_settings?tab=ai) to use this chat'
+									? 'Enable Windmill AI in your [workspace settings](/workspace_settings?tab=ai) to use this chat, or hide AI sessions there'
 									: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
 						: aiChatManager.mode === AIMode.SCRIPT &&
 							  aiChatManager.scriptEditorOptions?.lang &&
@@ -234,7 +232,6 @@
 	{wideLayout}
 	{emptyHint}
 	{starter}
-	{viewTransitionNames}
 	{onSent}
 	{inputPreface}
 	{workModeLock}

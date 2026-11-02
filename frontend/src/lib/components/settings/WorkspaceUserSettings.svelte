@@ -11,7 +11,6 @@
 		loadWorkspaceRoles,
 		OPERATOR_ROLE,
 		pickerValue,
-		roleLabel,
 		roleRequestFields,
 		validRoleOr
 	} from '$lib/workspaceRoles'
@@ -33,7 +32,18 @@
 		workspaceMembershipVersion
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Loader2, Mails, Search, Plus, UserMinus, X, Bot, LogIn } from 'lucide-svelte'
+	import {
+		Loader2,
+		Search,
+		Plus,
+		UserMinus,
+		X,
+		Bot,
+		LogIn,
+		RefreshCw,
+		Users,
+		ChevronDown
+	} from 'lucide-svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import SearchItems from '../SearchItems.svelte'
 	import Cell from '../table/Cell.svelte'
@@ -478,6 +488,13 @@
 		return autoAdd ? 'add' : 'invite'
 	})
 
+	const autoAddSummary = $derived.by(() => {
+		const n = autoAddInstanceGroups.length
+		const groups = n === 1 ? '1 group' : `${n} groups`
+		if (autoInviteOrAddEnabled) return n > 0 ? `ON + ${groups}` : 'ON'
+		return n > 0 ? groups : 'OFF'
+	})
+
 	const isAdminsWorkspaceWithoutEE = $derived($workspaceStore === 'admins' && !$enterpriseLicense)
 </script>
 
@@ -527,140 +544,226 @@
 							variant="default"
 							unifiedSize="md"
 							nonCaptureEvent={true}
-							startIcon={{ icon: Mails }}
-							>Auto-{displayMode}: {autoInviteOrAddEnabled ? 'ON' : 'OFF'}
+							startIcon={{ icon: Users }}
+							endIcon={{ icon: ChevronDown }}
+							>Auto-{displayMode} members: {autoAddSummary}
 						</Button>
 					{/snippet}
 					{#snippet content()}
-						<div class="flex flex-col items-start p-4 min-w-[320px] max-w-sm">
-							{#if showAutoInviteToggle}
-								<div class="text-xs mb-1 text-primary"
-									>Mode <Tooltip>Whether to invite or add users directly to the workspace.</Tooltip>
-								</div>
-								<ToggleButtonGroup
-									selected={displayMode}
-									on:selected={async (e) => {
-										const switchingToAdd = e.detail === 'add' && !autoAdd
+						<div class="flex flex-col gap-4 p-4 w-[520px]">
+							<span class="text-sm font-semibold text-emphasis">Who joins without an invite</span>
 
-										// If switching from invite to add on non-cloud, show confirmation with warning
-										if (switchingToAdd && isLegacyAutoInvite) {
-											switchToAutoAddConfirmCallback = async () => {
-												autoAdd = true
+							<div class="flex flex-col gap-1">
+								<span class="flex items-center gap-1.5 text-xs font-semibold text-emphasis">
+									<LogIn size={14} />
+									{isCloudHosted()
+										? `Users from ${autoInviteOrAddEnabled ? auto_invite_domain : domain}`
+										: 'New instance users'}
+								</span>
+								<span class="text-xs text-secondary">
+									{displayMode === 'invite' ? 'Invited' : 'Added'} once, when they join {isCloudHosted()
+										? 'Windmill'
+										: 'the instance'}. They stay if you turn this off.
+								</span>
+							</div>
+							<div class="flex flex-col items-start">
+								{#if showAutoInviteToggle}
+									<div class="text-xs mb-1 text-primary"
+										>Mode <Tooltip
+											>Whether to invite or add users directly to the workspace.</Tooltip
+										>
+									</div>
+									<ToggleButtonGroup
+										selected={displayMode}
+										on:selected={async (e) => {
+											const switchingToAdd = e.detail === 'add' && !autoAdd
+
+											// If switching from invite to add on non-cloud, show confirmation with warning
+											if (switchingToAdd && isLegacyAutoInvite) {
+												switchToAutoAddConfirmCallback = async () => {
+													autoAdd = true
+													if (autoInviteOrAddEnabled) {
+														await updateAutoInvite(true)
+													}
+												}
+											} else {
+												autoAdd = e.detail === 'add'
 												if (autoInviteOrAddEnabled) {
 													await updateAutoInvite(true)
 												}
 											}
-										} else {
-											autoAdd = e.detail === 'add'
-											if (autoInviteOrAddEnabled) {
-												await updateAutoInvite(true)
-											}
-										}
-									}}
-								>
-									{#snippet children({ item })}
-										<ToggleButton value="invite" small label="Auto-invite" {item} />
-										<ToggleButton value="add" small label="Auto-add" {item} />
-									{/snippet}
-								</ToggleButtonGroup>
+										}}
+									>
+										{#snippet children({ item })}
+											<ToggleButton value="invite" small label="Auto-invite" {item} />
+											<ToggleButton value="add" small label="Auto-add" {item} />
+										{/snippet}
+									</ToggleButtonGroup>
 
-								{#if isLegacyAutoInvite && !autoAdd}
-									<div class="mt-3 w-full">
-										<Alert type="warning" size="xs" title="Legacy mode">
-											Auto-invite is deprecated. Switching to auto-add will permanently disable
-											auto-invite for this workspace.
-										</Alert>
-									</div>
+									{#if isLegacyAutoInvite && !autoAdd}
+										<div class="mt-3 w-full">
+											<Alert type="warning" size="xs" title="Legacy mode">
+												Auto-invite is deprecated. Switching to auto-add will permanently disable
+												auto-invite for this workspace.
+											</Alert>
+										</div>
+									{/if}
+
+									<div class="mt-6"></div>
 								{/if}
 
-								<div class="mt-6"></div>
-							{/if}
+								<span class="text-xs mb-1"
+									>Role <Tooltip>Role of the auto-added users</Tooltip></span
+								>
+								<RolePicker
+									{roles}
+									admin={false}
+									disablePortal
+									value={validRoleOr(roles, autoInviteRole)}
+									onchange={async (v) => {
+										autoInviteRole = v
+										if (auto_invite_domain != undefined) {
+											await updateAutoInvite(true)
+										}
+									}}
+								/>
 
-							<span class="text-xs mb-1">Role <Tooltip>Role of the auto-added users</Tooltip></span>
-							<RolePicker
-								{roles}
-								admin={false}
-								disablePortal
-								value={validRoleOr(roles, autoInviteRole)}
-								onchange={async (v) => {
-									autoInviteRole = v
-									if (auto_invite_domain != undefined) {
-										await updateAutoInvite(true)
-									}
-								}}
-							/>
+								<div class="mt-6">
+									<Toggle
+										checked={autoInviteOrAddEnabled}
+										on:change={async (e) => {
+											const enabling = e.detail
 
-							<div class="mt-6">
-								<Toggle
-									checked={autoInviteOrAddEnabled}
-									on:change={async (e) => {
-										const enabling = e.detail
+											if (enabling) {
+												// Non-cloud users without legacy auto-invite: force auto-add mode
+												if (!isCloudHosted() && !isLegacyAutoInvite) {
+													autoAdd = true
+												}
 
-										if (enabling) {
-											// Non-cloud users without legacy auto-invite: force auto-add mode
-											if (!isCloudHosted() && !isLegacyAutoInvite) {
-												autoAdd = true
-											}
-
-											// Show confirmation when enabling auto-add
-											if (autoAdd || (!isCloudHosted() && !showAutoInviteToggle)) {
-												autoAddConfirmCallback = async () => {
+												// Show confirmation when enabling auto-add
+												if (autoAdd || (!isCloudHosted() && !showAutoInviteToggle)) {
+													autoAddConfirmCallback = async () => {
+														await updateAutoInvite(true)
+													}
+												} else {
 													await updateAutoInvite(true)
 												}
 											} else {
-												await updateAutoInvite(true)
-											}
-										} else {
-											// Disabling: show confirmation if currently using auto-invite (legacy)
-											if (isLegacyAutoInvite) {
-												autoInviteDisableConfirmCallback = async () => {
+												// Disabling: show confirmation if currently using auto-invite (legacy)
+												if (isLegacyAutoInvite) {
+													autoInviteDisableConfirmCallback = async () => {
+														await updateAutoInvite(false)
+													}
+												} else {
 													await updateAutoInvite(false)
 												}
-											} else {
-												await updateAutoInvite(false)
 											}
-										}
-									}}
-									disabled={isCloudHosted() && !allowedAutoDomain}
-									options={{
-										right: isCloudHosted()
-											? `Auto-${displayMode} anyone from ${
-													autoInviteOrAddEnabled ? auto_invite_domain : domain
-												}`
-											: `Auto-${displayMode} anyone joining the instance`
-									}}
-								/>
+										}}
+										disabled={isCloudHosted() && !allowedAutoDomain}
+										options={{
+											right: isCloudHosted()
+												? `Auto-${displayMode} anyone from ${
+														autoInviteOrAddEnabled ? auto_invite_domain : domain
+													}`
+												: `Auto-${displayMode} anyone joining the instance`
+										}}
+									/>
+								</div>
+								{#if isCloudHosted() && !allowedAutoDomain}
+									<div class="text-red-400 text-xs">{domain} domain not allowed for auto-add</div>
+								{/if}
 							</div>
-							{#if isCloudHosted() && !allowedAutoDomain}
-								<div class="text-red-400 text-xs">{domain} domain not allowed for auto-add</div>
-							{/if}
-						</div>
-					{/snippet}
-				</Popover>
 
-				{#if instanceGroups.length > 0}
-					<Popover
-						floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-						usePointerDownOutside
-					>
-						{#snippet trigger()}
-							<Button
-								color={autoAddInstanceGroups.length > 0 ? 'green' : 'gray'}
-								variant="border"
-								size="xs"
-								nonCaptureEvent={true}
-								startIcon={{ icon: Mails }}
-								>Instance groups: {autoAddInstanceGroups.length}
-							</Button>
-						{/snippet}
-						{#snippet content()}
-							<div class="flex flex-col p-4 min-w-[500px]">
-								<div class="flex flex-col gap-4">
-									<span class="text-sm leading-6 font-semibold"> Auto-add instance groups </span>
+							<!-- No empty state on cloud (no instance groups of its own) or CE (adding a group
+							     to a workspace is EE-only), where it would point at a dead end. -->
+							{#if instanceGroups.length > 0 || (!isCloudHosted() && $enterpriseLicense)}
+								<div class="border-t border-light"></div>
 
-									<!-- Add new instance group form -->
+								<div class="flex flex-col gap-3">
+									<div class="flex flex-col gap-1">
+										<span class="flex items-center gap-1.5 text-xs font-semibold text-emphasis">
+											<RefreshCw size={14} />
+											Instance group members
+										</span>
+										<span class="text-xs text-secondary">
+											Kept in sync: added when they join a group below, removed when they leave it
+											or when you remove the group here. Members you added by hand are not affected.
+										</span>
+									</div>
+
+									{#if instanceGroups.length === 0}
+										<span class="text-xs text-secondary">
+											{#if $superadmin}
+												This instance has no groups yet. <a href="/instance_groups">Create one</a>
+												or sync them from your identity provider with
+												<a
+													href="https://www.windmill.dev/docs/misc/saml_and_scim#scim"
+													target="_blank"
+													rel="noopener noreferrer">SCIM</a
+												>.
+											{:else}
+												This instance has no groups yet. A superadmin can create them or sync them
+												from your identity provider.
+											{/if}
+										</span>
+									{/if}
+
+									{#if autoAddInstanceGroups.length > 0}
+										<table class="w-full text-sm">
+											<thead>
+												<tr class="text-left text-xs text-primary">
+													<th class="pb-2 w-1/2">Group</th>
+													<th class="pb-2 w-1/4">Role</th>
+													<th class="pb-2 w-1/4"></th>
+												</tr>
+											</thead>
+											<tbody>
+												{#each autoAddInstanceGroups as groupName (groupName)}
+													{@const group = instanceGroups.find((g) => g.name === groupName)}
+													<tr class="border-t border-gray-200 dark:border-gray-700">
+														<td class="py-2">
+															<div class="font-medium">{groupName}</div>
+															{#if group?.summary}
+																<div class="text-xs text-primary">{group.summary}</div>
+															{/if}
+														</td>
+														<td class="py-2">
+															<div>
+																<RolePicker
+																	{roles}
+																	disablePortal
+																	value={autoAddInstanceGroupsRoles[groupName] ||
+																		defaultRoleName(roles)}
+																	onchange={async (v) => {
+																		await updateGroupRole(groupName, v)
+																	}}
+																/>
+															</div>
+														</td>
+														<td class="py-2">
+															<div class="flex justify-end">
+																<Button
+																	variant="subtle"
+																	destructive
+																	unifiedSize="sm"
+																	onclick={() => {
+																		removeInstanceGroupConfirmedCallback = async () => {
+																			await removeInstanceGroup(groupName)
+																		}
+																	}}
+																>
+																	Remove
+																</Button>
+															</div>
+														</td>
+													</tr>
+												{/each}
+											</tbody>
+										</table>
+									{/if}
+
 									{#if availableGroupItems.length > 0}
-										<div class="flex w-full mt-1 gap-2 items-end justify-between">
+										<div class="flex w-full gap-2 items-end justify-between">
 											<div class="flex gap-2 items-end">
 												<div class="flex flex-col gap-1">
 													<span class="text-xs text-primary">Instance group</span>
@@ -685,8 +788,8 @@
 											</div>
 
 											<Button
-												color="blue"
-												size="xs"
+												variant="accent"
+												unifiedSize="md"
 												startIcon={{ icon: Plus }}
 												disabled={!selectedNewInstanceGroup}
 												onclick={addInstanceGroup}
@@ -695,77 +798,11 @@
 											</Button>
 										</div>
 									{/if}
-
-									<!-- Configured groups table -->
-									{#if autoAddInstanceGroups.length > 0}
-										<div class="flex flex-col gap-2">
-											<p class="text-sm font-medium text-secondary">Configured groups:</p>
-											<div class="flex flex-col gap-1">
-												<table class="w-full text-sm">
-													<thead>
-														<tr class="text-left text-xs text-primary">
-															<th class="pb-2 w-1/2">Group</th>
-															<th class="pb-2 w-1/4">Role</th>
-															<th class="pb-2 w-1/4"></th>
-														</tr>
-													</thead>
-													<tbody>
-														{#each autoAddInstanceGroups as groupName (groupName)}
-															{@const group = instanceGroups.find((g) => g.name === groupName)}
-															<tr class="border-t border-gray-200 dark:border-gray-700">
-																<td class="py-2">
-																	<div class="font-medium">{groupName}</div>
-																	{#if group?.summary}
-																		<div class="text-xs text-primary">{group.summary}</div>
-																	{/if}
-																</td>
-																<td class="py-2">
-																	<div>
-																		<RolePicker
-																			{roles}
-																			disablePortal
-																			value={autoAddInstanceGroupsRoles[groupName] ||
-																				defaultRoleName(roles)}
-																			onchange={async (v) => {
-																				await updateGroupRole(groupName, v)
-																			}}
-																		/>
-																	</div>
-																</td>
-																<td class="py-2">
-																	<div class="flex justify-end">
-																		<Button
-																			color="light"
-																			variant="contained"
-																			btnClasses="text-red-500"
-																			size="xs"
-																			spacingSize="xs2"
-																			onclick={() => {
-																				removeInstanceGroupConfirmedCallback = async () => {
-																					await removeInstanceGroup(groupName)
-																				}
-																			}}
-																		>
-																			Remove
-																		</Button>
-																	</div>
-																</td>
-															</tr>
-														{/each}
-													</tbody>
-												</table>
-											</div>
-										</div>
-									{:else}
-										<div class="text-center text-primary text-sm py-4">
-											No instance groups configured for auto-add
-										</div>
-									{/if}
 								</div>
-							</div>
-						{/snippet}
-					</Popover>
-				{/if}
+							{/if}
+						</div>
+					{/snippet}
+				</Popover>
 
 				{#if showAutoInviteToggle}
 					<InviteUser {inviteUser} {roles} />
@@ -869,10 +906,10 @@
 							<div>
 								{#if added_via?.source === 'instance_group'}
 									<div class="flex items-center gap-1">
-										<span class="rounded-md text-xs px-2 py-1 bg-surface shadow-md font-bold">
-											{roleLabel(roles, pickerValue(user))}
-										</span>
-										<Tooltip>Role is managed through instance group configuration above.</Tooltip>
+										<RolePicker {roles} value={pickerValue(user)} disabled onchange={() => {}} />
+										<Tooltip>
+											Set by the {added_via.group ?? 'instance'} group. Change the group's role in Auto-add.
+										</Tooltip>
 									</div>
 								{:else}
 									<RolePicker
@@ -1171,8 +1208,9 @@
 	>
 		<div class="flex flex-col w-full space-y-4">
 			<span
-				>Are you sure you want to remove this instance group from auto-add? This will not remove
-				users already added from this group.</span
+				>Members added from this group are removed from this workspace, along with their drafts,
+				favorites and tokens here, unless another configured group still includes them. Members you
+				added by hand stay.</span
 			>
 		</div>
 	</ConfirmationModal>

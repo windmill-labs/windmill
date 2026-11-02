@@ -3462,6 +3462,273 @@ paths:
                 type: object
                 required: *ref_29
                 properties: *ref_30
+  /settings/test_http_store_backend:
+    post:
+      summary: test the HTTP secret store by reading one secret
+      operationId: testHttpStoreBackend
+      tags:
+      - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - settings
+              - workspace_id
+              - path
+              properties:
+                settings:
+                  type: object
+                  description: Read-only secret backend for any secret store with an
+                    HTTP API. A secret variable saved with an empty value references
+                    the store key derived from its workspace and path.
+                  required:
+                  - base_url
+                  - read
+                  - auth
+                  properties:
+                    base_url:
+                      type: string
+                      description: Scheme, host and optional path prefix of the store
+                    read:
+                      type: object
+                      required:
+                      - path
+                      properties:
+                        path:
+                          type: string
+                          description: Path template appended to base_url. {workspace}
+                            and {path} must each appear here or in a query value.
+                        query:
+                          type: object
+                          additionalProperties:
+                            type: string
+                          description: Query parameters; values may use {workspace}
+                            and {path}
+                        value_pointer:
+                          type: string
+                          description: JSON pointer to the value in the response; empty
+                            means the whole body
+                        value_encoding:
+                          type: string
+                          enum:
+                          - plain
+                          - base64
+                    path_encoding:
+                      type: string
+                      enum:
+                      - url
+                      - double_dash
+                      - raw
+                      description: How a variable path becomes a store key (default
+                        url)
+                    extra_headers:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    auth:
+                      type: object
+                      required:
+                      - type
+                      properties:
+                        type:
+                          type: string
+                          enum:
+                          - None
+                          - StaticHeader
+                          - BearerTokenFile
+                          - ClientCertificate
+                        header_name:
+                          type: string
+                          description: StaticHeader and BearerTokenFile (default Authorization)
+                        header_value:
+                          type: string
+                          description: StaticHeader
+                        token_path:
+                          type: string
+                          description: BearerTokenFile
+                        prefix:
+                          type: string
+                          description: BearerTokenFile (default "Bearer ")
+                        cert_path:
+                          type: string
+                          description: ClientCertificate, PEM certificate optionally
+                            followed by its chain
+                        key_path:
+                          type: string
+                          description: ClientCertificate, PEM private key
+                        reload_interval_secs:
+                          type: integer
+                          description: BearerTokenFile (default 60) and ClientCertificate
+                            (default 300)
+                    ca_bundle_path:
+                      type: string
+                      description: PEM bundle of additional CA certificates trusted
+                        for the store
+                    timeout_secs:
+                      type: integer
+                    skip_ssl_verify:
+                      type: boolean
+                workspace_id:
+                  type: string
+                  description: workspace of a variable whose secret exists in the store
+                path:
+                  type: string
+                  description: path of a variable whose secret exists in the store
+      responses:
+        '200':
+          description: connection test result
+          content:
+            text/plain:
+              schema:
+                type: string
+  /settings/migrate_secrets_from_http_store:
+    post:
+      summary: copy the values of HTTP secret store references into the database
+      operationId: migrateSecretsFromHttpStore
+      tags:
+      - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Read-only secret backend for any secret store with an HTTP
+                API. A secret variable saved with an empty value references the store
+                key derived from its workspace and path.
+              required:
+              - base_url
+              - read
+              - auth
+              properties:
+                base_url:
+                  type: string
+                  description: Scheme, host and optional path prefix of the store
+                read:
+                  type: object
+                  required:
+                  - path
+                  properties:
+                    path:
+                      type: string
+                      description: Path template appended to base_url. {workspace} and
+                        {path} must each appear here or in a query value.
+                    query:
+                      type: object
+                      additionalProperties:
+                        type: string
+                      description: Query parameters; values may use {workspace} and
+                        {path}
+                    value_pointer:
+                      type: string
+                      description: JSON pointer to the value in the response; empty
+                        means the whole body
+                    value_encoding:
+                      type: string
+                      enum:
+                      - plain
+                      - base64
+                path_encoding:
+                  type: string
+                  enum:
+                  - url
+                  - double_dash
+                  - raw
+                  description: How a variable path becomes a store key (default url)
+                extra_headers:
+                  type: object
+                  additionalProperties:
+                    type: string
+                auth:
+                  type: object
+                  required:
+                  - type
+                  properties:
+                    type:
+                      type: string
+                      enum:
+                      - None
+                      - StaticHeader
+                      - BearerTokenFile
+                      - ClientCertificate
+                    header_name:
+                      type: string
+                      description: StaticHeader and BearerTokenFile (default Authorization)
+                    header_value:
+                      type: string
+                      description: StaticHeader
+                    token_path:
+                      type: string
+                      description: BearerTokenFile
+                    prefix:
+                      type: string
+                      description: BearerTokenFile (default "Bearer ")
+                    cert_path:
+                      type: string
+                      description: ClientCertificate, PEM certificate optionally followed
+                        by its chain
+                    key_path:
+                      type: string
+                      description: ClientCertificate, PEM private key
+                    reload_interval_secs:
+                      type: integer
+                      description: BearerTokenFile (default 60) and ClientCertificate
+                        (default 300)
+                ca_bundle_path:
+                  type: string
+                  description: PEM bundle of additional CA certificates trusted for
+                    the store
+                timeout_secs:
+                  type: integer
+                skip_ssl_verify:
+                  type: boolean
+      responses:
+        '200':
+          description: migration report
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - total_secrets
+                - migrated_count
+                - failed_count
+                - failures
+                properties:
+                  total_secrets:
+                    type: integer
+                    format: int64
+                    description: Total number of secrets found
+                  migrated_count:
+                    type: integer
+                    format: int64
+                    description: Number of secrets successfully migrated
+                  failed_count:
+                    type: integer
+                    format: int64
+                    description: Number of secrets that failed to migrate
+                  failures:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                      - workspace_id
+                      - path
+                      - error
+                      properties:
+                        workspace_id:
+                          type: string
+                          description: Workspace ID where the secret is located
+                        path:
+                          type: string
+                          description: Path of the secret that failed to migrate
+                        error:
+                          type: string
+                          description: Error message
+                    description: Details of any failures encountered during migration
   /users/email:
     get:
       summary: get current user email (if logged in)
@@ -37749,6 +38016,128 @@ components:
       type: object
       required: *ref_33
       properties: *ref_34
+    HttpStoreSettings:
+      type: object
+      description: Read-only secret backend for any secret store with an HTTP API. A secret
+        variable saved with an empty value references the store key derived from its workspace
+        and path.
+      required:
+      - base_url
+      - read
+      - auth
+      properties:
+        base_url:
+          type: string
+          description: Scheme, host and optional path prefix of the store
+        read:
+          type: object
+          required:
+          - path
+          properties:
+            path:
+              type: string
+              description: Path template appended to base_url. {workspace} and {path}
+                must each appear here or in a query value.
+            query:
+              type: object
+              additionalProperties:
+                type: string
+              description: Query parameters; values may use {workspace} and {path}
+            value_pointer:
+              type: string
+              description: JSON pointer to the value in the response; empty means the
+                whole body
+            value_encoding:
+              type: string
+              enum:
+              - plain
+              - base64
+        path_encoding:
+          type: string
+          enum:
+          - url
+          - double_dash
+          - raw
+          description: How a variable path becomes a store key (default url)
+        extra_headers:
+          type: object
+          additionalProperties:
+            type: string
+        auth:
+          type: object
+          required:
+          - type
+          properties:
+            type:
+              type: string
+              enum:
+              - None
+              - StaticHeader
+              - BearerTokenFile
+              - ClientCertificate
+            header_name:
+              type: string
+              description: StaticHeader and BearerTokenFile (default Authorization)
+            header_value:
+              type: string
+              description: StaticHeader
+            token_path:
+              type: string
+              description: BearerTokenFile
+            prefix:
+              type: string
+              description: BearerTokenFile (default "Bearer ")
+            cert_path:
+              type: string
+              description: ClientCertificate, PEM certificate optionally followed by its
+                chain
+            key_path:
+              type: string
+              description: ClientCertificate, PEM private key
+            reload_interval_secs:
+              type: integer
+              description: BearerTokenFile (default 60) and ClientCertificate (default
+                300)
+        ca_bundle_path:
+          type: string
+          description: PEM bundle of additional CA certificates trusted for the store
+        timeout_secs:
+          type: integer
+        skip_ssl_verify:
+          type: boolean
+    HttpStoreAuth:
+      type: object
+      required:
+      - type
+      properties:
+        type:
+          type: string
+          enum:
+          - None
+          - StaticHeader
+          - BearerTokenFile
+          - ClientCertificate
+        header_name:
+          type: string
+          description: StaticHeader and BearerTokenFile (default Authorization)
+        header_value:
+          type: string
+          description: StaticHeader
+        token_path:
+          type: string
+          description: BearerTokenFile
+        prefix:
+          type: string
+          description: BearerTokenFile (default "Bearer ")
+        cert_path:
+          type: string
+          description: ClientCertificate, PEM certificate optionally followed by its chain
+        key_path:
+          type: string
+          description: ClientCertificate, PEM private key
+        reload_interval_secs:
+          type: integer
+          description: BearerTokenFile (default 60) and ClientCertificate (default 300)
     SecretMigrationFailure:
       type: object
       required: *ref_375
