@@ -9,8 +9,9 @@ export type RecentRunItem = RecentRuns['items'][number]
 export type RecentRun = RecentRunItem['runs'][number]
 export type RecentRunStatus = RecentRun['status']
 
-/** The Runs page's own refresh rate (`useJobsLoader`), so both read the database as often. */
-const REFRESH_MS = 5000
+/** Home stays open in many tabs and each read can examine tens of thousands of completions, while
+ * the panel only shows ages to the minute: a tighter rate multiplies that load for nothing. */
+const REFRESH_MS = 30000
 
 /**
  * What ran recently in the workspace, read from `listRecentRuns`. The side panel and the header

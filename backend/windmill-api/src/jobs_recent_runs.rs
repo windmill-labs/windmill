@@ -17,6 +17,10 @@ const WINDOW_HOURS: i32 = 24;
 /// Newest root runs read from the window. A workspace running more than this in the window
 /// gets counts over these runs only, and `capped` says so.
 const SCAN_LIMIT: i64 = 5000;
+/// Newest completions examined, flow steps included, to find those root runs. Each costs a
+/// `v2_job` lookup, so this bounds a read where steps outnumber root runs; the counts then cover
+/// a shorter span than the window, and `capped` says so.
+const EXAMINE_LIMIT: i64 = 50_000;
 const MAX_ITEMS: usize = 50;
 const RUNS_PER_ITEM: usize = 10;
 
@@ -74,6 +78,8 @@ pub(crate) struct RecentRun {
     /// When the run started, or was created for one that has not reported a start.
     ran_at: DateTime<Utc>,
     duration_ms: Option<i64>,
+    #[serde(skip)]
+    examine_capped: bool,
 }
 
 pub(crate) async fn list_recent_runs(
@@ -89,20 +95,29 @@ pub(crate) async fn list_recent_runs(
     let mut tx = user_db.begin(&authed).await?;
 
     // A run counts when it completed in the window or is running now, whenever it was queued:
-    // a schedule is queued a full period ahead of its run. The completed side is filtered and
-    // limited before the join below, newest completion first, so a poll walks the
-    // (workspace_id, completed_at) index for at most SCAN_LIMIT root runs instead of sorting
-    // the whole window, child jobs included. A `singlestepflow` wraps a script or a flow.
+    // a schedule is queued a full period ahead of its run. The completed side walks the
+    // (workspace_id, completed_at) index newest first, no further back than the EXAMINE_LIMIT-th
+    // completion (`since`, read index-only). Its root check is a per-row `v2_job` lookup:
+    // `OFFSET 0` keeps the planner from turning it into a join over every root run the
+    // workspace ever had, which grows with its history rather than with the window.
+    // A `singlestepflow` wraps a script or a flow.
     let scope_tags =
         get_scope_tags(&authed).map(|v| v.into_iter().map(str::to_string).collect::<Vec<_>>());
     let runs = sqlx::query_as::<_, RecentRun>(&format!(
-        "WITH ran AS (
+        "WITH bound AS (
+            SELECT (SELECT c.completed_at FROM v2_job_completed c
+                    WHERE c.workspace_id = $1
+                      AND c.completed_at > now() - make_interval(hours => $2)
+                    ORDER BY c.completed_at DESC
+                    OFFSET $6 - 1 LIMIT 1) AS since
+         ), ran AS (
             (SELECT c.id, c.status::text AS status, c.started_at,
                     c.duration_ms::bigint AS duration_ms, c.completed_at
              FROM v2_job_completed c
-             JOIN v2_job j ON j.id = c.id
+             CROSS JOIN LATERAL (SELECT FROM v2_job j
+                                 WHERE j.id = c.id AND {LISTED_ROOT_RUN} OFFSET 0) root
              WHERE c.workspace_id = $1 AND c.completed_at > now() - make_interval(hours => $2)
-               AND {LISTED_ROOT_RUN}
+               AND c.completed_at >= COALESCE((SELECT since FROM bound), '-infinity')
              ORDER BY c.completed_at DESC
              LIMIT $4)
             UNION ALL
@@ -127,7 +142,8 @@ pub(crate) async fn list_recent_runs(
                  WHEN r.status = 'canceled' THEN 'canceled'
                  ELSE 'failure' END AS status,
             COALESCE(r.started_at, j.created_at) AS ran_at,
-            r.duration_ms
+            r.duration_ms,
+            (SELECT since FROM bound) IS NOT NULL AS examine_capped
          FROM ran r
          JOIN v2_job j ON j.id = r.id
          ORDER BY r.completed_at DESC NULLS FIRST, ran_at DESC
@@ -138,10 +154,11 @@ pub(crate) async fn list_recent_runs(
     .bind(&folder)
     .bind(SCAN_LIMIT)
     .bind(&scope_tags)
+    .bind(EXAMINE_LIMIT)
     .fetch_all(&mut *tx)
     .await?;
 
-    let capped = runs.len() as i64 == SCAN_LIMIT;
+    let capped = runs.len() as i64 == SCAN_LIMIT || runs.first().is_some_and(|r| r.examine_capped);
     let total_runs = runs.len() as i64;
     let failed_runs = runs.iter().filter(|r| r.status == "failure").count() as i64;
 
