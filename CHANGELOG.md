@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.856.0](https://github.com/windmill-labs/windmill/compare/v1.855.1...v1.856.0) (2026-11-02)
+
+
+### Features
+
+* accept MCP access tokens from an external OIDC issuer ([#12085](https://github.com/windmill-labs/windmill/issues/12085)) ([45f256a](https://github.com/windmill-labs/windmill/commit/45f256a5a1046b80833dda217e5884f9eeb6a3a4))
+* reference existing HashiCorp Vault secrets from secret variables ([#12078](https://github.com/windmill-labs/windmill/issues/12078)) ([6f4124e](https://github.com/windmill-labs/windmill/commit/6f4124e9a030ce790e484dd75917a2c04b889bd3))
+* sync custom workspace roles and role overrides through the CLI ([#12139](https://github.com/windmill-labs/windmill/issues/12139)) ([5956976](https://github.com/windmill-labs/windmill/commit/5956976ea5a0798b965453c3fbfed8f4476e70e7))
+* working folders and folder instructions for ai sessions ([#12036](https://github.com/windmill-labs/windmill/issues/12036)) ([6444b20](https://github.com/windmill-labs/windmill/commit/6444b20abd3abea8c41dc631a481f42f217566c9))
+
+
+### Bug Fixes
+
+* let scoped tokens reach shared_ui routes through the apps scope ([#12141](https://github.com/windmill-labs/windmill/issues/12141)) ([8e57691](https://github.com/windmill-labs/windmill/commit/8e57691cbcf1db8af4c9994d8f9486bcb0c8abd8))
+
 ## [1.855.1](https://github.com/windmill-labs/windmill/compare/v1.855.0...v1.855.1) (2026-10-30)
 
 
