@@ -362,6 +362,16 @@
 		menuHidden = isMenuHidden(page.url)
 	}
 
+	// A remembered user is about to be rendered as (updateUserStore): the frames until then show
+	// nothing rather than flash "Loading user...". Known from the first render, which runs before
+	// the effect that sets the user.
+	let optimisticPending = $state(
+		(() => {
+			const ws = page.url.searchParams.get('workspace') ?? $workspaceStore
+			return !$userStore && !!ws && !!optimisticUser(ws)
+		})()
+	)
+
 	async function updateUserStore(workspace: string | undefined) {
 		if (workspace) {
 			// A preview iframe shares BOTH localStorage and sessionStorage with the
@@ -385,15 +395,18 @@
 			// A task later, not now: setting the user here renders the whole page in this effect
 			// flush, ahead of the effects that send whoami and the page's other requests.
 			const last = $userStore ? undefined : optimisticUser(workspace)
+			optimisticPending = !!last
 			let answered = false
 			if (last) {
 				setTimeout(() => {
 					if (!answered && !$userStore && $workspaceStore === workspace) userStore.set(last)
+					optimisticPending = false
 				}, 0)
 			}
 			const sentWith = readSessionHint()
 			const user = await getUserExt(workspace)
 			answered = true
+			optimisticPending = false
 			// getUserExt resolves to undefined on failure, so a user is the only proof of a
 			// session: without it a cancelled SSO round trip would claim the "Last used" badge.
 			if (user) confirmPendingLoginMethod()
@@ -1615,7 +1628,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			{@render children?.()}
 		</div>
 	</div>
-{:else}
+{:else if !optimisticPending}
 	<CenteredModal title="Loading user..." loading={true}></CenteredModal>
 {/if}
 
