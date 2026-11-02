@@ -283,6 +283,7 @@
 	let dbSchema: DBSchema | undefined = $derived(sqlSchema ?? fetchedDbSchema)
 
 	let destroyed = false
+	let reloadSeq = 0
 	const uri = computeUri(
 		untrack(() => filePath),
 		untrack(() => scriptLang)
@@ -1027,6 +1028,10 @@
 	}
 
 	export async function reloadWebsocket() {
+		// closeWebsockets() and the signing round-trip below are both async, so overlapping
+		// (re)connects can interleave. Claim a generation up front; after the awaits, only the
+		// latest proceeds, so a superseded call never opens a second set of language clients.
+		const thisReload = ++reloadSeq
 		await closeWebsockets()
 
 		if (!useWebsockets || !(lang == 'python' || lang == 'go' || lang == 'shell')) {
@@ -1172,9 +1177,9 @@
 			} catch (err) {
 				console.warn('could not sign a language server session', err)
 			}
-			// Signing is a network round-trip; the editor may have been destroyed while it was in
-			// flight, in which case onDestroy already tore the sockets and interval down.
-			if (destroyed) return
+			// After the signing round-trip, bail if the editor was destroyed (onDestroy tore the
+			// sockets and interval down) or a newer reload superseded this one.
+			if (destroyed || thisReload !== reloadSeq) return
 			const lspUrl = (path: string) =>
 				lspToken ? `${buildWsUrl(path)}?token=${encodeURIComponent(lspToken)}` : buildWsUrl(path)
 
