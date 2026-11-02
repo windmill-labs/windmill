@@ -189,6 +189,17 @@
 	{/if}
 {/snippet}
 
+<!-- The drawer answers Escape on window too, and `preventEscape` is read after the popover has
+     already closed, so with the Grant popover open its Escape is taken here before either sees it. -->
+<svelte:window
+	onkeydowncapture={(e) => {
+		if (e.key !== 'Escape' || !grantOpen) return
+		e.stopPropagation()
+		e.preventDefault()
+		grantOpen = false
+	}}
+/>
+
 <Drawer bind:this={drawer} size="1000px">
 	<DrawerContent title={`Access of ${principal}`} on:close={() => drawer?.closeDrawer()}>
 		<div class="flex flex-col gap-6">
