@@ -371,9 +371,6 @@ class ShellcheckLS(websocket.WebSocketHandler):
 class RuffLS(LanguageServerWebSocketHandler):
     procargs = ["ruff", "server"]
 
-class DenoLS(LanguageServerWebSocketHandler):
-    procargs = ["deno", "lsp"]
-
 class GoLS(LanguageServerWebSocketHandler):
     procargs = ["gopls", "serve"]
 
@@ -407,11 +404,6 @@ if __name__ == "__main__":
     monaco_path = "/tmp/monaco"
     os.makedirs(monaco_path, exist_ok=True)
     print("The monaco directory is created!")
-    go_mod_path = os.path.join(monaco_path, "go.mod")
-    if not os.path.exists(go_mod_path):
-        f = open(go_mod_path, "w")
-        f.write("module mymod\ngo 1.27")
-        f.close()
 
     # Sync instance-level ruff config into /tmp/monaco/ruff.toml so every
     # spawned `ruff server` picks it up.
@@ -426,7 +418,6 @@ if __name__ == "__main__":
             (r"/ws/pyright", PyrightLS),
             (r"/ws/diagnostic", ShellcheckLS),
             (r"/ws/ruff", RuffLS),
-            (r"/ws/deno", DenoLS),
             (r"/ws/go", GoLS),
             (r"/ws/ping", PingHandler),
             (r"/ws/health", HealthHandler),
@@ -434,5 +425,6 @@ if __name__ == "__main__":
             (r"/health", HealthHandler),
         ]
     )
-    app.listen(port, address="0.0.0.0")
+    # The entrypoint sets 127.0.0.1 when the gateway, which checks the tokens, is in front.
+    app.listen(port, address=os.environ.get("LSP_HOST", "0.0.0.0"))
     ioloop.IOLoop.current().start()
