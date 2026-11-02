@@ -23,6 +23,7 @@ use windmill_common::get_latest_flow_version_id_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::jobs::JobTriggerKind;
 use windmill_common::jobs::OnBehalfOf;
+use windmill_common::runnable_ref::RunnableRef;
 use windmill_common::runnable_settings::ConcurrencySettings;
 use windmill_common::runnable_settings::DebouncingSettings;
 use windmill_common::schedule::schedule_to_user;
@@ -43,6 +44,7 @@ use windmill_common::{
 async fn get_schedule_metadata<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     schedule: &Schedule,
+    target: &RunnableRef,
 ) -> Result<(
     Option<String>,     // tag
     Option<i32>,        // timeout
@@ -61,7 +63,7 @@ async fn get_schedule_metadata<'c>(
             None,
             &mut **tx,
             &schedule.workspace_id,
-            &schedule.script_path,
+            target.path(),
             false,
         )
         .await?;
@@ -70,7 +72,7 @@ async fn get_schedule_metadata<'c>(
             &mut **tx,
             version,
             &schedule.workspace_id,
-            &schedule.script_path,
+            target.path(),
         )
         .await?;
 
@@ -87,7 +89,7 @@ async fn get_schedule_metadata<'c>(
             Some(version),
             parsed_retry,
         ))
-    } else if schedule.script_path.starts_with("hub/") {
+    } else if target.path().starts_with("hub/") {
         Ok((None, None, None, None, None, parsed_retry))
     } else {
         let (
@@ -111,7 +113,7 @@ async fn get_schedule_metadata<'c>(
         ) = windmill_common::get_latest_hash_for_path(
             &mut **tx,
             &schedule.workspace_id,
-            &schedule.script_path,
+            target.path(),
             false,
         )
         .await?;
@@ -138,6 +140,7 @@ pub async fn push_scheduled_job<'c>(
         ));
     }
 
+    let target = RunnableRef::from_path(&schedule.script_path, schedule.is_flow)?;
     let sched =
         ScheduleType::from_str(&schedule.schedule, schedule.cron_version.as_deref(), false)?;
 
@@ -200,7 +203,7 @@ pub async fn push_scheduled_job<'c>(
         &schedule.workspace_id,
         &schedule.path,
         next,
-        &schedule.script_path
+        target.path()
     )
     .fetch_one(&mut *tx)
     .warn_after_seconds_with_sql(1, "already_exists_job".to_string())
@@ -326,11 +329,11 @@ pub async fn push_scheduled_job<'c>(
 
         // Get metadata from the scheduled script/flow for tag, timeout, etc.
         let (tag, timeout, on_behalf_of, hash, flow_version, retry) =
-            get_schedule_metadata(&mut tx, schedule).await?;
+            get_schedule_metadata(&mut tx, schedule, &target).await?;
 
         (
             JobPayload::SingleStepFlow {
-                path: schedule.script_path.clone(),
+                path: target.path().to_string(),
                 hash,
                 flow_version,
                 language: None,
@@ -366,7 +369,7 @@ pub async fn push_scheduled_job<'c>(
             None,
             &mut *tx,
             &schedule.workspace_id,
-            &schedule.script_path,
+            target.path(),
             false,
         )
         .warn_after_seconds_with_sql(1, "get_latest_flow_version_id_for_path".to_string())
@@ -376,7 +379,7 @@ pub async fn push_scheduled_job<'c>(
             &mut *tx,
             version,
             &schedule.workspace_id,
-            &schedule.script_path,
+            target.path(),
         )
         .warn_after_seconds_with_sql(1, "get_flow_version_info_from_version".to_string())
         .await?;
@@ -391,7 +394,7 @@ pub async fn push_scheduled_job<'c>(
 
         (
             JobPayload::Flow {
-                path: schedule.script_path.clone(),
+                path: target.path().to_string(),
                 dedicated_worker,
                 apply_preprocessor: false,
                 version,
@@ -402,18 +405,18 @@ pub async fn push_scheduled_job<'c>(
             None,
             on_behalf_of,
         )
-    } else if schedule.script_path.starts_with("hub/") {
+    } else if target.path().starts_with("hub/") {
         let tag = schedule.tag.clone().filter(|t| !t.is_empty());
         let payload = match &schedule.retry {
             // The language is what lets `push` materialize this as a native retry
             // instead of a flow wrapper, which would queue the next tick at start.
             Some(retry) => JobPayload::SingleStepFlow {
-                path: schedule.script_path.clone(),
+                path: target.path().to_string(),
                 hash: None,
                 flow_version: None,
                 language: Some(
                     get_full_hub_script_by_path(
-                        StripPath(schedule.script_path.clone()),
+                        StripPath(target.path().to_string()),
                         &HTTP_CLIENT,
                         Some(db),
                     )
@@ -438,10 +441,9 @@ pub async fn push_scheduled_job<'c>(
                 concurrency_settings: ConcurrencySettings::default(),
                 debouncing_settings: DebouncingSettings::default(),
             },
-            None => JobPayload::ScriptHub {
-                path: schedule.script_path.clone(),
-                apply_preprocessor: false,
-            },
+            None => {
+                JobPayload::ScriptHub { path: target.path().to_string(), apply_preprocessor: false }
+            }
         };
         (payload, tag, None, None)
     } else {
@@ -466,7 +468,7 @@ pub async fn push_scheduled_job<'c>(
         ) = windmill_common::get_latest_hash_for_path(
             &mut *tx,
             &schedule.workspace_id,
-            &schedule.script_path,
+            target.path(),
             false,
         )
         .warn_after_seconds_with_sql(1, "get_latest_hash_for_path".to_string())
@@ -500,7 +502,7 @@ pub async fn push_scheduled_job<'c>(
             // cannot be evaluated and fails closed (no retry).
             (
                 JobPayload::SingleStepFlow {
-                    path: schedule.script_path.clone(),
+                    path: target.path().to_string(),
                     hash: Some(hash),
                     flow_version: None,
                     language: Some(language),
@@ -534,7 +536,7 @@ pub async fn push_scheduled_job<'c>(
             (
                 JobPayload::ScriptHash {
                     hash,
-                    path: schedule.script_path.clone(),
+                    path: target.path().to_string(),
                     cache_ttl,
                     cache_ignore_s3_path,
                     dedicated_worker,
