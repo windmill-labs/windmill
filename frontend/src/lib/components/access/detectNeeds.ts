@@ -22,10 +22,11 @@ export type Needs = { items: NeededItem[]; others: OtherAsset[]; errors: string[
 const MAX_DEPTH = 4
 const ITEM_PATH = /^[ufg]\/[^/]+\/.+/
 const STATIC_REF = /^\$(res|var|jsonvar):(.+)$/
-// The asset parser finds resources but has no variable kind, so literal variable reads are matched
-// here. A path the code builds at run time is found by neither.
 const SOURCE_FILE = /\.(?:[cm]?[jt]sx?|svelte|vue)$/
-const VARIABLE_CALL = /\b(?:getVariable|get_variable)\(\s*["'`]([^"'`]+)["'`]/g
+const COMPONENT_SCRIPT = /<script\b[^>]*>([\s\S]*?)<\/script>/g
+// The asset parser has no variable kind and rejects JSX, so literal reads are also matched here.
+// A path the code builds at run time is found by neither.
+const READ_CALL = /\b(getVariable|get_variable|getResource|get_resource)\(\s*["'`]([^"'`]+)["'`]/g
 
 /**
  * What a script, flow or app reads when it runs, to grant to the account it runs as. The scripts
@@ -61,7 +62,9 @@ export async function detectNeeds(
 		if (result.status === 'ok') {
 			for (const asset of result.assets) add(asset.kind, asset.path, source)
 		}
-		for (const match of content.matchAll(VARIABLE_CALL)) add('variable', match[1], source)
+		for (const [, call, readPath] of content.matchAll(READ_CALL)) {
+			add(/resource/i.test(call) ? 'resource' : 'variable', readPath, source)
+		}
 	}
 
 	async function recorded(usageKind: 'script' | 'flow', usagePath: string, source: string) {
@@ -157,9 +160,13 @@ export async function detectNeeds(
 					walk(app.value, runnablePath, depth),
 					...Object.entries(files)
 						.filter(([name, content]) => SOURCE_FILE.test(name) && typeof content === 'string')
-						.map(([name, content]) =>
-							scanCode('bun', content as string, `${runnablePath} › ${name}`)
-						)
+						.map(([name, content]) => {
+							// The parser reads only script, so a component's markup is left out.
+							const code = /\.(?:svelte|vue)$/.test(name)
+								? [...(content as string).matchAll(COMPONENT_SCRIPT)].map((m) => m[1]).join('\n')
+								: (content as string)
+							return scanCode('bun', code, `${runnablePath} › ${name}`)
+						})
 				])
 			}
 		} catch (e) {
