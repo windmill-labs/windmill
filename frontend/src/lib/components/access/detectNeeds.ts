@@ -29,6 +29,7 @@ const ITEM_PATH = /^[ufg]\/[^/]+\/.+/
 const STATIC_REF = /^\$(res|var|jsonvar):(.+)$/
 // The asset parser finds resources but has no variable kind, so literal variable reads are matched
 // here. A path the code builds at run time is found by neither.
+const SOURCE_FILE = /\.(?:[cm]?[jt]sx?|svelte|vue)$/
 const VARIABLE_CALL = /\b(?:getVariable|get_variable)\(\s*["'`]([^"'`]+)["'`]/g
 
 /**
@@ -155,7 +156,17 @@ export async function detectNeeds(
 			} else {
 				// Apps record no asset usages, so their inline code is parsed here.
 				const app = await AppService.getAppByPath({ workspace, path: runnablePath })
-				await walk(app.value, runnablePath, depth)
+				// A full-code app's frontend calls the SDK as its viewer, from source kept as plain
+				// strings under `files`, which the walk below cannot tell from other strings.
+				const files = (app.value as { files?: Record<string, unknown> } | undefined)?.files ?? {}
+				await Promise.all([
+					walk(app.value, runnablePath, depth),
+					...Object.entries(files)
+						.filter(([name, content]) => SOURCE_FILE.test(name) && typeof content === 'string')
+						.map(([name, content]) =>
+							scanCode('bun', content as string, `${runnablePath} › ${name}`)
+						)
+				])
 			}
 		} catch (e) {
 			// The item itself unreadable is a failure of the whole scan, not a partial result.

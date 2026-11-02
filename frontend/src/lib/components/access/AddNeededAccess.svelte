@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { Alert, Button, Skeleton } from '$lib/components/common'
 	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { Info, X } from 'lucide-svelte'
 	import { setGrant } from './access'
 	import { detectNeeds, type Needs, type RunnableKind } from './detectNeeds'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let {
 		principal,
@@ -30,7 +32,7 @@
 	let granting = $state(false)
 
 	// The host keys this component on the runnable, so it detects once per runnable.
-	detectNeeds($workspaceStore!, kind, path)
+	detectNeeds($operatingWorkspace!, kind, path)
 		.then((found) => {
 			needs = found
 			selected = Object.fromEntries(
@@ -46,7 +48,7 @@
 			const key = `${item.kind}:${item.path}`
 			if (!selected[key]) continue
 			try {
-				await setGrant($workspaceStore!, item.kind, item.path, principal, 'read')
+				await setGrant($operatingWorkspace!, item.kind, item.path, principal, 'read')
 				results[key] = 'Granted'
 				selected[key] = false
 			} catch (e) {

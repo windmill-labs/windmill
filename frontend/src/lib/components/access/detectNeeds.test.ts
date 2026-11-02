@@ -4,7 +4,17 @@ const readVariable = (path: string) =>
 	`import * as wmill from "windmill-client"\nexport async function main() { return await wmill.getVariable("${path}") }\n`
 
 vi.mock('$lib/gen', () => ({
-	AppService: { getAppByPath: vi.fn() },
+	AppService: {
+		getAppByPath: vi.fn(async () => ({
+			value: {
+				files: {
+					'/App.tsx': `const key = await wmill.getVariable("f/x/browser_secret")`,
+					'/notes.md': `getVariable("f/x/not_code")`
+				},
+				runnables: {}
+			}
+		}))
+	},
 	AssetService: { listAssetsByUsage: vi.fn(async () => [[]]) },
 	FlowService: {
 		getFlowByPath: vi.fn(async () => ({
@@ -64,5 +74,10 @@ describe('detectNeeds', () => {
 			'variable:f/x/pinned_secret'
 		])
 		expect(needs.errors).toEqual([])
+	})
+
+	it("reads a full-code app's frontend source files", async () => {
+		const needs = await detectNeeds('w', 'app', 'f/x/app')
+		expect(needs.items.map((i) => `${i.kind}:${i.path}`)).toEqual(['variable:f/x/browser_secret'])
 	})
 })
