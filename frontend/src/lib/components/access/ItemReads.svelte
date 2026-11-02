@@ -214,7 +214,8 @@
 		{/if}
 		{#if mode === 'caller'}
 			<span class="text-secondary">
-				It runs as whoever runs it, so each of them needs read access to these.
+				It runs as whoever {kind === 'app' ? 'opens' : 'runs'} it, so each of them needs read access
+				to these.
 			</span>
 		{/if}
 		{#if shown?.needs.others.length}

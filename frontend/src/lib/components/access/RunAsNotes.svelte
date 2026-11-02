@@ -64,7 +64,8 @@
 			: undefined
 	)
 	const suggestsAccount = $derived(
-		!!$enterpriseLicense &&
+		!runnablesRunAsCaller &&
+			!!$enterpriseLicense &&
 			!!itemFolder &&
 			!!me &&
 			runsAs === me &&
