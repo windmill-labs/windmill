@@ -2246,7 +2246,9 @@ async fn require_unauthed_job_read_access(
     created_by: &str,
     view_token: Option<&str>,
 ) -> error::Result<()> {
-    if created_by == "anonymous" || public_view_token_grants(db, w_id, job_id, view_token).await? {
+    if created_by == windmill_common::usernames::ANONYMOUS_USERNAME
+        || public_view_token_grants(db, w_id, job_id, view_token).await?
+    {
         return Ok(());
     }
     Err(Error::BadRequest(
@@ -2659,7 +2661,7 @@ impl<'a> GetQuery<'a> {
     fn check_auth(&self, email: Option<&str>) -> error::Result<()> {
         if let Some(email) = email {
             if self.with_auth.is_some_and(|x| x.is_none())
-                && email != "anonymous"
+                && email != windmill_common::usernames::ANONYMOUS_USERNAME
                 && !self.with_public_view_grant
             {
                 return Err(Error::BadRequest(
@@ -11521,7 +11523,7 @@ async fn get_job_update_data(
             .await?
             .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
 
-            if created_by != "anonymous" {
+            if created_by != windmill_common::usernames::ANONYMOUS_USERNAME {
                 return Err(Error::BadRequest(
                     "As a non logged in user, you can only see jobs ran by anonymous users"
                         .to_string(),
@@ -11769,7 +11771,7 @@ async fn get_job_update_data(
             .ok_or_else(|| Error::NotFound(format!("Job not found: {}", job_id)))?;
 
         if opt_authed.is_none() && !*unauthed_read_authorized {
-            if record.created_by != "anonymous" {
+            if record.created_by != windmill_common::usernames::ANONYMOUS_USERNAME {
                 return Err(Error::BadRequest(
                     "As a non logged in user, you can only see jobs ran by anonymous users"
                         .to_string(),
