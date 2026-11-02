@@ -10,6 +10,7 @@ vi.mock('$lib/gen', () => ({
 				files: {
 					'/App.tsx': `export default () => <div>{wmill.getVariable("f/x/browser_secret")}</div>`,
 					'/Db.svelte': `<script>const db = wmill.getResource('f/x/app_db')</script>\n<p>{db}</p>`,
+					'/Secret.svelte': `<script>import * as wmill from 'windmill-client'</script>\n{#await wmill.getVariable("f/x/template_secret") then s}<p>{s}</p>{/await}`,
 					'/notes.md': `getVariable("f/x/not_code")`
 				},
 				runnables: {}
@@ -83,7 +84,8 @@ describe('detectNeeds', () => {
 		const needs = await detectNeeds('w', 'app', 'f/x/app')
 		expect(needs.items.map((i) => `${i.kind}:${i.path}`)).toEqual([
 			'resource:f/x/app_db',
-			'variable:f/x/browser_secret'
+			'variable:f/x/browser_secret',
+			'variable:f/x/template_secret'
 		])
 	})
 })

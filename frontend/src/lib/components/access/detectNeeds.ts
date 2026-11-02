@@ -57,8 +57,14 @@ export async function detectNeeds(
 		}
 	}
 
-	async function scanCode(language: string | undefined, content: string, source: string) {
-		const result = await inferAssets(language as SupportedLanguage | undefined, content)
+	/** `parsed` is the part of `content` the asset parser can read; literal calls are matched in all of it. */
+	async function scanCode(
+		language: string | undefined,
+		content: string,
+		source: string,
+		parsed = content
+	) {
+		const result = await inferAssets(language as SupportedLanguage | undefined, parsed)
 		if (result.status === 'ok') {
 			for (const asset of result.assets) add(asset.kind, asset.path, source)
 		}
@@ -161,11 +167,11 @@ export async function detectNeeds(
 					...Object.entries(files)
 						.filter(([name, content]) => SOURCE_FILE.test(name) && typeof content === 'string')
 						.map(([name, content]) => {
-							// The parser reads only script, so a component's markup is left out.
+							// The parser reads only script, but a component's template runs SDK calls too.
 							const code = /\.(?:svelte|vue)$/.test(name)
 								? [...(content as string).matchAll(COMPONENT_SCRIPT)].map((m) => m[1]).join('\n')
 								: (content as string)
-							return scanCode('bun', code, `${runnablePath} › ${name}`)
+							return scanCode('bun', content as string, `${runnablePath} › ${name}`, code)
 						})
 				])
 			}
