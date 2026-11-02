@@ -1,4 +1,11 @@
-import { AppService, AssetService, FlowService, ScriptService, type AssetKind } from '$lib/gen'
+import {
+	AppService,
+	AssetService,
+	FlowService,
+	ResourceService,
+	ScriptService,
+	type AssetKind
+} from '$lib/gen'
 import { inferAssets } from '$lib/infer'
 import type { SupportedLanguage } from '$lib/common'
 
@@ -19,7 +26,7 @@ export type NeedsSource =
 
 const MAX_DEPTH = 4
 const ITEM_PATH = /^[ufg]\/[^/]+\/.+/
-const STATIC_REF = /^\$(res|var):(.+)$/
+const STATIC_REF = /^\$(res|var|jsonvar):(.+)$/
 // The asset parser finds resources but has no variable kind, so literal variable reads are matched
 // here. A path the code builds at run time is found by neither.
 const VARIABLE_CALL = /\b(?:getVariable|get_variable)\(\s*["'`]([^"'`]+)["'`]/g
@@ -106,7 +113,8 @@ export async function detectNeeds(
 						? obj.type
 						: undefined
 			if (calledKind && typeof obj.path === 'string' && !obj.path.startsWith('hub/')) {
-				pending.push(follow(calledKind, obj.path, depth + 1))
+				const hash = typeof obj.hash === 'string' ? obj.hash : undefined
+				pending.push(follow(calledKind, obj.path, depth + 1, hash))
 			}
 			for (const [key, child] of Object.entries(obj)) {
 				if (key !== 'content') visit(child, here)
@@ -116,15 +124,24 @@ export async function detectNeeds(
 		await Promise.all(pending)
 	}
 
-	async function follow(runnableKind: RunnableKind, runnablePath: string, depth: number) {
-		const key = `${runnableKind}:${runnablePath}`
+	/** A step pinned to `hash` runs that version, so it is the one scanned, not the latest. */
+	async function follow(
+		runnableKind: RunnableKind,
+		runnablePath: string,
+		depth: number,
+		hash?: string
+	) {
+		const key = `${runnableKind}:${runnablePath}${hash ? `@${hash}` : ''}`
 		if (visited.has(key) || depth > MAX_DEPTH) return
 		visited.add(key)
 		try {
 			if (runnableKind === 'script') {
-				const script = await ScriptService.getScriptByPath({ workspace, path: runnablePath })
+				const script = hash
+					? await ScriptService.getScriptByHash({ workspace, hash })
+					: await ScriptService.getScriptByPath({ workspace, path: runnablePath })
 				await Promise.all([
-					recorded('script', runnablePath, runnablePath),
+					// Recorded usages are the latest version's, so a pinned one relies on its code alone.
+					hash ? undefined : recorded('script', runnablePath, runnablePath),
 					scanCode(script.language, script.content, runnablePath),
 					walk(script.schema, runnablePath, depth)
 				])
@@ -147,6 +164,32 @@ export async function detectNeeds(
 		}
 	}
 
+	// A resource's `$var:`/`$jsonvar:`/`$res:` fields are resolved with the job's permissions when
+	// it runs, so whatever they name is needed as much as the resource itself.
+	const scannedResources = new Set<string>()
+	async function followResource(resourcePath: string) {
+		if (scannedResources.has(resourcePath)) return
+		scannedResources.add(resourcePath)
+		try {
+			const resource = await ResourceService.getResource({ workspace, path: resourcePath })
+			const nested: Promise<void>[] = []
+			const visit = (node: unknown) => {
+				if (typeof node === 'string') {
+					const ref = STATIC_REF.exec(node)
+					if (!ref) return
+					add(ref[1] === 'res' ? 'resource' : 'variable', ref[2], resourcePath)
+					if (ref[1] === 'res' && ITEM_PATH.test(ref[2])) nested.push(followResource(ref[2]))
+				} else if (node && typeof node === 'object') {
+					Object.values(node).forEach(visit)
+				}
+			}
+			visit(resource.value)
+			await Promise.all(nested)
+		} catch (e) {
+			errors.push(`${resourcePath}: ${e?.body ?? e}`)
+		}
+	}
+
 	if (source) {
 		visited.add(`${kind}:${path}`)
 		await Promise.all([
@@ -158,6 +201,9 @@ export async function detectNeeds(
 	} else {
 		await follow(kind, path, 0)
 	}
+	await Promise.all(
+		[...items.values()].filter((i) => i.kind === 'resource').map((i) => followResource(i.path))
+	)
 	const byPath = (a: { path: string }, b: { path: string }) => a.path.localeCompare(b.path)
 	return {
 		items: [...items.values()].sort(byPath),

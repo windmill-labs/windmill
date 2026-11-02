@@ -8,6 +8,7 @@ export const KIND_LABELS: Record<string, string> = {
 	script: 'Script',
 	flow: 'Flow',
 	app: 'App',
+	raw_app: 'Full-code app',
 	resource: 'Resource',
 	variable: 'Variable',
 	schedule: 'Schedule',

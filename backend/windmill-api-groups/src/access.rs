@@ -127,12 +127,27 @@ struct ItemRow {
     folder_write: bool,
 }
 
+/// The `kind` column for a row of `table`. Full-code apps live in `app` too, but their grants must
+/// be written with kind `raw_app`, which git sync dispatches to `<path>.raw_app` rather than `.app`.
+fn kind_column(kind: &str, table: &str) -> String {
+    if kind == "app" {
+        format!(
+            "CASE WHEN (SELECT raw_app FROM app_version \
+                 WHERE id = {table}.versions[array_upper({table}.versions, 1)]) \
+             THEN 'raw_app' ELSE 'app' END"
+        )
+    } else {
+        format!("'{kind}'::text")
+    }
+}
+
 fn items_query() -> String {
     let union = ITEM_TABLES
         .iter()
         .map(|(kind, table, filter)| {
+            let kind = kind_column(kind, table);
             format!(
-                "SELECT '{kind}'::text AS kind, path::text AS path, extra_perms FROM {table} \
+                "SELECT {kind} AS kind, path::text AS path, extra_perms FROM {table} \
                  WHERE workspace_id = $1 {filter}"
             )
         })
@@ -210,7 +225,8 @@ fn check_principal<'a>(authed: &ApiAuthed, principal: &'a str) -> Result<(&'a st
         };
     if !allowed {
         return Err(Error::PermissionDenied(
-            "only workspace admins can view another member's access".into(),
+            "only workspace admins can view the access of another member or of a group you are not in"
+                .into(),
         ));
     }
     Ok((prefix, name))
@@ -263,7 +279,10 @@ async fn get_access(
         }
     };
 
-    let target = fetch_authed_from_permissioned_as(&principal, &email, &w_id, &db).await?;
+    let mut target = fetch_authed_from_permissioned_as(&principal, &email, &w_id, &db).await?;
+    // A workspace group and an instance group can share a name, and both come back.
+    target.groups.sort();
+    target.groups.dedup();
 
     if target.is_admin {
         return Ok(Json(AccessReport {
@@ -308,8 +327,9 @@ async fn get_access(
         .map(|(name, write, owner)| {
             let (via, grant) = via.remove(name).unwrap_or_default();
             // An owner keeps write whatever its entry says, so there is nothing to change.
-            let blocked = (grant.is_some() && !*owner && !windmill_api_auth::is_owner(&authed, name))
-                .then(|| folder_blocked(name));
+            let blocked =
+                (grant.is_some() && !*owner && !windmill_api_auth::is_owner(&authed, name))
+                    .then(|| folder_blocked(name));
             FolderAccess { name: name.clone(), write: *write, owner: *owner, via, grant, blocked }
         })
         .collect::<Vec<_>>();
@@ -337,12 +357,10 @@ async fn get_access(
         })
         .collect();
 
-    let mut groups = target.groups;
-    groups.sort();
     Ok(Json(AccessReport {
         principal,
         is_admin: false,
-        groups,
+        groups: target.groups,
         folders,
         items,
     }))
@@ -442,7 +460,11 @@ async fn browse_items(
     check_principal(&authed, &q.principal)?;
     let tables = ITEM_TABLES
         .iter()
-        .filter(|(kind, ..)| q.kind.as_deref().map_or(true, |k| k == *kind))
+        .filter(|(kind, ..)| {
+            q.kind
+                .as_deref()
+                .map_or(true, |k| k == *kind || (k == "raw_app" && *kind == "app"))
+        })
         .collect::<Vec<_>>();
     if tables.is_empty() {
         return Err(Error::BadRequest("unknown kind".into()));
@@ -451,8 +473,9 @@ async fn browse_items(
     let union = tables
         .iter()
         .map(|(kind, table, filter)| {
+            let kind = kind_column(kind, table);
             format!(
-                "SELECT '{kind}'::text AS kind, path::text AS path, (extra_perms ->> $2)::boolean AS \"grant\"
+                "SELECT {kind} AS kind, path::text AS path, (extra_perms ->> $2)::boolean AS \"grant\"
                  FROM {table} WHERE workspace_id = $1 {filter}"
             )
         })
@@ -462,6 +485,7 @@ async fn browse_items(
         "SELECT kind, path, \"grant\" FROM ({union}) i
          WHERE ($3::text IS NULL OR starts_with(path, $3))
             AND ($4::text IS NULL OR strpos(lower(path), lower($4)) > 0)
+            AND ($7::text IS NULL OR kind = $7)
          ORDER BY path, kind LIMIT $5 OFFSET $6"
     );
     let mut tx = user_db.begin(&authed).await?;
@@ -472,6 +496,7 @@ async fn browse_items(
         .bind(q.search.as_deref().map(str::trim).filter(|s| !s.is_empty()))
         .bind(BROWSE_PAGE + 1)
         .bind(q.offset.unwrap_or(0).max(0))
+        .bind(q.kind.as_deref())
         .fetch_all(&mut *tx)
         .await?;
     tx.commit().await?;
@@ -511,6 +536,11 @@ fn item_blocked(
         _ => None,
     };
     manage_kind
-        .and_then(|mk| denied.iter().find(|(k, _)| *k == mk).map(|(_, e)| e.clone()))
+        .and_then(|mk| {
+            denied
+                .iter()
+                .find(|(k, _)| *k == mk)
+                .map(|(_, e)| e.clone())
+        })
         .or_else(|| grant_blocked(authed, path))
 }
