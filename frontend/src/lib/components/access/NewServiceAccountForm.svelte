@@ -221,6 +221,7 @@
 	{/if}
 
 	<span class="border-t pt-3 text-2xs text-secondary">
-		Created when you deploy, with the access above. Counts as half a seat.
+		Created when you deploy, with the access above. Until then, tests run as you. Counts as half a
+		seat.
 	</span>
 </div>

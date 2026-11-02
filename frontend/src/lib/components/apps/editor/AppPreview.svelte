@@ -24,6 +24,7 @@
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 	import { BG_PREFIX } from './appUtilsCore'
+	import { runAsEmailLabel } from '$lib/components/access/serviceAccounts.svelte'
 
 	interface Props {
 		app: App
@@ -301,7 +302,9 @@
 					<h2 class="truncate">{summary}</h2>
 					<RecomputeAllComponents />
 					<div class="text-2xs text-secondary">
-						{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}
+						{policy.on_behalf_of
+							? `on behalf of ${runAsEmailLabel(policy.on_behalf_of_email)}`
+							: ''}
 					</div>
 				</div>
 			</div>

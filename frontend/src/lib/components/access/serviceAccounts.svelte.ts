@@ -28,6 +28,13 @@ export type PendingServiceAccount = {
 // replaces it with the real one, which only the server's creation knows.
 export const PENDING_EMAIL_DOMAIN = 'pending.sa.wm.dev'
 
+/** A run-as email for display: the placeholder of an account the deploy creates is not one. */
+export function runAsEmailLabel(email: string | undefined): string | undefined {
+	return email?.endsWith(`@${PENDING_EMAIL_DOMAIN}`)
+		? `${email.split('@')[0]} (created when you deploy)`
+		: email
+}
+
 const pending = new SvelteMap<string, PendingServiceAccount>()
 const key = (workspace: string, permissionedAs: string) => `${workspace}:${permissionedAs}`
 

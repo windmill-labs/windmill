@@ -1,3 +1,5 @@
+import { PENDING_EMAIL_DOMAIN } from '$lib/components/access/serviceAccounts.svelte'
+
 type ActingUser =
 	| { is_admin?: boolean; is_super_admin?: boolean; operator?: boolean; groups?: string[] }
 	| undefined
@@ -18,6 +20,8 @@ export function previewOnBehalfOf(
 		!user?.operator &&
 		(!!user?.is_admin || !!user?.is_super_admin || !!user?.groups?.includes('wm_deployers'))
 	if (!canPreserve) return undefined
+	// A service account created at deploy does not exist yet, so the server refuses to run as it.
+	if (onBehalfOfEmail?.endsWith(`@${PENDING_EMAIL_DOMAIN}`)) return undefined
 	return onBehalfOf || onBehalfOfEmail || undefined
 }
 
