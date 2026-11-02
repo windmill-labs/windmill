@@ -59,6 +59,8 @@
 	let openState: Record<string, boolean> = $state({})
 	let expandAll: boolean | undefined = $state()
 	let grantOpen = $state(false)
+	/** The row menu that is open, as `kind:path`. */
+	let openMenu: string | undefined = $state()
 	let grantPopover: Popover | undefined = $state()
 	let grantAnchor: HTMLElement | undefined = $state()
 	let needsOf: { kind: RunnableKind; path: string } | undefined = $state()
@@ -281,18 +283,30 @@
 			{#snippet text()}{blocked}{/snippet}
 		</Tooltip>
 	{:else}
-		<DropdownV2 items={grantActions(kind, path, current)} />
+		{@const key = `${kind}:${path}`}
+		<DropdownV2
+			items={grantActions(kind, path, current)}
+			bind:open={
+				() => openMenu === key,
+				(next) => {
+					if (next) openMenu = key
+					else if (openMenu === key) openMenu = undefined
+				}
+			}
+		/>
 	{/if}
 {/snippet}
 
-<!-- The drawer answers Escape on window too, and `preventEscape` is read after the popover has
-     already closed, so with the Grant popover open its Escape is taken here before either sees it. -->
+<!-- The drawer answers Escape on window too, and `preventEscape` is read after a popover or menu
+     has already closed, so with the Grant popover or a row menu open its Escape is taken here
+     before either sees it. -->
 <svelte:window
 	onkeydowncapture={(e) => {
-		if (e.key !== 'Escape' || !grantOpen) return
+		if (e.key !== 'Escape' || (!grantOpen && !openMenu)) return
 		e.stopPropagation()
 		e.preventDefault()
 		grantOpen = false
+		openMenu = undefined
 	}}
 />
 
