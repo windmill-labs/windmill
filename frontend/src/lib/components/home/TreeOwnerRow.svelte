@@ -20,6 +20,9 @@
 		detail: Snippet
 		/** Controls rendered next to the name. Clicks on them do not toggle the row. */
 		actions?: Snippet
+		/** Always-visible control before the icon (e.g. a checkbox). Clicks on it do not
+		 * toggle the row. */
+		lead?: Snippet
 	}
 
 	let {
@@ -30,7 +33,8 @@
 		indent = 0,
 		toggleLabel,
 		detail,
-		actions
+		actions,
+		lead
 	}: Props = $props()
 </script>
 
@@ -46,6 +50,11 @@
 		class="flex flex-row items-center gap-4"
 		style={indent > 0 ? `padding-left: ${indent}px;` : ''}
 	>
+		{#if lead}
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="flex" onclick={(e) => e.stopPropagation()}>{@render lead()}</div>
+		{/if}
 		<Icon size={16} class="text-secondary shrink-0" />
 		<div>
 			<div class="flex flex-row items-center gap-1">

@@ -84,16 +84,20 @@ export function mergeAppTableOrigin(
 }
 
 /**
- * Every sub-path of `folder` that holds at least one item, at every depth, sorted:
- * `hub` with `f/hub/billing/utils/x` gives `['hub/billing', 'hub/billing/utils']`.
+ * The deepest folder sub-path holding every selected `f/...` path: `f/hub/billing/a`
+ * and `f/hub/billing/utils/b` give `hub/billing`. `undefined` for an empty selection.
  */
-export function folderSubPaths(paths: string[], folder: string): string[] {
-	const prefix = `f/${folder}/`
-	const out = new Set<string>()
+export function commonFolderPath(paths: string[]): string | undefined {
+	let common: string[] | undefined
 	for (const p of paths) {
-		if (!p.startsWith(prefix)) continue
-		const dirs = p.slice(prefix.length).split('/').slice(0, -1)
-		for (let i = 1; i <= dirs.length; i++) out.add(`${folder}/${dirs.slice(0, i).join('/')}`)
+		const dirs = p.split('/').slice(1, -1)
+		if (!common) {
+			common = dirs
+			continue
+		}
+		let n = 0
+		while (n < common.length && n < dirs.length && common[n] === dirs[n]) n++
+		common = common.slice(0, n)
 	}
-	return [...out].sort()
+	return common?.length ? common.join('/') : undefined
 }

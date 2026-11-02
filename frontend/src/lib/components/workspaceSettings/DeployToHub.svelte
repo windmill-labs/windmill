@@ -13,7 +13,6 @@
 		canRecordSession,
 		sanitizeSlug,
 		isValidSlug,
-		folderSubPaths,
 		type DeployItem,
 		type DeployToHubSession
 	} from './deployToHubSession.svelte'
@@ -44,7 +43,6 @@
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	import Select from '$lib/components/select/Select.svelte'
 	import { untrack } from 'svelte'
 
 	// Folder name (no `f/`) this project is scoped to; provided by the /folders launcher.
@@ -59,24 +57,16 @@
 	const deployHub = useDeployToHubSession({
 		workspace: () => $workspaceStore,
 		folder: () => scope,
+		listFolder: () => folderProp,
 		hasEeLicense: () => !!$enterpriseLicense
 	})
 
-	// A new scope's session starts with no items, so the list is held over from the
-	// last one that had them rather than emptying under the open select.
-	let lastSubPaths: string[] = []
-	const scopeItems = $derived.by(() => {
-		const items = deployHub.session?.workspaceItems ?? []
-		if (items.length) {
-			lastSubPaths = folderSubPaths(
-				items.map((i) => i.path),
-				folderProp
-			)
-		}
-		return [
-			{ label: `Whole folder f/${folderProp}/`, value: folderProp },
-			...lastSubPaths.map((p) => ({ label: `f/${p}/`, value: p }))
-		]
+	// Until a scope has a Hub project, its selection decides which project it is.
+	// Waiting on `hubChecked` keeps an existing project from being left before it is found.
+	$effect(() => {
+		const s = deployHub.session
+		if (!s || s.phase !== 'predeploy' || s.effectiveSlug || !s.hubChecked) return
+		if (s.selectedItems.length && s.selectionScope !== s.folder) scope = s.selectionScope
 	})
 
 	let recordDrawer = $state<Drawer | undefined>()
@@ -193,20 +183,12 @@
 			and cannot be recovered. Your published project is unaffected.
 		</span>
 	</ConfirmationModal>
-	{#if scopeItems.length > 1}
-		<div class="flex flex-col gap-1 pb-4 max-w-sm">
-			<span class="text-xs font-semibold text-emphasis">Scope</span>
-			<span class="text-xs text-secondary">
-				Publish the whole folder, or one sub-path of it as its own project.
-			</span>
-			<Select items={scopeItems} bind:value={scope} size="sm" />
-		</div>
-	{/if}
 	{#key deployHub.session}
 		{@const s = deployHub.session}
 		<div>
 			<WorkspaceDeployLayout
 				items={s.items}
+				nested
 				selectedItems={s.selectedItemKeys}
 				deploymentStatus={s.deploymentStatus}
 				hideSelection={s.phase !== 'predeploy'}
@@ -281,6 +263,11 @@
 								>
 									<ExternalLink size={12} /> Open in Hub
 								</a>
+							{/if}
+							{#if scope !== folderProp && (s.phase !== 'predeploy' || s.effectiveSlug)}
+								<Button variant="subtle" unifiedSize="xs" onclick={() => (scope = folderProp)}>
+									Back to f/{folderProp}/
+								</Button>
 							{/if}
 							<div class="ml-auto flex items-center gap-2">
 								{#if s.phase === 'predeploy'}

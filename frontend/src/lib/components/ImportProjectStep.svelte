@@ -4,7 +4,6 @@
 	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import FolderPicker from '$lib/components/FolderPicker.svelte'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import { contentSummary } from '$lib/components/ProjectContentBadges.svelte'
 	import type { ProjectMigration } from '$lib/components/workspaceSettings/projectBundle'
@@ -82,16 +81,7 @@
 		resume
 	}: Props = $props()
 
-	// Picked as a folder plus an optional sub-path inside it (`hub` + `billing`); only the
-	// folder is a real object, the sub-path is a prefix the items land under.
-	const [initialFolder, ...initialSub] = untrack(() => plan.folder ?? plan.slug).split('/')
-	let baseFolder = $state(initialFolder)
-	let subPath = $state(initialSub.join('/'))
-	const folder = $derived.by(() => {
-		const base = baseFolder.trim()
-		const sub = subPath.trim().replace(/^\/+|\/+$/g, '')
-		return sub ? `${base}/${sub}` : base
-	})
+	let folder = $state(plan.folder ?? plan.slug)
 	// The workspace the import will land in, when it is one that already exists. A
 	// `new` destination has no workspace to list folders from until the run creates it.
 	const existingWorkspace = $derived(
@@ -367,28 +357,14 @@
 			<!-- Pointed at the destination rather than the active workspace: the run is
 			     what enters it, and that has not happened yet on this step. -->
 			<FolderPicker
-				bind:folderName={baseFolder}
+				bind:folderName={folder}
 				workspace={existingWorkspace}
 				disabled={execution?.running || execution?.done}
 				size="sm"
 			/>
-			<span class="mt-2 block text-xs font-semibold text-emphasis">Sub-path (optional)</span>
-			<TextInput
-				bind:value={subPath}
-				size="sm"
-				error={!!folder && !folderValid}
-				inputProps={{
-					placeholder: 'e.g. billing',
-					disabled: execution?.running || execution?.done
-				}}
-			/>
-			{#if folder && !folderValid}
+			{#if folder.trim() && !folderValid}
 				<p class="mt-1 text-2xs font-normal text-red-500"
-					>Letters, digits, dashes and underscores, with / between sub-paths.</p
-				>
-			{:else if folder}
-				<p class="mt-1 text-2xs font-normal text-secondary"
-					>Items land in <span class="font-mono">f/{folder}/</span></p
+					>Letters, digits, dashes and underscores only.</p
 				>
 			{/if}
 		</div>

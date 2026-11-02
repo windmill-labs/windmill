@@ -37,6 +37,7 @@ import type { Kind } from '$lib/utils_deployable'
 import {
 	canRecord,
 	canRecordSession,
+	commonFolderPath,
 	inputResourceTypes,
 	mergeAppTableOrigin,
 	HIDDEN_RESOURCE_TYPES,
@@ -66,7 +67,6 @@ export type Phase = 'predeploy' | 'draft' | 'under_review' | 'live'
 export {
 	canRecord,
 	canRecordSession,
-	folderSubPaths,
 	mergeAppTableOrigin,
 	type DeployItem,
 	type RecStatus
@@ -142,6 +142,9 @@ export class DeployToHubSession {
 	readonly folder: string
 	/** `f/`-prefixed folder path the project is scoped to. */
 	readonly selectedFolder: string
+	/** The base folder whose items are offered for selection; `folder` is it or one of
+	 * its sub-paths. */
+	readonly listFolder: string
 
 	#disposed = false
 	#deps: SessionDeps
@@ -266,11 +269,22 @@ export class DeployToHubSession {
 	#previewItemCache = new Map<string, Promise<FetchedItem | undefined>>()
 	#previewTypeCache = new Map<string, Promise<string | undefined>>()
 
-	constructor(workspace: string, folder: string, deps: SessionDeps) {
+	constructor(
+		workspace: string,
+		folder: string,
+		deps: SessionDeps,
+		listFolder: string = folder,
+		seed?: { items: DeployItem[]; deselected: Set<string> }
+	) {
 		this.workspace = workspace
 		this.folder = folder
 		this.selectedFolder = `f/${folder}`
+		this.listFolder = listFolder
 		this.#deps = deps
+		if (seed) {
+			this.workspaceItems = seed.items
+			this.manualDeselected = seed.deselected
+		}
 	}
 
 	dispose() {
@@ -302,8 +316,14 @@ export class DeployToHubSession {
 		}
 	}
 
+	/** Set once the Hub has said whether this scope already has a project. */
+	hubChecked = $state(false)
+	// A scope with a Hub project offers only its own items, so an update cannot drift
+	// into another scope's project; until then the whole base folder is offered.
 	filteredWorkspaceItems = $derived(
-		this.workspaceItems.filter((i) => i.path.startsWith(this.selectedFolder + '/'))
+		this.workspaceItems.filter((i) =>
+			i.path.startsWith(`f/${this.effectiveSlug ? this.folder : this.listFolder}/`)
+		)
 	)
 	// Derived (not merged at load time) so it settles regardless of which of the
 	// racing loads (#loadWorkspace / rehydrateFromHub) finishes last.
@@ -320,6 +340,13 @@ export class DeployToHubSession {
 	allSelected = $derived(
 		this.phase === 'predeploy' &&
 			this.selectedItemKeys.length === this.filteredWorkspaceItems.length
+	)
+	/** The project the selection describes: the whole base folder while everything is
+	 * selected, else the deepest sub-path holding all of it. */
+	selectionScope = $derived.by(() =>
+		this.allSelected
+			? this.listFolder
+			: (commonFolderPath(this.selectedItems.map((i) => i.path)) ?? this.folder)
 	)
 	// A raw app's recorded session counts towards the project's recordings just as
 	// a script's captured run does — both are what a visitor replays.
@@ -639,7 +666,10 @@ export class DeployToHubSession {
 				} satisfies DeployItem
 			})
 			this.hubItemIds = ids
-		} catch {}
+		} catch {
+		} finally {
+			if (!this.#disposed) this.hubChecked = true
+		}
 	}
 
 	/** Kick off schedule-preview fetches for any relevant schedule trigger missing one. */
@@ -1868,6 +1898,8 @@ export class DeployToHubSession {
 export function useDeployToHubSession(args: {
 	workspace: () => string | undefined
 	folder: () => string
+	/** The base folder offered for selection; `folder` is it or one of its sub-paths. */
+	listFolder: () => string
 	hasEeLicense: () => boolean
 }) {
 	let session = $state<DeployToHubSession | undefined>()
@@ -1875,13 +1907,28 @@ export function useDeployToHubSession(args: {
 	$effect(() => {
 		const workspace = args.workspace()
 		const folder = args.folder()
+		const listFolder = args.listFolder()
 		if (!workspace) return
 		untrack(() => {
 			if (session && session.workspace === workspace && session.folder === folder) return
-			session?.dispose()
-			const next = new DeployToHubSession(workspace, folder, {
-				hasEeLicense: args.hasEeLicense
-			})
+			const prev = session
+			// A scope change made by editing the selection keeps that selection.
+			const seed =
+				prev &&
+				prev.workspace === workspace &&
+				prev.listFolder === listFolder &&
+				prev.phase === 'predeploy' &&
+				!prev.effectiveSlug
+					? { items: prev.workspaceItems, deselected: prev.manualDeselected }
+					: undefined
+			prev?.dispose()
+			const next = new DeployToHubSession(
+				workspace,
+				folder,
+				{ hasEeLicense: args.hasEeLicense },
+				listFolder,
+				seed
+			)
 			session = next
 			next.load()
 		})
@@ -1899,13 +1946,16 @@ export function useDeployToHubSession(args: {
 		})
 	})
 
-	// Leaving/entering predeploy invalidates manual selection tweaks.
+	// Leaving/entering predeploy invalidates manual selection tweaks; a new session
+	// keeps the selection it was seeded with.
+	let phaseSeen: { s: DeployToHubSession; phase: Phase } | undefined
 	$effect(() => {
 		const s = session
 		if (!s) return
-		s.phase
+		const phase = s.phase
 		untrack(() => {
-			s.manualDeselected = new Set()
+			if (phaseSeen?.s === s && phaseSeen.phase !== phase) s.manualDeselected = new Set()
+			phaseSeen = { s, phase }
 		})
 	})
 

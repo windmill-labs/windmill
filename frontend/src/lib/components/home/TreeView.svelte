@@ -57,10 +57,13 @@
 		leaf?: Snippet<[ItemType, number]>
 		// Remembers which nodes the user opened by hand, so they reopen on the next visit
 		// while expand/collapse-all is in its collapsed state.
-		openMemory?: TreeOpenMemory
+		openMemory?: Pick<TreeOpenMemory, 'isOpen' | 'setOpen'>
 		// Adds a "Manage folder" menu ("View folder" for a non-owner) to top-level folder rows.
 		// Subfolders are path segments, not folders with permissions of their own, so get none.
 		onManageFolder?: (folderName: string) => void
+		// An always-visible control before a folder/user row's icon, given the node's
+		// full path prefix (e.g. a checkbox selecting everything under it).
+		ownerLead?: Snippet<[string]>
 	}
 
 	let {
@@ -81,7 +84,8 @@
 		indent = 0,
 		leaf,
 		openMemory,
-		onManageFolder
+		onManageFolder,
+		ownerLead
 	}: Props = $props()
 
 	const unruled = inUnruledList()
@@ -299,6 +303,12 @@
 	{/if}
 {/snippet}
 
+{#snippet ownerLeadForNode()}
+	{#if nodePrefix != undefined}
+		{@render ownerLead?.(nodePrefix)}
+	{/if}
+{/snippet}
+
 {#if isFolder(item) || isUser(item)}
 	<div>
 		<TreeOwnerRow
@@ -308,6 +318,7 @@
 			onToggle={toggleOwner}
 			indent={visualDepth * 16}
 			actions={onManageFolder && depth === 0 && isFolder(item) ? manageFolderMenu : undefined}
+			lead={ownerLead && nodePrefix != undefined ? ownerLeadForNode : undefined}
 		>
 			{#snippet detail()}
 				{#if ownerCount != undefined}
@@ -362,6 +373,7 @@
 							{indent}
 							{leaf}
 							{onManageFolder}
+							{ownerLead}
 						/>
 					{/each}
 					{#if effectiveMax < item.items.length}
