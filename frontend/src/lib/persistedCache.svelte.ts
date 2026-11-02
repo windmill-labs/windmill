@@ -14,7 +14,9 @@ import { getCurrentUserEmail, onUserChange } from '$lib/userScopedStorage'
 // outlives an in-place account switch, is no exception.
 //
 // Opt-in per call site, and only for responses holding no secret values: nothing here is
-// encrypted, and an entry stays on disk until logout, a newer write evicts it, or it ages out.
+// encrypted, and an entry stays on disk until logout, eviction by newer writes, or its expiry
+// (dropped at the next hydration). One of another version is never shown and is overwritten
+// by the fresh response saved under the same key.
 
 export interface CacheEntry {
 	key: string
@@ -168,9 +170,15 @@ async function hydrate() {
 		const entries = await handle.getAll('entries')
 		if (cacheIdentity() !== identity) return
 		const now = Date.now()
+		const expired: string[] = []
 		for (const entry of entries) {
 			// The version is the call site's to check on read; only age is known here.
-			if (now - entry.savedAt <= MAX_AGE_MS && !memory.has(entry.key)) memory.set(entry.key, entry)
+			if (now - entry.savedAt > MAX_AGE_MS) expired.push(entry.key)
+			else if (!memory.has(entry.key)) memory.set(entry.key, entry)
+		}
+		if (expired.length) {
+			const tx = handle.transaction('entries', 'readwrite')
+			await Promise.all([...expired.map((k) => tx.store.delete(k)), tx.done])
 		}
 	} catch (e) {
 		console.warn('persistedCache: could not read entries', e)

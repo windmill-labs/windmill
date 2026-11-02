@@ -154,14 +154,19 @@ describe('invalidation', () => {
 		expect(await stored('keep@x.dev')).toEqual([kept])
 	})
 
-	it('drops an entry past its maximum age', async () => {
+	it('drops an entry past its maximum age, from disk at the next hydration', async () => {
 		vi.useFakeTimers({ toFake: ['Date'] })
 		login('age@x.dev')
 		const key = keyFor('runs', 'w')
 		saveEntry(key, 1, 'old')
 		expect(peekEntry(key, 1)).toBe('old')
+		await vi.waitFor(async () => expect(await stored('age@x.dev')).toContain(key))
 		vi.setSystemTime(Date.now() + MAX_AGE_MS + 1)
 		expect(peekEntry(key, 1)).toBeUndefined()
+		// The next hydration (a reload) drops it from disk.
+		login('other@x.dev')
+		login('age@x.dev')
+		await vi.waitFor(async () => expect(await stored('age@x.dev')).not.toContain(key))
 	})
 
 	it('evicts the oldest entries past the per-user cap', async () => {
