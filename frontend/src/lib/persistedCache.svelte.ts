@@ -6,7 +6,7 @@ import { OpenAPI } from '$lib/gen'
 import { userStore } from '$lib/stores'
 import { userScopedDb } from '$lib/userScopedDb'
 import { getCurrentUserEmail, onUserChange } from '$lib/userScopedStorage'
-import { rememberedEmail } from '$lib/lastSession'
+import { rememberedEmail, sessionStillConfirmed } from '$lib/lastSession'
 
 // Last-known API responses, kept so a page can paint them before its requests return. Every
 // row in them was filtered by row-level security for one user, so an entry is only ever served
@@ -65,7 +65,9 @@ function fingerprint(s: string): string {
 export function cacheIdentity(): string | undefined {
 	void userTick
 	const email = getCurrentUserEmail()
-	if (!email) return undefined
+	// The user is this tab's, the cookie the browser's: after another tab's login they differ
+	// until this tab's next whoami, and a response then belongs to the other session.
+	if (!email || !sessionStillConfirmed()) return undefined
 	const impersonator = get(userStore)?.impersonating_email
 	const token = typeof OpenAPI.TOKEN === 'string' && OpenAPI.TOKEN ? OpenAPI.TOKEN : undefined
 	return [email, impersonator ?? '', token ? fingerprint(token) : ''].join('|')

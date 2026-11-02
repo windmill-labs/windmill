@@ -19,7 +19,8 @@ import {
 	peekEntry,
 	saveEntry
 } from './persistedCache.svelte'
-import { pickShown } from './persistedResource.svelte'
+import { persistedValue, pickShown } from './persistedResource.svelte'
+import { readSessionHint, rememberUser } from './lastSession'
 
 function login(email: string, extra: Partial<UserExt> = {}) {
 	userStore.set({ email, username: email.split('@')[0], ...extra } as unknown as UserExt)
@@ -187,5 +188,35 @@ describe('invalidation', () => {
 		expect(left).not.toContain(keys[0])
 		expect(left).not.toContain(keys[1])
 		expect(left).toContain(keys[keys.length - 1])
+	})
+
+	it("stops reading and writing as this tab's user once another login swaps the session", async () => {
+		let cookie = `${__WM_SESSION_HINT__}=alice-session`
+		;(globalThis as any).document = {
+			get cookie() {
+				return cookie
+			}
+		}
+		try {
+			login('alice@x.dev')
+			rememberUser({ email: 'alice@x.dev', workspace_id: 'w' } as unknown as UserExt, readSessionHint())
+			const runs = persistedValue<string>('runs', 1)
+			expect(cacheIdentity()).toBeDefined()
+			runs.save({ workspace: 'w' }, 'alice rows', readSessionHint())
+			expect(runs.peek({ workspace: 'w' })).toBe('alice rows')
+
+			// Bob logs in from another tab: this tab still holds alice, but requests now carry
+			// bob's cookie, so a response may be bob's.
+			cookie = `${__WM_SESSION_HINT__}=bob-session`
+			expect(cacheIdentity()).toBeUndefined()
+			runs.save({ workspace: 'w' }, 'bob rows', readSessionHint())
+			expect(runs.peek({ workspace: 'w' })).toBeUndefined()
+
+			// Back on alice's session: her entry is untouched.
+			cookie = `${__WM_SESSION_HINT__}=alice-session`
+			expect(runs.peek({ workspace: 'w' })).toBe('alice rows')
+		} finally {
+			delete (globalThis as any).document
+		}
 	})
 })

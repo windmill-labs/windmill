@@ -14,12 +14,23 @@ interface LastSession {
 	user: UserExt
 }
 
-export function readSessionHint(cookies: string = document.cookie): string | undefined {
+export function readSessionHint(cookies?: string): string | undefined {
+	cookies ??= typeof document === 'undefined' ? '' : document.cookie
 	for (const part of cookies.split(/;\s*/)) {
 		const eq = part.indexOf('=')
 		if (eq > 0 && part.slice(0, eq) === __WM_SESSION_HINT__) return part.slice(eq + 1) || undefined
 	}
 	return undefined
+}
+
+// The session hint this tab's user was confirmed under: by `whoami`, or by the remembered user
+// it renders as. Another tab logging in swaps the session under this one, whose user stays
+// the old one until its next `whoami`: until then, nothing may be read or written as them.
+let confirmedHint: string | undefined
+
+/** Whether the session the browser holds is still the one this tab's user was confirmed under. */
+export function sessionStillConfirmed(): boolean {
+	return readSessionHint() === confirmedHint
 }
 
 /** The remembered user, if the session the browser holds is still theirs. */
@@ -38,7 +49,9 @@ function currentLastUser(): UserExt | undefined {
 /** The user to render as in `workspace` until `whoami` answers, if the session is still theirs. */
 export function optimisticUser(workspace: string): UserExt | undefined {
 	const user = currentLastUser()
-	return user?.workspace_id === workspace ? user : undefined
+	if (user?.workspace_id !== workspace) return undefined
+	confirmedHint = readSessionHint()
+	return user
 }
 
 /** Whose browser data may be read ahead of `whoami`, by the same rule as `optimisticUser`. */
@@ -54,6 +67,8 @@ export function rememberedEmail(): string | undefined {
 export function rememberUser(user: UserExt, sentWith: string | undefined): void {
 	try {
 		const hint = readSessionHint()
+		// Who answered is only known for the session the request went out with.
+		confirmedHint = hint === sentWith ? hint : undefined
 		if (hint && hint === sentWith)
 			localStorage.setItem(KEY, JSON.stringify({ hint, user } satisfies LastSession))
 		else localStorage.removeItem(KEY)
@@ -61,6 +76,7 @@ export function rememberUser(user: UserExt, sentWith: string | undefined): void 
 }
 
 export function forgetLastSession(): void {
+	confirmedHint = undefined
 	try {
 		localStorage.removeItem(KEY)
 	} catch {}
