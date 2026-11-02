@@ -503,7 +503,7 @@
 	// its own menus or it slides out from under the one being read: hold while the pointer is in a
 	// menu, and take the close from the leave of that instead.
 	function pointerInMenu(): boolean {
-		return !!document.querySelector('[role="menu"]:hover')
+		return !!document.querySelector('[role="menu"]:hover, [data-sidebar-flyout]:hover')
 	}
 	// A click on the handle pins the card: it then outlives the pointer leaving. Only meaningful
 	// while open — every open from closed starts unpinned.
@@ -1294,25 +1294,11 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 					aiDescription="Button to navigate to home which contains all the user's scripts, flows and apps"
 				/>
 			</div>
-			<!-- Expanded, Search shares Home's row; the collapsed rail keeps it in the nav below. -->
-			{#if !collapsed}
-				<Button
-					unifiedSize="sm"
-					variant="subtle"
-					startIcon={{ icon: Search }}
-					title="Search"
-					aria-label="Search"
-					btnClasses="text-secondary gap-1 px-1.5"
-					onClick={() => openSearchModal()}
-				>
-					<span class="text-2xs text-hint font-normal">{getModifierKey()}K</span>
-				</Button>
-			{/if}
 		</div>
-		<!-- Pulled up into the Home band's slack under its centred row (48px band; rows 30px, 32px
-		     on the rail), so the next row sits 2px under Home, as the nav's rows sit apart. Kept
-		     outside the scroll area: a negative margin inside it would clip that row. -->
-		<div class={twMerge('flex flex-col flex-1 min-h-0', collapsed ? '-mt-1.5' : '-mt-[7px]')}>
+		<!-- Pulled up into the Home band's slack under its centred row (48px band, 32px rows), so
+		     the next row sits 2px under Home, as the nav's rows sit apart. Kept outside the scroll
+		     area: a negative margin inside it would clip that row. -->
+		<div class="flex flex-col flex-1 min-h-0 -mt-1.5">
 			<!-- The workspace nav: Runs → Settings scroll as ONE block with an
 			     overflow fade hint. The sections (Runs + workspace items / AI sessions /
 			     instance settings) are spaced by the scroll area's
@@ -1321,18 +1307,16 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 				<!-- Section 1: Search (collapsed) + Runs, then the workspace items, spaced as one list. -->
 				<div class="flex flex-col gap-0.5">
 					<div class="px-2 flex flex-col gap-0.5">
-						<!-- Collapsed, Search stays right under Home, where it sits beside it expanded. -->
-						{#if collapsed}
-							<MenuButton
-								stopPropagationOnClick={true}
-								on:click={() => openSearchModal()}
-								isCollapsed={collapsed}
-								icon={Search}
-								label="Search"
-								class="!text-xs"
-								shortcut={`${getModifierKey()}k`}
-							/>
-						{/if}
+						<!-- Search keeps one row under Home in every mode, so no icon below it moves. -->
+						<MenuButton
+							stopPropagationOnClick={true}
+							on:click={() => openSearchModal()}
+							isCollapsed={collapsed}
+							icon={Search}
+							label="Search"
+							class="!text-xs"
+							shortcut={`${getModifierKey()}K`}
+						/>
 						{@render quickLinks(collapsed)}
 						{#if askAiShown}
 							<!-- Legacy Ask-AI pane, shown only when the user opted out of the
@@ -1390,15 +1374,15 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			<SidebarUsage isCollapsed={collapsed} />
 		</div>
 
-		<div
-			class="flex-shrink-0 flex pb-3.5 {collapsed
-				? 'flex-col items-center gap-1 pt-4'
-				: 'items-center justify-between px-4 pt-1'}"
-		>
-			{@render brandMark(collapsed)}
+		<!-- One row in every mode, the mode button first, so it stays where the rail has it; the
+		     brand only fits beside it once the sidebar is open. -->
+		<div class="flex-shrink-0 flex items-center gap-2 h-8 px-2 mt-1 mb-3.5">
 			<!-- Below 768px the panel is the only shell there is, so there is no mode to pick. -->
 			{#if !panel || (navDetached.val && innerWidth >= 768)}
 				{@render sidebarModeMenu()}
+			{/if}
+			{#if !collapsed}
+				{@render brandMark(collapsed)}
 			{/if}
 		</div>
 	</div>

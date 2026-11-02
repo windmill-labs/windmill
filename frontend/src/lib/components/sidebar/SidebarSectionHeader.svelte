@@ -1,8 +1,9 @@
 <!--
 @component
-A sidebar section's title row. The title folds the section and fills the row up to its actions;
-its padding lines the text up with the nav rows' icons and its height matches theirs, so actions
-are `sm` (h-7) buttons.
+A sidebar section's title row. Only its chevron folds the section, so the title is plain text; its
+padding lines the text up with the nav rows' icons and its height matches theirs, so actions are
+`sm` (h-7) buttons. The icon rail keeps the row's slot, as a short rule or the section's rail
+action, so the rows under it sit where they sit in the open sidebar.
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte'
@@ -16,33 +17,47 @@ are `sm` (h-7) buttons.
 		/** A section with nothing to fold: the title stays, without its chevron. */
 		disabled?: boolean
 		actions?: Snippet
+		/** In the icon rail: the slot shows `railAction`, or a rule. */
+		isCollapsed?: boolean
+		railAction?: Snippet
 	}
 
-	let { title, collapsed, onToggle, disabled = false, actions }: Props = $props()
-
-	const titleClasses = 'px-2 text-secondary text-[0.5rem] font-normal uppercase'
+	let {
+		title,
+		collapsed,
+		onToggle,
+		disabled = false,
+		actions,
+		isCollapsed = false,
+		railAction
+	}: Props = $props()
 </script>
 
-<div class="flex flex-row items-center h-7 gap-0.5">
-	{#if disabled}
-		<!-- A label rather than a disabled Button, which would grey the title out. -->
-		<span class="flex-1 min-w-0 h-7 flex flex-row items-center {titleClasses}">{title}</span>
-	{:else}
-		<Button
-			variant="subtle"
-			unifiedSize="sm"
-			onClick={onToggle}
-			aria-expanded={!collapsed}
-			wrapperClasses="flex-1 min-w-0"
-			btnClasses="justify-start text-left gap-1 {titleClasses}"
-		>
-			{title}
-			{#if collapsed}
-				<ChevronRight size={10} />
-			{:else}
-				<ChevronDown size={10} />
-			{/if}
-		</Button>
-	{/if}
-	{@render actions?.()}
-</div>
+{#if isCollapsed}
+	<div class="flex flex-row items-center h-7" aria-hidden={railAction ? undefined : 'true'}>
+		{#if railAction}
+			{@render railAction()}
+		{:else}
+			<span class="ml-2 w-4 h-px bg-border-light"></span>
+		{/if}
+	</div>
+{:else}
+	<div class="flex flex-row items-center h-7 gap-0.5">
+		<span class="px-2 text-secondary text-[0.5rem] font-normal uppercase truncate">{title}</span>
+		{#if !disabled}
+			<Button
+				variant="subtle"
+				unifiedSize="2xs"
+				iconOnly
+				startIcon={{ icon: collapsed ? ChevronRight : ChevronDown }}
+				title={collapsed ? `Unfold ${title}` : `Fold ${title}`}
+				aria-label={collapsed ? `Unfold ${title}` : `Fold ${title}`}
+				aria-expanded={!collapsed}
+				btnClasses="-ml-1.5 text-secondary"
+				onClick={onToggle}
+			/>
+		{/if}
+		<span class="flex-1"></span>
+		{@render actions?.()}
+	</div>
+{/if}

@@ -2,7 +2,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
 	import { Button } from '$lib/components/common'
-	import SidebarSectionHeader from '$lib/components/sidebar/SidebarSectionHeader.svelte'
+	import SidebarSection from '$lib/components/sidebar/SidebarSection.svelte'
 	import {
 		Archive,
 		ArchiveRestore,
@@ -24,9 +24,7 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { goto } from '$lib/navigation'
 	import { leaveForHome, openDraftOnHome, openNewSession } from './sessionSwitch.svelte'
-	import { homeComposerContext } from './homeComposerContext.svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
-	import { slide } from 'svelte/transition'
 	import {
 		deleteSessionsForWorkspace,
 		homeDraft,
@@ -55,9 +53,7 @@
 	import SessionStatusDot from './SessionStatusDot.svelte'
 	import UnreadCountBadge from '$lib/components/common/badge/UnreadCountBadge.svelte'
 	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
-	import SessionFilterMenu from './SessionFilterMenu.svelte'
-	import { Menu, Menubar, MenuItem } from '$lib/components/meltComponents'
-	import MenuButton, { sidebarClasses } from '$lib/components/sidebar/MenuButton.svelte'
+	import { sidebarClasses } from '$lib/components/sidebar/MenuButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
@@ -380,9 +376,11 @@
 	// otherwise hide the user's first new session with no way to expand
 	// it. Resetting here keeps the section expanded by default whenever
 	// the first session arrives. Guarded on the current value so it writes
-	// once (true → false) rather than looping.
+	// once (true → false) rather than looping, and on hydration: before the
+	// sessions load, the list is empty for every reader, and the fold is a
+	// layout they chose to keep.
 	$effect(() => {
-		if (visibleSessions.length === 0 && sectionCollapsed.val) {
+		if (sessionState.hydrated && visibleSessions.length === 0 && sectionCollapsed.val) {
 			sectionCollapsed.val = false
 		}
 	})
@@ -424,16 +422,6 @@
 				selected?.focus()
 			})
 		}
-	}
-
-	// The rail menu hands focus back to its trigger once it has closed, after New session has
-	// focused Home's composer: the composer takes it back instead.
-	let newSessionFromRail = false
-	function railMenuCloseFocus(trigger?: HTMLElement | null): HTMLElement | null {
-		if (!newSessionFromRail) return trigger ?? null
-		newSessionFromRail = false
-		homeComposerContext.focus()
-		return null
 	}
 
 	// The `+` on a workspace group header: a new session in that group's workspace,
@@ -660,12 +648,6 @@
 		else if (e.key === 'Home') focusAt(0)
 		else if (e.key === 'End') focusAt(buttons.length - 1)
 	}
-
-	const menuItemBase = twMerge(
-		'text-secondary text-left font-normal text-xs',
-		'flex flex-row items-center gap-2 px-3 py-1.5 w-full',
-		'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
-	)
 </script>
 
 {#if !globalEnabled}
@@ -673,114 +655,6 @@
 	     unavailable (no provider configured or disabled in the user's settings)
 	     the section still shows — the per-session chat input is disabled with an
 	     explanatory message, mirroring the sidebar AI chat. -->
-{:else if isCollapsed}
-	<div class={embedded ? '' : 'px-2 pt-3 pb-2 border-b border-light'}>
-		<Menubar>
-			{#snippet children({ createMenu })}
-				<Menu {createMenu} usePointerDownOutside submenuSafe closeFocus={railMenuCloseFocus}>
-					{#snippet triggr({ trigger })}
-						<div class="relative">
-							<MenuButton
-								class="!text-xs"
-								icon={MessageSquare}
-								label="AI sessions"
-								{isCollapsed}
-								{trigger}
-							/>
-							{#if totalUnread > 0}
-								<span
-									class="absolute top-1 right-1 pointer-events-none inline-block w-2 h-2 rounded-full bg-surface-accent-primary"
-									aria-label="{totalUnread} unread message{totalUnread === 1
-										? ''
-										: 's'} across all sessions"
-								></span>
-							{/if}
-						</div>
-					{/snippet}
-					{#snippet children({ item, builders })}
-						<div class="divide-y min-w-48" role="none">
-							<div class="py-1" role="none" data-asks-for-composer>
-								<MenuItem
-									class={menuItemBase}
-									onClick={() => {
-										newSessionFromRail = true
-										void openNewSession()
-									}}
-									{item}
-								>
-									<Plus size={14} />
-									New session
-								</MenuItem>
-							</div>
-							<div class="py-1" role="none">
-								<SessionFilterMenu
-									{builders}
-									bind:showArchived={showArchived.val}
-									bind:lastActivityDays={lastActivityDays.val}
-									bind:groupBy={groupBy.val}
-									{archivedCount}
-								/>
-							</div>
-							<div class="py-1" role="none">
-								{#each displayGroups as group (group.key)}
-									{#if group.showHeader}
-										<div
-											class="px-3 pt-1.5 pb-0.5 text-3xs text-tertiary truncate"
-											role="none"
-											title={group.label}
-										>
-											{group.label}
-										</div>
-									{/if}
-									{#each group.sessions as session (session.id)}
-										{@const runtime = getRuntime(session.id)}
-										{@const status = runtime
-											? getSessionChatStatus(runtime)
-											: (getSessionChatPeek(session.id)?.status ?? 'idle')}
-										{@const isSelected = session.id === activeRowId}
-										{@const unread = unreadFor(session)}
-										{@const draft = hasDraft(session)}
-										<MenuItem
-											class={twMerge(
-												menuItemBase,
-												isSelected
-													? twMerge(sidebarClasses.selectedBg, sidebarClasses.selectedText)
-													: ''
-											)}
-											onClick={() => activate(session)}
-											{item}
-										>
-											<SessionStatusDot
-												{status}
-												isFork={isForkFor(session)}
-												forkDetached={forkDetachedFor(session)}
-											/>
-											<span
-												class={twMerge(
-													'truncate flex-1 text-left',
-													unread > 0 ? 'font-semibold text-primary' : ''
-												)}
-											>
-												{session.summary ?? 'Untitled session'}
-											</span>
-											{#if draft || unread > 0}
-												<span class="ml-auto shrink-0 inline-flex items-center gap-1">
-													{#if draft}
-														<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
-													{/if}
-													<UnreadCountBadge count={unread} class="min-w-4 h-4 text-[10px]" />
-												</span>
-											{/if}
-										</MenuItem>
-									{/each}
-								{/each}
-							</div>
-						</div>
-					{/snippet}
-				</Menu>
-			{/snippet}
-		</Menubar>
-	</div>
 {:else}
 	<div
 		class="flex flex-col gap-1 {embedded ? '' : 'px-2 pt-3 pb-2'} {!embedded && collapsible
@@ -818,6 +692,7 @@
 					Done
 				</Button>
 			</div>
+			{@render sessionList(false)}
 		{:else}
 			<!-- The submenu collapses to one row, so the picked cutoff would otherwise
 			     only be visible after opening it. -->
@@ -890,39 +765,54 @@
 					{/snippet}
 				</DropdownV2>
 			{/snippet}
+			{#snippet newSessionButton()}
+				<Button
+					unifiedSize="sm"
+					variant="subtle"
+					iconOnly
+					startIcon={{ icon: Plus }}
+					title="New session"
+					aria-label="New session"
+					data-asks-for-composer
+					btnClasses="text-secondary"
+					onClick={() => openNewSession()}
+				/>
+			{/snippet}
+			{#snippet headerActions()}
+				{@render listOptions('sm')}
+				{@render newSessionButton()}
+			{/snippet}
 			{#if collapsible}
-				<SidebarSectionHeader
+				<SidebarSection
 					title="AI sessions"
-					collapsed={sectionCollapsed.val}
+					icon={MessageSquare}
+					folded={sectionCollapsed.val}
 					onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
 					disabled={visibleSessions.length === 0}
+					count={visibleSessions.length}
+					notify={totalUnread > 0}
+					actions={headerActions}
+					railAction={newSessionButton}
+					{isCollapsed}
 				>
-					{#snippet actions()}
-						{@render listOptions('sm')}
-						<Button
-							unifiedSize="sm"
-							variant="subtle"
-							iconOnly
-							startIcon={{ icon: Plus }}
-							title="New session"
-							aria-label="New session"
-							data-asks-for-composer
-							btnClasses="text-secondary"
-							onClick={() => openNewSession()}
-						/>
+					{#snippet children(inPopover)}
+						{@render sessionList(inPopover)}
 					{/snippet}
-				</SidebarSectionHeader>
+				</SidebarSection>
 			{:else}
 				<!-- Where the list owns the pane, a title would only repeat what the pane is. -->
 				<div class="flex flex-row items-center gap-0.5 h-8 pr-0.5 justify-end">
 					{@render listOptions('md')}
 				</div>
+				{@render sessionList(false)}
 			{/if}
 		{/if}
-		{#if !collapsible || !sectionCollapsed.val}
+		<!-- In the rail the rows keep their height with their names hidden, so each sits where the
+		     open sidebar has it. -->
+		{#snippet sessionList(inPopover: boolean)}
+			{@const rail = isCollapsed && !inPopover}
 			<div
 				bind:this={listRoot}
-				transition:slide={{ duration: 180 }}
 				class={twMerge(
 					'flex flex-col gap-0.5',
 					// Shift-clicking rows would otherwise paint a text selection across them.
@@ -1012,8 +902,9 @@
 								aria-selected={selectionMode ? isChecked : isSelected}
 								onclick={(e) =>
 									selectionMode ? toggleSelected(session.id, e.shiftKey) : activate(session)}
+								title={rail ? (session.summary ?? 'Untitled session') : undefined}
 								class={twMerge(
-									'flex flex-row items-center gap-2 text-left text-xs font-normal focus:outline-none flex-1 min-w-0 px-2 py-1',
+									'flex flex-row items-center gap-2 text-left text-xs font-normal focus:outline-none flex-1 min-w-0 px-2 h-6',
 									isSelected ? sidebarClasses.selectedText : 'text-secondary'
 								)}
 							>
@@ -1024,8 +915,10 @@
 										forkDetached={forkDetachedFor(session)}
 									/>
 								{/if}
-								<span class="truncate flex-1">{session.summary ?? 'Untitled session'}</span>
-								{#if draft || unread > 0}
+								<span class={rail ? 'sr-only' : 'truncate flex-1'}
+									>{session.summary ?? 'Untitled session'}</span
+								>
+								{#if !rail && (draft || unread > 0)}
 									<span class="shrink-0 inline-flex items-center gap-1">
 										{#if draft}
 											<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
@@ -1039,9 +932,11 @@
 							<div
 								class={twMerge(
 									'transition-opacity pr-0.5',
-									selectionMode
-										? 'invisible pointer-events-none'
-										: 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+									rail
+										? 'hidden'
+										: selectionMode
+											? 'invisible pointer-events-none'
+											: 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
 								)}
 							>
 								<DropdownV2
@@ -1172,7 +1067,9 @@
 								class={twMerge(
 									'group flex flex-row items-center gap-1 pl-2 pr-0.5 pt-2 pb-1 min-w-0',
 									// Space groups apart so their boundaries read clearly.
-									groupIdx > 0 ? 'mt-4' : ''
+									groupIdx > 0 ? 'mt-4' : '',
+									// The rail keeps the header's height, not its words.
+									rail ? 'invisible' : ''
 								)}
 								title={group.label}
 							>
@@ -1236,7 +1133,7 @@
 					</Button>
 				</div>
 			{/if}
-		{/if}
+		{/snippet}
 	</div>
 {/if}
 

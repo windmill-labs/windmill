@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { resource } from 'runed'
-	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
-	import { Bot } from 'lucide-svelte'
-	import SidebarSectionHeader from './SidebarSectionHeader.svelte'
+	import { Bot, MessagesSquare } from 'lucide-svelte'
+	import SidebarSection from './SidebarSection.svelte'
 	import { page } from '$app/state'
 	import { afterNavigate } from '$app/navigation'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
@@ -24,11 +23,11 @@
 	)
 
 	// Tagged with its workspace: responses are not ordered, and a late one from the workspace
-	// just left must not show here. Not read on the collapsed rail, which shows no chats.
+	// just left must not show here.
 	const listing = resource(
-		() => [$workspaceStore, isCollapsed] as const,
-		async ([ws, collapsed]) => {
-			if (!ws || collapsed) return undefined
+		() => $workspaceStore,
+		async (ws) => {
+			if (!ws) return undefined
 			const rows = await FlowConversationsService.listFlowConversations({
 				workspace: ws,
 				perPage: 30,
@@ -60,18 +59,18 @@
 	const openId = $derived(page.url.searchParams.get('conversation'))
 </script>
 
-{#if !isCollapsed && rows.length > 0}
-	<div class="flex flex-col gap-1">
-		<SidebarSectionHeader
-			title="AI chats"
-			collapsed={sectionCollapsed.val}
-			onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
-		/>
-		{#if !sectionCollapsed.val}
-			<div
-				transition:slide={{ duration: 180 }}
-				class="flex flex-col gap-0.5 max-h-[40vh] overflow-y-auto"
-			>
+{#if rows.length > 0}
+	<SidebarSection
+		title="AI chats"
+		icon={MessagesSquare}
+		folded={sectionCollapsed.val}
+		onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
+		count={rows.length}
+		{isCollapsed}
+	>
+		{#snippet children(inPopover)}
+			{@const rail = isCollapsed && !inPopover}
+			<div class="flex flex-col gap-0.5 max-h-[40vh] overflow-y-auto">
 				{#each rows as c (c.id)}
 					{@const t = target(c)}
 					{@const selected = openId === c.id}
@@ -79,7 +78,7 @@
 						href={t.href}
 						title="{t.agent ? 'Agent' : 'Flow'} {t.path}"
 						class={twMerge(
-							'flex flex-row items-center gap-2 px-2 py-1 rounded text-xs font-normal min-w-0',
+							'flex flex-row items-center gap-2 px-2 h-6 rounded text-xs font-normal min-w-0',
 							selected
 								? twMerge(sidebarClasses.selectedBg, sidebarClasses.selectedText)
 								: 'text-secondary hover:bg-surface-hover'
@@ -90,10 +89,10 @@
 						{:else}
 							<BarsStaggered size={14} class="shrink-0 text-teal-500" />
 						{/if}
-						<span class="truncate">{c.title || 'Untitled chat'}</span>
+						<span class={rail ? 'sr-only' : 'truncate'}>{c.title || 'Untitled chat'}</span>
 					</a>
 				{/each}
 			</div>
-		{/if}
-	</div>
+		{/snippet}
+	</SidebarSection>
 {/if}
