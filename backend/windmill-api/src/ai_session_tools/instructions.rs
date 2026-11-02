@@ -121,7 +121,7 @@ async fn appendix(ctx: &Ctx<'_>) -> String {
 }
 
 /// The whole prompt, for a connection that reaches one workspace.
-pub(in crate::mcp) async fn session_instructions(ctx: &Ctx<'_>) -> String {
+pub(crate) async fn session_instructions(ctx: &Ctx<'_>) -> String {
     let mut prompt = PARTS
         .base
         .replace("{{folder_guidance}}", &folder_guidance(ctx.auth))
@@ -132,7 +132,7 @@ pub(in crate::mcp) async fn session_instructions(ctx: &Ctx<'_>) -> String {
 
 /// The prompt without anything specific to a workspace, for a connection that reaches
 /// several: usernames are per workspace, so paths read `u/<username>/...`.
-pub(in crate::mcp) fn generic_session_instructions() -> String {
+pub(crate) fn generic_session_instructions() -> String {
     PARTS
         .base
         .replace("{{folder_guidance}}", "")
@@ -140,7 +140,7 @@ pub(in crate::mcp) fn generic_session_instructions() -> String {
 }
 
 /// What `generic_session_instructions` leaves out, for one workspace.
-pub(in crate::mcp) async fn workspace_context(ctx: &Ctx<'_>) -> String {
+pub(crate) async fn workspace_context(ctx: &Ctx<'_>) -> String {
     let username = ctx.auth.username();
     format!(
         "Workspace `{}`. Your username here is \"{username}\", so your personal paths are \

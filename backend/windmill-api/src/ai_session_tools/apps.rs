@@ -7,17 +7,16 @@ use std::sync::LazyLock;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
-use super::runs::finish_run;
+use super::runs::{finish_run, run_tool, start_run, Resolved, RunTarget};
 use super::workspace::{
     api_message, app_source_to_draft_value, deployed_item_exists, find_and_replace, get_deployed,
-    get_draft, item_exists, normalize_app_draft, path_enc, persist_draft, Persist,
+    get_draft, item_exists, normalize_app_draft, persist_draft, Persist,
 };
 use super::{
-    bool_arg, js_head, js_len, matches_glob, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult,
+    bool_arg, js_head, js_len, matches_glob, opt_str_arg, pretty, put, str_arg, truthy, Ctx,
+    ToolResult,
 };
 
-// `init_app` is dispatched below but stays out of this list until `gen/app_templates.json`
-// is emitted by the generator.
 pub(super) const TOOLS: &[&str] = &[
     "init_app",
     "read_app_file",
@@ -214,23 +213,28 @@ async fn load_app(ctx: &Ctx<'_>, path: &str) -> Result<Loaded, String> {
     Ok(Loaded { value: app_source_to_draft_value(&app, Some(&app)), last_sync })
 }
 
-/// What the backend requires of a draft from an operator with builder rights: sandboxed,
-/// never in viewer mode, and running as nobody but its builder.
-async fn conform_builder_policy(ctx: &Ctx<'_>, value: &mut Value) {
+/// Whether the caller's role composes apps out of deployed runnables. They can save no inline
+/// runnable.
+async fn builds_apps(ctx: &Ctx<'_>) -> bool {
     if !ctx.auth.is_operator {
-        return;
+        return false;
     }
     let Ok(memberships) = ctx.get("/workspaces/users").await else {
-        return;
+        return false;
     };
-    let builder = memberships
+    memberships
         .get("workspaces")
         .and_then(Value::as_array)
         .and_then(|list| list.iter().find(|w| text_of(w, "id") == Some(ctx.w_id)))
-        .and_then(|w| w.get("operator_settings"))
-        .and_then(|s| s.get("builder_apps"))
-        == Some(&Value::Bool(true));
-    if !builder {
+        .and_then(|w| w.get("capabilities"))
+        .and_then(|c| text_of(c, "apps"))
+        == Some("compose")
+}
+
+/// What the backend requires of a draft from a role that composes apps: sandboxed,
+/// never in viewer mode, and running as nobody but its builder.
+async fn conform_builder_policy(ctx: &Ctx<'_>, value: &mut Value) {
+    if !builds_apps(ctx).await {
         return;
     }
     let policy = object_mut(value, "policy");
@@ -272,11 +276,13 @@ async fn save_app(
             let mut out = Map::new();
             out.insert("success".into(), json!(true));
             out.insert("message".into(), json!(message));
-            out.insert(
-                "preview_url".into(),
-                json!(ctx.page_url(&format!(
+            put(
+                &mut out,
+                "preview_url",
+                ctx.link(&format!(
                     "/apps_raw/edit/{path}?view=preview&nomenubar=true"
-                ))),
+                ))
+                .map(Value::from),
             );
             if let Some(warning) = warning {
                 out.insert("warning".into(), json!(warning));
@@ -390,9 +396,6 @@ fn app_table_ref(datatable: &str, schema: Option<&str>, reference: &str) -> Stri
 async fn init_app(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let path = str_arg(args, "path")?;
     let framework = str_arg(args, "framework")?;
-    let template = APP_TEMPLATES["templates"]
-        .get(framework)
-        .ok_or_else(|| format!("Invalid framework \"{framework}\""))?;
 
     if get_draft(ctx, "raw_app", path).await?.is_some() {
         return Err(format!(
@@ -405,13 +408,28 @@ async fn init_app(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         ));
     }
 
+    ctx.status(format!(
+        "Saving app \"{path}\" draft ({framework} template)…"
+    ));
+    // A builder can save no inline runnable, so they start from a static page instead of the tour.
+    let builder = builds_apps(ctx).await;
+    let template = APP_TEMPLATES[if builder {
+        "builder_templates"
+    } else {
+        "templates"
+    }]
+    .get(framework)
+    .ok_or_else(|| format!("Invalid framework \"{framework}\""))?;
     let starters = &APP_TEMPLATES["starter_runnables"];
     let mut value = Map::new();
     if let Some(summary) = opt_str_arg(args, "summary") {
         value.insert("summary".into(), json!(summary));
     }
     value.insert("files".into(), template.clone());
-    value.insert("runnables".into(), starters.clone());
+    value.insert(
+        "runnables".into(),
+        if builder { json!({}) } else { starters.clone() },
+    );
     value.insert("policy".into(), json!({ "sandbox": true }));
     let data = args.get("data").filter(|d| truthy(Some(d)));
     let schema = data.and_then(|d| text_of(d, "schema"));
@@ -449,9 +467,23 @@ async fn init_app(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         Some(schema) => format!(" Its data config names schema \"{schema}\" of data table \"{datatable}\" without creating it: if it does not exist yet, create it before the tables that go in it."),
         None => String::new(),
     };
+    let start = if builder {
+        "The template is a static page with no runnables: replace its UI, and add only deployed scripts and flows, by path.".to_string()
+    } else {
+        format!("The template is a demo tour with starter runnables {}: replace its UI and delete the runnables the app does not need (delete_app_runnable).", starter_keys.join(", "))
+    };
+    // The chat opens the app in its own panel; an MCP client only has the link.
+    let open_preview = if ctx.link("/").is_some() {
+        " Open preview_url in a browser the user can see from this conversation if you have one, and otherwise give them the link: its live preview follows every later edit."
+    } else {
+        ""
+    };
     let message = format!(
-        "Initialized a per-user draft app \"{path}\" from the {framework} template (saved server-side, not a deployed workspace item). The template is a demo tour with starter runnables {}: replace its UI and delete the runnables the app does not need (delete_app_runnable). Use write_app_file / write_app_runnable to evolve it.{data_note} Open preview_url in a browser the user can see from this conversation if you have one, and otherwise give them the link: its live preview follows every later edit.",
-        starter_keys.join(", ")
+        "Initialized a per-user draft app \"{path}\" from the {framework} template (saved server-side, not a deployed workspace item). {start} Use write_app_file / write_app_runnable to evolve it.{data_note}{open_preview}"
+    );
+    ctx.status_after_save(
+        format!("Saved app \"{path}\" draft ({framework})"),
+        Some("Saved as draft"),
     );
     save_app(ctx, path, value, None, message, None).await
 }
@@ -507,6 +539,7 @@ async fn read_app_file(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             inline_runnable_content(&value, key, extension, path)?.0
         }
     };
+    ctx.status(format!("Read {}", target.file_path()));
     let int = |name: &str| args.get(name).and_then(Value::as_i64);
     Ok(format_file_read(content, int("offset"), int("limit")))
 }
@@ -565,7 +598,7 @@ fn search_files(
     query: &str,
     file_glob: Option<&str>,
     max_matches: i64,
-) -> String {
+) -> (String, usize, usize) {
     let needle = query.to_lowercase();
     files.sort_by(|a, b| locale_compare(&a.0, &b.0));
     if let Some(glob) = file_glob {
@@ -601,7 +634,7 @@ fn search_files(
     }
 
     if total == 0 {
-        return format!(
+        let text = format!(
             "No matches. Try a broader or differently-spelled term{}.",
             if file_glob.is_some() {
                 ", or drop the file_glob"
@@ -609,6 +642,7 @@ fn search_files(
                 ""
             }
         );
+        return (text, 0, 0);
     }
 
     let plural = |n: usize, one: &str, many: &str| {
@@ -665,7 +699,7 @@ fn search_files(
                 .to_string(),
         );
     }
-    out.join("\n")
+    (out.join("\n"), total, file_count)
 }
 
 async fn search_app(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
@@ -681,12 +715,18 @@ async fn search_app(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         .unwrap_or(SEARCH_DEFAULT_MAX_MATCHES)
         .min(SEARCH_MAX_MATCHES_CEILING);
     let file_glob = opt_str_arg(args, "file_glob").filter(|glob| !glob.is_empty());
-    Ok(search_files(
-        searchable_files(&value),
-        query,
-        file_glob,
-        max_matches,
-    ))
+    let (text, total, files) =
+        search_files(searchable_files(&value), query, file_glob, max_matches);
+    ctx.status(if total == 0 {
+        format!("No matches for \"{query}\"")
+    } else {
+        format!(
+            "Found {total} match{} in {files} file{}",
+            if total == 1 { "" } else { "es" },
+            if files == 1 { "" } else { "s" }
+        )
+    });
+    Ok(text)
 }
 
 // ---------------------------------------------------------------------------
@@ -702,6 +742,16 @@ async fn write_app_file(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     assert_not_generated(&file_path)?;
 
     let Loaded { mut value, last_sync } = load_app(ctx, path).await?;
+    let before = value
+        .get("files")
+        .and_then(|files| text_of(files, &file_path))
+        .unwrap_or_default()
+        .to_string();
+    ctx.file_diff(&before, content, &file_path, &file_path);
+    ctx.status_after_save(
+        format!("Updated {file_path} in app \"{path}\""),
+        Some("Saved as draft"),
+    );
     object_mut(&mut value, "files").insert(file_path.clone(), json!(content));
     let message = format!("Updated draft app \"{path}\" with frontend file \"{file_path}\".");
     save_app(ctx, path, value, last_sync.as_deref(), message, None).await
@@ -715,14 +765,21 @@ async fn delete_app_file(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     assert_not_generated(&file_path)?;
 
     let Loaded { mut value, last_sync } = load_app(ctx, path).await?;
-    if object_mut(&mut value, "files")
-        .shift_remove(&file_path)
-        .is_none()
-    {
+    let Some(removed) = object_mut(&mut value, "files").shift_remove(&file_path) else {
         return Err(format!(
             "Frontend file \"{file_path}\" not found in app \"{path}\"."
         ));
-    }
+    };
+    ctx.file_diff(
+        removed.as_str().unwrap_or_default(),
+        "",
+        &file_path,
+        &file_path,
+    );
+    ctx.status_after_save(
+        format!("Removed {file_path} from app \"{path}\""),
+        Some("Saved as draft"),
+    );
     let message = format!("Removed \"{file_path}\" from draft app \"{path}\".");
     save_app(ctx, path, value, last_sync.as_deref(), message, None).await
 }
@@ -748,11 +805,14 @@ async fn patch_app_file(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                     format!("Frontend file \"{file_path}\" not found in app \"{path}\".")
                 })?;
             let updated = find_and_replace(current, old, new, replace_all, &label)?;
+            ctx.file_diff(current, &updated, file_path, file_path);
             object_mut(&mut value, "files").insert(file_path.clone(), json!(updated));
         }
         Target::Backend { key, extension, .. } => {
             let (current, runnable) = inline_runnable_content(&value, key, extension, path)?;
             let updated = find_and_replace(current, old, new, replace_all, &label)?;
+            let file_path = target.file_path();
+            ctx.file_diff(current, &updated, &file_path, &file_path);
             let language = runnable
                 .get("inlineScript")
                 .and_then(|s| s.get("language"))
@@ -764,6 +824,10 @@ async fn patch_app_file(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             object_mut(&mut value, "runnables").insert(key.clone(), runnable);
         }
     }
+    ctx.status_after_save(
+        format!("Patched {} in app \"{path}\"", target.file_path()),
+        Some("Saved as draft"),
+    );
     let message = format!(
         "Patched \"{}\" in draft app \"{path}\".",
         target.file_path()
@@ -782,7 +846,11 @@ fn build_persisted_runnable(input: &Value, existing: Option<&Value>) -> Result<V
     let name = str_arg(input, "name")?;
     let kind = str_arg(input, "type")?;
     let existing = existing.and_then(Value::as_object);
-    let fields = match input.get("staticInputs").and_then(Value::as_object) {
+    let static_inputs = input.get("staticInputs").and_then(Value::as_object);
+    // An agent runnable takes every input from the app: a static one inherited from the kind it
+    // was converted from would be pinned by the deployed policy over every viewer's message.
+    let fields = match static_inputs {
+        _ if kind == "agent" => json!({}),
         Some(static_inputs) => Value::Object(
             static_inputs
                 .iter()
@@ -828,9 +896,16 @@ fn build_persisted_runnable(input: &Value, existing: Option<&Value>) -> Result<V
         return Ok(Value::Object(out));
     }
 
-    let path = text_of(input, "path")
-        .filter(|p| !p.is_empty())
-        .ok_or("path is required when runnable type is \"script\", \"flow\", or \"hubscript\".")?;
+    let path = text_of(input, "path").filter(|p| !p.is_empty()).ok_or(
+        "path is required when runnable type is \"script\", \"flow\", \"hubscript\" or \"agent\".",
+    )?;
+    // A static input is pinned by the deployed policy: every viewer's turn would send the same one.
+    if kind == "agent" && static_inputs.is_some_and(|inputs| !inputs.is_empty()) {
+        return Err(
+            "An \"agent\" runnable takes no staticInputs: each turn's inputs come from the app."
+                .to_string(),
+        );
+    }
     let same_target = existing.is_some_and(|e| {
         matches!(
             e.get("type").and_then(Value::as_str),
@@ -852,6 +927,45 @@ fn build_persisted_runnable(input: &Value, existing: Option<&Value>) -> Result<V
     Ok(Value::Object(out))
 }
 
+/// An inline runnable's code; none for one that names a workspace or hub item.
+fn inline_code(runnable: Option<&Value>) -> Option<&str> {
+    let runnable = runnable?;
+    matches!(text_of(runnable, "type"), Some("inline" | "runnableByName")).then(|| {
+        runnable
+            .get("inlineScript")
+            .and_then(|s| text_of(s, "content"))
+            .unwrap_or_default()
+    })
+}
+
+/// The card's diff of a runnable's code. A runnable that references an item has no code
+/// of its own to diff.
+fn runnable_diff(ctx: &Ctx<'_>, key: &str, before: Option<&Value>, after: Option<&Value>) {
+    let (before_code, after_code) = (inline_code(before), inline_code(after));
+    if (before_code.is_none() && after_code.is_none()) || (after.is_some() && after_code.is_none())
+    {
+        return;
+    }
+    let file = |runnable: Option<&Value>| {
+        format!(
+            "backend/{key}/main.{}",
+            runnable.map_or("ts", inline_extension)
+        )
+    };
+    let after_file = file(after.or(before));
+    let before_file = if before_code.is_none() {
+        after_file.clone()
+    } else {
+        file(before)
+    };
+    ctx.file_diff(
+        before_code.unwrap_or_default(),
+        after_code.unwrap_or_default(),
+        &after_file,
+        &before_file,
+    );
+}
+
 /// Whether the script or flow a path runnable names is deployed. None when it names
 /// neither, or the probe failed: the answer only annotates a write.
 async fn path_target_deployed(ctx: &Ctx<'_>, runnable: &Value) -> Option<bool> {
@@ -871,6 +985,11 @@ async fn write_app_runnable(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let Loaded { mut value, last_sync } = load_app(ctx, path).await?;
     let existing = value.get("runnables").and_then(|r| r.get(key));
     let persisted = build_persisted_runnable(input, existing)?;
+    runnable_diff(ctx, key, existing, Some(&persisted));
+    ctx.status_after_save(
+        format!("Updated runnable \"{key}\" in app \"{path}\""),
+        Some("Saved as draft"),
+    );
     let warning = match path_target_deployed(ctx, &persisted).await {
         Some(false) => Some(format!(
             "This runnable points at an item that is NOT deployed (\"{key}\" → {} \"{}\"), so it fails at runtime — a path runnable runs the deployed item, never a draft. Offer to deploy just that item with deploy_workspace_item; the app itself does not need deploying, since the preview runs its draft.",
@@ -889,14 +1008,16 @@ async fn delete_app_runnable(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let path = str_arg(args, "path")?;
     let key = str_arg(args, "key")?;
     let Loaded { mut value, last_sync } = load_app(ctx, path).await?;
-    if object_mut(&mut value, "runnables")
-        .shift_remove(key)
-        .is_none()
-    {
+    let Some(removed) = object_mut(&mut value, "runnables").shift_remove(key) else {
         return Err(format!(
             "Backend runnable \"{key}\" not found in app \"{path}\"."
         ));
-    }
+    };
+    runnable_diff(ctx, key, Some(&removed), None);
+    ctx.status_after_save(
+        format!("Removed runnable \"{key}\" from app \"{path}\""),
+        Some("Saved as draft"),
+    );
     recompute_policy(&mut value);
     let message = format!("Removed runnable \"{key}\" from draft app \"{path}\".");
     save_app(ctx, path, value, last_sync.as_deref(), message, None).await
@@ -907,7 +1028,12 @@ async fn delete_app_runnable(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 // ---------------------------------------------------------------------------
 
 /// The `execute_component` body that runs a runnable the way the editor preview does.
-fn execute_component_body(app_path: &str, key: &str, runnable: &Value, args: &Value) -> Value {
+pub(super) fn execute_component_body(
+    app_path: &str,
+    key: &str,
+    runnable: &Value,
+    args: &Value,
+) -> Value {
     let fields = entries(runnable, "fields");
     let mut test_args = args.as_object().cloned().unwrap_or_default();
     let mut static_fields = Map::new();
@@ -998,9 +1124,7 @@ fn execute_component_body(app_path: &str, key: &str, runnable: &Value, args: &Va
     Value::Object(body)
 }
 
-async fn test_run_app_runnable(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
-    let path = str_arg(args, "path")?;
-    let key = str_arg(args, "key")?;
+async fn resolve_app_runnable(ctx: &Ctx<'_>, path: &str, key: &str) -> Result<Resolved, String> {
     let value = load_app(ctx, path).await?.value;
     let runnables = entries(&value, "runnables");
     let Some(runnable) = runnables.get(key).filter(|r| truthy(Some(r))) else {
@@ -1014,35 +1138,64 @@ async fn test_run_app_runnable(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             }
         ));
     };
-
-    let body = execute_component_body(
-        path,
-        key,
-        runnable,
-        args.get("args").unwrap_or(&Value::Null),
-    );
-    let id = ctx
-        .request(
-            "POST",
-            &ctx.ws(&format!("apps_u/execute_component/{}", path_enc(path))),
-            Some(body),
-        )
-        .await
-        .map_err(|e| {
-            let message = api_message(&e);
-            let message = if js_len(message) > MAX_TOOL_ERROR_LENGTH {
-                format!("{}... (truncated)", js_head(message, MAX_TOOL_ERROR_LENGTH))
-            } else {
-                message.to_string()
-            };
-            format!("Failed to execute test run: {message}")
-        })?;
-    let id = id.trim().trim_matches('"').to_string();
-
     // A path runnable aimed at a flow queues a flow job, whose steps are worth a look.
     let is_flow = text_of(runnable, "runType") == Some("flow");
-    let label = format!("{path} / {key}");
-    finish_run(ctx, Ok(id), &label, is_flow, "test", args).await
+    Ok(Resolved {
+        target: RunTarget::AppRunnable {
+            app_path: path.to_string(),
+            key: key.to_string(),
+            runnable: runnable.clone(),
+        },
+        schema: None,
+        code: None,
+        lang: None,
+        summary: None,
+        runnable_kind: if is_flow { "flow" } else { "script" },
+        start_message: format!("Running backend runnable \"{key}\" of app \"{path}\"..."),
+        conversational: false,
+        module: None,
+    })
+}
+
+async fn test_run_app_runnable(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let path = str_arg(args, "path")?;
+    let key = str_arg(args, "key")?;
+    run_tool(
+        ctx,
+        args,
+        resolve_app_runnable(ctx, path, key),
+        async |resolved: Resolved| {
+            let run_args = args
+                .get("args")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            let id = start_run(ctx, &resolved.target, run_args, &[])
+                .await
+                .map_err(|message| {
+                    let message = if js_len(&message) > MAX_TOOL_ERROR_LENGTH {
+                        format!(
+                            "{}... (truncated)",
+                            js_head(&message, MAX_TOOL_ERROR_LENGTH)
+                        )
+                    } else {
+                        message
+                    };
+                    format!("Failed to execute test run: {message}")
+                })?;
+            let label = format!("{path} / {key}");
+            finish_run(
+                ctx,
+                Ok(id),
+                &label,
+                resolved.runnable_kind == "flow",
+                "test",
+                args,
+            )
+            .await
+        },
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -1094,15 +1247,15 @@ mod tests {
             ("/App.tsx".to_string(), "foo".to_string()),
         ];
         assert_eq!(
-            search_files(files.clone(), "foo", None, 100),
+            search_files(files.clone(), "foo", None, 100).0,
             "3 matches in 2 files\n/App.tsx\n  1: foo\n/b.ts\n  1: one\n  2: Foo()\n  3: foo()\n  4: four\n  5: five"
         );
         assert_eq!(
-            search_files(files.clone(), "foo", Some("*.ts"), 1),
+            search_files(files.clone(), "foo", Some("*.ts"), 1).0,
             "2 matches in 1 file (showing the first 1; narrow with file_glob or a more specific query)\n/b.ts\n  1: one\n  2: Foo()\n  3: foo()\n  4: four"
         );
         assert_eq!(
-            search_files(files, "nope", Some("*.ts"), 100),
+            search_files(files, "nope", Some("*.ts"), 100).0,
             "No matches. Try a broader or differently-spelled term, or drop the file_glob."
         );
     }
@@ -1136,6 +1289,19 @@ mod tests {
         )
         .unwrap();
         assert_eq!(retargeted["schema"], json!({}));
+
+        let agent = build_persisted_runnable(
+            &json!({ "name": "n", "type": "agent", "path": "u/a/agent" }),
+            Some(&existing),
+        )
+        .unwrap();
+        assert_eq!(agent["runType"], "agent");
+        assert_eq!(agent["fields"], json!({}));
+        assert!(build_persisted_runnable(
+            &json!({ "name": "n", "type": "agent", "path": "u/a/agent", "staticInputs": { "m": 1 } }),
+            None,
+        )
+        .is_err());
 
         let inline = build_persisted_runnable(
             &json!({
