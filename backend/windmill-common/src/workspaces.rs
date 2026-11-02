@@ -2815,7 +2815,44 @@ pub fn fork_ducklake_ancestor_alias(lake_name: &str, ancestor_w_id: &str) -> Str
     )
 }
 
-/// Replaces each SQL comment outside string literals ('…', "…", $tag$…$tag$) with a space,
+/// The byte length of the string literal or quoted identifier starting at byte `i` of `sql`
+/// ('…', "…", $tag$…$tag$, or E'…' with backslash escapes), if one starts there. An
+/// unterminated one runs to the end.
+pub fn sql_literal_len(sql: &str, i: usize) -> Option<usize> {
+    let rest = &sql[i..];
+    let after_ident = sql[..i]
+        .chars()
+        .next_back()
+        .is_some_and(|c| c.is_alphanumeric() || c == '_');
+    match rest.as_bytes()[0] {
+        b'E' | b'e' if !after_ident && rest[1..].starts_with('\'') => {
+            let bytes = rest.as_bytes();
+            let mut j = 2;
+            while j < bytes.len() {
+                match bytes[j] {
+                    b'\\' => j += 2,
+                    b'\'' if bytes.get(j + 1) == Some(&b'\'') => j += 2,
+                    b'\'' => return Some(j + 1),
+                    _ => j += 1,
+                }
+            }
+            Some(rest.len())
+        }
+        q @ (b'\'' | b'"') => Some(rest[1..].find(q as char).map_or(rest.len(), |e| e + 2)),
+        b'$' => rest[1..]
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .filter(|&n| rest[1 + n..].starts_with('$'))
+            .map(|n| {
+                let delim = &rest[..n + 2];
+                rest[n + 2..]
+                    .find(delim)
+                    .map_or(rest.len(), |e| n + 2 + e + delim.len())
+            }),
+        _ => None,
+    }
+}
+
+/// Replaces each SQL comment outside string literals ([`sql_literal_len`]) with a space,
 /// following DuckDB: `--` runs to the end of the line and `/* */` nests. An unterminated block
 /// comment is kept as is, so the statement it ends up in fails to parse rather than silently
 /// losing what follows.
@@ -2824,20 +2861,7 @@ pub fn strip_sql_comments(sql: &str) -> String {
     let mut i = 0;
     while i < sql.len() {
         let rest = &sql[i..];
-        let literal = match rest.as_bytes()[0] {
-            q @ (b'\'' | b'"') => Some(rest[1..].find(q as char).map_or(rest.len(), |e| e + 2)),
-            b'$' => rest[1..]
-                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                .filter(|&n| rest[1 + n..].starts_with('$'))
-                .map(|n| {
-                    let delim = &rest[..n + 2];
-                    rest[n + 2..]
-                        .find(delim)
-                        .map_or(rest.len(), |e| n + 2 + e + delim.len())
-                }),
-            _ => None,
-        };
-        if let Some(len) = literal {
+        if let Some(len) = sql_literal_len(sql, i) {
             out.push_str(&rest[..len]);
             i += len;
         } else if rest.starts_with("--") {
@@ -4344,6 +4368,10 @@ mod tests {
         assert_eq!(
             strip_sql_comments("a /* x /* y */ x */ b '--' $q$/*$q$ -- c\nd /* open"),
             "a   b '--' $q$/*$q$  \nd /* open"
+        );
+        assert_eq!(
+            strip_sql_comments(r"x E'a\'/* k */\'b' /* d */ e'c''/*'"),
+            r"x E'a\'/* k */\'b'   e'c''/*'"
         );
     }
 

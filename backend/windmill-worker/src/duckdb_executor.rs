@@ -10,7 +10,7 @@ use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{get_memory, to_raw_value, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
     get_datatable_resource_from_db, get_ducklake_from_db_unchecked,
-    strip_fork_reserved_attach_args, strip_sql_comments, DatatableAccess, DatatableConnectAs,
+    sql_literal_len, strip_fork_reserved_attach_args, strip_sql_comments, DatatableAccess, DatatableConnectAs,
     DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
@@ -2390,7 +2390,7 @@ fn keep_last_attach_option(options: &str) -> String {
         .join(", ")
 }
 
-/// Splits an ATTACH option list on the commas outside string literals ('…', "…", $tag$…$tag$)
+/// Splits an ATTACH option list on the commas outside string literals ([`sql_literal_len`])
 /// and parentheses, dropping empty parts. SQL comments are dropped too: a `--` comment would
 /// otherwise swallow whatever is joined after it on the same line, `);` included.
 fn split_attach_options(options: &str) -> Vec<String> {
@@ -2402,21 +2402,7 @@ fn split_attach_options(options: &str) -> Vec<String> {
     let mut i = 0;
     while i < options.len() {
         let rest = &options[i..];
-        // The byte length of a literal or comment starting here, if one does.
-        let span = match rest.as_bytes()[0] {
-            q @ (b'\'' | b'"') => Some(rest[1..].find(q as char).map_or(rest.len(), |e| e + 2)),
-            b'$' => rest[1..]
-                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                .filter(|&n| rest[1 + n..].starts_with('$'))
-                .map(|n| {
-                    let delim = &rest[..n + 2];
-                    rest[n + 2..]
-                        .find(delim)
-                        .map_or(rest.len(), |e| n + 2 + e + delim.len())
-                }),
-            _ => None,
-        };
-        if let Some(len) = span {
+        if let Some(len) = sql_literal_len(options, i) {
             part.push_str(&rest[..len]);
             i += len;
             continue;
