@@ -39,6 +39,8 @@
 		needs: Needs
 		reads?: Set<string> | 'all'
 		accessError?: string
+		/** The item itself could not be read, so nothing it reads is known. */
+		scanError?: string
 	}
 
 	const operatingUser = useOperatingUser()
@@ -86,8 +88,14 @@
 				access
 			])
 			if (id === requestId) report = { key: forKey, needs, ...result }
-		} catch {
-			if (id === requestId) report = undefined
+		} catch (e) {
+			if (id === requestId) {
+				report = {
+					key: forKey,
+					needs: { items: [], others: [], errors: [] },
+					scanError: `${e?.body ?? e}`
+				}
+			}
 		}
 	}
 
@@ -155,7 +163,9 @@
 	{/if}
 </ConfirmationModal>
 
-{#if items.length}
+{#if shown?.scanError}
+	<span class="text-2xs text-secondary">Couldn't read {itemPath}: {shown.scanError}</span>
+{:else if items.length}
 	<div class="flex flex-col gap-1.5 text-2xs">
 		<span class="text-secondary">This {kind} needs read access to:</span>
 		<DataTable size="xs">
