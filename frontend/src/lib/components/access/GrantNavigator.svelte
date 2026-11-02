@@ -192,7 +192,7 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 	})
 
 	const reaches = $derived(
-		new Map([
+		new Map<string, boolean>([
 			...access.items.map((i) => [`${i.kind}:${i.path}`, i.write] as const),
 			...access.folders.map((f) => [`folder:${f.name}`, f.write] as const)
 		])
