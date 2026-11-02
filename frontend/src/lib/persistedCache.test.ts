@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { openDB } from 'idb'
 
 // The cache hydrates from a BROWSER-gated user subscription.
@@ -14,6 +14,8 @@ import {
 	cacheKeys,
 	clearPersistedCache,
 	loadEntry,
+	MAX_AGE_MS,
+	MAX_ENTRIES,
 	peekEntry,
 	saveEntry
 } from './persistedCache.svelte'
@@ -43,6 +45,9 @@ function keyFor(name: string, workspace: string, args?: unknown) {
 beforeEach(() => {
 	OpenAPI.TOKEN = undefined
 	userStore.set(undefined)
+})
+afterEach(() => {
+	vi.useRealTimers()
 })
 
 describe('keying', () => {
@@ -147,5 +152,30 @@ describe('invalidation', () => {
 		expect(peekEntry(gone, 1)).toBeUndefined()
 		expect(await stored('out@x.dev')).toEqual([])
 		expect(await stored('keep@x.dev')).toEqual([kept])
+	})
+
+	it('drops an entry past its maximum age', async () => {
+		vi.useFakeTimers({ toFake: ['Date'] })
+		login('age@x.dev')
+		const key = keyFor('runs', 'w')
+		saveEntry(key, 1, 'old')
+		expect(peekEntry(key, 1)).toBe('old')
+		vi.setSystemTime(Date.now() + MAX_AGE_MS + 1)
+		expect(peekEntry(key, 1)).toBeUndefined()
+	})
+
+	it('evicts the oldest entries past the per-user cap', async () => {
+		vi.useFakeTimers({ toFake: ['Date'] })
+		login('cap@x.dev')
+		const keys = Array.from({ length: MAX_ENTRIES + 2 }, (_, i) => keyFor('runs', `w${i}`))
+		for (const key of keys) {
+			vi.setSystemTime(Date.now() + 1000)
+			saveEntry(key, 1, key)
+		}
+		await vi.waitFor(async () => expect(await stored('cap@x.dev')).toHaveLength(MAX_ENTRIES))
+		const left = await stored('cap@x.dev')
+		expect(left).not.toContain(keys[0])
+		expect(left).not.toContain(keys[1])
+		expect(left).toContain(keys[keys.length - 1])
 	})
 })

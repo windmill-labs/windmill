@@ -368,6 +368,9 @@
 	let hasMoreServer = $state(false)
 	// Guards against out-of-order responses: only the latest request applies.
 	let loadGen = 0
+	// The latest generation whose request failed: a cached page landing after it still shows,
+	// but with nothing to page on to.
+	let failedGen = 0
 
 	function mapRunnable(it: RunnableItem): TableScript | TableFlow | TableApp | TableAgent {
 		// combinedItems reads a script's time from `created_at`; the endpoint's
@@ -431,7 +434,10 @@
 			res = await request
 		} catch (e: any) {
 			if (gen !== loadGen) return
+			failedGen = gen
 			loading = false
+			// A cached first page has no cursor to page on from, so it can offer no "Load more".
+			if (reset) hasMoreServer = false
 			sendUserToast(`Failed to load items: ${e?.body ?? e?.message ?? e}`, true)
 			return
 		}
@@ -460,6 +466,7 @@
 		const cached = await firstPageCache.load(scope)
 		if (!cached || gen !== loadGen || shownWorkspace === scope.workspace) return
 		applyRunnables(cached, true, scope.workspace)
+		if (failedGen === gen) hasMoreServer = false
 	}
 
 	function clearRunnables() {
