@@ -244,7 +244,10 @@ async fn get_access(
         }
     };
 
-    let target = fetch_authed_from_permissioned_as(&principal, &email, &w_id, &db).await?;
+    let mut target = fetch_authed_from_permissioned_as(&principal, &email, &w_id, &db).await?;
+    // A workspace group and an instance group can share a name, and both come back.
+    target.groups.sort();
+    target.groups.dedup();
 
     if target.is_admin {
         return Ok(Json(AccessReport {
@@ -303,12 +306,10 @@ async fn get_access(
         .collect();
     tx.commit().await?;
 
-    let mut groups = target.groups;
-    groups.sort();
     Ok(Json(AccessReport {
         principal,
         is_admin: false,
-        groups,
+        groups: target.groups,
         folders,
         items,
     }))

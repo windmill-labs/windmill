@@ -31,5 +31,25 @@ async fn test_member_cannot_read_another_members_access(db: Pool<Postgres>) -> a
         .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
 
+    // A scoped token reaches the route only if `/access` maps to a scope domain.
+    let scoped = client
+        .post(format!(
+            "http://localhost:{}/api/users/tokens/create",
+            server.addr.port()
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN_2")
+        .json(&serde_json::json!({ "label": "scoped", "scopes": ["acls:read"], "workspace_id": "test-workspace" }))
+        .send()
+        .await?
+        .text()
+        .await?;
+    let resp = client
+        .get(&url)
+        .query(&[("principal", "u/test-user-2")])
+        .header("Authorization", format!("Bearer {scoped}"))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
     Ok(())
 }
