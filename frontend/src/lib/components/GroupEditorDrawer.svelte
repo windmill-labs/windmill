@@ -5,7 +5,7 @@
 	import AccessDrawer from './AccessDrawer.svelte'
 	import { Save, ShieldCheck } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { userStore } from '$lib/stores'
+	import { useOperatingUser } from './operatingWorkspace.svelte'
 
 	let {
 		offset = 0,
@@ -17,6 +17,7 @@
 		onSaved?: (name: string, created: boolean) => void | Promise<void>
 	} = $props()
 
+	const operatingUser = useOperatingUser()
 	let drawer: Drawer | undefined = $state()
 	let accessDrawer: AccessDrawer | undefined = $state()
 	let mode: 'edit' | 'new' = $state('edit')
@@ -131,7 +132,7 @@
 			{/key}
 		</div>
 		{#snippet actions()}
-			{#if exists && ($userStore?.is_admin || $userStore?.groups.includes(name))}
+			{#if exists && (operatingUser.current?.is_admin || operatingUser.current?.groups.includes(name))}
 				<Button
 					variant="default"
 					unifiedSize="md"
