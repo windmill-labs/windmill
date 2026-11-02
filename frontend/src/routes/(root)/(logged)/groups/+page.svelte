@@ -159,7 +159,11 @@
 											{
 												displayName: 'Access',
 												icon: ShieldCheck,
-												hide: !($userStore?.is_admin || $userStore?.groups.includes(name)),
+												hide: !(
+													$userStore?.is_admin ||
+													$userStore?.is_super_admin ||
+													$userStore?.groups.includes(name)
+												),
 												action: () => accessDrawer?.open(`g/${name}`, 'group')
 											},
 											{
