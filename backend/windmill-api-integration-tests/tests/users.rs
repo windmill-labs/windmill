@@ -1213,4 +1213,53 @@ async fn test_rename_keeps_other_workspaces_like_named_memberships(
     Ok(())
 }
 
+/// Logged-out visitors of public apps run as `anonymous`. Renaming an account that already holds
+/// that name must not take their jobs with it, nor their logged-out access to them.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_from_anonymous_keeps_visitor_jobs(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
 
+    sqlx::raw_sql(
+        "UPDATE usr SET username = 'anonymous' WHERE email = 'test3@windmill.dev';
+         UPDATE password SET username = 'anonymous' WHERE email = 'test3@windmill.dev';
+         INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, kind, tag, args)
+         VALUES (gen_random_uuid(), 'test-workspace', 'anonymous', 'u/test-user', 'script', 'deno', '{}'::jsonb);",
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/users/rename/test3@windmill.dev"
+    )))
+    .json(&json!({ "new_username": "former_anonymous" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "rename: {}", resp.text().await?);
+
+    let username: String =
+        sqlx::query_scalar("SELECT username FROM usr WHERE email = 'test3@windmill.dev'")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(username, "former_anonymous");
+    let created_by: Vec<String> =
+        sqlx::query_scalar("SELECT created_by FROM v2_job WHERE workspace_id = 'test-workspace'")
+            .fetch_all(&db)
+            .await?;
+    assert_eq!(created_by, vec!["anonymous"]);
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_generated_username_skips_anonymous(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let mut tx = db.begin().await?;
+    let username = windmill_common::usernames::generate_instance_wide_unique_username(
+        &mut tx,
+        "anonymous@acme.com",
+    )
+    .await?;
+    assert_eq!(username, "anonymous2");
+    Ok(())
+}

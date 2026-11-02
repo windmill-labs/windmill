@@ -66,6 +66,16 @@ describe('planSessionPush', () => {
 		expect(plan?.images).toEqual([])
 	})
 
+	it('pushes the head when a turn moves the sort key, so a restore keeps the order', () => {
+		const plan = planSessionPush({
+			session: session({ lastStateChangeAt: 42 }),
+			chats: [chat('c1', 10, ['i1'])],
+			artifacts: noArtifacts,
+			sync: synced()
+		})
+		expect(plan?.entry?.head).toMatchObject({ lastStateChangeAt: 42 })
+	})
+
 	it('carries only the chat whose lastModified moved, plus its new images', () => {
 		const plan = planSessionPush({
 			session: session(),

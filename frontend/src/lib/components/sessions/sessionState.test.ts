@@ -11,7 +11,9 @@ import {
 	homeStarterSession,
 	isForkSession,
 	isTearingDownOpenSession,
+	markSessionStateChanged,
 	opensOnHome,
+	sessionLastStateChangeAt,
 	renameSession,
 	setDraftsDiscardedHandler,
 	sessionInCurrentFamily,
@@ -343,6 +345,32 @@ describe('session summary generation guards', () => {
 		} finally {
 			const i = sessionState.sessions.findIndex((x) => x.id === id)
 			if (i >= 0) sessionState.sessions.splice(i, 1)
+		}
+	})
+})
+
+describe('sessionLastStateChangeAt', () => {
+	it('moves on a turn, not on a rename', () => {
+		const now = Date.now()
+		const older = { id: 'sort-older-draft', name: 'd', createdAt: now - 60_000 } as Session
+		const newer = {
+			id: 'sort-newer',
+			name: 'n',
+			createdAt: now - 30_000,
+			lastStateChangeAt: now - 1
+		} as Session
+		sessionState.sessions.push(older, newer)
+		const entry = (id: string) => sessionState.sessions.find((x) => x.id === id)!
+		try {
+			markSessionStateChanged(older.id)
+			const stamped = sessionLastStateChangeAt(entry(older.id))
+			expect(stamped).toBeGreaterThan(sessionLastStateChangeAt(entry(newer.id)))
+			renameSession(older.id, 'Renamed')
+			expect(sessionLastStateChangeAt(entry(older.id))).toBe(stamped)
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== older.id && s.id !== newer.id
+			)
 		}
 	})
 })
