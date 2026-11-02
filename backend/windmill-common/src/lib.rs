@@ -130,6 +130,7 @@ pub mod queue_metrics;
 pub mod result_stream;
 pub mod roles;
 pub mod runnable_job_stats;
+pub mod runnable_ref;
 pub mod runnable_settings;
 pub mod runnables;
 pub mod schedule;

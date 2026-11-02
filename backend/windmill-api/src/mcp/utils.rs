@@ -12,6 +12,7 @@ use sql_builder::prelude::*;
 use windmill_common::auth::create_jwt_token;
 use windmill_common::db::{Authed, UserDB};
 use windmill_common::error::Error;
+use windmill_common::runnable_ref::RunnableRef;
 use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 use windmill_common::triggers::{RunnableFormat, RunnableFormatVersion, TriggerKind};
 use windmill_common::utils::{query_elems_from_hub, StripPath};
@@ -815,8 +816,7 @@ fn preprocessor_headers(
 pub async fn prepare_push_args(
     db: &DB,
     w_id: &str,
-    path: &str,
-    is_flow: bool,
+    runnable: &RunnableRef,
     args: Value,
     request: &McpRequest<'_>,
 ) -> Result<windmill_queue::PushArgsOwned, Error> {
@@ -827,11 +827,11 @@ pub async fn prepare_push_args(
         }
     }
 
-    let runnable_id = if is_flow {
-        RunnableId::from_flow_path(path)
+    let runnable_id = if runnable.is_flow() {
+        RunnableId::from_flow_path(runnable.path())
     } else {
         // Resolves a `hub/<version_id>` path to the hub script on its own.
-        RunnableId::from_script_path(path)
+        RunnableId::from_script_path(runnable.path())
     };
 
     // MCP is not one of the `TRIGGER_KIND` enum values and does not need to be:
