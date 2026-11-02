@@ -148,8 +148,13 @@ describe('invalidation', () => {
 		saveEntry(gone, 1, 'gone')
 		await vi.waitFor(async () => expect(await stored('out@x.dev')).toContain(gone))
 
+		// The synchronous snapshot read at boot goes with it.
+		await vi.waitFor(() =>
+			expect(localStorage.getItem('wm-persisted-cache-snapshot')).toContain('out@x.dev')
+		)
 		await clearPersistedCache()
 		expect(peekEntry(gone, 1)).toBeUndefined()
+		expect(localStorage.getItem('wm-persisted-cache-snapshot')).toBeNull()
 		expect(await stored('out@x.dev')).toEqual([])
 		expect(await stored('keep@x.dev')).toEqual([kept])
 	})

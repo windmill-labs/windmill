@@ -1,11 +1,11 @@
 import { BROWSER } from 'esm-env'
 import { get } from 'svelte/store'
 import { SvelteMap } from 'svelte/reactivity'
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
+import type { DBSchema, IDBPDatabase } from 'idb'
 import { OpenAPI } from '$lib/gen'
 import { userStore } from '$lib/stores'
 import { userScopedDb } from '$lib/userScopedDb'
-import { getCurrentUserEmail, onUserChange, scopedKeyFor } from '$lib/userScopedStorage'
+import { getCurrentUserEmail, onUserChange } from '$lib/userScopedStorage'
 import { rememberedEmail } from '$lib/lastSession'
 
 // Last-known API responses, kept so a page can paint them before its requests return. Every
@@ -140,6 +140,7 @@ export async function loadEntry<T>(key: string, version: number): Promise<T | un
 export function saveEntry(key: string, version: number, value: unknown): void {
 	const entry: CacheEntry = { key, version, savedAt: Date.now(), value }
 	memory.set(key, entry)
+	recordInSnapshot(entry)
 	void (async () => {
 		const handle = await db.whenReady()
 		if (!handle) return
@@ -177,25 +178,50 @@ async function hydrate() {
 	}
 }
 
-/**
- * Reads the store of the user the browser's session still names (`lastSession`) while the app
- * boots, before the layout knows who is logged in, so the entries are in memory by the time
- * the page mounts. Memory keys carry the identity, so nothing read here is shown to anyone else.
- */
-async function hydrateAhead(email: string) {
-	let handle: IDBPDatabase<CacheSchema> | undefined
+// The entries last saved for one workspace, mirrored to localStorage, because IndexedDB answers
+// in a task of its own, which lands behind the page's first render however early it is asked:
+// read synchronously as this module loads, they are in memory for the frame that mounts the
+// page. Only for the user the browser's session still names (`lastSession`); memory keys carry
+// the identity, so nothing read here is shown to anyone else.
+const SNAPSHOT_KEY = 'wm-persisted-cache-snapshot'
+const SNAPSHOT_MAX_CHARS = 256 * 1024
+let snapshot: { email: string; workspace: string; entries: Map<string, CacheEntry> } | undefined
+let snapshotTimer: ReturnType<typeof setTimeout> | undefined
+
+function workspaceOfKey(key: string): string | undefined {
 	try {
-		// Same version and upgrade as `db`: an open at the version without its upgrade would
-		// leave a new database with no store.
-		handle = await openDB<CacheSchema>(scopedKeyFor(DB_NAME, email), DB_VERSION, { upgrade })
-		const entries = await handle.getAll('entries')
-		const current = getCurrentUserEmail()
-		if (current === undefined || current === email) await keep(entries)
-	} catch (e) {
-		console.warn('persistedCache: could not read entries ahead', e)
-	} finally {
-		handle?.close()
+		return JSON.parse(key.slice(0, key.indexOf('#')))[2]
+	} catch {
+		return undefined
 	}
+}
+
+function recordInSnapshot(entry: CacheEntry) {
+	const email = getCurrentUserEmail()
+	const workspace = workspaceOfKey(entry.key)
+	if (!email || !workspace) return
+	if (snapshot?.email !== email || snapshot.workspace !== workspace)
+		snapshot = { email, workspace, entries: new Map() }
+	snapshot.entries.set(entry.key, $state.snapshot(entry) as CacheEntry)
+	snapshotTimer ??= setTimeout(() => {
+		snapshotTimer = undefined
+		try {
+			if (!snapshot) return
+			const raw = JSON.stringify({ email: snapshot.email, entries: [...snapshot.entries.values()] })
+			if (raw.length <= SNAPSHOT_MAX_CHARS) localStorage.setItem(SNAPSHOT_KEY, raw)
+			else localStorage.removeItem(SNAPSHOT_KEY)
+		} catch {}
+	}, 0)
+}
+
+function readSnapshot() {
+	try {
+		const email = rememberedEmail()
+		const raw = localStorage.getItem(SNAPSHOT_KEY)
+		if (!email || !raw) return
+		const read = JSON.parse(raw) as { email: string; entries: CacheEntry[] }
+		if (read.email === email) void keep(read.entries)
+	} catch {}
 }
 
 async function keep(entries: CacheEntry[], handle?: IDBPDatabase<CacheSchema>) {
@@ -218,6 +244,10 @@ async function keep(entries: CacheEntry[], handle?: IDBPDatabase<CacheSchema>) {
  */
 export async function clearPersistedCache(): Promise<void> {
 	memory.clear()
+	snapshot = undefined
+	try {
+		localStorage.removeItem(SNAPSHOT_KEY)
+	} catch {}
 	const handle = await db.whenReady()
 	if (!handle) return
 	try {
@@ -228,15 +258,18 @@ export async function clearPersistedCache(): Promise<void> {
 }
 
 if (BROWSER) {
-	const ahead = rememberedEmail()
-	if (ahead) void hydrateAhead(ahead)
+	readSnapshot()
 	// Loads the whole (bounded) store into memory once the user is known, and keeps only what
-	// belongs to them: the entries read ahead for the same identity survive.
+	// belongs to them: the snapshot's entries for the same identity survive.
 	onUserChange(() => {
 		userTick++
+		// No user yet (the call at registration, as the app boots): nothing can be read without
+		// an identity, and the snapshot just loaded is waiting for its user. Logout clears memory
+		// itself (clearPersistedCache).
 		const identity = cacheIdentity()
-		const mine = identity ? `[${JSON.stringify(identity)},` : undefined
-		for (const key of [...memory.keys()]) if (!mine || !key.startsWith(mine)) memory.delete(key)
+		if (!identity) return
+		const mine = `[${JSON.stringify(identity)},`
+		for (const key of [...memory.keys()]) if (!key.startsWith(mine)) memory.delete(key)
 		void hydrate()
 	})
 }
