@@ -20,10 +20,8 @@
 		wideLayout = false,
 		emptyHint,
 		starter = undefined,
-		viewTransitionNames = false,
 		onSent = undefined,
 		inputPreface,
-		actingOn,
 		workModeLock = undefined,
 		initialInstructions = undefined,
 		onDraftChange = undefined,
@@ -45,11 +43,8 @@
 		wideLayout?: boolean
 		emptyHint?: import('svelte').Snippet
 		starter?: import('./starter/starterPrompts.svelte').ChatStarter
-		viewTransitionNames?: boolean
 		onSent?: () => void
 		inputPreface?: import('svelte').Snippet
-		/** Forwarded to AIChatDisplay: where the session acts, first among the controls. */
-		actingOn?: import('svelte').Snippet
 		workModeLock?: import('./workMode').WorkModeLock
 		// Seed / observe the composer's draft (forwarded to AIChatDisplay).
 		initialInstructions?: string
@@ -92,7 +87,7 @@
 							: $aiUserDisabled
 								? 'Windmill AI is disabled in your account settings'
 								: isAdmin
-									? 'Enable Windmill AI in your [workspace settings](/workspace_settings?tab=ai) to use this chat'
+									? 'Enable Windmill AI in your [workspace settings](/workspace_settings?tab=ai) to use this chat, or hide AI sessions there'
 									: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
 						: aiChatManager.mode === AIMode.SCRIPT &&
 							  aiChatManager.scriptEditorOptions?.lang &&
@@ -127,6 +122,17 @@
 
 	export function focusInput(selection?: ComposerSelection) {
 		aiChatDisplay?.focusInput(selection)
+	}
+
+	export function flashComposer() {
+		aiChatDisplay?.flashComposer()
+	}
+
+	export function openAssistantSettings(
+		section: import('./AssistantSettingsModal.svelte').AssistantSettingsSection,
+		root?: string
+	) {
+		aiChatDisplay?.openAssistantSettings(section, root)
 	}
 
 	export async function attachContext(element: import('./context').ContextElement) {
@@ -222,10 +228,8 @@
 	{wideLayout}
 	{emptyHint}
 	{starter}
-	{viewTransitionNames}
 	{onSent}
 	{inputPreface}
-	{actingOn}
 	{workModeLock}
 	{initialInstructions}
 	{onDraftChange}

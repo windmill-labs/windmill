@@ -177,9 +177,9 @@ history, so two agent runnables in one app keep separate conversations. Going th
 `wmill.ts` is what makes the same code work in a deployed app and under `wmill app dev`.
 
 `createChat` and the assistant-ui runtime take the same options; the AI SDK transport
-does not. The runnable takes `user_message` and `memory_id`, the conversation id, which
-the agent's memory is keyed by, so it remembers earlier turns (called from `wmill.ts`
-without `memory_id`, it is a single run with no conversation). The agent needs managed
+does not. The runnable takes `user_message`, and the chat passes the conversation id as
+`backendAsync`'s `memoryId` option, which the agent's memory is keyed by, so it remembers
+earlier turns (called from `wmill.ts` without it, it is a single run with no conversation). The agent needs managed
 memory: one whose memory is off takes `previous_messages` instead, the history you keep. A signed-in viewer's turns
 are filed under them, so nobody else can continue their conversations; an anonymous
 visitor's are kept apart per app. The chat makes no request of its own: history is
@@ -244,6 +244,7 @@ interface ChatState {
   history: 'server' | 'local' | 'none'
   loadingMessages: boolean
   hasMoreMessages: boolean
+  runningJobId?: string // the flow job the running turn follows
 }
 
 interface ChatMessage {

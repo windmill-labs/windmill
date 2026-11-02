@@ -27,7 +27,7 @@ Add `--description "..."` when the user provided a longer explanation worth pres
 
 Open the generated `flow.yaml` (under the folder the command just created) and replace the empty `value.modules` + `schema` with the real flow definition.
 
-For rawscript modules, use `!inline path/to/script.ts` for the content key. Inline script files should NOT include `.inline_script.` in their names (e.g. use `a.ts`, not `a.inline_script.ts`).
+For rawscript modules, set the content key to the quoted string `content: '!inline path/to/script.ts'`. Unquoted, `!inline` is a YAML tag, which `wmill lint` rejects. Inline script files should NOT include `.inline_script.` in their names (e.g. use `a.ts`, not `a.inline_script.ts`).
 
 Once the flow has real content, **offer** to open the visual preview as a one-sentence next step (e.g. "Want me to open the visual preview?"). Don't auto-open — opening the dev page has side effects (browser window, possibly a `launch.json` entry) and the user should consent.
 

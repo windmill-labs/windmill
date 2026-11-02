@@ -1,6 +1,5 @@
 import type { ListableApp, Script, Flow, ListableRawApp, ListableResource } from '$lib/gen'
 type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app' | 'agent'> = T & {
-	canWrite: boolean
 	marked?: string
 	type?: U
 	time?: number
@@ -29,6 +28,11 @@ export type UserItem = {
 	username: string
 	items: (ItemType | FolderItem)[]
 }
+
+// Rows per request when loading a prefix in the tree. Larger than the global stream's
+// page because a tree row is a single line and a folder is opened to see what it
+// holds — most folders come in whole on the first click.
+export const OWNER_PAGE_SIZE = 300
 
 /**
  * Where an item belongs: its owner, folder, and the name it is filtered and searched by.

@@ -16,11 +16,76 @@ use crate::{
     flows::get_full_hub_flow_by_path,
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
-    utils::{StripPath, HTTP_CLIENT},
+    utils::{strip_json_nul, StripPath, HTTP_CLIENT},
     worker::{custom_tag_matches, to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, WINDMILL_DIR},
     workspaces::workspace_with_fork_ancestors,
     FlowVersionInfo, ScriptHashInfo, Tag,
 };
+
+/// Whether `args` already reads the way `push` will store it, i.e. holds no NUL escape in a
+/// name or a value. Cheap (one SIMD substring scan per value) so the normalization below can
+/// be a no-op on the overwhelmingly common clean case.
+pub fn args_contain_nul(args: &HashMap<String, Box<RawValue>>) -> bool {
+    args.iter().any(|(k, v)| {
+        k.contains('\0') || memchr::memmem::find(v.get().as_bytes(), b"\\u0000").is_some()
+    })
+}
+
+/// Rewrite `args` the way `push` stores it: `push` runs [`strip_json_nul`] over the
+/// serialized args just before the INSERT, which removes `\u0000` escapes from **names as
+/// well as values** (jsonb rejects them with 22P05). Any decision taken on a name before
+/// that — `push`'s own removal of a caller [`MODULES_ARG`], an app policy's `static_inputs`
+/// and `one_of_inputs`, the `PushArgs` serializer's "`extra` wins this name" rule — would
+/// otherwise compare a name nobody knows against the name that actually lands in the job:
+/// an arg sent as `_MODULES\0` is stored as `_MODULES`, and a viewer's `tenant\0` is stored
+/// as `tenant`, after the publisher's pinned value, which jsonb then discards as the earlier
+/// of two equal keys.
+///
+/// Normalizing first makes every such check see the stored name. Values are normalized too,
+/// so a check on a value sees what the job will receive.
+///
+/// Two names that collide once normalized keep a single value, deterministically: the
+/// spelling without NULs wins, then the lexicographically smallest original name — never the
+/// one that `HashMap` iteration happened to serialize last.
+pub fn normalize_nul_in_args(args: &mut HashMap<String, Box<RawValue>>) {
+    if !args_contain_nul(args) {
+        return;
+    }
+    let mut entries = args.drain().collect::<Vec<_>>();
+    entries.sort_by(|(a, _), (b, _)| {
+        a.contains('\0')
+            .cmp(&b.contains('\0'))
+            .then_with(|| a.cmp(b))
+    });
+    for (key, value) in entries {
+        let key = if key.contains('\0') {
+            key.replace('\0', "")
+        } else {
+            key
+        };
+        let stripped = match strip_json_nul(value.get()) {
+            std::borrow::Cow::Owned(stripped) => RawValue::from_string(stripped).ok(),
+            std::borrow::Cow::Borrowed(_) => None,
+        };
+        args.entry(key).or_insert(stripped.unwrap_or(value));
+    }
+}
+
+/// Drop every [`RESERVED_CONTROL_ARGS`] key from args that a third party supplied for a job
+/// running under somebody else's identity (an HTTP route body or native trigger message run
+/// as the trigger's owner, a public app viewer's inputs run as the app's publisher). Those
+/// keys pick the function the worker calls instead of `main`, the module files written into
+/// the job directory, and where workspace imports resolve from: the third party must not
+/// choose any of them, while a caller running its own code under its own identity still may.
+///
+/// Normalizes first, so a key spelled `_ENTRYPOINT_OVERRIDE\0` — which `push` stores as
+/// `_ENTRYPOINT_OVERRIDE` — cannot slip past the comparison.
+pub fn sanitize_untrusted_args(args: &mut HashMap<String, Box<RawValue>>) {
+    normalize_nul_in_args(args);
+    for key in RESERVED_CONTROL_ARGS {
+        args.remove(key);
+    }
+}
 
 pub fn get_has_preprocessor_from_content_and_lang(
     content: &str,
@@ -631,6 +696,97 @@ pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> e
         .execute(&mut *conn)
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod reserved_args_tests {
+    use super::{normalize_nul_in_args, sanitize_untrusted_args};
+    use serde_json::value::RawValue;
+    use std::collections::HashMap;
+
+    fn raw(json: &str) -> Box<RawValue> {
+        RawValue::from_string(json.to_string()).unwrap()
+    }
+
+    fn args(entries: &[(&str, &str)]) -> HashMap<String, Box<RawValue>> {
+        entries
+            .iter()
+            .map(|(k, v)| (k.to_string(), raw(v)))
+            .collect()
+    }
+
+    fn as_json(args: &HashMap<String, Box<RawValue>>) -> serde_json::Value {
+        serde_json::to_value(args).unwrap()
+    }
+
+    /// A clean map must come out byte for byte the same: this runs on every push.
+    #[test]
+    fn normalization_leaves_clean_args_alone() {
+        let mut map = args(&[
+            ("tenant", r#""acme""#),
+            // A legitimately escaped backslash followed by the literal text `u0000`
+            // (minified JS regexes contain these) is not a NUL and must survive.
+            ("src", r#""[^\\u0000]+""#),
+        ]);
+        let before = as_json(&map);
+        normalize_nul_in_args(&mut map);
+        assert_eq!(as_json(&map), before);
+    }
+
+    /// `push` stores the args with their NUL escapes removed, names included, so a name
+    /// that only differs by NULs is the same name and must be compared as such.
+    #[test]
+    fn normalization_renames_nul_spelled_names_and_cleans_values() {
+        let mut map = args(&[
+            ("_MODULES\u{0}", r#"{"m.py": "evil"}"#),
+            ("_MOD\u{0}ULES", r#"{"m.py": "evil"}"#),
+            ("greeting\u{0}", r#""anything""#),
+            ("note", r#""a\u0000b""#),
+        ]);
+        normalize_nul_in_args(&mut map);
+        let mut names = map.keys().cloned().collect::<Vec<_>>();
+        names.sort();
+        assert_eq!(names, vec!["_MODULES", "greeting", "note"]);
+        assert_eq!(map["note"].get(), r#""ab""#);
+    }
+
+    /// Which of two names that collide once normalized survives may not depend on
+    /// `HashMap` iteration order: the spelling the publisher/server used wins.
+    #[test]
+    fn normalization_keeps_the_nul_free_spelling_on_collision() {
+        for _ in 0..16 {
+            let mut map = args(&[
+                ("tenant", r#""acme""#),
+                ("tenant\u{0}", r#""globex""#),
+                ("\u{0}tenant", r#""initech""#),
+            ]);
+            normalize_nul_in_args(&mut map);
+            assert_eq!(map.len(), 1);
+            assert_eq!(map["tenant"].get(), r#""acme""#);
+        }
+    }
+
+    /// Every reserved control key goes, in every spelling, and nothing else does.
+    #[test]
+    fn untrusted_args_lose_every_reserved_control_key() {
+        let mut map = args(&[
+            ("_ENTRYPOINT_OVERRIDE", r#""apply""#),
+            ("_ENTRYPOINT_OVERRIDE\u{0}", r#""apply""#),
+            ("_ENTRY\u{0}POINT_OVERRIDE", r#""apply""#),
+            ("_MODULES", r#"{"m.py": "evil"}"#),
+            ("_MODULES\u{0}", r#"{"m.py": "evil"}"#),
+            ("_TEMP_SCRIPT_REFS", r#"{"f/a/b": "deadbeef"}"#),
+            ("_TEMP_SCRIPT_REFS\u{0}", r#"{"f/a/b": "deadbeef"}"#),
+            // Neighbours that must not be caught by a prefix/contains match.
+            ("_TEMP_SCRIPT_REFS_", r#"1"#),
+            ("entrypoint", r#""main""#),
+            ("action", r#""refund""#),
+        ]);
+        sanitize_untrusted_args(&mut map);
+        let mut names = map.keys().cloned().collect::<Vec<_>>();
+        names.sort();
+        assert_eq!(names, vec!["_TEMP_SCRIPT_REFS_", "action", "entrypoint"]);
+    }
 }
 
 #[cfg(test)]

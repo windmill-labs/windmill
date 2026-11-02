@@ -20,6 +20,9 @@
 		value?: string | undefined
 		valueType?: string | undefined
 		resourceType?: string | undefined
+		/** Further resource types whose resources are offered alongside `resourceType`'s. New
+		 *  resources are still created as `resourceType`. */
+		additionalResourceTypes?: string[]
 		disabled?: boolean
 		disablePortal?: boolean
 		showSchemaExplorer?: boolean
@@ -46,6 +49,7 @@
 		value = $bindable(undefined),
 		valueType = $bindable(undefined),
 		resourceType = undefined,
+		additionalResourceTypes = [],
 		disabled = false,
 		disablePortal = false,
 		showSchemaExplorer = false,
@@ -114,8 +118,10 @@
 	async function loadResources(resourceType: string | undefined) {
 		loading = true
 		try {
-			const resourceTypesToQuery =
-				resourceType === 'snowflake' ? ['snowflake', 'snowflake_oauth'] : [resourceType]
+			const resourceTypesToQuery = [
+				...(resourceType === 'snowflake' ? ['snowflake', 'snowflake_oauth'] : [resourceType]),
+				...additionalResourceTypes
+			]
 
 			const resources = await Promise.all(
 				resourceTypesToQuery.map((rt) =>

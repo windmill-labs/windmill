@@ -243,6 +243,7 @@ import PaylocityIcon from './PaylocityIcon.svelte'
 import KustomerIcon from './KustomerIcon.svelte'
 import NetBoxIcon from './NetBoxIcon.svelte'
 import AristaIcon from './AristaIcon.svelte'
+import VmwareIcon from './VmwareIcon.svelte'
 import AbstractApiIcon from './AbstractApiIcon.svelte'
 import AcumbamailIcon from './AcumbamailIcon.svelte'
 import ChromaIcon from './ChromaIcon.svelte'
@@ -323,6 +324,17 @@ import LeonardoAiIcon from './LeonardoAiIcon.svelte'
 import LocalContextsIcon from './LocalContextsIcon.svelte'
 import WeatherApiIcon from './WeatherApiIcon.svelte'
 import WebScrapingAiIcon from './WebScrapingAiIcon.svelte'
+import ArubaIcon from './ArubaIcon.svelte'
+import F5Icon from './F5Icon.svelte'
+import FortinetIcon from './FortinetIcon.svelte'
+import InfobloxIcon from './InfobloxIcon.svelte'
+import IpFabricIcon from './IpFabricIcon.svelte'
+import NetskopeIcon from './NetskopeIcon.svelte'
+import PaloAltoIcon from './PaloAltoIcon.svelte'
+import SplunkIcon from './SplunkIcon.svelte'
+import TufinIcon from './TufinIcon.svelte'
+import ZabbixIcon from './ZabbixIcon.svelte'
+import EricssonIcon from './EricssonIcon.svelte'
 import type { Component } from 'svelte'
 /**
  * ./triggers/ holds desaturated variants of some marks in this folder, used by the four
@@ -362,7 +374,8 @@ export const APP_TO_ICON_COMPONENT = {
 	gsheets: GSheetsIcon,
 	gitlab: GitlabIcon,
 	// `gcloud` and `gcp_service_account` are both Google Cloud, so both resolve to the
-	// official four-colour mark.
+	// official four-colour mark. `google_service_account` also serves Workspace APIs,
+	// so it takes the G mark like `gworkspace`.
 	gcloud: GoogleCloudIcon,
 	gcal: GcalIcon,
 	gdrive: GdriveIcon,
@@ -461,6 +474,7 @@ export const APP_TO_ICON_COMPONENT = {
 	ipinfo: IpinfoIcon,
 	gworkspace: GoogleIcon,
 	gcp_service_account: GoogleCloudIcon,
+	google_service_account: GoogleIcon,
 	cacertificate: CaCertificate,
 	currencyapi: CurrencyApiIcon,
 	visma: VismaIcon,
@@ -609,6 +623,7 @@ export const APP_TO_ICON_COMPONENT = {
 	kustomer: KustomerIcon,
 	netbox: NetBoxIcon,
 	arista_eos: AristaIcon,
+	vmware_vsphere: VmwareIcon,
 	abstractapi: AbstractApiIcon,
 	acumbamail: AcumbamailIcon,
 	chromadb: ChromaIcon,
@@ -689,6 +704,20 @@ export const APP_TO_ICON_COMPONENT = {
 	localcontexts: LocalContextsIcon,
 	weatherapi: WeatherApiIcon,
 	webscrapingai: WebScrapingAiIcon,
+	aruba_central_onprem: ArubaIcon,
+	aruba_instant: ArubaIcon,
+	awx: AnsibleIcon,
+	f5_bigip: F5Icon,
+	fortimanager: FortinetIcon,
+	fortigate: FortinetIcon,
+	infoblox: InfobloxIcon,
+	ip_fabric: IpFabricIcon,
+	netskope: NetskopeIcon,
+	palo_alto: PaloAltoIcon,
+	splunk: SplunkIcon,
+	tufin: TufinIcon,
+	zabbix: ZabbixIcon,
+	ericsson_ep5g: EricssonIcon,
 	oauth_client_credentials: OauthIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
 
@@ -932,6 +961,7 @@ export {
 	KustomerIcon,
 	NetBoxIcon,
 	AristaIcon,
+	VmwareIcon,
 	AbstractApiIcon,
 	AcumbamailIcon,
 	ChromaIcon,
@@ -1011,5 +1041,16 @@ export {
 	DbtIcon,
 	ShutterstockIcon,
 	TaskadeIcon,
+	ArubaIcon,
+	F5Icon,
+	FortinetIcon,
+	InfobloxIcon,
+	IpFabricIcon,
+	NetskopeIcon,
+	PaloAltoIcon,
+	SplunkIcon,
+	TufinIcon,
+	ZabbixIcon,
+	EricssonIcon,
 	OauthIcon
 }

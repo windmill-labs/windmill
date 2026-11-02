@@ -105,7 +105,7 @@ test("fetchPathRunnableSchemas pulls schema for a path-based script and feeds wm
     expect(ts).toContain("userId");
     expect(ts).toContain("includeProfile");
     expect(ts).toMatch(/fetchUser:\s*\(args:\s*\{[^}]*userId/);
-    expect(ts).not.toMatch(/fetchUser:\s*\(args:\s*\{\s*\}\)/);
+    expect(ts).not.toMatch(/fetchUser:\s*\(args:\s*\{\s*\}[,)]/);
 
     // Sanity: the generated d.ts is syntactically what the dev server writes
     const outPath = path.join(tempDir, "wmill.d.ts.out");

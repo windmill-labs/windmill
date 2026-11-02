@@ -224,7 +224,8 @@ describe('processToolCall', () => {
 				{ path: 'f/other/AGENTS', scope: 'f/other/' },
 				{ path: 'g/ops/AGENTS', scope: 'g/ops/' }
 			],
-			deliveredBy: new Map<string, { workspace: string; paths: readonly string[] }>()
+			deliveredBy: new Map<string, { workspace: string; paths: readonly string[] }>(),
+			inPrompt: undefined as (() => string[]) | undefined
 		}
 		const messages: any[] = []
 		const call = async (
@@ -307,6 +308,59 @@ describe('processToolCall', () => {
 		messages.push({ role: 'tool', tool_call_id: 'stopped', content: 'Interrupted' })
 		turn()
 		expect(await call('c7', 'read_item', 'f/billing/y')).toContain('body of f/billing/AGENTS')
+
+		// The scoped folder's instructions are in the system prompt: never delivered on touch.
+		messages.splice(0)
+		turn()
+		folderInstructions.inPrompt = () => ['f/other/AGENTS']
+		expect(await call('p1', 'write_item', 'f/other/x')).toBe('write ok')
+	})
+
+	it('stops a change outside the scope on the user, whatever YOLO says, and never a run', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const { WorkingScope, scopeAllowedNote, scopeStoppedResult } = await import('./workingScope')
+		const write = vi.fn(async () => 'write ok')
+		const run = vi.fn(async () => 'run ok')
+		const tools = [
+			{ def: createToolDef(z.object({}), 'write_item', 'Write'), fn: write },
+			{ def: createToolDef(z.object({}), 'run_script', 'Run'), fn: run }
+		]
+		let decision: 'once' | 'add' | undefined = undefined
+		const requestDecision = vi.fn(async () => decision)
+		const add = vi.fn()
+		const scope = new WorkingScope(['f/crm'], { username: 'alice', folders: ['analytics'] })
+		const call = (path: string, name = 'write_item') =>
+			processToolCall({
+				tools,
+				toolCall: {
+					id: `${name}:${path}`,
+					type: 'function',
+					function: { name, arguments: JSON.stringify({ path }) }
+				},
+				helpers: {},
+				workspace: 'test-workspace',
+				toolCallbacks: {
+					setToolStatus: vi.fn(),
+					removeToolStatus: vi.fn(),
+					shouldAutoAcceptToolConfirmations: () => true,
+					workingScope: { scope: () => scope, requestDecision, add, recordWrite: vi.fn() }
+				}
+			}).then((m) => m.content)
+
+		expect(await call('f/crm/x')).toBe('write ok')
+		expect(await call('f/analytics/x', 'run_script')).toBe('run ok')
+		expect(requestDecision).not.toHaveBeenCalled()
+
+		expect(await call('f/analytics/x')).toBe(scopeStoppedResult('f/analytics/x', 'f/crm'))
+		expect(write).toHaveBeenCalledTimes(1)
+
+		decision = 'once'
+		expect(await call('f/analytics/y')).toBe(
+			`write ok\n\n${scopeAllowedNote('f/analytics/y', 'f/analytics', 'f/crm', 'once')}`
+		)
+		decision = 'add'
+		await call('f/analytics/z')
+		expect(add).toHaveBeenCalledWith('f/analytics')
 	})
 
 	it('returns pre-confirmation validation errors without asking for confirmation', async () => {

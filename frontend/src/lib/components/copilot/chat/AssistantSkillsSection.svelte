@@ -25,11 +25,13 @@ and the actions that create, edit, import and delete them.
 	import { sendUserToast } from '$lib/toast'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { tick, untrack } from 'svelte'
+	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import {
 		ArrowLeft,
 		BookOpen,
 		ChevronDown,
 		ChevronRight,
+		ExternalLink,
 		Eye,
 		Folder,
 		FolderTree,
@@ -43,8 +45,8 @@ and the actions that create, edit, import and delete them.
 	import { useListHighlight } from '$lib/components/common/listRow/listHighlight.svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { forgetSkill, isSkillEnabled, setSkillEnabled } from './skills/enabledSkills'
+	import { ownerRoot } from './workingScope'
 	import {
-		ambiguousSkillNames,
 		deleteSkillResource,
 		listSkillResources,
 		readSkillBody,
@@ -61,9 +63,9 @@ and the actions that create, edit, import and delete them.
 	import {
 		buildSkillTree,
 		countSkills,
+		foldedByDefault,
 		folderKey,
 		nodeSkills,
-		skillFolderPaths,
 		skillKey,
 		visibleEntries,
 		type SkillTreeEntry,
@@ -73,11 +75,14 @@ and the actions that create, edit, import and delete them.
 	let {
 		ws,
 		active,
+		focusRoot,
 		count = $bindable(),
 		blocksClose = $bindable()
 	}: {
 		/** The workspace the chat operates on, which is not always the one on screen. */
 		ws: string
+		/** The folder (`f/x` or `u/x`) the modal was opened on: the only top-level one open. */
+		focusRoot?: string
 		/** Whether this is the panel on screen. Gates the editor page's build: it is
 		 * worth paying for once someone is looking at skills, not on every open of a
 		 * modal whose other three sections have nothing to do with them. */
@@ -90,6 +95,17 @@ and the actions that create, edit, import and delete them.
 	} = $props()
 
 	const aiChatManager = getAiChatManager()
+
+	// While the session works in some folders, a skill saved in another one stays switched on here,
+	// as it is the user's own preference, but is off for the assistant, and the row says so. One
+	// saved in the folder itself is badged as coming from it.
+	function scopeNote(path: string): { off: boolean; root: string } | undefined {
+		const scope = aiChatManager.workingScope
+		if (!scope?.roots) return undefined
+		if (!scope.loadsSkill(path)) return { off: true, root: scope.label }
+		const root = ownerRoot(path)
+		return root && scope.roots.includes(root) ? { off: false, root } : undefined
+	}
 
 	// A session whose fork is still staged has no workspace of its own yet, so `ws`
 	// resolves to the PARENT. Authoring here would then edit the live parent, and a
@@ -178,25 +194,30 @@ What the assistant should do when this skill applies.
 	let pendingSkipped: string[] = $state([])
 	let overwriteChoices: Record<string, boolean> = $state({})
 
-	let ambiguous = $derived(ambiguousSkillNames(skills))
-	// Skills in one folder are a list; spread over several, the folder is what tells
-	// two of them apart, so they are grouped under it instead.
-	let grouped = $derived(skillFolderPaths(skills).size > 1)
 	let tree = $derived(buildSkillTree(skills))
-	/** Folders the user closed, keyed by full prefix. Everything opens expanded: the
-	 * point of this list is seeing what the assistant carries. */
+	/** Folders the user closed or opened, keyed by full prefix. Everything opens expanded
+	 * unless a folder is focused: the point of this list is seeing what the assistant carries. */
 	let collapsed = $state<Record<string, boolean>>({})
+	const isFolded = (path: string) => collapsed[path] ?? foldedByDefault(path, focusRoot)
+
+	/** Back on the list with the folds reset, for `focusRoot` to decide them. An editor
+	 * holding unsaved text stays open, as it does when the section is parked. */
+	export function showFolder() {
+		if (!contentChanged && !pathChanged) editorOpen = false
+		collapsed = {}
+		pulse++
+	}
+	/** Replays the focused folder's flash, so the eye finds it in the list. A reload remounts
+	 * the rows, so the flash already played is remembered rather than replayed. */
+	let pulse = $state(0)
+	let played = $state(0)
+	const reducedMotion = useReducedMotion()
 	/** The list top to bottom as it stands, for the keyboard to walk. Empty whenever
 	 * the rows are not the thing on screen — a reload after a save or a delete shows
 	 * the loading line, and a failed one shows the error, both over the rows this
-	 * would otherwise still walk. Flat mode has no folders, so the same keys drive
-	 * both layouts. */
+	 * would otherwise still walk. */
 	let entries: SkillTreeEntry<Row>[] = $derived(
-		loading || loadError !== undefined
-			? []
-			: grouped
-				? visibleEntries(tree, (path) => collapsed[path] === true)
-				: skills.map((skill) => ({ kind: 'skill', key: skillKey(skill.path), skill }))
+		loading || loadError !== undefined ? [] : visibleEntries(tree, isFolded)
 	)
 	/** Where each entry sits in the walk, so a row rendered deep in the tree can say
 	 * whether it is the highlighted one. */
@@ -221,7 +242,7 @@ What the assistant should do when this skill applies.
 			const entry = entries[index]
 			if (entry === undefined) return
 			if (entry.kind === 'skill') openSkill(entry.skill)
-			else fold(entry.key, entry.node.path, !collapsed[entry.node.path])
+			else fold(entry.key, entry.node.path, !isFolded(entry.node.path))
 		}
 		// No `activateEnterFrom`: Enter is answered by `onListKeydown`, which does not
 		// depend on where focus happens to be.
@@ -397,7 +418,7 @@ What the assistant should do when this skill applies.
 		} else if (event.key === 'Enter') {
 			answer()
 			if (current.kind === 'skill') openSkill(current.skill)
-			else fold(current.key, current.node.path, !collapsed[current.node.path])
+			else fold(current.key, current.node.path, !isFolded(current.node.path))
 		} else if (event.key === 'ArrowRight') {
 			answer()
 			if (current.kind === 'skill') {
@@ -405,14 +426,14 @@ What the assistant should do when this skill applies.
 				// `PagedContent`, which steps to the editor page — showing whichever skill
 				// it was last parked on, not this one.
 				openSkill(current.skill)
-			} else if (collapsed[current.node.path]) {
+			} else if (isFolded(current.node.path)) {
 				fold(current.key, current.node.path, false)
 			} else {
 				// Into what opening it revealed: the next row down is its first child.
 				highlight.move(1)
 			}
 		} else if (event.key === 'ArrowLeft') {
-			if (current.kind === 'folder' && !collapsed[current.node.path]) {
+			if (current.kind === 'folder' && !isFolded(current.node.path)) {
 				answer()
 				fold(current.key, current.node.path, true)
 			} else if (current.parentKey !== undefined) {
@@ -865,7 +886,7 @@ What the assistant should do when this skill applies.
 	>
 		<Section
 			label="Skills"
-			description="Reusable instruction sets the assistant loads when they apply. Every skill in the workspace is on; turning one off is personal to you and to this workspace."
+			description="Reusable instruction sets the assistant loads when they apply. Every skill in the workspace is on, except those saved in other folders while the session works in one; turning one off is personal to you and to this workspace."
 		>
 			{#snippet action()}
 				<div class="flex items-center gap-2 shrink-0">
@@ -934,15 +955,9 @@ What the assistant should do when this skill applies.
 				/>
 			{:else}
 				<div class="flex flex-col gap-0.5">
-					{#if grouped}
-						{#each tree as node (node.path)}
-							{@render folder(node, true)}
-						{/each}
-					{:else}
-						{#each skills as skill (skill.path)}
-							{@render row(skill)}
-						{/each}
-					{/if}
+					{#each tree as node (node.path)}
+						{@render folder(node, true)}
+					{/each}
 				</div>
 			{/if}
 		</Section>
@@ -957,12 +972,19 @@ What the assistant should do when this skill applies.
 	{/snippet}
 	{#snippet title()}
 		<span class="truncate leading-5">
-			<!-- Grouped, the folder above the row is what tells two skills of the same
-			     name apart; flat, the path has to do it. -->
-			{!grouped && ambiguous.has(skill.name) ? skill.path : skill.name}
+			<!-- The folder above the row is what tells two skills of the same name apart. -->
+			{skill.name}
 		</span>
 	{/snippet}
-	{#snippet subtitle()}{skill.description}{/snippet}
+	{@const note = scopeNote(skill.path)}
+	{#snippet subtitle()}
+		{#if note?.off}
+			<span class="text-hint">Off while working in {note.root}.</span>
+		{:else if note}
+			<span class="text-accent">From {note.root}, where this session works.</span>
+		{/if}
+		{skill.description}
+	{/snippet}
 	{#snippet trailing()}
 		<Toggle
 			size="xs"
@@ -998,15 +1020,30 @@ What the assistant should do when this skill applies.
 		id={entryDomId(skillKey(skill.path))}
 		highlighted={entryIndexByKey.get(skillKey(skill.path)) === highlight.index}
 		onMouseEnter={() => highlight.hovered(entryIndexByKey.get(skillKey(skill.path)) ?? -1)}
-		subtitle={skill.description ? subtitle : undefined}
+		subtitle={skill.description || note ? subtitle : undefined}
 		onClick={() => openSkill(skill)}
 	/>
+{/snippet}
+
+{#snippet focusPulse(focused: boolean)}
+	<!-- `opacity-0` at rest: the keyframes carry no fill mode, so the overlay would come back
+	     at full strength once the animation ends. -->
+	{#if focused && pulse !== played && !reducedMotion.val}
+		{#key pulse}
+			<span
+				aria-hidden="true"
+				onanimationend={() => (played = pulse)}
+				class="pointer-events-none absolute inset-0 rounded-lg ring-2 ring-inset ring-blue-500/60 bg-blue-500/10 opacity-0 animate-fade-out"
+			></span>
+		{/key}
+	{/if}
 {/snippet}
 
 <!-- One folder and everything under it. Recursive: a path may name folders below
      the `u/x` or `f/x` root it starts from. -->
 {#snippet folder(node: SkillTreeNode<Row>, root: boolean)}
-	<div>
+	<div class="relative">
+		{@render focusPulse(root && node.path === focusRoot)}
 		<!-- The switch sits beside the header button rather than inside it: a switch
 		     nested in a button would fold the folder on every flip. `pr-14` clears the
 		     row menu column, so a folder's switch stands in the same column as the
@@ -1024,10 +1061,10 @@ What the assistant should do when this skill applies.
 			<button
 				type="button"
 				class="grow min-w-0 flex items-center gap-2 px-2 py-2 text-left"
-				aria-expanded={!collapsed[node.path]}
-				onclick={() => fold(folderKey(node.path), node.path, !collapsed[node.path])}
+				aria-expanded={!isFolded(node.path)}
+				onclick={() => fold(folderKey(node.path), node.path, !isFolded(node.path))}
 			>
-				{#if collapsed[node.path]}
+				{#if isFolded(node.path)}
 					<ChevronRight size={14} class="text-tertiary shrink-0" />
 				{:else}
 					<ChevronDown size={14} class="text-tertiary shrink-0" />
@@ -1051,7 +1088,7 @@ What the assistant should do when this skill applies.
 				on:change={async (e) => await toggleFolder(node, e.detail)}
 			/>
 		</div>
-		{#if !collapsed[node.path]}
+		{#if !isFolded(node.path)}
 			<div class="pl-4 flex flex-col gap-0.5">
 				{#each node.children as child (child.path)}
 					{@render folder(child, false)}
@@ -1083,10 +1120,10 @@ What the assistant should do when this skill applies.
 				Skills
 			</Button>
 		</div>
-		<!-- `headerClass` keeps a long skill name on one line: the View/Edit group shares
+		<!-- `headerClass` keeps a long skill path on one line: the View/Edit group shares
 	     the header row and would otherwise wrap the title under itself. -->
 		<Section
-			label={editing ? editing.name : 'New skill'}
+			label={editing ? editing.path : 'New skill'}
 			wrapperClass="mt-1"
 			headerClass="min-w-0 truncate pr-2"
 		>
@@ -1184,6 +1221,20 @@ What the assistant should do when this skill applies.
 						</div>
 					</div>
 				</div>
+				{#if editing}
+					<div class="flex items-center gap-1 text-xs text-secondary">
+						Stored as an <code>ai_skill</code> resource.
+						<Button
+							href="/resources?path={encodeURIComponent(editing.path)}&workspace={ws}"
+							target="_blank"
+							variant="subtle"
+							unifiedSize="xs"
+							endIcon={{ icon: ExternalLink }}
+						>
+							Open in Resources
+						</Button>
+					</div>
+				{/if}
 			</div>
 		</Section>
 	</div>

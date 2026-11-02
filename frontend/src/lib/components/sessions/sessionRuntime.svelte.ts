@@ -53,7 +53,9 @@ import {
 	commitSessionWorkspace,
 	deleteSession as deleteSessionState,
 	getEffectiveWorkspaceId,
+	markSessionStateChanged,
 	materializeTransient,
+	noteRemoteStateChange,
 	sessionState,
 	setGeneratedSessionSummary,
 	setSessionChatId,
@@ -61,7 +63,9 @@ import {
 	setSessionPreviewSize,
 	setSessionTabs,
 	setDraftsDiscardedHandler,
+	setSendUnderWayCheck,
 	setSessionWorkMode,
+	setSessionWorkingIn,
 	type Session
 } from './sessionState.svelte'
 import {
@@ -84,7 +88,8 @@ import {
 	resolvePreviewTab,
 	pendingRunIdOf,
 	slotShowsPage,
-	type PreviewSlot
+	type PreviewSlot,
+	type PreviewTarget
 } from './previewRouter'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
@@ -165,6 +170,7 @@ export interface RawAppRuntimeValue {
 	summary: string
 	path: string
 	custom_path?: string
+	labels?: string[]
 	draft_path?: string
 	/** The app_version this cell's content forked from, carried so the editor's deploy
 	 *  guard and diff drawer compare the same pair the full-page editor does. */
@@ -436,12 +442,20 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.sessionId = session.id
 	manager.workMode = session.workMode ?? AIWorkMode.BUILD
 	manager.onWorkModeChanged = (mode) => setSessionWorkMode(session.id, mode)
+	manager.workingInResolver = () => {
+		const s = sessionState.sessions.find((x) => x.id === session.id)
+		// Read from the browser's store, so only a list counts.
+		const roots = Array.isArray(s?.workingIn) ? s.workingIn : undefined
+		return { roots, source: roots ? (s?.workingInSource ?? 'default') : 'default' }
+	}
+	manager.onWorkingInChanged = (roots, source) => setSessionWorkingIn(session.id, roots, source)
 	// Cross-tab awareness: heartbeat while this tab runs a turn, composer lock
 	// (and send refusal) while another tab does. The chat id is read at turn
 	// end, not captured at start — the turn may have rotated it, and the other
 	// tabs re-read whichever record it ended on.
 	manager.runHeldElsewhereResolver = () => runHeldElsewhere(session.id)
 	manager.onRunningChanged = (running) => {
+		markSessionStateChanged(session.id)
 		if (running) localRunStarted(session.id, manager.historyManager.getCurrentChatId())
 		else localRunEnded(session.id, manager.historyManager.getCurrentChatId())
 	}
@@ -484,9 +498,18 @@ function createRuntime(session: Session): SessionRuntime {
 		// to resolve "this page" and "it" against this block, and a collapsed panel would
 		// point those at a page the user cannot see.
 		const tab = owner?.displayedTab
-		if (!tab) return undefined
+		if (!tab || tab.agentEditor) return undefined
 		if (!slotShowsPage(resolvePreviewTab(tab.url).kind)) return undefined
 		return previewLocationContext(whereIs(tab))
+	}
+	// An agent's editor is a resource tab rather than one of the live editors the draft registry
+	// reports, so the tab model says when one is on screen.
+	manager.activeEditorResolver = () => {
+		const tab = getRuntime(session.id)?.previewTabs?.displayedTab
+		if (!tab?.agentEditor) return undefined
+		const slot = resolvePreviewTab(tab.url)
+		if (slot.kind !== 'pageitem') return undefined
+		return { type: 'agent', path: slot.ref.path, storagePath: slot.ref.path, isLiveDraft: true }
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit
 	// the workspace (creating a staged fork if needed) before any send.
@@ -652,16 +675,28 @@ function createRuntime(session: Session): SessionRuntime {
 		carries,
 		onlyIfAlreadyOpen
 	}) => {
-		// Through the shared adapter: a session target spells a code-based app `raw_app` and a
-		// workspace item spells it `app` with a flag, and one place should know that.
-		const target = previewTargetForSessionTarget(kind, path)
-		if (target?.type !== 'item') return false
-		const viewTarget = {
-			...target,
-			item: { ...target.item, summary },
-			mode: 'view' as const,
-			pendingRunId: carries ? toolCallId : undefined
-		}
+		// An agent's deployed page is a page route, which the panel hosts in process; the call
+		// rides in its query, as an item viewer's does.
+		const viewTarget: PreviewTarget | undefined =
+			kind === 'agent'
+				? {
+						type: 'page',
+						href: `/agents/get/${path}${carries ? `?pending_run=${encodeURIComponent(toolCallId)}` : ''}`,
+						label: summary
+					}
+				: (() => {
+						// Through the shared adapter: a session target spells a code-based app `raw_app`
+						// and a workspace item spells it `app` with a flag, and one place should know that.
+						const target = previewTargetForSessionTarget(kind, path)
+						if (target?.type !== 'item') return undefined
+						return {
+							...target,
+							item: { ...target.item, summary },
+							mode: 'view' as const,
+							pendingRunId: carries ? toolCallId : undefined
+						}
+					})()
+		if (!viewTarget) return false
 		// Re-pointed rather than focused: the url is what hands the tab the call, and
 		// rebuilding it also drops whatever version the reader had pinned.
 		const open = previewTabs.tabs.find((t) => {
@@ -1135,6 +1170,7 @@ function createRuntime(session: Session): SessionRuntime {
 					summary: draftValue?.summary ?? result.summary ?? '',
 					path: result.path,
 					custom_path: draftValue?.custom_path ?? result.custom_path,
+					labels: draftValue?.labels ?? result.labels,
 					draft_path: draftValue?.draft_path,
 					// Only a fresh checkout forks from the head; a draft keeps its own base,
 					// unknown included, or it would read as up to date. See loadScript.
@@ -1167,9 +1203,8 @@ function createRuntime(session: Session): SessionRuntime {
 						files: { ...(builder ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template) },
 						runnables: builder ? {} : structuredClone(STARTER_RUNNABLES),
 						data: { ...DEFAULT_DATA },
+						// No run-as user: the deploy dialog resolves it, the folder's default first.
 						policy: {
-							on_behalf_of: user?.username.includes('@') ? user.username : `u/${user?.username}`,
-							on_behalf_of_email: user?.email,
 							execution_mode: 'publisher',
 							sandbox: true
 						},
@@ -1404,6 +1439,7 @@ export function getRuntime(sessionId: string): SessionRuntime | undefined {
 const catchUps = new Map<string, Promise<void>>()
 
 onRemoteTurnEnd((sessionId, chatId) => {
+	noteRemoteStateChange(sessionId)
 	const next = (catchUps.get(sessionId) ?? Promise.resolve())
 		.then(() => applyRemoteTurnEnd(sessionId, chatId))
 		.catch((e) => console.error('Failed to catch up on a turn from another tab', e))
@@ -1472,6 +1508,9 @@ export function resetSessionPreviewTabs(sessionId: string, seedUrl: string): voi
 	const rt = runtimes.get(sessionId)
 	if (rt) {
 		rt.previewTabs.reset(tabs, 'session')
+		// Written to the record now, not after the owner's debounce: the sessions page judges
+		// the arrival by the record's tabs, and a draft without any opens on Home instead.
+		rt.previewTabs.flushNow()
 	} else {
 		setSessionTabs(sessionId, tabs, 'session')
 		setSessionPreviewCollapsed(sessionId, false)
@@ -1498,6 +1537,10 @@ export function removeSession(sessionId: string): void {
 }
 
 setDraftsDiscardedHandler((ids) => ids.forEach(disposeRuntime))
+setSendUnderWayCheck((id) => {
+	const m = runtimes.get(id)?.manager
+	return !!m && (m.loading || m.sendInFlight || m.sendPending)
+})
 
 // The chat calls a new item by its chosen name while its draft is stored at
 // `draft_<uuid>`; resolve the name the way the chat's write tools do.
@@ -1525,6 +1568,19 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path, mode }) =
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	if (!session) {
 		return 'Error: no active session to open the preview in.'
+	}
+	// An agent's editor is its resource tab, and its deployed page the agent's own.
+	if (kind === 'agent') {
+		const view = mode === 'view'
+		const result = getOrCreateRuntime(session).previewTabs.open(
+			view
+				? { type: 'page', href: `/agents/get/${path}`, label: path }
+				: { type: 'pageitem', ref: { kind: 'resource', path } }
+		)
+		const side = view ? 'deployed page' : 'editor'
+		return result.status === 'focused'
+			? `A preview tab is already showing the ${side} of agent "${path}" — focused it.`
+			: `Opened the ${side} of agent "${path}" in a new tab in the side panel.`
 	}
 	const target = previewTargetForSessionTarget(
 		kind,

@@ -90,6 +90,9 @@ pub struct ApiAuthed {
     /// this, since the JWT's expiry is a guest's only revocation and there is no row to
     /// look the limit up in. `None` for every credential whose limit lives in `token`.
     pub credential_expiry: Option<chrono::DateTime<chrono::Utc>>,
+    /// The OAuth client of an external issuer acting for this user (`mcp_external_idp`).
+    /// Recorded on the runs it starts and handed to their steps as `WM_MCP_CLIENT`.
+    pub mcp_client: Option<String>,
 }
 
 impl ApiAuthed {
@@ -157,6 +160,7 @@ impl From<ApiAuthed> for Authed {
             folders: value.folders,
             scopes: value.scopes,
             token_prefix: value.token_prefix,
+            mcp_client: value.mcp_client,
         }
     }
 }
@@ -178,6 +182,7 @@ impl From<Authed> for ApiAuthed {
             read_only: false,
             job_id: None,
             credential_expiry: None,
+            mcp_client: value.mcp_client,
         }
     }
 }
@@ -591,7 +596,9 @@ pub fn ensure_scopes_within_caller(
 
         for requested in requested_restrictions {
             if requested.starts_with("mcp:") {
-                if !caller_mcp.contains(requested.as_str()) {
+                // `mcp:session` (windmill_mcp's SESSION_SCOPE) grants nothing: it only picks
+                // the toolset an `mcp:all` token gets, and `mcp:all` is matched here itself.
+                if requested != "mcp:session" && !caller_mcp.contains(requested.as_str()) {
                     return Err(Error::PermissionDenied(format!(
                         "A scope-restricted token cannot grant MCP scope '{requested}' unless the \
                          caller holds the same scope verbatim"
@@ -1097,6 +1104,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 read_only: false,
                 job_id: None,
                 credential_expiry: None,
+                mcp_client: None,
             };
 
             API_AUTHED_CACHE.insert(
@@ -1964,6 +1972,11 @@ mod tests {
             opt_scopes(Some(vec!["mcp:scripts:*"])).as_deref()
         )
         .is_err());
+        assert!(ensure_scopes_within_caller(
+            &mcp_all,
+            opt_scopes(Some(vec!["mcp:all", "mcp:session"])).as_deref()
+        )
+        .is_ok());
     }
 
     #[test]

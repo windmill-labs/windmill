@@ -21,7 +21,8 @@
 		onItemDeployed,
 		onItemDiscarded,
 		deployPipeline,
-		readOnly = false
+		readOnly = false,
+		agentPaths
 	}: {
 		workspaceId: string
 		parentWorkspaceId?: string
@@ -42,6 +43,8 @@
 		deployPipeline?: (folder: string) => Promise<DeployResult>
 		/** Forwarded to the deploy model: the session is in Use. */
 		readOnly?: boolean
+		/** Resource rows that are agents, which get the agent's icon and editor. */
+		agentPaths?: Set<string>
 	} = $props()
 
 	const isFork = $derived(!!parentWorkspaceId)
@@ -70,8 +73,12 @@
 		if (item.deployKind === 'script') return `/scripts/edit/${path}?workspace=${ws}`
 		if (item.deployKind === 'app') return `/apps/edit/${path}?workspace=${ws}`
 		if (item.deployKind === 'raw_app') return `/apps_raw/edit/${path}?workspace=${ws}`
+		if (isAgent(item)) return `/agents/edit/${path}?workspace=${ws}`
 		return undefined
 	}
+
+	const isAgent = (item: DeployItem) =>
+		item.deployKind === 'resource' && (agentPaths?.has(item.path) ?? false)
 
 	const title = 'Edited during session'
 
@@ -92,8 +99,10 @@
 	{model}
 	{title}
 	{editUrlFor}
+	iconKindFor={(item) => (isAgent(item) ? 'agent' : undefined)}
 	{compareSessionHref}
 	workspaceLabel={ws?.name ?? workspaceId}
+	reviewWorkspaceId={workspaceId}
 >
 	{#snippet titleExtra()}
 		<div class="flex items-center gap-1.5 text-xs text-secondary min-w-0">

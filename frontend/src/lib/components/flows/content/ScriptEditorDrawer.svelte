@@ -6,7 +6,7 @@
 	import { ScriptService, type Preview, type Script } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { Loader2, Save, DiffIcon, Settings } from 'lucide-svelte'
-	import ScriptAdvancedSettings from '$lib/components/ScriptAdvancedSettings.svelte'
+	import ScriptRuntimeSettings from '$lib/components/itemSettings/ScriptRuntimeSettings.svelte'
 	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import {
@@ -348,17 +348,17 @@
 />
 
 <Drawer bind:this={settingsDrawer} size="600px">
-	<DrawerContent title="Script settings" on:close={() => settingsDrawer?.closeDrawer()}>
+	<DrawerContent title="Runtime settings" on:close={() => settingsDrawer?.closeDrawer()}>
 		{#if script}
 			<div class="flex flex-col gap-4">
 				<p class="text-xs text-secondary">
 					These runtime settings are saved together with the script when you press Save.
 				</p>
-				<ScriptAdvancedSettings {script} workspaceId={opWs} />
+				<ScriptRuntimeSettings {script} workspaceId={opWs} />
 			</div>
 		{/if}
 		{#snippet actions()}
-			<Button variant="border" on:click={() => settingsDrawer?.closeDrawer()}>Done</Button>
+			<Button variant="default" on:click={() => settingsDrawer?.closeDrawer()}>Done</Button>
 		{/snippet}
 	</DrawerContent>
 </Drawer>

@@ -9,7 +9,7 @@
 use crate::db::{Authable, UserDB};
 use crate::error::{self, Error};
 use crate::scripts::ScriptHash;
-use crate::secret_backend::{get_secret_value, is_external_stored_value};
+use crate::secret_backend::{get_secret_value, resolves_externally};
 use crate::utils::{strip_json_nul, WarnAfterExt};
 use crate::worker::{to_raw_value, Connection};
 use crate::workspace_crypt::CipherFormat;
@@ -260,6 +260,7 @@ pub struct ListableVariable {
     pub refresh_error: Option<String>,
     pub is_linked: Option<bool>,
     pub expires_at: Option<chrono::DateTime<Utc>>,
+    pub value_valid_until: Option<chrono::DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
     /// Labels inherited from the parent folder, computed at read time.
@@ -302,6 +303,8 @@ pub struct ExportableListableVariable {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<chrono::DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub value_valid_until: Option<chrono::DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
 }
 
@@ -317,7 +320,11 @@ pub struct CreateVariable {
     pub description: String,
     pub account: Option<i32>,
     pub is_oauth: Option<bool>,
+    /// When the row itself is garbage-collected.
     pub expires_at: Option<chrono::DateTime<Utc>>,
+    /// When the value stops working. Drives the workspace's variable expiration handler;
+    /// never deletes the row.
+    pub value_valid_until: Option<chrono::DateTime<Utc>>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
     #[serde(default)]
@@ -483,7 +490,7 @@ pub async fn decrypt_secret_value(
 ) -> crate::error::Result<String> {
     if value.is_empty() {
         Ok(value)
-    } else if is_external_stored_value(&value) {
+    } else if resolves_externally(&value) {
         get_secret_value(db, w_id, path, &value).await
     } else {
         let mc = build_crypt(db, w_id).await?;
@@ -680,7 +687,7 @@ async fn upgrade_workspace_secret_variables(db: &DB, w_id: &str) -> error::Resul
         .await?;
         let last_page = (rows.len() as i64) < LEGACY_SECRET_UPGRADE_BATCH;
         for (path, value) in rows {
-            if value.is_empty() || is_external_stored_value(&value) || mc.is_v2(&value) {
+            if value.is_empty() || resolves_externally(&value) || mc.is_v2(&value) {
                 after = path;
                 continue;
             }
@@ -1022,7 +1029,7 @@ pub async fn get_variable_or_self(
     if let Some(record) = record {
         let mut value = record.value;
         if record.is_secret {
-            if is_external_stored_value(&value) {
+            if resolves_externally(&value) {
                 value = get_secret_value(db, w_id, &path, &value).await?;
             } else {
                 let mc = build_crypt(db, w_id).await?;
@@ -1071,7 +1078,7 @@ pub async fn get_variable_or_self_as<T: Authable + Sync>(
     if let Some(record) = record {
         let mut value = record.value;
         if record.is_secret {
-            if is_external_stored_value(&value) {
+            if resolves_externally(&value) {
                 value = get_secret_value(db, w_id, &var_path, &value).await?;
             } else {
                 let mc = build_crypt(db, w_id).await?;

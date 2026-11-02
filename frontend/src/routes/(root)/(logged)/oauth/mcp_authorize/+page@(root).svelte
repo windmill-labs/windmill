@@ -7,6 +7,7 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import McpAccessPicker, { type McpAccess } from '$lib/components/mcp/McpAccessPicker.svelte'
 	import { WorkspaceService } from '$lib/gen'
@@ -20,9 +21,16 @@
 	let clientName = page.url.searchParams.get('client_name') || 'Unknown Client'
 	let redirectUri = page.url.searchParams.get('redirect_uri') || ''
 	// What the client asked for seeds the access picker; what is approved is the picker's.
-	const requestedScopes = (page.url.searchParams.get('scope') || 'mcp:all')
+	const askedScopes = (page.url.searchParams.get('scope') || 'mcp:all')
 		.split(' ')
 		.filter((s) => s.startsWith('mcp:'))
+	// Both narrowings at once is a client requesting every scope it was offered, not a choice.
+	const requestedScopes =
+		askedScopes.includes('mcp:all') &&
+		askedScopes.includes('mcp:read_only') &&
+		askedScopes.includes('mcp:read_run')
+			? askedScopes.filter((s) => s !== 'mcp:read_only' && s !== 'mcp:read_run')
+			: askedScopes
 	let scopes = $state<string[]>([])
 	let access = $state<McpAccess>()
 	let oauthState = page.url.searchParams.get('state') || ''
@@ -54,10 +62,14 @@
 	let allWorkspaces = $state(false)
 	let loadingWorkspaces = $state(false)
 	const grantsWorkspace = $derived(!isGateway || allWorkspaces || pickedWorkspaces.length > 0)
-	// Selected scripts and flows are listed per workspace: across several, a path could be two.
-	const selectionNeedsOneWorkspace = $derived(
-		isGateway && access === 'selected' && (allWorkspaces || pickedWorkspaces.length !== 1)
-	)
+	// Selected scripts and flows are listed per workspace, so a selection keeps one of them.
+	function setAccess(next: McpAccess | undefined) {
+		access = next
+		if (next === 'selected') {
+			allWorkspaces = false
+			pickedWorkspaces = pickedWorkspaces.slice(0, 1)
+		}
+	}
 	// The workspace the scope picker browses scripts and flows in.
 	const scopeWorkspaceId = $derived(
 		isGateway ? (pickedWorkspaces[0] ?? (allWorkspaces ? workspaces[0]?.value : '')) : workspaceId
@@ -202,18 +214,30 @@
 
 			{#if isGateway}
 				<div class="mb-6 flex flex-col gap-2">
-					<p class="text-xs font-semibold text-emphasis">Workspaces it may work in:</p>
+					<p class="text-xs font-semibold text-emphasis">
+						{access === 'selected'
+							? 'Workspace of its scripts and flows:'
+							: 'Workspaces it may work in:'}
+					</p>
 					{#if loadingWorkspaces}
 						<p class="text-xs text-secondary">Loading workspaces...</p>
-					{:else if workspaces.length === 0}
-						<p class="text-xs text-secondary">No workspaces available.</p>
+					{:else if access === 'selected'}
+						<Select
+							items={workspaces}
+							bind:value={() => pickedWorkspaces[0], (v) => (pickedWorkspaces = v ? [v] : [])}
+							placeholder="Choose a workspace"
+						/>
 					{:else}
 						<Toggle
 							bind:checked={allWorkspaces}
 							options={{ right: 'All my workspaces, including ones I join later' }}
 							size="xs"
 						/>
-						{#if !allWorkspaces}
+						{#if workspaces.length === 0 && !allWorkspaces}
+							<p class="text-xs text-secondary">
+								You are not in any workspace yet. Turn this on to give it the ones you join later.
+							</p>
+						{:else if !allWorkspaces}
 							<MultiSelect
 								items={workspaces}
 								bind:value={pickedWorkspaces}
@@ -230,13 +254,8 @@
 					workspaceId={scopeWorkspaceId ?? ''}
 					initialScopes={requestedScopes}
 					bind:scopes
-					bind:access
+					bind:access={() => access, setAccess}
 				/>
-				{#if selectionNeedsOneWorkspace}
-					<p class="text-2xs text-secondary">
-						Selected scripts and flows come from one workspace: pick one.
-					</p>
-				{/if}
 			</div>
 
 			<div class="flex flex-row justify-around gap-x-4">
@@ -244,10 +263,7 @@
 				<Button
 					variant="accent"
 					size="lg"
-					disabled={loading ||
-						!grantsWorkspace ||
-						selectionNeedsOneWorkspace ||
-						scopes.length === 0}
+					disabled={loading || !grantsWorkspace || scopes.length === 0}
 					{loading}
 					onClick={onApprove}>Approve</Button
 				>

@@ -305,6 +305,7 @@ class ChatImpl implements Chat {
 
   async #followTurn(turn: Turn, isNew: boolean): Promise<void> {
     let nextTurn: RunningTurn | undefined
+    this.#set({ runningJobId: turn.jobId })
     try {
       const stopPolling = this.#state.history === 'server' ? this.#startPolling(turn) : () => {}
       let result: unknown
@@ -327,6 +328,7 @@ class ChatImpl implements Chat {
       this.#failTurn(turn, e)
     } finally {
       if (this.#turn === turn) this.#turn = undefined
+      if (this.#state.runningJobId === turn.jobId) this.#set({ runningJobId: undefined })
     }
     if (nextTurn) await this.resumeTurn(nextTurn)
   }

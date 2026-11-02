@@ -68,6 +68,7 @@ function normalizeAppDraftValue(value: AppDraftValue): AppDraftValue {
 		data: value.data ?? { ...DEFAULT_RAW_APP_DATA },
 		policy: value.policy === undefined ? undefined : clone(value.policy),
 		custom_path: value.custom_path,
+		labels: value.labels,
 		// Carry the fork-base version through the whitelist — it is dropped on every
 		// save otherwise, which would defeat the stale-draft check.
 		parent_version: value.parent_version,
@@ -239,6 +240,7 @@ function variableDraftToWorkspaceItem(path: string, draft: VariableDraftState): 
 			account: draft.account,
 			is_oauth: draft.is_oauth,
 			expires_at: draft.expires_at,
+			value_valid_until: draft.value_valid_until,
 			labels: draft.labels,
 			ws_specific: draft.wsSpecific
 		},

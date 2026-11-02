@@ -1842,6 +1842,14 @@ pub async fn process_completed_job(
                 .await;
             maybe_record_git_sync_pushed_head(db, &job_id, &workspace_id, result.get()).await;
             maybe_open_git_sync_deploy_pr(db, &job_id, &workspace_id, result.get()).await;
+            windmill_git_sync::post_git_pr_review_result(
+                db,
+                &job_id,
+                &workspace_id,
+                true,
+                result.get(),
+            )
+            .await;
         }
         // A CI test job just finished: advance any open "Windmill CI tests" PR check for
         // its workspace. Detached, since concluding a check calls GitHub and this loop
@@ -1953,6 +1961,8 @@ pub async fn process_completed_job(
         if job.kind == JobKind::DeploymentCallback {
             maybe_post_git_sync_check(db, &job.id, &job.workspace_id, false, result.get()).await;
             maybe_reconcile_git_sync_auto_pull(db, &job.id, &job.workspace_id, false, "").await;
+            windmill_git_sync::post_git_pr_review_result(db, &job.id, &job.workspace_id, false, "")
+                .await;
         }
         // A failed CI test job also settles its check; same detached advance as on success.
         #[cfg(all(feature = "enterprise", feature = "private"))]

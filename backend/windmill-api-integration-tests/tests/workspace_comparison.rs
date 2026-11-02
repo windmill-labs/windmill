@@ -2770,3 +2770,83 @@ async fn test_compare_secret_variables_by_value(db: Pool<Postgres>) -> anyhow::R
 
     Ok(())
 }
+
+/// `compare_two_variables` hand-lists its columns, so a forgotten one hides that difference
+/// from the fork diff, and it can never be promoted.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_variables_detects_value_valid_until(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let admin = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    sqlx::query!(
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description, value_valid_until)
+         VALUES ('test-workspace', 'u/admin/expiring', 'v', false, 'same', '2027-01-01T00:00:00Z')"
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = admin
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({ "id": "wm-fork-expiry", "name": "Expiry Fork" }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation failed: {}",
+        resp.status()
+    );
+
+    // Before the UPDATE below overwrites it: the fork must inherit the date from the source.
+    let inherited: Option<String> = sqlx::query_scalar(
+        "SELECT to_char(value_valid_until, 'YYYY-MM-DD') FROM variable
+         WHERE workspace_id = 'wm-fork-expiry' AND path = 'u/admin/expiring'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(inherited.as_deref(), Some("2027-01-01"));
+
+    // Only the expiry differs.
+    sqlx::query!(
+        "UPDATE variable SET value_valid_until = '2029-12-31T00:00:00Z'
+         WHERE workspace_id = 'wm-fork-expiry' AND path = 'u/admin/expiring'"
+    )
+    .execute(&db)
+    .await?;
+
+    // Forces the endpoint to re-evaluate the pair rather than trust a cached verdict.
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
+         VALUES ('test-workspace', 'wm-fork-expiry', 'u/admin/expiring', 'variable', 0, 1, NULL)"
+    )
+    .execute(&db)
+    .await?;
+
+    let comparison = admin
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-expiry"
+        ))
+        .send()
+        .await?
+        .json::<serde_json::Value>()
+        .await?;
+
+    assert_eq!(
+        comparison["summary"]["variables_changed"].as_u64(),
+        Some(1),
+        "an expiry-only change must show as deployable: {comparison}"
+    );
+
+    Ok(())
+}

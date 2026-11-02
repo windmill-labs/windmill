@@ -32,6 +32,21 @@ pub struct ProviderCredentials {
     /// A role trust policy that conditions on `sub` has to admit both, or only
     /// one of the copilot and the AI agent step will be able to assume the role.
     pub oidc_role_arn: Option<String>,
+    /// Anthropic Workload Identity Federation settings, from an `anthropic_federated`
+    /// resource. The API proxy exchanges an OIDC token minted for the requesting
+    /// user for a short-lived access token, which then goes out as `access_token`.
+    pub anthropic_federation: Option<AnthropicFederation>,
     pub platform: AIPlatform,
     pub custom_headers: HashMap<String, String>,
+}
+
+/// The identifiers a Claude Console federation rule needs in a token exchange.
+/// None of them is a secret: what authorises the exchange is the OIDC token.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct AnthropicFederation {
+    pub federation_rule_id: String,
+    pub organization_id: String,
+    pub service_account_id: String,
+    /// Required by Anthropic only when the rule is enabled in several workspaces.
+    pub workspace_id: Option<String>,
 }

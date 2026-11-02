@@ -58,6 +58,8 @@
 		noCapture?: boolean
 		isEditor?: boolean
 		onDeployTrigger?: (trigger: Trigger) => void
+		/** A flow in chat mode: its webhook examples then name a conversation. */
+		chatMode?: boolean
 	}
 
 	let {
@@ -75,7 +77,8 @@
 		schema = undefined,
 		noCapture = false,
 		isEditor = true,
-		onDeployTrigger
+		onDeployTrigger,
+		chatMode = false
 	}: Props = $props()
 
 	let config: Record<string, any> = $state({})
@@ -450,6 +453,7 @@
 											{newItem}
 											{schema}
 											{isEditor}
+											{chatMode}
 											onDelete={() => {
 												deleteTrigger(triggersState.selectedTriggerIndex)
 											}}

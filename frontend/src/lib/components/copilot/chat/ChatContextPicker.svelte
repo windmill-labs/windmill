@@ -39,6 +39,7 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 	import type { AttachedFile, AttachedFolder } from './files/attachedFiles.svelte'
 	import {
 		ContextIconMap,
+		withFolderContextLeaves,
 		type ContextElement,
 		type WorkspaceAppElement,
 		type WorkspaceFlowElement,
@@ -266,12 +267,14 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 			if (diffs) branches.push(diffs)
 			if (modules) branches.push(modules)
 			if (dbs) branches.push(dbs)
-			const wsChildren = buildWorkspaceTree({
-				loaded: loadedForTree,
-				kinds: WORKSPACE_KINDS,
-				loadingKind: loader.loadingKind,
-				layout: 'flat'
-			}) as DrillNode<ChatLeafData>[]
+			const wsChildren: DrillNode<ChatLeafData>[] = withFolderContextLeaves(
+				buildWorkspaceTree({
+					loaded: loadedForTree,
+					kinds: WORKSPACE_KINDS,
+					loadingKind: loader.loadingKind,
+					layout: 'flat'
+				})
+			)
 			// Workspace-only (e.g. global chat with no diffs/modules/dbs): skip
 			// the redundant 'Workspace' row and surface its children at the root.
 			if (branches.length === 0) return wsChildren
@@ -326,6 +329,9 @@ Content is materialized at message-prep time by `AIChatManager` — see PR #9216
 				}
 				onSelectWorkspaceItem(element)
 			}
+		} else if (d.type === 'workspace_folder') {
+			// A folder is a workspace reference like an item, never in availableContext.
+			onSelectWorkspaceItem?.(d)
 		} else {
 			// Runtime context element — added directly.
 			onSelect(d)

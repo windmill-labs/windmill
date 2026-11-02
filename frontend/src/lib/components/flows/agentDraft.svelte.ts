@@ -24,7 +24,7 @@ import {
 // Lives here rather than beside the other config helpers: `agentResourceUtils` is a leaf, and
 // importing tool-name validation into it would cycle back through `flowInfers` and pull the whole
 // editor into every module that reads a brain key.
-import { getToolNameError } from './agentToolUtils'
+import { getToolNameError, isNamedTool, type AgentTool } from './agentToolUtils'
 
 /**
  * Why a run of this config would fail before it started, if it would. Only the conditions the
@@ -49,12 +49,10 @@ function agentConfigRunError(args: Record<string, any> | undefined): string | un
 		return 'Tools must be a list. Fix it in the resource editor before deploying.'
 	}
 	// Only a flowmodule tool's summary is a callable name: the worker never reads an mcp or
-	// websearch summary, so a blank one there is not an error and must not count as a sibling.
-	// Same filter as `collectInvalidAgentToolNames`, which is the rule the graph enforces.
+	// built-in tool's summary, so a blank one there is not an error and must not count as a
+	// sibling. Same filter as `collectInvalidAgentToolNames`, which is the rule the graph enforces.
 	const tools = (args?.tools ?? []) as Record<string, any>[]
-	const named = tools.filter(
-		(t) => t?.value?.tool_type !== 'mcp' && t?.value?.tool_type !== 'websearch'
-	)
+	const named = tools.filter((t) => isNamedTool(t as AgentTool))
 	const siblingNames = named.map((t) => t?.summary ?? '')
 	for (const tool of named) {
 		const err = getToolNameError(tool?.summary ?? '', tool?.value?.tool_type, siblingNames)
@@ -431,6 +429,15 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 							// first edit. Not `sync.maybeRestore`: with nothing deployed to compare against, it
 							// takes the form for a restored draft and autosaves it before any input.
 							seedNewUntilInput = { ws, path }
+							return
+						}
+						// A view of what is deployed finding nothing there is that view's ordinary state for a
+						// draft-only agent, not a failure: it says so rather than refusing with a toast.
+						if (opts.deployedOnly?.() && (err as { status?: number })?.status === 404) {
+							loading = false
+							state = undefined
+							deployed = undefined
+							noDeployed = true
 							return
 						}
 						// A failed load knows neither the resource's type nor its value, so it refuses:

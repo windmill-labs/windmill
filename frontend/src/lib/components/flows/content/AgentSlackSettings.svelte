@@ -9,7 +9,7 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SlackAgentsService, type SlackAgentChannel } from '$lib/gen'
-	import { userStore } from '$lib/stores'
+	import { useActingUser } from '$lib/actingUser.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import type { AgentDraftHandle } from '../agentDraft.svelte'
 
@@ -26,16 +26,18 @@
 
 	let { draft, path, workspace, nextRunAs }: Props = $props()
 
+	const acting = useActingUser(() => workspace)
+
 	let readOnly = $derived(!draft.canWrite)
 	let obo = $derived(!!draft.state?.args.run_on_behalf_of)
 	let runsAs = $derived(
 		readOnly
 			? (draft.onBehalfOf ?? 'its run-as user')
-			: !nextRunAs || nextRunAs === `u/${$userStore?.username}`
+			: !nextRunAs || nextRunAs === `u/${acting.current?.username}`
 				? 'you'
 				: nextRunAs
 	)
-	let isAdmin = $derived(!!$userStore?.is_admin)
+	let isAdmin = $derived(!!acting.current?.is_admin)
 
 	const slack = resource(
 		() => ({ ws: workspace, path, deployed: !draft.noDeployed }),

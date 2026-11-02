@@ -1474,6 +1474,19 @@ mod tests {
     }
 
     #[test]
+    fn test_shared_ui_routes_use_apps_scopes() {
+        let scopes = |s: &[&str]| s.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        for route in ["shared_ui/get", "shared_ui/list", "shared_ui/version"] {
+            let route = format!("/api/w/ws/{route}");
+            assert!(check_route_access(&scopes(&["apps:read"]), &route, "GET").is_ok());
+            assert!(check_route_access(&scopes(&["scripts:read"]), &route, "GET").is_err());
+        }
+        let put = "/api/w/ws/shared_ui";
+        assert!(check_route_access(&scopes(&["apps:write"]), put, "PUT").is_ok());
+        assert!(check_route_access(&scopes(&["apps:read"]), put, "PUT").is_err());
+    }
+
+    #[test]
     fn test_flow_conversations_scope_access() {
         let read_scopes = vec!["flow_conversations:read".to_string()];
         assert!(check_route_access(

@@ -413,7 +413,7 @@ import * as wmill from './wmill'
 const chat = useWindmillChat({ wmill, runnable: 'chat' })
 ```
 
-`runnable` is the runnable's key; each runnable keeps its own conversations. The runnable takes `user_message` and `memory_id`, the conversation id, which the chat fills in: the agent remembers earlier turns of a conversation, and a signed-in viewer's conversations are theirs alone. Called directly as `backend.<key>({ user_message })` without `memory_id`, it is a single run with no conversation, for a one-off question. The chat needs an agent with managed memory. An agent whose memory is off keeps none: its runnable takes `previous_messages` (chat messages) instead of `memory_id`, and the app keeps the history itself. The chat keeps its transcript in the app's own storage. `chat.stop()` stops following without cancelling the turn, and a message sent while it still runs is refused with `TurnRunningError`. Attachments are not supported this way.
+`runnable` is the runnable's key; each runnable keeps its own conversations. The runnable takes `user_message`; the chat passes the conversation id as `backendAsync.<key>(args, { memoryId })`: the agent remembers earlier turns of a conversation, and a signed-in viewer's conversations are theirs alone. Called directly as `backend.<key>({ user_message })`, it is a single run with no conversation, for a one-off question; `backend.<key>(args, { memoryId })` waits for the reply of a conversation turn. The chat needs an agent with managed memory. An agent whose memory is off keeps none: its runnable takes `previous_messages` (chat messages) instead, and the app keeps the history itself. The chat keeps its transcript in the app's own storage. `chat.stop()` stops following without cancelling the turn, and a message sent while it still runs is refused with `TurnRunningError`. Attachments are not supported this way.
 
 ## Backend runnables
 
@@ -469,7 +469,7 @@ Use only `wmill` functions the SDK actually exports; for an endpoint none of the
 
 ### Path runnables (script / flow / hubscript / agent)
 
-When `type` is `script`, `flow`, `hubscript` or `agent`, the runnable just stores a `path` to an existing workspace or hub item — no inline code. The referenced item's input/output schema becomes the runnable's surface; an agent's is `user_message` and `user_attachments`, plus `memory_id` when the agent keeps managed memory or `previous_messages` when its memory is off.
+When `type` is `script`, `flow`, `hubscript` or `agent`, the runnable just stores a `path` to an existing workspace or hub item — no inline code. The referenced item's input/output schema becomes the runnable's surface; an agent's is `user_message` and `user_attachments`, plus `previous_messages` when its memory is off.
 
 Before writing an inline runnable, look for a workspace script or flow that already does the job, or a Hub script (a prebuilt integration at `hub/<version>/<app>/<name>`) for a third-party service, and reference it instead of copying its logic.
 

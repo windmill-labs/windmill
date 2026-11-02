@@ -134,6 +134,17 @@ async fn list_search_flows(
     Ok(Json(rows))
 }
 
+/// `WHERE` condition matching one label, directly on the flow or inherited from its folder.
+///
+/// The template has two `?`, so both are filled in a single `binds` pass. Chaining `bind`
+/// would not work: `bind` replaces the first `?` of the string *as it is at that moment*,
+/// so the second call would find the `?` that the first call inserted as part of the bound
+/// value and substitute there, leaving the value partly outside its quotes.
+fn label_condition(label: &str) -> String {
+    "(o.labels @> ARRAY[?] OR folder_labels(o.workspace_id, o.path) @> ARRAY[?])"
+        .binds(&[&label.trim()])
+}
+
 async fn list_flows(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -217,11 +228,7 @@ async fn list_flows(
     }
     if let Some(label) = &lq.label {
         for l in label.split(',') {
-            sqlb.and_where(
-                "(o.labels @> ARRAY[?] OR folder_labels(o.workspace_id, o.path) @> ARRAY[?])"
-                    .bind(&l.trim())
-                    .bind(&l.trim()),
-            );
+            sqlb.and_where(label_condition(l));
         }
     }
 
@@ -2283,6 +2290,31 @@ mod tests {
     };
 
     const SECOND: Duration = Duration::from_secs(1);
+
+    #[test]
+    fn label_condition_fills_both_placeholders_in_one_pass() {
+        // Ordinary label: unchanged behaviour, the value appears quoted in both positions.
+        assert_eq!(
+            super::label_condition(" finance "),
+            "(o.labels @> ARRAY['finance'] OR folder_labels(o.workspace_id, o.path) @> ARRAY['finance'])"
+        );
+
+        // A `?` in the label must stay inside the quoted literal in both positions and must
+        // not leave a placeholder behind. With chained `bind`s this produced
+        // `ARRAY['a'a?b'b'] ... ARRAY[?]`, i.e. label text outside the quotes.
+        let cond = super::label_condition("a?b");
+        assert_eq!(
+            cond,
+            "(o.labels @> ARRAY['a?b'] OR folder_labels(o.workspace_id, o.path) @> ARRAY['a?b'])"
+        );
+        assert!(!cond.contains("ARRAY[?]"));
+
+        // Single quotes keep being escaped by doubling.
+        assert_eq!(
+            super::label_condition("a'?b"),
+            "(o.labels @> ARRAY['a''?b'] OR folder_labels(o.workspace_id, o.path) @> ARRAY['a''?b'])"
+        );
+    }
 
     #[test]
     fn flowmodule_serde() {

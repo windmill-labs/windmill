@@ -128,6 +128,19 @@ pub const ALLOW_PRIVATE_WEBSOCKET_URLS_ENV: &str = "ALLOW_PRIVATE_WEBSOCKET_URLS
 pub async fn validate_websocket_url_for_ssrf(
     url: &str,
 ) -> Result<windmill_common::ssrf::ValidatedTarget> {
+    check_websocket_url_for_ssrf(url)
+        .await
+        .map_err(ssrf_error_to_error)
+}
+
+/// [`validate_websocket_url_for_ssrf`] before its error is flattened into an [`Error`],
+/// so a listener can tell a DNS failure (worth retrying) from a rejected URL.
+pub(crate) async fn check_websocket_url_for_ssrf(
+    url: &str,
+) -> std::result::Result<
+    windmill_common::ssrf::ValidatedTarget,
+    windmill_common::ssrf::SsrfValidationError,
+> {
     // `ws`/`wss` aren't recognised by `validate_url_for_ssrf`'s scheme check, so
     // map them to the http(s) equivalent the same connection would tunnel over.
     // The prefixes are ASCII, so byte-slicing at their length stays on a char
@@ -155,20 +168,22 @@ pub async fn validate_websocket_url_for_ssrf(
         return Ok(windmill_common::ssrf::ValidatedTarget { host, addrs: Vec::new() });
     }
 
-    windmill_common::ssrf::validate_url_for_ssrf(&http_url)
-        .await
-        .map_err(|e| match e {
-            // The env-var hint is only actionable for a well-formed URL blocked
-            // for targeting a private address; a malformed URL or bad scheme
-            // surfaces its real error so the user fixes the URL (see #9171).
-            e @ windmill_common::ssrf::SsrfValidationError::Private { .. } => {
-                Error::BadRequest(format!(
-                    "{e}. If you need to connect to private/internal WebSocket endpoints, \
-                     set the {ALLOW_PRIVATE_WEBSOCKET_URLS_ENV}=true environment variable"
-                ))
-            }
-            e => Error::from(e),
-        })
+    windmill_common::ssrf::validate_url_for_ssrf(&http_url).await
+}
+
+pub(crate) fn ssrf_error_to_error(e: windmill_common::ssrf::SsrfValidationError) -> Error {
+    match e {
+        // The env-var hint is only actionable for a well-formed URL blocked
+        // for targeting a private address; a malformed URL or bad scheme
+        // surfaces its real error so the user fixes the URL (see #9171).
+        e @ windmill_common::ssrf::SsrfValidationError::Private { .. } => {
+            Error::BadRequest(format!(
+                "{e}. If you need to connect to private/internal WebSocket endpoints, \
+                 set the {ALLOW_PRIVATE_WEBSOCKET_URLS_ENV}=true environment variable"
+            ))
+        }
+        e => Error::from(e),
+    }
 }
 
 pub async fn get_url_from_runnable_value(

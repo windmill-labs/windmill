@@ -47,12 +47,12 @@ describe('defaultWorkspaceName', () => {
 })
 
 describe('usernameFromName', () => {
-	// The `proper_username` constraint is `^[\w-]+$`, so a suggestion outside it is posted and
-	// then refused by the database, with the form showing nothing that explains why.
-	it('keeps only what the username constraint accepts', () => {
+	// The quick form submits this without showing it, so a suggestion the server refuses fails
+	// with nothing on screen that explains why.
+	it('keeps only what the username rule accepts', () => {
 		expect(usernameFromName("O'Connor")).toBe('oconnor')
 		expect(usernameFromName('alice+demo')).toBe('alicedemo')
-		expect(usernameFromName('Jean-Luc')).toBe('jean-luc')
+		expect(usernameFromName('Jean-Luc')).toBe('jeanluc')
 		expect(usernameFromName('ada.lovelace')).toBe('adalovelace')
 	})
 
