@@ -160,6 +160,16 @@
 	// Operators never get the icon-only rail: their docked sidebar is always expanded (a sidebar
 	// they want out of the way is what detaching is for).
 	let isCollapsed = $derived(collapsedState && $roleCapabilities.code)
+	// Expand on hover: the icon rail widens over the page while the pointer is on it. The page
+	// keeps the icon rail's offset, so nothing beside the rail moves.
+	const hoverExpandPref = useLocalStorageValue<boolean>(
+		'nav_menu_expand_on_hover',
+		false,
+		'boolean'
+	)
+	let expandsOnHover = $derived(isCollapsed && hoverExpandPref.val)
+	let hoverExpandedState = $state(false)
+	let hoverExpanded = $derived(expandsOnHover && hoverExpandedState)
 
 	// Resizable desktop rail, sized in REM so it scales with the root font-size the
 	// same way the old `w-52`/`w-12` classes did — `:root` jumps to 18px on screens
@@ -525,6 +535,15 @@
 		}
 		menuOpen = false
 	}, PEEK_CLOSE_DELAY_MS)
+	// The close waits just long enough for the pointer to cross into a menu the rail opened.
+	const RAIL_HOVER_CLOSE_DELAY_MS = 80
+	const { debounced: scheduleRailCollapse, clearDebounce: cancelRailCollapse } = debounce(() => {
+		if (pointerInMenu()) {
+			scheduleRailCollapse()
+			return
+		}
+		hoverExpandedState = false
+	}, RAIL_HOVER_CLOSE_DELAY_MS)
 
 	// A page that owns the right edge from the top — a session's side panel — makes the band float
 	// and stop where that column starts, instead of running over it.
@@ -568,6 +587,13 @@
 	const viewportOverlays = overlayStack()
 	function onWindowKeydown(e: KeyboardEvent) {
 		onSearchShortcutBeforeLoad(e)
+		// Cmd/Ctrl+\ (Notion's binding): Cmd+B is the raw app editor's file sidebar.
+		if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === '\\') {
+			if (!$roleCapabilities.code || navDetached.val || innerWidth < 768) return
+			e.preventDefault()
+			setSidebarMode(isCollapsed ? 'expanded' : hoverExpandPref.val ? 'hover' : 'icons')
+			return
+		}
 		if (e.key !== 'Escape' || !menuOpen || !useDrawer) return
 		// Read now: the overlay this Esc closes is off the stack by the time the timeout runs.
 		if (viewportOverlays.val.length > 0) return
@@ -590,12 +616,14 @@
 		menuOpen = false
 		navDetached.val = detached
 	}
-	function setSidebarMode(mode: 'expanded' | 'icons' | 'hidden') {
+	function setSidebarMode(mode: 'expanded' | 'icons' | 'hover' | 'hidden') {
 		// The collapse preference is one key for both roles, and only a developer's rail reads it:
 		// an operator writing it would reset the icon rail they chose as a developer elsewhere.
 		if (mode !== 'hidden' && $roleCapabilities.code) {
-			collapsedState = mode === 'icons'
+			collapsedState = mode !== 'expanded'
 			collapsePref.val = collapsedState
+			// "Expanded" keeps the hover choice, so Cmd+\ returns to the rail the user had.
+			if (mode !== 'expanded') hoverExpandPref.val = mode === 'hover'
 		}
 		if (navDetached.val !== (mode === 'hidden')) setDetached(mode === 'hidden')
 	}
@@ -1185,7 +1213,13 @@ outside this layout, and their shortcut must reopen the URL that is their creden
      by the workspace picker). -->
 <!-- Operators get no "Icons only": their docked sidebar is always expanded. -->
 {#snippet sidebarModeMenu()}
-	{@const mode = navDetached.val ? 'hidden' : isCollapsed ? 'icons' : 'expanded'}
+	{@const mode = navDetached.val
+		? 'hidden'
+		: expandsOnHover
+			? 'hover'
+			: isCollapsed
+				? 'icons'
+				: 'expanded'}
 	<DropdownV2
 		placement="top-start"
 		fixedHeight={false}
@@ -1200,9 +1234,16 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			{
 				displayName: 'Icons only',
 				description: "Or drag the sidebar's edge",
+				shortcut: `${getModifierKey()}\\`,
 				selected: mode === 'icons',
 				hide: !$roleCapabilities.code,
 				action: () => setSidebarMode('icons')
+			},
+			{
+				displayName: 'Expand on hover',
+				selected: mode === 'hover',
+				hide: !$roleCapabilities.code,
+				action: () => setSidebarMode('hover')
 			},
 			{
 				displayName: 'Hidden, show on hover',
@@ -1248,7 +1289,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
      whenever the nav is detached. The shells differ, the sections do not, so a change to the
      rail cannot miss the panel. -->
 {#snippet sidebarColumn(panel: boolean)}
-	{@const collapsed = panel ? false : isCollapsed}
+	{@const collapsed = panel ? false : isCollapsed && !hoverExpanded}
 	<div
 		class={twMerge(
 			'flex flex-col',
@@ -1484,16 +1525,26 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 					</div>
 				</div>
 			{:else}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
 					id="sidebar"
 					class={classNames(
 						dockToggled ? '' : 'wm-sidebar-in',
 						// The rail owns the full height of the left edge; the band starts to its right.
 						'flex flex-col fixed inset-y-0 z-40 ',
-						sidebarTransitionClass,
+						expandsOnHover && !resizingSidebar
+							? 'transition-[width] duration-100 ease-out'
+							: sidebarTransitionClass,
+						hoverExpanded ? 'shadow-lg' : '',
 						devOnly ? '!hidden' : ''
 					)}
-					style:width="{railWidth}rem"
+					style:width="{hoverExpanded ? sidebarWidth : railWidth}rem"
+					onmouseenter={() => {
+						if (!expandsOnHover || resizingSidebar) return
+						cancelRailCollapse()
+						hoverExpandedState = true
+					}}
+					onmouseleave={() => scheduleRailCollapse()}
 					in:railMorph={{ offscreen: false }}
 					out:railMorph={{ offscreen: true }}
 				>
