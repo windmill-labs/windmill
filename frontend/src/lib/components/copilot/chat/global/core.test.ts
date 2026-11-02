@@ -2263,6 +2263,33 @@ describe('global AI tools', () => {
 		expect(items.map((i: any) => i.isDraft)).toEqual([false, true, false])
 	})
 
+	it('keeps limit one cap per type across the folders a session is scoped to', async () => {
+		vi.mocked(ScriptService.listScripts).mockImplementation((async ({ pathStart }: any) =>
+			[1, 2].map((n) => ({ path: `${pathStart}s${n}`, language: 'bun' }))) as any)
+		const scoped: ToolCallbacks = {
+			...toolCallbacks,
+			workingScope: {
+				scope: () => ({ roots: ['f/a', 'f/b'] }) as any,
+				requestDecision: async () => undefined,
+				add: () => {},
+				recordWrite: () => {}
+			}
+		}
+		const list = async (page: number) =>
+			JSON.parse(
+				(
+					await callGlobalTool('list_workspace_items', { types: ['script'], limit: 3, page }, scoped)
+				).replace(/^[^\n]*\n/, '')
+			).map((i: any) => i.path)
+
+		try {
+			expect(await list(1)).toEqual(['f/a/s1', 'f/a/s2', 'f/b/s1'])
+			expect(await list(2)).toEqual(['f/b/s2'])
+		} finally {
+			vi.mocked(ScriptService.listScripts).mockImplementation(async () => [])
+		}
+	})
+
 	it('lists and edits the live script editor draft through its effective path', async () => {
 		seedBackendDraft(
 			'script',

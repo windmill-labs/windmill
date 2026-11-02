@@ -1241,7 +1241,10 @@ fn mask_nested_sensitive(key: &str, value: &serde_json::Value) -> serde_json::Va
         }
     }
     // Settings that are maps-of-objects where each child has a sensitive sub-field.
-    const NESTED_MAP_SENSITIVE: &[(&str, &[&str])] = &[("oauths", &["secret", "signing_secret"])];
+    const NESTED_MAP_SENSITIVE: &[(&str, &[&str])] = &[
+        ("oauths", &["secret", "signing_secret"]),
+        ("external_secrets", &["token"]),
+    ];
     for &(parent_key, child_fields) in NESTED_MAP_SENSITIVE {
         if key == parent_key {
             if let serde_json::Value::Object(entries) = value {
@@ -1590,6 +1593,10 @@ pub async fn sync_global_settings_declarative(
     let max_expiration_key = crate::global_settings::MAX_TOKEN_EXPIRATION_DAYS_SETTING;
     crate::global_settings::parse_max_token_expiration_days(desired.get(max_expiration_key))
         .map_err(|e| anyhow::anyhow!("{max_expiration_key}: {e}"))?;
+
+    let idp_key = crate::global_settings::MCP_EXTERNAL_IDP_SETTING;
+    crate::global_settings::parse_mcp_external_idp(desired.get(idp_key))
+        .map_err(|e| anyhow::anyhow!("{idp_key}: {e}"))?;
 
     let mut diff = diff_global_settings(current, desired, ApplyMode::Replace);
     let roles_key = crate::global_settings::WORKSPACE_ROLES_SETTING;

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT is_secret AND value NOT LIKE '$external:%' AS \"is_secret!\" FROM variable WHERE path = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "is_secret!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3e0f2e6febdf289aeccbea6b3258be507e8c2fa86c8006bb32b5c0660497c128"
+}
