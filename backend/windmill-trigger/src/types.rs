@@ -105,6 +105,7 @@ impl TriggerErrorHandling {
                  (got '{path}')"
             )));
         }
+        windmill_common::runnable_ref::RunnableRef::from_path(path, false)?;
         Ok(())
     }
 }

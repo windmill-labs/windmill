@@ -3500,6 +3500,7 @@ pub async fn handle_wac_v2_output(
     use serde_json::Value;
     use windmill_common::get_latest_flow_version_info_for_path;
     use windmill_common::jobs::{script_path_to_payload, JobKind, JobPayload, RawCode};
+    use windmill_common::runnable_ref::RunnableRef;
     use windmill_common::runnable_settings::{
         ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
     };
@@ -3777,7 +3778,7 @@ pub async fn handle_wac_v2_output(
                     "script" => {
                         // Resolve script path to job payload (handles hash, lang, etc.)
                         let (payload, _, _, _, _, on_behalf_of) = script_path_to_payload(
-                            &step.script,
+                            &RunnableRef::from_path(&step.script, false)?,
                             None, // no authed db for background workers
                             db.clone(),
                             &job.workspace_id,
@@ -3787,16 +3788,17 @@ pub async fn handle_wac_v2_output(
                         (ChildRunnable::Deployed(payload), on_behalf_of)
                     }
                     "flow" => {
+                        let flow = RunnableRef::from_path(&step.script, true)?;
                         let flow_info = get_latest_flow_version_info_for_path(
                             None,
                             db,
                             &job.workspace_id,
-                            &step.script,
+                            flow.path(),
                             true,
                         )
                         .await?;
                         let payload = JobPayload::Flow {
-                            path: step.script.clone(),
+                            path: flow.path().to_string(),
                             dedicated_worker: flow_info.dedicated_worker,
                             apply_preprocessor: false,
                             version: flow_info.version,

@@ -17,8 +17,9 @@ use crate::{
     cache::{self, FlowExtras},
     db::DB,
     error::{to_anyhow, Error},
+    runnable_ref::RunnableRef,
     scripts::ScriptHash,
-    utils::{http_get_from_hub, parse_hub_id, StripPath},
+    utils::http_get_from_hub,
     worker::{to_raw_value, Connection},
     DEFAULT_HUB_BASE_URL, HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION,
 };
@@ -33,13 +34,13 @@ struct HubFlowResponse {
     flow: HubFlow,
 }
 
-pub async fn get_full_hub_flow_by_path(
-    path: StripPath,
+/// Fetches from the configured Hub and authorizes nothing: the caller MUST already have allowed
+/// running this Hub flow. `db` is read only for the instance id.
+pub async fn get_full_hub_flow_by_id(
+    flow_id: i32,
     http_client: &reqwest::Client,
     db: Option<&DB>,
 ) -> crate::error::Result<HubFlow> {
-    let path = path.to_path();
-    let flow_id = parse_hub_id(&path, "hub/flows/")?;
     let hub_base_url = (**HUB_BASE_URL.load()).clone();
     let hub_url = format!("{hub_base_url}/flows/{flow_id}/json");
 
@@ -50,7 +51,9 @@ pub async fn get_full_hub_flow_by_path(
     {
         Ok(response) => response,
         Err(_) if hub_base_url != DEFAULT_HUB_BASE_URL && flow_id < PRIVATE_HUB_MIN_VERSION => {
-            tracing::info!("Not found on private hub, fallback to default hub for hub flow {path}");
+            tracing::info!(
+                "Not found on private hub, fallback to default hub for hub flow {flow_id}"
+            );
             let fallback_url = format!("{DEFAULT_HUB_BASE_URL}/flows/{flow_id}/json");
             http_get_from_hub(http_client, &fallback_url, false, None, db)
                 .await?
@@ -63,7 +66,7 @@ pub async fn get_full_hub_flow_by_path(
     Ok(response
         .json::<HubFlowResponse>()
         .await
-        .context(format!("Decoding hub response for flow at path {path}"))?
+        .context(format!("Decoding hub response for hub flow {flow_id}"))?
         .flow)
 }
 
@@ -342,7 +345,7 @@ fn check_module_value_is_composition_only(
         }
         FlowModuleValue::Identity => {}
         FlowModuleValue::Script { path, hash, tag_override, .. } => {
-            check_composable_path(path, id)?;
+            check_composable_path(path, false, id)?;
             push_tag(tag_override);
             refs.runnables.push((false, path.clone()));
             if let Some(hash) = hash {
@@ -350,7 +353,7 @@ fn check_module_value_is_composition_only(
             }
         }
         FlowModuleValue::Flow { path, .. } => {
-            check_composable_path(path, id)?;
+            check_composable_path(path, true, id)?;
             refs.runnables.push((true, path.clone()));
         }
         FlowModuleValue::ForloopFlow { modules, modules_node, .. }
@@ -424,8 +427,8 @@ fn refused(id: &str, what: &str) -> Error {
     ))
 }
 
-fn check_composable_path(path: &str, id: &str) -> Result<(), Error> {
-    if path.starts_with("hub/") {
+fn check_composable_path(path: &str, is_flow: bool, id: &str) -> Result<(), Error> {
+    if !path.is_empty() && RunnableRef::from_path(path, is_flow)?.is_hub() {
         return Err(Error::PermissionDenied(format!(
             "Step {id}: hub runnables are not available to operators with builder rights. Deploy \
              it to the workspace first."
@@ -437,6 +440,7 @@ fn check_composable_path(path: &str, id: &str) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::parse_hub_id;
 
     #[test]
     fn extract_hub_flow_id_accepts_id_only_paths() {
@@ -588,9 +592,12 @@ mod tests {
 
     #[test]
     fn composition_check_rejects_hub_runnables() {
-        for kind in ["script", "flow"] {
+        for (kind, path) in [
+            ("script", "hub/1234/thing"),
+            ("flow", "hub/flows/1234/thing"),
+        ] {
             let value = serde_json::json!({"modules": [{"id": "a",
-                "value": {"type": kind, "path": "hub/1234/thing"}}]});
+                "value": {"type": kind, "path": path}}]});
             assert!(check_flow_is_composition_only(&flow(value)).is_err());
         }
     }

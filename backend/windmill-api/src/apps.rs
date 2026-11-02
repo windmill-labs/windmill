@@ -66,9 +66,10 @@ use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{to_anyhow, Error, JsonResult, Result},
     jobs::{
-        get_payload_tag_from_prefixed_path, normalize_nul_in_args, resolve_delete_after_secs,
+        normalize_nul_in_args, resolve_delete_after_secs, runnable_ref_to_payload,
         sanitize_untrusted_args, schedule_job_deletion, JobPayload, JobTriggerKind, RawCode,
     },
+    runnable_ref::RunnableRef,
     scripts::ScriptLang,
     triggers::TriggerMetadata,
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
@@ -2441,8 +2442,14 @@ fn checked_policy_runnable_paths(policy: &Policy) -> Result<Vec<(AppRunnableKind
 }
 
 fn refuse_hub_runnables(referenced: &[(AppRunnableKind, String)]) -> Result<()> {
-    for (_, path) in referenced {
-        if path.starts_with("hub/") {
+    for (kind, path) in referenced {
+        let is_hub = match kind {
+            AppRunnableKind::Script | AppRunnableKind::Flow => {
+                RunnableRef::from_path(path, matches!(kind, AppRunnableKind::Flow))?.is_hub()
+            }
+            AppRunnableKind::Agent => path.starts_with("hub/"),
+        };
+        if is_hub {
             return Err(Error::PermissionDenied(format!(
                 "Operators with builder rights cannot reference the hub runnable {path}. Deploy it to the workspace first."
             )));
@@ -4610,15 +4617,16 @@ async fn execute_component(
         // (`path`), confined below to what it may read. Inline `raw_code`, which an `id` also
         // requires, is authoring code, so it stays closed to every operator. So is a hub
         // path, which `require_path_read_access_for_preview` admits for everyone and
-        // `get_payload_tag_from_prefixed_path` then downloads and enqueues: it is exactly the
-        // unreviewed code the composition check refuses in a flow.
-        let previews_hub = payload.path.as_deref().is_some_and(|p| {
-            p.strip_prefix("script/")
-                .or_else(|| p.strip_prefix("flow/"))
-                .or_else(|| p.strip_prefix("agent/"))
-                .unwrap_or(p)
-                .starts_with("hub/")
-        });
+        // `runnable_ref_to_payload` then downloads and enqueues: it is exactly the unreviewed
+        // code the composition check refuses in a flow. An `agent/` path names an `ai_agent`
+        // resource, not a runnable.
+        let previews_hub = match payload.path.as_deref() {
+            Some(p) => match p.strip_prefix("agent/") {
+                Some(agent) => agent.starts_with("hub/"),
+                None => RunnableRef::from_prefixed(p)?.is_hub(),
+            },
+            None => false,
+        };
         let caps = caller_capabilities(&db, &w_id, authed).await?;
         if !caps.code
             && (caps.apps == AuthorLevel::None || payload.raw_code.is_some() || previews_hub)
@@ -5015,19 +5023,24 @@ async fn execute_component(
         }
     }
 
-    let flow_path = payload
-        .path
-        .as_deref()
-        .and_then(|path| path.strip_prefix("flow/"))
-        .map(str::to_string);
+    let runnable = match payload.path.as_deref() {
+        Some(path) if agent_path.is_none() => Some(RunnableRef::from_prefixed(path)?),
+        _ => None,
+    };
     // A chat-mode flow keeps its conversations as an agent does, and is scoped like one below.
-    let chat_flow_path = match (flow_path.as_deref(), &memory_id) {
-        (Some(p), Some(_)) if !p.starts_with("hub/") => {
-            windmill_common::get_latest_flow_version_info_for_path(None, &db, &w_id, p, true)
-                .await?
-                .chat_input_enabled
-                .unwrap_or(false)
-                .then(|| p.to_string())
+    let chat_flow_path = match (&runnable, &memory_id) {
+        (Some(flow), Some(_)) if flow.is_flow() && !flow.is_hub() => {
+            windmill_common::get_latest_flow_version_info_for_path(
+                None,
+                &db,
+                &w_id,
+                flow.path(),
+                true,
+            )
+            .await?
+            .chat_input_enabled
+            .unwrap_or(false)
+            .then(|| flow.path().to_string())
         }
         _ => None,
     };
@@ -5104,7 +5117,10 @@ async fn execute_component(
             }
             // flow or script:
             (Some(path), None, None) => {
-                get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?
+                let runnable = runnable.as_ref().ok_or_else(|| {
+                    Error::internal_err(format!("{path} was not parsed as a runnable"))
+                })?;
+                runnable_ref_to_payload(runnable, &db, &w_id).await?
             }
             // inline script: "preview" mode, or run mode without an entry in the
             // `app_script` table (legacy `rawscript/<sha>`-keyed triggerables).
@@ -5285,7 +5301,10 @@ async fn execute_component(
             &args.args,
         )
         .await?;
-    } else if let (Some(flow_path), Some(memory_id)) = (flow_path.as_deref(), memory_id) {
+    } else if let (Some(flow_path), Some(memory_id)) = (
+        runnable.as_ref().filter(|r| r.is_flow()).map(|r| r.path()),
+        memory_id,
+    ) {
         // A flow keeping no conversation has no row to own its memory, so the key itself is
         // derived per app and viewer: no viewer can name another's memory.
         let viewer = conversation_viewer

@@ -21,6 +21,7 @@ use windmill_api_auth::{
 };
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::runnable_ref::RunnableRef;
 use windmill_common::DB;
 use windmill_common::{
     can_preserve_on_behalf_of,
@@ -268,10 +269,17 @@ async fn create_schedule(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Json(ns): Json<NewSchedule>,
+    Json(mut ns): Json<NewSchedule>,
 ) -> Result<String> {
     check_scopes(&authed, || format!("schedules:write:{}", ns.path))?;
     reject_reserved_schedule_path(&ns.path)?;
+    // Stored as parsed: the next-run check, the monitor's re-arm, the run history and renames
+    // all match the stored target exactly against job paths, which never start with `/`.
+    if !ns.script_path.is_empty() {
+        ns.script_path = RunnableRef::from_path(&ns.script_path, ns.is_flow)?
+            .path()
+            .to_string();
+    }
 
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
 

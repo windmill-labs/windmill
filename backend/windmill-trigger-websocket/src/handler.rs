@@ -9,6 +9,7 @@ use windmill_common::DB;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
+    runnable_ref::RunnableRef,
     worker::to_raw_value,
 };
 use windmill_git_sync::DeployedObject;
@@ -30,18 +31,23 @@ fn check_secondary_runnable_scopes(
     authed: &ApiAuthed,
     config: &WebsocketConfigRequest,
 ) -> Result<()> {
-    if let Some(rest) = config.url.strip_prefix("$flow:") {
-        check_scopes(authed, || format!("jobs:run:flows:{}", rest))?;
-    } else if let Some(rest) = config.url.strip_prefix("$script:") {
-        check_scopes(authed, || format!("jobs:run:scripts:{}", rest))?;
+    let check = |runnable: RunnableRef| {
+        let kind = if runnable.is_flow() {
+            "flows"
+        } else {
+            "scripts"
+        };
+        check_scopes(authed, || format!("jobs:run:{kind}:{}", runnable.path()))
+    };
+    if let Some(runnable) = RunnableRef::from_ws_url(&config.url) {
+        check(runnable?)?;
     }
     if let Some(messages) = config.initial_messages.as_ref() {
         for msg in messages {
             if let Ok(InitialMessage::RunnableResult { path, is_flow, .. }) =
                 serde_json::from_value::<InitialMessage>(msg.clone())
             {
-                let kind = if is_flow { "flows" } else { "scripts" };
-                check_scopes(authed, || format!("jobs:run:{}:{}", kind, path))?;
+                check(RunnableRef::from_path(&path, is_flow)?)?;
             }
         }
     }
@@ -295,25 +301,22 @@ impl TriggerCrud for WebsocketTrigger {
         let url = &config.url;
 
         let connect_url: Cow<str> = if url.starts_with("$") {
-            if url.starts_with("$flow:") || url.starts_with("$script:") {
-                let path = url.splitn(2, ':').nth(1).unwrap();
-                Cow::Owned(
-                    get_url_from_runnable_value(
-                        path,
-                        url.starts_with("$flow:"),
-                        &db,
-                        authed.clone(),
-                        config.url_runnable_args.as_ref().map(to_raw_value).as_ref(),
-                        &workspace_id,
-                    )
-                    .await?,
-                )
-            } else {
+            let Some(runnable) = RunnableRef::from_ws_url(url) else {
                 return Err(Error::BadConfig(format!(
                     "Invalid WebSocket runnable path: {}",
                     url
                 )));
-            }
+            };
+            Cow::Owned(
+                get_url_from_runnable_value(
+                    &runnable?,
+                    &db,
+                    authed.clone(),
+                    config.url_runnable_args.as_ref().map(to_raw_value).as_ref(),
+                    &workspace_id,
+                )
+                .await?,
+            )
         } else {
             Cow::Borrowed(&url)
         };

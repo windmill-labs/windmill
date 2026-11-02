@@ -13,10 +13,11 @@ use crate::{
     client::AuthedClient,
     db::{AuthedRef, UserDbWithAuthed, DB},
     error::{self, to_anyhow, Error},
-    flows::get_full_hub_flow_by_path,
+    flows::get_full_hub_flow_by_id,
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
-    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
-    utils::{strip_json_nul, StripPath, HTTP_CLIENT},
+    runnable_ref::RunnableRef,
+    scripts::{get_full_hub_script_by_id, ScriptHash, ScriptLang},
+    utils::{strip_json_nul, HTTP_CLIENT},
     worker::{custom_tag_matches, to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, WINDMILL_DIR},
     workspaces::workspace_with_fork_ancestors,
     FlowVersionInfo, ScriptHashInfo, Tag,
@@ -141,7 +142,7 @@ pub fn resolve_delete_after_secs(
 }
 
 pub async fn script_path_to_payload<'e>(
-    script_path: &str,
+    script: &RunnableRef,
     db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
     db: DB,
     w_id: &str,
@@ -154,11 +155,16 @@ pub async fn script_path_to_payload<'e>(
     Option<i32>,
     Option<OnBehalfOf>,
 )> {
+    if script.is_flow() {
+        return Err(Error::BadRequest(format!(
+            "expected a script, got the flow {}",
+            script.path()
+        )));
+    }
+    let script_path = script.path();
     let (job_payload, tag, delete_after_use, delete_after_secs, script_timeout, on_behalf_of) =
-        if script_path.starts_with("hub/") {
-            let hub_script =
-                get_full_hub_script_by_path(StripPath(script_path.to_string()), &HTTP_CLIENT, None)
-                    .await?;
+        if let Some(hub_id) = script.hub_id() {
+            let hub_script = get_full_hub_script_by_id(hub_id, &HTTP_CLIENT, None).await?;
 
             let has_preprocessor = get_has_preprocessor_from_content_and_lang(
                 &hub_script.content,
@@ -238,63 +244,41 @@ pub async fn script_path_to_payload<'e>(
     ))
 }
 
-pub async fn get_payload_tag_from_prefixed_path(
-    path: &str,
+/// Resolves with the root DB handle, so it checks nothing: the caller MUST already have
+/// authorized running `runnable` in `w_id`.
+pub async fn runnable_ref_to_payload(
+    runnable: &RunnableRef,
     db: &DB,
     w_id: &str,
 ) -> Result<(JobPayload, Option<String>, Option<OnBehalfOf>), Error> {
-    let (payload, tag, _, _, _, on_behalf_of) = if path.starts_with("script/") {
-        script_path_to_payload(
-            path.strip_prefix("script/").unwrap(),
+    if !runnable.is_flow() {
+        let (payload, tag, _, _, _, on_behalf_of) =
+            script_path_to_payload(runnable, None, db.clone(), w_id, Some(true)).await?;
+        return Ok((payload, tag, on_behalf_of));
+    }
+    let path = runnable.path().to_string();
+    if let Some(hub_id) = runnable.hub_id() {
+        let hub_flow = get_full_hub_flow_by_id(hub_id, &HTTP_CLIENT, Some(db)).await?;
+        return Ok((
+            JobPayload::RawFlow { value: hub_flow.value, path: Some(path), restarted_from: None },
             None,
-            db.clone(),
-            w_id,
-            Some(true),
-        )
-        .await?
-    } else if path.starts_with("flow/") {
-        let path = path.strip_prefix("flow/").unwrap().to_string();
-        if path.starts_with("hub/flows/") {
-            let hub_flow =
-                get_full_hub_flow_by_path(StripPath(path.clone()), &HTTP_CLIENT, Some(db)).await?;
-            (
-                JobPayload::RawFlow {
-                    value: hub_flow.value,
-                    path: Some(path),
-                    restarted_from: None,
-                },
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-        } else {
-            let FlowVersionInfo { dedicated_worker, tag, version, labels, job_token_scopes, .. } =
-                get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
-            (
-                JobPayload::Flow {
-                    path,
-                    dedicated_worker,
-                    apply_preprocessor: false,
-                    version,
-                    labels,
-                    job_token_scopes,
-                },
-                tag,
-                None,
-                None,
-                None,
-                None,
-            )
-        }
-    } else {
-        return Err(Error::BadRequest(format!(
-            "path must start with script/ or flow/ (got {})",
-            path
-        )));
-    };
-    Ok((payload, tag, on_behalf_of))
+            None,
+        ));
+    }
+    let FlowVersionInfo { dedicated_worker, tag, version, labels, job_token_scopes, .. } =
+        get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
+    Ok((
+        JobPayload::Flow {
+            path,
+            dedicated_worker,
+            apply_preprocessor: false,
+            version,
+            labels,
+            job_token_scopes,
+        },
+        tag,
+        None,
+    ))
 }
 
 pub fn order_columns(

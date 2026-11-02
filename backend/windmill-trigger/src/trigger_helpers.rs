@@ -13,13 +13,14 @@ use windmill_common::{
     flows::{FlowModuleValue, Retry},
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
     jobs::{get_has_preprocessor_from_content_and_lang, script_path_to_payload, JobPayload},
-    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
+    runnable_ref::RunnableRef,
+    scripts::{get_full_hub_script_by_id, ScriptHash, ScriptLang},
     triggers::{
         HubOrWorkspaceId, RunnableFormat, RunnableFormatVersion, TriggerKind, TriggerMetadata,
         RUNNABLE_FORMAT_VERSION_CACHE,
     },
     users::username_to_permissioned_as,
-    utils::{StripPath, HTTP_CLIENT},
+    utils::HTTP_CLIENT,
     worker::to_raw_value,
 };
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
@@ -57,7 +58,7 @@ struct PartialSchema {
 pub enum RunnableId {
     FlowId(FlowId),
     ScriptId(ScriptId),
-    HubScript(String),
+    HubScript(RunnableRef),
 }
 
 impl RunnableId {
@@ -65,16 +66,14 @@ impl RunnableId {
         Self::ScriptId(ScriptId::ScriptHash(hash))
     }
 
-    pub fn from_script_path(path: &str) -> Self {
-        if path.starts_with("hub/") {
-            Self::HubScript(path.to_string())
+    pub fn from_ref(runnable: RunnableRef) -> Self {
+        if runnable.is_flow() {
+            Self::FlowId(FlowId::FlowPath(runnable))
+        } else if runnable.is_hub() {
+            Self::HubScript(runnable)
         } else {
-            Self::ScriptId(ScriptId::ScriptPath(path.to_string()))
+            Self::ScriptId(ScriptId::ScriptPath(runnable))
         }
-    }
-
-    pub fn from_flow_path(path: &str) -> Self {
-        Self::FlowId(FlowId::FlowPath(path.to_string()))
     }
 
     pub fn from_flow_version(version: i64) -> Self {
@@ -84,17 +83,22 @@ impl RunnableId {
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum FlowId {
-    FlowPath(String),
+    FlowPath(RunnableRef),
     FlowVersion(i64),
 }
 
 impl FlowId {
     async fn get_flow_version_id(self, workspace_id: &str, db: &DB) -> Result<i64> {
         let version_id = match self {
-            FlowId::FlowPath(path) => {
-                let info =
-                    get_latest_flow_version_info_for_path(None, db, workspace_id, &path, true)
-                        .await?;
+            FlowId::FlowPath(flow) => {
+                let info = get_latest_flow_version_info_for_path(
+                    None,
+                    db,
+                    workspace_id,
+                    flow.path(),
+                    true,
+                )
+                .await?;
                 info.version
             }
             FlowId::FlowVersion(version) => version,
@@ -106,16 +110,21 @@ impl FlowId {
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum ScriptId {
-    ScriptPath(String),
+    ScriptPath(RunnableRef),
     ScriptHash(ScriptHash),
 }
 
 impl ScriptId {
     async fn get_script_hash(self, workspace_id: &str, db: &DB) -> Result<i64> {
         let hash = match self {
-            ScriptId::ScriptPath(path) => {
-                let info = get_latest_deployed_hash_for_path(None, db.clone(), workspace_id, &path)
-                    .await?;
+            ScriptId::ScriptPath(script) => {
+                let info = get_latest_deployed_hash_for_path(
+                    None,
+                    db.clone(),
+                    workspace_id,
+                    script.path(),
+                )
+                .await?;
                 info.hash
             }
             ScriptId::ScriptHash(hash) => hash.0,
@@ -231,34 +240,24 @@ pub async fn get_runnable_format(
     trigger_kind: &TriggerKind,
 ) -> Result<RunnableFormat> {
     let (key, preprocessor_info) = match runnable_id {
-        RunnableId::HubScript(path) => {
-            let Some(version) = path.split("/").nth(1) else {
-                return Err(windmill_common::error::Error::internal_err(
-                    "Invalid hub script path".to_string(),
-                ));
-            };
+        RunnableId::HubScript(script) => {
+            let version = script.hub_id().ok_or_else(|| {
+                windmill_common::error::Error::internal_err(format!(
+                    "{} is not a hub script",
+                    script.path()
+                ))
+            })?;
 
-            let version = match version.parse::<i64>() {
-                Ok(version) => version,
-                Err(_) => {
-                    return Err(windmill_common::error::Error::internal_err(
-                        "Invalid hub script version".to_string(),
-                    ));
-                }
-            };
-
-            let key = (HubOrWorkspaceId::Hub, version, trigger_kind.clone());
+            let key = (HubOrWorkspaceId::Hub, version.into(), trigger_kind.clone());
 
             let runnable_format = RUNNABLE_FORMAT_VERSION_CACHE.get(&key);
 
             if let Some(runnable_format) = runnable_format {
-                tracing::debug!("Using cached runnable format for hub script {path}");
+                tracing::debug!("Using cached runnable format for hub script {version}");
                 return Ok(runnable_format);
             }
 
-            let hub_script =
-                get_full_hub_script_by_path(StripPath(path.to_string()), &HTTP_CLIENT, Some(db))
-                    .await?;
+            let hub_script = get_full_hub_script_by_id(version, &HTTP_CLIENT, Some(db)).await?;
 
             let has_preprocessor = get_has_preprocessor_from_content_and_lang(
                 &hub_script.content,
@@ -325,7 +324,7 @@ pub async fn get_runnable_format(
                                 None,
                                 db.clone(),
                                 workspace_id,
-                                &path,
+                                RunnableRef::from_path(&path, false)?.path(),
                             )
                             .await?;
                             script_hash.hash
@@ -452,19 +451,14 @@ pub trait TriggerJobArgs {
     }
 
     fn build_job_args(
-        runnable_path: &str,
-        is_flow: bool,
+        runnable: &RunnableRef,
         w_id: &str,
         db: &DB,
         payload: Self::Payload,
         info: HashMap<String, Box<RawValue>>,
     ) -> impl Future<Output = Result<PushArgsOwned>> + Send {
         async move {
-            let runnable_id = if is_flow {
-                RunnableId::from_flow_path(runnable_path)
-            } else {
-                RunnableId::from_script_path(runnable_path)
-            };
+            let runnable_id = RunnableId::from_ref(runnable.clone());
             Self::build_job_args_from_runnable_id(runnable_id, w_id, db, payload, info).await
         }
     }
@@ -510,8 +504,7 @@ pub async fn trigger_runnable_inner<'c>(
     user_db: Option<UserDB>,
     authed: ApiAuthed,
     workspace_id: &str,
-    runnable_path: &str,
-    is_flow: bool,
+    runnable: &RunnableRef,
     mut args: PushArgsOwned,
     retry: Option<&sqlx::types::Json<Retry>>,
     error_handler_path: Option<&str>,
@@ -549,16 +542,17 @@ pub async fn trigger_runnable_inner<'c>(
     });
 
     let user_db = user_db.unwrap_or_else(|| UserDB::new(db.clone()));
-    let (uuid, resolved_delete_secs, early_return, has_failure_module, tx_out) = if is_flow {
+    let (uuid, resolved_delete_secs, early_return, has_failure_module, tx_out) = if runnable
+        .is_flow()
+    {
         let run_query = RunJobQuery { job_id, suspended_mode, ..Default::default() };
-        let path = StripPath(runnable_path.to_string());
         let (uuid, early_return, has_failure_module, tx_out) = push_flow_job_by_path_into_queue(
             authed,
             db.clone(),
             tx_o,
             user_db,
             workspace_id.to_string(),
-            path,
+            runnable,
             run_query,
             args,
             Some(trigger),
@@ -572,7 +566,7 @@ pub async fn trigger_runnable_inner<'c>(
             user_db,
             authed,
             workspace_id,
-            runnable_path,
+            runnable,
             args,
             retry,
             error_handler_path,
@@ -601,8 +595,7 @@ pub async fn trigger_runnable(
     user_db: Option<UserDB>,
     authed: ApiAuthed,
     workspace_id: &str,
-    runnable_path: &str,
-    is_flow: bool,
+    runnable: &RunnableRef,
     args: PushArgsOwned,
     retry: Option<&sqlx::types::Json<Retry>>,
     error_handler_path: Option<&str>,
@@ -618,8 +611,7 @@ pub async fn trigger_runnable(
         user_db,
         authed,
         workspace_id,
-        runnable_path,
-        is_flow,
+        runnable,
         args,
         retry,
         error_handler_path,
@@ -640,8 +632,7 @@ pub async fn trigger_runnable_and_wait_for_result(
     user_db: Option<UserDB>,
     authed: ApiAuthed,
     workspace_id: &str,
-    runnable_path: &str,
-    is_flow: bool,
+    runnable: &RunnableRef,
     args: PushArgsOwned,
     retry: Option<&sqlx::types::Json<Retry>>,
     error_handler_path: Option<&str>,
@@ -656,8 +647,7 @@ pub async fn trigger_runnable_and_wait_for_result(
         user_db,
         authed,
         workspace_id,
-        runnable_path,
-        is_flow,
+        runnable,
         args,
         retry,
         error_handler_path,
@@ -693,8 +683,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     user_db: Option<UserDB>,
     authed: ApiAuthed,
     workspace_id: &str,
-    runnable_path: &str,
-    is_flow: bool,
+    runnable: &RunnableRef,
     args: PushArgsOwned,
     retry: Option<&sqlx::types::Json<Retry>>,
     error_handler_path: Option<&str>,
@@ -707,8 +696,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
         user_db,
         authed,
         workspace_id,
-        runnable_path,
-        is_flow,
+        runnable,
         args,
         retry,
         error_handler_path,
@@ -725,8 +713,7 @@ async fn trigger_runnable_and_wait_for_job(
     user_db: Option<UserDB>,
     authed: ApiAuthed,
     workspace_id: &str,
-    runnable_path: &str,
-    is_flow: bool,
+    runnable: &RunnableRef,
     args: PushArgsOwned,
     retry: Option<&sqlx::types::Json<Retry>>,
     error_handler_path: Option<&str>,
@@ -741,8 +728,7 @@ async fn trigger_runnable_and_wait_for_job(
         user_db,
         authed,
         workspace_id,
-        runnable_path,
-        is_flow,
+        runnable,
         args,
         retry,
         error_handler_path,
@@ -766,8 +752,8 @@ async fn trigger_runnable_and_wait_for_job(
     .with_context(|| {
         format!(
             "Error fetching job result for {} {} (job {})",
-            if is_flow { "flow" } else { "script" },
-            runnable_path,
+            runnable.kind(),
+            runnable.path(),
             uuid
         )
     })?;
@@ -786,8 +772,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result_with_error_ctx(
     user_db: Option<UserDB>,
     authed: ApiAuthed,
     workspace_id: &str,
-    runnable_path: &str,
-    is_flow: bool,
+    runnable: &RunnableRef,
     args: PushArgsOwned,
     retry: Option<&sqlx::types::Json<Retry>>,
     error_handler_path: Option<&str>,
@@ -800,8 +785,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result_with_error_ctx(
         user_db,
         authed,
         workspace_id,
-        runnable_path,
-        is_flow,
+        runnable,
         args,
         retry,
         error_handler_path,
@@ -813,8 +797,9 @@ pub async fn trigger_runnable_and_wait_for_raw_result_with_error_ctx(
 
     if !success {
         Err(windmill_common::error::Error::internal_err(format!(
-            "{} {runnable_path} failed (job {uuid}): {}",
-            if is_flow { "Flow" } else { "Script" },
+            "{} {} failed (job {uuid}): {}",
+            if runnable.is_flow() { "Flow" } else { "Script" },
+            runnable.path(),
             result.get()
         )))
     } else {
@@ -828,7 +813,7 @@ async fn trigger_script_internal<'c>(
     user_db: UserDB,
     authed: ApiAuthed,
     workspace_id: &str,
-    script_path: &str,
+    script: &RunnableRef,
     args: PushArgsOwned,
     retry: Option<&sqlx::types::Json<Retry>>,
     error_handler_path: Option<&str>,
@@ -844,14 +829,13 @@ async fn trigger_script_internal<'c>(
 )> {
     if retry.is_none() && error_handler_path.is_none() {
         let run_query = RunJobQuery { job_id, suspended_mode, ..Default::default() };
-        let path = StripPath(script_path.to_string());
         let (uuid, resolved_delete_secs, tx_out) = push_script_job_by_path_into_queue(
             authed,
             db.clone(),
             tx_o,
             user_db,
             workspace_id.to_string(),
-            path,
+            script,
             run_query,
             args,
             Some(trigger),
@@ -865,7 +849,7 @@ async fn trigger_script_internal<'c>(
             user_db,
             authed,
             workspace_id,
-            script_path,
+            script,
             args,
             retry,
             error_handler_path,
@@ -886,7 +870,7 @@ async fn trigger_script_with_retry_and_error_handler<'c>(
     user_db: UserDB,
     authed: ApiAuthed,
     workspace_id: &str,
-    script_path: &str,
+    script: &RunnableRef,
     args: PushArgsOwned,
     retry: Option<&sqlx::types::Json<Retry>>,
     error_handler_path: Option<&str>,
@@ -903,7 +887,7 @@ async fn trigger_script_with_retry_and_error_handler<'c>(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
+    check_scopes(&authed, || format!("jobs:run:scripts:{}", script.path()))?;
 
     let retry = retry.map(|r| r.0.clone());
     let error_handler_path = error_handler_path.map(|p| p.to_string());
@@ -912,7 +896,7 @@ async fn trigger_script_with_retry_and_error_handler<'c>(
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_of) = {
         let db_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
         script_path_to_payload(
-            script_path,
+            script,
             Some(db_authed),
             db.clone(),
             &workspace_id,

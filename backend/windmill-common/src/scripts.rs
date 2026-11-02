@@ -244,8 +244,16 @@ pub async fn get_full_hub_script_by_path(
     http_client: &reqwest::Client,
     db: Option<&DB>,
 ) -> crate::error::Result<HubScript> {
-    let path = path.to_path();
-    let version = parse_hub_id(path, "hub/")?;
+    get_full_hub_script_by_id(parse_hub_id(path.to_path(), "hub/")?, http_client, db).await
+}
+
+/// Fetches from the configured Hub (or its local cache) and authorizes nothing: a caller that
+/// runs the result MUST have authorized that run. `db` is read only for the instance id.
+pub async fn get_full_hub_script_by_id(
+    version: i32,
+    http_client: &reqwest::Client,
+    db: Option<&DB>,
+) -> crate::error::Result<HubScript> {
     // A cache entry that cannot be read or parsed counts as a miss rather than an error:
     // a truncated write leaves a file that exists but deserializes to nothing, and refetching
     // it is always preferable to failing the job push it was read for.
@@ -264,7 +272,7 @@ pub async fn get_full_hub_script_by_path(
         }
     };
     if let Some(script) = cached {
-        tracing::info!("read hub script {path} from cache");
+        tracing::info!("read hub script {version} from cache");
         return Ok(script);
     }
 
@@ -274,9 +282,9 @@ pub async fn get_full_hub_script_by_path(
         &version.to_string(),
         &serde_json::to_string(&script).map_err(to_anyhow)?,
     ) {
-        tracing::error!("failed to write hub script {path} to cache: {e}");
+        tracing::error!("failed to write hub script {version} to cache: {e}");
     } else {
-        tracing::info!("wrote hub script {path} to cache");
+        tracing::info!("wrote hub script {version} to cache");
     }
     Ok(script)
 }

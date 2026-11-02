@@ -12,6 +12,7 @@ use windmill_api_auth::{
 };
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
+use windmill_common::runnable_ref::RunnableRef;
 use windmill_common::ssrf::{validate_webhook_url, webhook_ssrf_error_message};
 use windmill_common::usernames::{get_instance_username_or_create_pending, validate_username};
 use windmill_common::webhook::WebhookShared;
@@ -1722,8 +1723,10 @@ async fn run_slack_message_test_job(
     Json(req): Json<RunSlackMessageTestJobRequest>,
 ) -> JsonResult<RunSlackMessageTestJobResponse> {
     // Runs as the error handler identity, handed the Slack bot token.
-    if !(windmill_queue::is_preset_handler_path(&req.hub_script_path)
-        && req.hub_script_path.ends_with("-slack"))
+    let handler = RunnableRef::from_path(&req.hub_script_path, false)?;
+    if !handler
+        .preset_handler()
+        .is_some_and(|p| p.ends_with("-slack"))
     {
         return Err(Error::BadRequest(
             "Only a preset Slack handler from the hub can be tested".to_string(),
@@ -1747,7 +1750,7 @@ async fn run_slack_message_test_job(
         Some("slack_message_test".to_string()),
         false,
         w_id.as_str(),
-        &format!("script/{}", req.hub_script_path.as_str()),
+        &handler,
         sqlx::types::Json(&fake_result),
         None,
         Some(Utc::now()),
@@ -6388,30 +6391,28 @@ async fn edit_variable_expiration_handler(
             ));
         }
 
-        // Any hub script is left unchecked, so saving never needs the hub.
-        let exists = if let Some(p) = path.strip_prefix("script/") {
-            p.starts_with("hub/")
+        // Any hub script is left unchecked, so saving never needs the hub. A hub flow is not
+        // exempt: it is looked up in the workspace like any flow, and so refused.
+        let handler = RunnableRef::from_prefixed(path)?;
+        let exists = if !handler.is_flow() {
+            handler.is_hub()
                 || sqlx::query_scalar!(
                     "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2 AND archived = false AND deleted = false)",
                     w_id,
-                    p
+                    handler.path()
                 )
                 .fetch_one(&mut *tx)
                 .await?
                 .unwrap_or(false)
-        } else if let Some(p) = path.strip_prefix("flow/") {
+        } else {
             sqlx::query_scalar!(
                 "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2 AND archived = false)",
                 w_id,
-                p
+                handler.path()
             )
             .fetch_one(&mut *tx)
             .await?
             .unwrap_or(false)
-        } else {
-            return Err(Error::BadRequest(format!(
-                "Field `path` must start with script/ or flow/ (got {path})"
-            )));
         };
         if !exists {
             return Err(Error::BadRequest(format!(
@@ -6421,7 +6422,7 @@ async fn edit_variable_expiration_handler(
 
         // Persisted even when false, like `error_handler`'s.
         let mut variable_expiration_handler = serde_json::json!({
-            "path": path,
+            "path": format!("{}/{}", handler.kind(), handler.path()),
             "muted_on_user_path": es.muted_on_user_path,
         });
         if let Some(extra_args) = &es.extra_args {
