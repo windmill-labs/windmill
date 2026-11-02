@@ -170,13 +170,13 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 									{/snippet}
 									{#snippet children({ item, builders })}
 										{@const menu = { item, builders } as SectionMenu}
-										<!-- A session picked here leaves the menu with the page it opened, as a
-										     link does on its own. -->
+										<!-- A session or link picked here leaves the menu with the page it opened:
+										     only the rows given `menu.item` are melt items that close it themselves. -->
 										<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
 										<div
 											class="flex flex-col gap-0.5 px-1"
 											onclick={(e) => {
-												if ((e.target as Element).closest('[role="option"]')) open = false
+												if ((e.target as Element).closest('a, [role="option"]')) open = false
 											}}
 										>
 											<!-- Icons only shows no title on the row, so its menu does. -->

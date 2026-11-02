@@ -39,6 +39,12 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	// Below the layout's 768px breakpoint the sidebar is a drawer whatever the mode, so the handle
 	// has no mode to offer there.
 	let innerWidth = $state(BROWSER ? window.innerWidth : 0)
+
+	function showSidebarFromMenu() {
+		if (!navHandleSlot.pinned) navHandleSlot.toggle()
+		// After the menu hands focus back to the handle: the card's links come later in no tab order.
+		setTimeout(() => document.querySelector<HTMLElement>('[data-nav-card] a[href]')?.focus(), 50)
+	}
 	const content = $derived(pageHeader.content)
 	const actions = $derived(pageHeader.actions)
 	const hasActions = $derived(actions.length > 0)
@@ -208,12 +214,10 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		)}
 	>
 		{#if (navDetached.val || panelled) && !navHidden}
-			<!-- Reveals the hidden sidebar, and only that: the card follows the pointer, holding while it
-		     is on the handle, on the card, or in a menu either opened, and sliding back out when it
-		     leaves. A click or tap pins it instead, until another one here, a press on the page or Esc
-		     puts it back. Attaching
-		     it for good belongs to the mode menu in the sidebar's own footer, where detaching it
-		     happened. Docked, the sidebar speaks for itself and nothing leads the bar. -->
+			<!-- Reveals the hidden sidebar: the card follows the pointer, holding while it is on the
+		     handle, on the card, or in a menu either opened, and sliding back out when it leaves. A tap
+		     pins it instead, until another one here, a press on the page or Esc puts it back. Docked,
+		     the sidebar speaks for itself and nothing leads the bar. -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				data-nav-handle
@@ -226,12 +230,17 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 				<!-- No tooltip: hovering here already slides the sidebar in, which says what the button
 			     does better than a label popping up over it. Where hover does that, a click picks the
 			     sidebar's mode, as the card has no footer to hold that menu; a touch screen taps to pin
-			     the card instead. -->
+			     the card instead. The menu's first item pins it too, the way in from a keyboard. -->
 				{#if navDetached.val && hoverPointer && innerWidth >= 768 && navHandleSlot.modeItems}
 					<DropdownV2
 						placement="bottom-start"
 						fixedHeight={false}
-						items={() => navHandleSlot.modeItems ?? []}
+						items={() => [
+							{ displayName: 'Show sidebar', action: showSidebarFromMenu },
+							...(navHandleSlot.modeItems ?? []).map((i) =>
+								i.sectionTitle ? { ...i, separatorTop: true } : i
+							)
+						]}
 					>
 						{#snippet buttonReplacement()}
 							<Button

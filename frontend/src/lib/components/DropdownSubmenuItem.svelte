@@ -55,17 +55,21 @@
 		use:melt={$subMenu}
 		class="z-[6000] bg-surface-tertiary dark:border {CustomSubmenu
 			? ''
-			: 'w-48 overflow-y-auto py-1'} origin-top-right rounded-lg shadow-lg focus:outline-none"
+			: 'w-48 py-1'} origin-top-right rounded-lg shadow-lg focus:outline-none"
 	>
 		{#if CustomSubmenu}
 			<CustomSubmenu {...item.customSubmenuProps} close={closeMenu} />
 		{:else}
-			{#each subItems as subItem}
-				{#if subItem.separatorTop}
-					<div class="my-1 border-t border-border-light"></div>
-				{/if}
-				{@render subMenuItem(subItem)}
-			{/each}
+			<!-- The scroll sits on this wrapper, not on the melt element: that element is the containing
+			     block of a nested submenu, which its overflow would clip. -->
+			<div class="max-h-[inherit] overflow-y-auto">
+				{#each subItems as subItem}
+					{#if subItem.separatorTop}
+						<div class="my-1 border-t border-border-light"></div>
+					{/if}
+					{@render subMenuItem(subItem)}
+				{/each}
+			</div>
 		{/if}
 	</div>
 {/if}
