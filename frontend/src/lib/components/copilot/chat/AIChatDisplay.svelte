@@ -23,6 +23,7 @@
 		XIcon
 	} from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -624,6 +625,28 @@
 		if (!isComposerOverlay(e.target) && !asksForComposer(e.target)) closeComposer()
 	}
 
+	// The composer clears on a second Escape: the first only shows the hint, so a single
+	// stray press cannot throw a draft away. Typing or leaving the composer disarms it.
+	const CLEAR_ARM_MS = 2000
+	let clearArmed = $state(false)
+	let clearArmTimer: ReturnType<typeof setTimeout> | undefined
+	function disarmClear() {
+		clearTimeout(clearArmTimer)
+		clearArmed = false
+	}
+	function onComposerEscape() {
+		if (!aiChatInput?.hasClearableContent()) return false
+		if (clearArmed) {
+			disarmClear()
+			aiChatInput.clearDraft()
+		} else {
+			clearArmed = true
+			clearArmTimer = setTimeout(disarmClear, CLEAR_ARM_MS)
+		}
+		return true
+	}
+	$effect(() => () => clearTimeout(clearArmTimer))
+
 	// While the box plays its accent outline (app.css, `data-composer-flash`).
 	let flashing = $state(false)
 
@@ -1037,9 +1060,20 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		onfocusin={(e) => {
 			if (starterLayout && e.target instanceof HTMLTextAreaElement) composerOpened = true
 		}}
+		oninput={() => disarmClear()}
+		onfocusout={(e) => {
+			if (!composerEl?.contains(e.relatedTarget as Node | null)) disarmClear()
+		}}
 		onkeydown={(e) => {
 			// A prevented Escape closed something inside first, such as the @-mention picker.
+			// A running turn's Escape stops it and arrives prevented too.
 			if (e.key !== 'Escape' || e.defaultPrevented) return
+			if (onComposerEscape()) {
+				// Kept from the panel or drawer around the chat, which would close on it.
+				e.preventDefault()
+				e.stopPropagation()
+				return
+			}
 			if (!starterLayout || !composerOpened) return
 			closeComposer()
 			if (aiChatInput?.isDraftEmpty() ?? true) (document.activeElement as HTMLElement)?.blur()
@@ -1448,7 +1482,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		<!-- Opens and closes with the box, so the page under it slides rather than jumps. -->
 		<div use:smoothHeight={{ enabled: starterLayout, key: composerCollapsed }}>
 			<div>
-				{#if starterLayout && starter && !disabled && !composerCollapsed && starter.suggestions.length > 0}
+				<!-- Right under the box; on Home it stands in for the suggestions, at their height. -->
+				{#if clearArmed}
+					<div class="pt-2 h-9 flex items-center gap-1 text-xs text-hint" role="status">
+						Press <Kbd small>Esc</Kbd> again to clear
+					</div>
+				{:else if starterLayout && starter && !disabled && !composerCollapsed && starter.suggestions.length > 0}
 					<div class="pt-2">
 						<ComposerSuggestions
 							suggestions={starter.suggestions}

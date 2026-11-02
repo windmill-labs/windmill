@@ -682,6 +682,23 @@
 		return draft.isEmpty
 	}
 
+	// Only GLOBAL's context is chips the user added; the editors' modes seed theirs with the
+	// code being edited, which an Escape must neither count nor drop.
+	const userContext = $derived(chatHost.mode === AIMode.GLOBAL ? selectedContext : [])
+
+	/** Whether there is anything for `clearDraft` to drop: the draft or a context chip. */
+	export function hasClearableContent(): boolean {
+		return !draft.isEmpty || userContext.length > 0
+	}
+
+	/** Drops everything the user put in the composer: text, attachments and context chips. */
+	export function clearDraft() {
+		// Zapped first, so wiping the text does not also dispatch a removal per `@` mention.
+		contextTextareaComponent?.clearForSend()
+		draft.clear()
+		if (userContext.length > 0) selectedContext = []
+	}
+
 	export function focusInput(selection?: ComposerSelection) {
 		if (isContextEnabledMode) {
 			contextTextareaComponent?.focus(selection)
