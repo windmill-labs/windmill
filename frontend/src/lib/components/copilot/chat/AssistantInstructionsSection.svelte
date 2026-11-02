@@ -191,7 +191,7 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 	/** Unsaved folder instructions the user moved away from, by workspace and path: the editor
 	 * holds one at a time, and opening another would otherwise drop this one's text. */
 	let parkedFolderDrafts = $state<
-		Record<string, { workspace: string; content: string; original: string }>
+		Record<string, { workspace: string; content: string; original: string; path: string }>
 	>({})
 	const draftKey = (path: string, workspace = ws) => `${workspace}\0${path}`
 	let parkedHere = $derived(
@@ -325,7 +325,7 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		workspaceDraft = workspaceSaved
 		userDraft = userSaved
 		// The editor may still hold another workspace's open draft, which is not this one's to drop.
-		if (opened?.workspace === ws) setFolderContent(folderOriginal)
+		if (opened?.workspace === ws) revertFolder()
 		for (const [key] of parkedHere) delete parkedFolderDrafts[key]
 		delete parkedNewDrafts[ws]
 	}
@@ -333,7 +333,16 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 	function revertPage() {
 		if (detail?.kind === 'workspace') workspaceDraft = workspaceSaved
 		else if (detail?.kind === 'user') userDraft = userSaved
-		else setFolderContent(folderOriginal)
+		else revertFolder()
+	}
+
+	/** The open folder instruction back to its saved body and its own path. */
+	function revertFolder() {
+		setFolderContent(folderOriginal)
+		if (opened?.detail.kind === 'folder' && newPath !== opened.detail.row.path) {
+			newPath = opened.detail.row.path
+			editorSeq++
+		}
 	}
 
 	/** Moves the open folder instruction's unsaved text aside, before the editor is reused.
@@ -352,11 +361,12 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		}
 		if (held.kind !== 'folder') return
 		bodyEditor?.flushPendingChanges()
-		if (folderContent === folderOriginal) return
+		if (folderContent === folderOriginal && newPath === held.row.path) return
 		parkedFolderDrafts[draftKey(held.row.path, workspace)] = {
 			workspace,
 			content: folderContent,
-			original: folderOriginal
+			original: folderOriginal,
+			path: newPath
 		}
 		folderOriginal = folderContent
 	}
@@ -395,6 +405,9 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 			visit++
 			setFolderContent(parked.content)
 			folderOriginal = parked.original
+			// Save renames to `newPath`, which still holds whatever was open in between.
+			newPath = parked.path
+			editorSeq++
 			folderMode = 'edit'
 			opened = { workspace: ws, detail: { kind: 'folder', row } }
 			detailOpen = true
@@ -912,13 +925,7 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 							</div>
 							<div class="flex items-center gap-2">
 								<Button
-									onClick={() => {
-										setFolderContent(folderOriginal)
-										if (detail?.kind === 'folder' && newPath !== detail.row.path) {
-											newPath = detail.row.path
-											editorSeq++
-										}
-									}}
+									onClick={revertFolder}
 									variant="subtle"
 									unifiedSize="sm"
 									startIcon={{ icon: RotateCcw }}
