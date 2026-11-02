@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Badge, Button, Drawer, DrawerContent, ListRow } from '$lib/components/common'
+	import { Alert, Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import WorkspaceDeployLayout from '$lib/components/WorkspaceDeployLayout.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -26,6 +26,7 @@
 		ArrowLeft,
 		Check,
 		ChevronDown,
+		ChevronRight,
 		Cloud,
 		Code2,
 		Database,
@@ -269,23 +270,24 @@
 	<div class="flex flex-col gap-3 max-w-2xl">
 		<span class="text-sm font-semibold text-emphasis">Hub projects from this folder</span>
 		<span class="text-xs text-primary">Pick a project to update, record or submit.</span>
-		<div class="flex flex-col gap-1">
+		<div class="flex flex-col border rounded-md bg-surface-tertiary divide-y">
 			{#each projects as p (p.folder)}
 				{@const b = statusBadge(p.status)}
-				{#snippet icon()}
-					<FolderTree size={16} class="text-secondary" />
-				{/snippet}
-				{#snippet title()}
-					<span class="text-xs font-semibold text-emphasis truncate">{p.name}</span>
-					<Badge small color={b.color}>
+				<button
+					class="flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-hover"
+					onclick={() => openProject(p.folder)}
+				>
+					<FolderTree size={16} class="text-secondary shrink-0" />
+					<span class="flex flex-col gap-0.5 min-w-0">
+						<span class="text-xs font-semibold text-emphasis truncate">{p.name}</span>
+						<span class="text-2xs font-mono text-secondary truncate">f/{p.folder}/</span>
+					</span>
+					<Badge small color={b.color} wrapperClass="ml-auto">
 						<Cloud size={10} class="mr-1" />
 						{b.label}
 					</Badge>
-				{/snippet}
-				{#snippet subtitle()}
-					<span class="font-mono">f/{p.folder}/</span>
-				{/snippet}
-				<ListRow {icon} {title} {subtitle} onClick={() => openProject(p.folder)} />
+					<ChevronRight size={16} class="text-secondary shrink-0" />
+				</button>
 			{/each}
 		</div>
 		{#if !wholeIsProject}
