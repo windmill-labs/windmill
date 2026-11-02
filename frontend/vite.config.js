@@ -21,6 +21,65 @@ const uiBuilderStaticPresent = existsSync(
 )
 
 /**
+ * Vite's preload helper (`__vitePreload`) checks every dependency of a dynamic import against
+ * every `<link>` in the document before adding its own: with relative paths it walks
+ * `document.getElementsByTagName('link')` reading each `href`. A route node here preloads
+ * hundreds of chunks, so loading Home made that walk quadratic, ~40ms of a warm reload.
+ *
+ * The walk only has to catch links the helper did not add itself (its own are deduped by its
+ * `seen` map), which are the ones already in the document when it first runs: those are
+ * snapshotted once into a set. Patched in `renderChunk`, before the chunk's hash is taken, so
+ * a cached copy of the unpatched helper is never served under the same name. Fails the build
+ * when the helper no longer has the expected shape, so a Vite upgrade cannot silently bring
+ * the walk back.
+ */
+function preloadWithoutLinkScan() {
+	// Matches Vite's source and its minified form alike.
+	const scan =
+		/for\s*\(\s*let\s+(\w+)\s*=\s*(\w+)\.length\s*-\s*1\s*;\s*\1\s*>=\s*0\s*;\s*\1--\s*\)\s*\{\s*(?:const|let)\s+(\w+)\s*=\s*\2\[\1\]\s*;?\s*if\s*\(\s*\3\.href\s*===\s*(\w+)\s*&&\s*\(\s*!(\w+)\s*\|\|\s*\3\.rel\s*===\s*(["'`])stylesheet\6\s*\)\s*\)\s*return\s*;?\s*\}/
+	const present = `function __wmLinkPresent(links, href, css) {
+	const s = (__wmLinkPresent.s ??= (() => {
+		const all = new Set(), sheets = new Set()
+		for (const l of links) {
+			all.add(l.href)
+			if (l.rel === 'stylesheet') sheets.add(l.href)
+		}
+		return { all, sheets }
+	})())
+	return (css ? s.sheets : s.all).has(href)
+}
+`
+	// The server pass has no preload helper to patch.
+	let ssr = false
+	let patched = 0
+	return {
+		name: 'wm-preload-without-link-scan',
+		apply: 'build',
+		configResolved(config) {
+			ssr = !!config.build.ssr
+		},
+		renderChunk(code, chunk) {
+			if (ssr || !code.includes('vite:preloadError')) return null
+			if (!scan.test(code)) {
+				this.error(
+					`wm-preload-without-link-scan: ${chunk.fileName} holds Vite's preload helper, but not the link scan this plugin replaces. Check what the new helper does before dropping the plugin.`
+				)
+			}
+			patched++
+			return {
+				code: present + code.replace(scan, 'if (__wmLinkPresent($2, $4, $5)) return;'),
+				map: null
+			}
+		},
+		generateBundle() {
+			if (!ssr && patched === 0) {
+				this.error("wm-preload-without-link-scan: no chunk holds Vite's preload helper")
+			}
+		}
+	}
+}
+
+/**
  * Fail the build if the emitted chunks import each other in a cycle.
  *
  * A chunk's imports all evaluate before its own body, so in a cycle one member runs
@@ -350,6 +409,7 @@ const config = {
 		...(process.env.HTTPS === 'true' ? [mkcert()] : []),
 		plugin,
 		assertAcyclicChunks(),
+		preloadWithoutLinkScan(),
 		assertLeanPublicAppRoutes(),
 		assertMonacoFreeAppShell()
 	],
