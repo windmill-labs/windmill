@@ -55,6 +55,7 @@ import {
 	getEffectiveWorkspaceId,
 	markSessionStateChanged,
 	materializeTransient,
+	noteRemoteStateChange,
 	sessionState,
 	setGeneratedSessionSummary,
 	setSessionChatId,
@@ -1438,9 +1439,7 @@ export function getRuntime(sessionId: string): SessionRuntime | undefined {
 const catchUps = new Map<string, Promise<void>>()
 
 onRemoteTurnEnd((sessionId, chatId) => {
-	// This tab's record still has the turn's old stamp, and a later write of it here (the
-	// read watermark, a rename) would put that stamp back over the driving tab's.
-	markSessionStateChanged(sessionId)
+	noteRemoteStateChange(sessionId)
 	const next = (catchUps.get(sessionId) ?? Promise.resolve())
 		.then(() => applyRemoteTurnEnd(sessionId, chatId))
 		.catch((e) => console.error('Failed to catch up on a turn from another tab', e))

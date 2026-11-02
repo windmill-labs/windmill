@@ -516,6 +516,15 @@ export function markSessionStateChanged(id: string): void {
 	persistTouched(s)
 }
 
+/** A turn another tab ran: the driving tab persisted the stamp, so this tab only re-sorts.
+ * Writing here would put this tab's stale copy of the whole record (title, tabs, committed
+ * workspace) over the driver's; carrying the stamp in memory also keeps any later write
+ * from this tab from rolling it back. */
+export function noteRemoteStateChange(id: string): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (s) s.lastStateChangeAt = Date.now()
+}
+
 // Sessions whose record has been removed from IndexedDB. Ids come from createLongHash
 // and are never reused, so an entry can only ever match the record it was recorded for.
 // In-memory by design: a reload re-runs reconciliation, which re-derives the set.
