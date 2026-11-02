@@ -395,6 +395,7 @@ async fn inject_agent_authed(
                 read_only: false,
                 job_id: None,
                 credential_expiry: None,
+                mcp_client: None,
             },
             job_id: None,
         });
@@ -585,15 +586,19 @@ pub async fn run_server(
             )
             .await?;
             // Workspace-scoped MCP router
+            let external_idp_auth =
+                || axum::middleware::from_fn(mcp::external_idp::external_idp_auth);
             let workspaced_mcp_router = mcp_router
                 .clone()
                 .route_layer(from_extractor::<ApiAuthed>())
+                .layer(external_idp_auth())
                 .layer(axum::middleware::from_fn(reject_token_query_param))
                 .layer(axum::middleware::from_fn(add_www_authenticate_header))
                 .layer(axum::middleware::from_fn(extract_and_store_workspace_id));
             // Gateway MCP router — resolves workspace from token
             let gateway_mcp_router = mcp_router
                 .route_layer(from_extractor::<ApiAuthed>())
+                .layer(external_idp_auth())
                 .layer(axum::middleware::from_fn(extract_workspace_from_token))
                 .layer(axum::middleware::from_fn(reject_token_query_param))
                 .layer(axum::middleware::from_fn(
@@ -602,6 +607,7 @@ pub async fn run_server(
             // The workspace server. Its tools name their workspace; the token bounds which.
             let gateway_session_router = session_router
                 .route_layer(from_extractor::<ApiAuthed>())
+                .layer(external_idp_auth())
                 .layer(axum::middleware::from_fn(extract_workspace_from_token))
                 .layer(axum::middleware::from_fn(reject_token_query_param))
                 .layer(axum::middleware::from_fn(

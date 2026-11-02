@@ -290,7 +290,7 @@ pub enum ScopeDomain {
     Configs,
     OAuth,
     AI,
-    AiEvals,     // AI agent eval datasets
+    AiEvals, // AI agent eval datasets
     SlackAgents, // AI agents answering in Slack channels
 
     Indexer,
@@ -381,7 +381,9 @@ impl ScopeDomain {
             "data_metrics" => Some(Self::DataMetrics),
             "flows" => Some(Self::Flows),
             "flow_conversations" => Some(Self::FlowConversations),
-            "apps" | "apps_u" => Some(Self::Apps),
+            // `shared_ui` is the workspace `ui/` folder raw apps import from, so a token
+            // that syncs apps reaches it without a scope of its own.
+            "apps" | "apps_u" | "shared_ui" => Some(Self::Apps),
             "variables" => Some(Self::Variables),
             "resources" => Some(Self::Resources),
             "schedules" => Some(Self::Schedules),
@@ -611,9 +613,7 @@ pub fn intersect_job_token_scopes(
             let (pc, po) = (parse(c), parse(o));
             let mut out: Vec<String> = vec![];
             let mut keep_covered =
-                |raw: &[String],
-                 parsed: &[Option<ScopeDefinition>],
-                 by: &[Option<ScopeDefinition>]| {
+                |raw: &[String], parsed: &[Option<ScopeDefinition>], by: &[Option<ScopeDefinition>]| {
                     for (s, p) in raw.iter().zip(parsed) {
                         let Some(p) = p else { continue };
                         if by.iter().flatten().any(|b| scope_contains(b, p))
@@ -697,17 +697,14 @@ mod job_token_scopes_tests {
     fn intersect_never_widens() {
         assert_eq!(intersect_job_token_scopes(None, None), None);
         let oidc = v(&["oidc:write"]);
-        assert_eq!(
-            intersect_job_token_scopes(Some(&oidc), None),
-            Some(oidc.clone())
-        );
-        assert_eq!(
-            intersect_job_token_scopes(None, Some(&oidc)),
-            Some(oidc.clone())
-        );
+        assert_eq!(intersect_job_token_scopes(Some(&oidc), None), Some(oidc.clone()));
+        assert_eq!(intersect_job_token_scopes(None, Some(&oidc)), Some(oidc.clone()));
         // A child setting asking for more than its parent holds gets only the common part.
         assert_eq!(
-            intersect_job_token_scopes(Some(&oidc), Some(&v(&["oidc:write", "variables:read"]))),
+            intersect_job_token_scopes(
+                Some(&oidc),
+                Some(&v(&["oidc:write", "variables:read"]))
+            ),
             Some(oidc.clone())
         );
         // Narrower entries win from either side.
