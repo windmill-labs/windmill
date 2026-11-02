@@ -25,6 +25,7 @@ and the actions that create, edit, import and delete them.
 	import { sendUserToast } from '$lib/toast'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { tick, untrack } from 'svelte'
+	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import {
 		ArrowLeft,
 		BookOpen,
@@ -204,7 +205,13 @@ What the assistant should do when this skill applies.
 	export function showFolder() {
 		if (!contentChanged && !pathChanged) editorOpen = false
 		collapsed = {}
+		pulse++
 	}
+	/** Replays the focused folder's flash, so the eye finds it in the list. A reload remounts
+	 * the rows, so the flash already played is remembered rather than replayed. */
+	let pulse = $state(0)
+	let played = $state(0)
+	const reducedMotion = useReducedMotion()
 	/** The list top to bottom as it stands, for the keyboard to walk. Empty whenever
 	 * the rows are not the thing on screen — a reload after a save or a delete shows
 	 * the loading line, and a failed one shows the error, both over the rows this
@@ -1018,10 +1025,25 @@ What the assistant should do when this skill applies.
 	/>
 {/snippet}
 
+{#snippet focusPulse(focused: boolean)}
+	<!-- `opacity-0` at rest: the keyframes carry no fill mode, so the overlay would come back
+	     at full strength once the animation ends. -->
+	{#if focused && pulse !== played && !reducedMotion.val}
+		{#key pulse}
+			<span
+				aria-hidden="true"
+				onanimationend={() => (played = pulse)}
+				class="pointer-events-none absolute inset-0 rounded-lg ring-2 ring-inset ring-blue-500/60 bg-blue-500/10 opacity-0 animate-fade-out"
+			></span>
+		{/key}
+	{/if}
+{/snippet}
+
 <!-- One folder and everything under it. Recursive: a path may name folders below
      the `u/x` or `f/x` root it starts from. -->
 {#snippet folder(node: SkillTreeNode<Row>, root: boolean)}
-	<div>
+	<div class="relative">
+		{@render focusPulse(root && node.path === focusRoot)}
 		<!-- The switch sits beside the header button rather than inside it: a switch
 		     nested in a button would fold the folder on every flip. `pr-14` clears the
 		     row menu column, so a folder's switch stands in the same column as the
