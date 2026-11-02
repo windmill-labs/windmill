@@ -199,6 +199,7 @@
 					}
 					placeholder="Add a folder"
 					size="sm"
+					disablePortal
 				/>
 			</div>
 			<div class="flex items-start gap-1.5 text-2xs text-secondary">

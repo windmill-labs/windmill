@@ -29,7 +29,7 @@
 		/** The item's path and its editor's copy: what a service account made here is built from. */
 		itemPath?: string
 		needsSource?: () => NeedsSource | undefined
-		onCreatingChange?: (open: boolean) => void
+		onOverlayChange?: (open: boolean) => void
 	}
 
 	let {
@@ -47,7 +47,7 @@
 		onPickerOpenChange,
 		itemPath,
 		needsSource,
-		onCreatingChange
+		onOverlayChange
 	}: Props = $props()
 
 	const operatingUser = useOperatingUser()
@@ -132,5 +132,5 @@
 		email = accountEmail
 		permissionedAs = `u/${username}`
 	}}
-	{onCreatingChange}
+	{onOverlayChange}
 />

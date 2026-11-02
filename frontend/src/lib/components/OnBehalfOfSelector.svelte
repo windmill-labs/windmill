@@ -40,6 +40,7 @@
 	} from './access/serviceAccounts.svelte'
 	import NewServiceAccountForm from './access/NewServiceAccountForm.svelte'
 	import type { NeedsSource } from './access/detectNeeds'
+	import { useOperatingUser } from './operatingWorkspace.svelte'
 
 	interface Props {
 		targetWorkspace: string
@@ -167,6 +168,14 @@
 	}
 	const GROUP_ORDER = Object.values(GROUP_OF)
 
+	// Service accounts are created at deploy time for the runnables a deploy dialog confirms; a
+	// trigger's identity is set where it is saved, with no dialog to create one from.
+	const offersCreate = $derived(
+		offerCreate && (kind === 'script' || kind === 'flow' || kind === 'app' || kind === 'raw_app')
+	)
+	const operatingUser = useOperatingUser()
+	const canCreate = $derived(!!$enterpriseLicense && !!operatingUser.current?.is_admin)
+
 	// One row per user: the saved value and "me" are tags on the account or person row when it is
 	// listed, and rows of their own, at the top of the group of what they name, when it is not.
 	let rows: Row[] = $derived.by(() => {
@@ -178,7 +187,8 @@
 
 		const listed: Omit<Row, 'label'>[] = [
 			...serviceAccounts.current
-				.filter((a) => a.pending || canPreserve)
+				// Only a host that creates accounts at deploy can keep one that doesn't exist yet.
+				.filter((a) => (a.pending ? offersCreate : canPreserve))
 				.sort(
 					(a, b) =>
 						Number(!!b.pending) - Number(!!a.pending) || a.username.localeCompare(b.username)
@@ -240,13 +250,6 @@
 			if (email) onSelect('custom', { email, permissionedAs: value })
 		}
 	}
-
-	// Service accounts are created at deploy time for the runnables a deploy dialog confirms; a
-	// trigger's identity is set where it is saved, with no dialog to create one from.
-	const offersCreate = $derived(
-		offerCreate && (kind === 'script' || kind === 'flow' || kind === 'app' || kind === 'raw_app')
-	)
-	const canCreate = $derived(!!$enterpriseLicense && !!$userStore?.is_admin)
 
 	let filterText = $state('')
 	let selectOpen = $state(false)

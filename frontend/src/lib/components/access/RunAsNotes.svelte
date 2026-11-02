@@ -26,7 +26,7 @@
 		savedPermissionedAs,
 		runnablesRunAsCaller = false,
 		onUseAccount,
-		onCreatingChange
+		onOverlayChange
 	}: {
 		kind: 'script' | 'flow' | 'app'
 		targetWorkspace: string
@@ -39,8 +39,9 @@
 		/** An app in viewer mode runs its runnables as each viewer, whoever `runsAs` names. */
 		runnablesRunAsCaller?: boolean
 		onUseAccount: (username: string, email: string) => void
-		/** See `OnBehalfOfSelector`'s `onPickerOpenChange`. */
-		onCreatingChange?: (open: boolean) => void
+		/** Whether the create drawer or the grant confirmation is open over the host dialog, which
+		 *  must stop handling keys meanwhile: its listener and theirs both sit on the window. */
+		onOverlayChange?: (open: boolean) => void
 	} = $props()
 
 	const operatingUser = useOperatingUser()
@@ -82,10 +83,15 @@
 	)
 
 	let creatingOpen = $state(false)
+	let confirmingGrant = false
 	let createForm: NewServiceAccountForm | undefined = $state()
 	function setCreating(open: boolean) {
 		creatingOpen = open
-		onCreatingChange?.(open)
+		onOverlayChange?.(creatingOpen || confirmingGrant)
+	}
+	function setConfirmingGrant(open: boolean) {
+		confirmingGrant = open
+		onOverlayChange?.(creatingOpen || confirmingGrant)
 	}
 </script>
 
@@ -123,6 +129,7 @@
 	{itemPath}
 	{needsSource}
 	account={runnablesRunAsCaller ? undefined : runsAs}
+	onConfirmingChange={setConfirmingGrant}
 />
 
 {#if pending}

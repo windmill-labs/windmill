@@ -68,7 +68,7 @@
 		})
 	)
 	let pickerOpen = $state(false)
-	let creatingOpen = $state(false)
+	let overlayOpen = $state(false)
 	let deploying = $state(false)
 
 	async function confirm() {
@@ -97,7 +97,7 @@
 	confirmationText="Deploy"
 	confirmDisabled={folderDefaultLoading}
 	loading={deploying}
-	keyListen={!pickerOpen && !creatingOpen}
+	keyListen={!pickerOpen && !overlayOpen}
 	alwaysPortal
 	onConfirmed={confirm}
 	onCanceled={() => (open = false)}
@@ -118,7 +118,7 @@
 			onPickerOpenChange={(o) => (pickerOpen = o)}
 			{itemPath}
 			{needsSource}
-			onCreatingChange={(o) => (creatingOpen = o)}
+			onOverlayChange={(o) => (overlayOpen = o)}
 		/>
 		<TextInput bind:value={message} inputProps={{ placeholder: 'Deployment message' }} />
 	</div>

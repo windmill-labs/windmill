@@ -23,7 +23,8 @@
 		kind,
 		itemPath,
 		needsSource,
-		account
+		account,
+		onConfirmingChange
 	}: {
 		workspace: string
 		kind: RunnableKind
@@ -32,6 +33,8 @@
 		needsSource?: () => NeedsSource | undefined
 		/** `u/<username>` the item runs as; unset when it runs as whoever runs it. */
 		account: string | undefined
+		/** Whether the grant confirmation is open. */
+		onConfirmingChange?: (open: boolean) => void
 	} = $props()
 
 	type Report = {
@@ -62,6 +65,10 @@
 	let grantErrors: Record<string, string> = $state({})
 	let granting: string | undefined = $state()
 	let confirming: NeededItem | undefined = $state()
+	function setConfirming(item: NeededItem | undefined) {
+		confirming = item
+		onConfirmingChange?.(!!item)
+	}
 	// Responses are not ordered: a slow answer for the previous identity must not land.
 	let requestId = 0
 
@@ -138,7 +145,7 @@
 		}
 		await check()
 		granting = undefined
-		confirming = undefined
+		setConfirming(undefined)
 	}
 </script>
 
@@ -153,7 +160,7 @@
 	alwaysPortal
 	zIndexClass="z-[10000]"
 	onConfirmed={() => confirming && grantRead(confirming)}
-	onCanceled={() => (confirming = undefined)}
+	onCanceled={() => setConfirming(undefined)}
 >
 	{#if confirming}
 		<p class="text-xs text-primary">
@@ -208,7 +215,7 @@
 										variant="default"
 										unifiedSize="xs"
 										disabled={!!granting}
-										onClick={() => (confirming = item)}
+										onClick={() => setConfirming(item)}
 									>
 										Grant read
 									</Button>
