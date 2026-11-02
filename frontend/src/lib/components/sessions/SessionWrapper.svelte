@@ -39,6 +39,7 @@
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { Archive, ArchiveRestore, EllipsisVertical, GitFork, Pencil, Trash2 } from 'lucide-svelte'
 	import SessionChangesBar from './SessionChangesBar.svelte'
+	import { sessionHandEdits } from './sessionHandEdits.svelte'
 	import SessionShareButton from './SessionShareButton.svelte'
 	import {
 		deleteSessionsForWorkspace,
@@ -383,13 +384,15 @@
 	let moving = $state(false)
 
 	// Every chat of the session counts, not only the one on screen: a user who opened a new
-	// chat inside the session still expects the earlier edits to come along.
+	// chat inside the session still expects the earlier edits to come along. So do the
+	// items the user edited by hand in its tabs, as in the Changes bar.
 	function sessionMask(): Set<string> {
 		const m = runtime?.manager
 		if (!m) return new Set()
 		return new Set([
 			...m.historyManager.getAllSavedChats().flatMap((c) => c.modifiedItems ?? []),
-			...(m.modifiedItems ?? [])
+			...(m.modifiedItems ?? []),
+			...sessionHandEdits(sessionId)
 		])
 	}
 
