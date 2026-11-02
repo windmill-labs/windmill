@@ -417,11 +417,13 @@
 			if ($workspaceStore !== workspace) {
 				return
 			}
+			// Before the user is set: the cache reads the session confirmation from its user-change
+			// hook, which runs as the user is set.
+			if (user) rememberUser(user, sentWith)
+			else forgetLastSession()
 			if (!deepEqual(user, $userStore)) {
 				userStore.set(user)
 			}
-			if (user) rememberUser(user, sentWith)
-			else forgetLastSession()
 			// Persist the workspace username so the synchronous `/add` →
 			// `/edit/u/{user}/draft_{uuid}` redirects (in each editor's
 			// `+page.ts`) can land on the right namespace without waiting
