@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
-	import { isMac } from '$lib/utils'
+	import { isMac, type Item } from '$lib/utils'
 
 	import {
 		AppService,
@@ -83,6 +83,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { navDetached } from '$lib/components/sidebar/navDetached.svelte'
 	import { navHandleSlot } from '$lib/components/sidebar/navHandlePlacement.svelte'
+	import ModeButtonFlash from '$lib/components/sidebar/ModeButtonFlash.svelte'
 	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import PageHeaderBar from '$lib/components/PageHeaderBar.svelte'
 	import { BAR_HEIGHT_PX, pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
@@ -510,20 +511,27 @@
 	const PEEK_CLOSE_DELAY_MS = 200
 	// Both the card and the band open menus, and a menu portals to `body` (overlayPortalTarget),
 	// so the pointer moving into one leaves the surface that opened it. A surface has to outlive
-	// its own menus or it slides out from under the one being read: hold while the pointer is in a
-	// menu, and take the close from the leave of that instead.
-	function pointerInMenu(): boolean {
-		return !!document.querySelector('[role="menu"]:hover, [data-sidebar-flyout]:hover')
+	// its own menus or it slides out from under the one being read, so it holds while one is open,
+	// hovered or not: the way from a menu to its submenu crosses neither.
+	function menuIsOpen(): boolean {
+		return !!document.querySelector('[role="menu"]:not([hidden]), [data-sidebar-flyout]')
+	}
+	// Once its menus close, a surface the pointer is back on stays: its own leave closes it later.
+	function pointerOnSidebar(): boolean {
+		return !!document.querySelector(
+			'[data-nav-card]:hover, [data-nav-handle]:hover, #sidebar:hover'
+		)
 	}
 	// A click on the handle pins the card: it then outlives the pointer leaving. Only meaningful
 	// while open — every open from closed starts unpinned.
 	let menuPinned = $state(false)
 	const { debounced: schedulePeekClose, clearDebounce: cancelPeekClose } = debounce(() => {
 		if (!peeksOnHover || menuPinned) return
-		if (pointerInMenu()) {
+		if (menuIsOpen()) {
 			schedulePeekClose()
 			return
 		}
+		if (pointerOnSidebar()) return
 		menuOpen = false
 	}, PEEK_CLOSE_DELAY_MS)
 	// The close waits just long enough for the pointer to cross into a menu the rail opened.
@@ -531,10 +539,11 @@
 	const { debounced: scheduleRailCollapse, clearDebounce: cancelRailCollapse } = debounce(() => {
 		// A drag of the widened rail's edge ends outside it; the drag's end decides.
 		if (resizingSidebar) return
-		if (pointerInMenu()) {
+		if (menuIsOpen()) {
 			scheduleRailCollapse()
 			return
 		}
+		if (pointerOnSidebar()) return
 		hoverExpandedState = false
 	}, RAIL_HOVER_CLOSE_DELAY_MS)
 
@@ -609,7 +618,48 @@
 		menuOpen = false
 		navDetached.val = detached
 	}
-	function setSidebarMode(mode: 'expanded' | 'icons' | 'hover' | 'hidden') {
+	type SidebarMode = 'expanded' | 'icons' | 'hover' | 'hidden'
+	function currentSidebarMode(): SidebarMode {
+		return navDetached.val
+			? 'hidden'
+			: expandsOnHover
+				? 'hover'
+				: isCollapsed
+					? 'icons'
+					: 'expanded'
+	}
+	function sidebarModeItems(): Item[] {
+		const mode = currentSidebarMode()
+		return [
+			{
+				sectionTitle: 'Sidebar',
+				displayName: 'Expanded',
+				selected: mode === 'expanded',
+				action: () => setSidebarMode('expanded')
+			},
+			{
+				displayName: 'Icons only',
+				shortcut: `${getModifierKey()}\\`,
+				selected: mode === 'icons',
+				hide: !$roleCapabilities.code,
+				action: () => setSidebarMode('icons')
+			},
+			{
+				displayName: 'Expand on hover',
+				selected: mode === 'hover',
+				hide: !$roleCapabilities.code,
+				action: () => setSidebarMode('hover')
+			},
+			{
+				displayName: 'Hidden, show on hover',
+				selected: mode === 'hidden',
+				action: () => setSidebarMode('hidden')
+			}
+		]
+	}
+	navHandleSlot.setModeItems(sidebarModeItems)
+	function setSidebarMode(mode: SidebarMode) {
+		if (mode !== currentSidebarMode()) navHandleSlot.flashModeButton()
 		// The collapse preference is one key for both roles, and only a developer's rail reads it:
 		// an operator writing it would reset the icon rail they chose as a developer elsewhere.
 		if (mode !== 'hidden' && $roleCapabilities.code) {
@@ -1192,49 +1242,20 @@ outside this layout, and their shortcut must reopen the URL that is their creden
      by the workspace picker). -->
 <!-- Operators get no "Icons only": their docked sidebar is always expanded. -->
 {#snippet sidebarModeMenu()}
-	{@const mode = navDetached.val
-		? 'hidden'
-		: expandsOnHover
-			? 'hover'
-			: isCollapsed
-				? 'icons'
-				: 'expanded'}
-	<DropdownV2
-		placement="top-start"
-		fixedHeight={false}
-		class={SIDEBAR_ICON_BUTTON}
-		items={[
-			{
-				sectionTitle: 'Sidebar',
-				displayName: 'Expanded',
-				selected: mode === 'expanded',
-				action: () => setSidebarMode('expanded')
-			},
-			{
-				displayName: 'Icons only',
-				shortcut: `${getModifierKey()}\\`,
-				selected: mode === 'icons',
-				hide: !$roleCapabilities.code,
-				action: () => setSidebarMode('icons')
-			},
-			{
-				displayName: 'Expand on hover',
-				selected: mode === 'hover',
-				hide: !$roleCapabilities.code,
-				action: () => setSidebarMode('hover')
-			},
-			{
-				displayName: 'Hidden, show on hover',
-				selected: mode === 'hidden',
-				action: () => setSidebarMode('hidden')
-			}
-		]}
-	>
-		{#snippet buttonReplacement()}
-			<PanelLeft size={16} class="flex-shrink-0 text-hint" />
-			<span class="sr-only">Sidebar mode</span>
-		{/snippet}
-	</DropdownV2>
+	<span class="relative inline-flex">
+		<ModeButtonFlash />
+		<DropdownV2
+			placement="top-start"
+			fixedHeight={false}
+			class={SIDEBAR_ICON_BUTTON}
+			items={sidebarModeItems()}
+		>
+			{#snippet buttonReplacement()}
+				<PanelLeft size={16} class="flex-shrink-0 text-hint" />
+				<span class="sr-only">Sidebar mode</span>
+			{/snippet}
+		</DropdownV2>
+	</span>
 {/snippet}
 
 <!-- Settings / instance section: the last section inside the nav's unified scroll area. -->
@@ -1292,6 +1313,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 					hint="Go to Home"
 					href="/"
 					icon={WindmillIcon}
+					iconProps={{ white: darkMode, width: '16px', height: '16px' }}
 					isCollapsed={collapsed}
 					aiId="sidebar-menu-link-home"
 					aiDescription="Button to navigate to home which contains all the user's scripts, flows and apps"
@@ -1302,6 +1324,18 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 		     the next row sits 2px under Home, as the nav's rows sit apart. Kept outside the scroll
 		     area: a negative margin inside it would clip that row. -->
 		<div class="flex flex-col flex-1 min-h-0 -mt-1.5">
+			<!-- Search stays with Home, above the list that scrolls. -->
+			<div class="flex-shrink-0 px-2 pb-0.5">
+				<MenuButton
+					stopPropagationOnClick={true}
+					on:click={() => openSearchModal()}
+					isCollapsed={collapsed}
+					icon={Search}
+					label="Search"
+					class="!text-xs"
+					shortcut={`${getModifierKey()}K`}
+				/>
+			</div>
 			<!-- The workspace nav: Runs → Settings scroll as ONE block with an
 			     overflow fade hint. The sections (Runs + workspace items / AI sessions /
 			     instance settings) are spaced by the scroll area's
@@ -1312,19 +1346,9 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 				color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 				hideScrollbar={!panel && isCollapsed}
 			>
-				<!-- Section 1: Search (collapsed) + Runs, then the workspace items, spaced as one list. -->
+				<!-- Section 1: Runs, then the workspace items, spaced as one list. -->
 				<div class="flex flex-col gap-0.5">
 					<div class="px-2 flex flex-col gap-0.5">
-						<!-- Search keeps one row under Home in every mode, so no icon below it moves. -->
-						<MenuButton
-							stopPropagationOnClick={true}
-							on:click={() => openSearchModal()}
-							isCollapsed={collapsed}
-							icon={Search}
-							label="Search"
-							class="!text-xs"
-							shortcut={`${getModifierKey()}K`}
-						/>
 						{@render quickLinks(collapsed)}
 						{#if askAiShown}
 							<!-- Legacy Ask-AI pane, shown only when the user opted out of the
@@ -1383,10 +1407,14 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 		</div>
 
 		<!-- Below 768px the panel is the only shell there is, so there is no mode to pick. -->
-		{#if !panel || (navDetached.val && innerWidth >= 768)}
+		<!-- Where the card slides in on hover, the handle that slides it in holds this menu too. -->
+		{#if !panel || (navDetached.val && innerWidth >= 768 && !hoverPointer)}
 			<div class="flex-shrink-0 flex items-center h-8 px-2 mt-1 mb-3.5">
 				{@render sidebarModeMenu()}
 			</div>
+		{:else if navDetached.val}
+			<!-- Without the footer the last row would sit on the card's bottom edge. -->
+			<div class="flex-shrink-0 h-3"></div>
 		{/if}
 	</div>
 {/snippet}

@@ -16,6 +16,7 @@
 		hint?: string | undefined
 		href: string
 		icon?: any | undefined
+		iconProps?: Record<string, unknown>
 		isCollapsed: boolean
 		disabled?: boolean
 		lightMode?: boolean
@@ -31,6 +32,7 @@
 		hint = undefined,
 		href,
 		icon = undefined,
+		iconProps = {},
 		isCollapsed,
 		disabled = false,
 		lightMode = false,
@@ -51,7 +53,12 @@
 </script>
 
 {#if !disabled}
-	<Popover appearTimeout={0} disappearTimeout={0} class="w-full" disablePopup={!isCollapsed || !!hint}>
+	<Popover
+		appearTimeout={0}
+		disappearTimeout={0}
+		class="w-full"
+		disablePopup={!isCollapsed || !!hint}
+	>
 		<a
 			{href}
 			use:triggerableByAI={{
@@ -87,6 +94,7 @@
 			{#if icon}
 				{@const SvelteComponent = icon}
 				<SvelteComponent
+					{...iconProps}
 					size={16}
 					class={twMerge(
 						'flex-shrink-0 transition-all',

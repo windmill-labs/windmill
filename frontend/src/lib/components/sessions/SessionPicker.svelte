@@ -11,6 +11,7 @@
 		ChevronRight,
 		Clock,
 		EllipsisVertical,
+		SlidersHorizontal,
 		GitFork,
 		ListChecks,
 		MessageSquare,
@@ -711,10 +712,13 @@
 			{#snippet listOptions(
 				size: 'xs' | 'sm' | 'md',
 				inPopover = false,
-				hold?: (held: boolean) => void
+				hold?: (held: boolean) => void,
+				label?: string
 			)}
-				<!-- From the section's popover the menu opens beside it, as a submenu. -->
+				<!-- From the section's popover the options are a row like its others, opening their menu
+				     beside it on hover, as a submenu does. -->
 				<DropdownV2
+					class={label ? 'w-full justify-start' : undefined}
 					fixedHeight={false}
 					placement={inPopover ? 'right-start' : 'bottom-end'}
 					bind:open={
@@ -761,21 +765,44 @@
 							// path doesn't follow — it drops workspace-less sessions and hides
 							// rows under a collapsed workspace, so "Select all" there would
 							// reach rows that never showed a checkbox.
-							hide: visibleSessions.length === 0 || workspaceTree
+							// The rail's popover lists the rail's own rows, which have no names to select by.
+							hide: visibleSessions.length === 0 || workspaceTree || (isCollapsed && inPopover)
 						}
 					]}
 				>
 					{#snippet buttonReplacement()}
-						<Button
-							nonCaptureEvent
-							unifiedSize={size}
-							variant="subtle"
-							iconOnly
-							startIcon={{ icon: EllipsisVertical }}
-							title="Session list options"
-							aria-label="Session list options"
-							btnClasses="text-secondary"
-						/>
+						{#if label}
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<span
+								class={twMerge(
+									'flex flex-row items-center gap-2 w-full h-[30px] px-2 rounded-md text-xs font-normal text-secondary hover:bg-surface-hover',
+									optionsOpen[1] ? sidebarClasses.selectedBg : ''
+								)}
+								onmouseenter={() => {
+									optionsOpen[1] = true
+									hold?.(true)
+								}}
+								onclickcapture={(e) => {
+									// Hover opened it already, so the trigger's toggle would close it.
+									if (optionsOpen[1]) e.stopPropagation()
+								}}
+							>
+								<SlidersHorizontal size={16} class="shrink-0 text-hint" />
+								<span class="grow text-left">{label}</span>
+								<ChevronRight size={14} class="shrink-0 text-tertiary" />
+							</span>
+						{:else}
+							<Button
+								nonCaptureEvent
+								unifiedSize={size}
+								variant="subtle"
+								iconOnly
+								startIcon={{ icon: EllipsisVertical }}
+								title="Session list options"
+								aria-label="Session list options"
+								btnClasses="text-secondary"
+							/>
+						{/if}
 					{/snippet}
 				</DropdownV2>
 			{/snippet}
@@ -786,7 +813,7 @@
 				inPopover: boolean
 				hold: (held: boolean) => void
 			})}
-				{@render listOptions(inPopover ? 'xs' : 'sm', inPopover, hold)}
+				{@render listOptions('sm', inPopover, hold, inPopover ? 'View' : undefined)}
 			{/snippet}
 			{#if collapsible}
 				<SidebarSection
@@ -841,7 +868,8 @@
 					</span>
 				{/snippet}
 				{#snippet sessionRow(session, indented, treeDepth)}
-					<!-- The rail has no room for indents or tree guides; every row is one centered dot. -->
+					<!-- The rail has no room for tree guides, but keeps the grouped rows' indent so a row
+					     stays put when a hover widens the rail. -->
 					{@const depth = rail ? undefined : treeDepth}
 					{@const runtime = getRuntime(session.id)}
 					{@const status = runtime
@@ -859,7 +887,7 @@
 							isSelected ? sidebarClasses.selectedBg : 'hover:bg-surface-hover',
 							session.archived ? 'opacity-60' : '',
 							// Grouped rows sit slightly in from their header; tree mode uses guide columns.
-							depth === undefined && indented && !rail ? 'pl-1' : ''
+							depth === undefined && indented ? 'pl-1' : ''
 						)}
 					>
 						{#if depth !== undefined}

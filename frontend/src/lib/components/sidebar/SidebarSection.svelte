@@ -26,8 +26,9 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 		/** A section with nothing to fold: the row stays, without its chevron. */
 		disabled?: boolean
 		/**
-		 * Buttons at the end of the open sidebar's row and of the popover's title. A menu they open
-		 * from the popover sits outside it, so `hold(true)` keeps the popover open until `hold(false)`.
+		 * Buttons at the end of an unfolded row in the open sidebar, and at the top of a folded row's
+		 * popover. A menu they open from the popover sits outside it, so `hold(true)` keeps the popover
+		 * open until `hold(false)`.
 		 */
 		actions?: Snippet<[{ inPopover: boolean; hold: (held: boolean) => void }]>
 		/** The section's items; `inPopover` asks for them with their names, whatever the mode. */
@@ -49,7 +50,7 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 	const isFolded = $derived(folded && !disabled)
 	const toggleLabel = $derived(isFolded ? `Unfold ${title}` : `Fold ${title}`)
 	const rowClass =
-		'relative flex items-center justify-start w-full h-[30px] px-2 gap-2 rounded-md text-left font-normal'
+		'relative flex items-center justify-start w-full h-[30px] px-2 gap-2 rounded-lg text-left font-normal'
 
 	// The open delay keeps a pointer moving down the sidebar from opening every folded section it
 	// crosses; the close delay lets it cross the gap into the popover.
@@ -135,7 +136,13 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
      wrapper's own. The card has no side padding, so its rows keep the places they have outside it;
      it darkens whatever the sidebar's color is, accent tint included. -->
 <div class="pt-1.5">
-	<div class="rounded-lg bg-black/[0.02] dark:bg-white/[0.025] pb-0.5">
+	<div
+		class={twMerge(
+			'rounded-lg bg-black/[0.02] dark:bg-white/[0.025]',
+			// Folded, the card is the row alone, so the row's hover fills it exactly.
+			!isFolded && 'pb-0.5'
+		)}
+	>
 		<!-- A fixed height and flex wrappers: Firefox gives inline wrappers line space, so a row sized by
 	     its content comes out taller than the 30px every other row has, more so while it is squeezed. -->
 		<div class="relative flex flex-row items-center gap-0.5 h-[30px]">
@@ -186,16 +193,17 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 										if ((e.target as Element).closest('a, [role="option"]')) closeNow()
 									}}
 								>
-									<!-- Icons only shows no title or actions on the row, so its popover carries them. -->
+									<!-- Icons only shows no title on the row, so its popover does. A folded row
+									     shows no actions either, so they open the popover's list. -->
 									{#if isCollapsed}
 										<div class="flex flex-row items-center h-7 pl-2">
 											<span
 												class="flex-1 truncate text-secondary text-[0.5rem] font-normal uppercase"
 												>{title}</span
 											>
-											{@render actions?.({ inPopover: true, hold })}
 										</div>
 									{/if}
+									{@render actions?.({ inPopover: true, hold })}
 									{@render children(true)}
 								</div>
 							{/snippet}
@@ -219,7 +227,7 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 					</Button>
 				{/if}
 			</div>
-			{#if !isCollapsed}
+			{#if !isCollapsed && !isFolded}
 				{@render actions?.({ inPopover: false, hold })}
 			{/if}
 		</div>
