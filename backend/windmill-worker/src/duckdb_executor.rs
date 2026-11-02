@@ -10,7 +10,7 @@ use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{get_memory, to_raw_value, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
     get_datatable_resource_from_db, get_ducklake_from_db_unchecked,
-    strip_fork_reserved_attach_args, DatatableAccess, DatatableConnectAs,
+    strip_fork_reserved_attach_args, strip_sql_comments, DatatableAccess, DatatableConnectAs,
     DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
@@ -2314,7 +2314,8 @@ async fn transform_attach_ducklake(
     let data_path = ducklake.storage.path.replace('\'', "''");
 
     let extra_args = if let Some(default_extra_args) = ducklake.extra_args {
-        format!("{},{}", extra_args, default_extra_args)
+        // A newline, so a trailing `--` comment in the script's args ends before the config's.
+        format!("{}\n,{}", extra_args, default_extra_args)
     } else {
         extra_args
     };
@@ -2360,7 +2361,7 @@ fn ducklake_attach_options(data_path: &str, extra_args: &str, fork: bool) -> Str
          DUCKLAKE_VERSION '1.0'{extra_args}"
     );
     if fork {
-        options.push_str(&format!(", DATA_PATH '{data_path}'"));
+        options.push_str(&format!("\n, DATA_PATH '{data_path}'"));
     }
     keep_last_attach_option(&options)
 }
@@ -2393,6 +2394,8 @@ fn keep_last_attach_option(options: &str) -> String {
 /// and parentheses, dropping empty parts. SQL comments are dropped too: a `--` comment would
 /// otherwise swallow whatever is joined after it on the same line, `);` included.
 fn split_attach_options(options: &str) -> Vec<String> {
+    let options = strip_sql_comments(options);
+    let options = options.as_str();
     let mut parts = vec![];
     let mut part = String::new();
     let mut depth = 0usize;
@@ -2416,16 +2419,6 @@ fn split_attach_options(options: &str) -> Vec<String> {
         if let Some(len) = span {
             part.push_str(&rest[..len]);
             i += len;
-            continue;
-        }
-        if rest.starts_with("--") {
-            i += rest.find('\n').unwrap_or(rest.len());
-            part.push(' ');
-            continue;
-        }
-        if rest.starts_with("/*") {
-            i += rest[2..].find("*/").map_or(rest.len(), |e| e + 4);
-            part.push(' ');
             continue;
         }
         let c = rest.chars().next().unwrap();
@@ -3024,6 +3017,10 @@ mod tests {
                 "DATA_PATH 'a', \"data_path\" 'b', READ_ONLY false -- why, it is\n, /* x, */ E 1"
             ),
             "\"data_path\" 'b', READ_ONLY false, E 1"
+        );
+        assert_eq!(
+            keep_last_attach_option("READ_ONLY false /* a /* b, */ c, */, E 1"),
+            "READ_ONLY false, E 1"
         );
     }
 

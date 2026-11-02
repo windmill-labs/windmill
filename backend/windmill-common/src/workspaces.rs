@@ -2815,6 +2815,60 @@ pub fn fork_ducklake_ancestor_alias(lake_name: &str, ancestor_w_id: &str) -> Str
     )
 }
 
+/// Replaces each SQL comment outside string literals ('…', "…", $tag$…$tag$) with a space,
+/// following DuckDB: `--` runs to the end of the line and `/* */` nests. An unterminated block
+/// comment is kept as is, so the statement it ends up in fails to parse rather than silently
+/// losing what follows.
+pub fn strip_sql_comments(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut i = 0;
+    while i < sql.len() {
+        let rest = &sql[i..];
+        let literal = match rest.as_bytes()[0] {
+            q @ (b'\'' | b'"') => Some(rest[1..].find(q as char).map_or(rest.len(), |e| e + 2)),
+            b'$' => rest[1..]
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .filter(|&n| rest[1 + n..].starts_with('$'))
+                .map(|n| {
+                    let delim = &rest[..n + 2];
+                    rest[n + 2..]
+                        .find(delim)
+                        .map_or(rest.len(), |e| n + 2 + e + delim.len())
+                }),
+            _ => None,
+        };
+        if let Some(len) = literal {
+            out.push_str(&rest[..len]);
+            i += len;
+        } else if rest.starts_with("--") {
+            i += rest.find('\n').unwrap_or(rest.len());
+            out.push(' ');
+        } else if rest.starts_with("/*") {
+            let (mut depth, mut j) = (1usize, 2);
+            while depth > 0 && j < rest.len() {
+                if rest[j..].starts_with("/*") {
+                    (depth, j) = (depth + 1, j + 2);
+                } else if rest[j..].starts_with("*/") {
+                    (depth, j) = (depth - 1, j + 2);
+                } else {
+                    j += rest[j..].chars().next().map_or(1, char::len_utf8);
+                }
+            }
+            if depth > 0 {
+                out.push_str(rest);
+                break;
+            }
+            out.push(' ');
+            i += j;
+        } else {
+            let c = rest.chars().next().unwrap();
+            out.push(c);
+            i += c.len_utf8();
+        }
+    }
+    out
+}
+
 /// Strip `METADATA_SCHEMA` / `DATA_PATH` / `OVERRIDE_DATA_PATH` tokens from ducklake ATTACH
 /// extra args. In a fork these options are injected by the fork resolution; a user- or
 /// settings-supplied duplicate silently wins (the worker keeps the last occurrence) and would
@@ -2826,8 +2880,10 @@ pub fn strip_fork_reserved_attach_args(extra_args: &str) -> String {
         )
         .unwrap();
     }
+    // Comments go first: the fork-owned options are appended after these args, and a trailing
+    // `-- …` would otherwise comment them out of the ATTACH.
     RESERVED
-        .replace_all(extra_args, "")
+        .replace_all(&strip_sql_comments(extra_args), "")
         .split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -4279,6 +4335,15 @@ mod tests {
         assert_eq!(
             strip_fork_reserved_attach_args("METADATA_SCHEMA 'wm_fork_evil'"),
             ""
+        );
+        // A trailing comment must not survive to comment out the fork options appended after.
+        assert_eq!(
+            strip_fork_reserved_attach_args("READ_ONLY false -- why, '/*'"),
+            "READ_ONLY false"
+        );
+        assert_eq!(
+            strip_sql_comments("a /* x /* y */ x */ b '--' $q$/*$q$ -- c\nd /* open"),
+            "a   b '--' $q$/*$q$  \nd /* open"
         );
     }
 
