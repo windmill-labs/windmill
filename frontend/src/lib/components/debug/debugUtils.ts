@@ -80,11 +80,26 @@ export async function signDebugRequest(
  * multiplayer server will verify before accepting the WebSocket connection.
  */
 export async function signMultiplayerRequest(workspace: string): Promise<string> {
+	return signSessionRequest(workspace, 'sign_multiplayer')
+}
+
+/**
+ * Sign a language server session request. Returns a short-lived JWT token that
+ * the windmill_extra gateway verifies before accepting the WebSocket connection.
+ */
+export async function signLspRequest(workspace: string): Promise<string> {
+	return signSessionRequest(workspace, 'sign_lsp')
+}
+
+async function signSessionRequest(
+	workspace: string,
+	endpoint: 'sign_multiplayer' | 'sign_lsp'
+): Promise<string> {
 	if (!workspace) {
 		throw new Error('No workspace selected')
 	}
 
-	const response = await fetch(`/api/w/${workspace}/debug/sign_multiplayer`, {
+	const response = await fetch(`/api/w/${workspace}/debug/${endpoint}`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({})
@@ -92,7 +107,7 @@ export async function signMultiplayerRequest(workspace: string): Promise<string>
 
 	if (!response.ok) {
 		const errorText = await response.text()
-		throw new Error(errorText || 'Failed to sign multiplayer session')
+		throw new Error(errorText || `Failed to sign session (${endpoint})`)
 	}
 
 	const data: { token: string } = await response.json()

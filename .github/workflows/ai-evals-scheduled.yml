@@ -105,16 +105,22 @@ jobs:
           SQLX_OFFLINE: true
           CARGO_BUILD_JOBS: 12
           RUSTFLAGS: ""
-        run: cargo build --features quickjs
+        # The global suite's hub cases search the hub embeddings index; its trigger cases
+        # write HTTP triggers, whose routes the feature mounts.
+        run: cargo build --features quickjs,embedding,http_trigger
 
       - name: Start Windmill
         working-directory: ./backend
         env:
           DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
           RUST_LOG: info
+          # Each global case seeds resource types and waits until the search indexes them.
+          RESOURCE_TYPE_EMBEDDINGS_CHECK_INTERVAL_SECS: "2"
         run: |
           mkdir -p ../ai_evals/logs
           ./target/debug/windmill > ../ai_evals/logs/windmill.log 2>&1 &
+          # The global suite's datatable cases run SQL on the `postgresql` tag, a native worker's.
+          MODE=worker WORKER_GROUP=native PORT=8001 ./target/debug/windmill > ../ai_evals/logs/windmill-native.log 2>&1 &
           for i in $(seq 1 60); do
             curl -sf http://localhost:8000/api/version > /dev/null 2>&1 && break
             sleep 2
@@ -142,6 +148,8 @@ jobs:
           MODEL: ${{ matrix.model }}
           WMILL_AI_EVAL_BACKEND_URL: http://localhost:8000
           WMILL_AI_EVAL_BACKEND_WORKSPACE: integration-tests
+          # Global fixtures whose user is not the admin are created in the backend's database.
+          WMILL_AI_EVAL_DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}

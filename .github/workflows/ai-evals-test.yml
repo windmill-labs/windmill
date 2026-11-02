@@ -3,8 +3,9 @@ name: AI Evals (global mode)
 # Smoke-tests the production global AI chat proxy/frontend execution path via
 # the ai_evals harness, one case across one cheap model per provider. Runs only
 # when the eval harness or the global chat code change, since each run makes real
-# (paid) LLM calls. The backend is built from source purely as the AI proxy the
-# harness routes model calls through; the global tools/drafts run in-process in
+# (paid) LLM calls. The backend is built from source as the AI proxy the harness
+# routes model calls through and as the server the global tools run on, in a
+# workspace the harness creates per attempt; the chat itself runs in-process in
 # the Vitest bridge against production frontend code. To avoid spending on every
 # commit, the PR side triggers only when a PR is marked ready for review (out of
 # draft) — not on `synchronize` — plus push to main and manual dispatch.
@@ -15,6 +16,7 @@ on:
     paths:
       - "ai_evals/**"
       - "backend/windmill-api/src/ai.rs"
+      - "backend/windmill-api/src/ai_session_tools/**"
       - "backend/windmill-ai/**"
       - "frontend/src/lib/components/copilot/**"
       # The eval harness runs production frontend code in-process; these are the
@@ -29,6 +31,7 @@ on:
     paths:
       - "ai_evals/**"
       - "backend/windmill-api/src/ai.rs"
+      - "backend/windmill-api/src/ai_session_tools/**"
       - "backend/windmill-ai/**"
       - "frontend/src/lib/components/copilot/**"
       # The eval harness runs production frontend code in-process; these are the
@@ -137,6 +140,8 @@ jobs:
         env:
           WMILL_AI_EVAL_BACKEND_URL: http://localhost:8000
           WMILL_AI_EVAL_BACKEND_WORKSPACE: integration-tests
+          # Global fixtures whose user is not the admin are created in the backend's database.
+          WMILL_AI_EVAL_DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
           # Anthropic backs the haiku model. Google AI uses GEMINI_API_KEY.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
