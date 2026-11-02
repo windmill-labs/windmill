@@ -37,6 +37,7 @@
 		selectSession,
 		sessionPageHref,
 		sessionLastActivityAt,
+		sessionLastStateChangeAt,
 		sessionState,
 		setSessionArchived,
 		syncWorkspaceTo,
@@ -199,8 +200,8 @@
 		})
 	)
 
-	// Sessions grouped by workspace family for display, each group newest-first.
-	// Family order is stable (by most-recent activity) and deliberately NOT tied
+	// Sessions grouped by workspace family for display, each group by its last turn
+	// start or end, latest first. Family order follows its latest session and is NOT tied
 	// to the current workspace: pinning the active family first reshuffled the
 	// whole list on every workspace switch, which is disorienting.
 	const sessionGroups = $derived.by(() => {
@@ -212,12 +213,12 @@
 			else byRoot.set(root, [s])
 		}
 		const groups = [...byRoot.entries()].map(([rootId, sessions]) => {
-			sessions.sort((a, b) => b.createdAt - a.createdAt)
+			sessions.sort((a, b) => sessionLastStateChangeAt(b) - sessionLastStateChangeAt(a))
 			return {
 				rootId,
 				name: $userWorkspaces.find((w) => w.id === rootId)?.name || rootId || 'Workspace',
 				sessions,
-				mostRecent: sessions[0]?.createdAt ?? 0
+				mostRecent: sessions[0] ? sessionLastStateChangeAt(sessions[0]) : 0
 			}
 		})
 		groups.sort((a, b) => b.mostRecent - a.mostRecent)
@@ -233,7 +234,7 @@
 		return all.filter((i) => workspaceRootId(i.workspace.id, $userWorkspaces) === currentRoot)
 	})
 
-	// Sessions keyed by their exact workspace, newest-first — nested under each
+	// Sessions keyed by their exact workspace, latest turn first — nested under each
 	// workspace node in tree mode.
 	const sessionsByWorkspace = $derived.by(() => {
 		const map = new Map<string, Session[]>()
@@ -244,7 +245,8 @@
 			if (arr) arr.push(s)
 			else map.set(wsId, [s])
 		}
-		for (const arr of map.values()) arr.sort((a, b) => b.createdAt - a.createdAt)
+		for (const arr of map.values())
+			arr.sort((a, b) => sessionLastStateChangeAt(b) - sessionLastStateChangeAt(a))
 		return map
 	})
 

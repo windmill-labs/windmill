@@ -53,6 +53,7 @@ import {
 	commitSessionWorkspace,
 	deleteSession as deleteSessionState,
 	getEffectiveWorkspaceId,
+	markSessionStateChanged,
 	materializeTransient,
 	sessionState,
 	setGeneratedSessionSummary,
@@ -453,6 +454,7 @@ function createRuntime(session: Session): SessionRuntime {
 	// tabs re-read whichever record it ended on.
 	manager.runHeldElsewhereResolver = () => runHeldElsewhere(session.id)
 	manager.onRunningChanged = (running) => {
+		markSessionStateChanged(session.id)
 		if (running) localRunStarted(session.id, manager.historyManager.getCurrentChatId())
 		else localRunEnded(session.id, manager.historyManager.getCurrentChatId())
 	}
