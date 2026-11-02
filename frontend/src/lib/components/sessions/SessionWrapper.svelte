@@ -654,7 +654,9 @@
 				{
 					displayName: 'Move to another workspace…',
 					icon: GitFork,
-					hide: isUnavailable || session.archived,
+					// Unsent, the session's workspace is `pending_workspace_id`, which
+					// `createSession` rewrites when it reuses the blank session.
+					hide: !session.workspace_id || isUnavailable || session.archived,
 					disabled: !canMoveToFork || moving,
 					action: () => (movePickerOpen = true)
 				},
