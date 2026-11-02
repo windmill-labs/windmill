@@ -381,7 +381,9 @@ impl ScopeDomain {
             "data_metrics" => Some(Self::DataMetrics),
             "flows" => Some(Self::Flows),
             "flow_conversations" => Some(Self::FlowConversations),
-            "apps" | "apps_u" => Some(Self::Apps),
+            // `shared_ui` is the workspace `ui/` folder raw apps import from, so a token
+            // that syncs apps reaches it without a scope of its own.
+            "apps" | "apps_u" | "shared_ui" => Some(Self::Apps),
             "variables" => Some(Self::Variables),
             "resources" => Some(Self::Resources),
             "schedules" => Some(Self::Schedules),

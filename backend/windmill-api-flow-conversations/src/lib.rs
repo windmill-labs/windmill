@@ -68,6 +68,8 @@ pub enum ConversationKind {
 pub struct ListConversationsQuery {
     pub flow_path: Option<String>,
     pub kind: Option<ConversationKind>,
+    /// Only the caller's own chats: an admin otherwise lists every user's.
+    pub mine: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -101,6 +103,10 @@ async fn list_conversations(
 
     if let Some(flow_path) = &query.flow_path {
         sqlb.and_where_eq("flow_path", "?".bind(flow_path));
+    }
+
+    if query.mine.unwrap_or(false) {
+        sqlb.and_where_eq("created_by", "?".bind(&authed.username));
     }
 
     match query.kind.unwrap_or_default() {

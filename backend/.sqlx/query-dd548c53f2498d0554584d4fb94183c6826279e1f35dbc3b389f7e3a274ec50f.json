@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT email, username, is_admin, is_operator, groups, folders, end_user_email,\n            job_token_scopes, viewer_data_access\n        FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+  "query": "SELECT email, username, is_admin, is_operator, groups, folders, end_user_email,\n            job_token_scopes, viewer_data_access, mcp_client\n        FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -47,6 +47,11 @@
         "ordinal": 8,
         "name": "viewer_data_access",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "mcp_client",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -64,8 +69,9 @@
       false,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "fd04f65015069792f23edbfce320af6e69ee32b27a8f0a020e251eb2c79e43cd"
+  "hash": "dd548c53f2498d0554584d4fb94183c6826279e1f35dbc3b389f7e3a274ec50f"
 }
