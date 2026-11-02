@@ -77,6 +77,8 @@
 	import AppSettingsDrawer from './AppSettingsDrawer.svelte'
 	import DeployButton from '$lib/components/DeployButton.svelte'
 	import { updatePolicy } from './appPolicy'
+	import { createPolicyServiceAccount } from '$lib/components/access/serviceAccounts.svelte'
+	import type { NeedsSource } from '$lib/components/access/detectNeeds'
 	import { appDraftSettings, withoutSharedPolicySettings } from './appDraftSettings'
 	import ShareDialog from '$lib/components/itemSettings/ShareDialog.svelte'
 	import { showAppLinks } from '$lib/components/itemSettings/AppLinksModal.svelte'
@@ -322,8 +324,11 @@
 		return classicAppDraftParts(a).value as T
 	}
 
+	const needsSource = (): NeedsSource => ({ kind: 'app', value: $app })
+
 	/** Resolves to whether the app was created. */
 	async function createApp(path: string): Promise<boolean> {
+		if (!(await createPolicyServiceAccount($workspaceStore!, policy))) return false
 		// In place: the settings drawer and the draft mirror hold this object.
 		Object.assign(policy, await updatePolicy($app, policy))
 		// Read for the path being created: the first-deploy dialog may have just chosen it.
@@ -376,6 +381,7 @@
 	}
 
 	async function handleUpdateApp(npath: string) {
+		if (!(await createPolicyServiceAccount($workspaceStore!, policy))) return
 		// We have to make sure there is no updates when we clicked the button
 		await compareVersions()
 
@@ -552,7 +558,8 @@
 				runAs: {
 					email: policy.on_behalf_of_email,
 					permissionedAs: policy.on_behalf_of,
-					targetWorkspace: $workspaceStore ?? ''
+					targetWorkspace: $workspaceStore ?? '',
+					needsSource
 				}
 			})
 			if (!choice) return
@@ -1012,6 +1019,8 @@
 	folderDefaultLoading={folderDefault.loading}
 	executionMode={policy.execution_mode}
 	targetWorkspace={$workspaceStore ?? ''}
+	itemPath={newEditedPath || $appPath}
+	{needsSource}
 	onConfirmed={deployNow}
 />
 
@@ -1063,6 +1072,7 @@
 	bind:labels
 	bind:customPath
 	onAppChanged={applyAppAccess}
+	{needsSource}
 />
 
 {#if offersSharing}

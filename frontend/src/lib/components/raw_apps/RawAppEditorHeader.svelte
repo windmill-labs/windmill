@@ -70,6 +70,8 @@
 	import DeployButton from '$lib/components/DeployButton.svelte'
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
+	import { createPolicyServiceAccount } from '../access/serviceAccounts.svelte'
+	import type { NeedsSource } from '../access/detectNeeds'
 	import { withoutSharedPolicySettings } from '../apps/editor/appDraftSettings'
 	import { saveRawAppFork } from './forkRawApp.svelte'
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
@@ -413,6 +415,8 @@
 		return updateRawAppPolicy(runnables, policy)
 	}
 
+	const needsSource = (): NeedsSource => ({ kind: 'app', value: runnables })
+
 	/** Resolves to whether the app was created. */
 	async function createApp(path: string): Promise<boolean> {
 		if (!app) {
@@ -422,6 +426,7 @@
 		if (!policy.execution_mode) {
 			policy.execution_mode = 'publisher'
 		}
+		if (!(await createPolicyServiceAccount(opWorkspace!, policy))) return false
 		// Read for the path being created: the first-deploy dialog may have just chosen it.
 		setDeployedOnBehalfOf(policy, actingUser, await folderDefault.refetch())
 		try {
@@ -483,6 +488,7 @@
 	}
 
 	async function handleUpdateApp(npath: string) {
+		if (!(await createPolicyServiceAccount(opWorkspace!, policy))) return
 		// We have to make sure there is no updates when we clicked the button
 		await compareVersions()
 
@@ -760,7 +766,8 @@
 				runAs: {
 					email: policy.on_behalf_of_email,
 					permissionedAs: policy.on_behalf_of,
-					targetWorkspace: opWorkspace ?? ''
+					targetWorkspace: opWorkspace ?? '',
+					needsSource
 				}
 			})
 			if (!choice) return
@@ -1006,6 +1013,8 @@
 	executionMode={policy.execution_mode}
 	targetWorkspace={opWorkspace ?? ''}
 	rawApp
+	itemPath={newEditedPath || appPath}
+	{needsSource}
 	onConfirmed={deployNow}
 />
 
@@ -1036,6 +1045,7 @@
 	bind:labels
 	bind:customPath
 	onAppChanged={applyAppAccess}
+	{needsSource}
 />
 
 {#if offersSharing}

@@ -30,6 +30,8 @@
 		children?: import('svelte').Snippet<[any]>
 		/** Asked before a click away or Escape closes it; resolving false keeps it open. */
 		confirmClose?: () => boolean | Promise<boolean>
+		/** See `Disposable`'s `minZIndex`: lifts the drawer above a dialog it is opened from. */
+		minZIndex?: number
 	}
 
 	let {
@@ -46,7 +48,8 @@
 		positionClass = undefined,
 		name = undefined,
 		children: children_render,
-		confirmClose
+		confirmClose,
+		minZIndex = 0
 	}: Props = $props()
 
 	if (open === undefined) {
@@ -150,6 +153,7 @@
 		onClose={() => dispatch('close')}
 		{preventEscape}
 		{confirmClose}
+		{minZIndex}
 	>
 		{#snippet children({ handleClickAway, zIndex, isTop })}
 			<aside
