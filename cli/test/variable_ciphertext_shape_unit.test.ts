@@ -19,6 +19,7 @@ test("treats workspace-ciphertext-shaped values as already-encrypted", () => {
     "$vault:f/x/cfg",
     "$aws_sm:f/x/cfg",
     "$azure_kv:f/x/cfg",
+    "$external:vault://secret/team/app#token",
   ];
   for (const value of ciphertextShaped) {
     expect(looksLikeWorkspaceCiphertext(value)).toBe(true);

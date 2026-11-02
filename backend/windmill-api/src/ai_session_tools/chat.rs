@@ -83,6 +83,9 @@ pub(crate) struct ChatContext {
     /// Whether the chat's user left the skill a call reads switched on.
     #[serde(default)]
     pub skill_enabled: Option<bool>,
+    /// The folders the session works in, which a listing defaults to.
+    #[serde(default)]
+    pub scope_roots: Option<Vec<String>>,
     /// The call comes from an AI session, which has a preview panel and builds pipeline
     /// nodes in the folder's pipeline draft.
     #[serde(default)]

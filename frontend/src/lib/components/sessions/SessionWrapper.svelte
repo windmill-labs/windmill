@@ -9,21 +9,16 @@
 </script>
 
 <script lang="ts">
-	import { onDestroy, setContext, untrack } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import type AIChat from '$lib/components/copilot/chat/AIChat.svelte'
 	import ComposerPlaceholder from '$lib/components/copilot/chat/ComposerPlaceholder.svelte'
-	import SessionGreeting from '$lib/components/copilot/chat/starter/SessionGreeting.svelte'
-	import ComposerSuggestions from '$lib/components/copilot/chat/starter/ComposerSuggestions.svelte'
 	import {
 		globalComposerSuggestion,
-		STARTER_PLACEHOLDER,
-		USE_STARTER_PLACEHOLDER,
 		type ComposerSelection
 	} from '$lib/components/copilot/chat/composerBox'
 	import { useSessionPermissions } from './sessionPermissions.svelte'
 	import { useWorkModeLock } from './workModeLock.svelte'
-	import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { Button } from '$lib/components/common'
@@ -37,23 +32,10 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
-	import {
-		Archive,
-		ArchiveRestore,
-		EllipsisVertical,
-		MessageSquareDashed,
-		Pencil,
-		Plus,
-		Trash2,
-		X
-	} from 'lucide-svelte'
-	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
+	import { Archive, ArchiveRestore, EllipsisVertical, Pencil, Trash2 } from 'lucide-svelte'
 	import SessionChangesBar from './SessionChangesBar.svelte'
 	import SessionShareButton from './SessionShareButton.svelte'
-	import { clearSessionRecovered, isSessionRecovered } from './sessionRecoveryNotice.svelte'
 	import {
-		composerFocusRequest,
-		createSession,
 		deleteSessionsForWorkspace,
 		getEffectiveWorkspaceId,
 		moveSessionToNewFork,
@@ -67,20 +49,19 @@
 		takeSessionAutoSend,
 		reconcileAfterWorkspaceChange,
 		renameSession,
-		selectSession,
-		sessionPageHref,
 		sessionState,
 		setSessionArchived,
 		syncWorkspaceTo,
-		withOpenSessionTeardown
+		withOpenSessionTeardown,
+		type Session,
+		type SessionPreviewTab
 	} from './sessionState.svelte'
+	import { leaveForHome } from './sessionSwitch.svelte'
 	import { getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
-	import { goto } from '$lib/navigation'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
-	import { StarterPrompts } from '$lib/components/copilot/chat/starter/starterPrompts.svelte'
+	import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 	import { resolvePreviewTab } from './previewRouter'
 	import { whereIs } from './sessionPreviewTabs.svelte'
-	import type { SessionPreviewTab } from './sessionState.svelte'
 
 	let {
 		sessionId,
@@ -111,11 +92,6 @@
 	// through PageHeaderContent, outside the page's tree, once more before the wrapper unmounts.
 	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId) ?? initialSession)
 
-	// Only a session that has never sent opens as the starter block. Read off the record, not
-	// the transcript: a cold session's history is still loading from storage when it mounts,
-	// and an empty transcript would show the greeting and then glide the composer away.
-	// The first send commits the workspace, so this flips only after the transcript has.
-	const opensSession = $derived(!session?.workspace_id)
 	const permissions = useSessionPermissions(
 		() => runtime?.manager.operatingWorkspace,
 		() => runtime?.manager
@@ -126,10 +102,11 @@
 	const heldInUse = $derived(!!workModeLock.current || runtime?.manager.workMode === AIWorkMode.USE)
 	// The item an unsent session opened on ("Open in AI session", or a tab opened before the
 	// first send): the chat reads the displayed tab with each message, so the empty chat asks
-	// about that item instead of greeting. What is on screen only: a collapsed panel hides it.
-	// Named as its tab is, so a deployed item in View mode gets its summary from the listing.
+	// about that item. What is on screen only: a collapsed panel hides it. Named as its tab is,
+	// so a deployed item in View mode gets its summary from the listing. The first send commits
+	// the workspace, so an unsent session is one without it.
 	const previewedItem = $derived.by(() => {
-		if (!opensSession) return undefined
+		if (session?.workspace_id) return undefined
 		const tab = runtime?.previewTabs.displayedTab
 		if (!tab) return undefined
 		const slot = resolvePreviewTab(whereIs(tab))
@@ -140,11 +117,6 @@
 			name: previewTabName(tab)
 		}
 	})
-	const greets = $derived(opensSession && !previewedItem)
-	const starterPrompts = new StarterPrompts(
-		() => (greets ? (actingWorkspaceId ?? $workspaceStore ?? undefined) : undefined),
-		() => !heldInUse
-	)
 
 	// Seed the composer with the unsent prompt a reload preserved on the session
 	// record (script-init: AIChatInput reads it once at mount).
@@ -226,16 +198,11 @@
 
 	let summaryInput: EditableInput | undefined = $state(undefined)
 
-	// Drop the user on a fresh new-session page. Used after archiving or
-	// deleting the open session: the session they were on is no longer
-	// usable, and routing to a sibling would feel arbitrary.
-	async function resetToNewSession() {
-		const fresh = createSession()
-		selectSession(fresh.id)
-		// The page derives the visible session from the `session` query, not
-		// currentSessionId: navigate so the URL leaves the deleted/archived session,
-		// which would otherwise fall through to recovery or stay on the archived one.
-		await goto(sessionPageHref(fresh.id))
+	// After archiving or deleting the open session, Home: the session the user was on
+	// is no longer usable, and routing to a sibling would feel arbitrary. The URL has to
+	// leave it, or the page would fall through to recovery or stay on the archived one.
+	async function leaveRemovedSession() {
+		await leaveForHome()
 	}
 
 	// If the session targets a forked workspace that's still accessible,
@@ -286,7 +253,7 @@
 			if (forkToDelete && forkParentId && $workspaceStore === forkToDelete) {
 				syncWorkspaceTo(forkParentId)
 			}
-			await resetToNewSession()
+			await leaveRemovedSession()
 		})
 	}
 
@@ -305,7 +272,7 @@
 				sendUserToast(`Failed to archive fork ${forkToArchive}: ${e?.body ?? e}`, true)
 			}
 		}
-		await resetToNewSession()
+		await leaveRemovedSession()
 	}
 
 	// Kept for the "Archive" entry that doesn't go through the confirmation
@@ -320,35 +287,8 @@
 			return
 		}
 		setSessionArchived(session.id, true)
-		await resetToNewSession()
+		await leaveRemovedSession()
 	}
-
-	// Workspace bar is shown only before the session sends its first user
-	// message — after that the session's workspace is immutable. The
-	// commit itself happens in `AIChatManager.beforeSend` (wired in
-	// `createRuntime`) so it fires exactly once at send-time. A reactive
-	// commit here would retry forever on backend failures (e.g. fork-id
-	// collision after a previously-successful create whose response was
-	// dropped) — restoration self-heal lives in `initRuntime` instead.
-	const hasFirstUserMessage = $derived(
-		runtime?.manager.displayMessages.some((m) => m.role === 'user') ?? false
-	)
-
-	// Gated on the first message, not on typing: the notice sits directly above a
-	// vertically centred composer, so dropping it mid-sentence would jump the
-	// field out from under the user's cursor.
-	const showRecoveryNotice = $derived(isSessionRecovered(sessionId) && !hasFirstUserMessage)
-
-	// The notice explains one arrival, and the arrival is exactly "this page is
-	// open, on this session, nothing sent yet". Spend the marker the moment any of
-	// those three breaks, so a later return can never replay it — masking it behind
-	// the gate above instead leaves it to resurface. Dismiss is the user's own exit.
-	$effect(() => {
-		if (hasFirstUserMessage || sessionState.currentSessionId !== sessionId) {
-			clearSessionRecovered(sessionId)
-		}
-	})
-	onDestroy(() => clearSessionRecovered(sessionId))
 
 	// Focus the chat input whenever this session is the active one.
 	// The textarea is disabled until copilotInfo loads (otherwise focus is
@@ -356,18 +296,7 @@
 	// warm-session switch via the picker, and the moment copilot finishes
 	// loading.
 	let aiChat: AIChat | undefined = $state(undefined)
-	let seenFocusNonce = untrack(() => composerFocusRequest.nonce)
 	$effect(() => {
-		// Focus the composer when this session becomes active, or on an explicit
-		// focus request — the latter covers `+` reusing the untouched draft you're
-		// already viewing, where currentSessionId doesn't change so activation alone
-		// wouldn't re-run this.
-		const focusNonce = composerFocusRequest.nonce
-		if (focusNonce !== seenFocusNonce) {
-			// An explicit request overrides the user having left the placeholder before it.
-			seenFocusNonce = focusNonce
-			handoff = undefined
-		}
 		if (sessionState.currentSessionId !== sessionId) {
 			// The user left for another session: coming back is an activation, which focuses.
 			handoff = undefined
@@ -438,42 +367,12 @@
 {#if !session || !runtime}
 	<div class="p-8 text-secondary text-sm">Session not found</div>
 {:else}
-	<!-- A sent session whose transcript is still loading (or came back empty) shows nothing
-	     rather than the docked copilot's keyboard-shortcut hint, which means nothing here. -->
-	{#snippet sessionEmptyHint()}
-		{#if previewedItem}
-			<!-- Holds the composer at the bottom, as in a session under way. -->
-			<div class="flex-1 min-h-0"></div>
-		{/if}
-	{/snippet}
+	<!-- A session with no message yet, or whose transcript is still loading, keeps its composer
+	     at the bottom, where it stays once the transcript shows, rather than the docked
+	     copilot's keyboard-shortcut hint, which means nothing here. -->
+	{#snippet sessionEmptyHint()}<div class="flex-1 min-h-0"></div>{/snippet}
 
 	{#snippet inputPreface()}
-		{#if showRecoveryNotice}
-			<!-- mb-6, not the banner column's mb-1: at that gap it reads as one more
-			     row of composer chrome rather than as a message about the session. -->
-			<!-- Tinted, where the other banners are white: this one has to be spotted
-			     without being looked for, above a composer the user is already typing in. -->
-			<!-- Announced: the composer takes focus the moment this appears, so without
-			     it a screen reader lands in an empty field with no account of the swap. -->
-			<div role="status" class="{bannerClass} bg-surface-accent-selected mb-6">
-				<div class="flex flex-row items-center gap-2 min-w-0">
-					<MessageSquareDashed class="w-4 h-4 shrink-0 text-accent" />
-					<!-- Names no cause: deleted, another browser, cleared site data and a
-					     damaged link are indistinguishable from here. The empty session it
-					     landed on is on screen, so the notice doesn't describe it. -->
-					<span class="text-emphasis font-semibold">We couldn't find that session</span>
-				</div>
-				<Button
-					variant="subtle"
-					unifiedSize="2xs"
-					iconOnly
-					startIcon={{ icon: X }}
-					title="Dismiss"
-					aria-label="Dismiss"
-					onclick={() => clearSessionRecovered(sessionId)}
-				/>
-			</div>
-		{/if}
 		<!-- gap-1 (4px) spaces the archived banner and the changes bar when both
 		     are visible. Each renders a single in-flow root (or nothing); the diff
 		     drawer is position:fixed, so it doesn't count as a flex item — no stray
@@ -510,19 +409,14 @@
 		</div>
 	{/snippet}
 
-	{#snippet actingOn()}
-		<SessionWorkspaceBar {session} />
-	{/snippet}
-
-	<!-- The left of AIChatDisplay's controls row: the rest arrives with the chat. -->
-	{#snippet placeholderToolbar()}
-		<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
-			<Button unifiedSize="2xs" variant="subtle" iconOnly startIcon={{ icon: Plus }} disabled />
-			{@render actingOn()}
-		</div>
-	{/snippet}
-
+	<!-- Read by the page header bar, outside this branch, so `session` can be gone here: a delete
+	     removes the session while the bar still shows it, on the way to the next page. The
+	     section's label below reads it the same way. -->
 	{#snippet sessionHeader()}
+		{#if session}{@render sessionHeaderControls(session)}{/if}
+	{/snippet}
+
+	{#snippet sessionHeaderControls(session: Session)}
 		<EditableInput
 			bind:this={summaryInput}
 			value={session.summary ?? ''}
@@ -594,7 +488,7 @@
 		     fork reads like anything else in that fork. -->
 		<PageHeaderContent
 			section={{
-				label: session.summary ?? 'Untitled session',
+				label: session?.summary ?? 'Untitled session',
 				content: sessionHeader,
 				noNavPicker: true
 			}}
@@ -626,64 +520,33 @@
 								: session.archived
 									? 'This session is archived. Unarchive it from the banner above to keep working.'
 									: ''}
-							starter={greets
-								? { where: 'session', suggestions: starterPrompts.suggestions }
-								: undefined}
 							emptyHint={sessionEmptyHint}
 							{inputPreface}
-							actingOn={hasFirstUserMessage ? undefined : actingOn}
 							workModeLock={workModeLock.current}
 						/>
 					{:else}
 						<!-- AIChatDisplay's layout, so the composer stays put when the chat replaces it:
-						     its transcript area, its column, and its footer row's height; for a session
-						     that has never sent, the greeting above the centred composer. -->
+						     its transcript area, its column, and its footer row's height. -->
 						<div
-							class="flex flex-col h-full {greets ? 'justify-center' : ''}"
+							class="flex flex-col h-full"
 							{@attach () => () =>
 								runtime.manager.setComposerHasDraft(PLACEHOLDER_DRAFT_KEY, false)}
 						>
-							{#if greets}
-								<div class="flex-1 min-h-0 flex flex-col justify-end">
-									<div class="w-full max-w-3xl mx-auto px-7">
-										<SessionGreeting />
-									</div>
-								</div>
-							{:else if previewedItem || runtime.manager.displayMessages.length > 0}
-								<div class="flex-1 min-h-0"></div>
-							{/if}
+							<div class="flex-1 min-h-0"></div>
 							<div class="w-full max-w-3xl mx-auto px-7 pb-2">
 								{@render inputPreface()}
 								<ComposerPlaceholder
 									bind:value={() => draftText, setPlaceholderText}
-									toolbar={greets ? placeholderToolbar : undefined}
-									placeholder={greets
-										? heldInUse
-											? USE_STARTER_PLACEHOLDER
-											: STARTER_PLACEHOLDER
-										: runtime.manager.displayMessages.length > 0
-											? 'Ask followup'
-											: (previewedItemPlaceholder ?? composerPlaceholder)}
+									placeholder={runtime.manager.displayMessages.length > 0
+										? 'Ask followup'
+										: (previewedItemPlaceholder ?? composerPlaceholder)}
 									disabled={isUnavailable || !!session.archived}
 									autofocus={sessionState.currentSessionId === sessionId && !covered}
 									onSelectionChange={(selection) => (handoff = selection ?? null)}
 									onCompositionChange={(composing) => (placeholderComposing = composing)}
 								/>
-								{#if !greets}
-									<div class="mt-1 h-5"></div>
-								{:else if !isUnavailable && !session.archived && starterPrompts.suggestions.length > 0}
-									<div class="pt-2">
-										<ComposerSuggestions
-											suggestions={starterPrompts.suggestions}
-											wrap
-											onPick={setPlaceholderText}
-										/>
-									</div>
-								{/if}
+								<div class="mt-1 h-5"></div>
 							</div>
-							{#if greets}
-								<div class="flex-1 min-h-0"></div>
-							{/if}
 						</div>
 					{/if}
 				</div>

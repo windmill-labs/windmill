@@ -59,7 +59,7 @@ pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult 
 //                     is_template, language, kind`, + `parent_hash` once forked from a deploy)
 //   flow              the `Flow` object (`path, summary, description, value, schema`, +
 //                     `version_id` when forked from a deploy)
-//   raw_app           `{summary, files, runnables, data, policy?, custom_path?,
+//   raw_app           `{summary, files, runnables, data, policy?, custom_path?, labels?,
 //                     parent_version?, draft_path?}` (`normalize_app_draft`)
 //   trigger_schedule  the schedule request body; `trigger_<kind>` that trigger's body
 //   resource          `{path, description, args, labels, wsSpecific, resource_type}`
@@ -278,6 +278,18 @@ pub(super) async fn get_deployed(
         .await
 }
 
+/// Who can open the deployed app at `path`, which the Share dialog sets and a deploy keeps.
+pub(super) async fn deployed_execution_mode(
+    ctx: &Ctx<'_>,
+    path: &str,
+) -> Result<Option<Value>, String> {
+    Ok(ctx
+        .get(&ctx.ws(&format!("apps/get/lite/{}", path_enc(path))))
+        .await?
+        .pointer("/policy/execution_mode")
+        .cloned())
+}
+
 pub(super) struct Draft {
     pub value: Value,
     pub created_at: Option<String>,
@@ -449,7 +461,13 @@ pub(super) fn normalize_app_draft(value: &Value) -> Value {
             .cloned()
             .unwrap_or_else(|| json!({ "tables": [] })),
     );
-    for key in ["policy", "custom_path", "parent_version", "draft_path"] {
+    for key in [
+        "policy",
+        "custom_path",
+        "labels",
+        "parent_version",
+        "draft_path",
+    ] {
         put(&mut out, key, value.get(key).cloned());
     }
     Value::Object(out)
@@ -777,6 +795,7 @@ pub(super) fn app_source_to_draft_value(app: &Value, fallback: Option<&Value>) -
     out.insert("data".into(), data);
     put(&mut out, "policy", or_fallback("policy"));
     put(&mut out, "custom_path", or_fallback("custom_path"));
+    put(&mut out, "labels", or_fallback("labels"));
     // The fork base: the head of a deployed app's versions, or what a draft already pinned.
     let head = app
         .get("versions")
@@ -1384,8 +1403,29 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(50);
     let page = args.get("page").and_then(Value::as_u64);
     let prefix = opt_str_arg(args, "path_prefix");
+    // Scoped, the session's folders are the default, one listing each; an explicit
+    // path_prefix, "" included, overrides them.
+    let scope_roots: &[String] = match prefix {
+        None => ctx
+            .chat
+            .and_then(|chat| chat.scope_roots.as_deref())
+            .unwrap_or_default(),
+        Some(_) => &[],
+    };
+    let prefixes: Vec<Option<String>> = if scope_roots.is_empty() {
+        vec![prefix.filter(|p| !p.is_empty()).map(str::to_string)]
+    } else {
+        scope_roots.iter().map(|root| Some(format!("{root}/"))).collect()
+    };
+    let per_page = limit.min(MAX_LIST_LIMIT);
+    let page_number = page.unwrap_or(1).max(1);
+    // Several folders read as one listing, folder after folder, so `limit` stays one cap per
+    // type (per trigger kind for triggers): page N is rows (N-1)*limit..N*limit of each
+    // concatenation, which takes every folder's first N*limit rows.
+    let window = (prefixes.len() > 1)
+        .then(|| (page_number - 1) * per_page..page_number * per_page);
 
-    let mut query = format!("per_page={}", limit.min(MAX_LIST_LIMIT));
+    let mut query = format!("per_page={per_page}");
     if let Some(page) = page {
         query.push_str(&format!("&page={page}"));
     }
@@ -1409,40 +1449,54 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         }
     }
 
-    if let Some(prefix) = prefix {
-        query.push_str(&format!("&path_start={}", enc(prefix)));
-    }
-
     let mut by_key = Map::new();
-    for item_type in ITEM_TYPES.iter().filter(|t| types.contains(t)) {
-        let kinds: Vec<Option<&str>> = if *item_type == "trigger" {
-            TRIGGER_KINDS.iter().map(|kind| Some(*kind)).collect()
-        } else {
-            vec![None]
-        };
-        let extra = if matches!(*item_type, "script" | "flow") {
-            "&include_draft_only=true&without_description=true"
-        } else {
-            ""
-        };
-        for trigger_kind in kinds {
-            let route = ctx.ws(&format!(
-                "{}/list?{query}{extra}",
-                service(item_type, trigger_kind)?
-            ));
-            let rows = match ctx.get(&route).await {
-                Ok(rows) => rows,
-                // A trigger kind this build does not serve answers 404: skip that kind
-                // alone. Any other failure is real.
-                Err(e) if trigger_kind.is_some() && is_not_found(&e) => continue,
-                Err(e) => return Err(e),
+    // Each type's index into its concatenation across folders, per trigger kind for triggers.
+    let mut index_by_kind: HashMap<String, u64> = HashMap::new();
+    for prefix in &prefixes {
+        for item_type in ITEM_TYPES.iter().filter(|t| types.contains(t)) {
+            let kinds: Vec<Option<&str>> = if *item_type == "trigger" {
+                TRIGGER_KINDS.iter().map(|kind| Some(*kind)).collect()
+            } else {
+                vec![None]
             };
-            for row in array(Some(&rows)) {
-                let path = row.get("path").and_then(Value::as_str).unwrap_or_default();
-                by_key.insert(
-                    item_key(item_type, path, trigger_kind),
-                    deployed_item(item_type, trigger_kind, row),
-                );
+            let extra = if matches!(*item_type, "script" | "flow") {
+                "&include_draft_only=true&without_description=true"
+            } else {
+                ""
+            };
+            for trigger_kind in kinds {
+                let mut query = match &window {
+                    Some(window) => format!("per_page={}", window.end),
+                    None => query.clone(),
+                };
+                if let Some(prefix) = prefix {
+                    query.push_str(&format!("&path_start={}", enc(prefix)));
+                }
+                let route = ctx.ws(&format!(
+                    "{}/list?{query}{extra}",
+                    service(item_type, trigger_kind)?
+                ));
+                let rows = match ctx.get(&route).await {
+                    Ok(rows) => rows,
+                    // A trigger kind this build does not serve answers 404: skip that kind
+                    // alone. Any other failure is real.
+                    Err(e) if trigger_kind.is_some() && is_not_found(&e) => continue,
+                    Err(e) => return Err(e),
+                };
+                let index = index_by_kind
+                    .entry(format!("{item_type}:{}", trigger_kind.unwrap_or_default()))
+                    .or_default();
+                for row in array(Some(&rows)) {
+                    *index += 1;
+                    if window.as_ref().is_some_and(|w| !w.contains(&(*index - 1))) {
+                        continue;
+                    }
+                    let path = row.get("path").and_then(Value::as_str).unwrap_or_default();
+                    by_key.insert(
+                        item_key(item_type, path, trigger_kind),
+                        deployed_item(item_type, trigger_kind, row),
+                    );
+                }
             }
         }
     }
@@ -1451,6 +1505,7 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     // pages never repeat a page-1 item as its draft twin.
     if page.unwrap_or(1) == 1 {
         let mut count_by_type: HashMap<String, u64> = HashMap::new();
+        let narrowing: Vec<&str> = prefixes.iter().flatten().map(String::as_str).collect();
         for draft in list_drafts(ctx).await? {
             let text = |key: &str| draft.get(key).and_then(Value::as_str);
             let (item_type, path) = (
@@ -1462,11 +1517,13 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             }
             // A draft's staged name is often not where it is stored, and this pass is
             // the only source of draft-only rows under a prefix: either name may match.
-            if let Some(prefix) = prefix {
-                let staged = text("draftPath").is_some_and(|p| p.starts_with(prefix));
-                if !path.starts_with(prefix) && !staged {
-                    continue;
-                }
+            let staged = text("draftPath");
+            if !narrowing.is_empty()
+                && !narrowing.iter().any(|prefix| {
+                    path.starts_with(prefix) || staged.is_some_and(|p| p.starts_with(prefix))
+                })
+            {
+                continue;
             }
             let count = count_by_type.entry(item_type.to_string()).or_default();
             if *count >= limit {
@@ -1496,7 +1553,15 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             })
         })
         .collect();
-    Ok(pretty(&Value::Array(results)))
+    let listed = pretty(&Value::Array(results));
+    if scope_roots.is_empty() {
+        return Ok(listed);
+    }
+    let folders: Vec<&str> = prefixes.iter().flatten().map(String::as_str).collect();
+    Ok(format!(
+        "Items under {}, where this session works. Pass path_prefix \"\" for the whole workspace.\n{listed}",
+        folders.join(", ")
+    ))
 }
 
 /// The card of one workspace item: what `read_workspace_item` returns, under a one-line
@@ -1576,12 +1641,19 @@ async fn read_workspace_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 
     if !deployed_only && !hub {
         if let Some((item, _)) = get_draft_item(ctx, item_type, path, trigger_kind).await? {
-            // The mode reported is the draft's, which is what deploying it will write.
+            // The mode reported is the one deploying the draft leaves: a deployed app keeps
+            // its own, which the Share dialog sets, and a never-deployed one takes the draft's.
             let mode = if item_type == "app" {
-                let mode = item
-                    .get("value")
-                    .and_then(|v| v.get("policy"))
-                    .and_then(|p| p.get("execution_mode"));
+                let deployed = if item_exists(ctx, "app", None, path).await? {
+                    deployed_execution_mode(ctx, path).await?
+                } else {
+                    None
+                };
+                let mode = deployed.as_ref().or_else(|| {
+                    item.get("value")
+                        .and_then(|v| v.get("policy"))
+                        .and_then(|p| p.get("execution_mode"))
+                });
                 describe_app_exposure(ctx, mode).await
             } else {
                 None
@@ -2144,6 +2216,17 @@ mod tests {
             json!({ "type": "script", "path": "u/a/s", "summary": "s", "language": "bun", "value": "x", "parentHash": "h", "isDraft": true })
         );
         assert!(draft_item("app", "u/a/s", &draft).is_none());
+    }
+
+    #[test]
+    fn normalize_app_draft_keeps_labels() {
+        // Every session save goes through this whitelist: a field missing here is
+        // stripped from a draft the editor wrote.
+        let draft = json!({ "files": {}, "labels": ["a"] });
+        assert_eq!(
+            normalize_app_draft(&draft).get("labels"),
+            Some(&json!(["a"]))
+        );
     }
 
     #[test]

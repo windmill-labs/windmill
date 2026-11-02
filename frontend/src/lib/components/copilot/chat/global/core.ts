@@ -56,6 +56,7 @@ import { processSecretArgs } from '$lib/components/secretArgUtils'
 import { PLAN_MODE_MESSAGES } from '../planModeMessages'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { USE_MODE_WITHDRAWN } from '../workMode'
+import { withoutSharedPolicySettings } from '$lib/components/apps/editor/appDraftSettings'
 import { capabilitiesIn, withoutBuilding } from '$lib/roleCapabilities'
 import type { RoleCapabilities } from '$lib/gen'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
@@ -2364,7 +2365,9 @@ export const readSkillTool: SessionTool<{}> = {
 		const name = skillNameFromPath(parsed.path)
 		toolCallbacks.setToolStatus(toolId, { content: `Reading skill "${name}"...` })
 		const { text } = await runOnServer('read_skill', workspace, args, {
-			skill_enabled: isSkillEnabled(workspace, parsed.path)
+			skill_enabled:
+				isSkillEnabled(workspace, parsed.path) &&
+				toolCallbacks.workingScope?.scope()?.loadsSkill(parsed.path) !== false
 		})
 		const failed = text.match(
 			/^Failed to read skill ".*?": (.*)\. Check the path against the Skills list in the system prompt\.$/s
@@ -3357,9 +3360,12 @@ export const globalTools: SessionTool<{}>[] = [
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			listWorkspaceItemsSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing workspace items...' })
-			const { text } = await runOnServer('list_workspace_items', workspace, args)
+			const { text } = await runOnServer('list_workspace_items', workspace, args, {
+				scope_roots: toolCallbacks.workingScope?.scope()?.roots
+			})
+			// A scoped listing opens with a line naming its folders.
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Listed ${JSON.parse(text).length} workspace item(s)`
+				content: `Listed ${JSON.parse(text.slice(text.indexOf('['))).length} workspace item(s)`
 			})
 			return text
 		}
@@ -4238,6 +4244,7 @@ export const globalTools: SessionTool<{}>[] = [
 		def: createToolDef(openPreviewSchema, 'open_preview', OPEN_PREVIEW_DESCRIPTION),
 		// A read-only session holds no draft capability, so the schema below offers it viewers.
 		readOnlySafe: true,
+		viewOnly: true,
 		// Withhold the editors a session cannot save, so the model never offers the user a
 		// panel it would not get.
 		schemaFor: async (helpers) => {
@@ -7027,27 +7034,6 @@ async function deployDraft(
 						`not working until they are.`
 				}
 
-				// `policy` is the mode being written, so the exposure is stated from the value in
-				// hand. What a runnable runs as is the server's to decide, so the note names who
-				// can reach the app and never an identity.
-				if (policy.execution_mode === 'anonymous') {
-					deployNote =
-						`${deployNote ? `${deployNote} ` : ''}This app is deployed as anonymous: its ` +
-						`backend runnables are now reachable by anyone with the URL, without logging in. ` +
-						`Tell the user plainly what is now reachable and by whom.`
-				} else if (policy.execution_mode === 'guest') {
-					// Only where the guest door actually opens: below that, silence — a false note
-					// is worse than none. The standing cap is a live count no read settles, so the
-					// note says the door is open, not that every newcomer gets in.
-					if (await guestAccessIsLive(workspace)) {
-						deployNote =
-							`${deployNote ? `${deployNote} ` : ''}This app is deployed as guest: anyone ` +
-							`the instance's identity provider authenticates can now open it and run its ` +
-							`backend runnables, member of this workspace or not. Tell the user plainly ` +
-							`what is now reachable and by whom.`
-					}
-				}
-
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Bundling app "${path}"...`
 				})
@@ -7111,10 +7097,10 @@ async function deployDraft(
 					}
 				}
 				deployedPath = targetPath
-				if (await AppService.existsApp({ workspace, path: targetPath })) {
-					// Omit custom_path on update for now. The backend preserves it when absent, while
-					// sending it requires admin privileges; this chat deploy path does not yet mirror
-					// the raw app editor's user/admin-specific custom_path handling.
+				const isUpdate = await AppService.existsApp({ workspace, path: targetPath })
+				if (isUpdate) {
+					// Who can open the app and its custom URL are set from the Share dialog: the update
+					// states neither, and the server keeps the deployed ones.
 					await AppService.updateAppRaw({
 						workspace,
 						path: targetPath,
@@ -7123,7 +7109,8 @@ async function deployDraft(
 								path: targetPath,
 								value: rawAppValue,
 								summary,
-								policy,
+								policy: withoutSharedPolicySettings(policy),
+								labels: appValue.labels,
 								deployment_message: deploymentMessage,
 								// Preserve the policy's on_behalf_of: this chat deploy path has no
 								// on-behalf-of selector, so without the flag the backend resets it to
@@ -7145,6 +7132,7 @@ async function deployDraft(
 								policy,
 								deployment_message: deploymentMessage,
 								custom_path: appValue.custom_path,
+								labels: appValue.labels,
 								// Preserve the policy's on_behalf_of (see update branch above).
 								preserve_on_behalf_of: policy.on_behalf_of ? true : undefined
 							},
@@ -7152,6 +7140,38 @@ async function deployDraft(
 							css: bundle.css
 						}
 					})
+				}
+
+				// An update keeps the deployed mode, so the exposure is stated from the stored row,
+				// never from the draft. What a runnable runs as is the server's to decide, so the
+				// note names who can reach the app and never an identity.
+				const storedMode = isUpdate
+					? (
+							await AppService.getAppLiteByPath({ workspace, path: targetPath }).catch(
+								() => undefined
+							)
+						)?.policy?.execution_mode
+					: policy.execution_mode
+				if (storedMode === 'anonymous') {
+					deployNote =
+						`${deployNote ? `${deployNote} ` : ''}This app is deployed as anonymous: its ` +
+						`backend runnables are now reachable by anyone with the URL, without logging in. ` +
+						`Tell the user plainly what is now reachable and by whom.`
+				} else if (storedMode === 'guest') {
+					// Only where the guest door actually opens: below that, silence — a false note
+					// is worse than none. The standing cap is a live count no read settles, so the
+					// note says the door is open, not that every newcomer gets in.
+					if (await guestAccessIsLive(workspace)) {
+						deployNote =
+							`${deployNote ? `${deployNote} ` : ''}This app is deployed as guest: anyone ` +
+							`the instance's identity provider authenticates can now open it and run its ` +
+							`backend runnables, member of this workspace or not. Tell the user plainly ` +
+							`what is now reachable and by whom.`
+					}
+				} else if (storedMode === undefined) {
+					deployNote =
+						`${deployNote ? `${deployNote} ` : ''}Its access mode could not be read back ` +
+						`after the deploy, so tell the user to check who can open the app.`
 				}
 				break
 			}

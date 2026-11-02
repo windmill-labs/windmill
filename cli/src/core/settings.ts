@@ -61,6 +61,7 @@ export interface SimplifiedSettings {
   mute_critical_alerts?: boolean;
   color?: string;
   operator_settings?: any;
+  role_overrides?: any;
   datatable?: any;
   slack_team_id?: string;
   slack_name?: string;
@@ -93,6 +94,7 @@ export const SETTINGS_MANAGED_ONLY_WHEN_PRESENT = [
   "error_handler_fallback_to_instance_alerts",
   "add_admins_and_developers_to_forks",
   "variable_expiration_handler",
+  "role_overrides",
 ] as const;
 
 /** Keys earlier versions wrote that no longer configure anything; the server ignores them,

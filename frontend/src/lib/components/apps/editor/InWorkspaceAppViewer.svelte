@@ -20,7 +20,9 @@
 	import { AppService, OpenAPI } from '$lib/gen'
 	import { userStore, workspaceStore, type UserExt } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
-	import { ExternalLink, Pen } from 'lucide-svelte'
+	import { ExternalLink, Pen, UserPlus } from 'lucide-svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
+	import ShareButton from '$lib/components/itemSettings/ShareButton.svelte'
 	import { page } from '$app/state'
 	import { isMenuHidden } from '$lib/components/sessions/sessionMode.svelte'
 	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
@@ -102,6 +104,15 @@
 	const hideRefreshBar = page.url.searchParams.get('hideRefreshBar') === 'true'
 
 	const showEdit = $derived(canWriteApp && !hideEditBtn)
+	// Share sits beside Edit in this page's own header, for anyone whose role builds apps; the
+	// dialog decides what each of them may change there.
+	const showShare = $derived(
+		ownsPageHeader && !!appPerms && editRights.roleCanAuthor(isRawApp ? 'raw_app' : 'app')
+	)
+	let shareModal: ShareModal | undefined = $state()
+	function openShare() {
+		shareModal?.openDrawer(appPerms?.path ?? path, isRawApp ? 'raw_app' : 'app')
+	}
 	// Decides where Edit goes, not whether it appears: without the workspace navigation there is
 	// no band to put it in. Same rule the layout hides the sidebar by.
 	const menuHidden = $derived(isMenuHidden(page.url))
@@ -176,7 +187,7 @@
 	// Edit button: determine write access and which editor to open on this
 	// real-origin page (cookie). The sandboxed low-code app never loads on this
 	// page (it loads inside the opaque iframe), so `app` can't be the source.
-	async function loadPerms() {
+	async function loadPerms(recordVisit = true) {
 		try {
 			const lite: any = await AppService.getAppLiteByPath({ workspace, path })
 			appPerms = { path: lite?.path ?? path, extraPerms: lite?.extra_perms ?? {} }
@@ -184,7 +195,7 @@
 			executionMode = lite?.policy?.execution_mode ?? lite?.execution_mode
 			summary = lite?.summary || undefined
 			// Only the route's own page is a visit; a session's preview tab opens it on its own.
-			if (ownsPageHeader) {
+			if (ownsPageHeader && recordVisit) {
 				recentItems.record(workspace, {
 					kind: isRawApp ? 'raw_app' : 'app',
 					path: appPerms.path,
@@ -231,27 +242,34 @@
 		if (workspace && path) loadPerms()
 	})
 
-	// Both of this page's buttons carry a label, and a phone's bar has room for neither beside the
-	// app's path — so below that width they become one menu. Unmeasured (0) counts as wide: the bar
+	// This page's buttons all carry a label, and a phone's bar has room for none beside the app's
+	// path — so below that width they become one menu. Unmeasured (0) counts as wide: the bar
 	// measures itself on mount, and starting compact would pop them out a frame later.
 	const compact = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
-	const compactItems: Item[] = $derived([
-		...(hasPublicUrl
-			? [
-					{
-						displayName: 'Public url',
-						icon: ExternalLink,
-						action: () => openPublicUrl()
-					}
-				]
-			: []),
-		{
-			displayName: 'Edit',
-			icon: Pen,
-			href: onEdit ? undefined : editHref,
-			action: onEdit ? () => onEdit() : undefined
-		}
-	])
+	function compactItems(share: boolean): Item[] {
+		return [
+			...(hasPublicUrl
+				? [
+						{
+							displayName: 'Public url',
+							icon: ExternalLink,
+							action: () => openPublicUrl()
+						}
+					]
+				: []),
+			...(share ? [{ displayName: 'Share', icon: UserPlus, action: openShare }] : []),
+			...(showEdit
+				? [
+						{
+							displayName: 'Edit',
+							icon: Pen,
+							href: onEdit ? undefined : editHref,
+							action: onEdit ? () => onEdit() : undefined
+						}
+					]
+				: [])
+		]
+	}
 </script>
 
 <div class="h-full">
@@ -285,9 +303,11 @@
 {#if ownsPageHeader}
 	<PageHeaderContent
 		item={{ kind: 'app', path, summary }}
-		actions={showEdit && !menuHidden ? editAction : undefined}
+		actions={(showEdit || showShare) && !menuHidden ? headerActions : undefined}
 		separator="always"
 	/>
+	<!-- Share can change who opens the app, which decides whether it has a public url. -->
+	<ShareModal bind:this={shareModal} source="detail" on:change={() => loadPerms(false)} />
 {/if}
 
 <!-- Edit is the bar's action when this viewer owns the bar, and floats over the canvas otherwise:
@@ -296,15 +316,19 @@
      sit beside the session's name and act on the panel below it. -->
 {#if showEdit && (menuHidden || !ownsPageHeader)}
 	<div class="absolute bottom-4 right-4 z-50">
-		{@render editAction()}
+		{@render appActions(false)}
 	</div>
 {/if}
 
-{#snippet editAction()}
+{#snippet headerActions()}
+	{@render appActions(showShare)}
+{/snippet}
+
+{#snippet appActions(share: boolean)}
 	{#if compact}
-		<!-- Too little bar to seat both: they fold into one menu rather than losing their labels,
+		<!-- Too little bar to seat them: they fold into one menu rather than losing their labels,
 		     which are what say where each one goes. -->
-		<DropdownV2 items={compactItems} placement="bottom-end" size="sm" />
+		<DropdownV2 items={compactItems(share)} placement="bottom-end" size="sm" />
 	{:else}
 		{#if hasPublicUrl}
 			<!-- The app on its own, at the url anyone it is shared with uses. A new tab rather than
@@ -318,16 +342,21 @@
 				title="Open the app's public url in a new tab">Public url</Button
 			>
 		{/if}
-		<!-- `onEdit` wins over the href: a host that embeds this viewer opens its own editor rather
-		     than navigating the frame to one. -->
-		<Button
-			unifiedSize="sm"
-			startIcon={{ icon: Pen }}
-			variant="default"
-			href={onEdit ? undefined : editHref}
-			on:click={() => onEdit?.()}
-			title="Edit this app"
-			id="app-edit-btn">Edit</Button
-		>
+		{#if share}
+			<ShareButton deployed unifiedSize="sm" onclick={openShare} />
+		{/if}
+		{#if showEdit}
+			<!-- `onEdit` wins over the href: a host that embeds this viewer opens its own editor
+			     rather than navigating the frame to one. -->
+			<Button
+				unifiedSize="sm"
+				startIcon={{ icon: Pen }}
+				variant="default"
+				href={onEdit ? undefined : editHref}
+				on:click={() => onEdit?.()}
+				title="Edit this app"
+				id="app-edit-btn">Edit</Button
+			>
+		{/if}
 	{/if}
 {/snippet}
