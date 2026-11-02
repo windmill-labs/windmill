@@ -36,6 +36,9 @@ export function runAsEmailLabel(email: string | undefined): string | undefined {
 }
 
 const pending = new SvelteMap<string, PendingServiceAccount>()
+// Another item in the tab may still hold the placeholder of an account a deploy created: it must
+// resolve to the real email, or that item's deploy would run as its deployer.
+const created = new Map<string, string>()
 const key = (workspace: string, permissionedAs: string) => `${workspace}:${permissionedAs}`
 
 export function setPendingServiceAccount(workspace: string, account: PendingServiceAccount): void {
@@ -47,6 +50,18 @@ export function getPendingServiceAccount(
 	permissionedAs: string | undefined
 ): PendingServiceAccount | undefined {
 	return permissionedAs ? pending.get(key(workspace, permissionedAs)) : undefined
+}
+
+/** Whether a deploy as `permissionedAs` must go through `createPendingServiceAccount` first. */
+export function isPlannedServiceAccount(
+	workspace: string,
+	permissionedAs: string | undefined
+): boolean {
+	return (
+		!!permissionedAs &&
+		(!!getPendingServiceAccount(workspace, permissionedAs) ||
+			created.has(key(workspace, permissionedAs)))
+	)
 }
 
 /** Usernames this tab plans to create in `workspace`, which a new account must not reuse. */
@@ -64,7 +79,13 @@ export function dropStalePending(
 ): void {
 	const email = item.on_behalf_of_email
 	if (!workspace || !email?.endsWith(`@${PENDING_EMAIL_DOMAIN}`)) return
-	if (getPendingServiceAccount(workspace, `u/${email.split('@')[0]}`)) return
+	const permissionedAs = `u/${email.split('@')[0]}`
+	if (getPendingServiceAccount(workspace, permissionedAs)) return
+	const createdEmail = created.get(key(workspace, permissionedAs))
+	if (createdEmail) {
+		item.on_behalf_of_email = createdEmail
+		return
+	}
 	item.on_behalf_of = undefined
 	item.on_behalf_of_email = undefined
 }
@@ -134,15 +155,17 @@ export function useServiceAccounts(workspace: () => string | undefined) {
 
 /**
  * Creates the pending account `permissionedAs` names and gives it what was chosen with it, and
- * returns its email; `undefined` when nothing is pending under that name. Each step can rerun, so
- * a deploy that fails partway retries against the account it already made.
+ * returns its email, or the email of one this tab already created under that name; `undefined`
+ * when neither. Each step can rerun, so a deploy that fails partway retries against the account it
+ * already made.
  */
 export async function createPendingServiceAccount(
 	workspace: string,
 	permissionedAs: string | undefined
 ): Promise<string | undefined> {
+	if (!permissionedAs) return undefined
 	const account = getPendingServiceAccount(workspace, permissionedAs)
-	if (!account || !permissionedAs) return undefined
+	if (!account) return created.get(key(workspace, permissionedAs))
 	const { username } = account
 	const existing = await UserService.getUser({ workspace, username }).catch(() => undefined)
 	// Someone may have taken the name since it was picked: granting to it would hand a person, or
@@ -160,6 +183,7 @@ export async function createPendingServiceAccount(
 		await setGrant(workspace, grant.kind, grant.path, permissionedAs, 'read')
 	}
 	const { email } = await UserService.getUser({ workspace, username })
+	created.set(key(workspace, permissionedAs), email)
 	pending.delete(key(workspace, permissionedAs))
 	asked.delete(workspace)
 	return email

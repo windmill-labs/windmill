@@ -60,7 +60,7 @@
 	import type { NeedsSource } from '$lib/components/access/detectNeeds'
 	import {
 		createPendingServiceAccount,
-		getPendingServiceAccount
+		isPlannedServiceAccount
 	} from '$lib/components/access/serviceAccounts.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -199,7 +199,7 @@
 	async function deploy() {
 		if (!path || pathError) return
 		const runsAs = question.on ? question.runsAs : undefined
-		if (runAsWorkspace !== undefined && getPendingServiceAccount(runAsWorkspace, runsAs)) {
+		if (runAsWorkspace !== undefined && isPlannedServiceAccount(runAsWorkspace, runsAs)) {
 			deploying = true
 			try {
 				const created = await createPendingServiceAccount(runAsWorkspace, runsAs)

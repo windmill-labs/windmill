@@ -6,7 +6,7 @@
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import {
 		createPendingServiceAccount,
-		getPendingServiceAccount
+		isPlannedServiceAccount
 	} from '$lib/components/access/serviceAccounts.svelte'
 	import type { NeedsSource } from '$lib/components/access/detectNeeds'
 	import { sendUserToast } from '$lib/toast'
@@ -73,7 +73,7 @@
 
 	async function confirm() {
 		const runsAs = question.runsAs
-		if (getPendingServiceAccount(targetWorkspace, runsAs)) {
+		if (isPlannedServiceAccount(targetWorkspace, runsAs)) {
 			deploying = true
 			try {
 				const created = await createPendingServiceAccount(targetWorkspace, runsAs)
