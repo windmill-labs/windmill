@@ -72,10 +72,6 @@ pub(crate) struct ChatContext {
     /// not on the server yet. They are newer than the server's row.
     #[serde(default)]
     pub cells: Vec<Cell>,
-    /// How many characters of an npm package's readme and of its types fit the chat's
-    /// model: 1% of its context window.
-    #[serde(default)]
-    pub npm_text_limit: Option<usize>,
     /// Run only the check that comes before the chat's confirmation card: what a
     /// confirmed call would refuse, and what it would change.
     #[serde(default)]

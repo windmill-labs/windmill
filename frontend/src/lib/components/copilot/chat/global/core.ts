@@ -78,7 +78,11 @@ import {
 } from '../flow/aiAgentProviderCatalog'
 import { formatAiAgentProvidersPrompt } from '../flow/aiAgentProviders'
 import {} from '../flow/inlineScriptsUtils'
-import { resourceTypeSyncBlock, type ResourceTypeSync } from '../script/core'
+import {
+	resourceTypeSyncBlock,
+	searchNpmPackagesTool,
+	type ResourceTypeSync
+} from '../script/core'
 import type { McpServer } from './mcpTools'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { isSkillEnabled } from '../skills/enabledSkills'
@@ -237,8 +241,7 @@ import {
 	dbSchemaServerTool,
 	readDocsPageServerTool,
 	searchDocsServerTool,
-	searchHubScriptsServerTool,
-	searchNpmPackagesServerTool
+	searchHubScriptsServerTool
 } from './serverTools'
 import { DRAFT_CONFLICT_RESULT, DRAFT_SAVE_FAILED_RESULT } from '../draftWriteResults'
 import {
@@ -3201,7 +3204,7 @@ export const globalTools: SessionTool<{}>[] = [
 	},
 	searchHubScriptsServerTool,
 	getHubIntegrationTool,
-	searchNpmPackagesServerTool,
+	searchNpmPackagesTool,
 	searchDocsServerTool,
 	readDocsPageServerTool,
 	{

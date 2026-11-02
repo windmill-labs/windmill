@@ -381,9 +381,8 @@ async fn get_hub_integration(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 /// the scores have no fixed scale (a descriptive query's right answer can score a few hundred,
 /// a package's own name thousands), so a match is judged against the best one.
 const NPM_RUNNER_UP_SHARE: f64 = 0.6;
-/// A package's readme and types are each capped at 1% of the model's context window. The
-/// chat sends its own model's cap; an MCP client's model is unknown, so this is 1% of the
-/// window assumed for an unknown model (128000).
+/// A package's readme and types are each capped at 1% of the model's context window. An MCP
+/// client's model is unknown, so this is 1% of the window assumed for an unknown model (128000).
 const NPM_TEXT_LIMIT: usize = 1280;
 
 async fn fetch(url: &str) -> Result<reqwest::Response, reqwest::Error> {
@@ -593,11 +592,7 @@ async fn npm_search(ctx: &Ctx<'_>, query: &str, limit: usize) -> Result<Vec<Valu
 
 async fn search_npm_packages(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let query = str_arg(args, "query")?;
-    let limit = ctx
-        .chat
-        .and_then(|chat| chat.npm_text_limit)
-        .unwrap_or(NPM_TEXT_LIMIT);
-    Ok(match npm_search(ctx, query, limit).await {
+    Ok(match npm_search(ctx, query, NPM_TEXT_LIMIT).await {
         Ok(results) => Value::Array(results).to_string(),
         Err(e) => {
             tracing::warn!("npm package search failed: {e}");

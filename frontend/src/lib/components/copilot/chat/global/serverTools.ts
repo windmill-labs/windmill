@@ -4,7 +4,7 @@
  */
 import type { SessionTool } from '../sessionCapabilities'
 import { createSearchHubScriptsTool, searchHubScriptsSchema } from '../shared'
-import { createDbSchemaTool, npmTextLimit, searchNpmPackagesTool } from '../script/core'
+import { createDbSchemaTool } from '../script/core'
 import { readDocsPageTool, searchDocsTool } from '../docs/core'
 import { runOnServer } from './backendSessionTools'
 
@@ -26,18 +26,6 @@ export const searchHubScriptsServerTool: SessionTool<{}> = {
 						: `Found ${found} hub script${found === 1 ? '' : 's'} for ${subject}`
 			})
 		}
-		return text
-	}
-}
-
-export const searchNpmPackagesServerTool: SessionTool<{}> = {
-	...searchNpmPackagesTool,
-	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-		toolCallbacks.setToolStatus(toolId, { content: 'Searching for relevant packages...' })
-		const { text } = await runOnServer('search_npm_packages', workspace, args, {
-			npm_text_limit: npmTextLimit()
-		})
-		toolCallbacks.setToolStatus(toolId, { content: 'Retrieved relevant packages' })
 		return text
 	}
 }
