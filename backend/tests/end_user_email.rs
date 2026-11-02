@@ -359,6 +359,7 @@ async fn test_job_token_run_keeps_end_user_email(db: Pool<Postgres>) -> anyhow::
             folders: vec![],
             scopes: None,
             token_prefix: None,
+            mcp_client: None,
         },
         "test-workspace",
         3600,

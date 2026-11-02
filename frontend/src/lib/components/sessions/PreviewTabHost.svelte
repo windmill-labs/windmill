@@ -379,6 +379,7 @@
 							{isActiveSession}
 							{active}
 							{newRawApp}
+							{fullscreen}
 						/>
 					{/await}
 				{/if}

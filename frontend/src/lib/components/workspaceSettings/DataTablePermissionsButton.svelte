@@ -4,6 +4,7 @@
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import Toggle from '../Toggle.svelte'
 	import Tooltip from '../Tooltip.svelte'
+	import ManageGroupsLink from '../ManageGroupsLink.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
 	import Checkbox from '../common/checkbox/Checkbox.svelte'
 	import Cell from '../table/Cell.svelte'
@@ -410,6 +411,9 @@
 										Users, groups and folders allowed to connect as this role. Workspace admins can
 										use every role.
 									</Tooltip>
+									{#if !governing}
+										<ManageGroupsLink {workspace} onReturn={() => loadTenantItems(workspace)} />
+									{/if}
 								</Cell>
 								<Cell head>
 									Default

@@ -2734,6 +2734,23 @@ async function listAccessEntities(
 	return rows
 }
 
+// Each list call is capped per type, and per trigger kind for triggers, so the page is cut
+// on the same key.
+function pageAcrossPrefixes(
+	listings: WorkspaceItem[][],
+	perPage: number,
+	page: number
+): WorkspaceItem[] {
+	const seenByKey = new Map<string, number>()
+	const start = (page - 1) * perPage
+	return listings.flat().filter((item) => {
+		const key = item.type === 'trigger' ? `trigger:${item.triggerKind}` : item.type
+		const index = seenByKey.get(key) ?? 0
+		seenByKey.set(key, index + 1)
+		return index >= start && index < start + perPage
+	})
+}
+
 async function listWorkspaceItems(
 	types: WorkspaceItemType[],
 	workspace: string,
@@ -3261,7 +3278,8 @@ export const readSkillTool: SessionTool<{}> = {
 			const isSkill = (await listSkillResources(workspace)).skills.some(
 				(s) => s.path === parsed.path
 			)
-			if (!isSkill || !isSkillEnabled(workspace, parsed.path)) {
+			const suspended = toolCallbacks.workingScope?.scope()?.loadsSkill(parsed.path) === false
+			if (!isSkill || !isSkillEnabled(workspace, parsed.path) || suspended) {
 				toolCallbacks.setToolStatus(toolId, { content: `Skill "${name}" is not available` })
 				return `"${parsed.path}" is not one of the skills available to this chat. Only the paths listed under "Skills" in the system prompt can be read.`
 			}
@@ -4278,13 +4296,30 @@ export const globalTools: SessionTool<{}>[] = [
 			).filter((row) => itemMatches(row, parsed.query))
 
 			const byKey = new Map<string, WorkspaceItem>()
-			const workspaceItems = await listWorkspaceItems(
-				types,
-				workspace,
-				parsed.path_prefix,
-				Math.min(limit, MAX_LIST_LIMIT),
-				parsed.page
-			)
+			// Scoped, its folders are the default, one listing each; an explicit path_prefix, ""
+			// included, overrides them.
+			const scopeRoots = toolCallbacks.workingScope?.scope()?.roots
+			const scopedByDefault = parsed.path_prefix === undefined && !!scopeRoots?.length
+			const prefixes: (string | undefined)[] = scopedByDefault
+				? scopeRoots!.map((r) => `${r}/`)
+				: [parsed.path_prefix || undefined]
+			const perPage = Math.min(limit, MAX_LIST_LIMIT)
+			const page = parsed.page ?? 1
+			// Several folders read as one listing, folder after folder, so `limit` stays one cap
+			// per type: page N is rows (N-1)*limit..N*limit of each type's concatenation, which
+			// takes every folder's first N*limit rows.
+			const workspaceItems =
+				prefixes.length === 1
+					? await listWorkspaceItems(types, workspace, prefixes[0], perPage, parsed.page)
+					: pageAcrossPrefixes(
+							await Promise.all(
+								prefixes.map((prefix) =>
+									listWorkspaceItems(types, workspace, prefix, perPage * page, 1)
+								)
+							),
+							perPage,
+							page
+						)
 			for (const item of workspaceItems) {
 				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
 			}
@@ -4296,7 +4331,7 @@ export const globalTools: SessionTool<{}>[] = [
 			// (it filters before the cap; query filters after).
 			if ((parsed.page ?? 1) === 1) {
 				const draftCountByType = new Map<string, number>()
-				const prefix = parsed.path_prefix
+				const narrowing = prefixes.filter((p): p is string => !!p)
 				for (const draft of await listGlobalDrafts(workspace)) {
 					if (!types.includes(draft.type)) continue
 					// A draft's staged name is often not where it is stored: the editor parks
@@ -4304,7 +4339,10 @@ export const globalTools: SessionTool<{}>[] = [
 					// rename stages the new name over the old path. The server drops
 					// draft-only rows under any narrowing filter, leaving this pass their
 					// only source, so either name has to satisfy the prefix.
-					if (prefix && !draft.path.startsWith(prefix) && !draft.draftPath?.startsWith(prefix))
+					if (
+						narrowing.length &&
+						!narrowing.some((p) => draft.path.startsWith(p) || draft.draftPath?.startsWith(p))
+					)
 						continue
 					const count = draftCountByType.get(draft.type) ?? 0
 					if (count >= limit) continue
@@ -4328,7 +4366,10 @@ export const globalTools: SessionTool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Listed ${results.length} workspace item(s)`
 			})
-			return JSON.stringify(results, null, 2)
+			const listed = JSON.stringify(results, null, 2)
+			return scopedByDefault
+				? `Items under ${prefixes.join(', ')}, where this session works. Pass path_prefix "" for the whole workspace.\n${listed}`
+				: listed
 		}
 	},
 	{
@@ -5276,6 +5317,7 @@ export const globalTools: SessionTool<{}>[] = [
 		def: createToolDef(openPreviewSchema, 'open_preview', OPEN_PREVIEW_DESCRIPTION),
 		// A read-only session holds no draft capability, so the schema below offers it viewers.
 		readOnlySafe: true,
+		viewOnly: true,
 		// Withhold the editors a session cannot save, so the model never offers the user a
 		// panel it would not get.
 		schemaFor: async (helpers) => {

@@ -59,6 +59,7 @@
 	} from 'lucide-svelte'
 	import { untrack } from 'svelte'
 	import { page } from '$app/stores'
+	import { describeExternalRef, isExternalRef } from '$lib/externalSecretRef'
 	import { useHostedPage } from '$lib/components/hostedPage'
 	import {
 		useOperatingWorkspace,
@@ -490,7 +491,9 @@
 										<Cell>
 											<span class="inline-flex flex-row items-center gap-2">
 												<div class="text-xs break-words">
-													{#if value}
+													{#if is_secret && isExternalRef(value)}
+														{describeExternalRef(value ?? '')}
+													{:else if value}
 														{truncate(value, 20)}
 													{:else}
 														&lowast;&lowast;&lowast;&lowast;

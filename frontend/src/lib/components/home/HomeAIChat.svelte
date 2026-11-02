@@ -16,10 +16,10 @@
 	import CloseButton from '../common/CloseButton.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { hubBaseUrlStore, roleCapabilities, workspaceStore } from '$lib/stores'
-	import { sessionState } from '../sessions/sessionState.svelte'
+	import { homeDraft, sessionState } from '../sessions/sessionState.svelte'
 	import { currentWorkspaceRootId } from '../sessions/sessionScope.svelte'
 	import { HOME_SHOW_HUB } from '$lib/consts'
-	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { homeComposerPin, setHomeComposerRemoved } from './homeComposerPin.svelte'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { BROWSER } from 'esm-env'
 	import HomeConnectDrawer from './HomeConnectDrawer.svelte'
@@ -35,8 +35,6 @@
 	import { useWorkspaceAiHidden } from '../copilot/workspaceAiHidden.svelte'
 	import { homeQuickAccessSettings } from './homeQuickAccessSettings.svelte'
 
-	const COLLAPSED_SETTING = 'home-ai-composer-collapsed'
-
 	/** Bar width from which the two side trips stand in the bar rather than folding into the menu.
 	 *  Home's trail is ~250px and the rest of its actions ~400, so this leaves room for both
 	 *  labelled buttons without the trail starting to truncate. Below it they fold back. */
@@ -46,14 +44,9 @@
 
 	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
 
-	// Whether this reader wants the composer on the home page at all, so it lives per browser
-	// rather than per workspace or account. It has nothing to do with the composer's one-line
-	// state despite the key's name; renaming the key would reset every reader's choice.
-	let removed = $state(BROWSER && getLocalSetting(COLLAPSED_SETTING) === 'true')
-	function setRemoved(next: boolean) {
-		removed = next
-		storeLocalSetting(COLLAPSED_SETTING, next ? 'true' : undefined)
-	}
+	// Whether this reader wants the composer on the home page at all. Starting a session puts
+	// it back (see pinHomeComposer).
+	const removed = $derived(homeComposerPin.removed)
 
 	// Removing puts the composer away rather than throwing it out, and the way back is one item in
 	// the band's menu — so the ellipsis flashes as it appears, in a corner nobody is watching while
@@ -71,7 +64,7 @@
 	function removeComposer() {
 		// The `close` key keeps these events in the series they have always been counted in.
 		logFeatureUsage('home', 'ai_hero_remove', { key: 'close' })
-		setRemoved(true)
+		setHomeComposerRemoved(true)
 		if (reducedMotion.val) return
 		clearTimeout(pulseEndTimer)
 		pulsing = true
@@ -85,16 +78,17 @@
 	// are no extra wait.
 	if ($workspaceStore) prefetchComposerSignals($workspaceStore)
 
-	// Whether Home's own workspace hides the assistant, read for that workspace: once the block
-	// shows, the shared copilot config is the draft's, so a draft acting on a workspace that hides
-	// AI would otherwise take the whole block, and the picker that could undo it, off Home.
+	// Whether Home's own workspace hides the assistant, read for that workspace rather than from
+	// the shared copilot config, which still describes the last session's workspace for a moment
+	// after leaving its page.
 	const homeAiHidden = useWorkspaceAiHidden(() => $workspaceStore ?? undefined)
 
-	// The composer hands off to /sessions, which refuses roles that cannot code and users opted out
-	// of the sessions beta — so hide it from them (the prompt would be silently dropped) while the
-	// AI-independent CLI/MCP row below stays.
+	// The composer hands off to /sessions, which refuses roles that cannot code, users opted out
+	// of the sessions beta and a session's own preview frame — so hide it there (the prompt would
+	// be silently dropped) while the AI-independent CLI/MCP row below stays.
+	const inPreviewFrame = BROWSER && window.self !== window.top
 	let showComposer = $derived(
-		prefersSessionHandoff(!$roleCapabilities.code) && !homeAiHidden.hidden
+		prefersSessionHandoff(!$roleCapabilities.code) && !inPreviewFrame && !homeAiHidden.hidden
 	)
 
 	let hero = $derived(showComposer && !removed)
@@ -116,9 +110,10 @@
 			</div>
 			<!-- The block is a session's chat, so it waits for the sessions it might reuse. Keyed on
 			     the workspace family, not the workspace: another family needs its own draft, but a
-			     fork shares its parent's, and remounting for it only flashes the block. -->
+			     fork shares its parent's, and remounting for it only flashes the block. Also keyed
+			     on the asks for another draft (New session, a draft picked in the session list). -->
 			{#if HomeSessionStarter && sessionState.hydrated}
-				{#key $currentWorkspaceRootId}
+				{#key `${$currentWorkspaceRootId}:${homeDraft.requests}`}
 					<HomeSessionStarter
 						{placeholder}
 						onSettled={(height) => rememberComposerHeight($workspaceStore ?? undefined, height)}
@@ -219,7 +214,7 @@
 										displayName: 'Pin session hero to homepage',
 										action: () => {
 											logFeatureUsage('home', 'ai_hero_pin')
-											setRemoved(false)
+											setHomeComposerRemoved(false)
 										}
 									}
 								]

@@ -61,7 +61,9 @@ import {
 	setSessionPreviewSize,
 	setSessionTabs,
 	setDraftsDiscardedHandler,
+	setSendUnderWayCheck,
 	setSessionWorkMode,
+	setSessionWorkingIn,
 	type Session
 } from './sessionState.svelte'
 import {
@@ -130,7 +132,6 @@ import {
 } from '$lib/components/copilot/chat/shared'
 import { readStoredChat } from '$lib/components/copilot/chat/HistoryManager.svelte'
 import { getCurrentUserEmail } from '$lib/userScopedStorage'
-import { navRouteItemMoved } from './sessionSwitch.svelte'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 
 // Per-kind load state for a session's editor target. Pure state container the
@@ -439,6 +440,13 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.sessionId = session.id
 	manager.workMode = session.workMode ?? AIWorkMode.BUILD
 	manager.onWorkModeChanged = (mode) => setSessionWorkMode(session.id, mode)
+	manager.workingInResolver = () => {
+		const s = sessionState.sessions.find((x) => x.id === session.id)
+		// Read from the browser's store, so only a list counts.
+		const roots = Array.isArray(s?.workingIn) ? s.workingIn : undefined
+		return { roots, source: roots ? (s?.workingInSource ?? 'default') : 'default' }
+	}
+	manager.onWorkingInChanged = (roots, source) => setSessionWorkingIn(session.id, roots, source)
 	// Cross-tab awareness: heartbeat while this tab runs a turn, composer lock
 	// (and send refusal) while another tab does. The chat id is read at turn
 	// end, not captured at start — the turn may have rotated it, and the other
@@ -1222,7 +1230,6 @@ function createRuntime(session: Session): SessionRuntime {
 				UserDraft.stopSync(kind, storagePath, { workspace })
 				UserDraft.discard(kind, storagePath, undefined, { workspace })
 				previewTabs.retargetEditor({ kind, path: storagePath }, { kind, path: deployedPath })
-				navRouteItemMoved(kind === 'raw_app' ? 'app' : kind, workspace, storagePath, deployedPath)
 			}
 			const path = deployedPath
 			// After deploy the editor state equals the deployed value; the reload
@@ -1497,6 +1504,9 @@ export function resetSessionPreviewTabs(sessionId: string, seedUrl: string): voi
 	const rt = runtimes.get(sessionId)
 	if (rt) {
 		rt.previewTabs.reset(tabs, 'session')
+		// Written to the record now, not after the owner's debounce: the sessions page judges
+		// the arrival by the record's tabs, and a draft without any opens on Home instead.
+		rt.previewTabs.flushNow()
 	} else {
 		setSessionTabs(sessionId, tabs, 'session')
 		setSessionPreviewCollapsed(sessionId, false)
@@ -1523,6 +1533,10 @@ export function removeSession(sessionId: string): void {
 }
 
 setDraftsDiscardedHandler((ids) => ids.forEach(disposeRuntime))
+setSendUnderWayCheck((id) => {
+	const m = runtimes.get(id)?.manager
+	return !!m && (m.loading || m.sendInFlight || m.sendPending)
+})
 
 // The chat calls a new item by its chosen name while its draft is stored at
 // `draft_<uuid>`; resolve the name the way the chat's write tools do.
