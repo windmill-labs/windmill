@@ -47,6 +47,7 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 		User
 	} from 'lucide-svelte'
 	import { untrack } from 'svelte'
+	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import {
@@ -388,7 +389,11 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 	export function showFolder() {
 		closeDetail()
 		collapsed = {}
+		pulse++
 	}
+	/** Replays the focused folder's flash, so the eye finds it in the list. */
+	let pulse = $state(0)
+	const reducedMotion = useReducedMotion()
 
 	/** Lands on the rendered instructions: reading them is the common reason to open
 	 * them, and the header's View/Edit switch is one click from the other half. */
@@ -695,10 +700,24 @@ its block on a detail page laid over the list, like a skill in the Skills sectio
 	<ListRow {icon} {title} {subtitle} onClick={() => openBlock(kind)} />
 {/snippet}
 
+{#snippet focusPulse(focused: boolean)}
+	<!-- `opacity-0` at rest: the keyframes carry no fill mode, so the overlay would come back
+	     at full strength once the animation ends. -->
+	{#if focused && pulse > 0 && !reducedMotion.val}
+		{#key pulse}
+			<span
+				aria-hidden="true"
+				class="pointer-events-none absolute inset-0 rounded-lg ring-2 ring-inset ring-blue-500/60 bg-blue-500/10 opacity-0 animate-fade-out"
+			></span>
+		{/key}
+	{/if}
+{/snippet}
+
 <!-- One folder and everything under it. Recursive: a path may name folders below the `u/x`
      or `f/x` root it starts from. -->
 {#snippet folder(node: SkillTreeNode<FolderInstructionRow>, root: boolean)}
-	<div>
+	<div class="relative">
+		{@render focusPulse(root && node.path === focusRoot)}
 		<button
 			type="button"
 			class="w-full flex items-center gap-2 px-2 py-2 text-left rounded-md hover:bg-surface-hover"
