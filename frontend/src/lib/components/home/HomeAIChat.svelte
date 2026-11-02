@@ -11,6 +11,7 @@
 </script>
 
 <script lang="ts">
+	import { onDestroy } from 'svelte'
 	import { ExternalLink, Globe2, PlugZap } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { hubBaseUrlStore, roleCapabilities, workspaceStore } from '$lib/stores'
@@ -27,16 +28,15 @@
 	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { prefetchComposerSignals } from '../copilot/chat/starter/starterPrompts.svelte'
 	import { useWorkspaceAiHidden } from '../copilot/workspaceAiHidden.svelte'
 	import { homeQuickAccessSettings } from './homeQuickAccessSettings.svelte'
+	import { homeHeaderMenu, homeSideTripsInBar } from './homeHeaderMenu.svelte'
 
-	/** Bar width from which the two side trips stand in the bar rather than folding into the menu.
-	 *  Home's trail is ~250px and the rest of its actions ~400, so this leaves room for both
-	 *  labelled buttons without the trail starting to truncate. Below it they fold back. */
-	const BAR_FITS_SIDE_TRIPS = 1024
-	const sideTripsInBar = $derived(pageHeader.barWidth >= BAR_FITS_SIDE_TRIPS)
+	const sideTripsInBar = $derived(homeSideTripsInBar())
+	// The rows the page's other header actions put here once the bar gathers them all in this menu.
+	const gatheredItems = $derived(homeHeaderMenu.items)
+	onDestroy(homeHeaderMenu.mountRenderer())
 	const hubOffered = $derived($roleCapabilities.code && HOME_SHOW_HUB)
 
 	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
@@ -62,7 +62,6 @@
 	let showComposer = $derived(
 		prefersSessionHandoff(!$roleCapabilities.code) && !inPreviewFrame && !homeAiHidden.hidden
 	)
-
 </script>
 
 <div class="w-full {showComposer ? 'mt-2' : 'mb-1'}">
@@ -134,7 +133,7 @@
 		{/if}
 		<!-- Nothing left to hold once the side trips stand in the bar: an ellipsis that opens an
 		     empty menu is a button that does nothing. -->
-		{#if !sideTripsInBar || homeQuickAccessSettings.hidden}
+		{#if !sideTripsInBar || homeQuickAccessSettings.hidden || gatheredItems.length > 0}
 			<span class="relative inline-flex">
 				<!-- Hiding favorites & recent puts its way back in this menu, so the ellipsis flashes on
 				     each hide. It rests at opacity 0, so it can stay mounted; the key replays it. -->
@@ -151,6 +150,7 @@
 					size="sm"
 					customWidth={240}
 					items={[
+						...gatheredItems,
 						...(homeQuickAccessSettings.hidden
 							? [
 									{

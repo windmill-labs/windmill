@@ -1259,6 +1259,76 @@
 	// Expand/collapse: nothing to group on an empty workspace.
 	let listControls = $derived(!loading && !workspaceEmpty)
 
+	// Read by the page around the list (the recent runs panel); reactive when called in a derived.
+	export function isWorkspaceEmpty() {
+		return workspaceEmpty
+	}
+	let cardEl: HTMLDivElement | undefined = $state()
+	// Bumped to remount the tree, whose nodes read `treeOpenMemory` only when they mount.
+	let revealSeq = $state(0)
+	const REVEAL_WAIT_MS = 4000
+	const REVEAL_GRACE_MS = 300
+	const REVEAL_RING_MS = 1600
+
+	// A pipeline's steps have no rows of their own: the folder's Pipeline row stands for them.
+	// The kind is part of the match, since a script and a flow can share a path.
+	function findRow(path: string, kind: string) {
+		const own = cardEl?.querySelector<HTMLElement>(
+			`[data-row-path="${CSS.escape(path)}"][data-row-kind="${CSS.escape(kind)}"]`
+		)
+		if (own) return own
+		const folder = path.startsWith('f/') ? path.split('/')[1] : undefined
+		if (!folder || !pipelineFolders.has(folder)) return null
+		return (
+			cardEl?.querySelector<HTMLElement>(`[data-row-path="${CSS.escape(`f/${folder}`)}"]`) ?? null
+		)
+	}
+
+	/** Scrolls the list to the `kind` item at `path` (its pipeline's row, for a pipeline step),
+	 * opening its folders, and rings it for a moment. Resolves false when the list does not show it. */
+	export async function revealItem(path: string, kind: string): Promise<boolean> {
+		let row = findRow(path, kind)
+		if (!row && !flatList) {
+			const segments = path.split('/')
+			const closed = segments
+				.slice(2)
+				.map((_, i) => segments.slice(0, i + 2).join('/'))
+				.filter((prefix) => !treeOpenMemory.isOpen(prefix))
+			// A remount drops the tree's loaded pages, so it is only worth it to open a folder. With
+			// every folder already open, a row still missing is filtered out or not loaded.
+			if (closed.length > 0) {
+				for (const prefix of closed) treeOpenMemory.setOpen(prefix, true)
+				revealSeq++
+			}
+			// The owner's rows load on open, so the row appears some frames later.
+			const deadline = Date.now() + (closed.length > 0 ? REVEAL_WAIT_MS : REVEAL_GRACE_MS)
+			while (!row && Date.now() < deadline) {
+				await new Promise((r) => setTimeout(r, 50))
+				row = findRow(path, kind)
+			}
+		}
+		if (!row) return false
+		// A folder that just opened is still loading rows above this one and animating its
+		// height, so scrolling before the row stops moving lands short of it.
+		const settleBy = Date.now() + REVEAL_WAIT_MS
+		let top = NaN
+		while (Date.now() < settleBy) {
+			const next = row.getBoundingClientRect().top + window.scrollY
+			if (Math.abs(next - top) < 1) break
+			top = next
+			await new Promise((r) => setTimeout(r, 120))
+		}
+		row.scrollIntoView({ block: 'center', behavior: 'smooth' })
+		const shown = row
+		shown.dataset.revealed = 'true'
+		setTimeout(() => delete shown.dataset.revealed, REVEAL_RING_MS)
+		return true
+	}
+	/** The folder the list is scoped to, when its owner filter names one (`f/<folder>`). */
+	export function folderFilter(): string | undefined {
+		return ownerFilter?.startsWith('f/') ? ownerFilter.slice(2) : undefined
+	}
+
 	// Owners the counts found the user has something in, split by kind. They cover
 	// what the folder/username lists miss: an item shared individually out of a
 	// folder or user space the user is otherwise not a member of.
@@ -1951,6 +2021,7 @@
 	<!-- `data-works-with-composer`: a press in the card leaves Home's composer open
 	     (composerCollapse), since its menus add items to it. -->
 	<div
+		bind:this={cardEl}
 		data-works-with-composer
 		class="flex flex-col bg-surface-tertiary border border-border-light rounded-lg transition-colors duration-300 group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:border-transparent"
 	>
@@ -2201,7 +2272,7 @@
 			     and re-load fresh for the new mode. An in-place archive/library/kind
 			     change keeps treeKey stable, so folders stay open and refresh via
 			     reloadItems instead (see loadOwnerItems). -->
-				{#key treeKey}
+				{#key `${treeKey}|${revealSeq}`}
 					<TreeViewRoot
 						items={treeSource}
 						{collapseAll}

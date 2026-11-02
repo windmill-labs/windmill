@@ -1,6 +1,5 @@
 <script lang="ts">
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
-	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { Badge } from './common'
 	import { AlertTriangle, ArrowDown, ArrowUp, Pencil } from 'lucide-svelte'
 	import {
@@ -14,7 +13,12 @@
 	import { fetchWorkspaceComparison } from '$lib/workspaceComparison'
 	import { Button } from './common'
 	import { goto } from '$app/navigation'
-	import { onMount, untrack } from 'svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
+	import {
+		homeActionsGathered,
+		homeCountLabels,
+		homeHeaderMenu
+	} from './home/homeHeaderMenu.svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import { childWorkspaceNoun } from '$lib/utils/devWorkspaceLabel'
 	import { diffActionableInDirection } from '$lib/utils_workspace_deploy'
@@ -63,10 +67,7 @@
 	}
 	const hasAnswer = $derived(isAnswerable(comparison, loading))
 
-	/** Bar width from which each badge says what it counts. Below it they keep the icon and the
-	 *  number, which is the part a reader scans for; the tooltip names them either way. */
-	const BAR_FITS_COUNT_LABELS = 1280
-	const compactCounts = $derived(pageHeader.barWidth < BAR_FITS_COUNT_LABELS)
+	const compactCounts = $derived(!homeCountLabels())
 
 	// Fork is fully in sync with its parent (comparison ran, no ahead/behind diffs).
 	function isUpToDate(c: WorkspaceComparison | undefined): boolean {
@@ -189,6 +190,36 @@
 	const changesAhead = $derived(countDir(comparison, true))
 	const changesBehind = $derived(countDir(comparison, false))
 
+	// Folded into Home's ⋮ menu, the badges and the button are one row that says what they counted.
+	const menuId = homeHeaderMenu.register(0, () => {
+		if (!showBanner || !homeActionsGathered()) return []
+		if (showDraftsOnly) {
+			return [
+				{
+					displayName: `Review & deploy ${draftCount} draft${draftCount !== 1 ? 's' : ''}`,
+					action: openDraftCompare
+				}
+			]
+		}
+		const counts = [
+			changesAhead > 0 ? `${changesAhead} ahead` : '',
+			changesBehind > 0 ? `${changesBehind} behind` : '',
+			(comparison?.summary.conflicts ?? 0) > 0
+				? `${comparison?.summary.conflicts} conflict${comparison?.summary.conflicts !== 1 ? 's' : ''}`
+				: '',
+			draftCount > 0 ? `${draftCount} draft${draftCount !== 1 ? 's' : ''}` : ''
+		].filter(Boolean)
+		return [
+			{
+				displayName:
+					!hasAnswer || changesAhead > 0 ? 'Review changes' : `Review & Update ${currentNoun}`,
+				description: hasAnswer && counts.length > 0 ? counts.join(' · ') : undefined,
+				action: openComparisonDrawer
+			}
+		]
+	})
+	onDestroy(() => homeHeaderMenu.release(menuId))
+
 	function forkAheadBehindMessage(changesAhead: number, changesBehind: number) {
 		let msg: string[] = []
 		if (changesAhead > 0 || changesBehind > 0) {
@@ -203,7 +234,7 @@
 	}
 </script>
 
-{#if showBanner}
+{#if showBanner && !homeActionsGathered()}
 	<!-- In the band, not a banner: the breadcrumb already says which fork this is, so all this has
 	     to carry is how far it has drifted and the way to review that. The per-kind breakdown, the
 	     CI line and the conflict count live on the compare page the button opens. -->
