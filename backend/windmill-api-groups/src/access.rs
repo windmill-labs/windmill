@@ -201,7 +201,8 @@ async fn get_access(
         };
     if !allowed {
         return Err(Error::PermissionDenied(
-            "only workspace admins can view another member's access".into(),
+            "only workspace admins can view the access of another member or of a group you are not in"
+                .into(),
         ));
     }
 
