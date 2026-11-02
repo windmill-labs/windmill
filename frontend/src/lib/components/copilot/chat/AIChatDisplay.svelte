@@ -635,8 +635,10 @@
 		clearTimeout(clearArmTimer)
 		clearArmed = false
 	}
-	function onComposerEscape() {
+	function onComposerEscape(repeat: boolean) {
 		if (!aiChatInput?.hasClearableContent()) return false
+		// A held key is one press: its repeats must not count as the second.
+		if (repeat) return true
 		if (clearArmed) {
 			// Still armed if refused (an attachment still being read): the next press retries.
 			if (aiChatInput.clearDraft()) disarmClear()
@@ -1076,7 +1078,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			if (e.defaultPrevented || e.isComposing) return
 			// The `@` and `/` pickers close on this press reaching `document` unprevented.
 			if (aiChatInput?.hasOpenPicker()) return
-			if (onComposerEscape()) {
+			if (onComposerEscape(e.repeat)) {
 				// Kept from the panel or drawer around the chat, which would close on it.
 				e.preventDefault()
 				e.stopPropagation()
