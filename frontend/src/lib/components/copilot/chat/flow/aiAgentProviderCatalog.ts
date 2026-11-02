@@ -118,6 +118,15 @@ export async function getAiAgentProviderCatalogFor(
 	if (!needsCatalog) {
 		return undefined
 	}
+	return getAiAgentProviderCatalogForRefs(workspace, resourceRefs)
+}
+
+/** `getAiAgentProviderCatalogFor` for modules whose steps state a provider and reference
+ * `resourceRefs`, as the server reports them when a flow write needs the catalog. */
+export async function getAiAgentProviderCatalogForRefs(
+	workspace: string | undefined,
+	resourceRefs: string[]
+): Promise<AiAgentProviderCatalog> {
 	const catalog = await getAiAgentProviderCatalog(workspace)
 	const unknown = resourceRefs.some(
 		(ref) => !catalog.options.some((option) => option.resourceRef === ref)
