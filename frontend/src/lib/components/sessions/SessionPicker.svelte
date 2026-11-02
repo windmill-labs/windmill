@@ -1,8 +1,8 @@
 <script lang="ts">
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
 	import { Button } from '$lib/components/common'
+	import SidebarSectionHeader from '$lib/components/sidebar/SidebarSectionHeader.svelte'
 	import {
 		Archive,
 		ArchiveRestore,
@@ -23,20 +23,21 @@
 	import { twMerge } from 'tailwind-merge'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { goto } from '$lib/navigation'
-	import { takeNewSessionSeed, type NewSessionSeed } from './sessionSwitch.svelte'
+	import { leaveForHome, openDraftOnHome, openNewSession } from './sessionSwitch.svelte'
+	import { homeComposerContext } from './homeComposerContext.svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { slide } from 'svelte/transition'
 	import {
-		createSession,
 		deleteSessionsForWorkspace,
+		homeDraft,
 		isForkSession,
+		opensOnHome,
 		reconcileAfterWorkspaceChange,
 		renameSession,
 		selectSession,
 		sessionPageHref,
 		sessionLastActivityAt,
 		sessionState,
-		setNewSessionWorkspace,
 		setSessionArchived,
 		syncWorkspaceTo,
 		withOpenSessionTeardown,
@@ -49,8 +50,7 @@
 		getRuntime,
 		getSessionChatPeek,
 		getSessionChatStatus,
-		removeSession,
-		resetSessionPreviewTabs
+		removeSession
 	} from './sessionRuntime.svelte'
 	import SessionStatusDot from './SessionStatusDot.svelte'
 	import UnreadCountBadge from '$lib/components/common/badge/UnreadCountBadge.svelte'
@@ -116,10 +116,15 @@
 		return () => clearInterval(handle)
 	})
 
-	// Only highlight the active session while the sessions page is open — elsewhere
-	// `currentSessionId` lingers but no row should appear selected.
-	const onSessionsPage = $derived(page.url.pathname.startsWith('/sessions'))
-	const sessionActive = $derived(onSessionsPage)
+	// The row the page is showing: the open session on its page, the draft in Home's
+	// composer on Home. Elsewhere `currentSessionId` lingers but no row is selected.
+	const activeRowId = $derived(
+		page.url.pathname.startsWith('/sessions')
+			? sessionState.currentSessionId
+			: page.url.pathname === '/'
+				? homeDraft.id
+				: undefined
+	)
 
 	interface Props {
 		isCollapsed?: boolean
@@ -176,10 +181,12 @@
 	// total, and keyboard navigation.
 	const visibleSessions = $derived(
 		sessionState.sessions.filter((s) => {
+			// A blank nobody has typed in is Home's composer at rest, not a session yet.
+			if (s.transient) return false
 			// Pending (unsent) sessions show like any other, so several drafts can be
 			// set up in parallel; they group by pending_workspace_id via sessionRootOf.
-			// The open session always stays in the list, ignoring every filter.
-			if (s.id === sessionState.currentSessionId) return true
+			// The row on screen always stays in the list, ignoring every filter.
+			if (s.id === activeRowId) return true
 			if (s.archived && !showArchived.val) return false
 			if (lastActivityDays.val > 0) {
 				const cutoff = clock - lastActivityDays.val * 24 * 60 * 60 * 1000
@@ -352,7 +359,7 @@
 	const archivedCount = $derived(
 		sessionState.sessions.filter((s) => {
 			if (!s.archived || s.transient) return false
-			if (s.id === sessionState.currentSessionId) return true
+			if (s.id === activeRowId) return true
 			if (lastActivityDays.val > 0) {
 				const cutoff = clock - lastActivityDays.val * 24 * 60 * 60 * 1000
 				if (sessionLastActivityAt(s) < cutoff) return false
@@ -396,6 +403,10 @@
 	async function activate(session: Session, restoreFocus: boolean = false) {
 		// Picking a session leaves browse mode so the chat comes back.
 		onSelectSession?.()
+		if (opensOnHome(session)) {
+			await openDraftOnHome(session.id)
+			return
+		}
 		selectSession(session.id)
 		// The global workspaceStore is intentionally NOT switched here: a session
 		// runs against its own workspace via the chat manager's workspace resolver,
@@ -415,59 +426,20 @@
 		}
 	}
 
-	async function createAndOpen() {
-		// A new session opened from a Windmill page adopts that page as its first
-		// preview tab.
-		if (!onSessionsPage) {
-			await createAndOpenWith(page.url.pathname + page.url.search)
-			return
-		}
-		// On the sessions page there is nothing meaningful on screen to capture,
-		// except the item the user just left to get here: that one is offered (once)
-		// before the session is created, and answerSeedOffer picks up from there.
-		const seed = takeNewSessionSeed()
-		if (seed) {
-			seedOffer = seed
-			seedOfferOpen = true
-			return
-		}
-		await createAndOpenWith(undefined)
+	// The rail menu hands focus back to its trigger once it has closed, after New session has
+	// focused Home's composer: the composer takes it back instead.
+	let newSessionFromRail = false
+	function railMenuCloseFocus(trigger?: HTMLElement | null): HTMLElement | null {
+		if (!newSessionFromRail) return trigger ?? null
+		newSessionFromRail = false
+		homeComposerContext.focus()
+		return null
 	}
 
-	// `previewUrl` undefined leaves the preview empty until the chat opens something.
-	async function createAndOpenWith(previewUrl: string | undefined) {
-		const fresh = createSession()
-		if (previewUrl) resetSessionPreviewTabs(fresh.id, previewUrl)
-		await activate(fresh)
-	}
-
-	// The item createAndOpen is asking about. Closing the dialog any other way than
-	// answering (Escape, the corner X, the backdrop) creates nothing: the click was
-	// met with a question, not a session. Kept after the dialog closes, since the
-	// title reads it through the close fade; `seedOfferOpen` alone gates rendering.
-	let seedOffer = $state<NewSessionSeed | undefined>(undefined)
-	let seedOfferOpen = $state(false)
-	// Focus moves onto the primary answer as the dialog opens. Enter is left to
-	// the focused button (the dialog does not bind it), and the "New session"
-	// button that opened the dialog would otherwise keep focus and answer Enter
-	// with a second, unasked session underneath.
-	let keepButton: Button | undefined = $state(undefined)
-	$effect(() => {
-		if (seedOfferOpen) keepButton?.focus()
-	})
-	async function answerSeedOffer(keep: boolean) {
-		const offer = seedOffer
-		seedOfferOpen = false
-		if (!offer) return
-		await createAndOpenWith(keep ? offer.url : undefined)
-	}
-
-	// The `+` on a workspace group header: a new session parked on that group's
-	// workspace rather than the one currently open.
+	// The `+` on a workspace group header: a new session in that group's workspace,
+	// which the header switches to, since Home's draft acts on the header's workspace.
 	async function createAndOpenIn(workspaceId: string) {
-		const fresh = createSession()
-		setNewSessionWorkspace(fresh.id, workspaceId)
-		await activate(fresh)
+		await openNewSession(workspaceId)
 	}
 
 	let editingId: string | undefined = $state(undefined)
@@ -584,6 +556,13 @@
 		selectedIds = allSelected ? [] : [...selectableIds]
 	}
 
+	// Home shows no archived draft, so archiving the one its composer holds moves Home on.
+	function leaveArchivedHomeDraft(ids: string[]) {
+		if (page.url.pathname === '/' && homeDraft.id && ids.includes(homeDraft.id)) {
+			void leaveForHome()
+		}
+	}
+
 	function handleBatchArchive() {
 		const archive = !allSelectedArchived
 		let skipped = 0
@@ -599,24 +578,12 @@
 			}
 			setSessionArchived(id, archive)
 		}
+		if (archive) leaveArchivedHomeDraft(selectedIds)
 		exitSelectionMode()
 		if (skipped > 0) {
 			sendUserToast(
 				`${skipped} session${skipped === 1 ? '' : 's'} kept archived: their forked workspace no longer exists`
 			)
-		}
-	}
-
-	// After deleting the open session, land somewhere usable: the newest remaining
-	// session, else a fresh one. The page derives the visible session from the
-	// `session` query, so leaving the URL on a deleted session would fall
-	// through to recovery and open a blank one rather than their recent work.
-	async function openReplacementSession() {
-		const next = sessionState.sessions[0]
-		if (next) await activate(next)
-		else {
-			const fresh = createSession()
-			await goto(sessionPageHref(fresh.id))
 		}
 	}
 
@@ -626,12 +593,12 @@
 		const ids = selectedIds
 		batchDeleteOpen = false
 		if (ids.length === 0) return
-		const current = sessionState.currentSessionId
-		const wasActive = !!current && ids.includes(current)
+		const active = activeRowId
+		const wasActive = !!active && ids.includes(active)
 		await withOpenSessionTeardown(async () => {
 			for (const id of ids) removeSession(id)
 			exitSelectionMode()
-			if (wasActive) await openReplacementSession()
+			if (wasActive) await leaveForHome()
 		})
 	}
 
@@ -647,7 +614,7 @@
 		pendingDelete = undefined
 		deleteAlsoFork = false
 		if (!session) return
-		const wasActive = sessionState.currentSessionId === session.id
+		const wasActive = activeRowId === session.id
 		await withOpenSessionTeardown(async () => {
 			removeSession(session.id)
 			if (forkToDelete) {
@@ -665,7 +632,7 @@
 			if (forkToDelete && forkParentId && $workspaceStore === forkToDelete) {
 				syncWorkspaceTo(forkParentId)
 			}
-			if (wasActive) await openReplacementSession()
+			if (wasActive) await leaveForHome()
 		})
 	}
 
@@ -708,17 +675,9 @@
 	     explanatory message, mirroring the sidebar AI chat. -->
 {:else if isCollapsed}
 	<div class={embedded ? '' : 'px-2 pt-3 pb-2 border-b border-light'}>
-		<MenuButton
-			stopPropagationOnClick={true}
-			on:click={createAndOpen}
-			{isCollapsed}
-			icon={Plus}
-			label="New session"
-			class="!text-xs"
-		/>
 		<Menubar>
 			{#snippet children({ createMenu })}
-				<Menu {createMenu} usePointerDownOutside submenuSafe>
+				<Menu {createMenu} usePointerDownOutside submenuSafe closeFocus={railMenuCloseFocus}>
 					{#snippet triggr({ trigger })}
 						<div class="relative">
 							<MenuButton
@@ -740,8 +699,15 @@
 					{/snippet}
 					{#snippet children({ item, builders })}
 						<div class="divide-y min-w-48" role="none">
-							<div class="py-1" role="none">
-								<MenuItem class={menuItemBase} onClick={createAndOpen} {item}>
+							<div class="py-1" role="none" data-asks-for-composer>
+								<MenuItem
+									class={menuItemBase}
+									onClick={() => {
+										newSessionFromRail = true
+										void openNewSession()
+									}}
+									{item}
+								>
 									<Plus size={14} />
 									New session
 								</MenuItem>
@@ -771,8 +737,7 @@
 										{@const status = runtime
 											? getSessionChatStatus(runtime)
 											: (getSessionChatPeek(session.id)?.status ?? 'idle')}
-										{@const isSelected =
-											sessionActive && session.id === sessionState.currentSessionId}
+										{@const isSelected = session.id === activeRowId}
 										{@const unread = unreadFor(session)}
 										{@const draft = hasDraft(session)}
 										<MenuItem
@@ -822,8 +787,8 @@
 			? 'border-b border-light'
 			: ''}"
 	>
-		<!-- Selection mode reuses the New session row (same h-8 slot, same px-2) so
-		     the list below it never moves. -->
+		<!-- Selection mode reuses the options row (same h-8 slot) so the list below it
+		     never moves. -->
 		{#if selectionMode}
 			<div class="flex flex-row items-center gap-1.5 h-8 px-2">
 				<Checkbox
@@ -866,17 +831,7 @@
 					{GROUP_BY_OPTIONS.find((o) => o.value === groupBy.val)?.hint ?? ''}
 				</span>
 			{/snippet}
-			<div class="flex flex-row items-center gap-0.5 pr-0.5">
-				<div class="flex-1 min-w-0">
-					<MenuButton
-						stopPropagationOnClick={true}
-						on:click={createAndOpen}
-						isCollapsed={false}
-						icon={Plus}
-						label="New session"
-						class="!text-xs"
-					/>
-				</div>
+			{#snippet listOptions(size: 'sm' | 'md')}
 				<DropdownV2
 					fixedHeight={false}
 					placement="bottom-end"
@@ -924,7 +879,7 @@
 					{#snippet buttonReplacement()}
 						<Button
 							nonCaptureEvent
-							unifiedSize="md"
+							unifiedSize={size}
 							variant="subtle"
 							iconOnly
 							startIcon={{ icon: EllipsisVertical }}
@@ -934,41 +889,44 @@
 						/>
 					{/snippet}
 				</DropdownV2>
-			</div>
-		{/if}
-		{#if collapsible}
-			<!-- Only the collapsible sidebar section needs a title: it doubles as the
-			     fold toggle. In the rail the list owns the pane, so the label is noise. -->
-			<div class="flex flex-row items-center pl-1 pr-0.5">
-				<button
-					type="button"
-					onclick={() => (sectionCollapsed.val = !sectionCollapsed.val)}
-					class="text-secondary text-[0.5rem] uppercase flex flex-row items-center gap-1 rounded px-1 -mx-1 py-0.5 hover:bg-surface-hover focus:outline-none"
-					aria-expanded={!sectionCollapsed.val}
+			{/snippet}
+			{#if collapsible}
+				<SidebarSectionHeader
+					title="AI sessions"
+					collapsed={sectionCollapsed.val}
+					onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
 					disabled={visibleSessions.length === 0}
 				>
-					AI sessions
-					{#if visibleSessions.length > 0}
-						{#if sectionCollapsed.val}
-							<ChevronRight size={10} />
-						{:else}
-							<ChevronDown size={10} />
-						{/if}
-					{/if}
-				</button>
-			</div>
+					{#snippet actions()}
+						{@render listOptions('sm')}
+						<Button
+							unifiedSize="sm"
+							variant="subtle"
+							iconOnly
+							startIcon={{ icon: Plus }}
+							title="New session"
+							aria-label="New session"
+							data-asks-for-composer
+							btnClasses="text-secondary"
+							onClick={() => openNewSession()}
+						/>
+					{/snippet}
+				</SidebarSectionHeader>
+			{:else}
+				<!-- Where the list owns the pane, a title would only repeat what the pane is. -->
+				<div class="flex flex-row items-center gap-0.5 h-8 pr-0.5 justify-end">
+					{@render listOptions('md')}
+				</div>
+			{/if}
 		{/if}
 		{#if !collapsible || !sectionCollapsed.val}
 			<div
 				bind:this={listRoot}
 				transition:slide={{ duration: 180 }}
 				class={twMerge(
-					'flex flex-col gap-0.5 overflow-y-auto',
+					'flex flex-col gap-0.5',
 					// Shift-clicking rows would otherwise paint a text selection across them.
-					selectionMode ? 'select-none' : '',
-					// In the rail the picker is the whole list and the rail scrolls;
-					// only cap height when it's one section among others (normal sidebar).
-					collapsible ? 'max-h-[40vh]' : ''
+					selectionMode ? 'select-none' : ''
 				)}
 				onkeydown={handleListKeydown}
 				role="listbox"
@@ -984,7 +942,7 @@
 					{@const status = runtime
 						? getSessionChatStatus(runtime)
 						: (getSessionChatPeek(session.id)?.status ?? 'idle')}
-					{@const isSelected = sessionActive && session.id === sessionState.currentSessionId}
+					{@const isSelected = session.id === activeRowId}
 					{@const isEditing = editingId === session.id}
 					{@const unread = unreadFor(session)}
 					{@const draft = hasDraft(session)}
@@ -1112,7 +1070,10 @@
 													{
 														displayName: 'Archive',
 														icon: Archive,
-														action: () => setSessionArchived(session.id, true)
+														action: () => {
+															setSessionArchived(session.id, true)
+															leaveArchivedHomeDraft([session.id])
+														}
 													}
 												]),
 										{
@@ -1209,7 +1170,7 @@
 							     plain text, no workspace icon or chip. -->
 							<div
 								class={twMerge(
-									'group flex flex-row items-center gap-1 pl-1 pr-0.5 pt-2 pb-1 min-w-0',
+									'group flex flex-row items-center gap-1 pl-2 pr-0.5 pt-2 pb-1 min-w-0',
 									// Space groups apart so their boundaries read clearly.
 									groupIdx > 0 ? 'mt-4' : ''
 								)}
@@ -1235,6 +1196,7 @@
 										on:click={() => createAndOpenIn(groupWsId)}
 										title="New session in {group.label}"
 										aria-label="New session in {group.label}"
+										data-asks-for-composer
 										wrapperClasses="ml-auto shrink-0"
 										btnClasses="text-tertiary opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
 									/>
@@ -1248,7 +1210,11 @@
 				{/if}
 			</div>
 			{#if selectionMode}
-				<div class="flex flex-col gap-1 px-1 pt-1.5">
+				<!-- Pinned to the sidebar's bottom edge while the rows scroll under it; z-10 keeps it
+				     above the sidebar's bottom fade. -->
+				<div
+					class="sticky bottom-0 z-10 flex flex-col gap-1 px-1 pt-1.5 pb-2 bg-[var(--sidebar-bg-light)] dark:bg-[var(--sidebar-bg-dark)]"
+				>
 					<Button
 						unifiedSize="xs"
 						variant="default"
@@ -1330,30 +1296,3 @@
 		{/if}
 	</div>
 </ConfirmationModal>
-
-<!-- Two answers of equal standing, so Enter is left to whichever button has
-     focus rather than bound to one of them by the dialog. -->
-<Modal
-	bind:open={seedOfferOpen}
-	kind="X"
-	enterConfirms={false}
-	title="Keep this {seedOffer?.kind ?? 'item'} in the new session?"
-	description="You came here from {seedOffer?.path ?? ''}."
->
-	<p class="text-sm text-secondary">
-		Keeping it opens it in the preview, so the chat starts with it as context.
-	</p>
-	<div class="flex justify-end gap-2 mt-4">
-		<Button variant="default" unifiedSize="sm" onClick={() => answerSeedOffer(false)}>
-			Start empty
-		</Button>
-		<Button
-			bind:this={keepButton}
-			variant="accent"
-			unifiedSize="sm"
-			onClick={() => answerSeedOffer(true)}
-		>
-			Keep in preview
-		</Button>
-	</div>
-</Modal>

@@ -86,6 +86,13 @@ pub async fn create_secret_backend(
             );
             Ok(Arc::new(DatabaseBackend::new(db)))
         }
+        SecretBackendConfig::HttpStore(_) => {
+            tracing::warn!(
+                "The HTTP secret store is configured but requires Enterprise Edition. \
+                 Falling back to database backend."
+            );
+            Ok(Arc::new(DatabaseBackend::new(db)))
+        }
     }
 }
 
@@ -118,6 +125,18 @@ pub async fn migrate_secrets_to_database(
 
 /// Generate a JWT for Vault authentication (OSS stub)
 pub async fn generate_vault_jwt(_db: &DB, _vault_address: &str) -> Result<String> {
+    Err(Error::internal_err(
+        "HashiCorp Vault integration requires Enterprise Edition".to_string(),
+    ))
+}
+
+/// Read `key` of the secret at `path`, or all of it, for an `$external:vault://` reference (OSS stub)
+pub async fn read_vault_external_secret(
+    _db: &DB,
+    _settings: &VaultSettings,
+    _path: &str,
+    _key: Option<&str>,
+) -> Result<String> {
     Err(Error::internal_err(
         "HashiCorp Vault integration requires Enterprise Edition".to_string(),
     ))

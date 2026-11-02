@@ -1,10 +1,13 @@
 import { forbiddenIds } from '$lib/components/flows/idUtils'
-import { react19Template } from '$lib/components/raw_apps/templates'
+import { react19Template, themeCss } from '$lib/components/raw_apps/templates'
+import { AGENT_CHAT_SCHEMA } from '$lib/components/flows/conversations/agentEditorChat'
 
 /** Shape the `/apps_raw/add` import handoff consumes (`$importStore` /
  *  `sessionStorage.rawAppImport`). */
 export type RawAppImport = {
 	summary: string
+	/** Open it in an AI session where AI is used through sessions, rather than the bare editor. */
+	openInAiSession?: boolean
 	value: {
 		files: Record<string, string>
 		runnables: Record<string, any>
@@ -415,8 +418,10 @@ function generateAppTsx(opts: {
 	fields: Field[]
 	title: string
 	subtitle: string
+	/** An agent's run also returns its usage, every message and the raw stream: keep the answer. */
+	outputOnly?: boolean
 }): string {
-	const { runnableId, fields, title, subtitle } = opts
+	const { runnableId, fields, title, subtitle, outputOnly } = opts
 	const states = fields
 		.map((f) => `	const [${f.local}, ${f.setter}] = useState(${f.init})`)
 		.join('\n')
@@ -457,7 +462,7 @@ ${states}${states === '' ? '' : '\n'}	const [result, setResult] = useState(undef
 		setRunning(true)
 		setError(undefined)
 		try {
-			setResult(await backend.${runnableId}(${callArgs}))
+			setResult(${outputOnly ? `(await backend.${runnableId}(${callArgs}))?.output` : `await backend.${runnableId}(${callArgs})`})
 		} catch (e) {
 			setResult(undefined)
 			setError(e instanceof Error ? e.message : String(e))
@@ -481,7 +486,7 @@ ${form}				<button className="run-button" type="submit" disabled={running}>
 				</button>
 			</form>
 			{error !== undefined && <pre className="app-error">{error}</pre>}
-			{result !== undefined && <pre className="app-result">{JSON.stringify(result, null, 2)}</pre>}
+			{result !== undefined && <pre className="app-result">{${outputOnly ? `typeof result === 'string' ? result : ` : ''}JSON.stringify(result, null, 2)}</pre>}
 		</main>
 	)
 }
@@ -651,7 +656,7 @@ function createRawApp(opts: {
 	path: string
 	summary: string | undefined
 	schema: Record<string, any> | undefined
-	runType: 'script' | 'flow'
+	runType: 'script' | 'flow' | 'agent'
 }): RawAppImport {
 	const { path, summary, schema, runType } = opts
 	const runnableId = runnableIdFromPath(path)
@@ -677,6 +682,7 @@ function createRawApp(opts: {
 
 	return {
 		summary: title,
+		openInAiSession: true,
 		value: {
 			files: {
 				...react19Template,
@@ -684,7 +690,8 @@ function createRawApp(opts: {
 					runnableId,
 					fields,
 					title,
-					subtitle: `${runType} · ${path}`
+					subtitle: `${runType} · ${path}`,
+					outputOnly: runType === 'agent'
 				}),
 				'/index.css': indexCss
 			},
@@ -717,4 +724,449 @@ export function createRawAppFromFlow(
 	schema: Record<string, any> | undefined
 ): RawAppImport {
 	return createRawApp({ path, summary, schema, runType: 'flow' })
+}
+
+/** For an agent without managed memory, which answers each message on its own: a form over the
+ *  message. Attachments are left out, a raw app having no upload for them. */
+export function createRawAppFromAgent(path: string): RawAppImport {
+	const { user_message } = AGENT_CHAT_SCHEMA.properties
+	return createRawApp({
+		path,
+		summary: undefined,
+		schema: { ...AGENT_CHAT_SCHEMA, properties: { user_message } },
+		runType: 'agent'
+	})
+}
+
+const chatAppTsx = (chatName: string) => `import React, { useEffect, useRef, useState } from 'react'
+import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
+import * as wmill from './wmill'
+import './index.css'
+
+const CHAT_NAME = ${JSON.stringify(chatName)}
+document.title = CHAT_NAME
+
+export default function App() {
+  // Each turn runs through the \`chat\` runnable, as this app. Conversations are
+  // kept in the viewer's browser.
+  const chat = useWindmillChat({ wmill, runnable: 'chat' })
+  const [input, setInput] = useState('')
+  const [showList, setShowList] = useState(false)
+  const end = useRef<HTMLDivElement>(null)
+  const busy = chat.status === 'submitted' || chat.status === 'streaming'
+  const last = chat.messages[chat.messages.length - 1]
+
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: 'end' })
+  }, [chat.messages])
+
+  function send() {
+    const text = input.trim()
+    if (!text || busy) return
+    setInput('')
+    // A message refused before it starts leaves the transcript as it was: give it back.
+    chat.sendMessage(text).catch(() => setInput(text))
+  }
+
+  function open(id?: string) {
+    if (id) chat.selectConversation(id)
+    else chat.newConversation()
+    setShowList(false)
+  }
+
+  return (
+    <div className="chat">
+      <aside className={showList ? 'sidebar open' : 'sidebar'}>
+        <button className="primary" onClick={() => open()}>New chat</button>
+        <nav>
+          {chat.conversations.map((c) => (
+            <div key={c.id} className={c.id === chat.conversationId ? 'conv active' : 'conv'}>
+              <button className="conv-title" onClick={() => open(c.id)}>
+                {c.title || 'New chat'}
+              </button>
+              <button
+                className="conv-delete"
+                aria-label="Delete conversation"
+                onClick={() => chat.deleteConversation(c.id)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </nav>
+      </aside>
+      {showList && <div className="backdrop" onClick={() => setShowList(false)} />}
+
+      <section className="main">
+        <header>
+          <button className="menu" aria-label="Conversations" onClick={() => setShowList(true)}>
+            ☰
+          </button>
+          <h1>{CHAT_NAME}</h1>
+        </header>
+
+        <div className="messages">
+          <div className="thread">
+            {chat.messages.length === 0 && (
+              <p className="empty">Ask {CHAT_NAME} anything.</p>
+            )}
+            {chat.messages.map((m) =>
+              m.tool ? (
+                <div key={m.id} className="tool">
+                  {m.tool.name}
+                  {m.tool.status === 'running' ? '…' : m.tool.status === 'error' ? ' failed' : ''}
+                </div>
+              ) : m.role === 'user' || m.role === 'assistant' ? (
+                <div key={m.id} className={'msg ' + m.role + (m.success ? '' : ' failed')}>
+                  {m.content || (m.pending && <span className="thinking">Thinking…</span>)}
+                </div>
+              ) : null
+            )}
+            {busy && last?.role === 'user' && (
+              <div className="msg assistant">
+                <span className="thinking">Thinking…</span>
+              </div>
+            )}
+            <div ref={end} />
+          </div>
+        </div>
+
+        <footer>
+          {chat.status === 'error' && chat.error && (
+            <div className="error-banner">{chat.error.message}</div>
+          )}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              send()
+            }}
+          >
+            <textarea
+              value={input}
+              rows={1}
+              placeholder={'Message ' + CHAT_NAME}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  send()
+                }
+              }}
+            />
+            {busy ? (
+              <button type="button" onClick={() => chat.stop()}>Stop</button>
+            ) : (
+              <button type="submit" className="primary" disabled={!input.trim()}>
+                Send
+              </button>
+            )}
+          </form>
+        </footer>
+      </section>
+    </div>
+  )
+}
+`
+
+const chatAppCss = `${themeCss}
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--fg-strong);
+  padding: 8px 14px;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.chat {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  background: var(--sunken);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.conv {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+}
+
+.conv:hover,
+.conv.active {
+  background: var(--card);
+}
+
+.conv-title {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  padding: 6px 8px;
+  text-align: left;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conv-delete {
+  border: 0;
+  background: none;
+  padding: 4px 8px;
+  color: var(--muted);
+  visibility: hidden;
+}
+
+.conv:hover .conv-delete {
+  visibility: visible;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+
+header h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+.menu {
+  display: none;
+  padding: 4px 10px;
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 20px;
+}
+
+.thread {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.empty {
+  margin: 64px 0 0;
+  text-align: center;
+  color: var(--muted);
+}
+
+.msg {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msg.user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+}
+
+.msg.assistant {
+  align-self: flex-start;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--fg-strong);
+}
+
+.msg.failed {
+  border-color: var(--error);
+}
+
+.tool {
+  align-self: flex-start;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.thinking {
+  color: var(--muted);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+footer {
+  padding: 12px 20px;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+}
+
+footer form,
+.error-banner {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+footer form {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.error-banner {
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--error-soft);
+  color: var(--error);
+}
+
+textarea {
+  flex: 1;
+  resize: none;
+  field-sizing: content;
+  min-height: 40px;
+  max-height: 200px;
+  padding: 9px 12px;
+  font: inherit;
+  color: var(--fg-strong);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.backdrop {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .chat {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 260px;
+    z-index: 2;
+    transform: translateX(-100%);
+    transition: transform 0.2s;
+  }
+
+  .sidebar.open {
+    transform: none;
+  }
+
+  .backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    background: rgb(0 0 0 / 0.3);
+  }
+
+  .menu {
+    display: inline-flex;
+  }
+
+  .conv-delete {
+    visibility: visible;
+  }
+}
+`
+
+/** React chat over a saved AI agent, or a flow in chat mode, at `path`, through its `chat`
+ *  runnable. */
+export function createChatRawApp({
+	path,
+	runType,
+	summary,
+	schema
+}: {
+	path: string
+	runType: 'agent' | 'flow'
+	summary?: string
+	schema?: Record<string, any>
+}): RawAppImport {
+	const name = summary?.trim() || (path.split('/').pop() ?? path)
+	return {
+		summary: `Chat with ${name}`,
+		openInAiSession: true,
+		value: {
+			files: {
+				...react19Template,
+				'/App.tsx': chatAppTsx(name),
+				'/index.css': chatAppCss,
+				// The runnable transport (`{ wmill, runnable }`) sends `memory_id` as a query parameter from 1.851.0.
+				'/package.json': JSON.stringify(
+					{
+						dependencies: {
+							react: '19.0.0',
+							'react-dom': '19.0.0',
+							'@windmill-labs/chat-sdk': '^1.851.0'
+						},
+						devDependencies: { '@types/react-dom': '^19.0.0', '@types/react': '^19.0.0' }
+					},
+					null,
+					4
+				)
+			},
+			runnables: {
+				chat: { name, type: 'path', runType, path, schema: schema ?? {}, fields: {} }
+			}
+		}
+	}
 }

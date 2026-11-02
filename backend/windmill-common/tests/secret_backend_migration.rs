@@ -37,6 +37,8 @@ fn test_vault_settings() -> VaultSettings {
         kv_secret_path_prefix: None,
         jwt_role: Some("windmill-secrets".to_string()),
         jwt_mount_path: None,
+        approle_role_id: None,
+        approle_mount_path: None,
         namespace: None,
         token: Some(std::env::var("VAULT_TOKEN").unwrap_or_else(|_| "test-root-token".to_string())),
         skip_ssl_verify: None,

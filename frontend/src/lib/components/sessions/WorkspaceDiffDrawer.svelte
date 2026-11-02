@@ -42,6 +42,9 @@
 	import { maskKey } from './modifiedItemsMask'
 	import type { SessionDeployModel, DiffValues } from './sessionDeployModel.svelte'
 	import { SIDE_BY_SIDE_MIN_WIDTH } from '$lib/components/diffEditorTypes'
+	import { copilotInfo } from '$lib/aiStore'
+	import AiReview from '$lib/components/deploymentRequest/AiReview.svelte'
+	import type { ReviewItem } from '$lib/components/deploymentRequest/aiReview'
 
 	// The session "Edits" surface. Reads a unified item model (the session's
 	// drafts, scoped to what this session edited) and renders a folder tree
@@ -56,6 +59,7 @@
 		titleExtra,
 		compareSessionHref,
 		workspaceLabel,
+		reviewWorkspaceId,
 		successHoldMs = 1200
 	}: {
 		model: SessionDeployModel
@@ -73,7 +77,22 @@
 		/** Compare page for this session's edits (footer) — preselected via
 		 *  `from_session`. Where "deploy all / request review" happens. */
 		compareSessionHref?: string
+		/** The workspace the items live in; when set, the pending drafts can be reviewed with AI. */
+		reviewWorkspaceId?: string
 	} = $props()
+
+	// Your own pending drafts, read through the same loader as the diff column.
+	const reviewItems: ReviewItem[] = $derived(
+		model.items
+			.filter((i) => i.hasDraft && !i.done && i.mine)
+			.map((i) => ({
+				kind: i.draftKind,
+				path: i.path,
+				change: i.draftOnly ? 'added' : 'modified',
+				load: () => model.loadDiffValues(i)
+			}))
+	)
+	const showReview = $derived(!!reviewWorkspaceId && $copilotInfo.enabled && model.items.length > 0)
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let searchQuery = $state('')
@@ -1138,6 +1157,16 @@
 					</div>
 				</main>
 			</div>
+			{#if showReview && reviewWorkspaceId}
+				<div
+					class="shrink-0 border-t border-light bg-surface px-3 py-2 max-h-[40vh] overflow-y-auto"
+				>
+					<AiReview
+						scope={{ kind: 'drafts', workspaceId: reviewWorkspaceId, items: reviewItems }}
+						source="session_edits"
+					/>
+				</div>
+			{/if}
 			<!-- Batch / PR (deploy all, request review, reconcile) is the compare page's
 			     job — the dock deploys per item; this footer is just the doorway there.
 			     A plain anchor (not Button href): it's a text-level navigation link, and

@@ -1,19 +1,35 @@
-import { fromStore } from 'svelte/store'
-import { userWorkspaces } from '$lib/stores'
+import { fromStore, get } from 'svelte/store'
+import { userWorkspaces, workspaceStore } from '$lib/stores'
+import { switchWorkspace } from '$lib/storeUtils'
 import { useEditRights } from '$lib/operatorWriteRights'
 import { buildsAnything } from '$lib/editRights'
 import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
+import { workspaceAIClients } from '$lib/components/copilot/lib'
+import { fixupUrlAfterWorkspaceSwitch } from '$lib/components/sidebar/workspaceSwitchUrl'
 import type { WorkModeLock } from '../copilot/chat/workMode'
-import { pickSessionWorkspace } from './SessionWorkspaceBar.svelte'
 import { useSessionReadOnly } from './sessionPermissions.svelte'
-import { getEffectiveWorkspaceId, type Session } from './sessionState.svelte'
-import { startSessionWithPrompt } from './sessionSwitch.svelte'
+import {
+	getEffectiveWorkspaceId,
+	setSessionPendingWorkspace,
+	type Session
+} from './sessionState.svelte'
+import { openNewSession } from './sessionSwitch.svelte'
+
+// Home's draft acts on the workspace the header names, so there the header moves with the
+// session, the way the header's own picker switches it.
+function moveUnsentSession(sessionId: string, id: string, switchesWorkspace: boolean) {
+	setSessionPendingWorkspace(sessionId, id)
+	if (!switchesWorkspace || get(workspaceStore) === id) return
+	workspaceAIClients.init(id)
+	switchWorkspace(id)
+	void fixupUrlAfterWorkspaceSwitch(id)
+}
 
 /**
  * What holds a session's chat in Use, for its mode picker: a protected workspace, whose way
- * out is its dev workspace, or a role that builds nothing there. `switchesWorkspace` is the
- * session's workspace bar's: on Home, moving the session to the dev workspace moves the page
- * too. Reads context and registers an effect: call during component initialisation.
+ * out is its dev workspace, or a role that builds nothing there. `switchesWorkspace` is for
+ * Home: moving its draft to the dev workspace moves the page too. Reads context and registers
+ * an effect: call during component initialisation.
  */
 export function useWorkModeLock(session: () => Session | undefined, switchesWorkspace = false) {
 	const workspace = () => {
@@ -37,15 +53,15 @@ export function useWorkModeLock(session: () => Session | undefined, switchesWork
 			return {
 				reason: `This workspace is protected against direct changes. Build in ${label}.`,
 				// Until its first message a session can still change workspace; after it, only a new
-				// one can act elsewhere.
+				// one can act elsewhere: Home's composer, on the dev workspace.
 				escape: s.workspace_id
 					? {
 							label: `New session in ${label}`,
-							action: () => void startSessionWithPrompt('', { workspace: dev.id })
+							action: () => void openNewSession(dev.id)
 						}
 					: {
 							label: `Switch to ${label}`,
-							action: () => pickSessionWorkspace(s.id, dev.id, switchesWorkspace)
+							action: () => moveUnsentSession(s.id, dev.id, switchesWorkspace)
 						}
 			}
 		}

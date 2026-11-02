@@ -168,6 +168,15 @@
 		mcpLabelAutofilled = false
 	}
 
+	// Selected scripts and flows are listed per workspace, so a selection keeps one of them.
+	function setMcpAccess(access: McpAccess) {
+		mcpAccess = access
+		if (access === 'selected') {
+			mcpAllWorkspaces = false
+			mcpWorkspaces = mcpWorkspaces.slice(0, 1)
+		}
+	}
+
 	async function createToken(mcpMode: boolean = false): Promise<void> {
 		try {
 			let date: Date | undefined
@@ -259,10 +268,6 @@
 	// The server builds this URL's OAuth metadata from the same API base url, and a client
 	// rejects a mismatch. One URL whatever the access: the token's scopes decide which tools it gets.
 	const mcpUrl = $derived(`${apiBaseUrl('mcp')}/api/mcp`)
-	// Selected scripts and flows are listed per workspace: across several, a path could be two.
-	const selectionNeedsOneWorkspace = $derived(
-		mcpAccess === 'selected' && (mcpAllWorkspaces || mcpWorkspaces.length !== 1)
-	)
 
 	$effect(() => {
 		const requestedMcpMode = mcpOnly || openWithMcpMode
@@ -288,19 +293,14 @@
 
 {#snippet mcpTokenForm()}
 	<div class="flex flex-col gap-3">
+		{#if !lockWorkspace}
+			{@render mcpWorkspacePicker()}
+		{/if}
 		<McpAccessPicker
 			workspaceId={scopeWorkspaceId}
 			bind:scopes={mcpScopes}
-			bind:access={mcpAccess}
+			bind:access={() => mcpAccess, setMcpAccess}
 		/>
-		{#if !lockWorkspace}
-			{@render mcpWorkspacePicker()}
-			{#if selectionNeedsOneWorkspace}
-				<p class="text-2xs text-secondary">
-					Selected scripts and flows come from one workspace: pick one.
-				</p>
-			{/if}
-		{/if}
 		{#if !mcpOnly}
 			<div>
 				<span class="block mb-1 text-emphasis text-xs font-semibold"
@@ -326,7 +326,7 @@
 		<div class="flex">
 			<Button
 				onclick={() => createToken(true)}
-				disabled={!mcpReachesWorkspaces || selectionNeedsOneWorkspace || mcpScopes.length === 0}
+				disabled={!mcpReachesWorkspaces || mcpScopes.length === 0}
 				variant="default"
 				unifiedSize="sm"
 			>
@@ -338,24 +338,33 @@
 
 {#snippet mcpWorkspacePicker()}
 	<div class="flex flex-col gap-1">
-		<span class="block text-emphasis text-xs font-semibold">Workspaces</span>
-		<Toggle
-			bind:checked={mcpAllWorkspaces}
-			options={{ right: 'All my workspaces, including ones I join later' }}
-			size="xs"
-		/>
-		{#if !mcpAllWorkspaces}
-			<MultiSelect
-				bind:value={mcpWorkspaces}
+		{#if mcpAccess === 'selected'}
+			<span class="block text-emphasis text-xs font-semibold">Workspace</span>
+			<Select
+				bind:value={() => mcpWorkspaces[0], (v) => (mcpWorkspaces = v ? [v] : [])}
 				items={workspaces.map((w) => ({ label: w.name, value: w.id }))}
-				placeholder="Pick workspaces"
-				reorderable={false}
+				placeholder="Pick a workspace"
 			/>
-		{/if}
-		{#if mcpAllWorkspaces || mcpWorkspaces.length > 1}
-			<p class="text-xs text-tertiary">
-				Tools take a <code>workspace_id</code> argument naming the workspace they act in.
-			</p>
+		{:else}
+			<span class="block text-emphasis text-xs font-semibold">Workspaces</span>
+			<Toggle
+				bind:checked={mcpAllWorkspaces}
+				options={{ right: 'All my workspaces, including ones I join later' }}
+				size="xs"
+			/>
+			{#if !mcpAllWorkspaces}
+				<MultiSelect
+					bind:value={mcpWorkspaces}
+					items={workspaces.map((w) => ({ label: w.name, value: w.id }))}
+					placeholder="Pick workspaces"
+					reorderable={false}
+				/>
+			{/if}
+			{#if mcpAllWorkspaces || mcpWorkspaces.length > 1}
+				<p class="text-xs text-tertiary">
+					Tools take a <code>workspace_id</code> argument naming the workspace they act in.
+				</p>
+			{/if}
 		{/if}
 	</div>
 {/snippet}

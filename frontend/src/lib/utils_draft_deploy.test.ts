@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { draftBaseIsStale, deployDraft } from './utils_draft_deploy'
+import { draftBaseIsStale, deployDraft, getDraftDiffValues } from './utils_draft_deploy'
 
 vi.mock('$lib/gen', () => ({
 	ScriptService: { getScriptByPath: vi.fn(), createScript: vi.fn() },
 	FlowService: { getFlowByPath: vi.fn(), createFlow: vi.fn(), updateFlow: vi.fn() },
 	DraftService: { deleteDraft: vi.fn() },
-	AppService: {},
+	AppService: { getAppByPath: vi.fn(), createApp: vi.fn() },
 	VariableService: { getVariable: vi.fn(), createVariable: vi.fn(), updateVariable: vi.fn() },
 	ResourceService: { getResource: vi.fn(), updateResource: vi.fn(), createResource: vi.fn() },
 	ScheduleService: {},
@@ -31,9 +31,13 @@ vi.mock('$lib/rawAppDeploy', () => ({ deployRawAppDraft: vi.fn() }))
 vi.mock('$lib/components/raw_apps/utils', () => ({ canonicalRawAppDiffValue: vi.fn() }))
 vi.mock('$lib/appDiffSides', () => ({ classicAppDraftParts: vi.fn() }))
 vi.mock('$lib/utils_deployable', () => ({ TRIGGER_RUNTIME_IGNORE: [] }))
+vi.mock('$lib/components/apps/editor/appPolicy', () => ({
+	updatePolicy: vi.fn(async (_app: unknown, policy: unknown) => policy)
+}))
 
-import { ScriptService, FlowService, VariableService, ResourceService } from '$lib/gen'
+import { ScriptService, FlowService, VariableService, ResourceService, AppService } from '$lib/gen'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+import { classicAppDraftParts } from '$lib/appDiffSides'
 
 // draftBaseIsStale compares a draft's base pointer against the deployed head
 // of the item it was fetched with (`get_draft=true`). Shared by CompareDrafts
@@ -140,6 +144,38 @@ describe('deployDraft preserves on_behalf_of', () => {
 				})
 			})
 		)
+	})
+})
+
+// The backend runs an app without `sandbox` same-origin with each viewer's session, and a draft
+// saved before drafts carried the policy has none to give.
+describe('deployDraft: draft-only classic app', () => {
+	beforeEach(() => vi.clearAllMocks())
+
+	it('creates the app sandboxed when its draft carries no policy', async () => {
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({ draft: { grid: [] } } as any)
+		vi.mocked(classicAppDraftParts).mockReturnValueOnce({ value: { grid: [] } } as any)
+
+		expect(await deployDraft('app', 'u/alice/dash', 'ws', { draftOnly: true })).toEqual({
+			success: true
+		})
+		expect(AppService.createApp).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestBody: expect.objectContaining({
+					policy: expect.objectContaining({ execution_mode: 'publisher', sandbox: true })
+				})
+			})
+		)
+	})
+
+	it('shows the sandboxed policy it deploys in the diff', async () => {
+		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({ draft: { grid: [] } } as any)
+		vi.mocked(classicAppDraftParts)
+			.mockReturnValueOnce({ value: {} } as any)
+			.mockReturnValueOnce({ value: { grid: [] } } as any)
+
+		const { draft } = await getDraftDiffValues('app', 'u/alice/dash', 'ws', true)
+		expect(draft.policy).toEqual({ sandbox: true })
 	})
 })
 

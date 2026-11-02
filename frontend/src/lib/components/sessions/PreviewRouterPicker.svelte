@@ -168,19 +168,33 @@ section or the flat layout.
 	// saying "show me this", so it lands on the deployed page, and `navigate`
 	// would otherwise keep whichever side the re-pointed tab happened to be on.
 	// A draft-only item opens its editor, unless this user cannot save there.
+	function itemTarget(item: WorkspaceItem): PreviewTarget {
+		return { type: 'item', item, mode: canEdit(item) ? previewModeFor(item) : 'view' }
+	}
 	function tagItems(nodes: DrillNode<WorkspaceItem>[]): DrillNode<PreviewTarget>[] {
 		return nodes.map((n) =>
 			n.type === 'leaf'
-				? {
-						...n,
-						data: {
-							type: 'item',
-							item: n.data,
-							mode: canEdit(n.data) ? previewModeFor(n.data) : 'view'
-						}
-					}
+				? { ...n, data: itemTarget(n.data) }
 				: { ...n, children: tagItems(n.children) }
 		)
+	}
+
+	// The mode is saved with the tab and never re-checked, and `canEdit` refuses until the
+	// rights and protection rules arrive: a draft-only item picked before then would open in a
+	// viewer that has nothing to show. Hold the pick until both have answered.
+	let heldItem = $state<WorkspaceItem | undefined>(undefined)
+	$effect(() => {
+		if (!heldItem || !permissions.settled) return
+		const item = heldItem
+		heldItem = undefined
+		untrack(() => onPick(itemTarget(item)))
+	})
+	function pick(target: PreviewTarget) {
+		if (target.type === 'item' && target.item.draftOnly && !permissions.settled) {
+			heldItem = target.item
+		} else {
+			onPick(target)
+		}
 	}
 
 	// Open the item's editor. Offered on every item row this user can edit, including the
@@ -392,7 +406,7 @@ section or the flat layout.
 <DrillPicker
 	bind:this={inner}
 	{tree}
-	onPick={(leaf) => onPick(leaf.data)}
+	onPick={(leaf) => pick(leaf.data)}
 	initialScope={computedInitialScope}
 	{initialHighlight}
 	{externalFilter}

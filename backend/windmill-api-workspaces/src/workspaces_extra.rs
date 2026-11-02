@@ -71,6 +71,23 @@ pub(crate) async fn change_workspace_id(
         ));
     }
 
+    // An HTTP secret store reference reads the key derived from its workspace id.
+    let http_store_refs: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM variable WHERE workspace_id = $1 AND is_secret \
+         AND starts_with(value, '$http_store:'))",
+    )
+    .bind(&old_id)
+    .fetch_one(&db)
+    .await?;
+    if http_store_refs {
+        return Err(Error::BadRequest(
+            "This workspace has secret variables that reference the external HTTP secret store by \
+             a key derived from its id, so its id cannot be changed. Delete them, change the id, \
+             then recreate them once the store holds the keys for the new id."
+                .to_string(),
+        ));
+    }
+
     let mut tx = db.begin().await?;
 
     // The settings copy below carries every data table entry to the new id, which fork cleanup of

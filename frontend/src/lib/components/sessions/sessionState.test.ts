@@ -3,28 +3,28 @@ import { get } from 'svelte/store'
 import {
 	commitSessionWorkspace,
 	createSession,
-	setNewSessionWorkspace,
 	decideSessionLifecycle,
-	findEmptyLandingSession,
 	getSessionDraftAttachments,
+	holdHomeDraft,
+	holdSessionUntilStarted,
+	homeDraft,
 	homeStarterSession,
 	isForkSession,
 	isTearingDownOpenSession,
+	opensOnHome,
 	renameSession,
 	setDraftsDiscardedHandler,
 	sessionInCurrentFamily,
 	setGeneratedSessionSummary,
 	setSessionDraftAttachments,
 	setSessionDraftPrompt,
+	setSendUnderWayCheck,
+	setSessionPendingWorkspace,
+	setSessionTabs,
 	sessionState,
 	withOpenSessionTeardown,
 	type Session
 } from './sessionState.svelte'
-import {
-	clearSessionRecovered,
-	isSessionRecovered,
-	markSessionRecovered
-} from './sessionRecoveryNotice.svelte'
 import {
 	enterpriseLicense,
 	usersWorkspaceStore,
@@ -489,23 +489,31 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 		}
 	})
 
-	it('clears the recovery notice off the draft it reuses, so `+` is not answered with "not found"', () => {
+	it('keeps a session held until started in memory, and does not reuse it', () => {
 		const restore = withTwoFamilies('rootA')
 		const prevCurrent = sessionState.currentSessionId
-		const landed = session({
-			id: 'recovered-blank',
-			name: 'session-903',
+		const held = session({
+			id: 'held-on-app',
+			name: 'session-905',
 			pending_workspace_id: 'forkA',
 			transient: true
 		})
-		sessionState.sessions.push(landed)
-		markSessionRecovered(landed.id)
+		sessionState.sessions.push(held)
+		let createdId: string | undefined
 		try {
-			expect(createSession().id).toBe('recovered-blank')
-			expect(isSessionRecovered('recovered-blank')).toBe(false)
+			holdSessionUntilStarted('held-on-app')
+			const tabs = [
+				{ id: 'session', url: '/apps_raw/edit/u/me/app', loc: '/apps_raw/edit/u/me/app' }
+			]
+			setSessionTabs('held-on-app', tabs, 'session')
+			expect(held.transient).toBe(true)
+			createdId = createSession().id
+			expect(createdId).not.toBe('held-on-app')
+			expect(sessionState.sessions).toContain(held)
 		} finally {
-			clearSessionRecovered('recovered-blank')
-			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'recovered-blank')
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== 'held-on-app' && s.id !== createdId
+			)
 			sessionState.currentSessionId = prevCurrent
 			restore()
 		}
@@ -638,59 +646,6 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 	})
 })
 
-describe('findEmptyLandingSession — where an unresolvable session link lands', () => {
-	it('takes an untouched draft', () => {
-		const restore = withTwoFamilies('forkA')
-		const blank = session({
-			id: 'landing-blank',
-			name: 'session-910',
-			pending_workspace_id: 'forkA',
-			transient: true
-		})
-		sessionState.sessions.push(blank)
-		try {
-			expect(findEmptyLandingSession()?.id).toBe('landing-blank')
-		} finally {
-			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'landing-blank')
-			restore()
-		}
-	})
-
-	it('passes over a persisted session, which may hold a conversation', () => {
-		const restore = withTwoFamilies('forkA')
-		// Persisted means touched: its chat can hold a conversation initRuntime
-		// reloads, without touching a field checked here.
-		const abandoned = session({
-			id: 'landing-abandoned',
-			name: 'session-910',
-			pending_workspace_id: 'forkA'
-		})
-		const others = sessionState.sessions
-		sessionState.sessions = [abandoned]
-		try {
-			expect(findEmptyLandingSession()).toBeUndefined()
-		} finally {
-			sessionState.sessions = others
-			restore()
-		}
-	})
-
-	it('passes over a session that has been sent, so recovery never reopens a conversation', () => {
-		const restore = withTwoFamilies('forkA')
-		const sent = session({ id: 'landing-sent', name: 'session-911', workspace_id: 'forkA' })
-		// Sole candidate, so `undefined` pins the exclusion: `not.toBe` would also
-		// pass on any unrelated session the shared module state happens to hold.
-		const others = sessionState.sessions
-		sessionState.sessions = [sent]
-		try {
-			expect(findEmptyLandingSession()).toBeUndefined()
-		} finally {
-			sessionState.sessions = others
-			restore()
-		}
-	})
-})
-
 describe('withOpenSessionTeardown — the gate that holds recovery off during a delete', () => {
 	it('stays shut until the outermost teardown finishes', async () => {
 		let innerDone = false
@@ -713,12 +668,26 @@ describe('withOpenSessionTeardown — the gate that holds recovery off during a 
 	})
 })
 
+describe('opensOnHome', () => {
+	it('leaves an archived draft, and one whose first turn has started, to their own page', () => {
+		const draft = session({ id: 'typed-draft', draftPrompt: 'hi' })
+		expect(opensOnHome(draft)).toBe(true)
+		expect(opensOnHome({ ...draft, archived: true })).toBe(false)
+		setSendUnderWayCheck((id) => id === 'typed-draft')
+		try {
+			expect(opensOnHome(draft)).toBe(false)
+		} finally {
+			setSendUnderWayCheck(() => false)
+		}
+	})
+})
+
 describe('homeStarterSession', () => {
 	it("shows the family's stored draft, not the conversation in view, and selects nothing", () => {
 		const restore = withTwoFamilies('forkA')
 		const prevCurrent = sessionState.currentSessionId
 		const conversation = session({ id: 'conversation', workspace_id: 'rootA' })
-		// Touched only by picking where it acts: no text, but stored, so it is the user's draft.
+		// Stored, though it holds no text: it is the user's draft.
 		const picked = session({ id: 'picked-draft', pending_workspace_id: 'forkA', lastActivityAt: 2 })
 		const otherFamily = session({
 			id: 'other-family-draft',
@@ -730,7 +699,7 @@ describe('homeStarterSession', () => {
 		sessionState.currentSessionId = 'conversation'
 		try {
 			expect(homeStarterSession().id).toBe('picked-draft')
-			// Opening Home must leave the AI Sessions switch resuming the conversation.
+			// Home's draft is not the session open on the sessions page.
 			expect(sessionState.currentSessionId).toBe('conversation')
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter(
@@ -741,56 +710,67 @@ describe('homeStarterSession', () => {
 		}
 	})
 
-	it('leaves a draft picked onto another workspace of the family to that workspace', () => {
-		const restore = withTwoFamilies('rootA')
-		const prevCurrent = sessionState.currentSessionId
-		const picked = session({ id: 'picked-fork-draft', pending_workspace_id: 'forkA' })
-		sessionState.sessions.push(picked)
-		sessionState.currentSessionId = 'picked-fork-draft'
-		let createdId: string | undefined
-		try {
-			createdId = homeStarterSession().id
-			expect(createdId).not.toBe('picked-fork-draft')
-			expect(picked.pending_workspace_id).toBe('forkA')
-		} finally {
-			sessionState.sessions = sessionState.sessions.filter(
-				(s) => !['picked-fork-draft', createdId].includes(s.id)
-			)
-			sessionState.currentSessionId = prevCurrent
-			restore()
-		}
-	})
-
-	it('keeps its own draft when the workspace was switched on another page', () => {
+	it('keeps the draft Home holds, acting on the header workspace within its family only', () => {
 		const restore = withTwoFamilies('forkA')
-		const typed = session({
-			id: 'home-draft',
-			pending_workspace_id: 'rootA',
-			draftPrompt: 'typed on Home',
-			followsHome: true
-		})
-		sessionState.sessions.push(typed)
+		const recent = session({ id: 'recent-draft', pending_workspace_id: 'rootA', lastActivityAt: 9 })
+		const held = session({ id: 'held-draft', pending_workspace_id: 'rootA', lastActivityAt: 1 })
+		sessionState.sessions.push(recent, held)
+		const heldNow = () => sessionState.sessions.find((s) => s.id === 'held-draft')
 		try {
-			expect(homeStarterSession().id).toBe('home-draft')
+			holdHomeDraft('held-draft')
+			// A blank asked for by New session, or a draft picked in the list, beats the
+			// family's most recent one.
+			expect(homeStarterSession().id).toBe('held-draft')
+			expect(heldNow()?.pending_workspace_id).toBe('forkA')
+			// Another family's header does not take the draft along: Home shows that family's.
+			workspaceStore.set('rootB')
+			holdHomeDraft('held-draft')
+			expect(heldNow()?.pending_workspace_id).toBe('forkA')
 		} finally {
-			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'home-draft')
+			homeDraft.id = undefined
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => !['recent-draft', 'held-draft'].includes(s.id)
+			)
 			restore()
 		}
 	})
 
-	it('lets go of its draft once the session page reuses it for a new session', () => {
+	it('keeps a draft whose first send is under way in the workspace it was sent from', () => {
+		const restore = withTwoFamilies('forkA')
+		sessionState.sessions.push(session({ id: 'sending-draft', pending_workspace_id: 'forkA' }))
+		const sendingNow = () => sessionState.sessions.find((s) => s.id === 'sending-draft')
+		try {
+			holdHomeDraft('sending-draft')
+			setSendUnderWayCheck((id) => id === 'sending-draft')
+			workspaceStore.set('rootA')
+			holdHomeDraft('sending-draft')
+			expect(sendingNow()?.pending_workspace_id).toBe('forkA')
+		} finally {
+			setSendUnderWayCheck(() => false)
+			homeDraft.id = undefined
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'sending-draft')
+			restore()
+		}
+	})
+
+	it('lets go of its blank once a hand-off reuses it for an item', () => {
 		const restore = withTwoFamilies('forkA')
 		const prevCurrent = sessionState.currentSessionId
 		const ids: string[] = []
 		try {
 			ids.push(homeStarterSession().id)
+			holdHomeDraft(ids[0])
 			const reused = createSession()
 			expect(reused.id).toBe(ids[0])
-			setNewSessionWorkspace(reused.id, 'rootA')
+			setSessionPendingWorkspace(reused.id, 'rootA')
+			reused.previewTabs = [{ id: 'tab', url: '/flows/edit/f/x', loc: '/flows/edit/f/x' }]
+			// The item opens on the session page, and Home starts a draft of its own.
+			expect(opensOnHome(reused)).toBe(false)
 			ids.push(homeStarterSession().id)
 			expect(ids[1]).not.toBe(ids[0])
 			expect(reused.pending_workspace_id).toBe('rootA')
 		} finally {
+			homeDraft.id = undefined
 			sessionState.sessions = sessionState.sessions.filter((s) => !ids.includes(s.id))
 			sessionState.currentSessionId = prevCurrent
 			restore()

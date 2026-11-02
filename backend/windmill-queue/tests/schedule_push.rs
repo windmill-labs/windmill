@@ -65,6 +65,7 @@ mod schedule_push {
             folders: vec![],
             scopes: None,
             token_prefix: None,
+            mcp_client: None,
         }
     }
 

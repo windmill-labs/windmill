@@ -622,6 +622,7 @@
 							noAutoScroll={true}
 							tag={undefined}
 							noPadding
+							noMaxH
 							wrapperClass="w-full mb-2 pr-2"
 						/>
 					{/if}
@@ -895,6 +896,7 @@
 															noAutoScroll={true}
 															tag={undefined}
 															noPadding
+															noMaxH
 															wrapperClass={twMerge(
 																'w-full mb-2 px-2',
 																isCurrent(`${module.id}-logs`)
