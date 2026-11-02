@@ -88,6 +88,8 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 					offset
 				})
 				merge(page.items)
+				// The branch shows from its first page; later pages fill it in as they arrive.
+				loading[branch] = false
 				if (!page.has_more) break
 				offset += page.items.length
 			}
@@ -222,8 +224,10 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 		return undefined
 	}
 
-	function isRunnable(kind: string): kind is RunnableKind {
-		return kind === 'flow' || kind === 'script' || kind === 'app'
+	/** The kind detectNeeds reads it as: a full-code app is read like any app. */
+	function runnableKind(kind: string): RunnableKind | undefined {
+		if (kind === 'raw_app') return 'app'
+		return kind === 'flow' || kind === 'script' || kind === 'app' ? kind : undefined
 	}
 </script>
 
@@ -246,14 +250,16 @@ Picking a row grants the principal read on it; the "All of f/x" row grants the w
 				? undefined
 				: { label: write ? 'Writes' : 'Reads', color: write ? 'blue' : 'gray' }
 		}}
-		leafAction={(leaf) =>
-			isRunnable(leaf.data.kind)
+		leafAction={(leaf) => {
+			const kind = runnableKind(leaf.data.kind)
+			return kind
 				? {
 						icon: ScanSearch,
 						label: 'What it reads',
 						title: `Grant what ${leaf.data.path} reads when it runs`,
-						run: () => onFindReads(leaf.data.kind as RunnableKind, leaf.data.path)
+						run: () => onFindReads(kind, leaf.data.path)
 					}
-				: undefined}
+				: undefined
+		}}
 	/>
 </div>
