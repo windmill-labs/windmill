@@ -75,11 +75,13 @@
 
 	type HubProject = { folder: string; status: string; name: string }
 	// The folder's Hub projects (the whole folder and any sub-paths), found once when the
-	// drawer opens; undefined until then. None: the tree. One: that project, as for any
-	// folder. Several: a list to pick from.
+	// drawer opens; undefined until then. None: the tree. Only the whole folder: that
+	// project, as on main. Any sub-path project: a list to pick from, the one place to
+	// start another.
 	let projects = $state<HubProject[] | undefined>(undefined)
 	let showList = $state(false)
 	const wholeIsProject = $derived(!!projects?.some((p) => p.folder === folderProp))
+	const hasSubProjects = $derived(!!projects?.some((p) => p.folder !== folderProp))
 
 	function statusOf(s: DeployToHubSession): string {
 		return s.liveOnHub || s.phase === 'live'
@@ -99,8 +101,7 @@
 			...s.subProjects
 		]
 		projects = found
-		if (found.length === 1) scope = found[0].folder
-		else if (found.length > 1) showList = true
+		showList = s.subProjects.length > 0
 	})
 
 	// The open project keeps its list entry current: one created here joins the list,
@@ -119,12 +120,16 @@
 		})
 	})
 
-	// No project takes in items another one holds: not a new one, and not an update of
-	// one created above a sub-path that was published first.
+	// No project takes in items another one holds. A new one is kept out of every
+	// project; an existing one only out of projects nested inside it, never out of its
+	// own items because a project above it was published later.
 	$effect(() => {
 		const s = deployHub.session
 		if (!s || !projects) return
-		s.blockedFolders = projects.map((p) => p.folder).filter((f) => f !== s.folder)
+		const folders = projects.map((p) => p.folder)
+		s.blockedFolders = s.effectiveSlug
+			? folders.filter((f) => f.startsWith(`${s.folder}/`))
+			: folders
 	})
 
 	// Once the folder has projects, a new one is a sub-path: the whole folder would
@@ -136,10 +141,6 @@
 	function startNewProject() {
 		showList = false
 		scope = folderProp
-	}
-	function backToProjects() {
-		if (projects && projects.length > 1) showList = true
-		else if (projects?.length === 1) scope = projects[0].folder
 	}
 	function openProject(folder: string) {
 		showList = false
@@ -377,14 +378,14 @@
 							</li>
 						</ol>
 						<div class="flex flex-wrap items-center gap-2 pt-4">
-							{#if (s.effectiveSlug && projects && projects.length > 1) || (!s.effectiveSlug && projects?.length)}
+							{#if hasSubProjects}
 								<Button
 									unifiedSize="sm"
 									variant="subtle"
 									iconOnly
 									startIcon={{ icon: ArrowLeft }}
-									title={s.effectiveSlug ? 'All Hub projects' : 'Back to Hub projects'}
-									onclick={s.effectiveSlug ? () => (showList = true) : backToProjects}
+									title="Back to Hub projects"
+									onclick={() => (showList = true)}
 								/>
 							{/if}
 							{#if s.phase === 'predeploy'}
@@ -414,11 +415,6 @@
 								</a>
 							{/if}
 							<div class="ml-auto flex items-center gap-2">
-								{#if s.effectiveSlug && !wholeIsProject}
-									<Button variant="default" unifiedSize="sm" onclick={startNewProject}>
-										New project from another sub-folder
-									</Button>
-								{/if}
 								{#if s.phase === 'predeploy'}
 									<Button
 										variant="accent"

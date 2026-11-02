@@ -165,8 +165,10 @@
 	let treeItems = $derived(
 		nested ? (items.map((i) => ({ ...i, type: i.kind })) as unknown as ItemType[]) : []
 	)
-	// Top-level folders start open and sub-folders closed. Held at module level so a
-	// toggle survives the remount the Hub drawer does when the selection changes its scope.
+	// While selecting, top-level folders start open and sub-folders closed; without a
+	// selection to make, the tree opens fully, since every row may carry an action.
+	// Held at module level so a toggle survives the remount the Hub drawer does when the
+	// selection changes its scope.
 	const treeOpen = {
 		isOpen: (prefix: string) => treeOpenState.get(prefix) ?? prefix.split('/').length === 2,
 		setOpen: (prefix: string, open: boolean) => void treeOpenState.set(prefix, open)
@@ -313,7 +315,7 @@
 		<div class="overflow-y-auto">
 			<TreeViewRoot
 				items={treeItems}
-				collapseAll={true}
+				collapseAll={!hideSelection}
 				openMemory={treeOpen}
 				showCode={() => {}}
 				sortCompare={(a, b) => a.path.localeCompare(b.path)}
