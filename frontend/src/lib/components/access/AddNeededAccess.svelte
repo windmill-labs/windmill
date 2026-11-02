@@ -129,7 +129,8 @@
 		<div class="flex items-center justify-between gap-2">
 			<span class="flex items-center gap-1 text-2xs text-secondary">
 				<Info size={12} class="shrink-0" />
-				A path the code builds while it runs can't be found. Grant it with "Grant".
+				Finds paths written literally in its code and inputs. A path built while it runs, passed through
+				a helper, or read in a script it imports isn't found: grant it with "Grant".
 			</span>
 			<Button
 				variant="accent"
