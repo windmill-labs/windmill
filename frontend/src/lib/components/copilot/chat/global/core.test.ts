@@ -233,6 +233,8 @@ vi.mock('$lib/gen', async () => {
 			getAppByVersion: vi.fn(async () => {
 				throw new Error('getAppByVersion mock not configured')
 			}),
+			// A row without an access mode, so a deploy keeps the drafted one.
+			getAppLiteByPath: vi.fn(async () => ({ policy: {} }) as any),
 			listApps: vi.fn(async () => [])
 		}),
 		ResourceService: wrapService(actual.ResourceService, {
@@ -2261,6 +2263,33 @@ describe('global AI tools', () => {
 		expect(items.map((i: any) => i.isDraft)).toEqual([false, true, false])
 	})
 
+	it('keeps limit one cap per type across the folders a session is scoped to', async () => {
+		vi.mocked(ScriptService.listScripts).mockImplementation((async ({ pathStart }: any) =>
+			[1, 2].map((n) => ({ path: `${pathStart}s${n}`, language: 'bun' }))) as any)
+		const scoped: ToolCallbacks = {
+			...toolCallbacks,
+			workingScope: {
+				scope: () => ({ roots: ['f/a', 'f/b'] }) as any,
+				requestDecision: async () => undefined,
+				add: () => {},
+				recordWrite: () => {}
+			}
+		}
+		const list = async (page: number) =>
+			JSON.parse(
+				(
+					await callGlobalTool('list_workspace_items', { types: ['script'], limit: 3, page }, scoped)
+				).replace(/^[^\n]*\n/, '')
+			).map((i: any) => i.path)
+
+		try {
+			expect(await list(1)).toEqual(['f/a/s1', 'f/a/s2', 'f/b/s1'])
+			expect(await list(2)).toEqual(['f/b/s2'])
+		} finally {
+			vi.mocked(ScriptService.listScripts).mockImplementation(async () => [])
+		}
+	})
+
 	it('lists and edits the live script editor draft through its effective path', async () => {
 		seedBackendDraft(
 			'script',
@@ -3747,7 +3776,7 @@ describe('global AI tools', () => {
 		})
 	})
 
-	// The draft carries the deployed policy from the fork, so nothing is fetched to answer.
+	// Deploying the draft keeps the deployed app's mode, which the draft does not carry.
 	it('reports exposure for an app that has a draft over it', async () => {
 		seedBackendDraft(
 			'raw_app',
@@ -3755,10 +3784,14 @@ describe('global AI tools', () => {
 			{
 				files: { '/src/App.tsx': 'x' },
 				runnables: {},
-				policy: { execution_mode: 'anonymous' }
+				policy: {}
 			} as any,
 			{ workspace: WORKSPACE }
 		)
+		vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
+		vi.mocked(AppService.getAppLiteByPath).mockResolvedValueOnce({
+			policy: { execution_mode: 'anonymous' }
+		} as any)
 
 		const read = await callGlobalTool('read_workspace_item', {
 			type: 'app',
@@ -4658,11 +4691,18 @@ describe('global AI tools', () => {
 		)
 
 		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
+		// The deployed mode, read for the exposure note.
+		vi.mocked(AppService.getAppLiteByPath).mockResolvedValueOnce({
+			policy: { execution_mode: 'publisher' }
+		} as any)
 
 		await callGlobalTool('deploy_workspace_item', {
 			type: 'app',
 			path: 'f/apps/report'
 		})
+
+		// Who can open a deployed app is set from the Share dialog: the update states no mode, so
+		// the server keeps the deployed one rather than the drafted `anonymous`.
 
 		expect(AppService.updateAppRaw).toHaveBeenCalledWith({
 			workspace: WORKSPACE,
@@ -4676,7 +4716,7 @@ describe('global AI tools', () => {
 						data: { tables: ['orders'] }
 					},
 					summary: 'Updated report',
-					policy: expect.objectContaining({ execution_mode: 'anonymous' }),
+					policy: expect.not.objectContaining({ execution_mode: expect.anything() }),
 					deployment_message: undefined
 				},
 				js: 'bundled js',
@@ -4690,9 +4730,17 @@ describe('global AI tools', () => {
 	// Deploying is what makes an app's runnables reachable, so it is the one moment the
 	// exposure is both true and known.
 	it('discloses who can open an app after a deploy', async () => {
-		const deployApp = async (path: string, policy: Record<string, unknown>) => {
+		// The deployed app is in the mode its draft names, unless `deployedMode` says otherwise.
+		const deployApp = async (
+			path: string,
+			policy: Record<string, unknown>,
+			deployedMode = policy.execution_mode
+		) => {
 			vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
 			vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
+			vi.mocked(AppService.getAppLiteByPath).mockResolvedValueOnce({
+				policy: { execution_mode: deployedMode }
+			} as any)
 			seedBackendDraft(
 				'raw_app',
 				path,
@@ -4717,6 +4765,18 @@ describe('global AI tools', () => {
 		// The server decides what a deployed app runs as — it overwrites on_behalf_of for
 		// anyone outside the deployers group — so the note must not name an identity.
 		expect(open.message).not.toContain('u/alice')
+
+		// A deploy keeps the deployed app's mode, so the note follows the deployed row: a draft naming
+		// a wider mode discloses nothing, and one naming a narrower mode still discloses the wider one.
+		const kept = await deployApp('f/apps/kept', { execution_mode: 'anonymous' }, 'publisher')
+		expect(kept.success).toBe(true)
+		expect(kept.message).not.toContain('anyone with the URL')
+		const keptPublic = await deployApp(
+			'f/apps/kept_public',
+			{ execution_mode: 'publisher' },
+			'anonymous'
+		)
+		expect(keptPublic.message).toContain('anyone with the URL, without logging in')
 
 		// Guest is a real widening only where the deployment admits guests; stored on one
 		// that does not, it is inert and the note would announce an exposure that does not

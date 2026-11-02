@@ -1,4 +1,13 @@
-import { Copy, Eye, FileUp, History, LayoutDashboard, List, Shield, Trash } from 'lucide-svelte'
+import {
+	Copy,
+	Eye,
+	FileUp,
+	History,
+	LayoutDashboard,
+	List,
+	Trash,
+	UserPlus
+} from 'lucide-svelte'
 import { DraftService, ResourceService, type AiAgent, type OpenFlow } from '$lib/gen'
 import { mintDraftPath } from '$lib/mintDraftPath'
 import { keepsManagedMemory } from './agentFormFields'
@@ -90,7 +99,7 @@ export function agentMenuItems(agent: {
 	noCode?: boolean
 	/** Undefined until loaded, when nothing is offered for deploy. */
 	deployUiSettings: WorkspaceDeployUISettings | undefined
-	onPermissions: () => void
+	onShare: () => void
 	onDeploy: () => void
 	onHistory: () => void
 	onDelete: (event?: MouseEvent) => void
@@ -136,10 +145,10 @@ export function agentMenuItems(agent: {
 				]
 			: []),
 		{
-			displayName: 'Permissions',
-			icon: Shield,
+			displayName: 'Share',
+			icon: UserPlus,
 			disabled: !agent.canWrite || Boolean(agent.draftOnly),
-			action: agent.onPermissions
+			action: agent.onShare
 		},
 		...(deployable
 			? [{ displayName: 'Deploy to prod/staging', icon: FileUp, action: agent.onDeploy }]

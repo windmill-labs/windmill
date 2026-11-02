@@ -109,8 +109,8 @@ export function escapeHtml(unsafe: string) {
 }
 
 export function validateUsername(username: string): string {
-	if (username != '' && !/^[a-zA-Z]\w+$/.test(username)) {
-		return 'username can only contain letters and numbers and must start with a letter'
+	if (username != '' && !/^\w{1,50}$/.test(username)) {
+		return 'Username can only contain letters, numbers and underscores (at most 50)'
 	} else {
 		return ''
 	}

@@ -67,7 +67,7 @@
 	let {
 		app,
 		path,
-		policy,
+		policy = $bindable(),
 		summary,
 		labels,
 		deployedBaseline = undefined,
@@ -897,7 +897,7 @@
 			{onOpenOthersDrafts}
 			{onRestore}
 			{onDeploy}
-			{policy}
+			bind:policy
 			{fromHub}
 			bind:this={appEditorHeader}
 			{diffDrawer}

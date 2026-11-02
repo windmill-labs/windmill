@@ -13,7 +13,7 @@ use windmill_api_auth::{
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
 use windmill_common::ssrf::{validate_webhook_url, webhook_ssrf_error_message};
-use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
+use windmill_common::usernames::{get_instance_username_or_create_pending, validate_username};
 use windmill_common::webhook::WebhookShared;
 use windmill_common::{BASE_URL, DB};
 use windmill_dep_map::lock_hash::record_lock_hashes_for_workspace;
@@ -77,7 +77,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::secret_backend::{
-    get_secret_backend, is_external_stored_value, is_vault_backend_configured,
+    get_secret_backend, is_external_ref_value, is_external_stored_value,
+    is_vault_backend_configured,
 };
 use windmill_common::utils::not_found_if_none;
 
@@ -6772,7 +6773,9 @@ async fn set_encryption_key(
         .await?;
 
         for variable in all_variables {
-            if !variable.is_secret {
+            if !variable.is_secret
+                || windmill_common::secret_backend::resolves_externally(&variable.value)
+            {
                 continue;
             }
             let decrypted_value =
@@ -7448,8 +7451,11 @@ async fn create_workspace(
         }
         get_instance_username_or_create_pending(&mut tx, &authed.email).await?
     } else {
-        nw.username
-            .ok_or(Error::BadRequest("username is required".to_string()))?
+        let username = nw
+            .username
+            .ok_or(Error::BadRequest("username is required".to_string()))?;
+        validate_username(&username)?;
+        username
     };
 
     sqlx::query!(
@@ -8242,6 +8248,13 @@ async fn clone_variables(
     // exist. Replicate every secret, not just marker-valued ones: migration writes
     // to the store without rewriting `value` to a `$...:` marker.
     if is_vault_backend_configured(db).await? {
+        let backend = get_secret_backend(db).await?;
+        // A read-only store is never written: the fork's references resolve under its own
+        // workspace id, and its database-encrypted secrets came with the rows above.
+        if backend.backend_name() == "http_store" {
+            return Ok(());
+        }
+
         let secret_variables = sqlx::query!(
             "SELECT path FROM variable
              WHERE workspace_id = $1 AND is_secret = true AND value != ''",
@@ -8250,7 +8263,6 @@ async fn clone_variables(
         .fetch_all(&mut **tx)
         .await?;
 
-        let backend = get_secret_backend(db).await?;
         for variable in secret_variables {
             match backend
                 .get_secret(source_workspace_id, &variable.path)
@@ -12113,11 +12125,7 @@ async fn add_user(
             .username
             .ok_or(Error::BadRequest("username is required".to_string()))?;
 
-        if !VALID_USERNAME.is_match(&username) {
-            return Err(windmill_common::error::Error::BadRequest(format!(
-                "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
-            )));
-        }
+        validate_username(&username)?;
 
         username
     };
@@ -14285,6 +14293,7 @@ async fn load_workspace_authed(
             read_only: base_authed.read_only,
             job_id: base_authed.job_id,
             credential_expiry: base_authed.credential_expiry,
+            mcp_client: base_authed.mcp_client.clone(),
         });
     };
 
@@ -14325,6 +14334,7 @@ async fn load_workspace_authed(
         read_only: base_authed.read_only,
         job_id: base_authed.job_id,
         credential_expiry: base_authed.credential_expiry,
+        mcp_client: base_authed.mcp_client.clone(),
     })
 }
 
@@ -14921,8 +14931,12 @@ async fn compare_two_variables(
         {
             // A secret's ciphertext is randomized on every write, so equal secrets are compared
             // by plaintext, each decrypted with its own workspace's key. An external backend
-            // reference is the same text on both sides but names a per-workspace entry.
+            // reference is the same text on both sides but names a per-workspace entry. An
+            // `$external:` reference is compared as written: two references resolving to equal
+            // values still point at different secrets.
             has_changes = !source.is_secret
+                || is_external_ref_value(&source.value)
+                || is_external_ref_value(&target.value)
                 || !matches!(
                     tokio::try_join!(
                         decrypt_secret_value(db, source_workspace_id, path, source.value.clone()),
@@ -15750,6 +15764,8 @@ pub enum SettingsEdit {
     DefaultApp,
     Color,
     OperatorSettings,
+    /// Body: the workspace's role overrides as a whole, `{ "<role>": { label?, capabilities } }`.
+    RoleOverrides,
     Datatable,
     SlackCommand,
     SetSlackOAuth,
@@ -15813,6 +15829,10 @@ pub async fn apply_settings_edit(
                 settings_edit_body(edit, body)?,
             )
             .await?
+        }
+        RoleOverrides => {
+            crate::workspace_roles::update_role_overrides(a, p, d, settings_edit_body(edit, body)?)
+                .await?
         }
         Datatable => {
             let Json(result) =

@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(DISTINCT (workspace_id, path))::BIGINT AS \"count!\"\n             FROM script\n             WHERE auto_kind = 'pipeline' AND archived = false AND deleted = false\n               AND workspace_id NOT LIKE 'wm-fork%'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "8c71d3c791a65892cffd9feee13a13533e8025824ae697b5be4ed43c5e4fe584"
+}

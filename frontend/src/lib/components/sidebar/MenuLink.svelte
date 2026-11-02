@@ -60,7 +60,9 @@
 			}}
 			{onclick}
 			class={twMerge(
-				'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-2',
+				'group flex items-center px-2 py-1 text-sm font-light rounded-md gap-2',
+				// Collapsed, the rail's rows are squares, as its footer buttons are.
+				isCollapsed ? 'h-8' : 'h-[30px]',
 				isSelected
 					? sidebarClasses.selectedBg
 					: item

@@ -13,10 +13,12 @@
 		Pen,
 		Star as StarIcon,
 		StarOff,
+		UserPlus,
 		X
 	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { roleCapabilities, userStore } from '$lib/stores'
 	import { AppService } from '$lib/gen'
@@ -113,6 +115,7 @@
 	// Only the role is checked: the cards don't carry the item's own permissions, and an
 	// editor opened without write access says so itself.
 	const editRights = useEditRights()
+	let shareModal: ShareModal | undefined = $state()
 
 	// A favorite app arrives as plain `app` (the layout lists apps without their subtype), and
 	// `/apps/edit` mounts the low-code editor whatever it opens, so the editor routes ask which
@@ -127,8 +130,8 @@
 		}
 	}
 
-	// The row menus' actions that need nothing but the kind and path. Moving, deleting,
-	// deploying and sharing need the full item and the row's own drawers, so they stay there.
+	// The row menus' actions that need nothing but the kind and path. Moving, deleting and
+	// deploying need the full item and the row's own drawers, so they stay there.
 	async function menuItems(item: Entry, favorite: boolean): Promise<Item[]> {
 		const kind = await editorKind(item)
 		const base = kind === 'raw_app' ? 'apps_raw' : `${kind}s`
@@ -157,6 +160,12 @@
 				icon: GitFork,
 				href: `/${base}/add?template=${item.path}`,
 				hide: !showEditButtons || !$roleCapabilities.code || kind === 'agent'
+			},
+			{
+				displayName: 'Share',
+				icon: UserPlus,
+				action: () => kind !== 'agent' && shareModal?.openDrawer(item.path, kind),
+				hide: kind === 'agent' || !editRights.roleCanAuthor(kind)
 			},
 			{
 				displayName: 'View runs',
@@ -359,7 +368,7 @@
 {#snippet card(item: Entry, favorite: boolean)}
 	{@const draft = draftByItem.get(`${item.starKind}/${item.path}`)}
 	<div
-		class="group flex items-center gap-1 rounded-md border border-light bg-surface-tertiary hover:bg-surface-hover transition-colors min-w-0"
+		class="group flex items-center gap-1 rounded-md border border-light bg-surface-tertiary hover:bg-surface-hover transition-colors min-w-0 group-has-[[data-composer-open]]/home:border-transparent group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:hover:bg-surface-hover"
 	>
 		<a
 			href={getFavoriteHref(item.path, item.kind)}
@@ -444,7 +453,7 @@
      landing in front of them would push every card over. -->
 {#if favoriteManager.loadedFor === workspace && (entries.length > 0 || emptiedBySettings) && !hidden}
 	<!-- 30px under the cards: the gap from the composer down to this section's heading text. -->
-	<section class="flex flex-col gap-2 px-4 sm:px-0 pb-[30px]">
+	<section data-works-with-composer class="flex flex-col gap-2 px-4 sm:px-0 pb-[30px]">
 		<div class="flex items-center gap-1 -my-1">
 			<HomeSectionLabel>
 				{#if favoriteCount > 0}
@@ -518,3 +527,5 @@
 		{/if}
 	</HomeSectionLabel>
 {/if}
+
+<ShareModal bind:this={shareModal} source="home" />

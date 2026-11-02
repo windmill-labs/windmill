@@ -100,10 +100,8 @@ export function planProblem(plan: ImportPlan): string | undefined {
 		}
 		const idProblem = validateWorkspaceId(d.id)
 		if (idProblem) return idProblem
-		// Only asked for when the instance does not derive it. `create_workspace` takes
-		// whatever it is given here — `Some("")` passes its only check — so a blank or
-		// malformed username is written to `usr.username` verbatim rather than refused.
-		// The sibling creator validates it; this is the same check.
+		// Only asked for when the instance does not derive it. `create_workspace` refuses a
+		// bad one too, but only once the import reaches that step.
 		if (d.username !== undefined) {
 			if (!d.username.trim()) return 'The new workspace needs a username'
 			const bad = validateUsername(d.username.trim())

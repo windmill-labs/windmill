@@ -293,11 +293,8 @@
 	)
 
 	function appPolicy(): Policy {
+		// No run-as user: the deploy dialog resolves it, the folder's default first.
 		const policy: Policy = {
-			on_behalf_of: $userStore?.username.includes('@')
-				? $userStore?.username
-				: `u/${$userStore?.username}`,
-			on_behalf_of_email: $userStore?.email,
 			execution_mode: 'publisher',
 			sandbox: true
 		}

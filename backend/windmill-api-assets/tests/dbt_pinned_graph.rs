@@ -36,6 +36,7 @@ fn outsider() -> ApiAuthed {
         read_only: false,
         job_id: None,
         credential_expiry: None,
+        mcp_client: None,
     }
 }
 

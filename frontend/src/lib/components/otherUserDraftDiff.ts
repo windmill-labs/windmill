@@ -1,11 +1,12 @@
 import { AppService, FlowService, ScriptService, type UserDraftItemKind } from '$lib/gen'
 import type { Value } from '$lib/utils'
 import { DEFAULT_DATA, extractDataConfig } from '$lib/components/raw_apps/dataTableRefUtils'
+import { appDraftSettings } from '$lib/components/apps/editor/appDraftSettings'
 
 /**
  * Fetch the currently-deployed value for an item, in the same shape its draft
  * is stored — so it can be the "original" side of a draft-vs-deployed diff.
- * App drafts hold the bare `App` value (unwrap `.value`); raw-app drafts hold a
+ * App drafts hold the bare `App` value with the row's metadata mirrored on; raw-app drafts hold a
  * flat bundle (`files`/`runnables`/`data`/`summary`/`policy`/`custom_path`),
  * with `summary`/`policy`/`custom_path` living OUTSIDE `.value` on the deployed
  * row — so we project the deployed app into that bundle (via the same
@@ -26,9 +27,15 @@ export async function fetchDeployedValueForDiff(
 			})) as unknown as Value
 		case 'flow':
 			return (await FlowService.getFlowByPath({ workspace, path })) as unknown as Value
-		case 'app':
-			return (await AppService.getAppByPath({ workspace, path, getDraft: false }))
-				.value as unknown as Value
+		case 'app': {
+			// The editor mirrors the summary and settings onto the bare App it drafts.
+			const app = await AppService.getAppByPath({ workspace, path, getDraft: false })
+			return {
+				...(app.value as object),
+				summary: app.summary,
+				...appDraftSettings(app)
+			} as unknown as Value
+		}
 		case 'raw_app': {
 			const app = await AppService.getAppByPath({ workspace, path, getDraft: false })
 			const v = (app.value ?? {}) as any

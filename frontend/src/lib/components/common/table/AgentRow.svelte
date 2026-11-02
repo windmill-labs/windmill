@@ -117,7 +117,7 @@
 					draftOnly: Boolean(agent.draft_only),
 					wsSpecific: agent.ws_specific,
 					noCode: !$roleCapabilities.code,
-					onPermissions: () => shareModal.openDrawer?.(agent.path, 'resource'),
+					onShare: () => shareModal.openDrawer?.(agent.path, 'resource'),
 					onDeploy: () => deploymentDrawer.openDrawer(agent.path, 'resource'),
 					onHistory: () => history?.open(),
 					onDelete: (event) => {
