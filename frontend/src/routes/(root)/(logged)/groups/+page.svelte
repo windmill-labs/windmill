@@ -122,9 +122,13 @@
 					{#if groups === undefined}
 						{#each new Array(4) as _}
 							<tr>
-								<td colspan="5">
-									<Skeleton layout={[[2]]} />
-								</td>
+								<Cell first>
+									<Skeleton layout={[[{ h: 0.75, w: 30 }], 0.25, [{ h: 0.75, w: 60 }], 0.25]} />
+								</Cell>
+								<Cell>
+									<Skeleton layout={[[{ h: 0.75, w: 40 }]]} />
+								</Cell>
+								<Cell last actions />
 							</tr>
 						{/each}
 					{:else}
