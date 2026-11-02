@@ -7,8 +7,10 @@
 	import Cell from './table/Cell.svelte'
 	import RowIcon from './common/table/RowIcon.svelte'
 	import { GranularAclService, type AccessReason, type PrincipalAccess } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from './operatingWorkspace.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type Target = 'self' | 'user' | 'service_account' | 'group'
 
@@ -56,7 +58,7 @@
 		const id = ++requestId
 		try {
 			const result = await GranularAclService.getPrincipalAccess({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				principal: nextPrincipal
 			})
 			if (id === requestId) access = result
