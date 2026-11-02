@@ -29,7 +29,7 @@ use windmill_api_auth::{
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
-use windmill_common::usernames::validate_username;
+use windmill_common::usernames::{validate_username, ANONYMOUS_USERNAME};
 use windmill_common::{
     error::{self, Error, Result},
     DB,
@@ -477,34 +477,38 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
-    sqlx::query!(
-        "UPDATE v2_job SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
-        new_username,
-        old_username,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
+    // An account still named `anonymous` shares that name with logged-out visitors' jobs, which
+    // must stay theirs: moving them would hand the visitors' runs to the account.
+    if old_username != ANONYMOUS_USERNAME {
+        sqlx::query!(
+            "UPDATE v2_job SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
+            new_username,
+            old_username,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
 
-    // ---- v2_job_queue ----
-    sqlx::query!(
-        "UPDATE v2_job_queue SET canceled_by = $1 WHERE canceled_by = $2 AND workspace_id = $3",
-        new_username,
-        old_username,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
+        // ---- v2_job_queue ----
+        sqlx::query!(
+            "UPDATE v2_job_queue SET canceled_by = $1 WHERE canceled_by = $2 AND workspace_id = $3",
+            new_username,
+            old_username,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
 
-    // ---- v2_job_completed ----
-    sqlx::query!(
-        "UPDATE v2_job_completed SET canceled_by = $1 WHERE canceled_by = $2 AND workspace_id = $3",
-        new_username,
-        old_username,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
+        // ---- v2_job_completed ----
+        sqlx::query!(
+            "UPDATE v2_job_completed SET canceled_by = $1 WHERE canceled_by = $2 AND workspace_id = $3",
+            new_username,
+            old_username,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
 
     // ---- resources----
     sqlx::query!(

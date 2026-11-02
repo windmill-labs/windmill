@@ -1756,9 +1756,13 @@ async fn delete_user(
             .execute(&mut *tx)
             .await?;
 
-        sqlx::query!("DELETE FROM usr_to_group WHERE usr = $1", &username)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query!(
+            "DELETE FROM usr_to_group WHERE usr = $1 AND workspace_id = $2",
+            &username,
+            &row.workspace_id
+        )
+        .execute(&mut *tx)
+        .await?;
 
         sqlx::query!(
             "DELETE FROM workspace_invite WHERE email = $1",

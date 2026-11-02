@@ -57,12 +57,16 @@ struct HubScope {
     folder: Option<String>,
 }
 
+/// A base folder name, or one followed by `/`-separated sub-path segments
+/// (`hub/billing`): every segment non-empty, so no leading, trailing or doubled `/`.
 fn validate_folder(folder: &str) -> Result<(), Error> {
-    let ok = !folder.is_empty()
-        && folder.len() <= 255
-        && folder
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    let ok = folder.len() <= 255
+        && folder.split('/').all(|seg| {
+            !seg.is_empty()
+                && seg
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        });
     if ok {
         Ok(())
     } else {
@@ -118,10 +122,11 @@ impl std::fmt::Display for ProjectSlug {
 /// Handlers can only reach the Hub via this extractor's methods, so a new
 /// endpoint cannot forget the admin check or folder validation.
 ///
-/// A workspace can publish one Hub project per folder. The stable, never-mutated
-/// link key is `workspace_id:folder_name` (folder name is the path segment and is
+/// A workspace can publish one Hub project per folder or folder sub-path. The
+/// stable, never-mutated link key is `workspace_id:folder` (`folder` is the base
+/// folder name, optionally followed by `/`-separated sub-path segments, and is
 /// never renamed — only display_name changes). `:` is safe: neither workspace ids
-/// nor folder names (alphanumeric, underscore, hyphen) contain it.
+/// nor folder paths (alphanumeric, underscore, hyphen, `/`) contain it.
 struct HubPublishCtx {
     source_id: Option<String>,
     token: String,
@@ -740,7 +745,28 @@ async fn forward_to_hub<T: Serialize>(
 
 #[cfg(test)]
 mod tests {
-    use super::is_public_hub;
+    use super::{is_public_hub, validate_folder};
+
+    #[test]
+    fn folder_accepts_nested_sub_paths() {
+        for ok in ["hub", "my-folder_2", "hub/billing", "hub/billing/v-2"] {
+            assert!(validate_folder(ok).is_ok(), "{ok} should be valid");
+        }
+        let too_long = format!("a/{}", "b".repeat(254));
+        for bad in [
+            "",
+            "/hub",
+            "hub/",
+            "hub//billing",
+            "hub/../x",
+            "hub/./x",
+            "hub/bil ling",
+            "hub\\billing",
+            too_long.as_str(),
+        ] {
+            assert!(validate_folder(bad).is_err(), "{bad} should be rejected");
+        }
+    }
 
     #[test]
     fn public_hub_recognized_in_every_spelling() {

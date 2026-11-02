@@ -19,6 +19,11 @@ lazy_static::lazy_static! {
 /// Width of the `username` columns of `usr`, `password` and `pending_user`.
 pub const USERNAME_MAX_LEN: usize = 50;
 
+/// The `created_by` of jobs run by logged-out visitors of public apps. Logged-out callers may
+/// read and cancel jobs created by it, so no new account may take it. Those checks compare
+/// exactly, so only this exact spelling is reserved.
+pub const ANONYMOUS_USERNAME: &str = "anonymous";
+
 /// The rule for every username a caller chooses. It is exactly what the generators produce
 /// (`INVALID_USERNAME_CHARS` stripped), so automatic creation always satisfies it. No hyphen:
 /// Windmill's own job creators and identities are hyphenated (`group-<g>` becomes `g/<g>`,
@@ -32,6 +37,11 @@ pub fn validate_username(username: &str) -> error::Result<()> {
             "Invalid username {username:?}: use only letters, digits and underscores, \
              at most {USERNAME_MAX_LEN} characters"
         )));
+    }
+    if username == ANONYMOUS_USERNAME {
+        return Err(Error::BadRequest(
+            "The username anonymous is reserved".to_string(),
+        ));
     }
     Ok(())
 }
@@ -75,7 +85,7 @@ pub async fn generate_instance_wide_unique_username<'c>(
             )));
         }
         username = fit_username(&base_username, i);
-        username_conflict = sqlx::query_scalar!(
+        username_conflict = username == ANONYMOUS_USERNAME || sqlx::query_scalar!(
                 "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 and email != $2 UNION SELECT 1 FROM password WHERE username = $1 UNION SELECT 1 FROM pending_user WHERE username = $1)",
                 &username,
                 &email
@@ -202,10 +212,24 @@ mod tests {
 
     #[test]
     fn test_validate_username() {
-        for ok in ["jean_luc", "42", "A", &"a".repeat(USERNAME_MAX_LEN)] {
+        for ok in [
+            "jean_luc",
+            "42",
+            "A",
+            "Anonymous",
+            &"a".repeat(USERNAME_MAX_LEN),
+        ] {
             assert!(validate_username(ok).is_ok(), "{ok}");
         }
-        for bad in ["", "jean-luc", "group-ops", "josé", "a b", &"a".repeat(51)] {
+        for bad in [
+            "",
+            "jean-luc",
+            "group-ops",
+            "josé",
+            "a b",
+            "anonymous",
+            &"a".repeat(51),
+        ] {
             assert!(validate_username(bad).is_err(), "{bad}");
         }
     }

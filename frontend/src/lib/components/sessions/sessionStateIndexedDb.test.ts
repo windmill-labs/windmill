@@ -62,6 +62,7 @@ import {
 	setSessionDraftPrompt,
 	setSessionTabs,
 	setSessionChatId,
+	noteRemoteStateChange,
 	reconcileSessionsLifecycle,
 	__resetDeletedSessionIdsForTesting,
 	setSessionArchived,
@@ -177,6 +178,29 @@ describe('sessionState IndexedDB persistence', () => {
 			const s = sessionState.sessions.find((x) => x.id === 's1')
 			expect(s?.chatId).toBe('chat-2')
 			expect(s?.summary).toBe('newer summary')
+		})
+	})
+
+	it("noteRemoteStateChange re-sorts without writing this tab's stale copy", async () => {
+		const user = freshUser()
+		await login(user)
+
+		const stale = session({ id: 's1', createdAt: 100, summary: 'old summary' })
+		await putSession(stale)
+		await putSession(
+			session({ id: 's1', createdAt: 100, summary: 'newer summary', lastStateChangeAt: 500 })
+		)
+
+		sessionState.sessions = [stale]
+		noteRemoteStateChange('s1')
+		await flush()
+		expect(sessionState.sessions[0].lastStateChangeAt).toBeGreaterThan(500)
+
+		await rehydrate(user)
+		await vi.waitFor(() => {
+			const s = sessionState.sessions.find((x) => x.id === 's1')
+			expect(s?.summary).toBe('newer summary')
+			expect(s?.lastStateChangeAt).toBe(500)
 		})
 	})
 

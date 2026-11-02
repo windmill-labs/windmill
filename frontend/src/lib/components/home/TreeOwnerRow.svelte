@@ -20,6 +20,9 @@
 		detail: Snippet
 		/** Controls rendered next to the name. Clicks on them do not toggle the row. */
 		actions?: Snippet
+		/** Always-visible control before the icon (e.g. a checkbox). Clicks on it do not
+		 * toggle the row. */
+		lead?: Snippet
 		/** Always-visible controls before the chevron. They stop their own clicks. */
 		trailing?: Snippet
 		/** False for a row known to group nothing: it renders without a chevron and does not toggle. */
@@ -35,6 +38,7 @@
 		toggleLabel,
 		detail,
 		actions,
+		lead,
 		trailing,
 		expandable = true
 	}: Props = $props()
@@ -54,6 +58,11 @@
 		class="flex flex-row items-center gap-4"
 		style={indent > 0 ? `padding-left: ${indent}px;` : ''}
 	>
+		{#if lead}
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="flex" onclick={(e) => e.stopPropagation()}>{@render lead()}</div>
+		{/if}
 		<Icon size={16} class="text-secondary shrink-0" />
 		<div>
 			<div class="flex flex-row items-center gap-1">

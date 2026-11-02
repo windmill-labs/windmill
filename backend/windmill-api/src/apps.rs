@@ -4414,7 +4414,7 @@ async fn get_on_behalf_details_from_policy_and_authed(
             let username = opt_authed
                 .as_ref()
                 .map(|a| a.username.clone())
-                .unwrap_or_else(|| "anonymous".to_string());
+                .unwrap_or_else(|| windmill_common::usernames::ANONYMOUS_USERNAME.to_string());
             let (permissioned_as, email) = get_on_behalf_of(&policy, w_id, db).await?;
             (username, permissioned_as, email)
         }
