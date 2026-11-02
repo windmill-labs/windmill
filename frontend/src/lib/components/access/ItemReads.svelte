@@ -200,7 +200,7 @@
 										disabled={!!granting}
 										onClick={() => (confirming = item)}
 									>
-										Grant read to {account}
+										Grant read
 									</Button>
 								{/if}
 							</Cell>
