@@ -88,6 +88,8 @@ export function itemHref(kind: string, path: string): string | undefined {
 		case 'app':
 		case 'apps':
 			return `/apps/get/${path}`
+		case 'raw_app':
+			return `/apps_raw/get/${path}`
 		case 'resource':
 		case 'resources':
 			return `/resources#/resource/${path}`
