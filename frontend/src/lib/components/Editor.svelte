@@ -8,6 +8,7 @@
 	import { BROWSER } from 'esm-env'
 
 	import { buildWsUrl } from '$lib/wsUrl'
+	import { signLspRequest } from '$lib/components/debug/debugUtils'
 	import { sendUserToast } from '$lib/toast'
 
 	import { createEventDispatcher, getContext, onDestroy, onMount, tick, untrack } from 'svelte'
@@ -26,7 +27,7 @@
 
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
-	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
+	import type { MessageTransports } from 'vscode-languageclient'
 
 	import { MonacoBinding } from 'y-monaco'
 	import {
@@ -587,8 +588,6 @@
 		}
 	}
 
-	let command: IDisposable | undefined = undefined
-
 	let sqlTypeCompletor: IDisposable | undefined = $state(undefined)
 	let resultCollectionCompletor: IDisposable | undefined = $state(undefined)
 
@@ -1030,15 +1029,7 @@
 	export async function reloadWebsocket() {
 		await closeWebsockets()
 
-		if (
-			!useWebsockets ||
-			!(
-				(lang == 'typescript' && scriptLang === 'deno') ||
-				lang == 'python' ||
-				lang == 'go' ||
-				lang == 'shell'
-			)
-		) {
+		if (!useWebsockets || !(lang == 'python' || lang == 'go' || lang == 'shell')) {
 			return
 		}
 		console.log('reloadWebsocket')
@@ -1164,24 +1155,6 @@
 
 					lastWsAttempt = new Date()
 					nbWsAttempt = 0
-					if (name == 'deno') {
-						command && command.dispose()
-						command = undefined
-						try {
-							command = vscode.commands.registerCommand(
-								'deno.cache',
-								(uris: DocumentUri[] = []) => {
-									languageClient.sendRequest(new RequestType('deno/cache'), {
-										referrer: { uri },
-										uris: uris.map((uri) => ({ uri }))
-									})
-								}
-							)
-						} catch (err) {
-							console.warn(err)
-						}
-					}
-
 					websocketAlive[name] = true
 				}
 			} catch (err) {
@@ -1189,76 +1162,25 @@
 			}
 		}
 
-		const hostname = getHostname()
-
-		let encodedImportMap = ''
-
 		if (useWebsockets) {
-			if (lang == 'typescript' && scriptLang === 'deno') {
-				ata = undefined
-				let root = await genRoot(hostname)
-				const importMap = {
-					imports: {
-						'file:///': root + '/'
-					}
-				}
-				if (filePath && filePath.split('/').length > 2) {
-					let path_splitted = filePath.split('/')
-					for (let c = 0; c < path_splitted.length; c++) {
-						let key = 'file://./'
-						for (let i = 0; i < c; i++) {
-							key += '../'
-						}
-						let url = path_splitted.slice(0, -c - 1).join('/')
-						let ending = c == path_splitted.length - 1 ? '' : '/'
-						importMap['imports'][key] = `${root}/${url}${ending}`
-					}
-				}
-				encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
+			// Signed afresh on every (re)connection: the windmill_extra gateway checks it at
+			// connect time and it expires within a minute. A connection without one is still
+			// attempted, for an extra image that does not require it.
+			let lspToken: string | undefined
+			try {
+				lspToken = await signLspRequest($operatingWorkspace ?? '')
+			} catch (err) {
+				console.warn('could not sign a language server session', err)
+			}
+			// Signing is a network round-trip; the editor may have been destroyed while it was in
+			// flight, in which case onDestroy already tore the sockets and interval down.
+			if (destroyed) return
+			const lspUrl = (path: string) =>
+				lspToken ? `${buildWsUrl(path)}?token=${encodeURIComponent(lspToken)}` : buildWsUrl(path)
+
+			if (lang === 'python') {
 				await connectToLanguageServer(
-					buildWsUrl('/ws/deno'),
-					'deno',
-					{
-						certificateStores: null,
-						enablePaths: [],
-						config: null,
-						importMap: encodedImportMap,
-						internalDebug: false,
-						lint: false,
-						path: null,
-						tlsCertificate: null,
-						unsafelyIgnoreCertificateErrors: null,
-						unstable: true,
-						enable: true,
-						codeLens: {
-							implementations: true,
-							references: true,
-							referencesAllFunction: false
-						},
-						suggest: {
-							autoImports: true,
-							completeFunctionCalls: false,
-							names: true,
-							paths: true,
-							imports: {
-								autoDiscover: true,
-								hosts: {
-									'https://deno.land': true
-								}
-							}
-						}
-					},
-					() => {
-						return [
-							{
-								enable: true
-							}
-						]
-					}
-				)
-			} else if (lang === 'python') {
-				await connectToLanguageServer(
-					buildWsUrl('/ws/pyright'),
+					lspUrl('/ws/pyright'),
 					'pyright',
 					{},
 					(params, token, next) => {
@@ -1292,14 +1214,14 @@
 				// below is the document URI rather than a directory containing it, so a ruff.toml
 				// on disk never applies unless named here (written by lsp/pyls_launcher.py).
 				connectToLanguageServer(
-					buildWsUrl('/ws/ruff'),
+					lspUrl('/ws/ruff'),
 					'ruff',
 					{ settings: { configuration: '/tmp/monaco/ruff.toml' } },
 					undefined
 				)
 			} else if (lang === 'go') {
 				connectToLanguageServer(
-					buildWsUrl('/ws/go'),
+					lspUrl('/ws/go'),
 					'go',
 					{
 						'build.allowImplicitNetworkAccess': true
@@ -1308,7 +1230,7 @@
 				)
 			} else if (lang === 'shell') {
 				connectToLanguageServer(
-					buildWsUrl('/ws/diagnostic'),
+					lspUrl('/ws/diagnostic'),
 					'shellcheck',
 					{
 						linters: {
@@ -1354,13 +1276,13 @@
 						(new Date().getTime() - lastWsAttempt.getTime() > 60000 && nbWsAttempt < 2)
 					) {
 						if (
-							!websocketAlive.deno &&
 							!websocketAlive.pyright &&
 							!websocketAlive.go &&
 							!websocketAlive.shellcheck &&
 							!websocketAlive.ruff &&
 							scriptLang != 'bun' &&
-							scriptLang != 'tsx'
+							scriptLang != 'tsx' &&
+							scriptLang != 'deno'
 						) {
 							console.log('reconnecting to language servers')
 							lastWsAttempt = new Date()
@@ -1395,9 +1317,6 @@
 	}
 
 	async function closeWebsockets() {
-		command && command.dispose()
-		command = undefined
-
 		console.debug(`disposing ${websockets.length} language clients and closing websockets`)
 		for (const x of languageClients) {
 			try {
@@ -1749,7 +1668,6 @@
 			})
 
 			if (
-				!websocketAlive.deno &&
 				!websocketAlive.pyright &&
 				!websocketAlive.ruff &&
 				!websocketAlive.shellcheck &&
