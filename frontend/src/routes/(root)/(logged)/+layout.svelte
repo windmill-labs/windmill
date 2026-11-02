@@ -74,7 +74,7 @@
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { parseSuperadminSettingsHash, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
-	import { PanelLeft, Home, Play, Search, WandSparkles, ArrowLeft } from 'lucide-svelte'
+	import { PanelLeft, Play, Search, WandSparkles, ArrowLeft } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { isInstanceRoute } from '$lib/instanceRoutes'
 	import { getUserExt } from '$lib/user'
@@ -234,11 +234,18 @@
 		// Re-expanding a snap-collapsed rail restores the width it had before the drag.
 		const widthAtStart = sidebarWidth
 		const collapsedAtStart = collapsedState
+		// A rail widened by hover resizes the width it widens to and stays in its mode: it has no
+		// snap, since collapsing is what it does when the pointer leaves.
+		const hoverResize = hoverExpanded
 		// The rail is fixed at left:0, so the pointer's clientX is the width — in px.
 		// Convert to rem (the unit the rail is sized in) via the root font-size. The
 		// rail clamps at the min like a wall, until the pointer reaches the snap zone.
 		const onMove = (ev: PointerEvent) => {
 			const x = ev.clientX / rootFontPx()
+			if (hoverResize) {
+				sidebarWidth = Math.max(SIDEBAR_MIN_REM, x)
+				return
+			}
 			const collapse = x < SIDEBAR_SNAP_COLLAPSE_REM
 			// Operators have no icon-only rail to snap to, so the same gesture detaches
 			// instead: dragging the sidebar off the left edge puts it behind the handle.
@@ -275,6 +282,9 @@
 				handle.releasePointerCapture(e.pointerId)
 			} catch {}
 			stopSidebarResize = null
+			if (hoverResize && !document.getElementById('sidebar')?.matches(':hover')) {
+				scheduleRailCollapse()
+			}
 		}
 		stopSidebarResize = stop
 		window.addEventListener('pointermove', onMove)
@@ -519,6 +529,8 @@
 	// The close waits just long enough for the pointer to cross into a menu the rail opened.
 	const RAIL_HOVER_CLOSE_DELAY_MS = 80
 	const { debounced: scheduleRailCollapse, clearDebounce: cancelRailCollapse } = debounce(() => {
+		// A drag of the widened rail's edge ends outside it; the drag's end decides.
+		if (resizingSidebar) return
 		if (pointerInMenu()) {
 			scheduleRailCollapse()
 			return
@@ -1200,7 +1212,6 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			},
 			{
 				displayName: 'Icons only',
-				description: "Or drag the sidebar's edge",
 				shortcut: `${getModifierKey()}\\`,
 				selected: mode === 'icons',
 				hide: !$roleCapabilities.code,
@@ -1214,7 +1225,6 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			},
 			{
 				displayName: 'Hidden, show on hover',
-				description: $roleCapabilities.code ? undefined : 'Or drag its edge to the left',
 				selected: mode === 'hidden',
 				action: () => setSidebarMode('hidden')
 			}
@@ -1225,15 +1235,6 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			<span class="sr-only">Sidebar mode</span>
 		{/snippet}
 	</DropdownV2>
-{/snippet}
-
-{#snippet brandMark(collapsed: boolean)}
-	<div class="flex items-center gap-x-1.5 text-xs font-semibold text-emphasis">
-		<WindmillIcon white={darkMode} height="16px" width="16px" />
-		{#if !collapsed}
-			{$whitelabelNameStore ? capitalize($whitelabelNameStore) : 'Windmill'}
-		{/if}
-	</div>
 {/snippet}
 
 <!-- Settings / instance section: the last section inside the nav's unified scroll area. -->
@@ -1284,11 +1285,13 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 		     which is why nothing names the workspace here. -->
 		<div class="flex-shrink-0 px-2 h-12 flex flex-row items-center gap-0.5">
 			<div class="flex-1 min-w-0">
+				<!-- The brand is the way home, so it stands in for a Home icon and label. -->
 				<MenuLink
 					class="!text-xs"
-					label="Home"
+					label={$whitelabelNameStore ? capitalize($whitelabelNameStore) : 'Windmill'}
+					hint="Go to Home"
 					href="/"
-					icon={Home}
+					icon={WindmillIcon}
 					isCollapsed={collapsed}
 					aiId="sidebar-menu-link-home"
 					aiDescription="Button to navigate to home which contains all the user's scripts, flows and apps"
@@ -1303,7 +1306,12 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			     overflow fade hint. The sections (Runs + workspace items / AI sessions /
 			     instance settings) are spaced by the scroll area's
 			     gap rather than each scrolling on its own. -->
-			<SidebarScrollArea color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
+			<!-- Keyed to the mode rather than to `collapsed`: a scrollbar appearing as the rail opens on
+			     hover would shift the rows mid-animation. -->
+			<SidebarScrollArea
+				color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
+				hideScrollbar={!panel && isCollapsed}
+			>
 				<!-- Section 1: Search (collapsed) + Runs, then the workspace items, spaced as one list. -->
 				<div class="flex flex-col gap-0.5">
 					<div class="px-2 flex flex-col gap-0.5">
@@ -1374,17 +1382,12 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			<SidebarUsage isCollapsed={collapsed} />
 		</div>
 
-		<!-- One row in every mode, the mode button first, so it stays where the rail has it; the
-		     brand only fits beside it once the sidebar is open. -->
-		<div class="flex-shrink-0 flex items-center gap-2 h-8 px-2 mt-1 mb-3.5">
-			<!-- Below 768px the panel is the only shell there is, so there is no mode to pick. -->
-			{#if !panel || (navDetached.val && innerWidth >= 768)}
+		<!-- Below 768px the panel is the only shell there is, so there is no mode to pick. -->
+		{#if !panel || (navDetached.val && innerWidth >= 768)}
+			<div class="flex-shrink-0 flex items-center h-8 px-2 mt-1 mb-3.5">
 				{@render sidebarModeMenu()}
-			{/if}
-			{#if !collapsed}
-				{@render brandMark(collapsed)}
-			{/if}
-		</div>
+			</div>
+		{/if}
 	</div>
 {/snippet}
 

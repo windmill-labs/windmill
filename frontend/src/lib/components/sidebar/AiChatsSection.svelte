@@ -65,12 +65,13 @@
 		icon={MessagesSquare}
 		folded={sectionCollapsed.val}
 		onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
-		count={rows.length}
 		{isCollapsed}
 	>
 		{#snippet children(inPopover)}
 			{@const rail = isCollapsed && !inPopover}
-			<div class="flex flex-col gap-0.5 max-h-[40vh] overflow-y-auto">
+			<div
+				class="flex flex-col gap-0.5 max-h-[40vh] overflow-y-auto {rail ? 'scrollbar-hidden' : ''}"
+			>
 				{#each rows as c (c.id)}
 					{@const t = target(c)}
 					{@const selected = openId === c.id}
@@ -78,7 +79,9 @@
 						href={t.href}
 						title="{t.agent ? 'Agent' : 'Flow'} {t.path}"
 						class={twMerge(
-							'flex flex-row items-center gap-2 px-2 h-6 rounded text-xs font-normal min-w-0',
+							// shrink-0: in the capped list a row would otherwise shrink to its content,
+							// which is shorter in the rail, where it has no label.
+							'flex flex-row items-center gap-2 px-2 h-6 shrink-0 rounded text-xs font-normal min-w-0',
 							selected
 								? twMerge(sidebarClasses.selectedBg, sidebarClasses.selectedText)
 								: 'text-secondary hover:bg-surface-hover'

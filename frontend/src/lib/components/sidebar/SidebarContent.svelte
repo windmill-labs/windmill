@@ -49,13 +49,7 @@
 		getServiceIcon
 	} from '../triggers/native/utils'
 	import type { NativeServiceName } from '$lib/gen/types.gen'
-	import {
-		Menubar,
-		Menu,
-		MenuSingleItem,
-		MenuItem,
-		MeltButton
-	} from '$lib/components/meltComponents'
+	import { Menubar, Menu, MenuSingleItem, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton from './MenuButton.svelte'
 	import SidebarSection from './SidebarSection.svelte'
 	import GoogleCloudIcon from '../icons/triggers/GoogleCloudIcon.svelte'
@@ -500,7 +494,6 @@
 						icon={Database}
 						folded={dataSectionCollapsed.val}
 						onToggle={() => (dataSectionCollapsed.val = !dataSectionCollapsed.val)}
-						count={dataLinks.length}
 						{isCollapsed}
 					>
 						{#snippet children(inPopover)}
@@ -519,20 +512,23 @@
 			{/if}
 		{/if}
 		{#if showMain && showTriggersGroup}
-			<!-- The + sits at the right of the section's title row, as the AI sessions section's
-			     options do; the rail keeps it in the title row's slot. -->
-			{#snippet addTriggerMenu(createMenu: any)}
-				<Menu {createMenu} usePointerDownOutside placement="bottom-start">
+			{#snippet addTriggerMenu(createMenu: any, rail: boolean)}
+				<Menu
+					{createMenu}
+					usePointerDownOutside
+					placement={rail ? 'right-start' : 'bottom-start'}
+					class="h-[30px]"
+				>
 					{#snippet triggr({ trigger })}
-						<MeltButton
+						<MenuButton
 							aiId="sidebar-menu-link-add-trigger"
 							aiDescription="Button to add a new trigger. Can be HTTP, WebSocket, Postgres, Kafka, NATS, SQS, GCP Pub/Sub, or MQTT"
-							class="h-7 w-7 shrink-0 flex items-center justify-center rounded-md text-secondary hover:bg-surface-hover data-[highlighted]:bg-surface-hover"
-							title="Add trigger"
-							meltElement={trigger}
-						>
-							<Plus size={14} />
-						</MeltButton>
+							icon={Plus}
+							label="New trigger"
+							isCollapsed={rail}
+							buttonClass="data-[highlighted]:bg-surface-hover"
+							{trigger}
+						/>
 					{/snippet}
 					{#snippet children({ item })}
 						{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
@@ -555,26 +551,23 @@
 					{/snippet}
 				</Menu>
 			{/snippet}
-			{#snippet triggerHeaderActions()}
-				<Menubar>
-					{#snippet children({ createMenu })}
-						{@render addTriggerMenu(createMenu)}
-					{/snippet}
-				</Menubar>
-			{/snippet}
 			<div class="mt-2.5">
 				<SidebarSection
 					title="Triggers"
 					icon={Zap}
 					folded={triggersCollapsed.val}
 					onToggle={() => (triggersCollapsed.val = !triggersCollapsed.val)}
-					count={triggerMenuLinks.filter((l) => !l.disabled).length}
-					actions={showAddTriggerMenu ? triggerHeaderActions : undefined}
-					railAction={showAddTriggerMenu ? triggerHeaderActions : undefined}
 					{isCollapsed}
 				>
 					{#snippet children(inPopover)}
 						<div class="flex flex-col gap-0.5">
+							{#if showAddTriggerMenu}
+								<Menubar class="w-full">
+									{#snippet children({ createMenu })}
+										{@render addTriggerMenu(createMenu, isCollapsed && !inPopover)}
+									{/snippet}
+								</Menubar>
+							{/if}
 							{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 								<MenuLink class="!text-xs" {...menuLink} isCollapsed={isCollapsed && !inPopover} />
 							{/each}

@@ -127,7 +127,7 @@
 				sidebarClasses.hoverBg,
 				'transition-all relative',
 				// One height in the rail and the open sidebar, so a row keeps its place in every mode.
-				sublabel ? 'h-10' : 'h-8',
+				sublabel ? 'h-10' : 'h-[30px]',
 				classNames,
 				buttonClass
 			)}

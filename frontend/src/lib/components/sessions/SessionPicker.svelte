@@ -53,7 +53,7 @@
 	import SessionStatusDot from './SessionStatusDot.svelte'
 	import UnreadCountBadge from '$lib/components/common/badge/UnreadCountBadge.svelte'
 	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
-	import { sidebarClasses } from '$lib/components/sidebar/MenuButton.svelte'
+	import MenuButton, { sidebarClasses } from '$lib/components/sidebar/MenuButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
@@ -163,6 +163,8 @@
 	// only when a second family shows up); the others always draw headers.
 	const groupBy = useLocalStorageValue<GroupBy>('windmill_sessions_group_by', 'none', 'string')
 	let listRoot: HTMLDivElement | undefined = $state()
+	// The list options menu, from the section row and from its popover.
+	let optionsOpen = $state([false, false])
 
 	// A session's family root: the stored grouping id, else derived live.
 	function sessionRootOf(s: Session): string | undefined {
@@ -706,10 +708,22 @@
 					{GROUP_BY_OPTIONS.find((o) => o.value === groupBy.val)?.hint ?? ''}
 				</span>
 			{/snippet}
-			{#snippet listOptions(size: 'sm' | 'md')}
+			{#snippet listOptions(
+				size: 'xs' | 'sm' | 'md',
+				inPopover = false,
+				hold?: (held: boolean) => void
+			)}
+				<!-- From the section's popover the menu opens beside it, as a submenu. -->
 				<DropdownV2
 					fixedHeight={false}
-					placement="bottom-end"
+					placement={inPopover ? 'right-start' : 'bottom-end'}
+					bind:open={
+						() => optionsOpen[inPopover ? 1 : 0],
+						(v) => {
+							optionsOpen[inPopover ? 1 : 0] = v
+							hold?.(v)
+						}
+					}
 					enableFlyTransition
 					items={[
 						{
@@ -765,22 +779,14 @@
 					{/snippet}
 				</DropdownV2>
 			{/snippet}
-			{#snippet newSessionButton()}
-				<Button
-					unifiedSize="sm"
-					variant="subtle"
-					iconOnly
-					startIcon={{ icon: Plus }}
-					title="New session"
-					aria-label="New session"
-					data-asks-for-composer
-					btnClasses="text-secondary"
-					onClick={() => openNewSession()}
-				/>
-			{/snippet}
-			{#snippet headerActions()}
-				{@render listOptions('sm')}
-				{@render newSessionButton()}
+			{#snippet sectionOptions({
+				inPopover,
+				hold
+			}: {
+				inPopover: boolean
+				hold: (held: boolean) => void
+			})}
+				{@render listOptions(inPopover ? 'xs' : 'sm', inPopover, hold)}
 			{/snippet}
 			{#if collapsible}
 				<SidebarSection
@@ -789,13 +795,20 @@
 					folded={sectionCollapsed.val}
 					onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
 					disabled={visibleSessions.length === 0}
-					count={visibleSessions.length}
 					notify={totalUnread > 0}
-					actions={headerActions}
-					railAction={newSessionButton}
+					actions={sectionOptions}
 					{isCollapsed}
 				>
 					{#snippet children(inPopover)}
+						<!-- Outside the listbox, so arrow keys move through sessions only. -->
+						<div class="mb-0.5" data-asks-for-composer>
+							<MenuButton
+								icon={Plus}
+								label="New session"
+								isCollapsed={isCollapsed && !inPopover}
+								on:click={() => openNewSession()}
+							/>
+						</div>
 						{@render sessionList(inPopover)}
 					{/snippet}
 				</SidebarSection>
@@ -828,6 +841,8 @@
 					</span>
 				{/snippet}
 				{#snippet sessionRow(session, indented, treeDepth)}
+					<!-- The rail has no room for indents or tree guides; every row is one centered dot. -->
+					{@const depth = rail ? undefined : treeDepth}
 					{@const runtime = getRuntime(session.id)}
 					{@const status = runtime
 						? getSessionChatStatus(runtime)
@@ -840,15 +855,15 @@
 					<div
 						class={twMerge(
 							'flex flex-row group rounded',
-							treeDepth === undefined ? 'items-center' : 'items-stretch',
+							depth === undefined ? 'items-center' : 'items-stretch',
 							isSelected ? sidebarClasses.selectedBg : 'hover:bg-surface-hover',
 							session.archived ? 'opacity-60' : '',
 							// Grouped rows sit slightly in from their header; tree mode uses guide columns.
-							treeDepth === undefined && indented ? 'pl-1' : ''
+							depth === undefined && indented && !rail ? 'pl-1' : ''
 						)}
 					>
-						{#if treeDepth !== undefined}
-							{#each Array(treeDepth) as _}{@render vline()}{/each}
+						{#if depth !== undefined}
+							{#each Array(depth) as _}{@render vline()}{/each}
 						{/if}
 						{#if selectionMode}
 							<!-- Takes over the status-dot slot exactly (pl-2 + 16px, the row button's
@@ -869,7 +884,7 @@
 						{/if}
 						{#if isEditing}
 							<span class="flex flex-row items-center gap-2 flex-1 px-2 py-1 min-w-0">
-								{#if treeDepth === undefined}
+								{#if depth === undefined}
 									<SessionStatusDot
 										{status}
 										isFork={isForkFor(session)}
@@ -908,7 +923,7 @@
 									isSelected ? sidebarClasses.selectedText : 'text-secondary'
 								)}
 							>
-								{#if treeDepth === undefined && !selectionMode}
+								{#if depth === undefined && !selectionMode}
 									<SessionStatusDot
 										{status}
 										isFork={isForkFor(session)}

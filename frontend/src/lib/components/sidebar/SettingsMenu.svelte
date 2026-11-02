@@ -330,9 +330,7 @@
 		>
 			{#snippet buttonReplacement()}
 				<span
-					class="relative flex items-center gap-2 w-full h-8 px-2 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
-						? 'justify-center'
-						: ''}"
+					class="relative flex items-center gap-2 w-full h-[30px] px-2 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer"
 				>
 					<Logs size={16} />
 					{#if !isCollapsed}
@@ -380,9 +378,7 @@
 >
 	{#snippet buttonReplacement()}
 		<span
-			class="relative flex items-center gap-2 w-full h-8 px-2 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
-				? 'justify-center'
-				: ''}"
+			class="relative flex items-center gap-2 w-full h-[30px] px-2 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer"
 		>
 			<Settings size={16} />
 			{#if !isCollapsed}

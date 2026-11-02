@@ -33,7 +33,6 @@ The starred items as a sidebar section, turned on from "Customize sidebar" in th
 		icon={Star}
 		folded={sectionCollapsed.val}
 		onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
-		count={favoriteManager.current.length}
 		{isCollapsed}
 	>
 		{#snippet children(inPopover)}
