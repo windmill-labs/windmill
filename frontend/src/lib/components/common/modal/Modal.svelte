@@ -56,6 +56,9 @@
 		 * can see the key at all.
 		 */
 		enterConfirms?: boolean
+		/** Off while something opened from inside that is not an overlay of its own (a select
+		 *  dropdown, a portalled confirmation) owns Enter and Escape. */
+		keyListen?: boolean
 		/** Make the dialog fill the height it is anchored to and lay its body out as a flex
 		 * column, so content can size itself with `h-full` / `flex-1 min-h-0`. Off by default:
 		 * the dialog otherwise hugs its content, and percentage heights inside it do not
@@ -94,6 +97,7 @@
 		fitHeight = false,
 		paginated = false,
 		enterConfirms = true,
+		keyListen = true,
 		minZIndex: minZIndexProp = undefined,
 		titleBadge,
 		levelBadge,
@@ -147,7 +151,7 @@
 		// `preventEscape` below keeps Escape for this dialog, so nothing else arbitrates between it
 		// and an overlay stacked over it (a drawer opened from inside): ask before acting.
 		if (!disposable?.isTopmost()) return
-		if (open) {
+		if (open && keyListen) {
 			switch (event.key) {
 				case 'Enter':
 					if (!enterConfirms) break

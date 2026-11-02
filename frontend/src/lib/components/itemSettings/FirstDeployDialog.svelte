@@ -68,6 +68,8 @@
 
 	let open = $state(false)
 	let step = $state<'details' | 'runAs'>('details')
+	let pickerOpen = $state(false)
+	let overlayOpen = $state(false)
 	let kind = $state<ShareKind>('flow')
 	let summary = $state('')
 	let path: string | undefined = $state()
@@ -149,6 +151,8 @@
 	}): Promise<FirstDeployChoice | undefined> {
 		resolve?.(undefined)
 		step = 'details'
+		pickerOpen = false
+		overlayOpen = false
 		kind = opts.kind
 		runAsWorkspace = opts.runAs?.targetWorkspace
 		runAsEmail = opts.runAs?.email
@@ -238,6 +242,7 @@
 		: undefined}
 	kind="X"
 	enterConfirms={false}
+	keyListen={!pickerOpen && !overlayOpen}
 	fitHeight
 	class="sm:max-w-xl"
 >
@@ -256,6 +261,8 @@
 				rawApp={kind === 'raw_app'}
 				itemPath={path}
 				{needsSource}
+				onPickerOpenChange={(o) => (pickerOpen = o)}
+				onOverlayChange={(o) => (overlayOpen = o)}
 			/>
 			<div class="flex flex-row justify-end gap-2">
 				<Button variant="default" unifiedSize="md" onclick={() => (step = 'details')}>Back</Button>
