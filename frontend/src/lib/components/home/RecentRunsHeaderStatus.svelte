@@ -55,7 +55,7 @@
 						<Play size={14} />
 						{#if data}
 							<span
-								class="absolute -top-0.5 -right-1 w-[7px] h-[7px] rounded-full ring-2 ring-surface {data.failing_items >
+								class="absolute -top-0.5 -right-1 w-[7px] h-[7px] rounded-full ring-2 ring-surface {data.failed_runs >
 								0
 									? 'bg-red-500'
 									: data.running_items > 0
@@ -66,10 +66,10 @@
 					</span>
 				{:else}
 					<span>{data ? totalLabel(data) : 'Recent runs'}</span>
-					{#if data && data.failing_items > 0}
+					{#if data && data.failed_runs > 0}
 						<span class="flex items-center gap-1.5 text-red-600 dark:text-red-400">
 							<span class="w-[7px] h-[7px] rounded-full bg-red-500"></span>
-							{data.failing_items} failing
+							{data.failed_runs} failed
 						</span>
 					{:else if data}
 						<span class="flex items-center gap-1.5">

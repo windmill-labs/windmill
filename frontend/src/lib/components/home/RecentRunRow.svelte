@@ -110,6 +110,10 @@
 		</span>
 		<span class="flex items-center gap-1.5 min-w-0 text-[10.5px] text-hint">
 			<span class="truncate">{item.path}</span>
+			<!-- The run total's failed count is the sum of these, so the header's number has a source. -->
+			{#if item.failed_runs > 0}
+				<span class="shrink-0 text-red-600 dark:text-red-400">{item.failed_runs} failed</span>
+			{/if}
 			{#if failing && canAskAI() && latest}
 				<button
 					class="hidden group-hover:inline group-focus-within:inline shrink-0 font-medium text-ai hover:underline"

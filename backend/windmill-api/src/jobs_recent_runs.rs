@@ -57,6 +57,8 @@ pub(crate) struct RecentRunItem {
     summary: Option<String>,
     /// The status of the item's newest run.
     status: String,
+    /// Over the whole window, not only the runs listed.
+    failed_runs: i64,
     /// Newest first.
     runs: Vec<RecentRun>,
 }
@@ -147,8 +149,10 @@ pub(crate) async fn list_recent_runs(
     let mut items: Vec<RecentRunItem> = vec![];
     let mut index: HashMap<(String, String), usize> = HashMap::new();
     for run in runs {
+        let failed = (run.status == "failure") as i64;
         match index.get(&(run.kind.clone(), run.path.clone())) {
             Some(&i) => {
+                items[i].failed_runs += failed;
                 if items[i].runs.len() < RUNS_PER_ITEM {
                     items[i].runs.push(run);
                 }
@@ -160,6 +164,7 @@ pub(crate) async fn list_recent_runs(
                     kind: run.kind.clone(),
                     summary: None,
                     status: run.status.clone(),
+                    failed_runs: failed,
                     runs: vec![run],
                 });
             }

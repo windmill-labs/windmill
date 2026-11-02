@@ -18001,6 +18001,9 @@ paths:
                           type: string
                         status:
                           $ref: "#/components/schemas/RecentRunStatus"
+                        failed_runs:
+                          description: failed runs of the item over the whole window, not only those in runs
+                          type: integer
                         runs:
                           type: array
                           items:
@@ -18018,7 +18021,7 @@ paths:
                               duration_ms:
                                 type: integer
                             required: [id, status, ran_at]
-                      required: [path, kind, status, runs]
+                      required: [path, kind, status, failed_runs, runs]
                 required:
                   - window_hours
                   - capped

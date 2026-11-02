@@ -132,7 +132,7 @@
 		return [
 			{
 				displayName: data ? totalLabel(data) : 'Recent runs',
-				description: data && data.failing_items > 0 ? `${data.failing_items} failing` : undefined,
+				description: data && data.failed_runs > 0 ? `${data.failed_runs} failed` : undefined,
 				href: allRunsHref(runsFolder)
 			}
 		]
