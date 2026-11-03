@@ -177,10 +177,10 @@
 	// total, and keyboard navigation.
 	const visibleSessions = $derived(
 		sessionState.sessions.filter((s) => {
-			// A blank nobody has typed in is Home's composer at rest, not a session yet.
-			if (s.transient) return false
-			// Pending (unsent) sessions show like any other, so several drafts can be
-			// set up in parallel; they group by pending_workspace_id via sessionRootOf.
+			// A draft Home's composer holds becomes a session when its first send starts, typed
+			// or not. Unsent drafts opened onto an item stay listed: the row is their only way
+			// back. They group by pending_workspace_id via sessionRootOf.
+			if (s.transient || opensOnHome(s)) return false
 			// The row on screen always stays in the list, ignoring every filter.
 			if (s.id === activeRowId) return true
 			if (s.archived && !showArchived.val) return false
