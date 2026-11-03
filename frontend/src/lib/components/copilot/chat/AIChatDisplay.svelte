@@ -784,8 +784,10 @@
 					variant="accent"
 					startIcon={{ icon: KeyRound }}
 					href="/workspace_settings?tab=ai"
+					wrapperClasses="min-w-0 max-w-full"
+					btnClasses="min-w-0"
 				>
-					Add your own API key
+					<span class="truncate">Add your own API key</span>
 				</Button>
 			</div>
 		</Alert>
@@ -794,7 +796,7 @@
 
 {#snippet freeTierUsageBanner()}
 	<div
-		class="my-1 flex items-center justify-between gap-2 rounded-md border bg-surface-secondary px-2 py-1"
+		class="my-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-md border bg-surface-secondary px-2 py-1"
 	>
 		<span class="text-xs text-secondary tabular-nums">
 			{freeTierUsedPct}% of your free Windmill AI used
@@ -804,8 +806,10 @@
 			variant="default"
 			startIcon={{ icon: KeyRound }}
 			href="/workspace_settings?tab=ai"
+			wrapperClasses="min-w-0 shrink"
+			btnClasses="min-w-0"
 		>
-			Configure your API key
+			<span class="truncate">Configure your API key</span>
 		</Button>
 	</div>
 {/snippet}
