@@ -166,6 +166,7 @@
 </div>
 
 <VariablePicker
+	editable
 	bind:itemPicker
 	bind:variableEditor
 	workspace={wsId}

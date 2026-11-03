@@ -660,6 +660,7 @@
 />
 
 <VariablePicker
+	editable
 	bind:this={variablePicker}
 	workspace={ws}
 	onPick={(path, name) => {

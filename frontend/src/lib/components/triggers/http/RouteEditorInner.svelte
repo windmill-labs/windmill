@@ -1130,6 +1130,7 @@
 {/if}
 
 <VariablePicker
+	editable
 	bind:this={variablePicker}
 	workspace={wsId}
 	onPick={(path) => {
