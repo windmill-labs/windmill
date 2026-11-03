@@ -517,25 +517,33 @@ function createRuntime(session: Session): SessionRuntime {
 	// Drafts held by holdDraftUntilSend. Their sync is suspended, so an edit made meanwhile is
 	// in the cell only: forcePersist sends the current value whatever the mirror last saw.
 	let heldDrafts: { workspace: string; kind: SessionTargetKind; path: string }[] = []
+	// A draft leaves the list only once saved: a failed send keeps it held, so its retry saves it.
 	async function persistHeldDrafts(): Promise<void> {
-		const held = heldDrafts
-		heldDrafts = []
-		for (const { workspace, kind, path } of held) {
+		while (heldDrafts.length > 0) {
+			const { workspace, kind, path } = heldDrafts[0]
 			UserDraft.restartSync(kind, path, { workspace })
 			await UserDraft.forcePersist(kind, path, { workspace })
 			const saved = UserDraftDbSyncer.getState({ workspace, itemKind: kind, path })
 			if (saved.state === 'failed') {
+				UserDraft.stopSync(kind, path, { workspace })
 				throw new Error(`the app could not be saved: ${saved.failureMessage ?? 'unknown error'}`)
 			}
+			heldDrafts.shift()
 		}
+	}
+	function releaseHeldDraft(workspace: string, kind: SessionTargetKind, path: string): void {
+		heldDrafts = heldDrafts.filter(
+			(d) => !(d.workspace === workspace && d.kind === kind && d.path === path)
+		)
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit
 	// the workspace (creating a staged fork if needed) before any send.
 	// AIChatManager awaits this so the first message hits a persisted
 	// session targeting the right workspace. Both calls are idempotent.
 	manager.beforeSend = async () => {
-		materializeTransient(session.id)
+		// Drafts first: a session stored before its app is saved would reopen onto nothing.
 		await persistHeldDrafts()
+		materializeTransient(session.id)
 		// Session is now persisted → flush any linked files buffered while it was transient.
 		await manager.attachedFiles.flushPending()
 		// Fork creation is the slow part of the pre-flight; label the loading
@@ -1251,6 +1259,9 @@ function createRuntime(session: Session): SessionRuntime {
 		},
 
 		itemDeployed(workspace, kind, storagePath, deployedPath = storagePath) {
+			// Deployed, it is saved: forcePersist would write a draft over the deployed item.
+			releaseHeldDraft(workspace, kind, storagePath)
+			releaseHeldDraft(workspace, kind, deployedPath)
 			if (deployedPath !== storagePath) {
 				// Nothing is deployed at the storage path, so its editor would go on
 				// creating the item again and its draft would outlive the deploy: drop
