@@ -46,9 +46,10 @@ describe('MultiplayerConnection', () => {
 		const connection = await MultiplayerConnection.open('ws', 'ws/room', new Y.Doc())
 		await vi.advanceTimersByTimeAsync(5 * 60_000)
 
-		// 1s doubling to a 60s cap, halved by jitter at worst: at most ~13 in 5 minutes.
+		// 1s doubling to a 60s cap, halved by jitter at worst: at most 15 in 5 minutes,
+		// where y-websocket's own reconnect makes thousands.
 		expect(attempts.length).toBeGreaterThan(3)
-		expect(attempts.length).toBeLessThan(15)
+		expect(attempts.length).toBeLessThanOrEqual(15)
 		const tokens = attempts.map((u) => new URL(u).searchParams.get('token'))
 		expect(new Set(tokens).size).toBe(attempts.length)
 
