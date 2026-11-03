@@ -68,6 +68,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { currentWorkspaceRootId, workspaceRootId } from './sessionScope.svelte'
 	import { page } from '$app/state'
+	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
 	import {
 		dateBucket,
@@ -476,6 +477,7 @@
 	let selectionInFlyout = $state(false)
 	let selectedIds = $state<string[]>([])
 	let batchDeleteOpen = $state(false)
+	const viewportOverlays = overlayStack()
 
 	const selectableIds = $derived(visibleSessions.map((s) => s.id))
 	const allSelected = $derived(
@@ -1176,10 +1178,16 @@
 </div>
 
 <!-- Selection holds the sidebar open (see the layout), so Esc, which closes it, ends selection too. -->
+<!-- An Esc that closes an overlay (Search) or a menu is theirs: the overlay is read now, as it
+     is off the stack once its own listener has run, and the rest once every listener has. -->
 <svelte:window
 	onkeydown={(e) => {
-		if (e.key === 'Escape' && selectionMode && !batchDeleteOpen && !e.defaultPrevented)
+		if (e.key !== 'Escape' || !selectionMode || batchDeleteOpen) return
+		if (viewportOverlays.val.length > 0) return
+		setTimeout(() => {
+			if (e.defaultPrevented || document.querySelector('[role="menu"]:not([hidden])')) return
 			exitSelectionMode()
+		})
 	}}
 />
 
@@ -1220,7 +1228,11 @@
 	title="Delete sessions"
 	confirmationText="Delete"
 	onConfirmed={handleConfirmedBatchDelete}
-	onCanceled={() => (batchDeleteOpen = false)}
+	onCanceled={() => {
+		batchDeleteOpen = false
+		// The confirmation closed the folded section's menu the selection was made in.
+		if (selectionInFlyout) exitSelectionMode()
+	}}
 >
 	<div class="flex flex-col gap-3">
 		<p>
