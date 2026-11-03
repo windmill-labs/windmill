@@ -853,7 +853,11 @@ function waitSecondsToDetachMs(waitSeconds: number | undefined): number | undefi
 }
 
 const testRunScriptSchema = z.object({
-	path: z.string().describe('Workspace path of the script to test.'),
+	path: z
+		.string()
+		.describe(
+			'Workspace path of the script to test, or a hub/<version>/<app>/<name> path from search_hub_scripts to try a hub script.'
+		),
 	args: testRunArgsSchema,
 	background: backgroundArgSchema,
 	wait_seconds: waitSecondsArgSchema

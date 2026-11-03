@@ -8,7 +8,7 @@ use serde_json::{json, Map, Value};
 
 use super::chat::{Effect, RunPhase};
 use super::workspace::{
-    api_message, get_draft, infer_script_schema, load_flow, load_script, path_enc,
+    api_message, get_draft, get_hub_script, infer_script_schema, load_flow, load_script, path_enc,
 };
 use super::{enc, js_head, js_len, js_tail, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult};
 
@@ -984,14 +984,15 @@ async fn test_run_script(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 
 /// `run_script` and `run_flow`: the deployed item, whatever draft sits on top of it.
 async fn resolve_deployed(ctx: &Ctx<'_>, path: &str, is_flow: bool) -> Result<Resolved, String> {
-    let get = if is_flow {
-        "flows/get"
+    let item = if is_flow {
+        ctx.get(&ctx.ws(&format!("flows/get/{}", path_enc(path))))
+            .await?
+    } else if path.starts_with("hub/") {
+        get_hub_script(ctx, path).await?
     } else {
-        "scripts/get/p"
+        ctx.get(&ctx.ws(&format!("scripts/get/p/{}", path_enc(path))))
+            .await?
     };
-    let item = ctx
-        .get(&ctx.ws(&format!("{get}/{}", path_enc(path))))
-        .await?;
     let chat_enabled = is_flow && truthy(item["value"].get("chat_input_enabled"));
     Ok(Resolved {
         schema: Some(

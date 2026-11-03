@@ -982,8 +982,24 @@ pub(super) struct LoadedScript {
     pub schema: Option<Value>,
 }
 
+/// A hub script, by its `hub/<version>/<app>/<name>` path. Hub scripts live outside the
+/// workspace: they have no draft and no workspace row.
+pub(super) async fn get_hub_script(ctx: &Ctx<'_>, path: &str) -> Result<Value, String> {
+    ctx.get(&format!("/scripts/hub/get_full/{}", path_enc(path)))
+        .await
+}
+
 pub(super) async fn load_script(ctx: &Ctx<'_>, path: &str) -> Result<LoadedScript, String> {
     let text = |value: &Value, key: &str| value.get(key).and_then(Value::as_str).map(String::from);
+    if path.starts_with("hub/") {
+        let script = get_hub_script(ctx, path).await?;
+        return Ok(LoadedScript {
+            content: text(&script, "content").unwrap_or_default(),
+            language: text(&script, "language").unwrap_or_default(),
+            summary: text(&script, "summary"),
+            schema: non_null(script.get("schema")).cloned(),
+        });
+    }
     if let Some((item, _)) = get_draft_item(ctx, "script", path, None).await? {
         let (Some(content), Some(language)) = (
             text(&item, "value"),
@@ -1664,9 +1680,7 @@ async fn read_workspace_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 
     let item = match item_type {
         "script" if hub => {
-            let script = ctx
-                .get(&format!("/scripts/hub/get_full/{}", path_enc(path)))
-                .await?;
+            let script = get_hub_script(ctx, path).await?;
             let mut row = script.clone();
             row["path"] = json!(path);
             let mut item = with_value(
