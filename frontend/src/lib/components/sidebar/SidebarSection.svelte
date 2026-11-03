@@ -121,7 +121,11 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 			{@render foldChevron(10, 'absolute right-0.5 top-[10px]')}
 		{/if}
 	{:else}
-		<span class="truncate uppercase text-[0.5rem] font-normal text-secondary">{title}</span>
+		<!-- Its own line height: the folded and unfolded rows are different elements, whose
+		     inherited ones differ, and Firefox places the text by it. -->
+		<span class="truncate uppercase text-[0.5rem] leading-3 font-normal text-secondary"
+			>{title}</span
+		>
 		{#if notify && (isFolded || disabled)}
 			{@render notifyDot('flex-shrink-0')}
 		{/if}
