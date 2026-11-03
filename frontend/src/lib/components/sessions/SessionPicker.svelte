@@ -732,14 +732,6 @@
 			<span class="ml-auto text-2xs text-tertiary whitespace-nowrap">
 				{selectedIds.length} selected
 			</span>
-			<Button
-				unifiedSize="2xs"
-				variant="subtle"
-				btnClasses="!text-2xs !h-5 w-auto"
-				onClick={exitSelectionMode}
-			>
-				Done
-			</Button>
 		</div>
 	{/snippet}
 	{#if selectionMode && !selectionInFlyout}
@@ -843,6 +835,7 @@
 				selecting ? 'select-none' : ''
 			)}
 			onkeydown={handleListKeydown}
+			data-sessions-selecting={selecting || undefined}
 			role="listbox"
 			tabindex="-1"
 		>
@@ -1138,37 +1131,57 @@
 			{/if}
 		</div>
 		{#if selecting}
-			<!-- Pinned to the sidebar's bottom edge while the rows scroll under it; z-10 keeps it
-				     above the sidebar's bottom fade. -->
+			<!-- Pinned to the bottom edge of whatever scrolls the list, the sidebar or the folded
+				     section's menu, while the rows scroll under it; z-10 keeps it above the sidebar's
+				     bottom fade. One row, so it covers as few of them as it can. -->
 			<div
 				class={twMerge(
-					'sticky bottom-0 z-10 flex flex-col gap-1 px-1 pt-1.5 pb-2',
+					'sticky bottom-0 z-10 flex flex-row items-center gap-1 px-1 pt-1.5 pb-2',
 					inPopover ? 'bg-surface' : 'bg-[var(--sidebar-bg-light)] dark:bg-[var(--sidebar-bg-dark)]'
 				)}
 			>
 				<Button
-					unifiedSize="xs"
+					unifiedSize="sm"
 					variant="default"
+					iconOnly
 					disabled={selectedIds.length === 0}
 					startIcon={{ icon: allSelectedArchived ? ArchiveRestore : Archive }}
+					title={allSelectedArchived ? 'Unarchive selected' : 'Archive selected'}
+					aria-label={allSelectedArchived ? 'Unarchive selected' : 'Archive selected'}
 					onClick={handleBatchArchive}
-				>
-					{allSelectedArchived ? 'Unarchive' : 'Archive'}
-				</Button>
+				/>
 				<Button
-					unifiedSize="xs"
+					unifiedSize="sm"
 					variant="default"
 					destructive
+					iconOnly
 					disabled={selectedIds.length === 0}
 					startIcon={{ icon: Trash2 }}
+					title="Delete selected"
+					aria-label="Delete selected"
 					onClick={() => (batchDeleteOpen = true)}
+				/>
+				<Button
+					unifiedSize="sm"
+					variant="default"
+					wrapperClasses="flex-1"
+					btnClasses="w-full"
+					onClick={exitSelectionMode}
 				>
-					Delete
+					Done
 				</Button>
 			</div>
 		{/if}
 	{/snippet}
 </div>
+
+<!-- Selection holds the sidebar open (see the layout), so Esc, which closes it, ends selection too. -->
+<svelte:window
+	onkeydown={(e) => {
+		if (e.key === 'Escape' && selectionMode && !batchDeleteOpen && !e.defaultPrevented)
+			exitSelectionMode()
+	}}
+/>
 
 <ConfirmationModal
 	open={!!pendingDelete}

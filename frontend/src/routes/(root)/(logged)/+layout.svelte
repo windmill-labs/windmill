@@ -555,6 +555,10 @@
 	function menuIsOpen(): boolean {
 		return !!document.querySelector('[role="menu"]:not([hidden])')
 	}
+	// Sessions being selected for a batch action hold the surface the same way, until Done.
+	function holdsSurface(): boolean {
+		return menuIsOpen() || !!document.querySelector('[data-sessions-selecting]')
+	}
 	// Once its menus close, a surface the pointer is back on stays: its own leave closes it later.
 	function pointerOnSidebar(): boolean {
 		return !!document.querySelector(
@@ -566,7 +570,7 @@
 	let menuPinned = $state(false)
 	const { debounced: schedulePeekClose, clearDebounce: cancelPeekClose } = debounce(() => {
 		if (!peeksOnHover || menuPinned) return
-		if (menuIsOpen()) {
+		if (holdsSurface()) {
 			schedulePeekClose()
 			return
 		}
@@ -578,7 +582,7 @@
 	const { debounced: scheduleRailCollapse, clearDebounce: cancelRailCollapse } = debounce(() => {
 		// A drag of the widened rail's edge ends outside it; the drag's end decides.
 		if (resizingSidebar) return
-		if (menuIsOpen()) {
+		if (holdsSurface()) {
 			scheduleRailCollapse()
 			return
 		}
@@ -615,13 +619,18 @@
 		const target = e.target
 		if (!(target instanceof Element) || !pageColumn?.contains(target)) return
 		if (target.closest('[data-nav-handle]')) return
+		if (document.querySelector('[data-sessions-selecting]')) return
 		menuOpen = false
 	}
 	// A press inside an iframe (a session's preview) never reaches this window; focus moving into one does.
 	function closeCardOnFrameFocus() {
 		if (!menuOpen || !useDrawer) return
 		setTimeout(() => {
-			if (document.activeElement instanceof HTMLIFrameElement) menuOpen = false
+			if (
+				document.activeElement instanceof HTMLIFrameElement &&
+				!document.querySelector('[data-sessions-selecting]')
+			)
+				menuOpen = false
 		})
 	}
 
