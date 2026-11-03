@@ -6,7 +6,11 @@ import { OpenAPI } from '$lib/gen'
 import { userStore } from '$lib/stores'
 import { userScopedDb } from '$lib/userScopedDb'
 import { getCurrentUserEmail, onUserChange } from '$lib/userScopedStorage'
-import { rememberedEmail, sessionStillConfirmed } from '$lib/lastSession'
+import {
+	onSessionConfirmationChange,
+	rememberedEmail,
+	sessionStillConfirmed
+} from '$lib/lastSession'
 
 // Last-known API responses, kept so a page can paint them before its requests return. Every
 // row in them was filtered by row-level security for one user, so an entry is only ever served
@@ -284,7 +288,9 @@ if (BROWSER) {
 	readSnapshot()
 	// Loads the whole (bounded) store into memory once the user is known, and keeps only what
 	// belongs to them: the snapshot's entries for the same identity survive.
-	onUserChange(() => {
+	// The identity is known once both the user and the session they hold are: either can come
+	// second, and a key derived before must follow.
+	const onIdentityChange = () => {
 		userTick++
 		// No user yet (the call at registration, as the app boots): nothing can be read without
 		// an identity, and the snapshot just loaded is waiting for its user. Logout clears memory
@@ -294,5 +300,7 @@ if (BROWSER) {
 		const mine = `[${JSON.stringify(identity)},`
 		for (const key of [...memory.keys()]) if (!key.startsWith(mine)) memory.delete(key)
 		void hydrate()
-	})
+	}
+	onUserChange(onIdentityChange)
+	onSessionConfirmationChange(onIdentityChange)
 }
