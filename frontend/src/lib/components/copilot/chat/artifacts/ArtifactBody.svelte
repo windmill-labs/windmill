@@ -11,9 +11,10 @@
 		/** The raw text rather than the rendered document. */
 		source: boolean
 		/**
-		 * The fenced-code renderer. Defaults to the shared chain's, which keeps mermaid off:
-		 * a shared artifact is another member's text. The session viewer passes the chat's,
-		 * which draws diagrams and needs the chat context the shared page does not have.
+		 * The fenced-code renderer. Defaults to the shared chain's, which keeps mermaid off for
+		 * text that can reach readers outside the workspace (a public shared session). The
+		 * members-only shared artifact page passes MermaidCodeBlock; the session viewer passes
+		 * the chat's, which also needs the chat context the shared pages do not have.
 		 */
 		pre?: Component<any>
 	}

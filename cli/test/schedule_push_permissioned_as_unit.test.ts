@@ -13,12 +13,13 @@ import { mockServices } from "./mock_services.ts";
 
 let updateScheduleCalls: any[] = [];
 let remotePermissionedAs: string | undefined = "u/svc";
+let remoteScriptPath = "u/admin/script";
 
 const REMOTE_SCHEDULE = () => ({
   path: "u/admin/sched",
   schedule: "0 0 */6 * * *",
   timezone: "Etc/UTC",
-  script_path: "u/admin/script",
+  script_path: remoteScriptPath,
   is_flow: false,
   args: {},
   enabled: false,
@@ -74,8 +75,8 @@ await mockModule("../src/core/auth.ts", (real) => ({
   requireLogin: async () => ({}),
 }));
 
-const scheduleCommand = (await import("../src/commands/schedule/schedule.ts"))
-  .default;
+const scheduleModule = await import("../src/commands/schedule/schedule.ts");
+const scheduleCommand = scheduleModule.default;
 
 async function pushIn(wmillYamlTail: string): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "windmill_sched_push_"));
@@ -107,6 +108,7 @@ describe("wmill schedule push ownership", () => {
   beforeEach(() => {
     updateScheduleCalls = [];
     remotePermissionedAs = "u/svc";
+    remoteScriptPath = "u/admin/script";
   });
 
   test("keeps the remote's permissioned_as under syncBehavior v1", async () => {
@@ -141,4 +143,20 @@ describe("wmill schedule push ownership", () => {
     expect(body.permissioned_as).toBeUndefined();
     expect(body.preserve_permissioned_as).toBeUndefined();
   });
+
+  for (const [server, stored] of [
+    ["a current server", "u/admin/script"],
+    ["an older server", "/u/admin/script"],
+  ]) {
+    test(`a target written with one leading slash matches what ${server} stores (${stored})`, async () => {
+      remoteScriptPath = stored;
+      const { permissioned_as: _, path: __, ...remote } = REMOTE_SCHEDULE();
+      await scheduleModule.pushSchedule("w", "u/admin/sched.schedule.yaml", undefined, {
+        ...remote,
+        script_path: "/u/admin/script",
+      } as any);
+
+      expect(updateScheduleCalls).toHaveLength(0);
+    });
+  }
 });

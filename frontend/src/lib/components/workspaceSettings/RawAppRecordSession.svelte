@@ -202,6 +202,7 @@
 				{path}
 				runnables={(app.value?.runnables ?? {}) as Record<string, Runnable>}
 				oniframe={onIframe}
+				ownsPageUrl={false}
 			/>
 		</div>
 	{/if}

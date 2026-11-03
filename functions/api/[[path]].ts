@@ -34,10 +34,19 @@ export async function onRequest(context) {
     // `windmill.dev`) does not match this host, and a browser drops a cookie whose Domain
     // does not match. Reading them joined (`headers.get`) would merge the session cookie with
     // the `wm_session` hint set beside it, Domain included.
-    const setCookies = res.headers.getSetCookie();
-    newResponse.headers.delete("set-cookie");
-    for (const c of setCookies) {
-      newResponse.headers.append("set-cookie", c.replace(/;\s*Domain=[^;]*/gi, ""));
+    // Pages runs without a compatibility date, where `getSetCookie` does not exist; its
+    // `getAll` returns the same list there, and only for `set-cookie`.
+    const setCookies: string[] | undefined =
+      typeof res.headers.getSetCookie === "function"
+        ? res.headers.getSetCookie()
+        : typeof res.headers.getAll === "function"
+          ? res.headers.getAll("set-cookie")
+          : undefined;
+    if (setCookies) {
+      newResponse.headers.delete("set-cookie");
+      for (const c of setCookies) {
+        newResponse.headers.append("set-cookie", c.replace(/;\s*Domain=[^;]*/gi, ""));
+      }
     }
 
     newResponse.headers.set("Cross-Origin-Resource-Policy", "cross-origin");
