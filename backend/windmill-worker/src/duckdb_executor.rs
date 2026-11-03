@@ -1354,12 +1354,19 @@ pub async fn do_duckdb(
             // A deployed script, run directly or from a flow, names an untabled target after
             // its own path. An inline flow step's path is `<flow>/<step id>`, which would name
             // one shared table per step id across every flow, so it has to name its table.
-            // A flow editor's "Test this step" previews an inline step under that same path,
-            // marked by the `_FLOW_PATH` arg.
+            // A flow editor's "Test this step" previews an inline step under that same path
+            // (`_FLOW_PATH` + `/<step id>`); a step referencing a deployed script previews under
+            // the script's own path, which names its table as the script's own run does.
             let inline_step_preview = job
                 .args
                 .as_ref()
-                .is_some_and(|a| a.0.contains_key("_FLOW_PATH"));
+                .and_then(|a| a.0.get("_FLOW_PATH"))
+                .and_then(|fp| serde_json::from_str::<String>(fp.get()).ok())
+                .is_some_and(|fp| {
+                    job.runnable_path
+                        .as_deref()
+                        .is_some_and(|p| p.starts_with(&format!("{fp}/")))
+                });
             let script_path = (job.kind == JobKind::Script
                 || (job.kind == JobKind::Preview
                     && job.flow_step_id.is_none()
