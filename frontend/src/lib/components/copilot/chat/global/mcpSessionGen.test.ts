@@ -396,4 +396,40 @@ describe('MCP session server generated definitions', () => {
 			expect(readFileSync(join(OUT_DIR, name), 'utf8'), name).toBe(content)
 		}
 	})
+
+	// A capability that changes the prompt but is missing from the profile key would serve every
+	// role the prompt of whatever value `profiles()` fixed it at.
+	it('key every role capability that changes the prompt', () => {
+		const keyed = ['code', 'flows', 'apps', 'manage_schedules', 'manage_triggers']
+		const render = (capabilities: typeof FULL_CAPABILITIES) => {
+			const access = capabilitiesForRole({ isAdmin: false, deployRulesPass: true, capabilities })
+			const { flags, vars } = externalPromptProfile(access, true)
+			return renderPromptTemplate(EXTERNAL_PROMPT, flags, vars)
+		}
+		const roles = [
+			FULL_CAPABILITIES,
+			{
+				...FULL_CAPABILITIES,
+				code: false,
+				flows: 'compose' as AuthorLevel,
+				apps: 'none' as AuthorLevel
+			}
+		]
+		for (const role of roles)
+			for (const [field, value] of Object.entries(role)) {
+				if (keyed.includes(field)) continue
+				const others =
+					typeof value === 'boolean'
+						? [!value]
+						: typeof value === 'string'
+							? LEVELS.filter((l) => l !== value)
+							: [Object.fromEntries(Object.keys(value).map((k) => [k, false]))]
+				for (const other of others) {
+					expect(
+						render({ ...role, [field]: other }),
+						`role capability "${field}" changes the MCP prompt: add it to the profile key in profiles() and prompt_profile (instructions.rs)`
+					).toBe(render(role))
+				}
+			}
+	})
 })

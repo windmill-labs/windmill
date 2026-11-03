@@ -215,11 +215,15 @@ fn folder_list(names: &[&str]) -> String {
     }
 }
 
-/// The template shows the folder guidance only under `can_write_any_draft`, in path
-/// conventions that name `create_folder` under `can_create_folder`; this follows it.
+/// Flags of `EXTERNAL_PROMPT` this file reads itself, which `folder_guidance_follows_the_template`
+/// pins: the template shows the folder guidance only under the first, in path conventions that
+/// name `create_folder` under the second.
+const WRITES_FLAG: &str = "can_write_any_draft";
+const CREATE_FOLDER_FLAG: &str = "can_create_folder";
+
 fn folder_guidance(auth: &crate::db::ApiAuthed, profile: &Profile) -> String {
     let flags = profile.flags();
-    if !flags.contains("can_write_any_draft") {
+    if !flags.contains(WRITES_FLAG) {
         return String::new();
     }
     let writable: Vec<&str> = auth
@@ -235,7 +239,7 @@ fn folder_guidance(auth: &crate::db::ApiAuthed, profile: &Profile) -> String {
         .map(|(name, _, _)| name.as_str())
         .collect();
 
-    let guidance = if flags.contains("can_create_folder") {
+    let guidance = if flags.contains(CREATE_FOLDER_FLAG) {
         &PARTS.folder_guidance.create_folder
     } else {
         &PARTS.folder_guidance.no_create_folder
@@ -358,6 +362,26 @@ pub(crate) async fn workspace_context(
 mod tests {
     use super::*;
     use sha2::{Digest, Sha256};
+
+    #[test]
+    fn folder_guidance_follows_the_template() {
+        for (key, profile) in &PARTS.profiles {
+            let flags = profile.flags();
+            let mut vars = profile.vars.clone();
+            vars.insert("folder_guidance".to_string(), "@@folders@@".to_string());
+            let text = render_template(&PARTS.template, &flags, &vars);
+            assert_eq!(
+                text.contains("@@folders@@"),
+                flags.contains(WRITES_FLAG),
+                "{key}"
+            );
+            assert_eq!(
+                text.contains("create_folder"),
+                flags.contains(CREATE_FOLDER_FLAG),
+                "{key}"
+            );
+        }
+    }
 
     /// This renderer reads every profile as `promptTemplate.ts` rendered it when generating.
     #[test]

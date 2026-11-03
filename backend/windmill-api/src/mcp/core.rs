@@ -68,9 +68,9 @@ pub struct WindmillBackend {
 }
 
 /// `DisableDirectDeployment` holds a session to reading and running deployed items for
-/// everyone, admins and bypassers included, as the in-app chat does: that workspace takes
-/// changes from its dev workspace or a fork, where drafts can go somewhere. Unreadable rules
-/// (`None`) hold it too.
+/// everyone, admins and bypassers included: that workspace takes changes from its dev workspace
+/// or a fork, where drafts can go somewhere. Unreadable rules (`None`) hold it too. The in-app
+/// chat applies the same rule (`protects` in `chat/global/sessionAccess.ts`): change both.
 fn workspace_access(access: SessionAccess, rules: Option<&[ProtectionRuleset]>) -> SessionAccess {
     let locked = rules.map_or(true, |rules| {
         rules
