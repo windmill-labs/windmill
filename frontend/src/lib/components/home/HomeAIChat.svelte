@@ -65,7 +65,7 @@
 </script>
 
 <div class="w-full {showComposer ? 'mt-2' : 'mb-1'}">
-	<div class="relative group/composer">
+	<div class="relative group/composer" data-wm-snapshot-slot>
 		{#if showComposer}
 			<!-- The block is a session's chat, so it waits for the sessions it might reuse. Keyed on
 			     the workspace family, not the workspace: another family needs its own draft, but a
@@ -78,6 +78,10 @@
 						onSettled={(height) => rememberComposerHeight($workspaceStore ?? undefined, height)}
 					/>
 				{/key}
+				<!-- What a reload draws here until the starter's code loads, kept for the snapshot of
+				     Home painted before boot (homeSnapshot.ts), which shows it in the starter's place
+				     so the hand-over to the live page changes nothing. -->
+				<div hidden data-wm-snapshot-stand-in>{@render placeholder()}</div>
 			{:else}
 				{@render placeholder()}
 			{/if}

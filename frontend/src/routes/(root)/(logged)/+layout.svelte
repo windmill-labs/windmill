@@ -139,6 +139,8 @@
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import CreateWorkspaceInner from '$lib/components/workspaceSettings/CreateWorkspaceInner.svelte'
 	import { recordForkParent, rememberForkParent } from '$lib/forkParentMemory'
+	import { homeSnapshotShown } from '$lib/homeSnapshot'
+	import { persistedValue } from '$lib/persistedResource.svelte'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -610,8 +612,9 @@
 	}
 
 	// Set once the user docks or detaches, so the rail that mounts from then on skips its
-	// app-entry animation (`wm-sidebar-in`) and only plays `railMorph`.
-	let dockToggled = $state(false)
+	// app-entry animation (`wm-sidebar-in`) and only plays `railMorph`. Also set when the rail
+	// replaces the one in Home's snapshot (homeSnapshot.ts), which is already on screen.
+	let dockToggled = $state(homeSnapshotShown())
 	function setDetached(detached: boolean) {
 		dockToggled = true
 		menuOpen = false
@@ -680,6 +683,22 @@
 			((await SettingService.getGlobal({ key: 'disable_hub' })) as boolean) ?? false
 	}
 
+	// Home holds its Favorites and Recent shortcuts back until the favorites are in, so they are
+	// painted from the last answer as soon as the user is known: Home's first frame then has them,
+	// as the snapshot of it painted before boot (homeSnapshot.ts) does. Paths and summaries only.
+	const favoritesCache = persistedValue<typeof favoriteManager.current>('favorites', 1)
+	$effect(() => {
+		const workspace = $workspaceStore
+		if (!$userStore || !workspace) return
+		untrack(() => {
+			if (favoriteManager.loadedFor === workspace) return
+			const cached = favoritesCache.peek({ workspace })
+			if (!cached) return
+			favoriteManager.current = cached
+			favoriteManager.loadedFor = workspace
+		})
+	})
+
 	async function loadFavorites() {
 		const workspace = $workspaceStore ?? ''
 		try {
@@ -699,6 +718,7 @@
 	}
 
 	async function loadFavoritesFor(workspace: string) {
+		const sentWith = readSessionHint()
 		const [scripts, flows, apps, agents, assets] = await Promise.all([
 			ScriptService.listScripts({
 				workspace,
@@ -744,6 +764,7 @@
 				kind: 'asset' as const
 			}))
 		]
+		favoritesCache.save({ workspace }, favoriteManager.current, sentWith)
 	}
 
 	async function loadUsedTriggerKinds() {
