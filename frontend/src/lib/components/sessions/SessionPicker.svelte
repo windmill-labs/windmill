@@ -2,7 +2,12 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
 	import { Button } from '$lib/components/common'
-	import SidebarSectionHeader from '$lib/components/sidebar/SidebarSectionHeader.svelte'
+	import SidebarSection, {
+		flyoutRowClass,
+		type SectionActionsArgs
+	} from '$lib/components/sidebar/SidebarSection.svelte'
+	import DropdownSubmenuItem from '$lib/components/DropdownSubmenuItem.svelte'
+	import type { Item } from '$lib/utils'
 	import {
 		Archive,
 		ArchiveRestore,
@@ -11,6 +16,7 @@
 		ChevronRight,
 		Clock,
 		EllipsisVertical,
+		SlidersHorizontal,
 		GitFork,
 		ListChecks,
 		MessageSquare,
@@ -24,9 +30,7 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { goto } from '$lib/navigation'
 	import { leaveForHome, openDraftOnHome, openNewSession } from './sessionSwitch.svelte'
-	import { homeComposerContext } from './homeComposerContext.svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
-	import { slide } from 'svelte/transition'
 	import {
 		deleteSessionsForWorkspace,
 		homeDraft,
@@ -56,8 +60,6 @@
 	import SessionStatusDot from './SessionStatusDot.svelte'
 	import UnreadCountBadge from '$lib/components/common/badge/UnreadCountBadge.svelte'
 	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
-	import SessionFilterMenu from './SessionFilterMenu.svelte'
-	import { Menu, Menubar, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton, { sidebarClasses } from '$lib/components/sidebar/MenuButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
@@ -66,6 +68,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { currentWorkspaceRootId, workspaceRootId } from './sessionScope.svelte'
 	import { page } from '$app/state'
+	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
 	import {
 		dateBucket,
@@ -377,9 +380,11 @@
 	// otherwise hide the user's first new session with no way to expand
 	// it. Resetting here keeps the section expanded by default whenever
 	// the first session arrives. Guarded on the current value so it writes
-	// once (true → false) rather than looping.
+	// once (true → false) rather than looping, and on hydration: before the
+	// sessions load, the list is empty for every reader, and the fold is a
+	// layout they chose to keep.
 	$effect(() => {
-		if (visibleSessions.length === 0 && sectionCollapsed.val) {
+		if (sessionState.hydrated && visibleSessions.length === 0 && sectionCollapsed.val) {
 			sectionCollapsed.val = false
 		}
 	})
@@ -421,16 +426,6 @@
 				selected?.focus()
 			})
 		}
-	}
-
-	// The rail menu hands focus back to its trigger once it has closed, after New session has
-	// focused Home's composer: the composer takes it back instead.
-	let newSessionFromRail = false
-	function railMenuCloseFocus(trigger?: HTMLElement | null): HTMLElement | null {
-		if (!newSessionFromRail) return trigger ?? null
-		newSessionFromRail = false
-		homeComposerContext.focus()
-		return null
 	}
 
 	// The `+` on a workspace group header: a new session in that group's workspace,
@@ -478,8 +473,11 @@
 	// Batch selection: "Edit sessions" in the header menu turns the rows into
 	// checkboxes so several sessions can be deleted in one pass.
 	let selectionMode = $state(false)
+	// Entered from the folded section's menu, whose own list then takes the checkboxes.
+	let selectionInFlyout = $state(false)
 	let selectedIds = $state<string[]>([])
 	let batchDeleteOpen = $state(false)
+	const viewportOverlays = overlayStack()
 
 	const selectableIds = $derived(visibleSessions.map((s) => s.id))
 	const allSelected = $derived(
@@ -505,15 +503,65 @@
 		if (pruned.length !== selectedIds.length) selectedIds = pruned
 	})
 
-	function enterSelectionMode() {
+	function enterSelectionMode(inFlyout: boolean) {
 		selectionMode = true
+		selectionInFlyout = inFlyout
 		selectedIds = []
 		// Checkboxes are unreachable while the section is folded away.
-		sectionCollapsed.val = false
+		if (!inFlyout) sectionCollapsed.val = false
+	}
+
+	// The session list's options, for the ⋮ menu of the open list and the View submenu of the
+	// folded section's menu. That menu lists the sessions too, so it stays open to show the change.
+	function listOptionItems(inFlyout: boolean): Item[] {
+		return [
+			{
+				displayName: archivedCount > 0 ? `Show archived (${archivedCount})` : 'Show archived',
+				icon: Archive,
+				toggle: showArchived.val,
+				keepOpen: inFlyout,
+				action: () => (showArchived.val = !showArchived.val)
+			},
+			{
+				displayName: 'Last activity',
+				icon: Clock,
+				extra: lastActivityHint,
+				submenuItems: LAST_ACTIVITY_OPTIONS.map((o) => ({
+					displayName: o.label,
+					selected: lastActivityDays.val === o.days,
+					keepOpen: inFlyout,
+					action: () => (lastActivityDays.val = o.days)
+				}))
+			},
+			{
+				displayName: 'Group by',
+				icon: Rows3,
+				extra: groupByHint,
+				submenuItems: GROUP_BY_OPTIONS.map((o) => ({
+					displayName: o.label,
+					selected: groupBy.val === o.value,
+					keepOpen: inFlyout,
+					action: () => (groupBy.val = o.value)
+				}))
+			},
+			{
+				displayName: 'Edit sessions',
+				icon: ListChecks,
+				keepOpen: inFlyout,
+				action: () => enterSelectionMode(inFlyout),
+				separatorTop: true,
+				// Selection is built from `visibleSessions`, which the tree render
+				// path doesn't follow — it drops workspace-less sessions and hides
+				// rows under a collapsed workspace, so "Select all" there would
+				// reach rows that never showed a checkbox.
+				hide: visibleSessions.length === 0 || workspaceTree
+			}
+		]
 	}
 
 	function exitSelectionMode() {
 		selectionMode = false
+		selectionInFlyout = false
 		selectedIds = []
 		rangeAnchorId = undefined
 	}
@@ -657,580 +705,491 @@
 		else if (e.key === 'Home') focusAt(0)
 		else if (e.key === 'End') focusAt(buttons.length - 1)
 	}
-
-	const menuItemBase = twMerge(
-		'text-secondary text-left font-normal text-xs',
-		'flex flex-row items-center gap-2 px-3 py-1.5 w-full',
-		'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
-	)
 </script>
 
-{#if isCollapsed}
-	<div class={embedded ? '' : 'px-2 pt-3 pb-2 border-b border-light'}>
-		<Menubar>
-			{#snippet children({ createMenu })}
-				<Menu {createMenu} usePointerDownOutside submenuSafe closeFocus={railMenuCloseFocus}>
-					{#snippet triggr({ trigger })}
-						<div class="relative">
+<div
+	class="flex flex-col gap-1 {embedded ? '' : 'px-2 pt-3 pb-2'} {!embedded && collapsible
+		? 'border-b border-light'
+		: ''}"
+>
+	<!-- Selection mode reuses the options row (same h-8 slot) so the list below it
+		     never moves. -->
+	{#snippet selectionBar()}
+		<div class="flex flex-row items-center gap-1.5 h-8 px-2">
+			<Checkbox
+				checked={allSelected}
+				indeterminate={selectedIds.length > 0 && !allSelected}
+				onChange={toggleSelectAll}
+				class="shrink-0 !w-4 !h-4 !p-0"
+				title="Select all sessions"
+			/>
+			<Button
+				unifiedSize="2xs"
+				variant="subtle"
+				on:click={toggleSelectAll}
+				btnClasses="!text-xs !h-5 w-auto !px-0 text-secondary whitespace-nowrap"
+			>
+				Select all
+			</Button>
+			<span class="ml-auto text-2xs text-tertiary whitespace-nowrap">
+				{selectedIds.length} selected
+			</span>
+		</div>
+	{/snippet}
+	{#if selectionMode && !selectionInFlyout}
+		{@render selectionBar()}
+		{@render sessionList(false)}
+	{:else}
+		{#snippet listOptions(size: 'xs' | 'sm' | 'md')}
+			<DropdownV2
+				fixedHeight={false}
+				placement="bottom-end"
+				enableFlyTransition
+				items={listOptionItems(false)}
+			>
+				{#snippet buttonReplacement()}
+					<Button
+						nonCaptureEvent
+						unifiedSize={size}
+						variant="subtle"
+						iconOnly
+						startIcon={{ icon: EllipsisVertical }}
+						title="Session list options"
+						aria-label="Session list options"
+						btnClasses="text-secondary"
+					/>
+				{/snippet}
+			</DropdownV2>
+		{/snippet}
+		{#snippet sectionOptions({ menu }: SectionActionsArgs)}
+			<!-- In the folded section's menu the options are one of its rows, opening beside it as a
+				     submenu. -->
+			{#if menu}
+				<DropdownSubmenuItem
+					item={{
+						displayName: 'View',
+						icon: SlidersHorizontal,
+						submenuItems: listOptionItems(true)
+					}}
+					builders={menu.builders}
+					meltItem={menu.item}
+					class={flyoutRowClass}
+				/>
+			{:else}
+				{@render listOptions('sm')}
+			{/if}
+		{/snippet}
+		{#if collapsible}
+			<SidebarSection
+				title="AI sessions"
+				icon={MessageSquare}
+				folded={sectionCollapsed.val}
+				onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
+				disabled={visibleSessions.length === 0}
+				notify={totalUnread > 0}
+				actions={sectionOptions}
+				{isCollapsed}
+				onClose={() => {
+					// The batch delete's confirmation is outside the menu and closes it, but still
+					// needs the selection.
+					if (selectionInFlyout && !batchDeleteOpen) exitSelectionMode()
+				}}
+			>
+				{#snippet children(inPopover, menu)}
+					<!-- In the folded section's menu the selection bar takes New session's row: the View
+					     row stays, since Edit sessions is picked from the submenu it holds open. -->
+					{#if inPopover && selectionMode}
+						{@render selectionBar()}
+					{:else}
+						<!-- Outside the listbox, so arrow keys move through sessions only. -->
+						<div class="mb-0.5" data-asks-for-composer>
 							<MenuButton
-								class="!text-xs"
-								icon={MessageSquare}
-								label="AI sessions"
-								{isCollapsed}
-								{trigger}
+								icon={Plus}
+								label="New session"
+								isCollapsed={isCollapsed && !inPopover}
+								item={menu?.item}
+								on:click={() => openNewSession()}
 							/>
-							{#if totalUnread > 0}
+						</div>
+					{/if}
+					{@render sessionList(inPopover)}
+				{/snippet}
+			</SidebarSection>
+		{:else}
+			<!-- Where the list owns the pane, a title would only repeat what the pane is. -->
+			<div class="flex flex-row items-center gap-0.5 h-8 pr-0.5 justify-end">
+				{@render listOptions('md')}
+			</div>
+			{@render sessionList(false)}
+		{/if}
+	{/if}
+	<!-- In the rail the rows keep their height with their names hidden, so each sits where the
+		     open sidebar has it. -->
+	{#snippet sessionList(inPopover: boolean)}
+		{@const rail = isCollapsed && !inPopover}
+		<!-- Only the list selection mode was entered from: the folded section's menu, or the sidebar. -->
+		{@const selecting = selectionMode && inPopover === selectionInFlyout}
+		<div
+			bind:this={listRoot}
+			class={twMerge(
+				'flex flex-col gap-0.5',
+				// Shift-clicking rows would otherwise paint a text selection across them.
+				selecting ? 'select-none' : ''
+			)}
+			onkeydown={handleListKeydown}
+			data-sessions-selecting={selecting || undefined}
+			role="listbox"
+			tabindex="-1"
+		>
+			{#snippet vline()}
+				<span class="relative w-3.5 shrink-0 self-stretch">
+					<span class="absolute inset-y-0 left-1/2 w-px bg-surface-tertiary"></span>
+				</span>
+			{/snippet}
+			{#snippet sessionRow(session, indented, treeDepth)}
+				<!-- The rail has no room for tree guides, but keeps the grouped rows' indent so a row
+					     stays put when a hover widens the rail. -->
+				{@const depth = rail ? undefined : treeDepth}
+				{@const runtime = getRuntime(session.id)}
+				{@const status = runtime
+					? getSessionChatStatus(runtime)
+					: (getSessionChatPeek(session.id)?.status ?? 'idle')}
+				{@const isSelected = session.id === activeRowId}
+				{@const isEditing = editingId === session.id}
+				{@const unread = unreadFor(session)}
+				{@const draft = hasDraft(session)}
+				{@const isChecked = selectedIds.includes(session.id)}
+				<div
+					class={twMerge(
+						'flex flex-row group rounded',
+						depth === undefined ? 'items-center' : 'items-stretch',
+						isSelected ? sidebarClasses.selectedBg : 'hover:bg-surface-hover',
+						session.archived ? 'opacity-60' : '',
+						// Grouped rows sit slightly in from their header; tree mode uses guide columns.
+						depth === undefined && indented ? 'pl-1' : ''
+					)}
+				>
+					{#if depth !== undefined}
+						{#each Array(depth) as _}{@render vline()}{/each}
+					{/if}
+					{#if selecting}
+						<!-- Takes over the status-dot slot exactly (pl-2 + 16px, the row button's
+							     own px-2 supplying the trailing gap), so entering selection mode
+							     doesn't shift a single row label sideways. -->
+						<span class="flex items-center pl-2">
+							<Checkbox
+								checked={isChecked}
+								onChange={() => {
+									toggleSelected(session.id, shiftHeldOnClick)
+									shiftHeldOnClick = false
+								}}
+								onClick={(e) => (shiftHeldOnClick = e.shiftKey)}
+								class="shrink-0 !w-4 !h-4 !p-0"
+								title={session.summary ?? 'Untitled session'}
+							/>
+						</span>
+					{/if}
+					{#if isEditing}
+						<span class="flex flex-row items-center gap-2 flex-1 px-2 py-1 min-w-0">
+							{#if depth === undefined}
+								<SessionStatusDot
+									{status}
+									isFork={isForkFor(session)}
+									forkDetached={forkDetachedFor(session)}
+								/>
+							{/if}
+							<TextInput
+								bind:value={renameDraft}
+								size="xs"
+								unifiedHeight={false}
+								class="flex-1 min-w-0 !bg-transparent !border-0 !border-transparent !shadow-none focus:!ring-0 px-0 text-xs font-normal text-primary"
+								inputProps={{
+									type: 'text',
+									placeholder: 'Untitled session',
+									autofocus: true,
+									spellcheck: false,
+									onkeydown: (e) => {
+										if (e.key === 'Enter') commitRename()
+										else if (e.key === 'Escape') cancelRename()
+									},
+									onblur: commitRename
+								}}
+							/>
+						</span>
+					{:else}
+						<button
+							type="button"
+							data-session-button
+							role="option"
+							aria-selected={selecting ? isChecked : isSelected}
+							onclick={(e) => {
+								if (!selecting) return activate(session)
+								// Ticking a row in the folded section's menu must not close it as picking one does.
+								e.stopPropagation()
+								toggleSelected(session.id, e.shiftKey)
+							}}
+							title={rail ? (session.summary ?? 'Untitled session') : undefined}
+							class={twMerge(
+								'flex flex-row items-center gap-2 text-left text-xs font-normal focus:outline-none flex-1 min-w-0 px-2 h-6',
+								isSelected ? sidebarClasses.selectedText : 'text-secondary'
+							)}
+						>
+							{#if depth === undefined && !selecting}
+								<SessionStatusDot
+									{status}
+									isFork={isForkFor(session)}
+									forkDetached={forkDetachedFor(session)}
+								/>
+							{/if}
+							<span class={rail ? 'sr-only' : 'truncate flex-1'}
+								>{session.summary ?? 'Untitled session'}</span
+							>
+							{#if !rail && (draft || unread > 0)}
+								<span class="shrink-0 inline-flex items-center gap-1">
+									{#if draft}
+										<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
+									{/if}
+									<UnreadCountBadge count={unread} class="min-w-4 h-4 text-[10px]" />
+								</span>
+							{/if}
+						</button>
+						<!-- Hidden rather than dropped while selecting: removing it would widen
+							     every label and re-truncate the list. -->
+						<div
+							class={twMerge(
+								'transition-opacity pr-0.5',
+								rail
+									? 'hidden'
+									: selecting
+										? 'invisible pointer-events-none'
+										: 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+							)}
+						>
+							<DropdownV2
+								fixedHeight={false}
+								placement="bottom-end"
+								enableFlyTransition
+								items={[
+									{
+										displayName: 'Rename',
+										icon: Pencil,
+										action: () => startRename(session)
+									},
+									...(session.archived
+										? // No Unarchive when the workspace is gone — it can't persist
+											// (putSession guard) and reconcile would re-archive it.
+											isUnavailableFork(session)
+											? []
+											: [
+													{
+														displayName: 'Unarchive',
+														icon: ArchiveRestore,
+														action: () => setSessionArchived(session.id, false)
+													}
+												]
+										: [
+												{
+													displayName: 'Archive',
+													icon: Archive,
+													action: () => {
+														setSessionArchived(session.id, true)
+														leaveArchivedHomeDraft([session.id])
+													}
+												}
+											]),
+									{
+										displayName: 'Delete',
+										icon: Trash2,
+										type: 'delete',
+										action: () => (pendingDelete = session)
+									}
+								]}
+							>
+								{#snippet buttonReplacement()}
+									<span
+										class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+										title="More"
+									>
+										<EllipsisVertical size={14} />
+									</span>
+								{/snippet}
+							</DropdownV2>
+						</div>
+					{/if}
+				</div>
+			{/snippet}
+			{#if workspaceTree}
+				{#each workspaceTreeItems as item, wi (item.workspace.id)}
+					{#if !hiddenWorkspaceIds.has(item.workspace.id)}
+						{@const wsSessions = sessionsByWorkspace.get(item.workspace.id) ?? []}
+						{@const collapsed = isWorkspaceCollapsed(item.workspace.id)}
+						{@const collapsible = item.hasChildren || wsSessions.length > 0}
+						<!-- Workspace = folder. Stroke-colored building/fork glyph; the guide
+							     columns render the workspace tree (fork nesting). A chevron
+							     collapses the workspace (hides its sessions + fork subtree). -->
+						<div
+							class={twMerge(
+								'flex items-stretch w-full rounded',
+								wi > 0 && item.depth === 0 ? 'mt-3' : '',
+								browsedWorkspaceId === item.workspace.id
+									? sidebarClasses.selectedBg
+									: 'hover:bg-surface-hover'
+							)}
+						>
+							{#each Array(item.depth) as _}{@render vline()}{/each}
+							<button
+								type="button"
+								onclick={() => onBrowseWorkspace?.(item.workspace.id)}
+								title={item.workspace.name}
+								class="flex items-center gap-1.5 py-1 pl-1 pr-2 min-w-0 flex-1 text-left"
+							>
+								{#if item.isForked}
+									<GitFork size={14} class="shrink-0" style="color: {item.workspace.color}" />
+								{:else}
+									<Building size={14} class="shrink-0" style="color: {item.workspace.color}" />
+								{/if}
 								<span
-									class="absolute top-1 right-1 pointer-events-none inline-block w-2 h-2 rounded-full bg-surface-accent-primary"
-									aria-label="{totalUnread} unread message{totalUnread === 1
-										? ''
-										: 's'} across all sessions"
-								></span>
+									class={twMerge(
+										'text-xs truncate font-normal',
+										browsedWorkspaceId === item.workspace.id
+											? 'text-emphasis font-medium'
+											: 'text-primary'
+									)}>{item.workspace.name}</span
+								>
+							</button>
+							{#if collapsible}
+								<button
+									type="button"
+									onclick={() => toggleWorkspaceCollapsed(item.workspace.id)}
+									title={collapsed ? 'Expand' : 'Collapse'}
+									aria-label={collapsed ? 'Expand workspace' : 'Collapse workspace'}
+									class="shrink-0 flex items-center justify-center w-6 text-tertiary hover:text-primary"
+								>
+									{#if collapsed}
+										<ChevronRight size={12} />
+									{:else}
+										<ChevronDown size={12} />
+									{/if}
+								</button>
 							{/if}
 						</div>
-					{/snippet}
-					{#snippet children({ item, builders })}
-						<div class="divide-y min-w-48" role="none">
-							<div class="py-1" role="none" data-asks-for-composer>
-								<MenuItem
-									class={menuItemBase}
-									onClick={() => {
-										newSessionFromRail = true
-										void openNewSession()
-									}}
-									{item}
-								>
-									<Plus size={14} />
-									New session
-								</MenuItem>
-							</div>
-							<div class="py-1" role="none">
-								<SessionFilterMenu
-									{builders}
-									bind:showArchived={showArchived.val}
-									bind:lastActivityDays={lastActivityDays.val}
-									bind:groupBy={groupBy.val}
-									{archivedCount}
+						{#if !collapsed}
+							{#each wsSessions as session (session.id)}
+								{@render sessionRow(session, true, item.depth + 1)}
+							{/each}
+						{/if}
+					{/if}
+				{/each}
+			{:else}
+				{#each displayGroups as group, groupIdx (group.key)}
+					{#if group.showHeader}
+						{@const groupWsId = group.workspaceId}
+						{@const groupWs = groupWsId
+							? $userWorkspaces.find((w) => w.id === groupWsId)
+							: undefined}
+						<!-- A group header is the section title for the rows under it:
+							     plain text, no workspace icon or chip. -->
+						<div
+							class={twMerge(
+								'group flex flex-row items-center gap-1 pl-2 pr-0.5 pt-2 pb-1 min-w-0',
+								// Space groups apart so their boundaries read clearly.
+								groupIdx > 0 ? 'mt-4' : '',
+								// The rail keeps the header's height, not its words.
+								rail ? 'invisible' : ''
+							)}
+							title={group.label}
+						>
+							<span class="text-secondary text-3xs truncate min-w-0">
+								{group.label}
+							</span>
+							{#if groupWs?.is_dev_workspace}
+								<DevWorkspaceBadge
+									label={groupWs.dev_workspace_label}
+									color={groupWs.color}
+									fallbackColor="gray"
+									class="text-3xs px-1 py-0 shrink-0"
 								/>
-							</div>
-							<div class="py-1" role="none">
-								{#each displayGroups as group (group.key)}
-									{#if group.showHeader}
-										<div
-											class="px-3 pt-1.5 pb-0.5 text-3xs text-tertiary truncate"
-											role="none"
-											title={group.label}
-										>
-											{group.label}
-										</div>
-									{/if}
-									{#each group.sessions as session (session.id)}
-										{@const runtime = getRuntime(session.id)}
-										{@const status = runtime
-											? getSessionChatStatus(runtime)
-											: (getSessionChatPeek(session.id)?.status ?? 'idle')}
-										{@const isSelected = session.id === activeRowId}
-										{@const unread = unreadFor(session)}
-										{@const draft = hasDraft(session)}
-										<MenuItem
-											class={twMerge(
-												menuItemBase,
-												isSelected
-													? twMerge(sidebarClasses.selectedBg, sidebarClasses.selectedText)
-													: ''
-											)}
-											onClick={() => activate(session)}
-											{item}
-										>
-											<SessionStatusDot
-												{status}
-												isFork={isForkFor(session)}
-												forkDetached={forkDetachedFor(session)}
-											/>
-											<span
-												class={twMerge(
-													'truncate flex-1 text-left',
-													unread > 0 ? 'font-semibold text-primary' : ''
-												)}
-											>
-												{session.summary ?? 'Untitled session'}
-											</span>
-											{#if draft || unread > 0}
-												<span class="ml-auto shrink-0 inline-flex items-center gap-1">
-													{#if draft}
-														<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
-													{/if}
-													<UnreadCountBadge count={unread} class="min-w-4 h-4 text-[10px]" />
-												</span>
-											{/if}
-										</MenuItem>
-									{/each}
-								{/each}
-							</div>
+							{/if}
+							{#if groupWsId}
+								<Button
+									unifiedSize="xs"
+									variant="subtle"
+									iconOnly
+									startIcon={{ icon: Plus }}
+									on:click={() => createAndOpenIn(groupWsId)}
+									title="New session in {group.label}"
+									aria-label="New session in {group.label}"
+									data-asks-for-composer
+									wrapperClasses="ml-auto shrink-0"
+									btnClasses="text-tertiary opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+								/>
+							{/if}
 						</div>
-					{/snippet}
-				</Menu>
-			{/snippet}
-		</Menubar>
-	</div>
-{:else}
-	<div
-		class="flex flex-col gap-1 {embedded ? '' : 'px-2 pt-3 pb-2'} {!embedded && collapsible
-			? 'border-b border-light'
-			: ''}"
-	>
-		<!-- Selection mode reuses the options row (same h-8 slot) so the list below it
-		     never moves. -->
-		{#if selectionMode}
-			<div class="flex flex-row items-center gap-1.5 h-8 px-2">
-				<Checkbox
-					checked={allSelected}
-					indeterminate={selectedIds.length > 0 && !allSelected}
-					onChange={toggleSelectAll}
-					class="shrink-0 !w-4 !h-4 !p-0"
-					title="Select all sessions"
+					{/if}
+					{#each group.sessions as session (session.id)}
+						{@render sessionRow(session, group.showHeader, undefined)}
+					{/each}
+				{/each}
+			{/if}
+		</div>
+		{#if selecting}
+			<!-- Pinned to the bottom edge of whatever scrolls the list, the sidebar or the folded
+				     section's menu, while the rows scroll under it; z-10 keeps it above the sidebar's
+				     bottom fade. One row, so it covers as few of them as it can. -->
+			<div
+				class={twMerge(
+					'sticky bottom-0 z-10 flex flex-row items-center gap-1 px-1 pt-1.5 pb-2',
+					inPopover ? 'bg-surface' : 'bg-[var(--sidebar-bg-light)] dark:bg-[var(--sidebar-bg-dark)]'
+				)}
+			>
+				<Button
+					unifiedSize="sm"
+					variant="default"
+					iconOnly
+					disabled={selectedIds.length === 0}
+					startIcon={{ icon: allSelectedArchived ? ArchiveRestore : Archive }}
+					title={allSelectedArchived ? 'Unarchive selected' : 'Archive selected'}
+					aria-label={allSelectedArchived ? 'Unarchive selected' : 'Archive selected'}
+					onClick={handleBatchArchive}
 				/>
 				<Button
-					unifiedSize="2xs"
-					variant="subtle"
-					on:click={toggleSelectAll}
-					btnClasses="!text-xs !h-5 w-auto !px-0 text-secondary whitespace-nowrap"
-				>
-					Select all
-				</Button>
-				<span class="ml-auto text-2xs text-tertiary whitespace-nowrap">
-					{selectedIds.length} selected
-				</span>
+					unifiedSize="sm"
+					variant="default"
+					destructive
+					iconOnly
+					disabled={selectedIds.length === 0}
+					startIcon={{ icon: Trash2 }}
+					title="Delete selected"
+					aria-label="Delete selected"
+					onClick={() => (batchDeleteOpen = true)}
+				/>
 				<Button
-					unifiedSize="2xs"
-					variant="subtle"
-					btnClasses="!text-2xs !h-5 w-auto"
+					unifiedSize="sm"
+					variant="default"
+					wrapperClasses="flex-1"
+					btnClasses="w-full"
 					onClick={exitSelectionMode}
 				>
 					Done
 				</Button>
 			</div>
-		{:else}
-			<!-- The submenu collapses to one row, so the picked cutoff would otherwise
-			     only be visible after opening it. -->
-			{#snippet lastActivityHint()}
-				<span class="text-2xs text-tertiary whitespace-nowrap">
-					{LAST_ACTIVITY_OPTIONS.find((o) => o.days === lastActivityDays.val)?.hint ?? ''}
-				</span>
-			{/snippet}
-			{#snippet groupByHint()}
-				<span class="text-2xs text-tertiary whitespace-nowrap">
-					{GROUP_BY_OPTIONS.find((o) => o.value === groupBy.val)?.hint ?? ''}
-				</span>
-			{/snippet}
-			{#snippet listOptions(size: 'sm' | 'md')}
-				<DropdownV2
-					fixedHeight={false}
-					placement="bottom-end"
-					enableFlyTransition
-					items={[
-						{
-							displayName: archivedCount > 0 ? `Show archived (${archivedCount})` : 'Show archived',
-							icon: Archive,
-							toggle: showArchived.val,
-							action: () => (showArchived.val = !showArchived.val)
-						},
-						{
-							displayName: 'Last activity',
-							icon: Clock,
-							extra: lastActivityHint,
-							submenuItems: LAST_ACTIVITY_OPTIONS.map((o) => ({
-								displayName: o.label,
-								selected: lastActivityDays.val === o.days,
-								action: () => (lastActivityDays.val = o.days)
-							}))
-						},
-						{
-							displayName: 'Group by',
-							icon: Rows3,
-							extra: groupByHint,
-							submenuItems: GROUP_BY_OPTIONS.map((o) => ({
-								displayName: o.label,
-								selected: groupBy.val === o.value,
-								action: () => (groupBy.val = o.value)
-							}))
-						},
-						{
-							displayName: 'Edit sessions',
-							icon: ListChecks,
-							action: enterSelectionMode,
-							separatorTop: true,
-							// Selection is built from `visibleSessions`, which the tree render
-							// path doesn't follow — it drops workspace-less sessions and hides
-							// rows under a collapsed workspace, so "Select all" there would
-							// reach rows that never showed a checkbox.
-							hide: visibleSessions.length === 0 || workspaceTree
-						}
-					]}
-				>
-					{#snippet buttonReplacement()}
-						<Button
-							nonCaptureEvent
-							unifiedSize={size}
-							variant="subtle"
-							iconOnly
-							startIcon={{ icon: EllipsisVertical }}
-							title="Session list options"
-							aria-label="Session list options"
-							btnClasses="text-secondary"
-						/>
-					{/snippet}
-				</DropdownV2>
-			{/snippet}
-			{#if collapsible}
-				<SidebarSectionHeader
-					title="AI sessions"
-					collapsed={sectionCollapsed.val}
-					onToggle={() => (sectionCollapsed.val = !sectionCollapsed.val)}
-					disabled={visibleSessions.length === 0}
-				>
-					{#snippet actions()}
-						{@render listOptions('sm')}
-						<Button
-							unifiedSize="sm"
-							variant="subtle"
-							iconOnly
-							startIcon={{ icon: Plus }}
-							title="New session"
-							aria-label="New session"
-							data-asks-for-composer
-							btnClasses="text-secondary"
-							onClick={() => openNewSession()}
-						/>
-					{/snippet}
-				</SidebarSectionHeader>
-			{:else}
-				<!-- Where the list owns the pane, a title would only repeat what the pane is. -->
-				<div class="flex flex-row items-center gap-0.5 h-8 pr-0.5 justify-end">
-					{@render listOptions('md')}
-				</div>
-			{/if}
 		{/if}
-		{#if !collapsible || !sectionCollapsed.val}
-			<div
-				bind:this={listRoot}
-				transition:slide={{ duration: 180 }}
-				class={twMerge(
-					'flex flex-col gap-0.5',
-					// Shift-clicking rows would otherwise paint a text selection across them.
-					selectionMode ? 'select-none' : ''
-				)}
-				onkeydown={handleListKeydown}
-				role="listbox"
-				tabindex="-1"
-			>
-				{#snippet vline()}
-					<span class="relative w-3.5 shrink-0 self-stretch">
-						<span class="absolute inset-y-0 left-1/2 w-px bg-surface-tertiary"></span>
-					</span>
-				{/snippet}
-				{#snippet sessionRow(session, indented, treeDepth)}
-					{@const runtime = getRuntime(session.id)}
-					{@const status = runtime
-						? getSessionChatStatus(runtime)
-						: (getSessionChatPeek(session.id)?.status ?? 'idle')}
-					{@const isSelected = session.id === activeRowId}
-					{@const isEditing = editingId === session.id}
-					{@const unread = unreadFor(session)}
-					{@const draft = hasDraft(session)}
-					{@const isChecked = selectedIds.includes(session.id)}
-					<div
-						class={twMerge(
-							'flex flex-row group rounded',
-							treeDepth === undefined ? 'items-center' : 'items-stretch',
-							isSelected ? sidebarClasses.selectedBg : 'hover:bg-surface-hover',
-							session.archived ? 'opacity-60' : '',
-							// Grouped rows sit slightly in from their header; tree mode uses guide columns.
-							treeDepth === undefined && indented ? 'pl-1' : ''
-						)}
-					>
-						{#if treeDepth !== undefined}
-							{#each Array(treeDepth) as _}{@render vline()}{/each}
-						{/if}
-						{#if selectionMode}
-							<!-- Takes over the status-dot slot exactly (pl-2 + 16px, the row button's
-							     own px-2 supplying the trailing gap), so entering selection mode
-							     doesn't shift a single row label sideways. -->
-							<span class="flex items-center pl-2">
-								<Checkbox
-									checked={isChecked}
-									onChange={() => {
-										toggleSelected(session.id, shiftHeldOnClick)
-										shiftHeldOnClick = false
-									}}
-									onClick={(e) => (shiftHeldOnClick = e.shiftKey)}
-									class="shrink-0 !w-4 !h-4 !p-0"
-									title={session.summary ?? 'Untitled session'}
-								/>
-							</span>
-						{/if}
-						{#if isEditing}
-							<span class="flex flex-row items-center gap-2 flex-1 px-2 py-1 min-w-0">
-								{#if treeDepth === undefined}
-									<SessionStatusDot
-										{status}
-										isFork={isForkFor(session)}
-										forkDetached={forkDetachedFor(session)}
-									/>
-								{/if}
-								<TextInput
-									bind:value={renameDraft}
-									size="xs"
-									unifiedHeight={false}
-									class="flex-1 min-w-0 !bg-transparent !border-0 !border-transparent !shadow-none focus:!ring-0 px-0 text-xs font-normal text-primary"
-									inputProps={{
-										type: 'text',
-										placeholder: 'Untitled session',
-										autofocus: true,
-										spellcheck: false,
-										onkeydown: (e) => {
-											if (e.key === 'Enter') commitRename()
-											else if (e.key === 'Escape') cancelRename()
-										},
-										onblur: commitRename
-									}}
-								/>
-							</span>
-						{:else}
-							<button
-								type="button"
-								data-session-button
-								role="option"
-								aria-selected={selectionMode ? isChecked : isSelected}
-								onclick={(e) =>
-									selectionMode ? toggleSelected(session.id, e.shiftKey) : activate(session)}
-								class={twMerge(
-									'flex flex-row items-center gap-2 text-left text-xs font-normal focus:outline-none flex-1 min-w-0 px-2 py-1',
-									isSelected ? sidebarClasses.selectedText : 'text-secondary'
-								)}
-							>
-								{#if treeDepth === undefined && !selectionMode}
-									<SessionStatusDot
-										{status}
-										isFork={isForkFor(session)}
-										forkDetached={forkDetachedFor(session)}
-									/>
-								{/if}
-								<span class="truncate flex-1">{session.summary ?? 'Untitled session'}</span>
-								{#if draft || unread > 0}
-									<span class="shrink-0 inline-flex items-center gap-1">
-										{#if draft}
-											<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
-										{/if}
-										<UnreadCountBadge count={unread} class="min-w-4 h-4 text-[10px]" />
-									</span>
-								{/if}
-							</button>
-							<!-- Hidden rather than dropped while selecting: removing it would widen
-							     every label and re-truncate the list. -->
-							<div
-								class={twMerge(
-									'transition-opacity pr-0.5',
-									selectionMode
-										? 'invisible pointer-events-none'
-										: 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
-								)}
-							>
-								<DropdownV2
-									fixedHeight={false}
-									placement="bottom-end"
-									enableFlyTransition
-									items={[
-										{
-											displayName: 'Rename',
-											icon: Pencil,
-											action: () => startRename(session)
-										},
-										...(session.archived
-											? // No Unarchive when the workspace is gone — it can't persist
-												// (putSession guard) and reconcile would re-archive it.
-												isUnavailableFork(session)
-												? []
-												: [
-														{
-															displayName: 'Unarchive',
-															icon: ArchiveRestore,
-															action: () => setSessionArchived(session.id, false)
-														}
-													]
-											: [
-													{
-														displayName: 'Archive',
-														icon: Archive,
-														action: () => {
-															setSessionArchived(session.id, true)
-															leaveArchivedHomeDraft([session.id])
-														}
-													}
-												]),
-										{
-											displayName: 'Delete',
-											icon: Trash2,
-											type: 'delete',
-											action: () => (pendingDelete = session)
-										}
-									]}
-								>
-									{#snippet buttonReplacement()}
-										<span
-											class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
-											title="More"
-										>
-											<EllipsisVertical size={14} />
-										</span>
-									{/snippet}
-								</DropdownV2>
-							</div>
-						{/if}
-					</div>
-				{/snippet}
-				{#if workspaceTree}
-					{#each workspaceTreeItems as item, wi (item.workspace.id)}
-						{#if !hiddenWorkspaceIds.has(item.workspace.id)}
-							{@const wsSessions = sessionsByWorkspace.get(item.workspace.id) ?? []}
-							{@const collapsed = isWorkspaceCollapsed(item.workspace.id)}
-							{@const collapsible = item.hasChildren || wsSessions.length > 0}
-							<!-- Workspace = folder. Stroke-colored building/fork glyph; the guide
-							     columns render the workspace tree (fork nesting). A chevron
-							     collapses the workspace (hides its sessions + fork subtree). -->
-							<div
-								class={twMerge(
-									'flex items-stretch w-full rounded',
-									wi > 0 && item.depth === 0 ? 'mt-3' : '',
-									browsedWorkspaceId === item.workspace.id
-										? sidebarClasses.selectedBg
-										: 'hover:bg-surface-hover'
-								)}
-							>
-								{#each Array(item.depth) as _}{@render vline()}{/each}
-								<button
-									type="button"
-									onclick={() => onBrowseWorkspace?.(item.workspace.id)}
-									title={item.workspace.name}
-									class="flex items-center gap-1.5 py-1 pl-1 pr-2 min-w-0 flex-1 text-left"
-								>
-									{#if item.isForked}
-										<GitFork size={14} class="shrink-0" style="color: {item.workspace.color}" />
-									{:else}
-										<Building size={14} class="shrink-0" style="color: {item.workspace.color}" />
-									{/if}
-									<span
-										class={twMerge(
-											'text-xs truncate font-normal',
-											browsedWorkspaceId === item.workspace.id
-												? 'text-emphasis font-medium'
-												: 'text-primary'
-										)}>{item.workspace.name}</span
-									>
-								</button>
-								{#if collapsible}
-									<button
-										type="button"
-										onclick={() => toggleWorkspaceCollapsed(item.workspace.id)}
-										title={collapsed ? 'Expand' : 'Collapse'}
-										aria-label={collapsed ? 'Expand workspace' : 'Collapse workspace'}
-										class="shrink-0 flex items-center justify-center w-6 text-tertiary hover:text-primary"
-									>
-										{#if collapsed}
-											<ChevronRight size={12} />
-										{:else}
-											<ChevronDown size={12} />
-										{/if}
-									</button>
-								{/if}
-							</div>
-							{#if !collapsed}
-								{#each wsSessions as session (session.id)}
-									{@render sessionRow(session, true, item.depth + 1)}
-								{/each}
-							{/if}
-						{/if}
-					{/each}
-				{:else}
-					{#each displayGroups as group, groupIdx (group.key)}
-						{#if group.showHeader}
-							{@const groupWsId = group.workspaceId}
-							{@const groupWs = groupWsId
-								? $userWorkspaces.find((w) => w.id === groupWsId)
-								: undefined}
-							<!-- A group header is the section title for the rows under it:
-							     plain text, no workspace icon or chip. -->
-							<div
-								class={twMerge(
-									'group flex flex-row items-center gap-1 pl-2 pr-0.5 pt-2 pb-1 min-w-0',
-									// Space groups apart so their boundaries read clearly.
-									groupIdx > 0 ? 'mt-4' : ''
-								)}
-								title={group.label}
-							>
-								<span class="text-secondary text-3xs truncate min-w-0">
-									{group.label}
-								</span>
-								{#if groupWs?.is_dev_workspace}
-									<DevWorkspaceBadge
-										label={groupWs.dev_workspace_label}
-										color={groupWs.color}
-										fallbackColor="gray"
-										class="text-3xs px-1 py-0 shrink-0"
-									/>
-								{/if}
-								{#if groupWsId}
-									<Button
-										unifiedSize="xs"
-										variant="subtle"
-										iconOnly
-										startIcon={{ icon: Plus }}
-										on:click={() => createAndOpenIn(groupWsId)}
-										title="New session in {group.label}"
-										aria-label="New session in {group.label}"
-										data-asks-for-composer
-										wrapperClasses="ml-auto shrink-0"
-										btnClasses="text-tertiary opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
-									/>
-								{/if}
-							</div>
-						{/if}
-						{#each group.sessions as session (session.id)}
-							{@render sessionRow(session, group.showHeader, undefined)}
-						{/each}
-					{/each}
-				{/if}
-			</div>
-			{#if selectionMode}
-				<!-- Pinned to the sidebar's bottom edge while the rows scroll under it; z-10 keeps it
-				     above the sidebar's bottom fade. -->
-				<div
-					class="sticky bottom-0 z-10 flex flex-col gap-1 px-1 pt-1.5 pb-2 bg-[var(--sidebar-bg-light)] dark:bg-[var(--sidebar-bg-dark)]"
-				>
-					<Button
-						unifiedSize="xs"
-						variant="default"
-						disabled={selectedIds.length === 0}
-						startIcon={{ icon: allSelectedArchived ? ArchiveRestore : Archive }}
-						onClick={handleBatchArchive}
-					>
-						{allSelectedArchived ? 'Unarchive' : 'Archive'}
-					</Button>
-					<Button
-						unifiedSize="xs"
-						variant="default"
-						destructive
-						disabled={selectedIds.length === 0}
-						startIcon={{ icon: Trash2 }}
-						onClick={() => (batchDeleteOpen = true)}
-					>
-						Delete
-					</Button>
-				</div>
-			{/if}
-		{/if}
-	</div>
-{/if}
+	{/snippet}
+</div>
+
+<!-- Selection holds the sidebar open (see the layout), so Esc, which closes it, ends selection too. -->
+<!-- An Esc that closes an overlay (Search) or a menu is theirs: the overlay is read now, as it
+     is off the stack once its own listener has run, and the rest once every listener has. -->
+<svelte:window
+	onkeydown={(e) => {
+		if (e.key !== 'Escape' || !selectionMode || batchDeleteOpen) return
+		if (viewportOverlays.val.length > 0) return
+		setTimeout(() => {
+			if (e.defaultPrevented || document.querySelector('[role="menu"]:not([hidden])')) return
+			exitSelectionMode()
+		})
+	}}
+/>
 
 <ConfirmationModal
 	open={!!pendingDelete}
@@ -1269,7 +1228,11 @@
 	title="Delete sessions"
 	confirmationText="Delete"
 	onConfirmed={handleConfirmedBatchDelete}
-	onCanceled={() => (batchDeleteOpen = false)}
+	onCanceled={() => {
+		batchDeleteOpen = false
+		// The confirmation closed the folded section's menu the selection was made in.
+		if (selectionInFlyout) exitSelectionMode()
+	}}
 >
 	<div class="flex flex-col gap-3">
 		<p>
@@ -1288,3 +1251,16 @@
 		{/if}
 	</div>
 </ConfirmationModal>
+
+<!-- The submenu collapses to one row, so the picked cutoff would otherwise only be visible after
+     opening it. -->
+{#snippet lastActivityHint()}
+	<span class="text-2xs text-tertiary whitespace-nowrap">
+		{LAST_ACTIVITY_OPTIONS.find((o) => o.days === lastActivityDays.val)?.hint ?? ''}
+	</span>
+{/snippet}
+{#snippet groupByHint()}
+	<span class="text-2xs text-tertiary whitespace-nowrap">
+		{GROUP_BY_OPTIONS.find((o) => o.value === groupBy.val)?.hint ?? ''}
+	</span>
+{/snippet}

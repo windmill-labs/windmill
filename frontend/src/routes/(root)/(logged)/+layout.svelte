@@ -9,7 +9,7 @@
 
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
-	import { isMac } from '$lib/utils'
+	import { isMac, type Item } from '$lib/utils'
 
 	import {
 		AppService,
@@ -86,13 +86,14 @@
 	import {
 		PanelLeft,
 		PanelLeftClose,
-		PanelLeftDashed,
 		PanelLeftOpen,
-		Home,
 		Play,
 		Search,
-		ArrowLeft
+		ArrowLeft,
+		Star,
+		MessagesSquare
 	} from 'lucide-svelte'
+	import { homeRowLearned, sidebarPrefs } from '$lib/components/sidebar/sidebarPrefs.svelte'
 	import { Button } from '$lib/components/common'
 	import { isInstanceRoute } from '$lib/instanceRoutes'
 	import { getUserExt } from '$lib/user'
@@ -107,6 +108,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { navDetached } from '$lib/components/sidebar/navDetached.svelte'
 	import { navHandleSlot } from '$lib/components/sidebar/navHandlePlacement.svelte'
+	import ModeButtonFlash from '$lib/components/sidebar/ModeButtonFlash.svelte'
 	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import PageHeaderBar from '$lib/components/PageHeaderBar.svelte'
 	import { BAR_HEIGHT_PX, pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
@@ -124,7 +126,7 @@
 	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
 	import { onDestroy, onMount, setContext, tick, untrack } from 'svelte'
 	import { cubicOut } from 'svelte/easing'
-	import { Tooltip } from '$lib/components/meltComponents'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
 	import {
@@ -178,6 +180,16 @@
 	// Operators never get the icon-only rail: their docked sidebar is always expanded (a sidebar
 	// they want out of the way is what detaching is for).
 	let isCollapsed = $derived(collapsedState && $roleCapabilities.code)
+	// Expand on hover: the icon rail widens over the page while the pointer is on it. The page
+	// keeps the icon rail's offset, so nothing beside the rail moves.
+	const hoverExpandPref = useLocalStorageValue<boolean>(
+		'nav_menu_expand_on_hover',
+		false,
+		'boolean'
+	)
+	let expandsOnHover = $derived(isCollapsed && hoverExpandPref.val)
+	let hoverExpandedState = $state(false)
+	let hoverExpanded = $derived(expandsOnHover && hoverExpandedState)
 
 	// Resizable desktop rail, sized in REM so it scales with the root font-size the
 	// same way the old `w-52`/`w-12` classes did — `:root` jumps to 18px on screens
@@ -246,11 +258,18 @@
 		// Re-expanding a snap-collapsed rail restores the width it had before the drag.
 		const widthAtStart = sidebarWidth
 		const collapsedAtStart = collapsedState
+		// A rail widened by hover resizes the width it widens to and stays in its mode: it has no
+		// snap, since collapsing is what it does when the pointer leaves.
+		const hoverResize = hoverExpanded
 		// The rail is fixed at left:0, so the pointer's clientX is the width — in px.
 		// Convert to rem (the unit the rail is sized in) via the root font-size. The
 		// rail clamps at the min like a wall, until the pointer reaches the snap zone.
 		const onMove = (ev: PointerEvent) => {
 			const x = ev.clientX / rootFontPx()
+			if (hoverResize) {
+				sidebarWidth = Math.max(SIDEBAR_MIN_REM, x)
+				return
+			}
 			const collapse = x < SIDEBAR_SNAP_COLLAPSE_REM
 			// Operators have no icon-only rail to snap to, so the same gesture detaches
 			// instead: dragging the sidebar off the left edge puts it behind the handle.
@@ -287,6 +306,9 @@
 				handle.releasePointerCapture(e.pointerId)
 			} catch {}
 			stopSidebarResize = null
+			if (hoverResize && !document.getElementById('sidebar')?.matches(':hover')) {
+				scheduleRailCollapse()
+			}
 		}
 		stopSidebarResize = stop
 		window.addEventListener('pointermove', onMove)
@@ -538,22 +560,45 @@
 	const PEEK_CLOSE_DELAY_MS = 200
 	// Both the card and the band open menus, and a menu portals to `body` (overlayPortalTarget),
 	// so the pointer moving into one leaves the surface that opened it. A surface has to outlive
-	// its own menus or it slides out from under the one being read: hold while the pointer is in a
-	// menu, and take the close from the leave of that instead.
-	function pointerInMenu(): boolean {
-		return !!document.querySelector('[role="menu"]:hover')
+	// its own menus or it slides out from under the one being read, so it holds while one is open,
+	// hovered or not: the way from a menu to its submenu crosses neither.
+	function menuIsOpen(): boolean {
+		return !!document.querySelector('[role="menu"]:not([hidden])')
+	}
+	// Sessions being selected for a batch action hold the surface the same way, until Done.
+	function holdsSurface(): boolean {
+		return menuIsOpen() || !!document.querySelector('[data-sessions-selecting]')
+	}
+	// Once its menus close, a surface the pointer is back on stays: its own leave closes it later.
+	function pointerOnSidebar(): boolean {
+		return !!document.querySelector(
+			'[data-nav-card]:hover, [data-nav-handle]:hover, #sidebar:hover'
+		)
 	}
 	// A click on the handle pins the card: it then outlives the pointer leaving. Only meaningful
 	// while open — every open from closed starts unpinned.
 	let menuPinned = $state(false)
 	const { debounced: schedulePeekClose, clearDebounce: cancelPeekClose } = debounce(() => {
 		if (!peeksOnHover || menuPinned) return
-		if (pointerInMenu()) {
+		if (holdsSurface()) {
 			schedulePeekClose()
 			return
 		}
+		if (pointerOnSidebar()) return
 		menuOpen = false
 	}, PEEK_CLOSE_DELAY_MS)
+	// The close waits just long enough for the pointer to cross into a menu the rail opened.
+	const RAIL_HOVER_CLOSE_DELAY_MS = 80
+	const { debounced: scheduleRailCollapse, clearDebounce: cancelRailCollapse } = debounce(() => {
+		// A drag of the widened rail's edge ends outside it; the drag's end decides.
+		if (resizingSidebar) return
+		if (holdsSurface()) {
+			scheduleRailCollapse()
+			return
+		}
+		if (pointerOnSidebar()) return
+		hoverExpandedState = false
+	}, RAIL_HOVER_CLOSE_DELAY_MS)
 
 	// A page that owns the right edge from the top — a session's side panel — makes the band float
 	// and stop where that column starts, instead of running over it.
@@ -584,19 +629,31 @@
 		const target = e.target
 		if (!(target instanceof Element) || !pageColumn?.contains(target)) return
 		if (target.closest('[data-nav-handle]')) return
+		if (document.querySelector('[data-sessions-selecting]')) return
 		menuOpen = false
 	}
 	// A press inside an iframe (a session's preview) never reaches this window; focus moving into one does.
 	function closeCardOnFrameFocus() {
 		if (!menuOpen || !useDrawer) return
 		setTimeout(() => {
-			if (document.activeElement instanceof HTMLIFrameElement) menuOpen = false
+			if (
+				document.activeElement instanceof HTMLIFrameElement &&
+				!document.querySelector('[data-sessions-selecting]')
+			)
+				menuOpen = false
 		})
 	}
 
 	const viewportOverlays = overlayStack()
 	function onWindowKeydown(e: KeyboardEvent) {
 		onSearchShortcutBeforeLoad(e)
+		// Cmd/Ctrl+\ (Notion's binding): Cmd+B is the raw app editor's file sidebar.
+		if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key === '\\') {
+			if (!$roleCapabilities.code || navDetached.val || innerWidth < 768) return
+			e.preventDefault()
+			setSidebarMode(isCollapsed ? 'expanded' : 'icons')
+			return
+		}
 		if (e.key !== 'Escape' || !menuOpen || !useDrawer) return
 		// Read now: the overlay this Esc closes is off the stack by the time the timeout runs.
 		if (viewportOverlays.val.length > 0) return
@@ -620,13 +677,83 @@
 		menuOpen = false
 		navDetached.val = detached
 	}
+	type SidebarMode = 'expanded' | 'icons' | 'hover' | 'hidden'
+	function currentSidebarMode(): SidebarMode {
+		return navDetached.val
+			? 'hidden'
+			: expandsOnHover
+				? 'hover'
+				: isCollapsed
+					? 'icons'
+					: 'expanded'
+	}
+	function sidebarModeItems(withModes = true): Item[] {
+		const mode = currentSidebarMode()
+		const customize: Item = {
+			sectionTitle: withModes ? undefined : 'Sidebar',
+			displayName: 'Customize',
+			submenuItems: [
+				{
+					displayName: 'Favorites section',
+					icon: Star,
+					toggle: sidebarPrefs.favorites.val,
+					action: () => (sidebarPrefs.favorites.val = !sidebarPrefs.favorites.val)
+				},
+				{
+					displayName: 'AI chats section',
+					icon: MessagesSquare,
+					toggle: sidebarPrefs.aiChats.val,
+					action: () => (sidebarPrefs.aiChats.val = !sidebarPrefs.aiChats.val)
+				}
+			]
+		}
+		if (!withModes) return [customize]
+		return [
+			{
+				sectionTitle: 'Sidebar',
+				displayName: 'Expanded',
+				selected: mode === 'expanded',
+				action: () => setSidebarMode('expanded')
+			},
+			{
+				displayName: 'Collapsed',
+				shortcut: `${getModifierKey()}\\`,
+				selected: mode === 'icons',
+				hide: !$roleCapabilities.code,
+				action: () => setSidebarMode('icons')
+			},
+			{
+				displayName: 'Expand on hover',
+				selected: mode === 'hover',
+				hide: !$roleCapabilities.code,
+				action: () => setSidebarMode('hover')
+			},
+			{
+				displayName: 'Hidden, show on hover',
+				selected: mode === 'hidden',
+				action: () => setSidebarMode('hidden')
+			},
+			customize
+		]
+	}
+	navHandleSlot.setModeItems(() => sidebarModeItems())
+	function setSidebarMode(mode: SidebarMode) {
+		if (mode !== currentSidebarMode()) navHandleSlot.flashModeButton()
+		// The collapse preference is one key for both roles, and only a developer's rail reads it:
+		// an operator writing it would reset the icon rail they chose as a developer elsewhere.
+		if (mode !== 'hidden' && $roleCapabilities.code) {
+			collapsedState = mode !== 'expanded'
+			collapsePref.val = collapsedState
+			hoverExpandPref.val = mode === 'hover'
+		}
+		if (navDetached.val !== (mode === 'hidden')) setDetached(mode === 'hidden')
+	}
 	// Docking and detaching move and resize the rail itself between its docked box and the detached
 	// card's (top at the band's bottom edge, bottom and left insets, rounded corners); detaching
 	// also slides it off the left edge, where the closed card lives. No opacity: the rail never
 	// fades.
-	// The footer's icon buttons wear the rail's own row box — 32px square, 16px glyph — so the
-	// pair that hides and collapses the sidebar lines up with the links above them, collapsed or
-	// not. Padding alone drifted: two different paddings, two icon sizes and a negative margin.
+	// The footer's mode button wears the rail's own row box — 32px square, 16px glyph — so it
+	// lines up with the links above it, collapsed or not.
 	const SIDEBAR_ICON_BUTTON =
 		'h-8 w-8 flex items-center justify-center rounded hover:bg-surface-hover flex-shrink-0'
 
@@ -1216,37 +1343,22 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 
 <!-- Windmill brand mark anchoring the sidebar bottom (the header slot is taken
      by the workspace picker). -->
-<!-- Detaching is the operator's control: they have no icon-only rail to collapse to, so hiding the
-     sidebar is how they give the page its width back. A developer collapses instead, and never
-     detaches — but one who detached before this was so keeps the way back, or they would be stuck
-     with a sidebar they cannot return. -->
-{#snippet sidebarToggle()}
-	{@const hidden = navDetached.val}
-	{#if hidden || !$roleCapabilities.code}
-		<Tooltip class="flex" placement="bottom" small>
-			<button
-				class={SIDEBAR_ICON_BUTTON}
-				aria-label={hidden ? 'Show sidebar' : 'Hide sidebar'}
-				onclick={() => setDetached(!hidden)}
-			>
-				{#if hidden}
-					<PanelLeft size={16} class="flex-shrink-0 text-hint" />
-				{:else}
-					<PanelLeftDashed size={16} class="flex-shrink-0 text-hint" />
-				{/if}
-			</button>
-			{#snippet text()}{hidden ? 'Show sidebar' : 'Hide sidebar'}{/snippet}
-		</Tooltip>
-	{/if}
-{/snippet}
-
-{#snippet brandMark(collapsed: boolean)}
-	<div class="flex items-center gap-x-1.5 text-xs font-semibold text-emphasis">
-		<WindmillIcon white={darkMode} height="16px" width="16px" />
-		{#if !collapsed}
-			{$whitelabelNameStore ? capitalize($whitelabelNameStore) : 'Windmill'}
-		{/if}
-	</div>
+<!-- Operators get no "Collapsed": their docked sidebar is always expanded. -->
+{#snippet sidebarModeMenu(withModes: boolean)}
+	<span class="relative inline-flex">
+		<ModeButtonFlash />
+		<DropdownV2
+			placement="top-start"
+			fixedHeight={false}
+			class={SIDEBAR_ICON_BUTTON}
+			items={sidebarModeItems(withModes)}
+		>
+			{#snippet buttonReplacement()}
+				<PanelLeft size={16} class="flex-shrink-0 text-hint" />
+				<span class="sr-only">Sidebar mode</span>
+			{/snippet}
+		</DropdownV2>
+	</span>
 {/snippet}
 
 <!-- Settings / instance section: the last section inside the nav's unified scroll area. -->
@@ -1267,7 +1379,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
      whenever the nav is detached. The shells differ, the sections do not, so a change to the
      rail cannot miss the panel. -->
 {#snippet sidebarColumn(panel: boolean)}
-	{@const collapsed = panel ? false : isCollapsed}
+	{@const collapsed = panel ? false : isCollapsed && !hoverExpanded}
 	<div
 		class={twMerge(
 			'flex flex-col',
@@ -1297,55 +1409,54 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 		     which is why nothing names the workspace here. -->
 		<div class="flex-shrink-0 px-2 h-12 flex flex-row items-center gap-0.5">
 			<div class="flex-1 min-w-0">
+				<!-- The brand is the way home, so it stands in for a Home icon and label. -->
 				<MenuLink
 					class="!text-xs"
-					label="Home"
+					label={($whitelabelNameStore ? capitalize($whitelabelNameStore) : 'Windmill') +
+						(homeRowLearned.val ? '' : ' / Home')}
+					hint="Go to Home"
 					href="/"
-					icon={Home}
+					onclick={() => {
+						// A click on Home itself goes nowhere, so it teaches nothing.
+						if (page.url.pathname !== '/') homeRowLearned.val = true
+					}}
+					icon={WindmillIcon}
+					iconProps={{ white: darkMode, width: '16px', height: '16px' }}
 					isCollapsed={collapsed}
 					aiId="sidebar-menu-link-home"
 					aiDescription="Button to navigate to home which contains all the user's scripts, flows and apps"
 				/>
 			</div>
-			<!-- Expanded, Search shares Home's row; the collapsed rail keeps it in the nav below. -->
-			{#if !collapsed}
-				<Button
-					unifiedSize="sm"
-					variant="subtle"
-					startIcon={{ icon: Search }}
-					title="Search"
-					aria-label="Search"
-					btnClasses="text-secondary gap-1 px-1.5"
-					onClick={() => openSearchModal()}
-				>
-					<span class="text-2xs text-hint font-normal">{getModifierKey()}K</span>
-				</Button>
-			{/if}
 		</div>
-		<!-- Pulled up into the Home band's slack under its centred row (48px band; rows 30px, 32px
-		     on the rail), so the next row sits 2px under Home, as the nav's rows sit apart. Kept
-		     outside the scroll area: a negative margin inside it would clip that row. -->
-		<div class={twMerge('flex flex-col flex-1 min-h-0', collapsed ? '-mt-1.5' : '-mt-[7px]')}>
+		<!-- Pulled up into the Home band's slack under its centred row (48px band, 32px rows), so
+		     the next row sits 2px under Home, as the nav's rows sit apart. Kept outside the scroll
+		     area: a negative margin inside it would clip that row. -->
+		<div class="flex flex-col flex-1 min-h-0 -mt-1.5">
+			<!-- Search stays with Home, above the list that scrolls. -->
+			<div class="flex-shrink-0 px-2 pb-0.5">
+				<MenuButton
+					stopPropagationOnClick={true}
+					on:click={() => openSearchModal()}
+					isCollapsed={collapsed}
+					icon={Search}
+					label="Search"
+					class="!text-xs"
+					shortcut={`${getModifierKey()}K`}
+				/>
+			</div>
 			<!-- The workspace nav: Runs → Settings scroll as ONE block with an
 			     overflow fade hint. The sections (Runs + workspace items / AI sessions /
 			     instance settings) are spaced by the scroll area's
 			     gap rather than each scrolling on its own. -->
-			<SidebarScrollArea color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
-				<!-- Section 1: Search (collapsed) + Runs, then the workspace items, spaced as one list. -->
+			<!-- Keyed to the mode rather than to `collapsed`: a scrollbar appearing as the rail opens on
+			     hover would shift the rows mid-animation. -->
+			<SidebarScrollArea
+				color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
+				hideScrollbar={!panel && isCollapsed}
+			>
+				<!-- Section 1: Runs, then the workspace items, spaced as one list. -->
 				<div class="flex flex-col gap-0.5">
 					<div class="px-2 flex flex-col gap-0.5">
-						<!-- Collapsed, Search stays right under Home, where it sits beside it expanded. -->
-						{#if collapsed}
-							<MenuButton
-								stopPropagationOnClick={true}
-								on:click={() => openSearchModal()}
-								isCollapsed={collapsed}
-								icon={Search}
-								label="Search"
-								class="!text-xs"
-								shortcut={`${getModifierKey()}k`}
-							/>
-						{/if}
 						{@render quickLinks(collapsed)}
 					</div>
 					<SidebarContent
@@ -1358,7 +1469,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 					/>
 				</div>
 
-				<!-- The starred items, when "Customize sidebar" turns them on; hidden in the rail. -->
+				<!-- The starred items, when the sidebar menu's Customize turns them on; hidden in the rail. -->
 				<div class="px-2 empty:hidden">
 					<FavoritesSection isCollapsed={collapsed} />
 				</div>
@@ -1370,10 +1481,12 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 					</div>
 				{/if}
 
-				<!-- The flow and agent chats stored in the workspace; hidden in the collapsed rail. -->
-				<div class="px-2 empty:hidden">
-					<AiChatsSection isCollapsed={collapsed} />
-				</div>
+				<!-- The flow and agent chats stored in the workspace, unless Customize turned them off. -->
+				{#if sidebarPrefs.aiChats.val}
+					<div class="px-2 empty:hidden">
+						<AiChatsSection isCollapsed={collapsed} />
+					</div>
+				{/if}
 			</SidebarScrollArea>
 		</div>
 
@@ -1388,37 +1501,37 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			<SidebarUsage isCollapsed={collapsed} />
 		</div>
 
-		<div
-			class="flex-shrink-0 flex pb-3.5 {collapsed
-				? 'flex-col items-center gap-1 pt-4'
-				: 'items-center justify-between px-4 pt-1'}"
-		>
-			{@render brandMark(collapsed)}
-			<div class="flex {collapsed ? 'flex-col gap-1' : 'gap-3'}">
-				{#if !panel || navDetached.val}
-					{@render sidebarToggle()}
-				{/if}
-				<!-- Collapsing belongs to the rail: the panel is over the page already, and the way
-				     out of it is the handle in the band or a click outside. -->
-				{#if !panel && $roleCapabilities.code}
+		<!-- Below 768px the panel is the only shell there is, so there is no mode to pick: the
+		     menu holds Customize alone. -->
+		<!-- Where the card slides in on hover, the handle that slides it in holds this menu too. -->
+		{#if !panel || innerWidth < 768 || (navDetached.val && !hoverPointer)}
+			<div
+				class="flex-shrink-0 flex px-2 mt-1 mb-3.5 {collapsed
+					? 'flex-col items-start gap-1'
+					: 'flex-row items-center gap-1 h-8'}"
+			>
+				{@render sidebarModeMenu(!panel || innerWidth >= 768)}
+				<!-- One click between Expanded and Collapsed, as before the mode menu existed; only in
+				     those two modes, the others have no such pair. -->
+				{#if !panel && $roleCapabilities.code && !expandsOnHover}
 					<button
 						class={SIDEBAR_ICON_BUTTON}
-						title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-						onclick={() => {
-							collapsedState = !collapsedState
-							// Manual toggle is the persisted preference (auto-collapse isn't).
-							collapsePref.val = collapsedState
-						}}
+						title={`${isCollapsed ? 'Expand' : 'Collapse'} sidebar (${getModifierKey()}\\)`}
+						onclick={() => setSidebarMode(isCollapsed ? 'expanded' : 'icons')}
 					>
-						{#if collapsed}
+						{#if isCollapsed}
 							<PanelLeftOpen size={16} class="flex-shrink-0 text-hint" />
 						{:else}
 							<PanelLeftClose size={16} class="flex-shrink-0 text-hint" />
 						{/if}
+						<span class="sr-only">{isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}</span>
 					</button>
 				{/if}
 			</div>
-		</div>
+		{:else if navDetached.val}
+			<!-- Without the footer the last row would sit on the card's bottom edge. -->
+			<div class="flex-shrink-0 h-3"></div>
+		{/if}
 	</div>
 {/snippet}
 
@@ -1523,16 +1636,26 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 					</div>
 				</div>
 			{:else}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
 					id="sidebar"
 					class={classNames(
 						dockToggled ? '' : 'wm-sidebar-in',
 						// The rail owns the full height of the left edge; the band starts to its right.
 						'flex flex-col fixed inset-y-0 z-40 ',
-						sidebarTransitionClass,
+						expandsOnHover && !resizingSidebar
+							? 'transition-[width] duration-100 ease-out'
+							: sidebarTransitionClass,
+						hoverExpanded ? 'shadow-lg' : '',
 						devOnly ? '!hidden' : ''
 					)}
-					style:width="{railWidth}rem"
+					style:width="{hoverExpanded ? sidebarWidth : railWidth}rem"
+					onmouseenter={() => {
+						if (!expandsOnHover || resizingSidebar) return
+						cancelRailCollapse()
+						hoverExpandedState = true
+					}}
+					onmouseleave={() => scheduleRailCollapse()}
 					in:railMorph={{ offscreen: false }}
 					out:railMorph={{ offscreen: true }}
 				>

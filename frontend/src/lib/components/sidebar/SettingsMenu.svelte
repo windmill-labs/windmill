@@ -20,14 +20,11 @@
 		Trash2,
 		KeyRound,
 		GraduationCap,
-		PanelLeft,
-		Star,
 		FolderOpen,
 		Users,
 		ShieldCheck
 	} from 'lucide-svelte'
 	import AccessDrawer from '../AccessDrawer.svelte'
-	import { sidebarPrefs } from './sidebarPrefs.svelte'
 	import { goto } from '$lib/navigation'
 	import { type Item } from '$lib/utils'
 	import { logout } from '$lib/logoutKit'
@@ -216,18 +213,6 @@
 			action: () => toggleDarkMode()
 		},
 		{
-			displayName: 'Customize sidebar',
-			icon: PanelLeft,
-			submenuItems: [
-				{
-					displayName: 'Favorites section',
-					icon: Star,
-					toggle: sidebarPrefs.favorites.val,
-					action: () => (sidebarPrefs.favorites.val = !sidebarPrefs.favorites.val)
-				}
-			]
-		},
-		{
 			// The email is the label itself; the crown icon carries the admin role.
 			displayName: $userStore?.non_member
 				? `${$userStore?.email} (superadmin, not a member)`
@@ -320,7 +305,10 @@
 {/snippet}
 
 <!-- Workers and Logs are full pages (not account/instance actions), so they sit
-     as plain links above the Settings dropdown rather than inside it. -->
+     as plain links above the Settings dropdown rather than inside it.
+     The dropdown triggers below are anchored left and clip their row: DropdownV2 justifies its
+     button's content to the end, and Firefox repaints a button whose content overflows it, which
+     a label showing while the sidebar is still narrow would do on every frame of the expand. -->
 <div class="flex flex-col gap-0.5 mb-0.5">
 	<MenuLink
 		class="!text-xs"
@@ -336,7 +324,7 @@
 		<DropdownV2
 			items={logsItems}
 			placement="top-start"
-			class="w-full"
+			class="w-full min-w-0 justify-start"
 			fixedHeight={false}
 			enableFlyTransition
 			aiId="sidebar-menu-link-logs"
@@ -344,13 +332,11 @@
 		>
 			{#snippet buttonReplacement()}
 				<span
-					class="relative flex items-center gap-2 w-full px-2 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
-						? 'h-8 justify-center'
-						: 'h-[30px]'}"
+					class="relative flex flex-1 min-w-0 items-center gap-2 w-full h-[30px] px-2 rounded-md text-secondary text-xs font-normal whitespace-nowrap overflow-hidden hover:bg-surface-hover cursor-pointer"
 				>
-					<Logs size={16} />
+					<Logs size={16} class="shrink-0 text-hint" />
 					{#if !isCollapsed}
-						Logs
+						<span class="truncate">Logs</span>
 						<span class="ml-auto flex items-center gap-2">
 							{#if numUnacknowledgedCriticalAlerts > 0}
 								<SideBarNotification notificationCount={numUnacknowledgedCriticalAlerts} />
@@ -387,20 +373,18 @@
 <DropdownV2
 	{items}
 	placement="top-start"
-	class="w-full"
+	class="w-full min-w-0 justify-start"
 	fixedHeight={false}
 	enableFlyTransition
 	on:close={onChangelogsOpened}
 >
 	{#snippet buttonReplacement()}
 		<span
-			class="relative flex items-center gap-2 w-full px-2 rounded-md text-secondary text-xs hover:bg-surface-hover cursor-pointer {isCollapsed
-				? 'h-8 justify-center'
-				: 'h-[30px]'}"
+			class="relative flex flex-1 min-w-0 items-center gap-2 w-full h-[30px] px-2 rounded-md text-secondary text-xs font-normal whitespace-nowrap overflow-hidden hover:bg-surface-hover cursor-pointer"
 		>
-			<Settings size={16} />
+			<Settings size={16} class="shrink-0 text-hint" />
 			{#if !isCollapsed}
-				Settings
+				<span class="truncate">Settings</span>
 				<ChevronDown size={14} class="ml-auto flex-shrink-0 text-tertiary" />
 			{/if}
 			{#if hasNewChangelogs}
