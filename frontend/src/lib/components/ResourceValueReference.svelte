@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import type { Item } from '$lib/utils'
+	import type { ResourceType } from '$lib/gen'
 
 	/** The whole value of a resource can be a single `$jsonvar:`/`$var:`/`$res:` string, resolved
 	 * at runtime. No form may render over it: a schema form replaces it with empty fields. */
@@ -8,6 +9,12 @@
 			['$jsonvar:', '$var:', '$res:'].some((p) => value.startsWith(p))
 			? value
 			: undefined
+	}
+
+	/** A file-type resource is `{ content }` and a fileset a map of files: neither is a JSON
+	 * document a variable could hold whole. */
+	export function canReferenceWholeValue(resourceTypeInfo: ResourceType | undefined): boolean {
+		return !resourceTypeInfo?.format_extension && !resourceTypeInfo?.is_fileset
 	}
 
 	export function resourceValueMenuItems(

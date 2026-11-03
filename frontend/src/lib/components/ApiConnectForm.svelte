@@ -22,6 +22,7 @@
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import ResourceValueReference, {
+		canReferenceWholeValue,
 		resourceValueMenuItems,
 		resourceValueReference
 	} from './ResourceValueReference.svelte'
@@ -77,6 +78,7 @@
 		if (!resourceTypeInfo) return
 		rawCode = '{}'
 		viewJsonSchema = false
+		referencePinned = false
 		try {
 			schema = resourceTypeInfo.schema as any
 			// A resource type may declare no properties at all — `dbt_profile` is a
@@ -117,14 +119,16 @@
 	}
 
 	let reference = $derived(resourceValueReference(args))
-	// A file-type resource is `{ content }` and a fileset a map of files: neither is a JSON
-	// document a variable could hold whole.
-	let canReferenceWhole = $derived(
-		!resourceTypeInfo?.format_extension && !resourceTypeInfo?.is_fileset
+	// Pinned only by the picker: text typed into the JSON editor that parses to a reference keeps
+	// that editor, while any other form would replace the string with its own fields.
+	let referencePinned = $state(false)
+	let showReference = $derived(
+		!!reference && (referencePinned || !(notFound || viewJsonSchema || !schema?.properties))
 	)
 	let valueReference: ResourceValueReference | undefined = $state(undefined)
 
 	function setWholeValue(v: Record<string, any> | string) {
+		referencePinned = typeof v === 'string'
 		// The "As JSON" toggle holds its own state and remounts unchecked with the form.
 		viewJsonSchema = false
 		rawCode = JSON.stringify(v, null, 2)
@@ -191,17 +195,17 @@
 
 {#if !notFound}
 	<div class="w-full flex gap-2 flex-row-reverse items-center">
-		{#if reference || canReferenceWhole}
+		{#if showReference || canReferenceWholeValue(resourceTypeInfo)}
 			<DropdownV2
 				placement="bottom-end"
 				items={() =>
-					resourceValueMenuItems(reference, {
+					resourceValueMenuItems(showReference ? reference : undefined, {
 						pickVariable: () => valueReference?.pickVariable(),
 						editFields: () => setWholeValue({})
 					})}
 			/>
 		{/if}
-		{#if !reference}
+		{#if !showReference}
 			<Toggle
 				on:change={(e) => switchTab(e.detail)}
 				options={{
@@ -311,11 +315,11 @@
 {/if}
 <ResourceValueReference
 	bind:this={valueReference}
-	{reference}
+	reference={showReference ? reference : undefined}
 	workspace={workspace ?? $operatingWorkspace}
 	onPick={setWholeValue}
 />
-{#if reference}{:else if notFound || viewJsonSchema || !schema?.properties}
+{#if showReference}{:else if notFound || viewJsonSchema || !schema?.properties}
 	{#if !emptyString(error)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
 			>{error}</span
 		>{:else}<div class="py-2"></div>{/if}
