@@ -22,10 +22,7 @@
 		actions: { pickVariable: () => void; editFields: () => void }
 	): Item[] {
 		return reference
-			? [
-					{ displayName: 'Pick another variable', action: actions.pickVariable },
-					{ displayName: 'Edit fields instead', action: actions.editFields }
-				]
+			? [{ displayName: 'Edit fields instead', action: actions.editFields }]
 			: [
 					{
 						displayName: 'Whole value from a variable',
@@ -75,7 +72,8 @@
 					startIcon={{ icon: DollarSign }}
 					unifiedSize="sm"
 					onClick={pickVariable}
-					variant="subtle"
+					variant="default"
+					btnClasses="bg-surface-tertiary"
 					title="Pick another variable"
 				/>
 			{/if}
