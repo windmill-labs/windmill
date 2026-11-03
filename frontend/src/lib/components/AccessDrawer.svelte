@@ -284,20 +284,19 @@
 		</Tooltip>
 	{:else}
 		{@const key = `${kind}:${path}`}
-		<!-- The trigger is h-8, taller than a tree row: the margin keeps rows with a menu as tall as the rest. -->
-		<div class="-my-2">
-			<DropdownV2
-				size="xs"
-				items={grantActions(kind, path, current)}
-				bind:open={
-					() => openMenu === key,
-					(next) => {
-						if (next) openMenu = key
-						else if (openMenu === key) openMenu = undefined
-					}
+		<DropdownV2
+			size="xs"
+			fixedHeight={false}
+			class="-my-0.5"
+			items={grantActions(kind, path, current)}
+			bind:open={
+				() => openMenu === key,
+				(next) => {
+					if (next) openMenu = key
+					else if (openMenu === key) openMenu = undefined
 				}
-			/>
-		</div>
+			}
+		/>
 	{/if}
 {/snippet}
 
