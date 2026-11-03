@@ -11,6 +11,13 @@ Symbols, not line numbers, are cited: they drift less.
 - **Sessions** are `token` rows with `label='session'` plus the HttpOnly `token` cookie, minted only
   by `create_session_token` (`windmill-api-users/src/users.rs`). `GET /api/users/refresh_token`
   mints one for any non-job token but returns plain text, no redirect.
+- **The readable `wm_session` cookie** is a hint of the session (a salted hash of the token, so it
+  grants nothing), mirrored onto every response that sets or clears `token`, by middleware
+  (`windmill-api/src/session_hint.rs`) rather than at each cookie site, so a new site gets it
+  for free. The frontend renders a reload as the user `whoami` last confirmed only while the
+  hint still matches the one stored with them (`frontend/src/lib/lastSession.ts`): logout,
+  expiry or another login changes or drops it. A session revoked server-side keeps its hint,
+  so until `whoami` answers that browser still renders as its own last user.
 - **`tokens/impersonate`** (superadmin) returns a multi-use token and sets no cookie.
 - **`max_token_expiration_days`** caps `POST /users/tokens/create` and `tokens/impersonate`, by
   shortening the stored expiration (`cap_token_expiration`), never by refusing: the CLI

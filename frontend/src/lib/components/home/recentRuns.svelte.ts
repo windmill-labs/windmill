@@ -1,6 +1,7 @@
 import { JobService, type ListRecentRunsResponse } from '$lib/gen'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
-import { IsDocumentVisible, resource, useInterval } from 'runed'
+import { IsDocumentVisible, useInterval } from 'runed'
+import { persistedResource } from '$lib/persistedResource.svelte'
 import { homeComposerContext } from '$lib/components/sessions/homeComposerContext.svelte'
 import { runContextElement } from '$lib/components/copilot/chat/context'
 
@@ -21,16 +22,19 @@ const REFRESH_MS = 30000
 export function useRecentRuns(
 	args: () => { workspace: string | undefined; folder?: string; enabled: boolean }
 ) {
-	const runs = resource(args, async ({ workspace, folder, enabled }, _, { data, refetching }) => {
-		if (!workspace || !enabled) return undefined
-		try {
-			return await JobService.listRecentRuns({ workspace, folder })
-		} catch {
-			// A background refresh that fails (a backend restart) keeps what is on screen rather
-			// than surfacing an error every few seconds; a failed first load shows nothing.
-			return refetching ? data : undefined
+	// A refresh that fails (a backend restart) throws, which keeps what is on screen rather than
+	// surfacing an error every few seconds; a failed first load shows the cached runs, or nothing.
+	const runs = persistedResource(
+		args,
+		async ({ workspace, folder, enabled }) =>
+			workspace && enabled ? await JobService.listRecentRuns({ workspace, folder }) : undefined,
+		{
+			name: 'recent_runs',
+			version: 1,
+			scope: ({ workspace, folder, enabled }) =>
+				workspace && enabled ? { workspace, args: { folder } } : undefined
 		}
-	})
+	)
 	// The rows' ages ("3m") are read against this, so they move on with each refresh.
 	let now = $state(Date.now())
 	const visible = new IsDocumentVisible()

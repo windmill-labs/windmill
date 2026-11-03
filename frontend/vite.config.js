@@ -243,6 +243,9 @@ const authCookie = `token_${new URL(remoteUrl).host.replace(/\W/g, '_')}`
 // Isolated cookies are host-only: `Domain=localhost` is rejected when the dev server is
 // reached as 127.0.0.1 or over the network.
 const cookieDomain = isolateDevAuth ? '' : 'localhost'
+// The readable hint the backend mirrors from the session cookie (session_hint.rs), renamed
+// with it so that one worktree's login does not stand for another's session.
+const sessionHintCookie = isolateDevAuth ? `${authCookie}_hint` : 'wm_session'
 
 function isolateAuthCookie(proxy) {
 	if (!isolateDevAuth) return
@@ -260,7 +263,9 @@ function isolateAuthCookie(proxy) {
 	proxy.on('proxyRes', (proxyRes) => {
 		const setCookie = proxyRes.headers['set-cookie']
 		if (setCookie) {
-			proxyRes.headers['set-cookie'] = setCookie.map((c) => c.replace(/^token=/, `${authCookie}=`))
+			proxyRes.headers['set-cookie'] = setCookie.map((c) =>
+				c.replace(/^token=/, `${authCookie}=`).replace(/^wm_session=/, `${sessionHintCookie}=`)
+			)
 		}
 	})
 }
@@ -405,6 +410,17 @@ const config = {
 	},
 	preview: { port: 3001 },
 	plugins: [
+		// Only the dev proxy renames the hint: a build reads the name the backend sets.
+		{
+			name: 'wm-session-hint-cookie',
+			config: (_, { command }) => ({
+				define: {
+					__WM_SESSION_HINT__: JSON.stringify(
+						command === 'serve' ? sessionHintCookie : 'wm_session'
+					)
+				}
+			})
+		},
 		sveltekit(),
 		...(process.env.HTTPS === 'true' ? [mkcert()] : []),
 		plugin,
