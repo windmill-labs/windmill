@@ -4,8 +4,10 @@ import type { UserExt } from '$lib/stores'
 import { forgetLastSession, rememberUser } from './lastSession'
 import {
 	HOME_SNAPSHOT_KEY,
+	noteClientNavigation,
 	releaseHomeSnapshot,
 	saveHomeSnapshot,
+	watchHomeForSnapshot,
 	type HomeSnapshot
 } from './homeSnapshot'
 import appHtml from '../app.html?raw'
@@ -192,6 +194,35 @@ describe('home snapshot', () => {
 			expect(boot('/?workspace=demo').painted).toBeNull()
 			expect(stored()).toBeNull()
 		}
+	})
+
+	it('saves as Home is left unless something on it was pressed, with its mount-time styles', () => {
+		const current = () => ({ workspace: 'demo', userWorkspace: 'demo' })
+		const leave = () => window.dispatchEvent(new Event('pagehide'))
+		const press = (init: KeyboardEventInit) =>
+			document.dispatchEvent(new KeyboardEvent('keydown', init))
+
+		let stop = watchHomeForSnapshot(current)
+		document.head.insertAdjacentHTML('beforeend', '<link rel="stylesheet" href="/later.css">')
+		press({ key: 'r', ctrlKey: true })
+		press({ key: 'F5' })
+		leave()
+		stop()
+		expect(stored()?.stylesheets).toEqual(['/_app/immutable/assets/app.css'])
+
+		localStorage.clear()
+		stop = watchHomeForSnapshot(current)
+		press({ key: 'Enter' })
+		leave()
+		stop()
+		expect(stored()).toBeNull()
+
+		// Last: the flag lasts for the document.
+		noteClientNavigation()
+		stop = watchHomeForSnapshot(current)
+		leave()
+		stop()
+		expect(stored()).toBeNull()
 	})
 
 	it('saves nothing for a session this tab has not confirmed, or without a hint', () => {

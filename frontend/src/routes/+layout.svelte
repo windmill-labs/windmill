@@ -13,7 +13,8 @@
 	import { page } from '$app/state'
 
 	import { installDevPollingDormancy } from '$lib/utils/devPollingDormancy'
-	import { releaseHomeSnapshot } from '$lib/homeSnapshot'
+	import { noteClientNavigation, releaseHomeSnapshot } from '$lib/homeSnapshot'
+	import { onNavigate } from '$app/navigation'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -39,6 +40,7 @@
 	$effect(() => {
 		if (page.route.id !== '/(root)/(logged)') releaseHomeSnapshot()
 	})
+	onNavigate(noteClientNavigation)
 
 	installDevPollingDormancy()
 

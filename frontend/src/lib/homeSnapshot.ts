@@ -94,6 +94,20 @@ function snapshotMarkup(root: Element): string {
 	return new XMLSerializer().serializeToString(clone)
 }
 
+function linkedStylesheets(): string[] {
+	return Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'))
+		.map((l) => l.getAttribute('href') ?? '')
+		.filter(Boolean)
+}
+
+// SvelteKit keeps every visited route's stylesheets linked, so the stylesheets a Home reached in
+// the app sees are not the ones a reload of it needs.
+let navigatedInApp = false
+/** Called by the root layout before every client-side navigation. */
+export function noteClientNavigation(): void {
+	navigatedInApp = true
+}
+
 /** Only the plain Home URL: a search or another tab renders something else. */
 function isPlainHomeUrl(url: URL): boolean {
 	let other = false
@@ -106,7 +120,11 @@ function isPlainHomeUrl(url: URL): boolean {
  * browser's. Anything that cannot be painted faithfully on the next load clears the previous
  * snapshot instead of keeping one that no longer matches.
  */
-export function saveHomeSnapshot(workspace: string, userWorkspace: string | undefined): void {
+export function saveHomeSnapshot(
+	workspace: string,
+	userWorkspace: string | undefined,
+	stylesheets: string[] = linkedStylesheets()
+): void {
 	try {
 		const hint = readSessionHint()
 		if (
@@ -120,11 +138,6 @@ export function saveHomeSnapshot(workspace: string, userWorkspace: string | unde
 			return
 		const app = document.getElementById('wm-app')
 		if (!app) return
-		const stylesheets = Array.from(
-			document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')
-		)
-			.map((l) => l.getAttribute('href') ?? '')
-			.filter(Boolean)
 		const styles = Array.from(document.head.querySelectorAll('style'))
 			.filter((s) => !s.hasAttribute('data-wm-shell') && !s.hasAttribute('data-wm-home-snapshot'))
 			.map((s) => s.textContent ?? '')
@@ -163,29 +176,38 @@ export function saveHomeSnapshot(workspace: string, userWorkspace: string | unde
  * Saves Home while it is mounted: once its fresh data has had time to land, and again as the
  * page is left or hidden. Only while nothing has been pressed on it since it mounted: a reload
  * renders Home with folders collapsed and the composer closed, and a snapshot of another state
- * would jump at the hand-over. Returns the cleanup.
+ * would jump at the hand-over. Only for a Home the document loaded on, with the stylesheets linked
+ * as it mounted: what a reload's first frame has. Returns the cleanup.
  */
 export function watchHomeForSnapshot(
 	current: () => { workspace: string | undefined; userWorkspace: string | undefined }
 ): () => void {
+	if (navigatedInApp) return () => {}
+	const stylesheets = linkedStylesheets()
 	let touched = false
 	const touch = () => (touched = true)
+	// A shortcut or a modifier changes nothing on Home, and a keyboard reload or an alt-tab would
+	// otherwise cancel the save it leads to.
+	const touchKey = (e: KeyboardEvent) => {
+		if (!e.ctrlKey && !e.metaKey && !e.altKey && !/^(F\d+|Control|Meta|Alt|Shift|Tab)$/.test(e.key))
+			touched = true
+	}
 	const save = () => {
 		const { workspace, userWorkspace } = current()
-		if (!touched && workspace) saveHomeSnapshot(workspace, userWorkspace)
+		if (!touched && workspace) saveHomeSnapshot(workspace, userWorkspace, stylesheets)
 	}
 	const onHidden = () => {
 		if (document.visibilityState === 'hidden') save()
 	}
 	const settled = setTimeout(save, 2000)
 	document.addEventListener('pointerdown', touch, true)
-	document.addEventListener('keydown', touch, true)
+	document.addEventListener('keydown', touchKey, true)
 	document.addEventListener('visibilitychange', onHidden)
 	window.addEventListener('pagehide', save)
 	return () => {
 		clearTimeout(settled)
 		document.removeEventListener('pointerdown', touch, true)
-		document.removeEventListener('keydown', touch, true)
+		document.removeEventListener('keydown', touchKey, true)
 		document.removeEventListener('visibilitychange', onHidden)
 		window.removeEventListener('pagehide', save)
 	}
