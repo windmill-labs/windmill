@@ -1053,6 +1053,8 @@ test("withDefaultTable names an untabled DuckLake target after the script", () =
   expect(withDefaultTable(lakeOnly, "f/shop/orders-daily").target_path).toBe(
     "main/orders_daily",
   );
+  // One `_` per character, as the Rust rule counts them, whatever its width.
+  expect(withDefaultTable(lakeOnly, "f/shop/orders_𐐀").target_path).toBe("main/orders__");
   for (const target_path of ["main/orders", "main.orders"]) {
     expect(
       withDefaultTable({ target_kind: "ducklake", target_path }, "f/shop/x").target_path,

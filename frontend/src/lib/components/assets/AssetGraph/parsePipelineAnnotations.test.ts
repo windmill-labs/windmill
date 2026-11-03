@@ -318,5 +318,9 @@ describe('materialize without a table', () => {
 		expect(
 			parsePipelineAnnotations('-- materialize', 'f/shop/2026_orders').materialize?.targetPath
 		).toBe('main/_2026_orders')
+		// One `_` per character, as the Rust rule counts them, whatever its width.
+		expect(
+			parsePipelineAnnotations('-- materialize', 'f/shop/orders_𐐀').materialize?.targetPath
+		).toBe('main/orders__')
 	})
 })

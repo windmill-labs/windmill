@@ -202,7 +202,7 @@ type ParsedMaterialize = NonNullable<ParseAssetsRaw["materialize"]>;
 export function withDefaultTable(m: ParsedMaterialize, scriptPath: string): ParsedMaterialize {
   // `<lake>/<table>` and `<lake>.<table>` already name a table.
   if (m.target_kind !== "ducklake" || /[/.]/.test(m.target_path)) return m;
-  const name = (scriptPath.split("/").pop() ?? "").trim().replace(/[^A-Za-z0-9_]/g, "_");
+  const name = (scriptPath.split("/").pop() ?? "").trim().replace(/[^A-Za-z0-9_]/gu, "_");
   // The generated SQL names the table unquoted, so it cannot start with a digit.
   const table = /^[0-9]/.test(name) ? `_${name}` : name;
   return table ? { ...m, target_path: `${m.target_path}/${table}` } : m;

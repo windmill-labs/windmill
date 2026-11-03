@@ -839,7 +839,7 @@ export function forScript(ann: PipelineAnnotations, scriptPath: string): Pipelin
 export function materializeTargetPath(m: MaterializeSpec, scriptPath: string): string {
 	// `<lake>/<table>` and `<lake>.<table>` already name a table.
 	if (m.targetKind !== 'ducklake' || /[/.]/.test(m.targetPath)) return m.targetPath
-	const name = (scriptPath.split('/').pop() ?? '').trim().replace(/[^A-Za-z0-9_]/g, '_')
+	const name = (scriptPath.split('/').pop() ?? '').trim().replace(/[^A-Za-z0-9_]/gu, '_')
 	// The generated SQL names the table unquoted, so it cannot start with a digit.
 	return name ? `${m.targetPath}/${/^[0-9]/.test(name) ? `_${name}` : name}` : m.targetPath
 }

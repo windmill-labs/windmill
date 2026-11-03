@@ -2787,6 +2787,12 @@ mod pipeline_annotation_tests {
             .materialize
             .unwrap();
         assert_eq!(m.target_path, "main/_2026_orders");
+        // One `_` per character, as the TS and CLI mirrors count them, whatever its width.
+        let m = parse_pipeline_annotations("-- materialize")
+            .for_script("f/shop/orders_𐐀")
+            .materialize
+            .unwrap();
+        assert_eq!(m.target_path, "main/orders__");
     }
 
     #[test]
