@@ -35,10 +35,12 @@
 	let failedItems = $derived(data?.items.filter((i) => i.failed_runs > 0) ?? [])
 	let onlyFailing = $state(false)
 	let failedMenuOpen = $state(false)
-	// Once the last failure is resolved there is nothing left to filter to.
-	let shownItems = $derived(
-		onlyFailing && failedItems.length > 0 ? failedItems : (data?.items ?? [])
-	)
+	// The menu holding the toggle goes once the last failure is resolved: the filter must go with it.
+	let filtering = $derived(onlyFailing && failedItems.length > 0)
+	$effect(() => {
+		if (data && failedItems.length === 0) onlyFailing = false
+	})
+	let shownItems = $derived(filtering ? failedItems : (data?.items ?? []))
 	let windowText = $derived(data ? windowLabel(data.window_hours) : '')
 	let prefixes = $derived(data && !folder ? collisionPrefixes(data.items) : new Map())
 </script>
@@ -53,7 +55,10 @@
 				>
 			{/if}
 			{#if data}
-				<span class="flex items-baseline min-w-0 text-xs font-normal text-hint wm-page-in">
+				<span
+					class="flex items-baseline min-w-0 text-xs font-normal text-hint wm-page-in"
+					title="{windowText} · {totalLabel(data)} · {data.failed_runs} failed"
+				>
 					{#if data.failed_runs > 0}
 						<!-- A popover rather than a hover-revealed button: its content stays open while the
 						     pointer travels to it, where a button beside the count vanished on the way. -->
@@ -63,7 +68,7 @@
 							placement="bottom-start"
 							bind:isOpen={failedMenuOpen}
 							triggerAttrs={{ 'aria-label': `${data.failed_runs} failed runs` }}
-							class="shrink-0 -mx-1 px-1 rounded whitespace-nowrap hover:bg-surface-hover {onlyFailing ||
+							class="shrink-0 -mx-1 px-1 rounded whitespace-nowrap hover:bg-surface-hover {filtering ||
 							failedMenuOpen
 								? 'bg-surface-hover'
 								: ''}"
@@ -73,16 +78,19 @@
 							{/snippet}
 							{#snippet content()}
 								<div class="flex flex-col p-1 min-w-[200px] text-xs">
-									<button
-										class="flex items-center gap-2 h-7 px-2 rounded-md text-primary hover:bg-surface-hover"
-										onclick={() => {
-											onlyFailing = !onlyFailing
-											failedMenuOpen = false
-										}}
-									>
-										<ListFilter size={13} class="text-hint" />
-										{onlyFailing ? 'Show all items' : `Show only failed (${failedItems.length})`}
-									</button>
+									<!-- Items past the listed ones can hold the whole count: nothing to filter to. -->
+									{#if failedItems.length > 0}
+										<button
+											class="flex items-center gap-2 h-7 px-2 rounded-md text-primary hover:bg-surface-hover"
+											onclick={() => {
+												onlyFailing = !onlyFailing
+												failedMenuOpen = false
+											}}
+										>
+											<ListFilter size={13} class="text-hint" />
+											{filtering ? 'Show all items' : `Show only failed (${failedItems.length})`}
+										</button>
+									{/if}
 									{#if canAskAI() && failing.length > 0}
 										<button
 											class="flex items-center gap-2 h-7 px-2 rounded-md text-ai hover:bg-ai/10"
@@ -95,7 +103,7 @@
 											}}
 										>
 											<Sparkles size={13} />
-											Ask AI about the {failing.length} failing
+											Ask AI about {failing.length} failing item{failing.length === 1 ? '' : 's'}
 										</button>
 									{/if}
 									<a
@@ -103,7 +111,7 @@
 										class="flex items-center gap-2 h-7 px-2 rounded-md text-primary hover:bg-surface-hover"
 									>
 										<ExternalLink size={13} class="text-hint" />
-										View the {data.failed_runs} failed runs
+										View failed runs
 									</a>
 								</div>
 							{/snippet}
@@ -112,10 +120,7 @@
 						<span class="truncate">{totalLabel(data)}</span>
 					{/if}
 					<!-- Room goes to the folder name first; the window stays in the tooltip. -->
-					<span
-						class="truncate max-[1180px]:hidden {folder ? 'hidden' : ''}"
-						title="{windowText} · {totalLabel(data)} · {data.failed_runs} failed"
-					>
+					<span class="truncate max-[1180px]:hidden {folder ? 'hidden' : ''}">
 						&nbsp;· {windowText}</span
 					>
 				</span>
