@@ -378,7 +378,7 @@
 						// Cleaned again here, not only when saved: anything that can write this origin's
 						// storage once could otherwise plant markup that runs on every load of Home.
 						var executable =
-							/^(script|iframe|frame|object|embed|link|meta|base|form|animate|set|animatemotion|animatetransform|foreignobject)$/i
+							/^(script|iframe|frame|object|embed|link|meta|base|form|animate|set|animatemotion|animatetransform)$/i
 						Array.prototype.forEach.call(parsed.querySelectorAll('*'), function (el) {
 							if (executable.test(el.localName)) return el.remove()
 							Array.prototype.slice.call(el.attributes).forEach(function (a) {

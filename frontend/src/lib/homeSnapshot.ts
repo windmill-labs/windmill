@@ -67,6 +67,15 @@ const SVG_NS = 'http://www.w3.org/2000/svg'
 function snapshotMarkup(root: Element): string {
 	const clone = document.createElement('div')
 	clone.append(...Array.from(root.childNodes, (n) => n.cloneNode(true)))
+	// A part the live page draws differently while it boots carries what it draws then, and the
+	// snapshot shows that instead, so the live page's first frame matches it.
+	clone.querySelectorAll('[data-wm-snapshot-slot]').forEach((slot) => {
+		const standIn = slot.querySelector(':scope > [data-wm-snapshot-stand-in]')
+		if (standIn) slot.replaceChildren(...Array.from(standIn.childNodes))
+	})
+	clone
+		.querySelectorAll<HTMLElement>('[data-wm-snapshot-hidden]')
+		.forEach((el) => (el.style.visibility = 'hidden'))
 	clone.querySelectorAll(DROPPED).forEach((el) => el.remove())
 	clone.querySelectorAll('*').forEach((el) => {
 		for (const { name, value } of Array.from(el.attributes)) {

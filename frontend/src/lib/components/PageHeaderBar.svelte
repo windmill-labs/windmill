@@ -323,8 +323,11 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			<!-- `actionsFill`: the actions are a surface rather than a row, so they take the rest of the
 		     bar and run to its right edge, and they stretch its full height because that surface
 		     sits on the bottom edge. -->
+			<!-- `data-wm-snapshot-hidden`: a mount always starts unmeasured, so Home's snapshot draws
+			     this box hidden too (homeSnapshot.ts). -->
 			<div
 				{@attach measureActions(fold, actionsEpoch, actionsVersion)}
+				data-wm-snapshot-hidden
 				class={twMerge(
 					'flex',
 					// pl-4: the gap between the breadcrumb and the filling surface is bare bar, so it

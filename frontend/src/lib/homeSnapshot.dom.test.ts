@@ -51,7 +51,7 @@ function renderHome() {
 	document.body.innerHTML = `<div id="wm-app"><div id="svelte-global-loader"></div><div id="content">
 		<a href="/scripts/get/f/a">f/a</a><a href="javascript:alert(1)" onclick="alert(1)">x</a>
 		<input value="typed"><textarea>draft</textarea><div contenteditable>draft</div>
-		<div role="menu">menu</div><svg><g id="g1"></g></svg></div></div>`
+		<div role="menu">menu</div><svg><g id="g1"></g><foreignObject><span class="icon">i</span></foreignObject></svg></div></div>`
 }
 
 /** Runs app.html's scripts as a load of `url` would; what it painted, if anything. */
@@ -97,6 +97,8 @@ describe('home snapshot', () => {
 		expect(html).toContain('f/a')
 		expect(html).not.toMatch(/typed|draft|menu|onclick|javascript:|id="content"/)
 		expect(html).toContain('id="g1"')
+		// The workspace disc draws its icon in a foreignObject.
+		expect(html).toContain('class="icon"')
 	})
 
 	it('hands over to the live page, which keeps the stylesheets', () => {
@@ -108,6 +110,21 @@ describe('home snapshot', () => {
 		expect(document.documentElement.hasAttribute('data-wm-home-snapshot')).toBe(false)
 		expect(document.getElementById('svelte-global-loader')).not.toBeNull()
 		expect(document.querySelector('link[href="/_app/immutable/assets/app.css"]')).not.toBeNull()
+	})
+
+	it('shows what a part draws while the app boots, in its place', () => {
+		document
+			.getElementById('content')!
+			.insertAdjacentHTML(
+				'beforeend',
+				'<div data-wm-snapshot-slot><p>starter</p><div hidden data-wm-snapshot-stand-in><p>skeleton</p></div></div>' +
+					'<div data-wm-snapshot-hidden><button>CLI</button></div>'
+			)
+		saveHomeSnapshot('demo', 'demo')
+		const html = boot('/?workspace=demo').painted!.innerHTML
+		expect(html).toContain('skeleton')
+		expect(html).not.toMatch(/starter|\shidden=/)
+		expect(html).toMatch(/visibility: hidden;"[^>]*><button>CLI/)
 	})
 
 	it('keeps a tree the HTML parser would restructure', () => {
