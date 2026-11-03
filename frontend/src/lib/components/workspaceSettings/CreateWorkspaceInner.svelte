@@ -38,6 +38,7 @@
 	import {
 		canUserBypassRuleKindInRulesets,
 		fetchProtectionRulesForWorkspace,
+		getActiveRulesetsForKindInRulesets,
 		isRuleActiveInRulesets,
 		isRuleUnconditionallyActiveInRulesets
 	} from '$lib/workspaceProtectionRules.svelte'
@@ -298,7 +299,7 @@
 				fetchProtectionRulesForWorkspace(ws),
 				getUserExt(ws)
 			])
-			return { rules, user }
+			return { ws, rules, user }
 		}
 	)
 	let requireIsolation = $derived.by(() => {
@@ -309,6 +310,38 @@
 			!canUserBypassRuleKindInRulesets(ctx.rules, 'RequireIsolatedForks', ctx.user)
 		)
 	})
+
+	// The server lets admins and the rulesets' bypass list fork past `DisableWorkspaceForking`
+	// silently, so the form makes that an explicit choice, as direct deployment does.
+	let baseRulesForSelection = $derived.by(() => {
+		const ctx = baseRuleContext.current
+		return ctx && ctx.ws === baseWorkspaceId ? ctx : undefined
+	})
+	let forkingRulesets = $derived(
+		getActiveRulesetsForKindInRulesets(
+			baseRulesForSelection?.rules ?? [],
+			'DisableWorkspaceForking'
+		)
+	)
+	let canBypassForkingRule = $derived(
+		!!baseRulesForSelection &&
+			canUserBypassRuleKindInRulesets(
+				baseRulesForSelection.rules,
+				'DisableWorkspaceForking',
+				baseRulesForSelection.user
+			)
+	)
+	let forkingBypassConfirmed = $state(false)
+	$effect(() => {
+		baseWorkspaceId
+		forkingBypassConfirmed = false
+	})
+	let forkingBlocked = $derived(
+		isFork &&
+			(baseRulesForSelection === undefined
+				? baseRuleContext.loading
+				: forkingRulesets.length > 0 && !(canBypassForkingRule && forkingBypassConfirmed))
+	)
 
 	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
@@ -788,6 +821,36 @@
 					{/if}
 				</Alert>
 			{/if}
+			{#if isFork && forkingRulesets.length > 0}
+				<Alert
+					type={canBypassForkingRule ? 'warning' : 'error'}
+					title="Forking {currentWorkspaceName} is restricted"
+				>
+					<div class="flex flex-col gap-2">
+						<p>
+							The protection rule{forkingRulesets.length > 1 ? 's' : ''}
+							<b>{forkingRulesets.map((r) => r.name).join(', ')}</b>
+							disable{forkingRulesets.length > 1 ? '' : 's'} forking this workspace.
+							{#if canBypassForkingRule}
+								You can bypass {forkingRulesets.length > 1 ? 'them' : 'it'} as
+								{baseRulesForSelection?.user?.is_admin ||
+								baseRulesForSelection?.user?.is_super_admin
+									? 'an admin'
+									: 'a member of the bypass list'}.
+							{:else}
+								Only workspace admins and the rule's bypass list can fork it.
+							{/if}
+						</p>
+						{#if canBypassForkingRule}
+							<Toggle
+								size="xs"
+								bind:checked={forkingBypassConfirmed}
+								options={{ right: 'Bypass the restriction and fork anyway' }}
+							/>
+						{/if}
+					</div>
+				</Alert>
+			{/if}
 			{#if !isFork}
 				<label class="flex flex-col gap-1">
 					<span class="text-xs font-semibold text-emphasis">Workspace name</span>
@@ -1215,6 +1278,7 @@
 			<Button
 				variant="accent"
 				disabled={checking ||
+					forkingBlocked ||
 					errorId != '' ||
 					!name ||
 					(!automateUsernameCreation && (errorUser != '' || !username)) ||
