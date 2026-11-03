@@ -11,7 +11,21 @@ import ArtifactPrintBody from './ArtifactPrintBody.svelte'
  * this page's stylesheets, and its <html> carries no `dark` class, so the PDF always uses the
  * light theme.
  */
+// Set while the iframe is being prepared, so a second click before the dialog opens does not
+// stack a second print behind the first.
+let preparing = false
+
 export async function printArtifact(name: string, content: string): Promise<void> {
+	if (preparing) return
+	preparing = true
+	try {
+		await preparePrint(name, content)
+	} finally {
+		preparing = false
+	}
+}
+
+async function preparePrint(name: string, content: string): Promise<void> {
 	const iframe = document.createElement('iframe')
 	iframe.setAttribute('aria-hidden', 'true')
 	iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
@@ -31,12 +45,15 @@ export async function printArtifact(name: string, content: string): Promise<void
 	const page = doc.createElement('style')
 	// Without exact color adjust, browsers drop code-block and callout backgrounds. The break
 	// rules keep a code block, diagram, callout or table row whole and a heading with what follows.
+	// Code blocks scroll on screen; paper cannot, so they wrap and lose their height cap.
 	page.textContent = `
 		@page { margin: 16mm }
 		html, body { background: white }
 		body { margin: 0; print-color-adjust: exact; -webkit-print-color-adjust: exact }
 		pre, svg, blockquote, tr, .markdown-alert { break-inside: avoid }
 		h1, h2, h3, h4, h5, h6 { break-after: avoid }
+		.not-prose, .not-prose * { overflow: visible !important; max-height: none !important }
+		.not-prose pre, .not-prose code { white-space: pre-wrap !important; overflow-wrap: anywhere }
 	`
 	doc.head.appendChild(page)
 
@@ -57,7 +74,7 @@ export async function printArtifact(name: string, content: string): Promise<void
 
 	const component = mount(ArtifactPrintBody, { target: doc.body, props: { content } })
 	await tick()
-	await diagramsDrawn(doc, content)
+	await diagramsSettled(doc)
 	await doc.fonts?.ready
 
 	const cleanup = () => {
@@ -72,11 +89,11 @@ export async function printArtifact(name: string, content: string): Promise<void
 }
 
 /** Mermaid draws asynchronously; printing before it lands puts the diagram source in the PDF.
- * A diagram that fails to parse never draws, hence the cap. */
-async function diagramsDrawn(doc: Document, content: string): Promise<void> {
-	const expected = content.match(/^\s*(```|~~~)\s*mermaid\b/gm)?.length ?? 0
+ * A diagram that fails to parse settles too (as its source), so this waits only on renders
+ * still in flight; the cap covers one that never returns. */
+async function diagramsSettled(doc: Document): Promise<void> {
 	const deadline = Date.now() + 10_000
-	while (doc.querySelectorAll('svg[id^="mermaid-"]').length < expected && Date.now() < deadline) {
+	while (doc.querySelector('[data-mermaid-pending="true"]') && Date.now() < deadline) {
 		await new Promise((resolve) => setTimeout(resolve, 100))
 	}
 }
