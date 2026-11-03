@@ -26,6 +26,11 @@
 	import Label from './Label.svelte'
 	import ResourcePathHint from './ResourcePathHint.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import DropdownV2 from './DropdownV2.svelte'
+	import ResourceValueReference, {
+		resourceValueMenuItems,
+		resourceValueReference
+	} from './ResourceValueReference.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -93,6 +98,25 @@
 	let rawCode: string | undefined = $state(undefined)
 	let textFileContent: string = $state('')
 
+	let reference = $derived(resourceValueReference(args))
+	// A file-type resource is `{ content }` and a fileset a map of files: neither is a JSON
+	// document a variable could hold whole.
+	let canReferenceWhole = $derived(
+		!!can_write && !resourceTypeInfo?.format_extension && !resourceTypeInfo?.is_fileset
+	)
+	let valueReference: ResourceValueReference | undefined = $state(undefined)
+
+	function setWholeValue(v: Record<string, any> | string) {
+		args = v as Record<string, any>
+		jsonError = ''
+		// Reseeded from the new value by the effect below once the raw editor is the input again.
+		rawCode = undefined
+	}
+
+	$effect(() => {
+		if (reference) isValid = true
+	})
+
 	// This field is a bare SimpleEditor parsed here, so it never passes through JsonEditor —
 	// it has to register itself, or a caller persisting what is on screen would save the
 	// last value that parsed and leave without the text in front of the user.
@@ -117,6 +141,7 @@
 	// from the workspace). In both cases rawCode must be seeded from args.
 	let usesRawEditor = $derived(
 		!loadingSchema &&
+			!reference &&
 			(viewJsonSchema ||
 				(!resourceTypeInfo?.is_fileset && !(resourceSchema && resourceSchema.properties)))
 	)
@@ -142,7 +167,7 @@
 	// Seed the JSON editor when the resource type schema is missing
 	// (restores the old ResourceEditor's catch-block behavior)
 	$effect(() => {
-		if (resource_type && !loadingSchema && !resourceSchema && rawCode === undefined) {
+		if (resource_type && !loadingSchema && !resourceSchema && !reference && rawCode === undefined) {
 			rawCode = JSON.stringify(args, null, 2)
 		}
 	})
@@ -200,79 +225,98 @@
 
 <div class="flex flex-col gap-1">
 	<div class="w-full flex gap-4 flex-row-reverse items-center">
-		<Toggle
-			bind:checked={viewJsonSchema}
-			on:change={(e) => {
-				if (e.detail) {
-					rawCode = JSON.stringify(args, null, 2)
-				} else if (resourceTypeInfo?.format_extension && !resourceTypeInfo?.is_fileset) {
-					textFileContent = args?.content ?? ''
-				}
-			}}
-			options={{
-				right: 'As JSON'
-			}}
-		/>
-		<ResourceGen
-			bind:args
-			resourceType={resource_type}
-			resourceName={path}
-			resourceDescription={description}
-			{resourceSchema}
-		/>
-		{#if resourceToEdit?.resource_type === 'nats' || resourceToEdit?.resource_type === 'kafka'}
-			<TestTriggerConnection kind={resourceToEdit?.resource_type} args={{ connection: args }} />
-		{:else}
-			<TestConnection
-				resourceType={resourceToEdit?.resource_type}
-				{args}
-				workspaceOverride={workspace}
+		{#if reference ? can_write : canReferenceWhole}
+			<DropdownV2
+				placement="bottom-end"
+				items={() =>
+					resourceValueMenuItems(reference, {
+						pickVariable: () => valueReference?.pickVariable(),
+						editFields: () => setWholeValue({})
+					})}
 			/>
 		{/if}
-		{#if aiProvider}
-			<TestAiKey
-				{aiProvider}
-				workspace={ws}
-				resourceValue={args}
-				model={$copilotInfo.aiModels.find((m) => m.provider === aiProvider)?.model}
-			/>
-		{/if}
-		{#if resource_type === 'git_repository' && ws && (actingUser?.is_admin || actingUser?.is_super_admin)}
-			<GitHubAppIntegration
-				resourceType={resource_type}
-				{args}
-				{description}
-				onArgsUpdate={(newArgs) => {
-					args = newArgs
-					// The raw editor is also what a workspace missing the resource type
-					// gets, and it holds its own copy of the value: without this the
-					// picker fills in a URL nothing on screen ever shows.
-					if (viewJsonSchema || !resourceSchema) {
+		{#if !reference}
+			<Toggle
+				bind:checked={viewJsonSchema}
+				on:change={(e) => {
+					if (e.detail) {
 						rawCode = JSON.stringify(args, null, 2)
+					} else if (resourceTypeInfo?.format_extension && !resourceTypeInfo?.is_fileset) {
+						textFileContent = args?.content ?? ''
 					}
 				}}
-				onDescriptionUpdate={(newDescription) => (description = newDescription)}
-			/>
-			<GitLabIntegration
-				resourceType={resource_type}
-				{args}
-				workspace={ws}
-				{onCredentialStored}
-				onArgsUpdate={(newArgs) => {
-					args = newArgs
-					// The raw editor is also what a workspace missing the resource type
-					// gets, and it holds its own copy of the value: without this the
-					// picker fills in a URL nothing on screen ever shows.
-					if (viewJsonSchema || !resourceSchema) {
-						rawCode = JSON.stringify(args, null, 2)
-					}
+				options={{
+					right: 'As JSON'
 				}}
 			/>
+			<ResourceGen
+				bind:args
+				resourceType={resource_type}
+				resourceName={path}
+				resourceDescription={description}
+				{resourceSchema}
+			/>
+			{#if resourceToEdit?.resource_type === 'nats' || resourceToEdit?.resource_type === 'kafka'}
+				<TestTriggerConnection kind={resourceToEdit?.resource_type} args={{ connection: args }} />
+			{:else}
+				<TestConnection
+					resourceType={resourceToEdit?.resource_type}
+					{args}
+					workspaceOverride={workspace}
+				/>
+			{/if}
+			{#if aiProvider}
+				<TestAiKey
+					{aiProvider}
+					workspace={ws}
+					resourceValue={args}
+					model={$copilotInfo.aiModels.find((m) => m.provider === aiProvider)?.model}
+				/>
+			{/if}
+			{#if resource_type === 'git_repository' && ws && (actingUser?.is_admin || actingUser?.is_super_admin)}
+				<GitHubAppIntegration
+					resourceType={resource_type}
+					{args}
+					{description}
+					onArgsUpdate={(newArgs) => {
+						args = newArgs
+						// The raw editor is also what a workspace missing the resource type
+						// gets, and it holds its own copy of the value: without this the
+						// picker fills in a URL nothing on screen ever shows.
+						if (viewJsonSchema || !resourceSchema) {
+							rawCode = JSON.stringify(args, null, 2)
+						}
+					}}
+					onDescriptionUpdate={(newDescription) => (description = newDescription)}
+				/>
+				<GitLabIntegration
+					resourceType={resource_type}
+					{args}
+					workspace={ws}
+					{onCredentialStored}
+					onArgsUpdate={(newArgs) => {
+						args = newArgs
+						// The raw editor is also what a workspace missing the resource type
+						// gets, and it holds its own copy of the value: without this the
+						// picker fills in a URL nothing on screen ever shows.
+						if (viewJsonSchema || !resourceSchema) {
+							rawCode = JSON.stringify(args, null, 2)
+						}
+					}}
+				/>
+			{/if}
 		{/if}
 	</div>
 
 	<div>
-		{#if loadingSchema}
+		<ResourceValueReference
+			bind:this={valueReference}
+			{reference}
+			disabled={!can_write}
+			workspace={ws}
+			onPick={setWholeValue}
+		/>
+		{#if reference}{:else if loadingSchema}
 			<Skeleton layout={[[4]]} />
 		{:else if !viewJsonSchema && resourceTypeInfo?.is_fileset}
 			<div class="mt-1 flex items-center gap-2">
