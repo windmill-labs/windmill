@@ -656,6 +656,22 @@ describe("validatePipelineRun", () => {
     expect(failed).toEqual(["pipeline node f/shop/daily runs and succeeds"]);
   });
 
+  it("fails a rollup started directly next to the ingest, even when it succeeded", () => {
+    const checks = validatePipelineRun(
+      { ...spec, queries: [], maxRoots: 1 },
+      {
+        roots: ["f/shop/ingest", "f/shop/daily"],
+        nodes: [
+          { path: "f/shop/ingest", ran: true, success: true },
+          { path: "f/shop/daily", ran: true, success: true },
+        ],
+        queries: [],
+      },
+    );
+    const failed = checks.filter((c) => !c.passed).map((c) => c.name);
+    expect(failed).toEqual(["at most 1 pipeline node(s) start the pipeline"]);
+  });
+
   it("asserts nothing when the run was skipped", () => {
     expect(validatePipelineRun(spec, { skipped: "no storage", nodes: [], queries: [] })).toEqual(
       [],

@@ -206,7 +206,10 @@ deployments, points each DuckLake at an empty catalog, runs the nodes that no ot
 feeds, and waits for the asset triggers to run the rest. Then it runs the case's `queries`
 (DuckDB, with the lake attached as `dl`) and checks their rows. A node that never ran fails
 its check, so a downstream node whose `on` wiring is wrong cannot pass on the tables the
-model's own test runs left behind. The run's outcome is part of the drafts the judge reads.
+model's own test runs left behind. A node is started directly when no recorded read or
+trigger ties it to another node's output, which also happens when the asset parser records a
+read under another path than the write it matches; `maxRoots` caps how many nodes may start
+that way. The run's outcome is part of the drafts the judge reads.
 
 The fixture's `workspace.objectStorage` gives the workspace an S3 storage holding its
 `files`, and turns its `ducklakes` into catalogs on that storage. That needs more of the

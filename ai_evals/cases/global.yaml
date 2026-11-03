@@ -2009,6 +2009,8 @@
     # the asset triggers run the rest: the rollup only fills if its `on` wiring is right.
     pipelineRun:
       folder: shop
+      # Only the ingest starts the pipeline; the rollup has to be reached by its trigger.
+      maxRoots: 1
       queries:
         - name: orders holds every exported order
           sql: SELECT count(*) AS n, sum(amount) AS revenue FROM dl.orders
@@ -2054,6 +2056,7 @@
         pathStartsWith: f/shop/
     pipelineRun:
       folder: shop
+      maxRoots: 1
       queries:
         - name: orders holds every exported order
           sql: SELECT count(*) AS n, sum(amount) AS revenue FROM dl.orders

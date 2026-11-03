@@ -415,6 +415,16 @@ export function validatePipelineRun(
   }
   const checks: BenchmarkCheck[] = [];
   checks.push(check("pipeline ran to completion", !run.error, run.error));
+  if (spec.maxRoots !== undefined) {
+    const roots = run.roots ?? [];
+    checks.push(
+      check(
+        `at most ${spec.maxRoots} pipeline node(s) start the pipeline`,
+        roots.length <= spec.maxRoots,
+        `started directly, nothing upstream recorded as feeding them: ${roots.join(", ")}`
+      )
+    );
+  }
   for (const node of run.nodes) {
     checks.push(
       check(
