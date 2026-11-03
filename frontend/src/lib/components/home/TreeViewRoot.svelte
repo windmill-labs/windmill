@@ -52,9 +52,13 @@
 		// See TreeView's `leaf`.
 		leaf?: Snippet<[ItemType, number]>
 		// See TreeView's `openMemory`.
-		openMemory?: TreeOpenMemory
+		openMemory?: Pick<TreeOpenMemory, 'isOpen' | 'setOpen'>
 		// See TreeView's `onManageFolder`.
 		onManageFolder?: (folderName: string) => void
+		// See TreeView's `ownerLead`.
+		ownerLead?: Snippet<[string]>
+		// See TreeView's `ownerDetail`.
+		ownerDetail?: Snippet<[string]>
 		// Inject folders `ownerCounts` calls empty, as "0 items". Off under a kind filter,
 		// where those counts are per kind and every folder lacking that kind would show.
 		keepEmptyFolders?: boolean
@@ -85,6 +89,8 @@
 		leaf,
 		openMemory,
 		onManageFolder,
+		ownerLead,
+		ownerDetail,
 		keepEmptyFolders = false,
 		keptFolders
 	}: Props = $props()
@@ -295,6 +301,8 @@
 		{leaf}
 		{openMemory}
 		{onManageFolder}
+		{ownerLead}
+		{ownerDetail}
 	/>
 {/snippet}
 

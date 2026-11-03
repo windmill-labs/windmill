@@ -37,6 +37,7 @@
 		selectSession,
 		sessionPageHref,
 		sessionLastActivityAt,
+		sessionLastStateChangeAt,
 		sessionState,
 		setSessionArchived,
 		syncWorkspaceTo,
@@ -51,7 +52,7 @@
 		getSessionChatPeek,
 		getSessionChatStatus,
 		removeSession
-	} from './sessionRuntime.svelte'
+	} from './sessionRuntimeRegistry.svelte'
 	import SessionStatusDot from './SessionStatusDot.svelte'
 	import UnreadCountBadge from '$lib/components/common/badge/UnreadCountBadge.svelte'
 	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
@@ -59,7 +60,6 @@
 	import { Menu, Menubar, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton, { sidebarClasses } from '$lib/components/sidebar/MenuButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { WorkspaceService } from '$lib/gen'
@@ -101,10 +101,6 @@
 		const rt = getRuntime(session.id)
 		return !!rt && rt.manager.instructions.trim().length > 0
 	}
-
-	// Sessions share the beta opt-out gate with the global AI chat — when the
-	// user opted out, the sidebar section is hidden entirely.
-	const globalEnabled = isGlobalAiEnabled()
 
 	// The activity cutoff and the date buckets are wall-clock reads, which Svelte
 	// cannot track: without this the list would keep a session past its cutoff, and
@@ -199,8 +195,8 @@
 		})
 	)
 
-	// Sessions grouped by workspace family for display, each group newest-first.
-	// Family order is stable (by most-recent activity) and deliberately NOT tied
+	// Sessions grouped by workspace family for display, each group by its last turn
+	// start or end, latest first. Family order follows its latest session and is NOT tied
 	// to the current workspace: pinning the active family first reshuffled the
 	// whole list on every workspace switch, which is disorienting.
 	const sessionGroups = $derived.by(() => {
@@ -212,12 +208,12 @@
 			else byRoot.set(root, [s])
 		}
 		const groups = [...byRoot.entries()].map(([rootId, sessions]) => {
-			sessions.sort((a, b) => b.createdAt - a.createdAt)
+			sessions.sort((a, b) => sessionLastStateChangeAt(b) - sessionLastStateChangeAt(a))
 			return {
 				rootId,
 				name: $userWorkspaces.find((w) => w.id === rootId)?.name || rootId || 'Workspace',
 				sessions,
-				mostRecent: sessions[0]?.createdAt ?? 0
+				mostRecent: sessions[0] ? sessionLastStateChangeAt(sessions[0]) : 0
 			}
 		})
 		groups.sort((a, b) => b.mostRecent - a.mostRecent)
@@ -233,7 +229,7 @@
 		return all.filter((i) => workspaceRootId(i.workspace.id, $userWorkspaces) === currentRoot)
 	})
 
-	// Sessions keyed by their exact workspace, newest-first — nested under each
+	// Sessions keyed by their exact workspace, latest turn first — nested under each
 	// workspace node in tree mode.
 	const sessionsByWorkspace = $derived.by(() => {
 		const map = new Map<string, Session[]>()
@@ -244,7 +240,8 @@
 			if (arr) arr.push(s)
 			else map.set(wsId, [s])
 		}
-		for (const arr of map.values()) arr.sort((a, b) => b.createdAt - a.createdAt)
+		for (const arr of map.values())
+			arr.sort((a, b) => sessionLastStateChangeAt(b) - sessionLastStateChangeAt(a))
 		return map
 	})
 
@@ -668,12 +665,7 @@
 	)
 </script>
 
-{#if !globalEnabled}
-	<!-- Sessions hidden until the global-ai dev gate is enabled. When AI is
-	     unavailable (no provider configured or disabled in the user's settings)
-	     the section still shows — the per-session chat input is disabled with an
-	     explanatory message, mirroring the sidebar AI chat. -->
-{:else if isCollapsed}
+{#if isCollapsed}
 	<div class={embedded ? '' : 'px-2 pt-3 pb-2 border-b border-light'}>
 		<Menubar>
 			{#snippet children({ createMenu })}

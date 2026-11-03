@@ -138,6 +138,9 @@ export type Session = {
 	// Absent on records last written before the field existed; readers fall back
 	// to createdAt via sessionLastActivityAt.
 	lastActivityAt?: number
+	// Epoch ms of the last time a turn started or ended. The ungrouped sidebar list orders by
+	// it, so typing, renaming, archiving or switching preview tabs does not move a session there.
+	lastStateChangeAt?: number
 	// When this browser restored the session from its backup, by this browser's clock.
 	// The restore sets `lastActivityAt` to the backup's time, the storage's clock; the
 	// retention counts from whichever is later, so a browser clock ahead of the storage's
@@ -496,6 +499,30 @@ function persistPreviewTouch(s: Session): void {
 // creation time, which is the earliest activity they could have had.
 export function sessionLastActivityAt(s: Session): number {
 	return s.lastActivityAt ?? s.createdAt
+}
+
+/** The ungrouped sidebar's sort key: the last turn start or end. A session that never ran a
+ * turn (an unsent draft, a record from before the field) sorts by creation, since its last
+ * activity moves on the very touches this key ignores. */
+export function sessionLastStateChangeAt(s: Session): number {
+	return s.lastStateChangeAt ?? s.createdAt
+}
+
+/** Stamps a turn starting or ending. A turn is a use of the session, so it is a touch too. */
+export function markSessionStateChanged(id: string): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	s.lastStateChangeAt = Date.now()
+	persistTouched(s)
+}
+
+/** A turn another tab ran: the driving tab persisted the stamp, so this tab only re-sorts.
+ * Writing here would put this tab's stale copy of the whole record (title, tabs, committed
+ * workspace) over the driver's; carrying the stamp in memory also keeps any later write
+ * from this tab from rolling it back. */
+export function noteRemoteStateChange(id: string): void {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (s) s.lastStateChangeAt = Date.now()
 }
 
 // Sessions whose record has been removed from IndexedDB. Ids come from createLongHash

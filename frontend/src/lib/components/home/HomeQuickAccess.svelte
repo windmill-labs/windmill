@@ -1,3 +1,9 @@
+<script lang="ts" module>
+	import { lazyModule } from '$lib/lazyModule.svelte'
+
+	const shareModalModule = lazyModule(() => import('$lib/components/ShareModal.svelte'))
+</script>
+
 <script lang="ts">
 	import {
 		AtSign,
@@ -18,10 +24,12 @@
 	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import ShareModal from '$lib/components/ShareModal.svelte'
+	import type ShareModal from '$lib/components/ShareModal.svelte'
+	import { tick } from 'svelte'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { roleCapabilities, userStore } from '$lib/stores'
 	import { AppService } from '$lib/gen'
+	import { SvelteMap } from 'svelte/reactivity'
 	import { copyToClipboard, type Item } from '$lib/utils'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
@@ -35,7 +43,6 @@
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { MAX_AGE_DAYS, recentItems, type RecentKind, type RecentVia } from './recentItems.svelte'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import {
 		homeComposerContext,
 		itemContextElement
@@ -72,11 +79,7 @@
 
 	const RECENT_COUNT = 6
 
-	// The way back from Hide from Home is in the header menu HomeAIChat adds, which Home mounts
-	// only with the AI sessions beta on. Without it the section can't be hidden, and one hidden
-	// earlier shows again.
-	const restoreMenuOnPage = isGlobalAiEnabled()
-	let hidden = $derived(restoreMenuOnPage && homeQuickAccessSettings.hidden)
+	let hidden = $derived(homeQuickAccessSettings.hidden)
 
 	// Turning off the last list shown would leave an empty section; Hide from Home does that.
 	const sectionMenu = (): Item[] => [
@@ -107,7 +110,6 @@
 		{
 			displayName: 'Hide from Home',
 			icon: EyeOff,
-			hide: !restoreMenuOnPage,
 			action: () => homeQuickAccessSettings.setHidden(true)
 		}
 	]
@@ -116,18 +118,48 @@
 	// editor opened without write access says so itself.
 	const editRights = useEditRights()
 	let shareModal: ShareModal | undefined = $state()
+	async function openShare(path: string, kind: Parameters<ShareModal['openDrawer']>[1]) {
+		await shareModalModule.load()
+		await tick()
+		shareModal?.openDrawer(path, kind)
+	}
 
 	// A favorite app arrives as plain `app` (the layout lists apps without their subtype), and
 	// `/apps/edit` mounts the low-code editor whatever it opens, so the editor routes ask which
 	// one it is, once, when its menu opens.
+	const appKinds = new SvelteMap<string, RecentKind>()
 	async function editorKind(item: Entry): Promise<RecentKind> {
 		if (item.kind !== 'app') return item.kind
+		const known = appKinds.get(`${workspace}/${item.path}`)
+		if (known) return known
+		let kind: RecentKind = 'app'
 		try {
 			const app: any = await AppService.getAppLiteByPath({ workspace, path: item.path })
-			return app?.raw_app ? 'raw_app' : 'app'
-		} catch {
-			return 'app'
-		}
+			if (app?.raw_app) kind = 'raw_app'
+		} catch {}
+		appKinds.set(`${workspace}/${item.path}`, kind)
+		return kind
+	}
+
+	// Only scripts, flows and raw apps can be context, so another card keeps its menu while the
+	// composer is open; an `app` card is a visual one until the hover's lookup says otherwise.
+	function canMention(item: Entry): boolean {
+		if (item.kind === 'app') return appKinds.get(`${workspace}/${item.path}`) === 'raw_app'
+		return item.kind !== 'agent'
+	}
+
+	function contextElementFor(item: Entry, kind: RecentKind) {
+		return itemContextElement({
+			kind: kind === 'raw_app' ? 'app' : kind,
+			rawApp: kind === 'raw_app',
+			path: item.path,
+			summary: item.title === item.path ? undefined : item.title
+		})
+	}
+
+	async function mention(item: Entry) {
+		const element = contextElementFor(item, await editorKind(item))
+		if (element) await homeComposerContext.attach(element)
 	}
 
 	// The row menus' actions that need nothing but the kind and path. Moving, deleting and
@@ -135,12 +167,7 @@
 	async function menuItems(item: Entry, favorite: boolean): Promise<Item[]> {
 		const kind = await editorKind(item)
 		const base = kind === 'raw_app' ? 'apps_raw' : `${kind}s`
-		const contextElement = itemContextElement({
-			kind: kind === 'raw_app' ? 'app' : kind,
-			rawApp: kind === 'raw_app',
-			path: item.path,
-			summary: item.title === item.path ? undefined : item.title
-		})
+		const contextElement = contextElementFor(item, kind)
 		return [
 			{
 				displayName: 'Add to AI session context',
@@ -164,7 +191,7 @@
 			{
 				displayName: 'Share',
 				icon: UserPlus,
-				action: () => kind !== 'agent' && shareModal?.openDrawer(item.path, kind),
+				action: () => kind !== 'agent' && void openShare(item.path, kind),
 				hide: kind === 'agent' || !editRights.roleCanAuthor(kind)
 			},
 			{
@@ -366,8 +393,11 @@
 <svelte:window bind:innerWidth />
 
 {#snippet card(item: Entry, favorite: boolean)}
+	{@const mentionable = canMention(item)}
 	{@const draft = draftByItem.get(`${item.starKind}/${item.path}`)}
 	<div
+		onpointerenter={() => homeComposerContext.available && void editorKind(item)}
+		onfocusin={() => homeComposerContext.available && void editorKind(item)}
 		class="group flex items-center gap-1 rounded-md border border-light bg-surface-tertiary hover:bg-surface-hover transition-colors min-w-0 group-has-[[data-composer-open]]/home:border-transparent group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:hover:bg-surface-hover"
 	>
 		<a
@@ -413,7 +443,9 @@
 		{/if}
 		{#if !favorite && item.at}
 			<span
-				class="shrink-0 text-2xs text-secondary"
+				class="shrink-0 text-2xs text-secondary {mentionable
+					? 'group-has-[[data-composer-open]]/home:group-hover:hidden group-has-[[data-composer-open]]/home:group-focus-within:hidden'
+					: ''}"
 				title={recentTooltip(item.at, item.via)}
 				onmouseenter={() => (now = Date.now())}
 				role="note"
@@ -421,9 +453,33 @@
 				<TimeAgo date={new Date(item.at).toISOString()} compact noSeconds />
 			</span>
 		{/if}
-		<div class="shrink-0 pr-1 text-secondary">
+		<!-- While Home's composer is open the menu gives way to Mention, like the items' rows
+		     (AskAiRowButton). -->
+		<div
+			class="shrink-0 pr-1 text-secondary {mentionable
+				? 'group-has-[[data-composer-open]]/home:hidden'
+				: ''}"
+		>
 			<DropdownV2 items={() => menuItems(item, favorite)} size="xs" fixedHeight={false} />
 		</div>
+		{#if mentionable}
+			<!-- Takes the time's place on the hovered or focused card only: holding a place on every
+			     card would leave the narrow cards no room for their titles. -->
+			<div
+				class="shrink-0 pr-1 hidden group-has-[[data-composer-open]]/home:group-hover:block group-has-[[data-composer-open]]/home:group-focus-within:block"
+			>
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					btnClasses="!text-ai font-medium"
+					title="Mention"
+					aria-label="Mention {item.title}"
+					onClick={() => mention(item)}
+				>
+					+@
+				</Button>
+			</div>
+		{/if}
 	</div>
 {/snippet}
 
@@ -528,4 +584,7 @@
 	</HomeSectionLabel>
 {/if}
 
-<ShareModal bind:this={shareModal} source="home" />
+{#if shareModalModule.current}
+	{@const LoadedShareModal = shareModalModule.current.default}
+	<LoadedShareModal bind:this={shareModal} source="home" />
+{/if}

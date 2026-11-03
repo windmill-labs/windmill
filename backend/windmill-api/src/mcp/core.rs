@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
-use windmill_common::{db::UserDB, utils::StripPath, DB};
+use windmill_common::{db::UserDB, runnable_ref::RunnableRef, DB};
 use windmill_mcp::common::schema::enrich_resource_schemas;
 use windmill_mcp::common::transform::transform_property_keys;
 use windmill_mcp::common::types::{
@@ -83,15 +83,7 @@ impl WindmillBackend {
         w_id: &'a str,
         access: SessionAccess,
     ) -> session::Ctx<'a> {
-        session::Ctx {
-            auth,
-            w_id,
-            base_internal_url: &self.base_internal_url,
-            access,
-            origin: None,
-            jwt: Default::default(),
-            view: Default::default(),
-        }
+        session::Ctx::new(auth, w_id, &self.base_internal_url, session::access(access))
     }
 
     pub fn new(
@@ -283,14 +275,16 @@ impl McpBackend for WindmillBackend {
         request: &McpRequest<'_>,
     ) -> BackendResult<Value> {
         windmill_common::feature_usage::log_feature_usage("mcp", "runnable_tool_call", "script");
-        let push_args = prepare_push_args(&self.db, workspace_id, path, false, args, request)
+        let script = RunnableRef::from_path(path, false)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let push_args = prepare_push_args(&self.db, workspace_id, &script, args, request)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         let result = run_wait_result_script_by_path_internal(
             self.db.clone(),
             RunJobQuery::default(),
-            StripPath(path.to_string()),
+            &script,
             auth.clone(),
             self.user_db.clone(),
             workspace_id.to_string(),
@@ -311,14 +305,16 @@ impl McpBackend for WindmillBackend {
         request: &McpRequest<'_>,
     ) -> BackendResult<Value> {
         windmill_common::feature_usage::log_feature_usage("mcp", "runnable_tool_call", "flow");
-        let push_args = prepare_push_args(&self.db, workspace_id, path, true, args, request)
+        let flow = RunnableRef::from_path(path, true)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let push_args = prepare_push_args(&self.db, workspace_id, &flow, args, request)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         let result = run_wait_result_flow_by_path_internal(
             self.db.clone(),
             RunJobQuery::default(),
-            StripPath(path.to_string()),
+            &flow,
             auth.clone(),
             self.user_db.clone(),
             push_args,
@@ -503,7 +499,8 @@ impl McpBackend for WindmillBackend {
         access: SessionAccess,
         origin: Option<&str>,
     ) -> BackendResult<CallToolResult> {
-        let ctx = session::Ctx { origin, ..self.session_ctx_with(auth, workspace_id, access) };
+        let mut ctx = self.session_ctx_with(auth, workspace_id, access);
+        ctx.origin = origin;
         session::call_session_tool(&ctx, name, args).await
     }
 }

@@ -18,7 +18,16 @@ not this component) — so the lead can run the whole line.
 	import MeltButton from '$lib/components/meltComponents/MeltButton.svelte'
 	import WorkspacePickerBody from '$lib/components/sidebar/WorkspacePickerBody.svelte'
 	import BreadcrumbNavPicker from './BreadcrumbNavPicker.svelte'
-	import { userWorkspaces, workspaceStore, workspaceColor, superadmin } from '$lib/stores'
+	import {
+		userWorkspaces,
+		usersWorkspaceStore,
+		workspaceStore,
+		workspaceColor,
+		superadmin,
+		type UserWorkspace
+	} from '$lib/stores'
+	import { persistedValue } from '$lib/persistedResource.svelte'
+	import { readSessionHint } from '$lib/lastSession'
 	import { findWorkspaceRoot } from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -113,12 +122,26 @@ not this component) — so the lead can run the whole line.
 		copiedReset = setTimeout(() => (pathCopied = false), 1500)
 	}
 
-	const family = $derived(findWorkspaceRoot(scopeId, $userWorkspaces ?? []))
+	// Named from the list last loaded until the session's own loads (persistedCache), so a reload
+	// draws the workspace's name and colour in its first frame, as the snapshot of Home painted
+	// before boot does (homeSnapshot.ts). Only what the band shows reads it.
+	const workspacesCache = persistedValue<UserWorkspace[]>('nav_workspaces', 1)
+	const workspaces = $derived(
+		$usersWorkspaceStore || !scopeId
+			? $userWorkspaces
+			: (workspacesCache.peek({ workspace: scopeId }) ?? $userWorkspaces)
+	)
+	$effect(() => {
+		if ($usersWorkspaceStore && scopeId)
+			workspacesCache.save({ workspace: scopeId }, $userWorkspaces, readSessionHint())
+	})
+
+	const family = $derived(findWorkspaceRoot(scopeId, workspaces ?? []))
 	const discColor = $derived(family?.color ?? $workspaceColor ?? 'rgb(var(--color-surface-sunken))')
 	const glyphColor = $derived(getContrastTextColor(discColor))
 
 	const forkable = useForkableWorkspaces({
-		workspaces: () => $userWorkspaces,
+		workspaces: () => workspaces,
 		currentWorkspaceId: () => scopeId,
 		isSuperadmin: () => !!$superadmin
 	})
@@ -137,7 +160,7 @@ not this component) — so the lead can run the whole line.
 	// is standing in is answered the same way whichever one it is.
 	/** Whether this family has a dev workspace anywhere under it. */
 	const familyHasDev = $derived.by(() => {
-		const all = $userWorkspaces ?? []
+		const all = workspaces ?? []
 		const root = family?.id
 		return (
 			!!root && all.some((w) => w.is_dev_workspace && findWorkspaceRoot(w.id, all)?.id === root)
