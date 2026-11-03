@@ -1508,8 +1508,9 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 					: 'flex-row items-center gap-1 h-8'}"
 			>
 				{@render sidebarModeMenu(!panel || innerWidth >= 768)}
-				<!-- One click between Expanded and Collapsed, as before the mode menu existed. -->
-				{#if !panel && $roleCapabilities.code}
+				<!-- One click between Expanded and Collapsed, as before the mode menu existed; only in
+				     those two modes, the others have no such pair. -->
+				{#if !panel && $roleCapabilities.code && !expandsOnHover}
 					<button
 						class={SIDEBAR_ICON_BUTTON}
 						title={`${isCollapsed ? 'Expand' : 'Collapse'} sidebar (${getModifierKey()}\\)`}
