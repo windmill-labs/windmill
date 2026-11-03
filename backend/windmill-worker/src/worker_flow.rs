@@ -449,7 +449,7 @@ pub async fn update_flow_status_after_job_completion_internal(
     canceled_by: Option<CanceledBy>,
     mut flow_job_duration: Option<FlowJobDuration>,
     result: Arc<Box<RawValue>>,
-    step_failure: StepFailureKind,
+    mut step_failure: StepFailureKind,
     same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     stop_early_override: Option<bool>,
@@ -1801,9 +1801,19 @@ pub async fn update_flow_status_after_job_completion_internal(
             && step_failure.honors_step_error_policy()
             && (skip_seq_branch_failure || skip_loop_failures || continue_on_error);
 
+        // A flow cancelled by its own timeout still runs its failure module, once, before it
+        // ends. The subflows and loop iterations it cancels with it carry no timeout of their
+        // own and just stop, so `has_triggered_error_handler` (set on a parallel node, whose
+        // iterations normally run the handler) must not hold the flow's back.
+        let timeout_to_failure_module = flow_job.canceled_by.as_deref()
+            == Some(windmill_common::jobs::FLOW_TIMEOUT_CANCELER)
+            && flow_job.timeout.is_some_and(|t| t > 0)
+            && !is_failure_step
+            && flow_value.failure_module.is_some();
+
         let should_continue_flow = match success {
             _ if stop_early => stop_early_err_msg.is_some() && flow_value.failure_module.is_some(), // if stop_early_err_msg some, we want to trigger the error handler before stopping the flow, if any
-            _ if flow_job.is_canceled() => false,
+            _ if flow_job.is_canceled() => timeout_to_failure_module,
             true => !is_last_step,
             // A failure the module's error policy does not describe (a worker crash/OOM
             // surfaced by the zombie handler, an error raised while updating the flow status,
@@ -1833,6 +1843,17 @@ pub async fn update_flow_status_after_job_completion_internal(
         if recoverable_failure_at_last_step {
             success = true;
         }
+
+        let nresult = if timeout_to_failure_module {
+            step_failure = StepFailureKind::FlowTimeout;
+            let message = format!(
+                "flow terminated due to timeout: {}",
+                flow_job.canceled_reason.as_deref().unwrap_or("the flow exceeded its timeout")
+            );
+            Arc::new(to_raw_value(&json!({ "error": { "name": "ExecutionErr", "message": message } })))
+        } else {
+            nresult
+        };
 
         tracing::info!(id = %flow_job.id, root_id = %job_root, success = %success, stop_early = %stop_early, is_last_step = %is_last_step, step_failure = ?step_failure,
              skip_seq_branch_failure = %skip_seq_branch_failure, skip_loop_failures = %skip_loop_failures,
@@ -3666,6 +3687,22 @@ async fn push_next_flow_job(
     };
 
     // tracing::error!("status_module: {status_module:#?}");
+
+    // A flow cancelled by its timeout goes to its failure module from whatever step it was at,
+    // a loop or an approval included, never to a next step, iteration or retry.
+    if step_failure == StepFailureKind::FlowTimeout && !matches!(step, Step::FailureStep) {
+        status_module = FlowStatusModule::Failure {
+            id: status_module.id(),
+            job: Uuid::nil(),
+            flow_jobs: None,
+            flow_jobs_success: None,
+            flow_jobs_duration: None,
+            branch_chosen: None,
+            failed_retries: vec![],
+            agent_actions: None,
+            agent_actions_success: None,
+        };
+    }
 
     let fj: mappable_rc::Marc<MiniPulledJob> = flow_job.clone().into();
     let arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>> =

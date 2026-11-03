@@ -103,6 +103,12 @@ components:
         delete_after_secs:
           type: integer
           description: If set, delete the flow job's args, result and logs after this many seconds following job completion
+        timeout:
+          type: integer
+          description: >-
+            Wall-clock limit in seconds for the whole flow run, counted from its start and including
+            time spent sleeping or suspended at an approval. When it expires, the flow and its running
+            steps are cancelled with a timeout error, after its failure module runs, if it has one.
         flow_env:
           type: object
           description: "Environment variables available to all steps. Values can be strings, JSON values, or special references: '$var:path' (workspace variable) or '$res:path' (resource)."
