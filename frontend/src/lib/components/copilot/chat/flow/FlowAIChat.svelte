@@ -13,10 +13,13 @@
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { FlowCopilotContext } from '../../flow'
 	import type { ScriptLintResult } from '../shared'
-	import { applyFlowJsonUpdate, updateRawScriptModuleContent } from './helperUtils'
+	import {
+		applyFlowJsonUpdate,
+		isFlowSchemaChange,
+		updateRawScriptModuleContent
+	} from './helperUtils'
 	import { findModuleInFlow } from '$lib/components/flows/flowTree'
 	import { getEditorStoragePath } from '$lib/components/editorStoragePathContext'
-	import { deepEqual } from 'fast-equals'
 
 	const editorStoragePath = getEditorStoragePath()
 
@@ -236,15 +239,7 @@
 			notes,
 			settings
 		}) => {
-			// patch_flow_json resends the schema it was shown, so only an actual change is refused.
-			if (
-				schema !== undefined &&
-				!flowHelpers.canEditFlowInputs() &&
-				!deepEqual(
-					JSON.parse(JSON.stringify(flowStore.val.schema ?? null)),
-					JSON.parse(JSON.stringify(schema ?? null))
-				)
-			) {
+			if (!flowHelpers.canEditFlowInputs() && isFlowSchemaChange(flowStore.val.schema, schema)) {
 				throw new Error(
 					'The flow inputs (schema) are locked in this editor and cannot be added, changed or removed. Keep the schema exactly as it is: give steps static values or reference only the existing flow_input fields.'
 				)
