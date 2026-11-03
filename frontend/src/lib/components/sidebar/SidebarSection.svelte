@@ -200,7 +200,7 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 												if ((e.target as Element).closest('a, [role="option"]')) setOpen(false)
 											}}
 										>
-											<!-- Icons only shows no title on the row, so its menu does. -->
+											<!-- The collapsed rail shows no title on the row, so its menu does. -->
 											{#if isCollapsed}
 												<div class="flex flex-row items-center h-7 pl-2">
 													<span

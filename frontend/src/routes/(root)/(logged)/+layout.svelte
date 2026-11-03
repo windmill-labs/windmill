@@ -83,8 +83,17 @@
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { parseSuperadminSettingsHash, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
-	import { PanelLeft, Play, Search, ArrowLeft, Star, MessagesSquare } from 'lucide-svelte'
-	import { sidebarPrefs } from '$lib/components/sidebar/sidebarPrefs.svelte'
+	import {
+		PanelLeft,
+		PanelLeftClose,
+		PanelLeftOpen,
+		Play,
+		Search,
+		ArrowLeft,
+		Star,
+		MessagesSquare
+	} from 'lucide-svelte'
+	import { homeRowLearned, sidebarPrefs } from '$lib/components/sidebar/sidebarPrefs.svelte'
 	import { Button } from '$lib/components/common'
 	import { isInstanceRoute } from '$lib/instanceRoutes'
 	import { getUserExt } from '$lib/user'
@@ -707,7 +716,7 @@
 				action: () => setSidebarMode('expanded')
 			},
 			{
-				displayName: 'Icons only',
+				displayName: 'Collapsed',
 				shortcut: `${getModifierKey()}\\`,
 				selected: mode === 'icons',
 				hide: !$roleCapabilities.code,
@@ -1334,7 +1343,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 
 <!-- Windmill brand mark anchoring the sidebar bottom (the header slot is taken
      by the workspace picker). -->
-<!-- Operators get no "Icons only": their docked sidebar is always expanded. -->
+<!-- Operators get no "Collapsed": their docked sidebar is always expanded. -->
 {#snippet sidebarModeMenu(withModes: boolean)}
 	<span class="relative inline-flex">
 		<ModeButtonFlash />
@@ -1403,9 +1412,11 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 				<!-- The brand is the way home, so it stands in for a Home icon and label. -->
 				<MenuLink
 					class="!text-xs"
-					label={$whitelabelNameStore ? capitalize($whitelabelNameStore) : 'Windmill'}
+					label={($whitelabelNameStore ? capitalize($whitelabelNameStore) : 'Windmill') +
+						(homeRowLearned.val ? '' : ' / Home')}
 					hint="Go to Home"
 					href="/"
+					onclick={() => (homeRowLearned.val = true)}
 					icon={WindmillIcon}
 					iconProps={{ white: darkMode, width: '16px', height: '16px' }}
 					isCollapsed={collapsed}
@@ -1491,8 +1502,27 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 		     menu holds Customize alone. -->
 		<!-- Where the card slides in on hover, the handle that slides it in holds this menu too. -->
 		{#if !panel || innerWidth < 768 || (navDetached.val && !hoverPointer)}
-			<div class="flex-shrink-0 flex items-center h-8 px-2 mt-1 mb-3.5">
+			<div
+				class="flex-shrink-0 flex px-2 mt-1 mb-3.5 {collapsed
+					? 'flex-col items-start gap-1'
+					: 'flex-row items-center gap-1 h-8'}"
+			>
 				{@render sidebarModeMenu(!panel || innerWidth >= 768)}
+				<!-- One click between Expanded and Collapsed, as before the mode menu existed. -->
+				{#if !panel && $roleCapabilities.code}
+					<button
+						class={SIDEBAR_ICON_BUTTON}
+						title={`${isCollapsed ? 'Expand' : 'Collapse'} sidebar (${getModifierKey()}\\)`}
+						onclick={() => setSidebarMode(isCollapsed ? 'expanded' : 'icons')}
+					>
+						{#if isCollapsed}
+							<PanelLeftOpen size={16} class="flex-shrink-0 text-hint" />
+						{:else}
+							<PanelLeftClose size={16} class="flex-shrink-0 text-hint" />
+						{/if}
+						<span class="sr-only">{isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}</span>
+					</button>
+				{/if}
 			</div>
 		{:else if navDetached.val}
 			<!-- Without the footer the last row would sit on the card's bottom edge. -->

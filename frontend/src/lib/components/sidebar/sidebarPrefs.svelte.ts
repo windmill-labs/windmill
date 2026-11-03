@@ -8,3 +8,11 @@ export const sidebarPrefs = {
 	/** The reader's flow and agent chats. */
 	aiChats: useLocalStorageValue('windmill_sidebar_show_ai_chats', true, 'boolean')
 }
+
+/** Set on the first click of the brand row: until then it also says it is Home, since the
+ * brand alone does not tell a newcomer where it goes. */
+export const homeRowLearned = useLocalStorageValue(
+	'windmill_sidebar_home_row_learned',
+	false,
+	'boolean'
+)
