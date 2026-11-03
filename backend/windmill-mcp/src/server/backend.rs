@@ -261,18 +261,24 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     // ─────────────────────────────────────────────────────────────────
 
     /// The instructions a client reaching one workspace receives on connecting, built for
-    /// this user.
+    /// this user and what the token lets them do.
     async fn session_instructions(
         &self,
         auth: &Self::Auth,
         workspace_id: &str,
+        access: SessionAccess,
     ) -> BackendResult<String>;
 
     /// The instructions for a client reaching several workspaces: what holds in all of them.
-    fn generic_session_instructions(&self) -> String;
+    fn generic_session_instructions(&self, access: SessionAccess) -> String;
 
     /// What `generic_session_instructions` leaves out, for one workspace.
-    async fn workspace_context(&self, auth: &Self::Auth, workspace_id: &str) -> String;
+    async fn workspace_context(
+        &self,
+        auth: &Self::Auth,
+        workspace_id: &str,
+        access: SessionAccess,
+    ) -> String;
 
     /// The tools a token with this access is offered.
     fn session_tools(&self, access: SessionAccess) -> Vec<Tool>;
