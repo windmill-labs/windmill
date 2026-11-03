@@ -48,6 +48,7 @@ export function appSourceToDraftValue(app: any, fallback?: any): AppDraftValue {
 		data: normalizeRawAppData(value),
 		policy: app.policy ?? fallback?.policy,
 		custom_path: app.custom_path ?? fallback?.custom_path,
+		labels: app.labels ?? fallback?.labels,
 		// Pin the fork base: a deployed app exposes `versions` (head = last); an
 		// existing draft already carries `parent_version` — preserve it.
 		parent_version:

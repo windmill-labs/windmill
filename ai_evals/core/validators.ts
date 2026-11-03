@@ -9,6 +9,8 @@ import type {
   FlowValidationSpec,
   GlobalValidationSpec,
   ModeRunOutput,
+  PipelineRunResult,
+  PipelineRunSpec,
   ToolValidationSpec,
 } from "./types";
 
@@ -55,6 +57,7 @@ export interface AppDatatableState {
 
 export interface GlobalDraftState {
   drafts: GlobalDraft[];
+  pipelineRun?: PipelineRunResult;
 }
 
 export interface GlobalDraft {
@@ -399,6 +402,84 @@ export function validateToolExpectations(input: {
   return checks;
 }
 
+export function validatePipelineRun(
+  spec: PipelineRunSpec,
+  run: PipelineRunResult | undefined
+): BenchmarkCheck[] {
+  // A run the backend could not host asserts nothing: the harness says why on the console.
+  if (run?.skipped) {
+    return [];
+  }
+  if (!run) {
+    return [check("pipeline ran", false, "the harness recorded no pipeline run")];
+  }
+  const checks: BenchmarkCheck[] = [];
+  checks.push(check("pipeline ran to completion", !run.error, run.error));
+  if (spec.maxRoots !== undefined) {
+    const roots = run.roots ?? [];
+    checks.push(
+      check(
+        `at most ${spec.maxRoots} pipeline node(s) start the pipeline`,
+        roots.length <= spec.maxRoots,
+        `started directly, nothing upstream recorded as feeding them: ${roots.join(", ")}`
+      )
+    );
+  }
+  for (const node of run.nodes) {
+    checks.push(
+      check(
+        `pipeline node ${node.path} deploys`,
+        !node.deployError,
+        node.deployError
+      )
+    );
+    if (node.deployError) continue;
+    checks.push(
+      check(
+        `pipeline node ${node.path} runs and succeeds`,
+        node.ran === true && node.success === true,
+        node.ran ? node.error : "never ran: no root reached it through an asset trigger"
+      )
+    );
+  }
+  for (const query of spec.queries ?? []) {
+    const result = run.queries.find((q) => q.name === query.name);
+    const rows = result?.rows;
+    if (!rows) {
+      checks.push(check(`pipeline data: ${query.name}`, false, result?.error ?? "not run"));
+      continue;
+    }
+    const problems: string[] = [];
+    if (query.rowCount !== undefined && rows.length !== query.rowCount) {
+      problems.push(`expected ${query.rowCount} row(s), got ${rows.length}`);
+    }
+    const cells = rows.flatMap((row) =>
+      row && typeof row === "object" ? Object.values(row) : [row]
+    );
+    for (const value of query.includesValues ?? []) {
+      if (!cells.some((cell) => cellMatches(cell, value))) {
+        problems.push(`no cell holds ${JSON.stringify(value)}`);
+      }
+    }
+    checks.push(
+      check(
+        `pipeline data: ${query.name}`,
+        problems.length === 0,
+        problems.length ? `${problems.join("; ")} — rows: ${JSON.stringify(rows).slice(0, 400)}` : undefined
+      )
+    );
+  }
+  return checks;
+}
+
+function cellMatches(cell: unknown, value: string | number): boolean {
+  if (typeof value === "number") {
+    const n = typeof cell === "number" ? cell : Number(cell);
+    return cell !== null && cell !== "" && Number.isFinite(n) && Math.abs(n - value) < 0.01;
+  }
+  return typeof cell === "string" && cell.startsWith(value);
+}
+
 export function validateGlobalState(input: {
   actual: GlobalDraftState;
   expected?: GlobalDraftState;
@@ -464,6 +545,10 @@ export function validateGlobalState(input: {
   const validate = input.validate;
   if (!validate) {
     return checks;
+  }
+
+  if (validate.pipelineRun) {
+    checks.push(...validatePipelineRun(validate.pipelineRun, input.actual.pipelineRun));
   }
 
   if (validate.draftCountAtLeast !== undefined) {

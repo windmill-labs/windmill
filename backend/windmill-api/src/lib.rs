@@ -141,6 +141,7 @@ mod job_helpers_oss;
 pub mod job_metrics;
 pub mod jobs;
 pub mod jobs_export;
+mod jobs_recent_runs;
 #[cfg(all(feature = "oauth2", feature = "private"))]
 pub mod oauth2_ee;
 #[cfg(feature = "oauth2")]
@@ -159,6 +160,7 @@ mod saml_oss;
 #[cfg(feature = "private")]
 pub mod scim_ee;
 mod scim_oss;
+mod session_hint;
 mod scripts;
 mod secret_backend_ext;
 mod service_logs;
@@ -207,12 +209,13 @@ mod variables;
 pub mod volumes_ee;
 mod volumes_oss;
 pub mod webhook_util;
+mod workspace_settings_document;
 mod workspaces;
 #[cfg(feature = "private")]
 pub mod workspaces_ee;
 mod workspaces_export;
-mod workspace_settings_document;
 
+mod ai_session_tools;
 #[cfg(feature = "mcp")]
 mod mcp_tools;
 
@@ -395,6 +398,7 @@ async fn inject_agent_authed(
                 read_only: false,
                 job_id: None,
                 credential_expiry: None,
+                mcp_client: None,
             },
             job_id: None,
         });
@@ -447,6 +451,7 @@ pub async fn run_server(
         .layer(Extension(job_index_reader))
         .layer(Extension(log_index_reader))
         // .layer(Extension(index_writer))
+        .layer(axum::middleware::from_fn(session_hint::mirror_session_cookie))
         .layer(CookieManagerLayer::new())
         .layer(Extension(WebhookShared::new(
             killpill_rx.resubscribe(),
@@ -585,15 +590,19 @@ pub async fn run_server(
             )
             .await?;
             // Workspace-scoped MCP router
+            let external_idp_auth =
+                || axum::middleware::from_fn(mcp::external_idp::external_idp_auth);
             let workspaced_mcp_router = mcp_router
                 .clone()
                 .route_layer(from_extractor::<ApiAuthed>())
+                .layer(external_idp_auth())
                 .layer(axum::middleware::from_fn(reject_token_query_param))
                 .layer(axum::middleware::from_fn(add_www_authenticate_header))
                 .layer(axum::middleware::from_fn(extract_and_store_workspace_id));
             // Gateway MCP router — resolves workspace from token
             let gateway_mcp_router = mcp_router
                 .route_layer(from_extractor::<ApiAuthed>())
+                .layer(external_idp_auth())
                 .layer(axum::middleware::from_fn(extract_workspace_from_token))
                 .layer(axum::middleware::from_fn(reject_token_query_param))
                 .layer(axum::middleware::from_fn(
@@ -602,6 +611,7 @@ pub async fn run_server(
             // The workspace server. Its tools name their workspace; the token bounds which.
             let gateway_session_router = session_router
                 .route_layer(from_extractor::<ApiAuthed>())
+                .layer(external_idp_auth())
                 .layer(axum::middleware::from_fn(extract_workspace_from_token))
                 .layer(axum::middleware::from_fn(reject_token_query_param))
                 .layer(axum::middleware::from_fn(
@@ -773,6 +783,10 @@ pub async fn run_server(
                             Router::new()
                         })
                         .nest("/ai", ai::workspaced_service())
+                        .nest(
+                            "/ai_session_tools",
+                            ai_session_tools::chat::workspaced_service(_base_internal_url.clone()),
+                        )
                         .nest("/npm_proxy", windmill_api_npm_proxy::workspaced_service())
                         .nest(
                             "/path_autocomplete",
@@ -1280,8 +1294,7 @@ pub async fn run_server(
     if let Some(name) = name.as_ref() {
         tracing::info!("server starting for name={name}");
     }
-    #[cfg(feature = "mcp")]
-    mcp::register_router(&_base_internal_url, Some(app.clone()));
+    ai_session_tools::register_router(&_base_internal_url, Some(app.clone()));
 
     let listener = listener.tap_io(move |tcp_stream| {
         let _ = tcp_stream.set_nodelay(!server_mode);
@@ -1321,8 +1334,7 @@ pub async fn run_server(
     });
 
     let served = server.await;
-    #[cfg(feature = "mcp")]
-    mcp::register_router(&_base_internal_url, None);
+    ai_session_tools::register_router(&_base_internal_url, None);
     served?;
     let forks = &windmill_api_workspaces::workspaces::BACKGROUND_FORKS;
     forks.close();

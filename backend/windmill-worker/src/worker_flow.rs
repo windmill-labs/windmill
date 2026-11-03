@@ -18,6 +18,7 @@ use crate::{
     JobCompletedSender, PreviousResult, SameWorkerSender, SendResultPayload, StepFailureKind,
     UpdateFlow, KEEP_JOB_DIR,
 };
+use windmill_common::variables::{build_crypt_with_key_suffix, encrypt, WorkspaceCrypt};
 
 use anyhow::Context;
 use async_once_cell::Lazy;
@@ -2456,7 +2457,8 @@ async fn advance_flow_status(
             v2_job.visible_to_owner,
             NULL as permissioned_as_end_user_email,
             NULL::boolean as viewer_data_access,
-            job_perms.job_token_scopes",
+            job_perms.job_token_scopes,
+            NULL::varchar as mcp_client",
         flow,
         &step_path as &[&str],
         step,
@@ -2888,11 +2890,132 @@ where
     }
 }
 
+/// The unresolved `flow_env` and its secret entries, so that the args stored on a step job
+/// never hold a resolved secret: an exact `flow_env.X` read stores the entry's reference,
+/// resolved (audited and masked) when the step runs like a static input, and any other
+/// expression reading a secret entry stores its result encrypted.
+///
+/// A subflow step resolves nothing in its args, so it gets the resolved value of a
+/// non-secret entry, while a secret one reaches it as a reference or encrypted, which its own
+/// steps resolve or decrypt (they share its root job id).
+pub(crate) struct FlowEnvRefs<'a> {
+    raw: &'a HashMap<String, Box<RawValue>>,
+    db: &'a DB,
+    workspace_id: String,
+    root_job_id: Uuid,
+    // Loaded by the first input whose expression mentions `flow_env`, so that the steps
+    // reading none of it cost no query.
+    secrets: tokio::sync::OnceCell<FlowEnvSecrets>,
+}
+
+struct FlowEnvSecrets {
+    entries: HashMap<String, Box<RawValue>>,
+    // Keyed on the root job id, which is what the step's worker decrypts `$encrypted:`
+    // args with. Present only when `entries` is non-empty.
+    crypt: Option<WorkspaceCrypt>,
+}
+
+impl<'a> FlowEnvRefs<'a> {
+    fn new(db: &'a DB, flow_job: &MiniPulledJob, raw: &'a HashMap<String, Box<RawValue>>) -> Self {
+        Self {
+            raw,
+            db,
+            workspace_id: flow_job.workspace_id.clone(),
+            root_job_id: get_root_job_id(flow_job),
+            secrets: tokio::sync::OnceCell::new(),
+        }
+    }
+
+    async fn secrets(&self) -> error::Result<&FlowEnvSecrets> {
+        self.secrets.get_or_try_init(|| self.load_secrets()).await
+    }
+
+    async fn load_secrets(&self) -> error::Result<FlowEnvSecrets> {
+        let raw = self.raw;
+        let mut secret_keys = vec![];
+        let mut var_keys: Vec<(String, String)> = vec![];
+        for (k, v) in raw {
+            if !v.get().starts_with("\"$") {
+                continue;
+            }
+            let Ok(s) = serde_json::from_str::<String>(v.get()) else {
+                continue;
+            };
+            if s.starts_with("$encrypted:") {
+                secret_keys.push(k.clone());
+            } else if let Some(path) = s
+                .strip_prefix("$var:")
+                .or_else(|| s.strip_prefix("$jsonvar:"))
+            {
+                var_keys.push((k.clone(), path.to_string()));
+            }
+        }
+        if !var_keys.is_empty() {
+            let paths: Vec<String> = var_keys.iter().map(|(_, p)| p.clone()).collect();
+            let secret_paths = sqlx::query_scalar!(
+                "SELECT path FROM variable WHERE workspace_id = $1 AND path = ANY($2) AND is_secret",
+                &self.workspace_id,
+                &paths
+            )
+            .fetch_all(self.db)
+            .await?;
+            secret_keys.extend(
+                var_keys
+                    .into_iter()
+                    .filter(|(_, p)| secret_paths.contains(p))
+                    .map(|(k, _)| k),
+            );
+        }
+        let entries: HashMap<String, Box<RawValue>> = secret_keys
+            .into_iter()
+            .map(|k| (k.clone(), raw[&k].clone()))
+            .collect();
+        let crypt = if entries.is_empty() {
+            None
+        } else {
+            Some(
+                build_crypt_with_key_suffix(
+                    self.db,
+                    &self.workspace_id,
+                    &self.root_job_id.to_string(),
+                )
+                .await?,
+            )
+        };
+        Ok(FlowEnvSecrets { entries, crypt })
+    }
+}
+
+impl FlowEnvSecrets {
+    // Decided from the expression's text, by a literal `flow_env.KEY` / `flow_env["KEY"]`
+    // access: a dynamic key (`flow_env[k]`) or a destructured `flow_env` is not detected.
+    fn reads_secret(&self, expr: &str) -> bool {
+        let ident = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+        self.entries.keys().any(|k| {
+            let dotted = [format!("flow_env.{k}"), format!("flow_env?.{k}")];
+            let bracketed = ["\"", "'", "`"].map(|q| format!("[{q}{k}{q}]"));
+            dotted.iter().any(|p| {
+                expr.match_indices(p.as_str()).any(|(i, _)| {
+                    !expr[..i].chars().next_back().is_some_and(ident)
+                        && !expr[i + p.len()..].chars().next().is_some_and(ident)
+                })
+            }) || bracketed.iter().any(|b| {
+                ["flow_env", "flow_env?."].iter().any(|o| {
+                    expr.match_indices(&format!("{o}{b}"))
+                        .any(|(i, _)| !expr[..i].chars().next_back().is_some_and(ident))
+                })
+            })
+        })
+    }
+}
+
 /// resumes should be in order of timestamp ascending, so that more recent are at the end
 #[instrument(level = "trace", skip_all)]
 async fn transform_input(
     flow_args: Marc<HashMap<String, Box<RawValue>>>,
     flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    env_refs: Option<&FlowEnvRefs<'_>>,
+    into_subflow: bool,
     last_result: Arc<Box<RawValue>>,
     input_transforms: &HashMap<String, InputTransform>,
     resumes: Arc<Box<RawValue>>,
@@ -2930,6 +3053,22 @@ async fn transform_input(
                 mapped.insert(key.to_string(), to_raw_value(&value));
             }
             InputTransform::Javascript { expr } => {
+                let env_refs = env_refs.filter(|_| expr.contains("flow_env"));
+                if let Some(r) = env_refs {
+                    let exact_env = if into_subflow {
+                        &r.secrets().await?.entries
+                    } else {
+                        r.raw
+                    };
+                    if let Some(raw) = windmill_jseval::try_exact_property_access(
+                        expr.trim(),
+                        None,
+                        Some(exact_env),
+                    ) {
+                        mapped.insert(key.to_string(), raw);
+                        continue;
+                    }
+                }
                 let v = eval_timeout(
                     expr.to_string(),
                     env.clone(),
@@ -2945,6 +3084,16 @@ async fn transform_input(
                         "Error during isolated evaluation of expression `{expr}`:\n{e:#}"
                     ))
                 })?;
+                let secrets = match env_refs {
+                    Some(r) => Some(r.secrets().await?),
+                    None => None,
+                };
+                let v = match secrets {
+                    Some(s @ FlowEnvSecrets { crypt: Some(crypt), .. }) if s.reads_secret(expr) => {
+                        to_raw_value(&format!("$encrypted:{}", encrypt(crypt, v.get())))
+                    }
+                    _ => v,
+                };
                 mapped.insert(key.to_string(), v);
             }
             InputTransform::Ai => (),
@@ -3042,6 +3191,8 @@ pub async fn handle_flow(
             }
         }
     }
+
+    let env_refs = env_source.map(|raw| FlowEnvRefs::new(db, &flow_job, raw));
 
     let schedule_path = flow_job.schedule_path();
     if !flow_job.is_flow_step()
@@ -3186,6 +3337,7 @@ pub async fn handle_flow(
             status,
             flow,
             flow_env,
+            env_refs.as_ref(),
             no_flow_env,
             db,
             client,
@@ -3475,6 +3627,7 @@ async fn push_next_flow_job(
     mut status: FlowStatus,
     flow: &FlowValue,
     flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    env_refs: Option<&FlowEnvRefs<'_>>,
     // Neither this flow nor any ancestor defines `flow_env`.
     no_flow_env: bool,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -4296,6 +4449,8 @@ async fn push_next_flow_job(
                 transform_input(
                     arc_flow_job_args.clone(),
                     flow_env,
+                    env_refs,
+                    module.is_flow(),
                     arc_last_job_result.clone(),
                     input_transforms,
                     resumes.clone(),
@@ -4539,6 +4694,9 @@ async fn push_next_flow_job(
                     let ti = transform_input(
                         args,
                         flow_env,
+                        env_refs,
+                        // A `flow` module is never a simple loop body.
+                        false,
                         arc_last_job_result.clone(),
                         input_transforms,
                         resumes.clone(),
@@ -4594,6 +4752,8 @@ async fn push_next_flow_job(
                         let ti = transform_input(
                             Marc::new(hm),
                             flow_env,
+                            env_refs,
+                            false,
                             arc_last_job_result.clone(),
                             input_transforms,
                             resumes.clone(),
@@ -6166,6 +6326,7 @@ pub(super) fn is_simple_modules(
         && modules[0].suspend.is_none()
         && modules[0].cache_ttl.is_none()
         && modules[0].retry.is_none()
+        && modules[0].timeout.is_none()
         && modules[0].stop_after_if.is_none()
         && modules[0].stop_after_all_iters_if.is_none()
         && modules[0].skip_if.is_none()
@@ -6519,7 +6680,7 @@ pub async fn script_to_payload(
                     None,
                     db.clone(),
                     &flow_job.workspace_id,
-                    Some(true),
+                    Some(!apply_preprocessor.unwrap_or(false)),
                 )
                 .await?;
             (
@@ -6710,8 +6871,65 @@ pub async fn get_previous_job_result(
 
 #[cfg(test)]
 mod tests {
-    use super::{effective_flow_step_timeout, extract_chat_message_from_flow_result};
+    use super::{
+        effective_flow_step_timeout, extract_chat_message_from_flow_result, is_simple_modules,
+        FlowEnvSecrets,
+    };
+
+    // An input computed from a secret is stored encrypted, which an agent worker cannot
+    // decrypt, so a key that merely shares a secret entry's name must not count as reading it.
+    #[test]
+    fn reads_secret_only_through_a_flow_env_access() {
+        let refs = FlowEnvSecrets {
+            entries: [(
+                "token".to_string(),
+                to_raw_value(&json!("$var:u/x/t")).unwrap(),
+            )]
+            .into(),
+            crypt: None,
+        };
+        for expr in [
+            "flow_env.token",
+            "\"Bearer \" + flow_env.token",
+            "`${flow_env?.token}`",
+            "flow_env[\"token\"] + 'x'",
+            "flow_env['token']",
+        ] {
+            assert!(refs.reads_secret(expr), "{expr}");
+        }
+        for expr in [
+            "flow_env.BASE + results.login.token",
+            "flow_env.tokens",
+            "flow_input.token",
+            "my_flow_env.token",
+            "flow_env[\"tokens\"]",
+        ] {
+            assert!(!refs.reads_secret(expr), "{expr}");
+        }
+    }
     use serde_json::{json, value::to_raw_value};
+    use windmill_common::flows::FlowModule;
+
+    // The simple-loop fast path reads step settings off the loop module, so a loop body whose
+    // step has its own timeout must take the full path or that timeout is dropped.
+    #[test]
+    fn loop_body_with_step_timeout_is_not_simple() {
+        let step = |extra: serde_json::Value| -> FlowModule {
+            let mut m = json!({
+                "id": "b",
+                "value": {"type": "rawscript", "language": "python3", "content": "", "input_transforms": {}}
+            });
+            m.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            serde_json::from_value(m).unwrap()
+        };
+        assert!(is_simple_modules(&vec![step(json!({}))], None));
+        assert!(!is_simple_modules(
+            &vec![step(json!({"timeout": {"type": "static", "value": 300}}))],
+            None
+        ));
+    }
 
     // A `<= 0` step timeout override must behave as "no override" and inherit the referenced
     // script's timeout, not collapse to a 0-second (instant-kill) timeout. A positive override

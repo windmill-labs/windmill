@@ -311,6 +311,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     for git_sync_path in [
         windmill_common::workspaces::LATEST_GIT_SYNC_SCRIPT_PATH,
         windmill_common::workspaces::GIT_SYNC_PULL_SCRIPT_PATH,
+        windmill_common::workspaces::GIT_SYNC_REVIEW_SCRIPT_PATH,
     ] {
         let git_sync_path = git_sync_path.to_string();
         if !all_paths.contains(&git_sync_path) {
@@ -2051,6 +2052,9 @@ async fn process_notify_event(
                 }
                 MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING => {
                     load_mcp_disable_token_query_param(db).await;
+                }
+                windmill_common::global_settings::MCP_EXTERNAL_IDP_SETTING => {
+                    crate::monitor::load_mcp_external_idp(db).await;
                 }
                 API_BASE_URL_SETTING => {
                     load_api_base_url(db).await;

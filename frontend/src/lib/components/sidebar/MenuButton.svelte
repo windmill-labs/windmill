@@ -122,11 +122,13 @@
 			{href}
 			data-light-mode={lightMode}
 			class={twMerge(
-				'group flex items-center px-2 py-2 font-light rounded-md gap-2',
+				'group flex items-center px-2 py-1 font-light rounded-md gap-2',
 				compact ? 'w-auto' : 'w-full',
 				sidebarClasses.hoverBg,
 				'transition-all relative',
-				sublabel ? 'h-10' : 'h-8',
+				// Compact rows sit in the page header and keep its height; the nav's are 30px, and
+				// square on the collapsed rail.
+				sublabel ? 'h-10' : compact || isCollapsed ? 'h-8' : 'h-[30px]',
 				classNames,
 				buttonClass
 			)}

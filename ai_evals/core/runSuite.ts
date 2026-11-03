@@ -117,6 +117,7 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
         attempt,
         runs: input.runs,
         verbose: input.verbose,
+        executionOnly: input.executionOnly,
         onAssistantMessageStart: input.verbose && surface
           ? () =>
               input.onProgress?.({

@@ -114,9 +114,9 @@
 />
 
 <Alert type="info" title="You created this fork">
-	You are not an admin of this workspace, so you can only add developers or admins of
-	<b>{parentWorkspaceId}</b> as developers of this fork, and remove the ones who are not admins here.
-	Ask an admin of this workspace for any other membership change.
+	You are not an admin of this workspace, so you can only add members of
+	<b>{parentWorkspaceId}</b> whose role in its forks is developer, as developers of this fork, and remove
+	the ones who are not admins here. Ask an admin of this workspace for any other membership change.
 </Alert>
 
 <div class="pt-6"></div>

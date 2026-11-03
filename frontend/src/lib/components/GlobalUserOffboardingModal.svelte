@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Alert, Button } from '$lib/components/common'
 	import { fade } from 'svelte/transition'
-	import { classNames } from '$lib/utils'
+	import { apiErrorMessage, classNames } from '$lib/utils'
 	import { AlertTriangle, CornerDownLeft, Loader2 } from 'lucide-svelte'
 	import { UserService, FolderService } from '$lib/gen'
 	import type { WorkspaceOffboardPreview } from '$lib/gen'
@@ -99,7 +99,7 @@
 				wsConfigs[workspace_id] = config
 			}
 		} catch (e) {
-			sendUserToast('Failed to load offboard preview', true)
+			sendUserToast(`Failed to load offboard preview: ${apiErrorMessage(e)}`, true)
 			onClose()
 		} finally {
 			loading = false
@@ -180,7 +180,7 @@
 				onComplete()
 			}
 		} catch (e) {
-			sendUserToast(`Offboarding failed: ${e}`, true)
+			sendUserToast(`Offboarding failed: ${apiErrorMessage(e)}`, true)
 		} finally {
 			submitting = false
 		}

@@ -126,7 +126,7 @@ describe("genWmillTs (regression: path-based runnable schema)", () => {
     expect(ts).toMatch(/fetchUser:\s*\(args:\s*\{[^}]*userId/);
     expect(ts).toContain("userId");
     expect(ts).toContain("includeProfile");
-    expect(ts).not.toMatch(/fetchUser:\s*\(args:\s*\{\s*\}\)/);
+    expect(ts).not.toMatch(/fetchUser:\s*\(args:\s*\{\s*\}[,)]/);
   });
 
   test("path-based runnable without schema falls back to {}", async () => {
@@ -139,7 +139,7 @@ describe("genWmillTs (regression: path-based runnable schema)", () => {
     const runnables = await loadRunnablesFromBackend(backendDir);
     const ts = buildWmillTs(runnables);
 
-    expect(ts).toMatch(/noSchema:\s*\(args:\s*\{\s*\}\)/);
+    expect(ts).toMatch(/noSchema:\s*\(args:\s*\{\s*\}[,)]/);
   });
 });
 
@@ -192,7 +192,7 @@ describe("inferRunnableSchemaFromFile (regression: new backend-folder format)", 
     // and the runnable would render as `args: {}`.
     expect(ts).toContain("compute:");
     expect(ts).toMatch(/compute:\s*\(args:\s*\{[^}]*x:/);
-    expect(ts).not.toMatch(/compute:\s*\(args:\s*\{\s*\}\)/);
+    expect(ts).not.toMatch(/compute:\s*\(args:\s*\{\s*\}[,)]/);
   });
 
   test("returns undefined for path-based runnables", async () => {
@@ -297,6 +297,6 @@ describe("inferAllInlineSchemas (startup seed for wmill.d.ts)", () => {
     expect(ts).toMatch(/greet:\s*\(args:\s*\{[^}]*name/);
     expect(ts).toContain("name");
     expect(ts).toContain("times");
-    expect(ts).not.toMatch(/greet:\s*\(args:\s*\{\s*\}\)/);
+    expect(ts).not.toMatch(/greet:\s*\(args:\s*\{\s*\}[,)]/);
   });
 });

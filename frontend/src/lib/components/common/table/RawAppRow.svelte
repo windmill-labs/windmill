@@ -6,7 +6,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import Row from './Row.svelte'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { Globe, Shield } from 'lucide-svelte'
+	import { Globe, UserPlus } from 'lucide-svelte'
 	import { isDeployable } from '$lib/utils_deployable'
 	import { cachedDeployUiSettings, warmDeployUiSettings } from '$lib/components/home/deploy_ui'
 
@@ -66,8 +66,8 @@
 							]
 						: []),
 					{
-						displayName: 'Permissions',
-						icon: Shield,
+						displayName: 'Share',
+						icon: UserPlus,
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(path, 'raw_app')
 						}

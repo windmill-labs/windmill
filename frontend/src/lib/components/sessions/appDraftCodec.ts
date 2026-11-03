@@ -11,6 +11,7 @@ export type RawAppDraft = {
 	summary: string
 	policy?: any
 	custom_path?: string
+	labels?: string[]
 	// User-typed path while the app is parked at a `…/draft_<uuid>` storage path.
 	// Must round-trip through the draft so the home/review/Drafts lists render the
 	// friendly name (they read `value->>'draft_path'`) — and so editing the path
@@ -32,6 +33,7 @@ export type RuntimeRawApp = {
 	data: RawAppData
 	policy: any
 	custom_path?: string
+	labels?: string[]
 	draft_path?: string
 	parent_version?: number
 }
@@ -47,6 +49,7 @@ export function runtimeRawAppToDraft(raw: RuntimeRawApp): RawAppDraft {
 		data: raw.data,
 		policy: raw.policy,
 		custom_path: raw.custom_path,
+		labels: raw.labels,
 		draft_path: raw.draft_path,
 		parent_version: raw.parent_version
 	}
@@ -63,6 +66,7 @@ export function applyDraftToRuntimeRawApp(raw: RuntimeRawApp, dv: RawAppDraft): 
 		data: dv.data,
 		policy: dv.policy ?? raw.policy,
 		custom_path: dv.custom_path ?? raw.custom_path,
+		labels: dv.labels ?? raw.labels,
 		draft_path: dv.draft_path ?? raw.draft_path,
 		// The incoming draft's own fork base, absence included: this round-trips into the
 		// next save, so falling back to the runtime's version would give that content a

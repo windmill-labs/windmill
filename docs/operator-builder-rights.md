@@ -202,8 +202,8 @@ already authors elsewhere must not be charged again. A change that adds no seat 
 - A builder may make an app public (`ExecutionMode::Anonymous`): anyone with the URL runs the
   runnables its policy names, as the builder. Refusing it is the workspace's call, through the
   `RestrictAnonymousAppDeployment` protection rule. A `Guest` app is the same with a login in
-  front: anyone the instance's identity provider admits, member or not, once guest access is
-  enabled. `RestrictGuestAppDeployment` refuses it.
+  front: anyone the instance's identity provider admits, member or not.
+  `RestrictGuestAppDeployment` refuses it.
 - A builder raw app may set `allow_user_resources` on a runnable's inputs, and the bundle picks the
   `$res:` path it sends. `build_args` resolves that path as the *viewer*, with no prompt, into a
   job that runs as the builder. Getting a value out takes a guessable path and a readable script

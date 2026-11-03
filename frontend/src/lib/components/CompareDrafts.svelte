@@ -42,6 +42,9 @@
 	import { userStore, userWorkspaces } from '$lib/stores'
 	import { capabilitiesIn } from '$lib/roleCapabilities'
 	import { childWorkspaceNoun } from '$lib/utils/devWorkspaceLabel'
+	import { copilotInfo } from '$lib/aiStore'
+	import AiReview from './deploymentRequest/AiReview.svelte'
+	import { draftReviewItem } from './deploymentRequest/draftReviewItem'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -456,6 +459,13 @@
 		selectedItems = []
 	}
 
+	// Your own drafts only: another user's draft is view-only, and reading one returns yours.
+	const reviewItems = $derived(
+		visibleItems
+			.filter((i) => selectedItems.includes(i.key) && i.mine && i.draftKind !== 'data_pipeline')
+			.map((i) => draftReviewItem(i.draftKind, i.path, currentWorkspaceId, i.draft_only))
+	)
+
 	// --- Diff ---
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let isFlow = $state(false)
@@ -480,7 +490,13 @@
 			mode: 'simple',
 			original: deployed as any,
 			current: draft as any,
-			title: 'Deployed → Draft'
+			title: 'Deployed → Draft',
+			aiReview: {
+				workspaceId: currentWorkspaceId,
+				kind: item.draftKind,
+				path: item.path,
+				added: item.draft_only
+			}
 		})
 	}
 
@@ -912,35 +928,45 @@
 			{/snippet}
 
 			{#snippet footer()}
-				<div class="flex flex-col items-end gap-2">
-					<div class="flex items-center gap-2">
-						<Button
-							variant="default"
-							destructive
-							disabled={discardableCount === 0 || deploying || discarding}
-							loading={discarding}
-							startIcon={{ icon: Undo2 }}
-							onClick={onDiscardSelectedClick}
-						>
-							Discard {discardableCount} draft{discardableCount !== 1 ? 's' : ''}
-						</Button>
-						<Button
-							variant="accent"
-							disabled={deployableCount === 0 || deploying || discarding || !deployPerm.ok}
-							title={!deployPerm.ok ? deployPerm.reason : undefined}
-							loading={deploying}
-							onClick={deploySelected}
-						>
-							Deploy {deployableCount} draft{deployableCount !== 1 ? 's' : ''}
-						</Button>
+				<div class="flex flex-col gap-4">
+					<div class="flex flex-col items-end gap-2">
+						<div class="flex items-center gap-2">
+							<Button
+								variant="default"
+								destructive
+								disabled={discardableCount === 0 || deploying || discarding}
+								loading={discarding}
+								startIcon={{ icon: Undo2 }}
+								onClick={onDiscardSelectedClick}
+							>
+								Discard {discardableCount} draft{discardableCount !== 1 ? 's' : ''}
+							</Button>
+							<Button
+								variant="accent"
+								disabled={deployableCount === 0 || deploying || discarding || !deployPerm.ok}
+								title={!deployPerm.ok ? deployPerm.reason : undefined}
+								loading={deploying}
+								onClick={deploySelected}
+							>
+								Deploy {deployableCount} draft{deployableCount !== 1 ? 's' : ''}
+							</Button>
+						</div>
+						{#if !deployPerm.ok}
+							<span class="text-xs text-yellow-600">{deployPerm.reason}</span>
+						{:else if undeployableSelectedCount > 0}
+							<span class="text-xs text-secondary">
+								{undeployableSelectedCount} selected draft{undeployableSelectedCount !== 1
+									? 's'
+									: ''}
+								can't be deployed (no write permission on the path) but can still be discarded
+							</span>
+						{/if}
 					</div>
-					{#if !deployPerm.ok}
-						<span class="text-xs text-yellow-600">{deployPerm.reason}</span>
-					{:else if undeployableSelectedCount > 0}
-						<span class="text-xs text-secondary">
-							{undeployableSelectedCount} selected draft{undeployableSelectedCount !== 1 ? 's' : ''}
-							can't be deployed (no write permission on the path) but can still be discarded
-						</span>
+					{#if $copilotInfo.enabled}
+						<AiReview
+							scope={{ kind: 'drafts', workspaceId: currentWorkspaceId, items: reviewItems }}
+							source="drafts"
+						/>
 					{/if}
 				</div>
 			{/snippet}

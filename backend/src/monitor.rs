@@ -311,6 +311,11 @@ pub async fn initial_load(
             false,
             |v| async move { apply_mcp_disable_token_query_param(v) },
         );
+        pass.setting(
+            windmill_common::global_settings::MCP_EXTERNAL_IDP_SETTING,
+            false,
+            |v| async move { apply_mcp_external_idp(v) },
+        );
         pass.setting(API_BASE_URL_SETTING, false, |v| async move {
             apply_api_base_url(v)
         });
@@ -1744,6 +1749,31 @@ pub fn apply_mcp_disable_token_query_param(value: Option<serde_json::Value>) {
         None => MCP_DISABLE_TOKEN_QUERY_PARAM.store(false, Ordering::Relaxed),
         _ => (),
     };
+}
+
+pub async fn load_mcp_external_idp(db: &DB) {
+    match load_value_from_global_settings(
+        db,
+        windmill_common::global_settings::MCP_EXTERNAL_IDP_SETTING,
+    )
+    .await
+    {
+        Ok(v) => apply_mcp_external_idp(v),
+        Err(e) => tracing::error!("Error loading mcp_external_idp setting: {e:#}"),
+    };
+}
+
+pub fn apply_mcp_external_idp(value: Option<serde_json::Value>) {
+    use windmill_common::global_settings::{parse_mcp_external_idp, MCP_EXTERNAL_IDP};
+    match parse_mcp_external_idp(value.as_ref()) {
+        Ok(idp) => MCP_EXTERNAL_IDP.store(idp.map(std::sync::Arc::new)),
+        // Refused at write time, so only a hand-written row lands here: keep no issuer
+        // rather than one half-read.
+        Err(e) => {
+            tracing::error!("Invalid mcp_external_idp setting, external MCP tokens disabled: {e}");
+            MCP_EXTERNAL_IDP.store(None);
+        }
+    }
 }
 
 pub async fn load_api_base_url(db: &DB) {

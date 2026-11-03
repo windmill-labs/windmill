@@ -11,9 +11,10 @@
 	import FolderInfo from '$lib/components/FolderInfo.svelte'
 	import FolderUsageInfo from '$lib/components/FolderUsageInfo.svelte'
 	import { sendUserToast } from '$lib/utils'
+	import { latestRequest } from '$lib/utils/latestRequest'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
-	import { Pen, Trash, Plus, UploadCloud, FolderOpen } from 'lucide-svelte'
+	import { Pen, Trash, Plus, UploadCloud, FolderOpen, Users } from 'lucide-svelte'
 	import DeployToHub from '$lib/components/workspaceSettings/DeployToHub.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Row from '$lib/components/table/Row.svelte'
@@ -30,8 +31,12 @@
 	let hubDrawer: Drawer | undefined = $state()
 	let publishFolderName: string = $state('')
 
+	const folderLoads = latestRequest()
 	async function loadFolders(): Promise<void> {
-		folders = await FolderService.listFolders({ workspace: $workspaceStore! })
+		const isLatest = folderLoads.start()
+		const result = await FolderService.listFolders({ workspace: $workspaceStore! })
+		if (!isLatest()) return
+		folders = result
 	}
 
 	function onFolderSaved(name: string, created: boolean) {
@@ -99,7 +104,12 @@
 			tooltip="Folders allow to group items such as scripts/flows/resources/schedule together and to grant homogenous RBAC permissions to groups and individual users towards them."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/groups_and_folders"
 		>
-			<div class="flex flex-row">
+			<div class="flex flex-row gap-2">
+				{#if $roleCapabilities.visibility.groups}
+					<Button variant="default" unifiedSize="md" href="/groups" startIcon={{ icon: Users }}>
+						Groups
+					</Button>
+				{/if}
 				{#if restricted}
 					<Button
 						variant="accent"

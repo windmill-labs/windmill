@@ -146,9 +146,7 @@
 
 	const idProblem = $derived(id.trim() ? validateWorkspaceId(id.trim()) : undefined)
 	// Only when the instance does not derive it, which is the only case the field is shown.
-	// `create_workspace` accepts whatever it is sent — `Some("")` passes its one check and is
-	// written to `usr.username` verbatim — so this is the only thing standing between a
-	// cleared field and a workspace whose owner has no username.
+	// Early feedback for the rule `create_workspace` enforces.
 	const usernameProblem = $derived(
 		automateUsername
 			? undefined

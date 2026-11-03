@@ -29,6 +29,11 @@ export type UserItem = {
 	items: (ItemType | FolderItem)[]
 }
 
+// Rows per request when loading a prefix in the tree. Larger than the global stream's
+// page because a tree row is a single line and a folder is opened to see what it
+// holds — most folders come in whole on the first click.
+export const OWNER_PAGE_SIZE = 300
+
 /**
  * Where an item belongs: its owner, folder, and the name it is filtered and searched by.
  * A draft-only item is parked at a generated `u/<you>/draft_<uuid>` but names the path it

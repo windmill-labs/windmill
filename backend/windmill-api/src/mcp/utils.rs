@@ -9,9 +9,9 @@ use axum::body::{to_bytes, Body};
 use axum::response::Response;
 use serde_json::Value;
 use sql_builder::prelude::*;
-use windmill_common::auth::create_jwt_token;
-use windmill_common::db::{Authed, UserDB};
+use windmill_common::db::UserDB;
 use windmill_common::error::Error;
+use windmill_common::runnable_ref::RunnableRef;
 use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 use windmill_common::triggers::{RunnableFormat, RunnableFormatVersion, TriggerKind};
 use windmill_common::utils::{query_elems_from_hub, StripPath};
@@ -213,9 +213,7 @@ fn items_query(
             } else {
                 let conds: Vec<String> = segments
                     .iter()
-                    .map(|s| {
-                        "o.path LIKE ? ESCAPE '\\'".bind(&format!("%/{}", escape_like(s)))
-                    })
+                    .map(|s| "o.path LIKE ? ESCAPE '\\'".bind(&format!("%/{}", escape_like(s))))
                     .collect();
                 sqlb.and_where(format!("({})", conds.join(" OR ")));
             }
@@ -710,28 +708,6 @@ pub async fn create_http_request(
     send_as_caller(method, url, workspace_id, api_authed, body_json, scopes).await
 }
 
-/// A JWT that acts as `api_authed`, carrying `scopes`; `None` is the caller's full rights.
-pub(crate) async fn mint_caller_jwt(
-    workspace_id: &str,
-    api_authed: &ApiAuthed,
-    scopes: Option<Vec<String>>,
-) -> BackendResult<String> {
-    // Carry the caller's job provenance into the JWT: a job's WM_TOKEN is capped at
-    // workspace admin (GHSA-hfh4-cx4h-3fcr), and dropping `job_id` here would re-mint an
-    // uncapped token that satisfies require_super_admin / require_devops_role.
-    create_jwt_token(
-        Authed::from(api_authed.clone()),
-        workspace_id,
-        3600,
-        api_authed.job_id,
-        None,
-        None,
-        scopes,
-    )
-    .await
-    .map_err(|e| ErrorData::internal_error(e.to_string(), None))
-}
-
 /// Call the API as `api_authed` with a JWT carrying `scopes`; `None` is the caller's
 /// full rights, for a server whose own code picks every route it calls.
 pub async fn send_as_caller(
@@ -757,7 +733,9 @@ pub async fn send_as_caller(
         }
     };
 
-    let token = mint_caller_jwt(workspace_id, api_authed, scopes).await?;
+    let token = crate::ai_session_tools::mint_caller_jwt(workspace_id, api_authed, scopes)
+        .await
+        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
     request_builder = request_builder.header("Authorization", format!("Bearer {}", token));
 
     // Add body if present
@@ -815,8 +793,7 @@ fn preprocessor_headers(
 pub async fn prepare_push_args(
     db: &DB,
     w_id: &str,
-    path: &str,
-    is_flow: bool,
+    runnable: &RunnableRef,
     args: Value,
     request: &McpRequest<'_>,
 ) -> Result<windmill_queue::PushArgsOwned, Error> {
@@ -827,11 +804,11 @@ pub async fn prepare_push_args(
         }
     }
 
-    let runnable_id = if is_flow {
-        RunnableId::from_flow_path(path)
+    let runnable_id = if runnable.is_flow() {
+        RunnableId::from_flow_path(runnable.path())
     } else {
         // Resolves a `hub/<version_id>` path to the hub script on its own.
-        RunnableId::from_script_path(path)
+        RunnableId::from_script_path(runnable.path())
     };
 
     // MCP is not one of the `TRIGGER_KIND` enum values and does not need to be:
@@ -1489,6 +1466,7 @@ mod tests {
             read_only: false,
             job_id,
             credential_expiry: None,
+            mcp_client: None,
         }
     }
 

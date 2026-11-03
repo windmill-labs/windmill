@@ -14,7 +14,10 @@
 	import { sendUserToast } from '$lib/toast'
 	import type { Script } from '$lib/gen'
 	import Select from './select/Select.svelte'
-	import type { DiffVersionOption } from './diff_drawer'
+	import type { DiffAiReview, DiffVersionOption } from './diff_drawer'
+	import { copilotInfo } from '$lib/aiStore'
+	import AiReview from './deploymentRequest/AiReview.svelte'
+	import type { ReviewScope } from './deploymentRequest/aiReview'
 
 	type DiffData = {
 		lang?: string
@@ -35,6 +38,25 @@
 	})
 
 	let diffViewer: Drawer | undefined = $state(undefined)
+
+	let aiReviewScope: ReviewScope | undefined = $state(undefined)
+	/** Normal mode: what the review is rebuilt from when the version picker swaps the left side. */
+	let aiReviewTarget: { review: DiffAiReview; current: Value } | undefined = undefined
+
+	function reviewScope(review: DiffAiReview, before: Value, after: Value): ReviewScope {
+		return {
+			kind: 'drafts',
+			workspaceId: review.workspaceId,
+			items: [
+				{
+					kind: review.kind,
+					path: review.path,
+					change: review.added ? 'added' : 'modified',
+					load: async () => ({ before, after })
+				}
+			]
+		}
+	}
 
 	interface Props {
 		restoreDeployed?: () => Promise<void>
@@ -77,6 +99,8 @@
 		if (token == null) openingToken++
 		data = undefined
 		diffType = undefined
+		aiReviewScope = undefined
+		aiReviewTarget = undefined
 		diffViewer?.openDrawer()
 	}
 
@@ -111,6 +135,8 @@
 		loadingVersion = false
 		data = undefined
 		diffType = undefined
+		aiReviewScope = undefined
+		aiReviewTarget = undefined
 		diffViewer?.closeDrawer()
 	}
 
@@ -209,6 +235,11 @@
 				deployed: prepareDiff(value),
 				deployedLabel: opt?.isHead ? headLabel : opt?.label
 			}
+			// The review covers the version on screen; a new scope also drops a result for the
+			// previous one.
+			if (aiReviewTarget) {
+				aiReviewScope = reviewScope(aiReviewTarget.review, value, aiReviewTarget.current)
+			}
 		} catch (e: any) {
 			// The snap-back would otherwise be the only sign the version never loaded.
 			if (generation === versionLoadGeneration) {
@@ -270,6 +301,7 @@
 					current: Value
 					defaultDiffType?: 'deployed' | 'draft'
 					button?: { text: string; onClick: () => void }
+					aiReview?: DiffAiReview
 			  }
 			| {
 					mode: 'simple'
@@ -277,6 +309,7 @@
 					current: Value
 					title: string
 					button?: { text: string; onClick: () => void }
+					aiReview?: DiffAiReview
 			  },
 		token?: number
 	) {
@@ -284,6 +317,8 @@
 		// caller with none is taking the drawer, so it claims one.
 		if (token != null && token !== openingToken) return
 		if (token == null) openingToken++
+		aiReviewScope = undefined
+		aiReviewTarget = undefined
 		if (diff.mode === 'normal') {
 			const {
 				deployed,
@@ -326,6 +361,13 @@
 			// The draft-vs-current view (and its tab) is obsolete — always show the
 			// deployed-vs-current diff.
 			diffType = 'deployed'
+			if (diff.aiReview) {
+				aiReviewTarget = {
+					review: { ...diff.aiReview, added: diff.aiReview.added || !!deployed.draft_only },
+					current
+				}
+				aiReviewScope = reviewScope(aiReviewTarget.review, deployed, current)
+			}
 		} else {
 			const { original, current, title, button } = diff
 			data = {
@@ -336,6 +378,7 @@
 				button
 			}
 			diffType = 'custom'
+			if (diff.aiReview) aiReviewScope = reviewScope(diff.aiReview, original, current)
 		}
 	}
 </script>
@@ -343,6 +386,14 @@
 <Drawer bind:this={diffViewer} size="1200px" on:close>
 	<DrawerContent title="Diff" on:close={diffViewer.closeDrawer}>
 		<div class="flex flex-col gap-4 h-full">
+			{#if data && aiReviewScope && $copilotInfo.enabled}
+				<div class="max-h-[40vh] overflow-y-auto shrink-0">
+					<!-- A new diff is a new review: a result never carries over to it. -->
+					{#key aiReviewScope}
+						<AiReview scope={aiReviewScope} source="draft_diff" />
+					{/key}
+				</div>
+			{/if}
 			{#if data}
 				<!-- Outside the `contentType` check on purpose: with no differences against
 				     the head, picking an older version is exactly how the reader finds one,

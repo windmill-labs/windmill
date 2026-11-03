@@ -891,20 +891,6 @@ pub async fn set_flow_memory_id(
     Ok(())
 }
 
-/// Apply flow-specific query parameters after job creation
-pub async fn process_flow_run_query_params(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    job_id: Uuid,
-    w_id: &str,
-    flow_path: &str,
-    run_query: &RunJobQuery,
-) -> error::Result<()> {
-    if let Some(memory_id) = run_query.memory_key(w_id, flow_path) {
-        set_flow_memory_id(tx, job_id, memory_id).await?;
-    }
-    Ok(())
-}
-
 pub async fn handle_chat_conversation_messages(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     authed: &ApiAuthed,
@@ -1068,7 +1054,7 @@ pub async fn run_flow<'c>(
         (
             &obo.email,
             obo.permissioned_as.clone(),
-            None,
+            authed.mcp_client.is_some().then(|| authed.clone().into()),
             PushIsolationLevel::IsolatedRoot(db.clone()),
         )
     } else {
@@ -1300,7 +1286,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         (
             on_behalf_of.email.as_str(),
             on_behalf_of.permissioned_as.clone(),
-            None,
+            authed.mcp_client.is_some().then(|| authed.clone().into()),
             PushIsolationLevel::IsolatedRoot(db.clone()),
         )
     } else {

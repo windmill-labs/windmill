@@ -14,16 +14,10 @@
 	interface Props {
 		expressOAuthSetup?: boolean
 		workspace?: string
-		disableChatOffset?: boolean
 		native?: NativeConnect
 	}
 
-	let {
-		expressOAuthSetup = false,
-		workspace = undefined,
-		disableChatOffset = false,
-		native = undefined
-	}: Props = $props()
+	let { expressOAuthSetup = false, workspace = undefined, native = undefined }: Props = $props()
 
 	/** Set by `open(rt, fillPath)`, not by the parent: which resource this run fills is a
 	 *  property of the click, and a prop would go stale between two different rows. */
@@ -82,7 +76,6 @@
 		dispatch('close')
 	}}
 	size="700px"
-	{disableChatOffset}
 >
 	<DrawerContent
 		title={native?.title ?? addResourceTitle(step > 1 ? resourceType : undefined)}

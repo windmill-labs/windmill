@@ -102,6 +102,7 @@
 	iconKindFor={(item) => (isAgent(item) ? 'agent' : undefined)}
 	{compareSessionHref}
 	workspaceLabel={ws?.name ?? workspaceId}
+	reviewWorkspaceId={workspaceId}
 >
 	{#snippet titleExtra()}
 		<div class="flex items-center gap-1.5 text-xs text-secondary min-w-0">

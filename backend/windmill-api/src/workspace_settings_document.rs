@@ -25,6 +25,7 @@ use windmill_common::{
         read_role_catalog, DatatableRoleCluster, ADMIN_DATATABLE_ROLE, NO_DEFAULT_DATATABLE_ROLE,
     },
     error::{Error, JsonResult, Result},
+    roles::{load_role_overrides, RoleOverrides},
     utils::require_admin,
     variables::build_crypt,
     workspaces::{
@@ -81,7 +82,6 @@ struct SettingsRow {
     deploy_ui: Option<Value>,
     teams_command_script: Option<String>,
     public_app_execution_limit_per_minute: Option<i32>,
-    guest_access_enabled: Option<bool>,
     guest_jwt_public_key: Option<String>,
     guest_jwt_jwks_url: Option<String>,
     error_handler_fallback_to_instance_alerts: Option<bool>,
@@ -261,9 +261,15 @@ fn datatable_permissions_document(datatable: Option<&Value>, roles: &DatatableNa
 
 /// Protection rules by name, their rules in a fixed order so a reordered file is no change. The
 /// dev workspace lock is left out: the dev workspace setting creates and removes it.
+/// The workspace's role overrides keyed by role name, sorted so a pulled file is stable.
+fn role_overrides_document(overrides: &RoleOverrides) -> Value {
+    let sorted: BTreeMap<&String, _> = overrides.iter().collect();
+    serde_json::to_value(sorted).unwrap_or_else(|_| json!({}))
+}
+
 async fn protection_rules_document(conn: &mut PgConnection, w_id: &str) -> Result<Value> {
-    let rows = sqlx::query_as::<_, (String, i32, Vec<String>, Vec<String>)>(
-        "SELECT name, rules, bypass_groups, bypass_users FROM workspace_protection_rule
+    let rows = sqlx::query_as::<_, (String, i32, Vec<String>, Vec<String>, Value)>(
+        "SELECT name, rules, bypass_groups, bypass_users, fork_role_mapping FROM workspace_protection_rule
          WHERE workspace_id = $1 AND name <> $2 ORDER BY name",
     )
     .bind(w_id)
@@ -272,17 +278,27 @@ async fn protection_rules_document(conn: &mut PgConnection, w_id: &str) -> Resul
     .await?;
     Ok(Value::Object(
         rows.into_iter()
-            .map(|(name, bits, bypass_groups, bypass_users)| {
-                let rules = ProtectionRules::from_bits_truncate(bits);
-                let rule = json!({
-                    "rules": rule_kinds(rules),
-                    "bypass_groups": bypass_groups,
-                    "bypass_users": bypass_users,
-                });
-                (name, rule)
-            })
+            .map(
+                |(name, bits, bypass_groups, bypass_users, fork_role_mapping)| {
+                    let rules = ProtectionRules::from_bits_truncate(bits);
+                    let mut rule = json!({
+                        "rules": rule_kinds(rules),
+                        "bypass_groups": bypass_groups,
+                        "bypass_users": bypass_users,
+                    });
+                    with_fork_role_mapping(&mut rule, fork_role_mapping);
+                    (name, rule)
+                },
+            )
             .collect(),
     ))
+}
+
+/// Written only when set, so documents of rulesets that map no role read as they always did.
+fn with_fork_role_mapping(rule: &mut Value, mapping: Value) {
+    if mapping.as_object().is_some_and(|m| !m.is_empty()) {
+        rule["fork_role_mapping"] = mapping;
+    }
 }
 
 fn rule_kinds(rules: ProtectionRules) -> Value {
@@ -304,7 +320,7 @@ pub async fn load_settings_document(
              git_sync, default_app, default_scripts, workspace.name AS name, mute_critical_alerts,
              color, operator_settings, datatable, slack_team_id, slack_name, slack_command_script,
              slack_oauth_client_id, slack_oauth_client_secret, ducklake, dbt_warehouses, deploy_ui,
-             teams_command_script, public_app_execution_limit_per_minute, guest_access_enabled,
+             teams_command_script, public_app_execution_limit_per_minute,
              guest_jwt_public_key, guest_jwt_jwks_url, error_handler_fallback_to_instance_alerts,
              add_admins_and_developers_to_forks
          FROM workspace_settings
@@ -343,6 +359,7 @@ pub async fn load_settings_document(
     };
     let datatable_permissions = datatable_permissions_document(row.datatable.as_ref(), &role_names);
     let protection_rules = protection_rules_document(&mut *conn, w_id).await?;
+    let role_overrides = role_overrides_document(&load_role_overrides(&mut *conn, w_id).await?);
     let git_sync = redact_git_sync(row.git_sync);
     let git_sync = match fork_parent(&mut *conn, w_id).await? {
         Some(parent) => fork_git_sync_document(git_sync, parent.git_sync),
@@ -375,6 +392,7 @@ pub async fn load_settings_document(
         ),
         ("color", row.color.map(Value::String), false),
         ("operator_settings", row.operator_settings, false),
+        ("role_overrides", Some(role_overrides), true),
         (
             "datatable",
             windmill_common::workspaces::strip_datatable_permissions(row.datatable),
@@ -408,11 +426,6 @@ pub async fn load_settings_document(
         (
             "public_app_execution_limit_per_minute",
             row.public_app_execution_limit_per_minute.map(|n| json!(n)),
-            true,
-        ),
-        (
-            "guest_access_enabled",
-            Some(json!(row.guest_access_enabled.unwrap_or(false))),
             true,
         ),
         (
@@ -557,7 +570,6 @@ fn same(a: Option<&Value>, b: Option<&Value>) -> bool {
 /// Switches the endpoint stores as `false` when cleared, compared as `false` when unset.
 const FALSE_WHEN_UNSET: &[&str] = &[
     "mute_critical_alerts",
-    "guest_access_enabled",
     "add_admins_and_developers_to_forks",
     "error_handler_fallback_to_instance_alerts",
 ];
@@ -682,6 +694,10 @@ fn resolve_secret(
     }
 }
 
+/// Keys earlier versions wrote that no longer configure anything. A synced `settings.yaml`
+/// keeps them until its next pull, so they are dropped without the unknown-key warning.
+const RETIRED_KEYS: &[&str] = &["guest_access_enabled"];
+
 const KNOWN_KEYS: &[&str] = &[
     "auto_invite",
     "webhook",
@@ -697,6 +713,7 @@ const KNOWN_KEYS: &[&str] = &[
     "mute_critical_alerts",
     "color",
     "operator_settings",
+    "role_overrides",
     "datatable",
     "slack_team_id",
     "slack_name",
@@ -708,7 +725,6 @@ const KNOWN_KEYS: &[&str] = &[
     "deploy_ui",
     "teams_command_script",
     "public_app_execution_limit_per_minute",
-    "guest_access_enabled",
     "guest_jwt_public_key",
     "guest_jwt_jwks_url",
     "error_handler_fallback_to_instance_alerts",
@@ -860,14 +876,16 @@ fn normalize_protection_rules(v: &Value, warnings: &mut Vec<String>) -> Result<V
         let kinds: Vec<ProtectionRuleKind> =
             serde_json::from_value(rule.get("rules").cloned().unwrap_or(json!([])))
                 .map_err(|e| Error::BadRequest(format!("Invalid {what}.rules: {e}")))?;
-        out.insert(
-            name.clone(),
-            json!({
-                "rules": rule_kinds(ProtectionRules::from(&kinds)),
-                "bypass_groups": string_list(rule.get("bypass_groups"), &format!("{what}.bypass_groups"))?,
-                "bypass_users": string_list(rule.get("bypass_users"), &format!("{what}.bypass_users"))?,
-            }),
-        );
+        let fork_role_mapping: std::collections::BTreeMap<String, String> =
+            serde_json::from_value(rule.get("fork_role_mapping").cloned().unwrap_or(json!({})))
+                .map_err(|e| Error::BadRequest(format!("Invalid {what}.fork_role_mapping: {e}")))?;
+        let mut normalized = json!({
+            "rules": rule_kinds(ProtectionRules::from(&kinds)),
+            "bypass_groups": string_list(rule.get("bypass_groups"), &format!("{what}.bypass_groups"))?,
+            "bypass_users": string_list(rule.get("bypass_users"), &format!("{what}.bypass_users"))?,
+        });
+        with_fork_role_mapping(&mut normalized, json!(fork_role_mapping));
+        out.insert(name.clone(), normalized);
     }
     Ok(Value::Object(out))
 }
@@ -1062,7 +1080,7 @@ fn plan_document(
     let unknown: Vec<&str> = desired
         .keys()
         .map(String::as_str)
-        .filter(|k| !KNOWN_KEYS.contains(k))
+        .filter(|k| !KNOWN_KEYS.contains(k) && !RETIRED_KEYS.contains(k))
         .collect();
     if !unknown.is_empty() {
         warnings.push(format!("Ignored unknown settings: {}", unknown.join(", ")));
@@ -1424,6 +1442,23 @@ fn plan_document(
         }
     }
 
+    // Stated as a whole, after `operator_settings`: a role the map omits loses its override, and
+    // the `operator` override it states wins over the legacy key.
+    if let Some(desired) = p.managed("role_overrides") {
+        let desired = if desired.is_null() {
+            json!({})
+        } else {
+            desired
+        };
+        let overrides: RoleOverrides = serde_json::from_value(desired)
+            .map_err(|e| Error::BadRequest(format!("Invalid role_overrides: {e}")))?;
+        let desired = role_overrides_document(&overrides);
+        if p.differs("role_overrides", &desired) {
+            p.record("role_overrides", desired.clone());
+            p.write(Target::Edit(SettingsEdit::RoleOverrides), desired);
+        }
+    }
+
     let datatable = p.legacy("datatable");
     p.simple(
         "datatable",
@@ -1528,14 +1563,6 @@ fn plan_document(
         rate,
         Target::Edit(SettingsEdit::PublicAppRateLimit),
         |v| json!({ "public_app_execution_limit_per_minute": v }),
-    );
-
-    let guest_access = null_as_false(p.managed("guest_access_enabled"));
-    p.simple(
-        "guest_access_enabled",
-        guest_access,
-        Target::Edit(SettingsEdit::GuestAccess),
-        |v| json!({ "guest_access_enabled": v.as_bool().unwrap_or(false) }),
     );
 
     let (public_key, jwks_url) = (
@@ -1761,6 +1788,7 @@ fn plan_protection_rules(p: &mut Plan, desired: Value) {
                 "rules": r.get("rules"),
                 "bypass_groups": r.get("bypass_groups"),
                 "bypass_users": r.get("bypass_users"),
+                "fork_role_mapping": r.get("fork_role_mapping").cloned().unwrap_or(json!({})),
             })
         };
         match (before, after) {
@@ -1997,13 +2025,24 @@ mod tests {
     #[test]
     fn unset_switches_compare_as_false() {
         let mc = WorkspaceCrypt::new("k");
-        let d = doc(json!({ "mute_critical_alerts": false, "guest_access_enabled": null }));
+        let d = doc(json!({
+            "mute_critical_alerts": false,
+            "add_admins_and_developers_to_forks": null
+        }));
         assert!(
             plan_document(current(), d, false, &mc, &DatatableNames::default())
                 .unwrap()
                 .changes
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn retired_keys_are_dropped_without_a_warning() {
+        let mc = WorkspaceCrypt::new("k");
+        let d = doc(json!({ "guest_access_enabled": true }));
+        let p = plan_document(current(), d, false, &mc, &DatatableNames::default()).unwrap();
+        assert!(p.changes.is_empty() && p.writes.is_empty() && p.warnings.is_empty());
     }
 
     #[test]
@@ -2022,7 +2061,6 @@ mod tests {
     fn mistyped_values_are_refused_rather_than_coerced() {
         let mc = WorkspaceCrypt::new("k");
         for d in [
-            json!({ "guest_access_enabled": "true" }),
             json!({ "add_admins_and_developers_to_forks": 1 }),
             json!({ "slack_oauth_client_id": 123 }),
             json!({ "error_handler": { "path": "f/x", "muted_on_cancel": "yes" } }),
@@ -2170,6 +2208,51 @@ mod tests {
     }
 
     #[test]
+    fn role_overrides_are_applied_as_a_whole_after_operator_settings() {
+        let mc = WorkspaceCrypt::new("k");
+        let mut cur = current();
+        cur.insert(
+            "role_overrides".into(),
+            json!({ "operator": { "capabilities": { "manage_schedules": false } } }),
+        );
+        cur.insert("operator_settings".into(), json!({ "runs": true }));
+
+        // Unchanged: no write.
+        let d = doc(json!({ "role_overrides": {
+            "operator": { "capabilities": { "manage_schedules": false } },
+        } }));
+        let p = plan_document(cur.clone(), d, false, &mc, &DatatableNames::default()).unwrap();
+        assert!(keys(&p).is_empty());
+
+        // A custom role added next to the legacy key: role_overrides is written last.
+        let d = doc(json!({
+            "operator_settings": { "runs": false },
+            "role_overrides": {
+                "operator": { "capabilities": { "manage_schedules": false } },
+                "reviewer": { "label": "Reviewer", "capabilities": { "code": false } },
+            },
+        }));
+        let p = plan_document(cur.clone(), d, false, &mc, &DatatableNames::default()).unwrap();
+        assert_eq!(keys(&p), ["operator_settings", "role_overrides"]);
+        assert!(matches!(
+            p.writes.last().unwrap().target,
+            Target::Edit(SettingsEdit::RoleOverrides)
+        ));
+
+        // An empty map is stated, so it clears the workspace's overrides.
+        let p = plan_document(
+            cur,
+            doc(json!({ "role_overrides": {} })),
+            false,
+            &mc,
+            &DatatableNames::default(),
+        )
+        .unwrap();
+        assert_eq!(keys(&p), ["role_overrides"]);
+        assert_eq!(p.writes[0].body, json!({}));
+    }
+
+    #[test]
     fn protection_rules_are_diffed_by_name() {
         let mc = WorkspaceCrypt::new("k");
         let mut cur = current();
@@ -2178,7 +2261,8 @@ mod tests {
             json!({ "old": { "rules": ["DisableWorkspaceForking"], "bypass_groups": [], "bypass_users": [] } }),
         );
         let d = doc(json!({ "protection_rules": {
-            "new": { "rules": ["RestrictPublicRunSharing", "DisableDirectDeployment"] },
+            "new": { "rules": ["RestrictPublicRunSharing", "DisableDirectDeployment"],
+                     "fork_role_mapping": { "operator": "developer" } },
             "dev_workspace_lock": { "rules": [] },
         } }));
         let p = plan_document(cur, d, false, &mc, &DatatableNames::default()).unwrap();
@@ -2186,7 +2270,8 @@ mod tests {
         assert_eq!(
             p.writes[0].body,
             json!({ "name": "new", "rules": ["DisableDirectDeployment", "RestrictPublicRunSharing"],
-                    "bypass_groups": [], "bypass_users": [] })
+                    "bypass_groups": [], "bypass_users": [],
+                    "fork_role_mapping": { "operator": "developer" } })
         );
         assert!(matches!(
             p.writes[1].target,

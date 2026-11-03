@@ -67,13 +67,6 @@ async fn a_guest_jwt_is_capped_like_a_signed_in_guest(db: Pool<Postgres>) -> any
     let port = server.addr.port();
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
-    authed(
-        client().post(format!("{ws}/workspaces/edit_guest_access")),
-        ADMIN_TOKEN,
-    )
-    .json(&json!({ "guest_access_enabled": true }))
-    .send()
-    .await?;
     let resp = authed(
         client().post(format!("{ws}/workspaces/edit_guest_jwt_key")),
         ADMIN_TOKEN,
@@ -109,7 +102,11 @@ async fn a_guest_jwt_is_capped_like_a_signed_in_guest(db: Pool<Postgres>) -> any
     )
     .send()
     .await?;
-    assert_eq!(resp.status(), 401, "a stranger's JWT is refused past the cap");
+    assert_eq!(
+        resp.status(),
+        401,
+        "a stranger's JWT is refused past the cap"
+    );
 
     let resp = authed(
         client().get(format!("{ws}/users/whoami")),

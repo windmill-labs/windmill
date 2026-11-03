@@ -8,7 +8,7 @@
 	} from '$lib/stores'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { fixupUrlAfterWorkspaceSwitch } from './workspaceSwitchUrl'
-	import { workspaceAIClients } from '$lib/components/copilot/lib'
+	import { setAiClientWorkspace } from '$lib/components/copilot/aiClientWorkspace'
 	import WorkspaceFamilyPicker from '$lib/components/sessions/WorkspaceFamilyPicker.svelte'
 	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
 	import {
@@ -54,7 +54,7 @@
 
 	function switchWorkspaceDirect(id: string) {
 		if ($workspaceStore === id) return
-		workspaceAIClients.init(id)
+		setAiClientWorkspace(id)
 		switchWorkspace(id)
 		void fixupUrlAfterWorkspaceSwitch(id)
 	}

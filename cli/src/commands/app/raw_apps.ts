@@ -35,6 +35,7 @@ import {
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
+import { importsSharedUi, sharedUiHash } from "../shared_ui.ts";
 import { APP_BACKEND_FOLDER, RECORDINGS_FOLDER } from "./app_metadata.ts";
 import {
   NEVER_DEPLOYED_DIRS,
@@ -488,6 +489,12 @@ export async function pushRawApp(
   if (localApp.data) {
     value.data = localApp.data;
   }
+  // The bundle inlines ui/, so its content decides staleness as much as the
+  // app's own files do. Only the CLI reads this key back.
+  const uiHash = importsSharedUi(files) ? await sharedUiHash() : undefined;
+  if (uiHash) {
+    value.shared_ui_hash = uiHash;
+  }
 
   // extra_perms is synced independently via /acls/* — strip from the
   // up-to-date comparison so a perm-only edit doesn't trigger a rebuild +
@@ -513,7 +520,9 @@ export async function pushRawApp(
       isSuperset({ ...localAppNoPerms, runnables }, app) &&
       changedCustomPath(customPath, app) === undefined &&
       isolationUpToDate(isolation, deployedPolicy, true);
-    const filesUpToDate = deepEqual(files, app.value?.files);
+    const filesUpToDate =
+      deepEqual(files, app.value?.files) &&
+      app.value?.shared_ui_hash === value.shared_ui_hash;
     if (metadataUpToDate && filesUpToDate) {
       log.info(colors.green(`App ${remotePath} is up to date`));
     } else {

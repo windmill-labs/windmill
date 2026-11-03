@@ -17,6 +17,7 @@
 		UserPlus
 	} from 'lucide-svelte'
 	import { onDestroy, untrack } from 'svelte'
+	import { isExternalRef } from '$lib/externalSecretRef'
 	import type { CiTestResult } from '$lib/gen'
 	import { Alert, Badge } from './common'
 	import {
@@ -285,7 +286,11 @@
 					}
 				})
 			} else {
-				const v = await VariableService.getVariable({ workspace: from, path, decryptSecret: true })
+				// An external secret reference is copied as the reference, never as its resolved value.
+				let v = await VariableService.getVariable({ workspace: from, path, decryptSecret: false })
+				if (v.is_secret && !isExternalRef(v.value)) {
+					v = await VariableService.getVariable({ workspace: from, path, decryptSecret: true })
+				}
 				await VariableService.createVariable({
 					workspace: to,
 					requestBody: {
@@ -1854,9 +1859,12 @@
 								<!-- The request form and an open request carry their own review. -->
 								{#if mergeIntoParent && $copilotInfo.enabled && !hasOpenDeploymentRequest && !deploymentRequestPanel?.isDialogOpen()}
 									<AiReview
-										diffs={selectedDiffs}
-										forkWorkspaceId={currentWorkspaceId}
-										{parentWorkspaceId}
+										scope={{
+											kind: 'deployment',
+											diffs: selectedDiffs,
+											forkWorkspaceId: currentWorkspaceId,
+											parentWorkspaceId
+										}}
 										source="selection"
 									/>
 								{/if}

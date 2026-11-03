@@ -8,6 +8,7 @@ pub mod credentials;
 pub mod decision;
 pub mod image_handler;
 pub mod model_context;
+pub mod one_shot;
 pub mod providers;
 pub mod proxy;
 pub mod query_builder;

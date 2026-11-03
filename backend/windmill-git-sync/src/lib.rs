@@ -21,12 +21,13 @@ pub use git_sync_ee::{
     tally_deployed_object_changes,
 };
 
-// The CI-test check exists only on enterprise builds; `private` alone (the CE image)
+// The CI-test check and the pull request review exist only on enterprise builds; `private` alone (the CE image)
 // compiles git_sync_ee without them.
 #[cfg(all(feature = "private", feature = "enterprise"))]
 pub use git_sync_ee::{
-    ensure_ci_test_check_for_pr, evaluate_and_conclude_ci_test_checks,
-    post_ci_test_check_not_applicable, resolve_pr_head_workspace,
+    enqueue_git_pr_review, ensure_ci_test_check_for_pr, evaluate_and_conclude_ci_test_checks,
+    post_ci_test_check_not_applicable, post_git_pr_review_result, resolve_pr_head_workspace,
+    GitPrReviewMarker,
 };
 
 #[cfg(not(feature = "private"))]

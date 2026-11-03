@@ -1,6 +1,6 @@
 use super::{
-    get_url_from_runnable_value, proxy::connect_async_with_proxy, validate_websocket_url_for_ssrf,
-    WebsocketConfig, WebsocketTrigger,
+    check_websocket_url_for_ssrf, get_url_from_runnable_value, proxy::connect_async_with_proxy,
+    ssrf_error_to_error, WebsocketConfig, WebsocketTrigger,
 };
 use anyhow::Context;
 use async_trait::async_trait;
@@ -9,9 +9,14 @@ use http::Response;
 use itertools::Itertools;
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
-use tokio::{net::TcpStream, sync::RwLock};
+use std::{borrow::Cow, collections::HashMap, sync::Arc, time::Duration};
+use tokio::{
+    net::TcpStream,
+    sync::{mpsc, oneshot, RwLock},
+    time::Instant,
+};
 use tokio_tungstenite::{tungstenite, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use windmill_common::ssrf::SsrfValidationError;
 use windmill_common::{
     error::{to_anyhow, Error, Result},
     jobs::JobTriggerKind,
@@ -22,39 +27,192 @@ use windmill_common::{
 };
 use windmill_queue::PushArgsOwned;
 use windmill_trigger::filter::CompiledFilters;
-use windmill_trigger::listener::{update_rw_lock, ListeningTrigger};
+use windmill_trigger::listener::{reconnect_delay, update_rw_lock, ListeningTrigger};
 use windmill_trigger::trigger_helpers::{
     trigger_runnable, trigger_runnable_and_wait_for_raw_result,
     trigger_runnable_and_wait_for_raw_result_with_error_ctx, TriggerJobArgs,
 };
 use windmill_trigger::Listener;
 
-const MAX_CONNECT_ATTEMPTS: u32 = 5;
-
-/// Unit of the connect backoff: attempt `n` waits `2^n` of it. Tests shrink it to avoid
+/// Unit of the connect backoff (see [`reconnect_delay`]). Tests shrink it to avoid
 /// waiting out real seconds; nothing else writes it.
 #[doc(hidden)]
 pub static CONNECT_RETRY_BASE_DELAY_MS: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(1000);
 
-/// Whether a failed WebSocket connect is worth retrying: network-level IO
-/// errors and HTTP 5xx/429 handshake responses are typically transient (edge
-/// proxies like Cloudflare return 502/520 sporadically), while other errors
-/// (bad URL, protocol mismatch, other 4xx) point at configuration and would
-/// fail identically on every attempt.
+/// How often an open connection is pinged. A connection that delivers no frame at all
+/// (message, ping or pong) for [`MISSED_PINGS_BEFORE_RECONNECT`] intervals is presumed
+/// dead and reopened: a peer that vanished without a close (NAT timeout, dropped route)
+/// is otherwise never noticed, since the read just never returns. Tests shrink it;
+/// nothing else writes it.
+#[doc(hidden)]
+pub static PING_INTERVAL_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(30_000);
+const MISSED_PINGS_BEFORE_RECONNECT: u32 = 4;
+
+/// How long a stopping listener waits to hand the server its Close frame.
+const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
+
+type WsWriter = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
+
+struct ConnectFailure {
+    error: String,
+    /// Whether the same attempt can succeed later. Only transient failures are
+    /// retried: anything else disables the trigger, so it must be a failure no retry
+    /// can fix (a rejected URL, a missing runnable, a 4xx upgrade response).
+    transient: bool,
+}
+
+/// Network-level IO errors and HTTP 5xx/408/425/429 handshake responses are
+/// typically transient (edge proxies like Cloudflare return 502/520 sporadically,
+/// and a gateway under load answers 408), while other errors (bad URL, protocol
+/// mismatch, other 4xx) point at configuration and would fail identically on every
+/// attempt.
 fn is_transient_connect_error(err: &tungstenite::Error) -> bool {
     match err {
         tungstenite::Error::Io(_) => true,
         tungstenite::Error::Http(resp) => {
-            resp.status().is_server_error() || resp.status().as_u16() == 429
+            resp.status().is_server_error() || matches!(resp.status().as_u16(), 408 | 425 | 429)
         }
         _ => false,
     }
 }
 
+/// A URL runnable that ran and failed, or whose result could not be awaited (the
+/// result wait times out, the DB blips), may succeed on the next run: worker group
+/// saturated, upstream API down. Anything else (missing runnable, no permission,
+/// non-string result, workers too old) fails the same way every time. An allowlist, so
+/// that a new error kind disables rather than re-running a job every few minutes forever.
+fn is_transient_runnable_error(err: &Error) -> bool {
+    matches!(
+        err,
+        Error::InternalErr(_)
+            | Error::InternalErrLoc { .. }
+            | Error::InternalErrAt(..)
+            | Error::Anyhow { .. }
+            | Error::SqlErr { .. }
+            | Error::ConnectingToDatabase(_)
+            | Error::BadGateway(_)
+    )
+}
+
+async fn connect_once(
+    db: &DB,
+    listening_trigger: &ListeningTrigger<WebsocketConfig>,
+    err_message: Arc<RwLock<Option<String>>>,
+) -> std::result::Result<<WebsocketTrigger as Listener>::Consumer, ConnectFailure> {
+    let url = &listening_trigger.trigger_config.url;
+    let connect_url: Cow<str> = if url.starts_with("$") {
+        let Some((kind, path)) = url
+            .split_once(':')
+            .filter(|(kind, _)| *kind == "$flow" || *kind == "$script")
+        else {
+            return Err(ConnectFailure {
+                error: format!("Invalid WebSocket runnable path: {}", url),
+                transient: false,
+            });
+        };
+        update_rw_lock(
+            err_message,
+            Some("Waiting on runnable to return WebSocket URL...".to_string()),
+        )
+        .await;
+        let args = listening_trigger
+            .trigger_config
+            .url_runnable_args
+            .as_ref()
+            .map(|r| &r.0);
+        let url = async {
+            let authed = listening_trigger.authed(db, "ws").await?;
+            get_url_from_runnable_value(
+                path,
+                kind == "$flow",
+                db,
+                authed,
+                args,
+                &listening_trigger.workspace_id,
+            )
+            .await
+        }
+        .await
+        .map_err(|err| ConnectFailure {
+            transient: is_transient_runnable_error(&err),
+            error: format!("Error getting WebSocket URL from runnable: {}", err),
+        })?;
+        Cow::Owned(url)
+    } else {
+        Cow::Borrowed(url)
+    };
+
+    let validated = check_websocket_url_for_ssrf(&connect_url)
+        .await
+        .map_err(|err| ConnectFailure {
+            transient: matches!(
+                err,
+                SsrfValidationError::ResolutionFailed { .. } | SsrfValidationError::NoAddresses(_)
+            ),
+            error: ssrf_error_to_error(err).to_string(),
+        })?;
+
+    connect_async_with_proxy(&*connect_url, validated.pinned_addrs())
+        .await
+        .map_err(|err| ConnectFailure {
+            transient: is_transient_connect_error(&err),
+            error: format!("Error connecting to WebSocket: {}", err),
+        })
+}
+
+/// Owns the write half of a connection. Ends when `close_rx` resolves, which its
+/// sender's drop does: whether the consumer returns or is cancelled (killpill, lost
+/// lease), the server then gets a Close frame instead of a vanished peer it may keep
+/// counting against a per-client connection limit until its own timeout.
+async fn write_messages(
+    mut writer: WsWriter,
+    mut rx: mpsc::Receiver<Message>,
+    close_rx: oneshot::Receiver<()>,
+    url: String,
+    db: DB,
+    w_id: String,
+) {
+    let forward = async {
+        while let Some(message) = rx.recv().await {
+            let is_ping = matches!(message, Message::Ping(_));
+            if let Err(err) = writer.send(message).await {
+                if is_ping {
+                    tracing::warn!("Could not ping WebSocket {}: {}", url, err);
+                } else {
+                    report_critical_error(
+                        format!(
+                            "Could not send runnable result to WebSocket {} because of error: {}",
+                            url, err
+                        ),
+                        db.clone(),
+                        Some(&w_id),
+                        None,
+                    )
+                    .await;
+                }
+            }
+        }
+    };
+    tokio::select! {
+        _ = close_rx => {},
+        _ = forward => {},
+    }
+    let close = Message::Close(Some(tungstenite::protocol::CloseFrame {
+        code: tungstenite::protocol::frame::coding::CloseCode::Normal,
+        reason: "".into(),
+    }));
+    match tokio::time::timeout(CLOSE_TIMEOUT, writer.send(close)).await {
+        Ok(Ok(())) => tracing::debug!("Closed WebSocket {}", url),
+        Ok(Err(err)) => tracing::debug!("Error closing WebSocket {}: {}", url, err),
+        Err(_) => tracing::debug!("Timed out closing WebSocket {}", url),
+    }
+}
+
 async fn send_initial_messages(
     listening_trigger: &ListeningTrigger<WebsocketConfig>,
-    writer: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    writer: &mut WsWriter,
     db: &DB,
 ) -> Result<()> {
     let initial_messages: Vec<InitialMessage> = listening_trigger
@@ -158,92 +316,67 @@ impl Listener for WebsocketTrigger {
     type Extra = ReturnMessageChannels;
     type ExtraState = ();
     const JOB_TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Websocket;
+    const RECONNECT_ON_CONSUMER_EXIT: bool = true;
     async fn get_consumer(
         &self,
         db: &DB,
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
         err_message: Arc<RwLock<Option<String>>>,
-        mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+        _killpill_rx: tokio::sync::broadcast::Receiver<()>,
     ) -> Result<Option<Self::Consumer>> {
-        let url = &listening_trigger.trigger_config.url;
-        let connect_url: Cow<str> = if url.starts_with("$") {
-            if url.starts_with("$flow:") || url.starts_with("$script:") {
-                tokio::select! {
-                    biased;
-                    _ = killpill_rx.recv() => {
-                        return Ok(None);
-                    },
-                    _ = self.loop_ping(&db, listening_trigger, err_message.clone(), Some(
-                    "Waiting on runnable to return WebSocket URL...".to_string()
-                )) => {
-                        return Ok(None);
-                    },
-                    url_result = {
-                        let authed = listening_trigger.authed(db, "ws").await?;
-                        let args = listening_trigger.trigger_config.url_runnable_args.as_ref().map(|r| &r.0);
-                        let path = url.splitn(2, ':').nth(1).unwrap();
-                        get_url_from_runnable_value(path, url.starts_with("$flow:"), db, authed, args, &listening_trigger.workspace_id)
-                    } => match url_result {
-                        Ok(url) => Cow::Owned(url),
-                        Err(err) => {
-                            return Err(anyhow::anyhow!("Error getting WebSocket URL from runnable after 5 tries: {:?}", err).into());
-                        }
-                    },
-                }
-            } else {
-                return Err(anyhow::anyhow!("Invalid WebSocket runnable path: {}", url).into());
-            }
-        } else {
-            Cow::Borrowed(&url)
-        };
-
-        let validated = validate_websocket_url_for_ssrf(&connect_url).await?;
-
-        // Gateway endpoints are often fronted by an edge proxy (e.g. Cloudflare)
-        // that sporadically answers the upgrade request with a transient 5xx
-        // instead of `101 Switching Protocols`, and a `get_consumer` error
-        // disables the trigger until a human re-enables it — so retry transient
-        // failures with backoff before giving up. The caller runs `loop_ping`
-        // concurrently so `last_server_ping` stays alive across the sleeps, and
-        // killpill cancels this future between awaits.
+        // The caller runs `loop_ping` alongside, so the lease and the status line stay
+        // alive across the sleeps, and cancels this future on killpill or a lost lease.
         let mut attempt = 0;
         loop {
             attempt += 1;
-            match connect_async_with_proxy(&*connect_url, validated.pinned_addrs()).await {
+            match connect_once(db, listening_trigger, err_message.clone()).await {
                 Ok(conn) => return Ok(Some(conn)),
-                // Only retry in trigger mode: a failed connect there disables the
-                // trigger until a human re-enables it, while capture mode is an
-                // interactive test where instant feedback beats resilience (an
-                // `Io` error can also be a permanent misconfiguration, e.g. a
-                // typo'd host, which should surface immediately when iterating).
-                Err(err)
-                    if listening_trigger.trigger_mode
-                        && attempt < MAX_CONNECT_ATTEMPTS
-                        && is_transient_connect_error(&err) =>
+                // Only retry in trigger mode, where a failure disables the trigger until
+                // a human re-enables it: capture mode is an interactive test where
+                // instant feedback beats resilience (an `Io` error can also be a
+                // permanent misconfiguration, e.g. a typo'd host).
+                Err(ConnectFailure { error, transient: true })
+                    if listening_trigger.trigger_mode =>
                 {
-                    let delay = std::time::Duration::from_millis(
-                        CONNECT_RETRY_BASE_DELAY_MS.load(std::sync::atomic::Ordering::Relaxed)
-                            << attempt,
+                    let delay = reconnect_delay(
+                        Duration::from_millis(
+                            CONNECT_RETRY_BASE_DELAY_MS.load(std::sync::atomic::Ordering::Relaxed),
+                        ),
+                        attempt,
                     );
+                    let next_attempt_at =
+                        chrono::Utc::now() + chrono::Duration::from_std(delay).unwrap_or_default();
                     tracing::warn!(
-                        "Transient error connecting to WebSocket for trigger {} (attempt {}/{}), retrying in {:?}: {}",
+                        "Transient error connecting to WebSocket for trigger {} (attempt {}), retrying in {:?}: {}",
                         listening_trigger.path,
                         attempt,
-                        MAX_CONNECT_ATTEMPTS,
                         delay,
-                        err
+                        error
                     );
                     update_rw_lock(
                         err_message.clone(),
                         Some(format!(
-                            "Connection attempt {}/{} failed ({}), retrying in {:?}...",
-                            attempt, MAX_CONNECT_ATTEMPTS, err, delay
+                            "Connection attempt {} failed, retrying in {:?} (at {}): {}",
+                            attempt,
+                            delay,
+                            next_attempt_at.format("%Y-%m-%d %H:%M:%S UTC"),
+                            error
                         )),
                     )
                     .await;
                     tokio::time::sleep(delay).await;
                 }
-                Err(err) => return Err(to_anyhow(err).into()),
+                Err(ConnectFailure { error, .. }) => {
+                    let error = if attempt > 1 {
+                        format!("{} (connection attempt {})", error, attempt)
+                    } else {
+                        error
+                    };
+                    return Err(Error::Generic(
+                        http::StatusCode::INTERNAL_SERVER_ERROR,
+                        error,
+                    ));
+                }
             }
         }
     }
@@ -285,46 +418,30 @@ impl Listener for WebsocketTrigger {
             }
         }
 
-        let needs_sender = listening_trigger.trigger_config.can_return_message
-            || listening_trigger.trigger_config.heartbeat.is_some();
-        let (return_message_channels, message_sender_handle) = if listening_trigger.trigger_mode
-            && needs_sender
+        let (send_message_tx, rx) = mpsc::channel::<Message>(100);
+        let (_close_tx, close_rx) = oneshot::channel::<()>();
+        tokio::spawn(write_messages(
+            writer,
+            rx,
+            close_rx,
+            url.clone(),
+            db.clone(),
+            listening_trigger.workspace_id.clone(),
+        ));
+
+        let return_message_channels = if listening_trigger.trigger_mode
+            && listening_trigger.trigger_config.can_return_message
         {
-            let (send_message_tx, mut rx) = tokio::sync::mpsc::channel::<String>(100);
-            let w_id = listening_trigger.workspace_id.clone();
-            let url = url.clone();
-            let db = db.clone();
-            let handle = tokio::spawn(async move {
-                while let Some(message) = rx.recv().await {
-                    if let Err(err) = writer
-                        .send(tokio_tungstenite::tungstenite::Message::Text(message))
-                        .await
-                    {
-                        report_critical_error(format!("Could not send runnable result to WebSocket {} because of error: {}", url, err), db.clone(), Some(&w_id), None).await;
-                    }
-                }
-            });
-
-            let killpill_rx = killpill_rx.resubscribe();
-
-            let return_message_channels = ReturnMessageChannels { send_message_tx, killpill_rx };
-
-            (Some(return_message_channels), Some(handle))
+            Some(ReturnMessageChannels {
+                send_message_tx: send_message_tx.clone(),
+                killpill_rx: killpill_rx.resubscribe(),
+            })
         } else {
-            (None, None)
+            None
         };
 
         // Shared heartbeat state: tracks the latest value of the configured state_field
         let heartbeat_state: Arc<RwLock<Option<serde_json::Value>>> = Arc::new(RwLock::new(None));
-
-        // Clone send channel for heartbeat use (only when heartbeat is configured)
-        let heartbeat_tx = if listening_trigger.trigger_config.heartbeat.is_some() {
-            return_message_channels
-                .as_ref()
-                .map(|c| c.send_message_tx.clone())
-        } else {
-            None
-        };
 
         tokio::select! {
             biased;
@@ -334,98 +451,124 @@ impl Listener for WebsocketTrigger {
             },
             // Heartbeat timer
             _ = async {
-                if let Some(ref hb) = listening_trigger.trigger_config.heartbeat {
-                    let interval_duration = std::time::Duration::from_secs(hb.interval_secs);
-                    let mut interval = tokio::time::interval(interval_duration);
-                    // Skip the first immediate tick
-                    interval.tick().await;
-
-                    loop {
+                match listening_trigger.trigger_config.heartbeat {
+                    Some(ref hb) if listening_trigger.trigger_mode => {
+                        let interval_duration = std::time::Duration::from_secs(hb.interval_secs);
+                        let mut interval = tokio::time::interval(interval_duration);
+                        // Skip the first immediate tick
                         interval.tick().await;
 
-                        let msg = if hb.state_field.is_some() {
-                            let state_val = heartbeat_state.read().await;
-                            match &*state_val {
-                                Some(val) => hb.message.replace("{{state}}", &val.to_string()),
-                                None => hb.message.replace("{{state}}", "null"),
-                            }
-                        } else {
-                            hb.message.clone()
-                        };
+                        loop {
+                            interval.tick().await;
 
-                        tracing::debug!("Sending heartbeat to WebSocket {}: {}", url, msg);
+                            let msg = if hb.state_field.is_some() {
+                                let state_val = heartbeat_state.read().await;
+                                match &*state_val {
+                                    Some(val) => hb.message.replace("{{state}}", &val.to_string()),
+                                    None => hb.message.replace("{{state}}", "null"),
+                                }
+                            } else {
+                                hb.message.clone()
+                            };
 
-                        if let Some(tx) = heartbeat_tx.as_ref() {
-                            if let Err(err) = tx.send(msg).await {
+                            tracing::debug!("Sending heartbeat to WebSocket {}: {}", url, msg);
+
+                            if let Err(err) = send_message_tx.send(Message::Text(msg)).await {
                                 tracing::error!("Failed to send heartbeat to WebSocket {}: {}", url, err);
                                 break;
                             }
-                        } else {
-                            tracing::warn!("Heartbeat configured but no send channel available for WebSocket {}", url);
-                            break;
                         }
                     }
-                } else {
-                    futures::future::pending::<()>().await;
+                    _ => futures::future::pending::<()>().await,
                 }
             } => {},
             // Message reader
             _ = async {
-                    let filters = if listening_trigger.trigger_mode {
-                        CompiledFilters::parse(
-                            listening_trigger.trigger_config.filters.iter().map(|m| m.get()),
-                            listening_trigger.trigger_config.filter_logic == "or",
-                            &listening_trigger.path,
-                        )
-                    } else {
-                        CompiledFilters::default()
-                    };
-                loop {
-                    if let Some(msg) = reader.next().await {
-                        match msg {
-                            Ok(msg) => {
-                                match msg {
-                                    tokio_tungstenite::tungstenite::Message::Text(text) => {
-                                        tracing::debug!("Received text message from WebSocket {}: {}", url, text);
+                let filters = if listening_trigger.trigger_mode {
+                    CompiledFilters::parse(
+                        listening_trigger.trigger_config.filters.iter().map(|m| m.get()),
+                        listening_trigger.trigger_config.filter_logic == "or",
+                        &listening_trigger.path,
+                    )
+                } else {
+                    CompiledFilters::default()
+                };
+                let ping_every = Duration::from_millis(PING_INTERVAL_MS.load(std::sync::atomic::Ordering::Relaxed));
+                let liveness_timeout = ping_every * MISSED_PINGS_BEFORE_RECONNECT;
+                let mut ping_interval = tokio::time::interval_at(Instant::now() + ping_every, ping_every);
+                // Capture is an interactive test against whatever endpoint the user is
+                // trying out: keep it to plain reads.
+                let liveness = listening_trigger.trigger_mode;
+                ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                let mut last_received = Instant::now();
+                let mut close_frame = None;
+                let status = loop {
+                    tokio::select! {
+                        // Drain frames that already arrived before judging liveness.
+                        biased;
+                        msg = reader.next() => {
+                            let Some(msg) = msg else {
+                                tracing::error!("WebSocket {} closed", url);
+                                break match close_frame.take() {
+                                    Some(tungstenite::protocol::CloseFrame { code, reason }) => {
+                                        format!("WebSocket closed by server ({}: {})", code, reason)
+                                    }
+                                    None => "WebSocket closed".to_string(),
+                                };
+                            };
+                            last_received = Instant::now();
+                            match msg {
+                                Ok(Message::Text(text)) => {
+                                    tracing::debug!("Received text message from WebSocket {}: {}", url, text);
 
-                                        // Extract heartbeat state from every incoming message
-                                        if let Some(ref hb) = listening_trigger.trigger_config.heartbeat {
-                                            if let Some(ref field) = hb.state_field {
-                                                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
-                                                    if let Some(val) = parsed.get(field) {
-                                                        *heartbeat_state.write().await = Some(val.clone());
-                                                    }
+                                    // Extract heartbeat state from every incoming message
+                                    if let Some(ref hb) = listening_trigger.trigger_config.heartbeat {
+                                        if let Some(ref field) = hb.state_field {
+                                            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
+                                                if let Some(val) = parsed.get(field) {
+                                                    *heartbeat_state.write().await = Some(val.clone());
                                                 }
                                             }
                                         }
-
-                                        if filters.matches(&text) {
-                                            let trigger_info = HashMap::from([
-                                                ("url".to_string(), to_raw_value(&listening_trigger.trigger_config.url)),
-                                            ]);
-                                            let _ = self.handle_event(db, listening_trigger, text, trigger_info, return_message_channels.clone()).await;
-                                        }
-                                    },
-                                    a @ _ => {
-                                        tracing::debug!("Received non text-message from WebSocket {}: {:?}", url, a);
                                     }
+
+                                    if filters.matches(&text) {
+                                        let trigger_info = HashMap::from([
+                                            ("url".to_string(), to_raw_value(&listening_trigger.trigger_config.url)),
+                                        ]);
+                                        let _ = self.handle_event(db, listening_trigger, text, trigger_info, return_message_channels.clone()).await;
+                                    }
+                                },
+                                Ok(Message::Close(frame)) => {
+                                    tracing::info!("Received close frame from WebSocket {}: {:?}", url, frame);
+                                    close_frame = frame;
+                                },
+                                Ok(msg) => {
+                                    tracing::debug!("Received non text-message from WebSocket {}: {:?}", url, msg);
+                                },
+                                // tungstenite does not recover a connection after a read
+                                // error: reconnect rather than read from it again.
+                                Err(err) => {
+                                    tracing::error!("Error reading from WebSocket {}: {:?}", url, err);
+                                    break format!("Error reading from WebSocket: {}", err);
                                 }
-                            },
-                            Err(err) => {
-                                tracing::error!("Error reading from WebSocket {}: {:?}", url, err);
                             }
-                        }
-                    } else {
-                        tracing::error!("WebSocket {} closed", url);
-                        self.update_ping_and_loop_ping_status(db, listening_trigger, err_message.clone(), Some("WebSocket closed".to_string())).await;
-                        break;
+                        },
+                        _ = ping_interval.tick(), if liveness => {
+                            if last_received.elapsed() >= liveness_timeout {
+                                tracing::error!("No frame received from WebSocket {} in {:?}, reconnecting", url, liveness_timeout);
+                                break format!("No message or pong received from WebSocket in {:?}", liveness_timeout);
+                            }
+                            // Never wait on the queue: behind a peer that stopped reading it
+                            // can stay full, and blocking here would stall this liveness check.
+                            if let Err(mpsc::error::TrySendError::Closed(_)) = send_message_tx.try_send(Message::Ping(Vec::new())) {
+                                break "WebSocket writer stopped".to_string();
+                            }
+                        },
                     }
-                }
+                };
+                self.update_ping_and_loop_ping_status(db, listening_trigger, err_message.clone(), Some(status)).await;
             } => {}
-        }
-        // make sure to stop return message handler
-        if let Some(message_sender_handle) = message_sender_handle {
-            message_sender_handle.abort();
         }
     }
 
@@ -539,7 +682,7 @@ impl Listener for WebsocketTrigger {
                                 // if the `result` was just a single string, the below removes the surrounding quotes by parsing it as a string.
                                 // it falls back to the original serialized JSON if it doesn't work.
                                 let result = serde_json::from_str::<String>(result.as_str()).unwrap_or(result);
-                                if let Err(err) = send_message_tx.send(result).await {
+                                if let Err(err) = send_message_tx.send(Message::Text(result)).await {
                                     report_critical_error(format!("Could not send runnable result to WebSocket {} because of error: {}", url, err), db_.clone(), Some(&w_id), None).await;
                                 }
                             }
@@ -556,7 +699,7 @@ impl Listener for WebsocketTrigger {
 }
 
 pub struct ReturnMessageChannels {
-    send_message_tx: tokio::sync::mpsc::Sender<String>,
+    send_message_tx: mpsc::Sender<Message>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
 }
 

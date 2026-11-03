@@ -99,11 +99,11 @@ export class StarterPrompts {
 		return composerSuggestions(signals, builds ? role : { ...role, operator: true })
 	})
 
-	/** Whether the workspace holds fewer than `FEW_ITEMS`, below which Home's composer rests
-	 * open as the page's main way in; undefined until known. */
-	get fewItems(): boolean | undefined {
+	/** Whether the workspace holds no item the reader can list, where Home's composer rests
+	 * open as the page's only way in; undefined until known. */
+	get empty(): boolean | undefined {
 		const count = this.#currentSignals?.itemCount
-		return count === undefined ? undefined : count < FEW_ITEMS
+		return count === undefined ? undefined : count === 0
 	}
 }
 
@@ -272,9 +272,6 @@ function composerItem(item: RunnableItem, path = item.path): ComposerItem {
 	}
 }
 
-/** What turns an empty chat into the block that starts a session. */
-export type ChatStarter = { suggestions: ComposerSuggestion[] } & (
-	| /** An empty session centres the block in the pane under a greeting. */
-	{ where: 'session' } /** Home shows it alone, collapsed to one line at rest unless `fewItems`. */
-	| { where: 'home'; fewItems: boolean }
-)
+/** What turns an empty chat into Home's block that starts a session, collapsed to one line at
+ * rest unless `restsOpen`. */
+export type ChatStarter = { suggestions: ComposerSuggestion[]; restsOpen: boolean }

@@ -21,6 +21,65 @@ const uiBuilderStaticPresent = existsSync(
 )
 
 /**
+ * Vite's preload helper (`__vitePreload`) checks every dependency of a dynamic import against
+ * every `<link>` in the document before adding its own: with relative paths it walks
+ * `document.getElementsByTagName('link')` reading each `href`. A route node here preloads
+ * hundreds of chunks, so loading Home made that walk quadratic, ~40ms of a warm reload.
+ *
+ * The walk only has to catch links the helper did not add itself (its own are deduped by its
+ * `seen` map), which are the ones already in the document when it first runs: those are
+ * snapshotted once into a set. Patched in `renderChunk`, before the chunk's hash is taken, so
+ * a cached copy of the unpatched helper is never served under the same name. Fails the build
+ * when the helper no longer has the expected shape, so a Vite upgrade cannot silently bring
+ * the walk back.
+ */
+function preloadWithoutLinkScan() {
+	// Matches Vite's source and its minified form alike.
+	const scan =
+		/for\s*\(\s*let\s+(\w+)\s*=\s*(\w+)\.length\s*-\s*1\s*;\s*\1\s*>=\s*0\s*;\s*\1--\s*\)\s*\{\s*(?:const|let)\s+(\w+)\s*=\s*\2\[\1\]\s*;?\s*if\s*\(\s*\3\.href\s*===\s*(\w+)\s*&&\s*\(\s*!(\w+)\s*\|\|\s*\3\.rel\s*===\s*(["'`])stylesheet\6\s*\)\s*\)\s*return\s*;?\s*\}/
+	const present = `function __wmLinkPresent(links, href, css) {
+	const s = (__wmLinkPresent.s ??= (() => {
+		const all = new Set(), sheets = new Set()
+		for (const l of links) {
+			all.add(l.href)
+			if (l.rel === 'stylesheet') sheets.add(l.href)
+		}
+		return { all, sheets }
+	})())
+	return (css ? s.sheets : s.all).has(href)
+}
+`
+	// The server pass has no preload helper to patch.
+	let ssr = false
+	let patched = 0
+	return {
+		name: 'wm-preload-without-link-scan',
+		apply: 'build',
+		configResolved(config) {
+			ssr = !!config.build.ssr
+		},
+		renderChunk(code, chunk) {
+			if (ssr || !code.includes('vite:preloadError')) return null
+			if (!scan.test(code)) {
+				this.error(
+					`wm-preload-without-link-scan: ${chunk.fileName} holds Vite's preload helper, but not the link scan this plugin replaces. Check what the new helper does before dropping the plugin.`
+				)
+			}
+			patched++
+			return {
+				code: present + code.replace(scan, 'if (__wmLinkPresent($2, $4, $5)) return;'),
+				map: null
+			}
+		},
+		generateBundle() {
+			if (!ssr && patched === 0) {
+				this.error("wm-preload-without-link-scan: no chunk holds Vite's preload helper")
+			}
+		}
+	}
+}
+
+/**
  * Fail the build if the emitted chunks import each other in a cycle.
  *
  * A chunk's imports all evaluate before its own body, so in a cycle one member runs
@@ -168,6 +227,38 @@ function assertMonacoFreeAppShell() {
 	}
 }
 
+/**
+ * Fail the build if the app shell or the home page statically loads the AI chat engine or the
+ * provider SDKs.
+ *
+ * Everything those entries import statically loads and evaluates before the first page renders,
+ * and the engine alone is over a megabyte. The shell reaches it only from a click: through
+ * `sessionRuntimeRegistry` and `aiClientWorkspace`, which stand in for the modules that would pull
+ * it in.
+ */
+function assertAiEngineFreeAppShell() {
+	const entries = [
+		'/src/routes/+layout.svelte',
+		'/src/routes/(root)/+layout.svelte',
+		'/src/routes/(root)/(logged)/+layout.svelte',
+		'/src/routes/(root)/(logged)/+page.svelte'
+	]
+	const forbidden = [
+		'/src/lib/components/copilot/chat/AIChatManager.svelte.ts',
+		'/node_modules/openai/',
+		'/node_modules/@anthropic-ai/sdk/'
+	]
+	return {
+		name: 'wm-assert-ai-engine-free-app-shell',
+		generateBundle(_options, bundle) {
+			if (!isClientBuild(bundle)) return
+			for (const entry of entries) {
+				assertStaticClosureExcludes(this, bundle, entry, forbidden, 'sessionRuntimeRegistry.svelte.ts')
+			}
+		}
+	}
+}
+
 const remoteUrl =
 	process.env.REMOTE ??
 	(process.env.BACKEND_PORT
@@ -184,6 +275,9 @@ const authCookie = `token_${new URL(remoteUrl).host.replace(/\W/g, '_')}`
 // Isolated cookies are host-only: `Domain=localhost` is rejected when the dev server is
 // reached as 127.0.0.1 or over the network.
 const cookieDomain = isolateDevAuth ? '' : 'localhost'
+// The readable hint the backend mirrors from the session cookie (session_hint.rs), renamed
+// with it so that one worktree's login does not stand for another's session.
+const sessionHintCookie = isolateDevAuth ? `${authCookie}_hint` : 'wm_session'
 
 function isolateAuthCookie(proxy) {
 	if (!isolateDevAuth) return
@@ -201,7 +295,9 @@ function isolateAuthCookie(proxy) {
 	proxy.on('proxyRes', (proxyRes) => {
 		const setCookie = proxyRes.headers['set-cookie']
 		if (setCookie) {
-			proxyRes.headers['set-cookie'] = setCookie.map((c) => c.replace(/^token=/, `${authCookie}=`))
+			proxyRes.headers['set-cookie'] = setCookie.map((c) =>
+				c.replace(/^token=/, `${authCookie}=`).replace(/^wm_session=/, `${sessionHintCookie}=`)
+			)
 		}
 	})
 }
@@ -346,12 +442,25 @@ const config = {
 	},
 	preview: { port: 3001 },
 	plugins: [
+		// Only the dev proxy renames the hint: a build reads the name the backend sets.
+		{
+			name: 'wm-session-hint-cookie',
+			config: (_, { command }) => ({
+				define: {
+					__WM_SESSION_HINT__: JSON.stringify(
+						command === 'serve' ? sessionHintCookie : 'wm_session'
+					)
+				}
+			})
+		},
 		sveltekit(),
 		...(process.env.HTTPS === 'true' ? [mkcert()] : []),
 		plugin,
 		assertAcyclicChunks(),
+		preloadWithoutLinkScan(),
 		assertLeanPublicAppRoutes(),
-		assertMonacoFreeAppShell()
+		assertMonacoFreeAppShell(),
+		assertAiEngineFreeAppShell()
 	],
 	define: { '__pkg__.version': JSON.stringify(version) },
 	optimizeDeps: {
