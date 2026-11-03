@@ -39,6 +39,7 @@ import type { PasteAttachment } from './pasteTokens'
 import { dataUrlToImagePart, type AttachedImage } from './imageUtils'
 import type { AttachedTextFile } from './textFileUtils'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
+import { isUserContextPath } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
@@ -465,6 +466,11 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
 			}
 			workspaceItemsContext += `- type: raw_app, path: ${context.path}\n`
+		} else if (context.type === 'workspace_folder') {
+			if (!workspaceItemsContext) {
+				workspaceItemsContext = 'SELECTED WORKSPACE ITEMS:\n'
+			}
+			workspaceItemsContext += `- type: ${isUserContextPath(context.path) ? 'user' : 'folder'}, path: ${context.path}\n`
 		}
 	}
 

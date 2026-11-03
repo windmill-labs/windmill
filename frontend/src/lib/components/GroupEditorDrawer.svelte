@@ -132,7 +132,7 @@
 			{/key}
 		</div>
 		{#snippet actions()}
-			{#if exists && (operatingUser.current?.is_admin || operatingUser.current?.groups.includes(name))}
+			{#if exists && (operatingUser.current?.is_admin || operatingUser.current?.is_super_admin || operatingUser.current?.groups.includes(name))}
 				<Button
 					variant="default"
 					unifiedSize="md"
