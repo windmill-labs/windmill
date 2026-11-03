@@ -103,7 +103,7 @@ import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
 import { prefersInstantReveal, TypewriterReveal } from './typewriterReveal'
-import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
+import { triggerablesByAi } from './sharedChatState.svelte'
 import {
 	createAppBackendRunnableContextElement,
 	createAppFrontendFileContextElement,
@@ -190,7 +190,6 @@ import {
 	type GlobalAssemblyOpts
 } from './global/globalAssembly'
 import { formatChatJobCompletion } from './datatableTools'
-import { isGlobalAiEnabled } from './global/gate'
 import { loadMcpServers, type McpServer } from './global/mcpTools'
 import type { PipelineAIChatHelpers } from './pipeline/core'
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
@@ -334,13 +333,6 @@ export function supportsPlanMode(mode: AIMode): boolean {
 
 const navCapabilities = fromStore(roleCapabilities)
 
-export function isAIModeVisible(mode: AIMode): boolean {
-	return mode !== AIMode.GLOBAL || isGlobalAiEnabled()
-}
-
-export function getVisibleAIModes(): AIMode[] {
-	return ALL_AI_MODES.filter(isAIModeVisible)
-}
 
 function isWorkspacePath(path: string | undefined): path is string {
 	return path?.startsWith('f/') === true || path?.startsWith('u/') === true
@@ -538,8 +530,6 @@ export class AIChatManager implements ChatViewHost {
 	// reopens the tab through this, so a page shown in between costs no failed call.
 	#pipelineReopener: ((folder: string) => void) | undefined = undefined
 	#openedPipelineFolders = new Set<string>()
-	readonly isOpen = $derived(chatState.size > 0)
-	savedSize = $state<number>(0)
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
 	// Message queued while a turn is streaming. There is only ever one queued
@@ -1674,11 +1664,8 @@ export class AIChatManager implements ChatViewHost {
 		navigator: !this.disabledModes.navigator,
 		ask: !this.disabledModes.ask,
 		API: !this.disabledModes.API,
-		// Dev-only gate. See `./global/gate.ts` for how to enable.
-		global: isAIModeVisible(AIMode.GLOBAL)
+		global: true
 	})
-
-	open = $derived(chatState.size > 0)
 
 	// one token is ~ 4 characters
 	private estimateMessagesTokens = (messages: ChatCompletionMessageParam[]) => {
@@ -2783,7 +2770,6 @@ export class AIChatManager implements ChatViewHost {
 			workflowAsCode?: boolean
 		}
 	) {
-		if (!isAIModeVisible(mode)) return
 		// A session chat is GLOBAL for its whole life, and two things read that mode: moving it
 		// lifts the plan gate on a session the user still has set to Plan, and hands the
 		// capability filter tools that declare no `requires`, so it fails closed to nothing.
@@ -3157,9 +3143,7 @@ export class AIChatManager implements ChatViewHost {
 				name: 'change_mode',
 				description:
 					'Change the AI mode to the one specified. Script mode is used to create scripts. Flow mode is used to create flows.' +
-					(isGlobalAiEnabled()
-						? ' Global mode is used to inspect workspace scripts and flows and create draft changes.'
-						: '') +
+					' Global mode is used to inspect workspace scripts and flows and create draft changes.' +
 					' Navigator mode is used to navigate the application and help the user find what they are looking for. API mode is used to make API calls to the Windmill backend.',
 				parameters: {
 					type: 'object',
@@ -3167,13 +3151,7 @@ export class AIChatManager implements ChatViewHost {
 						mode: {
 							type: 'string',
 							description: 'The mode to change to',
-							enum: [
-								'script',
-								'flow',
-								...(isGlobalAiEnabled() ? ['global'] : []),
-								'navigator',
-								'API'
-							]
+							enum: ['script', 'flow', 'global', 'navigator', 'API']
 						},
 						pendingPrompt: {
 							type: 'string',
@@ -3186,7 +3164,7 @@ export class AIChatManager implements ChatViewHost {
 			}
 		},
 		fn: async ({ args, toolId, toolCallbacks }) => {
-			if (!isAIMode(args.mode) || !isAIModeVisible(args.mode)) {
+			if (!isAIMode(args.mode)) {
 				throw new Error(`AI mode "${args.mode}" is not enabled`)
 			}
 			toolCallbacks.setToolStatus(toolId, { content: 'Switching to ' + args.mode + ' mode...' })
@@ -3196,32 +3174,6 @@ export class AIChatManager implements ChatViewHost {
 			toolCallbacks.setToolStatus(toolId, { content: 'Switched to ' + args.mode + ' mode' })
 			return 'Mode changed to ' + args.mode
 		}
-	}
-
-	openChat = () => {
-		// Nothing may open the docked pane in a workspace that hid the assistant.
-		if (get(copilotInfo).workspaceDisabled) {
-			return
-		}
-		chatState.size = this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE
-		localStorage.setItem('ai-chat-open', 'true')
-	}
-
-	closeChat = () => {
-		this.savedSize = chatState.size
-		chatState.size = 0
-		localStorage.setItem('ai-chat-open', 'false')
-	}
-
-	toggleOpen = () => {
-		if (chatState.size === 0 && get(copilotInfo).workspaceDisabled) {
-			return
-		}
-		if (chatState.size > 0) {
-			this.savedSize = chatState.size
-		}
-		chatState.size = chatState.size === 0 ? (this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE) : 0
-		localStorage.setItem('ai-chat-open', chatState.size === 0 ? 'false' : 'true')
 	}
 
 	askAi = (
@@ -3777,10 +3729,11 @@ export class AIChatManager implements ChatViewHost {
 				this.#ready = undefined
 			}
 		}
-		// A turn with nowhere to render still streams, spends tokens and applies
-		// tool calls — entirely off-screen. Refuse instead. `sendInlineRequest` is
-		// exempt: the ⌘K widget renders its own composer inside Monaco.
-		if (!this.isSessionChat && !chatState.dockedChatAvailable) {
+		// The shared manager has no chat on screen: turns render only in a session's own chat.
+		// One started here would still stream, spend tokens and apply tool calls, entirely
+		// off-screen, so refuse it. `sendInlineRequest` is exempt: the ⌘K widget renders its own
+		// composer inside Monaco.
+		if (this === aiChatManager) {
 			console.error('sendRequest called with no chat UI mounted; dropping the turn')
 			sendUserToast('This action needs the AI chat. Start an AI session to continue.', true)
 			return
@@ -3807,7 +3760,7 @@ export class AIChatManager implements ChatViewHost {
 				this.#scheduleAutoResumeRetry()
 			} else {
 				if (!options.queued) {
-					// Programmatic prompts (askAi, fix) stage their text in
+					// Programmatic prompts (askAi) stage their text in
 					// `this.instructions` and pass no option — fall back to it so
 					// they are handed back too.
 					this.restoreToInput(
@@ -3878,10 +3831,6 @@ export class AIChatManager implements ChatViewHost {
 		// releases the right key.
 		let reservationKey = options.resendReservationKey
 		const requestedMode = options.mode ?? this.mode
-		if (!isAIModeVisible(requestedMode)) {
-			this.#releaseOutgoingReservation(reservationKey)
-			return false
-		}
 		this.changeMode(requestedMode, undefined, {
 			lang: options.lang,
 			isPreprocessor: options.isPreprocessor
@@ -5083,25 +5032,12 @@ export class AIChatManager implements ChatViewHost {
 		})
 	}
 
-	fix = () => {
-		if (!this.open) {
-			this.toggleOpen()
-		}
-		this.changeMode(AIMode.SCRIPT)
-		this.instructions = 'Fix the error'
-		this.contextManager?.setFixContext()
-		this.sendRequest()
-	}
-
 	addSelectedLinesToContext = (
 		lines: string,
 		startLine: number,
 		endLine: number,
 		moduleId?: string
 	) => {
-		if (!this.open) {
-			this.toggleOpen()
-		}
 		if (!moduleId) {
 			this.changeMode(AIMode.SCRIPT)
 		}
@@ -5217,19 +5153,6 @@ export class AIChatManager implements ChatViewHost {
 
 	enableAutomaticScroll = () => {
 		this.#automaticScroll = true
-	}
-
-	generateStep = async (moduleId: string, lang: ScriptLang, instructions: string) => {
-		if (!this.flowAiChatHelpers) {
-			throw new Error('No flow helpers found')
-		}
-		this.flowAiChatHelpers.selectStep(moduleId)
-		await this.sendRequest({
-			instructions: instructions,
-			mode: AIMode.SCRIPT,
-			lang: lang,
-			isPreprocessor: moduleId === 'preprocessor'
-		})
 	}
 
 	listenForContextChange = (dbSchemas: DBSchemas, workspaceStore: string | undefined) => {
@@ -5628,10 +5551,8 @@ export const aiChatManager = new AIChatManager()
 // Hydrate both from user-scoped storage once the email is known, and on any
 // later user change. Registered only here (not in the constructor) so
 // per-session managers don't accumulate never-removed callbacks.
-//
-// init() is email-gated and idempotent, so re-opening the scoped DB here
-// (alongside AiChatLayout's mount-time init()) is harmless and lets the
-// singleton self-heal on email change like the other user-scoped surfaces.
+// init() is email-gated and idempotent, so it self-heals on an email change like the
+// other user-scoped surfaces.
 onUserChange(() => {
 	aiChatManager.hydrateUserScopedAutonomy()
 	void aiChatManager.historyManager.init()

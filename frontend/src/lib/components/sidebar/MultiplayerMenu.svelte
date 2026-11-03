@@ -4,16 +4,14 @@
 
 	import { enterpriseLicense, userStore, workspaceStore, awarenessStore } from '$lib/stores'
 
-	import { WebsocketProvider } from 'y-websocket'
 	import * as Y from 'yjs'
 	import type { Awareness } from 'y-protocols/awareness'
 	import { page } from '$app/stores'
 	import { slide } from 'svelte/transition'
-	import { buildWsUrl } from '$lib/wsUrl'
-	import { signMultiplayerRequest } from '$lib/components/debug/debugUtils'
+	import { MultiplayerConnection } from '$lib/multiplayerConnection'
 
 	let awareness: Awareness | undefined = $state(undefined)
-	let wsProvider: WebsocketProvider | undefined = undefined
+	let connection: MultiplayerConnection | undefined = undefined
 
 	let connected = $state(false)
 
@@ -24,34 +22,39 @@
 			url: $page.url.pathname
 		})
 	}
+	// Bumped on every disconnect, so a connection that finishes opening after the
+	// workspace changed or the menu unmounted is dropped instead of reconnecting forever.
+	let connectGeneration = 0
 	function disconnectWorkspace() {
-		if (wsProvider) {
-			wsProvider.destroy()
-			wsProvider = undefined
+		connectGeneration++
+		if (connection) {
+			connection.destroy()
+			connection = undefined
 		}
 		connected = false
 		awareness = undefined
 	}
 	async function connectWorkspace(workspace: string) {
 		disconnectWorkspace()
+		const generation = connectGeneration
 
-		let token: string | undefined
+		let opened: MultiplayerConnection
 		try {
-			token = await signMultiplayerRequest(workspace)
+			opened = await MultiplayerConnection.open(workspace, workspace, new Y.Doc())
 		} catch (e) {
 			console.error('Failed to sign multiplayer request:', e)
 			return
 		}
-
-		const ydoc = new Y.Doc()
-		wsProvider = new WebsocketProvider(buildWsUrl('/ws_mp/'), workspace, ydoc, {
-			params: { token }
-		})
-		wsProvider.on('sync', (isSynced: boolean) => {
+		if (generation !== connectGeneration) {
+			opened.destroy()
+			return
+		}
+		connection = opened
+		opened.provider.on('sync', (isSynced: boolean) => {
 			connected = true
 		})
 
-		awareness = wsProvider.awareness
+		awareness = opened.provider.awareness
 
 		updateLocalState()
 

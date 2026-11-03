@@ -47,7 +47,6 @@
 	import FileEditorIcon from './FileEditorIcon.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { useRoleCapabilities } from '$lib/operatorWriteRights'
-	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 
 	export type RawAppTemplatePickerResult = {
 		files: Record<string, string>
@@ -282,11 +281,8 @@
 		}
 	})
 
-	// With AI turned off for the workspace there is nothing to choose between. A builder is
-	// offered AI only through a session: the docked app mode writes inline code they cannot save.
-	const aiOffered = $derived(
-		!$copilotInfo.workspaceDisabled && (!composeOnlyApps || prefersSessionHandoff(!$roleCaps.code))
-	)
+	// With AI turned off for the workspace there is nothing to choose between.
+	const aiOffered = $derived(!$copilotInfo.workspaceDisabled)
 
 	const canStart = $derived(
 		!!templates[selectedTemplateIndex] && !newSchemaAlreadyExists && rolesSettled && accessSettled

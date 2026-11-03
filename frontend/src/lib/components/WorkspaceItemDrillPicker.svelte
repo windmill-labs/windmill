@@ -8,10 +8,7 @@ don't need to know about the generic tree model underneath.
 Surfaces the session's drafts (via `listGlobalDrafts`: backend draft rows
 overlaid with live editor cells) as extra items alongside the backend-loaded
 list, so drafts the listing does not show yet (unsaved cells, a rename typed
-in a live editor) are still navigable. Gated on
-`isGlobalAiEnabled()` — without sessions, the only UserDrafts present are
-standalone editor autosaves and surfacing those in the breadcrumb picker
-would be surprising.
+in a live editor) are still navigable.
 -->
 <script lang="ts">
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
@@ -29,7 +26,6 @@ would be surprising.
 		getGlobalDraftStoragePath,
 		listGlobalDrafts
 	} from '$lib/components/copilot/chat/global/userDraftAdapter'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { resource } from 'runed'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -93,17 +89,13 @@ would be surprising.
 	// Chat tools and session editor previews write drafts through `UserDraft`
 	// (workspace-scoped, localStorage-backed). Merge those into the picker so
 	// users can navigate to in-flight items that haven't been deployed yet.
-	// Filter to kinds the picker actually displays. Gated on the sessions beta
-	// gate — without sessions, the only UserDrafts present are the standalone
-	// editors' autosaves and surfacing those in the breadcrumb picker would
-	// be surprising (they'd appear as navigable items that 404 on the backend
-	// draft fetch).
+	// Filter to kinds the picker actually displays.
 	const KIND_TO_DRAFT_TYPE = { flow: 'flow', script: 'script', app: 'app' } as const
 	// `listGlobalDrafts` is backend-backed (async); fetch once and derive the
 	// per-kind lists synchronously from the resolved snapshot.
 	const globalDraftsResource = resource(
-		() => ({ ws: effectiveWorkspace, enabled: isGlobalAiEnabled() }),
-		async ({ ws, enabled }) => (enabled && ws ? await listGlobalDrafts(ws) : [])
+		() => effectiveWorkspace,
+		async (ws) => (ws ? await listGlobalDrafts(ws) : [])
 	)
 	function aiDraftsForKind(k: Kind): WorkspaceItem[] {
 		const targetType = KIND_TO_DRAFT_TYPE[k]

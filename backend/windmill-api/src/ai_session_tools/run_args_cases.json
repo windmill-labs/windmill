@@ -1,0 +1,120 @@
+{
+	"//": "How a run's arguments are settled, which the chat does in the browser ($lib/components/job_args.ts, secretArgUtils.ts) and MCP on the server (runs.rs). Both test suites read this file, so a change on one side only fails. Each expectation applies its step to `args` alone. A minted variable is named <minted>.",
+	"cases": [
+		{
+			"name": "undeclared arguments are dropped and named",
+			"schema": { "properties": { "a": { "type": "string" } } },
+			"args": { "a": "x", "b": 1, "constructor": 2 },
+			"declared": { "args": { "a": "x" }, "undeclared": ["b", "constructor"] }
+		},
+		{
+			"name": "a schema without properties declares nothing",
+			"schema": {},
+			"args": { "a": "x" },
+			"declared": { "args": {}, "undeclared": ["a"] }
+		},
+		{
+			"name": "a disabled field takes its default, reported only when a different value was proposed",
+			"schema": {
+				"properties": {
+					"locked": { "type": "string", "disabled": true, "default": "fixed" },
+					"same": { "type": "object", "disabled": true, "default": { "k": [1, 2] } },
+					"absent": { "type": "number", "disabled": true, "default": 3 },
+					"no_default": { "type": "string", "disabled": true },
+					"free": { "type": "string", "default": "d" }
+				}
+			},
+			"args": { "locked": "mine", "same": { "k": [1, 2] }, "no_default": "kept", "free": "mine" },
+			"disabled_defaults": {
+				"args": {
+					"locked": "fixed",
+					"same": { "k": [1, 2] },
+					"absent": 3,
+					"no_default": "kept",
+					"free": "mine"
+				},
+				"reset": ["locked"]
+			}
+		},
+		{
+			"name": "secrets are minted at every depth, and references and empty fields are left alone",
+			"schema": {
+				"properties": {
+					"token": { "type": "string", "password": true },
+					"creds": { "type": "object", "password": true, "properties": { "user": { "type": "string" } } },
+					"nested": { "type": "object", "properties": { "inner": { "type": "string", "password": true } } },
+					"rows": {
+						"type": "array",
+						"items": { "type": "object", "properties": { "key": { "type": "string", "password": true } } }
+					},
+					"variant": {
+						"type": "object",
+						"oneOf": [
+							{ "properties": { "label": { "type": "string" } } },
+							{ "properties": { "pin": { "type": "string", "password": true } } }
+						]
+					},
+					"named": { "type": "string", "password": true },
+					"named_object": { "type": "object", "password": true },
+					"blank": { "type": "string", "password": true },
+					"nothing": { "type": "string", "password": true },
+					"plain": { "type": "string" }
+				}
+			},
+			"args": {
+				"token": "hunter2",
+				"creds": { "user": "ada" },
+				"nested": { "inner": "deep" },
+				"rows": [{ "key": "k1" }, { "key": "$var:f/team/k2" }],
+				"variant": { "pin": "1234" },
+				"named": "$var:f/team/api_token",
+				"named_object": "$var:f/team/creds",
+				"blank": "",
+				"nothing": null,
+				"plain": "kept"
+			},
+			"secrets": {
+				"args": {
+					"token": "$var:<minted>",
+					"creds": "$jsonvar:<minted>",
+					"nested": { "inner": "$var:<minted>" },
+					"rows": [{ "key": "$var:<minted>" }, { "key": "$var:f/team/k2" }],
+					"variant": { "pin": "$var:<minted>" },
+					"named": "$var:f/team/api_token",
+					"named_object": "$jsonvar:f/team/creds",
+					"blank": "",
+					"nothing": null,
+					"plain": "kept"
+				},
+				"stored": ["1234", "deep", "hunter2", "k1", "{\"user\":\"ada\"}"]
+			},
+			"redacted": {
+				"token": "<hidden>",
+				"creds": "<hidden>",
+				"nested": { "inner": "<hidden>" },
+				"rows": [{ "key": "<hidden>" }, { "key": "$var:f/team/k2" }],
+				"variant": { "pin": "<hidden>" },
+				"named": "$var:f/team/api_token",
+				"named_object": "$var:f/team/creds",
+				"blank": "",
+				"plain": "kept"
+			}
+		},
+		{
+			"name": "file bytes are replaced by their size",
+			"schema": {
+				"properties": {
+					"doc": { "type": "string", "contentEncoding": "base64" },
+					"docs": { "type": "array", "items": { "type": "string", "contentEncoding": "base64" } },
+					"name": { "type": "string" }
+				}
+			},
+			"args": {
+				"doc": "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=",
+				"docs": ["QUJD", "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWg=="],
+				"name": "report.pdf"
+			},
+			"redacted": { "doc": "<file: 1 KB>", "docs": ["<file: 1 KB>", "<file: 1 KB>"], "name": "report.pdf" }
+		}
+	]
+}

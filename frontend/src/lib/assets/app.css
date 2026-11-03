@@ -448,6 +448,25 @@ input[type='time']::-webkit-calendar-picker-indicator {
 	}
 }
 
+/* Content arriving, rather than being there: Home's page and the page header's actions, which
+   appear only once the header has measured them and so land after what is around them. */
+@keyframes wm-page-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+.wm-page-in {
+	animation: wm-page-in 500ms ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+	.wm-page-in {
+		animation: none;
+	}
+}
+
 .svelte-flow__edges {
 	z-index: -10;
 }

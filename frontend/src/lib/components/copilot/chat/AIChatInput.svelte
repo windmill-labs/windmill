@@ -768,6 +768,13 @@
 		return mergedIntoDraft
 	}
 
+	/** `text` on the draft's first line, ahead of the mentions an entry point just put there. A
+	 * second click does not repeat a question the draft already opens with. */
+	export function prefill(text: string) {
+		if (!draft.text.startsWith(text)) draft.text = `${text}${draft.text}`
+		focusInput()
+	}
+
 	/** Insert a plain @filename mention for an attached file (used by the @ menu Files category). */
 	export function insertFileMention(name: string) {
 		const sep = draft.text.length === 0 || draft.text.endsWith(' ') ? '' : ' '
@@ -864,8 +871,7 @@
 
 		// Workspace items are fetched on-demand and not in availableContext,
 		// so skip the availableContext check for them
-		const isWorkspaceItem =
-			isMentionContext(contextElement)
+		const isWorkspaceItem = isMentionContext(contextElement)
 		if (
 			!isWorkspaceItem &&
 			!availableContext.find(
