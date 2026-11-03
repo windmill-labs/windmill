@@ -82,8 +82,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			chrome: padLeft + padRight + (handleShown ? handleWidth + GAP : 0),
 			trail: trailMeasures.trail,
 			summary: BAR_STAGES.map(() => (hasSummary ? GAP + summaryFloorWidth : 0)),
-			actions:
-				!hasActions ? [0] : actionsRigid ? actionWidths : [GAP + FLEXIBLE_ACTIONS_RESERVE],
+			actions: !hasActions ? [0] : actionsRigid ? actionWidths : [GAP + FLEXIBLE_ACTIONS_RESERVE],
 			folds: hasActions && actionsRigid ? (content?.actionFolds ?? 0) : 0,
 			earlyFolds: content?.earlyActionFolds,
 			summaryNamesItem,
@@ -117,11 +116,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		next[fold] = width
 		actionWidthsByVersion[version] = next
 	}
-	function measureActions(
-		fold: number,
-		_epoch: number,
-		_version: string
-	): Attachment<HTMLElement> {
+	function measureActions(fold: number, _epoch: number, _version: string): Attachment<HTMLElement> {
 		return (node) => {
 			const ro = new ResizeObserver(() => recordActions(fold, GAP + node.offsetWidth))
 			ro.observe(node)
@@ -324,12 +319,13 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		     bar and run to its right edge, and they stretch its full height because that surface
 		     sits on the bottom edge. -->
 			<!-- `data-wm-snapshot-hidden`: a mount always starts unmeasured, so Home's snapshot draws
-			     this box hidden too (homeSnapshot.ts). -->
+			     this box hidden too (homeSnapshot.ts). It fades in rather than popping in, since it
+			     lands after what the snapshot already painted around it. -->
 			<div
 				{@attach measureActions(fold, actionsEpoch, actionsVersion)}
 				data-wm-snapshot-hidden
 				class={twMerge(
-					'flex',
+					'flex wm-page-in',
 					// pl-4: the gap between the breadcrumb and the filling surface is bare bar, so it
 					// belongs here rather than inside that surface, where it would be filled.
 					content?.actionsFill

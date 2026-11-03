@@ -359,6 +359,9 @@
 	{/if}
 {/snippet}
 
+<!-- The layout has already painted the sidebar and the surface behind it, so only what is new to
+     this route fades in. It plays on every arrival at Home, not just the one off a workspace
+     hand-over: that is the arrival it is for, and a soft one costs nothing on the others. -->
 <div
 	bind:this={pageEl}
 	class="{fromSnapshot
@@ -506,28 +509,3 @@
 {#if !$roleCapabilities.code}
 	<OperatorTour bind:this={operatorTour} />
 {/if}
-
-<style>
-	/* The page's content arriving, rather than being there. The layout has already painted the
-	   sidebar and the surface behind it, so only what is new to this route fades. It plays on
-	   every arrival at Home, not just the one off a workspace hand-over — that is the arrival it
-	   is for, and a soft one costs nothing on the others. */
-	@keyframes wm-page-in {
-		from {
-			opacity: 0;
-		}
-		to {
-			opacity: 1;
-		}
-	}
-
-	.wm-page-in {
-		animation: wm-page-in 500ms ease-out both;
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.wm-page-in {
-			animation: none;
-		}
-	}
-</style>
