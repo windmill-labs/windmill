@@ -23821,6 +23821,9 @@ paths:
                   type: string
                 summary:
                   type: string
+                external_id:
+                  type: string
+                  description: "IdP group the SSO groups claim links this group to: a group id or a full path such as /operators/network-team. Blank or omitted leaves it unlinked."
               required:
                 - name
       responses:
@@ -23853,6 +23856,9 @@ paths:
                   type: string
                   nullable: true
                   description: "Instance-level role for group members. 'superadmin', 'devops', 'user' or empty to clear."
+                external_id:
+                  type: string
+                  description: "IdP group the SSO groups claim links this group to: a group id or a full path such as /operators/network-team. Omitted keeps the current link, blank clears it. Refused on a group SCIM provisioned."
               required:
                 - new_summary
       responses:
@@ -37277,6 +37283,13 @@ components:
           enum:
             - superadmin
             - devops
+        external_id:
+          type: string
+          nullable: true
+          description: IdP group this group is linked to; its membership then follows the SSO groups claim
+        scim_managed:
+          type: boolean
+          description: Provisioned by SCIM, which then owns external_id
 
     InstanceGroupWithWorkspaces:
       type: object
@@ -37297,6 +37310,13 @@ components:
           enum:
             - superadmin
             - devops
+        external_id:
+          type: string
+          nullable: true
+          description: IdP group this group is linked to; its membership then follows the SSO groups claim
+        scim_managed:
+          type: boolean
+          description: Provisioned by SCIM, which then owns external_id
         workspaces:
           type: array
           items:

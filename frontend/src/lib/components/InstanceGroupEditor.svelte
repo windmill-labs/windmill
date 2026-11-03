@@ -10,6 +10,7 @@
 	import { superadmin } from '$lib/stores'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	interface Props {
 		name: string
@@ -20,6 +21,7 @@
 	let email = $state('')
 	let instance_group: InstanceGroupWithWorkspaces | undefined = $state()
 	let members: { member_email: string }[] | undefined = $state(undefined)
+	let externalId: string | undefined = $state('')
 
 	const dispatch = createEventDispatcher()
 
@@ -29,6 +31,7 @@
 
 	async function loadInstanceGroup(): Promise<void> {
 		instance_group = await GroupService.getInstanceGroup({ name })
+		externalId = instance_group.external_id ?? ''
 		members = instance_group?.emails
 			? instance_group.emails.map((x) => {
 					return { member_email: x }
@@ -106,6 +109,45 @@
 						<ToggleButton value="superadmin" small label="Superadmin" {item} />
 					{/snippet}
 				</ToggleButtonGroup>
+			</div>
+
+			<div class="flex flex-col gap-2">
+				<h2>IdP group</h2>
+				<p class="text-secondary text-xs">
+					{#if instance_group.scim_managed}
+						SCIM provisioned this group and sets its IdP group.
+					{:else}
+						A group id or full path, as the SSO groups claim lists it (/operators/network-team).
+						Each SSO login then sets the user's membership from the claim. Leave empty to manage
+						members by hand.
+					{/if}
+				</p>
+				<div class="flex gap-2 items-center">
+					<TextInput
+						bind:value={externalId}
+						class="grow"
+						inputProps={{ placeholder: '/operators', disabled: instance_group.scim_managed }}
+					/>
+					{#if !instance_group.scim_managed}
+						<Button
+							unifiedSize="md"
+							disabled={(externalId ?? '').trim() === (instance_group.external_id ?? '')}
+							onclick={async () => {
+								await GroupService.updateInstanceGroup({
+									name,
+									requestBody: {
+										new_summary: instance_group?.summary ?? '',
+										instance_role: instance_group?.instance_role ?? 'user',
+										external_id: externalId ?? ''
+									}
+								})
+								await loadInstanceGroup()
+								dispatch('update')
+								sendUserToast('IdP group saved')
+							}}>Save</Button
+						>
+					{/if}
+				</div>
 			</div>
 		{/if}
 

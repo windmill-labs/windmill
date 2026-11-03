@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails, instance_role, external_id, scim_display_name IS NOT NULL AS \"scim_managed!\" FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup WHERE name = $1 GROUP BY name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "summary",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "emails",
+        "type_info": "VarcharArray"
+      },
+      {
+        "ordinal": 3,
+        "name": "instance_role",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "external_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "scim_managed!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      null,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "274e569a32686cfb01e05e23053e4350b61817fd1476c2e8fec461fc642492ae"
+}

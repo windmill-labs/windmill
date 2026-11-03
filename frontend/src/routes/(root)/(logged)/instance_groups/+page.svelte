@@ -12,8 +12,10 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { Plus } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	let newGroupName: string = $state('')
+	let newGroupExternalId: string = $state('')
 	let instanceGroups: InstanceGroup[] | undefined = $state(undefined)
 	let groupDrawer: Drawer | undefined = $state()
 
@@ -27,8 +29,9 @@
 
 	async function addInstanceGroup() {
 		await GroupService.createInstanceGroup({
-			requestBody: { name: newGroupName }
+			requestBody: { name: newGroupName, external_id: newGroupExternalId }
 		})
+		newGroupExternalId = ''
 		loadInstanceGroups()
 		editGroupName = newGroupName
 		groupDrawer?.openDrawer()
@@ -58,6 +61,10 @@
 					{#snippet content({ close })}
 						<div class="flex-col flex gap-2 p-4">
 							<input class="mr-2" placeholder="New instance group name" bind:value={newGroupName} />
+							<TextInput
+								bind:value={newGroupExternalId}
+								inputProps={{ placeholder: 'IdP group (optional): /operators' }}
+							/>
 							<Button
 								size="md"
 								startIcon={{ icon: Plus }}
@@ -85,12 +92,13 @@
 						<th>Summary</th>
 						<th>Members</th>
 						<th>Instance Role</th>
+						<th>IdP group</th>
 						<th></th>
 					</tr>
 				{/snippet}
 				{#snippet body()}
 					<tbody>
-						{#each instanceGroups as { name, summary, emails, instance_role }}
+						{#each instanceGroups as { name, summary, emails, instance_role, external_id }}
 							<tr>
 								<td>
 									<a
@@ -107,6 +115,7 @@
 								</td>
 								<td>{emails?.length ?? 0} members</td>
 								<td>{instance_role ?? '-'}</td>
+								<td>{external_id ?? '-'}</td>
 								<td
 									><Button
 										variant="default"

@@ -844,9 +844,9 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'SSO groups claim',
 			description:
-				"The claim or SAML attribute listing a user's IdP groups. Each SSO login then updates their membership in the groups SCIM created.",
+				"The claim or SAML attribute listing a user's IdP groups. Each SSO login then updates their membership in the instance groups linked to an IdP group.",
 			tooltip:
-				'Usually groups on OIDC, or http://schemas.microsoft.com/ws/2008/06/identity/claims/groups on Entra SAML. Values must match the external id SCIM stored for each group (Entra uses object ids). Groups without an external id are never changed, and a login without the claim changes nothing. MCP requests signed in through the external identity provider use the groups in their token the same way.',
+				'Usually groups on OIDC (read from the userinfo response), or http://schemas.microsoft.com/ws/2008/06/identity/claims/groups on Entra SAML. Values must match the IdP group of each instance group: the id SCIM stored, or the id or full path set on the group (Entra uses object ids). Groups without an IdP group are never changed. Without SCIM, a login with an empty or missing claim removes the user from every linked group; with SCIM, it changes nothing. An Entra groups overage changes nothing either. MCP requests signed in through the external identity provider use the groups in their token the same way.',
 			key: 'sso_groups_claim',
 			fieldType: 'text',
 			placeholder: 'groups',
@@ -1269,8 +1269,7 @@ export const settings: Record<string, Setting[]> = {
 			key: 'secret_backend',
 			fieldType: 'secret_backend',
 			storage: 'setting',
-			ee_only:
-				'External secret store integrations are Enterprise Edition features'
+			ee_only: 'External secret store integrations are Enterprise Edition features'
 		},
 		{
 			label: 'External secret references',
