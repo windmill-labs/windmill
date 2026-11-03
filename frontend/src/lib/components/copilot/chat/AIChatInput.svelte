@@ -709,10 +709,15 @@
 	 * clear. Returns whether it cleared. */
 	export function clearDraft(): boolean {
 		if (attachmentsInFlight) return false
-		// Zapped first, so wiping the text does not also dispatch a removal per `@` mention.
-		contextTextareaComponent?.clearForSend()
-		draft.clear()
-		if (userContext.length > 0) selectedContext = []
+		if (chatHost.mode === AIMode.GLOBAL) {
+			// GLOBAL drops every chip below, so the per-`@`-mention removals are skipped. The
+			// editor modes keep them: they are what drops a mention's chip with its text.
+			contextTextareaComponent?.clearForSend()
+			draft.clear()
+			selectedContext = []
+		} else {
+			draft.clear()
+		}
 		return true
 	}
 
