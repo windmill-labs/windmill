@@ -118,6 +118,9 @@ jobs:
           RESOURCE_TYPE_EMBEDDINGS_CHECK_INTERVAL_SECS: "2"
         run: |
           mkdir -p ../ai_evals/logs
+          # A model may test-run the script it drafts; the worker looks for bun at /usr/bin/bun,
+          # where setup-bun does not put it.
+          export BUN_PATH="$(command -v bun)"
           ./target/debug/windmill > ../ai_evals/logs/windmill.log 2>&1 &
           # The global suite's datatable cases run SQL on the `postgresql` tag, a native worker's.
           MODE=worker WORKER_GROUP=native PORT=8001 ./target/debug/windmill > ../ai_evals/logs/windmill-native.log 2>&1 &
