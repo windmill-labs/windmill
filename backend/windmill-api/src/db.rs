@@ -523,3 +523,15 @@ pub async fn wait_for_migrations(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn resource_type_seed_is_stripped_whole() {
+        // Its description carries a `;` inside a quoted string, and statements follow the seed.
+        let sql = include_str!("../../migrations/20260831120907_skills_resource_type.up.sql");
+        let stripped = super::RESOURCE_TYPE_SEED.replace_all(sql, "");
+        assert!(!stripped.to_lowercase().contains("insert into resource_type"));
+        assert!(stripped.contains("INSERT INTO folder"));
+    }
+}
