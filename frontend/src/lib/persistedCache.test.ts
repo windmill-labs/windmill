@@ -17,7 +17,9 @@ import {
 	MAX_AGE_MS,
 	MAX_ENTRIES,
 	peekEntry,
-	saveEntry
+	saveEntry,
+	snapshotJson,
+	type CacheEntry
 } from './persistedCache.svelte'
 import { persistedValue, pickShown } from './persistedResource.svelte'
 import { readSessionHint, rememberUser } from './lastSession'
@@ -199,7 +201,10 @@ describe('invalidation', () => {
 		}
 		try {
 			login('alice@x.dev')
-			rememberUser({ email: 'alice@x.dev', workspace_id: 'w' } as unknown as UserExt, readSessionHint())
+			rememberUser(
+				{ email: 'alice@x.dev', workspace_id: 'w' } as unknown as UserExt,
+				readSessionHint()
+			)
 			const runs = persistedValue<string>('runs', 1)
 			expect(cacheIdentity()).toBeDefined()
 			runs.save({ workspace: 'w' }, 'alice rows', readSessionHint())
@@ -218,5 +223,20 @@ describe('invalidation', () => {
 		} finally {
 			delete (globalThis as any).document
 		}
+	})
+
+	it('keeps the snapshot within its cap by leaving out the largest entries, not all of them', () => {
+		const entry = (key: string, chars: number): CacheEntry => ({
+			key,
+			version: 1,
+			savedAt: 0,
+			value: 'x'.repeat(chars)
+		})
+		const entries = [entry('runs', 100), entry('folders', 5000), entry('counts', 50)]
+		const raw = snapshotJson('a@x.dev', entries, 1000)
+		expect(raw.length).toBeLessThanOrEqual(1000)
+		const kept = (JSON.parse(raw) as { email: string; entries: CacheEntry[] }).entries
+		expect(kept.map((e) => e.key).sort()).toEqual(['counts', 'runs'])
+		expect(JSON.parse(snapshotJson('a@x.dev', entries, 10)).entries).toEqual([])
 	})
 })

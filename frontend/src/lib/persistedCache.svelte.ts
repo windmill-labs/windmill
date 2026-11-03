@@ -208,12 +208,33 @@ function recordInSnapshot(entry: CacheEntry) {
 	snapshotTimer ??= setTimeout(() => {
 		snapshotTimer = undefined
 		try {
-			if (!snapshot) return
-			const raw = JSON.stringify({ email: snapshot.email, entries: [...snapshot.entries.values()] })
-			if (raw.length <= SNAPSHOT_MAX_CHARS) localStorage.setItem(SNAPSHOT_KEY, raw)
-			else localStorage.removeItem(SNAPSHOT_KEY)
+			if (snapshot)
+				localStorage.setItem(SNAPSHOT_KEY, snapshotJson(snapshot.email, snapshot.entries.values()))
 		} catch {}
 	}, 0)
+}
+
+/**
+ * The snapshot as stored, within `max` characters: the smallest entries first, so one oversized
+ * response (a workspace's thousands of folder names) costs only itself the first-frame paint,
+ * not the counts and runs beside it. Exported for its test.
+ */
+export function snapshotJson(
+	email: string,
+	entries: Iterable<CacheEntry>,
+	max = SNAPSHOT_MAX_CHARS
+): string {
+	const head = `{"email":${JSON.stringify(email)},"entries":[`
+	let size = head.length + 2
+	const kept: string[] = []
+	for (const json of [...entries]
+		.map((e) => JSON.stringify(e))
+		.sort((a, b) => a.length - b.length)) {
+		if (size + json.length + 1 > max) break
+		kept.push(json)
+		size += json.length + 1
+	}
+	return `${head}${kept.join(',')}]}`
 }
 
 function readSnapshot() {
