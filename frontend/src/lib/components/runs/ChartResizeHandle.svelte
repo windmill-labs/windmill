@@ -53,6 +53,8 @@
 	function onkeydown(e: KeyboardEvent) {
 		if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
 		e.preventDefault()
+		// The runs table reads these keys at `window` to move its selected run.
+		e.stopPropagation()
 		const next = clamp(height + (e.key === 'ArrowDown' ? KEYBOARD_STEP_PX : -KEYBOARD_STEP_PX))
 		if (next === height) return
 		height = next
