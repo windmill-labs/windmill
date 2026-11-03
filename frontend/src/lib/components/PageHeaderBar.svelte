@@ -40,10 +40,32 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	// has no mode to offer there.
 	let innerWidth = $state(BROWSER ? window.innerWidth : 0)
 
-	function showSidebarFromMenu() {
+	// The keyboard's way to the hidden sidebar: focusing the handle shows the card as hovering it
+	// does, and Tab from the handle goes into the card, which comes later in no tab order. Focus
+	// coming back from the card (Esc) or from the handle's menu does not show it again.
+	function cameFromCardOrMenu(e: FocusEvent): boolean {
+		return !!(e.relatedTarget as Element | null)?.closest('[data-nav-card], [role="menu"]')
+	}
+	// A closing menu is gone before focus returns, so that return carries no related target.
+	let focusInHandleMenu = false
+	function revealOnKeyboardFocus(e: FocusEvent) {
+		const fromMenu = focusInHandleMenu
+		focusInHandleMenu = false
+		if (!(e.target as Element).matches(':focus-visible') || fromMenu || cameFromCardOrMenu(e))
+			return
+		navHandleSlot.open()
+	}
+	function hideOnBlur(e: FocusEvent) {
+		if ((e.relatedTarget as Element | null)?.closest('[role="menu"]')) focusInHandleMenu = true
+		if (!cameFromCardOrMenu(e)) navHandleSlot.scheduleClose()
+	}
+	function tabIntoCard(e: KeyboardEvent) {
+		if (e.key !== 'Tab' || e.shiftKey) return
+		const link = document.querySelector<HTMLElement>('[data-nav-card] a[href]')
+		if (!link || link.closest('[inert]')) return
+		e.preventDefault()
 		if (!navHandleSlot.pinned) navHandleSlot.toggle()
-		// After the menu hands focus back to the handle: the card's links come later in no tab order.
-		setTimeout(() => document.querySelector<HTMLElement>('[data-nav-card] a[href]')?.focus(), 50)
+		link.focus()
 	}
 	const content = $derived(pageHeader.content)
 	const actions = $derived(pageHeader.actions)
@@ -225,22 +247,20 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 				bind:clientWidth={handleWidth}
 				onmouseenter={() => navHandleSlot.open()}
 				onmouseleave={() => navHandleSlot.scheduleClose()}
+				onfocusin={revealOnKeyboardFocus}
+				onfocusout={hideOnBlur}
+				onkeydown={tabIntoCard}
 			>
 				<ModeButtonFlash />
 				<!-- No tooltip: hovering here already slides the sidebar in, which says what the button
 			     does better than a label popping up over it. Where hover does that, a click picks the
 			     sidebar's mode, as the card has no footer to hold that menu; a touch screen taps to pin
-			     the card instead. The menu's first item pins it too, the way in from a keyboard. -->
+			     the card instead. -->
 				{#if navDetached.val && hoverPointer && innerWidth >= 768 && navHandleSlot.modeItems}
 					<DropdownV2
 						placement="bottom-start"
 						fixedHeight={false}
-						items={() => [
-							{ displayName: 'Show sidebar', action: showSidebarFromMenu },
-							...(navHandleSlot.modeItems ?? []).map((i) =>
-								i.sectionTitle ? { ...i, separatorTop: true } : i
-							)
-						]}
+						items={() => navHandleSlot.modeItems ?? []}
 					>
 						{#snippet buttonReplacement()}
 							<Button
