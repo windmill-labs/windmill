@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.859.0](https://github.com/windmill-labs/windmill/compare/v1.858.0...v1.859.0) (2026-11-03)
+
+
+### Features
+
+* clear the chat composer on a double Escape ([#12151](https://github.com/windmill-labs/windmill/issues/12151)) ([6133c70](https://github.com/windmill-labs/windmill/commit/6133c709844ab7c861347e5fb66ee235c0839f43))
+* download session artifacts as pdf ([#12182](https://github.com/windmill-labs/windmill/issues/12182)) ([b532c81](https://github.com/windmill-labs/windmill/commit/b532c819713ec260fd5fd9dacd2a02af11895dd3))
+* expose the page's query parameters to full-code apps as ctx.query ([#12179](https://github.com/windmill-labs/windmill/issues/12179)) ([ab15324](https://github.com/windmill-labs/windmill/commit/ab15324008277de50d31fb0875bcdae738c533cb))
+* let the ai session test-run hub scripts ([#12170](https://github.com/windmill-labs/windmill/issues/12170)) ([3125e6d](https://github.com/windmill-labs/windmill/commit/3125e6dac0010b57750e26eb5e699238689bf11f))
+* show what a member, group or service account can access ([#12142](https://github.com/windmill-labs/windmill/issues/12142)) ([766825e](https://github.com/windmill-labs/windmill/commit/766825ed478b853d02ae8b460dd0ac5e2bab07fe))
+* tailor mcp instructions to the token scope and the caller's role ([#12173](https://github.com/windmill-labs/windmill/issues/12173)) ([201d8f6](https://github.com/windmill-labs/windmill/commit/201d8f696758466b049a55830669b416ebb24b0a))
+
+
+### Bug Fixes
+
+* fall back to getAll for set-cookie in the pages preview proxy ([c05febc](https://github.com/windmill-labs/windmill/commit/c05febcefafbe70fe2759fba9c920dbc0b413686))
+* keep a resource whose whole value is a variable reference ([#12171](https://github.com/windmill-labs/windmill/issues/12171)) ([2ce5a3a](https://github.com/windmill-labs/windmill/commit/2ce5a3a603746c65b8d3bf368e4a56d99fa4bdcd))
+* keep the session chat usable on narrow screens ([#12169](https://github.com/windmill-labs/windmill/issues/12169)) ([d0d37e0](https://github.com/windmill-labs/windmill/commit/d0d37e04a56d96eeff440317d09659d7d1132884))
+* make home's failed-runs ask ai clickable, add failed filter and runs link ([#12174](https://github.com/windmill-labs/windmill/issues/12174)) ([795ded9](https://github.com/windmill-labs/windmill/commit/795ded9d19ff768f0113d82ae3853db61812f7bf))
+* parse a schedule's target once, at save and when it fires ([#12183](https://github.com/windmill-labs/windmill/issues/12183)) ([67dcf14](https://github.com/windmill-labs/windmill/commit/67dcf145f4ba67ff88d8a7a8eba673e27b333e56))
+* refetch persisted resources when the cache identity becomes known ([#12176](https://github.com/windmill-labs/windmill/issues/12176)) ([df2a631](https://github.com/windmill-labs/windmill/commit/df2a631e77c901bf338646ec1f25051fa57cdf2b))
+* render mermaid diagrams on the shared artifact page ([#12181](https://github.com/windmill-labs/windmill/issues/12181)) ([c8930fc](https://github.com/windmill-labs/windmill/commit/c8930fcb076cd620e8ee84811a0fd4367a03d546))
+
 ## [1.858.0](https://github.com/windmill-labs/windmill/compare/v1.857.0...v1.858.0) (2026-11-03)
 
 
