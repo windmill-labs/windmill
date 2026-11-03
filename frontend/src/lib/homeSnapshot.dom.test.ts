@@ -125,6 +125,19 @@ describe('home snapshot', () => {
 		expect(painted!.querySelector('.row > a span a')).not.toBeNull()
 	})
 
+	it('paints no script planted in the stored snapshot', () => {
+		saveHomeSnapshot('demo', 'demo')
+		const html =
+			'<div xmlns="http://www.w3.org/1999/xhtml"><img src="x" onerror="alert(1)"/>' +
+			'<script>alert(1)</script><iframe srcdoc="x"></iframe>' +
+			'<a href=" javascript:alert(1)">a</a><svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)">' +
+			'<set attributeName="href" to="javascript:alert(1)"/></svg><p>kept</p></div>'
+		localStorage.setItem(HOME_SNAPSHOT_KEY, JSON.stringify({ ...stored(), html }))
+		const painted = boot('/?workspace=demo').painted!.innerHTML
+		expect(painted).toContain('kept')
+		expect(painted).not.toMatch(/onerror|onload|<script|<iframe|<set|javascript:/)
+	})
+
 	it('shows nothing under another session and drops the snapshot', () => {
 		saveHomeSnapshot('demo', 'demo')
 		setHint('h2')
