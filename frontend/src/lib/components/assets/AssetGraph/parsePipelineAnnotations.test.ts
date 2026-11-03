@@ -303,5 +303,12 @@ describe('materialize without a table', () => {
 			parsePipelineAnnotations('-- materialize ducklake://lake/orders', 'f/shop/x').materialize
 				?.targetPath
 		).toBe('lake/orders')
+		expect(
+			parsePipelineAnnotations('-- materialize ducklake://main/orders=2026', 'f/shop/x').materialize
+				?.targetPath
+		).toBe('main/orders=2026')
+		expect(
+			parsePipelineAnnotations('-- materialize', 'f/shop/2026_orders').materialize?.targetPath
+		).toBe('main/_2026_orders')
 	})
 })

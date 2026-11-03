@@ -310,9 +310,10 @@ export async function notifyContractWarnings(
 	path?: string
 ): Promise<void> {
 	// Every checkable ref carries the `ducklake` token (URIs and the bare
-	// default-syntax shorthand alike) — skip the round-trip for the vast
+	// default-syntax shorthand alike), or is a bare `// materialize`, which targets
+	// the default lake without saying so — skip the round-trip for the vast
 	// majority of saves that can't produce a warning.
-	if (!content.includes('ducklake')) return
+	if (!content.includes('ducklake') && !content.includes('materialize')) return
 	try {
 		const { warnings } = await ScriptService.checkSchemaContracts({
 			workspace,

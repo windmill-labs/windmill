@@ -7,6 +7,7 @@ import {
   buildLocalPipelineGraph,
   hideDbtRunnables,
   parseMuteAnnotations,
+  withDefaultTable,
 } from "../src/commands/pipeline/localGraph.ts";
 
 // Build a throwaway workspace tree with `f/<folder>/<file>` scripts and a
@@ -1008,4 +1009,18 @@ test("hideDbtRunnables is a no-op when the folder has no dbt project", () => {
     triggers: [],
   };
   expect(hideDbtRunnables(g)).toBe(g);
+});
+
+// Mirrors the Rust `materialize_without_table_is_named_after_the_script` test: the wasm
+// parser hands over the lake alone, and the local graph names the table as deploy does.
+test("withDefaultTable names an untabled DuckLake target after the script", () => {
+  const lakeOnly = { target_kind: "ducklake", target_path: "main" };
+  expect(withDefaultTable(lakeOnly, "f/shop/orders-daily").target_path).toBe(
+    "main/orders_daily",
+  );
+  for (const target_path of ["main/orders", "main.orders"]) {
+    expect(
+      withDefaultTable({ target_kind: "ducklake", target_path }, "f/shop/x").target_path,
+    ).toBe(target_path);
+  }
 });

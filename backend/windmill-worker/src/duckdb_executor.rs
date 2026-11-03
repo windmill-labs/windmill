@@ -6,6 +6,7 @@ use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
+use windmill_common::jobs::JobKind;
 use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{get_memory, to_raw_value, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
@@ -1350,9 +1351,16 @@ pub async fn do_duckdb(
             // itself stays pure/sync.
             let custom_test_bodies =
                 fetch_custom_test_bodies(query, conn, &job.workspace_id).await?;
+            // A script's own run names an untabled target after the script. An inline flow
+            // step's path is `<flow>/<step id>`, which would name one shared table per step
+            // id across every flow, so it has to name its table.
+            let script_path = (matches!(job.kind, JobKind::Script | JobKind::Preview)
+                && job.flow_step_id.is_none())
+            .then(|| job.runnable_path.as_deref())
+            .flatten();
             build_materialized_query(
                 query,
-                job.runnable_path.as_deref(),
+                script_path,
                 partition_value.as_deref(),
                 &custom_test_bodies,
             )?

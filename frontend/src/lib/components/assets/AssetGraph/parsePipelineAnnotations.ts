@@ -404,7 +404,8 @@ function parseMaterializeSpec(s: string): MaterializeSpec | undefined {
 	// No target, or options alone, is the default lake: `forScript` names the table
 	// after the script once its path is known. `manual` has to say what it writes.
 	const namesTarget =
-		first !== '' && first !== 'append' && first !== 'history' && !first.includes('=')
+		first.includes('://') ||
+		(first !== '' && first !== 'append' && first !== 'history' && !first.includes('='))
 	if (manual && !namesTarget) return undefined
 	const m = namesTarget ? rest.match(/^(\S+)(?:\s+(.*))?$/) : ['', 'ducklake', rest]
 	if (!m) return undefined
@@ -841,6 +842,7 @@ export function forScript(ann: PipelineAnnotations, scriptPath: string): Pipelin
 export function materializeTargetPath(m: MaterializeSpec, scriptPath: string): string {
 	// `<lake>/<table>` and `<lake>.<table>` already name a table.
 	if (m.targetKind !== 'ducklake' || /[/.]/.test(m.targetPath)) return m.targetPath
-	const name = (scriptPath.split('/').pop() ?? '').trim()
-	return name ? `${m.targetPath}/${name.replace(/[^A-Za-z0-9_]/g, '_')}` : m.targetPath
+	const name = (scriptPath.split('/').pop() ?? '').trim().replace(/[^A-Za-z0-9_]/g, '_')
+	// The generated SQL names the table unquoted, so it cannot start with a digit.
+	return name ? `${m.targetPath}/${/^[0-9]/.test(name) ? `_${name}` : name}` : m.targetPath
 }

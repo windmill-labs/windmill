@@ -103,7 +103,7 @@ The key must be a **string literal** — the graph parser is static and cannot f
 
 A managed `// materialize ducklake://<name>/<table>` tells the runtime to write the node's output table **for you**: write the body as a single `SELECT` and the runtime wraps it in the create/replace — do **not** also write your own `CREATE TABLE` / `INSERT`. (The opposite holds for the `dbt://` target above: there the node writes its own DDL and the strategies below do not apply.)
 
-A target that names no table — `// materialize`, `// materialize ducklake://<name>`, or options alone such as `// materialize key=id` — writes the table named after the script: node `f/shop/orders_daily` materializes `ducklake://main/orders_daily` (characters other than letters, digits and `_` become `_`). Name the node after the table it produces and the bare form is enough; write the full target when the table's name differs from the node's, and use that same name in every downstream `// on` and read.
+A target that names no table — `// materialize`, `// materialize ducklake://<name>`, or options alone such as `// materialize key=id` — writes the table named after the script: node `f/shop/orders_daily` materializes `ducklake://main/orders_daily` (characters other than letters, digits and `_` become `_`, and a name starting with a digit gets a leading `_`). Name the node after the table it produces and the bare form is enough; write the full target when the table's name differs from the node's, and use that same name in every downstream `// on` and read.
 
 Write strategy:
 

@@ -389,11 +389,13 @@ impl MaterializeSpec {
 }
 
 /// The table a script materializes when its annotation names none: its path's last segment,
-/// with every character DuckDB would need quoted replaced by `_`.
+/// with every character DuckDB would need quoted replaced by `_`, and a leading `_` before a
+/// leading digit, since the generated SQL names the table unquoted.
 pub fn default_table_name(script_path: &str) -> Option<String> {
     let name = script_path.rsplit('/').next().unwrap_or("").trim();
     (!name.is_empty()).then(|| {
-        name.chars()
+        let table: String = name
+            .chars()
             .map(|c| {
                 if c.is_ascii_alphanumeric() || c == '_' {
                     c
@@ -401,7 +403,12 @@ pub fn default_table_name(script_path: &str) -> Option<String> {
                     '_'
                 }
             })
-            .collect()
+            .collect();
+        if table.starts_with(|c: char| c.is_ascii_digit()) {
+            format!("_{table}")
+        } else {
+            table
+        }
     })
 }
 
@@ -1409,8 +1416,8 @@ fn parse_materialize_spec(s: &str) -> Option<MaterializeSpec> {
     let first = it.next().unwrap_or("");
     // No target, or options alone, is the default lake: `resolve_table` names the table
     // after the script once its path is known.
-    let names_target =
-        !first.is_empty() && first != "append" && first != "history" && !first.contains('=');
+    let names_target = first.contains("://")
+        || (!first.is_empty() && first != "append" && first != "history" && !first.contains('='));
     // `manual` writes its own DDL, so it has to say what it writes.
     if manual && !names_target {
         return None;
@@ -2768,6 +2775,18 @@ mod pipeline_annotation_tests {
             .materialize
             .unwrap();
         assert_eq!(m.target_path, "lake/orders");
+        // A URI is a target even when it holds `=`.
+        let m = parse_pipeline_annotations("-- materialize ducklake://main/orders=2026")
+            .for_script("f/shop/ingest")
+            .materialize
+            .unwrap();
+        assert_eq!(m.target_path, "main/orders=2026");
+        // The generated SQL names the table unquoted, so it cannot start with a digit.
+        let m = parse_pipeline_annotations("-- materialize")
+            .for_script("f/shop/2026_orders")
+            .materialize
+            .unwrap();
+        assert_eq!(m.target_path, "main/_2026_orders");
     }
 
     #[test]

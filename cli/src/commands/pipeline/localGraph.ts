@@ -202,8 +202,10 @@ type ParsedMaterialize = NonNullable<ParseAssetsRaw["materialize"]>;
 export function withDefaultTable(m: ParsedMaterialize, scriptPath: string): ParsedMaterialize {
   // `<lake>/<table>` and `<lake>.<table>` already name a table.
   if (m.target_kind !== "ducklake" || /[/.]/.test(m.target_path)) return m;
-  const name = (scriptPath.split("/").pop() ?? "").trim();
-  return name ? { ...m, target_path: `${m.target_path}/${name.replace(/[^A-Za-z0-9_]/g, "_")}` } : m;
+  const name = (scriptPath.split("/").pop() ?? "").trim().replace(/[^A-Za-z0-9_]/g, "_");
+  // The generated SQL names the table unquoted, so it cannot start with a digit.
+  const table = /^[0-9]/.test(name) ? `_${name}` : name;
+  return table ? { ...m, target_path: `${m.target_path}/${table}` } : m;
 }
 
 // Mirror `inferAssets` (frontend/src/lib/infer.ts): only ts / py / sql have a
