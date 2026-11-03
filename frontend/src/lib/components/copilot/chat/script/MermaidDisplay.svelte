@@ -7,7 +7,7 @@
 	import { ClipboardCopy, Download, Maximize2, Minus, Plus, RotateCcw } from 'lucide-svelte'
 	import type { PanZoom } from 'panzoom'
 
-	let { code }: { code: string } = $props()
+	let { code, forceLight = false }: { code: string; forceLight?: boolean } = $props()
 
 	const isDarkMode = useIsDarkMode()
 
@@ -69,7 +69,7 @@
 	}
 
 	$effect(() => {
-		void render(code, isDarkMode.val)
+		void render(code, !forceLight && isDarkMode.val)
 	})
 
 	// Only show the diagram while it corresponds to the current source.
@@ -131,7 +131,7 @@
 
 {#if showSvg}
 	<div class="relative">
-		<div class="absolute top-2 right-2 z-20 flex flex-row gap-1">
+		<div class="absolute top-2 right-2 z-20 flex flex-row gap-1 print:hidden">
 			<Button
 				onclick={() => copyToClipboard(code)}
 				color="light"
