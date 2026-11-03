@@ -1,6 +1,6 @@
 <!--
 @component
-The starred items as a sidebar section, turned on from "Customize sidebar" in the settings menu.
+The starred items as a sidebar section, turned on from Customize in the sidebar menu.
 -->
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'

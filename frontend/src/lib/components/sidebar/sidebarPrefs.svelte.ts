@@ -1,6 +1,6 @@
 import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 
-/** What "Customize sidebar" in the settings menu changes, per browser. Module-level so the
+/** What Customize in the sidebar menu changes, per browser. Module-level so the
  * menu that flips a choice and the sidebar that reads it share one value. */
 export const sidebarPrefs = {
 	/** The starred items as a section of their own. */

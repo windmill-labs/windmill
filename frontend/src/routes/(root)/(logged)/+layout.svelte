@@ -83,7 +83,8 @@
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { parseSuperadminSettingsHash, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
-	import { PanelLeft, Play, Search, ArrowLeft } from 'lucide-svelte'
+	import { PanelLeft, Play, Search, ArrowLeft, Star } from 'lucide-svelte'
+	import { sidebarPrefs } from '$lib/components/sidebar/sidebarPrefs.svelte'
 	import { Button } from '$lib/components/common'
 	import { isInstanceRoute } from '$lib/instanceRoutes'
 	import { getUserExt } from '$lib/user'
@@ -703,6 +704,17 @@
 				displayName: 'Hidden, show on hover',
 				selected: mode === 'hidden',
 				action: () => setSidebarMode('hidden')
+			},
+			{
+				displayName: 'Customize',
+				submenuItems: [
+					{
+						displayName: 'Favorites section',
+						icon: Star,
+						toggle: sidebarPrefs.favorites.val,
+						action: () => (sidebarPrefs.favorites.val = !sidebarPrefs.favorites.val)
+					}
+				]
 			}
 		]
 	}
@@ -1434,7 +1446,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 					/>
 				</div>
 
-				<!-- The starred items, when "Customize sidebar" turns them on; hidden in the rail. -->
+				<!-- The starred items, when the sidebar menu's Customize turns them on; hidden in the rail. -->
 				<div class="px-2 empty:hidden">
 					<FavoritesSection isCollapsed={collapsed} />
 				</div>
