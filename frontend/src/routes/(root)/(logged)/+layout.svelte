@@ -83,7 +83,7 @@
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { parseSuperadminSettingsHash, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
-	import { PanelLeft, Play, Search, ArrowLeft, Star } from 'lucide-svelte'
+	import { PanelLeft, Play, Search, ArrowLeft, Star, MessagesSquare } from 'lucide-svelte'
 	import { sidebarPrefs } from '$lib/components/sidebar/sidebarPrefs.svelte'
 	import { Button } from '$lib/components/common'
 	import { isInstanceRoute } from '$lib/instanceRoutes'
@@ -713,6 +713,12 @@
 						icon: Star,
 						toggle: sidebarPrefs.favorites.val,
 						action: () => (sidebarPrefs.favorites.val = !sidebarPrefs.favorites.val)
+					},
+					{
+						displayName: 'AI chats section',
+						icon: MessagesSquare,
+						toggle: sidebarPrefs.aiChats.val,
+						action: () => (sidebarPrefs.aiChats.val = !sidebarPrefs.aiChats.val)
 					}
 				]
 			}
@@ -1458,10 +1464,12 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 					</div>
 				{/if}
 
-				<!-- The flow and agent chats stored in the workspace; hidden in the collapsed rail. -->
-				<div class="px-2 empty:hidden">
-					<AiChatsSection isCollapsed={collapsed} />
-				</div>
+				<!-- The flow and agent chats stored in the workspace, unless Customize turned them off. -->
+				{#if sidebarPrefs.aiChats.val}
+					<div class="px-2 empty:hidden">
+						<AiChatsSection isCollapsed={collapsed} />
+					</div>
+				{/if}
 			</SidebarScrollArea>
 		</div>
 
