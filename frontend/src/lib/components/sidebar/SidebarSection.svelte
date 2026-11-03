@@ -76,11 +76,11 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 	}
 </script>
 
-<!-- An unfolded section shows a down chevron at the end of its row in the open sidebar, and in an
-     item icon's place in the rail, which has no title: its items, right under it, name it. A
-     folded section shows its icon in that place, with a right chevron at the end of the row, or in
-     the strip right of the icon in the rail. The icon keeps the item icons' column in every mode,
-     so collapsing the sidebar does not move it. -->
+<!-- An unfolded section in the open sidebar is its title at the row's start and a down chevron at
+     its end: its items, right under it, name it. In the rail, which has no title, the chevron takes
+     an item icon's place. A folded section shows its icon in that place, with a right chevron at
+     the end of the row, or in the strip right of the icon in the rail. The icon keeps the item
+     icons' column in every mode, so collapsing the sidebar does not move it. -->
 {#snippet foldChevron(size: number, extraClass: string)}
 	<ChevronRight {size} class={twMerge('flex-shrink-0 text-hint', extraClass)} aria-hidden="true" />
 {/snippet}
@@ -108,14 +108,15 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 {/snippet}
 
 {#snippet rowContent()}
-	<!-- Kept empty when unfolded in the open sidebar, so the title stays in the item labels' column. -->
-	<span class="flex-shrink-0 flex items-center justify-center w-4 h-4">
-		{#if isFolded || disabled}
-			{@render sectionIcon()}
-		{:else if isCollapsed}
-			{@render unfoldedChevron('')}
-		{/if}
-	</span>
+	{#if isFolded || disabled || isCollapsed}
+		<span class="flex-shrink-0 flex items-center justify-center w-4 h-4">
+			{#if isFolded || disabled}
+				{@render sectionIcon()}
+			{:else}
+				{@render unfoldedChevron('')}
+			{/if}
+		</span>
+	{/if}
 	{#if !isCollapsed}
 		<span class="truncate uppercase text-[0.5rem] font-normal text-secondary">{title}</span>
 		{#if isFolded}
