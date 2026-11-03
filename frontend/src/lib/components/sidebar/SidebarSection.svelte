@@ -128,20 +128,10 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 		{#if isFolded}
 			{@render foldChevron(10, 'absolute right-0.5 top-[10px]')}
 		{/if}
-	{:else}
-		<!-- Its own line height: the folded and unfolded rows are different elements, whose
-		     inherited ones differ, and Firefox places the text by it. -->
-		<span class="truncate uppercase text-[0.5rem] leading-3 font-normal text-secondary"
-			>{title}</span
-		>
-		{#if notify && (isFolded || disabled)}
-			{@render notifyDot('flex-shrink-0')}
-		{/if}
-		{#if isFolded}
-			{@render foldChevron(12, 'ml-auto')}
-		{:else if !disabled}
-			{@render unfoldedChevron('ml-auto')}
-		{/if}
+	{:else if isFolded}
+		{@render foldChevron(12, 'ml-auto')}
+	{:else if !disabled}
+		{@render unfoldedChevron('ml-auto')}
 	{/if}
 {/snippet}
 
@@ -159,7 +149,7 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 		<!-- A fixed height and flex wrappers: Firefox gives inline wrappers line space, so a row sized by
 	     its content comes out taller than the 30px every other row has, more so while it is squeezed. -->
 		<div class="relative flex flex-row items-center gap-0.5 h-[30px]">
-			<div class="flex-1 min-w-0 flex items-center">
+			<div class="relative flex-1 min-w-0 flex items-center">
 				{#if isFolded}
 					<!-- The click folds rather than pinning the menu: caught before melt's own handler. Only
 					     the user's: the menu opens on hover by clicking its own trigger from script. -->
@@ -243,6 +233,20 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 					>
 						{@render rowContent()}
 					</Button>
+				{/if}
+				{#if !isCollapsed}
+					<!-- Outside the row's control, which is a different element folded and unfolded (melt's
+					     inline-block trigger, or a Button): the title stays one element, placed the same. -->
+					<span
+						class="pointer-events-none absolute inset-y-0 left-2 right-7 flex items-center gap-2"
+					>
+						<span class="truncate uppercase text-[0.5rem] leading-3 font-normal text-secondary"
+							>{title}</span
+						>
+						{#if notify && (isFolded || disabled)}
+							{@render notifyDot('flex-shrink-0')}
+						{/if}
+					</span>
 				{/if}
 			</div>
 			{#if !isCollapsed && !isFolded}
