@@ -103,7 +103,7 @@ import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
 import { prefersInstantReveal, TypewriterReveal } from './typewriterReveal'
-import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
+import { triggerablesByAi } from './sharedChatState.svelte'
 import {
 	createAppBackendRunnableContextElement,
 	createAppFrontendFileContextElement,
@@ -533,8 +533,6 @@ export class AIChatManager implements ChatViewHost {
 	// reopens the tab through this, so a page shown in between costs no failed call.
 	#pipelineReopener: ((folder: string) => void) | undefined = undefined
 	#openedPipelineFolders = new Set<string>()
-	readonly isOpen = $derived(chatState.size > 0)
-	savedSize = $state<number>(0)
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
 	// Message queued while a turn is streaming. There is only ever one queued
@@ -1671,8 +1669,6 @@ export class AIChatManager implements ChatViewHost {
 		API: !this.disabledModes.API,
 		global: true
 	})
-
-	open = $derived(chatState.size > 0)
 
 	// one token is ~ 4 characters
 	private estimateMessagesTokens = (messages: ChatCompletionMessageParam[]) => {
@@ -3183,32 +3179,6 @@ export class AIChatManager implements ChatViewHost {
 		}
 	}
 
-	openChat = () => {
-		// Nothing may open the docked pane in a workspace that hid the assistant.
-		if (get(copilotInfo).workspaceDisabled) {
-			return
-		}
-		chatState.size = this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE
-		localStorage.setItem('ai-chat-open', 'true')
-	}
-
-	closeChat = () => {
-		this.savedSize = chatState.size
-		chatState.size = 0
-		localStorage.setItem('ai-chat-open', 'false')
-	}
-
-	toggleOpen = () => {
-		if (chatState.size === 0 && get(copilotInfo).workspaceDisabled) {
-			return
-		}
-		if (chatState.size > 0) {
-			this.savedSize = chatState.size
-		}
-		chatState.size = chatState.size === 0 ? (this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE) : 0
-		localStorage.setItem('ai-chat-open', chatState.size === 0 ? 'false' : 'true')
-	}
-
 	askAi = (
 		prompt: string,
 		options: { withCode?: boolean; withDiff?: boolean } = {
@@ -3762,10 +3732,11 @@ export class AIChatManager implements ChatViewHost {
 				this.#ready = undefined
 			}
 		}
-		// A turn with nowhere to render still streams, spends tokens and applies
-		// tool calls — entirely off-screen. Refuse instead. `sendInlineRequest` is
-		// exempt: the ⌘K widget renders its own composer inside Monaco.
-		if (!this.isSessionChat && !chatState.dockedChatAvailable) {
+		// The shared manager has no chat on screen: turns render only in a session's own chat.
+		// One started here would still stream, spend tokens and apply tool calls, entirely
+		// off-screen, so refuse it. `sendInlineRequest` is exempt: the ⌘K widget renders its own
+		// composer inside Monaco.
+		if (this === aiChatManager) {
 			console.error('sendRequest called with no chat UI mounted; dropping the turn')
 			sendUserToast('This action needs the AI chat. Start an AI session to continue.', true)
 			return
@@ -3792,7 +3763,7 @@ export class AIChatManager implements ChatViewHost {
 				this.#scheduleAutoResumeRetry()
 			} else {
 				if (!options.queued) {
-					// Programmatic prompts (askAi, fix) stage their text in
+					// Programmatic prompts (askAi) stage their text in
 					// `this.instructions` and pass no option — fall back to it so
 					// they are handed back too.
 					this.restoreToInput(
@@ -5064,25 +5035,12 @@ export class AIChatManager implements ChatViewHost {
 		})
 	}
 
-	fix = () => {
-		if (!this.open) {
-			this.toggleOpen()
-		}
-		this.changeMode(AIMode.SCRIPT)
-		this.instructions = 'Fix the error'
-		this.contextManager?.setFixContext()
-		this.sendRequest()
-	}
-
 	addSelectedLinesToContext = (
 		lines: string,
 		startLine: number,
 		endLine: number,
 		moduleId?: string
 	) => {
-		if (!this.open) {
-			this.toggleOpen()
-		}
 		if (!moduleId) {
 			this.changeMode(AIMode.SCRIPT)
 		}
@@ -5609,10 +5567,8 @@ export const aiChatManager = new AIChatManager()
 // Hydrate both from user-scoped storage once the email is known, and on any
 // later user change. Registered only here (not in the constructor) so
 // per-session managers don't accumulate never-removed callbacks.
-//
-// init() is email-gated and idempotent, so re-opening the scoped DB here
-// (alongside AiChatLayout's mount-time init()) is harmless and lets the
-// singleton self-heal on email change like the other user-scoped surfaces.
+// init() is email-gated and idempotent, so it self-heals on an email change like the
+// other user-scoped surfaces.
 onUserChange(() => {
 	aiChatManager.hydrateUserScopedAutonomy()
 	void aiChatManager.historyManager.init()

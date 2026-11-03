@@ -7,12 +7,10 @@
 
 	let {
 		offset = 0,
-		disableChatOffset = false,
 		onSaved = undefined,
 		workspace = undefined
 	}: {
 		offset?: number
-		disableChatOffset?: boolean
 		onSaved?: (name: string, created: boolean) => void | Promise<void>
 		/** Edit a folder of this workspace rather than the active one. */
 		workspace?: string
@@ -101,7 +99,6 @@
 <Drawer
 	bind:this={drawer}
 	{offset}
-	{disableChatOffset}
 	on:close={() => {
 		// Escape and click-away close the drawer before asking. Reopening in the same
 		// tick is how the flow's script editor drawer handles this too: the close

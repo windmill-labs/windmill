@@ -42,7 +42,7 @@
 </script>
 
 <script lang="ts">
-	import { getContext, type ComponentProps, type Snippet } from 'svelte'
+	import { getContext, type ComponentProps } from 'svelte'
 	import { BROWSER } from 'esm-env'
 	import AIButton from '$lib/components/copilot/chat/AIButton.svelte'
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
@@ -57,10 +57,9 @@
 		btnProps,
 		label,
 		tooltip,
-		fallback,
 		deferToHeader = false
 	}: {
-		/** Undefined (e.g. an item without a path yet) renders the fallback. */
+		/** Undefined (e.g. an item without a path yet) renders nothing. */
 		source?: OpenInSessionSource
 		btnClasses?: string
 		/** Button styling overrides for hosts with their own conventions (an
@@ -72,9 +71,6 @@
 		/** Hover text. Pass it whenever `label` is set: a renamed button no longer
 		 * says that clicking it leaves for a session. */
 		tooltip?: string
-		/** Rendered instead when there is nothing to open in a session (no source yet). Never
-		 * rendered inside the session panel. */
-		fallback?: Snippet
 		/** For a button inside a page whose header can carry the same hand-off: while the header
 		 * does, this renders nothing, so the hand-off has one place on screen. An editor in a drawer
 		 * opened on another item keeps its own button. */
@@ -112,8 +108,7 @@
 </script>
 
 {#if $copilotInfo.workspaceDisabled}
-	<!-- The workspace hid the assistant: neither the hand-off nor the docked-chat
-	     fallback has anywhere to lead, so no host renders an AI button at all. -->
+	<!-- The workspace hid the assistant, so no host renders an AI button at all. -->
 {:else if show}
 	<AIButton
 		togglePanel={open}
@@ -122,6 +117,4 @@
 		{label}
 		{tooltip}
 	/>
-{:else if !inSessionPanel && !handoff}
-	{@render fallback?.()}
 {/if}

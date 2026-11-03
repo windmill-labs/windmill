@@ -111,7 +111,6 @@
 	import { editorPositionMap } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
 	import { aiChatManager, type AIChatManager } from './copilot/chat/AIChatManager.svelte'
-	import { chatState } from './copilot/chat/sharedChatState.svelte'
 	import type { Selection } from 'monaco-editor'
 	import { canHavePreprocessor, getPreprocessorModuleCode } from '$lib/script_helpers'
 	import { setMonacoTypescriptOptions } from './monacoLanguagesOptions'
@@ -1638,11 +1637,9 @@
 					selection &&
 					(selection.startLineNumber !== selection.endLineNumber ||
 						selection.startColumn !== selection.endColumn)
-				// Target whichever chat is actually on screen: the session's own in a
-				// session pane, else the docked one. With sessions on outside a pane
-				// there is neither, and both branches below would be silent no-ops.
-				const chat = sessionScopedChatManager ?? aiChatManager
-				if (!sessionScopedChatManager && !chatState.dockedChatAvailable) return
+				// Only a session pane has a chat on screen to send the lines to.
+				const chat = sessionScopedChatManager
+				if (!chat) return
 				if (hasSelection && selectedLines) {
 					chat.addSelectedLinesToContext(
 						selectedLines,
@@ -1651,8 +1648,6 @@
 						moduleId
 					)
 				} else {
-					// A session chat is always visible — only the docked pane toggles.
-					if (!sessionScopedChatManager) chat.toggleOpen()
 					chat.focusInput()
 				}
 			})

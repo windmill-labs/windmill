@@ -42,7 +42,6 @@
 		react19Template,
 		STARTER_RUNNABLES
 	} from '$lib/components/raw_apps/templates'
-	import { aiChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	type RawAppDraft = {
 		files: Record<string, string>
@@ -631,17 +630,6 @@
 		policy = picked.policy
 		// Remount RawAppEditor so the iframe picks up the new files.
 		redraw++
-		// Sync to aiChatManager so its prompts respect the picked data config.
-		aiChatManager.datatableCreationPolicy = {
-			enabled: !!result.data.datatable,
-			datatable: result.data.datatable,
-			schema: result.data.schema,
-			roles: result.data.roles
-		}
-		if (mode === 'ai') {
-			aiChatManager.changeMode(AIMode.APP)
-			if (!aiChatManager.open) aiChatManager.toggleOpen()
-		}
 	}
 </script>
 

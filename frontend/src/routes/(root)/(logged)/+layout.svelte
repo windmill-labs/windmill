@@ -116,7 +116,6 @@
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { cubicOut } from 'svelte/easing'
 	import { Tooltip } from '$lib/components/meltComponents'
-	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
 	import {
@@ -318,9 +317,6 @@
 	// A workspace that hid the assistant (`ai_config.copilot_disabled`) lists no sessions.
 	const sessionsShown = $derived(sidebarSessionsShown())
 
-	// AI work happens in sessions, so no page here docks a chat; the pane size restored from
-	// localStorage would otherwise offset drawers and modals for a pane that never renders.
-	chatState.size = 0
 	// The workspace AI config gates far more than chat (code completion, metadata generation,
 	// the "open in AI session" buttons). On the sessions route SessionWrapper loads the session's
 	// acting workspace instead, and both writing the global store would race.
