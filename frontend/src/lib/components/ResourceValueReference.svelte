@@ -37,11 +37,10 @@
 </script>
 
 <script lang="ts">
-	import { VariableService } from '$lib/gen'
-	import { DollarSign, Plus } from 'lucide-svelte'
+	import { DollarSign } from 'lucide-svelte'
 	import { Button } from './common'
-	import ItemPicker from './ItemPicker.svelte'
-	import VariableEditor from './VariableEditor.svelte'
+	import type VariableEditor from './VariableEditor.svelte'
+	import VariablePicker from './VariablePicker.svelte'
 
 	interface Props {
 		/** The reference to show, `undefined` when the value is not one: the picker still mounts. */
@@ -53,7 +52,7 @@
 
 	let { reference, disabled = false, workspace, onPick }: Props = $props()
 
-	let picker: ItemPicker | undefined = $state(undefined)
+	let picker: VariablePicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
 
 	let referencedResource = $derived(reference?.startsWith('$res:') ? reference.slice(5) : undefined)
@@ -104,31 +103,10 @@
 	</div>
 {/if}
 
-<ItemPicker
+<VariablePicker
 	bind:this={picker}
-	pickCallback={(path) => onPick('$jsonvar:' + path)}
-	itemName="Variable"
+	bind:variableEditor
+	{workspace}
 	tooltip="The variable must hold the whole value as JSON. It is parsed when the resource is used."
-	documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
-	extraField="path"
-	loadItems={async () =>
-		(await VariableService.listVariable({ workspace: workspace ?? '' })).map((x) => ({
-			name: x.path,
-			...x
-		}))}
->
-	{#snippet submission()}
-		<div>
-			<Button
-				variant="default"
-				unifiedSize="md"
-				startIcon={{ icon: Plus }}
-				onClick={() => variableEditor?.initNew?.()}
-			>
-				New variable
-			</Button>
-		</div>
-	{/snippet}
-</ItemPicker>
-
-<VariableEditor bind:this={variableEditor} {workspace} onSaved={() => picker?.reloadItems()} />
+	onPick={(path) => onPick('$jsonvar:' + path)}
+/>
