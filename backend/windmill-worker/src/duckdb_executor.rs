@@ -6,11 +6,12 @@ use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
+use windmill_common::jobs::JobKind;
 use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{get_memory, to_raw_value, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
-    get_datatable_resource_from_db, get_ducklake_from_db_unchecked,
-    sql_literal_len, strip_fork_reserved_attach_args, strip_sql_comments, DatatableAccess, DatatableConnectAs,
+    get_datatable_resource_from_db, get_ducklake_from_db_unchecked, sql_literal_len,
+    strip_fork_reserved_attach_args, strip_sql_comments, DatatableAccess, DatatableConnectAs,
     DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
@@ -115,6 +116,8 @@ async fn fetch_custom_test_body(conn: &Connection, w_id: &str, path: &str) -> Re
 // `record_declared_warehouse_write`).
 fn build_materialized_query(
     query: &str,
+    // Names the table of a target that names none; a run without a path has to name it.
+    script_path: Option<&str>,
     partition_value: Option<&str>,
     // Custom (`// data_test <path>`) test bodies, pre-fetched by the caller
     // (`fetch_custom_test_bodies`) so this stays pure/sync and unit-testable —
@@ -129,6 +132,10 @@ fn build_materialized_query(
     };
 
     let ann = parse_pipeline_annotations(query);
+    let ann = match script_path {
+        Some(path) => ann.for_script(path),
+        None => ann,
+    };
     let has_tests = !ann.data_tests.is_empty();
     let Some(m) = ann.materialize else {
         // Data tests run *against the materialized asset*; without a
@@ -211,7 +218,8 @@ fn build_materialized_query(
     }
     if table.is_empty() {
         return Err(Error::ExecutionErr(format!(
-            "materialize: target `ducklake://{}` has no table (use ducklake://<name>/<table>)",
+            "materialize: target `ducklake://{}` has no table, and this run has no script path to \
+             name it after (use ducklake://<name>/<table>)",
             m.target_path
         )));
     }
@@ -1343,7 +1351,30 @@ pub async fn do_duckdb(
             // itself stays pure/sync.
             let custom_test_bodies =
                 fetch_custom_test_bodies(query, conn, &job.workspace_id).await?;
-            build_materialized_query(query, partition_value.as_deref(), &custom_test_bodies)?
+            // A deployed script, run directly or from a flow, names an untabled target after
+            // its own path. An inline flow step's path is `<flow>/<step id>`, which would name
+            // one shared table per step id across every flow, so it has to name its table.
+            // A flow editor's "Test this step" (marked by `_FLOW_PATH`) previews an inline step
+            // under that same `<flow>/<step id>` path. A step referencing a deployed script
+            // sends that script's hash and previews under its own path, which names its table
+            // as the script's own run does, wherever the script sits relative to the flow.
+            let inline_step_preview = job.runnable_id.is_none()
+                && job
+                    .args
+                    .as_ref()
+                    .is_some_and(|a| a.0.contains_key("_FLOW_PATH"));
+            let script_path = (job.kind == JobKind::Script
+                || (job.kind == JobKind::Preview
+                    && job.flow_step_id.is_none()
+                    && !inline_step_preview))
+                .then(|| job.runnable_path.as_deref())
+                .flatten();
+            build_materialized_query(
+                query,
+                script_path,
+                partition_value.as_deref(),
+                &custom_test_bodies,
+            )?
         } else {
             None
         };
@@ -3592,7 +3623,7 @@ mod tests {
         // The wrapped query still references `$file`, so the parsed sig binds it.
         // No custom data tests here, so no fetched bodies are needed.
         let (rewritten, _) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
@@ -3626,6 +3657,7 @@ mod tests {
         // binds them at run time.
         let (rewritten, _) = build_materialized_query(
             script,
+            None,
             Some("2026-07-02"),
             &std::collections::HashMap::new(),
         )
@@ -3648,7 +3680,7 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id history track=name\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, _) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("scd2 is managed — must rewrite");
@@ -3679,7 +3711,7 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id history deletes=close\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, _) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("scd2 is managed — must rewrite");
@@ -3692,10 +3724,11 @@ mod tests {
     #[test]
     fn materialize_scd2_requires_key() {
         let script = "-- materialize scd2 ducklake://main/dim\nSELECT id, name FROM dl.src";
-        let err = match build_materialized_query(script, None, &std::collections::HashMap::new()) {
-            Err(e) => e,
-            Ok(_) => panic!("scd2 without key must error"),
-        };
+        let err =
+            match build_materialized_query(script, None, None, &std::collections::HashMap::new()) {
+                Err(e) => e,
+                Ok(_) => panic!("scd2 without key must error"),
+            };
         assert!(
             format!("{err}").contains("requires a natural key"),
             "got: {err}"
@@ -3708,6 +3741,7 @@ mod tests {
                       -- materialize scd2 ducklake://main/dim key=id\nSELECT id, name FROM dl.src";
         let err = match build_materialized_query(
             script,
+            None,
             Some("2026-07-01"),
             &std::collections::HashMap::new(),
         ) {
@@ -3733,7 +3767,7 @@ mod tests {
                       -- data_test not_null id\n\
                       SELECT id FROM dl.src";
         let (rewritten, meta) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
@@ -3758,7 +3792,7 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id on_schema_change=fail\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, meta) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
@@ -3777,7 +3811,7 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id on_schema_change=sync\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, meta) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
@@ -3810,7 +3844,7 @@ mod tests {
         let script = "-- materialize ducklake://main/dim key=id\n\
                       SELECT id, name FROM dl.src";
         let (rewritten, meta) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");
@@ -3834,7 +3868,7 @@ mod tests {
         let script = "-- materialize ducklake://main/t on_schema_change=fail\n\
                       SELECT a, b FROM dl.src";
         let (rewritten, meta) =
-            build_materialized_query(script, None, &std::collections::HashMap::new())
+            build_materialized_query(script, None, None, &std::collections::HashMap::new())
                 .expect("materialize builds")
                 .expect("materialize present");
         let rewritten = rewritten.expect("managed mode rewrites the query");

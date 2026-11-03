@@ -1980,7 +1980,7 @@ pub async fn asset_graph_for(
         .map(|r| {
             (
                 r.path.clone(),
-                windmill_common::assets::parse_pipeline_annotations(&r.content),
+                windmill_common::assets::parse_pipeline_annotations(&r.content).for_script(&r.path),
             )
         })
         .collect();

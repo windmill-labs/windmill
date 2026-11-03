@@ -2099,9 +2099,7 @@
 					}}
 					{forceTestTab}
 					{highlightArg}
-					aiChatOpen={aiChatManager.open}
 					{showFlowAiButton}
-					toggleAiChat={() => aiChatManager.toggleOpen()}
 					{sessionOpen}
 					onOpenPreview={flowPreviewButtons?.openPreview}
 					localModuleStates={showJobStatus ? localModuleStates : {}}

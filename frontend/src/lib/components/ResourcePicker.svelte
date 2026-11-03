@@ -37,7 +37,6 @@
 		excludedValues?: string[]
 		datatableAsPgResource?: boolean
 		workspace?: string | undefined
-		disableChatOffset?: boolean
 		/** Fires when this picker sets a resource, with the type it carries, and with `undefined` on
 		 *  clear. Unlike an effect on `valueType` it never fires for the value the picker was opened
 		 *  on, but `selectFirst` choosing the only candidate during a load does count as setting one. */
@@ -64,7 +63,6 @@
 		excludedValues = undefined,
 		datatableAsPgResource = false,
 		workspace = undefined,
-		disableChatOffset = false,
 		onValueChange = undefined
 	}: Props = $props()
 
@@ -215,12 +213,10 @@
 	bind:this={appConnect}
 	{expressOAuthSetup}
 	{workspace}
-	{disableChatOffset}
 />
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
 	{workspace}
-	{disableChatOffset}
 	on:refresh={async (e) => {
 		await loadResources(resourceType)
 		if (e.detail) {

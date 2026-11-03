@@ -258,8 +258,11 @@ async fn fetch_target(
             usr.email
         }
         "g" => {
+            // Instance groups are granted through the same `g/<name>` keys, and the callers' check
+            // lets their members ask, so a name from either table is a group here.
             let exists = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = $2)",
+                "SELECT EXISTS(SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = $2)
+                    OR EXISTS(SELECT 1 FROM instance_group WHERE name = $2)",
                 w_id,
                 name
             )

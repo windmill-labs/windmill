@@ -6,6 +6,8 @@
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
+	import { onDestroy } from 'svelte'
+	import { homeActionsGathered, homeHeaderMenu } from './home/homeHeaderMenu.svelte'
 
 	// Surfaces pending drafts (scripts/flows/apps) for the current workspace and
 	// links to the compare page in draft mode. Mutually exclusive with
@@ -28,9 +30,21 @@
 		}
 	}
 	const phone = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
+
+	const menuId = homeHeaderMenu.register(-100, () =>
+		!isFork && draftCount > 0 && homeActionsGathered()
+			? [
+					{
+						displayName: `Review & deploy ${draftCount} draft${draftCount !== 1 ? 's' : ''}`,
+						action: openDraftCompare
+					}
+				]
+			: []
+	)
+	onDestroy(() => homeHeaderMenu.release(menuId))
 </script>
 
-{#if !isFork && draftCount > 0}
+{#if !isFork && draftCount > 0 && !homeActionsGathered()}
 	<!-- In the band rather than a banner over the page: it is a standing fact about the workspace,
 	     not an interruption, and one button says it and acts on it. -->
 	<PageHeaderContent actions={draftsAction} actionsOrder={-100} />
@@ -41,6 +55,7 @@
 	     the bar has room for one thing. -->
 	{#if phone}
 		<Button
+			btnClasses="wm-page-in"
 			variant="subtle"
 			unifiedSize="sm"
 			onclick={openDraftCompare}
@@ -49,11 +64,14 @@
 			<Badge color="blue" small>{draftCount}</Badge>
 		</Button>
 	{:else}
-		<Badge color="blue" small>
-			{draftCount} draft{draftCount !== 1 ? 's' : ''}
-		</Badge>
-		<Button variant="subtle" unifiedSize="sm" onclick={openDraftCompare}>
-			Review & deploy drafts
-		</Button>
+		<!-- Fades in: the count lands after the bar it joins has already painted. -->
+		<span class="flex items-center gap-2 wm-page-in">
+			<Badge color="blue" small>
+				{draftCount} draft{draftCount !== 1 ? 's' : ''}
+			</Badge>
+			<Button variant="subtle" unifiedSize="sm" onclick={openDraftCompare}>
+				Review & deploy drafts
+			</Button>
+		</span>
 	{/if}
 {/snippet}
