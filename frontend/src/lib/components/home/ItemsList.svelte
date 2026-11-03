@@ -14,7 +14,8 @@
 		type ListableResource,
 		type RunnableItem
 	} from '$lib/gen'
-	import { resource } from 'runed'
+	import { persistedResource, persistedValue } from '$lib/persistedResource.svelte'
+	import { readSessionHint } from '$lib/lastSession'
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
 	import { disableHubStore, roleCapabilities, userStore, workspaceStore } from '$lib/stores'
 	import { shareEditRights, useEditRights } from '$lib/operatorWriteRights'
@@ -262,17 +263,15 @@
 	// cheap via the partial index) AND bundle-phase pipelines that only exist as a
 	// `data_pipeline` draft so far — so a pipeline shows up the moment its first
 	// node is drafted, before anything is deployed.
-	let pipelineFoldersRes = resource(
+	// Cached as a list: the persisted cache holds plain JSON.
+	let pipelineFoldersRes = persistedResource(
 		() => $workspaceStore,
 		async (ws) => {
-			if (!ws) return new Set<string>()
+			if (!ws) return [] as string[]
 			const folders = new Set<string>()
-			try {
-				for (const r of await AssetService.listPipelineFolders({ workspace: ws }))
-					folders.add(r.folder)
-			} catch {
-				// Decorative entry — degrade gracefully on failure.
-			}
+			// A failure throws: the entry is decorative, so what is shown stays (or nothing does).
+			for (const r of await AssetService.listPipelineFolders({ workspace: ws }))
+				folders.add(r.folder)
 			try {
 				for (const d of await getDraftItems(ws)) {
 					if (d.kind !== PIPELINE_DRAFT_KIND) continue
@@ -282,7 +281,12 @@
 			} catch {
 				// Drafts unavailable — show deployed pipelines only.
 			}
-			return folders
+			return [...folders]
+		},
+		{
+			name: 'home_pipeline_folders',
+			version: 1,
+			scope: (ws) => (ws ? { workspace: ws } : undefined)
 		}
 	)
 	// Folders of pipeline-member scripts present in the current listing (captured
@@ -298,41 +302,34 @@
 	// The workspace's full folder list, independent of which items are paged in,
 	// so the owner facet and tree show every folder even when its items sit far
 	// down the sorted stream. Cheap and cached per workspace.
-	let folderNamesRes = resource(
+	let folderNamesRes = persistedResource(
 		() => $workspaceStore,
 		async (ws) => {
 			if (!ws) return [] as string[]
 			// Page to exhaustion: listFolderNames is capped per page, so a workspace
-			// with more folders than the cap would otherwise be truncated.
+			// with more folders than the cap would otherwise be truncated. A failure throws,
+			// which keeps what is shown rather than caching a truncated list.
 			const perPage = 1000
 			const all: string[] = []
-			try {
-				for (let page = 1; ; page++) {
-					const batch = await FolderService.listFolderNames({ workspace: ws, page, perPage })
-					all.push(...batch)
-					if (batch.length < perPage) break
-				}
-			} catch {
-				// Best-effort facet; return whatever we gathered.
+			for (let page = 1; ; page++) {
+				const batch = await FolderService.listFolderNames({ workspace: ws, page, perPage })
+				all.push(...batch)
+				if (batch.length < perPage) break
 			}
 			return all
-		}
+		},
+		{ name: 'home_folder_names', version: 1, scope: (ws) => (ws ? { workspace: ws } : undefined) }
 	)
 	let allFolderOwners = $derived((folderNamesRes.current ?? []).map((f) => `f/${f}`))
 	// Every workspace username, so a user whose items sit beyond the loaded browse
 	// window is still a selectable owner chip (scoping the stream to `u/<user>/`).
 	// Without this, user owners would derive only from loaded rows and a user past
 	// the first page would be unreachable in the tree without searching.
-	let usernamesRes = resource(
+	let usernamesRes = persistedResource(
 		() => $workspaceStore,
-		async (ws) => {
-			if (!ws) return [] as string[]
-			try {
-				return await UserService.listUsernames({ workspace: ws })
-			} catch {
-				return [] as string[] // best-effort facet
-			}
-		}
+		// Best-effort facet: a failure leaves what is shown, or nothing.
+		async (ws) => (ws ? await UserService.listUsernames({ workspace: ws }) : []),
+		{ name: 'home_usernames', version: 1, scope: (ws) => (ws ? { workspace: ws } : undefined) }
 	)
 	let allUserOwners = $derived((usernamesRes.current ?? []).map((u) => `u/${u}`))
 
@@ -344,7 +341,23 @@
 	// Monotonic fetch-order counter stamped onto each row as it arrives (see TableItem.ord).
 	let fetchOrd = 0
 
-	let filteredItems: (TableScript | TableFlow | TableApp | TableRawApp | TableAgent)[] = $state([])
+	// The workspace the browse rows were fetched in. The rows are replaced by an effect, which
+	// runs after the frame a workspace switch renders: until then they belong to the previous one.
+	let shownWorkspace = $state<string | undefined>(undefined)
+	let searchResults: (TableScript | TableFlow | TableApp | TableRawApp | TableAgent)[] = $state([])
+	// SearchItems writes its results back from an effect, so for a frame after the rows change
+	// they are still the previous rows, which can be another workspace's. Unsearched, they are
+	// its input as is; searched, they count once tagged with the rows they were computed after.
+	let searchResultsWorkspace = $state<string | undefined>(undefined)
+	$effect(() => {
+		searchResults
+		untrack(() => (searchResultsWorkspace = shownWorkspace))
+	})
+	let filteredItems = $derived.by(() => {
+		if (shownWorkspace !== $workspaceStore) return undefined
+		if (filter.trim() === '') return preFilteredItems
+		return searchResultsWorkspace === shownWorkspace ? searchResults : undefined
+	})
 
 	let loading = $state(true)
 
@@ -356,6 +369,9 @@
 	let hasMoreServer = $state(false)
 	// Guards against out-of-order responses: only the latest request applies.
 	let loadGen = 0
+	// The latest generation whose request failed: a cached page landing after it still shows,
+	// but with nothing to page on to.
+	let failedGen = 0
 
 	function mapRunnable(it: RunnableItem): TableScript | TableFlow | TableApp | TableAgent {
 		// combinedItems reads a script's time from `created_at`; the endpoint's
@@ -381,7 +397,6 @@
 		// landed — bail so a load-more can't append a fresh page-1 onto the old
 		// arrays (mixing streams) or clobber the pending reset's generation.
 		if (!reset && serverCursor === undefined) return
-		if (scripts === undefined) loading = true
 		if (reset) {
 			serverCursor = undefined
 			hasMoreServer = false
@@ -395,34 +410,84 @@
 		// Snapshot the cursor now: a later request must not consume a cursor minted
 		// by an order/filter that has since changed.
 		const cursor = reset ? undefined : serverCursor
+		const params = browseParams()
+		const sentWith = readSessionHint()
+		const request = ScriptService.listRunnables({ workspace: ws, ...params, cursor })
+		const cacheScope = { workspace: ws, args: params }
+		// Rows of this workspace already on screen are replaced on arrival, as for any filter
+		// change. Otherwise (first load, workspace switch) the last first page stands in.
+		if (reset && shownWorkspace !== ws) void showCachedFirstPage(cacheScope, gen)
+		if (scripts === undefined) loading = true
 		let res: { items: RunnableItem[]; next_cursor?: string }
 		try {
-			res = await ScriptService.listRunnables({
-				workspace: ws,
-				...sortToParams(sortOrder),
-				showArchived: archived ? true : undefined,
-				includeWithoutMain: includeWithoutMain ? true : undefined,
-				kinds: runnableKinds,
-				// Selecting an owner/folder scopes the paged stream to it server-side,
-				// so a folder's full contents load on demand rather than relying on the
-				// folder happening to be within the loaded browse window.
-				pathStart: ownerFilter ? ownerFilter + '/' : undefined,
-				// Your own not-yet-deployed work belongs in the list you browse; the
-				// endpoint sorts and pages it with everything else.
-				includeDraftOnly: true,
-				perPage: 100,
-				cursor
-			})
+			res = await request
 		} catch (e: any) {
 			if (gen !== loadGen) return
+			failedGen = gen
 			loading = false
+			// A cached first page has no cursor to page on from, so it can offer no "Load more".
+			if (reset) hasMoreServer = false
 			sendUserToast(`Failed to load items: ${e?.body ?? e?.message ?? e}`, true)
 			return
 		}
 		// A newer request superseded this one (e.g. order changed mid-flight); drop
 		// this response so a stale page/cursor can't be mixed with the new order.
 		if (gen !== loadGen) return
+		if (reset) firstPageCache.save(cacheScope, res, sentWith)
+		applyRunnables(res, reset, ws)
 		serverCursor = res.next_cursor ?? undefined
+	}
+
+	function browseParams() {
+		return {
+			...sortToParams(sortOrder),
+			showArchived: archived ? true : undefined,
+			includeWithoutMain: includeWithoutMain ? true : undefined,
+			kinds: runnableKinds,
+			// Selecting an owner/folder scopes the paged stream to it server-side,
+			// so a folder's full contents load on demand rather than relying on the
+			// folder happening to be within the loaded browse window.
+			pathStart: ownerFilter ? ownerFilter + '/' : undefined,
+			// Your own not-yet-deployed work belongs in the list you browse; the
+			// endpoint sorts and pages it with everything else.
+			includeDraftOnly: true,
+			perPage: 100
+		}
+	}
+
+	// The browse stream's first page as last fetched, painted while its request is in flight.
+	const firstPageCache = persistedValue<{ items: RunnableItem[]; next_cursor?: string }>(
+		'home_runnables_first_page',
+		1
+	)
+
+	// No cursor is kept from a cached page: paging on from a stale one could skip or repeat rows.
+	// "Load more" stays shown and is a no-op until the fresh page lands.
+	async function showCachedFirstPage(scope: { workspace: string; args: unknown }, gen: number) {
+		// Synchronous when memory has it, so the frame that mounts the list already holds rows.
+		const inMemory = firstPageCache.peek(scope)
+		if (inMemory) return applyRunnables(inMemory, true, scope.workspace)
+		// Another workspace's rows are never shown under this one, not even until its own land.
+		if (shownWorkspace !== undefined) clearRunnables()
+		const cached = await firstPageCache.load(scope)
+		if (!cached || gen !== loadGen || shownWorkspace === scope.workspace) return
+		applyRunnables(cached, true, scope.workspace)
+		if (failedGen === gen) hasMoreServer = false
+	}
+
+	function clearRunnables() {
+		scripts = flows = apps = raw_apps = undefined
+		agents = undefined
+		pipelineMemberFolders = new Set()
+		shownWorkspace = undefined
+		loading = true
+	}
+
+	function applyRunnables(
+		res: { items: RunnableItem[]; next_cursor?: string },
+		reset: boolean,
+		ws: string
+	) {
 		hasMoreServer = !!res.next_cursor
 
 		const s: TableScript[] = reset ? [] : [...(scripts ?? [])]
@@ -454,6 +519,7 @@
 		agents = ag
 		raw_apps = []
 		pipelineMemberFolders = memberFolders
+		shownWorkspace = ws
 		loading = false
 	}
 
@@ -1076,23 +1142,31 @@
 	// are omitted from the response, so an absent key means empty. Fetched in every mode
 	// (the chips are shown in all of them) except the archived view, which the endpoint
 	// doesn't count.
-	let ownerCountsRes = resource(
-		[() => $workspaceStore, () => archived, () => itemKind, () => includeWithoutMain],
-		async ([ws, showArchived, kind, withoutMain]) => {
+	let ownerCountsRes = persistedResource(
+		() => ({
+			ws: $workspaceStore,
+			showArchived: archived,
+			kind: itemKind,
+			withoutMain: includeWithoutMain
+		}),
+		// Best-effort: a failure throws, and without counts (none cached either) the tree and the
+		// chips fall back to every owner.
+		async ({ ws, showArchived, kind, withoutMain }) => {
 			if (!ws || showArchived) return undefined
-			try {
-				const res = await ScriptService.countRunnablesByOwner({
-					workspace: ws,
-					kinds: kind !== 'all' ? kind : undefined,
-					includeWithoutMain: withoutMain ? true : undefined,
-					// Same scope as the listing, so a badge counts the rows behind it.
-					includeDraftOnly: true
-				})
-				return res.counts
-			} catch {
-				// Best-effort: without counts the tree and the chips fall back to every owner.
-				return undefined
-			}
+			const res = await ScriptService.countRunnablesByOwner({
+				workspace: ws,
+				kinds: kind !== 'all' ? kind : undefined,
+				includeWithoutMain: withoutMain ? true : undefined,
+				// Same scope as the listing, so a badge counts the rows behind it.
+				includeDraftOnly: true
+			})
+			return res.counts
+		},
+		{
+			name: 'home_owner_counts',
+			version: 1,
+			scope: ({ ws, showArchived, kind, withoutMain }) =>
+				ws && !showArchived ? { workspace: ws, args: { kind, withoutMain } } : undefined
 		}
 	)
 	let ownerCounts = $derived(ownerCountsRes.current)
@@ -1363,6 +1437,13 @@
 	// matches against it, so later pages hold matches the first one lacks. In lazy mode each
 	// folder paginates within itself; users past the window are reached via their owner chip.
 	let treeGlobalHasMore = $derived(!treeLazyMode && !searching ? hasMoreServer : false)
+	// The cached first page, applied as the list is created rather than by the reload effect
+	// below, which runs after the first render: the rows are then in the frame that mounts it.
+	{
+		const ws = $workspaceStore
+		const cached = ws ? firstPageCache.peek({ workspace: ws, args: browseParams() }) : undefined
+		if (ws && cached) applyRunnables(cached, true, ws)
+	}
 	$effect(() => {
 		if ($workspaceStore) {
 			;[archived, includeWithoutMain, sortOrder, searching, ownerFilter, itemKind]
@@ -1480,7 +1561,11 @@
 	}
 
 	let combinedItems = $derived(
-		flows == undefined || scripts == undefined || apps == undefined || raw_apps == undefined
+		flows == undefined ||
+			scripts == undefined ||
+			apps == undefined ||
+			raw_apps == undefined ||
+			shownWorkspace !== $workspaceStore
 			? undefined
 			: [
 					...flows.map((x) => ({
@@ -1563,13 +1648,16 @@
 		)
 	)
 	let items = $derived(filter !== '' ? filteredItems : preFilteredItems)
+	// The workspace `treeOwnerItems` was cleared for: until the treeKey effect runs after a switch,
+	// they are the previous workspace's.
+	let treeWorkspace = $state<string | undefined>(undefined)
 	// Source the tree groups. In lazy mode every top-level owner (folder and user) is
 	// injected as a node and its rows come from the on-demand `treeOwnerItems` store,
 	// so the tree never depends on which owners happen to be in the loaded window.
 	// Otherwise (scoped/search/label) the tree just groups the global `items`.
 	let treeSource = $derived(
 		treeLazyMode
-			? treeOwnerItems.filter((x) =>
+			? (treeWorkspace === $workspaceStore ? treeOwnerItems : []).filter((x) =>
 					filterItemsPathsBaseOnUserFilters(x, filterUserFolders, filterUserFoldersType)
 				)
 			: items
@@ -1596,6 +1684,7 @@
 			treeGen++
 			ownerLoad = {}
 			treeOwnerItems = []
+			treeWorkspace = $workspaceStore
 			openOwners = new Set()
 			nbDisplayed = 15
 			const scoped = ownerFilter != undefined || labelFilter != undefined
@@ -1957,7 +2046,7 @@
 <SearchItems
 	{filter}
 	items={preFilteredItems}
-	bind:filteredItems
+	bind:filteredItems={searchResults}
 	f={(x) => {
 		// A draft-only row is named by the path typed in the editor — its stored path is a
 		// generated `draft_<uuid>` nobody types into the search box.

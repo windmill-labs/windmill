@@ -160,6 +160,7 @@ mod saml_oss;
 #[cfg(feature = "private")]
 pub mod scim_ee;
 mod scim_oss;
+mod session_hint;
 mod scripts;
 mod secret_backend_ext;
 mod service_logs;
@@ -450,6 +451,7 @@ pub async fn run_server(
         .layer(Extension(job_index_reader))
         .layer(Extension(log_index_reader))
         // .layer(Extension(index_writer))
+        .layer(axum::middleware::from_fn(session_hint::mirror_session_cookie))
         .layer(CookieManagerLayer::new())
         .layer(Extension(WebhookShared::new(
             killpill_rx.resubscribe(),

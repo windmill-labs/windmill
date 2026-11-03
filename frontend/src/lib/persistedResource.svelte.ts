@@ -1,0 +1,114 @@
+import { resource } from 'runed'
+import {
+	cacheIdentity,
+	cacheKeys,
+	loadEntry,
+	peekEntry,
+	saveEntry,
+	type CacheScope
+} from '$lib/persistedCache.svelte'
+import { readSessionHint } from '$lib/lastSession'
+
+/**
+ * A response may be filed only under the session that answered it: another tab logging in
+ * while a request is in flight swaps the cookie under this tab, whose user stays the old one.
+ */
+function sameSessionSince(sentWith: string | undefined): boolean {
+	return readSessionHint() === sentWith
+}
+
+export interface PersistOptions<A> {
+	/** Names the response; part of every key. */
+	name: string
+	/** Bump whenever the stored value's shape changes: entries of another version read as none. */
+	version: number
+	/** What the response for `args` is filed under; undefined keeps it out of the cache. */
+	scope: (args: A) => CacheScope | undefined
+}
+
+type Keys = { scope: string; key: string }
+export type Tagged<T> = { keys: Keys | undefined; value: T | undefined }
+
+/**
+ * What to show for `keys`: the response fetched for them, else the cached one, else a response
+ * of the same scope fetched for other arguments (a filter change keeps the list up while the
+ * new one loads). Never a response of another user or workspace.
+ */
+export function pickShown<T>(
+	fresh: Tagged<T> | undefined,
+	keys: Keys | undefined,
+	cached: T | undefined
+): T | undefined {
+	if (!keys) return fresh?.keys === undefined ? fresh?.value : undefined
+	if (fresh?.keys?.key === keys.key && fresh.value !== undefined) return fresh.value
+	if (cached !== undefined) return cached
+	return fresh?.keys?.scope === keys.scope ? fresh.value : undefined
+}
+
+function keysFor<A>(opts: PersistOptions<A>, args: A): Keys | undefined {
+	const identity = cacheIdentity()
+	const scope = identity ? opts.scope(args) : undefined
+	return identity && scope ? cacheKeys(identity, opts.name, scope) : undefined
+}
+
+/**
+ * runed's `resource`, painting the last response stored for the same user, workspace and
+ * arguments until its own request returns, then replacing it in place. A fetch that throws
+ * keeps what is shown, cached or fetched, rather than clearing it.
+ */
+export function persistedResource<A, T>(
+	source: () => A,
+	fetcher: (args: A) => Promise<T | undefined>,
+	opts: PersistOptions<A>
+) {
+	const res = resource<A, Tagged<T>>(source, async (args) => {
+		const keys = keysFor(opts, args)
+		if (keys) void loadEntry(keys.key, opts.version)
+		const sentWith = readSessionHint()
+		const value = await fetcher(args)
+		if (keys && value !== undefined && sameSessionSince(sentWith))
+			saveEntry(keys.key, opts.version, value)
+		return { keys, value }
+	})
+	const keys = $derived(keysFor(opts, source()))
+	const shown = $derived(
+		pickShown(res.current, keys, keys ? peekEntry<T>(keys.key, opts.version) : undefined)
+	)
+	return {
+		get current() {
+			return shown
+		},
+		get loading() {
+			return res.loading
+		},
+		refetch() {
+			return res.refetch()
+		}
+	}
+}
+
+/**
+ * The same cache for a call site that fetches imperatively: `peek` what is stored for a scope,
+ * `load` it from disk when memory has none yet, `save` a response.
+ */
+export function persistedValue<T>(name: string, version: number) {
+	const keyOf = (scope: CacheScope) => {
+		const identity = cacheIdentity()
+		return identity ? cacheKeys(identity, name, scope).key : undefined
+	}
+	return {
+		peek(scope: CacheScope): T | undefined {
+			const key = keyOf(scope)
+			return key ? peekEntry<T>(key, version) : undefined
+		},
+		async load(scope: CacheScope): Promise<T | undefined> {
+			const key = keyOf(scope)
+			return key ? loadEntry<T>(key, version) : undefined
+		},
+		/** `sentWith`: the session hint when the request was sent (`readSessionHint`). */
+		save(scope: CacheScope, value: T, sentWith: string | undefined) {
+			const key = keyOf(scope)
+			if (key && sameSessionSince(sentWith)) saveEntry(key, version, value)
+		}
+	}
+}
