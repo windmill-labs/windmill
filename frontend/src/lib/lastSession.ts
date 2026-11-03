@@ -27,6 +27,18 @@ export function readSessionHint(cookies?: string): string | undefined {
 // it renders as. Another tab logging in swaps the session under this one, whose user stays
 // the old one until its next `whoami`: until then, nothing may be read or written as them.
 let confirmedHint: string | undefined
+const confirmationListeners = new Set<() => void>()
+
+function setConfirmedHint(hint: string | undefined) {
+	if (hint === confirmedHint) return
+	confirmedHint = hint
+	for (const cb of confirmationListeners) cb()
+}
+
+/** Called whenever the session this tab's user is confirmed under changes. */
+export function onSessionConfirmationChange(cb: () => void): void {
+	confirmationListeners.add(cb)
+}
 
 /** Whether the session the browser holds is still the one this tab's user was confirmed under. */
 export function sessionStillConfirmed(): boolean {
@@ -50,7 +62,7 @@ function currentLastUser(): UserExt | undefined {
 export function optimisticUser(workspace: string): UserExt | undefined {
 	const user = currentLastUser()
 	if (user?.workspace_id !== workspace) return undefined
-	confirmedHint = readSessionHint()
+	setConfirmedHint(readSessionHint())
 	return user
 }
 
@@ -68,7 +80,7 @@ export function rememberUser(user: UserExt, sentWith: string | undefined): void 
 	try {
 		const hint = readSessionHint()
 		// Who answered is only known for the session the request went out with.
-		confirmedHint = hint === sentWith ? hint : undefined
+		setConfirmedHint(hint === sentWith ? hint : undefined)
 		if (hint && hint === sentWith)
 			localStorage.setItem(KEY, JSON.stringify({ hint, user } satisfies LastSession))
 		else localStorage.removeItem(KEY)
@@ -76,7 +88,7 @@ export function rememberUser(user: UserExt, sentWith: string | undefined): void 
 }
 
 export function forgetLastSession(): void {
-	confirmedHint = undefined
+	setConfirmedHint(undefined)
 	try {
 		localStorage.removeItem(KEY)
 	} catch {}
