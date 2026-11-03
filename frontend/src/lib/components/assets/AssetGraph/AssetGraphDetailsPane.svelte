@@ -652,11 +652,11 @@
 			const writes = !inferred
 				? (writesAtRegister ?? [])
 				: (liveBodyAssets ?? [])
-				.filter((a) => {
-					const t = a.access_type ?? a.alt_access_type
-					return t === 'w' || t === 'rw'
-				})
-				.map((a) => ({ kind: a.kind, path: a.path }))
+						.filter((a) => {
+							const t = a.access_type ?? a.alt_access_type
+							return t === 'w' || t === 'rw'
+						})
+						.map((a) => ({ kind: a.kind, path: a.path }))
 			const reads = !inferred
 				? readsAtRegister
 				: (liveBodyAssets ?? [])
@@ -925,7 +925,7 @@
 			sendUserToast(`Saved ${script.path}`)
 			// Authoritative save-time schema-contract check (pipelines gap #2b):
 			// warn-only, post-commit. Fire-and-forget — must never gate the save.
-			notifyContractWarnings(workspace, script.language as ScriptLang, script.content)
+			notifyContractWarnings(workspace, script.language as ScriptLang, script.content, script.path)
 			if (isDraft) {
 				onDraftSaved?.(script.path)
 			} else {

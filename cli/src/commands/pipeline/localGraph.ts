@@ -173,7 +173,7 @@ export type ParseAssetsRaw = {
     | { kind: string }
   )[];
   // `// materialize [manual] <asset> …` — managed-materialize target (emitted by
-  // the wasm asset parser). The body (a bare trailing SELECT) writes nothing
+  // the wasm asset parser, which does not know the script path: see `withDefaultTable`). The body (a bare trailing SELECT) writes nothing
   // inferable, so the producer's output edge comes from here, not from `assets`.
   materialize?: {
     target_kind: string;
@@ -194,6 +194,17 @@ export type ParseAssetsRaw = {
   data_tests?: ParsedDataTest[];
   column_lineage?: unknown[];
 };
+
+type ParsedMaterialize = NonNullable<ParseAssetsRaw["materialize"]>;
+
+/** Mirrors Rust `MaterializeSpec::resolve_table`: a DuckLake target naming no table writes
+ * `<lake>/<script name>`, with every character DuckDB would need quoted replaced by `_`. */
+export function withDefaultTable(m: ParsedMaterialize, scriptPath: string): ParsedMaterialize {
+  // `<lake>/<table>` and `<lake>.<table>` already name a table.
+  if (m.target_kind !== "ducklake" || /[/.]/.test(m.target_path)) return m;
+  const name = (scriptPath.split("/").pop() ?? "").trim();
+  return name ? { ...m, target_path: `${m.target_path}/${name.replace(/[^A-Za-z0-9_]/g, "_")}` } : m;
+}
 
 // Mirror `inferAssets` (frontend/src/lib/infer.ts): only ts / py / sql have a
 // wasm asset parser. SQL dialects all route to `parse_assets_sql` — the comment-
@@ -715,7 +726,7 @@ export async function buildLocalPipelineGraph(args: {
     // Carry the parsed `// tag` so previews route to the same worker the
     // deployed pipeline would (both `pipeline run --local` and `/pipeline_dev`).
     pipelineScripts.push(out.tag ? { ...s, tag: out.tag } : s);
-    const mat = out.materialize;
+    const mat = out.materialize && withDefaultTable(out.materialize, s.path);
     // Managed-materialize write strategy, derived like the deployed graph —
     // precedence mirrors the runtime: scd2 (`history`) > append > merge
     // (key=<col>) > replace. Manual mode has no managed strategy.

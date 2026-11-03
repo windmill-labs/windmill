@@ -9,12 +9,12 @@ import {
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import { assetUri, autoOutputAsset, type PipelineOutputKind } from './pipelineTemplates'
 import { parsePipelineAnnotations, scd2CurrentTargetPath } from './parsePipelineAnnotations'
-import type {
-	AssetGraphResponse,
-	PipelineTriggerDraft,
-	PipelineTriggerDraftKind
-} from './types'
-import { defaultTriggerPath, isDraftableTriggerKind, triggerDraftKey } from './pipelineTriggerDrafts'
+import type { AssetGraphResponse, PipelineTriggerDraft, PipelineTriggerDraftKind } from './types'
+import {
+	defaultTriggerPath,
+	isDraftableTriggerKind,
+	triggerDraftKey
+} from './pipelineTriggerDrafts'
 import type {
 	PipelineAIChatHelpers,
 	PipelineContext,
@@ -123,8 +123,11 @@ async function inferDraftAssets(
 // which the parser surfaces separately (resolveGraph adds it the same way).
 // A managed materialize node's output is real and deployable, so fold its
 // target(s) into the detected writes.
-function materializeWrites(content: string): Array<{ kind: AssetKind; path: string }> {
-	const m = parsePipelineAnnotations(content).materialize
+function materializeWrites(
+	content: string,
+	path: string
+): Array<{ kind: AssetKind; path: string }> {
+	const m = parsePipelineAnnotations(content, path).materialize
 	if (!m) return []
 	const out = [{ kind: m.targetKind, path: m.targetPath }]
 	const current = scd2CurrentTargetPath(m)
@@ -310,7 +313,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			// body doesn't yet write anything inferable. A `materialize` target is the
 			// output already (the canvas adds it from the annotation): a seed beside it
 			// would show as a second, default-named output.
-			const materialized = materializeWrites(content).length > 0
+			const materialized = materializeWrites(content, path).length > 0
 			const seeded =
 				inferred.writes[0] ??
 				(outputKind && !materialized
@@ -336,7 +339,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			return {
 				path,
 				detectedReads: inferred.reads.map(assetUri),
-				detectedWrites: dedupeAssets([...inferred.writes, ...materializeWrites(content)]).map(
+				detectedWrites: dedupeAssets([...inferred.writes, ...materializeWrites(content, path)]).map(
 					assetUri
 				)
 			}
@@ -368,7 +371,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			const outputAssets =
 				inferred.writes.length > 0
 					? inferred.writes
-					: materializeWrites(content).length > 0
+					: materializeWrites(content, path).length > 0
 						? undefined
 						: existing?.outputAssets
 			const next = new Map(drafts)
@@ -385,7 +388,7 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			return {
 				summary: summary ?? baseScript.summary ?? '',
 				detectedReads: inferred.reads.map(assetUri),
-				detectedWrites: dedupeAssets([...inferred.writes, ...materializeWrites(content)]).map(
+				detectedWrites: dedupeAssets([...inferred.writes, ...materializeWrites(content, path)]).map(
 					assetUri
 				)
 			}
@@ -399,7 +402,12 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 			assertInFolder(path)
 			const body = await helpers.getNodeBody(path)
 			if (!body) throw new Error(`No pipeline node at '${path}'. Build it first.`)
-			const prefix = body.language === 'python3' || body.language === 'bash' ? '#' : body.language === 'duckdb' || body.language === 'postgresql' ? '--' : '//'
+			const prefix =
+				body.language === 'python3' || body.language === 'bash'
+					? '#'
+					: body.language === 'duckdb' || body.language === 'postgresql'
+						? '--'
+						: '//'
 			if (!parsePipelineAnnotations(body.content).nativeTriggers.some((n) => n.kind === kind)) {
 				throw new Error(
 					`'${path}' does not declare \`${prefix} on ${kind}\`. Add that annotation line with edit_pipeline_node first, so the trigger is wired to the node.`
@@ -433,7 +441,9 @@ export function createPipelineAiHelpers(deps: PipelineAiHelperDeps): PipelineAIC
 				existing ? triggerDraftKey(kind, existing.config.path) : undefined
 			)
 			if (!saved) {
-				throw new Error(`Another draft trigger already uses the path '${triggerPath}'. Pass a different config.path.`)
+				throw new Error(
+					`Another draft trigger already uses the path '${triggerPath}'. Pass a different config.path.`
+				)
 			}
 			deps.onShowDrafts?.()
 			return { path: triggerPath, replaced: !!existing }

@@ -260,16 +260,10 @@ describe('dbt:// canonicalization', () => {
 	// nodes for one table. The decoded spelling has to land there too: this
 	// function also sees names that have already been through `split_relation`.
 	it('decodes a doubled delimiter, and leaves a lone one alone', () => {
-		expect(readPath('// on dbt://u/me/wh/"sales""east"/"orders"')).toBe(
-			'u/me/wh/sales"east/orders'
-		)
-		expect(readPath('// on dbt://u/me/wh/analytics/"order""s"')).toBe(
-			'u/me/wh/analytics/order"s'
-		)
+		expect(readPath('// on dbt://u/me/wh/"sales""east"/"orders"')).toBe('u/me/wh/sales"east/orders')
+		expect(readPath('// on dbt://u/me/wh/analytics/"order""s"')).toBe('u/me/wh/analytics/order"s')
 		expect(readPath('// on dbt://u/me/wh/`da``ta`/`orders`')).toBe('u/me/wh/da`ta/orders')
-		expect(readPath('// on dbt://u/me/wh/[my]]schema]/[orders]')).toBe(
-			'u/me/wh/my]schema/orders'
-		)
+		expect(readPath('// on dbt://u/me/wh/[my]]schema]/[orders]')).toBe('u/me/wh/my]schema/orders')
 		// Already decoded: a lone delimiter is part of the name, not an opening
 		// quote, so both spellings agree.
 		expect(readPath('// on dbt://u/me/wh/sales"east/orders')).toBe(
@@ -287,8 +281,27 @@ describe('dbt:// canonicalization', () => {
 	})
 
 	it('leaves the resource path alone', () => {
-		expect(readPath('// on dbt://u/Me/WH/analytics/orders')).toBe(
-			'u/Me/WH/analytics/orders'
-		)
+		expect(readPath('// on dbt://u/Me/WH/analytics/orders')).toBe('u/Me/WH/analytics/orders')
+	})
+})
+
+// Mirrors the Rust `materialize_without_table_is_named_after_the_script` test.
+describe('materialize without a table', () => {
+	it('is named after the script, as every server surface names it', () => {
+		for (const code of [
+			'-- materialize',
+			'-- materialize ducklake',
+			'-- materialize ducklake://main',
+			'-- materialize append'
+		]) {
+			expect(
+				parsePipelineAnnotations(code, 'f/shop/orders-daily').materialize?.targetPath,
+				code
+			).toBe('main/orders_daily')
+		}
+		expect(
+			parsePipelineAnnotations('-- materialize ducklake://lake/orders', 'f/shop/x').materialize
+				?.targetPath
+		).toBe('lake/orders')
 	})
 })

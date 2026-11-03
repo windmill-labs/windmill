@@ -12240,6 +12240,11 @@ paths:
                   $ref: "#/components/schemas/ScriptLang"
                 content:
                   type: string
+                path:
+                  type: string
+                  description: |
+                    The script's path. A `// materialize` that names no table writes the
+                    table named after the script, so without it such a target is not checked.
       responses:
         "200":
           description: contract warnings (empty when all references match)
