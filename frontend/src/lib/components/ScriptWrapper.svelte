@@ -43,7 +43,7 @@
 	})
 </script>
 
-<div id="content" class="flex-1 min-h-0 flex flex-col overflow-y-auto">
+<div id="content" class="h-full flex-1 min-h-0 flex flex-col overflow-y-auto">
 	{#if $workspaceStore && draftSync.draft}
 		<ScriptBuilder
 			bind:script={draftSync.draft}

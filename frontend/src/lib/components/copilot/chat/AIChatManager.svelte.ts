@@ -333,9 +333,6 @@ export function supportsPlanMode(mode: AIMode): boolean {
 
 const navCapabilities = fromStore(roleCapabilities)
 
-export function getVisibleAIModes(): AIMode[] {
-	return [...ALL_AI_MODES]
-}
 
 function isWorkspacePath(path: string | undefined): path is string {
 	return path?.startsWith('f/') === true || path?.startsWith('u/') === true
@@ -5156,19 +5153,6 @@ export class AIChatManager implements ChatViewHost {
 
 	enableAutomaticScroll = () => {
 		this.#automaticScroll = true
-	}
-
-	generateStep = async (moduleId: string, lang: ScriptLang, instructions: string) => {
-		if (!this.flowAiChatHelpers) {
-			throw new Error('No flow helpers found')
-		}
-		this.flowAiChatHelpers.selectStep(moduleId)
-		await this.sendRequest({
-			instructions: instructions,
-			mode: AIMode.SCRIPT,
-			lang: lang,
-			isPreprocessor: moduleId === 'preprocessor'
-		})
 	}
 
 	listenForContextChange = (dbSchemas: DBSchemas, workspaceStore: string | undefined) => {

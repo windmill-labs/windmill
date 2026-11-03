@@ -102,10 +102,6 @@
 		'How do I schedule a recurring job?'
 	]
 
-	export async function generateStep(moduleId: string, lang: ScriptLang, instructions: string) {
-		aiChatManager.generateStep(moduleId, lang, instructions)
-	}
-
 	export async function sendRequest(
 		options: {
 			removeDiff?: boolean

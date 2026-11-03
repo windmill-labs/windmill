@@ -82,7 +82,7 @@
 </script>
 
 {#if trialRender}
-	<div id="content" class="flex-1 min-h-0 flex flex-col overflow-y-auto">
+	<div id="content" class="h-full flex-1 min-h-0 flex flex-col overflow-y-auto">
 		{#if light}<div class="bg-red-500 absolute z-10">Trial version</div>{/if}
 		<!-- Gate on a resolved workspace: the draft handle is detached (local-only)
 		     until one exists, so editing before then would be lost on the re-key. -->

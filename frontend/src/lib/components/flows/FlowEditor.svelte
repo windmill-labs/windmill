@@ -294,8 +294,8 @@
 		aiChatManager.flowOptions = options
 	})
 
-	// The step exists but is empty, so name it: a GLOBAL-mode request carries no
-	// implicit "current step" the way the old SCRIPT-mode generateStep did.
+	// The step exists but is empty, so name it: a GLOBAL-mode request carries no implicit
+	// "current step".
 	function stepInstructionsPrompt(moduleId: string, instructions: string): string {
 		return `Write the code for step \`${moduleId}\` of the flow open in the editor:\n\n${instructions}`
 	}
