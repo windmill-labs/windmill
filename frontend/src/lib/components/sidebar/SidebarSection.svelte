@@ -76,10 +76,11 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 	}
 </script>
 
-<!-- An unfolded section shows a down chevron in an item icon's place: its items, right under it,
-     name it. A folded section shows its icon there, with a right chevron after the title in the
-     open sidebar, or in the strip right of the icon in the rail, where there is no title. The icon
-     keeps the item icons' column in every mode, so collapsing the sidebar does not move it. -->
+<!-- An unfolded section shows a down chevron at the end of its row in the open sidebar, and in an
+     item icon's place in the rail, which has no title: its items, right under it, name it. A
+     folded section shows its icon in that place, with a right chevron at the end of the row, or in
+     the strip right of the icon in the rail. The icon keeps the item icons' column in every mode,
+     so collapsing the sidebar does not move it. -->
 {#snippet foldChevron(size: number, extraClass: string)}
 	<ChevronRight {size} class={twMerge('flex-shrink-0 text-hint', extraClass)} aria-hidden="true" />
 {/snippet}
@@ -96,19 +97,31 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 	</span>
 {/snippet}
 
+{#snippet unfoldedChevron(extraClass: string)}
+	<!-- 2.67 keeps the 1.33px stroke a 16px item icon draws at strokeWidth 2. -->
+	<ChevronDown
+		size={12}
+		strokeWidth={2.67}
+		class={twMerge('flex-shrink-0 text-hint', extraClass)}
+		aria-hidden="true"
+	/>
+{/snippet}
+
 {#snippet rowContent()}
+	<!-- Kept empty when unfolded in the open sidebar, so the title stays in the item labels' column. -->
 	<span class="flex-shrink-0 flex items-center justify-center w-4 h-4">
 		{#if isFolded || disabled}
 			{@render sectionIcon()}
-		{:else}
-			<!-- 2.67 keeps the 1.33px stroke a 16px item icon draws at strokeWidth 2. -->
-			<ChevronDown size={12} strokeWidth={2.67} class="text-hint" aria-hidden="true" />
+		{:else if isCollapsed}
+			{@render unfoldedChevron('')}
 		{/if}
 	</span>
 	{#if !isCollapsed}
 		<span class="truncate uppercase text-[0.5rem] font-normal text-secondary">{title}</span>
 		{#if isFolded}
 			{@render foldChevron(12, 'ml-auto')}
+		{:else if !disabled}
+			{@render unfoldedChevron('ml-auto')}
 		{/if}
 	{:else if isFolded}
 		{@render foldChevron(10, 'absolute right-0.5 top-[10px]')}
