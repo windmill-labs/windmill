@@ -1,0 +1,139 @@
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { get } from 'svelte/store'
+import { DraftService } from '$lib/gen'
+import { workspaceStore } from '$lib/stores'
+import { materializeForkOutcome, sessionState, type Session } from './sessionState.svelte'
+import { moveSessionToFork } from './moveSessionToFork'
+
+vi.mock('$lib/gen', async (orig) => {
+	const actual = await orig<typeof import('$lib/gen')>()
+	return {
+		...actual,
+		DraftService: { ...actual.DraftService, transferDrafts: vi.fn() }
+	}
+})
+
+vi.mock('./sessionState.svelte', async (orig) => {
+	const actual = await orig<typeof import('./sessionState.svelte')>()
+	return { ...actual, materializeForkOutcome: vi.fn() }
+})
+
+const items = [{ kind: 'script' as const, path: 'u/a/s' }]
+
+function addSession(): Session {
+	const s = { id: 'move-test', name: 'm', createdAt: 0, workspace_id: 'root_ws' } as Session
+	sessionState.sessions.push(s)
+	return sessionState.sessions.find((x) => x.id === s.id)!
+}
+
+afterEach(() => {
+	const i = sessionState.sessions.findIndex((x) => x.id === 'move-test')
+	if (i >= 0) sessionState.sessions.splice(i, 1)
+})
+
+describe('moveSessionToFork', () => {
+	it('keeps the session on its workspace when the fork already has a draft of an item', async () => {
+		vi.mocked(DraftService.transferDrafts).mockResolvedValue({
+			copied: [],
+			removed: [],
+			conflicts: items
+		})
+		const s = addSession()
+		const res = await moveSessionToFork(
+			s.id,
+			'root_ws',
+			{ kind: 'existing', id: 'wm-fork-x' },
+			{
+				items,
+				removeFromParent: true
+			}
+		)
+		expect(res).toMatchObject({ ok: false, conflicts: items })
+		expect(s.workspace_id).toBe('root_ws')
+	})
+
+	it('moves only the session, not the navigation workspace, once the drafts are copied', async () => {
+		vi.mocked(DraftService.transferDrafts).mockResolvedValue({
+			copied: items,
+			removed: [],
+			conflicts: []
+		})
+		const prev = get(workspaceStore)
+		workspaceStore.set('root_ws')
+		try {
+			const s = addSession()
+			const res = await moveSessionToFork(
+				s.id,
+				'root_ws',
+				{ kind: 'existing', id: 'wm-fork-x' },
+				{
+					items,
+					removeFromParent: false
+				}
+			)
+			expect(res).toMatchObject({ ok: true, forkId: 'wm-fork-x', copied: 1 })
+			expect(DraftService.transferDrafts).toHaveBeenCalledWith({
+				workspace: 'root_ws',
+				requestBody: { target_workspace: 'wm-fork-x', items, remove_from_source: false }
+			})
+			expect(s.workspace_id).toBe('wm-fork-x')
+			expect(get(workspaceStore)).toBe('root_ws')
+		} finally {
+			workspaceStore.set(prev)
+		}
+	})
+
+	it.each([
+		[true, true],
+		[false, false]
+	])(
+		're-copies into a new fork, overwriting the clone only when this move created it (created %s)',
+		async (created, replace) => {
+			vi.mocked(materializeForkOutcome).mockResolvedValue({ id: 'wm-fork-new', created })
+			vi.mocked(DraftService.transferDrafts).mockResolvedValue({
+				copied: items,
+				removed: items,
+				conflicts: []
+			})
+			const s = addSession()
+			const res = await moveSessionToFork(
+				s.id,
+				'root_ws',
+				{
+					kind: 'new',
+					fork: { id: 'wm-fork-new', name: 'new', parent_workspace_id: 'root_ws' }
+				},
+				{ items, removeFromParent: true }
+			)
+			expect(res).toMatchObject({ ok: true, forkId: 'wm-fork-new', copied: 1, removed: 1 })
+			expect(DraftService.transferDrafts).toHaveBeenLastCalledWith({
+				workspace: 'root_ws',
+				requestBody: {
+					target_workspace: 'wm-fork-new',
+					items,
+					remove_from_source: true,
+					replace_existing: replace
+				}
+			})
+		}
+	)
+
+	it('stops before transferring when the drafts changed while the fork was created', async () => {
+		vi.mocked(materializeForkOutcome).mockResolvedValue({ id: 'wm-fork-new', created: true })
+		vi.mocked(DraftService.transferDrafts).mockClear()
+		const s = addSession()
+		const res = await moveSessionToFork(
+			s.id,
+			'root_ws',
+			{ kind: 'new', fork: { id: 'wm-fork-new', name: 'new', parent_workspace_id: 'root_ws' } },
+			{ items: [], removeFromParent: false, itemsChanged: async () => true }
+		)
+		expect(res).toMatchObject({
+			ok: false,
+			changed: true,
+			retry: { kind: 'existing', id: 'wm-fork-new', replace: true }
+		})
+		expect(DraftService.transferDrafts).not.toHaveBeenCalled()
+		expect(sessionState.sessions.find((x) => x.id === s.id)?.workspace_id).toBe('root_ws')
+	})
+})
