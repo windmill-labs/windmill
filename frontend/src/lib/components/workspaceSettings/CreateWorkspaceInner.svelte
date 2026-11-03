@@ -843,9 +843,9 @@
 								{baseRulesForSelection?.user?.is_admin ||
 								baseRulesForSelection?.user?.is_super_admin
 									? 'an admin'
-									: 'a member of the bypass list'}.
+									: 'one of its bypass users or groups'}.
 							{:else}
-								Only workspace admins and the rule's bypass list can fork it.
+								Only workspace admins and the rule's bypass users and groups can fork it.
 							{/if}
 						</p>
 						{#if canBypassForkingRule}
