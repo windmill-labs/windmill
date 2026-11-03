@@ -989,17 +989,25 @@ pub(super) async fn get_hub_script(ctx: &Ctx<'_>, path: &str) -> Result<Value, S
         .await
 }
 
+/// The script a test run executes: `load_script`, or a hub script as published. Only test
+/// runs take a hub path: an edit would save a draft no run reads, and `run_script` stays
+/// limited to deployed workspace scripts, which is all a read-and-run session may run.
+pub(super) async fn load_script_to_run(ctx: &Ctx<'_>, path: &str) -> Result<LoadedScript, String> {
+    if !path.starts_with("hub/") {
+        return load_script(ctx, path).await;
+    }
+    let script = get_hub_script(ctx, path).await?;
+    let text = |key: &str| script.get(key).and_then(Value::as_str).map(String::from);
+    Ok(LoadedScript {
+        content: text("content").unwrap_or_default(),
+        language: text("language").unwrap_or_default(),
+        summary: text("summary"),
+        schema: non_null(script.get("schema")).cloned(),
+    })
+}
+
 pub(super) async fn load_script(ctx: &Ctx<'_>, path: &str) -> Result<LoadedScript, String> {
     let text = |value: &Value, key: &str| value.get(key).and_then(Value::as_str).map(String::from);
-    if path.starts_with("hub/") {
-        let script = get_hub_script(ctx, path).await?;
-        return Ok(LoadedScript {
-            content: text(&script, "content").unwrap_or_default(),
-            language: text(&script, "language").unwrap_or_default(),
-            summary: text(&script, "summary"),
-            schema: non_null(script.get("schema")).cloned(),
-        });
-    }
     if let Some((item, _)) = get_draft_item(ctx, "script", path, None).await? {
         let (Some(content), Some(language)) = (
             text(&item, "value"),

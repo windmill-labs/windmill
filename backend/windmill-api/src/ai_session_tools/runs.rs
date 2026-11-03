@@ -8,7 +8,7 @@ use serde_json::{json, Map, Value};
 
 use super::chat::{Effect, RunPhase};
 use super::workspace::{
-    api_message, get_draft, get_hub_script, infer_script_schema, load_flow, load_script, path_enc,
+    api_message, get_draft, infer_script_schema, load_flow, load_script_to_run, path_enc,
 };
 use super::{enc, js_head, js_len, js_tail, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult};
 
@@ -943,7 +943,7 @@ fn form_keys(schema: Option<&Value>) -> Vec<String> {
 }
 
 async fn resolve_test_script(ctx: &Ctx<'_>, path: &str) -> Result<Resolved, String> {
-    let script = load_script(ctx, path).await?;
+    let script = load_script_to_run(ctx, path).await?;
     Ok(Resolved {
         schema: script.schema,
         code: Some(script.content.clone()),
@@ -984,15 +984,14 @@ async fn test_run_script(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 
 /// `run_script` and `run_flow`: the deployed item, whatever draft sits on top of it.
 async fn resolve_deployed(ctx: &Ctx<'_>, path: &str, is_flow: bool) -> Result<Resolved, String> {
-    let item = if is_flow {
-        ctx.get(&ctx.ws(&format!("flows/get/{}", path_enc(path))))
-            .await?
-    } else if path.starts_with("hub/") {
-        get_hub_script(ctx, path).await?
+    let get = if is_flow {
+        "flows/get"
     } else {
-        ctx.get(&ctx.ws(&format!("scripts/get/p/{}", path_enc(path))))
-            .await?
+        "scripts/get/p"
     };
+    let item = ctx
+        .get(&ctx.ws(&format!("{get}/{}", path_enc(path))))
+        .await?;
     let chat_enabled = is_flow && truthy(item["value"].get("chat_input_enabled"));
     Ok(Resolved {
         schema: Some(
@@ -1644,7 +1643,7 @@ async fn resolve_step(ctx: &Ctx<'_>, path: &str, step_id: &str) -> Result<Resolv
                     )
                 }
                 _ => {
-                    let loaded = load_script(ctx, &target).await?;
+                    let loaded = load_script_to_run(ctx, &target).await?;
                     (loaded.content, loaded.language, loaded.schema)
                 }
             };
