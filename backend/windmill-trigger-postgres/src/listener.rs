@@ -136,8 +136,8 @@ impl PostgresSimpleClient {
 /// replication slot still exist, and opens a fresh logical replication stream.
 ///
 /// Returns `Error::BadConfig` when the publication or slot is missing or invalidated, or the
-/// data table is under roles (unrecoverable misconfigurations). Any other error is treated as transient
-/// (connection refused, network interruption, ...) and is retried by the caller.
+/// data table is under roles (unrecoverable misconfigurations). Whether any other error is
+/// retried is up to `is_transient_error`.
 /// The resource is re-resolved on every call so credential rotations are picked
 /// up across reconnections.
 async fn connect_logical_replication_stream(

@@ -132,6 +132,12 @@ fn convert_disconnect_packet_into_string(
     )
 }
 
+/// The broker answered the connection with a refusal (bad credentials, not authorized,
+/// unsupported protocol, rejected client id): retrying sends the same request.
+fn connection_refused(code: String) -> Error {
+    Error::BadConfig(format!("Connection refused by the broker: {}", code))
+}
+
 #[async_trait]
 pub trait EventLoop {
     type Event;
@@ -154,7 +160,12 @@ impl EventLoop for V5EventLoop {
         let start = std::time::Instant::now();
 
         while start.elapsed() < CONNECTION_TIMEOUT {
-            match self.poll().await.map_err(to_anyhow)? {
+            match self.poll().await.map_err(|err| match err {
+                rumqttc::v5::ConnectionError::ConnectionRefused(code) => {
+                    connection_refused(format!("{:?}", code))
+                }
+                err => to_anyhow(err).into(),
+            })? {
                 Self::Event::Incoming(V5Incoming::ConnAck(_)) => return Ok(()),
                 Self::Event::Incoming(V5Incoming::Disconnect(disconnect)) => {
                     return Err(Error::BadConfig(convert_disconnect_packet_into_string(
@@ -185,7 +196,12 @@ impl EventLoop for V3EventLoop {
         let start = std::time::Instant::now();
 
         while start.elapsed() < CONNECTION_TIMEOUT {
-            match self.poll().await.map_err(to_anyhow)? {
+            match self.poll().await.map_err(|err| match err {
+                rumqttc::ConnectionError::ConnectionRefused(code) => {
+                    connection_refused(format!("{:?}", code))
+                }
+                err => to_anyhow(err).into(),
+            })? {
                 Self::Event::Incoming(rumqttc::Packet::ConnAck(_)) => return Ok(()),
                 _ => continue,
             }
