@@ -31,8 +31,8 @@ export function homeActionsCompact(): boolean {
 	return pageHeader.actionFold >= 1
 }
 
-/** Only while the ⋮ menu is mounted to hold them (HomeAIChat, absent when the sessions beta is
- *  opted out): without it, gathered actions would be nowhere on the page. */
+/** Only while the ⋮ menu (HomeAIChat) is mounted to hold them: without it, gathered actions would
+ *  be nowhere on the page. */
 export function homeActionsGathered(): boolean {
 	return pageHeader.actionFold >= 2 && renderers > 0
 }

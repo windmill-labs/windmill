@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import AiChatLayout from './copilot/chat/AiChatLayout.svelte'
+	import { loadCopilot } from './copilot/loadCopilot'
 	import type { FlowBuilderProps } from './flow_builder'
 	import FlowBuilder from './FlowBuilder.svelte'
 	import { usePageDraftSync } from './usePageDraftSync.svelte'
@@ -74,10 +74,15 @@
 			draftSync.draft = v
 		}
 	}
+
+	// The workspace AI config gates the editor's AI features (code completion, metadata).
+	$effect(() => {
+		if ($workspaceStore && !disableAi) loadCopilot($workspaceStore)
+	})
 </script>
 
 {#if trialRender}
-	<AiChatLayout noPadding={true} {disableAi} loadAiConfig={!disableAi}>
+	<div id="content" class="h-full flex-1 min-h-0 flex flex-col overflow-y-auto">
 		{#if light}<div class="bg-red-500 absolute z-10">Trial version</div>{/if}
 		<!-- Gate on a resolved workspace: the draft handle is detached (local-only)
 		     until one exists, so editing before then would be lost on the re-key. -->
@@ -91,7 +96,7 @@
 				liveEditorDraftStoragePath={draftStoragePath || undefined}
 			/>
 		{/if}
-	</AiChatLayout>
+	</div>
 {:else}
 	<div class="flex flex-col items-center justify-center h-screen">
 		<div class="text-2xl font-bold"

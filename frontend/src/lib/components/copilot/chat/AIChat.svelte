@@ -7,7 +7,6 @@
 	import { getAiChatManager } from './aiChatManagerContext'
 
 	const aiChatManager = getAiChatManager()
-	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
 	import { copilotInfo } from '$lib/aiStore'
 	import type { ComposerSelection } from './composerBox'
@@ -103,10 +102,6 @@
 		'How do I schedule a recurring job?'
 	]
 
-	export async function generateStep(moduleId: string, lang: ScriptLang, instructions: string) {
-		aiChatManager.generateStep(moduleId, lang, instructions)
-	}
-
 	export async function sendRequest(
 		options: {
 			removeDiff?: boolean
@@ -164,22 +159,10 @@
 	onkeydown={(e) => {
 		if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
 			e.preventDefault()
-			aiChatManager.toggleOpen()
 			aiChatDisplay?.focusInput()
 		}
 	}}
 />
-
-{#snippet headerLeft()}
-	<HideButton
-		hidden={false}
-		direction="right"
-		panelName="AI"
-		shortcut="L"
-		size="md"
-		on:click={() => aiChatManager.toggleOpen()}
-	/>
-{/snippet}
 
 <AIChatDisplay
 	bind:this={aiChatDisplay}
@@ -218,7 +201,6 @@
 		aiChatManager.loadPastChat(id)
 	}}
 	askAi={aiChatManager.askAi}
-	{headerLeft}
 	hasDiff={aiChatManager.scriptEditorOptions &&
 		!!aiChatManager.scriptEditorOptions.lastDeployedCode &&
 		aiChatManager.scriptEditorOptions.lastDeployedCode !==

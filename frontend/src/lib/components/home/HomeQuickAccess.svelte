@@ -36,7 +36,6 @@
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { MAX_AGE_DAYS, recentItems, type RecentKind, type RecentVia } from './recentItems.svelte'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import {
 		homeComposerContext,
 		itemContextElement
@@ -73,11 +72,7 @@
 
 	const RECENT_COUNT = 6
 
-	// The way back from Hide from Home is in the header menu HomeAIChat adds, which Home mounts
-	// only with the AI sessions beta on. Without it the section can't be hidden, and one hidden
-	// earlier shows again.
-	const restoreMenuOnPage = isGlobalAiEnabled()
-	let hidden = $derived(restoreMenuOnPage && homeQuickAccessSettings.hidden)
+	let hidden = $derived(homeQuickAccessSettings.hidden)
 
 	// Turning off the last list shown would leave an empty section; Hide from Home does that.
 	const sectionMenu = (): Item[] => [
@@ -108,7 +103,6 @@
 		{
 			displayName: 'Hide from Home',
 			icon: EyeOff,
-			hide: !restoreMenuOnPage,
 			action: () => homeQuickAccessSettings.setHidden(true)
 		}
 	]

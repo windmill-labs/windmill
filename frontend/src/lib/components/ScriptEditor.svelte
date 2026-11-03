@@ -47,7 +47,6 @@
 		CornerDownLeft,
 		Disc,
 		Download,
-		ExternalLink,
 		Github,
 		GitBranch,
 		Play,
@@ -56,7 +55,6 @@
 		Target,
 		Terminal,
 		Pencil,
-		WandSparkles,
 		X,
 		Zap
 	} from 'lucide-svelte'
@@ -120,7 +118,6 @@
 	import GitRepoViewer from './GitRepoViewer.svelte'
 	import GitRepoResourcePicker from './GitRepoResourcePicker.svelte'
 	import { updateDelegateToGitRepoConfig, insertAdditionalInventories } from '$lib/ansibleUtils'
-	import { copilotInfo } from '$lib/aiStore'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
 	import { argsToJsonPayload } from '$lib/schema'
 	import Toggle from './Toggle.svelte'
@@ -2719,43 +2716,9 @@
 						}}
 					/>
 				{/if}
-				{#if !aiChatManager.open && !disableAi && !inSessionPane}
+				{#if !disableAi && !inSessionPane}
 					{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
-						<OpenInSessionButton source={sessionOpen} deferToHeader>
-							{#snippet fallback()}
-								<HideButton
-									hidden={true}
-									direction="right"
-									panelName="AI"
-									shortcut="L"
-									unifiedSize="sm"
-									usePopoverOverride={!$copilotInfo.enabled}
-									customHiddenIcon={{
-										icon: WandSparkles
-									}}
-									btnClasses="!text-ai"
-									variant="default"
-									on:click={() => {
-										if (!aiChatManager.open) {
-											aiChatManager.changeMode(AIMode.SCRIPT)
-										}
-										aiChatManager.toggleOpen()
-									}}
-								>
-									{#snippet popoverOverride()}
-										<div class="text-sm">
-											Enable Windmill AI in the <a
-												href="/workspace_settings?tab=ai"
-												target="_blank"
-												class="inline-flex flex-row items-center gap-1"
-											>
-												workspace settings <ExternalLink size={16} />
-											</a>
-										</div>
-									{/snippet}
-								</HideButton>
-							{/snippet}
-						</OpenInSessionButton>
+						<OpenInSessionButton source={sessionOpen} deferToHeader />
 					{/if}
 				{/if}
 			</div>

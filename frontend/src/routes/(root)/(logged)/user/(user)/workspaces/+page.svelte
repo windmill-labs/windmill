@@ -272,7 +272,7 @@
 </script>
 
 {#if $superadmin}
-	<SuperadminSettings bind:this={superadminSettings} disableChatOffset />
+	<SuperadminSettings bind:this={superadminSettings} />
 {/if}
 
 <CenteredModal
@@ -583,4 +583,4 @@
 		</p>
 	</div>
 </div> -->
-<UserSettings bind:this={userSettings} showMcpMode={true} disableChatOffset />
+<UserSettings bind:this={userSettings} showMcpMode={true} />
