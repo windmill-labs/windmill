@@ -163,6 +163,12 @@ export interface GlobalValidationSpec {
 
 export interface PipelineRunSpec {
   folder: string;
+  /**
+   * How many nodes the pipeline may start from. A node no recorded read or trigger ties to
+   * an upstream one is started directly, and so passes whatever its `on` says; capping the
+   * roots fails that, e.g. a read the asset parser records under another path.
+   */
+  maxRoots?: number;
   timeoutSeconds?: number;
   queries?: PipelineRunQuery[];
 }
