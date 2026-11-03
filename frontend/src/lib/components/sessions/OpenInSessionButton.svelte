@@ -42,18 +42,14 @@
 </script>
 
 <script lang="ts">
-	import { getContext, type ComponentProps, type Snippet } from 'svelte'
+	import { getContext, type ComponentProps } from 'svelte'
 	import { BROWSER } from 'esm-env'
 	import AIButton from '$lib/components/copilot/chat/AIButton.svelte'
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
-	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 	import { copilotInfo } from '$lib/aiStore'
 	import { sendUserToast } from '$lib/toast'
 	import { openSourceInSession } from './sessionSwitch.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
-	import { useRoleCapabilities } from '$lib/operatorWriteRights'
-
-	const roleCaps = useRoleCapabilities()
 
 	let {
 		source,
@@ -61,10 +57,9 @@
 		btnProps,
 		label,
 		tooltip,
-		fallback,
 		deferToHeader = false
 	}: {
-		/** Undefined (e.g. an item without a path yet) renders the fallback. */
+		/** Undefined (e.g. an item without a path yet) renders nothing. */
 		source?: OpenInSessionSource
 		btnClasses?: string
 		/** Button styling overrides for hosts with their own conventions (an
@@ -76,14 +71,9 @@
 		/** Hover text. Pass it whenever `label` is set: a renamed button no longer
 		 * says that clicking it leaves for a session. */
 		tooltip?: string
-		/** Rendered instead when the caller keeps a docked chat to drive — an
-		 * opted-out user (typically the editor's inline-chat
-		 * toggle). Never rendered inside the session panel. */
-		fallback?: Snippet
 		/** For a button inside a page whose header can carry the same hand-off: while the header
-		 * does, this renders nothing, so the hand-off has one place on screen. The fallback still
-		 * renders for a user who opted out of sessions, since the header then offers nothing. An
-		 * editor in a drawer opened on another item keeps its own button. */
+		 * does, this renders nothing, so the hand-off has one place on screen. An editor in a drawer
+		 * opened on another item keeps its own button. */
 		deferToHeader?: boolean
 	} = $props()
 
@@ -93,14 +83,7 @@
 	// SessionEditorTarget / the session wrapper); iframe preview tabs are not
 	// the top window.
 	const inSessionPanel = !!getContext('aiChatManager') || (BROWSER && window.self !== window.top)
-	// prefersSessionHandoff carries the role clause: the sessions page refuses a role
-	// that cannot code, so an entry point on a page they can reach (Runs, the trigger lists)
-	// would only route them into that refusal.
-	const handoff = $derived(
-		!inSessionPanel &&
-			!!(source?.target || source?.page) &&
-			prefersSessionHandoff(!$roleCaps.code)
-	)
+	const handoff = $derived(!inSessionPanel && !!(source?.target || source?.page))
 	const show = $derived(
 		handoff && !(deferToHeader && sameDestination(pageHeader.sessionSource, source))
 	)
@@ -125,8 +108,7 @@
 </script>
 
 {#if $copilotInfo.workspaceDisabled}
-	<!-- The workspace hid the assistant: neither the hand-off nor the docked-chat
-	     fallback has anywhere to lead, so no host renders an AI button at all. -->
+	<!-- The workspace hid the assistant, so no host renders an AI button at all. -->
 {:else if show}
 	<AIButton
 		togglePanel={open}
@@ -135,6 +117,4 @@
 		{label}
 		{tooltip}
 	/>
-{:else if !inSessionPanel && !handoff}
-	{@render fallback?.()}
 {/if}

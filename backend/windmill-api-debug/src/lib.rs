@@ -54,6 +54,7 @@ use windmill_common::{
     jwt::JWT_SECRET,
     scripts::ScriptLang,
     users::username_to_permissioned_as,
+    workspaces::check_role_can_code,
     DB,
 };
 
@@ -138,6 +139,7 @@ pub fn workspaced_service() -> Router {
         .route("/sign", post(sign_debug_request))
         .route("/sign_expression", post(sign_expression))
         .route("/sign_multiplayer", post(sign_multiplayer))
+        .route("/sign_lsp", post(sign_lsp))
 }
 
 /// JWKS response containing the public key for debug token verification
@@ -698,7 +700,7 @@ async fn sign_expression(
     Ok(Json(SignedExpressionPayload { token }))
 }
 
-/// JWT claims for multiplayer session tokens
+/// JWT claims for multiplayer and language server session tokens
 #[derive(Serialize, Deserialize)]
 pub struct MultiplayerTokenClaims {
     /// Workspace ID
@@ -709,7 +711,7 @@ pub struct MultiplayerTokenClaims {
     pub iat: i64,
     /// Expiration (Unix timestamp)
     pub exp: i64,
-    /// Token purpose (always "multiplayer")
+    /// Token purpose ("multiplayer" or "lsp")
     pub purpose: String,
 }
 
@@ -725,6 +727,28 @@ async fn sign_multiplayer(
     authed: ApiAuthed,
     Path(w_id): Path<String>,
 ) -> JsonResult<SignedMultiplayerPayload> {
+    sign_session_token(w_id, authed.email, "multiplayer").await
+}
+
+/// Sign a language server session request, verified by the windmill_extra gateway against
+/// /api/debug/jwks before it forwards the connection to the language servers.
+///
+/// Gated on the role's `code` capability, not `is_operator`: the language servers only analyse
+/// backend script languages, and a restricted role may still hold `code`.
+async fn sign_lsp(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<SignedMultiplayerPayload> {
+    check_role_can_code(&db, &w_id, &authed, "use the editor language servers").await?;
+    sign_session_token(w_id, authed.email, "lsp").await
+}
+
+async fn sign_session_token(
+    w_id: String,
+    email: String,
+    purpose: &str,
+) -> JsonResult<SignedMultiplayerPayload> {
     let key_guard = DEBUG_SIGNING_KEY.read().await;
     let signing_key = key_guard.as_ref().ok_or_else(|| {
         windmill_common::error::Error::InternalErr("Debug signing key not initialized".to_string())
@@ -735,10 +759,10 @@ async fn sign_multiplayer(
 
     let claims = MultiplayerTokenClaims {
         workspace_id: w_id,
-        email: authed.email,
+        email,
         iat: now_ts,
         exp,
-        purpose: "multiplayer".to_string(),
+        purpose: purpose.to_string(),
     };
 
     let header = serde_json::json!({

@@ -53,20 +53,13 @@
 	import { openDraftOnHome, resumeAiSessions } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
-	import {
-		roleCapabilities,
-		userWorkspaces,
-		usersWorkspaceStore,
-		workspaceStore
-	} from '$lib/stores'
+	import { userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import {
 		getOrCreateRuntime,
 		getRuntime,
 		listRuntimes
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
-	import { isGlobalAiEnabled, sessionsAllowedFor } from '$lib/components/copilot/chat/global/gate'
-	import { activateAiSessions } from '$lib/components/sessions/sidebarList.svelte'
 	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
 	import { previewTargetForSessionTarget } from '$lib/components/sessions/sessionPreviewTabs.svelte'
@@ -101,8 +94,6 @@
 	} from '$lib/components/workspacePicker'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
 
-	const globalEnabled = isGlobalAiEnabled()
-
 	// One observer shared by every tab host, which mirrors it into page iframes
 	// (see PreviewTabHost).
 	const isDarkMode = useIsDarkMode()
@@ -118,7 +109,7 @@
 	// an editor tab its chunk is usually already cached. Sequential so the
 	// prefetch trickles instead of fanning out four heavy graphs at once.
 	$effect(() => {
-		if (embedded || !globalEnabled) return
+		if (embedded) return
 		// Once the chain has started, cancelling the idle handle no longer helps —
 		// the disposed check between imports is what stops a user who left the
 		// session from pulling the remaining graphs on whatever page they went to.
@@ -215,7 +206,7 @@
 	// The toast names no cause: deleted, another browser, cleared site data and a
 	// damaged link are indistinguishable from here.
 	$effect(() => {
-		if (embedded || !globalEnabled || !sessionsAllowedFor(!$roleCapabilities.code)) return
+		if (embedded) return
 		if (!sessionState.hydrated || leaving) return
 		// A deliberate delete removes the open session ahead of its own navigation.
 		// Claiming that gap would take over the URL and tell the user the session
@@ -1039,32 +1030,6 @@
 					window.top?.location.assign(u.pathname + u.search)
 				}}>Open sessions</Button
 			>
-		</div>
-	{:else if !sessionsAllowedFor(!$roleCapabilities.code)}
-		<!-- A role that cannot code keeps the legacy docked chat without the opt-in (see `gate.ts`);
-		     a direct URL must not bypass that. -->
-		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
-			<p class="text-primary font-medium">AI Sessions are not available for your role</p>
-			<p>Use the Ask AI chat instead.</p>
-			<Button
-				unifiedSize="xs"
-				onclick={() => {
-					try {
-						localStorage.setItem('ai-chat-open', 'true')
-					} catch {}
-					window.location.href = '/'
-				}}
-			>
-				Open Ask AI chat
-			</Button>
-		</div>
-	{:else if !globalEnabled}
-		<!-- Direct navigation (bookmark, shared link) while the user has opted out
-		     of the beta: offer the way back in instead of a dead end. -->
-		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
-			<p class="text-primary font-medium">AI Sessions are deactivated</p>
-			<p>You switched back to the legacy chat. Activate AI Sessions (beta) to open this page.</p>
-			<Button unifiedSize="sm" onclick={activateAiSessions}>Activate AI Sessions</Button>
 		</div>
 	{:else if !sessionState.hydrated}
 		<!-- Sessions hydrate from IndexedDB after the user resolves; until then an

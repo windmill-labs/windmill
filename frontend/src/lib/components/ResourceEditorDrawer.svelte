@@ -26,7 +26,6 @@
 
 	let {
 		workspace = undefined,
-		disableChatOffset = false,
 		inline = false,
 		onClose = undefined,
 		onRestored = undefined,
@@ -35,7 +34,6 @@
 		/** Workspace this drawer acts in. Optional; the navigation workspace is substituted
 		 * once, at `effectiveWorkspace`, and nowhere else in this file. */
 		workspace?: string
-		disableChatOffset?: boolean
 		/** Render in place, filling the parent, with no drawer or close button — for a host
 		 * that gives the editor a whole pane. Saving and restoring then leave it open: the
 		 * host remounts it on what was written. */
@@ -151,7 +149,6 @@
 	<Drawer
 		bind:this={drawer}
 		size="50rem"
-		{disableChatOffset}
 		on:close={() => {
 			// The editor outlives this drawer, so tell it the session is over: a conflict resolution
 			// still in flight must not land on whatever the next opening shows.

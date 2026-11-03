@@ -121,6 +121,7 @@ use windmill_common::{
     },
     oauth2::HmacSha256,
     query_builders,
+    runnable_ref::RunnableRef,
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
     utils::{
@@ -297,6 +298,10 @@ pub fn workspaced_service() -> Router {
         .route("/run/dynamic_select", post(run_dynamic_select))
         .route("/list", get(list_jobs))
         .route("/oldest", get(get_oldest_job))
+        .route(
+            "/recent_runs",
+            get(crate::jobs_recent_runs::list_recent_runs),
+        )
         .route("/asset_dispatch_edges", get(list_asset_dispatch_edges))
         .route(
             "/list_selected_job_groups",
@@ -7185,10 +7190,11 @@ pub async fn run_flow_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
+    let flow = RunnableRef::from_path(&flow_path.0, true)?;
     let (args, trigger_metadata) = match get_args_and_trigger_metadata(
         &db,
         &authed,
-        RunnableId::from_flow_path(flow_path.to_path()),
+        RunnableId::from_flow_path(flow.path()),
         &run_query,
         &w_id,
         args,
@@ -7209,7 +7215,7 @@ pub async fn run_flow_by_path(
         None,
         user_db,
         w_id,
-        flow_path,
+        StripPath(flow.path().to_string()),
         run_query,
         args,
         trigger_metadata,
@@ -7638,10 +7644,11 @@ pub async fn run_script_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
+    let script = RunnableRef::from_path(&script_path.0, false)?;
     let (args, trigger_metadata) = match get_args_and_trigger_metadata(
         &db,
         &authed,
-        RunnableId::from_script_path(script_path.to_path()),
+        RunnableId::from_script_path(script.path()),
         &run_query,
         &w_id,
         args,
@@ -7660,7 +7667,7 @@ pub async fn run_script_by_path(
         None,
         user_db,
         w_id,
-        script_path,
+        StripPath(script.path().to_string()),
         run_query,
         args,
         trigger_metadata,
@@ -8178,8 +8185,9 @@ pub async fn run_wait_result_job_by_path_get(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let script_path = script_path.to_path();
-    let runnable_id = cross_site.script_runnable(script_path)?;
+    let script = RunnableRef::from_path(&script_path.0, false)?;
+    let script_path = script.path();
+    let runnable_id = cross_site.script_runnable(&script)?;
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;
 
     if method == http::Method::HEAD {
@@ -8286,7 +8294,8 @@ pub async fn run_wait_result_flow_by_path_get(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let path = flow_path.to_path();
+    let flow = RunnableRef::from_path(&flow_path.0, true)?;
+    let path = flow.path();
     check_scopes(&authed, || format!("jobs:run:flows:{path}"))?;
 
     if method == http::Method::HEAD {
@@ -8306,8 +8315,7 @@ pub async fn run_wait_result_flow_by_path_get(
         )
         .await?;
 
-    run_wait_result_flow_by_path_internal(db, run_query, flow_path, authed, user_db, args, w_id)
-        .await
+    run_wait_result_flow_by_path_internal(db, run_query, &flow, authed, user_db, args, w_id).await
 }
 
 pub async fn run_wait_result_script_by_path(
@@ -8321,7 +8329,8 @@ pub async fn run_wait_result_script_by_path(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let path = script_path.to_path();
+    let script = RunnableRef::from_path(&script_path.0, false)?;
+    let path = script.path();
     check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
 
     let args = args
@@ -8334,14 +8343,14 @@ pub async fn run_wait_result_script_by_path(
         )
         .await?;
 
-    run_wait_result_script_by_path_internal(db, run_query, script_path, authed, user_db, w_id, args)
+    run_wait_result_script_by_path_internal(db, run_query, &script, authed, user_db, w_id, args)
         .await
 }
 
 pub async fn run_wait_result_script_by_path_internal(
     db: sqlx::Pool<Postgres>,
     run_query: RunJobQuery,
-    script_path: StripPath,
+    script: &RunnableRef,
     authed: ApiAuthed,
     user_db: UserDB,
     w_id: String,
@@ -8352,7 +8361,7 @@ pub async fn run_wait_result_script_by_path_internal(
     let db_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_of) =
         script_path_to_payload(
-            script_path.to_path(),
+            script.path(),
             Some(db_authed),
             db.clone(),
             &w_id,
@@ -8569,7 +8578,8 @@ pub async fn run_wait_result_flow_by_path(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    let path = flow_path.to_path();
+    let flow = RunnableRef::from_path(&flow_path.0, true)?;
+    let path = flow.path();
     check_scopes(&authed, || format!("jobs:run:flows:{path}"))?;
 
     let args = args
@@ -8582,8 +8592,7 @@ pub async fn run_wait_result_flow_by_path(
         )
         .await?;
 
-    run_wait_result_flow_by_path_internal(db, run_query, flow_path, authed, user_db, args, w_id)
-        .await
+    run_wait_result_flow_by_path_internal(db, run_query, &flow, authed, user_db, args, w_id).await
 }
 
 pub async fn stream_flow_by_path(
@@ -8600,7 +8609,7 @@ pub async fn stream_flow_by_path(
         db,
         user_db,
         w_id,
-        RunnableId::from_flow_path(flow_path.to_path()),
+        RunnableId::from_flow_path(RunnableRef::from_path(&flow_path.0, true)?.path()),
         args,
         run_query,
         method == http::Method::GET,
@@ -8640,7 +8649,8 @@ pub async fn stream_script_by_path(
     method: hyper::http::Method,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
-    let runnable_id = cross_site.script_runnable(script_path.to_path())?;
+    let runnable_id =
+        cross_site.script_runnable(&RunnableRef::from_path(&script_path.0, false)?)?;
     stream_job(
         authed,
         db,
@@ -8821,7 +8831,7 @@ pub async fn stream_job(
 pub async fn run_wait_result_flow_by_path_internal(
     db: sqlx::Pool<Postgres>,
     run_query: RunJobQuery,
-    flow_path: StripPath,
+    flow: &RunnableRef,
     authed: ApiAuthed,
     user_db: UserDB,
     args: PushArgsOwned,
@@ -8829,7 +8839,7 @@ pub async fn run_wait_result_flow_by_path_internal(
 ) -> error::Result<Response> {
     check_queue_too_long(&db, run_query.queue_limit).await?;
 
-    let flow_path = flow_path.to_path();
+    let flow_path = flow.path();
 
     let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
 
@@ -9344,15 +9354,15 @@ async fn run_inline_script_by_path(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Json(body): Json<InlineScriptArgs>,
 ) -> error::Result<Response> {
-    let script_path_str = script_path.to_path();
-    check_scopes(&authed, || format!("jobs:run:scripts:{script_path_str}"))?;
+    let script = RunnableRef::from_path(&script_path.0, false)?;
+    check_scopes(&authed, || format!("jobs:run:scripts:{}", script.path()))?;
     run_inline_script_inner(
         authed,
         token,
         db,
         w_id,
         // Resolved to a version by `run_inline_script_inner`.
-        InlineScriptTarget::Path { path: script_path.to_path().to_string(), hash: 0 },
+        InlineScriptTarget::Path { path: script.path().to_string(), hash: 0 },
         body.args,
         Some(user_db),
     )
@@ -10082,6 +10092,7 @@ async fn add_batch_jobs(
     ) = match batch_info.kind.as_str() {
         "script" => {
             if let Some(path) = batch_info.path {
+                let path = RunnableRef::from_path(&path, false)?.path().to_string();
                 let db_authed =
                     UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
                 let ScriptHashInfo {
@@ -10141,6 +10152,7 @@ async fn add_batch_jobs(
             let (mut value, job_kind, path) = if let Some(value) = batch_info.flow_value {
                 (value, JobKind::FlowPreview, None)
             } else if let Some(path) = batch_info.path {
+                let path = RunnableRef::from_path(&path, true)?.path().to_string();
                 let mut tx = user_db.clone().begin(&authed).await?;
                 let value_json = sqlx::query!(
                         "SELECT coalesce(flow_version_lite.value, flow_version.value) as \"value!: sqlx::types::Json<Box<RawValue>>\", flow.job_token_scopes FROM flow
@@ -10565,7 +10577,7 @@ async fn run_dynamic_select(
                     None,
                     user_db.clone(),
                     w_id.clone(),
-                    StripPath(path),
+                    StripPath(RunnableRef::from_path(&path, false)?.path().to_string()),
                     run_query.clone(),
                     push_args,
                     None,
@@ -10577,6 +10589,7 @@ async fn run_dynamic_select(
             RunnableKind::Flow => {
                 // Runs the deployed flow's dynamic-select code. Path-scoped so a token not
                 // scoped to this flow cannot trigger its code through dynamic select.
+                let path = RunnableRef::from_path(&path, true)?.path().to_string();
                 check_scopes(&authed, || format!("jobs:run:flows:{path}"))?;
                 let mut conn = user_db.clone().begin(&authed).await?;
 

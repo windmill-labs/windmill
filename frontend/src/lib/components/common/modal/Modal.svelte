@@ -25,8 +25,6 @@
 	import CloseButton from '../CloseButton.svelte'
 	import Disposable from '../drawer/Disposable.svelte'
 	import ConditionalPortal from '../drawer/ConditionalPortal.svelte'
-	import { zIndexes } from '$lib/zIndexes'
-	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
 
 	interface Props {
 		title: string
@@ -94,7 +92,7 @@
 		fitHeight = false,
 		paginated = false,
 		enterConfirms = true,
-		minZIndex: minZIndexProp = undefined,
+		minZIndex = undefined,
 		titleBadge,
 		levelBadge,
 		settings,
@@ -121,11 +119,6 @@
 	const dispatch = createEventDispatcher()
 
 	let disposable: Disposable | undefined = $state(undefined)
-
-	// An explicit override wins; otherwise only elevate above the AI chat panel
-	// when it's actually open — when chat is closed there's nothing at z-index
-	// 1200 to stack above.
-	const minZIndex = $derived(minZIndexProp ?? (chatState.size > 0 ? zIndexes.aiChat + 1 : 0))
 
 	// So content in the body can tell a key meant for this dialog from one meant for whatever was
 	// opened over it. Read lazily: `disposable` is bound after this runs.

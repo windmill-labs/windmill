@@ -127,9 +127,8 @@
 					<div class="truncate text-xs font-semibold text-primary">{card.title}</div>
 					<div class="truncate text-2xs text-secondary">{card.subtitle}</div>
 				</div>
-				<!-- open_created_resource is serviced only by the docked chat's drawers and the
-				     sessions page's tabs, so elsewhere the card stands alone as a record of what the
-				     tool created. -->
+				<!-- open_created_resource is serviced only by the sessions page's tabs, so elsewhere
+				     the card stands alone as a record of what the tool created. -->
 				{#if hasToolDisplayActionHandler(action.type)}
 					<Button
 						unifiedSize="sm"

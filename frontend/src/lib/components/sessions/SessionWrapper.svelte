@@ -368,8 +368,8 @@
 	<div class="p-8 text-secondary text-sm">Session not found</div>
 {:else}
 	<!-- A session with no message yet, or whose transcript is still loading, keeps its composer
-	     at the bottom, where it stays once the transcript shows, rather than the docked
-	     copilot's keyboard-shortcut hint, which means nothing here. -->
+	     at the bottom, where it stays once the transcript shows, rather than the chat's default
+	     keyboard-shortcut hint, which means nothing here. -->
 	{#snippet sessionEmptyHint()}<div class="flex-1 min-h-0"></div>{/snippet}
 
 	{#snippet inputPreface()}

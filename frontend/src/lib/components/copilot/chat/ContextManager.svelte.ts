@@ -453,15 +453,6 @@ export default class ContextManager {
 		)
 	}
 
-	setFixContext() {
-		const codeContext = this.availableContext.find((c) => c.type === 'code')
-		const errorContext = this.availableContext.find((c) => c.type === 'error')
-
-		if (codeContext && errorContext) {
-			this.selectedContext = [codeContext, errorContext]
-		}
-	}
-
 	setAskAiContext(options: { withCode?: boolean; withDiff?: boolean }) {
 		if (!this.scriptOptions) {
 			return

@@ -40,8 +40,11 @@ use crate::triggers::trigger_helpers::RunnableId;
 pub struct CrossSiteGetGuard(Option<CrossSite>);
 
 impl CrossSiteGetGuard {
-    pub fn script_runnable(&self, script_path: &str) -> windmill_common::error::Result<RunnableId> {
-        let runnable_id = RunnableId::from_script_path(script_path);
+    pub fn script_runnable(
+        &self,
+        script: &windmill_common::runnable_ref::RunnableRef,
+    ) -> windmill_common::error::Result<RunnableId> {
+        let runnable_id = RunnableId::from_script_path(script.path());
         let (Some(signal), RunnableId::HubScript(_)) = (&self.0, &runnable_id) else {
             return Ok(runnable_id);
         };
