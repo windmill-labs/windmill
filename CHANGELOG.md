@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.858.0](https://github.com/windmill-labs/windmill/compare/v1.857.0...v1.858.0) (2026-11-03)
+
+
+### Features
+
+* resolved runs on home, an easier resolve action, and load fades ([#12167](https://github.com/windmill-labs/windmill/issues/12167)) ([1a6e544](https://github.com/windmill-labs/windmill/commit/1a6e5440ba02ef9ce9984dbc10d274f796b2703d))
+
 ## [1.857.0](https://github.com/windmill-labs/windmill/compare/v1.856.0...v1.857.0) (2026-11-03)
 
 
