@@ -39,7 +39,7 @@ async function preparePrint(name: string, content: string): Promise<void> {
 	}
 	// The print dialog proposes the title as the PDF's file name.
 	doc.title = name
-	for (const node of document.querySelectorAll('link[rel="stylesheet"], style')) {
+	for (const node of Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))) {
 		doc.head.appendChild(node.cloneNode(true))
 	}
 	const page = doc.createElement('style')
