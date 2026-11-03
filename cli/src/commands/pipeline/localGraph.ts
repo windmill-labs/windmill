@@ -173,7 +173,7 @@ export type ParseAssetsRaw = {
     | { kind: string }
   )[];
   // `// materialize [manual] <asset> …` — managed-materialize target (emitted by
-  // the wasm asset parser). The body (a bare trailing SELECT) writes nothing
+  // the wasm asset parser, which does not know the script path: see `withDefaultTable`). The body (a bare trailing SELECT) writes nothing
   // inferable, so the producer's output edge comes from here, not from `assets`.
   materialize?: {
     target_kind: string;
@@ -194,6 +194,19 @@ export type ParseAssetsRaw = {
   data_tests?: ParsedDataTest[];
   column_lineage?: unknown[];
 };
+
+type ParsedMaterialize = NonNullable<ParseAssetsRaw["materialize"]>;
+
+/** Mirrors Rust `MaterializeSpec::resolve_table`: a DuckLake target naming no table writes
+ * `<lake>/<script name>`, with every character DuckDB would need quoted replaced by `_`. */
+export function withDefaultTable(m: ParsedMaterialize, scriptPath: string): ParsedMaterialize {
+  // `<lake>/<table>` and `<lake>.<table>` already name a table.
+  if (m.target_kind !== "ducklake" || /[/.]/.test(m.target_path)) return m;
+  const name = (scriptPath.split("/").pop() ?? "").trim().replace(/[^A-Za-z0-9_]/g, "_");
+  // The generated SQL names the table unquoted, so it cannot start with a digit.
+  const table = /^[0-9]/.test(name) ? `_${name}` : name;
+  return table ? { ...m, target_path: `${m.target_path}/${table}` } : m;
+}
 
 // Mirror `inferAssets` (frontend/src/lib/infer.ts): only ts / py / sql have a
 // wasm asset parser. SQL dialects all route to `parse_assets_sql` — the comment-
@@ -366,6 +379,43 @@ const MUTE_ASSET_PREFIXES: [string, string][] = [
   ["datatable://", "datatable"],
   ["volume://", "volume"],
 ];
+
+/**
+ * A `materialize` header line naming no target (`-- materialize`, `-- materialize key=id`,
+ * `-- materialize scd2 key=id`), which wasm asset parsers older than the default-table rule
+ * drop. Mirrors Rust `parse_materialize_spec`; a line naming a target is left to the parser,
+ * and `manual` has to name one.
+ */
+export function recoverBareMaterialize(content: string): ParsedMaterialize | undefined {
+  for (const rawLine of content.split("\n")) {
+    const line = rawLine.trimStart();
+    if (line === "") continue;
+    let rest: string;
+    if (line.startsWith("//") || line.startsWith("--")) rest = line.slice(2);
+    else if (line.startsWith("#")) rest = line.slice(1);
+    else break;
+    const m = rest.trim().match(/^materialize(?:\s+(.*))?$/);
+    if (!m) continue;
+    let tokens = (m[1] ?? "").split(/\s+/).filter((t) => t !== "");
+    if (tokens[0] === "manual") return undefined;
+    const scd2Keyword = tokens[0] === "scd2";
+    if (scd2Keyword) tokens = tokens.slice(1);
+    const first = tokens[0] ?? "";
+    const namesTarget =
+      first.includes("://") ||
+      (first !== "" && first !== "append" && first !== "history" && !first.includes("="));
+    if (namesTarget) return undefined;
+    const key = tokens.find((t) => t.startsWith("key="))?.slice("key=".length);
+    return {
+      target_kind: "ducklake",
+      target_path: "main",
+      ...(tokens.includes("append") ? { append: true } : {}),
+      ...(key ? { unique_key: key } : {}),
+      ...(scd2Keyword || tokens.includes("history") ? { scd2: true } : {}),
+    };
+  }
+  return undefined;
+}
 
 // `// mute <asset>` / `// mute all` from the LEADING comment header, as
 // `<kind>:<path>` keys. Parsed locally because the pinned wasm asset parser
@@ -715,7 +765,8 @@ export async function buildLocalPipelineGraph(args: {
     // Carry the parsed `// tag` so previews route to the same worker the
     // deployed pipeline would (both `pipeline run --local` and `/pipeline_dev`).
     pipelineScripts.push(out.tag ? { ...s, tag: out.tag } : s);
-    const mat = out.materialize;
+    const parsedMat = out.materialize ?? recoverBareMaterialize(s.content);
+    const mat = parsedMat && withDefaultTable(parsedMat, s.path);
     // Managed-materialize write strategy, derived like the deployed graph —
     // precedence mirrors the runtime: scd2 (`history`) > append > merge
     // (key=<col>) > replace. Manual mode has no managed strategy.

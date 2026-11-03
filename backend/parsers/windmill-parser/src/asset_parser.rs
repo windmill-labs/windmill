@@ -367,6 +367,60 @@ impl MaterializeSpec {
         targets.extend(self.scd2_current_target());
         targets
     }
+
+    /// A DuckLake target naming no table (`// materialize`, `// materialize ducklake`,
+    /// `// materialize ducklake://<lake>`) writes `<lake>/<script name>`, as a dbt model is
+    /// named after its file. Every surface that reads the target resolves it through here,
+    /// with the script's path, so deploy, the runtime and the graphs agree on the table.
+    /// A DuckLake target that is a lake alone: `<lake>/<table>` and `<lake>.<table>` name one.
+    pub fn names_no_table(&self) -> bool {
+        self.target_kind == AssetKind::Ducklake
+            && !self.target_path.contains('/')
+            && !self.target_path.contains('.')
+    }
+
+    pub fn resolve_table(&mut self, script_path: &str) {
+        if self.names_no_table() {
+            if let Some(table) = default_table_name(script_path) {
+                self.target_path = format!("{}/{}", self.target_path, table);
+            }
+        }
+    }
+}
+
+/// The table a script materializes when its annotation names none: its path's last segment,
+/// with every character DuckDB would need quoted replaced by `_`, and a leading `_` before a
+/// leading digit, since the generated SQL names the table unquoted.
+pub fn default_table_name(script_path: &str) -> Option<String> {
+    let name = script_path.rsplit('/').next().unwrap_or("").trim();
+    (!name.is_empty()).then(|| {
+        let table: String = name
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        if table.starts_with(|c: char| c.is_ascii_digit()) {
+            format!("_{table}")
+        } else {
+            table
+        }
+    })
+}
+
+impl PipelineAnnotations {
+    /// The annotations of the script at `script_path`, with a materialize target that names
+    /// no table resolved (`MaterializeSpec::resolve_table`).
+    pub fn for_script(mut self, script_path: &str) -> Self {
+        if let Some(m) = self.materialize.as_mut() {
+            m.resolve_table(script_path);
+        }
+        self
+    }
 }
 
 // dbt's `on_schema_change`, covering both the save-time contract check and the
@@ -1359,8 +1413,20 @@ fn parse_materialize_spec(s: &str) -> Option<MaterializeSpec> {
         (false, false, s)
     };
     let mut it = rest.trim().splitn(2, char::is_whitespace);
-    let asset_tok = it.next()?;
-    let opts_str = it.next().unwrap_or("");
+    let first = it.next().unwrap_or("");
+    // No target, or options alone, is the default lake: `resolve_table` names the table
+    // after the script once its path is known.
+    let names_target = first.contains("://")
+        || (!first.is_empty() && first != "append" && first != "history" && !first.contains('='));
+    // `manual` writes its own DDL, so it has to say what it writes.
+    if manual && !names_target {
+        return None;
+    }
+    let (asset_tok, opts_str) = if names_target {
+        (first, it.next().unwrap_or(""))
+    } else {
+        ("ducklake", rest.trim())
+    };
     let (target_kind, path) = parse_asset_syntax(asset_tok.trim(), true)?;
     if path.is_empty() {
         return None;
@@ -1814,8 +1880,17 @@ mod pipeline_annotation_tests {
     fn a_whole_relation_is_three_non_empty_segments() {
         assert!(is_full_relation_path("main/analytics/orders"));
         assert!(is_full_relation_path("main/archive.sales/orders"));
-        for partial in ["main", "main/analytics", "main/analytics/orders/x", "", "main//orders"] {
-            assert!(!is_full_relation_path(partial), "{partial} is not a relation");
+        for partial in [
+            "main",
+            "main/analytics",
+            "main/analytics/orders/x",
+            "",
+            "main//orders",
+        ] {
+            assert!(
+                !is_full_relation_path(partial),
+                "{partial} is not a relation"
+            );
         }
     }
 
@@ -2679,6 +2754,39 @@ mod pipeline_annotation_tests {
         assert_eq!(m.target_kind, AssetKind::Ducklake);
         assert_eq!(m.target_path, "main");
         assert!(!m.manual);
+    }
+
+    #[test]
+    fn materialize_without_table_is_named_after_the_script() {
+        for code in [
+            "-- materialize",
+            "-- materialize ducklake",
+            "-- materialize ducklake://main",
+            "-- materialize append",
+        ] {
+            let m = parse_pipeline_annotations(code)
+                .for_script("f/shop/orders-daily")
+                .materialize
+                .expect(code);
+            assert_eq!(m.target_path, "main/orders_daily", "{code}");
+        }
+        let m = parse_pipeline_annotations("-- materialize ducklake://lake/orders")
+            .for_script("f/shop/orders_daily")
+            .materialize
+            .unwrap();
+        assert_eq!(m.target_path, "lake/orders");
+        // A URI is a target even when it holds `=`.
+        let m = parse_pipeline_annotations("-- materialize ducklake://main/orders=2026")
+            .for_script("f/shop/ingest")
+            .materialize
+            .unwrap();
+        assert_eq!(m.target_path, "main/orders=2026");
+        // The generated SQL names the table unquoted, so it cannot start with a digit.
+        let m = parse_pipeline_annotations("-- materialize")
+            .for_script("f/shop/2026_orders")
+            .materialize
+            .unwrap();
+        assert_eq!(m.target_path, "main/_2026_orders");
     }
 
     #[test]

@@ -758,7 +758,8 @@
 			workspace,
 			bufferCode,
 			(res.assets ?? []) as AssetWithAltAccessType[],
-			schemaContractContext
+			schemaContractContext,
+			path
 		)
 			.then((markers) => {
 				if (seq === contractCheckSeq) contractMarkers = markers

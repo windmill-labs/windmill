@@ -292,3 +292,31 @@ describe('dbt:// canonicalization', () => {
 		)
 	})
 })
+
+// Mirrors the Rust `materialize_without_table_is_named_after_the_script` test.
+describe('materialize without a table', () => {
+	it('is named after the script, as every server surface names it', () => {
+		for (const code of [
+			'-- materialize',
+			'-- materialize ducklake',
+			'-- materialize ducklake://main',
+			'-- materialize append'
+		]) {
+			expect(
+				parsePipelineAnnotations(code, 'f/shop/orders-daily').materialize?.targetPath,
+				code
+			).toBe('main/orders_daily')
+		}
+		expect(
+			parsePipelineAnnotations('-- materialize ducklake://lake/orders', 'f/shop/x').materialize
+				?.targetPath
+		).toBe('lake/orders')
+		expect(
+			parsePipelineAnnotations('-- materialize ducklake://main/orders=2026', 'f/shop/x').materialize
+				?.targetPath
+		).toBe('main/orders=2026')
+		expect(
+			parsePipelineAnnotations('-- materialize', 'f/shop/2026_orders').materialize?.targetPath
+		).toBe('main/_2026_orders')
+	})
+})

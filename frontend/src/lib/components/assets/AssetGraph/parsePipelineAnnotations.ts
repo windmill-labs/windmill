@@ -397,7 +397,14 @@ function parseMaterializeSpec(s: string): MaterializeSpec | undefined {
 		rest = afterScd2.trimStart()
 	}
 	rest = rest.trim()
-	const m = rest.match(/^(\S+)(?:\s+(.*))?$/)
+	const first = rest.match(/^\S+/)?.[0] ?? ''
+	// No target, or options alone, is the default lake: `forScript` names the table
+	// after the script once its path is known. `manual` has to say what it writes.
+	const namesTarget =
+		first.includes('://') ||
+		(first !== '' && first !== 'append' && first !== 'history' && !first.includes('='))
+	if (manual && !namesTarget) return undefined
+	const m = namesTarget ? rest.match(/^(\S+)(?:\s+(.*))?$/) : ['', 'ducklake', rest]
 	if (!m) return undefined
 	const asset = parseAssetSyntaxDefault(m[1])
 	if (!asset || asset.path === '') return undefined
@@ -652,7 +659,9 @@ function consumeKeyword(inner: string, kw: string): string | undefined {
 	return undefined
 }
 
-export function parsePipelineAnnotations(code: string): PipelineAnnotations {
+/** With `scriptPath`, a materialize target that names no table is resolved
+ * (`materializeTargetPath`), as every server surface resolves it. */
+export function parsePipelineAnnotations(code: string, scriptPath?: string): PipelineAnnotations {
 	const out: PipelineAnnotations = {
 		inPipeline: false,
 		triggerAssets: [],
@@ -812,5 +821,25 @@ export function parsePipelineAnnotations(code: string): PipelineAnnotations {
 		}
 	}
 
-	return out
+	return scriptPath ? forScript(out, scriptPath) : out
+}
+
+/** Mirrors Rust `PipelineAnnotations::for_script`: resolves a materialize target that
+ * names no table, for annotations parsed without the script's path. */
+export function forScript(ann: PipelineAnnotations, scriptPath: string): PipelineAnnotations {
+	if (!ann.materialize) return ann
+	const targetPath = materializeTargetPath(ann.materialize, scriptPath)
+	return targetPath === ann.materialize.targetPath
+		? ann
+		: { ...ann, materialize: { ...ann.materialize, targetPath } }
+}
+
+/** Mirrors Rust `MaterializeSpec::resolve_table`: a DuckLake target naming no table writes
+ * `<lake>/<script name>`, with every character DuckDB would need quoted replaced by `_`. */
+export function materializeTargetPath(m: MaterializeSpec, scriptPath: string): string {
+	// `<lake>/<table>` and `<lake>.<table>` already name a table.
+	if (m.targetKind !== 'ducklake' || /[/.]/.test(m.targetPath)) return m.targetPath
+	const name = (scriptPath.split('/').pop() ?? '').trim().replace(/[^A-Za-z0-9_]/g, '_')
+	// The generated SQL names the table unquoted, so it cannot start with a digit.
+	return name ? `${m.targetPath}/${/^[0-9]/.test(name) ? `_${name}` : name}` : m.targetPath
 }

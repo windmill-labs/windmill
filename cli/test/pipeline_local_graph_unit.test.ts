@@ -7,6 +7,8 @@ import {
   buildLocalPipelineGraph,
   hideDbtRunnables,
   parseMuteAnnotations,
+  recoverBareMaterialize,
+  withDefaultTable,
 } from "../src/commands/pipeline/localGraph.ts";
 
 // Build a throwaway workspace tree with `f/<folder>/<file>` scripts and a
@@ -108,6 +110,40 @@ test("empty / no-pipeline folder yields an empty graph", async () => {
       const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
       expect(graph.runnables).toHaveLength(0);
       expect(graph.assets).toHaveLength(0);
+    },
+  );
+});
+
+test("recoverBareMaterialize reads the target-less forms the Rust parser accepts", () => {
+  expect(recoverBareMaterialize("-- pipeline\n-- materialize scd2 key=id\nSELECT 1")).toEqual({
+    target_kind: "ducklake",
+    target_path: "main",
+    unique_key: "id",
+    scd2: true,
+  });
+  expect(recoverBareMaterialize("-- materialize manual")).toBeUndefined();
+  expect(recoverBareMaterialize("-- materialize ducklake://main/x")).toBeUndefined();
+});
+
+test("a bare `-- materialize` producer writes the table named after it", async () => {
+  await withFolder(
+    {
+      "users.duckdb.sql": `-- pipeline\n-- materialize key=id\nSELECT 1 AS id;\n`,
+      "consume.duckdb.sql":
+        `-- pipeline\n-- on ducklake://main/users\nSELECT count(*) FROM users;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const users = graph.runnables.find((r) => r.path === "f/mypipe/users");
+      expect(users?.materialize_target).toEqual({ kind: "ducklake", path: "main/users" });
+      expect(users?.materialize_strategy).toBe("merge");
+      expect(graph.edges).toContainEqual({
+        runnable_kind: "script",
+        runnable_path: "f/mypipe/users",
+        asset_kind: "ducklake",
+        asset_path: "main/users",
+        access_type: "w",
+      });
     },
   );
 });
@@ -1008,4 +1044,18 @@ test("hideDbtRunnables is a no-op when the folder has no dbt project", () => {
     triggers: [],
   };
   expect(hideDbtRunnables(g)).toBe(g);
+});
+
+// Mirrors the Rust `materialize_without_table_is_named_after_the_script` test: the wasm
+// parser hands over the lake alone, and the local graph names the table as deploy does.
+test("withDefaultTable names an untabled DuckLake target after the script", () => {
+  const lakeOnly = { target_kind: "ducklake", target_path: "main" };
+  expect(withDefaultTable(lakeOnly, "f/shop/orders-daily").target_path).toBe(
+    "main/orders_daily",
+  );
+  for (const target_path of ["main/orders", "main.orders"]) {
+    expect(
+      withDefaultTable({ target_kind: "ducklake", target_path }, "f/shop/x").target_path,
+    ).toBe(target_path);
+  }
 });
