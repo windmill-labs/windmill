@@ -16499,6 +16499,7 @@ dependencies = [
  "ipnet",
  "itertools 0.14.0",
  "jiff",
+ "jiff-tzdb",
  "jsonwebtoken 10.4.0",
  "lazy_static",
  "magic-crypt",

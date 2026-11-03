@@ -1,12 +1,19 @@
-//! An IANA time zone as a `chrono::TimeZone`, resolved from jiff's copy of the time zone
-//! database: the system's (`$TZDIR`, else `/usr/share/zoneinfo`), else the one bundled
-//! into the binary. chrono-tz compiles its rules in and is no longer updated, so zones
-//! that change their rules (British Columbia, Manitoba, ...) kept their old offsets.
+//! An IANA time zone as a `chrono::TimeZone`, resolved from the newer of two copies of
+//! the time zone database: the system's (`$TZDIR`, else `/usr/share/zoneinfo`) and the
+//! one bundled into the binary; a name missing from that copy is looked up in the other.
+//! chrono-tz compiles its rules in and is no longer updated, so zones that change their
+//! rules (British Columbia, Manitoba, ...) kept their old offsets.
 
-use std::{fmt, str::FromStr, sync::LazyLock};
+use std::{
+    fmt,
+    io::{BufRead, BufReader},
+    path::{Path, PathBuf},
+    str::FromStr,
+    sync::LazyLock,
+};
 
 use chrono::{FixedOffset, LocalResult, NaiveDate, NaiveDateTime, NaiveTime};
-use jiff::tz::{AmbiguousOffset, TimeZone};
+use jiff::tz::{AmbiguousOffset, TimeZone, TimeZoneDatabase};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tz(TimeZone);
@@ -29,23 +36,99 @@ impl FromStr for Tz {
     type Err = String;
 
     fn from_str(name: &str) -> Result<Self, Self::Err> {
-        Tz::lookup(jiff::tz::db(), name)
+        static DATABASES: LazyLock<Databases> = LazyLock::new(|| {
+            Databases::choose(
+                system_database(),
+                TimeZoneDatabase::bundled(),
+                jiff_tzdb::VERSION,
+            )
+        });
+        DATABASES.lookup(name)
     }
 }
 
-impl Tz {
-    fn lookup(system: &jiff::tz::TimeZoneDatabase, name: &str) -> Result<Self, String> {
-        // Debian (trixie onward) ships the backward-compatible names (`US/Eastern`,
-        // `Asia/Calcutta`, which browsers still report) in `tzdata-legacy`, which images
-        // rarely install, and jiff does not fall back on its own when a name is missing.
-        static BUNDLED: LazyLock<jiff::tz::TimeZoneDatabase> =
-            LazyLock::new(jiff::tz::TimeZoneDatabase::bundled);
-        system
+struct Databases {
+    primary: TimeZoneDatabase,
+    /// Debian (trixie onward) ships the backward-compatible names (`US/Eastern`,
+    /// `Asia/Calcutta`, which browsers still report) in `tzdata-legacy`, which images
+    /// rarely install, so the system copy can lack a name the bundled one has.
+    fallback: TimeZoneDatabase,
+}
+
+impl Databases {
+    /// A system copy of unknown version wins: it is what the host, or `$TZDIR`, asked for.
+    fn choose(
+        system: Option<(TimeZoneDatabase, Option<String>)>,
+        bundled: TimeZoneDatabase,
+        bundled_version: Option<&str>,
+    ) -> Databases {
+        let Some((system, system_version)) = system else {
+            return Databases { primary: bundled, fallback: TimeZoneDatabase::none() };
+        };
+        // IANA versions are a year then a letter (`2026f`), so they order as strings.
+        let bundled_is_newer = matches!(
+            (bundled_version, system_version.as_deref()),
+            (Some(b), Some(s)) if b > s
+        );
+        tracing::info!(
+            "time zones resolve from the {} tzdb (system {}, bundled {})",
+            if bundled_is_newer {
+                "bundled"
+            } else {
+                "system"
+            },
+            system_version.as_deref().unwrap_or("of unknown version"),
+            bundled_version.unwrap_or("of unknown version"),
+        );
+        if bundled_is_newer {
+            Databases { primary: bundled, fallback: system }
+        } else {
+            Databases { primary: system, fallback: bundled }
+        }
+    }
+
+    fn lookup(&self, name: &str) -> Result<Tz, String> {
+        self.primary
             .get(name)
-            .or_else(|_| BUNDLED.get(name))
+            .or_else(|_| self.fallback.get(name))
             .map(Tz)
             .map_err(|_| format!("'{name}' is not a valid timezone"))
     }
+}
+
+/// The directories jiff searches, in its order, so the version read here is that of the
+/// copy whose zones are read.
+fn system_database() -> Option<(TimeZoneDatabase, Option<String>)> {
+    let dirs: Vec<PathBuf> = match std::env::var_os("TZDIR") {
+        Some(dir) => vec![dir.into()],
+        None => [
+            "/usr/share/zoneinfo",
+            "/usr/share/lib/zoneinfo",
+            "/etc/zoneinfo",
+        ]
+        .into_iter()
+        .map(PathBuf::from)
+        .collect(),
+    };
+    dirs.into_iter().find_map(|dir| {
+        let db = TimeZoneDatabase::from_dir(&dir).ok()?;
+        (!db.is_definitively_empty()).then(|| (db, system_version(&dir)))
+    })
+}
+
+/// The `# version 2026f` line heading `tzdata.zi`, or macOS's `+VERSION`.
+fn system_version(dir: &Path) -> Option<String> {
+    let from_zi = std::fs::File::open(dir.join("tzdata.zi"))
+        .ok()
+        .and_then(|f| {
+            let mut line = String::new();
+            BufReader::new(f).read_line(&mut line).ok()?;
+            Some(line.strip_prefix("# version ")?.trim().to_string())
+        });
+    from_zi.or_else(|| {
+        let v = std::fs::read_to_string(dir.join("+VERSION")).ok()?;
+        Some(v.trim().to_string()).filter(|v| !v.is_empty())
+    })
 }
 
 /// The offset of a `chrono::DateTime<Tz>`. chrono rebuilds the zone from it
@@ -176,12 +259,25 @@ mod tests {
     }
 
     #[test]
-    fn names_missing_from_the_system_copy_resolve_from_the_bundled_one() {
-        let without_legacy_names = jiff::tz::TimeZoneDatabase::none();
+    fn the_newer_copy_wins_and_the_other_fills_in_missing_names() {
+        // An empty database stands in for a system copy lacking the legacy names.
+        let with_system = |version: Option<&str>| {
+            Databases::choose(
+                Some((TimeZoneDatabase::none(), version.map(str::to_string))),
+                TimeZoneDatabase::bundled(),
+                Some("2026e"),
+            )
+        };
+        let system_wins = |dbs: &Databases| dbs.primary.is_definitively_empty();
+        assert!(!system_wins(&with_system(Some("2024a"))));
+        assert!(system_wins(&with_system(Some("2026f"))));
+        assert!(system_wins(&with_system(None)));
+
+        let dbs = with_system(Some("2026f"));
         for name in ["Asia/Calcutta", "US/Eastern", "Europe/Kiev", "EST5EDT"] {
-            assert!(Tz::lookup(&without_legacy_names, name).is_ok(), "{name}");
+            assert!(dbs.lookup(name).is_ok(), "{name}");
         }
-        assert!(Tz::lookup(&without_legacy_names, "Not/AZone").is_err());
+        assert!(dbs.lookup("Not/AZone").is_err());
     }
 
     #[test]

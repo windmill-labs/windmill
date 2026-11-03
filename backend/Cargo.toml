@@ -472,6 +472,7 @@ thiserror = "^2"
 anyhow = "^1"
 chrono = { version = "^0.4", features = ["serde"] }
 jiff = { version = "0.2.39", features = ["tzdb-bundle-always"] }
+jiff-tzdb = "0.1.9"
 derive_more = { version = "1", features = ["deref", "deref_mut"], default-features = false }
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
