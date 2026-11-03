@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.857.0](https://github.com/windmill-labs/windmill/compare/v1.856.0...v1.857.0) (2026-11-03)
+
+
+### Features
+
+* add a recently run panel to the workspace home ([#12105](https://github.com/windmill-labs/windmill/issues/12105)) ([d1a2c13](https://github.com/windmill-labs/windmill/commit/d1a2c13cf27f6e1ad920310b80ebede25acb4d98))
+* add home's folders, users and cards to the ai session context ([#12104](https://github.com/windmill-labs/windmill/issues/12104)) ([263088a](https://github.com/windmill-labs/windmill/commit/263088a8ac718823859e2909db70129b86f829e4))
+* name a materialized table after its script when the target names none ([#12157](https://github.com/windmill-labs/windmill/issues/12157)) ([116c902](https://github.com/windmill-labs/windmill/commit/116c90280e8fe59a6f0b1b186c109066c894165b))
+* publish a folder sub-path to the Hub as its own project ([#12081](https://github.com/windmill-labs/windmill/issues/12081)) ([23fbf1e](https://github.com/windmill-labs/windmill/commit/23fbf1edfe62339eaff2b576aeea32d81e37d97b))
+* upgrade the bundled DuckDB engine to 2.0.0 LTS ([#11924](https://github.com/windmill-labs/windmill/issues/11924)) ([3d0ca92](https://github.com/windmill-labs/windmill/commit/3d0ca92ef2ad98b1c3e5abe68a7a5b10c94f05df))
+
+
+### Bug Fixes
+
+* order ai sessions by their last turn instead of creation time ([#12147](https://github.com/windmill-labs/windmill/issues/12147)) ([b451e8e](https://github.com/windmill-labs/windmill/commit/b451e8edca6a8fb8de1de442879147a8163a7543))
+* parse runnable references once at the API run entry points ([#12153](https://github.com/windmill-labs/windmill/issues/12153)) ([088c83e](https://github.com/windmill-labs/windmill/commit/088c83e3f89bd151980e6363e556e69f6745bc03))
+* reserve the username anonymous used by logged-out visitors ([#12146](https://github.com/windmill-labs/windmill/issues/12146)) ([2aa6059](https://github.com/windmill-labs/windmill/commit/2aa6059e58e1cf4708ba65927d6e6338d364127a))
+* scope user deletion's group cleanup to its workspaces ([#12145](https://github.com/windmill-labs/windmill/issues/12145)) ([66be711](https://github.com/windmill-labs/windmill/commit/66be711dbd47a1ac8c066b8e1f323c982fa7e7bc))
+
+
+### Performance Improvements
+
+* load click-only features after the app shell paints ([#12161](https://github.com/windmill-labs/windmill/issues/12161)) ([3481adf](https://github.com/windmill-labs/windmill/commit/3481adf3dca9de201f729174da00184d72ad1829))
+* paint a snapshot of the last home in place of the boot splash ([#12158](https://github.com/windmill-labs/windmill/issues/12158)) ([0ac2b61](https://github.com/windmill-labs/windmill/commit/0ac2b6103452dc69201fe8a7d1107095e10fac97))
+* paint home from a persisted cache and the last confirmed user ([#12154](https://github.com/windmill-labs/windmill/issues/12154)) ([2d10518](https://github.com/windmill-labs/windmill/commit/2d105189b2e4b226ce78475790ca4f291781f9ca))
+* stop vite's preload helper from rescanning every link per dependency ([#12155](https://github.com/windmill-labs/windmill/issues/12155)) ([40cb945](https://github.com/windmill-labs/windmill/commit/40cb945a1acc96d4c0664fb2e91806785a260776))
+
 ## [1.856.0](https://github.com/windmill-labs/windmill/compare/v1.855.1...v1.856.0) (2026-11-02)
 
 
