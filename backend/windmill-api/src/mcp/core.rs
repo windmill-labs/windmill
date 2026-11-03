@@ -67,7 +67,6 @@ pub struct WindmillBackend {
 }
 
 impl WindmillBackend {
-    /// The instructions only read, so they are built at the token's own read-only flag.
     fn session_ctx_with<'a>(
         &'a self,
         auth: &'a ApiAuthed,
