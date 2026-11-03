@@ -5,6 +5,7 @@ import { isRunnableByName, isRunnableByPath, type RunnableWithFields } from '../
 import type { InlineScript } from '../apps/sharedTypes'
 import { stateSnapshot } from '$lib/stateSnapshot.svelte'
 import { appSourceToDraftValue, normalizeRawAppData } from './rawAppDraftValue'
+import { urlParamsToObject } from '$lib/utils/queryParams'
 
 // export type RunnableWithFields = any
 
@@ -317,6 +318,22 @@ export function applyRawAppStorageOp(storeKey: string, d: any) {
 		else if (d.op === 'clear') for (const k in s) delete s[k]
 		localStorage.setItem(storeKey, JSON.stringify(s))
 	} catch (_) {}
+}
+
+/** A full-code app's `window.ctx`, on every path that runs one. `query` is the viewer
+ * page's, built as a low-code app's `ctx.query`, and `{}` rather than absent. */
+export function rawAppCtx(
+	user: unknown,
+	workspace: string | undefined,
+	path: string,
+	search: string
+) {
+	return {
+		ctx: user,
+		workspace,
+		path,
+		query: urlParamsToObject(new URLSearchParams(search), { stripReserved: true })
+	}
 }
 
 // The sandboxed (isolated) raw-app wrapper is generated server-side and served as
