@@ -41,6 +41,10 @@ const LISTED_ROOT_RUN: &str = "j.workspace_id = $1
 #[derive(Deserialize)]
 pub(crate) struct RecentRunsQuery {
     folder: Option<String>,
+    /// With `failed_ids_path`: list that item's unresolved failures in `failed_run_ids`. Only on
+    /// request, since a constantly failing item would put thousands of ids in every poll.
+    failed_ids_kind: Option<String>,
+    failed_ids_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -63,6 +67,9 @@ pub(crate) struct RecentRunItem {
     status: String,
     /// Unresolved failures over the whole window, not only the runs listed.
     failed_runs: i64,
+    /// Their ids, for the item named by the query's `failed_ids_*` only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    failed_run_ids: Option<Vec<uuid::Uuid>>,
     /// Newest first.
     runs: Vec<RecentRun>,
 }
@@ -92,6 +99,7 @@ pub(crate) async fn list_recent_runs(
         .folder
         .filter(|f| !f.is_empty())
         .map(|f| format!("f/{f}/"));
+    let failed_ids_of = q.failed_ids_kind.zip(q.failed_ids_path);
     let mut tx = user_db.begin(&authed).await?;
 
     // A run counts when it completed in the window or is running now, whenever it was queued:
@@ -168,9 +176,15 @@ pub(crate) async fn list_recent_runs(
     let mut index: HashMap<(String, String), usize> = HashMap::new();
     for run in runs {
         let failed = run.status == "failure";
+        let wanted = failed_ids_of
+            .as_ref()
+            .is_some_and(|(k, p)| *k == run.kind && *p == run.path);
         match index.get(&(run.kind.clone(), run.path.clone())) {
             Some(&i) => {
                 items[i].failed_runs += failed as i64;
+                if failed && wanted {
+                    items[i].failed_run_ids.get_or_insert_with(Vec::new).push(run.id);
+                }
                 if items[i].runs.len() < RUNS_PER_ITEM {
                     items[i].runs.push(run);
                 }
@@ -183,6 +197,7 @@ pub(crate) async fn list_recent_runs(
                     summary: None,
                     status: run.status.clone(),
                     failed_runs: failed as i64,
+                    failed_run_ids: wanted.then(|| if failed { vec![run.id] } else { vec![] }),
                     runs: vec![run],
                 });
             }

@@ -1,5 +1,5 @@
-import { FlowService, JobService, ScriptService, type ListRecentRunsResponse } from '$lib/gen'
-import { getLocalSetting, storeLocalSetting } from '$lib/utils'
+import { JobService, type ListRecentRunsResponse } from '$lib/gen'
+import { getLocalSetting, MAX_RESOLUTION_BATCH, storeLocalSetting } from '$lib/utils'
 import { sendUserToast } from '$lib/toast'
 import { IsDocumentVisible, useInterval } from 'runed'
 import { persistedResource } from '$lib/persistedResource.svelte'
@@ -14,21 +14,6 @@ export type RecentRunStatus = RecentRun['status']
 /** Home stays open in many tabs and each read can examine tens of thousands of completions, while
  * the panel only shows ages to the minute: a tighter rate multiplies that load for nothing. */
 const REFRESH_MS = 30000
-
-/** `listJobs` caps a page at 100; the passes bound one click at the runs the endpoint scans. */
-const RESOLVE_PAGE = 100
-const MAX_RESOLVE_PASSES = 50
-/** The job kinds each item kind is read from (`jobs_recent_runs.rs`). A `singlestepflow` wraps a
- * script or a flow and the job list cannot tell which, so it is left out when a script and a flow
- * share the path: resolving one would otherwise resolve the other's failures. */
-async function resolveJobKinds(workspace: string, item: RecentRunItem): Promise<string> {
-	if (item.kind === 'agent') return 'flowpreview'
-	const shared =
-		item.kind === 'script'
-			? await FlowService.existsFlowByPath({ workspace, path: item.path })
-			: await ScriptService.existsScriptByPath({ workspace, path: item.path })
-	return shared ? item.kind : `${item.kind},singlestepflow`
-}
 
 /**
  * What ran recently in the workspace, read from `listRecentRuns`. The side panel and the header
@@ -81,36 +66,27 @@ export function useRecentRuns(
 		},
 		/** Marks every unresolved failure of `item` in the window as resolved. */
 		async resolveFailures(item: RecentRunItem) {
-			const workspace = args().workspace
+			const { workspace, folder } = args()
 			if (!workspace) return
-			const windowHours = runs.current?.window_hours ?? 24
-			const completedAfter = new Date(Date.now() - windowHours * 3600_000).toISOString()
 			let resolved = 0
 			try {
-				const jobKinds = await resolveJobKinds(workspace, item)
-				// The ids are read on click rather than carried by the polled response, which would
-				// hold every failure of a constantly failing item. Each pass resolves what it read,
-				// so the next first page holds the failures still unresolved.
-				for (let pass = 0; pass < MAX_RESOLVE_PASSES; pass++) {
-					const failures = await JobService.listJobs({
-						workspace,
-						scriptPathExact: item.path,
-						jobKinds,
-						hasNullParent: true,
-						status: 'failure',
-						resolved: false,
-						completedAfter,
-						perPage: RESOLVE_PAGE
-					})
-					if (failures.length === 0) break
+				// Read on click, for this item only: the endpoint files each run under its item the
+				// way the row counts it, which a job listing cannot (a `singlestepflow` wraps a script
+				// or a flow).
+				const read = await JobService.listRecentRuns({
+					workspace,
+					folder,
+					failedIdsKind: item.kind,
+					failedIdsPath: item.path
+				})
+				const ids =
+					read.items.find((i) => i.kind === item.kind && i.path === item.path)?.failed_run_ids ?? []
+				for (let i = 0; i < ids.length; i += MAX_RESOLUTION_BATCH) {
 					const affected = await JobService.resolveCompletedJobs({
 						workspace,
-						requestBody: { job_ids: failures.map((j) => j.id) }
+						requestBody: { job_ids: ids.slice(i, i + MAX_RESOLUTION_BATCH) }
 					})
 					resolved += affected.length
-					// A failure the caller may not resolve stays on the first page: reading again would
-					// return it forever.
-					if (affected.length < failures.length || failures.length < RESOLVE_PAGE) break
 				}
 				sendUserToast(`Resolved ${resolved} failed run${resolved === 1 ? '' : 's'}`)
 			} catch (e) {
