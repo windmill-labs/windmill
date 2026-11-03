@@ -30,18 +30,15 @@ export async function onRequest(context) {
     });
     const newResponse = new Response(res.body, res);
 
-    // Extract domain from target hostname for cookie domain replacement
-    const targetDomain = targetHostname.split(".").slice(-2).join(".");
-
-    newResponse.headers.set(
-      "set-cookie",
-      "token" +
-        (newResponse.headers
-          .get("set-cookie")
-          ?.replace(`Domain=${targetDomain};`, "")
-          ?.split("token")
-          ?.pop() ?? "")
-    );
+    // Each cookie is passed on by itself, without its Domain: the backend's (e.g.
+    // `windmill.dev`) does not match this host, and a browser drops a cookie whose Domain
+    // does not match. Reading them joined (`headers.get`) would merge the session cookie with
+    // the `wm_session` hint set beside it, Domain included.
+    const setCookies = res.headers.getSetCookie();
+    newResponse.headers.delete("set-cookie");
+    for (const c of setCookies) {
+      newResponse.headers.append("set-cookie", c.replace(/;\s*Domain=[^;]*/gi, ""));
+    }
 
     newResponse.headers.set("Cross-Origin-Resource-Policy", "cross-origin");
     return newResponse;
