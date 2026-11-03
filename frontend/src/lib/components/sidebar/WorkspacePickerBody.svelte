@@ -1,3 +1,10 @@
+<script lang="ts" module>
+	import { lazyModule } from '$lib/lazyModule.svelte'
+
+	// yjs and its websocket client; the menu shows nothing of it until its socket connects.
+	const multiplayerMenuModule = lazyModule(() => import('./MultiplayerMenu.svelte'))
+</script>
+
 <script lang="ts">
 	import { tick, untrack } from 'svelte'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
@@ -31,9 +38,8 @@
 	import { goto } from '$lib/navigation'
 	import { page } from '$app/state'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { workspaceAIClients } from '../copilot/lib'
+	import { setAiClientWorkspace } from '../copilot/aiClientWorkspace'
 	import { twMerge } from 'tailwind-merge'
 	import {
 		ambiguousWorkspaceNames,
@@ -79,7 +85,7 @@
 		}
 		// Read before switchWorkspace: it swaps the stores this reads out from under us.
 		const landOnHome = landsOnHome(id)
-		workspaceAIClients.init(id)
+		setAiClientWorkspace(id)
 		switchWorkspace(id)
 		// The sessions page needs no navigation here: the item's link navigation
 		// (workspaceHref) keeps the route, and the page's family reconcile swaps
@@ -665,5 +671,7 @@
 	{/if}
 </div>
 {#if $enterpriseLicense && !strictWorkspaceSelect}
-	<MultiplayerMenu />
+	{#await multiplayerMenuModule.load() then { default: MultiplayerMenu }}
+		<MultiplayerMenu />
+	{/await}
 {/if}

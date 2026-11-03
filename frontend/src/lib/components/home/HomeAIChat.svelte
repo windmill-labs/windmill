@@ -1,5 +1,6 @@
 <script lang="ts" module>
 	import type HomeSessionStarterComponent from '../sessions/HomeSessionStarter.svelte'
+	import { lazyModule } from '$lib/lazyModule.svelte'
 
 	// The starter is a full AIChat, which reaches monaco, and the build refuses monaco in Home's
 	// static imports. Kept once loaded, so a return to Home renders it in its first frame
@@ -8,10 +9,13 @@
 	function loadStarter() {
 		return import('../sessions/HomeSessionStarter.svelte').then((m) => (loadedStarter = m.default))
 	}
+
+	// Its token form reaches the MCP scope catalog; opened only from the CLI/MCP row.
+	const connectDrawerModule = lazyModule(() => import('./HomeConnectDrawer.svelte'))
 </script>
 
 <script lang="ts">
-	import { onDestroy } from 'svelte'
+	import { onDestroy, tick } from 'svelte'
 	import { ExternalLink, Globe2, PlugZap } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { hubBaseUrlStore, roleCapabilities, workspaceStore } from '$lib/stores'
@@ -20,7 +24,7 @@
 	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { BROWSER } from 'esm-env'
-	import HomeConnectDrawer from './HomeConnectDrawer.svelte'
+	import type HomeConnectDrawer from './HomeConnectDrawer.svelte'
 	import HomeComposerSkeleton, {
 		composerHeight,
 		rememberComposerHeight
@@ -39,6 +43,11 @@
 	const hubOffered = $derived($roleCapabilities.code && HOME_SHOW_HUB)
 
 	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
+	async function openConnectDrawer() {
+		await connectDrawerModule.load()
+		await tick()
+		homeConnectDrawer?.openDrawer?.()
+	}
 
 	const reducedMotion = useReducedMotion()
 
@@ -90,7 +99,10 @@
 	<HomeComposerSkeleton height={composerHeight($workspaceStore ?? undefined)} />
 {/snippet}
 
-<HomeConnectDrawer bind:this={homeConnectDrawer} />
+{#if connectDrawerModule.current}
+	{@const LoadedConnectDrawer = connectDrawerModule.current.default}
+	<LoadedConnectDrawer bind:this={homeConnectDrawer} />
+{/if}
 
 <!-- Everything the hero offered beside the composer lives in the band's menu: the connect helper
      and the hub. -->
@@ -114,7 +126,7 @@
 				unifiedSize="xs"
 				btnClasses="!text-2xs !text-hint"
 				startIcon={{ icon: PlugZap }}
-				onClick={() => homeConnectDrawer?.openDrawer?.()}
+				onClick={() => void openConnectDrawer()}
 			>
 				CLI / MCP
 			</Button>
@@ -165,7 +177,7 @@
 							: [
 									{
 										displayName: 'CLI / MCP',
-										action: () => homeConnectDrawer?.openDrawer?.()
+										action: () => void openConnectDrawer()
 									},
 									...(hubOffered
 										? [

@@ -1,3 +1,9 @@
+<script lang="ts" module>
+	import { lazyModule } from '$lib/lazyModule.svelte'
+
+	const shareModalModule = lazyModule(() => import('$lib/components/ShareModal.svelte'))
+</script>
+
 <script lang="ts">
 	import {
 		AtSign,
@@ -18,7 +24,8 @@
 	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import ShareModal from '$lib/components/ShareModal.svelte'
+	import type ShareModal from '$lib/components/ShareModal.svelte'
+	import { tick } from 'svelte'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { roleCapabilities, userStore } from '$lib/stores'
 	import { AppService } from '$lib/gen'
@@ -111,6 +118,11 @@
 	// editor opened without write access says so itself.
 	const editRights = useEditRights()
 	let shareModal: ShareModal | undefined = $state()
+	async function openShare(path: string, kind: Parameters<ShareModal['openDrawer']>[1]) {
+		await shareModalModule.load()
+		await tick()
+		shareModal?.openDrawer(path, kind)
+	}
 
 	// A favorite app arrives as plain `app` (the layout lists apps without their subtype), and
 	// `/apps/edit` mounts the low-code editor whatever it opens, so the editor routes ask which
@@ -179,7 +191,7 @@
 			{
 				displayName: 'Share',
 				icon: UserPlus,
-				action: () => kind !== 'agent' && shareModal?.openDrawer(item.path, kind),
+				action: () => kind !== 'agent' && void openShare(item.path, kind),
 				hide: kind === 'agent' || !editRights.roleCanAuthor(kind)
 			},
 			{
@@ -572,4 +584,7 @@
 	</HomeSectionLabel>
 {/if}
 
-<ShareModal bind:this={shareModal} source="home" />
+{#if shareModalModule.current}
+	{@const LoadedShareModal = shareModalModule.current.default}
+	<LoadedShareModal bind:this={shareModal} source="home" />
+{/if}

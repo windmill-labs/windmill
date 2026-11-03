@@ -227,6 +227,38 @@ function assertMonacoFreeAppShell() {
 	}
 }
 
+/**
+ * Fail the build if the app shell or the home page statically loads the AI chat engine or the
+ * provider SDKs.
+ *
+ * Everything those entries import statically loads and evaluates before the first page renders,
+ * and the engine alone is over a megabyte. The shell reaches it only from a click: through
+ * `sessionRuntimeRegistry` and `aiClientWorkspace`, which stand in for the modules that would pull
+ * it in.
+ */
+function assertAiEngineFreeAppShell() {
+	const entries = [
+		'/src/routes/+layout.svelte',
+		'/src/routes/(root)/+layout.svelte',
+		'/src/routes/(root)/(logged)/+layout.svelte',
+		'/src/routes/(root)/(logged)/+page.svelte'
+	]
+	const forbidden = [
+		'/src/lib/components/copilot/chat/AIChatManager.svelte.ts',
+		'/node_modules/openai/',
+		'/node_modules/@anthropic-ai/sdk/'
+	]
+	return {
+		name: 'wm-assert-ai-engine-free-app-shell',
+		generateBundle(_options, bundle) {
+			if (!isClientBuild(bundle)) return
+			for (const entry of entries) {
+				assertStaticClosureExcludes(this, bundle, entry, forbidden, 'sessionRuntimeRegistry.svelte.ts')
+			}
+		}
+	}
+}
+
 const remoteUrl =
 	process.env.REMOTE ??
 	(process.env.BACKEND_PORT
@@ -427,7 +459,8 @@ const config = {
 		assertAcyclicChunks(),
 		preloadWithoutLinkScan(),
 		assertLeanPublicAppRoutes(),
-		assertMonacoFreeAppShell()
+		assertMonacoFreeAppShell(),
+		assertAiEngineFreeAppShell()
 	],
 	define: { '__pkg__.version': JSON.stringify(version) },
 	optimizeDeps: {

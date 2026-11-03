@@ -66,7 +66,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { AI_PROVIDERS } from '$lib/components/copilot/lib'
+	import { AI_PROVIDERS } from '$lib/components/copilot/aiProviders'
 	import { LoaderCircle, Trash2 } from 'lucide-svelte'
 	import PrefixedInput from '../PrefixedInput.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'

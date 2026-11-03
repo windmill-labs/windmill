@@ -4,7 +4,7 @@ import { switchWorkspace } from '$lib/storeUtils'
 import { useEditRights } from '$lib/operatorWriteRights'
 import { buildsAnything } from '$lib/editRights'
 import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
-import { workspaceAIClients } from '$lib/components/copilot/lib'
+import { setAiClientWorkspace } from '$lib/components/copilot/aiClientWorkspace'
 import { fixupUrlAfterWorkspaceSwitch } from '$lib/components/sidebar/workspaceSwitchUrl'
 import type { WorkModeLock } from '../copilot/chat/workMode'
 import { useSessionReadOnly } from './sessionPermissions.svelte'
@@ -20,7 +20,7 @@ import { openNewSession } from './sessionSwitch.svelte'
 function moveUnsentSession(sessionId: string, id: string, switchesWorkspace: boolean) {
 	setSessionPendingWorkspace(sessionId, id)
 	if (!switchesWorkspace || get(workspaceStore) === id) return
-	workspaceAIClients.init(id)
+	setAiClientWorkspace(id)
 	switchWorkspace(id)
 	void fixupUrlAfterWorkspaceSwitch(id)
 }
