@@ -274,6 +274,9 @@ export interface SessionRuntime {
 		 * setup has not been confirmed. Held in the cell only, nothing is saved. */
 		seedIfMissing?: boolean
 	): Promise<void>
+	/** Keep a new item's draft in this tab, unsaved, until the session's first send saves it:
+	 * an AI start the user never sends leaves nothing behind. */
+	holdDraftUntilSend(workspace: string, kind: SessionTargetKind, path: string): void
 	/** Register a mounted raw-app preview's log requester, keyed by app path, like
 	 * `registerDomRequester`: build state is per editor, so reads route to the app edited. */
 	registerRuntimeLogRequester(appPath: string, requester: RawAppRuntimeLogRequester): void
@@ -511,12 +514,28 @@ function createRuntime(session: Session): SessionRuntime {
 		if (slot.kind !== 'pageitem') return undefined
 		return { type: 'agent', path: slot.ref.path, storagePath: slot.ref.path, isLiveDraft: true }
 	}
+	// Drafts held by holdDraftUntilSend. Their sync is suspended, so an edit made meanwhile is
+	// in the cell only: forcePersist sends the current value whatever the mirror last saw.
+	let heldDrafts: { workspace: string; kind: SessionTargetKind; path: string }[] = []
+	async function persistHeldDrafts(): Promise<void> {
+		const held = heldDrafts
+		heldDrafts = []
+		for (const { workspace, kind, path } of held) {
+			UserDraft.restartSync(kind, path, { workspace })
+			await UserDraft.forcePersist(kind, path, { workspace })
+			const saved = UserDraftDbSyncer.getState({ workspace, itemKind: kind, path })
+			if (saved.state === 'failed') {
+				throw new Error(`the app could not be saved: ${saved.failureMessage ?? 'unknown error'}`)
+			}
+		}
+	}
 	// Pre-flight: materialise the (still-transient) session, then commit
 	// the workspace (creating a staged fork if needed) before any send.
 	// AIChatManager awaits this so the first message hits a persisted
 	// session targeting the right workspace. Both calls are idempotent.
 	manager.beforeSend = async () => {
 		materializeTransient(session.id)
+		await persistHeldDrafts()
 		// Session is now persisted → flush any linked files buffered while it was transient.
 		await manager.attachedFiles.flushPending()
 		// Fork creation is the slow part of the pre-flight; label the loading
@@ -1223,6 +1242,12 @@ function createRuntime(session: Session): SessionRuntime {
 			} finally {
 				slot.loading = false
 			}
+		},
+
+		holdDraftUntilSend(workspace, kind, path) {
+			UserDraft.stopSync(kind, path, { workspace })
+			if (!heldDrafts.some((d) => d.workspace === workspace && d.kind === kind && d.path === path))
+				heldDrafts.push({ workspace, kind, path })
 		},
 
 		itemDeployed(workspace, kind, storagePath, deployedPath = storagePath) {
