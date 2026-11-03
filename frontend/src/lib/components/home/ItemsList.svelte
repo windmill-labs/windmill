@@ -1,3 +1,9 @@
+<script lang="ts" module>
+	import { lazyModule } from '$lib/lazyModule.svelte'
+
+	const folderEditorModule = lazyModule(() => import('../FolderEditorDrawer.svelte'))
+</script>
+
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
@@ -58,7 +64,7 @@
 	import HighlightCode from '../HighlightCode.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
-	import FolderEditorDrawer from '../FolderEditorDrawer.svelte'
+	import type FolderEditorDrawer from '../FolderEditorDrawer.svelte'
 	import { isDemoWorkspaceRestricted } from '$lib/cloud'
 	import Item from './Item.svelte'
 	import PipelineRow from '../common/table/PipelineRow.svelte'
@@ -1031,6 +1037,11 @@
 	})
 	let viewCodeDrawer: Drawer | undefined = $state()
 	let folderEditorDrawer: FolderEditorDrawer | undefined = $state()
+	async function withFolderEditor(fn: (drawer: FolderEditorDrawer) => void) {
+		await folderEditorModule.load()
+		await tick()
+		if (folderEditorDrawer) fn(folderEditorDrawer)
+	}
 	let viewCodeTitle: string | undefined = $state()
 	let script: Script | undefined = $state()
 	async function showCode(path: string, summary: string) {
@@ -2057,20 +2068,23 @@
 />
 
 <!-- Permission changes can hide or reveal rows for this user, so a save reloads them. -->
-<FolderEditorDrawer
-	bind:this={folderEditorDrawer}
-	onSaved={async (name, created) => {
-		if (created) {
-			// Folder pickers and the tree's folder menu derive write access from these, which
-			// the server only resends on the next whoami. The creator is the folder's owner.
-			$userStore?.folders.push(name)
-			$userStore?.folders_owners.push(name)
-			if ($workspaceStore) createdFolders.push({ workspace: $workspaceStore, name })
-			await folderNamesRes.refetch()
-		}
-		await reloadItemsAndCounts()
-	}}
-/>
+{#if folderEditorModule.current}
+	{@const LoadedFolderEditorDrawer = folderEditorModule.current.default}
+	<LoadedFolderEditorDrawer
+		bind:this={folderEditorDrawer}
+		onSaved={async (name, created) => {
+			if (created) {
+				// Folder pickers and the tree's folder menu derive write access from these, which
+				// the server only resends on the next whoami. The creator is the folder's owner.
+				$userStore?.folders.push(name)
+				$userStore?.folders_owners.push(name)
+				if ($workspaceStore) createdFolders.push({ workspace: $workspaceStore, name })
+				await folderNamesRes.refetch()
+			}
+			await reloadItemsAndCounts()
+		}}
+	/>
+{/if}
 
 <Drawer
 	bind:this={viewCodeDrawer}
@@ -2203,7 +2217,9 @@
 						onImportHubProject={$disableHubStore || !editRights.roleCanAuthor('script')
 							? undefined
 							: () => (hubPickerOpen = true)}
-						onCreateFolder={canCreateFolder ? () => folderEditorDrawer?.initNew() : undefined}
+						onCreateFolder={canCreateFolder
+							? () => void withFolderEditor((d) => d.initNew())
+							: undefined}
 					/>
 				{/if}
 			</div>
@@ -2291,7 +2307,9 @@
 								<WorkspaceEmptyState
 									archivedOnly={archivedProbe?.hasArchived === true}
 									canCreate={canCreateHere}
-									onCreateFolder={canCreateFolder ? () => folderEditorDrawer?.initNew() : undefined}
+									onCreateFolder={canCreateFolder
+										? () => void withFolderEditor((d) => d.initNew())
+										: undefined}
 									onPick={(project) => (hubPick = project)}
 									onShowArchived={() =>
 										(filterValues.val = { ...filterValues.val, archived: true })}
@@ -2389,7 +2407,7 @@
 						showEditButton={showEditButtons}
 						framed={false}
 						onManageFolder={$roleCapabilities.visibility.folders
-							? (name) => folderEditorDrawer?.initEdit(name)
+							? (name) => void withFolderEditor((d) => d.initEdit(name))
 							: undefined}
 						keepEmptyFolders={keepEmptyFolders && !hideEmptyFolders}
 						{keptFolders}

@@ -1,3 +1,12 @@
+<script lang="ts" module>
+	import { lazyModule } from '$lib/lazyModule.svelte'
+
+	// Mounted only once a row's menu opens, and reached from one of its items.
+	const shareModalModule = lazyModule(() => import('../ShareModal.svelte'))
+	const deployDrawerModule = lazyModule(() => import('../DeployWorkspaceDrawer.svelte'))
+	const moveDrawerModule = lazyModule(() => import('../MoveDrawer.svelte'))
+</script>
+
 <script lang="ts">
 	import AppRow from '../common/table/AppRow.svelte'
 	import FlowRow from '../common/table/FlowRow.svelte'
@@ -6,9 +15,6 @@
 	import ScriptRow from '../common/table/ScriptRow.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { Alert } from '$lib/components/common'
-	import DeployWorkspaceDrawer from '../DeployWorkspaceDrawer.svelte'
-	import MoveDrawer from '../MoveDrawer.svelte'
-	import ShareModal from '../ShareModal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { ArrowBigUp } from 'lucide-svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -24,6 +30,12 @@
 	let deploymentDrawer: any | undefined = $state()
 
 	let menuOpen: boolean = $state(false)
+	$effect(() => {
+		if (!menuOpen) return
+		void shareModalModule.load()
+		void deployDrawerModule.load()
+		void moveDrawerModule.load()
+	})
 	interface Props {
 		item: any
 		depth?: number
@@ -197,18 +209,26 @@
 		</div>
 	</ConfirmationModal>
 
-	<ShareModal
-		bind:this={shareModal}
-		on:change={() => {
-			dispatch('reload')
-		}}
-	/>
-
-	<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-	<MoveDrawer
-		bind:this={moveDrawer}
-		on:update={() => {
-			dispatch('reload')
-		}}
-	/>
+	{#if shareModalModule.current}
+		{@const ShareModal = shareModalModule.current.default}
+		<ShareModal
+			bind:this={shareModal}
+			on:change={() => {
+				dispatch('reload')
+			}}
+		/>
+	{/if}
+	{#if deployDrawerModule.current}
+		{@const DeployWorkspaceDrawer = deployDrawerModule.current.default}
+		<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
+	{/if}
+	{#if moveDrawerModule.current}
+		{@const MoveDrawer = moveDrawerModule.current.default}
+		<MoveDrawer
+			bind:this={moveDrawer}
+			on:update={() => {
+				dispatch('reload')
+			}}
+		/>
+	{/if}
 {/if}

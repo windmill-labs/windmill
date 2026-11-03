@@ -7,7 +7,7 @@
 	import { chatState } from './sharedChatState.svelte'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { copilotInfo } from '$lib/aiStore'
-	import { aiChatManager } from './AIChatManager.svelte'
+	import { aiChatManagerModule } from './aiChatManagerModule'
 	import { onDestroy } from 'svelte'
 	import CreatedResourceActionDrawers from './CreatedResourceActionDrawers.svelte'
 
@@ -66,16 +66,18 @@
 	// the workspace hid the assistant; close it as soon as that is known.
 	$effect(() => {
 		if ($copilotInfo.workspaceDisabled && chatState.size > 0) {
-			aiChatManager.closeChat()
+			void aiChatManagerModule.load().then((m) => m.aiChatManager.closeChat())
 		}
 	})
 
-	const historyManager = aiChatManager.historyManager
-	historyManager.init()
+	// Until the engine loads there is no chat to cancel, and its history opens on load.
+	aiChatManagerModule.ifLoaded((m) => m.aiChatManager.historyManager.init())
 
 	onDestroy(() => {
-		aiChatManager.cancel('aiChatLayout destroyed')
-		historyManager.close()
+		aiChatManagerModule.ifLoaded(({ aiChatManager }) => {
+			aiChatManager.cancel('aiChatLayout destroyed')
+			aiChatManager.historyManager.close()
+		})
 	})
 </script>
 

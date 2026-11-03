@@ -1,3 +1,12 @@
+<script lang="ts" module>
+	import { lazyModule, prefetchLazyModulesWhenIdle } from '$lib/lazyModule.svelte'
+
+	const s3FilePickerModule = lazyModule(() => import('$lib/components/S3FilePicker.svelte'))
+	const createWorkspaceModule = lazyModule(
+		() => import('$lib/components/workspaceSettings/CreateWorkspaceInner.svelte')
+	)
+</script>
+
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 	import { isMac } from '$lib/utils'
@@ -114,10 +123,10 @@
 	import AppLinksModal from '$lib/components/itemSettings/AppLinksModal.svelte'
 	import InstanceBanner from '$lib/components/InstanceBanner.svelte'
 	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
-	import { onDestroy, setContext, untrack } from 'svelte'
+	import { onDestroy, onMount, setContext, tick, untrack } from 'svelte'
 	import { cubicOut } from 'svelte/easing'
 	import { Tooltip } from '$lib/components/meltComponents'
-	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import { aiChatManagerModule } from '$lib/components/copilot/chat/aiChatManagerModule'
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
 	import { isGlobalAiEnabled, sessionsAllowedFor } from '$lib/components/copilot/chat/global/gate'
@@ -133,11 +142,10 @@
 	import { restoreSessionBackups } from '$lib/components/sessions/sessionMirror.svelte'
 	import { currentWorkspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
-	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
+	import type S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
-	import CreateWorkspaceInner from '$lib/components/workspaceSettings/CreateWorkspaceInner.svelte'
 	import { recordForkParent, rememberForkParent } from '$lib/forkParentMemory'
 	interface Props {
 		children?: import('svelte').Snippet
@@ -289,6 +297,7 @@
 	}
 
 	onDestroy(() => stopSidebarResize?.())
+	onMount(prefetchLazyModulesWhenIdle)
 
 	// Let AI chat's 'navigate' link chips route through the app router without the
 	// tool layer importing $app/navigation.
@@ -1126,10 +1135,17 @@
 	globalDbManagerDrawer.val = useDbManagerUriState()
 
 	let globalS3FilePicker: S3FilePicker | undefined = $state()
+	const globalS3FilePickerOpener = {
+		open: async (...args: Parameters<S3FilePicker['open']>) => {
+			await s3FilePickerModule.load()
+			await tick()
+			await globalS3FilePicker?.open(...args)
+		}
+	}
 	$effect(() => {
 		// `as any`: the component instance type is opaque in svelte2tsx context
 		// and does not match the store's structural type.
-		globalS3FilePickerExplorer.val = globalS3FilePicker as any
+		globalS3FilePickerExplorer.val = $workspaceStore ? (globalS3FilePickerOpener as any) : undefined
 	})
 
 	// Whether the account still has to set a password or connect a sign-in decides the
@@ -1324,7 +1340,8 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 						     AI Sessions beta (otherwise the AI sessions section replaces it). -->
 							<MenuButton
 								stopPropagationOnClick={true}
-								on:click={() => aiChatManager.toggleOpen()}
+								on:click={() =>
+									void aiChatManagerModule.load().then((m) => m.aiChatManager.toggleOpen())}
 								isCollapsed={collapsed}
 								icon={WandSparkles}
 								iconProps={{ forceDarkMode: true }}
@@ -1640,8 +1657,9 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 	{/await}
 {/if}
 
-{#if $workspaceStore}
-	<S3FilePicker bind:this={globalS3FilePicker} readOnlyMode allowDelete />
+{#if $workspaceStore && s3FilePickerModule.current}
+	{@const LoadedS3FilePicker = s3FilePickerModule.current.default}
+	<LoadedS3FilePicker bind:this={globalS3FilePicker} readOnlyMode allowDelete />
 {/if}
 
 <ForkConflictModal />
@@ -1657,7 +1675,9 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 	bind:isOpen={() => !!globalForkModal.val?.opened, (v) => !v && (globalForkModal.val = undefined)}
 >
 	{#if globalForkModal.val}
-		<CreateWorkspaceInner isFork inModal onFinish={() => (globalForkModal.val = undefined)} />
+		{#await createWorkspaceModule.load() then { default: CreateWorkspaceInner }}
+			<CreateWorkspaceInner isFork inModal onFinish={() => (globalForkModal.val = undefined)} />
+		{/await}
 	{/if}
 </Modal2>
 

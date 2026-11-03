@@ -1,4 +1,4 @@
-import { AI_PROVIDERS } from './copilot/lib'
+import { AI_PROVIDERS } from './copilot/aiProviders'
 import type { ProviderConfig } from '$lib/gen'
 
 const STORAGE_KEY = 'windmill_ai_provider_config'

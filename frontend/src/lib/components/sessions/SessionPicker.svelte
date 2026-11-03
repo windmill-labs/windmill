@@ -52,7 +52,7 @@
 		getSessionChatPeek,
 		getSessionChatStatus,
 		removeSession
-	} from './sessionRuntime.svelte'
+	} from './sessionRuntimeRegistry.svelte'
 	import SessionStatusDot from './SessionStatusDot.svelte'
 	import UnreadCountBadge from '$lib/components/common/badge/UnreadCountBadge.svelte'
 	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
