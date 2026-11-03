@@ -516,14 +516,24 @@ function createRuntime(session: Session): SessionRuntime {
 		return { type: 'agent', path: slot.ref.path, storagePath: slot.ref.path, isLiveDraft: true }
 	}
 	// Drafts held by holdDraftUntilSend. Their sync is suspended, so an edit made meanwhile is
-	// in the cell only: forcePersist sends the current value whatever the mirror last saw.
+	// in the cell only, so the save sends the current value whatever the mirror last saw.
 	let heldDrafts: { workspace: string; kind: SessionTargetKind; path: string }[] = []
+	// The live editor's value, else the runtime cell's: a collapsed or remounting preview has
+	// released its UserDraft entry, but the cell lives as long as a tab shows the app.
+	function heldDraftValue(workspace: string, kind: SessionTargetKind, path: string) {
+		const live = UserDraft.get(kind, path, { workspace })
+		if (live !== undefined || kind !== 'raw_app') return live
+		const val = rawAppCells.get(path)?.store.val
+		return val ? runtimeRawAppToDraft(val) : undefined
+	}
 	// A draft leaves the list only once saved: a failed send keeps it held, so its retry saves it.
 	async function persistHeldDrafts(): Promise<void> {
 		while (heldDrafts.length > 0) {
 			const { workspace, kind, path } = heldDrafts[0]
+			const value = heldDraftValue(workspace, kind, path)
+			if (value === undefined) throw new Error('the app to save is no longer open')
 			UserDraft.restartSync(kind, path, { workspace })
-			await UserDraft.forcePersist(kind, path, { workspace })
+			await UserDraftDbSyncer.save({ workspace, itemKind: kind, path, value, immediate: true })
 			const saved = UserDraftDbSyncer.getState({ workspace, itemKind: kind, path })
 			if (saved.state === 'failed') {
 				UserDraft.stopSync(kind, path, { workspace })
@@ -642,6 +652,11 @@ function createRuntime(session: Session): SessionRuntime {
 		for (const p of [...flowCells.keys()]) if (!keep.flow.has(p)) flowCells.delete(p)
 		for (const p of [...scriptCells.keys()]) if (!keep.script.has(p)) scriptCells.delete(p)
 		for (const p of [...rawAppCells.keys()]) if (!keep.raw_app.has(p)) rawAppCells.delete(p)
+		// A held app whose tab is gone was dropped before anything was sent: it is not saved.
+		for (const d of heldDrafts.filter((d) => d.kind === 'raw_app' && !keep.raw_app.has(d.path))) {
+			UserDraft.restartSync(d.kind, d.path, { workspace: d.workspace })
+			releaseHeldDraft(d.workspace, d.kind, d.path)
+		}
 	}
 
 	// Hydrate the preview-tab owner from the session record (the durable backing);
