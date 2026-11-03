@@ -535,6 +535,14 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 			]
 			setSessionTabs('held-on-app', tabs, 'session')
 			expect(held.transient).toBe(true)
+			vi.useFakeTimers()
+			try {
+				setSessionDraftPrompt('held-on-app', 'make it blue')
+				vi.advanceTimersByTime(1000)
+			} finally {
+				vi.useRealTimers()
+			}
+			expect(held.transient).toBe(true)
 			createdId = createSession().id
 			expect(createdId).not.toBe('held-on-app')
 			expect(sessionState.sessions).toContain(held)
