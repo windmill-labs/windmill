@@ -1107,6 +1107,8 @@ Svelte (\`index.ts\`): \`mount(App, { target: document.getElementById('root')! }
 
 **Set the browser tab title with \`document.title = '...'\`** (or a \`<title>\` the framework renders into \`<head>\`). The app has no \`index.html\` of its own, so a \`<title>\` written there is never served; the deployed app's page shows whatever \`document.title\` holds, and follows it when it changes.
 
+**Read the page's context from \`window.ctx\`**: \`ctx\` is the viewer (absent for anonymous visitors), \`workspace\` and \`path\` the app's (\`path\` is not set under \`wmill app dev\`), and \`query\` the page URL's query parameters as strings (\`…/apps/get/u/me/app?customer=42\` gives \`window.ctx.query.customer === '42'\`, and no query gives \`{}\`). Read it there, not from \`window.location\`, which in a sandboxed app is not the page's address. It is read once when the app loads.
+
 **Always begin every React file (\`.tsx\`/\`.jsx\`) that uses JSX with \`import React from 'react'\`.** esbuild uses the classic JSX transform, so \`React\` must be in scope wherever JSX appears — a missing import compiles fine but throws \`React is not defined\` at runtime, leaving a blank screen.
 
 ### Generated bindings (\`wmill.d.ts\` / \`wmill.ts\`)
