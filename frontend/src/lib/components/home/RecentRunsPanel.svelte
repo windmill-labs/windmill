@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Button, Skeleton } from '$lib/components/common'
 	import { ExternalLink, PanelRightClose } from 'lucide-svelte'
 	import RecentRunRow from './RecentRunRow.svelte'
 	import {
@@ -24,6 +24,8 @@
 	let { runs, folder, onCollapse, onFocusItem }: Props = $props()
 
 	let data = $derived(runs.current)
+	// Rows' height (2.5 × 16px) with their gap: without it a first load reads as "nothing ran".
+	const LOADING_LAYOUT = [[2.5], 0.25, [2.5], 0.25, [2.5]]
 	// The failed count also holds runs an item has since recovered from; Ask AI attaches only
 	// the items still failing, so it shows only when there is one.
 	let failing = $derived(data?.items.filter((i) => i.status === 'failure') ?? [])
@@ -42,7 +44,7 @@
 			{/if}
 			{#if data}
 				<span
-					class="relative min-w-0 truncate text-xs font-normal text-hint"
+					class="relative min-w-0 truncate text-xs font-normal text-hint wm-page-in"
 					title="{windowText} · {totalLabel(data)} · {data.failed_runs} failed"
 				>
 					{#if data.failed_runs > 0}
@@ -88,17 +90,28 @@
 	</div>
 
 	<div class="flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-2.5">
-		{#if data && data.items.length === 0}
+		{#if !data && runs.loading}
+			<Skeleton class="px-2.5" layout={LOADING_LAYOUT} />
+		{:else if !data && runs.failed}
+			<p class="flex items-center gap-1 px-2.5 text-xs text-hint">
+				Could not load recent runs.
+				<Button variant="subtle" unifiedSize="xs" onClick={() => runs.retry()}>Retry</Button>
+			</p>
+		{:else if data && data.items.length === 0}
 			<p class="px-2.5 text-xs text-hint">Runs show up here once something runs.</p>
 		{:else if data}
-			{#each data.items as item (itemKey(item))}
-				<RecentRunRow
-					{item}
-					now={runs.now}
-					prefix={prefixes.get(itemKey(item))}
-					onSelect={onFocusItem}
-				/>
-			{/each}
+			<!-- Fades in once, when the first read lands; refreshes update the rows in place. -->
+			<div class="wm-page-in">
+				{#each data.items as item (itemKey(item))}
+					<RecentRunRow
+						{item}
+						now={runs.now}
+						prefix={prefixes.get(itemKey(item))}
+						onResolve={runs.resolveFailures}
+						onSelect={onFocusItem}
+					/>
+				{/each}
+			</div>
 		{/if}
 	</div>
 </div>

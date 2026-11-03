@@ -18049,6 +18049,17 @@ paths:
           in: query
           schema:
             type: string
+        - name: failed_ids_kind
+          description: with failed_ids_path, the item whose unresolved failed run ids to list in failed_run_ids
+          in: query
+          schema:
+            type: string
+            enum: [script, flow, agent]
+        - name: failed_ids_path
+          description: with failed_ids_kind, the path of that item
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: runs that completed in the window or are running, grouped by item, newest run first
@@ -18085,8 +18096,14 @@ paths:
                         status:
                           $ref: "#/components/schemas/RecentRunStatus"
                         failed_runs:
-                          description: failed runs of the item over the whole window, not only those in runs
+                          description: unresolved failed runs of the item over the whole window, not only those in runs
                           type: integer
+                        failed_run_ids:
+                          description: the ids of those failed runs, only for the item named by failed_ids_kind and failed_ids_path
+                          type: array
+                          items:
+                            type: string
+                            format: uuid
                         runs:
                           type: array
                           items:
@@ -33456,8 +33473,9 @@ components:
         - has_preprocessor
 
     RecentRunStatus:
+      description: a failure someone or something marked as handled is `resolved`, not `failure`
       type: string
-      enum: [success, failure, canceled, running]
+      enum: [success, failure, resolved, canceled, running]
 
     ScriptLang:
       type: string

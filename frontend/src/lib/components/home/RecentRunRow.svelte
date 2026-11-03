@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { workspaceStore } from '$lib/stores'
-	import { CircleCheck, CircleSlash, CircleX, Loader2 } from 'lucide-svelte'
+	import { CircleCheck, CircleSlash, CircleX, Loader2, Wrench } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import {
 		askAI,
 		canAskAI,
@@ -23,9 +24,14 @@
 		/** What a click on the row does; without it the row opens the item's page. The run links
 		 * open runs either way. */
 		onSelect?: (item: RecentRunItem) => void
+		/** Resolves the item's failed runs; without it the row offers no resolve action. */
+		onResolve?: (item: RecentRunItem) => Promise<void>
 	}
 
-	let { item, now, prefix, strip = true, onSelect }: Props = $props()
+	let { item, now, prefix, strip = true, onSelect, onResolve }: Props = $props()
+
+	const roleCaps = useRoleCapabilities()
+	let resolving = $state(false)
 
 	const STRIP_SLOTS = 10
 	// The strip reads oldest to newest; the item's runs arrive newest first.
@@ -43,12 +49,14 @@
 	const statusLabel = {
 		success: 'Succeeded',
 		failure: 'Failed',
+		resolved: 'Failed, resolved',
 		canceled: 'Canceled',
 		running: 'Running'
 	}
 	const barClass = {
 		success: 'bg-green-500 dark:bg-green-600',
 		failure: 'bg-red-500 dark:bg-red-600',
+		resolved: 'bg-orange-300 dark:bg-orange-700',
 		canceled: 'bg-gray-400 dark:bg-gray-500',
 		running: 'bg-yellow-500'
 	}
@@ -93,6 +101,8 @@
 			<Loader2 size={14} class="animate-spin text-yellow-500" />
 		{:else if failing}
 			<CircleX size={14} class="text-red-500" />
+		{:else if item.status === 'resolved'}
+			<span class="text-orange-500" title="Failed, marked as resolved"><Wrench size={14} /></span>
 		{:else if item.status === 'canceled'}
 			<CircleSlash size={14} class="text-hint" />
 		{:else}
@@ -114,6 +124,31 @@
 			     number comes from. -->
 			{#if item.failed_runs > 0}
 				<span class="shrink-0 text-red-600 dark:text-red-400">{item.failed_runs} failed</span>
+				{#if onResolve && $roleCaps.code}
+					<!-- Negative margins keep the button's height from growing the row on hover. -->
+					<span
+						class="hidden group-hover:inline-flex group-focus-within:inline-flex shrink-0 -my-[3px]"
+					>
+						<Button
+							variant="subtle"
+							unifiedSize="2xs"
+							btnClasses="!text-accent !text-[10.5px] !px-1 font-medium"
+							title="Mark the {item.failed_runs} failed runs of {title} as handled"
+							loading={resolving}
+							onClick={async (e) => {
+								e?.stopPropagation()
+								resolving = true
+								try {
+									await onResolve(item)
+								} finally {
+									resolving = false
+								}
+							}}
+						>
+							{item.failed_runs === 1 ? 'Resolve' : 'Resolve all'}
+						</Button>
+					</span>
+				{/if}
 			{/if}
 			{#if failing && canAskAI() && latest}
 				<button

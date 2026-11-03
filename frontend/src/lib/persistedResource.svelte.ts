@@ -61,14 +61,32 @@ export function persistedResource<A, T>(
 	fetcher: (args: A) => Promise<T | undefined>,
 	opts: PersistOptions<A>
 ) {
+	// runed's `resource` neither orders overlapping requests nor ties `loading` to the newest:
+	// an older response landing last would replace the newer one, and the first to settle would
+	// end `loading` while a later request is still in flight. Only the latest request does either.
+	let latest = 0
+	let inFlight = $state(false)
+	let error = $state<unknown>(undefined)
 	const res = resource<A, Tagged<T>>(source, async (args) => {
-		const keys = keysFor(opts, args)
-		if (keys) void loadEntry(keys.key, opts.version)
-		const sentWith = readSessionHint()
-		const value = await fetcher(args)
-		if (keys && value !== undefined && sameSessionSince(sentWith))
-			saveEntry(keys.key, opts.version, value)
-		return { keys, value }
+		const id = ++latest
+		inFlight = true
+		try {
+			const keys = keysFor(opts, args)
+			if (keys) void loadEntry(keys.key, opts.version)
+			const sentWith = readSessionHint()
+			const value = await fetcher(args)
+			if (keys && value !== undefined && sameSessionSince(sentWith))
+				saveEntry(keys.key, opts.version, value)
+			// An AbortError is how runed is told to keep its value without recording an error.
+			if (id !== latest) throw new DOMException('superseded', 'AbortError')
+			error = undefined
+			return { keys, value }
+		} catch (e) {
+			if (id === latest) error = e
+			throw e
+		} finally {
+			if (id === latest) inFlight = false
+		}
 	})
 	const keys = $derived(keysFor(opts, source()))
 	const shown = $derived(
@@ -79,7 +97,11 @@ export function persistedResource<A, T>(
 			return shown
 		},
 		get loading() {
-			return res.loading
+			return inFlight
+		},
+		/** Why the latest request failed; cleared when one succeeds. */
+		get error() {
+			return error
 		},
 		refetch() {
 			return res.refetch()

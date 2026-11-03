@@ -1138,13 +1138,15 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					{/if}
 				{/snippet}
 				{#snippet toolbar()}
+					<!-- Its rows fade in (`wm-page-in`): they land with the copilot config, after the
+					     box Home's skeleton already drew. -->
 					<div
 						class="flex flex-row flex-wrap items-center gap-x-1.5 gap-y-1"
 						class:justify-between={showFooterLeftControls}
 						class:justify-end={!showFooterLeftControls}
 					>
 						{#if showFooterLeftControls}
-							<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
+							<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap wm-page-in">
 								{#if showContextPicker && !disabled}
 									<Popover placement="bottom-start">
 										{#snippet trigger()}
@@ -1385,11 +1387,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							</div>
 						{/if}
 						{#if footerMessageShown}
-							<div class="text-primary text-xs my-2 px-2">
+							<div class="text-primary text-xs my-2 px-2 wm-page-in">
 								<Markdown md={disabledMessage} />
 							</div>
 						{:else}
-							<div class="flex flex-row gap-x-1.5 min-w-0 flex-wrap items-center">
+							<div class="flex flex-row gap-x-1.5 min-w-0 flex-wrap items-center wm-page-in">
 								{#if chatHost.mode === AIMode.GLOBAL}
 									<AttachedFilesBar />
 								{/if}
