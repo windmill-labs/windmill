@@ -196,7 +196,9 @@ impl<B: McpBackend> SessionRunner<B> {
                     "Every tool takes a `workspace_id`: pass `{}`, the workspace this connection \
                      works in.\n\n{}",
                     only.id,
-                    self.backend.session_instructions(&auth, &only.id).await?
+                    self.backend
+                        .session_instructions(&auth, &only.id, access(&auth, &caller.scope))
+                        .await?
                 )
             }
             _ => {
@@ -220,7 +222,8 @@ impl<B: McpBackend> SessionRunner<B> {
                      below), the folders you can write to, and the workspace's skills and \
                      instructions. When the user has not said which workspace, ask rather than \
                      guess, and name the workspace whenever you change something.\n\n{}",
-                    self.backend.generic_session_instructions()
+                    self.backend
+                        .generic_session_instructions(access(&caller.auth, &caller.scope))
                 )
             }
         };
@@ -371,7 +374,10 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
             };
         let auth = self.auth_in(&caller, &workspace_id).await?;
         if request.name == GET_WORKSPACE_CONTEXT {
-            let text = self.backend.workspace_context(&auth, &workspace_id).await;
+            let text = self
+                .backend
+                .workspace_context(&auth, &workspace_id, access(&auth, &caller.scope))
+                .await;
             return Ok(CallToolResult::success(vec![ContentBlock::text(text)]).into());
         }
         let result = self

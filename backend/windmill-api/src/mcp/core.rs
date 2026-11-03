@@ -6,6 +6,7 @@
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
+use windmill_common::workspaces::{get_protection_rules, ProtectionRules, ProtectionRuleset};
 use windmill_common::{db::UserDB, runnable_ref::RunnableRef, DB};
 use windmill_mcp::common::schema::enrich_resource_schemas;
 use windmill_mcp::common::transform::transform_property_keys;
@@ -66,23 +67,36 @@ pub struct WindmillBackend {
     pub auth_cache: Arc<AuthCache>,
 }
 
-impl WindmillBackend {
-    /// The instructions only read, so they are built at the token's own read-only flag.
-    fn session_ctx<'a>(&'a self, auth: &'a ApiAuthed, w_id: &'a str) -> session::Ctx<'a> {
-        let access = if auth.read_only {
-            SessionAccess::ReadOnly
-        } else {
-            SessionAccess::Full
-        };
-        self.session_ctx_with(auth, w_id, access)
+/// `DisableDirectDeployment` holds a session to reading and running deployed items for
+/// everyone, admins and bypassers included: that workspace takes changes from its dev workspace
+/// or a fork, where drafts can go somewhere. Unreadable rules (`None`) hold it too. The in-app
+/// chat applies the same rule (`protects` in `chat/global/sessionAccess.ts`): change both.
+fn workspace_access(access: SessionAccess, rules: Option<&[ProtectionRuleset]>) -> SessionAccess {
+    let locked = rules.map_or(true, |rules| {
+        rules
+            .iter()
+            .any(|r| r.rules.contains(ProtectionRules::DISABLE_DIRECT_DEPLOYMENT))
+    });
+    match access {
+        SessionAccess::Full if locked => SessionAccess::ReadAndRun,
+        other => other,
     }
+}
 
-    fn session_ctx_with<'a>(
+impl WindmillBackend {
+    async fn session_ctx_with<'a>(
         &'a self,
         auth: &'a ApiAuthed,
         w_id: &'a str,
         access: SessionAccess,
     ) -> session::Ctx<'a> {
+        let access = match access {
+            SessionAccess::Full => {
+                let rules = get_protection_rules(w_id, &self.db).await.ok();
+                workspace_access(access, rules.as_deref().map(Vec::as_slice))
+            }
+            other => other,
+        };
         session::Ctx::new(auth, w_id, &self.base_internal_url, session::access(access))
     }
 
@@ -470,16 +484,26 @@ impl McpBackend for WindmillBackend {
         &self,
         auth: &ApiAuthed,
         workspace_id: &str,
+        access: SessionAccess,
     ) -> BackendResult<String> {
-        Ok(session::session_instructions(&self.session_ctx(auth, workspace_id)).await)
+        let ctx = self.session_ctx_with(auth, workspace_id, access).await;
+        let profile = session::prompt_profile(&self.db, auth, workspace_id, ctx.access).await;
+        Ok(session::session_instructions(&ctx, &profile).await)
     }
 
-    fn generic_session_instructions(&self) -> String {
-        session::generic_session_instructions()
+    fn generic_session_instructions(&self, access: SessionAccess) -> String {
+        session::generic_session_instructions(session::access(access))
     }
 
-    async fn workspace_context(&self, auth: &ApiAuthed, workspace_id: &str) -> String {
-        session::workspace_context(&self.session_ctx(auth, workspace_id)).await
+    async fn workspace_context(
+        &self,
+        auth: &ApiAuthed,
+        workspace_id: &str,
+        access: SessionAccess,
+    ) -> String {
+        let ctx = self.session_ctx_with(auth, workspace_id, access).await;
+        let profile = session::prompt_profile(&self.db, auth, workspace_id, ctx.access).await;
+        session::workspace_context(&ctx, &profile, session::access(access)).await
     }
 
     fn session_tools(&self, access: SessionAccess) -> Vec<Tool> {
@@ -499,7 +523,7 @@ impl McpBackend for WindmillBackend {
         access: SessionAccess,
         origin: Option<&str>,
     ) -> BackendResult<CallToolResult> {
-        let mut ctx = self.session_ctx_with(auth, workspace_id, access);
+        let mut ctx = self.session_ctx_with(auth, workspace_id, access).await;
         ctx.origin = origin;
         session::call_session_tool(&ctx, name, args).await
     }
@@ -867,7 +891,30 @@ pub fn toolset_service() -> Router {
 
 #[cfg(test)]
 mod tests {
-    use super::{scoped_to_selection, serves_session_toolset};
+    use super::{
+        scoped_to_selection, serves_session_toolset, workspace_access, ProtectionRules,
+        ProtectionRuleset, SessionAccess,
+    };
+
+    #[test]
+    fn direct_deployment_lock_holds_full_sessions_to_read_and_run() {
+        let ruleset = |rules| ProtectionRuleset {
+            workspace_id: "w".to_string(),
+            name: "r".to_string(),
+            rules,
+            bypass_groups: vec![],
+            bypass_users: vec!["admin".to_string()],
+            fork_role_mapping: Default::default(),
+        };
+        let locked = [ruleset(ProtectionRules::DISABLE_DIRECT_DEPLOYMENT)];
+        let open = [ruleset(ProtectionRules::RESTRICT_DEPLOY_TO_DEPLOYERS)];
+        use SessionAccess::*;
+        assert_eq!(workspace_access(Full, Some(&locked)), ReadAndRun);
+        assert_eq!(workspace_access(Full, None), ReadAndRun);
+        assert_eq!(workspace_access(Full, Some(&open)), Full);
+        assert_eq!(workspace_access(Full, Some(&[])), Full);
+        assert_eq!(workspace_access(ReadOnly, Some(&locked)), ReadOnly);
+    }
 
     #[test]
     fn only_a_token_without_mcp_all_is_a_selection() {
