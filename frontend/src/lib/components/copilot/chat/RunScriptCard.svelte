@@ -366,8 +366,11 @@
 		if (!running || unseen || waiting || start === undefined) return
 		let timer: ReturnType<typeof setTimeout>
 		const tick = () => {
-			now = Date.now()
-			const intoSecond = (((now - start) % 1000) + 1000) % 1000
+			// Never read `now` here: `tick` first runs inside the effect, so reading it would
+			// subscribe the effect to its own writes and restart it on every tick.
+			const t = Date.now()
+			now = t
+			const intoSecond = (((t - start) % 1000) + 1000) % 1000
 			timer = setTimeout(tick, 1000 - intoSecond + 10)
 		}
 		tick()
@@ -385,9 +388,7 @@
 			j?.started_at && j.created_at ? Date.parse(j.started_at) - Date.parse(j.created_at) : NaN
 		return chatJob.createdAt + (Number.isFinite(queuedMs) ? Math.max(0, queuedMs) : 0)
 	})
-	const elapsed = $derived(
-		runStartedAt !== undefined ? formatElapsed(now - runStartedAt) : ''
-	)
+	const elapsed = $derived(runStartedAt !== undefined ? formatElapsed(now - runStartedAt) : '')
 	const duration = $derived(
 		chatJob?.durationMs !== undefined ? msToReadableTime(chatJob.durationMs, 2) : ''
 	)

@@ -34,7 +34,6 @@
 			clearInterval(interval)
 		}
 	})
-
 </script>
 
 {#if paused}
