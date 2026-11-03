@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { buildWsUrl } from '$lib/wsUrl'
+	import { MultiplayerConnection } from '$lib/multiplayerConnection'
 	import { paneMinPercent } from '$lib/utils/splitpaneSizing'
 	import { processSecretArgs } from './secretArgUtils'
 	import type { Schema, SupportedLanguage } from '$lib/common'
@@ -36,7 +36,6 @@
 	import * as Y from 'yjs'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import { langToExt } from '$lib/editorLangUtils'
-	import { WebsocketProvider } from 'y-websocket'
 	import Modal from './common/modal/Modal.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import DiffEditor from './DiffEditor.svelte'
@@ -71,7 +70,6 @@
 		getDebugFileExtension,
 		fetchContextualVariables,
 		signDebugRequest,
-		signMultiplayerRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
 	import { SvelteSet } from 'svelte/reactivity'
@@ -819,7 +817,7 @@
 		| undefined = undefined
 	let downloadingRecording = $state(false)
 
-	let wsProvider: WebsocketProvider | undefined = $state(undefined)
+	let collab: MultiplayerConnection | undefined = $state(undefined)
 	let yContent: Y.Text | undefined = $state(undefined)
 	let peers: { name: string }[] = $state([])
 	let showCollabPopup = $state(false)
@@ -1556,29 +1554,28 @@
 			return
 		}
 
-		let token: string | undefined
+		const ydoc = new Y.Doc()
+		let yContentInit = ydoc.getText('content')
+
+		let opened: MultiplayerConnection
 		try {
-			token = await signMultiplayerRequest(opWs ?? '')
+			opened = await MultiplayerConnection.open(
+				opWs ?? '',
+				opWs + '/' + (path ?? 'no-room-name'),
+				ydoc
+			)
 		} catch (e) {
 			console.error('Failed to sign multiplayer request:', e)
 			sendUserToast('Failed to authorize multiplayer session', true)
 			return
 		}
+		collab?.destroy()
+		collab = opened
 
-		const ydoc = new Y.Doc()
-		if (wsProvider) {
-			wsProvider.destroy()
-		}
-		let yContentInit = ydoc.getText('content')
-
-		wsProvider = new WebsocketProvider(
-			buildWsUrl('/ws_mp/'),
-			opWs + '/' + (path ?? 'no-room-name'),
-			ydoc,
-			{ connect: false, params: { token } }
-		)
-
-		wsProvider.on('sync', (isSynced: boolean) => {
+		// One toast per outage: the connection keeps retrying on its own.
+		let errorToastShown = false
+		opened.provider.on('sync', (isSynced: boolean) => {
+			if (isSynced) errorToastShown = false
 			if (isSynced && yContentInit?.toJSON() == '') {
 				showCollabPopup = true
 				yContentInit?.insert(0, code)
@@ -1586,12 +1583,13 @@
 			yContent = yContentInit
 		})
 
-		wsProvider.on('connection-error', (WSErrorEvent) => {
+		opened.provider.on('connection-error', (WSErrorEvent) => {
 			console.error(WSErrorEvent)
+			if (errorToastShown) return
+			errorToastShown = true
 			sendUserToast('Multiplayer server connection had an error', true)
 		})
-		wsProvider.connect()
-		const awareness = wsProvider.awareness
+		const awareness = opened.provider.awareness
 
 		awareness.setLocalStateField('user', {
 			name: $userStore?.username
@@ -1609,11 +1607,10 @@
 	}
 
 	export function disableCollaboration() {
-		if (!wsProvider?.shouldConnect) return
+		if (!collab) return
 		peers = []
-		wsProvider?.disconnect()
-		wsProvider.destroy()
-		wsProvider = undefined
+		collab.destroy()
+		collab = undefined
 	}
 
 	onDestroy(() => {
@@ -1895,7 +1892,7 @@
 				workspace={opWs}
 				scriptPath={edit ? path : undefined}
 				on:toggleCollabMode={() => {
-					if (wsProvider?.shouldConnect) {
+					if (collab) {
 						disableCollaboration()
 					} else {
 						setCollaborationMode()
@@ -1904,7 +1901,7 @@
 				on:showDiffMode={showDiffMode}
 				on:hideDiffMode={hideDiffMode}
 				customUi={customUi?.editorBar}
-				collabLive={wsProvider?.shouldConnect}
+				collabLive={collab !== undefined}
 				{collabMode}
 				{validCode}
 				{validAssets}
@@ -2110,11 +2107,11 @@
 							<div class="h-full flex flex-col">
 								<!-- Test sits at the top right, the last run's link under it. -->
 								<div class="shrink-0 flex flex-col items-end gap-1 px-2 pt-2 pb-1">
-								<div>
-									{#if testIsLoading}
-										{@render cancelTestButton('sm', 'shadow-md')}
-									{:else if (customUi?.previewPanel?.downstreamSubscribers ?? 0) > 0 || customUi?.previewPanel?.onBoundedRun}
-										<!-- Split button: primary "Test" runs just this step
+									<div>
+										{#if testIsLoading}
+											{@render cancelTestButton('sm', 'shadow-md')}
+										{:else if (customUi?.previewPanel?.downstreamSubscribers ?? 0) > 0 || customUi?.previewPanel?.onBoundedRun}
+											<!-- Split button: primary "Test" runs just this step
 									     (skips the asset-trigger cascade); the caret
 									     opens a popover with the cascade option labelled
 									     by the downstream count. The active mode is
@@ -2124,29 +2121,29 @@
 									     pure-reader-only root has no subscriber downstream
 									     but still gets `onBoundedRun`, so the split button
 									     also opens for it (with the cascade item hidden). -->
-										{@const downstream = customUi?.previewPanel?.downstreamSubscribers ?? 0}
-										<div class="flex items-stretch shadow-md rounded-md overflow-hidden">
-											<Button
-												on:click={() => runTest()}
-												unifiedSize="sm"
-												btnClasses="rounded-r-none"
-												variant="accent-secondary"
-												startIcon={{
-													icon: cascadeDownstream ? Zap : Play,
-													classes: 'animate-none'
-												}}
-												shortCut={{ Icon: CornerDownLeft }}
-											>
-												{cascadeDownstream ? `Test + trigger ${downstream}` : 'Test'}
-											</Button>
-											<Popover
-												placement="bottom-end"
-												bind:isOpen={cascadeMenuOpen}
-												usePointerDownOutside
-												contentClasses="p-0"
-											>
-												{#snippet trigger()}
-													<!-- min-h-7 matches Button's unifiedSize="sm" (28px);
+											{@const downstream = customUi?.previewPanel?.downstreamSubscribers ?? 0}
+											<div class="flex items-stretch shadow-md rounded-md overflow-hidden">
+												<Button
+													on:click={() => runTest()}
+													unifiedSize="sm"
+													btnClasses="rounded-r-none"
+													variant="accent-secondary"
+													startIcon={{
+														icon: cascadeDownstream ? Zap : Play,
+														classes: 'animate-none'
+													}}
+													shortCut={{ Icon: CornerDownLeft }}
+												>
+													{cascadeDownstream ? `Test + trigger ${downstream}` : 'Test'}
+												</Button>
+												<Popover
+													placement="bottom-end"
+													bind:isOpen={cascadeMenuOpen}
+													usePointerDownOutside
+													contentClasses="p-0"
+												>
+													{#snippet trigger()}
+														<!-- min-h-7 matches Button's unifiedSize="sm" (28px);
 												     the bg/text/hover classes mirror Button's
 												     `variant="accent-secondary"` so the split reads as
 												     one connected control instead of two mismatched
@@ -2154,120 +2151,120 @@
 												     foreground-tinted border so it stays visible
 												     against both the base and hover bg without
 												     fighting the variant's color. -->
-													<button
-														type="button"
-														class="self-stretch min-h-7 px-1.5 flex items-center justify-center bg-surface-accent-secondary hover:bg-surface-accent-secondary-hover focus-visible:bg-surface-accent-secondary-clicked text-white dark:text-deep-blue-900 border-l border-white/30 dark:border-deep-blue-900/30 transition-colors"
-														title="Run options"
-														aria-label="Run options"
-													>
-														<ChevronDown size={14} />
-													</button>
-												{/snippet}
-												{#snippet content({ close })}
-													<div class="w-72 py-1 text-xs">
 														<button
 															type="button"
-															class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2"
-															onclick={() => {
-																cascadeDownstream = false
-																close()
-																void runTest()
-															}}
+															class="self-stretch min-h-7 px-1.5 flex items-center justify-center bg-surface-accent-secondary hover:bg-surface-accent-secondary-hover focus-visible:bg-surface-accent-secondary-clicked text-white dark:text-deep-blue-900 border-l border-white/30 dark:border-deep-blue-900/30 transition-colors"
+															title="Run options"
+															aria-label="Run options"
 														>
-															<Play
-																size={14}
-																class="mt-0.5 shrink-0 text-emerald-700 dark:text-emerald-400"
-															/>
-															<div class="flex flex-col min-w-0">
-																<span class="font-medium">
-																	Test {!cascadeDownstream ? '(current)' : ''}
-																</span>
-																<span class="text-2xs text-secondary"
-																	>Run just this step. Downstream subscribers are not triggered.</span
-																>
-															</div>
+															<ChevronDown size={14} />
 														</button>
-														{#if downstream > 0}
+													{/snippet}
+													{#snippet content({ close })}
+														<div class="w-72 py-1 text-xs">
 															<button
 																type="button"
 																class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2"
 																onclick={() => {
-																	cascadeDownstream = true
+																	cascadeDownstream = false
 																	close()
 																	void runTest()
 																}}
 															>
-																<Zap
+																<Play
 																	size={14}
-																	class="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"
+																	class="mt-0.5 shrink-0 text-emerald-700 dark:text-emerald-400"
 																/>
 																<div class="flex flex-col min-w-0">
 																	<span class="font-medium">
-																		Test + trigger {downstream} downstream {cascadeDownstream
-																			? '(current)'
-																			: ''}
+																		Test {!cascadeDownstream ? '(current)' : ''}
 																	</span>
-																	<span class="text-2xs text-secondary">
-																		Let the asset-trigger cascade fan out to the {downstream}
-																		subscribed script{downstream === 1 ? '' : 's'} after this run succeeds.
-																	</span>
+																	<span class="text-2xs text-secondary"
+																		>Run just this step. Downstream subscribers are not triggered.</span
+																	>
 																</div>
 															</button>
-														{/if}
-														{#if customUi?.previewPanel?.onBoundedRun}
-															<button
-																type="button"
-																class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2 border-t"
-																onclick={() => {
-																	close()
-																	customUi!.previewPanel!.onBoundedRun!()
-																}}
-															>
-																<Target
-																	size={14}
-																	class="mt-0.5 shrink-0 text-blue-600 dark:text-blue-400"
-																/>
-																<div class="flex flex-col min-w-0">
-																	<span class="font-medium">Run downstream up to…</span>
-																	<span class="text-2xs text-secondary">
-																		Pick end node(s) on the graph, then run only the cascade between
-																		this script and them.
-																	</span>
-																</div>
-															</button>
-														{/if}
-													</div>
-												{/snippet}
-											</Popover>
-										</div>
-									{:else}
-										{@render runTestButton('sm', 'shadow-md')}
-									{/if}
-								</div>
-								{#if testJob?.id && testJob.type === 'CompletedJob' && opWs}
-									<!-- Right-side affordances when we're displaying a *completed*
+															{#if downstream > 0}
+																<button
+																	type="button"
+																	class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2"
+																	onclick={() => {
+																		cascadeDownstream = true
+																		close()
+																		void runTest()
+																	}}
+																>
+																	<Zap
+																		size={14}
+																		class="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400"
+																	/>
+																	<div class="flex flex-col min-w-0">
+																		<span class="font-medium">
+																			Test + trigger {downstream} downstream {cascadeDownstream
+																				? '(current)'
+																				: ''}
+																		</span>
+																		<span class="text-2xs text-secondary">
+																			Let the asset-trigger cascade fan out to the {downstream}
+																			subscribed script{downstream === 1 ? '' : 's'} after this run succeeds.
+																		</span>
+																	</div>
+																</button>
+															{/if}
+															{#if customUi?.previewPanel?.onBoundedRun}
+																<button
+																	type="button"
+																	class="w-full text-left px-3 py-2 hover:bg-surface-hover flex items-start gap-2 border-t"
+																	onclick={() => {
+																		close()
+																		customUi!.previewPanel!.onBoundedRun!()
+																	}}
+																>
+																	<Target
+																		size={14}
+																		class="mt-0.5 shrink-0 text-blue-600 dark:text-blue-400"
+																	/>
+																	<div class="flex flex-col min-w-0">
+																		<span class="font-medium">Run downstream up to…</span>
+																		<span class="text-2xs text-secondary">
+																			Pick end node(s) on the graph, then run only the cascade
+																			between this script and them.
+																		</span>
+																	</div>
+																</button>
+															{/if}
+														</div>
+													{/snippet}
+												</Popover>
+											</div>
+										{:else}
+											{@render runTestButton('sm', 'shadow-md')}
+										{/if}
+									</div>
+									{#if testJob?.id && testJob.type === 'CompletedJob' && opWs}
+										<!-- Right-side affordances when we're displaying a *completed*
 									     job (either the user just ran a test, or the on-mount
 									     last-run loader populated the panel). The job-id link
 									     opens the full run page in a new tab; the dispatch
 									     button mounts a popover that shows what downstream
 									     jobs this run triggered (rendered only when the run
 									     actually dispatched anything). -->
-									<div class="flex items-center gap-2">
-										<a
-											class="text-3xs text-blue-600 hover:underline font-mono"
-											href={`/run/${testJob.id}?workspace=${opWs}`}
-											target="_blank"
-											rel="noopener noreferrer"
-											title="Open this run"
-										>
-											{testJob.id.slice(0, 8)}… ↗
-										</a>
-										<DispatchEventsButton
-											workspace={testJob.workspace_id ?? opWs}
-											jobId={testJob.id}
-										/>
-									</div>
-								{/if}
+										<div class="flex items-center gap-2">
+											<a
+												class="text-3xs text-blue-600 hover:underline font-mono"
+												href={`/run/${testJob.id}?workspace=${opWs}`}
+												target="_blank"
+												rel="noopener noreferrer"
+												title="Open this run"
+											>
+												{testJob.id.slice(0, 8)}… ↗
+											</a>
+											<DispatchEventsButton
+												workspace={testJob.workspace_id ?? opWs}
+												jobId={testJob.id}
+											/>
+										</div>
+									{/if}
 								</div>
 								{#if customUi?.previewPanel?.argsAboveLogs && schema?.properties && Object.keys(schema.properties).length > 0}
 									<div
@@ -2760,7 +2757,7 @@
 			bind:this={editor}
 			schemaContractMarkers={contractMarkers}
 			{yContent}
-			awareness={wsProvider?.awareness}
+			awareness={collab?.provider.awareness}
 			on:change={(e) => {
 				if (activeModuleTab === null) {
 					// `editorCode`, not the payload: `setCode` dispatches the string it was
