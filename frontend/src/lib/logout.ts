@@ -4,6 +4,7 @@ import { UserService } from '$lib/gen'
 import { clearStores } from './storeUtils'
 import { clearPersistedCache } from './persistedCache.svelte'
 import { forgetLastSession } from './lastSession'
+import { clearHomeSnapshot } from './homeSnapshot'
 
 // Note: logout and logoutWithRedirect have been moved to logoutKit.ts
 // as they depend on SvelteKit navigation
@@ -29,6 +30,7 @@ export async function clearUser() {
 		// Before clearStores: the cache is found by the email it clears.
 		await clearPersistedCache()
 		forgetLastSession()
+		clearHomeSnapshot()
 		noteSessionEmail(undefined)
 		accountSetup.reset()
 		clearStores()

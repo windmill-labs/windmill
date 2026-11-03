@@ -49,6 +49,7 @@
 	import HomeAIChat from '$lib/components/home/HomeAIChat.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { onDestroy, onMount, untrack } from 'svelte'
+	import { homeSnapshotShown, releaseHomeSnapshot, watchHomeForSnapshot } from '$lib/homeSnapshot'
 	import OperatorTour from '$lib/components/tutorials/OperatorTour.svelte'
 	import {
 		hasSeenOperatorTour,
@@ -161,6 +162,16 @@
 			if (!pageEl || reducedMotion.val) return
 			pageEl.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500, easing: 'ease-out' })
 		})
+	})
+
+	// Replacing the snapshot `app.html` painted, the page is already on screen: no arrival to play.
+	const fromSnapshot = homeSnapshotShown()
+	onMount(() => {
+		releaseHomeSnapshot()
+		return watchHomeForSnapshot(() => ({
+			workspace: $workspaceStore,
+			userWorkspace: $userStore?.workspace_id
+		}))
 	})
 
 	let operatorTour: OperatorTour | undefined = $state(undefined)
@@ -351,7 +362,9 @@
 
 <div
 	bind:this={pageEl}
-	class="wm-page-in group/home flex flex-col w-full h-full overflow-y-auto items-center"
+	class="{fromSnapshot
+		? ''
+		: 'wm-page-in'} group/home flex flex-col w-full h-full overflow-y-auto items-center"
 	style="scrollbar-gutter: stable both-edges;"
 	style:--home-pinned="{pinnedHeight}px"
 >
