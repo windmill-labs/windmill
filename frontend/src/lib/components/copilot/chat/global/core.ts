@@ -1403,6 +1403,7 @@ type ExternalAccess = {
 	buildsFlows: boolean
 	buildsApps: boolean
 	canDraftTriggers: boolean
+	canDraftResources: boolean
 	canDraftVariables: boolean
 	canDeploy: boolean
 	canDeployAnyKind: boolean
@@ -1466,11 +1467,16 @@ ${
 		? `- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, a draft's editor (\`url\`), an app draft's editor with its live preview (\`preview_url\`), a deployed item's page. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves: show it with show_run, show_runs, show_item or show_deploy_review when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.`
 		: `- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, an item's page. Whenever the user will want to see what you found${when(runs, ' or ran')}, or has to do a step in Windmill themselves: show it with show_run, show_runs or show_item when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.`
 }
-- Find items with list_workspace_items and read one with read_workspace_item${when(a.canWriteAnyDraft, ' before changing it')}. An agent is a resource of type \`ai_agent\`${agentRule}${when(
-		a.canWriteDraft,
-		`
+- Find items with list_workspace_items and read one with read_workspace_item${when(a.canWriteAnyDraft, ' before changing it')}. An agent is a resource of type \`ai_agent\`${agentRule}${
+		a.canWriteDraft
+			? `
 - Call get_instructions before writing a script, flow, agent, resource or app, a data pipeline or a datatable migration. For a script, pass its language.${when(a.canDraftTriggers, ' Call get_trigger_schema before write_trigger, since each trigger kind takes different fields, and')}${a.canDraftTriggers ? '' : ' Call'} get_db_schema before writing SQL against a database resource.`
-	)}${when(
+			: when(
+					a.canDraftResources,
+					`
+- Call get_instructions before writing a resource.${when(a.canDraftTriggers, ' Call get_trigger_schema before write_trigger, since each trigger kind takes different fields.')}`
+				)
+	}${when(
 		a.canWriteDraft && a.canRunPreview,
 		`
 - After writing a script, flow, agent or app runnable, test it with test_run_script, test_run_flow, test_run_step, test_run_agent or test_run_app_runnable before saying it works. They run the draft, so nothing needs deploying.`
@@ -1482,11 +1488,14 @@ ${
 		a.canRunPreview
 			? `
 - A request to run something also goes to the test_run tools. Use run_script, run_flow or run_agent only when the user asks for the deployed version, after reading it with version "deployed" so the arguments match.`
-			: when(
-					runs,
-					`
+			: a.canRunFlowPreview
+				? `
+- A request to run a flow or agent also goes to test_run_flow or test_run_agent, which run the draft. Use run_flow or run_agent only when the user asks for the deployed version, and run_script for any script: those run the DEPLOYED item as this user, so read it with read_workspace_item version "deployed" first so the arguments match.`
+				: when(
+						runs,
+						`
 - run_script, run_flow and run_agent are how you run anything here: they run the DEPLOYED item as this user. Read it with read_workspace_item version "deployed" first so the arguments match.`
-				)
+					)
 	}${
 		a.canWriteAnyDraft
 			? `
@@ -1519,7 +1528,7 @@ ${
 			: 'Only raw apps (`rawApp` true) can be read here.'
 	}
 - Datatables are set up in the workspace settings. Start from list_datatables; one with \`migrations_enabled\` changes its schema through migrations only.${when(
-		a.canWriteDraft,
+		a.canDraftResources,
 		a.canCreateResourceType
 			? `
 - create_resource_type adds a resource type: show the user the schema first and create it once they agree.`
@@ -1757,6 +1766,7 @@ Path conventions:
 			buildsFlows,
 			buildsApps,
 			canDraftTriggers,
+			canDraftResources,
 			canDraftVariables,
 			canDeploy,
 			canDeployAnyKind,
