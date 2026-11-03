@@ -3,6 +3,8 @@
 	import { appOnBehalfOfTooltip, deployOnBehalfOfQuestion } from './onBehalfOf'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
+	import RunAsNotes from '$lib/components/access/RunAsNotes.svelte'
+	import type { NeedsSource } from '$lib/components/access/detectNeeds'
 
 	/** The body of a deploy's question about the user an item runs on behalf of, which the host
 	 *  titles with `deployOnBehalfOfQuestion`. */
@@ -24,6 +26,10 @@
 		/** Inside a `ConfirmationModal`: see `OnBehalfOfSelector`. */
 		aboveConfirmationModal?: boolean
 		onPickerOpenChange?: (open: boolean) => void
+		/** The item's path and its editor's copy: what a service account made here is built from. */
+		itemPath?: string
+		needsSource?: () => NeedsSource | undefined
+		onOverlayChange?: (open: boolean) => void
 	}
 
 	let {
@@ -38,7 +44,10 @@
 		executionMode,
 		rawApp = false,
 		aboveConfirmationModal = false,
-		onPickerOpenChange
+		onPickerOpenChange,
+		itemPath,
+		needsSource,
+		onOverlayChange
 	}: Props = $props()
 
 	const operatingUser = useOperatingUser()
@@ -90,6 +99,9 @@
 		{aboveConfirmationModal}
 		{onPickerOpenChange}
 		hideDescription
+		{itemPath}
+		{needsSource}
+		showReads={false}
 	/>
 	{#if question.on && question.unchanged}
 		<!-- pl-9 lines it up under the switch's label, as SettingToggle indents its contents. -->
@@ -107,3 +119,18 @@
 		</div>
 	{/if}
 </div>
+<RunAsNotes
+	{kind}
+	{targetWorkspace}
+	{itemPath}
+	{needsSource}
+	runsAs={question.on ? question.runsAs : undefined}
+	{isNew}
+	{savedPermissionedAs}
+	runnablesRunAsCaller={executionMode === 'viewer'}
+	onUseAccount={(username, accountEmail) => {
+		email = accountEmail
+		permissionedAs = `u/${username}`
+	}}
+	{onOverlayChange}
+/>

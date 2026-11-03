@@ -1,5 +1,6 @@
 <script lang="ts">
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
+	import { dropStalePending } from '$lib/components/access/serviceAccounts.svelte'
 	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
 	import { movesToAnotherOwner } from '$lib/components/itemSettings/inheritedAccess'
 	import PathMoveNote from '$lib/components/itemSettings/PathMoveNote.svelte'
@@ -271,6 +272,10 @@
 		})
 	}
 	const indicatorPath = $derived(autosavePath ?? userDraftPath)
+	dropStalePending(
+		untrack(() => opWorkspace),
+		script
+	)
 
 	// The shared `workerTags` store caches tags for the navigation workspace. A
 	// session editor deploys to `opWorkspace` (a fork), so it keeps a local list to
@@ -707,7 +712,13 @@
 				runAs: {
 					email: script.on_behalf_of_email,
 					permissionedAs: script.on_behalf_of,
-					targetWorkspace: opWorkspace ?? ''
+					targetWorkspace: opWorkspace ?? '',
+					needsSource: () => ({
+						kind: 'script',
+						language: script.language,
+						content: script.content,
+						schema: script.schema
+					})
 				}
 			})
 			if (!choice) return
@@ -1561,6 +1572,13 @@
 	folderDefault={folderDefault.value}
 	folderDefaultLoading={folderDefault.loading}
 	targetWorkspace={opWorkspace ?? ''}
+	itemPath={script.path}
+	needsSource={() => ({
+		kind: 'script',
+		language: script.language,
+		content: script.content,
+		schema: script.schema
+	})}
 	onConfirmed={() => deployScript(deployDialogStay, deployDialogMsg)}
 />
 
@@ -1991,6 +2009,13 @@
 										savedPermissionedAs={savedRunAs?.on_behalf_of}
 										targetWorkspace={opWorkspace ?? ''}
 										isNew={neverDeployed}
+										itemPath={script.path}
+										needsSource={() => ({
+											kind: 'script',
+											language: script.language,
+											content: script.content,
+											schema: script.schema
+										})}
 									/>
 									<InvisibleRunsSetting
 										kind="script"

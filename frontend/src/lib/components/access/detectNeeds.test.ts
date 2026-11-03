@@ -80,6 +80,21 @@ describe('detectNeeds', () => {
 		expect(needs.errors).toEqual([])
 	})
 
+	it('reads the editor content it is given, not the saved version', async () => {
+		const script = await detectNeeds('w', 'script', 'f/x/script', {
+			kind: 'script',
+			language: 'bun',
+			content: readVariable('f/x/draft_secret')
+		})
+		expect(script.items.map((i) => `${i.kind}:${i.path}`)).toEqual(['variable:f/x/draft_secret'])
+
+		const flow = await detectNeeds('w', 'flow', 'f/x/new_flow', {
+			kind: 'flow',
+			value: { modules: [{ id: 'a', value: { type: 'script', path: 'f/x/step', hash: 'old' } }] }
+		})
+		expect(flow.items.map((i) => `${i.kind}:${i.path}`)).toEqual(['variable:f/x/pinned_secret'])
+	})
+
 	it("reads a full-code app's JSX and Svelte source files", async () => {
 		const needs = await detectNeeds('w', 'app', 'f/x/app')
 		expect(needs.items.map((i) => `${i.kind}:${i.path}`)).toEqual([

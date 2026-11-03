@@ -1746,6 +1746,8 @@
 							kind={diff.kind}
 							canPreserve={canPreserveOnBehalfOf}
 							customValue={customOnBehalfOf[key]?.permissionedAs}
+							size="sm"
+							class="w-44"
 						/>
 					{/if}
 					{#if diff.kind === 'raw_app'}

@@ -61,6 +61,7 @@
 	import AppEditorBottomPanel from './AppEditorBottomPanel.svelte'
 	import panzoom from 'panzoom'
 	import { BG_PREFIX, findGridItem } from './appUtilsCore'
+	import { dropStalePending } from '$lib/components/access/serviceAccounts.svelte'
 
 	let {
 		app,
@@ -214,6 +215,11 @@
 	function onPathChange() {
 		writablePath.set(path)
 	}
+
+	dropStalePending(
+		$workspaceStore,
+		untrack(() => policy)
+	)
 
 	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore,

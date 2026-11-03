@@ -57,12 +57,19 @@
 	import DeployOnBehalfOfFields from './DeployOnBehalfOfFields.svelte'
 	import { deployAsksOnBehalfOf, deployOnBehalfOfQuestion } from './onBehalfOf'
 	import { logFirstDeploy } from './sharingTelemetry'
+	import type { NeedsSource } from '$lib/components/access/detectNeeds'
+	import {
+		createPendingServiceAccount,
+		isPlannedServiceAccount
+	} from '$lib/components/access/serviceAccounts.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
 
 	let open = $state(false)
 	let step = $state<'details' | 'runAs'>('details')
+	let pickerOpen = $state(false)
+	let overlayOpen = $state(false)
 	let kind = $state<ShareKind>('flow')
 	let summary = $state('')
 	let path: string | undefined = $state()
@@ -76,6 +83,8 @@
 	let runAsWorkspace: string | undefined = $state()
 	let runAsEmail: string | undefined = $state()
 	let runAsPermissionedAs: string | undefined = $state()
+	let needsSource: (() => NeedsSource | undefined) | undefined = $state()
+	let deploying = $state(false)
 	let pathField: Path | undefined = $state()
 	let resolve: ((choice: FirstDeployChoice | undefined) => void) | undefined
 
@@ -136,14 +145,19 @@
 			email: string | undefined
 			permissionedAs: string | undefined
 			targetWorkspace: string
+			/** The item as its editor holds it, read for what it uses. */
+			needsSource?: () => NeedsSource | undefined
 		}
 	}): Promise<FirstDeployChoice | undefined> {
 		resolve?.(undefined)
 		step = 'details'
+		pickerOpen = false
+		overlayOpen = false
 		kind = opts.kind
 		runAsWorkspace = opts.runAs?.targetWorkspace
 		runAsEmail = opts.runAs?.email
 		runAsPermissionedAs = opts.runAs?.permissionedAs
+		needsSource = opts.runAs?.needsSource
 		summary = opts.summary
 		pathError = ''
 		// A new item is parked at `draft_<uuid>` or named `<adjective>_<kind>` until someone names it.
@@ -182,8 +196,21 @@
 		else deploy()
 	}
 
-	function deploy() {
+	async function deploy() {
 		if (!path || pathError) return
+		const runsAs = question.on ? question.runsAs : undefined
+		if (runAsWorkspace !== undefined && isPlannedServiceAccount(runAsWorkspace, runsAs)) {
+			deploying = true
+			try {
+				const created = await createPendingServiceAccount(runAsWorkspace, runsAs)
+				if (created) runAsEmail = created
+			} catch (e) {
+				sendUserToast(`Could not create ${runsAs}: ${e?.body ?? e?.message ?? e}`, true)
+				return
+			} finally {
+				deploying = false
+			}
+		}
 		finish({
 			summary,
 			path,
@@ -215,6 +242,7 @@
 		: undefined}
 	kind="X"
 	enterConfirms={false}
+	keyListen={!pickerOpen && !overlayOpen}
 	fitHeight
 	class="sm:max-w-xl"
 >
@@ -231,11 +259,19 @@
 				targetWorkspace={runAsWorkspace ?? ''}
 				executionMode={isApp ? appMode : undefined}
 				rawApp={kind === 'raw_app'}
+				itemPath={path}
+				{needsSource}
+				onPickerOpenChange={(o) => (pickerOpen = o)}
+				onOverlayChange={(o) => (overlayOpen = o)}
 			/>
 			<div class="flex flex-row justify-end gap-2">
 				<Button variant="default" unifiedSize="md" onclick={() => (step = 'details')}>Back</Button>
-				<Button variant="accent" unifiedSize="md" disabled={folderDefault.loading} onclick={deploy}
-					>Deploy</Button
+				<Button
+					variant="accent"
+					unifiedSize="md"
+					disabled={folderDefault.loading}
+					loading={deploying}
+					onclick={deploy}>Deploy</Button
 				>
 			</div>
 		</div>

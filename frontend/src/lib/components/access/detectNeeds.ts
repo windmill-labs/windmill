@@ -19,6 +19,11 @@ export type OtherAsset = { kind: AssetKind | string; path: string; sources: stri
 
 export type Needs = { items: NeededItem[]; others: OtherAsset[]; errors: string[] }
 
+/** The runnable as its editor holds it: a first deploy has nothing on the server to read. */
+export type NeedsSource =
+	| { kind: 'script'; language: string; content: string; schema?: unknown }
+	| { kind: 'flow' | 'app'; value: unknown; schema?: unknown }
+
 const MAX_DEPTH = 4
 const ITEM_PATH = /^[ufg]\/[^/]+\/.+/
 const STATIC_REF = /^\$(res|var|jsonvar):(.+)$/
@@ -36,7 +41,8 @@ const READ_CALL = /\b(getVariable|get_variable|getResource|get_resource)\(\s*["'
 export async function detectNeeds(
 	workspace: string,
 	kind: RunnableKind,
-	path: string
+	path: string,
+	source?: NeedsSource
 ): Promise<Needs> {
 	const items = new Map<string, NeededItem>()
 	const others = new Map<string, OtherAsset>()
@@ -208,7 +214,17 @@ export async function detectNeeds(
 		}
 	}
 
-	await follow(kind, path, 0)
+	if (source) {
+		visited.add(`${kind}:${path}`)
+		await Promise.all([
+			source.kind === 'script'
+				? scanCode(source.language, source.content, path)
+				: walk(source.value, path, 0),
+			walk(source.schema, path, 0)
+		])
+	} else {
+		await follow(kind, path, 0)
+	}
 	await Promise.all(
 		[...items.values()].filter((i) => i.kind === 'resource').map((i) => followResource(i.path))
 	)

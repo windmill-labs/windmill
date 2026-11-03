@@ -9,6 +9,9 @@
 	import { AlertTriangle } from 'lucide-svelte'
 	import SettingToggle from './SettingToggle.svelte'
 	import { canPreserveOnBehalfOf, deployedPermissionedAs, WM_DEPLOYERS_GROUP } from './onBehalfOf'
+	import { useServiceAccounts } from '$lib/components/access/serviceAccounts.svelte'
+	import type { NeedsSource } from '$lib/components/access/detectNeeds'
+	import ItemReads from '$lib/components/access/ItemReads.svelte'
 	const DOCS_LINK =
 		'https://www.windmill.dev/docs/core_concepts/roles_and_permissions#run-on-behalf-of'
 
@@ -34,6 +37,11 @@
 		hideDescription?: boolean
 		/** The folder's default for a new item's path, which a deploy holding no user takes. */
 		folderDefault?: string
+		/** See `OnBehalfOfSelector`: what a service account created from the picker is built from. */
+		itemPath?: string
+		needsSource?: () => NeedsSource | undefined
+		/** Off where the host renders `RunAsNotes`, which lists what the item reads itself. */
+		showReads?: boolean
 	}
 
 	let {
@@ -49,7 +57,10 @@
 		aboveConfirmationModal = false,
 		onPickerOpenChange,
 		hideDescription = false,
-		folderDefault
+		folderDefault,
+		itemPath,
+		needsSource,
+		showReads = true
 	}: Props = $props()
 
 	// The label keeps the docs' term; the description says what it gives, access to resources,
@@ -103,6 +114,19 @@
 			deployPermissionedAs !== savedPermissionedAs
 	)
 
+	const serviceAccounts = useServiceAccounts(() => targetWorkspace)
+	const serviceAccount = $derived(
+		enabled && deployPermissionedAs
+			? serviceAccounts.current.find((a) => `u/${a.username}` === deployPermissionedAs)
+			: undefined
+	)
+
+	const serviceAccountReads = $derived(
+		serviceAccount
+			? [...serviceAccount.folders.map((f) => `f/${f}`), ...(serviceAccount.items ?? [])]
+			: []
+	)
+
 	function setMe() {
 		email = actingUser?.email
 		permissionedAs = myPermissionedAs
@@ -137,6 +161,9 @@
 			readOnlyWithoutPreserve
 			{aboveConfirmationModal}
 			{onPickerOpenChange}
+			{itemPath}
+			{needsSource}
+			offerCreate
 		/>
 		{#if willChange}
 			<AlertTriangle size={14} class="text-yellow-500" />
@@ -145,6 +172,16 @@
 			>
 		{/if}
 	</div>
+	{#if serviceAccount}
+		<div class="text-2xs text-secondary">
+			{serviceAccount.pending
+				? 'New service account, created when you deploy.'
+				: 'Service account.'}
+			{serviceAccountReads.length
+				? `Reads ${serviceAccountReads.join(', ')}.`
+				: 'No folder is shared with it.'}
+		</div>
+	{/if}
 	{#if composesApp}
 		<div class="text-2xs text-secondary">
 			Apps you build run on behalf of you once you deploy them.
@@ -207,4 +244,17 @@
 	>
 		{@render picker()}
 	</SettingToggle>
+{/if}
+
+<!-- pl-9 lines it up under the switch's label. -->
+{#if showReads}
+	<div class={required ? 'mt-1' : 'mt-1 pl-9'}>
+		<ItemReads
+			workspace={targetWorkspace}
+			{kind}
+			{itemPath}
+			{needsSource}
+			account={deployPermissionedAs}
+		/>
+	</div>
 {/if}

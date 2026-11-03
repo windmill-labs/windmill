@@ -27,6 +27,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import type { Policy } from '$lib/gen'
 	import { BG_PREFIX, findGridItem } from './appUtilsCore'
+	import { runAsEmailLabel } from '$lib/components/access/serviceAccounts.svelte'
 
 	interface Props {
 		policy: Policy
@@ -174,7 +175,7 @@
 					/>
 				</div>
 				<div>
-					{policy.on_behalf_of ? `Author ${policy.on_behalf_of_email}` : ''}
+					{policy.on_behalf_of ? `Author ${runAsEmailLabel(policy.on_behalf_of_email)}` : ''}
 					<Tooltip>
 						The scripts will be run on behalf of the author and a tight policy ensure security about
 						the possible inputs of the runnables.

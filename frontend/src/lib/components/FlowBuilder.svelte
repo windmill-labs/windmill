@@ -1,5 +1,6 @@
 <script lang="ts">
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
+	import { dropStalePending } from '$lib/components/access/serviceAccounts.svelte'
 	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
 	import { movesToAnotherOwner } from '$lib/components/itemSettings/inheritedAccess'
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
@@ -217,6 +218,10 @@
 	// indicatorPath is the matching draft path.
 	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
+	dropStalePending(
+		untrack(() => opWorkspace),
+		flowStore.val
+	)
 
 	let initialPathStore = writable(initialPath)
 
@@ -519,7 +524,12 @@
 				runAs: {
 					email: flowStore.val.on_behalf_of_email,
 					permissionedAs: flowStore.val.on_behalf_of,
-					targetWorkspace: opWorkspace ?? ''
+					targetWorkspace: opWorkspace ?? '',
+					needsSource: () => ({
+						kind: 'flow',
+						value: flowStore.val.value,
+						schema: flowStore.val.schema
+					})
 				}
 			})
 			if (!choice) return
@@ -1740,6 +1750,12 @@
 	folderDefault={folderDefault.value}
 	folderDefaultLoading={folderDefault.loading}
 	targetWorkspace={opWorkspace ?? ''}
+	itemPath={$pathStore}
+	needsSource={() => ({
+		kind: 'flow',
+		value: flowStore.val.value,
+		schema: flowStore.val.schema
+	})}
 	onConfirmed={() => deployFlow(deployDialogMsg)}
 />
 

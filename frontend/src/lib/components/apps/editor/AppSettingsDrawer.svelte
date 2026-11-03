@@ -11,14 +11,23 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import RunOnBehalfOfSetting from '$lib/components/itemSettings/RunOnBehalfOfSetting.svelte'
-	import { appOnBehalfOfTooltip } from '$lib/components/itemSettings/onBehalfOf'
+	import {
+		appOnBehalfOfTooltip,
+		deployedPermissionedAs
+	} from '$lib/components/itemSettings/onBehalfOf'
+	import RunAsNotes from '$lib/components/access/RunAsNotes.svelte'
+	import { dropStalePending } from '$lib/components/access/serviceAccounts.svelte'
+	import type { NeedsSource } from '$lib/components/access/detectNeeds'
 	import SettingToggle from '$lib/components/itemSettings/SettingToggle.svelte'
 	import SettingIcons from '$lib/components/itemSettings/SettingIcons.svelte'
 	import { getAppMetadataBadges, getAppPermissionBadges } from './appSettingsBadges'
 	import PathMoveNote from '$lib/components/itemSettings/PathMoveNote.svelte'
 	import { FRONTEND_SDK_SCOPES, sdkScopesToConfirm } from '$lib/components/raw_apps/sdkScopes'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 	import AppAccessSection from '$lib/components/itemSettings/AppAccessSection.svelte'
 	import DeployedAppAccess from '$lib/components/itemSettings/DeployedAppAccess.svelte'
 	import { accessModeOf } from '$lib/components/itemSettings/appAccess'
@@ -43,7 +52,8 @@
 		newApp = false,
 		operatingWorkspace = undefined,
 		customPath = $bindable(),
-		onAppChanged
+		onAppChanged,
+		needsSource
 	}: {
 		open: boolean
 		/** Mutated in place; deployed with the app, like every other setting here. */
@@ -67,6 +77,8 @@
 		customPath?: string | undefined
 		/** Called after a write to the deployed app row, with the row as it now is. */
 		onAppChanged?: (row: AppWithLastVersion) => void
+		/** The app as the editor holds it, read for what its runnables use. */
+		needsSource?: () => NeedsSource | undefined
 	} = $props()
 
 	let body: HTMLElement | undefined = $state()
@@ -80,6 +92,25 @@
 	}
 
 	const opWs = $derived(operatingWorkspace ?? $operatingWorkspaceStore)
+
+	const operatingUser = useOperatingUser()
+	// A draft-only app's saved policy is its draft, which can name an account never created; the
+	// deploy then runs it as the deployer, as a new app's draft records.
+	const savedRunAs = $derived.by(() => {
+		const runAs = {
+			on_behalf_of: savedApp?.policy?.on_behalf_of as string | undefined,
+			on_behalf_of_email: savedApp?.policy?.on_behalf_of_email as string | undefined
+		}
+		dropStalePending(opWs, runAs)
+		const me = operatingUser.current?.username
+		return runAs.on_behalf_of_email || !savedApp?.policy?.on_behalf_of_email
+			? runAs
+			: {
+					on_behalf_of: me ? `u/${me}` : undefined,
+					on_behalf_of_email: operatingUser.current?.email
+				}
+	})
+	const runsAs = $derived(deployedPermissionedAs(operatingUser.current, policy.on_behalf_of))
 
 	let path: Path | undefined = $state(undefined)
 	let dirtyPath = $state(false)
@@ -217,17 +248,36 @@
 						/>
 					{/snippet}
 					<div class="flex flex-col gap-6">
-						<RunOnBehalfOfSetting
-							kind="app"
-							required
-							tooltip={appOnBehalfOfTooltip(rawApp)}
-							bind:email={policy.on_behalf_of_email}
-							bind:permissionedAs={policy.on_behalf_of}
-							savedEmail={savedApp?.policy?.on_behalf_of_email}
-							savedPermissionedAs={savedApp?.policy?.on_behalf_of}
-							targetWorkspace={opWs ?? ''}
-							isNew={newApp}
-						/>
+						<div class="flex flex-col gap-1.5">
+							<RunOnBehalfOfSetting
+								kind="app"
+								required
+								tooltip={appOnBehalfOfTooltip(rawApp)}
+								bind:email={policy.on_behalf_of_email}
+								bind:permissionedAs={policy.on_behalf_of}
+								savedEmail={savedRunAs.on_behalf_of_email}
+								savedPermissionedAs={savedRunAs.on_behalf_of}
+								targetWorkspace={opWs ?? ''}
+								isNew={newApp}
+								itemPath={newEditedPath || appPath}
+								{needsSource}
+								showReads={false}
+							/>
+							<RunAsNotes
+								kind="app"
+								targetWorkspace={opWs ?? ''}
+								itemPath={newEditedPath || appPath}
+								{needsSource}
+								{runsAs}
+								isNew={newApp}
+								savedPermissionedAs={savedRunAs.on_behalf_of}
+								runnablesRunAsCaller={policy.execution_mode == 'viewer'}
+								onUseAccount={(username, email) => {
+									policy.on_behalf_of_email = email
+									policy.on_behalf_of = `u/${username}`
+								}}
+							/>
+						</div>
 
 						<SettingToggle
 							setting="sandbox"

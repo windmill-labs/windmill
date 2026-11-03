@@ -4,6 +4,12 @@
 	import DeployOnBehalfOfFields from './DeployOnBehalfOfFields.svelte'
 	import { deployOnBehalfOfQuestion } from './onBehalfOf'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		createPendingServiceAccount,
+		isPlannedServiceAccount
+	} from '$lib/components/access/serviceAccounts.svelte'
+	import type { NeedsSource } from '$lib/components/access/detectNeeds'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		open: boolean
@@ -25,6 +31,9 @@
 		/** Apps: who can open the app, which decides whether viewers are recorded at all. */
 		executionMode?: string
 		rawApp?: boolean
+		/** The item's path and its editor's copy: what a service account made here is built from. */
+		itemPath?: string
+		needsSource?: () => NeedsSource | undefined
 		onConfirmed: () => void
 	}
 
@@ -42,6 +51,8 @@
 		targetWorkspace,
 		executionMode,
 		rawApp = false,
+		itemPath,
+		needsSource,
 		onConfirmed
 	}: Props = $props()
 
@@ -57,6 +68,26 @@
 		})
 	)
 	let pickerOpen = $state(false)
+	let overlayOpen = $state(false)
+	let deploying = $state(false)
+
+	async function confirm() {
+		const runsAs = question.runsAs
+		if (isPlannedServiceAccount(targetWorkspace, runsAs)) {
+			deploying = true
+			try {
+				const created = await createPendingServiceAccount(targetWorkspace, runsAs)
+				if (created) email = created
+			} catch (e) {
+				sendUserToast(`Could not create ${runsAs}: ${e?.body ?? e?.message ?? e}`, true)
+				return
+			} finally {
+				deploying = false
+			}
+		}
+		open = false
+		onConfirmed()
+	}
 </script>
 
 <ConfirmationModal
@@ -65,12 +96,10 @@
 	title={question.title}
 	confirmationText="Deploy"
 	confirmDisabled={folderDefaultLoading}
-	keyListen={!pickerOpen}
+	loading={deploying}
+	keyListen={!pickerOpen && !overlayOpen}
 	alwaysPortal
-	onConfirmed={() => {
-		open = false
-		onConfirmed()
-	}}
+	onConfirmed={confirm}
 	onCanceled={() => (open = false)}
 >
 	<div class="flex flex-col gap-4">
@@ -87,6 +116,9 @@
 			{rawApp}
 			aboveConfirmationModal
 			onPickerOpenChange={(o) => (pickerOpen = o)}
+			{itemPath}
+			{needsSource}
+			onOverlayChange={(o) => (overlayOpen = o)}
 		/>
 		<TextInput bind:value={message} inputProps={{ placeholder: 'Deployment message' }} />
 	</div>
