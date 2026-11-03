@@ -68,15 +68,6 @@ pub struct WindmillBackend {
 
 impl WindmillBackend {
     /// The instructions only read, so they are built at the token's own read-only flag.
-    fn session_ctx<'a>(&'a self, auth: &'a ApiAuthed, w_id: &'a str) -> session::Ctx<'a> {
-        let access = if auth.read_only {
-            SessionAccess::ReadOnly
-        } else {
-            SessionAccess::Full
-        };
-        self.session_ctx_with(auth, w_id, access)
-    }
-
     fn session_ctx_with<'a>(
         &'a self,
         auth: &'a ApiAuthed,
@@ -470,16 +461,26 @@ impl McpBackend for WindmillBackend {
         &self,
         auth: &ApiAuthed,
         workspace_id: &str,
+        access: SessionAccess,
     ) -> BackendResult<String> {
-        Ok(session::session_instructions(&self.session_ctx(auth, workspace_id)).await)
+        let ctx = self.session_ctx_with(auth, workspace_id, access);
+        let profile = session::prompt_profile(&self.db, auth, workspace_id, ctx.access).await;
+        Ok(session::session_instructions(&ctx, &profile).await)
     }
 
-    fn generic_session_instructions(&self) -> String {
-        session::generic_session_instructions()
+    fn generic_session_instructions(&self, access: SessionAccess) -> String {
+        session::generic_session_instructions(session::access(access))
     }
 
-    async fn workspace_context(&self, auth: &ApiAuthed, workspace_id: &str) -> String {
-        session::workspace_context(&self.session_ctx(auth, workspace_id)).await
+    async fn workspace_context(
+        &self,
+        auth: &ApiAuthed,
+        workspace_id: &str,
+        access: SessionAccess,
+    ) -> String {
+        let ctx = self.session_ctx_with(auth, workspace_id, access);
+        let profile = session::prompt_profile(&self.db, auth, workspace_id, ctx.access).await;
+        session::workspace_context(&ctx, &profile).await
     }
 
     fn session_tools(&self, access: SessionAccess) -> Vec<Tool> {

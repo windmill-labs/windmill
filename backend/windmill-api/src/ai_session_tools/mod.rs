@@ -75,7 +75,7 @@ mod workspace;
 
 #[cfg(feature = "mcp")]
 pub(crate) use instructions::{
-    generic_session_instructions, session_instructions, workspace_context,
+    generic_session_instructions, prompt_profile, session_instructions, workspace_context,
 };
 
 #[derive(Deserialize)]

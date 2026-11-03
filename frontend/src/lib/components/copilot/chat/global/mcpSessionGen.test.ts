@@ -18,7 +18,10 @@ import {
 	globalToolsFor,
 	prepareGlobalSystemMessage
 } from './core'
-import type { ScriptLang } from '$lib/gen'
+import type { AuthorLevel, ScriptLang } from '$lib/gen'
+import { FULL_CAPABILITIES } from '$lib/roleCapabilities'
+import { capabilitiesForRole } from './sessionAccess'
+import { USE_MODE_ACCESS } from '../sessionCapabilities'
 import {
 	BUILDER_FRAMEWORK_TEMPLATES,
 	FRAMEWORK_TEMPLATES,
@@ -161,9 +164,11 @@ function toolDefs() {
 const WRITABLE = '{{writable_folders}}'
 const READONLY = '{{readonly_folders}}'
 
+type PromptOpts = Parameters<typeof prepareGlobalSystemMessage>[1]
+
 function prompt(
 	user: { is_admin: boolean; folders?: string[]; folders_read?: string[] },
-	extra: Parameters<typeof prepareGlobalSystemMessage>[1] = {},
+	extra: PromptOpts = {},
 	instructions?: { workspace?: string }
 ): string {
 	const content = prepareGlobalSystemMessage(instructions, {
@@ -182,6 +187,88 @@ function suffixOf(longer: string, base: string, what: string): string {
 	return longer.slice(base.length)
 }
 
+/** The prompt for one access profile, with its folder guidance cut out: it differs per
+ * workspace, so the server puts it back for a single workspace and serves it from
+ * `get_workspace_context` otherwise. */
+function profilePrompt(extra: PromptOpts) {
+	const withoutFolders = prompt({ is_admin: false }, extra)
+	const variants = {
+		admin: prompt({ is_admin: true, folders: [WRITABLE] }, extra),
+		admin_no_folders: prompt({ is_admin: true, folders: [] }, extra),
+		member: prompt({ is_admin: false, folders: [WRITABLE] }, extra),
+		member_no_folders: prompt({ is_admin: false, folders: [] }, extra),
+		member_readonly: prompt(
+			{ is_admin: false, folders: [WRITABLE], folders_read: [WRITABLE, READONLY] },
+			extra
+		),
+		member_no_folders_readonly: prompt(
+			{ is_admin: false, folders: [], folders_read: [READONLY] },
+			extra
+		)
+	}
+	let at: number | undefined
+	const folder_guidance = Object.fromEntries(
+		Object.entries(variants).map(([name, full]) => {
+			let i = 0
+			while (i < withoutFolders.length && full[i] === withoutFolders[i]) i++
+			const rest = withoutFolders.slice(i)
+			// A profile that writes nothing has no folder guidance: every variant is the base.
+			if (full === withoutFolders) return [name, '']
+			if ((at !== undefined && at !== i) || !full.endsWith(rest)) {
+				throw new Error(`the folder guidance (${name}) is no longer one inserted block`)
+			}
+			at = i
+			return [name, full.slice(i, full.length - rest.length)]
+		})
+	)
+	at ??= withoutFolders.length
+	return {
+		base: withoutFolders.slice(0, at) + '{{folder_guidance}}' + withoutFolders.slice(at),
+		folder_guidance
+	}
+}
+
+const LEVELS: AuthorLevel[] = ['none', 'compose', 'full']
+const bit = (b: boolean) => (b ? '1' : '0')
+
+/** Every access profile the server can resolve a caller to, keyed as `prompt_profile` in
+ * `ai_session_tools/instructions.rs` builds the key: the token's scope, then for a full token
+ * the caller's role as `caller_capabilities` and `check_deploy_rules` give it. */
+function profiles(): [key: string, extra: PromptOpts][] {
+	const out: [string, PromptOpts][] = [
+		['read_only', { access: USE_MODE_ACCESS, runsDeployed: false }],
+		['read_run', { access: USE_MODE_ACCESS, runsDeployed: true }]
+	]
+	for (const isAdmin of [true, false])
+		for (const deploy of [true, false])
+			for (const code of [true, false])
+				for (const flows of LEVELS)
+					for (const apps of LEVELS)
+						for (const manage_schedules of [true, false])
+							for (const manage_triggers of [true, false]) {
+								const caps = {
+									...FULL_CAPABILITIES,
+									code,
+									flows,
+									apps,
+									manage_schedules,
+									manage_triggers
+								}
+								// Full flows or apps without code is refused at write.
+								if (!code && (flows === 'full' || apps === 'full')) continue
+								// An admin holds every capability, so only the full role is reachable.
+								if (isAdmin && JSON.stringify(caps) !== JSON.stringify(FULL_CAPABILITIES)) continue
+								const key = `full:${bit(isAdmin)}${bit(deploy)}:${bit(code)}:${flows}:${apps}:${bit(manage_schedules)}${bit(manage_triggers)}`
+								const access = capabilitiesForRole({
+									isAdmin,
+									deployRulesPass: deploy,
+									capabilities: caps
+								})
+								out.push([key, { access }])
+							}
+	return out
+}
+
 function promptParts() {
 	const member = prompt({ is_admin: false, folders: [WRITABLE] })
 	const skills = suffixOf(
@@ -193,37 +280,42 @@ function promptParts() {
 		'the skills section'
 	)
 	const skillLine = skills.split('\n').pop()!
-	// The folder guidance differs per workspace, so it is cut out of the prompt: the server
-	// puts it back for a single workspace, and serves it from `get_workspace_context` otherwise.
-	const withoutFolders = prompt({ is_admin: false })
-	const variants = {
-		admin: prompt({ is_admin: true, folders: [WRITABLE] }),
-		admin_no_folders: prompt({ is_admin: true, folders: [] }),
-		member,
-		member_no_folders: prompt({ is_admin: false, folders: [] }),
-		member_readonly: prompt({
-			is_admin: false,
-			folders: [WRITABLE],
-			folders_read: [WRITABLE, READONLY]
-		}),
-		member_no_folders_readonly: prompt({ is_admin: false, folders: [], folders_read: [READONLY] })
-	}
-	let at: number | undefined
-	const folder_guidance = Object.fromEntries(
-		Object.entries(variants).map(([name, full]) => {
-			let i = 0
-			while (full[i] === withoutFolders[i]) i++
-			const rest = withoutFolders.slice(i)
-			if ((at !== undefined && at !== i) || !full.endsWith(rest)) {
-				throw new Error(`the folder guidance (${name}) is no longer one inserted block`)
+	// Profiles differ by a few lines each, so a prompt is stored as indexes into one table of
+	// distinct lines, and identical prompts once.
+	const lines: string[] = []
+	const lineIds = new Map<string, number>()
+	const encode = (text: string) =>
+		text.split('\n').map((line) => {
+			let id = lineIds.get(line)
+			if (id === undefined) {
+				id = lines.push(line) - 1
+				lineIds.set(line, id)
 			}
-			at = i
-			return [name, full.slice(i, full.length - rest.length)]
+			return id
 		})
-	)
+	const prompts: { base: number[]; folder_guidance: Record<string, number[]> }[] = []
+	const byText = new Map<string, number>()
+	const index: Record<string, number> = {}
+	for (const [key, extra] of profiles()) {
+		const { base, folder_guidance } = profilePrompt(extra)
+		const parts = {
+			base: encode(base),
+			folder_guidance: Object.fromEntries(
+				Object.entries(folder_guidance).map(([k, v]) => [k, encode(v)])
+			)
+		}
+		const text = JSON.stringify(parts)
+		let id = byText.get(text)
+		if (id === undefined) {
+			id = prompts.push(parts) - 1
+			byText.set(text, id)
+		}
+		index[key] = id
+	}
 	return {
-		base: withoutFolders.slice(0, at) + '{{folder_guidance}}' + withoutFolders.slice(at),
-		folder_guidance,
+		profiles: index,
+		prompts,
+		lines,
 		skills_header: skills.slice(0, skills.length - skillLine.length),
 		skill_line: skillLine,
 		workspace_instructions: suffixOf(

@@ -1390,23 +1390,142 @@ const listJoin = (items: (string | false)[], type: 'conjunction' | 'disjunction'
 // to its description and to get_instructions. OpenAI asks for the most important details in
 // the first 512 characters and some clients keep only the first 4096, so the drafts rule
 // opens and the rules come before the path conventions.
-function buildExternalPrompt(username: string, paths: string, skills: AiSkillListItem[]) {
-	return `This server works in a Windmill workspace as the user "${username}".
+// Each gated block mirrors a tool the server refuses this access: what a read-only token or a
+// restricted role cannot do is stated up front rather than left to a failed call. Full access
+// renders the ungated text.
+type ExternalAccess = {
+	readOnly: boolean
+	/** A read-only session that may still run deployed items (the `mcp:read_run` scope). */
+	runsDeployed: boolean
+	canWriteAnyDraft: boolean
+	canWriteDraft: boolean
+	canWriteAppDraft: boolean
+	buildsFlows: boolean
+	buildsApps: boolean
+	canDraftTriggers: boolean
+	canDraftVariables: boolean
+	canDeploy: boolean
+	canDeployAnyKind: boolean
+	canRunPreview: boolean
+	canRunFlowPreview: boolean
+	canManageSchedules: boolean
+	canManageTriggers: boolean
+	canCreateResourceType: boolean
+	refusedKinds: string[]
+	draftTools: string
+}
 
-Rules:
-- What you write is a per-user draft, saved server-side and visible only to this user. Nothing reaches the workspace until deploy_workspace_item deploys it, which you call only when the user asks.
-- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, a draft's editor (\`url\`), an app draft's editor with its live preview (\`preview_url\`), a deployed item's page. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves: show it with show_run, show_runs, show_item or show_deploy_review when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.
-- Find items with list_workspace_items and read one with read_workspace_item before changing it. An agent is a resource of type \`ai_agent\`: test it with test_run_agent and run a deployed one with run_agent, never run_flow or run_script.
-- Call get_instructions before writing a script, flow, agent, resource or app, a data pipeline or a datatable migration. For a script, pass its language. Call get_trigger_schema before write_trigger, since each trigger kind takes different fields, and get_db_schema before writing SQL against a database resource.
-- After writing a script, flow, agent or app runnable, test it with test_run_script, test_run_flow, test_run_step, test_run_agent or test_run_app_runnable before saying it works. They run the draft, so nothing needs deploying.
-- A request to run something also goes to the test_run tools. Use run_script, run_flow or run_agent only when the user asks for the deployed version, after reading it with version "deployed" so the arguments match.
-- To undo your own work, discard its draft with discard_local_draft. delete_workspace_item removes an item that is deployed.
+function externalSessionScope(a: ExternalAccess): string {
+	const when = (cond: boolean, block: string) => (cond ? block : '')
+	if (a.readOnly) {
+		return a.runsDeployed
+			? `
+
+This connection can read the workspace's items, runs and data, and run scripts, flows and agents that are already deployed. It cannot create, edit, deploy or delete anything, nor test-run code that is not deployed: when the user asks for such a change, say plainly that this connection cannot make it, rather than describing steps as if you had made it.`
+			: `
+
+This connection is read-only: it can read the workspace's items, runs and data, but cannot run, create, edit, deploy or delete anything. When the user asks for a run or a change, say plainly that this connection cannot make it, rather than describing steps as if you had made it.`
+	}
+	if (a.canWriteDraft) return ''
+	return `
+
+This user's role does not let them create or edit ${listJoin(a.refusedKinds, 'disjunction')} here, so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had, and suggest asking a workspace admin, who can grant their role more.${when(
+		a.buildsFlows,
+		' Their role does let them compose flows out of scripts and flows that are already deployed: write flows with write_flow and patch_flow_json, every step calling a deployed script or flow by path. The server refuses inline code anywhere in the flow, so when a flow needs logic no deployed script provides, say so and suggest asking a workspace admin for that script.'
+	)}${when(
+		a.buildsApps,
+		' Their role does let them build raw apps whose backend runnables are path runnables to deployed scripts or flows; call get_instructions with subject "app" first. The server refuses inline and hub runnables, and runs an app they deploy sandboxed, as the user who deployed it.'
+	)}${when(!!a.draftTools, ` They can draft with ${a.draftTools}.`)}`
+}
+
+function buildExternalPrompt(
+	username: string,
+	paths: string,
+	skills: AiSkillListItem[],
+	a: ExternalAccess
+) {
+	const when = (cond: boolean, block: string) => (cond ? block : '')
+	const runs = !a.readOnly || a.runsDeployed
+	const deployClause = a.canDeploy
+		? 'Nothing reaches the workspace until deploy_workspace_item deploys it, which you call only when the user asks.'
+		: a.canDeployAnyKind
+			? "Nothing reaches the workspace until it is deployed, and this workspace's deploy rules let this user deploy only the schedules and triggers their role manages: call deploy_workspace_item for those only when the user asks, and for anything else give them the draft's link and say it needs deploying by someone allowed to."
+			: "Nothing reaches the workspace until it is deployed, which this workspace's deploy rules do not let this user do: when a draft is ready, give them its link and say it needs deploying by someone allowed to."
+	const agentRule = runs
+		? `: ${when(a.canRunFlowPreview, 'test it with test_run_agent and ')}run a deployed one with run_agent, never run_flow or run_script.`
+		: '.'
+	return `This server works in a Windmill workspace as the user "${username}".${externalSessionScope(a)}
+
+Rules:${when(
+		a.canWriteAnyDraft,
+		`
+- What you write is a per-user draft, saved server-side and visible only to this user. ${deployClause}`
+	)}
+${
+	a.canWriteAnyDraft
+		? `- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, a draft's editor (\`url\`), an app draft's editor with its live preview (\`preview_url\`), a deployed item's page. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves: show it with show_run, show_runs, show_item or show_deploy_review when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.`
+		: `- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, an item's page. Whenever the user will want to see what you found${when(runs, ' or ran')}, or has to do a step in Windmill themselves: show it with show_run, show_runs or show_item when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.`
+}
+- Find items with list_workspace_items and read one with read_workspace_item${when(a.canWriteAnyDraft, ' before changing it')}. An agent is a resource of type \`ai_agent\`${agentRule}${when(
+		a.canWriteDraft,
+		`
+- Call get_instructions before writing a script, flow, agent, resource or app, a data pipeline or a datatable migration. For a script, pass its language.${when(a.canDraftTriggers, ' Call get_trigger_schema before write_trigger, since each trigger kind takes different fields, and')}${a.canDraftTriggers ? '' : ' Call'} get_db_schema before writing SQL against a database resource.`
+	)}${when(
+		a.canWriteDraft && a.canRunPreview,
+		`
+- After writing a script, flow, agent or app runnable, test it with test_run_script, test_run_flow, test_run_step, test_run_agent or test_run_app_runnable before saying it works. They run the draft, so nothing needs deploying.`
+	)}${when(
+		!a.canWriteDraft && a.buildsFlows && a.canRunFlowPreview,
+		`
+- After writing a flow, test it with test_run_flow before saying it works. It runs the draft, so nothing needs deploying.`
+	)}${
+		a.canRunPreview
+			? `
+- A request to run something also goes to the test_run tools. Use run_script, run_flow or run_agent only when the user asks for the deployed version, after reading it with version "deployed" so the arguments match.`
+			: when(
+					runs,
+					`
+- run_script, run_flow and run_agent are how you run anything here: they run the DEPLOYED item as this user. Read it with read_workspace_item version "deployed" first so the arguments match.`
+				)
+	}${
+		a.canWriteAnyDraft
+			? `
+- To undo your own work, discard its draft with discard_local_draft.${when(a.canDeployAnyKind, ' delete_workspace_item removes an item that is deployed.')}`
+			: when(
+					!a.readOnly,
+					`
+- You cannot create or edit anything, but where the server allows it discard_local_draft drops a draft this user left behind, deploy_workspace_item deploys one when the user asks, and delete_workspace_item removes a deployed item.`
+				)
+	}${when(
+		!a.readOnly && (!a.canManageSchedules || !a.canManageTriggers),
+		`
+- This workspace does not let this user change ${
+			!a.canManageSchedules && !a.canManageTriggers
+				? 'schedules or triggers'
+				: !a.canManageSchedules
+					? 'schedules'
+					: 'triggers'
+		}, here or in Windmill: suggest asking a workspace admin.`
+	)}
 - Listings return only what this user can see. When an item they name is missing, say it may be in a folder they cannot read, not that it does not exist.
-- No one can read a variable's value through these tools. When editing a variable, pass only the fields that change.
-- Before writing code against a third-party API, look for its integration with search_hub_scripts and get_hub_integration.
-- Only raw apps (\`rawApp\` true) can be read, edited and deployed here. When a deploy says it widens who may open an app, tell the user in plain words.
-- Datatables are set up in the workspace settings. Start from list_datatables; one with \`migrations_enabled\` changes its schema through migrations only.
-- create_resource_type adds a resource type: show the user the schema first and create it once they agree.
+- No one can read a variable's value through these tools.${when(a.canDraftVariables, ' When editing a variable, pass only the fields that change.')}${when(
+		a.canWriteDraft,
+		`
+- Before writing code against a third-party API, look for its integration with search_hub_scripts and get_hub_integration.`
+	)}
+- ${
+		a.canWriteAppDraft
+			? 'Only raw apps (`rawApp` true) can be read, edited and deployed here. When a deploy says it widens who may open an app, tell the user in plain words.'
+			: 'Only raw apps (`rawApp` true) can be read here.'
+	}
+- Datatables are set up in the workspace settings. Start from list_datatables; one with \`migrations_enabled\` changes its schema through migrations only.${when(
+		a.canWriteDraft,
+		a.canCreateResourceType
+			? `
+- create_resource_type adds a resource type: show the user the schema first and create it once they agree.`
+			: `
+- This user cannot create a resource type here, since the workspace refuses their direct deployment: when one is needed, give them its name and JSON Schema to pass to a workspace admin.`
+	)}
 - For how Windmill itself works, use search_docs and read_docs_page, and link the page you relied on.${paths}${
 		skills.length > 0
 			? `
@@ -1427,7 +1546,9 @@ const buildGlobalSystemPrompt = (
 	access?: SessionAccess,
 	// The prompt an external MCP client reads (`buildExternalPrompt`): it shares only the path
 	// conventions, which carry the folder guidance.
-	external = false
+	external = false,
+	// Whether a read-only external session may still run deployed items (`mcp:read_run`).
+	runsDeployed = true
 ) => {
 	// Each `can*` mirrors the capability the matching tools declare in `requires`, so a
 	// rule cannot outlive the tool it describes. An unresolved profile keeps every block.
@@ -1626,7 +1747,32 @@ Path conventions:
 		canCreateFolder && !canWriteAnyDraft,
 		'\n- You can create a shared folder with `create_folder` when the user explicitly asks for one. You cannot create anything inside it here, so do not offer to.'
 	)}`
-	if (external) return buildExternalPrompt(username, paths, skills)
+	if (external)
+		return buildExternalPrompt(username, paths, skills, {
+			readOnly,
+			runsDeployed,
+			canWriteAnyDraft,
+			canWriteDraft,
+			canWriteAppDraft,
+			buildsFlows,
+			buildsApps,
+			canDraftTriggers,
+			canDraftVariables,
+			canDeploy,
+			canDeployAnyKind,
+			canRunPreview,
+			canRunFlowPreview,
+			canManageSchedules,
+			canManageTriggers,
+			canCreateResourceType,
+			refusedKinds,
+			draftTools: listJoin([
+				canDraftResources && 'write_resource',
+				canDraftVariables && 'write_variable',
+				canDraftSchedules && 'write_schedule',
+				canDraftTriggers && 'write_trigger'
+			])
+		})
 
 	return `${intro}${paths}
 
@@ -7344,6 +7490,8 @@ export function prepareGlobalSystemMessage(
 		access?: SessionAccess
 		/** Render for an external MCP client rather than the Windmill chat. */
 		external?: boolean
+		/** For `external` with read-only `access`: whether deployed items may still be run. */
+		runsDeployed?: boolean
 	}
 ): ChatCompletionSystemMessageParam {
 	const user = opts?.user ?? get(userStore)
@@ -7363,7 +7511,8 @@ export function prepareGlobalSystemMessage(
 		opts?.skills ?? [],
 		opts?.mcpServers ?? [],
 		opts?.access,
-		opts?.external ?? false
+		opts?.external ?? false,
+		opts?.runsDeployed ?? true
 	)
 	if (instructions?.workspace?.trim()) {
 		content = `${content}\n\nWORKSPACE INSTRUCTIONS (configured by a workspace admin, shared by everyone in this workspace — you cannot modify these):\n${instructions.workspace.trim()}`
