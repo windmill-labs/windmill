@@ -62,10 +62,7 @@ function unquoteIdentifier(s: string): string {
 		['[', ']']
 	] as const) {
 		if (t.length >= 2 && t.startsWith(open) && t.endsWith(close)) {
-			return t
-				.slice(1, -1)
-				.split(close + close)
-				.join(close)
+			return t.slice(1, -1).split(close + close).join(close)
 		}
 	}
 	return t
