@@ -387,6 +387,40 @@ const MUTE_ASSET_PREFIXES: [string, string][] = [
 // the three comment prefixes is accepted regardless of language, blank lines
 // are skipped, scanning stops at the first non-comment line, and `mute` must
 // be a complete word (`// muted for now` never matches).
+/**
+ * A `materialize` header line naming no target (`-- materialize`, `-- materialize key=id`),
+ * which wasm asset parsers older than the default-table rule drop. Mirrors the target
+ * detection of Rust `parse_materialize_spec`; a line naming a target is left to the parser.
+ */
+export function recoverBareMaterialize(content: string): ParsedMaterialize | undefined {
+  for (const rawLine of content.split("\n")) {
+    const line = rawLine.trimStart();
+    if (line === "") continue;
+    let rest: string;
+    if (line.startsWith("//") || line.startsWith("--")) rest = line.slice(2);
+    else if (line.startsWith("#")) rest = line.slice(1);
+    else break;
+    const m = rest.trim().match(/^materialize(?:\s+(.*))?$/);
+    if (!m) continue;
+    const opts = (m[1] ?? "").trim();
+    const first = opts.split(/\s+/)[0] ?? "";
+    const namesTarget =
+      first.includes("://") ||
+      (first !== "" && first !== "append" && first !== "history" && !first.includes("="));
+    if (namesTarget || first === "manual" || first === "scd2") return undefined;
+    const tokens = opts.split(/\s+/).filter((t) => t !== "");
+    const key = tokens.find((t) => t.startsWith("key="))?.slice("key=".length);
+    return {
+      target_kind: "ducklake",
+      target_path: "main",
+      ...(tokens.includes("append") ? { append: true } : {}),
+      ...(key ? { unique_key: key } : {}),
+      ...(tokens.includes("history") ? { scd2: true } : {}),
+    };
+  }
+  return undefined;
+}
+
 export function parseMuteAnnotations(content: string): {
   muteAll: boolean;
   muted: Set<string>;
@@ -728,7 +762,8 @@ export async function buildLocalPipelineGraph(args: {
     // Carry the parsed `// tag` so previews route to the same worker the
     // deployed pipeline would (both `pipeline run --local` and `/pipeline_dev`).
     pipelineScripts.push(out.tag ? { ...s, tag: out.tag } : s);
-    const mat = out.materialize && withDefaultTable(out.materialize, s.path);
+    const parsedMat = out.materialize ?? recoverBareMaterialize(s.content);
+    const mat = parsedMat && withDefaultTable(parsedMat, s.path);
     // Managed-materialize write strategy, derived like the deployed graph —
     // precedence mirrors the runtime: scd2 (`history`) > append > merge
     // (key=<col>) > replace. Manual mode has no managed strategy.

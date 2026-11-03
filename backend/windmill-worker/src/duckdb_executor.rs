@@ -1351,11 +1351,11 @@ pub async fn do_duckdb(
             // itself stays pure/sync.
             let custom_test_bodies =
                 fetch_custom_test_bodies(query, conn, &job.workspace_id).await?;
-            // A script's own run names an untabled target after the script. An inline flow
-            // step's path is `<flow>/<step id>`, which would name one shared table per step
-            // id across every flow, so it has to name its table.
-            let script_path = (matches!(job.kind, JobKind::Script | JobKind::Preview)
-                && job.flow_step_id.is_none())
+            // A deployed script, run directly or from a flow, names an untabled target after
+            // its own path. An inline flow step's path is `<flow>/<step id>`, which would name
+            // one shared table per step id across every flow, so it has to name its table.
+            let script_path = (job.kind == JobKind::Script
+                || (job.kind == JobKind::Preview && job.flow_step_id.is_none()))
             .then(|| job.runnable_path.as_deref())
             .flatten();
             build_materialized_query(

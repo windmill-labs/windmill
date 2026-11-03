@@ -113,6 +113,29 @@ test("empty / no-pipeline folder yields an empty graph", async () => {
   );
 });
 
+test("a bare `-- materialize` producer writes the table named after it", async () => {
+  await withFolder(
+    {
+      "users.duckdb.sql": `-- pipeline\n-- materialize key=id\nSELECT 1 AS id;\n`,
+      "consume.duckdb.sql":
+        `-- pipeline\n-- on ducklake://main/users\nSELECT count(*) FROM users;\n`,
+    },
+    async (root, folder) => {
+      const { graph } = await buildLocalPipelineGraph({ root, folder, defaultTs: "bun" });
+      const users = graph.runnables.find((r) => r.path === "f/mypipe/users");
+      expect(users?.materialize_target).toEqual({ kind: "ducklake", path: "main/users" });
+      expect(users?.materialize_strategy).toBe("merge");
+      expect(graph.edges).toContainEqual({
+        runnable_kind: "script",
+        runnable_path: "f/mypipe/users",
+        asset_kind: "ducklake",
+        asset_path: "main/users",
+        access_type: "w",
+      });
+    },
+  );
+});
+
 test("`// materialize <asset>` producer connects to its `// on` consumer", async () => {
   // The wasm asset parser doesn't surface `// materialize`; the CLI-side scan
   // must still emit the producer's write edge so it links to the consumer.
