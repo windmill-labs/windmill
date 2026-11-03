@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Button, Skeleton } from '$lib/components/common'
 	import { ExternalLink, PanelRightClose } from 'lucide-svelte'
 	import RecentRunRow from './RecentRunRow.svelte'
 	import {
@@ -24,6 +24,8 @@
 	let { runs, folder, onCollapse, onFocusItem }: Props = $props()
 
 	let data = $derived(runs.current)
+	// Rows' height (2.5 × 16px) with their gap: without it a first load reads as "nothing ran".
+	const LOADING_LAYOUT = [[2.5], 0.25, [2.5], 0.25, [2.5]]
 	// The failed count also holds runs an item has since recovered from; Ask AI attaches only
 	// the items still failing, so it shows only when there is one.
 	let failing = $derived(data?.items.filter((i) => i.status === 'failure') ?? [])
@@ -88,7 +90,9 @@
 	</div>
 
 	<div class="flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-2.5">
-		{#if data && data.items.length === 0}
+		{#if !data && runs.loading}
+			<Skeleton class="px-2.5" layout={LOADING_LAYOUT} />
+		{:else if data && data.items.length === 0}
 			<p class="px-2.5 text-xs text-hint">Runs show up here once something runs.</p>
 		{:else if data}
 			{#each data.items as item (itemKey(item))}

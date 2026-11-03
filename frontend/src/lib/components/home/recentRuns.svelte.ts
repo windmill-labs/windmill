@@ -63,6 +63,10 @@ export function useRecentRuns(
 		get current() {
 			return runs.current
 		},
+		/** A read is in flight; with no `current` yet, nothing is known about the window. */
+		get loading() {
+			return runs.loading
+		},
 		get now() {
 			return now
 		},
