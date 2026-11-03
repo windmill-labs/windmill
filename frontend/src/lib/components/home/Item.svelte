@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	import { lazyModule } from '$lib/lazyModule.svelte'
+	import { lazyModule, type LazyModule } from '$lib/lazyModule.svelte'
 
 	// Mounted only once a row's menu opens, and reached from one of its items.
 	const shareModalModule = lazyModule(() => import('../ShareModal.svelte'))
@@ -15,7 +15,7 @@
 	import ScriptRow from '../common/table/ScriptRow.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { Alert } from '$lib/components/common'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, tick } from 'svelte'
 	import { ArrowBigUp } from 'lucide-svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getHomeSelection, toBulkItem } from './homeSelection.svelte'
@@ -25,9 +25,24 @@
 	const dispatch = createEventDispatcher()
 
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
-	let shareModal: any | undefined = $state()
-	let moveDrawer: any | undefined = $state()
-	let deploymentDrawer: any | undefined = $state()
+	let shareModalInstance: any | undefined = $state()
+	let moveDrawerInstance: any | undefined = $state()
+	let deploymentDrawerInstance: any | undefined = $state()
+
+	// The rows call `openDrawer` on these from a menu item, which can be clicked before the
+	// drawer's module has loaded and mounted.
+	function lazyDrawerHandle(module: LazyModule<unknown>, instance: () => any): any {
+		return {
+			openDrawer: async (...args: any[]) => {
+				await module.load()
+				await tick()
+				instance()?.openDrawer(...args)
+			}
+		}
+	}
+	const shareModal = lazyDrawerHandle(shareModalModule, () => shareModalInstance)
+	const moveDrawer = lazyDrawerHandle(moveDrawerModule, () => moveDrawerInstance)
+	const deploymentDrawer = lazyDrawerHandle(deployDrawerModule, () => deploymentDrawerInstance)
 
 	let menuOpen: boolean = $state(false)
 	$effect(() => {
@@ -212,7 +227,7 @@
 	{#if shareModalModule.current}
 		{@const ShareModal = shareModalModule.current.default}
 		<ShareModal
-			bind:this={shareModal}
+			bind:this={shareModalInstance}
 			on:change={() => {
 				dispatch('reload')
 			}}
@@ -220,12 +235,12 @@
 	{/if}
 	{#if deployDrawerModule.current}
 		{@const DeployWorkspaceDrawer = deployDrawerModule.current.default}
-		<DeployWorkspaceDrawer bind:this={deploymentDrawer} />
+		<DeployWorkspaceDrawer bind:this={deploymentDrawerInstance} />
 	{/if}
 	{#if moveDrawerModule.current}
 		{@const MoveDrawer = moveDrawerModule.current.default}
 		<MoveDrawer
-			bind:this={moveDrawer}
+			bind:this={moveDrawerInstance}
 			on:update={() => {
 				dispatch('reload')
 			}}

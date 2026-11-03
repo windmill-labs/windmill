@@ -238,6 +238,7 @@ function assertMonacoFreeAppShell() {
  */
 function assertAiEngineFreeAppShell() {
 	const entries = [
+		'/src/routes/+layout.svelte',
 		'/src/routes/(root)/+layout.svelte',
 		'/src/routes/(root)/(logged)/+layout.svelte',
 		'/src/routes/(root)/(logged)/+page.svelte'
