@@ -42,7 +42,8 @@
 		Users,
 		Play,
 		SearchX,
-		ArrowRight
+		ArrowRight,
+		ScrollText
 	} from 'lucide-svelte'
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
 	import { forLater } from '$lib/forLater'
@@ -57,7 +58,13 @@
 	import DbtRunGraph from '$lib/components/dbt/DbtRunGraph.svelte'
 	import DispatchEventsPanel from '$lib/components/runs/DispatchEventsPanel.svelte'
 	import UpstreamSnapshotsPanel from '$lib/components/runs/UpstreamSnapshotsPanel.svelte'
-	import { enterpriseLicense, initialArgsStore, superadmin, userWorkspaces } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		initialArgsStore,
+		roleCapabilities,
+		superadmin,
+		userWorkspaces
+	} from '$lib/stores'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import JobLoader from '$lib/components/JobLoader.svelte'
@@ -883,6 +890,12 @@
 				hide: !canDelete || !(job.job_kind === 'script' || job.job_kind === 'flow')
 			},
 			{
+				displayName: 'Audit logs',
+				icon: ScrollText,
+				href: `/audit_logs?job_id=${job.id}`,
+				hide: !$roleCapabilities.visibility.audit_logs
+			},
+			{
 				displayName: 'Copy link for members',
 				icon: Users,
 				action: () => job && shareReadLink(job.id),
@@ -1149,6 +1162,16 @@
 					View runs
 				</Button>
 			{/if}
+		{/if}
+		{#if job && $roleCapabilities.visibility.audit_logs}
+			<Button
+				href={`/audit_logs?job_id=${job.id}`}
+				variant="default"
+				unifiedSize="sm"
+				iconOnly
+				title="Audit logs of this run"
+				startIcon={{ icon: ScrollText }}
+			/>
 		{/if}
 		{#if job}
 			<Dropdown

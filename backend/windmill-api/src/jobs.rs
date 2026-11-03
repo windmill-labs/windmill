@@ -5083,17 +5083,30 @@ pub async fn resume_suspended_flow_as_owner(
         job_id,
         &flow,
         value,
-        Some(authed.username),
+        Some(authed.username.clone()),
         true,
         &mut tx,
     )
     .await?;
 
+    let (flow_id, flow_path) = (flow.id, flow.script_path.clone());
     if is_wac {
         decrement_suspend(flow.id, &mut tx).await?;
     } else {
         resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
     }
+
+    audit_suspend_resume(
+        &mut tx,
+        &AuditAuthor::from(&authed),
+        &w_id,
+        flow_path.as_deref(),
+        flow_id,
+        job_id,
+        true,
+        &authed.username,
+    )
+    .await?;
 
     tx.commit().await?;
     Ok(StatusCode::CREATED)
@@ -5235,6 +5248,7 @@ async fn resume_suspended(
     )
     .await?;
 
+    let (flow_id, flow_path) = (flow.id, flow.script_path.clone());
     if !approved {
         sqlx::query("UPDATE v2_job_queue SET suspend = 0 WHERE id = $1")
             .bind(&flow.id)
@@ -5258,25 +5272,15 @@ async fn resume_suspended(
         }
     };
 
-    audit_log(
-        &mut *tx,
+    audit_suspend_resume(
+        &mut tx,
         &audit_author,
-        "jobs.suspend_resume",
-        ActionKind::Update,
         &w_id,
-        Some(
-            &serde_json::json!({
-                "approved": approved,
-                "job_id": job_id,
-                "details": if approved {
-                    format!("Approved by {}", &approver)
-                } else {
-                    format!("Cancelled by {}", &approver)
-                }
-            })
-            .to_string(),
-        ),
-        None,
+        flow_path.as_deref(),
+        flow_id,
+        resume_job_id,
+        approved,
+        &approver,
     )
     .await?;
 
@@ -5789,6 +5793,7 @@ async fn resume_suspended_job_internal(
     )
     .await?;
 
+    let (flow_id, flow_path) = (flow_info.id, flow_info.script_path.clone());
     if !approved {
         sqlx::query!(
             "UPDATE v2_job_queue SET suspend = 0 WHERE id = $1",
@@ -5821,29 +5826,59 @@ async fn resume_suspended_job_internal(
                 .map(|s| s[0..TOKEN_PREFIX_LEN].to_string()),
         },
     };
-    audit_log(
-        &mut *tx,
+    audit_suspend_resume(
+        &mut tx,
         &audit_author,
-        "jobs.suspend_resume",
-        ActionKind::Update,
         &w_id,
-        Some(
-            &serde_json::json!({
-                "approved": approved,
-                "job_id": job_id,
-                "details": if approved {
-                    format!("Approved by {}", &approver)
-                } else {
-                    format!("Cancelled by {}", &approver)
-                }
-            })
-            .to_string(),
-        ),
-        None,
+        flow_path.as_deref(),
+        flow_id,
+        job_id,
+        approved,
+        &approver,
     )
     .await?;
     tx.commit().await?;
     Ok(StatusCode::CREATED)
+}
+
+/// `job_id` is the suspended flow, so the entry lists under the run that was started, whichever
+/// id the resume request named; the suspended step is kept as `step_job_id`.
+async fn audit_suspend_resume(
+    tx: &mut Transaction<'_, Postgres>,
+    author: &AuditAuthor,
+    w_id: &str,
+    flow_path: Option<&str>,
+    flow_id: Uuid,
+    step_job_id: Uuid,
+    approved: bool,
+    approver: &str,
+) -> error::Result<()> {
+    let flow_id_s = flow_id.to_string();
+    let step_job_id_s = step_job_id.to_string();
+    let details = if approved {
+        format!("Approved by {approver}")
+    } else {
+        format!("Cancelled by {approver}")
+    };
+    let mut params = HashMap::from([
+        ("approved", if approved { "true" } else { "false" }),
+        ("job_id", flow_id_s.as_str()),
+        ("details", details.as_str()),
+    ]);
+    if step_job_id != flow_id {
+        params.insert("step_job_id", step_job_id_s.as_str());
+    }
+    audit_log(
+        &mut **tx,
+        author,
+        "jobs.suspend_resume",
+        ActionKind::Update,
+        w_id,
+        flow_path,
+        Some(params),
+    )
+    .await?;
+    Ok(())
 }
 
 async fn verify_suspended_secret(
