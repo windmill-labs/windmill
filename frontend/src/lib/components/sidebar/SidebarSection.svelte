@@ -50,6 +50,8 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 		 * `menu` is the folded row's menu they are listed in.
 		 */
 		children: Snippet<[boolean, SectionMenu | undefined]>
+		/** The folded row's menu closed. */
+		onClose?: () => void
 	}
 
 	let {
@@ -61,7 +63,8 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 		notify = false,
 		disabled = false,
 		actions,
-		children
+		children,
+		onClose
 	}: Props = $props()
 
 	const isFolded = $derived(folded && !disabled)
@@ -70,8 +73,12 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 		'relative flex items-center justify-start w-full h-[30px] px-2 gap-2 rounded-lg text-left font-normal'
 
 	let open = $state(false)
+	function setOpen(value: boolean) {
+		if (open && !value) onClose?.()
+		open = value
+	}
 	function toggle() {
-		open = false
+		setOpen(false)
 		onToggle()
 	}
 </script>
@@ -172,8 +179,9 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 							{#snippet children({ createMenu })}
 								<Menu
 									{createMenu}
-									bind:open
+									bind:open={() => open, setOpen}
 									openOnHover
+									pinOnClick
 									submenuSafe
 									placement="right-start"
 									closeFocus={null}
@@ -198,7 +206,7 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 										<div
 											class="flex flex-col gap-0.5 px-1"
 											onclick={(e) => {
-												if ((e.target as Element).closest('a, [role="option"]')) open = false
+												if ((e.target as Element).closest('a, [role="option"]')) setOpen(false)
 											}}
 										>
 											<!-- Icons only shows no title on the row, so its menu does. -->

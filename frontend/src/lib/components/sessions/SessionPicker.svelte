@@ -472,6 +472,8 @@
 	// Batch selection: "Edit sessions" in the header menu turns the rows into
 	// checkboxes so several sessions can be deleted in one pass.
 	let selectionMode = $state(false)
+	// Entered from the folded section's menu, whose own list then takes the checkboxes.
+	let selectionInFlyout = $state(false)
 	let selectedIds = $state<string[]>([])
 	let batchDeleteOpen = $state(false)
 
@@ -499,21 +501,23 @@
 		if (pruned.length !== selectedIds.length) selectedIds = pruned
 	})
 
-	function enterSelectionMode() {
+	function enterSelectionMode(inFlyout: boolean) {
 		selectionMode = true
+		selectionInFlyout = inFlyout
 		selectedIds = []
 		// Checkboxes are unreachable while the section is folded away.
-		sectionCollapsed.val = false
+		if (!inFlyout) sectionCollapsed.val = false
 	}
 
 	// The session list's options, for the ⋮ menu of the open list and the View submenu of the
-	// folded section's menu.
+	// folded section's menu. That menu lists the sessions too, so it stays open to show the change.
 	function listOptionItems(inFlyout: boolean): Item[] {
 		return [
 			{
 				displayName: archivedCount > 0 ? `Show archived (${archivedCount})` : 'Show archived',
 				icon: Archive,
 				toggle: showArchived.val,
+				keepOpen: inFlyout,
 				action: () => (showArchived.val = !showArchived.val)
 			},
 			{
@@ -523,6 +527,7 @@
 				submenuItems: LAST_ACTIVITY_OPTIONS.map((o) => ({
 					displayName: o.label,
 					selected: lastActivityDays.val === o.days,
+					keepOpen: inFlyout,
 					action: () => (lastActivityDays.val = o.days)
 				}))
 			},
@@ -533,26 +538,28 @@
 				submenuItems: GROUP_BY_OPTIONS.map((o) => ({
 					displayName: o.label,
 					selected: groupBy.val === o.value,
+					keepOpen: inFlyout,
 					action: () => (groupBy.val = o.value)
 				}))
 			},
 			{
 				displayName: 'Edit sessions',
 				icon: ListChecks,
-				action: enterSelectionMode,
+				keepOpen: inFlyout,
+				action: () => enterSelectionMode(inFlyout),
 				separatorTop: true,
 				// Selection is built from `visibleSessions`, which the tree render
 				// path doesn't follow — it drops workspace-less sessions and hides
 				// rows under a collapsed workspace, so "Select all" there would
 				// reach rows that never showed a checkbox.
-				// The rail's menu lists the rail's own rows, which have no names to select by.
-				hide: visibleSessions.length === 0 || workspaceTree || (isCollapsed && inFlyout)
+				hide: visibleSessions.length === 0 || workspaceTree
 			}
 		]
 	}
 
 	function exitSelectionMode() {
 		selectionMode = false
+		selectionInFlyout = false
 		selectedIds = []
 		rangeAnchorId = undefined
 	}
@@ -705,7 +712,7 @@
 >
 	<!-- Selection mode reuses the options row (same h-8 slot) so the list below it
 		     never moves. -->
-	{#if selectionMode}
+	{#snippet selectionBar()}
 		<div class="flex flex-row items-center gap-1.5 h-8 px-2">
 			<Checkbox
 				checked={allSelected}
@@ -734,6 +741,9 @@
 				Done
 			</Button>
 		</div>
+	{/snippet}
+	{#if selectionMode && !selectionInFlyout}
+		{@render selectionBar()}
 		{@render sessionList(false)}
 	{:else}
 		{#snippet listOptions(size: 'xs' | 'sm' | 'md')}
@@ -785,18 +795,29 @@
 				notify={totalUnread > 0}
 				actions={sectionOptions}
 				{isCollapsed}
+				onClose={() => {
+					// The batch delete's confirmation is outside the menu and closes it, but still
+					// needs the selection.
+					if (selectionInFlyout && !batchDeleteOpen) exitSelectionMode()
+				}}
 			>
 				{#snippet children(inPopover, menu)}
-					<!-- Outside the listbox, so arrow keys move through sessions only. -->
-					<div class="mb-0.5" data-asks-for-composer>
-						<MenuButton
-							icon={Plus}
-							label="New session"
-							isCollapsed={isCollapsed && !inPopover}
-							item={menu?.item}
-							on:click={() => openNewSession()}
-						/>
-					</div>
+					<!-- In the folded section's menu the selection bar takes New session's row: the View
+					     row stays, since Edit sessions is picked from the submenu it holds open. -->
+					{#if inPopover && selectionMode}
+						{@render selectionBar()}
+					{:else}
+						<!-- Outside the listbox, so arrow keys move through sessions only. -->
+						<div class="mb-0.5" data-asks-for-composer>
+							<MenuButton
+								icon={Plus}
+								label="New session"
+								isCollapsed={isCollapsed && !inPopover}
+								item={menu?.item}
+								on:click={() => openNewSession()}
+							/>
+						</div>
+					{/if}
 					{@render sessionList(inPopover)}
 				{/snippet}
 			</SidebarSection>
@@ -812,12 +833,14 @@
 		     open sidebar has it. -->
 	{#snippet sessionList(inPopover: boolean)}
 		{@const rail = isCollapsed && !inPopover}
+		<!-- Only the list selection mode was entered from: the folded section's menu, or the sidebar. -->
+		{@const selecting = selectionMode && inPopover === selectionInFlyout}
 		<div
 			bind:this={listRoot}
 			class={twMerge(
 				'flex flex-col gap-0.5',
 				// Shift-clicking rows would otherwise paint a text selection across them.
-				selectionMode ? 'select-none' : ''
+				selecting ? 'select-none' : ''
 			)}
 			onkeydown={handleListKeydown}
 			role="listbox"
@@ -854,7 +877,7 @@
 					{#if depth !== undefined}
 						{#each Array(depth) as _}{@render vline()}{/each}
 					{/if}
-					{#if selectionMode}
+					{#if selecting}
 						<!-- Takes over the status-dot slot exactly (pl-2 + 16px, the row button's
 							     own px-2 supplying the trailing gap), so entering selection mode
 							     doesn't shift a single row label sideways. -->
@@ -903,16 +926,20 @@
 							type="button"
 							data-session-button
 							role="option"
-							aria-selected={selectionMode ? isChecked : isSelected}
-							onclick={(e) =>
-								selectionMode ? toggleSelected(session.id, e.shiftKey) : activate(session)}
+							aria-selected={selecting ? isChecked : isSelected}
+							onclick={(e) => {
+								if (!selecting) return activate(session)
+								// Ticking a row in the folded section's menu must not close it as picking one does.
+								e.stopPropagation()
+								toggleSelected(session.id, e.shiftKey)
+							}}
 							title={rail ? (session.summary ?? 'Untitled session') : undefined}
 							class={twMerge(
 								'flex flex-row items-center gap-2 text-left text-xs font-normal focus:outline-none flex-1 min-w-0 px-2 h-6',
 								isSelected ? sidebarClasses.selectedText : 'text-secondary'
 							)}
 						>
-							{#if depth === undefined && !selectionMode}
+							{#if depth === undefined && !selecting}
 								<SessionStatusDot
 									{status}
 									isFork={isForkFor(session)}
@@ -938,7 +965,7 @@
 								'transition-opacity pr-0.5',
 								rail
 									? 'hidden'
-									: selectionMode
+									: selecting
 										? 'invisible pointer-events-none'
 										: 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
 							)}
@@ -1110,11 +1137,14 @@
 				{/each}
 			{/if}
 		</div>
-		{#if selectionMode}
+		{#if selecting}
 			<!-- Pinned to the sidebar's bottom edge while the rows scroll under it; z-10 keeps it
 				     above the sidebar's bottom fade. -->
 			<div
-				class="sticky bottom-0 z-10 flex flex-col gap-1 px-1 pt-1.5 pb-2 bg-[var(--sidebar-bg-light)] dark:bg-[var(--sidebar-bg-dark)]"
+				class={twMerge(
+					'sticky bottom-0 z-10 flex flex-col gap-1 px-1 pt-1.5 pb-2',
+					inPopover ? 'bg-surface' : 'bg-[var(--sidebar-bg-light)] dark:bg-[var(--sidebar-bg-dark)]'
+				)}
 			>
 				<Button
 					unifiedSize="xs"

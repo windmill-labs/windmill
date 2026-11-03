@@ -94,6 +94,7 @@
 		href={subItem?.href}
 		target={subItem?.hrefTarget}
 		disabled={subItem?.disabled}
+		keepOpen={subItem.keepOpen}
 		class={twMerge(
 			'px-4 py-2 text-primary font-normal hover:bg-surface-hover cursor-pointer text-xs transition-colors w-full',
 			'data-[highlighted]:bg-surface-hover',
