@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.860.0](https://github.com/windmill-labs/windmill/compare/v1.859.0...v1.860.0) (2026-11-03)
+
+
+### Features
+
+* add DISABLE_RT_SYNC to stop resource type syncs and seeds ([#12188](https://github.com/windmill-labs/windmill/issues/12188)) ([7ca618f](https://github.com/windmill-labs/windmill/commit/7ca618f704bfb79a0ef50d9920c906add82711e1))
+* let developers and operators pick the sidebar mode from one menu ([#12124](https://github.com/windmill-labs/windmill/issues/12124)) ([0119bd9](https://github.com/windmill-labs/windmill/commit/0119bd93b75b9bed6087b991fa5ce3f96b519df7))
+
+
+### Bug Fixes
+
+* keep hub resource types over the image cache, never wait on hub picks ([#12093](https://github.com/windmill-labs/windmill/issues/12093)) ([e433b38](https://github.com/windmill-labs/windmill/commit/e433b389dd3d0c364bab543d6592b9ee896f5221))
+* make bypassing a disable-forking rule an explicit choice when forking ([#12195](https://github.com/windmill-labs/windmill/issues/12195)) ([0908291](https://github.com/windmill-labs/windmill/commit/09082918a6c0f0fb63887f36e71d694701a06fdb))
+* resolve schedule time zones from current tzdata, drop chrono-tz ([#12196](https://github.com/windmill-labs/windmill/issues/12196)) ([c5262db](https://github.com/windmill-labs/windmill/commit/c5262db54a1ef16b6f33e361bacd7ac169e6f7ec))
+* store new ai sessions and app drafts only on first send ([#12175](https://github.com/windmill-labs/windmill/issues/12175)) ([125da76](https://github.com/windmill-labs/windmill/commit/125da76ccc5cffb53765722bb9e300b5116a2d1a))
+* tick the ai chat run timer once per second in whole seconds ([#12184](https://github.com/windmill-labs/windmill/issues/12184)) ([ed40d1a](https://github.com/windmill-labs/windmill/commit/ed40d1a96d26ae3321a212e2fa8c473c78848011))
+
 ## [1.859.0](https://github.com/windmill-labs/windmill/compare/v1.858.0...v1.859.0) (2026-11-03)
 
 
