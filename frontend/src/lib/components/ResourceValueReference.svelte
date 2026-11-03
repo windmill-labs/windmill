@@ -72,7 +72,9 @@
 			{#if referencedResource}
 				Linked to resource <a
 					target="_blank"
-					href="/resources#/resource/{referencedResource}"
+					href="/resources{workspace
+						? `?workspace=${workspace}`
+						: ''}#/resource/{referencedResource}"
 					class="text-accent underline">{referencedResource}</a
 				>
 			{:else}
