@@ -27,6 +27,13 @@ use crate::{
     DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
 };
 
+lazy_static::lazy_static! {
+    /// `DISABLE_RT_SYNC`: nothing writes the `admins` types but the instance's own users, so no
+    /// sync of any kind runs and migrations skip the types they would seed.
+    pub static ref DISABLE_RT_SYNC: bool = std::env::var("DISABLE_RT_SYNC")
+        .is_ok_and(|v| v.eq_ignore_ascii_case("true") || v == "1");
+}
+
 const SYNC_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::hours(24);
 const RETRY_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::hours(1);
 const CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(600);
@@ -352,6 +359,11 @@ async fn sync_from_hub(db: &DB) -> Result<SyncOutcome> {
 /// Syncs from the configured hub, falling back to the image's cache when the hub is disabled
 /// or unreachable and the instance has never synced from a hub.
 pub async fn sync(db: &DB) -> Result<SyncOutcome> {
+    if *DISABLE_RT_SYNC {
+        return Err(Error::BadRequest(
+            "Resource type sync is disabled on this instance".to_string(),
+        ));
+    }
     let hub_err = if setting_enabled(db, DISABLE_HUB_SETTING).await? {
         Error::BadRequest("The hub is disabled on this instance".to_string())
     } else {
@@ -386,6 +398,9 @@ async fn fall_back_to_image_cache(db: &DB, path: &str) -> Result<Option<SyncOutc
 /// hub, a private hub listing only its own types included, takes each new image's public types.
 /// `None` when the image carries no cache.
 pub async fn sync_from_image_cache(db: &DB) -> Result<Option<SyncOutcome>> {
+    if *DISABLE_RT_SYNC {
+        return Ok(None);
+    }
     sync_from_cache_file(db, &cache_path()).await
 }
 
@@ -433,7 +448,8 @@ pub fn spawn_daily_sync(db: DB, mut killpill_rx: tokio::sync::broadcast::Receive
 }
 
 async fn sync_if_due(db: &DB) -> Result<()> {
-    if !setting_enabled(db, SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING).await?
+    if *DISABLE_RT_SYNC
+        || !setting_enabled(db, SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING).await?
         || setting_enabled(db, DISABLE_HUB_SETTING).await?
     {
         return Ok(());
