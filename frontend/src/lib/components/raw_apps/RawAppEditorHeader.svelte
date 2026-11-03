@@ -34,8 +34,7 @@
 		Redo,
 		Settings,
 		Undo,
-		UserPlus,
-		WandSparkles
+		UserPlus
 	} from 'lucide-svelte'
 	import ShareDialog from '$lib/components/itemSettings/ShareDialog.svelte'
 	import { showAppLinks } from '$lib/components/itemSettings/AppLinksModal.svelte'
@@ -72,7 +71,6 @@
 	import { updateRawAppPolicy } from './rawAppPolicy'
 	import { withoutSharedPolicySettings } from '../apps/editor/appDraftSettings'
 	import { saveRawAppFork } from './forkRawApp.svelte'
-	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { getContext } from 'svelte'
 
 	// Forward-looking hook for the upcoming session-pane feature: that PR will
@@ -90,7 +88,6 @@
 	// session-side equivalent is RawAppEditorView's `onDeploy` →
 	// `runtime.itemDeployed`, which discards the fork draft + reloads
 	// the preview to the deployed version.
-	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 	import { stripRawAppDiffNoise } from './utils'
 	import type { RawAppData } from './dataTableRefUtils'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
@@ -378,11 +375,9 @@
 		ownsPageHeader ? pageHeader.actionFold >= 1 : topbarWidth > 0 && topbarWidth < 720
 	)
 	// In the page header no fold drops a button's label: what does not fit goes into the menu.
-	// The second fold keeps the trail, the file sidebar's toggle and Deploy; Diff joins the menu.
-	// The docked-chat AI toggle stands down — the sidebar's own Ask AI is the way in at that
-	// width — while Jobs and the
-	// export are already in the menu, Jobs from `compactTopbar` (true at the second fold too) and
-	// the export always.
+	// The second fold keeps the trail, the file sidebar's toggle and Deploy; Diff joins the menu,
+	// while Jobs and the export are already in it, Jobs from `compactTopbar` (true at the second
+	// fold too) and the export always.
 	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
 	// The third fold leaves the autosave indicator as its icon, so the AI session button still fits
 	// right before Deploy on a phone.
@@ -1329,24 +1324,8 @@
 	<!-- Draws nothing in the bar: it is the export drawer, opened from the menu's Export entry
 	     through this instance. -->
 	<AppExportButton bind:this={appExport} />
-	<!-- Right before Share and Deploy at every fold; only the opted-out docked-chat toggle gives way on a
-	     phone. -->
-	<OpenInSessionButton source={sessionOpen}>
-		{#snippet fallback()}
-			{#if !phoneTopbar}
-				<Button
-					unifiedSize={headerBtnSize}
-					variant="default"
-					onClick={() => aiChatManager.toggleOpen()}
-					startIcon={{ icon: WandSparkles }}
-					iconOnly
-					btnClasses={AIBtnClasses('default')}
-				>
-					AI
-				</Button>
-			{/if}
-		{/snippet}
-	</OpenInSessionButton>
+	<!-- Right before Share and Deploy at every fold. -->
+	<OpenInSessionButton source={sessionOpen} />
 	{#if offersSharing && !phoneTopbar}
 		<ShareButton
 			deployed={!neverDeployed}

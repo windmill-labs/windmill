@@ -26,8 +26,7 @@
 		initialOffset?: number
 		/** Minimum z-index base for this overlay. While any disposable with a
 		 *  minZIndex is open, all disposables use that as their base so that
-		 *  subsequent overlays stack above it (e.g. zIndexes.aiChat + 1 for
-		 *  modals that need to render above the AI chat panel). */
+		 *  subsequent overlays stack above it. */
 		minZIndex?: number
 		children?: import('svelte').Snippet<[any]>
 		onOpen?: () => void

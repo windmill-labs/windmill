@@ -307,7 +307,7 @@ export function validateFlowSchema(rawSchema: unknown): Record<string, any> | nu
 	return rawSchema as Record<string, any>
 }
 
-function validateOptionalFlowModule(rawModule: unknown, fieldName: string): FlowModule | null {
+export function validateOptionalFlowModule(rawModule: unknown, fieldName: string): FlowModule | null {
 	if (rawModule == null) return null
 
 	const result = flowModuleSchema.safeParse(rawModule)

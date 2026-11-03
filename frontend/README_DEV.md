@@ -87,18 +87,12 @@ The default proxy is setup to use the remote backend: <https://app.windmill.dev>
 You can configure another proxy to use like so:
 
 ```bash
-REMOTE=http://127.0.0.1:8000 REMOTE_LSP=http://127.0.0.1:3001 npm run dev
+REMOTE=http://127.0.0.1:8000 npm run dev
 ```
 
-`REMOTE_LSP` needs a language server on port 3001. The `windmill-extra` image serves one:
-
-```bash
-docker run --rm -p 3001:3001 ghcr.io/windmill-labs/windmill-extra:latest
-```
-
-To proxy multiplayer and the debugger as well, publish the image's gateway on port 3000 and use `REMOTE_EXTRA`, which
-covers `/ws/*`, `/ws_mp/*` and `/ws_debug/*`. Those two services verify tokens signed by your backend, so give the
-container its URL (on Linux, add `--add-host=host.docker.internal:host-gateway`):
+The language servers, multiplayer and the debugger are served by the `windmill-extra` image behind its gateway on
+port 3000, proxied with `REMOTE_EXTRA` for `/ws/*`, `/ws_mp/*` and `/ws_debug/*`. All three verify tokens signed by
+your backend, so give the container its URL (on Linux, add `--add-host=host.docker.internal:host-gateway`):
 
 ```bash
 docker run --rm -p 3000:3000 -e WINDMILL_BASE_URL=http://host.docker.internal:8000 ghcr.io/windmill-labs/windmill-extra:latest
@@ -136,7 +130,7 @@ docker compose up db windmill_server windmill_worker
 ```
 
 ```bash
-REMOTE=http://localhost REMOTE_LSP=http://localhost npm run dev
+REMOTE=http://localhost REMOTE_EXTRA=http://localhost npm run dev
 ```
 
 #### 2. Backend is run by docker, but built from the local source code
@@ -190,7 +184,7 @@ DATABASE_URL=postgres://postgres:changeme@127.0.0.1:5433/windmill?sslmode=disabl
 In the frontend folder:
 
 ```bash
-REMOTE=http://127.0.0.1:8000 REMOTE_LSP=http://127.0.0.1:3001 npm run dev
+REMOTE=http://127.0.0.1:8000 REMOTE_EXTRA=http://127.0.0.1:3000 npm run dev
 ```
 
 **Known issue on M1 Mac while running `cargo run`**

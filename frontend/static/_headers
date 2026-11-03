@@ -1,0 +1,5 @@
+# Read by Cloudflare Pages, which hosts the PR previews; the backend sets the same headers
+# itself (static_assets.rs). Without this, Pages serves every chunk with max-age=0 and a reload
+# revalidates all of them over the network.
+/_app/immutable/*
+  Cache-Control: public, max-age=31536000, immutable

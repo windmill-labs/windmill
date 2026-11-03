@@ -14,7 +14,16 @@
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { enterpriseLicense, userStore } from '$lib/stores'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
-	import { ExternalLink, ListFilter, ChevronDown, Share2, Link, Copy } from 'lucide-svelte'
+	import {
+		ExternalLink,
+		ListFilter,
+		ChevronDown,
+		Share2,
+		Link,
+		Copy,
+		CircleCheck,
+		Undo2
+	} from 'lucide-svelte'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import JobStatusIcon from '$lib/components/runs/JobStatusIcon.svelte'
 	import RunBadges from '$lib/components/runs/RunBadges.svelte'
@@ -459,7 +468,9 @@
 		>
 			{#if job}
 				<!-- Header with status icon and two-row title/badges section -->
-				<div class="flex items-center gap-3 min-w-0 grow">
+				<!-- Wraps so the resolve button does not widen the card's min-content basis, which
+				     would push the metadata grid beside it down to one column. -->
+				<div class="flex flex-wrap items-center gap-3 min-w-0 grow">
 					<!-- Status icon -->
 					<div class="flex-shrink-0">
 						<JobStatusIcon {job} roundedFull />
@@ -474,7 +485,8 @@
 								{@const isScript = job.job_kind === 'script'}
 								{@const viewHref = isScript
 									? `/${stem}/get/${job?.script_hash}`
-									: (agentRunHref(job, $operatingWorkspace) ?? flowPathToHref(job?.script_path ?? ''))}
+									: (agentRunHref(job, $operatingWorkspace) ??
+										flowPathToHref(job?.script_path ?? ''))}
 								<a
 									href={viewHref}
 									target="_blank"
@@ -501,67 +513,6 @@
 						<div class="flex items-baseline flex-wrap gap-x-2 gap-y-1">
 							<JobStatus {job} />
 
-							{#if isJobResolvable(job) && $roleCaps.code}
-								<!-- No startIcon on these: the row is baseline-aligned, and a Button is
-								     itself a flex container whose baseline comes from its icon rather
-								     than its label, which sits the text ~3px above the badges. Text
-								     only keeps it on the badges' baseline exactly. -->
-								{#if job.resolved}
-									<Button
-										size="xs2"
-										variant="subtle"
-										disabled={togglingResolution}
-										onClick={() => setResolution(false)}
-										title="Show this run as unhandled again"
-									>
-										Unresolve
-									</Button>
-								{:else}
-									<Popover placement="bottom-start" usePointerDownOutside>
-										{#snippet trigger()}
-											<Button
-												size="xs2"
-												variant="subtle"
-												nonCaptureEvent
-												title="Mark this run as handled"
-											>
-												Mark resolved
-											</Button>
-										{/snippet}
-										{#snippet content({ close })}
-											<div class="p-3 flex flex-col gap-2 w-80">
-												<p class="text-xs text-secondary">
-													Resolving keeps the run's status but marks it as handled in the runs list.
-												</p>
-												<TextInput
-													bind:value={resolutionNote}
-													inputProps={{
-														placeholder: $enterpriseLicense
-															? 'Why is this handled? (optional)'
-															: 'Notes and attribution require ee',
-														disabled: !$enterpriseLicense
-													}}
-													size="sm"
-												/>
-												<div class="flex flex-row justify-end gap-2">
-													<Button size="xs2" variant="subtle" onClick={close}>Cancel</Button>
-													<Button
-														size="xs2"
-														variant="accent"
-														disabled={togglingResolution}
-														onClick={async () => {
-															if (await setResolution(true, resolutionNote)) close()
-														}}
-													>
-														Mark resolved
-													</Button>
-												</div>
-											</div>
-										{/snippet}
-									</Popover>
-								{/if}
-							{/if}
-
 							<RunBadges
 								{job}
 								{displayPersistentScriptDefinition}
@@ -573,6 +524,68 @@
 							/>
 						</div>
 					</div>
+
+					{#if isJobResolvable(job) && $roleCaps.code}
+						<div class="flex-shrink-0">
+							{#if job.resolved}
+								<Button
+									unifiedSize="sm"
+									variant="default"
+									startIcon={{ icon: Undo2 }}
+									disabled={togglingResolution}
+									onClick={() => setResolution(false)}
+									title="Show this run as unhandled again"
+								>
+									Unresolve
+								</Button>
+							{:else}
+								<Popover placement="bottom-start" usePointerDownOutside>
+									{#snippet trigger()}
+										<Button
+											unifiedSize="sm"
+											variant="default"
+											startIcon={{ icon: CircleCheck }}
+											btnClasses="!bg-green-100 !text-green-800 hover:!bg-green-200 !border-green-300 dark:!bg-green-700/40 dark:!text-green-100 dark:hover:!bg-green-700/60 dark:!border-green-700"
+											nonCaptureEvent
+											title="Mark this run as handled"
+										>
+											Mark resolved
+										</Button>
+									{/snippet}
+									{#snippet content({ close })}
+										<div class="p-3 flex flex-col gap-2 w-80">
+											<p class="text-xs text-secondary">
+												Resolving keeps the run's status but marks it as handled in the runs list.
+											</p>
+											<TextInput
+												bind:value={resolutionNote}
+												inputProps={{
+													placeholder: $enterpriseLicense
+														? 'Why is this handled? (optional)'
+														: 'Notes and attribution require ee',
+													disabled: !$enterpriseLicense
+												}}
+												size="sm"
+											/>
+											<div class="flex flex-row justify-end gap-2">
+												<Button unifiedSize="sm" variant="subtle" onClick={close}>Cancel</Button>
+												<Button
+													unifiedSize="sm"
+													variant="accent"
+													disabled={togglingResolution}
+													onClick={async () => {
+														if (await setResolution(true, resolutionNote)) close()
+													}}
+												>
+													Mark resolved
+												</Button>
+											</div>
+										</div>
+									{/snippet}
+								</Popover>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>

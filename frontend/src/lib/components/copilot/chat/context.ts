@@ -9,13 +9,17 @@ import {
 	TextSelect,
 	Table2,
 	LayoutDashboard,
-	MousePointer2
+	MousePointer2,
+	Folder,
+	Play
 } from 'lucide-svelte'
 import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { type DBSchema } from '$lib/stores'
 import { type Change } from 'diff'
 import type { AppDatatableMetadata, BackendRunnable, SelectedContext } from './app/core'
+import type { DrillLeaf, DrillNode } from '$lib/components/drillPicker'
+import { dirKey } from '$lib/components/workspacePicker'
 
 export const ContextIconMap = {
 	code: Code,
@@ -31,6 +35,8 @@ export const ContextIconMap = {
 	workspace_script: Code2,
 	workspace_flow: BarsStaggered,
 	workspace_app: LayoutDashboard,
+	workspace_folder: Folder,
+	workspace_run: Play,
 	// Fallback — the badge renders attached_file with the per-extension file icon.
 	attached_file: FileText
 	// flow_module type is handled with FlowModuleIcon
@@ -286,6 +292,75 @@ export interface WorkspaceAppElement {
 	summary?: string
 }
 
+/** Workspace folder context element — everything under a path prefix: a folder (`f/team`, or a
+ * subfolder of an owner) or a user's own items (`u/alice`). Its items are read by the chat on
+ * demand like any other workspace reference. */
+export interface WorkspaceFolderElement {
+	type: 'workspace_folder'
+	path: string
+	title: string
+}
+
+export function folderContextElement(
+	path: string
+): WorkspaceFolderElement & { deletable: boolean } {
+	return { type: 'workspace_folder', path, title: path, deletable: true }
+}
+
+/** Whether a folder context path is a user's own items (`u/alice`) rather than a folder. */
+export function isUserContextPath(path: string): boolean {
+	return /^u\/[^/]+$/.test(path)
+}
+
+/** One run of a script or flow, by job id: the chat reads it with `get_run`. */
+export interface WorkspaceRunElement {
+	type: 'workspace_run'
+	/** The job id. */
+	id: string
+	/** The script or flow that ran. */
+	path: string
+	title: string
+}
+
+export function runContextElement(
+	id: string,
+	path: string
+): WorkspaceRunElement & { deletable: boolean } {
+	// The title is the element's identity (selection and `@` mentions match on it), so it carries
+	// the whole id: ids minted in the same minute share their first characters.
+	return { type: 'workspace_run', id, path, title: `${path} · run ${id}`, deletable: true }
+}
+
+/** A run element's chip label: the id cut to what tells two chips apart at a glance. */
+export function runContextLabel(el: WorkspaceRunElement): string {
+	return `${el.path} · run ${el.id.slice(-8)}`
+}
+
+const DIR_PREFIX = dirKey('all', '')
+
+/** Opens every `f/` and `u/` directory of a flat workspace tree (any depth) on a leaf that picks
+ * the directory itself, so it is taken as context from inside it, or by searching its path. */
+export function withFolderContextLeaves<L>(
+	nodes: DrillNode<L>[]
+): DrillNode<L | WorkspaceFolderElement>[] {
+	return nodes.map((node) => {
+		if (node.type !== 'branch') return node
+		const children = withFolderContextLeaves(node.children)
+		const path = node.key.startsWith(DIR_PREFIX) ? node.key.slice(DIR_PREFIX.length) : ''
+		if (!/^[fu]\/./.test(path)) return { ...node, children }
+		const leaf: DrillLeaf<WorkspaceFolderElement> = {
+			type: 'leaf',
+			key: `folder:${path}`,
+			label: isUserContextPath(path) ? 'All their items' : 'Whole folder',
+			secondary: path,
+			icon: Folder,
+			data: folderContextElement(path),
+			searchableText: path
+		}
+		return { ...node, children: [leaf, ...children] }
+	})
+}
+
 /** Message-attached text file, rendered with the shared context badge. Never part
  * of `selectedContext` — constructed at render time from the composer's / a sent
  * message's `files` state (see createAttachedFileContextElement). */
@@ -318,6 +393,8 @@ export type ContextElement = (
 	| WorkspaceScriptElement
 	| WorkspaceFlowElement
 	| WorkspaceAppElement
+	| WorkspaceFolderElement
+	| WorkspaceRunElement
 	| AttachedFileElement
 ) & {
 	deletable?: boolean
@@ -334,8 +411,26 @@ export function contextElementKey(c: ContextElement): string {
 /** An `@`-mentioned workspace item, attached to one message the way a DOM pick
  * is. Membership only: this does not gate on mode, so every caller must. Outside
  * GLOBAL these stay selected as chips the user removes by hand. */
-export function isMentionContext(c: ContextElement): boolean {
-	return c.type === 'workspace_script' || c.type === 'workspace_flow' || c.type === 'workspace_app'
+export type MentionContext = Extract<
+	ContextElement,
+	{
+		type:
+			| 'workspace_script'
+			| 'workspace_flow'
+			| 'workspace_app'
+			| 'workspace_folder'
+			| 'workspace_run'
+	}
+>
+
+export function isMentionContext(c: ContextElement): c is MentionContext {
+	return (
+		c.type === 'workspace_script' ||
+		c.type === 'workspace_flow' ||
+		c.type === 'workspace_app' ||
+		c.type === 'workspace_folder' ||
+		c.type === 'workspace_run'
+	)
 }
 
 export function isSameContextElement(a: ContextElement, b: ContextElement): boolean {

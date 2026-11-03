@@ -24,14 +24,12 @@
 	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
 	import { PythonIcon, TypeScriptIcon } from '$lib/components/common/languageIcons'
 	import { HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
-	import { importFlowStore } from '$lib/components/flows/flowStore.svelte'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 	import { importStore } from '$lib/components/apps/store'
 	import { conditionalMelt, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import type { EditKind } from '$lib/editRights'
 	import { createDropdownMenu, melt } from '@melt-ui/svelte'
-	import YAML from 'yaml'
 	import type { Snippet } from 'svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
@@ -499,7 +497,14 @@
 		'app-fullcode': 'Import full-code app'
 	}
 
+	// The parser and the flow store (which reaches the expression parser) are loaded when the
+	// import drawer opens, not with a menu every list page renders.
+	function loadImportDeps() {
+		return Promise.all([import('yaml'), import('$lib/components/flows/flowStore.svelte')])
+	}
+
 	function openImport(kind: ImportKind) {
+		void loadImportDeps()
 		importKind = kind
 		importType = 'yaml'
 		importRaw = ''
@@ -508,6 +513,7 @@
 	}
 
 	async function runImport() {
+		const [{ default: YAML }, { importFlowStore }] = await loadImportDeps()
 		const parsed = importType === 'yaml' ? YAML.parse(importRaw) : JSON.parse(importRaw)
 		if (importKind === 'flow') {
 			importFlowStore.set(parsed)

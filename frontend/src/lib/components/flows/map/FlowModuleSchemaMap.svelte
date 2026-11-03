@@ -64,9 +64,7 @@
 		onEditInput?: (moduleId: string, key: string) => void
 		localModuleStates?: Record<string, GraphModuleState>
 		testModuleStates?: ModulesTestStates
-		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
-		toggleAiChat?: () => void
 		sessionOpen?: OpenInSessionSource
 		isOwner?: boolean
 		onTestFlow?: () => void
@@ -94,9 +92,7 @@
 		onEditInput,
 		localModuleStates = {},
 		testModuleStates = new ModulesTestStates(),
-		aiChatOpen,
 		showFlowAiButton,
-		toggleAiChat,
 		sessionOpen,
 		isOwner,
 		onTestFlow,
@@ -503,8 +499,6 @@
 			{disableStaticInputs}
 			{smallErrorHandler}
 			on:generateStep
-			{aiChatOpen}
-			{toggleAiChat}
 			{sessionOpen}
 			{noteMode}
 			{toggleNoteMode}

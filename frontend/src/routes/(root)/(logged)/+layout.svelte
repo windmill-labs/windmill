@@ -1,3 +1,12 @@
+<script lang="ts" module>
+	import { lazyModule, prefetchLazyModulesWhenIdle } from '$lib/lazyModule.svelte'
+
+	const s3FilePickerModule = lazyModule(() => import('$lib/components/S3FilePicker.svelte'))
+	const createWorkspaceModule = lazyModule(
+		() => import('$lib/components/workspaceSettings/CreateWorkspaceInner.svelte')
+	)
+</script>
+
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 	import { isMac, type Item } from '$lib/utils'
@@ -74,10 +83,16 @@
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { parseSuperadminSettingsHash, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
-	import { PanelLeft, Play, Search, WandSparkles, ArrowLeft } from 'lucide-svelte'
+	import { PanelLeft, Play, Search, ArrowLeft } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { isInstanceRoute } from '$lib/instanceRoutes'
 	import { getUserExt } from '$lib/user'
+	import {
+		forgetLastSession,
+		optimisticUser,
+		readSessionHint,
+		rememberUser
+	} from '$lib/lastSession'
 	import { confirmPendingLoginMethod } from '$lib/lastLoginMethod'
 	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
@@ -99,14 +114,11 @@
 	import AppLinksModal from '$lib/components/itemSettings/AppLinksModal.svelte'
 	import InstanceBanner from '$lib/components/InstanceBanner.svelte'
 	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
-	import { onDestroy, setContext, untrack } from 'svelte'
+	import { onDestroy, onMount, setContext, tick, untrack } from 'svelte'
 	import { cubicOut } from 'svelte/easing'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
-	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
+	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
-	import { isGlobalAiEnabled, sessionsAllowedFor } from '$lib/components/copilot/chat/global/gate'
-	import { copilotInfo } from '$lib/aiStore'
 	import {
 		isPreviewListPath,
 		parsePreviewItemRoute,
@@ -118,12 +130,13 @@
 	import { restoreSessionBackups } from '$lib/components/sessions/sessionMirror.svelte'
 	import { currentWorkspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
-	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
+	import type S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
-	import CreateWorkspaceInner from '$lib/components/workspaceSettings/CreateWorkspaceInner.svelte'
 	import { recordForkParent, rememberForkParent } from '$lib/forkParentMemory'
+	import { homeSnapshotShown } from '$lib/homeSnapshot'
+	import { persistedValue } from '$lib/persistedResource.svelte'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -294,6 +307,7 @@
 	}
 
 	onDestroy(() => stopSidebarResize?.())
+	onMount(prefetchLazyModulesWhenIdle)
 
 	// Let AI chat's 'navigate' link chips route through the app router without the
 	// tool layer importing $app/navigation.
@@ -309,10 +323,7 @@
 	let isDarkMode = useIsDarkMode()
 	let darkMode = $derived(isDarkMode.val)
 
-	// An operator without the opt-in (`gate.ts`) is refused by /sessions, so their sidebar lists
-	// no sessions the page behind it declines, and they keep the docked chat.
-	const sessionsAllowed = $derived(sessionsAllowedFor(!$roleCapabilities.code))
-	let onSessionsPage = $derived(page.url.pathname.startsWith('/sessions') && sessionsAllowed)
+	let onSessionsPage = $derived(page.url.pathname.startsWith('/sessions'))
 	// A session's page points the bottom settings entry at the open session's own
 	// workspace. An unsent session hasn't committed one yet, so it falls back to
 	// the family root.
@@ -324,17 +335,15 @@
 	// Inside a session's preview iframe, whose rail keeps the workspace nav and no switch.
 	const embedded = BROWSER && window.self !== window.top
 
-	// AI sessions (beta) are on unless this browser opted out earlier (see
-	// `global/gate.ts`). The sidebar's session section follows the gate;
-	// opted-out users get the legacy Ask-AI pane instead.
-	// The /sessions page has its own gate for direct navigation.
-	const globalAiEnabled = isGlobalAiEnabled()
-	// A workspace that hid the assistant (`ai_config.copilot_disabled`) loses both entry
-	// points: the session section and the legacy Ask-AI button.
+	// A workspace that hid the assistant (`ai_config.copilot_disabled`) lists no sessions.
 	const sessionsShown = $derived(sidebarSessionsShown())
-	const askAiShown = $derived(
-		(!globalAiEnabled || !sessionsAllowed) && !$copilotInfo.workspaceDisabled
-	)
+
+	// The workspace AI config gates far more than chat (code completion, metadata generation,
+	// the "open in AI session" buttons). On the sessions route SessionWrapper loads the session's
+	// acting workspace instead, and both writing the global store would race.
+	$effect(() => {
+		if ($workspaceStore && !onSessionsPage) loadCopilot($workspaceStore)
+	})
 
 	if (page.status == 404) {
 		goto('/user/login')
@@ -367,6 +376,16 @@
 		menuHidden = isMenuHidden(page.url)
 	}
 
+	// A remembered user is about to be rendered as (updateUserStore): the frames until then show
+	// nothing rather than flash "Loading user...". Known from the first render, which runs before
+	// the effect that sets the user.
+	let optimisticPending = $state(
+		(() => {
+			const ws = page.url.searchParams.get('workspace') ?? $workspaceStore
+			return !$userStore && !!ws && !!optimisticUser(ws)
+		})()
+	)
+
 	async function updateUserStore(workspace: string | undefined) {
 		if (workspace) {
 			// A preview iframe shares BOTH localStorage and sessionStorage with the
@@ -385,7 +404,23 @@
 					console.error('Could not persist workspace to local storage', e)
 				}
 			}
+			// Rendering as the user whoami last confirmed for this session saves its round trip on
+			// a reload; whoami below confirms or replaces them. See lastSession.ts for the binding.
+			// A task later, not now: setting the user here renders the whole page in this effect
+			// flush, ahead of the effects that send whoami and the page's other requests.
+			const last = $userStore ? undefined : optimisticUser(workspace)
+			optimisticPending = !!last
+			let answered = false
+			if (last) {
+				setTimeout(() => {
+					if (!answered && !$userStore && $workspaceStore === workspace) userStore.set(last)
+					optimisticPending = false
+				}, 0)
+			}
+			const sentWith = readSessionHint()
 			const user = await getUserExt(workspace)
+			answered = true
+			optimisticPending = false
 			// getUserExt resolves to undefined on failure, so a user is the only proof of a
 			// session: without it a cancelled SSO round trip would claim the "Last used" badge.
 			if (user) confirmPendingLoginMethod()
@@ -396,6 +431,10 @@
 			if ($workspaceStore !== workspace) {
 				return
 			}
+			// Before the user is set: the cache reads the session confirmation from its user-change
+			// hook, which runs as the user is set.
+			if (user) rememberUser(user, sentWith)
+			else forgetLastSession()
 			if (!deepEqual(user, $userStore)) {
 				userStore.set(user)
 			}
@@ -611,8 +650,9 @@
 	}
 
 	// Set once the user docks or detaches, so the rail that mounts from then on skips its
-	// app-entry animation (`wm-sidebar-in`) and only plays `railMorph`.
-	let dockToggled = $state(false)
+	// app-entry animation (`wm-sidebar-in`) and only plays `railMorph`. Also set when the rail
+	// replaces the one in Home's snapshot (homeSnapshot.ts), which is already on screen.
+	let dockToggled = $state(homeSnapshotShown())
 	function setDetached(detached: boolean) {
 		dockToggled = true
 		menuOpen = false
@@ -731,6 +771,22 @@
 			((await SettingService.getGlobal({ key: 'disable_hub' })) as boolean) ?? false
 	}
 
+	// Home holds its Favorites and Recent shortcuts back until the favorites are in, so they are
+	// painted from the last answer as soon as the user is known: Home's first frame then has them,
+	// as the snapshot of it painted before boot (homeSnapshot.ts) does. Paths and summaries only.
+	const favoritesCache = persistedValue<typeof favoriteManager.current>('favorites', 1)
+	$effect(() => {
+		const workspace = $workspaceStore
+		if (!$userStore || !workspace) return
+		untrack(() => {
+			if (favoriteManager.loadedFor === workspace) return
+			const cached = favoritesCache.peek({ workspace })
+			if (!cached) return
+			favoriteManager.current = cached
+			favoriteManager.loadedFor = workspace
+		})
+	})
+
 	async function loadFavorites() {
 		const workspace = $workspaceStore ?? ''
 		try {
@@ -750,6 +806,7 @@
 	}
 
 	async function loadFavoritesFor(workspace: string) {
+		const sentWith = readSessionHint()
 		const [scripts, flows, apps, agents, assets] = await Promise.all([
 			ScriptService.listScripts({
 				workspace,
@@ -795,6 +852,7 @@
 				kind: 'asset' as const
 			}))
 		]
+		favoritesCache.save({ workspace }, favoriteManager.current, sentWith)
 	}
 
 	async function loadUsedTriggerKinds() {
@@ -1036,7 +1094,7 @@
 	$effect(() => {
 		const ws = $workspaceStore
 		const ready = sessionState.hydrated && $usersWorkspaceStore !== undefined
-		if (globalAiEnabled && sessionsAllowed && ready && ws) {
+		if (ready && ws) {
 			untrack(() => restoreSessionBackups(ws))
 		}
 	})
@@ -1177,10 +1235,17 @@
 	globalDbManagerDrawer.val = useDbManagerUriState()
 
 	let globalS3FilePicker: S3FilePicker | undefined = $state()
+	const globalS3FilePickerOpener = {
+		open: async (...args: Parameters<S3FilePicker['open']>) => {
+			await s3FilePickerModule.load()
+			await tick()
+			await globalS3FilePicker?.open(...args)
+		}
+	}
 	$effect(() => {
 		// `as any`: the component instance type is opaque in svelte2tsx context
 		// and does not match the store's structural type.
-		globalS3FilePickerExplorer.val = globalS3FilePicker as any
+		globalS3FilePickerExplorer.val = $workspaceStore ? (globalS3FilePickerOpener as any) : undefined
 	})
 
 	// Whether the account still has to set a password or connect a sign-in decides the
@@ -1349,21 +1414,6 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 				<div class="flex flex-col gap-0.5">
 					<div class="px-2 flex flex-col gap-0.5">
 						{@render quickLinks(collapsed)}
-						{#if askAiShown}
-							<!-- Legacy Ask-AI pane, shown only when the user opted out of the
-						     AI Sessions beta (otherwise the AI sessions section replaces it). -->
-							<MenuButton
-								stopPropagationOnClick={true}
-								on:click={() => aiChatManager.toggleOpen()}
-								isCollapsed={collapsed}
-								icon={WandSparkles}
-								iconProps={{ forceDarkMode: true }}
-								label="Ask AI"
-								class="!text-xs"
-								iconClasses="!text-ai"
-								shortcut={`${getModifierKey()}L`}
-							/>
-						{/if}
 					</div>
 					<SidebarContent
 						isCollapsed={collapsed}
@@ -1616,16 +1666,18 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 					</button>
 				</div>
 			{/if}
-			<AiChatLayout
-				{children}
-				noPadding={devOnly || menuHidden}
-				disableAi={globalAiEnabled && sessionsAllowed ? true : onSessionsPage}
-				loadAiConfig={!onSessionsPage}
-				showSessionsBetaBanner={sessionsAllowed}
-				sidebarWidth={railWidth}
-				transitionClass={sidebarTransitionClass}
-				isMobile={useDrawer}
-			/>
+			<!-- The scroll lives here, below the page header: a page taller than the window scrolls
+			     inside this box, so the band stays on screen instead of leaving with the content. The
+			     desktop rail is fixed-positioned, so the content is offset by its width (in rem). -->
+			<div
+				id="content"
+				class={classNames('flex-1 min-h-0 flex flex-col overflow-y-auto', sidebarTransitionClass)}
+				style:padding-left="{devOnly || menuHidden || useDrawer ? 0 : railWidth}rem"
+			>
+				<div class="flex-1 min-h-0 flex flex-col">
+					{@render children?.()}
+				</div>
+			</div>
 		</div>
 	</div>
 {:else if instanceOnlyView}
@@ -1649,7 +1701,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			{@render children?.()}
 		</div>
 	</div>
-{:else}
+{:else if !optimisticPending}
 	<CenteredModal title="Loading user..." loading={true}></CenteredModal>
 {/if}
 
@@ -1659,8 +1711,9 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 	{/await}
 {/if}
 
-{#if $workspaceStore}
-	<S3FilePicker bind:this={globalS3FilePicker} readOnlyMode allowDelete />
+{#if $workspaceStore && s3FilePickerModule.current}
+	{@const LoadedS3FilePicker = s3FilePickerModule.current.default}
+	<LoadedS3FilePicker bind:this={globalS3FilePicker} readOnlyMode allowDelete />
 {/if}
 
 <ForkConflictModal />
@@ -1676,7 +1729,9 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 	bind:isOpen={() => !!globalForkModal.val?.opened, (v) => !v && (globalForkModal.val = undefined)}
 >
 	{#if globalForkModal.val}
-		<CreateWorkspaceInner isFork inModal onFinish={() => (globalForkModal.val = undefined)} />
+		{#await createWorkspaceModule.load() then { default: CreateWorkspaceInner }}
+			<CreateWorkspaceInner isFork inModal onFinish={() => (globalForkModal.val = undefined)} />
+		{/await}
 	{/if}
 </Modal2>
 
