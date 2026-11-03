@@ -242,6 +242,7 @@ import SalesflareIcon from './SalesflareIcon.svelte'
 import PaylocityIcon from './PaylocityIcon.svelte'
 import KustomerIcon from './KustomerIcon.svelte'
 import NetBoxIcon from './NetBoxIcon.svelte'
+import AristaIcon from './AristaIcon.svelte'
 import VmwareIcon from './VmwareIcon.svelte'
 import AbstractApiIcon from './AbstractApiIcon.svelte'
 import AcumbamailIcon from './AcumbamailIcon.svelte'
@@ -621,6 +622,7 @@ export const APP_TO_ICON_COMPONENT = {
 	paylocity: PaylocityIcon,
 	kustomer: KustomerIcon,
 	netbox: NetBoxIcon,
+	arista_eos: AristaIcon,
 	vmware_vsphere: VmwareIcon,
 	abstractapi: AbstractApiIcon,
 	acumbamail: AcumbamailIcon,
@@ -958,6 +960,7 @@ export {
 	PaylocityIcon,
 	KustomerIcon,
 	NetBoxIcon,
+	AristaIcon,
 	VmwareIcon,
 	AbstractApiIcon,
 	AcumbamailIcon,
