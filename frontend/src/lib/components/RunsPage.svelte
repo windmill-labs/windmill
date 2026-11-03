@@ -70,6 +70,15 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonMore from './common/toggleButton-v2/ToggleButtonMore.svelte'
+	import ChartResizeHandle from './runs/ChartResizeHandle.svelte'
+	import {
+		DURATION_SCALES,
+		DURATION_UNITS,
+		type DurationScale,
+		type DurationUnit
+	} from './runs/durationAxis'
+	import { logChartResize, logDurationScale, logDurationUnit } from './runs/runsChartTelemetry'
+	import { useResizeObserver } from 'runed'
 
 	interface Props {
 		/** Initial path from route params (e.g., /runs/u/user/script) */
@@ -101,6 +110,65 @@
 	let perPage = useLocalStorageValue('runs_per_page', 1000, 'number')
 	let showSchedulesStorage = useLocalStorageValue('runs_show_schedules', true, 'boolean')
 	let showFutureJobsStorage = useLocalStorageValue('runs_show_future_jobs', true, 'boolean')
+
+	const CHART_DEFAULT_HEIGHT = 176
+	const CHART_MIN_HEIGHT = 120
+	// The chart grows into the runs list, which keeps at least this much height.
+	const RUNS_LIST_MIN_HEIGHT = 200
+	const DURATION_UNIT_ITEMS: { label: string; value: DurationUnit }[] = [
+		{ label: 'Auto units', value: 'auto' },
+		{ label: 'Milliseconds', value: 'ms' },
+		{ label: 'Seconds', value: 's' },
+		{ label: 'Minutes', value: 'min' },
+		{ label: 'Hours', value: 'h' }
+	]
+	let durationUnitStorage = useLocalStorageValue<DurationUnit>(
+		'runs_chart_duration_unit',
+		'auto',
+		'string'
+	)
+	let durationScaleStorage = useLocalStorageValue<DurationScale>(
+		'runs_chart_duration_scale',
+		'log',
+		'string'
+	)
+	let chartHeightStorage = useLocalStorageValue(
+		'runs_chart_height',
+		CHART_DEFAULT_HEIGHT,
+		'number',
+		{ debounce: 300 }
+	)
+	const durationUnit = $derived(
+		DURATION_UNITS.includes(durationUnitStorage.val) ? durationUnitStorage.val : 'auto'
+	)
+	const durationScale = $derived(
+		DURATION_SCALES.includes(durationScaleStorage.val) ? durationScaleStorage.val : 'log'
+	)
+	let chartBoxEl: HTMLDivElement | undefined = $state(undefined)
+	let runsListEl: HTMLDivElement | undefined = $state(undefined)
+	// Both heights are read in the same callback. With a `bind:clientHeight` on each, the list's
+	// height lands a frame after the chart's, and the clamp below oscillates instead of settling.
+	let chartAndListHeight: number | undefined = $state(undefined)
+	useResizeObserver(
+		() => [chartBoxEl, runsListEl].filter((el): el is HTMLDivElement => el !== undefined),
+		() => {
+			if (chartBoxEl && runsListEl) {
+				chartAndListHeight = chartBoxEl.clientHeight + runsListEl.clientHeight
+			}
+		}
+	)
+	// Unbounded until the first layout is measured.
+	const chartMaxHeight = $derived(
+		chartAndListHeight === undefined
+			? Infinity
+			: Math.max(CHART_MIN_HEIGHT, chartAndListHeight - RUNS_LIST_MIN_HEIGHT)
+	)
+	const chartHeight = $derived(
+		Math.min(
+			Math.max(chartHeightStorage.val || CHART_DEFAULT_HEIGHT, CHART_MIN_HEIGHT),
+			chartMaxHeight
+		)
+	)
 	function filterSeeds() {
 		return {
 			path: initialPath || undefined,
@@ -982,7 +1050,7 @@
 
 		<!-- Graph -->
 		<div id="runs-chart" class="p-2 px-4 bg-surface-tertiary mx-4 border rounded-md">
-			<div class="relative z-10 mb-2 flex gap-2">
+			<div class="relative z-10 mb-2 flex flex-wrap gap-2">
 				<Tabs bind:selected={graph}>
 					<Tab value="RunChart" label="Duration" id="runs-chart-duration-tab" />
 					<Tab value="ConcurrencyChart" label="Concurrency" id="runs-chart-concurrency-tab">
@@ -1018,38 +1086,86 @@
 						<Tooltip>There are more jobs to load</Tooltip>
 					</Button>
 				{/if}
+				{#if graph === 'RunChart'}
+					<div class="ml-auto flex items-center gap-2">
+						<Select
+							id="runs-chart-duration-unit"
+							class="w-36"
+							items={DURATION_UNIT_ITEMS}
+							bind:value={
+								() => durationUnit,
+								(v) => {
+									if (v && v !== durationUnit) {
+										durationUnitStorage.val = v
+										logDurationUnit(v)
+									}
+								}
+							}
+						/>
+						<ToggleButtonGroup
+							id="runs-chart-duration-scale"
+							noWFull
+							bind:selected={
+								() => durationScale,
+								(v) => {
+									if ((v === 'log' || v === 'linear') && v !== durationScale) {
+										durationScaleStorage.val = v
+										logDurationScale(v)
+									}
+								}
+							}
+						>
+							{#snippet children({ item })}
+								<ToggleButton value="log" label="Log" {item} />
+								<ToggleButton value="linear" label="Linear" {item} />
+							{/snippet}
+						</ToggleButtonGroup>
+					</div>
+				{/if}
 			</div>
-			{#if graph === 'RunChart'}
-				{@const manualTimeframe = timeframe.type === 'manual' ? timeframe : undefined}
-				<RunChart
-					bind:selectedIds
-					canSelect
-					minTimeSet={manualTimeframe?.minTs}
-					maxTimeSet={manualTimeframe?.maxTs}
-					maxIsNow={manualTimeframe?.maxTs == undefined}
-					jobs={completedJobs}
-					onZoom={(zoom) => {
-						_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
-					}}
-					onPointClicked={(ids) => {
-						openedRunId = ids.length === 1 ? ids[0] : undefined
-						runsTable?.scrollToRun(ids)
-					}}
-				/>
-			{:else if graph === 'ConcurrencyChart'}
-				<ConcurrentJobsChart
-					minTimeSet={manualTimeframe?.minTs}
-					maxTimeSet={manualTimeframe?.maxTs}
-					maxIsNow={manualTimeframe?.maxTs == undefined}
-					{extendedJobs}
-					onZoom={(zoom) => {
-						_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
-					}}
-				/>
-			{/if}
+			<div style:height="{chartHeight}px" bind:this={chartBoxEl}>
+				{#if graph === 'RunChart'}
+					{@const manualTimeframe = timeframe.type === 'manual' ? timeframe : undefined}
+					<RunChart
+						bind:selectedIds
+						canSelect
+						minTimeSet={manualTimeframe?.minTs}
+						maxTimeSet={manualTimeframe?.maxTs}
+						maxIsNow={manualTimeframe?.maxTs == undefined}
+						jobs={completedJobs}
+						unit={durationUnit}
+						scale={durationScale}
+						onZoom={(zoom) => {
+							_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
+						}}
+						onPointClicked={(ids) => {
+							openedRunId = ids.length === 1 ? ids[0] : undefined
+							runsTable?.scrollToRun(ids)
+						}}
+					/>
+				{:else if graph === 'ConcurrencyChart'}
+					<ConcurrentJobsChart
+						minTimeSet={manualTimeframe?.minTs}
+						maxTimeSet={manualTimeframe?.maxTs}
+						maxIsNow={manualTimeframe?.maxTs == undefined}
+						{extendedJobs}
+						onZoom={(zoom) => {
+							_timeframe.val = buildManualTimeframe(zoom.min.toISOString(), zoom.max.toISOString())
+						}}
+					/>
+				{/if}
+			</div>
+			<ChartResizeHandle
+				class="-mb-2"
+				bind:height={() => chartHeight, (v) => (chartHeightStorage.val = v)}
+				min={CHART_MIN_HEIGHT}
+				max={chartMaxHeight}
+				defaultHeight={CHART_DEFAULT_HEIGHT}
+				onResized={logChartResize}
+			/>
 		</div>
 
-		<div class="grow min-h-0 bottom-splitpane-wrapper">
+		<div class="grow min-h-0 bottom-splitpane-wrapper" bind:this={runsListEl}>
 			{#if pagedLayout}
 				<!-- No `onNavigate`: its arrow keys are read at `window`, where they would take
 				     ArrowRight from the table's horizontal scroll and ArrowLeft from a modal or drawer
