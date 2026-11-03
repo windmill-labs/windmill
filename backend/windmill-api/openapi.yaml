@@ -18085,8 +18085,14 @@ paths:
                         status:
                           $ref: "#/components/schemas/RecentRunStatus"
                         failed_runs:
-                          description: failed runs of the item over the whole window, not only those in runs
+                          description: unresolved failed runs of the item over the whole window, not only those in runs
                           type: integer
+                        failed_run_ids:
+                          description: the ids of those failed runs
+                          type: array
+                          items:
+                            type: string
+                            format: uuid
                         runs:
                           type: array
                           items:
@@ -18104,7 +18110,7 @@ paths:
                               duration_ms:
                                 type: integer
                             required: [id, status, ran_at]
-                      required: [path, kind, status, failed_runs, runs]
+                      required: [path, kind, status, failed_runs, failed_run_ids, runs]
                 required:
                   - window_hours
                   - capped
@@ -33456,8 +33462,9 @@ components:
         - has_preprocessor
 
     RecentRunStatus:
+      description: a failure someone or something marked as handled is `resolved`, not `failure`
       type: string
-      enum: [success, failure, canceled, running]
+      enum: [success, failure, resolved, canceled, running]
 
     ScriptLang:
       type: string

@@ -96,6 +96,7 @@
 					{item}
 					now={runs.now}
 					prefix={prefixes.get(itemKey(item))}
+					onResolve={runs.resolveFailures}
 					onSelect={onFocusItem}
 				/>
 			{/each}

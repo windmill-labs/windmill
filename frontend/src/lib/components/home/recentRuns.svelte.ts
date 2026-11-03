@@ -1,5 +1,6 @@
 import { JobService, type ListRecentRunsResponse } from '$lib/gen'
-import { getLocalSetting, storeLocalSetting } from '$lib/utils'
+import { getLocalSetting, MAX_RESOLUTION_BATCH, storeLocalSetting } from '$lib/utils'
+import { sendUserToast } from '$lib/toast'
 import { IsDocumentVisible, useInterval } from 'runed'
 import { persistedResource } from '$lib/persistedResource.svelte'
 import { homeComposerContext } from '$lib/components/sessions/homeComposerContext.svelte'
@@ -51,6 +52,28 @@ export function useRecentRuns(
 		},
 		get now() {
 			return now
+		},
+		/** Marks every unresolved failure of `item` in the window as resolved. */
+		async resolveFailures(item: RecentRunItem) {
+			const workspace = args().workspace
+			if (!workspace || item.failed_run_ids.length === 0) return
+			const ids = item.failed_run_ids
+			const chunks: string[][] = []
+			for (let i = 0; i < ids.length; i += MAX_RESOLUTION_BATCH)
+				chunks.push(ids.slice(i, i + MAX_RESOLUTION_BATCH))
+			try {
+				const affected = (
+					await Promise.all(
+						chunks.map((job_ids) =>
+							JobService.resolveCompletedJobs({ workspace, requestBody: { job_ids } })
+						)
+					)
+				).flat().length
+				sendUserToast(`Resolved ${affected} failed run${affected === 1 ? '' : 's'}`)
+			} catch (e) {
+				sendUserToast(`Could not resolve the failed runs: ${e}`, true)
+			}
+			runs.refetch()
 		}
 	}
 }
