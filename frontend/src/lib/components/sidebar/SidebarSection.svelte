@@ -76,23 +76,24 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 	}
 </script>
 
-<!-- An unfolded section in the open sidebar is its title at the row's start and a down chevron at
-     its end: its items, right under it, name it. In the rail, which has no title, the chevron takes
-     an item icon's place. A folded section shows its icon in that place, with a right chevron at
-     the end of the row, or in the strip right of the icon in the rail. The icon keeps the item
-     icons' column in every mode, so collapsing the sidebar does not move it. -->
+<!-- In the open sidebar a section row is its title at the start and a chevron at the end, down
+     when unfolded, right when folded. The rail has no title, so the row takes an item icon's place:
+     the down chevron when unfolded (its items, right under it, name it), the section's icon when
+     folded, with a right chevron in the strip beside it. -->
 {#snippet foldChevron(size: number, extraClass: string)}
 	<ChevronRight {size} class={twMerge('flex-shrink-0 text-hint', extraClass)} aria-hidden="true" />
 {/snippet}
 
+{#snippet notifyDot(extraClass: string)}
+	<span class={twMerge('w-1.5 h-1.5 rounded-full bg-surface-accent-primary', extraClass)}></span>
+{/snippet}
+
 {#snippet sectionIcon()}
-	<!-- Under an item icon's 16px, to leave the rail's chevron room beside it; the same size in
-	     every mode, so expanding or collapsing the sidebar does not resize it. -->
+	<!-- Under an item icon's 16px, to leave the rail's chevron room beside it. -->
 	<span class="relative flex-shrink-0 flex">
 		<Icon size={12} class="text-hint" />
 		{#if notify}
-			<span class="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-surface-accent-primary"
-			></span>
+			{@render notifyDot('absolute -top-1 -right-1')}
 		{/if}
 	</span>
 {/snippet}
@@ -108,7 +109,7 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 {/snippet}
 
 {#snippet rowContent()}
-	{#if isFolded || disabled || isCollapsed}
+	{#if isCollapsed}
 		<span class="flex-shrink-0 flex items-center justify-center w-4 h-4">
 			{#if isFolded || disabled}
 				{@render sectionIcon()}
@@ -116,16 +117,19 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 				{@render unfoldedChevron('')}
 			{/if}
 		</span>
-	{/if}
-	{#if !isCollapsed}
+		{#if isFolded}
+			{@render foldChevron(10, 'absolute right-0.5 top-[10px]')}
+		{/if}
+	{:else}
 		<span class="truncate uppercase text-[0.5rem] font-normal text-secondary">{title}</span>
+		{#if notify && (isFolded || disabled)}
+			{@render notifyDot('flex-shrink-0')}
+		{/if}
 		{#if isFolded}
 			{@render foldChevron(12, 'ml-auto')}
 		{:else if !disabled}
 			{@render unfoldedChevron('ml-auto')}
 		{/if}
-	{:else if isFolded}
-		{@render foldChevron(10, 'absolute right-0.5 top-[10px]')}
 	{/if}
 {/snippet}
 
