@@ -595,14 +595,15 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 
 /**
  * Pipeline-specific guidance appended to the global system prompt when a
- * /pipeline editor is open. Describes the annotation model and the direct-draft
- * workflow so the model uses the pipeline tools rather than the generic
- * write_script draft tools.
+ * /pipeline editor is open: the editor's tools and the direct-draft workflow, so the
+ * model uses the pipeline tools rather than the generic write_script draft tools. How
+ * to write a node is the shared pipeline guidance, which get_instructions serves.
  *
  * `access` is the session's resolved capabilities (undefined outside a session, or
- * before they resolve). The node-authoring guidance is dropped without `write_draft`,
- * since the tools it names are withheld from that session; the annotation model stays,
- * as it is what lets the model read and explain an existing pipeline.
+ * before they resolve). Without `write_draft` the authoring part is dropped, since
+ * get_instructions refuses authoring guidance there and the tools it names are
+ * withheld; a one-line summary of the annotations stays, so the model can still read
+ * and explain an existing pipeline.
  */
 export function getPipelinePromptSection(
 	folders: readonly string[],
@@ -622,13 +623,13 @@ export function getPipelinePromptSection(
 
 Data Pipeline editor (ACTIVE):
 - ${openLine} A pipeline is a DAG of scripts (nodes) connected by storage assets (DuckLake tables, data tables, S3 objects, volumes, resources) and execution triggers.
-- Annotations are top-of-file comments in the NODE'S OWN comment syntax: \`--\` for SQL (duckdb/postgresql), \`#\` for python3/bash, \`//\` for bun/TS. The \`//\` shown below is the TS form — translate it (a \`// pipeline\` line in a SQL node is a syntax error that won't deploy).
-- How to write a node (the \`pipeline\` / \`on\` / \`materialize\` annotations, write strategies, partitioning, declared metrics, reading a DuckLake table) is in get_instructions with subject "pipeline": read it before building the first node, unless this conversation already did.
-- To reuse a metric another node declares, read that node with read_pipeline_node and reuse its exact expression rather than guessing it.
+- Each node declares itself in top-of-file annotation comments, written in its own comment syntax (\`--\` for SQL, \`#\` for python3/bash, \`//\` for bun/TS): \`pipeline\` makes it a node, \`on <asset-uri | trigger kind>\` says what starts it, and \`materialize <target>\` names the DuckLake table the runtime writes from its SELECT (a target naming no table writes the one named after the script).
 - Use get_pipeline_graph to see the current nodes/assets/triggers, and read_pipeline_node before editing one.
 - ${pathLine}${
 		canWriteDraft
 			? `
+- How to write a node (the \`pipeline\` / \`on\` / \`materialize\` annotations, write strategies, partitioning, declared metrics, reading a DuckLake table) is in get_instructions with subject "pipeline": read it before building the first node, unless this conversation already did.
+- To reuse a metric another node declares, read that node with read_pipeline_node and reuse its exact expression rather than guessing it.
 - Build new nodes with build_pipeline_node and edit existing ones with edit_pipeline_node. Give every node a succinct \`summary\` (a few words saying what it does, e.g. "Ingest Stripe charges"), and update it when an edit changes what the node does. These apply directly as unsaved drafts on the canvas (like the flow/script editor applies AI edits) — they DO NOT deploy. There is no separate Accept/Reject step. Prefer these over the generic write_script/edit_script draft tools while a pipeline is open.
 - Reuse existing asset paths from the graph when wiring a downstream node to an upstream one (read the upstream's write asset, then \`// on\` that same URI).
 - TRIGGERS: an ingestion node (one with no upstream asset to react to) must declare how it starts, e.g. \`// on schedule\`, and every \`on <schedule|email|kafka|mqtt|amqp|nats|postgres|sqs|gcp>\` line needs its trigger: pass it in build_pipeline_node's \`triggers\` (or call set_pipeline_trigger) in the same step you build the node. A schedule needs a 6-field cron and an IANA timezone — pick a sensible cadence from the request (e.g. daily at 06:00 UTC for a daily sync) rather than leaving it empty; for the other kinds call get_trigger_schema(kind) for the config fields and ask the user for any connection/resource you cannot find. Never leave a declared trigger without one: the node would deploy with nothing to start it. \`webhook\` and \`data_upload\` need no trigger.
