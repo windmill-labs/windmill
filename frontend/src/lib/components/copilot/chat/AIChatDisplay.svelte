@@ -649,6 +649,8 @@
 		return true
 	}
 	$effect(() => () => clearTimeout(clearArmTimer))
+	// Off once the draft is gone some other way, such as a send.
+	const clearHintShown = $derived(clearArmed && !!aiChatInput?.hasClearableContent())
 
 	// While the box plays its accent outline (app.css, `data-composer-flash`).
 	let flashing = $state(false)
@@ -1078,7 +1080,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			if (e.defaultPrevented || e.isComposing) return
 			// The `@` and `/` pickers close on this press reaching `document` unprevented.
 			if (aiChatInput?.hasOpenPicker()) return
-			if (onComposerEscape(e.repeat)) {
+			// The field's own presses only: a toolbar button keeps focus while the dialog it
+			// opened (assistant settings) closes on the same Escape.
+			if (e.target instanceof HTMLTextAreaElement && onComposerEscape(e.repeat)) {
 				// Kept from the panel or drawer around the chat, which would close on it.
 				e.preventDefault()
 				e.stopPropagation()
@@ -1158,6 +1162,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				collapsed={composerCollapsed}
 				chatIcon={starterLayout}
 				{onSent}
+				clearHint={!starterLayout && clearHintShown}
 			>
 				{#snippet collapsedControls()}
 					{#if chatHost.mode === AIMode.GLOBAL}
@@ -1492,8 +1497,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		<!-- Opens and closes with the box, so the page under it slides rather than jumps. -->
 		<div use:smoothHeight={{ enabled: starterLayout, key: composerCollapsed }}>
 			<div>
-				<!-- Right under the box; on Home it stands in for the suggestions, at their height. -->
-				{#if clearArmed && aiChatInput?.hasClearableContent()}
+				<!-- On Home the hint stands in for the suggestions, at their height. -->
+				{#if starterLayout && clearHintShown}
 					<div class="pt-2 h-9 flex items-center gap-1 text-xs text-hint" role="status">
 						Press <Kbd small>Esc</Kbd> again to clear
 					</div>
