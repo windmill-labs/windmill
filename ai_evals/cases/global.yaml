@@ -2063,6 +2063,7 @@
     # `f/shop/orders` writes `ducklake://main/orders` whichever form the node uses.
     pipelineRun:
       folder: shop
+      maxRoots: 1
       queries:
         - name: orders holds every exported order
           sql: SELECT count(*) AS n, sum(amount) AS revenue FROM dl.orders
