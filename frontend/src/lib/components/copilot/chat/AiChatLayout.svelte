@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { classNames } from '$lib/utils'
+	// The docked chat beside the embedded script and flow editors (ScriptWrapper, FlowWrapper,
+	// exported by the components package). The app itself has no docked chat: AI work there
+	// happens in sessions.
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import SessionsBetaBanner from '$lib/components/sessions/SessionsBetaBanner.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { workspaceStore } from '$lib/stores'
 	import { chatState } from './sharedChatState.svelte'
@@ -12,39 +13,10 @@
 	import CreatedResourceActionDrawers from './CreatedResourceActionDrawers.svelte'
 
 	interface Props {
-		noPadding?: boolean
-		// Rail width in rem (scales with the root font-size, like the rail itself).
-		sidebarWidth?: number
-		transitionClass?: string
-		isMobile?: boolean
 		children: any
 		disableAi?: boolean
-		// Whether this layout loads the workspace AI config. It gates far more than
-		// the docked pane (code completion, metadata generation, the "open in AI
-		// session" buttons), so it must not be tied to `disableAi`. Pass false where
-		// another component owns the load for a different workspace — on the sessions
-		// route SessionWrapper loads the session's acting workspace, and both writing
-		// the global store would race.
-		loadAiConfig?: boolean
-		// Only the root layout's docked chat is the "legacy" counterpart of AI
-		// Sessions — SDK wrappers reuse this layout for script/flow chats where
-		// the sessions beta banner would make no sense.
-		showSessionsBetaBanner?: boolean
 	}
-	let {
-		noPadding: noBorder = false,
-		sidebarWidth = 13,
-		transitionClass = 'transition-all ease-in-out duration-200',
-		isMobile = false,
-		children,
-		disableAi,
-		loadAiConfig = true,
-		showSessionsBetaBanner = false
-	}: Props = $props()
-
-	// The desktop rail is fixed-positioned, so the content is offset by a matching
-	// left padding (in rem, matching the rail). Drawer (mobile or detached)/borderless: no rail.
-	let contentPadLeft = $derived(noBorder || isMobile ? 0 : sidebarWidth)
+	let { children, disableAi }: Props = $props()
 
 	$effect(() => {
 		chatState.dockedChatAvailable = !disableAi
@@ -56,8 +28,9 @@
 		}
 	})
 
+	// The workspace AI config gates far more than the pane (code completion, metadata generation).
 	$effect(() => {
-		if ($workspaceStore && loadAiConfig) {
+		if ($workspaceStore && !disableAi) {
 			loadCopilot($workspaceStore)
 		}
 	})
@@ -83,11 +56,7 @@
 	<CreatedResourceActionDrawers />
 	<Splitpanes horizontal={false} class="flex-1 min-h-0">
 		<Pane size={100 - chatState.size} minSize={50} class="flex flex-col grow min-h-0 ">
-			<div
-				id="content"
-				class={classNames('w-full flex-1 flex flex-col overflow-y-auto min-h-0', transitionClass)}
-				style:padding-left="{contentPadLeft}rem"
-			>
+			<div id="content" class="w-full flex-1 flex flex-col overflow-y-auto min-h-0">
 				<main class="flex-1 flex flex-col min-h-0">
 					<div class="relative w-full flex-1 flex flex-col min-h-0">
 						<div class="flex-1 min-h-0">
@@ -104,26 +73,16 @@
 				class={`flex flex-col min-h-0 z-[${zIndexes.aiChat}]`}
 			>
 				<div class="flex-1 min-h-0">
-					<!-- Dynamic: this layout wraps every workspace page, and the chat reaches ~100 modules. -->
+					<!-- Dynamic: the chat reaches ~100 modules, loaded only once the pane opens. -->
 					{#await import('./AIChat.svelte') then AiChat}
 						<AiChat.default />
 					{/await}
 				</div>
-				{#if showSessionsBetaBanner}
-					<SessionsBetaBanner />
-				{/if}
 			</Pane>
 		{/if}
 	</Splitpanes>
 {:else}
-	<!-- The scroll lives here, below the page header, exactly as it does in the docked-chat layout
-	     above: a page taller than the window scrolls inside this box, so the band stays on screen
-	     instead of leaving with the content. -->
-	<div
-		id="content"
-		class={classNames('flex-1 min-h-0 flex flex-col overflow-y-auto', transitionClass)}
-		style:padding-left="{contentPadLeft}rem"
-	>
+	<div id="content" class="flex-1 min-h-0 flex flex-col overflow-y-auto">
 		<div class="flex-1 min-h-0 flex flex-col">
 			{@render children?.()}
 		</div>

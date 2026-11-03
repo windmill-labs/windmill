@@ -1329,8 +1329,7 @@
 	<!-- Draws nothing in the bar: it is the export drawer, opened from the menu's Export entry
 	     through this instance. -->
 	<AppExportButton bind:this={appExport} />
-	<!-- Right before Share and Deploy at every fold; only the opted-out docked-chat toggle gives way on a
-	     phone. -->
+	<!-- Right before Share and Deploy at every fold; only the docked-chat toggle gives way on a phone. -->
 	<OpenInSessionButton source={sessionOpen}>
 		{#snippet fallback()}
 			{#if !phoneTopbar}

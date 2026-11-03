@@ -170,10 +170,6 @@ vi.mock('./chatLoop', async (importOriginal) => ({
 	runChatLoop: mocks.runChatLoop
 }))
 
-vi.mock('./global/gate', () => ({
-	isGlobalAiEnabled: () => true
-}))
-
 // Force BROWSER=true so localStorage-backed autonomy persistence is exercised
 // (the vitest "server" env reports BROWSER=false, which would short-circuit it).
 vi.mock('esm-env', async (importOriginal) => ({

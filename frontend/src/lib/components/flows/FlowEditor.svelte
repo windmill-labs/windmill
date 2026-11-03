@@ -38,13 +38,10 @@
 	import { Button } from '../common'
 	import { MousePointerClick, X } from 'lucide-svelte'
 	import FlowPanelPlacementPicker from './common/FlowPanelPlacementPicker.svelte'
-	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
 	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const roleCaps = useRoleCapabilities()
 	const { flowStore, selectionManager, pathStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	// Flow paths repeat across workspaces, and a session keeps every tab it has visited alive, so two
@@ -405,7 +402,7 @@
 							// contain. Hand it to a session opened on that step rather than the
 							// docked chat, which sessions leave unmounted. Sent on arrival: the
 							// user already said what they wanted in the description field.
-							if (!sessionScopedManager && sessionOpen && prefersSessionHandoff(!$roleCaps.code)) {
+							if (!sessionScopedManager && sessionOpen) {
 								void openSourceInSession(sessionOpen, {
 									previewParams: { selected: detail.moduleId },
 									seedPrompt: stepInstructionsPrompt(detail.moduleId, detail.instructions),

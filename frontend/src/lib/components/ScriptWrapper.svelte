@@ -38,7 +38,7 @@
 	})
 </script>
 
-<AiChatLayout noPadding {disableAi} loadAiConfig={!disableAi}>
+<AiChatLayout {disableAi}>
 	{#if $workspaceStore && draftSync.draft}
 		<ScriptBuilder
 			bind:script={draftSync.draft}

@@ -190,7 +190,6 @@ import {
 	type GlobalAssemblyOpts
 } from './global/globalAssembly'
 import { formatChatJobCompletion } from './datatableTools'
-import { isGlobalAiEnabled } from './global/gate'
 import { loadMcpServers, type McpServer } from './global/mcpTools'
 import type { PipelineAIChatHelpers } from './pipeline/core'
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
@@ -334,12 +333,8 @@ export function supportsPlanMode(mode: AIMode): boolean {
 
 const navCapabilities = fromStore(roleCapabilities)
 
-export function isAIModeVisible(mode: AIMode): boolean {
-	return mode !== AIMode.GLOBAL || isGlobalAiEnabled()
-}
-
 export function getVisibleAIModes(): AIMode[] {
-	return ALL_AI_MODES.filter(isAIModeVisible)
+	return [...ALL_AI_MODES]
 }
 
 function isWorkspacePath(path: string | undefined): path is string {
@@ -1674,8 +1669,7 @@ export class AIChatManager implements ChatViewHost {
 		navigator: !this.disabledModes.navigator,
 		ask: !this.disabledModes.ask,
 		API: !this.disabledModes.API,
-		// Dev-only gate. See `./global/gate.ts` for how to enable.
-		global: isAIModeVisible(AIMode.GLOBAL)
+		global: true
 	})
 
 	open = $derived(chatState.size > 0)
@@ -2783,7 +2777,6 @@ export class AIChatManager implements ChatViewHost {
 			workflowAsCode?: boolean
 		}
 	) {
-		if (!isAIModeVisible(mode)) return
 		// A session chat is GLOBAL for its whole life, and two things read that mode: moving it
 		// lifts the plan gate on a session the user still has set to Plan, and hands the
 		// capability filter tools that declare no `requires`, so it fails closed to nothing.
@@ -3157,9 +3150,7 @@ export class AIChatManager implements ChatViewHost {
 				name: 'change_mode',
 				description:
 					'Change the AI mode to the one specified. Script mode is used to create scripts. Flow mode is used to create flows.' +
-					(isGlobalAiEnabled()
-						? ' Global mode is used to inspect workspace scripts and flows and create draft changes.'
-						: '') +
+					' Global mode is used to inspect workspace scripts and flows and create draft changes.' +
 					' Navigator mode is used to navigate the application and help the user find what they are looking for. API mode is used to make API calls to the Windmill backend.',
 				parameters: {
 					type: 'object',
@@ -3167,13 +3158,7 @@ export class AIChatManager implements ChatViewHost {
 						mode: {
 							type: 'string',
 							description: 'The mode to change to',
-							enum: [
-								'script',
-								'flow',
-								...(isGlobalAiEnabled() ? ['global'] : []),
-								'navigator',
-								'API'
-							]
+							enum: ['script', 'flow', 'global', 'navigator', 'API']
 						},
 						pendingPrompt: {
 							type: 'string',
@@ -3186,7 +3171,7 @@ export class AIChatManager implements ChatViewHost {
 			}
 		},
 		fn: async ({ args, toolId, toolCallbacks }) => {
-			if (!isAIMode(args.mode) || !isAIModeVisible(args.mode)) {
+			if (!isAIMode(args.mode)) {
 				throw new Error(`AI mode "${args.mode}" is not enabled`)
 			}
 			toolCallbacks.setToolStatus(toolId, { content: 'Switching to ' + args.mode + ' mode...' })
@@ -3878,10 +3863,6 @@ export class AIChatManager implements ChatViewHost {
 		// releases the right key.
 		let reservationKey = options.resendReservationKey
 		const requestedMode = options.mode ?? this.mode
-		if (!isAIModeVisible(requestedMode)) {
-			this.#releaseOutgoingReservation(reservationKey)
-			return false
-		}
 		this.changeMode(requestedMode, undefined, {
 			lang: options.lang,
 			isPreprocessor: options.isPreprocessor

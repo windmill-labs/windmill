@@ -83,7 +83,6 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
-	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import {
 		buildDataTableWhitelist,
@@ -2178,10 +2177,7 @@ addEventListener('message', function (e) {
 	// the prompt opens a new session instead, carrying the element as its chip.
 	const inlinePrompt: ((selector: string, prompt: string) => void | Promise<boolean>) | undefined =
 		$derived(
-			onInlinePrompt ??
-				(!onInspectorSelect && sessionOpen && prefersSessionHandoff(!$roleCaps.code)
-					? sendPickToNewSession
-					: undefined)
+			onInlinePrompt ?? (!onInspectorSelect && sessionOpen ? sendPickToNewSession : undefined)
 		)
 	const inlinePromptSelector = $derived(
 		inlinePrompt && previewSelectors.length > 0
