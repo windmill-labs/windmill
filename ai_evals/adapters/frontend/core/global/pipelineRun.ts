@@ -70,6 +70,28 @@ export async function runPipeline(
   const deployed = nodes
     .map((n) => n.path)
     .filter((p) => !result.nodes.some((r) => r.path === p));
+  // A failure past this point is the pipeline's outcome, not the harness's: it is recorded so
+  // the case keeps its drafts and judge.
+  try {
+    await runFromRoots(api, spec, deployed, deadline, emptyLakes, result);
+  } catch (error) {
+    result.error = String(error);
+  }
+  for (const query of spec.queries ?? []) {
+    result.queries.push(await runQuery(api, query));
+  }
+  return result;
+}
+
+async function runFromRoots(
+  api: Api,
+  spec: PipelineRunSpec,
+  deployed: string[],
+  deadline: number,
+  emptyLakes: () => Promise<void>,
+  result: PipelineRunResult,
+): Promise<void> {
+  const prefix = `f/${spec.folder}/`;
   // A node's asset triggers are recorded when its deployment job completes, not at create.
   await waitForQuietQueue(api, spec.folder, deadline);
   // Dispatch reads a per-process cache of which scripts produce what, which the model's test
@@ -120,40 +142,45 @@ export async function runPipeline(
     }
     result.nodes.push(entry);
   }
-
-  for (const query of spec.queries ?? []) {
-    result.queries.push(await runQuery(api, query));
-  }
-  return result;
 }
 
 function isPipelineNode(content: string): boolean {
   return /^\s*(--|\/\/|#)\s*pipeline\b/m.test(content);
 }
 
-/** Nodes no other node of the pipeline feeds: each asset they trigger on is written by none. */
-function rootNodes(
+/**
+ * Nodes no other node of the pipeline feeds: none of the assets they read or trigger on is
+ * written by another node. Reads count too, so a node that reads an upstream table but
+ * triggers on the wrong asset is never run directly, and fails as never having run.
+ */
+export function rootNodes(
   paths: string[],
   triggers: GraphTrigger[],
   edges: GraphEdge[],
 ): string[] {
   const inPipeline = new Set(paths);
-  const written = new Set(
-    edges
-      .filter(
-        (e) =>
-          inPipeline.has(e.runnable_path) &&
-          (e.access_type === "w" || e.access_type === "rw"),
-      )
-      .map((e) => `${e.asset_kind}:${e.asset_path}`),
-  );
+  const writers = new Map<string, Set<string>>();
+  for (const e of edges) {
+    if (inPipeline.has(e.runnable_path) && (e.access_type === "w" || e.access_type === "rw")) {
+      const key = `${e.asset_kind}:${e.asset_path}`;
+      writers.set(key, (writers.get(key) ?? new Set()).add(e.runnable_path));
+    }
+  }
+  const fedByAnother = (path: string, kind: string | undefined, assetPath: string | undefined) =>
+    [...(writers.get(`${kind}:${assetPath}`) ?? [])].some((writer) => writer !== path);
   return paths.filter(
     (path) =>
       !triggers.some(
         (t) =>
           t.trigger_kind === "asset" &&
           t.runnable_path === path &&
-          written.has(`${t.asset_kind}:${t.asset_path}`),
+          fedByAnother(path, t.asset_kind, t.asset_path),
+      ) &&
+      !edges.some(
+        (e) =>
+          e.runnable_path === path &&
+          (e.access_type === "r" || e.access_type === "rw") &&
+          fedByAnother(path, e.asset_kind, e.asset_path),
       ),
   );
 }

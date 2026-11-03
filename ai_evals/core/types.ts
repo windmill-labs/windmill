@@ -407,6 +407,8 @@ export interface ModeRunContext {
   attempt: number;
   runs: number;
   verbose: boolean;
+  /** `--execution-only`: the run validates nothing on the backend, `pipelineRun` included. */
+  executionOnly?: boolean;
   onAssistantMessageStart?: () => void;
   onAssistantChunk?: (chunk: string) => void;
   onAssistantMessageEnd?: () => void;
