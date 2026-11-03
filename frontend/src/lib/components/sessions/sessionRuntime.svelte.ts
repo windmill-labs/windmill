@@ -277,6 +277,7 @@ export interface SessionRuntime {
 	/** Keep a new item's draft in this tab, unsaved, until the session's first send saves it:
 	 * an AI start the user never sends leaves nothing behind. */
 	holdDraftUntilSend(workspace: string, kind: SessionTargetKind, path: string): void
+	holdsDraft(workspace: string, kind: SessionTargetKind, path: string): boolean
 	/** Register a mounted raw-app preview's log requester, keyed by app path, like
 	 * `registerDomRequester`: build state is per editor, so reads route to the app edited. */
 	registerRuntimeLogRequester(appPath: string, requester: RawAppRuntimeLogRequester): void
@@ -530,6 +531,9 @@ function createRuntime(session: Session): SessionRuntime {
 			}
 			heldDrafts.shift()
 		}
+	}
+	function isHeldDraft(workspace: string, kind: SessionTargetKind, path: string): boolean {
+		return heldDrafts.some((d) => d.workspace === workspace && d.kind === kind && d.path === path)
 	}
 	function releaseHeldDraft(workspace: string, kind: SessionTargetKind, path: string): void {
 		heldDrafts = heldDrafts.filter(
@@ -1092,6 +1096,19 @@ function createRuntime(session: Session): SessionRuntime {
 		) {
 			const { slot, store, saved } = rawAppCell(path)
 			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) return
+			// A held draft exists only in this cell: the server has nothing yet, and the preview's
+			// unmount dropped its UserDraft entry, sync suspension included.
+			if (
+				!force &&
+				store.val &&
+				slot.loadedWorkspace === workspace &&
+				isHeldDraft(workspace, 'raw_app', path)
+			) {
+				UserDraft.stopSync('raw_app', path, { workspace })
+				slot.notFound = false
+				slot.loadedPath = path
+				return
+			}
 			// See loadScript: forced reload remounts via the render gate.
 			if (force || slot.loadedWorkspace !== workspace) slot.loadedPath = undefined
 			slot.loading = true
@@ -1254,9 +1271,9 @@ function createRuntime(session: Session): SessionRuntime {
 
 		holdDraftUntilSend(workspace, kind, path) {
 			UserDraft.stopSync(kind, path, { workspace })
-			if (!heldDrafts.some((d) => d.workspace === workspace && d.kind === kind && d.path === path))
-				heldDrafts.push({ workspace, kind, path })
+			if (!isHeldDraft(workspace, kind, path)) heldDrafts.push({ workspace, kind, path })
 		},
+		holdsDraft: isHeldDraft,
 
 		itemDeployed(workspace, kind, storagePath, deployedPath = storagePath) {
 			// Deployed, it is saved: forcePersist would write a draft over the deployed item.

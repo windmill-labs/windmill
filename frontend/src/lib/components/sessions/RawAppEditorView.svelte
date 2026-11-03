@@ -108,6 +108,8 @@
 	const awaitingSetup = $derived(
 		newRawApp &&
 			!setupSettled &&
+			// Held until the first send, it was set up before this view remounted.
+			!runtime.holdsDraft(workspaceId, 'raw_app', path) &&
 			isActiveSession &&
 			active &&
 			cell.slot.loadedPath === path &&
