@@ -11,15 +11,10 @@
 
 	interface Props {
 		hasUnsavedChanges?: boolean
-		disableChatOffset?: boolean
 		showHubSync?: boolean
 	}
 
-	let {
-		hasUnsavedChanges = $bindable(false),
-		disableChatOffset = false,
-		showHubSync = false
-	}: Props = $props()
+	let { hasUnsavedChanges = $bindable(false), showHubSync = false }: Props = $props()
 
 	let initialConfig: AIConfig | undefined = $state(undefined)
 	let loaded = $state(false)
@@ -129,7 +124,6 @@
 		bind:hasUnsavedChanges
 		{initialConfig}
 		workspace="admins"
-		{disableChatOffset}
 		title="Windmill AI"
 		description="Windmill AI integrates with your favorite AI providers and models. Set your AI settings at the instance level to be able to use them on all your workspaces. Workspace-level settings can override these."
 		link="https://www.windmill.dev/docs/core_concepts/ai_generation"

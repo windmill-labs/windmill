@@ -78,6 +78,7 @@ export type AppDraftValue = {
 	data?: any
 	policy?: Policy
 	custom_path?: string
+	labels?: string[]
 	// Fork base: the deployed app version this draft was started from, pinned at
 	// fork. The app analog of a script's parent_hash / a flow's version_id.
 	parent_version?: number

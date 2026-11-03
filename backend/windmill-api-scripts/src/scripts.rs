@@ -1988,7 +1988,7 @@ async fn create_script_internal<'c>(
     // bare `// pipeline` marker is the opt-in signal for pipeline
     // membership; parsed writes tell us what is produced (we don't record
     // them in auto_kind itself).
-    let pipeline_annotations = parse_pipeline_annotations(&ns.content);
+    let pipeline_annotations = parse_pipeline_annotations(&ns.content).for_script(&ns.path);
     // `// materialize` names what this script produces. Two target kinds, and the
     // runtime behind each is what constrains the annotation:
     //   • `ducklake://<name>/<table>` — the DuckDB executor generates the write
@@ -5139,6 +5139,8 @@ async fn get_ci_test_results_batch(
 struct CheckSchemaContractsRequest {
     language: ScriptLang,
     content: String,
+    #[serde(default)]
+    path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -5163,7 +5165,10 @@ async fn check_schema_contracts(
 ) -> JsonResult<CheckSchemaContractsResponse> {
     let assets = crate::asset_inference::effective_script_assets(&req.language, &req.content, None)
         .unwrap_or_default();
-    let ann = parse_pipeline_annotations(&req.content);
+    let mut ann = parse_pipeline_annotations(&req.content);
+    if let Some(path) = req.path.as_deref() {
+        ann = ann.for_script(path);
+    }
     let mut tx = user_db.begin(&authed).await?;
     let warnings = windmill_common::schema_contracts::check_schema_contracts(
         &mut tx,

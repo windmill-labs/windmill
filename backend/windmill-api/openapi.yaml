@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.852.0
+  version: 1.858.0
   title: Windmill API
 
   contact:
@@ -2985,6 +2985,59 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/AwsSecretsManagerSettings"
+      responses:
+        "200":
+          description: migration report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretMigrationReport"
+
+  /settings/test_http_store_backend:
+    post:
+      summary: test the HTTP secret store by reading one secret
+      operationId: testHttpStoreBackend
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - settings
+                - workspace_id
+                - path
+              properties:
+                settings:
+                  $ref: "#/components/schemas/HttpStoreSettings"
+                workspace_id:
+                  type: string
+                  description: workspace of a variable whose secret exists in the store
+                path:
+                  type: string
+                  description: path of a variable whose secret exists in the store
+      responses:
+        "200":
+          description: connection test result
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/migrate_secrets_from_http_store:
+    post:
+      summary: copy the values of HTTP secret store references into the database
+      operationId: migrateSecretsFromHttpStore
+      tags:
+        - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HttpStoreSettings"
       responses:
         "200":
           description: migration report
@@ -7775,6 +7828,24 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/variables/external_secret_prefixes:
+    get:
+      summary: list the external secret prefixes allowed for this workspace (admin only)
+      operationId: listExternalSecretPrefixes
+      tags:
+        - variable
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: allowed prefixes, such as vault://secret/team
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/variables/delete/{path}:
     delete:
       summary: delete variable
@@ -12169,6 +12240,11 @@ paths:
                   $ref: "#/components/schemas/ScriptLang"
                 content:
                   type: string
+                path:
+                  type: string
+                  description: |
+                    The script's path. A `// materialize` that names no table writes the
+                    table named after the script, so without it such a target is not checked.
       responses:
         "200":
           description: contract warnings (empty when all references match)
@@ -13679,6 +13755,11 @@ paths:
               - test
               - deployed
               - all
+        - name: mine
+          description: only list the caller's own conversations (an admin otherwise lists every user's)
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: flow conversations list
@@ -14729,6 +14810,84 @@ paths:
                   truncated:
                     type: boolean
                     description: more buckets matched than were returned, so summing them under-reports
+
+  /w/{workspace}/ai_session_tools/{name}:
+    post:
+      summary: run one of the AI session's tools as the calling user
+      description: The in-app chat's entry to the session toolset the MCP server also serves. Refused for job tokens and scoped tokens.
+      operationId: callAiSessionTool
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                args:
+                  description: the tool's arguments, as the model sent them
+                context:
+                  type: object
+                  description: browser-held state the tool reads
+                  additionalProperties: true
+                  properties:
+                    live_editors:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - kind
+                          - storage_path
+                        properties:
+                          kind:
+                            type: string
+                          storage_path:
+                            type: string
+                          effective_path:
+                            type: string
+                    cells:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - kind
+                          - storage_path
+                          - value
+                        properties:
+                          kind:
+                            type: string
+                          storage_path:
+                            type: string
+                          value: {}
+      responses:
+        "200":
+          description: what the model reads, and what the chat applies
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - text
+                  - is_error
+                  - effects
+                properties:
+                  text:
+                    type: string
+                  is_error:
+                    type: boolean
+                  effects:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
 
   /w/{workspace}/ai/sessions/list:
     get:
@@ -17876,6 +18035,101 @@ paths:
               schema:
                 type: string
                 description: Summary of deleted jobs and rows
+
+  /w/{workspace}/jobs/recent_runs:
+    get:
+      summary: list what ran recently, one entry per script, flow or agent
+      operationId: listRecentRuns
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: folder
+          description: only runs of items in this folder
+          in: query
+          schema:
+            type: string
+        - name: failed_ids_kind
+          description: with failed_ids_path, the item whose unresolved failed run ids to list in failed_run_ids
+          in: query
+          schema:
+            type: string
+            enum: [script, flow, agent]
+        - name: failed_ids_path
+          description: with failed_ids_kind, the path of that item
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: runs that completed in the window or are running, grouped by item, newest run first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  window_hours:
+                    type: integer
+                  capped:
+                    description: the window holds more runs than were read, so counts cover the newest ones only
+                    type: boolean
+                  total_runs:
+                    type: integer
+                  failed_runs:
+                    type: integer
+                  failing_items:
+                    type: integer
+                  running_items:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        kind:
+                          type: string
+                          enum: [script, flow, agent]
+                        summary:
+                          type: string
+                        status:
+                          $ref: "#/components/schemas/RecentRunStatus"
+                        failed_runs:
+                          description: unresolved failed runs of the item over the whole window, not only those in runs
+                          type: integer
+                        failed_run_ids:
+                          description: the ids of those failed runs, only for the item named by failed_ids_kind and failed_ids_path
+                          type: array
+                          items:
+                            type: string
+                            format: uuid
+                        runs:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                              status:
+                                $ref: "#/components/schemas/RecentRunStatus"
+                              ran_at:
+                                description: when the run started, or was created for one that has not reported a start
+                                type: string
+                                format: date-time
+                              duration_ms:
+                                type: integer
+                            required: [id, status, ran_at]
+                      required: [path, kind, status, failed_runs, runs]
+                required:
+                  - window_hours
+                  - capped
+                  - total_runs
+                  - failed_runs
+                  - failing_items
+                  - running_items
+                  - items
 
   /w/{workspace}/jobs/list:
     get:
@@ -29940,14 +30194,13 @@ components:
       type: object
       required:
         - address
-        - mount_path
       properties:
         address:
           type: string
           description: HashiCorp Vault server address (e.g., https://vault.company.com:8200)
         mount_path:
           type: string
-          description: KV v2 secrets engine mount path (e.g., windmill)
+          description: KV v2 secrets engine mount path (e.g., windmill). Empty to test the connection used for `$external:vault://` references, which checks only that Vault accepts Windmill's token.
         kv_secret_path_prefix:
           type: string
           description: Optional path prefix inserted between the KV data/metadata segment and the workspace id (e.g., "apps/windmill"). When set, secrets are stored at `<mount>/data/<prefix>/<workspace>/<secret>`, allowing a Vault policy scoped to exactly `<mount>/data/<prefix>/*`.
@@ -29957,6 +30210,12 @@ components:
         jwt_mount_path:
           type: string
           description: Mount path for the JWT auth method in Vault (optional, defaults to "jwt"). Set this when the JWT auth method is mounted at a non-default path, e.g. via `vault auth enable -path=<mount> jwt`.
+        approle_role_id:
+          type: string
+          description: AppRole role_id (optional). When set and no static token is given, Windmill logs in with AppRole; the secret_id is read from the `VAULT_APPROLE_SECRET_ID` environment variable of servers and workers.
+        approle_mount_path:
+          type: string
+          description: Mount path of the AppRole auth method (optional, defaults to "approle").
         namespace:
           type: string
           description: Vault Enterprise namespace (optional)
@@ -30013,6 +30272,88 @@ components:
         prefix:
           type: string
           description: Prefix for secret names (e.g., windmill/)
+
+    HttpStoreSettings:
+      type: object
+      description: >-
+        Read-only secret backend for any secret store with an HTTP API. A secret variable saved
+        with an empty value references the store key derived from its workspace and path.
+      required:
+        - base_url
+        - read
+        - auth
+      properties:
+        base_url:
+          type: string
+          description: Scheme, host and optional path prefix of the store
+        read:
+          type: object
+          required:
+            - path
+          properties:
+            path:
+              type: string
+              description: >-
+                Path template appended to base_url. {workspace} and {path} must each appear here
+                or in a query value.
+            query:
+              type: object
+              additionalProperties:
+                type: string
+              description: Query parameters; values may use {workspace} and {path}
+            value_pointer:
+              type: string
+              description: JSON pointer to the value in the response; empty means the whole body
+            value_encoding:
+              type: string
+              enum: [plain, base64]
+        path_encoding:
+          type: string
+          enum: [url, double_dash, raw]
+          description: How a variable path becomes a store key (default url)
+        extra_headers:
+          type: object
+          additionalProperties:
+            type: string
+        auth:
+          $ref: "#/components/schemas/HttpStoreAuth"
+        ca_bundle_path:
+          type: string
+          description: PEM bundle of additional CA certificates trusted for the store
+        timeout_secs:
+          type: integer
+        skip_ssl_verify:
+          type: boolean
+
+    HttpStoreAuth:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [None, StaticHeader, BearerTokenFile, ClientCertificate]
+        header_name:
+          type: string
+          description: StaticHeader and BearerTokenFile (default Authorization)
+        header_value:
+          type: string
+          description: StaticHeader
+        token_path:
+          type: string
+          description: BearerTokenFile
+        prefix:
+          type: string
+          description: BearerTokenFile (default "Bearer ")
+        cert_path:
+          type: string
+          description: ClientCertificate, PEM certificate optionally followed by its chain
+        key_path:
+          type: string
+          description: ClientCertificate, PEM private key
+        reload_interval_secs:
+          type: integer
+          description: BearerTokenFile (default 60) and ClientCertificate (default 300)
 
     SecretMigrationFailure:
       type: object
@@ -32201,6 +32542,9 @@ components:
           format: date-time
         operator:
           type: boolean
+        role:
+          type: string
+          description: The member's workspace role by name (`developer`, `operator` or a custom role). Admin is the separate `is_admin` flag.
         disabled:
           type: boolean
         groups:
@@ -32750,7 +33094,13 @@ components:
           description: The path to the variable
         value:
           type: string
-          description: The value of the variable
+          description: >
+            The value of the variable. For a secret, `$external:vault://<path>#<key>`
+            stores a reference to an existing secret in the instance's external
+            HashiCorp Vault (path as `vault kv get` takes it) instead of a value; without
+            `#<key>` it reads the whole secret as a JSON object of its fields. It is
+            resolved on each read, only under the path prefixes a superadmin allowed for
+            the workspace, and is returned as-is when the secret is not decrypted.
         is_secret:
           type: boolean
           description: Whether the variable is a secret
@@ -32799,7 +33149,7 @@ components:
           description: The path to the variable
         value:
           type: string
-          description: The new value of the variable
+          description: The new value of the variable. Accepts an `$external:vault://<path>[#<key>]` reference for a secret, as in CreateVariable.
         is_secret:
           type: boolean
           description: Whether the variable is a secret
@@ -33121,6 +33471,11 @@ components:
         - error
         - auto_kind
         - has_preprocessor
+
+    RecentRunStatus:
+      description: a failure someone or something marked as handled is `resolved`, not `failure`
+      type: string
+      enum: [success, failure, resolved, canceled, running]
 
     ScriptLang:
       type: string

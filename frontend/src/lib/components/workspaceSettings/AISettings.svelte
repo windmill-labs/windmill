@@ -52,7 +52,6 @@
 		initialConfig = undefined,
 		hasUnsavedChanges = $bindable(false),
 		workspace = undefined,
-		disableChatOffset = false,
 		hasInstanceAiConfig = false,
 		usesInstanceAiConfig = false,
 		instanceAiSummary = undefined,
@@ -66,7 +65,6 @@
 		initialConfig?: AIConfig | undefined
 		hasUnsavedChanges?: boolean
 		workspace?: string | undefined
-		disableChatOffset?: boolean
 		hasInstanceAiConfig?: boolean
 		usesInstanceAiConfig?: boolean
 		instanceAiSummary?: InstanceAISummary
@@ -516,7 +514,6 @@
 										<ResourcePicker
 											selectFirst
 											{workspace}
-											{disableChatOffset}
 											resourceType={provider === 'openai' && usingOpenaiClientCredentialsOauth
 												? 'openai_client_credentials_oauth'
 												: provider}

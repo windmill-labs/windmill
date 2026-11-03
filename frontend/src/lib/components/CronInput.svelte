@@ -118,7 +118,7 @@
 		}
 	}
 
-	const items = Object.keys(timezones)
+	const timezoneItems = Object.keys(timezones)
 		.map((key) => {
 			return Object.keys(timezones[key])
 				.map((subKey) => {
@@ -131,6 +131,13 @@
 				.flat()
 		})
 		.flat()
+	// The list holds no legacy aliases, but browsers report some zones by their old name
+	// (Asia/Calcutta, Europe/Kiev) and saved schedules may use one (US/Eastern): keep it selectable.
+	const items = $derived(
+		!timezone || timezoneItems.some((i) => i.value === timezone)
+			? timezoneItems
+			: [{ value: timezone, label: timezone, group: 'Current' }, ...timezoneItems]
+	)
 	$effect(() => {
 		schedule
 		untrack(() => {

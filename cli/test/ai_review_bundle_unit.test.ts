@@ -140,8 +140,9 @@ describe("wmill review prompt", () => {
         "encryption_key.yaml": "HEAD-ENCRYPTION-KEY\n",
         "f/a/notes.prod.resource.yaml": "resource_type: postgresql\nvalue:\n  password: PROD-PASSWORD\n",
         "f/a/files.fileset/x.flow/flow.yaml": "password: FILESET-PASSWORD-2\n",
-        // A pathspec matching every changed file, if git were let read it as one.
-        "*": "star\n",
+        // A pathspec matching every changed file, if git were let read it as one. Windows
+        // forbids `*` in a file name.
+        ...(process.platform === "win32" ? {} : { "*": "star\n" }),
       },
       (base, head) => {
         const { system, user, instructions } = buildReviewPrompt(base, head);

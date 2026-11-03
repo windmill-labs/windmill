@@ -31,24 +31,22 @@
 	} from '$lib/components/raw_apps/utils'
 	import type { RawAppDomRequester } from '$lib/components/raw_apps/rawAppDom'
 	import type { InspectorElementInfo } from '$lib/components/copilot/chat/app/core'
+	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 
 	let {
 		runtime,
 		path,
 		workspaceId,
 		onNavigate,
-		onSeeDetails,
 		isActiveSession = true,
 		active = true,
-		newRawApp = false
+		newRawApp = false,
+		fullscreen = false
 	}: {
 		runtime: SessionRuntime
 		path: string
 		workspaceId: string
 		onNavigate?: (item: WorkspaceItem) => void
-		/** `Exit & see details` — flips this tab to the item's deployed view rather than
-		 * navigating out of the session. */
-		onSeeDetails?: (e: { path: string }) => void
 		/** Forwarded to SessionEditorTarget — only the visible session claims the
 		 * workspace's single live-editor slot. */
 		isActiveSession?: boolean
@@ -56,7 +54,33 @@
 		active?: boolean
 		/** The tab was opened on an app the new-app builder just started. */
 		newRawApp?: boolean
+		/** Preview panel is in full screen. */
+		fullscreen?: boolean
 	} = $props()
+
+	// The side panel leaves little room for the file sidebar, full screen leaves plenty:
+	// each keeps its own sidebar and split preferences, the sidebar open by default only
+	// in full screen.
+	const panelSidebarCollapsed = useLocalStorageValue(
+		'raw-app-sidebar-collapsed-preview',
+		true,
+		'boolean'
+	)
+	const fullscreenSidebarCollapsed = useLocalStorageValue(
+		'raw-app-sidebar-collapsed-preview-fullscreen',
+		false,
+		'boolean'
+	)
+	const panelSplitWithPreview = useLocalStorageValue(
+		'raw-app-split-with-preview-preview',
+		false,
+		'boolean'
+	)
+	const fullscreenSplitWithPreview = useLocalStorageValue(
+		'raw-app-split-with-preview-preview-fullscreen',
+		false,
+		'boolean'
+	)
 
 	// This tab's own raw-app cell; each open app editor binds its own store.
 	const cell = $derived(runtime.rawAppCell(path))
@@ -375,11 +399,21 @@
 				bind:data={cell.store.val.data}
 				bind:summary={cell.store.val.summary}
 				bind:pendingDraftPath
+				bind:pendingDraftSettings={
+					() => undefined,
+					(s: { labels: string[] } | undefined) => {
+						// The header reports its labels on mount too: only a change reaches the draft.
+						const v = cell.store.val
+						if (!s || !v) return
+						if ((v.labels ?? []).join('\n') !== s.labels.join('\n')) v.labels = s.labels
+					}
+				}
+				labels={cell.store.val.labels}
 				newPath={cell.store.val.draft_path ?? cell.store.val.path}
 				{path}
 				autosaveWorkspace={workspaceId}
 				autosavePath={path}
-				policy={cell.store.val.policy}
+				bind:policy={cell.store.val.policy}
 				bind:savedApp={cell.saved.val}
 				version={cell.store.val?.parent_version ?? cell.saved.val?.deployed_version}
 				draftBaseVersion={cell.store.val?.parent_version != null
@@ -388,13 +422,12 @@
 				newApp={!cell.saved.val || cell.saved.val.no_deployed === true}
 				{diffDrawer}
 				{onNavigate}
-				onDetails={onSeeDetails}
 				onOpenFork={openFork}
 				condensedHeader={true}
 				onResetToDeployed={reloadDeployed}
 				onDeploy={(e) => runtime.itemDeployed(workspaceId, 'raw_app', path, e.path)}
-				defaultSidebarCollapsed
-				sidebarStorageKey="raw-app-sidebar-collapsed-preview"
+				sidebarCollapsedState={fullscreen ? fullscreenSidebarCollapsed : panelSidebarCollapsed}
+				splitWithPreviewState={fullscreen ? fullscreenSplitWithPreview : panelSplitWithPreview}
 				defaultSplitWithPreview={false}
 				onRuntimeLogRequester={registerRuntimeLogRequester}
 				onRunsProvider={registerRunsProvider}

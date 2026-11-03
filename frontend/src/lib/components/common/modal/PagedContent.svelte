@@ -179,10 +179,11 @@
 			     height as one replaces another. That needs a definite height from the caller.
 			     `inert` and not just opacity: an off-screen page keeps its DOM, so without it the
 			     tab order and every screen reader still walk through it. -->
-			<!-- `tabindex="-1"`: focusable programmatically, never a tab stop of its own. -->
+			<!-- `tabindex="-1"`: focusable programmatically, never a tab stop of its own, so no
+			     focus ring: one around the whole page after a keyboard navigation marks nothing. -->
 			<div
 				tabindex="-1"
-				class="paged-content-page absolute inset-0 flex flex-col"
+				class="paged-content-page absolute inset-0 flex flex-col outline-none"
 				class:is-hidden={i !== index}
 				class:opacity-0={i !== index}
 				class:pointer-events-none={i !== index}

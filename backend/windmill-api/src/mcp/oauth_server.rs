@@ -276,10 +276,22 @@ fn build_protected_resource_metadata(
     oauth_prefix: &str,
     base_url: &str,
 ) -> ProtectedResourceMetadata {
+    // With an external issuer configured, clients sign in there: Windmill's own server keeps
+    // honouring the tokens it issued, but no longer hands out new ones to MCP clients.
+    let (authorization_server, scopes) = match super::external_idp::configured() {
+        Some(idp) => (
+            idp.issuer.clone(),
+            super::external_idp::REQUESTED_SCOPES
+                .split(' ')
+                .map(str::to_string)
+                .collect(),
+        ),
+        None => (format!("{}{}", base_url, oauth_prefix), granting_scopes()),
+    };
     ProtectedResourceMetadata {
         resource: format!("{}{}", base_url, resource_path),
-        authorization_servers: vec![format!("{}{}", base_url, oauth_prefix)],
-        scopes_supported: Some(granting_scopes()),
+        authorization_servers: vec![authorization_server],
+        scopes_supported: Some(scopes),
         bearer_methods_supported: Some(vec!["header".to_string()]),
     }
 }
@@ -1084,6 +1096,14 @@ pub async fn gateway_oauth_approve(
     let mut workspace_ids = form.workspace_ids;
     if workspace_ids.is_empty() {
         workspace_ids.extend(form.workspace_id);
+    }
+    // A selection of scripts and flows names paths, which only mean something in one workspace.
+    if !scope.split_whitespace().any(|s| s == "mcp:all")
+        && (form.all_workspaces || workspace_ids.len() > 1)
+    {
+        return Err(Error::BadRequest(
+            "Selected scripts and flows come from one workspace: pick one".to_string(),
+        ));
     }
     let workspace_id = if form.all_workspaces {
         None

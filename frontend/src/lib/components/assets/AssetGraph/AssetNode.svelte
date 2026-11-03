@@ -124,7 +124,6 @@
 				language: ScriptLang,
 				scriptPath: string,
 				outputKind: PipelineOutputKind,
-				aiPrompt?: string,
 				options?: import('./PipelineInsertMenu.svelte').PipelineInsertOptions
 			) => void
 			pathPrefix?: string

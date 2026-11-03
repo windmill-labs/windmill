@@ -237,6 +237,14 @@ export type App = {
 	 * sends it as the summary on deploy.
 	 */
 	summary?: string
+	/**
+	 * The app settings, persisted on the autosaved App like `summary` so an undeployed settings
+	 * change survives a reload and Review & Deploy deploys it. Draft-only: stripped from the
+	 * deployed value (`classicAppDraftParts`). `policy` holds only `policySettings`; deploy
+	 * recomputes the runnable whitelist and keeps the deployed access mode.
+	 */
+	policy?: Partial<Policy>
+	labels?: string[]
 }
 
 export type ConnectingInput = {

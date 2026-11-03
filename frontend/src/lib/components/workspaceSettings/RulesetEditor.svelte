@@ -2,6 +2,7 @@
 	import { Section, Button, DrawerContent } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Label from '$lib/components/Label.svelte'
+	import ManageGroupsLink from '$lib/components/ManageGroupsLink.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { workspaceStore } from '$lib/stores'
@@ -306,6 +307,9 @@
 			class="flex flex-col gap-4"
 		>
 			<Label label="Groups">
+				{#snippet action()}
+					<ManageGroupsLink onReturn={loadAvailableGroups} />
+				{/snippet}
 				<MultiSelect
 					bind:value={selectedGroups}
 					items={safeSelectItems(availableGroups)}

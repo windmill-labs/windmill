@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT username FROM usr WHERE workspace_id = $1 AND email = $2 AND NOT disabled",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "da49cdc6f47685c719cb07fc3b120d7f2d589d294fb1beeeba6b47a99210f241"
+}

@@ -42,7 +42,6 @@
 		Archive,
 		Trash,
 		ChevronUpSquare,
-		Shield,
 		Loader2,
 		GitFork,
 		Play,
@@ -87,6 +86,7 @@
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
 	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
+	import { page } from '$app/state'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 	import CiTestResults from '$lib/components/CiTestResults.svelte'
@@ -542,13 +542,6 @@
 
 		const menuItems: any = []
 
-		menuItems.push({
-			label: 'Permissions',
-			onclick: () => shareModal?.openDrawer(flow?.path ?? '', 'flow'),
-			Icon: Shield,
-			disabled: !can_write
-		})
-
 		if (showEditButtons) {
 			menuItems.push({
 				label: 'Move/Rename',
@@ -679,7 +672,7 @@
 
 <svelte:window onkeydown={onKeyDown} />
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<ShareModal bind:this={shareModal} />
+<ShareModal bind:this={shareModal} source="detail" />
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={async (e) => {
@@ -713,6 +706,9 @@
 			}}
 			{mainButtons}
 			menuItems={getMenuItems(flow, deployUiSettings)}
+			onShare={flow && canAuthorFlow
+				? () => shareModal?.openDrawer(flow?.path ?? '', 'flow')
+				: undefined}
 			bind:errorHandlerMuted={
 				() => flow?.ws_error_handler_muted ?? false,
 				(v) => {
@@ -874,6 +870,7 @@
 								flowModules={flow?.value?.modules}
 								wideLayout
 								frame="none"
+								openConversation={page.url.searchParams.get('conversation') ?? undefined}
 							>
 								{#snippet sidebarFooter({ expanded })}
 									{#if workspace && flow}

@@ -816,6 +816,7 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	handleToolConfirmation = (_toolId: string, confirmed: boolean) => {
 		this.#answer(confirmed)
 	}
+	handleScopeDecision = () => {}
 	hasPendingRunForm = false
 	isRunFormPending = () => false
 

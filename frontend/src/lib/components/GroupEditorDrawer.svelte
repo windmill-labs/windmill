@@ -7,11 +7,9 @@
 
 	let {
 		offset = 0,
-		disableChatOffset = false,
 		onSaved = undefined
 	}: {
 		offset?: number
-		disableChatOffset?: boolean
 		onSaved?: (name: string, created: boolean) => void | Promise<void>
 	} = $props()
 
@@ -95,7 +93,6 @@
 <Drawer
 	bind:this={drawer}
 	{offset}
-	{disableChatOffset}
 	on:close={() => {
 		// Escape and click-away close the drawer before asking. Reopening in the same tick is
 		// how the flow's script editor drawer handles this too: the close transition has not

@@ -1,49 +1,24 @@
 <script lang="ts">
-	import TableCustom from './TableCustom.svelte'
-
-	import {
-		GroupService,
-		UserService,
-		GranularAclService,
-		ResourceService,
-		FolderService
-	} from '$lib/gen'
-	import type { Folder } from '$lib/gen/types.gen'
+	import { ResourceService } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 
-	import { Alert, Button, Drawer } from './common'
+	import { Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import { sendUserToast } from '$lib/toast'
-	import { isOwner } from '$lib/utils'
-	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import Select from './select/Select.svelte'
-	import { safeSelectItems } from './select/utils.svelte'
 	import Toggle from './Toggle.svelte'
-	import { Trash } from 'lucide-svelte'
-	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
-	import { useScheduleLock, useTriggerLock } from '$lib/operatorWriteRights'
-	import {
-		useOperatingWorkspace,
-		useOperatingUser,
-		useReadOnlyWorkspace
-	} from '$lib/components/operatingWorkspace.svelte'
-	const scheduleLock = useScheduleLock()
-	const triggerLock = useTriggerLock()
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import ItemAccessList from './itemSettings/ItemAccessList.svelte'
+	import ShareDialog, { type ShareKind } from './itemSettings/ShareDialog.svelte'
+
+	interface Props {
+		/** Where this is mounted, for the Share dialog's telemetry. */
+		source?: 'list' | 'detail' | 'home'
+	}
+
+	let { source = 'list' }: Props = $props()
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatingUser = useOperatingUser()
-	const readOnly = useReadOnlyWorkspace()
 
 	const dispatch = createEventDispatcher()
-
-	let restricted = $derived(
-		isDemoWorkspaceRestricted(
-			$operatingWorkspace,
-			operatingUser.current?.is_admin,
-			operatingUser.current?.is_super_admin
-		)
-	)
 
 	type Kind =
 		| 'script'
@@ -66,77 +41,17 @@
 		| 'amqp_trigger'
 		| 'email_trigger'
 		| 'volume'
-	// $state so the write lock below tracks whichever object the drawer was last opened on. The
-	// cast keeps TS from narrowing it to the initial value, which openDrawer always replaces.
+	// $state so the access list tracks whichever object the drawer was last opened on. The cast
+	// keeps TS from narrowing it to the initial value, which openDrawer always replaces.
 	let kind: Kind = $state('script' as Kind)
-
-	// Sharing a schedule or trigger is a write operators can lose. Gated here rather than at the
-	// dozen menu entries opening this drawer, so a new entry point is covered; reading stays open.
-	// Matched on the suffix, unlike the server (the real boundary, which lists kinds), so a
-	// trigger kind added later greys out here without a second edit.
-	let writeLock = $derived(
-		kind === 'schedule' ? $scheduleLock : kind.endsWith('_trigger') ? $triggerLock : undefined
-	)
-	let sharingDisabled = $derived(restricted || !!writeLock)
-
 	let path: string = $state('')
-
-	let ownerKind: 'user' | 'group' = $state('user')
-	let owner: string = $state('')
-
-	let newOwner: string = $derived.by(
-		() => owner && [ownerKind === 'group' ? 'g' : 'u', owner].join('/')
-	)
-	let write: boolean = false
-	let acls: [string, boolean][] = $state([])
-	let groups: String[] = $state([])
-	let usernames: string[] = $state([])
+	let isOwnerOverride: boolean | undefined = $state()
 
 	let drawer: Drawer | undefined = $state()
+	let shareDialog: ShareDialog | undefined = $state()
 
 	let linkedVarPaths: string[] = $state([])
 	let alsoApplyToLinked: boolean = $state(true)
-
-	let defaultPerms: { label: string; write: boolean }[] = $state([])
-	let defaultPermsLabel: string = $state('')
-
-	async function loadDefaultPerms() {
-		const currentPath = path
-		const parts = currentPath.split('/')
-		if (parts[0] === 'f' && parts.length >= 2) {
-			const folderName = parts[1]
-			defaultPermsLabel = `Folder f/${folderName} permissions`
-			try {
-				const folder: Folder = await FolderService.getFolder({
-					workspace: $operatingWorkspace!,
-					name: folderName
-				})
-				if (path !== currentPath) return
-				const perms: { label: string; write: boolean }[] = []
-				for (const owner of folder.owners) {
-					perms.push({ label: owner, write: true })
-				}
-				for (const [owner, write] of Object.entries(folder.extra_perms ?? {})) {
-					if (!folder.owners.includes(owner)) {
-						perms.push({ label: owner, write })
-					}
-				}
-				defaultPerms = perms
-			} catch {
-				if (path !== currentPath) return
-				defaultPerms = []
-			}
-		} else if (parts[0] === 'u' && parts.length >= 2) {
-			defaultPermsLabel = `User u/${parts[1]} permissions`
-			defaultPerms = [{ label: `u/${parts[1]}`, write: true }]
-		} else if (parts[0] === 'g' && parts.length >= 2) {
-			defaultPermsLabel = `Group g/${parts[1]} permissions`
-			defaultPerms = [{ label: `g/${parts[1]}`, write: true }]
-		} else {
-			defaultPerms = []
-			defaultPermsLabel = ''
-		}
-	}
 
 	function collectVarRefs(value: unknown): string[] {
 		const paths: string[] = []
@@ -172,228 +87,51 @@
 		}
 	}
 
-	let ownsItem = $state(false)
-	// A session can switch to Use while the drawer is open, so read-only is read live.
-	const own = $derived(ownsItem && !readOnly($operatingWorkspace))
-	export async function openDrawer(newPath: string, kind_l: Kind, isOwnerOverride?: boolean) {
+	const SHARE_DIALOG_KINDS: Kind[] = ['flow', 'script', 'app', 'raw_app']
+
+	export async function openDrawer(newPath: string, kind_l: Kind, isOwnerOverride_l?: boolean) {
+		if (SHARE_DIALOG_KINDS.includes(kind_l)) {
+			shareDialog?.openDialog(kind_l as ShareKind, newPath, { source })
+			return
+		}
 		path = newPath
 		kind = kind_l
+		isOwnerOverride = isOwnerOverride_l
 		alsoApplyToLinked = true
-		loadAcls()
-		loadGroups()
-		loadUsernames()
 		loadLinkedVarPaths()
-		loadDefaultPerms()
-		if (isOwnerOverride !== undefined) {
-			ownsItem = isOwnerOverride
-		} else {
-			loadOwner()
-		}
 		drawer?.openDrawer()
-	}
-
-	async function loadOwner() {
-		ownsItem = isOwner(path, operatingUser.current!, $operatingWorkspace!)
-	}
-
-	async function loadAcls() {
-		acls = Object.entries(
-			await GranularAclService.getGranularAcls({ workspace: $operatingWorkspace!, path, kind })
-		)
-	}
-
-	async function loadGroups(): Promise<void> {
-		groups = await GroupService.listGroupNames({ workspace: $operatingWorkspace! })
-	}
-
-	async function loadUsernames(): Promise<void> {
-		usernames = await UserService.listUsernames({ workspace: $operatingWorkspace! })
-	}
-
-	async function deleteAcl(owner: string) {
-		try {
-			await GranularAclService.removeGranularAcls({
-				workspace: $operatingWorkspace!,
-				path,
-				kind,
-				requestBody: { owner }
-			})
-			if (alsoApplyToLinked) {
-				for (const varPath of linkedVarPaths) {
-					try {
-						await GranularAclService.removeGranularAcls({
-							workspace: $operatingWorkspace!,
-							path: varPath,
-							kind: 'variable',
-							requestBody: { owner }
-						})
-					} catch (err) {
-						sendUserToast(`Failed to update variable ${varPath}: ${err}`, true)
-					}
-				}
-			}
-			loadAcls()
-			dispatch('change', { path, kind })
-		} catch (err) {
-			sendUserToast(err.toString(), true)
-		}
-	}
-
-	async function addAcl(owner: string, write: boolean) {
-		await GranularAclService.addGranularAcls({
-			workspace: $operatingWorkspace!,
-			path,
-			kind,
-			requestBody: { owner, write }
-		})
-		if (alsoApplyToLinked) {
-			for (const varPath of linkedVarPaths) {
-				try {
-					await GranularAclService.addGranularAcls({
-						workspace: $operatingWorkspace!,
-						path: varPath,
-						kind: 'variable',
-						requestBody: { owner, write }
-					})
-				} catch (err) {
-					sendUserToast(`Failed to update variable ${varPath}: ${err}`, true)
-				}
-			}
-		}
-		loadAcls()
-		dispatch('change', { path, kind })
 	}
 </script>
 
+<ShareDialog bind:this={shareDialog} onChange={() => dispatch('change', { path, kind })} />
+
 <Drawer bind:this={drawer}>
-	<DrawerContent title="Permissions for {path}" on:close={drawer?.closeDrawer}>
-		<div class="flex flex-col gap-4">
-			{#if defaultPerms.length > 0}
-				<div class="flex flex-col gap-1">
-					<span class="text-sm font-semibold text-emphasis">{defaultPermsLabel}</span>
-					{#each defaultPerms as perm (perm.label)}
-						<div class="flex items-center justify-between text-xs text-primary">
-							<span>{perm.label}</span>
-							<span class="text-tertiary">{perm.write ? 'Writer' : 'Viewer'}</span>
-						</div>
-					{/each}
+	<DrawerContent title="Share {path}" on:close={drawer?.closeDrawer}>
+		<!-- Full height, so a long access list scrolls inside the drawer under its own header. -->
+		<div class="flex flex-col gap-4 h-full">
+			{#if linkedVarPaths.length > 0}
+				<div class="flex flex-col gap-1.5 p-3 border rounded bg-surface-secondary text-xs">
+					<Toggle
+						size="xs"
+						bind:checked={alsoApplyToLinked}
+						options={{ right: 'Also apply to linked variables' }}
+					/>
+					<ul class="text-2xs text-secondary list-disc ml-4">
+						{#each linkedVarPaths as varPath (varPath)}
+							<li>{varPath}</li>
+						{/each}
+					</ul>
 				</div>
 			{/if}
-			<div class="flex flex-col gap-2">
-				<span class="text-sm font-semibold text-emphasis">Extra members ({acls?.length ?? 0})</span>
-				{#if linkedVarPaths.length > 0}
-					<div class="flex flex-col gap-1.5 p-3 border rounded bg-surface-secondary text-xs">
-						<Toggle
-							size="xs"
-							bind:checked={alsoApplyToLinked}
-							options={{ right: 'Also apply to linked variables' }}
-						/>
-						<ul class="text-2xs text-secondary list-disc ml-4">
-							{#each linkedVarPaths as varPath (varPath)}
-								<li>{varPath}</li>
-							{/each}
-						</ul>
-					</div>
-				{/if}
-				{#if !own}
-					{#if readOnly($operatingWorkspace)}
-						<Alert type="info" title="Use mode">
-							This session cannot change permissions while it is in Use mode.
-						</Alert>
-					{:else}
-						<Alert type="warning" title="Not owner"
-							>Since you do not own this item, you cannot modify its permission</Alert
-						>
-					{/if}
-				{/if}
-				<div>
-					{#if own && sharingDisabled}
-						<Alert type="info" title="Sharing disabled">
-							{writeLock ?? DEMO_RESTRICTION_HINT}
-						</Alert>
-					{:else if own}
-						<div class="flex flex-row flex-wrap gap-2 items-center">
-							<div>
-								<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (owner = '')}>
-									{#snippet children({ item })}
-										<ToggleButton value="user" label="User" {item} />
-										<ToggleButton value="group" label="Group" {item} />
-									{/snippet}
-								</ToggleButtonGroup>
-							</div>
-							{#key ownerKind}
-								<Select
-									items={safeSelectItems(
-										(ownerKind === 'user' ? usernames : groups).map((x) => x.toString())
-									)}
-									bind:value={owner}
-									class="grow min-w-48"
-								/>
-							{/key}
-							<Button
-								size="lg"
-								variant="accent"
-								disabled={!newOwner}
-								on:click={() => addAcl(newOwner, write)}>Add member</Button
-							>
-						</div>
-					{/if}
-					{#if acls?.length > 0}
-						<TableCustom>
-							{#snippet headerRow()}
-								<tr>
-									<th>member</th>
-									<th></th>
-									<th></th>
-								</tr>
-							{/snippet}
-							{#snippet body()}
-								<tbody>
-									{#each acls as [owner, write]}
-										<tr>
-											<td>{owner}</td>
-											<td
-												>{#if own && !sharingDisabled}
-													<div>
-														<ToggleButtonGroup
-															selected={write ? 'writer' : 'viewer'}
-															on:selected={async (e) => {
-																const role = e.detail
-																if (role == 'writer') {
-																	await addAcl(owner, true)
-																} else {
-																	await addAcl(owner, false)
-																}
-																loadAcls()
-															}}
-														>
-															{#snippet children({ item })}
-																<ToggleButton value="viewer" small label="Viewer" {item} />
-																<ToggleButton value="writer" small label="Writer" {item} />
-															{/snippet}
-														</ToggleButtonGroup>
-													</div>
-												{:else}{write ? 'Writer' : 'Viewer'}{/if}</td
-											>
-											<td>
-												{#if own && !writeLock}
-													<Button
-														variant="default"
-														destructive
-														size="xs"
-														on:click={() => deleteAcl(owner)}
-														startIcon={{ icon: Trash }}
-													/>
-												{/if}
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							{/snippet}
-						</TableCustom>
-					{/if}
-				</div>
-			</div>
-		</div></DrawerContent
-	>
+			{#key `${kind}:${path}`}
+				<ItemAccessList
+					{kind}
+					{path}
+					alsoApplyTo={alsoApplyToLinked ? linkedVarPaths : []}
+					{isOwnerOverride}
+					onChange={() => dispatch('change', { path, kind })}
+				/>
+			{/key}
+		</div>
+	</DrawerContent>
 </Drawer>
