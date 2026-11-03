@@ -952,6 +952,10 @@ pub struct AgentTool {
     /// message once it finishes. Only a flow module tool can run in the background.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub background: bool,
+    /// With `background` unset, the agent waits this many seconds for the tool's job, then is
+    /// answered as for a background tool. Flow module tools only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background_after_secs: Option<u32>,
     pub value: ToolValue,
 }
 

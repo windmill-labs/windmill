@@ -965,7 +965,7 @@ pub async fn handle_ai_agent_job(
     // description auto-derived from the underlying runnable when building tool definitions.
     let mut tool_descriptions: HashMap<String, String> = HashMap::new();
     // A nested agent cannot park to wait for one, so its background tools run like any other.
-    let mut background_tools: HashSet<String> = HashSet::new();
+    let mut background_tools: HashMap<String, u32> = HashMap::new();
     #[allow(unused_mut)]
     let mut mcp_configs: Vec<crate::ai::utils::McpResourceConfig> = Vec::new();
     let mut has_websearch = false;
@@ -1015,8 +1015,15 @@ pub async fn handle_ai_agent_job(
                 {
                     tool_descriptions.insert(tool.id.clone(), description.to_string());
                 }
-                if tool.background && direct_parent_job_kind != JobKind::AIAgent {
-                    background_tools.insert(tool.id.clone());
+                let background_after_secs = if tool.background {
+                    Some(0)
+                } else {
+                    tool.background_after_secs
+                };
+                if let Some(secs) = background_after_secs {
+                    if direct_parent_job_kind != JobKind::AIAgent {
+                        background_tools.insert(tool.id.clone(), secs);
+                    }
                 }
                 if let Some(flow_module) = Option::<FlowModule>::from(&tool) {
                     windmill_modules.push(flow_module);
@@ -1040,7 +1047,7 @@ pub async fn handle_ai_agent_job(
         let job = job;
         let user_description = tool_descriptions.get(&t.id).cloned();
         let requires_approval = approval_required.contains(&t.id);
-        let background = background_tools.contains(&t.id);
+        let background_after_secs = background_tools.get(&t.id).copied();
         async move {
             let summary = flow_module_tool_name(t.summary.as_deref())?;
 
@@ -1179,7 +1186,7 @@ pub async fn handle_ai_agent_job(
                 module: Some(t),
                 mcp_source: None,
                 question_timeout_secs: None,
-                background,
+                background_after_secs,
             })
         }
     }))
@@ -3460,6 +3467,7 @@ mod tests {
                 job_token_scopes: None,
                 requires_approval: false,
                 background: false,
+                background_after_secs: None,
                 id: id.to_string(),
                 summary: None,
                 description: None,
@@ -3490,6 +3498,7 @@ mod tests {
                 job_token_scopes: None,
                 requires_approval: false,
                 background: false,
+                background_after_secs: None,
                 id: "m".to_string(),
                 summary: None,
                 description: None,
@@ -3540,6 +3549,7 @@ mod tests {
                 job_token_scopes: None,
                 requires_approval: false,
                 background: false,
+                background_after_secs: None,
                 id: id.to_string(),
                 summary: Some(summary.to_string()),
                 description: None,
@@ -3558,6 +3568,7 @@ mod tests {
                 job_token_scopes: None,
                 requires_approval: false,
                 background: false,
+                background_after_secs: None,
                 id: id.to_string(),
                 summary: Some(summary.to_string()),
                 description: None,
@@ -3573,6 +3584,7 @@ mod tests {
                 job_token_scopes: None,
                 requires_approval: false,
                 background: false,
+                background_after_secs: None,
                 id: id.to_string(),
                 summary: summary.map(str::to_string),
                 description: None,

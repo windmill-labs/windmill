@@ -507,7 +507,7 @@ fn convert_mcp_tools_to_windmill_tools(
                 }),
                 requires_approval: false,
                 question_timeout_secs: None,
-                background: false,
+                background_after_secs: None,
             })
         })
         .collect()

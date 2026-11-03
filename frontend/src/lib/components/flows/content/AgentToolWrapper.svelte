@@ -67,6 +67,9 @@
 			() => tool.requires_approval, (v) => (tool.requires_approval = v || undefined)
 		}
 		bind:toolBackground={() => tool.background, (v) => (tool.background = v || undefined)}
+		bind:toolBackgroundAfterSecs={
+			() => tool.background_after_secs, (v) => (tool.background_after_secs = v)
+		}
 		{siblingToolNames}
 	/>
 {:else if isMcpTool(tool)}

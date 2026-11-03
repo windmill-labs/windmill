@@ -17,7 +17,11 @@ use mappable_rc::Marc;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::Json;
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use uuid::Uuid;
 use windmill_ai::{ai_types::OpenAIToolCall, query_builder::StreamEventSink, types::*};
 use windmill_common::jobs::JobPayload;
@@ -210,7 +214,7 @@ pub async fn execute_tool_calls(
                     final_events_str,
                 )
                 .await?;
-            } else if tool.module.is_some() && tool.background {
+            } else if tool.module.is_some() && tool.background_after_secs == Some(0) {
                 started.push(
                     start_background_tool(&mut ctx, tool_call, tool, actions, &mut messages)
                         .await?,
@@ -227,7 +231,7 @@ pub async fn execute_tool_calls(
                         t.def.function.name == next_call.function.name
                             && t.mcp_source.is_none()
                             && t.module.is_some()
-                            && !t.background
+                            && t.background_after_secs != Some(0)
                     }) else {
                         break;
                     };
@@ -236,8 +240,15 @@ pub async fn execute_tool_calls(
                     }
                     batch.push((calls.next().unwrap(), next_tool));
                 }
-                execute_windmill_tools(&mut ctx, &batch, actions, &mut messages, final_events_str)
-                    .await?;
+                execute_windmill_tools(
+                    &mut ctx,
+                    &batch,
+                    actions,
+                    &mut messages,
+                    &mut started,
+                    final_events_str,
+                )
+                .await?;
             } else {
                 return Err(Error::internal_err(format!(
                     "Tool type not supported: {}",
@@ -463,18 +474,45 @@ async fn start_background_tool(
     // is pulled.
     enqueue_windmill_tool(ctx, tool_call, tool, actions, job_id, false).await?;
     let action_index = actions.len() - 1;
-    if let Some(parent_job) = ctx.parent_job {
-        set_flow_status_module_action_success_at(ctx.db, parent_job, action_index, None).await?;
-    }
     let content = format!(
         "Started in the background as job {job_id}. Its result arrives in a later message: keep \
          working meanwhile, or finish your answer and you will continue once it is in."
     );
+    let row = format!("Started {} in the background", tool_call.function.name);
+    answer_in_background(
+        ctx,
+        tool_call,
+        tool,
+        actions,
+        messages,
+        job_id,
+        action_index,
+        content,
+        row,
+    )
+    .await
+}
+
+/// Answer a call whose job keeps running, and hand the job to the agent's background list.
+async fn answer_in_background(
+    ctx: &mut ToolExecutionContext<'_>,
+    tool_call: &OpenAIToolCall,
+    tool: &Tool,
+    actions: &[AgentAction],
+    messages: &mut Vec<OpenAIMessage>,
+    job_id: Uuid,
+    action_index: usize,
+    content: String,
+    row: String,
+) -> Result<BackgroundJob, Error> {
+    if let Some(parent_job) = ctx.parent_job {
+        set_flow_status_module_action_success_at(ctx.db, parent_job, action_index, None).await?;
+    }
     messages.push(OpenAIMessage {
         role: "tool".to_string(),
         content: Some(OpenAIContent::Text(content.clone())),
         tool_call_id: Some(tool_call.id.clone()),
-        agent_action: actions.last().cloned(),
+        agent_action: actions.get(action_index).cloned(),
         ..Default::default()
     });
     let extras = MessageExtras {
@@ -482,7 +520,6 @@ async fn start_background_tool(
         tool_result: Some(content),
         ..Default::default()
     };
-    let row = format!("Started {} in the background", tool_call.function.name);
     add_tool_message_to_chat(ctx, Some(job_id), &row, true, Some(extras)).await;
     Ok(BackgroundJob {
         call_id: tool_call.id.clone(),
@@ -1144,9 +1181,14 @@ async fn execute_windmill_tools(
     batch: &[(&OpenAIToolCall, &Tool)],
     actions: &mut Vec<AgentAction>,
     messages: &mut Vec<OpenAIMessage>,
+    started: &mut Vec<BackgroundJob>,
     final_events_str: &mut String,
 ) -> Result<(), Error> {
     let mut job_ids = Vec::with_capacity(batch.len());
+    let mut action_indexes = Vec::with_capacity(batch.len());
+    // When a call still running is answered as a background one. Such a job never runs in this
+    // worker's process, which could not release the worker while it runs: the agent may park.
+    let mut detach_at = Vec::with_capacity(batch.len());
     let mut local = None;
     for (index, (call, tool)) in batch.iter().enumerate() {
         if index > 0 {
@@ -1163,9 +1205,20 @@ async fn execute_windmill_tools(
             }
         }
         let job_id = ulid::Ulid::new().into();
-        let (id, reserved) =
-            enqueue_windmill_tool(ctx, call, tool, actions, job_id, index == 0).await?;
+        let detach_after = tool.background_after_secs;
+        let (id, reserved) = enqueue_windmill_tool(
+            ctx,
+            call,
+            tool,
+            actions,
+            job_id,
+            index == 0 && detach_after.is_none(),
+        )
+        .await?;
         job_ids.push(id);
+        action_indexes.push(actions.len() - 1);
+        detach_at
+            .push(detach_after.map(|secs| Instant::now() + Duration::from_secs(u64::from(secs))));
         if reserved {
             let job = get_mini_pulled_job(ctx.db, &id)
                 .await?
@@ -1244,10 +1297,36 @@ async fn execute_windmill_tools(
         // Transcript rows, model messages, and positional action statuses share call order.
         while next_result < batch.len() {
             let job_id = job_ids[next_result];
-            let Some((success, content)) = results.remove(&job_id) else {
-                break;
-            };
             let (call, tool) = batch[next_result];
+            let Some((success, content)) = results.remove(&job_id) else {
+                if !detach_at[next_result].is_some_and(|at| Instant::now() >= at) {
+                    break;
+                }
+                let secs = tool.background_after_secs.unwrap_or_default();
+                let content = format!(
+                    "Not finished after {secs}s, so it continues in the background as job \
+                     {job_id}. Its result arrives in a later message: keep working meanwhile, or \
+                     finish your answer and you will continue once it is in."
+                );
+                let row = format!("Moved {} to the background", call.function.name);
+                let action_index = action_indexes[next_result];
+                started.push(
+                    answer_in_background(
+                        ctx,
+                        call,
+                        tool,
+                        actions,
+                        messages,
+                        job_id,
+                        action_index,
+                        content,
+                        row,
+                    )
+                    .await?,
+                );
+                next_result += 1;
+                continue;
+            };
             let module = tool
                 .module
                 .as_ref()
@@ -1272,10 +1351,9 @@ async fn execute_windmill_tools(
         }
 
         if local.is_none() && next_result < batch.len() {
-            let pending: Vec<Uuid> = job_ids[next_result..]
-                .iter()
-                .filter(|id| !results.contains_key(id))
-                .copied()
+            let pending: Vec<Uuid> = (next_result..batch.len())
+                .filter(|&i| detach_at[i].is_none() && !results.contains_key(&job_ids[i]))
+                .map(|i| job_ids[i])
                 .collect();
             if !pending.is_empty() {
                 local = claim_local_tool(ctx, &pending).await?;
@@ -1469,7 +1547,7 @@ mod tests {
             mcp_source: None,
             requires_approval,
             question_timeout_secs: question.then_some(60),
-            background: false,
+            background_after_secs: None,
         };
         let call = |id: &str, name: &str| OpenAIToolCall {
             id: id.to_string(),

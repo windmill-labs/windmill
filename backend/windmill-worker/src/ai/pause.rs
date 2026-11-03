@@ -89,7 +89,7 @@ pub(crate) fn question_tool(timeout_secs: u32, existing: &[ToolDef]) -> Tool {
         mcp_source: None,
         requires_approval: false,
         question_timeout_secs: Some(timeout_secs),
-        background: false,
+        background_after_secs: None,
     }
 }
 

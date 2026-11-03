@@ -208,6 +208,11 @@ the background as job X"), and the agent keeps working. The job's result reaches
 a user message tagged with the call's `tool_call` action, since the call itself was already
 answered. Its outcome in `agent_actions_success` is `null` until then, set in place by position.
 
+With `background_after_secs: N` instead, the call is waited on like a foreground one, and still
+unfinished N seconds after it was queued it is answered the same way ("not finished after Ns") and
+continues in the background. Such a job never runs in the agent's own process, which could not release the worker
+while it ran, so it needs another worker free: with none, it only starts once the agent parks.
+
 - **Parking.** The loop checks for finished jobs before each model call. When the model answers
   with jobs still running, the agent parks like it does for an approval (`suspend = 1`, the same
   checkpoint table) instead of ending, with the jobs in the checkpoint row's `waiting_on`. The park

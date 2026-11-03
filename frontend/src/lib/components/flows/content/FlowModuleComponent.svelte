@@ -25,6 +25,9 @@
 	import { getFailureStepPropPicker, getStepPropPicker } from '../previousResults'
 	import { deepEqual } from 'fast-equals'
 	import Section from '$lib/components/Section.svelte'
+	import SecondsInput from '$lib/components/common/seconds/SecondsInput.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import FlowPathViewer from './FlowPathViewer.svelte'
@@ -138,6 +141,8 @@
 		toolRequiresApproval?: boolean
 		/** The tool's `background` setting; only an agent tool has one. */
 		toolBackground?: boolean
+		/** The tool's `background_after_secs` setting; only an agent tool has one. */
+		toolBackgroundAfterSecs?: number
 		siblingToolNames?: string[]
 	}
 
@@ -160,8 +165,19 @@
 		toolDescription = $bindable(undefined),
 		toolRequiresApproval = $bindable(),
 		toolBackground = $bindable(),
+		toolBackgroundAfterSecs = $bindable(),
 		siblingToolNames = undefined
 	}: Props = $props()
+
+	const DEFAULT_BACKGROUND_AFTER_SECS = 30
+	type BackgroundMode = 'never' | 'after' | 'always'
+	let backgroundMode: BackgroundMode = $derived(
+		toolBackground ? 'always' : toolBackgroundAfterSecs != undefined ? 'after' : 'never'
+	)
+	function setBackgroundMode(mode: BackgroundMode) {
+		toolBackground = mode === 'always'
+		toolBackgroundAfterSecs = mode === 'after' ? DEFAULT_BACKGROUND_AFTER_SECS : undefined
+	}
 
 	setAiDecisionStep({
 		get id() {
@@ -1159,7 +1175,7 @@
 										{#if isAgentTool}
 											<Tab value="tool_settings" label="Tool settings">
 												{#snippet extra()}
-													{#if toolRequiresApproval || toolBackground}
+													{#if toolRequiresApproval || backgroundMode !== 'never'}
 														<div class="flex flex-row items-center gap-1 text-secondary">
 															{#if toolRequiresApproval}
 																<Popover notClickable>
@@ -1167,10 +1183,12 @@
 																	{#snippet text()}Require approval · On{/snippet}
 																</Popover>
 															{/if}
-															{#if toolBackground}
+															{#if backgroundMode !== 'never'}
 																<Popover notClickable>
 																	<Hourglass size={12} />
-																	{#snippet text()}Run in background · On{/snippet}
+																	{#snippet text()}Run in background · {backgroundMode === 'always'
+																			? 'Always'
+																			: `After ${toolBackgroundAfterSecs}s`}{/snippet}
 																</Popover>
 															{/if}
 														</div>
@@ -1441,18 +1459,47 @@
 													}}
 												/>
 											</Section>
-											<Section label="Background">
-												<Toggle
-													size="xs"
-													textClass="text-xs font-normal text-primary"
-													disabled={noEditor}
-													bind:checked={() => toolBackground ?? false, (v) => (toolBackground = v)}
-													options={{
-														right: 'Run in background',
-														rightTooltip:
-															'The agent is answered as soon as the job starts and keeps working. The result reaches it in a later message. If it finishes its answer first, it waits for the result without holding a worker.'
-													}}
-												/>
+											<Section
+												label="Run in background"
+												tooltip="A call in the background answers the agent with its job id, and the agent keeps working. The result reaches it in a later message. If it finishes its answer first, it waits for the result without holding a worker."
+											>
+												<div class="flex flex-col gap-2">
+													<ToggleButtonGroup
+														disabled={noEditor}
+														selected={backgroundMode}
+														onSelected={setBackgroundMode}
+													>
+														{#snippet children({ item })}
+															<ToggleButton
+																value="never"
+																label="Never"
+																tooltip="The agent waits for the result."
+																{item}
+															/>
+															<ToggleButton
+																value="after"
+																label="After a delay"
+																tooltip="The agent waits for the result up to a delay, then the call continues in the background."
+																{item}
+															/>
+															<ToggleButton
+																value="always"
+																label="Always"
+																tooltip="The agent is answered as soon as the job starts."
+																{item}
+															/>
+														{/snippet}
+													</ToggleButtonGroup>
+													{#if backgroundMode === 'after'}
+														<SecondsInput
+															disabled={noEditor}
+															bind:seconds={
+																() => toolBackgroundAfterSecs ?? DEFAULT_BACKGROUND_AFTER_SECS,
+																(v) => (toolBackgroundAfterSecs = Math.max(1, v ?? 1))
+															}
+														/>
+													{/if}
+												</div>
 											</Section>
 										</div>
 									{:else if visibleSelected === 'advanced'}
