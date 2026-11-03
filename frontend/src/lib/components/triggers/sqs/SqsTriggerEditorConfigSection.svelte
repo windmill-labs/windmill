@@ -173,4 +173,3 @@
 		queue_url = '$var:' + path
 	}}
 />
-
