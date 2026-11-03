@@ -63,7 +63,8 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 		notify = false,
 		disabled = false,
 		actions,
-		children,
+		// Renamed: the menu's own `children` snippets below would shadow it.
+		children: items,
 		onClose
 	}: Props = $props()
 
@@ -219,7 +220,7 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 												</div>
 											{/if}
 											{@render actions?.({ inPopover: true, menu })}
-											{@render children(true, menu)}
+											{@render items(true, menu)}
 										</div>
 									{/snippet}
 								</Menu>
@@ -250,7 +251,7 @@ A fold is a layout the reader keeps, so reaching a folded section's items never 
 		</div>
 		{#if !isFolded}
 			<div transition:slide={{ duration: 180 }}>
-				{@render children(false, undefined)}
+				{@render items(false, undefined)}
 			</div>
 		{/if}
 	</div>
