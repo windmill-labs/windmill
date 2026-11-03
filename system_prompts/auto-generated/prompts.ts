@@ -1496,7 +1496,8 @@ On a node that materializes a DuckLake table, \`// measure <name> = <aggregate> 
 2. Write each node as its own script. Default to \`duckdb\` materializing into DuckLake (see "Default to DuckDB + DuckLake" above); pick \`postgresql\`, \`bun\`, or \`python3\` only when that section says the work calls for it.
 3. Start each body with \`// pipeline\`, then the \`// on\` input declarations, then the transform that writes the output.
 4. **Chain nodes by asset URI**: read an upstream node's output asset, then \`// on <that-same-uri>\` in the downstream node so the edge forms. Reuse exact asset paths from existing nodes rather than inventing parallel ones.
-5. Don't deploy nodes unless the user asks to. A pipeline only "runs" once its scripts are deployed and their triggers exist.
+5. Never guess the columns of a file or table you have not seen: read them first with a query that writes nothing, such as \`DESCRIBE SELECT * FROM read_csv('s3:///raw/orders/*.csv')\` or \`ATTACH 'ducklake://main' AS lake; DESCRIBE lake.orders\`, and use those exact column names. A test run of a node that materializes a table writes that table into the workspace's lake: test-run such a node only while its table does not exist yet, and ask before running one that would replace a table already there.
+6. Don't deploy nodes unless the user asks to. A pipeline only "runs" once its scripts are deployed and their triggers exist.
 
 ## Example (DuckDB → DuckLake, scheduled ingest + downstream transform)
 
@@ -1515,9 +1516,12 @@ Node \`f/sales/orders_daily\` (runs when \`orders\` is produced, writes a rollup
 -- pipeline
 -- on ducklake://main/orders
 -- materialize ducklake://main/orders_daily
+ATTACH 'ducklake://main' AS lake;
 SELECT date_trunc('day', ts) AS day, count(*) AS n
-FROM ducklake.main.orders GROUP BY 1
+FROM lake.orders GROUP BY 1
 \`\`\`
+
+A node reads a DuckLake table only through a lake it attaches itself (\`ATTACH 'ducklake://<name>' AS lake;\`, then \`lake.<table>\`); the materialize target is attached by the runtime under a name of its own, so \`ducklake.main.<table>\` does not resolve.
 `;
 
 export const DATATABLE_BASE = `# Data tables: schema changes, migrations and permissions

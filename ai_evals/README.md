@@ -198,6 +198,37 @@ that backend needs:
   hub's resource types into its workspace and waits until the resource type search sees them,
   which takes up to that interval (60 s by default).
 
+#### Running the pipeline a case built
+
+A case with `validate.pipelineRun` runs the data pipeline the chat drafted, once the chat is
+over. The harness deploys every pipeline node drafted under `f/<folder>/`, waits for the
+deployments, points each DuckLake at an empty catalog, runs the nodes that no other node
+feeds, and waits for the asset triggers to run the rest. Then it runs the case's `queries`
+(DuckDB, with the lake attached as `dl`) and checks their rows. A node that never ran fails
+its check, so a downstream node whose `on` wiring is wrong cannot pass on the tables the
+model's own test runs left behind. A node is started directly when no recorded read or
+trigger ties it to another node's output, which also happens when the asset parser records a
+read under another path than the write it matches; `maxRoots` caps how many nodes may start
+that way. The run's outcome is part of the drafts the judge reads.
+
+The fixture's `workspace.objectStorage` gives the workspace an S3 storage holding its
+`files`, and turns its `ducklakes` into catalogs on that storage. That needs more of the
+backend:
+
+- the `duckdb`, `parquet` and `private` cargo features, and the DuckDB runner
+  (`backend/windmill-duckdb-ffi-internal/build_dev.sh`). `private` provides the S3 proxy
+  DuckDB reaches the storage through. A CE build without a license key is enough;
+- an S3-compatible store with an existing bucket: `WMILL_AI_EVAL_S3_ENDPOINT` (e.g.
+  `http://localhost:9000`), `WMILL_AI_EVAL_S3_BUCKET` (default `evals`),
+  `WMILL_AI_EVAL_S3_ACCESS_KEY` / `WMILL_AI_EVAL_S3_SECRET_KEY` (default `minioadmin`) and
+  `WMILL_AI_EVAL_S3_REGION` (default `us-east-1`). Attempts share the bucket and seed the same
+  keys; each one's DuckLake data goes under `ai_evals_lakes/<workspace>/`, which nothing
+  deletes. MinIO, or `docker run -p 8333:8333 chrislusf/seaweedfs server -s3` (any key, and
+  `curl -X PUT localhost:8333/evals` creates the bucket), both work.
+
+Without `WMILL_AI_EVAL_S3_ENDPOINT` the run is skipped with a warning, and the case is
+checked on its drafts and judge alone.
+
 A fixture's `jobs` become completed preview runs with the given id, path, args, logs and
 outcome; `createdBy` is not reproduced. Its `resourceTypes` are created as workspace types,
 alongside whatever types the instance already holds; a fixture that sets none gets the types

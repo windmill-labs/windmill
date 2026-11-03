@@ -185,6 +185,11 @@ export interface BenchmarkWorkspaceRunnables {
 	datatables?: BenchmarkDatatableSeed[]
 	/** DuckLake catalog names, as `list_ducklakes` reports them. */
 	ducklakes?: string[]
+	/**
+	 * Workspace object storage, with these objects in it. It also makes `ducklakes` real
+	 * catalogs on that storage, so a pipeline can run against them (`validate.pipelineRun`).
+	 */
+	objectStorage?: { files?: Array<{ key: string; content: string }> }
 	dataMetrics?: DataMetric[]
 	jobs?: BenchmarkWorkspaceJob[]
 	/** The instance's workers. Unset falls through to the real backend's; `[]` is none. */

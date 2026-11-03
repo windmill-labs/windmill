@@ -25,6 +25,8 @@ import { resolveResourceTypeSync } from "../../../../../frontend/src/lib/compone
 import { appendPlanModeInstructions } from "../../../../../frontend/src/lib/components/copilot/chat/planMode";
 import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
 import { createEvalPlanTools } from "./planModeTools";
+import { createEvalPipelineEditors } from "./evalPipelineEditors";
+import { pipelineTools } from "../../../../../frontend/src/lib/components/copilot/chat/pipeline/core";
 import { UserDraft } from "../../../../../frontend/src/lib/userDraft.svelte";
 import { DraftService } from "$lib/gen";
 import {
@@ -36,7 +38,11 @@ import {
   type EvalPreviewPanel,
   type EvalPreviewTabFixture,
 } from "./evalPreviewTabs";
-import type { EvalCaseProfile, ModeRunContext } from "../../../../core/types";
+import type {
+  EvalCaseProfile,
+  ModeRunContext,
+  PipelineRunSpec,
+} from "../../../../core/types";
 import type { GlobalDraftState } from "../../../../core/validators";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
 import {
@@ -133,6 +139,8 @@ export interface GlobalEvalOptions {
   planMode?: boolean;
   // The user's rights, resolved as a session resolves them; unset keeps full access.
   profile?: EvalCaseProfile;
+  // Run the pipeline the chat drafted once it is over (`validate.pipelineRun`).
+  pipelineRun?: PipelineRunSpec;
   model?: string;
   maxIterations?: number;
   userAnswers?: string[];
@@ -203,11 +211,15 @@ export async function runGlobalEval(
         "This case sets runtime.profile, which only a session chat applies — set runtime.sessionChat: true on the case.",
       );
     }
+    const pipelineEditors = options.sessionChat
+      ? createEvalPipelineEditors(workspaceRoot)
+      : undefined;
     if (options.sessionChat) {
       panel = createEvalPreviewPanel({
         sessionId: evalArtifacts.sessionId,
         tabs: options.previewTabs ?? [],
         artifactIds: evalArtifacts.seededIds,
+        openPipeline: pipelineEditors!.open,
       });
     }
     const model = options.model ?? "claude-haiku-4-5-20251001";
@@ -222,14 +234,18 @@ export async function runGlobalEval(
       : undefined;
     // Pass the seeded identity straight to the prompt builder rather than mutating
     // the process-global `userStore`, so concurrent cases never race on it.
-    const baseSystemMessage = assembleGlobalSystemMessage(undefined, {
-      user: options.user,
-      previewTools: options.sessionChat ?? false,
-      access,
-      ...(heldInUse && {
-        sessionContext: { workspaceId: workspaceRoot, useMode: "role" as const },
-      }),
-    });
+    // Production adds the pipeline section and tools once a pipeline editor is open.
+    const assembleSystemMessage = () =>
+      assembleGlobalSystemMessage(undefined, {
+        user: options.user,
+        previewTools: options.sessionChat ?? false,
+        access,
+        ...(heldInUse && {
+          sessionContext: { workspaceId: workspaceRoot, useMode: "role" as const },
+        }),
+        pipelineFolders: pipelineEditors?.folders(),
+      });
+    const baseSystemMessage = assembleSystemMessage();
     const helpers = {
       ...evalArtifacts.helpers,
       // A standalone chat has no session: the tools that behave differently in one (a pipeline
@@ -237,21 +253,28 @@ export async function runGlobalEval(
       sessionId: options.sessionChat ? evalArtifacts.helpers.sessionId : undefined,
       access,
       ...(panel && { openArtifact: panel.openArtifact }),
+      ...pipelineEditors?.toolHelpers,
     };
+    const pipelineToolNames = new Set(pipelineTools.map((t) => t.def.function.name));
     const rawResult = await runEval({
       userPrompt,
       systemMessage: baseSystemMessage,
       // Re-derived per request, as production's getter is: the instructions have to leave
       // the prompt when the plan is approved, or the model is still told it may not build
       // while the gate has already opened.
-      getSystemMessage: planMode
-        ? () =>
-            planMode.isPlanModeActive()
-              ? appendPlanModeInstructions(baseSystemMessage, 0)
-              : baseSystemMessage
-        : undefined,
+      getSystemMessage:
+        planMode || pipelineEditors
+          ? () => {
+              const message = assembleSystemMessage();
+              return planMode?.isPlanModeActive()
+                ? appendPlanModeInstructions(message, 0)
+                : message;
+            }
+          : undefined,
       isPlanModeActive: planMode?.isPlanModeActive,
-      isToolAvailable: planMode?.isToolAvailable,
+      isToolAvailable: (name) =>
+        (!pipelineToolNames.has(name) || (pipelineEditors?.folders().length ?? 0) > 0) &&
+        (planMode?.isToolAvailable?.(name) ?? true),
       userMessage: prepareGlobalUserMessage(userPrompt, [], {
         ...(injectActiveEditorContext ? { workspace: workspaceRoot } : {}),
         activePreview: panel?.activePreview(),
@@ -262,14 +285,20 @@ export async function runGlobalEval(
           getGlobalEvalTools(options.sessionChat ?? false),
           access,
         ),
+        ...(pipelineEditors
+          ? filterSessionTools(pipelineTools as ProductionTool<{}>[], access)
+          : []),
         ...(planMode?.tools ?? []),
       ],
       helpers,
       apiKey,
-      getOutput: async () => ({
-        ...(await collectGlobalDraftState(workspaceRoot)),
-        artifacts: evalArtifacts.snapshot(),
-      }),
+      getOutput: async () => {
+        const state = await collectGlobalDraftState(workspaceRoot);
+        return {
+          drafts: [...state.drafts, ...(pipelineEditors?.drafts() ?? [])],
+          artifacts: evalArtifacts.snapshot(),
+        };
+      },
       onAssistantMessageStart: options.runContext?.onAssistantMessageStart,
       onAssistantToken: options.runContext?.onAssistantChunk,
       onAssistantMessageEnd: options.runContext?.onAssistantMessageEnd,
@@ -286,8 +315,21 @@ export async function runGlobalEval(
       },
     });
 
+    const state: GlobalDraftState = options.pipelineRun
+      ? {
+          ...rawResult.output,
+          pipelineRun: await realWorkspace.runPipeline(
+            options.pipelineRun,
+            rawResult.output.drafts,
+          ),
+        }
+      : rawResult.output;
+    if (state.pipelineRun?.skipped) {
+      console.warn(`[ai_evals] pipeline run skipped: ${state.pipelineRun.skipped}`);
+    }
+
     return {
-      state: rawResult.output,
+      state,
       success: rawResult.success,
       error: rawResult.error,
       assistantMessageCount: rawResult.iterations,

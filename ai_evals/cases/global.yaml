@@ -1989,6 +1989,102 @@
     - does not misuse `-- materialize` for the S3 Parquet export (materialize is DuckLake-only; the S3 output is written by the script body, e.g. a DuckDB COPY or an SDK write)
     - leaves all three nodes as AI drafts without deploying or saving
 
+- id: global-pipeline-run-orders-daily
+  prompt: |-
+    Our raw order exports land as CSV files under `raw/orders/` in the workspace
+    object storage. Build a data pipeline in the `shop` folder: one step that loads
+    all of them into a DuckLake table called `orders`, and a second step that builds
+    an `orders_daily` table with the number of orders and the total revenue for each
+    day. The daily table should rebuild by itself whenever `orders` is refreshed.
+    Keep everything as drafts, don't deploy.
+  initial: ai_evals/fixtures/frontend/global/initial/pipeline_orders_storage.json
+  runtime:
+    maxTurns: 16
+  validate:
+    draftCountAtLeast: 2
+    forbiddenDrafts:
+      - type: flow
+        pathStartsWith: f/shop/
+    # The harness deploys the drafted nodes, runs the ones nothing upstream feeds, and lets
+    # the asset triggers run the rest: the rollup only fills if its `on` wiring is right.
+    pipelineRun:
+      folder: shop
+      # Only the ingest starts the pipeline; the rollup has to be reached by its trigger.
+      maxRoots: 1
+      queries:
+        - name: orders holds every exported order
+          sql: SELECT count(*) AS n, sum(amount) AS revenue FROM dl.orders
+          includesValues: [6, 97.5]
+        - name: orders_daily has one row per day with its count and revenue
+          sql: SELECT * FROM dl.orders_daily
+          rowCount: 3
+          includesValues: [2, 25, 3, 32.5, 1, 40]
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    # Pipeline nodes are declarative: `-- on <ref>` binds inputs/triggers and
+    # `-- materialize ducklake://<table>` is a managed write whose body is a bare SELECT.
+    # A read of a DuckLake table inside a pipeline node also derives its trigger, so an
+    # explicit `-- on ducklake://main/orders` is good practice but not required.
+    - builds the pipeline as two pipeline-annotated scripts in f/shop (not a flow)
+    - the first step reads the CSV files under raw/orders/ from the workspace's default storage and materializes them into the DuckLake table `orders`
+    - the second step reads `orders` and materializes `orders_daily` with a per-day order count and revenue total
+    - the second step is wired to run when `orders` is produced
+    - leaves both as drafts without deploying
+
+- id: global-session-pipeline-run-orders-daily
+  prompt: |-
+    Our raw order exports land as CSV files under `raw/orders/` in the workspace
+    object storage. Build a data pipeline in the `shop` folder: one step that loads
+    all of them into a DuckLake table called `orders`, and a second step that builds
+    an `orders_daily` table with the number of orders and the total revenue for each
+    day. The daily table should rebuild by itself whenever `orders` is refreshed.
+    Don't deploy anything, I'll review it first.
+  initial: ai_evals/fixtures/frontend/global/initial/pipeline_orders_storage.json
+  runtime:
+    sessionChat: true
+    maxTurns: 18
+  validate:
+    draftCountAtLeast: 2
+    forbiddenDrafts:
+      - type: flow
+        pathStartsWith: f/shop/
+    pipelineRun:
+      folder: shop
+      maxRoots: 1
+      queries:
+        - name: orders holds every exported order
+          sql: SELECT count(*) AS n, sum(amount) AS revenue FROM dl.orders
+          includesValues: [6, 97.5]
+        - name: orders_daily has one row per day with its count and revenue
+          sql: SELECT * FROM dl.orders_daily
+          rowCount: 3
+          includesValues: [2, 25, 3, 32.5, 1, 40]
+  toolExpect:
+    # In a session, pipeline nodes are built in the folder's pipeline editor.
+    requiredToolsUsed:
+      - open_preview
+      - build_pipeline_node
+    forbiddenToolsUsed:
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    # Pipeline nodes are declarative: `-- on <ref>` binds inputs/triggers and
+    # `-- materialize ducklake://<table>` is a managed write whose body is a bare SELECT.
+    # A read of a DuckLake table inside a pipeline node also derives its trigger, so an
+    # explicit `-- on ducklake://main/orders` is good practice but not required.
+    - builds the pipeline as two pipeline nodes in f/shop (not a flow)
+    - the first node reads the CSV files under raw/orders/ from the workspace's default storage and materializes them into the DuckLake table `orders`
+    - the second node reads `orders` and materializes `orders_daily` with a per-day order count and revenue total
+    - the second node is wired to run when `orders` is produced
+    - leaves both as drafts without deploying
+
 - id: global-path5-create-folder-then-draft
   prompt: |-
     Create a new shared folder called "analytics" for our data work, then draft a

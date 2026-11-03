@@ -56,6 +56,9 @@ export function createGlobalModeRunner(
           sessionChat: context.evalCase?.runtime?.sessionChat,
           planMode: context.evalCase?.runtime?.planMode,
           profile: context.evalCase?.runtime?.profile,
+          pipelineRun: context.executionOnly
+            ? undefined
+            : (context.evalCase?.validate as GlobalValidationSpec | undefined)?.pipelineRun,
           maxIterations: context.evalCase?.runtime?.maxTurns,
           userAnswers: context.evalCase?.runtime?.userAnswers,
           provider: modelConfig.provider,
