@@ -5,6 +5,7 @@ import type {
 	PipelineTriggerDraft
 } from './types'
 import {
+	forScript,
 	mergeColumnLineage,
 	parsePipelineAnnotations,
 	scd2CurrentTargetPath,
@@ -574,7 +575,9 @@ function makeContext(input: ResolveGraphInput): ResolveContext {
 			// managed scd2 producer persists a second write to the `<dim>_current`
 			// companion view, so keep that too or a consumer of only the view
 			// orphans while the producer is open for editing.
-			const m = liveAnnotations.annotations.materialize
+			const m = liveAnnotations.scriptPath
+				? forScript(liveAnnotations.annotations, liveAnnotations.scriptPath).materialize
+				: liveAnnotations.annotations.materialize
 			if (m) {
 				liveRefKeys.add(`${m.targetKind}:${m.targetPath}`)
 				const currentPath = scd2CurrentTargetPath(m)
@@ -716,8 +719,8 @@ function seedDraftOverlays(acc: Accumulator, input: ResolveGraphInput) {
 		// to their pre-edit values until the user clicks away.
 		const parsed =
 			path === input.liveAnnotations.scriptPath
-				? input.liveAnnotations.annotations
-				: parsePipelineAnnotations(d.script.content)
+				? forScript(input.liveAnnotations.annotations, path)
+				: parsePipelineAnnotations(d.script.content, path)
 		// For the open script, fold in the WASM-inferred column lineage (DuckDB
 		// SQL AST) under the same annotation-wins precedence the backend applies
 		// on deploy, so the live preview matches what deploys. Only the open
@@ -915,7 +918,11 @@ function applyLiveBufferOverlay(acc: Accumulator, input: ResolveGraphInput, ctx:
 	if (input.liveBodyAssets.scriptPath === livePath) {
 		const reads = extractReads(input.liveBodyAssets.assets)
 		const writes = extractWrites(input.liveBodyAssets.assets)
-		for (const a of deriveAutoAssetTriggers(reads, writes, liveAnnotations.annotations)) {
+		for (const a of deriveAutoAssetTriggers(
+			reads,
+			writes,
+			forScript(liveAnnotations.annotations, livePath)
+		)) {
 			if (assetKeys.has(`${a.kind}:${a.path}`)) continue
 			extraTriggers.push({
 				trigger_kind: 'asset',
@@ -937,7 +944,7 @@ function applyLiveBufferOverlay(acc: Accumulator, input: ResolveGraphInput, ctx:
 	// the ones it now does. Without it, retargeting `// materialize` (or a body
 	// write/read) shows no output edge until the user clicks away.
 	if (!ctx.draftedPaths.has(livePath)) {
-		for (const out of materializeOuts(liveAnnotations.annotations)) {
+		for (const out of materializeOuts(forScript(liveAnnotations.annotations, livePath))) {
 			pushWriteOut(acc, livePath, out)
 		}
 		if (input.liveBodyAssets.scriptPath === livePath) {

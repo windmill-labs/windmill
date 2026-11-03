@@ -7,10 +7,9 @@ import type { ReviewChangesOpts } from './monaco-adapter'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
 import type { DisplayMessage } from './shared'
 import type { AttachedImage } from './imageUtils'
-import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import { AIChatManager, AIMode, AIAutonomyMode, aiChatManager } from './AIChatManager.svelte'
 import { AIWorkMode, USE_MODE_WITHDRAWN } from './workMode'
 import { makePasteToken } from './pasteTokens'
-import { chatState } from './sharedChatState.svelte'
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
 import { runChatLoop } from './chatLoop'
 import { clearWorkspaceRoleCache } from '$lib/user'
@@ -170,10 +169,6 @@ vi.mock('./chatLoop', async (importOriginal) => ({
 	runChatLoop: mocks.runChatLoop
 }))
 
-vi.mock('./global/gate', () => ({
-	isGlobalAiEnabled: () => true
-}))
-
 // Force BROWSER=true so localStorage-backed autonomy persistence is exercised
 // (the vitest "server" env reports BROWSER=false, which would short-circuit it).
 vi.mock('esm-env', async (importOriginal) => ({
@@ -182,9 +177,6 @@ vi.mock('esm-env', async (importOriginal) => ({
 }))
 
 beforeEach(() => {
-	// These managers stand in for a mounted docked chat; without a layout to set
-	// it, sendRequest's "nowhere to render this turn" guard would refuse every send.
-	chatState.dockedChatAvailable = true
 	vi.clearAllMocks()
 	mocks.getCurrentModel.mockReturnValue(undefined)
 	mocks.tryGetCurrentModel.mockReturnValue(undefined)
@@ -236,13 +228,11 @@ function createFlowHelpers({
 }
 
 describe('AIChatManager unmounted-chat guard', () => {
-	// AI Sessions leave the docked pane unmounted, so an entry point that still
-	// drives this manager would otherwise stream and apply tool calls off-screen.
-	it('drops the turn when no chat UI is mounted, unless it is a session chat', async () => {
-		chatState.dockedChatAvailable = false
-		const docked = new AIChatManager()
-		docked.instructions = 'do a thing'
-		await docked.sendRequest()
+	// Nothing renders the shared manager's chat, so an entry point that still drives it
+	// would otherwise stream and apply tool calls off-screen.
+	it('drops a turn on the shared manager, not on a session chat', async () => {
+		aiChatManager.instructions = 'do a thing'
+		await aiChatManager.sendRequest()
 		expect(mocks.runChatLoop).not.toHaveBeenCalled()
 
 		const session = new AIChatManager()

@@ -33,7 +33,9 @@ export function createGlobalModeRunner(
 ): ModeRunner<GlobalInitialFixture, GlobalDraftState, GlobalDraftState> {
   return {
     mode: "global",
-    concurrency: 3,
+    // Each attempt holds a workspace of its own, and CE allows two besides `admins`; a third
+    // attempt would wait for a slot, and the wait would count toward its duration.
+    concurrency: 2,
     judgeThreshold: 80,
     async loadInitial(path) {
       return path ? await loadGlobalInitialFixture(path) : undefined;
@@ -54,6 +56,9 @@ export function createGlobalModeRunner(
           sessionChat: context.evalCase?.runtime?.sessionChat,
           planMode: context.evalCase?.runtime?.planMode,
           profile: context.evalCase?.runtime?.profile,
+          pipelineRun: context.executionOnly
+            ? undefined
+            : (context.evalCase?.validate as GlobalValidationSpec | undefined)?.pipelineRun,
           maxIterations: context.evalCase?.runtime?.maxTurns,
           userAnswers: context.evalCase?.runtime?.userAnswers,
           provider: modelConfig.provider,

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path FROM variable WHERE path = ANY($1) AND workspace_id = $2 AND is_secret = true AND value NOT LIKE '$external:%'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6c9efac7fba0e3f2f34510bb6e2a1757af5286183faf888c7313f3a657705850"
+}

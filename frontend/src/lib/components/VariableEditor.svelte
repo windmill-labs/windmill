@@ -31,6 +31,7 @@
 	import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { isExternalRef } from '$lib/externalSecretRef'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -431,7 +432,8 @@
 		if (!isSecret || !selected || !existedInitially[selected]) return
 		const s = states[selected]?.draft
 		const ini = initialStates[selected]
-		if (!s || !ini?.variable.is_secret) return
+		// A reference was never loaded, and its baseline is what tells save() to replace it.
+		if (!s || !ini?.variable.is_secret || isExternalRef(ini.variable.value)) return
 		if (s.variable.value !== '' && s.variable.value !== ini.variable.value) return
 		s.variable.value = ''
 		ini.variable.value = ''
@@ -456,7 +458,13 @@
 						path: ini.path,
 						requestBody: {
 							path: ini.path != s.path ? s.path : undefined,
-							value: s.variable.value == '' ? undefined : s.variable.value,
+							// An empty value keeps the stored one, except when it replaces a
+							// reference: the reference is then dropped for the empty value.
+							value:
+								s.variable.value == '' &&
+								!(isExternalRef(ini.variable.value) && !isExternalRef(s.variable.value))
+									? undefined
+									: s.variable.value,
 							is_secret:
 								ini.variable.is_secret != s.variable.is_secret ? s.variable.is_secret : undefined,
 							description:
@@ -599,6 +607,9 @@
 						deployedSecret={!!selected &&
 							!!existedInitially[selected] &&
 							!!initialStates[selected]?.variable.is_secret}
+						deployedRef={!!selected &&
+							!!existedInitially[selected] &&
+							isExternalRef(initialStates[selected]?.variable.value ?? '')}
 						workspace={selected}
 						actingUser={acting.in(selected) ?? null}
 						oauthLinked={!!selected && !!oauthLinked[selected]}

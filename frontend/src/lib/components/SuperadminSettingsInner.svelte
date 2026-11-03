@@ -63,7 +63,6 @@
 	let {
 		closeDrawer,
 		showHeaderInfo = true,
-		disableChatOffset = false,
 		yamlMode = $bindable(false),
 		hasUnsavedChanges = $bindable(false),
 		hasAnyInvalid = $bindable(false)
@@ -333,7 +332,7 @@
 				     scrollbar in view rather than under hundreds of rows. -->
 				<div class={usersListShown ? 'h-full flex flex-col px-8 py-4' : 'h-fit px-8 py-4'}>
 					{#if tab === 'ai' && !yamlMode}
-						<InstanceAISettings {disableChatOffset} />
+						<InstanceAISettings />
 					{:else if tab === 'users' && !yamlMode}
 						<div class="flex-1 min-h-0 flex flex-col">
 							{#if !automateUsernameCreation && !isCloudHosted()}

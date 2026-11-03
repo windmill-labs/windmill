@@ -39,7 +39,6 @@ section or the flat layout.
 		getGlobalDraftStoragePath,
 		listGlobalDrafts
 	} from '$lib/components/copilot/chat/global/userDraftAdapter'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import type { PersistedArtifact } from '$lib/components/copilot/chat/artifacts/artifactsDB'
 	import {
 		PREVIEW_PAGES,
@@ -130,8 +129,8 @@ section or the flat layout.
 	// chat-scaffolded items are navigable (see WorkspaceItemDrillPicker).
 	const KIND_TO_DRAFT_TYPE = { flow: 'flow', script: 'script', app: 'app' } as const
 	const globalDraftsResource = resource(
-		() => ({ ws: effectiveWorkspace, enabled: isGlobalAiEnabled() }),
-		async ({ ws, enabled }) => (enabled && ws ? await listGlobalDrafts(ws) : [])
+		() => effectiveWorkspace,
+		async (ws) => (ws ? await listGlobalDrafts(ws) : [])
 	)
 	function aiDraftsForKind(k: Kind): WorkspaceItem[] {
 		const targetType = KIND_TO_DRAFT_TYPE[k]

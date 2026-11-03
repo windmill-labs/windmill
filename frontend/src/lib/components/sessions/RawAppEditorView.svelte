@@ -31,6 +31,7 @@
 	} from '$lib/components/raw_apps/utils'
 	import type { RawAppDomRequester } from '$lib/components/raw_apps/rawAppDom'
 	import type { InspectorElementInfo } from '$lib/components/copilot/chat/app/core'
+	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 
 	let {
 		runtime,
@@ -39,7 +40,8 @@
 		onNavigate,
 		isActiveSession = true,
 		active = true,
-		newRawApp = false
+		newRawApp = false,
+		fullscreen = false
 	}: {
 		runtime: SessionRuntime
 		path: string
@@ -52,7 +54,33 @@
 		active?: boolean
 		/** The tab was opened on an app the new-app builder just started. */
 		newRawApp?: boolean
+		/** Preview panel is in full screen. */
+		fullscreen?: boolean
 	} = $props()
+
+	// The side panel leaves little room for the file sidebar, full screen leaves plenty:
+	// each keeps its own sidebar and split preferences, the sidebar open by default only
+	// in full screen.
+	const panelSidebarCollapsed = useLocalStorageValue(
+		'raw-app-sidebar-collapsed-preview',
+		true,
+		'boolean'
+	)
+	const fullscreenSidebarCollapsed = useLocalStorageValue(
+		'raw-app-sidebar-collapsed-preview-fullscreen',
+		false,
+		'boolean'
+	)
+	const panelSplitWithPreview = useLocalStorageValue(
+		'raw-app-split-with-preview-preview',
+		false,
+		'boolean'
+	)
+	const fullscreenSplitWithPreview = useLocalStorageValue(
+		'raw-app-split-with-preview-preview-fullscreen',
+		false,
+		'boolean'
+	)
 
 	// This tab's own raw-app cell; each open app editor binds its own store.
 	const cell = $derived(runtime.rawAppCell(path))
@@ -398,8 +426,8 @@
 				condensedHeader={true}
 				onResetToDeployed={reloadDeployed}
 				onDeploy={(e) => runtime.itemDeployed(workspaceId, 'raw_app', path, e.path)}
-				defaultSidebarCollapsed
-				sidebarStorageKey="raw-app-sidebar-collapsed-preview"
+				sidebarCollapsedState={fullscreen ? fullscreenSidebarCollapsed : panelSidebarCollapsed}
+				splitWithPreviewState={fullscreen ? fullscreenSplitWithPreview : panelSplitWithPreview}
 				defaultSplitWithPreview={false}
 				onRuntimeLogRequester={registerRuntimeLogRequester}
 				onRunsProvider={registerRunsProvider}
