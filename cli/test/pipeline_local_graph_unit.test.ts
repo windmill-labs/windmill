@@ -7,6 +7,7 @@ import {
   buildLocalPipelineGraph,
   hideDbtRunnables,
   parseMuteAnnotations,
+  recoverBareMaterialize,
   withDefaultTable,
 } from "../src/commands/pipeline/localGraph.ts";
 
@@ -111,6 +112,17 @@ test("empty / no-pipeline folder yields an empty graph", async () => {
       expect(graph.assets).toHaveLength(0);
     },
   );
+});
+
+test("recoverBareMaterialize reads the target-less forms the Rust parser accepts", () => {
+  expect(recoverBareMaterialize("-- pipeline\n-- materialize scd2 key=id\nSELECT 1")).toEqual({
+    target_kind: "ducklake",
+    target_path: "main",
+    unique_key: "id",
+    scd2: true,
+  });
+  expect(recoverBareMaterialize("-- materialize manual")).toBeUndefined();
+  expect(recoverBareMaterialize("-- materialize ducklake://main/x")).toBeUndefined();
 });
 
 test("a bare `-- materialize` producer writes the table named after it", async () => {

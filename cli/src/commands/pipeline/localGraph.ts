@@ -380,17 +380,11 @@ const MUTE_ASSET_PREFIXES: [string, string][] = [
   ["volume://", "volume"],
 ];
 
-// `// mute <asset>` / `// mute all` from the LEADING comment header, as
-// `<kind>:<path>` keys. Parsed locally because the pinned wasm asset parser
-// predates the mute annotations; mirrors the canonical parsers (Rust
-// `parse_pipeline_annotations`, frontend parsePipelineAnnotations.ts): any of
-// the three comment prefixes is accepted regardless of language, blank lines
-// are skipped, scanning stops at the first non-comment line, and `mute` must
-// be a complete word (`// muted for now` never matches).
 /**
- * A `materialize` header line naming no target (`-- materialize`, `-- materialize key=id`),
- * which wasm asset parsers older than the default-table rule drop. Mirrors the target
- * detection of Rust `parse_materialize_spec`; a line naming a target is left to the parser.
+ * A `materialize` header line naming no target (`-- materialize`, `-- materialize key=id`,
+ * `-- materialize scd2 key=id`), which wasm asset parsers older than the default-table rule
+ * drop. Mirrors Rust `parse_materialize_spec`; a line naming a target is left to the parser,
+ * and `manual` has to name one.
  */
 export function recoverBareMaterialize(content: string): ParsedMaterialize | undefined {
   for (const rawLine of content.split("\n")) {
@@ -402,25 +396,34 @@ export function recoverBareMaterialize(content: string): ParsedMaterialize | und
     else break;
     const m = rest.trim().match(/^materialize(?:\s+(.*))?$/);
     if (!m) continue;
-    const opts = (m[1] ?? "").trim();
-    const first = opts.split(/\s+/)[0] ?? "";
+    let tokens = (m[1] ?? "").split(/\s+/).filter((t) => t !== "");
+    if (tokens[0] === "manual") return undefined;
+    const scd2Keyword = tokens[0] === "scd2";
+    if (scd2Keyword) tokens = tokens.slice(1);
+    const first = tokens[0] ?? "";
     const namesTarget =
       first.includes("://") ||
       (first !== "" && first !== "append" && first !== "history" && !first.includes("="));
-    if (namesTarget || first === "manual" || first === "scd2") return undefined;
-    const tokens = opts.split(/\s+/).filter((t) => t !== "");
+    if (namesTarget) return undefined;
     const key = tokens.find((t) => t.startsWith("key="))?.slice("key=".length);
     return {
       target_kind: "ducklake",
       target_path: "main",
       ...(tokens.includes("append") ? { append: true } : {}),
       ...(key ? { unique_key: key } : {}),
-      ...(tokens.includes("history") ? { scd2: true } : {}),
+      ...(scd2Keyword || tokens.includes("history") ? { scd2: true } : {}),
     };
   }
   return undefined;
 }
 
+// `// mute <asset>` / `// mute all` from the LEADING comment header, as
+// `<kind>:<path>` keys. Parsed locally because the pinned wasm asset parser
+// predates the mute annotations; mirrors the canonical parsers (Rust
+// `parse_pipeline_annotations`, frontend parsePipelineAnnotations.ts): any of
+// the three comment prefixes is accepted regardless of language, blank lines
+// are skipped, scanning stops at the first non-comment line, and `mute` must
+// be a complete word (`// muted for now` never matches).
 export function parseMuteAnnotations(content: string): {
   muteAll: boolean;
   muted: Set<string>;
