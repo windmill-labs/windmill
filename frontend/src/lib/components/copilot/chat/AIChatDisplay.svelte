@@ -24,6 +24,7 @@
 		XIcon
 	} from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -638,6 +639,33 @@
 		if (!isComposerOverlay(e.target) && !asksForComposer(e.target)) closeComposer()
 	}
 
+	// The composer clears on a second Escape: the first only shows the hint, so a single
+	// stray press cannot throw a draft away. Any other key, a click in the composer or
+	// leaving it disarms it.
+	const CLEAR_ARM_MS = 2000
+	let clearArmed = $state(false)
+	let clearArmTimer: ReturnType<typeof setTimeout> | undefined
+	function disarmClear() {
+		clearTimeout(clearArmTimer)
+		clearArmed = false
+	}
+	function onComposerEscape(repeat: boolean) {
+		if (!aiChatInput?.hasClearableContent()) return false
+		// A held key is one press: its repeats must not count as the second.
+		if (repeat) return true
+		if (clearArmed) {
+			// Still armed if refused (an attachment still being read): the next press retries.
+			if (aiChatInput.clearDraft()) disarmClear()
+		} else {
+			clearArmed = true
+			clearArmTimer = setTimeout(disarmClear, CLEAR_ARM_MS)
+		}
+		return true
+	}
+	$effect(() => () => clearTimeout(clearArmTimer))
+	// Off once the draft is gone some other way, such as a send.
+	const clearHintShown = $derived(clearArmed && !!aiChatInput?.hasClearableContent())
+
 	// While the box plays its accent outline (app.css, `data-composer-flash`).
 	let flashing = $state(false)
 
@@ -1051,9 +1079,29 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		onfocusin={(e) => {
 			if (starterLayout && e.target instanceof HTMLTextAreaElement) composerOpened = true
 		}}
+		oninput={() => disarmClear()}
+		onpointerdown={() => disarmClear()}
+		onfocusout={(e) => {
+			if (!composerEl?.contains(e.relatedTarget as Node | null)) disarmClear()
+		}}
 		onkeydown={(e) => {
-			// A prevented Escape closed something inside first, such as the @-mention picker.
-			if (e.key !== 'Escape' || e.defaultPrevented) return
+			// A prevented Escape was handled inside, such as a running turn's stop. An IME
+			// cancel is the input method's.
+			if (e.key !== 'Escape') {
+				disarmClear()
+				return
+			}
+			if (e.defaultPrevented || e.isComposing) return
+			// The `@` and `/` pickers close on this press reaching `document` unprevented.
+			if (aiChatInput?.hasOpenPicker()) return
+			// The field's own presses only: a toolbar button keeps focus while the dialog it
+			// opened (assistant settings) closes on the same Escape.
+			if (e.target instanceof HTMLTextAreaElement && onComposerEscape(e.repeat)) {
+				// Kept from the panel or drawer around the chat, which would close on it.
+				e.preventDefault()
+				e.stopPropagation()
+				return
+			}
 			if (!starterLayout || !composerOpened) return
 			closeComposer()
 			if (aiChatInput?.isDraftEmpty() ?? true) (document.activeElement as HTMLElement)?.blur()
@@ -1128,6 +1176,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				collapsed={composerCollapsed}
 				chatIcon={starterLayout}
 				{onSent}
+				clearHint={!starterLayout && clearHintShown}
 			>
 				{#snippet collapsedControls()}
 					{#if chatHost.mode === AIMode.GLOBAL}
@@ -1481,7 +1530,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		<!-- Opens and closes with the box, so the page under it slides rather than jumps. -->
 		<div use:smoothHeight={{ enabled: starterLayout, key: composerCollapsed }}>
 			<div>
-				{#if starterLayout && starter && !disabled && !composerCollapsed && starter.suggestions.length > 0}
+				<!-- On Home the hint stands in for the suggestions, at their height. -->
+				{#if starterLayout && clearHintShown}
+					<div class="pt-2 h-9 flex items-center gap-1 text-xs text-hint" role="status">
+						Press <Kbd small>Esc</Kbd> again to clear
+					</div>
+				{:else if starterLayout && starter && !disabled && !composerCollapsed && starter.suggestions.length > 0}
 					<div class="pt-2">
 						<ComposerSuggestions
 							suggestions={starter.suggestions}
