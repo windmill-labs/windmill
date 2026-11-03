@@ -727,9 +727,11 @@ async fn record_connection_failure<T: Listener>(
 fn connection_alert_id<T: Listener>(
     listening_trigger: &ListeningTrigger<T::TriggerConfig>,
 ) -> String {
+    // A recovery acknowledges every alert with this id, whatever its workspace.
     format!(
-        "{}_trigger:{}",
+        "{}_trigger:{}:{}",
         T::TRIGGER_KIND.to_key(),
+        listening_trigger.workspace_id,
         listening_trigger.path
     )
 }
@@ -790,8 +792,14 @@ pub async fn listening<T: Listener>(
                             return;
                         }
                         if !stable {
+                            let status = loop_ping_status.read().await.clone();
+                            // A consumer that disabled its own trigger also stops early: that
+                            // is not a failed connection to count or alert on.
+                            if listener.update_ping_and_loop_ping_status(&db, &listening_trigger, loop_ping_status.clone(), status.clone()).await.is_none() {
+                                return;
+                            }
+                            let status = status.unwrap_or_else(|| "Consumer stopped".to_string());
                             let delay = reconnect_delay(RECONNECT_BASE_DELAY, failures + 1);
-                            let status = loop_ping_status.read().await.clone().unwrap_or_else(|| "Consumer stopped".to_string());
                             record_connection_failure::<T>(&db, &listening_trigger, &mut failures, delay, &status).await;
                             update_rw_lock(loop_ping_status.clone(), Some(format!("{status}. Reconnecting in {}s...", delay.as_secs()))).await;
                             tokio::time::sleep(delay).await;

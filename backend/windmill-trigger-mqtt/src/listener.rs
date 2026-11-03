@@ -132,10 +132,16 @@ fn convert_disconnect_packet_into_string(
     )
 }
 
-/// The broker answered the connection with a refusal (bad credentials, not authorized,
-/// unsupported protocol, rejected client id): retrying sends the same request.
-fn connection_refused(code: String) -> Error {
-    Error::BadConfig(format!("Connection refused by the broker: {}", code))
+/// A refusal for the client's own request (credentials, authorization, protocol, client
+/// id) fails the same way on every retry; one about the broker's state (unavailable,
+/// busy, over quota, moved) can clear up, e.g. while it restarts after an outage.
+fn connection_refused(code: impl std::fmt::Debug, server_side: bool) -> Error {
+    let message = format!("Connection refused by the broker: {:?}", code);
+    if server_side {
+        transient_error(message)
+    } else {
+        Error::BadConfig(message)
+    }
 }
 
 #[async_trait]
@@ -162,7 +168,20 @@ impl EventLoop for V5EventLoop {
         while start.elapsed() < CONNECTION_TIMEOUT {
             match self.poll().await.map_err(|err| match err {
                 rumqttc::v5::ConnectionError::ConnectionRefused(code) => {
-                    connection_refused(format!("{:?}", code))
+                    use rumqttc::v5::mqttbytes::v5::ConnectReturnCode::*;
+                    let server_side = matches!(
+                        code,
+                        ServiceUnavailable
+                            | ServerUnavailable
+                            | ServerBusy
+                            | QuotaExceeded
+                            | ConnectionRateExceeded
+                            | UseAnotherServer
+                            | ServerMoved
+                            | UnspecifiedError
+                            | ImplementationSpecificError
+                    );
+                    connection_refused(code, server_side)
                 }
                 err => to_anyhow(err).into(),
             })? {
@@ -198,7 +217,9 @@ impl EventLoop for V3EventLoop {
         while start.elapsed() < CONNECTION_TIMEOUT {
             match self.poll().await.map_err(|err| match err {
                 rumqttc::ConnectionError::ConnectionRefused(code) => {
-                    connection_refused(format!("{:?}", code))
+                    let server_side =
+                        matches!(code, rumqttc::ConnectReturnCode::ServiceUnavailable);
+                    connection_refused(code, server_side)
                 }
                 err => to_anyhow(err).into(),
             })? {
