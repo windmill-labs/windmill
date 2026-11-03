@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { Button, Skeleton } from '$lib/components/common'
-	import { ExternalLink, PanelRightClose } from 'lucide-svelte'
+	import { ExternalLink, ListFilter, PanelRightClose, Sparkles } from 'lucide-svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import RecentRunRow from './RecentRunRow.svelte'
 	import {
 		allRunsHref,
 		askAI,
 		canAskAI,
 		collisionPrefixes,
+		failedRunsHref,
 		itemKey,
 		totalLabel,
 		windowLabel,
@@ -29,6 +31,16 @@
 	// The failed count also holds runs an item has since recovered from; Ask AI attaches only
 	// the items still failing, so it shows only when there is one.
 	let failing = $derived(data?.items.filter((i) => i.status === 'failure') ?? [])
+	// Every item the failed count is made of, recovered ones included.
+	let failedItems = $derived(data?.items.filter((i) => i.failed_runs > 0) ?? [])
+	let onlyFailing = $state(false)
+	let failedMenuOpen = $state(false)
+	// The menu holding the toggle goes once the last failure is resolved: the filter must go with it.
+	let filtering = $derived(onlyFailing && failedItems.length > 0)
+	$effect(() => {
+		if (data && failedItems.length === 0) onlyFailing = false
+	})
+	let shownItems = $derived(filtering ? failedItems : (data?.items ?? []))
 	let windowText = $derived(data ? windowLabel(data.window_hours) : '')
 	let prefixes = $derived(data && !folder ? collisionPrefixes(data.items) : new Map())
 </script>
@@ -44,30 +56,79 @@
 			{/if}
 			{#if data}
 				<span
-					class="relative min-w-0 truncate text-xs font-normal text-hint wm-page-in"
+					class="flex items-baseline min-w-0 text-xs font-normal text-hint wm-page-in"
 					title="{windowText} · {totalLabel(data)} · {data.failed_runs} failed"
 				>
 					{#if data.failed_runs > 0}
-						<span class="group/failed relative">
-							<span class="text-red-600 dark:text-red-400">{data.failed_runs}</span> failed
-							{#if canAskAI() && failing.length > 0}
-								<button
-									class="absolute left-full top-1/2 -translate-y-1/2 ml-1 h-5 px-1.5 rounded text-[11px] font-medium text-ai bg-ai/10 hover:bg-ai/15 whitespace-nowrap opacity-0 pointer-events-none group-hover/failed:opacity-100 group-hover/failed:pointer-events-auto focus:opacity-100 focus:pointer-events-auto"
-									onclick={() =>
-										askAI(
-											{ kind: 'failing', items: failing },
-											'Investigate why these items are failing'
-										)}
-								>
-									Ask AI
-								</button>
-							{/if}
-						</span>
+						<!-- A popover rather than a hover-revealed button: its content stays open while the
+						     pointer travels to it, where a button beside the count vanished on the way. -->
+						<Popover
+							openOnHover
+							debounceDelay={140}
+							placement="bottom-start"
+							bind:isOpen={failedMenuOpen}
+							triggerAttrs={{ 'aria-label': `${data.failed_runs} failed runs` }}
+							class="shrink-0 -mx-1 px-1 rounded whitespace-nowrap hover:bg-surface-hover {filtering ||
+							failedMenuOpen
+								? 'bg-surface-hover'
+								: ''}"
+						>
+							{#snippet trigger()}
+								<span class="text-red-600 dark:text-red-400">{data.failed_runs}</span> failed
+							{/snippet}
+							{#snippet content()}
+								<div class="flex flex-col p-1 min-w-[200px] text-xs">
+									<!-- Items past the listed ones can hold the whole count: nothing to filter to. -->
+									{#if failedItems.length > 0}
+										<Button
+											variant="subtle"
+											unifiedSize="sm"
+											btnClasses="justify-start"
+											startIcon={{ icon: ListFilter }}
+											onclick={() => {
+												onlyFailing = !onlyFailing
+												failedMenuOpen = false
+											}}
+										>
+											{filtering ? 'Show all items' : `Show only failed (${failedItems.length})`}
+										</Button>
+									{/if}
+									{#if canAskAI() && failing.length > 0}
+										<Button
+											variant="subtle"
+											unifiedSize="sm"
+											btnClasses="justify-start text-ai hover:bg-ai/10"
+											startIcon={{ icon: Sparkles }}
+											onclick={() => {
+												failedMenuOpen = false
+												askAI(
+													{ kind: 'failing', items: failing },
+													'Investigate why these items are failing'
+												)
+											}}
+										>
+											Ask AI about {failing.length} failing item{failing.length === 1 ? '' : 's'}
+										</Button>
+									{/if}
+									<Button
+										variant="subtle"
+										unifiedSize="sm"
+										btnClasses="justify-start"
+										startIcon={{ icon: ExternalLink }}
+										href={failedRunsHref(folder, data.window_hours)}
+									>
+										View failed runs
+									</Button>
+								</div>
+							{/snippet}
+						</Popover>
 					{:else}
-						{totalLabel(data)}
+						<span class="truncate">{totalLabel(data)}</span>
 					{/if}
 					<!-- Room goes to the folder name first; the window stays in the tooltip. -->
-					<span class="max-[1180px]:hidden {folder ? 'hidden' : ''}"> · {windowText}</span>
+					<span class="truncate max-[1180px]:hidden {folder ? 'hidden' : ''}">
+						&nbsp;· {windowText}</span
+					>
 				</span>
 			{/if}
 		</h2>
@@ -102,7 +163,7 @@
 		{:else if data}
 			<!-- Fades in once, when the first read lands; refreshes update the rows in place. -->
 			<div class="wm-page-in">
-				{#each data.items as item (itemKey(item))}
+				{#each shownItems as item (itemKey(item))}
 					<RecentRunRow
 						{item}
 						now={runs.now}

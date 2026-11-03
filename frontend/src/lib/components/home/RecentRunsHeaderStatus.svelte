@@ -6,6 +6,7 @@
 	import {
 		allRunsHref,
 		askAI,
+		failedRunsHref,
 		canAskAI,
 		collisionPrefixes,
 		itemKey,
@@ -154,7 +155,7 @@
 					{/if}
 
 					<div
-						class="flex items-center gap-2 px-1.5 pb-1 {data
+						class="flex items-center gap-1 px-1.5 pb-1 whitespace-nowrap {data
 							? 'mt-1.5 pt-2 border-t border-border-light'
 							: 'pt-1'}"
 					>
@@ -165,6 +166,16 @@
 							All runs
 							<ExternalLink size={12} />
 						</a>
+						{#if data && data.failed_runs > 0}
+							<Button
+								variant="subtle"
+								unifiedSize="sm"
+								endIcon={{ icon: ExternalLink }}
+								href={failedRunsHref(folder, data.window_hours)}
+							>
+								Failed runs
+							</Button>
+						{/if}
 						{#if onShowPanel}
 							<div class="ml-auto">
 								<Button
