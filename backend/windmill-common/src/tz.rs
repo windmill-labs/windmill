@@ -3,7 +3,7 @@
 //! into the binary. chrono-tz compiles its rules in and is no longer updated, so zones
 //! that change their rules (British Columbia, Manitoba, ...) kept their old offsets.
 
-use std::{fmt, str::FromStr};
+use std::{fmt, str::FromStr, sync::LazyLock};
 
 use chrono::{FixedOffset, LocalResult, NaiveDate, NaiveDateTime, NaiveTime};
 use jiff::tz::{AmbiguousOffset, TimeZone};
@@ -29,8 +29,20 @@ impl FromStr for Tz {
     type Err = String;
 
     fn from_str(name: &str) -> Result<Self, Self::Err> {
-        jiff::tz::db()
+        Tz::lookup(jiff::tz::db(), name)
+    }
+}
+
+impl Tz {
+    fn lookup(system: &jiff::tz::TimeZoneDatabase, name: &str) -> Result<Self, String> {
+        // Debian (trixie onward) ships the backward-compatible names (`US/Eastern`,
+        // `Asia/Calcutta`, which browsers still report) in `tzdata-legacy`, which images
+        // rarely install, and jiff does not fall back on its own when a name is missing.
+        static BUNDLED: LazyLock<jiff::tz::TimeZoneDatabase> =
+            LazyLock::new(jiff::tz::TimeZoneDatabase::bundled);
+        system
             .get(name)
+            .or_else(|_| BUNDLED.get(name))
             .map(Tz)
             .map_err(|_| format!("'{name}' is not a valid timezone"))
     }
@@ -161,6 +173,15 @@ mod tests {
                 "{version}"
             );
         }
+    }
+
+    #[test]
+    fn names_missing_from_the_system_copy_resolve_from_the_bundled_one() {
+        let without_legacy_names = jiff::tz::TimeZoneDatabase::none();
+        for name in ["Asia/Calcutta", "US/Eastern", "Europe/Kiev", "EST5EDT"] {
+            assert!(Tz::lookup(&without_legacy_names, name).is_ok(), "{name}");
+        }
+        assert!(Tz::lookup(&without_legacy_names, "Not/AZone").is_err());
     }
 
     #[test]
