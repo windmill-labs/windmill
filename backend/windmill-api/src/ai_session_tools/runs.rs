@@ -8,7 +8,7 @@ use serde_json::{json, Map, Value};
 
 use super::chat::{Effect, RunPhase};
 use super::workspace::{
-    api_message, get_draft, infer_script_schema, load_flow, load_script, path_enc,
+    api_message, get_draft, infer_script_schema, load_flow, load_script_to_run, path_enc,
 };
 use super::{enc, js_head, js_len, js_tail, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult};
 
@@ -943,7 +943,7 @@ fn form_keys(schema: Option<&Value>) -> Vec<String> {
 }
 
 async fn resolve_test_script(ctx: &Ctx<'_>, path: &str) -> Result<Resolved, String> {
-    let script = load_script(ctx, path).await?;
+    let script = load_script_to_run(ctx, path).await?;
     Ok(Resolved {
         schema: script.schema,
         code: Some(script.content.clone()),
@@ -1643,7 +1643,7 @@ async fn resolve_step(ctx: &Ctx<'_>, path: &str, step_id: &str) -> Result<Resolv
                     )
                 }
                 _ => {
-                    let loaded = load_script(ctx, &target).await?;
+                    let loaded = load_script_to_run(ctx, &target).await?;
                     (loaded.content, loaded.language, loaded.schema)
                 }
             };

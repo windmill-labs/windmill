@@ -5,6 +5,7 @@ import { IsDocumentVisible, useInterval } from 'runed'
 import { persistedResource } from '$lib/persistedResource.svelte'
 import { homeComposerContext } from '$lib/components/sessions/homeComposerContext.svelte'
 import { runContextElement } from '$lib/components/copilot/chat/context'
+import { runsTimeframes } from '$lib/components/runs/timeframes'
 
 export type RecentRuns = ListRecentRunsResponse
 export type RecentRunItem = RecentRuns['items'][number]
@@ -127,6 +128,20 @@ export function runHref(id: string, workspace: string | undefined) {
 
 export function allRunsHref(folder: string | undefined) {
 	return folder ? `/runs?folder=${encodeURIComponent(folder)}` : '/runs'
+}
+
+/** The runs page over the runs the failed count is made of: unresolved failures of the window. */
+export function failedRunsHref(folder: string | undefined, windowHours: number) {
+	const params = new URLSearchParams({ status: 'failure', resolved: 'unresolved' })
+	if (folder) params.set('folder', folder)
+	// A preset timeframe stays relative to now, where a `min_ts` would freeze at render.
+	const timeframe = runsTimeframes.find((t) => {
+		const { minTs, maxTs } = t.computeMinMax()
+		const span = minTs && maxTs ? Date.parse(maxTs) - Date.parse(minTs) : NaN
+		return Math.abs(span - windowHours * 3600_000) < 1000
+	})
+	if (timeframe) params.set('timeframe', timeframe.label)
+	return `/runs?${params}`
 }
 
 export function windowLabel(hours: number) {

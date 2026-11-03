@@ -1019,7 +1019,7 @@
 			"type": "object",
 			"properties": {
 				"path": {
-					"description": "Workspace path of the script to test.",
+					"description": "Workspace path of the script to test, or a hub/<version>/<app>/<name> path from search_hub_scripts to try a hub script.",
 					"type": "string"
 				},
 				"args": {
