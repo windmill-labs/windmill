@@ -155,7 +155,7 @@
 					{/if}
 
 					<div
-						class="flex items-center gap-2 px-1.5 pb-1 {data
+						class="flex items-center gap-1 px-1.5 pb-1 whitespace-nowrap {data
 							? 'mt-1.5 pt-2 border-t border-border-light'
 							: 'pt-1'}"
 					>
@@ -167,13 +167,14 @@
 							<ExternalLink size={12} />
 						</a>
 						{#if data && data.failed_runs > 0}
-							<a
+							<Button
+								variant="subtle"
+								unifiedSize="sm"
+								endIcon={{ icon: ExternalLink }}
 								href={failedRunsHref(folder, data.window_hours)}
-								class="flex items-center gap-1.5 h-[26px] px-2 rounded-md text-secondary hover:bg-surface-secondary hover:text-primary"
 							>
 								Failed runs
-								<ExternalLink size={12} />
-							</a>
+							</Button>
 						{/if}
 						{#if onShowPanel}
 							<div class="ml-auto">
