@@ -244,81 +244,96 @@
 {#snippet forkAction()}
 	{@const total = comparison?.summary.total_diffs ?? 0}
 	{@const conflicts = comparison?.summary.conflicts ?? 0}
+	{@const status = loading
+		? 'loading'
+		: error
+			? 'error'
+			: showDraftsOnly
+				? 'drafts'
+				: total > 0
+					? 'drift'
+					: undefined}
 	<!-- What the comparison has to say is a mark beside the button, never instead of it: a fork
 	     still being counted, or one whose count failed, is exactly when a reader wants the page
 	     that does the counting properly. The button below renders in every state. -->
-	{#if loading}
-		<span class="text-2xs text-tertiary">Checking for changes…</span>
-	{:else if error}
-		<span class="text-2xs text-red-600 dark:text-red-400" title={error}>Comparison failed</span>
-	{:else if showDraftsOnly}
-		<Badge color="blue" small>
-			{draftCount} draft{draftCount !== 1 ? 's' : ''}
-		</Badge>
-	{:else if total > 0}
-		<!-- Which way the drift goes is the thing to know at a glance: ahead is what this fork has
-		     to give its parent, behind is what it has yet to take. -->
-		<!-- The colours and the icons the compare page gives these three, so the counts in the bar
-		     and the rows behind the button say the same thing the same way. -->
-		{#if changesAhead > 0}
-			<Badge
-				color="green"
-				small
-				clickable
-				onclick={() => openCompareDir('deploy_to')}
-				title="{changesAhead} ahead of {parentWorkspaceId} — review what this {currentNoun} has to give"
-			>
-				<ArrowUp class="w-3 h-3 inline" />
-				{changesAhead}{compactCounts ? '' : ' ahead'}
-			</Badge>
-		{/if}
-		{#if changesBehind > 0}
-			<Badge
-				color="blue"
-				small
-				clickable
-				onclick={() => openCompareDir('update')}
-				title="{changesBehind} behind {parentWorkspaceId} — review what this {currentNoun} has yet to take"
-			>
-				<ArrowDown class="w-3 h-3 inline" />
-				{changesBehind}{compactCounts ? '' : ' behind'}
-			</Badge>
-		{/if}
-		{#if conflicts > 0}
-			<!-- A conflict is ahead and behind at once, so it has no direction of its own; it opens
-			     the side the reader resolves it from before deploying. -->
-			<Badge
-				color="orange"
-				small
-				clickable
-				onclick={() => openCompareDir('deploy_to')}
-				title="{conflicts} conflicting item{conflicts !== 1 ? 's' : ''} — review them"
-			>
-				<AlertTriangle class="w-3 h-3 inline" />
-				{conflicts}{compactCounts ? '' : ` conflict${conflicts !== 1 ? 's' : ''}`}
-			</Badge>
-		{/if}
-		<!-- Drafts are a different axis from the drift beside them: ahead and behind count deployed
-		     items against the parent, this counts work in this fork that is not deployed anywhere
-		     yet. It shares blue with "behind" and is told apart by the pencil and by naming what it
-		     counts, rather than by an arrow that would read as a third direction. Clicking goes to
-		     the drafts half of the compare page rather than the drawer the button opens. It shows at
-		     every drift — a fork both behind and holding drafts said nothing about the drafts. -->
-		{#if draftCount > 0}
-			<Badge
-				color="blue"
-				small
-				clickable
-				onclick={openDraftCompare}
-				title="{draftCount} draft{draftCount !== 1
-					? 's'
-					: ''} in this {currentNoun}, not deployed anywhere yet — review and deploy"
-			>
-				<Pencil class="w-3 h-3 inline" />
-				{draftCount}{compactCounts ? '' : ` draft${draftCount !== 1 ? 's' : ''}`}
-			</Badge>
-		{/if}
-	{/if}
+	<!-- Keyed on what it says, so each answer the comparison lands with fades in rather than
+	     popping into a bar that is already showing. -->
+	{#key status}
+		<span class="flex items-center gap-2 wm-page-in" class:hidden={!status}>
+			{#if loading}
+				<span class="text-2xs text-tertiary">Checking for changes…</span>
+			{:else if error}
+				<span class="text-2xs text-red-600 dark:text-red-400" title={error}>Comparison failed</span>
+			{:else if showDraftsOnly}
+				<Badge color="blue" small>
+					{draftCount} draft{draftCount !== 1 ? 's' : ''}
+				</Badge>
+			{:else if total > 0}
+				<!-- Which way the drift goes is the thing to know at a glance: ahead is what this fork has
+				     to give its parent, behind is what it has yet to take. -->
+				<!-- The colours and the icons the compare page gives these three, so the counts in the bar
+				     and the rows behind the button say the same thing the same way. -->
+				{#if changesAhead > 0}
+					<Badge
+						color="green"
+						small
+						clickable
+						onclick={() => openCompareDir('deploy_to')}
+						title="{changesAhead} ahead of {parentWorkspaceId} — review what this {currentNoun} has to give"
+					>
+						<ArrowUp class="w-3 h-3 inline" />
+						{changesAhead}{compactCounts ? '' : ' ahead'}
+					</Badge>
+				{/if}
+				{#if changesBehind > 0}
+					<Badge
+						color="blue"
+						small
+						clickable
+						onclick={() => openCompareDir('update')}
+						title="{changesBehind} behind {parentWorkspaceId} — review what this {currentNoun} has yet to take"
+					>
+						<ArrowDown class="w-3 h-3 inline" />
+						{changesBehind}{compactCounts ? '' : ' behind'}
+					</Badge>
+				{/if}
+				{#if conflicts > 0}
+					<!-- A conflict is ahead and behind at once, so it has no direction of its own; it opens
+					     the side the reader resolves it from before deploying. -->
+					<Badge
+						color="orange"
+						small
+						clickable
+						onclick={() => openCompareDir('deploy_to')}
+						title="{conflicts} conflicting item{conflicts !== 1 ? 's' : ''} — review them"
+					>
+						<AlertTriangle class="w-3 h-3 inline" />
+						{conflicts}{compactCounts ? '' : ` conflict${conflicts !== 1 ? 's' : ''}`}
+					</Badge>
+				{/if}
+				<!-- Drafts are a different axis from the drift beside them: ahead and behind count deployed
+				     items against the parent, this counts work in this fork that is not deployed anywhere
+				     yet. It shares blue with "behind" and is told apart by the pencil and by naming what it
+				     counts, rather than by an arrow that would read as a third direction. Clicking goes to
+				     the drafts half of the compare page rather than the drawer the button opens. It shows at
+				     every drift — a fork both behind and holding drafts said nothing about the drafts. -->
+				{#if draftCount > 0}
+					<Badge
+						color="blue"
+						small
+						clickable
+						onclick={openDraftCompare}
+						title="{draftCount} draft{draftCount !== 1
+							? 's'
+							: ''} in this {currentNoun}, not deployed anywhere yet — review and deploy"
+					>
+						<Pencil class="w-3 h-3 inline" />
+						{draftCount}{compactCounts ? '' : ` draft${draftCount !== 1 ? 's' : ''}`}
+					</Badge>
+				{/if}
+			{/if}
+		</span>
+	{/key}
 	{#if showDraftsOnly}
 		<Button
 			variant="subtle"

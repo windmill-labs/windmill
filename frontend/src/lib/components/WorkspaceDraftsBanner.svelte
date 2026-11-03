@@ -55,6 +55,7 @@
 	     the bar has room for one thing. -->
 	{#if phone}
 		<Button
+			btnClasses="wm-page-in"
 			variant="subtle"
 			unifiedSize="sm"
 			onclick={openDraftCompare}
@@ -63,11 +64,14 @@
 			<Badge color="blue" small>{draftCount}</Badge>
 		</Button>
 	{:else}
-		<Badge color="blue" small>
-			{draftCount} draft{draftCount !== 1 ? 's' : ''}
-		</Badge>
-		<Button variant="subtle" unifiedSize="sm" onclick={openDraftCompare}>
-			Review & deploy drafts
-		</Button>
+		<!-- Fades in: the count lands after the bar it joins has already painted. -->
+		<span class="flex items-center gap-2 wm-page-in">
+			<Badge color="blue" small>
+				{draftCount} draft{draftCount !== 1 ? 's' : ''}
+			</Badge>
+			<Button variant="subtle" unifiedSize="sm" onclick={openDraftCompare}>
+				Review & deploy drafts
+			</Button>
+		</span>
 	{/if}
 {/snippet}
