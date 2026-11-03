@@ -19,7 +19,13 @@
 					{ displayName: 'Pick another variable', action: actions.pickVariable },
 					{ displayName: 'Edit fields instead', action: actions.editFields }
 				]
-			: [{ displayName: 'Whole value from a variable', action: actions.pickVariable }]
+			: [
+					{
+						displayName: 'Whole value from a variable',
+						description: "The variable's content is parsed as JSON",
+						action: actions.pickVariable
+					}
+				]
 	}
 </script>
 
