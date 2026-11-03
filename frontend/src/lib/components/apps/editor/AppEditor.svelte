@@ -39,9 +39,7 @@
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
 
-	import ItemPicker from '$lib/components/ItemPicker.svelte'
-	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import { VariableService } from '$lib/gen'
+	import VariablePicker from '$lib/components/VariablePicker.svelte'
 	import { initHistory } from '$lib/history.svelte'
 	import { Component, Minus, Paintbrush, Plus, Smartphone, Scan, Hand, Grab } from 'lucide-svelte'
 	import { animateTo, findGridItemParentGrid } from './appUtils'
@@ -340,9 +338,7 @@
 		}
 	}
 
-	let itemPicker: ItemPicker | undefined = $state(undefined)
-
-	let variableEditor: VariableEditor | undefined = $state(undefined)
+	let variablePicker: VariablePicker | undefined = $state(undefined)
 
 	setContext<ContextPanelContext>('ContextPanel', {
 		search: writable<string>(''),
@@ -819,7 +815,7 @@
 	})
 	$effect(() => {
 		if ($pickVariableCallback) {
-			itemPicker?.openDrawer()
+			variablePicker?.openDrawer()
 		}
 	})
 	// Animation logic for cssInput
@@ -1299,38 +1295,7 @@
 	App editor not available to operators
 {/if}
 
-<ItemPicker
-	bind:this={itemPicker}
-	pickCallback={(path, _) => {
-		$pickVariableCallback?.(path)
-	}}
-	itemName="Variable"
-	extraField="path"
-	loadItems={async () =>
-		(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
-			name: x.path,
-			...x
-		}))}
->
-	{#snippet submission()}
-		<div
-			class="flex flex-row-reverse w-full bg-surface border-t border-gray-200 rounded-bl-lg rounded-br-lg"
-		>
-			<Button
-				variant="default"
-				size="sm"
-				startIcon={{ icon: Plus }}
-				on:click={() => {
-					variableEditor?.initNew?.()
-				}}
-			>
-				New variable
-			</Button>
-		</div>
-	{/snippet}
-</ItemPicker>
-
-<VariableEditor bind:this={variableEditor} />
+<VariablePicker bind:this={variablePicker} onPick={(path) => $pickVariableCallback?.(path)} />
 
 <style global>
 	#o1 > .splitpanes__pane {
