@@ -139,6 +139,7 @@
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import CreateWorkspaceInner from '$lib/components/workspaceSettings/CreateWorkspaceInner.svelte'
 	import { recordForkParent, rememberForkParent } from '$lib/forkParentMemory'
+	import { homeSnapshotShown } from '$lib/homeSnapshot'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -610,8 +611,9 @@
 	}
 
 	// Set once the user docks or detaches, so the rail that mounts from then on skips its
-	// app-entry animation (`wm-sidebar-in`) and only plays `railMorph`.
-	let dockToggled = $state(false)
+	// app-entry animation (`wm-sidebar-in`) and only plays `railMorph`. Also set when the rail
+	// replaces the one in Home's snapshot (homeSnapshot.ts), which is already on screen.
+	let dockToggled = $state(homeSnapshotShown())
 	function setDetached(detached: boolean) {
 		dockToggled = true
 		menuOpen = false
