@@ -678,8 +678,27 @@
 					? 'icons'
 					: 'expanded'
 	}
-	function sidebarModeItems(): Item[] {
+	function sidebarModeItems(withModes = true): Item[] {
 		const mode = currentSidebarMode()
+		const customize: Item = {
+			sectionTitle: withModes ? undefined : 'Sidebar',
+			displayName: 'Customize',
+			submenuItems: [
+				{
+					displayName: 'Favorites section',
+					icon: Star,
+					toggle: sidebarPrefs.favorites.val,
+					action: () => (sidebarPrefs.favorites.val = !sidebarPrefs.favorites.val)
+				},
+				{
+					displayName: 'AI chats section',
+					icon: MessagesSquare,
+					toggle: sidebarPrefs.aiChats.val,
+					action: () => (sidebarPrefs.aiChats.val = !sidebarPrefs.aiChats.val)
+				}
+			]
+		}
+		if (!withModes) return [customize]
 		return [
 			{
 				sectionTitle: 'Sidebar',
@@ -705,26 +724,10 @@
 				selected: mode === 'hidden',
 				action: () => setSidebarMode('hidden')
 			},
-			{
-				displayName: 'Customize',
-				submenuItems: [
-					{
-						displayName: 'Favorites section',
-						icon: Star,
-						toggle: sidebarPrefs.favorites.val,
-						action: () => (sidebarPrefs.favorites.val = !sidebarPrefs.favorites.val)
-					},
-					{
-						displayName: 'AI chats section',
-						icon: MessagesSquare,
-						toggle: sidebarPrefs.aiChats.val,
-						action: () => (sidebarPrefs.aiChats.val = !sidebarPrefs.aiChats.val)
-					}
-				]
-			}
+			customize
 		]
 	}
-	navHandleSlot.setModeItems(sidebarModeItems)
+	navHandleSlot.setModeItems(() => sidebarModeItems())
 	function setSidebarMode(mode: SidebarMode) {
 		if (mode !== currentSidebarMode()) navHandleSlot.flashModeButton()
 		// The collapse preference is one key for both roles, and only a developer's rail reads it:
@@ -1332,14 +1335,14 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 <!-- Windmill brand mark anchoring the sidebar bottom (the header slot is taken
      by the workspace picker). -->
 <!-- Operators get no "Icons only": their docked sidebar is always expanded. -->
-{#snippet sidebarModeMenu()}
+{#snippet sidebarModeMenu(withModes: boolean)}
 	<span class="relative inline-flex">
 		<ModeButtonFlash />
 		<DropdownV2
 			placement="top-start"
 			fixedHeight={false}
 			class={SIDEBAR_ICON_BUTTON}
-			items={sidebarModeItems()}
+			items={sidebarModeItems(withModes)}
 		>
 			{#snippet buttonReplacement()}
 				<PanelLeft size={16} class="flex-shrink-0 text-hint" />
@@ -1484,11 +1487,12 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			<SidebarUsage isCollapsed={collapsed} />
 		</div>
 
-		<!-- Below 768px the panel is the only shell there is, so there is no mode to pick. -->
+		<!-- Below 768px the panel is the only shell there is, so there is no mode to pick: the
+		     menu holds Customize alone. -->
 		<!-- Where the card slides in on hover, the handle that slides it in holds this menu too. -->
-		{#if !panel || (navDetached.val && innerWidth >= 768 && !hoverPointer)}
+		{#if !panel || innerWidth < 768 || (navDetached.val && !hoverPointer)}
 			<div class="flex-shrink-0 flex items-center h-8 px-2 mt-1 mb-3.5">
-				{@render sidebarModeMenu()}
+				{@render sidebarModeMenu(!panel || innerWidth >= 768)}
 			</div>
 		{:else if navDetached.val}
 			<!-- Without the footer the last row would sit on the card's bottom edge. -->
