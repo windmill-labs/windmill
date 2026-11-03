@@ -818,6 +818,10 @@
 	let downloadingRecording = $state(false)
 
 	let collab: MultiplayerConnection | undefined = $state(undefined)
+	// Bumped on every disable, so a connection that finishes opening after collaboration
+	// was turned off or the editor unmounted is dropped instead of reconnecting forever.
+	// Declared here because `?collab=1` calls setCollaborationMode during init, below.
+	let collabGeneration = 0
 	let yContent: Y.Text | undefined = $state(undefined)
 	let peers: { name: string }[] = $state([])
 	let showCollabPopup = $state(false)
@@ -1540,9 +1544,6 @@
 	}
 
 	setLicense()
-	// Bumped on every disable, so a connection that finishes opening after collaboration
-	// was turned off or the editor unmounted is dropped instead of reconnecting forever.
-	let collabGeneration = 0
 	export async function setCollaborationMode() {
 		const generation = ++collabGeneration
 		await setLicense()
