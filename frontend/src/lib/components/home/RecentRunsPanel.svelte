@@ -80,20 +80,25 @@
 								<div class="flex flex-col p-1 min-w-[200px] text-xs">
 									<!-- Items past the listed ones can hold the whole count: nothing to filter to. -->
 									{#if failedItems.length > 0}
-										<button
-											class="flex items-center gap-2 h-7 px-2 rounded-md text-primary hover:bg-surface-hover"
+										<Button
+											variant="subtle"
+											unifiedSize="sm"
+											btnClasses="justify-start"
+											startIcon={{ icon: ListFilter }}
 											onclick={() => {
 												onlyFailing = !onlyFailing
 												failedMenuOpen = false
 											}}
 										>
-											<ListFilter size={13} class="text-hint" />
 											{filtering ? 'Show all items' : `Show only failed (${failedItems.length})`}
-										</button>
+										</Button>
 									{/if}
 									{#if canAskAI() && failing.length > 0}
-										<button
-											class="flex items-center gap-2 h-7 px-2 rounded-md text-ai hover:bg-ai/10"
+										<Button
+											variant="subtle"
+											unifiedSize="sm"
+											btnClasses="justify-start text-ai hover:bg-ai/10"
+											startIcon={{ icon: Sparkles }}
 											onclick={() => {
 												failedMenuOpen = false
 												askAI(
@@ -102,17 +107,18 @@
 												)
 											}}
 										>
-											<Sparkles size={13} />
 											Ask AI about {failing.length} failing item{failing.length === 1 ? '' : 's'}
-										</button>
+										</Button>
 									{/if}
-									<a
+									<Button
+										variant="subtle"
+										unifiedSize="sm"
+										btnClasses="justify-start"
+										startIcon={{ icon: ExternalLink }}
 										href={failedRunsHref(folder, data.window_hours)}
-										class="flex items-center gap-2 h-7 px-2 rounded-md text-primary hover:bg-surface-hover"
 									>
-										<ExternalLink size={13} class="text-hint" />
 										View failed runs
-									</a>
+									</Button>
 								</div>
 							{/snippet}
 						</Popover>
