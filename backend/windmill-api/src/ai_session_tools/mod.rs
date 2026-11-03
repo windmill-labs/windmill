@@ -750,7 +750,7 @@ async fn call_generated_tool(
             _ => "is read-only",
         };
         return Err(CallRefused::NotAllowed(format!(
-            "Tool '{name}' changes or runs something, and this token {token}"
+            "Tool '{name}' changes or runs something, and this session {token}"
         )));
     }
     dispatch(ctx, name, args).await.ok_or_else(|| {

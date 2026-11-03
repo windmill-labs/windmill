@@ -275,9 +275,14 @@ fn generic_profile(access: SessionAccess) -> &'static str {
     }
 }
 
-/// What `generic_session_instructions` leaves out, for one workspace. A role that narrows the
-/// prompt gets its own in full, since its rules replace the general ones.
-pub(crate) async fn workspace_context(ctx: &Ctx<'_>, profile: &str) -> String {
+/// What `generic_session_instructions(token_access)` leaves out, for one workspace. A role or
+/// workspace that narrows the prompt gets its own in full, since its rules replace the general
+/// ones; `ctx.access` may be narrower than the token's.
+pub(crate) async fn workspace_context(
+    ctx: &Ctx<'_>,
+    profile: &str,
+    token_access: SessionAccess,
+) -> String {
     let username = ctx.auth.username();
     let header = format!(
         "Workspace `{}`. Your username here is \"{username}\", so your personal paths are \
@@ -285,7 +290,7 @@ pub(crate) async fn workspace_context(ctx: &Ctx<'_>, profile: &str) -> String {
         ctx.w_id
     );
     let prompt = prompt_for(profile);
-    let general = std::ptr::eq(prompt, prompt_for(generic_profile(ctx.access)));
+    let general = std::ptr::eq(prompt, prompt_for(generic_profile(token_access)));
     let body = if general {
         folder_guidance(ctx.auth, prompt).trim_end().to_string()
     } else {
