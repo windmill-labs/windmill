@@ -230,7 +230,7 @@ const createHTML = (jsPath: string, cssPath: string, appCtx: unknown) => `
       </div>
     </div>
   </div>
-  <script>window.ctx = ${JSON.stringify(appCtx).replace(/</g, "\\u003c")};</script>
+  <script>window.ctx = ${JSON.stringify(appCtx).replace(/</g, "\\u003c")}; window.ctx.query = Object.fromEntries(new URLSearchParams(location.search));</script>
   <script src="${jsPath}"></script>
   <script>
     // Live reload via EventSource
