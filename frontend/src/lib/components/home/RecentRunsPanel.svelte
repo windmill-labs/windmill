@@ -44,7 +44,7 @@
 			{/if}
 			{#if data}
 				<span
-					class="relative min-w-0 truncate text-xs font-normal text-hint"
+					class="relative min-w-0 truncate text-xs font-normal text-hint wm-page-in"
 					title="{windowText} · {totalLabel(data)} · {data.failed_runs} failed"
 				>
 					{#if data.failed_runs > 0}
@@ -92,18 +92,26 @@
 	<div class="flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-2.5">
 		{#if !data && runs.loading}
 			<Skeleton class="px-2.5" layout={LOADING_LAYOUT} />
+		{:else if !data && runs.failed}
+			<p class="flex items-center gap-1 px-2.5 text-xs text-hint">
+				Could not load recent runs.
+				<Button variant="subtle" unifiedSize="xs" onClick={() => runs.retry()}>Retry</Button>
+			</p>
 		{:else if data && data.items.length === 0}
 			<p class="px-2.5 text-xs text-hint">Runs show up here once something runs.</p>
 		{:else if data}
-			{#each data.items as item (itemKey(item))}
-				<RecentRunRow
-					{item}
-					now={runs.now}
-					prefix={prefixes.get(itemKey(item))}
-					onResolve={runs.resolveFailures}
-					onSelect={onFocusItem}
-				/>
-			{/each}
+			<!-- Fades in once, when the first read lands; refreshes update the rows in place. -->
+			<div class="wm-page-in">
+				{#each data.items as item (itemKey(item))}
+					<RecentRunRow
+						{item}
+						now={runs.now}
+						prefix={prefixes.get(itemKey(item))}
+						onResolve={runs.resolveFailures}
+						onSelect={onFocusItem}
+					/>
+				{/each}
+			</div>
 		{/if}
 	</div>
 </div>

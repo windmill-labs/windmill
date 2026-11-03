@@ -146,6 +146,11 @@
 						{/if}
 					{:else if runs.loading}
 						<Skeleton class="px-2.5 pt-2" layout={[[2.5], 0.25, [2.5], 0.25, [2.5]]} />
+					{:else if runs.failed}
+						<p class="flex items-center gap-1 px-2.5 pt-2 text-secondary text-[12.5px]">
+							Could not load recent runs.
+							<Button variant="subtle" unifiedSize="xs" onClick={() => runs.retry()}>Retry</Button>
+						</p>
 					{/if}
 
 					<div

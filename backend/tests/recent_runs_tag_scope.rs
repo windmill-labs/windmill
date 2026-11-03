@@ -1,5 +1,6 @@
-//! `jobs/recent_runs` aggregates over the workspace through `user_db`, which applies RLS but not a
-//! token's `if_jobs:filter_tags` scope: the handler has to filter on it itself.
+//! `jobs/recent_runs`: it aggregates over the workspace through `user_db`, which applies RLS but
+//! not a token's `if_jobs:filter_tags` scope, so the handler filters on it itself; and it reports a
+//! resolved failure apart from an unresolved one.
 
 use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
@@ -35,5 +36,72 @@ async fn test_recent_runs_honors_tag_scope(db: Pool<Postgres>) -> anyhow::Result
     let scoped = recent_runs(port, "SCOPED_DENO_TOKEN").await;
     assert!(scoped.contains(DENO_JOB), "{scoped}");
     assert!(!scoped.contains(FLOW_JOB), "{scoped}");
+    Ok(())
+}
+
+async fn insert_root_run(
+    db: &Pool<Postgres>,
+    id: &str,
+    status: &str,
+    resolved: bool,
+) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email,
+            kind, script_lang, runnable_path, tag, visible_to_owner)
+         VALUES ($1::uuid, 'test-workspace', 'test-user-2', 'u/test-user-2', 'test2@windmill.dev',
+            'script', 'deno', 'u/test-user-2/flaky', 'deno', true)",
+    )
+    .bind(id)
+    .execute(db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO v2_job_completed (id, workspace_id, duration_ms, status)
+         VALUES ($1::uuid, 'test-workspace', 10, $2::job_status)",
+    )
+    .bind(id)
+    .bind(status)
+    .execute(db)
+    .await?;
+    if resolved {
+        sqlx::query(
+            "INSERT INTO job_resolution (job_id, workspace_id) VALUES ($1::uuid, 'test-workspace')",
+        )
+        .bind(id)
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
+/// A resolved failure is `resolved`, not `failure`: Home's failed counts leave it out.
+#[sqlx::test(fixtures("base", "jobs_read_auth"))]
+async fn test_recent_runs_resolved_failures(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    insert_root_run(&db, "a0000000-0000-0000-0000-000000000001", "failure", true).await?;
+    insert_root_run(&db, "a0000000-0000-0000-0000-000000000002", "failure", false).await?;
+    insert_root_run(&db, "a0000000-0000-0000-0000-000000000003", "canceled", true).await?;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let body: serde_json::Value =
+        serde_json::from_str(&recent_runs(server.addr.port(), "SECRET_TOKEN_2").await)?;
+    let item = body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["path"] == "u/test-user-2/flaky")
+        .expect("item");
+    let status_of = |id: &str| {
+        item["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == id)
+            .map(|r| r["status"].clone())
+    };
+    assert_eq!(status_of("a0000000-0000-0000-0000-000000000001"), Some("resolved".into()));
+    assert_eq!(status_of("a0000000-0000-0000-0000-000000000002"), Some("failure".into()));
+    assert_eq!(status_of("a0000000-0000-0000-0000-000000000003"), Some("canceled".into()));
+    assert_eq!(item["failed_runs"], 1, "{body}");
+    assert_eq!(body["failed_runs"], 1, "{body}");
     Ok(())
 }

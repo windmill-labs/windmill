@@ -1,4 +1,4 @@
-import { JobService, type ListRecentRunsResponse } from '$lib/gen'
+import { FlowService, JobService, ScriptService, type ListRecentRunsResponse } from '$lib/gen'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { sendUserToast } from '$lib/toast'
 import { IsDocumentVisible, useInterval } from 'runed'
@@ -21,10 +21,12 @@ const MAX_RESOLVE_PASSES = 50
 /** The job kinds each item kind is read from (`jobs_recent_runs.rs`). A `singlestepflow` wraps a
  * script or a flow and the job list cannot tell which, so it is left out when a script and a flow
  * share the path: resolving one would otherwise resolve the other's failures. */
-function resolveJobKinds(item: RecentRunItem, items: RecentRunItem[]): string {
+async function resolveJobKinds(workspace: string, item: RecentRunItem): Promise<string> {
 	if (item.kind === 'agent') return 'flowpreview'
-	const other = item.kind === 'script' ? 'flow' : 'script'
-	const shared = items.some((i) => i.kind === other && i.path === item.path)
+	const shared =
+		item.kind === 'script'
+			? await FlowService.existsFlowByPath({ workspace, path: item.path })
+			: await ScriptService.existsScriptByPath({ workspace, path: item.path })
 	return shared ? item.kind : `${item.kind},singlestepflow`
 }
 
@@ -67,6 +69,13 @@ export function useRecentRuns(
 		get loading() {
 			return runs.loading
 		},
+		/** The latest read failed: with no `current`, the panel would otherwise read as empty. */
+		get failed() {
+			return runs.error !== undefined
+		},
+		retry() {
+			if (!runs.loading) runs.refetch()
+		},
 		get now() {
 			return now
 		},
@@ -76,9 +85,9 @@ export function useRecentRuns(
 			if (!workspace) return
 			const windowHours = runs.current?.window_hours ?? 24
 			const completedAfter = new Date(Date.now() - windowHours * 3600_000).toISOString()
-			const jobKinds = resolveJobKinds(item, runs.current?.items ?? [])
 			let resolved = 0
 			try {
+				const jobKinds = await resolveJobKinds(workspace, item)
 				// The ids are read on click rather than carried by the polled response, which would
 				// hold every failure of a constantly failing item. Each pass resolves what it read,
 				// so the next first page holds the failures still unresolved.
