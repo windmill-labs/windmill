@@ -4,6 +4,7 @@ import {
   validateAppState,
   validateCliWorkspace,
   validateGlobalState,
+  validatePipelineRun,
   validateScriptState,
   validateAssistantExpectations,
   validateToolExpectations,
@@ -619,6 +620,46 @@ describe("validateToolExpectations", () => {
       passed: false,
       details: "tools used: patch_app_file",
     });
+  });
+});
+
+describe("validatePipelineRun", () => {
+  const spec = {
+    folder: "shop",
+    queries: [
+      {
+        name: "daily",
+        sql: "SELECT * FROM dl.orders_daily",
+        rowCount: 2,
+        includesValues: [2, 25, "2026-10-30"],
+      },
+    ],
+  };
+
+  it("fails a node no root reached, even when its table holds the right rows", () => {
+    const checks = validatePipelineRun(spec, {
+      nodes: [
+        { path: "f/shop/ingest", ran: true, success: true },
+        { path: "f/shop/daily", ran: false },
+      ],
+      queries: [
+        {
+          name: "daily",
+          rows: [
+            { day: "2026-10-30T00:00:00", n: 2, revenue: 25 },
+            { day: "2026-10-31T00:00:00", n: 3, revenue: 32.5 },
+          ],
+        },
+      ],
+    });
+    const failed = checks.filter((c) => !c.passed).map((c) => c.name);
+    expect(failed).toEqual(["pipeline node f/shop/daily runs and succeeds"]);
+  });
+
+  it("asserts nothing when the run was skipped", () => {
+    expect(validatePipelineRun(spec, { skipped: "no storage", nodes: [], queries: [] })).toEqual(
+      [],
+    );
   });
 });
 

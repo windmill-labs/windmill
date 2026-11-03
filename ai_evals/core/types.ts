@@ -152,6 +152,50 @@ export interface GlobalValidationSpec {
     path: string;
     triggerKind?: string;
   }>;
+  /**
+   * Deploy the pipeline nodes drafted under `f/<folder>/` to the case's workspace once the chat
+   * is over, run the ones nothing upstream feeds, let the asset triggers run the rest, then
+   * query the DuckLake. Needs `objectStorage` in the fixture and an eval backend that runs
+   * DuckDB jobs; without `WMILL_AI_EVAL_S3_ENDPOINT` the run is skipped (README).
+   */
+  pipelineRun?: PipelineRunSpec;
+}
+
+export interface PipelineRunSpec {
+  folder: string;
+  timeoutSeconds?: number;
+  queries?: PipelineRunQuery[];
+}
+
+/**
+ * A DuckDB query run with the lake attached as `dl` (`SELECT … FROM dl.<table>`). Name the
+ * tables in the prompt, as a user would; column names are the model's to choose, so the
+ * expectations look at values, not at columns.
+ */
+export interface PipelineRunQuery {
+  name: string;
+  sql: string;
+  ducklake?: string;
+  rowCount?: number;
+  /** Every value appears in some cell of the result: numbers within 0.01, strings by prefix. */
+  includesValues?: Array<string | number>;
+}
+
+export interface PipelineRunResult {
+  /** Why the run did not happen; nothing was asserted. */
+  skipped?: string;
+  error?: string;
+  roots?: string[];
+  nodes: Array<{
+    path: string;
+    deployError?: string;
+    ran?: boolean;
+    success?: boolean;
+    /** `created_by` of the node's last run: `asset-<producer>` when a trigger ran it. */
+    triggeredBy?: string;
+    error?: string;
+  }>;
+  queries: Array<{ name: string; rows?: unknown[]; error?: string }>;
 }
 
 export interface CliValidationSpec {

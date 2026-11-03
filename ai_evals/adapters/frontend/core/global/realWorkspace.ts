@@ -14,6 +14,9 @@ import {
 import { WindmillBackendClient } from "../../windmillBackend";
 import { buildWorkspaceId } from "../../workspaceId";
 import type { GlobalUserFixture } from "./globalEvalRunner";
+import { runPipeline, type Api } from "./pipelineRun";
+import type { GlobalDraft } from "../../../../core/validators";
+import type { PipelineRunResult, PipelineRunSpec } from "../../../../core/types";
 
 /** Workspace id -> the token its case runs as. Read by the adapter's fetch stub. */
 const activeWorkspaces = new Map<string, string>();
@@ -42,11 +45,15 @@ const RESOURCE_TYPE_INDEX_WAIT_MS = 120_000;
 const WORKSPACE_SLOT_WAIT_MS = 30 * 60_000;
 /** The eval backend's own database, where a fixture user that is not the admin is created. */
 const DATABASE_URL = process.env.WMILL_AI_EVAL_DATABASE_URL;
+/** An S3-compatible store the eval backend reaches, for fixtures with `objectStorage`. */
+const S3_ENDPOINT = process.env.WMILL_AI_EVAL_S3_ENDPOINT;
 
 export interface RealWorkspace {
   id: string;
   /** Settings that make the model proxy reuse this workspace instead of creating another. */
   backend: WindmillBackendSettings;
+  /** Deploys and runs the pipeline the case drafted; see `validate.pipelineRun`. */
+  runPipeline(spec: PipelineRunSpec, drafts: GlobalDraft[]): Promise<PipelineRunResult>;
   dispose(): Promise<void>;
 }
 
@@ -74,7 +81,7 @@ export async function createRealWorkspace(input: {
     releaseJobIds();
     throw error;
   }
-  let datatableDb: string | undefined;
+  const scratchDbs: string[] = [];
   let userToken: string | undefined;
   const dispose = async () => {
     activeWorkspaces.delete(id);
@@ -89,11 +96,11 @@ export async function createRealWorkspace(input: {
         () => undefined,
       );
     }
-    if (datatableDb) {
+    for (const database of scratchDbs) {
       await sql(
         api,
         ROOT_PG_RESOURCE,
-        `DROP DATABASE IF EXISTS "${datatableDb}" WITH (FORCE)`,
+        `DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`,
       ).catch(() => undefined);
     }
     await api("DELETE", `/workspaces/delete/${id}`).catch(() => undefined);
@@ -102,11 +109,24 @@ export async function createRealWorkspace(input: {
   try {
     activeWorkspaces.set(id, adminToken);
     userToken = await seedUser(api, id, input.user, input.profile);
-    datatableDb = await seed(api, id, input.fixtures);
+    const storage = await seed(api, id, input.fixtures, scratchDbs);
     activeWorkspaces.set(id, userToken ?? adminToken);
     return {
       id,
       backend: { ...input.settings, workspaceOverride: id },
+      runPipeline: async (spec, drafts) =>
+        storage === "runnable"
+          ? runPipeline(api, spec, drafts, () =>
+              configureLakes(api, id, input.fixtures.ducklakes ?? [], scratchDbs, "run"),
+            )
+          : {
+              skipped:
+                storage === "unconfigured"
+                  ? "WMILL_AI_EVAL_S3_ENDPOINT is not set, so the workspace has no object storage to run the pipeline on"
+                  : "the fixture seeds no objectStorage",
+              nodes: [],
+              queries: [],
+            },
       dispose,
     };
   } catch (error) {
@@ -127,14 +147,12 @@ async function holdJobIds(ids: string[]): Promise<() => void> {
   return release;
 }
 
-type Api = (method: string, path: string, body?: unknown) => Promise<any>;
-
 function apiFor(client: WindmillBackendClient, workspace: string): Api {
   return async (method, path, body) => {
     const scoped = path.startsWith("/") ? path : `/w/${workspace}/${path}`;
     const response = await client.request(scoped, {
       method,
-      ...(body instanceof FormData
+      ...(body instanceof FormData || body instanceof Blob
         ? { body }
         : body === undefined
           ? {}
@@ -221,12 +239,14 @@ async function seedUser(
   return token;
 }
 
-/** Seeds every fixture kind; returns the scratch database a datatable fixture created. */
+/** Seeds every fixture kind, recording the scratch databases it creates; returns whether a
+ * pipeline can run on the workspace's storage. */
 async function seed(
   api: Api,
   workspace: string,
   fixtures: BenchmarkWorkspaceRunnables,
-): Promise<string | undefined> {
+  scratchDbs: string[],
+): Promise<"runnable" | "unconfigured" | "none"> {
   // A fixture that sets no `resourceTypes` stands for an instance synced with the hub,
   // which an eval backend usually is not; the types the instance already holds stay its own.
   const held = new Set<string>(await api("GET", "resources/type/listnames"));
@@ -329,7 +349,15 @@ async function seed(
     });
   }
   await seedWorkers(fixtures.workers ?? []);
-  if (fixtures.ducklakes?.length) {
+  const storage = !fixtures.objectStorage ? "none" : S3_ENDPOINT ? "runnable" : "unconfigured";
+  if (storage === "unconfigured") {
+    console.warn(
+      `[ai_evals] ${workspace}: the fixture seeds objectStorage but WMILL_AI_EVAL_S3_ENDPOINT is not set; its pipeline will not run.`,
+    );
+  }
+  if (storage === "runnable") {
+    await seedObjectStorage(api, workspace, fixtures, scratchDbs);
+  } else if (fixtures.ducklakes?.length) {
     await api("POST", "workspaces/edit_ducklake_config", {
       settings: {
         ducklakes: Object.fromEntries(
@@ -349,7 +377,108 @@ async function seed(
   if (datatables.length > 1) {
     throw new Error("A global fixture seeds at most one datatable.");
   }
-  return datatables[0] ? await seedDatatable(api, workspace, datatables[0]) : undefined;
+  if (datatables[0]) {
+    scratchDbs.push(await seedDatatable(api, workspace, datatables[0]));
+  }
+  return storage;
+}
+
+// Every attempt shares the bucket: seeded objects are the same for every attempt of a case, and
+// each DuckLake gets its own catalog database and data path, so attempts never see each
+// other's tables.
+async function seedObjectStorage(
+  api: Api,
+  workspace: string,
+  fixtures: BenchmarkWorkspaceRunnables,
+  scratchDbs: string[],
+): Promise<void> {
+  await api("POST", "resources/create", {
+    path: "u/admin/ai_evals_s3",
+    resource_type: "s3",
+    value: {
+      bucket: process.env.WMILL_AI_EVAL_S3_BUCKET ?? "evals",
+      region: process.env.WMILL_AI_EVAL_S3_REGION ?? "us-east-1",
+      // The resource takes the host alone; `useSSL` carries the scheme.
+      endPoint: S3_ENDPOINT!.replace(/^https?:\/\//, ""),
+      useSSL: S3_ENDPOINT!.startsWith("https:"),
+      accessKey: process.env.WMILL_AI_EVAL_S3_ACCESS_KEY ?? "minioadmin",
+      secretKey: process.env.WMILL_AI_EVAL_S3_SECRET_KEY ?? "minioadmin",
+      pathStyle: true,
+    },
+  });
+  await api("POST", "workspaces/edit_large_file_storage_config", {
+    large_file_storage: {
+      type: "S3Storage",
+      s3_resource_path: "$res:u/admin/ai_evals_s3",
+      public_resource: false,
+      advanced_permissions: null,
+      secondary_storage: {},
+    },
+  });
+  for (const file of fixtures.objectStorage?.files ?? []) {
+    await api(
+      "POST",
+      `job_helpers/upload_s3_file?file_key=${encodeURIComponent(file.key)}`,
+      new Blob([file.content], { type: "application/octet-stream" }),
+    );
+  }
+  await configureLakes(api, workspace, fixtures.ducklakes ?? [], scratchDbs, "chat");
+}
+
+/** Points each named DuckLake at a new, empty catalog database and data path. */
+async function configureLakes(
+  api: Api,
+  workspace: string,
+  names: string[],
+  scratchDbs: string[],
+  generation: string,
+): Promise<void> {
+  if (!names.length) return;
+  await ensureRootPgResource(api);
+  const ducklakes: Record<string, unknown> = {};
+  for (const name of names) {
+    // The workspace id ends with the attempt and a random suffix: keep that end.
+    const database = `lake_${generation}_${name}_${workspace.replace(/-/g, "_").slice(-40)}`.slice(
+      0,
+      63,
+    );
+    await sql(api, ROOT_PG_RESOURCE, `CREATE DATABASE "${database}"`);
+    scratchDbs.push(database);
+    const path = `u/admin/ai_evals_lake_${name}_${generation}`;
+    await api("POST", "resources/create", {
+      path,
+      resource_type: "postgresql",
+      value: pgResource(database),
+    });
+    ducklakes[name] = {
+      catalog: { resource_type: "postgresql", resource_path: path },
+      storage: { storage: null, path: `ai_evals_lakes/${workspace}/${generation}/${name}` },
+    };
+  }
+  await api("POST", "workspaces/edit_ducklake_config", { settings: { ducklakes } });
+}
+
+function pgResource(dbname: string) {
+  const root = new URL(DATATABLE_PG_URL);
+  return {
+    host: root.hostname,
+    port: Number(root.port || 5432),
+    user: decodeURIComponent(root.username),
+    password: decodeURIComponent(root.password),
+    dbname,
+    sslmode: root.searchParams.get("sslmode") ?? "disable",
+  };
+}
+
+async function ensureRootPgResource(api: Api): Promise<void> {
+  const exists = await api("GET", "resources/exists/u/admin/ai_evals_pg_root");
+  if (exists === true) return;
+  const root = new URL(DATATABLE_PG_URL);
+  await api("POST", "resources/create", {
+    path: "u/admin/ai_evals_pg_root",
+    resource_type: "postgresql",
+    value: pgResource(root.pathname.slice(1) || "postgres"),
+  });
 }
 
 async function seedApp(
@@ -561,26 +690,13 @@ async function seedDatatable(
   workspace: string,
   seed: BenchmarkDatatableSeed,
 ): Promise<string> {
-  const root = new URL(DATATABLE_PG_URL);
   const database = `${workspace.replace(/-/g, "_")}_dt`.slice(0, 63);
-  const resource = (dbname: string) => ({
-    host: root.hostname,
-    port: Number(root.port || 5432),
-    user: decodeURIComponent(root.username),
-    password: decodeURIComponent(root.password),
-    dbname,
-    sslmode: root.searchParams.get("sslmode") ?? "disable",
-  });
-  await api("POST", "resources/create", {
-    path: "u/admin/ai_evals_pg_root",
-    resource_type: "postgresql",
-    value: resource(root.pathname.slice(1) || "postgres"),
-  });
+  await ensureRootPgResource(api);
   await sql(api, ROOT_PG_RESOURCE, `CREATE DATABASE "${database}"`);
   await api("POST", "resources/create", {
     path: "u/admin/ai_evals_datatable",
     resource_type: "postgresql",
-    value: resource(database),
+    value: pgResource(database),
   });
   await api("POST", "workspaces/edit_datatable_config", {
     settings: {
