@@ -18087,12 +18087,6 @@ paths:
                         failed_runs:
                           description: unresolved failed runs of the item over the whole window, not only those in runs
                           type: integer
-                        failed_run_ids:
-                          description: the ids of those failed runs
-                          type: array
-                          items:
-                            type: string
-                            format: uuid
                         runs:
                           type: array
                           items:
@@ -18110,7 +18104,7 @@ paths:
                               duration_ms:
                                 type: integer
                             required: [id, status, ran_at]
-                      required: [path, kind, status, failed_runs, failed_run_ids, runs]
+                      required: [path, kind, status, failed_runs, runs]
                 required:
                   - window_hours
                   - capped

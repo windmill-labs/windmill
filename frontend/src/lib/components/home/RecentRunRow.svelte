@@ -125,22 +125,29 @@
 			{#if item.failed_runs > 0}
 				<span class="shrink-0 text-red-600 dark:text-red-400">{item.failed_runs} failed</span>
 				{#if onResolve && $roleCaps.code}
-					<button
-						class="hidden group-hover:inline group-focus-within:inline shrink-0 font-medium text-accent hover:underline disabled:opacity-50"
-						title="Mark the {item.failed_runs} failed runs of {title} as handled"
-						disabled={resolving}
-						onclick={async (e) => {
-							e.stopPropagation()
-							resolving = true
-							try {
-								await onResolve(item)
-							} finally {
-								resolving = false
-							}
-						}}
+					<!-- Negative margins keep the button's height from growing the row on hover. -->
+					<span
+						class="hidden group-hover:inline-flex group-focus-within:inline-flex shrink-0 -my-[3px]"
 					>
-						{item.failed_runs === 1 ? 'Resolve' : 'Resolve all'}
-					</button>
+						<Button
+							variant="subtle"
+							unifiedSize="2xs"
+							btnClasses="!text-accent !text-[10.5px] !px-1 font-medium"
+							title="Mark the {item.failed_runs} failed runs of {title} as handled"
+							loading={resolving}
+							onClick={async (e) => {
+								e?.stopPropagation()
+								resolving = true
+								try {
+									await onResolve(item)
+								} finally {
+									resolving = false
+								}
+							}}
+						>
+							{item.failed_runs === 1 ? 'Resolve' : 'Resolve all'}
+						</Button>
+					</span>
 				{/if}
 			{/if}
 			{#if failing && canAskAI() && latest}

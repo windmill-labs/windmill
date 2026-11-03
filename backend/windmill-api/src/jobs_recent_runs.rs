@@ -63,8 +63,6 @@ pub(crate) struct RecentRunItem {
     status: String,
     /// Unresolved failures over the whole window, not only the runs listed.
     failed_runs: i64,
-    /// The ids of those failures, so they can be resolved together.
-    failed_run_ids: Vec<uuid::Uuid>,
     /// Newest first.
     runs: Vec<RecentRun>,
 }
@@ -172,10 +170,7 @@ pub(crate) async fn list_recent_runs(
         let failed = run.status == "failure";
         match index.get(&(run.kind.clone(), run.path.clone())) {
             Some(&i) => {
-                if failed {
-                    items[i].failed_runs += 1;
-                    items[i].failed_run_ids.push(run.id);
-                }
+                items[i].failed_runs += failed as i64;
                 if items[i].runs.len() < RUNS_PER_ITEM {
                     items[i].runs.push(run);
                 }
@@ -188,7 +183,6 @@ pub(crate) async fn list_recent_runs(
                     summary: None,
                     status: run.status.clone(),
                     failed_runs: failed as i64,
-                    failed_run_ids: if failed { vec![run.id] } else { vec![] },
                     runs: vec![run],
                 });
             }
