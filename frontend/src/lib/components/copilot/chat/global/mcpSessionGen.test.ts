@@ -12,12 +12,17 @@ import { describe, expect, it } from 'vitest'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import {
 	ALL_INSTRUCTION_SUBJECTS,
+	buildFolderGuidance,
+	EXTERNAL_PROMPT,
+	externalPromptProfile,
 	getInstructions,
 	globalToolsFor,
 	prepareGlobalSystemMessage
 } from './core'
+import { renderPromptTemplate } from './promptTemplate'
 import type { AuthorLevel, ScriptLang } from '$lib/gen'
 import { FULL_CAPABILITIES } from '$lib/roleCapabilities'
 import { capabilitiesForRole } from './sessionAccess'
@@ -187,44 +192,27 @@ function suffixOf(longer: string, base: string, what: string): string {
 	return longer.slice(base.length)
 }
 
-/** The prompt for one access profile, with its folder guidance cut out: it differs per
- * workspace, so the server puts it back for a single workspace and serves it from
- * `get_workspace_context` otherwise. */
-function profilePrompt(extra: PromptOpts) {
-	const withoutFolders = prompt({ is_admin: false }, extra)
-	const variants = {
-		admin: prompt({ is_admin: true, folders: [WRITABLE] }, extra),
-		admin_no_folders: prompt({ is_admin: true, folders: [] }, extra),
-		member: prompt({ is_admin: false, folders: [WRITABLE] }, extra),
-		member_no_folders: prompt({ is_admin: false, folders: [] }, extra),
-		member_readonly: prompt(
-			{ is_admin: false, folders: [WRITABLE], folders_read: [WRITABLE, READONLY] },
-			extra
-		),
-		member_no_folders_readonly: prompt(
-			{ is_admin: false, folders: [], folders_read: [READONLY] },
-			extra
+/** The `{{folder_guidance}}` the server puts in the template, once per folder situation, as
+ * `buildGlobalSystemPrompt` inserts it: with its leading newline. */
+function folderGuidance(canCreateFolder: boolean) {
+	const variant = (isAdmin: boolean, folders: string[], foldersRead = folders) => {
+		const text = buildFolderGuidance(
+			'{{username}}',
+			{ isAdmin, folders, foldersRead },
+			canCreateFolder,
+			true
 		)
+		return (text ? `\n${text}` : '')
+			.replaceAll('`f/' + WRITABLE + '`', WRITABLE)
+			.replaceAll('`f/' + READONLY + '`', READONLY)
 	}
-	let at: number | undefined
-	const folder_guidance = Object.fromEntries(
-		Object.entries(variants).map(([name, full]) => {
-			let i = 0
-			while (i < withoutFolders.length && full[i] === withoutFolders[i]) i++
-			const rest = withoutFolders.slice(i)
-			// A profile that writes nothing has no folder guidance: every variant is the base.
-			if (full === withoutFolders) return [name, '']
-			if ((at !== undefined && at !== i) || !full.endsWith(rest)) {
-				throw new Error(`the folder guidance (${name}) is no longer one inserted block`)
-			}
-			at = i
-			return [name, full.slice(i, full.length - rest.length)]
-		})
-	)
-	at ??= withoutFolders.length
 	return {
-		base: withoutFolders.slice(0, at) + '{{folder_guidance}}' + withoutFolders.slice(at),
-		folder_guidance
+		admin: variant(true, [WRITABLE]),
+		admin_no_folders: variant(true, []),
+		member: variant(false, [WRITABLE]),
+		member_no_folders: variant(false, []),
+		member_readonly: variant(false, [WRITABLE], [WRITABLE, READONLY]),
+		member_no_folders_readonly: variant(false, [], [READONLY])
 	}
 }
 
@@ -280,42 +268,25 @@ function promptParts() {
 		'the skills section'
 	)
 	const skillLine = skills.split('\n').pop()!
-	// Profiles differ by a few lines each, so a prompt is stored as indexes into one table of
-	// distinct lines, and identical prompts once.
-	const lines: string[] = []
-	const lineIds = new Map<string, number>()
-	const encode = (text: string) =>
-		text.split('\n').map((line) => {
-			let id = lineIds.get(line)
-			if (id === undefined) {
-				id = lines.push(line) - 1
-				lineIds.set(line, id)
-			}
-			return id
-		})
-	const prompts: { base: number[]; folder_guidance: Record<string, number[]> }[] = []
-	const byText = new Map<string, number>()
-	const index: Record<string, number> = {}
+	const index: Record<string, { flags: string; vars: Record<string, string> }> = {}
+	// What each profile renders to before the server fills the runtime variables, so a Rust
+	// test can check its renderer against this one.
+	const renderedSha256: Record<string, string> = {}
 	for (const [key, extra] of profiles()) {
-		const { base, folder_guidance } = profilePrompt(extra)
-		const parts = {
-			base: encode(base),
-			folder_guidance: Object.fromEntries(
-				Object.entries(folder_guidance).map(([k, v]) => [k, encode(v)])
-			)
-		}
-		const text = JSON.stringify(parts)
-		let id = byText.get(text)
-		if (id === undefined) {
-			id = prompts.push(parts) - 1
-			byText.set(text, id)
-		}
-		index[key] = id
+		const { flags, vars } = externalPromptProfile(extra?.access, extra?.runsDeployed ?? true)
+		index[key] = { flags: [...flags].sort().join(' '), vars }
+		renderedSha256[key] = createHash('sha256')
+			.update(renderPromptTemplate(EXTERNAL_PROMPT, flags, vars))
+			.digest('hex')
 	}
 	return {
+		template: EXTERNAL_PROMPT,
 		profiles: index,
-		prompts,
-		lines,
+		folder_guidance: {
+			create_folder: folderGuidance(true),
+			no_create_folder: folderGuidance(false)
+		},
+		rendered_sha256: renderedSha256,
 		skills_header: skills.slice(0, skills.length - skillLine.length),
 		skill_line: skillLine,
 		workspace_instructions: suffixOf(
