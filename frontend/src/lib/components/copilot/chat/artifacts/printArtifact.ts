@@ -75,6 +75,7 @@ async function preparePrint(name: string, content: string): Promise<void> {
 	const component = mount(ArtifactPrintBody, { target: doc.body, props: { content } })
 	await tick()
 	await diagramsSettled(doc)
+	await imagesSettled(doc)
 	await doc.fonts?.ready
 
 	const cleanup = () => {
@@ -86,6 +87,21 @@ async function preparePrint(name: string, content: string): Promise<void> {
 	win.addEventListener('afterprint', cleanup, { once: true })
 	win.focus()
 	win.print()
+}
+
+/** The print dialog snapshots the document as it is, so an image still loading is missing from
+ * the PDF. A broken image settles through `error`; the cap covers one that never answers. */
+async function imagesSettled(doc: Document): Promise<void> {
+	const pending = Array.from(doc.images)
+		.filter((img) => !img.complete)
+		.map(
+			(img) =>
+				new Promise<void>((resolve) => {
+					img.addEventListener('load', () => resolve(), { once: true })
+					img.addEventListener('error', () => resolve(), { once: true })
+				})
+		)
+	await Promise.race([Promise.all(pending), new Promise((resolve) => setTimeout(resolve, 10_000))])
 }
 
 /** Mermaid draws asynchronously; printing before it lands puts the diagram source in the PDF.
