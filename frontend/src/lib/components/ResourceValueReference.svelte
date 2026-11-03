@@ -40,7 +40,6 @@
 	import { VariableService } from '$lib/gen'
 	import { DollarSign, Plus } from 'lucide-svelte'
 	import { Button } from './common'
-	import TextInput from './text_input/TextInput.svelte'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 
@@ -68,19 +67,20 @@
 </script>
 
 {#if reference}
-	<div class="flex flex-col gap-1 w-full relative group">
-		<TextInput value={reference} inputProps={{ readonly: true }} class="font-mono" />
-		{#if !disabled}
-			<Button
-				iconOnly
-				startIcon={{ icon: DollarSign }}
-				unifiedSize="sm"
-				onClick={pickVariable}
-				wrapperClasses="opacity-0 group-hover:opacity-100 transition-opacity absolute bg-surface-input right-2 top-1"
-				variant="subtle"
-				title="Insert a Variable"
-			/>
-		{/if}
+	<div class="flex flex-col gap-1 w-full">
+		<div class="flex items-center gap-2 h-8 pl-2 pr-0.5 rounded-md bg-surface-secondary">
+			<span class="grow truncate text-xs font-mono text-emphasis">{reference}</span>
+			{#if !disabled}
+				<Button
+					iconOnly
+					startIcon={{ icon: DollarSign }}
+					unifiedSize="sm"
+					onClick={pickVariable}
+					variant="subtle"
+					title="Pick another variable"
+				/>
+			{/if}
+		</div>
 		<div class="text-2xs text-hint">
 			{#if referencedResource}
 				Linked to resource <a
@@ -131,4 +131,4 @@
 	{/snippet}
 </ItemPicker>
 
-<VariableEditor bind:this={variableEditor} {workspace} />
+<VariableEditor bind:this={variableEditor} {workspace} onSaved={() => picker?.reloadItems()} />
