@@ -1465,7 +1465,11 @@ The key must be a **string literal** — the graph parser is static and cannot f
 >
 > The one target ANY language may declare (except a dbt script, whose writes come from its manifest) is a **warehouse relation**: \`// materialize manual dbt://<warehouse>/<schema>/<name>\`, where \`<warehouse>\` is a warehouse the workspace configures under Settings → dbt. \`manual\` is the only mode it has — nothing generates warehouse DDL, so the node issues its own write (a postgresql \`CREATE TABLE\` / \`INSERT\`, an SDK load, …) and the annotation records the outcome. Use it on an ingestion node whose output a dbt project reads as a \`source\`: the declared relation and the dbt model land on ONE graph node, and a downstream \`// on dbt://<warehouse>/<schema>/<name>\` fires when the ingestion node completes.
 
-A managed \`// materialize ducklake://<name>/<table>\` tells the runtime to write the node's output table **for you**: write the body as a single \`SELECT\` and the runtime wraps it in the create/replace — do **not** also write your own \`CREATE TABLE\` / \`INSERT\`. (The opposite holds for the \`dbt://\` target above: there the node writes its own DDL and the strategies below do not apply.) Write strategy:
+A managed \`// materialize ducklake://<name>/<table>\` tells the runtime to write the node's output table **for you**: write the body as a single \`SELECT\` and the runtime wraps it in the create/replace — do **not** also write your own \`CREATE TABLE\` / \`INSERT\`. (The opposite holds for the \`dbt://\` target above: there the node writes its own DDL and the strategies below do not apply.)
+
+A target that names no table — \`// materialize\`, \`// materialize ducklake://<name>\`, or options alone such as \`// materialize key=id\` — writes the table named after the script: node \`f/shop/orders_daily\` materializes \`ducklake://main/orders_daily\` (characters other than letters, digits and \`_\` become \`_\`, and a name starting with a digit gets a leading \`_\`). Name the node after the table it produces and the bare form is enough; write the full target when the table's name differs from the node's, and use that same name in every downstream \`// on\` and read.
+
+Write strategy:
 
 - no option → **replace** the whole table each run (full refresh; the only mode whose output columns may change);
 - \`// materialize <uri> append\` → INSERT-append rows (incremental);

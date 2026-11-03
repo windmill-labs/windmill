@@ -38,13 +38,10 @@
 	import { Button } from '../common'
 	import { MousePointerClick, X } from 'lucide-svelte'
 	import FlowPanelPlacementPicker from './common/FlowPanelPlacementPicker.svelte'
-	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
 	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const roleCaps = useRoleCapabilities()
 	const { flowStore, selectionManager, pathStore, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	// Flow paths repeat across workspaces, and a session keeps every tab it has visited alive, so two
@@ -76,9 +73,7 @@
 		onEditInput?: ((moduleId: string, key: string) => void) | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
-		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
-		toggleAiChat?: () => void
 		sessionOpen?: OpenInSessionSource
 		localModuleStates?: Record<string, GraphModuleState>
 		testModuleStates?: ModulesTestStates
@@ -117,9 +112,7 @@
 		highlightArg,
 		localModuleStates = {},
 		testModuleStates = undefined,
-		aiChatOpen,
 		showFlowAiButton,
-		toggleAiChat,
 		sessionOpen,
 		isOwner,
 		onTestFlow,
@@ -402,10 +395,9 @@
 						on:reload
 						on:generateStep={({ detail }) => {
 							// The step is already inserted; the prompt describes what it should
-							// contain. Hand it to a session opened on that step rather than the
-							// docked chat, which sessions leave unmounted. Sent on arrival: the
+							// contain. Hand it to a session opened on that step. Sent on arrival: the
 							// user already said what they wanted in the description field.
-							if (!sessionScopedManager && sessionOpen && prefersSessionHandoff(!$roleCaps.code)) {
+							if (!sessionScopedManager && sessionOpen) {
 								void openSourceInSession(sessionOpen, {
 									previewParams: { selected: detail.moduleId },
 									seedPrompt: stepInstructionsPrompt(detail.moduleId, detail.instructions),
@@ -417,24 +409,15 @@
 							// Not `generateStep` — that forces the request into SCRIPT mode, and
 							// changeMode is persistent, so it would strand the session outside
 							// GLOBAL. Global mode writes step code through set_flow_module_code.
-							if (sessionScopedManager) {
-								sessionScopedManager.sendOrQueue(
-									stepInstructionsPrompt(detail.moduleId, detail.instructions)
-								)
-								return
-							}
-							if (!aiChatManager.open) {
-								aiChatManager.openChat()
-							}
-							aiChatManager.generateStep(detail.moduleId, detail.lang, detail.instructions)
+							sessionScopedManager?.sendOrQueue(
+								stepInstructionsPrompt(detail.moduleId, detail.instructions)
+							)
 						}}
 						{onTestUpTo}
 						{onEditInput}
 						{localModuleStates}
 						{testModuleStates}
-						{aiChatOpen}
 						{showFlowAiButton}
-						{toggleAiChat}
 						{sessionOpen}
 						{isOwner}
 						{onTestFlow}

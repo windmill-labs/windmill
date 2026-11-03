@@ -2037,6 +2037,57 @@
     - the second step is wired to run when `orders` is produced
     - leaves both as drafts without deploying
 
+- id: global-pipeline-run-tables-named-after-steps
+  prompt: |-
+    Our raw order exports land as CSV files under `raw/orders/` in the workspace
+    object storage. Build a data pipeline in the `shop` folder with two steps:
+    `orders`, which loads all of them into a DuckLake table, and `orders_daily`,
+    which turns that into the number of orders and the total revenue for each day.
+    Each table should just be named after the step that builds it, and the daily
+    one should rebuild by itself whenever orders are refreshed. Keep everything as
+    drafts, don't deploy.
+  initial: ai_evals/fixtures/frontend/global/initial/pipeline_orders_storage.json
+  runtime:
+    maxTurns: 16
+  validate:
+    draftCountAtLeast: 2
+    requiredDrafts:
+      - type: script
+        path: f/shop/orders
+      - type: script
+        path: f/shop/orders_daily
+    forbiddenDrafts:
+      - type: flow
+        pathStartsWith: f/shop/
+    # A `materialize` naming no table writes the table named after its script, so
+    # `f/shop/orders` writes `ducklake://main/orders` whichever form the node uses.
+    pipelineRun:
+      folder: shop
+      maxRoots: 1
+      queries:
+        - name: orders holds every exported order
+          sql: SELECT count(*) AS n, sum(amount) AS revenue FROM dl.orders
+          includesValues: [6, 97.5]
+        - name: orders_daily has one row per day with its count and revenue
+          sql: SELECT * FROM dl.orders_daily
+          rowCount: 3
+          includesValues: [2, 25, 3, 32.5, 1, 40]
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    forbiddenToolsUsed:
+      - write_flow
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    # A `-- materialize` that names no table writes `ducklake://main/<script name>`, so a
+    # bare `-- materialize` on f/shop/orders is as correct as `-- materialize ducklake://main/orders`.
+    - builds the pipeline as two pipeline-annotated scripts, f/shop/orders and f/shop/orders_daily (not a flow)
+    - each step materializes a DuckLake table named after the step, either by a bare `-- materialize` or by naming that table explicitly
+    - orders_daily reads the orders table and computes a per-day order count and revenue total
+    - orders_daily is wired to run when the orders table is produced
+    - leaves both as drafts without deploying
+
 - id: global-session-pipeline-run-orders-daily
   prompt: |-
     Our raw order exports land as CSV files under `raw/orders/` in the workspace

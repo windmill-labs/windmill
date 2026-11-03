@@ -233,8 +233,8 @@ function assertMonacoFreeAppShell() {
  *
  * Everything those entries import statically loads and evaluates before the first page renders,
  * and the engine alone is over a megabyte. The shell reaches it only from a click: through
- * `aiChatManagerModule`, `sessionRuntimeRegistry` and `aiClientWorkspace`, which stand in for the
- * modules that would pull it in.
+ * `sessionRuntimeRegistry` and `aiClientWorkspace`, which stand in for the modules that would pull
+ * it in.
  */
 function assertAiEngineFreeAppShell() {
 	const entries = [
@@ -253,7 +253,7 @@ function assertAiEngineFreeAppShell() {
 		generateBundle(_options, bundle) {
 			if (!isClientBuild(bundle)) return
 			for (const entry of entries) {
-				assertStaticClosureExcludes(this, bundle, entry, forbidden, 'aiChatManagerModule.ts')
+				assertStaticClosureExcludes(this, bundle, entry, forbidden, 'sessionRuntimeRegistry.svelte.ts')
 			}
 		}
 	}

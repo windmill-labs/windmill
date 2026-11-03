@@ -29,7 +29,6 @@
 		composerHeight,
 		rememberComposerHeight
 	} from './HomeComposerSkeleton.svelte'
-	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { prefetchComposerSignals } from '../copilot/chat/starter/starterPrompts.svelte'
@@ -64,17 +63,15 @@
 	// after leaving its page.
 	const homeAiHidden = useWorkspaceAiHidden(() => $workspaceStore ?? undefined)
 
-	// The composer hands off to /sessions, which refuses roles that cannot code, users opted out
-	// of the sessions beta and a session's own preview frame — so hide it there (the prompt would
-	// be silently dropped) while the AI-independent CLI/MCP row below stays.
+	// The composer hands off to /sessions, which refuses to render inside a session's own preview
+	// frame — so hide it there (the prompt would be silently dropped) while the AI-independent
+	// CLI/MCP row below stays.
 	const inPreviewFrame = BROWSER && window.self !== window.top
-	let showComposer = $derived(
-		prefersSessionHandoff(!$roleCapabilities.code) && !inPreviewFrame && !homeAiHidden.hidden
-	)
+	let showComposer = $derived(!inPreviewFrame && !homeAiHidden.hidden)
 </script>
 
 <div class="w-full {showComposer ? 'mt-2' : 'mb-1'}">
-	<div class="relative group/composer">
+	<div class="relative group/composer" data-wm-snapshot-slot>
 		{#if showComposer}
 			<!-- The block is a session's chat, so it waits for the sessions it might reuse. Keyed on
 			     the workspace family, not the workspace: another family needs its own draft, but a
@@ -87,6 +84,10 @@
 						onSettled={(height) => rememberComposerHeight($workspaceStore ?? undefined, height)}
 					/>
 				{/key}
+				<!-- What a reload draws here until the starter's code loads, kept for the snapshot of
+				     Home painted before boot (homeSnapshot.ts), which shows it in the starter's place
+				     so the hand-over to the live page changes nothing. -->
+				<div hidden data-wm-snapshot-stand-in>{@render placeholder()}</div>
 			{:else}
 				{@render placeholder()}
 			{/if}

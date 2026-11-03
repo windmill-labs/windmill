@@ -91,7 +91,6 @@
 		Home,
 		Play,
 		Search,
-		WandSparkles,
 		ArrowLeft
 	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
@@ -126,11 +125,8 @@
 	import { onDestroy, onMount, setContext, tick, untrack } from 'svelte'
 	import { cubicOut } from 'svelte/easing'
 	import { Tooltip } from '$lib/components/meltComponents'
-	import { aiChatManagerModule } from '$lib/components/copilot/chat/aiChatManagerModule'
-	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
+	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
-	import { isGlobalAiEnabled, sessionsAllowedFor } from '$lib/components/copilot/chat/global/gate'
-	import { copilotInfo } from '$lib/aiStore'
 	import {
 		isPreviewListPath,
 		parsePreviewItemRoute,
@@ -147,6 +143,8 @@
 	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import { recordForkParent, rememberForkParent } from '$lib/forkParentMemory'
+	import { homeSnapshotShown } from '$lib/homeSnapshot'
+	import { persistedValue } from '$lib/persistedResource.svelte'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -313,10 +311,7 @@
 	let isDarkMode = useIsDarkMode()
 	let darkMode = $derived(isDarkMode.val)
 
-	// An operator without the opt-in (`gate.ts`) is refused by /sessions, so their sidebar lists
-	// no sessions the page behind it declines, and they keep the docked chat.
-	const sessionsAllowed = $derived(sessionsAllowedFor(!$roleCapabilities.code))
-	let onSessionsPage = $derived(page.url.pathname.startsWith('/sessions') && sessionsAllowed)
+	let onSessionsPage = $derived(page.url.pathname.startsWith('/sessions'))
 	// A session's page points the bottom settings entry at the open session's own
 	// workspace. An unsent session hasn't committed one yet, so it falls back to
 	// the family root.
@@ -328,17 +323,15 @@
 	// Inside a session's preview iframe, whose rail keeps the workspace nav and no switch.
 	const embedded = BROWSER && window.self !== window.top
 
-	// AI sessions (beta) are on unless this browser opted out earlier (see
-	// `global/gate.ts`). The sidebar's session section follows the gate;
-	// opted-out users get the legacy Ask-AI pane instead.
-	// The /sessions page has its own gate for direct navigation.
-	const globalAiEnabled = isGlobalAiEnabled()
-	// A workspace that hid the assistant (`ai_config.copilot_disabled`) loses both entry
-	// points: the session section and the legacy Ask-AI button.
+	// A workspace that hid the assistant (`ai_config.copilot_disabled`) lists no sessions.
 	const sessionsShown = $derived(sidebarSessionsShown())
-	const askAiShown = $derived(
-		(!globalAiEnabled || !sessionsAllowed) && !$copilotInfo.workspaceDisabled
-	)
+
+	// The workspace AI config gates far more than chat (code completion, metadata generation,
+	// the "open in AI session" buttons). On the sessions route SessionWrapper loads the session's
+	// acting workspace instead, and both writing the global store would race.
+	$effect(() => {
+		if ($workspaceStore && !onSessionsPage) loadCopilot($workspaceStore)
+	})
 
 	if (page.status == 404) {
 		goto('/user/login')
@@ -619,8 +612,9 @@
 	}
 
 	// Set once the user docks or detaches, so the rail that mounts from then on skips its
-	// app-entry animation (`wm-sidebar-in`) and only plays `railMorph`.
-	let dockToggled = $state(false)
+	// app-entry animation (`wm-sidebar-in`) and only plays `railMorph`. Also set when the rail
+	// replaces the one in Home's snapshot (homeSnapshot.ts), which is already on screen.
+	let dockToggled = $state(homeSnapshotShown())
 	function setDetached(detached: boolean) {
 		dockToggled = true
 		menuOpen = false
@@ -689,6 +683,22 @@
 			((await SettingService.getGlobal({ key: 'disable_hub' })) as boolean) ?? false
 	}
 
+	// Home holds its Favorites and Recent shortcuts back until the favorites are in, so they are
+	// painted from the last answer as soon as the user is known: Home's first frame then has them,
+	// as the snapshot of it painted before boot (homeSnapshot.ts) does. Paths and summaries only.
+	const favoritesCache = persistedValue<typeof favoriteManager.current>('favorites', 1)
+	$effect(() => {
+		const workspace = $workspaceStore
+		if (!$userStore || !workspace) return
+		untrack(() => {
+			if (favoriteManager.loadedFor === workspace) return
+			const cached = favoritesCache.peek({ workspace })
+			if (!cached) return
+			favoriteManager.current = cached
+			favoriteManager.loadedFor = workspace
+		})
+	})
+
 	async function loadFavorites() {
 		const workspace = $workspaceStore ?? ''
 		try {
@@ -708,6 +718,7 @@
 	}
 
 	async function loadFavoritesFor(workspace: string) {
+		const sentWith = readSessionHint()
 		const [scripts, flows, apps, agents, assets] = await Promise.all([
 			ScriptService.listScripts({
 				workspace,
@@ -753,6 +764,7 @@
 				kind: 'asset' as const
 			}))
 		]
+		favoritesCache.save({ workspace }, favoriteManager.current, sentWith)
 	}
 
 	async function loadUsedTriggerKinds() {
@@ -994,7 +1006,7 @@
 	$effect(() => {
 		const ws = $workspaceStore
 		const ready = sessionState.hydrated && $usersWorkspaceStore !== undefined
-		if (globalAiEnabled && sessionsAllowed && ready && ws) {
+		if (ready && ws) {
 			untrack(() => restoreSessionBackups(ws))
 		}
 	})
@@ -1335,22 +1347,6 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 							/>
 						{/if}
 						{@render quickLinks(collapsed)}
-						{#if askAiShown}
-							<!-- Legacy Ask-AI pane, shown only when the user opted out of the
-						     AI Sessions beta (otherwise the AI sessions section replaces it). -->
-							<MenuButton
-								stopPropagationOnClick={true}
-								on:click={() =>
-									void aiChatManagerModule.load().then((m) => m.aiChatManager.toggleOpen())}
-								isCollapsed={collapsed}
-								icon={WandSparkles}
-								iconProps={{ forceDarkMode: true }}
-								label="Ask AI"
-								class="!text-xs"
-								iconClasses="!text-ai"
-								shortcut={`${getModifierKey()}L`}
-							/>
-						{/if}
 					</div>
 					<SidebarContent
 						isCollapsed={collapsed}
@@ -1614,16 +1610,18 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 					</button>
 				</div>
 			{/if}
-			<AiChatLayout
-				{children}
-				noPadding={devOnly || menuHidden}
-				disableAi={globalAiEnabled && sessionsAllowed ? true : onSessionsPage}
-				loadAiConfig={!onSessionsPage}
-				showSessionsBetaBanner={sessionsAllowed}
-				sidebarWidth={railWidth}
-				transitionClass={sidebarTransitionClass}
-				isMobile={useDrawer}
-			/>
+			<!-- The scroll lives here, below the page header: a page taller than the window scrolls
+			     inside this box, so the band stays on screen instead of leaving with the content. The
+			     desktop rail is fixed-positioned, so the content is offset by its width (in rem). -->
+			<div
+				id="content"
+				class={classNames('flex-1 min-h-0 flex flex-col overflow-y-auto', sidebarTransitionClass)}
+				style:padding-left="{devOnly || menuHidden || useDrawer ? 0 : railWidth}rem"
+			>
+				<div class="flex-1 min-h-0 flex flex-col">
+					{@render children?.()}
+				</div>
+			</div>
 		</div>
 	</div>
 {:else if instanceOnlyView}

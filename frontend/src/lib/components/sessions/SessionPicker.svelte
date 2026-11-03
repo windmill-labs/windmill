@@ -60,7 +60,6 @@
 	import { Menu, Menubar, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton, { sidebarClasses } from '$lib/components/sidebar/MenuButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { WorkspaceService } from '$lib/gen'
@@ -102,10 +101,6 @@
 		const rt = getRuntime(session.id)
 		return !!rt && rt.manager.instructions.trim().length > 0
 	}
-
-	// Sessions share the beta opt-out gate with the global AI chat — when the
-	// user opted out, the sidebar section is hidden entirely.
-	const globalEnabled = isGlobalAiEnabled()
 
 	// The activity cutoff and the date buckets are wall-clock reads, which Svelte
 	// cannot track: without this the list would keep a session past its cutoff, and
@@ -670,12 +665,7 @@
 	)
 </script>
 
-{#if !globalEnabled}
-	<!-- Sessions hidden until the global-ai dev gate is enabled. When AI is
-	     unavailable (no provider configured or disabled in the user's settings)
-	     the section still shows — the per-session chat input is disabled with an
-	     explanatory message, mirroring the sidebar AI chat. -->
-{:else if isCollapsed}
+{#if isCollapsed}
 	<div class={embedded ? '' : 'px-2 pt-3 pb-2 border-b border-light'}>
 		<Menubar>
 			{#snippet children({ createMenu })}

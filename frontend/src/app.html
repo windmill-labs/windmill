@@ -7,7 +7,15 @@
 		<meta name="theme-color" media="(prefers-color-scheme: light)" content="#fbfbfd" />
 		<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#3b4252" />
 		<meta name="mobile-web-app-capable" content="yes" />
-		<style type="text/css">
+		<style type="text/css" data-wm-shell>
+			html[data-wm-home-snapshot] #svelte-global-loader {
+				display: none;
+			}
+			#wm-home-snapshot * {
+				animation: none !important;
+				transition: none !important;
+			}
+
 			.st2 {
 				fill: #bcd4fc;
 			}
@@ -197,9 +205,95 @@
 			})()
 		</script>
 		%sveltekit.head%
+		<script id="wm-home-snapshot-head">
+			// A reload of Home paints the last rendered Home (homeSnapshot.ts) in place of the splash
+			// while the app boots. Bound like the optimistic render (lastSession.ts): only under the
+			// session hint it was saved with, else it is dropped, so the next person on a shared
+			// browser never sees it; only for the workspace this load opens, at the width and theme
+			// it was rendered at. Its stylesheets are content-hashed files of the build it was saved
+			// by, hence the build check; they are written by the parser so they block the first
+			// paint as the build's own would, and one failing to load drops the snapshot.
+			;(function () {
+				var KEY = 'wm-home-snapshot'
+				var s
+				function drop() {
+					window.__wmHomeSnapshot = undefined
+					document.documentElement.removeAttribute('data-wm-home-snapshot')
+					var shot = document.getElementById('wm-home-snapshot')
+					if (shot) shot.remove()
+					try {
+						localStorage.removeItem(KEY)
+					} catch (_) {}
+				}
+				// Every other page, the public apps included, pays nothing for it.
+				if (location.pathname !== '/' || window.parent !== window) return
+				try {
+					var raw = localStorage.getItem(KEY)
+					if (!raw) return
+					s = JSON.parse(raw)
+					var hint
+					document.cookie.split(/;\s*/).forEach(function (c) {
+						var eq = c.indexOf('=')
+						if (eq > 0 && c.slice(0, eq) === s.cookie) hint = c.slice(eq + 1)
+					})
+					var age = Date.now() - s.savedAt
+					if (
+						s.format !== 1 ||
+						s.build !== '%sveltekit.version%' ||
+						!hint ||
+						hint !== s.hint ||
+						!(age >= 0 && age < 7 * 24 * 3600 * 1000)
+					)
+						return drop()
+					var params = new URLSearchParams(location.search)
+					var other = false
+					params.forEach(function (_, k) {
+						if (k !== 'workspace') other = true
+					})
+					// The workspace the app opens, as stores.ts and the (logged) layout pick it.
+					var ws = params.get('workspace')
+					if (ws === null) ws = sessionStorage.getItem('workspace')
+					if (ws === null) ws = localStorage.getItem('workspace')
+					var mode = localStorage.getItem('dark-mode')
+					var dark =
+						mode !== null ? mode === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches
+					if (other || ws !== s.workspace || innerWidth !== s.width || dark !== s.dark) return
+				} catch (_) {
+					return
+				}
+				var html = document.documentElement
+				html.setAttribute('data-wm-home-snapshot', '')
+				;['dark', 'github-dark'].forEach(function (c) {
+					html.classList.toggle(c, (' ' + s.htmlClass + ' ').indexOf(' ' + c + ' ') !== -1)
+				})
+				document.addEventListener(
+					'error',
+					function (e) {
+						var t = e.target
+						if (t && t.tagName === 'LINK' && t.hasAttribute('data-wm-home-snapshot')) drop()
+					},
+					true
+				)
+				var links = ''
+				s.stylesheets.forEach(function (href) {
+					links +=
+						'<link rel="stylesheet" data-wm-home-snapshot href="' +
+						String(href).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;') +
+						'">'
+				})
+				document.write(links)
+				s.styles.forEach(function (css) {
+					var style = document.createElement('style')
+					style.setAttribute('data-wm-home-snapshot', '')
+					style.textContent = css
+					document.head.appendChild(style)
+				})
+				window.__wmHomeSnapshot = s
+			})()
+		</script>
 	</head>
 	<body data-sveltekit-preload-code="viewport" class="outline-none focus:outline-none">
-		<div style="display: contents">
+		<div id="wm-app" style="display: contents">
 			<div id="svelte-global-loader">
 				<div id="mainbg" style="position: absolute; bottom: 0; left: 0; width: 100%; height: 100vh">
 				</div>
@@ -259,6 +353,55 @@
 					</div>
 				</div>
 			</div>
+			<script id="wm-home-snapshot-body">
+				// The snapshot the head script accepted. Not interactive: its content is inert, and the
+				// cover above it takes the pointer until the live Home replaces it (homeSnapshot.ts).
+				// A boot that never gets there gives the splash back.
+				;(function () {
+					var s = window.__wmHomeSnapshot
+					if (!s) return
+					try {
+						var shot = document.createElement('div')
+						shot.id = 'wm-home-snapshot'
+						shot.setAttribute('aria-hidden', 'true')
+						shot.style.cssText =
+							'position:fixed;inset:0;z-index:2147483647;overflow:hidden;cursor:progress'
+						shot.style.background = s.background
+						var parsed = new DOMParser().parseFromString(s.html, 'application/xhtml+xml')
+						if (parsed.getElementsByTagName('parsererror').length) {
+							document.documentElement.removeAttribute('data-wm-home-snapshot')
+							try {
+								localStorage.removeItem('wm-home-snapshot')
+							} catch (_) {}
+							return
+						}
+						// Cleaned again here, not only when saved: anything that can write this origin's
+						// storage once could otherwise plant markup that runs on every load of Home.
+						var executable =
+							/^(script|iframe|frame|object|embed|link|meta|base|form|animate|set|animatemotion|animatetransform)$/i
+						Array.prototype.forEach.call(parsed.querySelectorAll('*'), function (el) {
+							if (executable.test(el.localName)) return el.remove()
+							Array.prototype.slice.call(el.attributes).forEach(function (a) {
+								var v = a.value.replace(/[\u0000-\u0020]/g, '')
+								if (/^on/i.test(a.name) || /^(javascript|vbscript):/i.test(v))
+									el.removeAttribute(a.name)
+							})
+						})
+						var content = document.importNode(parsed.documentElement, true)
+						content.setAttribute('inert', '')
+						content.style.height = '100%'
+						shot.appendChild(content)
+						var loader = document.getElementById('svelte-global-loader')
+						loader.parentNode.insertBefore(shot, loader.nextSibling)
+						setTimeout(function () {
+							shot.remove()
+							document.documentElement.removeAttribute('data-wm-home-snapshot')
+						}, 15000)
+					} catch (_) {
+						document.documentElement.removeAttribute('data-wm-home-snapshot')
+					}
+				})()
+			</script>
 			%sveltekit.body%
 		</div>
 	</body>

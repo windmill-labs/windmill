@@ -3,10 +3,8 @@
 
 	import { SUPPORTED_LANGUAGES } from './lib'
 	import type { SupportedLanguage } from '$lib/common'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { autoPlacement } from '@floating-ui/core'
 	import { WandSparkles } from 'lucide-svelte'
-	import { aiChatManager, type AIChatManager } from './chat/AIChatManager.svelte'
+	import type { AIChatManager } from './chat/AIChatManager.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { getOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
@@ -99,54 +97,6 @@
 			label="Fix in AI session"
 			tooltip="Open an AI session on this item and fix the failing run"
 			btnProps={{ iconOnly: false, startIcon: { icon: WandSparkles } }}
-		>
-			{#snippet fallback()}
-				<Popover
-					floatingConfig={{
-						middleware: [
-							autoPlacement({
-								allowedPlacements: ['bottom-end', 'top-end']
-							})
-						]
-					}}
-					displayArrow={true}
-				>
-					{#snippet trigger()}
-						<div class="flex flex-row">
-							<Button
-								title="Fix code"
-								size="xs"
-								color="light"
-								spacingSize="xs2"
-								startIcon={{ icon: WandSparkles }}
-								on:click={() => {
-									if ($copilotInfo.enabled) {
-										logAiFix()
-										aiChatManager.fix()
-									}
-								}}
-								btnClasses="text-ai bg-violet-100 dark:bg-gray-700 min-w-[84px]"
-								propagateEvent={!$copilotInfo.enabled}
-							>
-								AI Fix
-							</Button>
-						</div>
-					{/snippet}
-					{#snippet content()}
-						<div class="p-4">
-							<div class="w-80">
-								<p class="text-sm"
-									>Enable Windmill AI in the <a
-										class="inline-flex flex-row items-center gap-1"
-										href="/workspace_settings?tab=ai"
-										target="_blank">workspace settings</a
-									></p
-								></div
-							>
-						</div>
-					{/snippet}
-				</Popover>
-			{/snippet}
-		</OpenInSessionButton>
+		/>
 	{/if}
 {/if}

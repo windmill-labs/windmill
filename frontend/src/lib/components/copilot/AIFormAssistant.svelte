@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { ChevronDown, ChevronRight, Pencil, WandSparkles } from 'lucide-svelte'
+	import { ChevronDown, ChevronRight, Pencil } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
-	import { aiChatManager } from './chat/AIChatManager.svelte'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
-	import { AIBtnClasses } from './chat/AIButtonStyle'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
@@ -25,18 +23,10 @@
 
 	let expanded = $state(false)
 
-	// Anonymous counter for this card being acted on, keyed by what it sits above. The two
-	// branches share one counter: they are the same intent, and which of them is on screen
-	// follows the user's session gate rather than a choice made here. `beforeOpen` is the
-	// hand-off's only per-click hook, and it runs before anything can turn the click away.
+	// Anonymous counter for this card being acted on, keyed by what it sits above. `beforeOpen` is
+	// the hand-off's only per-click hook, and it runs before anything can turn the click away.
 	function logAsked() {
 		logFeatureUsage('run_form', 'ai_fill', { key: runnableType })
-	}
-
-	async function fillFormWithAI() {
-		logAsked()
-		aiChatManager.openChat()
-		aiChatManager.askAi(`Analyze the ${runnableType} form on this page and fill the inputs for me`)
 	}
 
 	// The session's preview opens on this same deployed page (`/get/`), not the item's
@@ -53,20 +43,7 @@
 </script>
 
 {#snippet aiButton(unifiedSize: 'sm' | 'md')}
-	<!-- The fallback is a plain Button rather than AskAiButton, whose own session branch
-	     would fire here too and open an empty session. -->
-	<OpenInSessionButton source={sessionSource} btnProps={{ unifiedSize }} deferToHeader>
-		{#snippet fallback()}
-			<Button
-				{unifiedSize}
-				startIcon={{ icon: WandSparkles }}
-				btnClasses={AIBtnClasses('default')}
-				onclick={fillFormWithAI}
-			>
-				Fill with AI
-			</Button>
-		{/snippet}
-	</OpenInSessionButton>
+	<OpenInSessionButton source={sessionSource} btnProps={{ unifiedSize }} deferToHeader />
 {/snippet}
 
 {#if $copilotInfo.workspaceDisabled}
