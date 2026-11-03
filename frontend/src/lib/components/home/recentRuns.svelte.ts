@@ -129,6 +129,16 @@ export function allRunsHref(folder: string | undefined) {
 	return folder ? `/runs?folder=${encodeURIComponent(folder)}` : '/runs'
 }
 
+/** The runs page over the runs the failed count is made of: unresolved failures of the window. */
+export function failedRunsHref(folder: string | undefined, windowHours: number) {
+	const params = new URLSearchParams({ status: 'failure', resolved: 'unresolved' })
+	if (folder) params.set('folder', folder)
+	// A preset timeframe stays relative to now on reload; any other window is pinned to a start.
+	if (windowHours === 24) params.set('timeframe', 'Within last 24 hours')
+	else params.set('min_ts', new Date(Date.now() - windowHours * 3600_000).toISOString())
+	return `/runs?${params}`
+}
+
 export function windowLabel(hours: number) {
 	return hours > 24 && hours % 24 === 0 ? `last ${hours / 24}d` : `last ${hours}h`
 }
