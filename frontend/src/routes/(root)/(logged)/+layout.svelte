@@ -1416,7 +1416,10 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 						(homeRowLearned.val ? '' : ' / Home')}
 					hint="Go to Home"
 					href="/"
-					onclick={() => (homeRowLearned.val = true)}
+					onclick={() => {
+						// A click on Home itself goes nowhere, so it teaches nothing.
+						if (page.url.pathname !== '/') homeRowLearned.val = true
+					}}
 					icon={WindmillIcon}
 					iconProps={{ white: darkMode, width: '16px', height: '16px' }}
 					isCollapsed={collapsed}
