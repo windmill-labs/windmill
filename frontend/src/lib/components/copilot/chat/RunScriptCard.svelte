@@ -12,6 +12,7 @@
 	import { JobService, type CompletedJob, type Job } from '$lib/gen'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
+	import { formatElapsed } from './liveElapsed'
 	import RunArgsFormDisplay from './RunArgsFormDisplay.svelte'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
@@ -357,14 +358,20 @@
 
 	// Ticks only while this card has a job in flight, so a transcript of settled runs
 	// keeps no timers at all.
+	// Each tick is scheduled just past the next whole second since the run started, so the label
+	// advances once per second at an even pace instead of drifting against a free-running interval.
 	let now = $state(Date.now())
 	$effect(() => {
-		if (!running || unseen || waiting || !chatJob) return
-		// `now` last moved whenever the card mounted or a previous run stopped ticking, so the
-		// job's first frame would otherwise read as a negative elapsed time.
-		now = Date.now()
-		const timer = setInterval(() => (now = Date.now()), 500)
-		return () => clearInterval(timer)
+		const start = runStartedAt
+		if (!running || unseen || waiting || start === undefined) return
+		let timer: ReturnType<typeof setTimeout>
+		const tick = () => {
+			now = Date.now()
+			const intoSecond = (((now - start) % 1000) + 1000) % 1000
+			timer = setTimeout(tick, 1000 - intoSecond + 10)
+		}
+		tick()
+		return () => clearTimeout(timer)
 	})
 
 	// The clock counts from when a worker took the job, as `duration_ms` does, so the time in the
@@ -379,7 +386,7 @@
 		return chatJob.createdAt + (Number.isFinite(queuedMs) ? Math.max(0, queuedMs) : 0)
 	})
 	const elapsed = $derived(
-		runStartedAt !== undefined ? msToReadableTime(Math.max(0, now - runStartedAt), 2) : ''
+		runStartedAt !== undefined ? formatElapsed(now - runStartedAt) : ''
 	)
 	const duration = $derived(
 		chatJob?.durationMs !== undefined ? msToReadableTime(chatJob.durationMs, 2) : ''
