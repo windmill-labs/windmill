@@ -17,17 +17,21 @@ async fn test_member_cannot_read_another_members_access(db: Pool<Postgres>) -> a
 
     sqlx::raw_sql(
         "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ('test-workspace', 'ops', '', '{}');
-         INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ('test-workspace', 'test-user-2', 'ops')",
+         INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ('test-workspace', 'test-user-2', 'ops');
+         INSERT INTO instance_group (name) VALUES ('sre');
+         INSERT INTO email_to_igroup (email, igroup) VALUES ('test2@windmill.dev', 'sre')",
     )
     .execute(&db)
     .await?;
 
-    // A member may read their own access and their groups', nobody else's.
+    // A member may read their own access and their groups', instance groups included, nobody
+    // else's.
     for (principal, status) in [
         ("u/test-user", 403),
         ("g/all", 403),
         ("u/test-user-2", 200),
         ("g/ops", 200),
+        ("g/sre", 200),
     ] {
         let resp = client
             .get(&url)
