@@ -30,12 +30,6 @@ export class LazyModule<T> {
 		)
 		return this.#loading
 	}
-
-	/** Runs `fn` only if the module is already loaded: for teardown or sync calls into state
-	 *  that cannot exist before the module does. */
-	ifLoaded(fn: (m: T) => void): void {
-		if (this.current) fn(this.current)
-	}
 }
 
 export function lazyModule<T>(loader: () => Promise<T>): LazyModule<T> {
