@@ -40,7 +40,8 @@
 		fetchProtectionRulesForWorkspace,
 		getActiveRulesetsForKindInRulesets,
 		isRuleActiveInRulesets,
-		isRuleUnconditionallyActiveInRulesets
+		isRuleUnconditionallyActiveInRulesets,
+		readProtectionRulesForWorkspace
 	} from '$lib/workspaceProtectionRules.svelte'
 	import { resource } from 'runed'
 	import { getUserExt } from '$lib/user'
@@ -293,30 +294,33 @@
 	// ParentWorkspaceProtectionAlert.
 	const baseRuleContext = resource(
 		() => (isFork ? baseWorkspaceId : undefined),
-		async (ws) => {
+		async (ws, _prev, { signal }) => {
 			if (!ws) return undefined
-			const [rules, user] = await Promise.all([
-				fetchProtectionRulesForWorkspace(ws),
-				getUserExt(ws)
-			])
+			const [rules, user] = await Promise.all([readProtectionRulesForWorkspace(ws), getUserExt(ws)])
+			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
 			return { ws, rules, user }
 		}
 	)
 	let requireIsolation = $derived.by(() => {
 		const ctx = baseRuleContext.current
+		const rules = ctx?.rules ?? []
 		return (
 			!!ctx &&
-			isRuleActiveInRulesets(ctx.rules, 'RequireIsolatedForks') &&
-			!canUserBypassRuleKindInRulesets(ctx.rules, 'RequireIsolatedForks', ctx.user)
+			isRuleActiveInRulesets(rules, 'RequireIsolatedForks') &&
+			!canUserBypassRuleKindInRulesets(rules, 'RequireIsolatedForks', ctx.user)
 		)
 	})
 
 	// The server lets admins and the rulesets' bypass list fork past `DisableWorkspaceForking`
-	// silently, so the form makes that an explicit choice, as direct deployment does.
+	// silently, so the form makes that an explicit choice, as direct deployment does. It fails
+	// closed: until the selected base's rules are read, nobody can tell whether a bypass applies.
 	let baseRulesForSelection = $derived.by(() => {
 		const ctx = baseRuleContext.current
 		return ctx && ctx.ws === baseWorkspaceId ? ctx : undefined
 	})
+	let baseRulesUnreadable = $derived(
+		!!baseRulesForSelection && baseRulesForSelection.rules === undefined
+	)
 	let forkingRulesets = $derived(
 		getActiveRulesetsForKindInRulesets(
 			baseRulesForSelection?.rules ?? [],
@@ -324,12 +328,11 @@
 		)
 	)
 	let canBypassForkingRule = $derived(
-		!!baseRulesForSelection &&
-			canUserBypassRuleKindInRulesets(
-				baseRulesForSelection.rules,
-				'DisableWorkspaceForking',
-				baseRulesForSelection.user
-			)
+		canUserBypassRuleKindInRulesets(
+			forkingRulesets,
+			'DisableWorkspaceForking',
+			baseRulesForSelection?.user
+		)
 	)
 	let forkingBypassConfirmed = $state(false)
 	$effect(() => {
@@ -338,9 +341,9 @@
 	})
 	let forkingBlocked = $derived(
 		isFork &&
-			(baseRulesForSelection === undefined
-				? baseRuleContext.loading
-				: forkingRulesets.length > 0 && !(canBypassForkingRule && forkingBypassConfirmed))
+			!!baseWorkspaceId &&
+			(baseRulesForSelection?.rules === undefined ||
+				(forkingRulesets.length > 0 && !(canBypassForkingRule && forkingBypassConfirmed)))
 	)
 
 	let workspaceColor: string | undefined = $state(undefined)
@@ -821,7 +824,11 @@
 					{/if}
 				</Alert>
 			{/if}
-			{#if isFork && forkingRulesets.length > 0}
+			{#if isFork && baseRulesUnreadable}
+				<Alert type="error" title="Could not read {currentWorkspaceName}'s protection rules">
+					Forking stays disabled until they can be checked. Reload the page to try again.
+				</Alert>
+			{:else if isFork && forkingRulesets.length > 0}
 				<Alert
 					type={canBypassForkingRule ? 'warning' : 'error'}
 					title="Forking {currentWorkspaceName} is restricted"
