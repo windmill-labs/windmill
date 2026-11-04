@@ -73,6 +73,28 @@ export type GraphModuleState = {
 	workflow_as_code_status?: WorkflowStatus
 }
 
+/**
+ * Mocked and skipped steps complete as a pass-through job, so their success otherwise reads as
+ * a real run. `mocked` comes from the run's own flow definition.
+ */
+export function notExecutedBadge(
+	step: { mocked?: boolean; hasSkipIf?: boolean },
+	state: GraphModuleState | undefined
+): { label: string; title: string } | undefined {
+	if (state?.type !== 'Success') return undefined
+	if (step.mocked)
+		return { label: 'Mocked', title: 'Returned the pinned value, nothing was executed' }
+	// `skipped` also marks a step that ran and then stopped the flow as skipped.
+	if (state.skipped)
+		return {
+			label: 'Skipped',
+			title: step.hasSkipIf
+				? 'Its skip condition was true, nothing was executed'
+				: 'It stopped the flow early, which marked it as skipped'
+		}
+	return undefined
+}
+
 export type NestedNodes = GraphItem[]
 
 export function isNode(item: GraphItem | NestedNodes | undefined): item is Node {

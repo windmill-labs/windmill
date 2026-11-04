@@ -7,7 +7,8 @@
 	import { onMount, untrack } from 'svelte'
 	import OnChange from './common/OnChange.svelte'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
-	import type { GraphModuleState } from './graph'
+	import { notExecutedBadge, type GraphModuleState } from './graph'
+	import { Badge } from './common'
 	import FlowJobsMenu from './flows/map/FlowJobsMenu.svelte'
 	import type { FlowModuleForTimeline } from './FlowStatusViewerInner.svelte'
 
@@ -179,12 +180,16 @@
 				/>
 			</div>
 		{/if}
-		{#each flowModules as { id: k, type: typ, suspend: isSuspend, label } (k)}
+		{#each flowModules as { id: k, type: typ, suspend: isSuspend, label, mocked, hasSkipIf } (k)}
 			{@const subItems = items?.[k]?.filter((x) => x.created_at && x.started_at)}
+			{@const badge = notExecutedBadge({ mocked, hasSkipIf }, localModuleStates[k])}
 			<div class="relative px-3 py-1.5">
 				<div class="flex items-center justify-between mb-0.5">
 					<div class="text-xs font-medium"
 						>{label ?? (k.startsWith('subflow:') ? k.substring(8) : k)}
+						{#if badge}
+							<span title={badge.title}><Badge color="gray" verySmall>{badge.label}</Badge></span>
+						{/if}
 						{#if localModuleStates[k]?.selectedForloop && (typ == 'forloopflow' || typ == 'whileloopflow')}
 							<span class="text-xs font-mono font-medium inline-flex items-center -my-2">
 								<button onclick={(e) => e.stopPropagation()}>

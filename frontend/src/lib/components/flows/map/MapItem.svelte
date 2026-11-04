@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Badge, Button } from '$lib/components/common'
 	import type { FlowModule, Job } from '$lib/gen'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
@@ -25,6 +25,8 @@
 		annotationTitle?: string | undefined
 		sideAnnotation?: string | undefined
 		sideAnnotationTitle?: string | undefined
+		/** A run state the node color alone does not tell apart, shown as a badge above the node. */
+		statusBadge?: { label: string; title: string } | undefined
 		nodeState?: FlowNodeState
 		duration_ms?: number | undefined
 		retries?: number | undefined
@@ -61,6 +63,7 @@
 		annotationTitle = undefined,
 		sideAnnotation = undefined,
 		sideAnnotationTitle = undefined,
+		statusBadge = undefined,
 		nodeState,
 		duration_ms = undefined,
 		retries = undefined,
@@ -146,6 +149,11 @@
 				class="nodrag nopan absolute z-10 left-full ml-2 top-1/2 -translate-y-1/2 whitespace-nowrap text-2xs text-tertiary cursor-default"
 			>
 				{sideAnnotation}
+			</div>
+		{/if}
+		{#if statusBadge}
+			<div class="absolute z-10 left-0 -top-5" title={statusBadge.title}>
+				<Badge color="gray" verySmall>{statusBadge.label}</Badge>
 			</div>
 		{/if}
 		{#if annotation && annotation != ''}
