@@ -258,36 +258,39 @@
 												>
 													{logOrDate.log.operation}
 												</Badge>
-												{#if typeof logOrDate.log.parameters?.step_id === 'string'}
-													<Badge
-														color="transparent"
-														title="Step of the flow run {logOrDate.log.parameters.parent_job ?? ''}"
-													>
-														step {logOrDate.log.parameters.step_id}
-													</Badge>
-												{/if}
-												{#if logOrDate.log.parameters?.mocked === 'true'}
-													<Badge color="yellow">mocked</Badge>
-												{:else if logOrDate.log.parameters?.skipped === 'true'}
-													<Badge color="yellow">skipped</Badge>
-												{/if}
 											</div>
 										</div>
 										<div class="w-2/12 text-xs">
-											<div class="flex flex-row gap-2 items-center">
-												<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-60">
-													{logOrDate.log.resource}
+											<!-- A no-code step has no resource: its step id names it, as plain text,
+											     since there is no path to filter on. -->
+											{#if !logOrDate.log.resource && typeof logOrDate.log.parameters?.step_id === 'string'}
+												<div
+													class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-60 text-secondary"
+													title="Step of the flow run {logOrDate.log.parameters.parent_job ?? ''}"
+												>
+													Step {logOrDate.log.parameters.step_id}{logOrDate.log.parameters
+														.mocked === 'true'
+														? ' · mocked'
+														: logOrDate.log.parameters.skipped === 'true'
+															? ' · skipped'
+															: ''}
 												</div>
-												<Button
-													variant="subtle"
-													unifiedSize="sm"
-													iconOnly
-													startIcon={{ icon: ListFilterPlus }}
-													on:click={() => {
-														resourceFilter = logOrDate.log.resource
-													}}
-												/>
-											</div>
+											{:else}
+												<div class="flex flex-row gap-2 items-center">
+													<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-60">
+														{logOrDate.log.resource}
+													</div>
+													<Button
+														variant="subtle"
+														unifiedSize="sm"
+														iconOnly
+														startIcon={{ icon: ListFilterPlus }}
+														on:click={() => {
+															resourceFilter = logOrDate.log.resource
+														}}
+													/>
+												</div>
+											{/if}
 										</div>
 									</div>
 								{/if}
