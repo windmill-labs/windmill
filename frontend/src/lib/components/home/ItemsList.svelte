@@ -602,6 +602,9 @@
 	const openOwnerPagesCache = persistedValue<
 		Record<string, { items: RunnableItem[]; next_cursor?: string }>
 	>('home_open_owner_pages', 1)
+	// Prefixes whose rows on screen are still the cached page: until a first page of their own
+	// lands, whichever load that is (one after a failed request included) replaces them.
+	const ownersShowingCache = new Set<string>()
 	let ownerLoad = $state<Record<string, OwnerLoadState>>({})
 	let treeOwnerItems = $state<ItemType[]>([])
 	let treeGen = 0
@@ -669,11 +672,12 @@
 			!more && !force && !treeOwnerItems.some((x) => effectivePath(x).startsWith(prefix))
 				? openOwnerPagesCache.peek(cacheScope)?.[owner]
 				: undefined
+		if (cached) ownersShowingCache.add(owner)
 		// A forced refresh, or the fresh page replacing a cached one, swaps this prefix's rows
 		// without blanking the tree. Everything else merges: a nested prefix inherits rows from
 		// an ancestor's pages, and one page of its own can cover fewer of them than are shown —
 		// replacing would delete rows on the click meant to add them.
-		const replacing = !more && (force || cached != undefined)
+		const replacing = !more && (force || ownersShowingCache.has(owner))
 		// Merges a page and answers how many rows it actually added. Reads the live store
 		// each time rather than a snapshot, so a page landing while another prefix loads
 		// doesn't drop that prefix's rows.
@@ -748,6 +752,7 @@
 				)
 			}
 			const added = mergePage(res.items)
+			if (replacing) ownersShowingCache.delete(owner)
 			nextCursor = res.next_cursor
 			cursor = nextCursor
 			// Collapsing the node is the only way to stop a run that spans many pages;
