@@ -596,12 +596,16 @@
 	// handing back a cursor can't spin forever; hitting it leaves `hasMore` set, so the
 	// footer stays and another click resumes where this one stopped.
 	const OWNER_LOAD_ALL_PAGES = 100
-	// The first page of each owner open now, by prefix, as last fetched. One entry per listing
+	// The first rows of each owner open now, by prefix, as last fetched. One entry per listing
 	// scope rather than one per owner: the cache is shared and bounded, and an entry per owner,
-	// sort and filter would evict the other pages' entries.
-	const openOwnerPagesCache = persistedValue<
-		Record<string, { items: RunnableItem[]; next_cursor?: string }>
-	>('home_open_owner_pages', 1)
+	// sort and filter would evict the other pages' entries. Only what an opened node first
+	// renders is kept: the entry reaches the first frame only while it fits the localStorage
+	// snapshot's budget, which drops an oversized entry whole.
+	const openOwnerPagesCache = persistedValue<Record<string, { items: RunnableItem[] }>>(
+		'home_open_owner_pages',
+		1
+	)
+	const OWNER_CACHED_ROWS = 50
 	// Prefixes whose rows on screen are still the cached page: until a first page of their own
 	// lands, whichever load that is (one after a failed request included) replaces them.
 	const ownersShowingCache = new Set<string>()
@@ -747,7 +751,10 @@
 				)
 				openOwnerPagesCache.save(
 					cacheScope,
-					{ ...Object.fromEntries(kept), [owner]: res },
+					{
+						...Object.fromEntries(kept),
+						[owner]: { items: res.items.slice(0, OWNER_CACHED_ROWS) }
+					},
 					sentWith
 				)
 			}
