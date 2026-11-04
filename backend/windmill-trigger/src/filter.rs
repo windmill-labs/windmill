@@ -113,10 +113,10 @@ impl CompiledFilters {
         Ok(())
     }
 
-    /// Whether `text`, parsed as a JSON object, satisfies the filters. Well-formed JSON that
-    /// is not an object never matches. Text that is not JSON is judged as an object with no
-    /// keys, which a `none_of` filter accepts; when that rejects it, it is an error rather than
-    /// a mismatch, because dropping it would lose the message without a trace.
+    /// Whether `text`, parsed as a JSON object, satisfies the filters. Anything else is judged
+    /// as an object with no keys, which a `none_of` filter accepts. When that rejects it, JSON
+    /// that is not an object is a mismatch, and text that is not JSON an error: dropping it
+    /// would lose the message without a trace.
     pub fn matches(&self, text: &str) -> serde_json::Result<bool> {
         if self.filters.is_empty() {
             return Ok(true);
@@ -128,10 +128,10 @@ impl CompiledFilters {
             KeysVisitor { keys: &self.keys },
         ) {
             Ok(values) => values,
-            Err(err) if err.is_data() => return Ok(false),
             Err(_) if eval_all(&self.filters, self.use_or_logic, &HashMap::new()) => {
                 return Ok(true)
             }
+            Err(err) if err.is_data() => return Ok(false),
             Err(err) => return Err(err),
         };
 
@@ -414,6 +414,7 @@ mod tests {
         assert!(keyed.matches(r#"{"a": 1, "b""#).is_err());
         let negated = compile(json!([{"none_of": [{"key": "a", "value": 1}]}]));
         assert!(negated.matches("not json").unwrap());
+        assert!(negated.matches("[1, 2]").unwrap());
     }
 
     #[test]

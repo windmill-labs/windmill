@@ -634,15 +634,28 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 Some(listening_trigger.permissioned_as.as_str()),
             ),
             None => {
-                let row = sqlx::query_as::<_, (Option<String>, Option<sqlx::types::Json<Box<RawValue>>>)>(
-                    "SELECT error_handler->>'path', (error_handler->'extra_args')::text::json FROM workspace_settings WHERE workspace_id = $1",
+                // Muted the way `send_error_to_workspace_handler` mutes a failed run of the target
+                let row = sqlx::query_as::<_, (Option<String>, Option<sqlx::types::Json<Box<RawValue>>>, bool)>(
+                    "SELECT error_handler->>'path', (error_handler->'extra_args')::text::json,
+                        (COALESCE((error_handler->>'muted_on_user_path')::boolean, false) AND $2 LIKE 'u/%')
+                        OR COALESCE(CASE WHEN $3
+                            THEN (SELECT ws_error_handler_muted FROM flow WHERE workspace_id = $1 AND path = $2)
+                            ELSE (SELECT ws_error_handler_muted FROM script WHERE workspace_id = $1 AND path = $2
+                                  AND NOT archived AND NOT deleted ORDER BY created_at DESC LIMIT 1)
+                        END, false)
+                    FROM workspace_settings WHERE workspace_id = $1",
                 )
                 .bind(w_id)
+                .bind(&listening_trigger.script_path)
+                .bind(listening_trigger.is_flow)
                 .fetch_optional(db)
                 .await
                 .ok()
                 .flatten()
-                .unwrap_or((None, None));
+                .unwrap_or((None, None, false));
+                if row.2 {
+                    return;
+                }
                 (row.0.map(|p| RunnableRef::from_prefixed(&p)), row.1, None)
             }
         };
@@ -652,12 +665,12 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         let handler = match handler {
             Some(Ok(handler)) => handler,
             Some(Err(err)) => {
-                report_critical_error(format!("{message}: {err}"), db.clone(), Some(w_id), None)
+                report_unfilterable_alert(db, w_id, &trigger_path, format!("{message}: {err}"))
                     .await;
                 return;
             }
             None => {
-                report_critical_error(message, db.clone(), Some(w_id), None).await;
+                report_unfilterable_alert(db, w_id, &trigger_path, message).await;
                 return;
             }
         };
@@ -687,16 +700,11 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         )
         .await
         {
-            report_critical_error(
-                format!(
-                    "{message}, and its error handler {} could not be pushed: {err}",
-                    handler.prefixed()
-                ),
-                db.clone(),
-                Some(w_id),
-                None,
-            )
-            .await;
+            let message = format!(
+                "{message}, and its error handler {} could not be pushed: {err}",
+                handler.prefixed()
+            );
+            report_unfilterable_alert(db, w_id, &trigger_path, message).await;
         }
     }
 
@@ -752,6 +760,28 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             return Err(err);
         }
         Ok(())
+    }
+}
+
+/// One critical alert per trigger per minute: a stream of unparseable messages (binary
+/// frames, plain-text heartbeats) would otherwise raise one per message.
+async fn report_unfilterable_alert(db: &DB, w_id: &str, trigger_path: &str, message: String) {
+    static LAST_ALERT: std::sync::LazyLock<std::sync::Mutex<HashMap<String, std::time::Instant>>> =
+        std::sync::LazyLock::new(Default::default);
+    let key = format!("{w_id}/{trigger_path}");
+    let due = {
+        let mut last = LAST_ALERT.lock().unwrap_or_else(|e| e.into_inner());
+        let now = std::time::Instant::now();
+        let due = last.get(&key).map_or(true, |at| {
+            now.duration_since(*at) >= std::time::Duration::from_secs(60)
+        });
+        if due {
+            last.insert(key, now);
+        }
+        due
+    };
+    if due {
+        report_critical_error(message, db.clone(), Some(w_id), None).await;
     }
 }
 
