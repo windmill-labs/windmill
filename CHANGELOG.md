@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.862.0](https://github.com/windmill-labs/windmill/compare/v1.861.0...v1.862.0) (2026-11-04)
+
+
+### Features
+
+* keep the insert row panel open when the insert fails ([#12221](https://github.com/windmill-labs/windmill/issues/12221)) ([37db9ac](https://github.com/windmill-labs/windmill/commit/37db9acaa43daf342b00031df21a33758311a712))
+
+
+### Bug Fixes
+
+* keep folders left open on home from flickering on reload ([#12222](https://github.com/windmill-labs/windmill/issues/12222)) ([f6c4b26](https://github.com/windmill-labs/windmill/commit/f6c4b260d577d2f7d50252df869a6ff0d2e052fb))
+* make in-app navigation targets real links for new-tab clicks ([#12202](https://github.com/windmill-labs/windmill/issues/12202)) ([070dc48](https://github.com/windmill-labs/windmill/commit/070dc488e691e84b14e53bbfaac83f8cf50a999e))
+* parse trigger targets once with RunnableRef ([#12216](https://github.com/windmill-labs/windmill/issues/12216)) ([0e9245c](https://github.com/windmill-labs/windmill/commit/0e9245c080af6512301f0b4d85fe0151b027c498))
+
 ## [1.861.0](https://github.com/windmill-labs/windmill/compare/v1.860.0...v1.861.0) (2026-11-04)
 
 
