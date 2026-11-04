@@ -15116,6 +15116,27 @@ paths:
                   share:
                     $ref: "#/components/schemas/SharedAiArtifactInfo"
 
+  /w/{workspace}/ai/shared_artifacts/list:
+    get:
+      summary: list the workspace's live shared AI session artifacts
+      description: >
+        Every share still inside its retention window, newest first, without its content.
+        Capped at 500.
+      operationId: listSharedAiArtifacts
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: the live shares
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SharedAiArtifactInfo"
+
   /w/{workspace}/ai/shared_artifacts/get/{id}:
     get:
       summary: get a shared AI session artifact
