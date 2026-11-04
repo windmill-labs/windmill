@@ -8,7 +8,7 @@ import * as log from "../../core/log.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as windmillUtils from "@windmill-labs/shared-utils";
 import { readTextFile, readTextFileSync } from "../../utils/utils.ts";
-import { getEsbuild, stopEsbuild } from "../../utils/esbuild_loader.ts";
+import { withEsbuild } from "../../utils/esbuild_loader.ts";
 export interface BundleOptions {
   entryPoint?: string;
   outDir?: string;
@@ -371,10 +371,6 @@ export function createSharedUiPlugin(sharedUiDir: string, appDir: string): any {
 export async function createBundle(
   options: BundleOptions = {}
 ): Promise<BundleResult> {
-  // Native esbuild with a transparent esbuild-wasm fallback on host/binary
-  // version mismatch (see esbuild_loader.ts).
-  const esbuild = await getEsbuild();
-
   // Detect frameworks to determine default entry point.
   // Use the entryPoint's directory if provided, otherwise fall back to cwd.
   const appDir = options.entryPoint ? path.dirname(options.entryPoint) : process.cwd();
@@ -467,38 +463,34 @@ export async function createBundle(
 
   log.info(colors.blue("📦 Building bundle..."));
 
-  try {
-    const result = await esbuild.build(buildOptions);
+  // Native esbuild with a transparent esbuild-wasm fallback on host/binary
+  // version mismatch (see esbuild_loader.ts).
+  const result = await withEsbuild((esbuild) => esbuild.build(buildOptions));
 
-    if (result.errors.length > 0) {
-      log.error(colors.red("❌ Build failed:"));
-      result.errors.forEach((error: any) => {
-        log.error(colors.red(error.text));
-      });
-      throw new Error("Build failed with errors");
-    }
-
-    log.info(colors.green("✅ Bundle created successfully"));
-
-    const outputFiles = result.outputFiles ?? [];
-    const jsFile = outputFiles.find((f) => f.path.endsWith(".js"));
-    const cssFile = outputFiles.find((f) => f.path.endsWith(".css"));
-
-    if (!jsFile) {
-      throw new Error("Expected a JS bundle in esbuild output but none found");
-    }
-
-    try {
-      fs.rmSync(distDir, { recursive: true });
-    } catch {
-      //ignore
-    }
-    return { js: jsFile.text, css: cssFile?.text ?? "" };
-
-  } finally {
-    // Stop the native esbuild service so the process can exit (no-op for wasm).
-    await stopEsbuild();
+  if (result.errors.length > 0) {
+    log.error(colors.red("❌ Build failed:"));
+    result.errors.forEach((error: any) => {
+      log.error(colors.red(error.text));
+    });
+    throw new Error("Build failed with errors");
   }
+
+  log.info(colors.green("✅ Bundle created successfully"));
+
+  const outputFiles = result.outputFiles ?? [];
+  const jsFile = outputFiles.find((f) => f.path.endsWith(".js"));
+  const cssFile = outputFiles.find((f) => f.path.endsWith(".css"));
+
+  if (!jsFile) {
+    throw new Error("Expected a JS bundle in esbuild output but none found");
+  }
+
+  try {
+    fs.rmSync(distDir, { recursive: true });
+  } catch {
+    //ignore
+  }
+  return { js: jsFile.text, css: cssFile?.text ?? "" };
 }
 
 /**
