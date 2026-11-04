@@ -5096,6 +5096,13 @@ async fn push_next_flow_job(
                     Some(&ctx),
                 )
                 .await?;
+                // A cap of 0 suspends every child, and only a finishing child releases one.
+                if evaluated_parallelism == 0 {
+                    return Err(Error::BadRequest(format!(
+                        "parallelism of step {} must be at least 1",
+                        module.id
+                    )));
+                }
 
                 tracing::debug!(id = %flow_job.id, root_id = %job_root, "updating suspend for parallel job {uuid} with parallelism {evaluated_parallelism}");
 
