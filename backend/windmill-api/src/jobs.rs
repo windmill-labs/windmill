@@ -8355,6 +8355,95 @@ pub async fn run_wait_result_script_by_path_internal(
     w_id: String,
     args: PushArgsOwned,
 ) -> error::Result<Response> {
+    let username = authed.username.clone();
+    queue_script_by_path_for_result(
+        db.clone(),
+        run_query,
+        script,
+        authed,
+        user_db,
+        w_id.clone(),
+        args,
+    )
+    .await?
+    .wait(&db, &w_id, &username)
+    .await
+}
+
+/// A run queued by a caller that reads its result back.
+pub struct QueuedRun {
+    pub uuid: Uuid,
+    early_return: Option<String>,
+    has_failure_module: bool,
+    delete_after_use: Option<bool>,
+    delete_after_secs: Option<i32>,
+}
+
+impl QueuedRun {
+    /// Until the run ends or `TIMEOUT_WAIT_RESULT` passes. The run is cancelled when the wait
+    /// times out or is dropped, as a disconnected HTTP caller is.
+    async fn wait(self, db: &DB, w_id: &str, username: &str) -> error::Result<Response> {
+        let result = run_wait_result(
+            db,
+            self.uuid,
+            w_id,
+            self.early_return,
+            self.has_failure_module,
+            username,
+        )
+        .await;
+        handle_delete_after_completion(
+            db,
+            self.uuid,
+            w_id,
+            self.delete_after_use,
+            self.delete_after_secs,
+        )
+        .await?;
+        result
+    }
+
+    /// Up to `budget`: `None` when the run is still going by then. The run is never
+    /// cancelled, whether the budget runs out or the wait is dropped.
+    pub async fn wait_within(
+        &self,
+        db: &DB,
+        w_id: &str,
+        budget: std::time::Duration,
+    ) -> error::Result<Option<Response>> {
+        let Some((result, success)) = windmill_api_jobs::poll_result(
+            db,
+            self.uuid,
+            w_id,
+            self.early_return.as_deref(),
+            self.has_failure_module,
+            budget.as_millis() as u64,
+        )
+        .await?
+        else {
+            return Ok(None);
+        };
+        handle_delete_after_completion(
+            db,
+            self.uuid,
+            w_id,
+            self.delete_after_use,
+            self.delete_after_secs,
+        )
+        .await?;
+        result_to_response(result, success).map(Some)
+    }
+}
+
+pub async fn queue_script_by_path_for_result(
+    db: sqlx::Pool<Postgres>,
+    run_query: RunJobQuery,
+    script: &RunnableRef,
+    authed: ApiAuthed,
+    user_db: UserDB,
+    w_id: String,
+    args: PushArgsOwned,
+) -> error::Result<QueuedRun> {
     check_queue_too_long(&db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
 
     let db_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
@@ -8428,9 +8517,13 @@ pub async fn run_wait_result_script_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, &w_id, None, false, &authed.username).await;
-    handle_delete_after_completion(&db, uuid, &w_id, delete_after_use, delete_after_secs).await?;
-    return wait_result;
+    Ok(QueuedRun {
+        uuid,
+        early_return: None,
+        has_failure_module: false,
+        delete_after_use,
+        delete_after_secs,
+    })
 }
 
 pub async fn run_wait_result_script_by_hash(
@@ -8836,28 +8929,51 @@ pub async fn run_wait_result_flow_by_path_internal(
     args: PushArgsOwned,
     w_id: String,
 ) -> error::Result<Response> {
-    check_queue_too_long(&db, run_query.queue_limit).await?;
+    queue_flow_by_path_for_result(&db, run_query, flow, &authed, user_db, args, &w_id)
+        .await?
+        .wait(&db, &w_id, &authed.username)
+        .await
+}
+
+pub async fn queue_flow_by_path_for_result(
+    db: &DB,
+    run_query: RunJobQuery,
+    flow: &RunnableRef,
+    authed: &ApiAuthed,
+    user_db: UserDB,
+    args: PushArgsOwned,
+    w_id: &str,
+) -> error::Result<QueuedRun> {
+    check_queue_too_long(db, run_query.queue_limit).await?;
 
     let flow_path = flow.path();
 
     let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
 
     let flow_version_info =
-        get_latest_flow_version_info_for_path(Some(userdb_authed), &db, &w_id, &flow_path, true)
+        get_latest_flow_version_info_for_path(Some(userdb_authed), db, w_id, &flow_path, true)
             .await?;
 
-    run_flow_and_wait_result(
-        &authed,
-        &db,
+    let (uuid, early_return, has_failure_module, _) = run_flow(
+        authed,
+        db,
+        None,
         user_db,
-        &w_id,
+        w_id,
         flow_path,
         flow_version_info,
         run_query,
         args,
         None,
     )
-    .await
+    .await?;
+    Ok(QueuedRun {
+        uuid,
+        early_return,
+        has_failure_module,
+        delete_after_use: None,
+        delete_after_secs: None,
+    })
 }
 
 pub async fn run_wait_result_flow_by_version_get(

@@ -512,8 +512,6 @@ pub async fn run_wait_result_internal(
     has_failure_module: bool,
     username: &str,
 ) -> error::Result<(Box<RawValue>, bool)> {
-    let mut result = None;
-    let mut success = false;
     let timeout = TIMEOUT_WAIT_RESULT.read().await.clone().unwrap_or(600);
     let timeout_ms = if timeout <= 0 {
         2000
@@ -529,6 +527,36 @@ pub async fn run_wait_result_internal(
         username: username.to_string(),
     };
 
+    let polled = poll_result(
+        db,
+        uuid,
+        w_id,
+        node_id_for_empty_return.as_deref(),
+        has_failure_module,
+        timeout_ms,
+    )
+    .await?;
+    match polled {
+        Some(result) => {
+            g.done = true;
+            Ok(result)
+        }
+        None => Err(Error::ExecutionErr(format!("timeout after {}s", timeout))),
+    }
+}
+
+/// Poll a job's result for up to `timeout_ms`: the flow's early-return node's when it has
+/// one, otherwise the completed job's. `None` when it has none by then. Never cancels the job.
+pub async fn poll_result(
+    db: &DB,
+    uuid: Uuid,
+    w_id: &str,
+    node_id_for_empty_return: Option<&str>,
+    has_failure_module: bool,
+    timeout_ms: u64,
+) -> error::Result<Option<(Box<RawValue>, bool)>> {
+    let mut result = None;
+    let mut success = false;
     let fast_poll_duration = *WAIT_RESULT_FAST_POLL_DURATION_SECS as u64 * 1000;
     let mut accumulated_delay = 0 as u64;
     // Once we observe the early_return node failed with a failure_module configured,
@@ -536,9 +564,8 @@ pub async fn run_wait_result_internal(
     let mut early_return_failed_and_suppressed = false;
 
     loop {
-        if let Some(node_id_for_empty_return) = node_id_for_empty_return
-            .as_ref()
-            .filter(|_| !early_return_failed_and_suppressed)
+        if let Some(node_id_for_empty_return) =
+            node_id_for_empty_return.filter(|_| !early_return_failed_and_suppressed)
         {
             let result_and_success = get_result_and_success_by_id_from_flow(
                 &db,
@@ -607,12 +634,7 @@ pub async fn run_wait_result_internal(
         tokio::time::sleep(core::time::Duration::from_millis(delay)).await;
     }
 
-    if let Some(result) = result {
-        g.done = true;
-        Ok((result, success))
-    } else {
-        Err(Error::ExecutionErr(format!("timeout after {}s", timeout)))
-    }
+    Ok(result.map(|result| (result, success)))
 }
 
 pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result<Response> {

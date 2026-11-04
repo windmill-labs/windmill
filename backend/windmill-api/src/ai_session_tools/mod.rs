@@ -719,6 +719,9 @@ pub(crate) struct ToolOutcome {
     pub is_error: bool,
 }
 
+#[cfg(feature = "mcp")]
+pub(crate) use runs::wait_budget;
+
 /// The card tools only MCP Apps clients draw; the chat draws its own cards.
 #[cfg(feature = "mcp")]
 pub(crate) use views::{allowed as view_allowed, definitions as view_definitions};

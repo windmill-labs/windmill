@@ -21,7 +21,7 @@ use windmill_mcp::server::{
 use crate::auth::AuthCache;
 use crate::db::ApiAuthed;
 use crate::jobs::{
-    run_wait_result_flow_by_path_internal, run_wait_result_script_by_path_internal, RunJobQuery,
+    queue_flow_by_path_for_result, queue_script_by_path_for_result, QueuedRun, RunJobQuery,
 };
 
 use super::auto_generated_endpoints::all_tools;
@@ -98,6 +98,45 @@ impl WindmillBackend {
             other => other,
         };
         session::Ctx::new(auth, w_id, &self.base_internal_url, session::access(access))
+    }
+
+    /// A tool's answer for a run it queued: the result when the run ends within the session
+    /// tools' default wait, otherwise where to follow it. The run is never cancelled for
+    /// outliving the wait, nor when the client goes away before it ends.
+    async fn settle_run(
+        &self,
+        auth: &ApiAuthed,
+        workspace_id: &str,
+        path: &str,
+        queued: QueuedRun,
+        request: &McpRequest<'_>,
+    ) -> BackendResult<Value> {
+        let budget = Duration::from_secs(crate::ai_session_tools::wait_budget(&Value::Null));
+        let done = queued
+            .wait_within(&self.db, workspace_id, budget)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        if let Some(response) = done {
+            return parse_response_body(response).await;
+        }
+        let id = queued.uuid;
+        let origin = request.origin();
+        let mut ctx = session::Ctx::new(
+            auth,
+            workspace_id,
+            &self.base_internal_url,
+            session::access(SessionAccess::ReadOnly),
+        );
+        ctx.origin = origin.as_deref();
+        Ok(serde_json::json!({
+            "id": id,
+            "status": "running",
+            "message": format!(
+                "Job {id} for {path} is taking a while and is now running in the background. \
+                 To inspect it, call get_run with id {id}."
+            ),
+            "run_page": ctx.page_url(&format!("/run/{id}")),
+        }))
     }
 
     pub fn new(
@@ -295,7 +334,7 @@ impl McpBackend for WindmillBackend {
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        let result = run_wait_result_script_by_path_internal(
+        let queued = queue_script_by_path_for_result(
             self.db.clone(),
             RunJobQuery::default(),
             &script,
@@ -307,7 +346,8 @@ impl McpBackend for WindmillBackend {
         .await
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        parse_response_body(result).await
+        self.settle_run(auth, workspace_id, path, queued, request)
+            .await
     }
 
     async fn run_flow(
@@ -325,19 +365,49 @@ impl McpBackend for WindmillBackend {
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        let result = run_wait_result_flow_by_path_internal(
-            self.db.clone(),
+        let queued = queue_flow_by_path_for_result(
+            &self.db,
             RunJobQuery::default(),
             &flow,
-            auth.clone(),
+            auth,
             self.user_db.clone(),
             push_args,
-            workspace_id.to_string(),
+            workspace_id,
         )
         .await
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        parse_response_body(result).await
+        self.settle_run(auth, workspace_id, path, queued, request)
+            .await
+    }
+
+    async fn job_runnable(
+        &self,
+        auth: &ApiAuthed,
+        workspace_id: &str,
+        job_id: &str,
+    ) -> BackendResult<Option<(&'static str, String)>> {
+        let ctx = session::Ctx::new(
+            auth,
+            workspace_id,
+            &self.base_internal_url,
+            session::access(SessionAccess::ReadOnly),
+        );
+        let route = ctx.ws(&format!(
+            "jobs_u/get/{}?no_logs=true&no_code=true",
+            urlencoding::encode(job_id)
+        ));
+        let Ok(job) = ctx.get(&route).await else {
+            return Ok(None);
+        };
+        let kind = match job["job_kind"].as_str() {
+            Some("script") => "script",
+            Some("flow") => "flow",
+            _ => return Ok(None),
+        };
+        Ok(job["script_path"]
+            .as_str()
+            .map(|path| (kind, path.to_string())))
     }
 
     async fn call_endpoint(

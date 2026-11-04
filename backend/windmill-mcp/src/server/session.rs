@@ -109,7 +109,7 @@ struct Caller<A> {
 }
 
 /// `x-forwarded-*` first, since a proxy in front rewrites the host the request names.
-fn request_origin(headers: &http::HeaderMap) -> Option<String> {
+pub(crate) fn request_origin(headers: &http::HeaderMap) -> Option<String> {
     let header = |name: &str| {
         headers
             .get(name)

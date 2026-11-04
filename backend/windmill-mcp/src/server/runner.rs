@@ -14,7 +14,7 @@ use crate::common::types::{
     McpToken, MultiWorkspaceMcp, NoEndpointTools, ResourceInfo, SchemaType, ToolableItem,
     WorkspaceId,
 };
-use crate::server::backend::{McpAuth, McpBackend, McpRequest, PathFilter};
+use crate::server::backend::{McpAuth, McpBackend, McpRequest, PathFilter, SessionAccess};
 use crate::server::endpoints::{
     endpoint_tool_to_mcp_tool, endpoint_tool_to_mcp_tool_multi, list_workspaces_tool, EndpointTool,
 };
@@ -67,6 +67,9 @@ const LIST_CHANGE_COALESCE: std::time::Duration = std::time::Duration::from_mill
 
 // Re-export from http crate for extracting request parts
 use http::request::Parts as HttpParts;
+
+/// The session tool a selection is offered to follow the runs its tools start.
+const GET_RUN: &str = "get_run";
 
 /// Maximum size in bytes for tool result text content.
 /// Anthropic enforces a 25,000 token limit per tool result.
@@ -736,7 +739,11 @@ impl<B: McpBackend> Runner<B> {
             .filter(|(t, p)| !scope_config.granular || scope_config.is_allowed(t, p))
             .collect();
         let endpoint_tools = self.backend.all_endpoint_tools();
-        let reserved: HashSet<&str> = endpoint_tools.iter().map(|t| t.name.as_ref()).collect();
+        let reserved: HashSet<&str> = endpoint_tools
+            .iter()
+            .map(|t| t.name.as_ref())
+            .chain([GET_RUN])
+            .collect();
         let pairs: Vec<(&str, &str)> = items.iter().map(|(t, p)| (*t, p.as_str())).collect();
         let names = assign_tool_names(&pairs, &reserved);
         Ok(items
@@ -876,6 +883,13 @@ impl<B: McpBackend> Runner<B> {
                     &resource_types,
                 ));
             }
+
+            tools.extend(
+                self.backend
+                    .session_tools(SessionAccess::ReadOnly)
+                    .into_iter()
+                    .find(|tool| tool.name == GET_RUN),
+            );
         }
 
         // Add endpoint tools from the generated MCP tools, filtered by scope.
@@ -948,6 +962,12 @@ impl<B: McpBackend> Runner<B> {
                 ),
                 None,
             ));
+        }
+
+        if name == GET_RUN {
+            return self
+                .get_run(auth, workspace_id, scope_config, args, request)
+                .await;
         }
 
         // Resolve the tool name to (type, path, is_hub)
@@ -1108,6 +1128,56 @@ impl<B: McpBackend> Runner<B> {
                 None,
             )),
         }
+    }
+
+    /// The session's `get_run`, for runs of the scripts and flows this token lists as tools.
+    async fn get_run(
+        &self,
+        auth: &B::Auth,
+        workspace_id: &str,
+        scope_config: &crate::common::scope::McpScopeConfig,
+        args: Value,
+        request: &McpRequest<'_>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let id = args.get("id").and_then(Value::as_str).unwrap_or_default();
+        let refused = || {
+            ErrorData::invalid_params(
+                format!("No run {id} of a script or flow this token runs"),
+                None,
+            )
+        };
+        let (item_type, path) = self
+            .backend
+            .job_runnable(auth, workspace_id, id)
+            .await?
+            .ok_or_else(refused)?;
+        let exact = [path.clone()];
+        let listed = self
+            .backend
+            .list_runnable_paths(
+                auth,
+                workspace_id,
+                item_type,
+                scope_config.favorites,
+                Some(PathFilter::Patterns(&exact)),
+            )
+            .await?;
+        if !listed.contains(&path)
+            || (scope_config.granular && !scope_config.is_allowed(item_type, &path))
+        {
+            return Err(refused());
+        }
+        let origin = request.origin();
+        self.backend
+            .call_session_tool(
+                auth,
+                workspace_id,
+                GET_RUN,
+                args,
+                SessionAccess::ReadOnly,
+                origin.as_deref(),
+            )
+            .await
     }
 
     /// List tools for a multi-workspace session: the synthetic `list_workspaces`

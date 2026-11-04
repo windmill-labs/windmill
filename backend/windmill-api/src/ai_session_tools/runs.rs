@@ -117,7 +117,7 @@ pub(super) async fn run_flow_preview(
 
 /// How many seconds a run tool waits before leaving the job in the background, from
 /// its `background` and `wait_seconds` arguments: 15 by default, 120 at most.
-pub(super) fn wait_budget(tool_args: &Value) -> u64 {
+pub(crate) fn wait_budget(tool_args: &Value) -> u64 {
     if tool_args.get("background").and_then(Value::as_bool) == Some(true) {
         return 0;
     }

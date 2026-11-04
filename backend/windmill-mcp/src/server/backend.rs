@@ -34,6 +34,13 @@ pub struct McpRequest<'a> {
     pub tool_name: &'a str,
 }
 
+impl McpRequest<'_> {
+    /// The scheme and host the client reached, for links to Windmill pages.
+    pub fn origin(&self) -> Option<String> {
+        crate::server::session::request_origin(self.headers)
+    }
+}
+
 /// How a script/flow listing is narrowed by path at the SQL layer, *before* the
 /// `ITEMS_FETCH_MAX_LIMIT` cap applies.
 ///
@@ -194,7 +201,7 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     // Execution Operations
     // ─────────────────────────────────────────────────────────────────
 
-    /// Run a script and wait for result
+    /// Run a script, and wait a while for its result
     async fn run_script(
         &self,
         auth: &Self::Auth,
@@ -204,7 +211,7 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         request: &McpRequest<'_>,
     ) -> BackendResult<Value>;
 
-    /// Run a flow and wait for result
+    /// Run a flow, and wait a while for its result
     async fn run_flow(
         &self,
         auth: &Self::Auth,
@@ -213,6 +220,15 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         args: Value,
         request: &McpRequest<'_>,
     ) -> BackendResult<Value>;
+
+    /// The type (`script` or `flow`) and path of what a job runs, read as the caller;
+    /// `None` when they cannot read the job or it runs neither.
+    async fn job_runnable(
+        &self,
+        auth: &Self::Auth,
+        workspace_id: &str,
+        job_id: &str,
+    ) -> BackendResult<Option<(&'static str, String)>>;
 
     /// Call an endpoint tool (generated API endpoint)
     async fn call_endpoint(
