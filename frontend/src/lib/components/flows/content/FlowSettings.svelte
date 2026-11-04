@@ -329,7 +329,7 @@
 									<SettingToggle
 										setting="timeout"
 										label="Timeout"
-										tooltip="Wall-clock limit for the whole run, sleeps and approvals included. When it is reached, the run and its running steps are cancelled with a timeout error, after the error handler runs."
+										tooltip="Wall-clock limit for the whole run, sleeps and approvals included. When it is reached, the running steps are cancelled, the error handler runs, and the run ends with a timeout error."
 										checked={!!flowStore.val.value.timeout}
 										onchange={(on) => (flowStore.val.value.timeout = on ? 3600 : undefined)}
 									>

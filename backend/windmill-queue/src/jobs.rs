@@ -448,21 +448,46 @@ pub async fn cancel_timed_out_flows(db: &Pool<Postgres>) -> error::Result<()> {
     .await?;
 
     for flow in flows {
-        let reason = windmill_common::jobs::flow_timeout_reason(flow.timeout);
-        tracing::info!("Flow {} in workspace {}: {reason}", flow.id, flow.workspace_id);
-        let (tx, _) = cancel_job(
-            FLOW_TIMEOUT_CANCELER,
-            Some(reason),
-            flow.id,
-            &flow.workspace_id,
-            db.begin().await?,
-            db,
-            false,
-            false,
-        )
-        .await?;
-        tx.commit().await?;
+        if let Err(e) = cancel_timed_out_flow(db, flow.id, &flow.workspace_id, flow.timeout).await {
+            tracing::error!("Error cancelling timed out flow {}: {e:#}", flow.id);
+        }
     }
+    Ok(())
+}
+
+async fn cancel_timed_out_flow(
+    db: &Pool<Postgres>,
+    id: Uuid,
+    w_id: &str,
+    timeout: i32,
+) -> error::Result<()> {
+    let mut tx = db.begin().await?;
+    // Another server's sweep may have cancelled it since the select: cancelling again would
+    // cancel the failure module the worker has started for it since.
+    let claimed = sqlx::query_scalar!(
+        "SELECT 1 FROM v2_job_queue WHERE id = $1 AND canceled_by IS NULL FOR UPDATE",
+        id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .is_some();
+    if !claimed {
+        return Ok(());
+    }
+    let reason = windmill_common::jobs::flow_timeout_reason(timeout);
+    tracing::info!("Flow {id} in workspace {w_id}: {reason}");
+    let (tx, _) = cancel_job(
+        FLOW_TIMEOUT_CANCELER,
+        Some(reason),
+        id,
+        w_id,
+        tx,
+        db,
+        false,
+        false,
+    )
+    .await?;
+    tx.commit().await?;
     Ok(())
 }
 

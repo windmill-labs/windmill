@@ -1802,12 +1802,17 @@ pub async fn update_flow_status_after_job_completion_internal(
             && (skip_seq_branch_failure || skip_loop_failures || continue_on_error);
 
         // A flow cancelled by its own timeout still runs its failure module, once, before it
-        // ends. The subflows and loop iterations it cancels with it carry no timeout of their
-        // own and just stop, so `has_triggered_error_handler` (set on a parallel node, whose
-        // iterations normally run the handler) must not hold the flow's back.
+        // ends. The subflows and loop iterations cancelled with it share its `canceled_by` but
+        // not its expired deadline, and just stop, so `has_triggered_error_handler` (set on a
+        // parallel node, whose iterations normally run the handler) must not hold the flow's back.
         let timeout_to_failure_module = flow_job.canceled_by.as_deref()
             == Some(windmill_common::jobs::FLOW_TIMEOUT_CANCELER)
-            && flow_job.timeout.is_some_and(|t| t > 0)
+            && flow_job.timeout.is_some_and(|t| {
+                t > 0
+                    && flow_job.started_at.is_some_and(|s| {
+                        s + chrono::Duration::seconds(t as i64) <= chrono::Utc::now()
+                    })
+            })
             && !is_failure_step
             && flow_value.failure_module.is_some();
 
@@ -1848,9 +1853,14 @@ pub async fn update_flow_status_after_job_completion_internal(
             step_failure = StepFailureKind::FlowTimeout;
             let message = format!(
                 "flow terminated due to timeout: {}",
-                flow_job.canceled_reason.as_deref().unwrap_or("the flow exceeded its timeout")
+                flow_job
+                    .canceled_reason
+                    .as_deref()
+                    .unwrap_or("the flow exceeded its timeout")
             );
-            Arc::new(to_raw_value(&json!({ "error": { "name": "ExecutionErr", "message": message } })))
+            Arc::new(to_raw_value(
+                &json!({ "error": { "name": "ExecutionErr", "message": message } }),
+            ))
         } else {
             nresult
         };
