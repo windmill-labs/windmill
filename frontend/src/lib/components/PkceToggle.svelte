@@ -9,6 +9,7 @@
 </script>
 
 <Toggle
+	size="xs"
 	options={{
 		right: 'Send PKCE',
 		rightTooltip:
