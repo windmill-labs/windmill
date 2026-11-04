@@ -143,7 +143,7 @@
 								target={href ? '_blank' : undefined}
 								rel={href ? 'noopener' : undefined}
 								data-status-row
-								class="flex min-w-0 flex-1 items-center gap-2 text-left font-normal focus:outline-none"
+								class="flex min-w-0 flex-1 items-center gap-2 text-left font-normal focus:outline-none text-[color:inherit]"
 								title={rowTitle?.(item)}
 								onclick={(e: MouseEvent) => {
 									if (href && isNewTabClick(e)) return

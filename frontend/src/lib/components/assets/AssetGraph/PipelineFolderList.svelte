@@ -81,7 +81,7 @@
 					{#each visiblePipelines as p (p.folder)}
 						<a
 							href={pipelineHref(p.folder)}
-							class="flex items-center justify-between px-3 py-2 border-b last:border-b-0 bg-surface hover:bg-surface-hover transition-colors text-left"
+							class="flex items-center justify-between px-3 py-2 border-b last:border-b-0 bg-surface hover:bg-surface-hover transition-colors text-left text-[color:inherit]"
 							onclick={(e) => {
 								if (isNewTabClick(e)) return
 								e.preventDefault()

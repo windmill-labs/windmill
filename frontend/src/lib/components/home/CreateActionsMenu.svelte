@@ -727,7 +727,7 @@
 						<a
 							use:melt={$item}
 							href={option.href}
-							class={rowClass}
+							class="{rowClass} text-[color:inherit]"
 							onfocusin={() => highlightOption(option.key)}
 							onpointerenter={() => highlightOption(option.key)}
 						>

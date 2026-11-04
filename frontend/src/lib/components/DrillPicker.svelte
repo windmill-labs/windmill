@@ -553,7 +553,7 @@ leaves and ignores the current scope.
 			aria-label={tip ? `${leaf.label} — ${tip}` : undefined}
 			class="min-w-0 flex-1 text-left flex items-center gap-2 pl-3 {isCur
 				? 'cursor-default text-emphasis font-medium'
-				: ''} {leaf.disabled ? 'opacity-50 cursor-not-allowed' : ''}"
+				: 'text-[color:inherit]'} {leaf.disabled ? 'opacity-50 cursor-not-allowed' : ''}"
 			disabled={href ? undefined : leaf.disabled}
 			tabindex={0}
 			onmousedown={(e: MouseEvent) => e.preventDefault()}

@@ -72,12 +72,15 @@
 	}
 </script>
 
+<!-- Enter acts on the hovered item (window keydown), so the link stays out of the tab order:
+     a focused link that isn't the hovered one would show a ring on the wrong item. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <svelte:element
 	this={href ? 'a' : 'div'}
 	{id}
 	{href}
+	tabindex={href ? -1 : undefined}
 	onclick={(e: MouseEvent) => {
 		e.stopImmediatePropagation()
 		// The link only serves clicks the browser opens elsewhere (modified, middle, right); a
@@ -93,7 +96,7 @@
 		mouseMoved = false
 	}}
 	class={twMerge(
-		`block rounded-md w-full transition-all cursor-pointer ${hovered ? 'bg-surface-hover' : ''}`,
+		`block rounded-md w-full text-[color:inherit] transition-all cursor-pointer ${hovered ? 'bg-surface-hover' : ''}`,
 		containerClass
 	)}
 >
