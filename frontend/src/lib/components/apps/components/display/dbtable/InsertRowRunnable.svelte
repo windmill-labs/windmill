@@ -55,7 +55,12 @@
 			await new Promise<void>((resolve, reject) => {
 				component
 					.runComponent(undefined, undefined, undefined, values, {
-						onDone: (_x) => {
+						// The runnable loads only the result, so a failed job lands here as `{ error }`.
+						onDone: (result) => {
+							if (result?.error) {
+								reject(new Error(insertErrorMessage(result)))
+								return
+							}
 							dispatch('insert')
 							sendUserToast('Row inserted', false)
 							resolve()
