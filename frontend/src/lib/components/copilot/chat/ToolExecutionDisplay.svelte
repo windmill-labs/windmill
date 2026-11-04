@@ -366,7 +366,7 @@
 			? 'opacity-60 hover:opacity-100 transition-opacity'
 			: ''}
 		headerClass={message.needsConfirmation || pendingOutOfScope ? 'opacity-80' : ''}
-		labelClass={showPreviewChip ? 'truncate' : ''}
+		labelClass="truncate"
 		contentClass="space-y-3"
 		headerRight={showPreviewChip ? previewChip : message.jobId ? jobLink : undefined}
 		headerLeft={mcpServer?.workspace ? serverMark : undefined}

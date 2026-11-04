@@ -6,6 +6,7 @@ import {
 	createSession,
 	holdSessionUntilStarted,
 	homeDraft,
+	homeStarterSession,
 	opensOnHome,
 	selectSession,
 	sessionInCurrentFamily,
@@ -97,9 +98,10 @@ async function toHome(id: string, opts?: { replace?: boolean; flash?: boolean })
 	await goto('/', { replaceState: opts?.replace ?? false })
 }
 
-/** New session: Home's composer, blank, focused and outlined for a moment. It acts on the
- * header's workspace, switched to `workspaceId` first when given. A draft already typed stays
- * in the list. */
+/** New session: Home's composer, focused and outlined for a moment. It acts on the header's
+ * workspace, switched to `workspaceId` first when given. An unsent draft of that family is
+ * shown again rather than replaced by a blank: the sidebar does not list it, so a blank would
+ * strand it. */
 export async function openNewSession(workspaceId?: string): Promise<void> {
 	if (workspaceId && workspaceId !== get(workspaceStore)) {
 		// Home's current draft stays where it is: the switch must not take it along.
@@ -109,7 +111,7 @@ export async function openNewSession(workspaceId?: string): Promise<void> {
 		// switch back to it and take the new draft along.
 		await fixupUrlAfterWorkspaceSwitch(workspaceId)
 	}
-	await toHome(blankHomeDraft().id, { flash: true })
+	await toHome(homeStarterSession().id, { flash: true })
 }
 
 /** An unsent draft, opened in Home's composer. `replace` for a redirect off the sessions
@@ -173,12 +175,13 @@ async function openInSession(
 export function editorSessionHref(
 	target: SessionTarget,
 	workspaceId?: string,
-	previewParams?: Record<string, string>
+	previewParams?: Record<string, string>,
+	opts?: Pick<SeedOpts, 'untilStarted'>
 ): Promise<string> {
 	return sessionHrefFor(
 		withPreviewParams(sessionTargetHref(target), previewParams),
 		workspaceId,
-		undefined,
+		opts,
 		presetScopeFor(target.path)
 	)
 }

@@ -10,6 +10,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ArtifactBody from '$lib/components/copilot/chat/artifacts/ArtifactBody.svelte'
 	import ArtifactExportButton from '$lib/components/copilot/chat/artifacts/ArtifactExportButton.svelte'
+	import MermaidCodeBlock from '$lib/components/copilot/chat/artifacts/MermaidCodeBlock.svelte'
 	import { sharedArtifactPath } from '$lib/components/copilot/chat/artifacts/artifactSharing'
 	import { AiService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -167,7 +168,7 @@
 		<!-- Full height only for the source editor: the rendered document's sticky top fade sticks
 		     only while its parent box lasts, so that box must grow with the text. -->
 		<div class="mx-auto max-w-4xl {source ? 'h-full' : ''}">
-			<ArtifactBody content={artifact.content} {source} />
+			<ArtifactBody content={artifact.content} {source} pre={MermaidCodeBlock} />
 		</div>
 	</div>
 {:else}
