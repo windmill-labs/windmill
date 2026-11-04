@@ -596,11 +596,12 @@
 	// handing back a cursor can't spin forever; hitting it leaves `hasMore` set, so the
 	// footer stays and another click resumes where this one stopped.
 	const OWNER_LOAD_ALL_PAGES = 100
-	// An owner's first page as last fetched, keyed by its prefix and the listing's arguments.
-	const ownerFirstPageCache = persistedValue<{ items: RunnableItem[]; next_cursor?: string }>(
-		'home_owner_first_page',
-		1
-	)
+	// The first page of each owner open now, by prefix, as last fetched. One entry per listing
+	// scope rather than one per owner: the cache is shared and bounded, and an entry per owner,
+	// sort and filter would evict the other pages' entries.
+	const openOwnerPagesCache = persistedValue<
+		Record<string, { items: RunnableItem[]; next_cursor?: string }>
+	>('home_open_owner_pages', 1)
 	let ownerLoad = $state<Record<string, OwnerLoadState>>({})
 	let treeOwnerItems = $state<ItemType[]>([])
 	let treeGen = 0
@@ -650,23 +651,23 @@
 			gen
 		}
 		const prefix = `${owner}/`
-		const params = {
+		const scopeArgs = {
 			...sortToParams(sortOrder),
 			showArchived: archived ? true : undefined,
 			includeWithoutMain: includeWithoutMain ? true : undefined,
 			kinds: runnableKinds,
-			pathStart: prefix,
 			includeDraftOnly: true,
 			perPage: OWNER_PAGE_SIZE
 		}
-		const cacheScope = { workspace: ws, args: params }
+		const params = { ...scopeArgs, pathStart: prefix }
+		const cacheScope = { workspace: ws, args: scopeArgs }
 		const sentWith = readSessionHint()
 		// A first load with nothing of this prefix on screen (a reload reopening the owners left
 		// open) paints the page last fetched, so the frame that mounts the tree has the rows the
 		// Home snapshot painted before the app booted.
 		const cached =
 			!more && !force && !treeOwnerItems.some((x) => effectivePath(x).startsWith(prefix))
-				? ownerFirstPageCache.peek(cacheScope)
+				? openOwnerPagesCache.peek(cacheScope)?.[owner]
 				: undefined
 		// A forced refresh, or the fresh page replacing a cached one, swaps this prefix's rows
 		// without blanking the tree. Everything else merges: a nested prefix inherits rows from
@@ -735,7 +736,17 @@
 			// workspace changed and reset the tree); drop the response so stale rows from
 			// another scope can't appear under the current one.
 			if (gen !== treeGen) return
-			if (!more && page === 0) ownerFirstPageCache.save(cacheScope, res, sentWith)
+			if (!more && page === 0) {
+				// Owners closed since are dropped: a reload reopens only the ones open now.
+				const kept = Object.entries(openOwnerPagesCache.peek(cacheScope) ?? {}).filter(([p]) =>
+					openOwners.has(p)
+				)
+				openOwnerPagesCache.save(
+					cacheScope,
+					{ ...Object.fromEntries(kept), [owner]: res },
+					sentWith
+				)
+			}
 			const added = mergePage(res.items)
 			nextCursor = res.next_cursor
 			cursor = nextCursor
