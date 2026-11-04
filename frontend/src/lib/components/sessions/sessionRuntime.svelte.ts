@@ -29,7 +29,11 @@ import {
 type SavedScript = Omit<Script & UserDraftOverlay, 'draft'> & { draft?: NewScript }
 type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
-import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
+import {
+	type RawAppData,
+	DEFAULT_DATA,
+	extractDataConfig
+} from '$lib/components/raw_apps/dataTableRefUtils'
 import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
 import {
@@ -1206,21 +1210,7 @@ function createRuntime(session: Session): SessionRuntime {
 				// editor-shaped, same keys the extraction below reads.
 				const draftValue: any = deployedOnly ? undefined : (result as any).draft
 				const sourceValue: any = draftValue ?? result.value
-				let data: RawAppData = { ...DEFAULT_DATA }
-				if (sourceValue?.data) {
-					const d = sourceValue.data
-					if (d.creation) {
-						data = {
-							tables: d.tables ?? [],
-							datatable: d.creation.datatable,
-							schema: d.creation.schema
-						}
-					} else {
-						data = d
-					}
-				} else if (sourceValue?.datatables) {
-					data = { ...DEFAULT_DATA, tables: sourceValue.datatables }
-				}
+				const data: RawAppData = extractDataConfig(sourceValue) ?? { ...DEFAULT_DATA }
 				const runtimeValue = {
 					files: (sourceValue?.files ?? {}) as Record<string, string>,
 					runnables: (sourceValue?.runnables ?? {}) as Record<string, any>,

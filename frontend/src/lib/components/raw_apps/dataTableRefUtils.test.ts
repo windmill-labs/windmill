@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
 	buildDataTableWhitelist,
+	extractDataConfig,
 	isDatatableTableAllowed,
 	sdkDatatableCall,
 	withAppDatatableRole
@@ -59,5 +60,15 @@ describe('datatable whitelist helpers', () => {
 
 		expect(isDatatableTableAllowed(whitelist, 'main', '', 'users')).toBe(true)
 		expect(isDatatableTableAllowed(whitelist, 'main', 'public', 'users')).toBe(false)
+	})
+})
+
+describe('extractDataConfig', () => {
+	it('defaults tables when a data config omits them', () => {
+		expect(extractDataConfig({ data: { datatable: 'main', schema: 'public' } })).toEqual({
+			tables: [],
+			datatable: 'main',
+			schema: 'public'
+		})
 	})
 })

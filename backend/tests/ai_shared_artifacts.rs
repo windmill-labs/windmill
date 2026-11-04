@@ -75,6 +75,22 @@ async fn shared_artifact_is_served_to_members_until_it_expires(
         "a share was served through another workspace's path"
     );
 
+    let listed: Value = client
+        .get(format!("{base}/list"))
+        .header("Authorization", ADMIN)
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        listed[0]["id"], id,
+        "the live share was not listed: {listed}"
+    );
+    assert!(
+        listed[0].get("content").is_none(),
+        "the list carried content"
+    );
+
     sqlx::query(
         "UPDATE ai_shared_artifact SET shared_at = now() - ($1::bigint + 60) * interval '1 second'",
     )
@@ -88,6 +104,15 @@ async fn shared_artifact_is_served_to_members_until_it_expires(
         .send()
         .await?;
     assert_eq!(resp.status(), 404, "an expired share was served");
+
+    let listed: Value = client
+        .get(format!("{base}/list"))
+        .header("Authorization", ADMIN)
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(listed, json!([]), "an expired share was listed");
 
     let status: Value = client
         .get(format!("{base}/status?artifact_id=plan:session-1"))
