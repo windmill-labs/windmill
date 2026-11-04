@@ -585,6 +585,109 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         Ok(())
     }
 
+    /// A message the trigger's filters cannot be evaluated against (not UTF-8, not JSON).
+    /// Skipping it would lose it silently and running the target would bypass the filters,
+    /// so it goes to the error handler a failed run would reach: the trigger's own for a
+    /// script target, otherwise the workspace's.
+    async fn handle_unfilterable_message(
+        &self,
+        db: &DB,
+        listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
+        payload: &[u8],
+        parse_error: String,
+        mut trigger_info: HashMap<String, Box<RawValue>>,
+    ) {
+        let trigger_path = format!("{}_trigger/{}", Self::TRIGGER_KIND, listening_trigger.path);
+        tracing::warn!(
+            "{trigger_path} received a payload its filters cannot parse ({parse_error}): {:?}",
+            trigger_info
+        );
+        trigger_info.insert("trigger_path".to_string(), to_raw_value(&trigger_path));
+        let error = serde_json::json!({ "error": {
+            "name": "TriggerFilterError",
+            "message": format!("Could not parse the payload to apply the filters of {trigger_path}: {parse_error}"),
+            "payload": String::from_utf8_lossy(payload),
+            "payload_base64": base64::Engine::encode(&base64::prelude::BASE64_STANDARD, payload),
+            "trigger_info": trigger_info,
+        }});
+
+        let w_id = &listening_trigger.workspace_id;
+        let trigger_handler = listening_trigger
+            .error_handling
+            .as_ref()
+            .filter(|_| !listening_trigger.is_flow)
+            .and_then(|e| {
+                Some((
+                    e.error_handler_path.as_deref()?,
+                    e.error_handler_args.as_ref(),
+                ))
+            });
+        let (handler, extra_args, permissioned_as) = match trigger_handler {
+            Some((path, args)) => (
+                Some(format!("script/{path}")),
+                {
+                    let mut a = args.map(|a| a.0.clone()).unwrap_or_default();
+                    a.insert("trigger_path".to_string(), trigger_path.clone().into());
+                    Some(sqlx::types::Json(to_raw_value(&a)))
+                },
+                Some(listening_trigger.permissioned_as.as_str()),
+            ),
+            None => {
+                let row = sqlx::query_as::<_, (Option<String>, Option<sqlx::types::Json<Box<RawValue>>>)>(
+                    "SELECT error_handler->>'path', (error_handler->'extra_args')::text::json FROM workspace_settings WHERE workspace_id = $1",
+                )
+                .bind(w_id)
+                .fetch_optional(db)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or((None, None));
+                (row.0, row.1, None)
+            }
+        };
+
+        let message =
+            format!("{trigger_path} dropped a payload its filters cannot parse ({parse_error})");
+        let Some(handler) = handler else {
+            report_critical_error(message, db.clone(), Some(w_id), None).await;
+            return;
+        };
+        let email = windmill_common::users::get_email_from_permissioned_as(
+            &listening_trigger.permissioned_as,
+            w_id,
+            db,
+        )
+        .await
+        .unwrap_or_default();
+        if let Err(err) = windmill_queue::push_error_handler_with_parent(
+            db,
+            None,
+            None,
+            Some(listening_trigger.script_path.clone()),
+            listening_trigger.is_flow,
+            w_id,
+            &handler,
+            sqlx::types::Json(&error),
+            None,
+            Some(chrono::Utc::now()),
+            extra_args,
+            &email,
+            permissioned_as,
+            false,
+            None,
+        )
+        .await
+        {
+            report_critical_error(
+                format!("{message}, and its error handler {handler} could not be pushed: {err}"),
+                db.clone(),
+                Some(w_id),
+                None,
+            )
+            .await;
+        }
+    }
+
     async fn handle_event(
         &self,
         db: &DB,

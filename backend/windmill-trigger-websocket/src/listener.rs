@@ -532,11 +532,15 @@ impl Listener for WebsocketTrigger {
                                         }
                                     }
 
-                                    if filters.matches(&text) {
-                                        let trigger_info = HashMap::from([
-                                            ("url".to_string(), to_raw_value(&listening_trigger.trigger_config.url)),
-                                        ]);
-                                        let _ = self.handle_event(db, listening_trigger, text, trigger_info, return_message_channels.clone()).await;
+                                    let trigger_info = HashMap::from([
+                                        ("url".to_string(), to_raw_value(&listening_trigger.trigger_config.url)),
+                                    ]);
+                                    match filters.matches(&text) {
+                                        Ok(true) => {
+                                            let _ = self.handle_event(db, listening_trigger, text, trigger_info, return_message_channels.clone()).await;
+                                        }
+                                        Ok(false) => tracing::debug!("WebSocket trigger {} skipped a message: filters did not match", listening_trigger.path),
+                                        Err(err) => self.handle_unfilterable_message(db, listening_trigger, text.as_bytes(), err.to_string(), trigger_info).await,
                                     }
                                 },
                                 Ok(Message::Close(frame)) => {
