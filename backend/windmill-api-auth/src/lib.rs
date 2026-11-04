@@ -956,6 +956,65 @@ pub async fn gate_operator_writes(
     Ok(next.run(Request::from_parts(parts, body)).await)
 }
 
+/// Whether a path of the jobs router starts a run on the caller's behalf. Anything under a run
+/// prefix is, so a run route added later is gated without its author doing anything; the
+/// exceptions are code tooling gated by `code` (dependency locks, inline dynamic selects) or steps
+/// of a run already started (workflow-as-code), which a view-only member's scheduled or triggered
+/// runs still need.
+fn starts_run(path: &str) -> bool {
+    let mut segments = path.trim_start_matches('/').split('/');
+    match (segments.next(), segments.next()) {
+        (Some("run"), Some(next)) => !matches!(
+            next,
+            "dependencies"
+                | "dependencies_async"
+                | "flow_dependencies"
+                | "flow_dependencies_async"
+                | "dynamic_select"
+                | "workflow_as_code"
+        ),
+        (
+            Some(
+                "run_wait_result" | "run_and_stream" | "run_inline" | "restart" | "add_batch_jobs",
+            ),
+            _,
+        ) => true,
+        _ => false,
+    }
+}
+
+/// Refuses a run under the jobs router unless the caller's role holds `run`. Layered on the router
+/// rather than per handler for the reason `gate_operator_writes` is; GET counts, since
+/// `run_and_stream` and `run_wait_result` start runs over GET.
+pub async fn gate_role_runs(
+    Extension(db): Extension<DB>,
+    request: Request,
+    next: Next,
+) -> Result<Response> {
+    if matches!(
+        *request.method(),
+        http::Method::HEAD | http::Method::OPTIONS
+    ) || !starts_run(request.uri().path())
+    {
+        return Ok(next.run(request).await);
+    }
+    let (mut parts, body) = request.into_parts();
+    let Path(params) = <Path<HashMap<String, String>> as FromRequestParts<()>>::from_request_parts(
+        &mut parts,
+        &(),
+    )
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!("run gate layered outside a workspaced router: {e}"))
+    })?;
+    let authed = <ApiAuthed as FromRequestParts<()>>::from_request_parts(&mut parts, &()).await?;
+    let w_id = params.get("workspace_id").ok_or_else(|| {
+        Error::internal_err("run gate layered outside a workspaced router".to_string())
+    })?;
+    windmill_common::workspaces::check_role_can_run(&db, w_id, &authed).await?;
+    Ok(next.run(Request::from_parts(parts, body)).await)
+}
+
 // ------------ FromRequestParts impls (direct call to auth module) ------------
 
 impl<S> FromRequestParts<S> for ApiAuthed

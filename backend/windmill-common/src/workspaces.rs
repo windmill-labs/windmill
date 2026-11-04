@@ -1356,6 +1356,21 @@ pub async fn check_role_can_code<A: Authable + ?Sized>(
     Ok(())
 }
 
+/// Gate for starting a run on the caller's behalf. 403 rather than 401, which the frontend reads as
+/// a dead session.
+pub async fn check_role_can_run<A: Authable + ?Sized>(
+    db: &DB,
+    workspace_id: &str,
+    authed: &A,
+) -> Result<()> {
+    if !caller_capabilities(db, workspace_id, authed).await?.run {
+        return Err(Error::PermissionDenied(
+            "Your role cannot run scripts, flows or AI agents in this workspace".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Whether a member holding role `role` in `workspace_id` consumes an operator (half) seat rather
 /// than an author seat: a role that composes counts as an author, there is no half-author.
 pub async fn consumes_operator_seat(

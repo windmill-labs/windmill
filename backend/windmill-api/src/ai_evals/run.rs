@@ -562,6 +562,7 @@ pub async fn run_experiment(
     Json(payload): Json<RunExperiment>,
 ) -> Result<String> {
     check_scopes(&authed, || "jobs:run".to_string())?;
+    windmill_common::workspaces::check_role_can_run(&db, &w_id, &authed).await?;
     // A write, not a read: it persists an experiment into the dataset.
     require_dataset_writable(&authed, &db, &user_db, &w_id, &payload.dataset).await?;
 
