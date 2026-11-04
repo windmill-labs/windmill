@@ -612,7 +612,7 @@ pub fn openai_messages_to_bedrock(
                         })?;
                     bedrock_messages.push(tool_result_message);
                 }
-                bedrock_messages.push(convert_message(msg)?);
+                push_alternating(&mut bedrock_messages, convert_message(msg)?)?;
             }
             "tool" => {
                 // Accumulate tool results - they will be flushed as a single message
@@ -644,6 +644,27 @@ pub fn openai_messages_to_bedrock(
     }
 
     Ok((bedrock_messages, system_prompts))
+}
+
+/// Push a message, folding it into the previous one when both are the user's: an agent's
+/// background-tool results arrive as user messages, right after tool results or each other.
+fn push_alternating(messages: &mut Vec<Message>, message: Message) -> Result<(), Error> {
+    match messages.last_mut() {
+        Some(last)
+            if *last.role() == ConversationRole::User
+                && *message.role() == ConversationRole::User =>
+        {
+            let mut content = last.content().to_vec();
+            content.extend(message.content().iter().cloned());
+            *last = Message::builder()
+                .role(ConversationRole::User)
+                .set_content(Some(content))
+                .build()
+                .map_err(|e| Error::internal_err(format!("Failed to merge user messages: {e}")))?;
+        }
+        _ => messages.push(message),
+    }
+    Ok(())
 }
 
 /// Helper to extract text from OpenAIContent (ignoring images)
@@ -1509,6 +1530,37 @@ mod tests {
                 .and_then(|message| message.content().last()),
             Some(ContentBlock::CachePoint(_))
         ));
+    }
+
+    #[test]
+    fn openai_messages_to_bedrock_keeps_roles_alternating() {
+        let tool_result = OpenAIMessage {
+            role: "tool".to_string(),
+            content: Some(OpenAIContent::Text("started".to_string())),
+            tool_call_id: Some("call_1".to_string()),
+            ..Default::default()
+        };
+        let messages = vec![
+            text_message("user", "Export the report"),
+            text_message("assistant", "Exporting"),
+            tool_result,
+            text_message("user", "Background tool finished"),
+            text_message("user", "Another background tool finished"),
+        ];
+
+        let (bedrock_messages, _) =
+            openai_messages_to_bedrock(&messages, false).expect("bedrock conversion succeeds");
+
+        let roles: Vec<_> = bedrock_messages.iter().map(|m| m.role().clone()).collect();
+        assert_eq!(
+            roles,
+            vec![
+                ConversationRole::User,
+                ConversationRole::Assistant,
+                ConversationRole::User
+            ]
+        );
+        assert_eq!(bedrock_messages[2].content().len(), 3);
     }
 
     #[test]

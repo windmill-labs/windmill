@@ -382,7 +382,7 @@
 				return
 			count++
 			const success = agentState?.agent_actions_success?.[index]
-			if (success === undefined) pending++
+			if (success == null) pending++
 			else if (!success) failed++
 		})
 		if (count === 0) return undefined
