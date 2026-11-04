@@ -108,7 +108,7 @@ components:
           description: >-
             Wall-clock limit in seconds for the whole flow run, counted from its start and including
             time spent sleeping or suspended at an approval. It also applies when the flow is called as
-            a subflow step, where a shorter timeout on that step wins. It is checked periodically, so
+            a subflow step, unless that step sets its own timeout, which replaces it. It is checked periodically, so
             a run can go a few seconds past it. When it expires, the running steps are cancelled, the
             failure module runs if there is one, and the flow ends cancelled with a timeout error. A
             calling flow sees the subflow step fail with that error.

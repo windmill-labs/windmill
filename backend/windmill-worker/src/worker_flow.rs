@@ -2242,10 +2242,10 @@ pub async fn update_flow_status_after_job_completion_internal(
                     RecUpdateFlowStatusAfterJobCompletion {
                         flow: parent_job,
                         job_id_for_status: flow,
-                        // A cancelled subflow never reports success, whatever its last step's
-                        // error policy. One that timed out is a failed step to its parent, as a
-                        // script that timed out is, not a cancellation of the parent.
-                        success: success && !is_failure_step && !flow_job.is_canceled(),
+                        // A subflow that timed out is a failed step to its parent, as a script
+                        // that timed out is, whatever its last step's error policy, and not a
+                        // cancellation of the parent.
+                        success: success && !is_failure_step && !own_timeout,
                         canceled_by: if !success && !own_timeout {
                             canceled_by.clone()
                         } else {

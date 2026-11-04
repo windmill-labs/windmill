@@ -8025,14 +8025,9 @@ async fn push_inner<'c, 'd>(
         flow_innermost_root_job,
         guarded_concurrent_limit,
         guarded_concurrency_time_window_s,
-        // A flow's own timeout holds wherever it runs; its calling step's can only shorten it.
-        match (
-            windmill_common::runnable_settings::none_if_non_positive(custom_timeout),
-            windmill_common::runnable_settings::none_if_non_positive(flow_timeout),
-        ) {
-            (Some(step), Some(own)) => Some(step.min(own)),
-            (step, own) => step.or(own),
-        },
+        // A calling step's timeout replaces the flow's own, as it replaces a script's.
+        windmill_common::runnable_settings::none_if_non_positive(custom_timeout)
+            .or(windmill_common::runnable_settings::none_if_non_positive(flow_timeout)),
         flow_step_id,
         cache_ttl,
         final_priority,

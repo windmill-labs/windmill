@@ -353,8 +353,8 @@ async fn test_subflow_timeout_fails_the_calling_step(db: Pool<Postgres>) -> anyh
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
 
-    // The subflow's own 1s holds under its step's longer 600s, and its expiry is a failed step
-    // to the caller, which goes on, not a cancel of the caller.
+    // The subflow's own 1s holds when it runs as a step, and its expiry is a failed step to the
+    // caller, which goes on, not a cancel of the caller.
     let sub = json!({
         "timeout": 1,
         "modules": [
@@ -381,7 +381,6 @@ async fn test_subflow_timeout_fails_the_calling_step(db: Pool<Postgres>) -> anyh
     let flow: FlowValue = serde_json::from_value(json!({
         "modules": [
             {"id": "call", "continue_on_error": true,
-             "timeout": {"type": "static", "value": 600},
              "value": {"type": "flow", "path": "f/system/sub", "input_transforms": {}}},
             {"id": "after", "value": {"type": "identity"}},
         ],
