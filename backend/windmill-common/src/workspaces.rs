@@ -11,7 +11,7 @@ use crate::{
     error::{self, to_anyhow, Error, Result},
     get_database_url,
     roles::{caller_capabilities, AuthorLevel, RoleCapabilities},
-    secret_backend::{get_secret_value, is_external_stored_value},
+    secret_backend::{get_secret_value, resolves_externally},
     utils::{get_custom_pg_instance_password, get_custom_pg_instance_replication_password},
     variables::{build_crypt, decrypt},
     PgDatabase, DB,
@@ -206,7 +206,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/30052/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/30165/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -214,12 +214,12 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/30052/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/30051/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/30163/git-sync-init-repository-windmill";
 
 /// Hub script that reviews a pull request with the workspace's AI (`ai_review_prs`): clones
 /// the base branch, fetches the pull request's head and runs `wmill review --json` from the
 /// `windmill-cli` it pins. The server posts what it returns.
-pub const GIT_SYNC_REVIEW_SCRIPT_PATH: &str = "hub/30053/git-sync-review-pull-request-windmill";
+pub const GIT_SYNC_REVIEW_SCRIPT_PATH: &str = "hub/30164/git-sync-review-pull-request-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -2815,9 +2815,87 @@ pub fn fork_ducklake_ancestor_alias(lake_name: &str, ancestor_w_id: &str) -> Str
     )
 }
 
+/// The byte length of the string literal or quoted identifier starting at byte `i` of `sql`
+/// ('…', "…", $tag$…$tag$, or E'…' with backslash escapes), if one starts there. An
+/// unterminated one runs to the end.
+pub fn sql_literal_len(sql: &str, i: usize) -> Option<usize> {
+    let rest = &sql[i..];
+    let after_ident = sql[..i]
+        .chars()
+        .next_back()
+        .is_some_and(|c| c.is_alphanumeric() || c == '_');
+    match rest.as_bytes()[0] {
+        b'E' | b'e' if !after_ident && rest[1..].starts_with('\'') => {
+            let bytes = rest.as_bytes();
+            let mut j = 2;
+            while j < bytes.len() {
+                match bytes[j] {
+                    b'\\' => j += 2,
+                    b'\'' if bytes.get(j + 1) == Some(&b'\'') => j += 2,
+                    b'\'' => return Some(j + 1),
+                    _ => j += 1,
+                }
+            }
+            Some(rest.len())
+        }
+        q @ (b'\'' | b'"') => Some(rest[1..].find(q as char).map_or(rest.len(), |e| e + 2)),
+        b'$' => rest[1..]
+            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .filter(|&n| rest[1 + n..].starts_with('$'))
+            .map(|n| {
+                let delim = &rest[..n + 2];
+                rest[n + 2..]
+                    .find(delim)
+                    .map_or(rest.len(), |e| n + 2 + e + delim.len())
+            }),
+        _ => None,
+    }
+}
+
+/// Replaces each SQL comment outside string literals ([`sql_literal_len`]) with a space,
+/// following DuckDB: `--` runs to the end of the line and `/* */` nests. An unterminated block
+/// comment is kept as is, so the statement it ends up in fails to parse rather than silently
+/// losing what follows.
+pub fn strip_sql_comments(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut i = 0;
+    while i < sql.len() {
+        let rest = &sql[i..];
+        if let Some(len) = sql_literal_len(sql, i) {
+            out.push_str(&rest[..len]);
+            i += len;
+        } else if rest.starts_with("--") {
+            i += rest.find('\n').unwrap_or(rest.len());
+            out.push(' ');
+        } else if rest.starts_with("/*") {
+            let (mut depth, mut j) = (1usize, 2);
+            while depth > 0 && j < rest.len() {
+                if rest[j..].starts_with("/*") {
+                    (depth, j) = (depth + 1, j + 2);
+                } else if rest[j..].starts_with("*/") {
+                    (depth, j) = (depth - 1, j + 2);
+                } else {
+                    j += rest[j..].chars().next().map_or(1, char::len_utf8);
+                }
+            }
+            if depth > 0 {
+                out.push_str(rest);
+                break;
+            }
+            out.push(' ');
+            i += j;
+        } else {
+            let c = rest.chars().next().unwrap();
+            out.push(c);
+            i += c.len_utf8();
+        }
+    }
+    out
+}
+
 /// Strip `METADATA_SCHEMA` / `DATA_PATH` / `OVERRIDE_DATA_PATH` tokens from ducklake ATTACH
 /// extra args. In a fork these options are injected by the fork resolution; a user- or
-/// settings-supplied duplicate silently wins (DuckDB keeps the last occurrence) and would
+/// settings-supplied duplicate silently wins (the worker keeps the last occurrence) and would
 /// escape the fork namespace back to the parent's, so they are removed rather than overridden.
 pub fn strip_fork_reserved_attach_args(extra_args: &str) -> String {
     lazy_static::lazy_static! {
@@ -2826,8 +2904,10 @@ pub fn strip_fork_reserved_attach_args(extra_args: &str) -> String {
         )
         .unwrap();
     }
+    // Comments go first: the fork-owned options are appended after these args, and a trailing
+    // `-- …` would otherwise comment them out of the ATTACH.
     RESERVED
-        .replace_all(extra_args, "")
+        .replace_all(&strip_sql_comments(extra_args), "")
         .split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -3813,7 +3893,7 @@ async fn transform_json_unchecked(
             .map_err(to_anyhow)?
             .ok_or_else(|| Error::NotFound(format!("variable {path} does not exist")))?;
             let value = if is_secret {
-                if is_external_stored_value(&value) {
+                if resolves_externally(&value) {
                     get_secret_value(db, w_id, &s[5..], &value).await?
                 } else {
                     let mc = build_crypt(&db, &w_id).await?;
@@ -4279,6 +4359,19 @@ mod tests {
         assert_eq!(
             strip_fork_reserved_attach_args("METADATA_SCHEMA 'wm_fork_evil'"),
             ""
+        );
+        // A trailing comment must not survive to comment out the fork options appended after.
+        assert_eq!(
+            strip_fork_reserved_attach_args("READ_ONLY false -- why, '/*'"),
+            "READ_ONLY false"
+        );
+        assert_eq!(
+            strip_sql_comments("a /* x /* y */ x */ b '--' $q$/*$q$ -- c\nd /* open"),
+            "a   b '--' $q$/*$q$  \nd /* open"
+        );
+        assert_eq!(
+            strip_sql_comments(r"x E'a\'/* k */\'b' /* d */ e'c''/*'"),
+            r"x E'a\'/* k */\'b'   e'c''/*'"
         );
     }
 

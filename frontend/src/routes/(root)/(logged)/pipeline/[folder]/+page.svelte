@@ -78,10 +78,7 @@
 		type PipelineOutputKind,
 		type DraftTriggerSource
 	} from '$lib/components/assets/AssetGraph/pipelineTemplates'
-	import {
-		createPipelineAiHelpers,
-		type PipelineDraft
-	} from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
+	import { type PipelineDraft } from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
 	import {
 		PipelineEditorState
 	} from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
@@ -123,7 +120,6 @@
 		type OpenInSessionSource
 	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
-	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import {
 		AlertTriangle,
 		ChevronDown,
@@ -190,11 +186,6 @@
 					pe.reset()
 					// The set-aside edit pane belongs to the folder being left.
 					editPane = undefined
-					// Re-scope the Global chat's pipeline prompt to the new folder. The
-					// helper methods already read the reactive folder, but the system
-					// message string was built for the old one and is only rebuilt when
-					// Global mode is reconfigured — so rebuild it here.
-					aiChatManager.rebuildGlobalSystemMessage()
 				}
 				pe.folder = f
 			}
@@ -408,7 +399,6 @@
 		triggers: DraftTriggerSource[],
 		outputKind: PipelineOutputKind,
 		input?: { kind: AssetKind; path: string },
-		aiPrompt?: string,
 		options?: PipelineInsertOptions
 	) {
 		const out = options?.outputAsset ?? autoOutputAsset(outputKind, folder, language)
@@ -443,91 +433,7 @@
 		// Follow the new node with a smooth pan. The id matches the runnable
 		// node the canvas builds for a draft script (`script:<path>`).
 		focusPipelineNode(`script:${scriptPath}`)
-
-		// User filled the optional prompt on the path stage — fire off a
-		// chat request so the AI bootstraps the body. The seeded template
-		// (already in `script.content`) acts as scaffolding the AI
-		// rewrites; language + chosen output + upstream input go in as
-		// context so the model knows what to read from / write to.
-		if (aiPrompt && aiPrompt.trim().length > 0) {
-			void triggerAiBootstrap({ scriptPath, language, outputKind, input, out, prompt: aiPrompt })
-		}
 	}
-
-	async function triggerAiBootstrap(args: {
-		scriptPath: string
-		language: ScriptLang
-		outputKind: PipelineOutputKind
-		input?: { kind: AssetKind; path: string }
-		out?: { kind: AssetKind; path: string }
-		prompt: string
-	}) {
-		// Wait one tick for AssetGraphDetailsPane to mount the ScriptEditor
-		// and register itself with aiChatManager (scriptEditorApplyCode etc.).
-		// Without this, openChat fires before the chat has a target editor.
-		await tick()
-		const lines: string[] = [args.prompt]
-		lines.push('')
-		lines.push(`Language: ${args.language}.`)
-		if (args.input) {
-			lines.push(`Read input from ${args.input.kind} \`${args.input.path}\`.`)
-		}
-		if (args.out) {
-			lines.push(`Write output to ${args.out.kind} \`${args.out.path}\`.`)
-		} else if (args.outputKind === 'none') {
-			lines.push('No output asset is expected.')
-		}
-		const instructions = lines.join('\n')
-		// Still the docked chat, which AI Sessions leaves unmounted — sendRequest
-		// refuses rather than running the turn off-screen. Handing this off to a
-		// session needs the just-staged draft flushed to its DB bundle first (the
-		// preview hydrates from there), and PipelineGraphEditor exposes no flush.
-		aiChatManager.openChat()
-		aiChatManager.sendRequest({ instructions })
-	}
-
-	// ===================== AI chat pipeline integration =====================
-	// The global AI chat (dev-gated) gains pipeline-building tools while this
-	// editor is mounted, via the helpers registered below. AI mutations don't
-	// deploy — they apply directly as unsaved drafts on the canvas (the same way
-	// the flow/script editor applies AI edits), which the user then deploys. The
-	// build/edit logic is shared verbatim with the in-session preview
-	// (PipelineEditorView) via createPipelineAiHelpers.
-
-	const pipelineAiHelpers = createPipelineAiHelpers({
-		getFolder: () => folder,
-		getWorkspace: () => $workspaceStore,
-		getResolvedGraph: () => graphWithDraft,
-		hasTriggerDrafts: () => pe.triggerDrafts.size > 0,
-		getTriggerDrafts: () => pe.triggerDrafts,
-		setTriggerDraft: pe.setTriggerDraft,
-		getDrafts: () => pe.drafts,
-		setDrafts: (next) => (pe.drafts = next),
-		newDraftLocalId: pe.newDraftLocalId,
-		onForgetPath: (path) => {
-			forgetPath(path)
-			pe.discardTriggerDraftsFor(path)
-		},
-		onShowDrafts: () => (includeDrafts = true),
-		onProposeNode: (path) => focusPipelineNode(`script:${path}`),
-		ensureEditable: () => {
-			// Auto-enter edit so AI changes are visible/actionable, unless the user
-			// is an operator (no edit permission) — then refuse with a clear error.
-			if (viewOnly) {
-				throw new Error('This pipeline is read-only for your role; AI edits are disabled.')
-			}
-			if (mode !== 'edit') setMode('edit')
-		},
-		onRunStarted: (jobId, path) => {
-			activeRunnables.arm(`script:${path}`)
-			runsPendingJobId = jobId
-			runsRefreshKey++
-			activeRunnable = { kind: 'script', path }
-			activeRunnableJobId = jobId
-		}
-	})
-
-	onMount(() => aiChatManager.setPipelineHelpers(pipelineAiHelpers))
 
 	// The session's preview hydrates this folder's drafts from its DB bundle, so the
 	// autosave still inside its debounce has to land first.
@@ -1027,7 +933,6 @@
 		language: ScriptLang,
 		scriptPath: string,
 		outputKind: PipelineOutputKind,
-		aiPrompt?: string,
 		options?: PipelineInsertOptions
 	) {
 		const ref = assetRef(asset)
@@ -1040,7 +945,6 @@
 				kind: asset.kind,
 				path: asset.path
 			},
-			aiPrompt,
 			options
 		)
 	}
@@ -1049,10 +953,9 @@
 		scriptPath: string,
 		source: { kind: NativeTriggerKind; path: string | undefined },
 		outputKind: PipelineOutputKind,
-		aiPrompt?: string,
 		options?: PipelineInsertOptions
 	) {
-		openMaterializerDraft(language, scriptPath, [source], outputKind, undefined, aiPrompt, options)
+		openMaterializerDraft(language, scriptPath, [source], outputKind, undefined, options)
 		// A schedule was configured by the wizard itself; other row-backed kinds
 		// are configured in their own editor, as a draft of the new script.
 		if (source.kind !== 'schedule' && isDraftableTriggerKind(source.kind)) {

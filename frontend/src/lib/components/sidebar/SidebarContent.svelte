@@ -4,14 +4,12 @@
 		superadmin,
 		usedTriggerKinds,
 		userStore,
-		userWorkspaces,
 		workspaceStore,
 		isCriticalAlertsUIOpen,
 		enterpriseLicense,
 		devopsRole,
 		roleCapabilities
 	} from '$lib/stores'
-	import { isForkOwner } from '$lib/utils/workspaceHierarchy'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import { NAV_PAGES } from './navPages'
 	import {
@@ -23,7 +21,6 @@
 		FolderCog,
 		Github,
 		HelpCircle,
-		LogOut,
 		Newspaper,
 		Route,
 		Settings,
@@ -33,14 +30,11 @@
 		AlertCircle,
 		Database,
 		MailIcon,
-		ChevronDown,
-		ChevronRight
+		Zap
 	} from 'lucide-svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
-	import { slide } from 'svelte/transition'
 	import UserMenu from './UserMenu.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
-	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { page } from '$app/state'
 	import SideBarNotification from './SideBarNotification.svelte'
@@ -55,17 +49,12 @@
 		getServiceIcon
 	} from '../triggers/native/utils'
 	import type { NativeServiceName } from '$lib/gen/types.gen'
-	import {
-		Menubar,
-		Menu,
-		MenuSingleItem,
-		MenuItem,
-		MeltButton
-	} from '$lib/components/meltComponents'
+	import { Menubar, Menu, MenuSingleItem, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton from './MenuButton.svelte'
+	import SidebarSection, { flyoutRowClass } from './SidebarSection.svelte'
+	import DropdownSubmenuItem from '$lib/components/DropdownSubmenuItem.svelte'
 	import GoogleCloudIcon from '../icons/triggers/GoogleCloudIcon.svelte'
 	import AzureIcon from '../icons/triggers/AzureIcon.svelte'
-	import { leaveCurrentWorkspace } from './leaveWorkspace'
 	import type { VisibilityKey } from '$lib/roleCapabilities'
 	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
 
@@ -173,8 +162,6 @@
 		excludeMainLabels = []
 	}: Props = $props()
 
-	let leaveWorkspaceModal = $state(false)
-
 	function computeAllNotificationsCount(menuItems: any[]) {
 		let count = 0
 		for (const menuItem of menuItems) {
@@ -183,7 +170,6 @@
 		return count
 	}
 
-	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
 	function allows(key: VisibilityKey) {
 		return $roleCapabilities.visibility[key]
 	}
@@ -219,9 +205,7 @@
 			aiId: 'sidebar-menu-link-resources',
 			aiDescription: 'Button to navigate to resources'
 		},
-		Assets: { aiId: 'sidebar-menu-link-assets', aiDescription: 'Button to navigate to assets' },
-		Folders: { aiId: 'sidebar-menu-link-folders', aiDescription: 'Button to navigate to folders' },
-		Groups: { aiId: 'sidebar-menu-link-groups', aiDescription: 'Button to navigate to groups' }
+		Assets: { aiId: 'sidebar-menu-link-assets', aiDescription: 'Button to navigate to assets' }
 	}
 	let mainMenuLinks = $derived(
 		NAV_PAGES.filter((p) => p.label in MAIN_MENU_EXTRAS)
@@ -233,6 +217,19 @@
 				...MAIN_MENU_EXTRAS[p.label]
 			}))
 			.filter((l) => !excludeMainLabels.includes(l.label))
+	)
+	// Main-menu pages listed in a collapsible Data section of their own, as Triggers.
+	const DATA_LABELS = ['Variables', 'Resources', 'Assets']
+	let ungroupedMainLinks = $derived(mainMenuLinks.filter((l) => !DATA_LABELS.includes(l.label)))
+	// A disabled MenuLink renders nothing, so its page leaves the section, and a section with no
+	// page left leaves the nav.
+	let dataLinks = $derived(
+		mainMenuLinks.filter((l) => DATA_LABELS.includes(l.label) && !l.disabled)
+	)
+	const dataSectionCollapsed = useLocalStorageValue(
+		'windmill_data_section_collapsed',
+		false,
+		'boolean'
 	)
 	let defaultExtraTriggerLinks = $derived([
 		{
@@ -372,11 +369,6 @@
 	let showTriggersGroup = $derived(
 		showAddTriggerMenu || triggerMenuLinks.some((link) => !link.disabled)
 	)
-	// Admins, superadmins, and fork creators reach workspace settings (the latter
-	// for the fork members screen; see isForkOwner / backend authorize_fork_owner_add_user).
-	const canManageWorkspace = $derived(
-		$userStore?.is_admin || $superadmin || isForkOwner(currentWs, $userStore?.email)
-	)
 	let secondaryMenuLinks = $derived([
 		// {
 		// 	label: 'Workspace',
@@ -399,18 +391,14 @@
 					aiDescription: 'Button to navigate to account settings',
 					faIcon: undefined
 				},
-				...(canManageWorkspace
-					? [
-							{
-								label: 'Workspace',
-								href: '/workspace_settings',
-								icon: FolderCog,
-								aiId: 'sidebar-menu-link-workspace',
-								aiDescription: 'Button to navigate to workspace settings',
-								faIcon: undefined
-							}
-						]
-					: []),
+				{
+					label: 'Workspace',
+					href: '/workspace_settings',
+					icon: FolderCog,
+					aiId: 'sidebar-menu-link-workspace',
+					aiDescription: 'Button to navigate to workspace settings',
+					faIcon: undefined
+				},
 				...($superadmin
 					? [
 							{
@@ -419,19 +407,6 @@
 								icon: ServerCog,
 								aiId: 'sidebar-menu-link-instance',
 								aiDescription: 'Button to navigate to instance settings',
-								faIcon: undefined
-							}
-						]
-					: []),
-				...(!$superadmin && !$userStore?.is_admin
-					? [
-							{
-								label: 'Leave workspace',
-								action: () => {
-									leaveWorkspaceModal = true
-								},
-								class: 'text-red-400',
-								icon: LogOut,
 								faIcon: undefined
 							}
 						]
@@ -499,86 +474,131 @@
 	])
 </script>
 
-<nav class={twMerge('flex flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-2 gap-2')}>
+<!-- Each section opens 10px under the one before, the gap the layout's scroll area puts between
+     this nav and the sections after it. The rail spaces them the same, so a row keeps its place
+     in every mode. -->
+<nav class="flex flex-col overflow-x-hidden scrollbar-hidden px-2 gap-2">
 	<div class={twMerge('flex flex-col')}>
 		{#if showMain}
-			<div class="space-y-1">
-				{#each mainMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
+			<div class="space-y-0.5">
+				{#each ungroupedMainLinks as menuLink (menuLink.href ?? menuLink.label)}
 					<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 				{/each}
 			</div>
 		{/if}
-		{#if showMain && showTriggersGroup}
-			<div class="pt-4">
-				{#if isCollapsed}
-					<div class="text-secondary text-[0.5rem] uppercase transition-opacity opacity-0">
-						Triggers
-					</div>
-				{:else}
-					<button
-						type="button"
-						onclick={() => (triggersCollapsed.val = !triggersCollapsed.val)}
-						class="text-secondary text-[0.5rem] uppercase flex flex-row items-center gap-1 rounded px-1 -mx-1 py-0.5 hover:bg-surface-hover focus:outline-none"
-						aria-expanded={!triggersCollapsed.val}
+		{#if showMain}
+			{#if dataLinks.length > 0}
+				<!-- 8px: the layout's 2px gap above this nav makes it 10 under Runs. -->
+				<div class="mt-2">
+					<SidebarSection
+						title="Data"
+						icon={Database}
+						folded={dataSectionCollapsed.val}
+						onToggle={() => (dataSectionCollapsed.val = !dataSectionCollapsed.val)}
+						{isCollapsed}
 					>
-						Triggers
-						{#if triggersCollapsed.val}
-							<ChevronRight size={10} />
-						{:else}
-							<ChevronDown size={10} />
-						{/if}
-					</button>
-				{/if}
-				{#if isCollapsed || !triggersCollapsed.val}
-					<div transition:slide={{ duration: 180 }}>
-						<Menubar class="flex flex-col gap-1">
-							{#snippet children({ createMenu })}
-								{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-									<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
+						{#snippet children(inPopover, menu)}
+							<div class="flex flex-col gap-0.5">
+								{#each dataLinks as menuLink (menuLink.href)}
+									<MenuLink
+										class="!text-xs"
+										{...menuLink}
+										isCollapsed={isCollapsed && !inPopover}
+										item={menu?.item}
+									/>
 								{/each}
-								{#if showAddTriggerMenu}
-									<Menu {createMenu} usePointerDownOutside>
-										{#snippet triggr({ trigger })}
-											<MeltButton
-												aiId="sidebar-menu-link-add-trigger"
-												aiDescription="Button to add a new trigger. Can be HTTP, WebSocket, Postgres, Kafka, NATS, SQS, GCP Pub/Sub, or MQTT"
-												class={twMerge(
-													'w-full text-secondary text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-surface-hover rounded',
-													'data-[highlighted]:bg-surface-hover'
-												)}
-												meltElement={trigger}
-											>
-												<Plus size={14} />
-											</MeltButton>
+							</div>
+						{/snippet}
+					</SidebarSection>
+				</div>
+			{/if}
+		{/if}
+		{#if showMain && showTriggersGroup}
+			{#snippet addTriggerMenu(createMenu: any, rail: boolean)}
+				<Menu
+					{createMenu}
+					usePointerDownOutside
+					placement={rail ? 'right-start' : 'bottom-start'}
+					class="h-[30px]"
+				>
+					{#snippet triggr({ trigger })}
+						<MenuButton
+							aiId="sidebar-menu-link-add-trigger"
+							aiDescription="Button to add a new trigger. Can be HTTP, WebSocket, Postgres, Kafka, NATS, SQS, GCP Pub/Sub, or MQTT"
+							icon={Plus}
+							label="New trigger"
+							isCollapsed={rail}
+							buttonClass="data-[highlighted]:bg-surface-hover"
+							{trigger}
+						/>
+					{/snippet}
+					{#snippet children({ item })}
+						{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
+							<MenuItem
+								aiId={subItem.aiId}
+								aiDescription={subItem.aiDescription}
+								href={subItem.disabled ? '' : subItem.href}
+								class={twMerge(itemClass, subItem.disabled ? 'pointer-events-none opacity-50' : '')}
+								{item}
+								disabled={subItem.disabled}
+							>
+								<div class="flex flex-row items-center gap-2">
+									{#if subItem.icon}
+										<subItem.icon size={16} />
+									{/if}
+									{subItem.label}
+								</div>
+							</MenuItem>
+						{/each}
+					{/snippet}
+				</Menu>
+			{/snippet}
+			<div class="mt-2.5">
+				<SidebarSection
+					title="Triggers"
+					icon={Zap}
+					folded={triggersCollapsed.val}
+					onToggle={() => (triggersCollapsed.val = !triggersCollapsed.val)}
+					{isCollapsed}
+				>
+					{#snippet children(inPopover, menu)}
+						<div class="flex flex-col gap-0.5">
+							{#if showAddTriggerMenu}
+								{#if menu}
+									<DropdownSubmenuItem
+										item={{
+											displayName: 'New trigger',
+											icon: Plus,
+											submenuItems: extraTriggerLinks.map((l) => ({
+												displayName: l.label,
+												icon: l.icon,
+												href: l.disabled ? undefined : l.href,
+												disabled: l.disabled
+											}))
+										}}
+										builders={menu.builders}
+										meltItem={menu.item}
+										class={flyoutRowClass}
+									/>
+								{:else}
+									<Menubar class="w-full">
+										{#snippet children({ createMenu })}
+											{@render addTriggerMenu(createMenu, isCollapsed)}
 										{/snippet}
-										{#snippet children({ item })}
-											{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
-												<MenuItem
-													aiId={subItem.aiId}
-													aiDescription={subItem.aiDescription}
-													href={subItem.disabled ? '' : subItem.href}
-													class={twMerge(
-														itemClass,
-														subItem.disabled ? 'pointer-events-none opacity-50' : ''
-													)}
-													{item}
-													disabled={subItem.disabled}
-												>
-													<div class="flex flex-row items-center gap-2">
-														{#if subItem.icon}
-															<subItem.icon size={16} />
-														{/if}
-														{subItem.label}
-													</div>
-												</MenuItem>
-											{/each}
-										{/snippet}
-									</Menu>
+									</Menubar>
 								{/if}
-							{/snippet}
-						</Menubar>
-					</div>
-				{/if}
+							{/if}
+							{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
+								<MenuLink
+									class="!text-xs"
+									{...menuLink}
+									isCollapsed={isCollapsed && !inPopover}
+									item={menu?.item}
+								/>
+							{/each}
+						</div>
+					{/snippet}
+				</SidebarSection>
 			</div>
 		{/if}
 		{#if showSecondary}
@@ -721,22 +741,3 @@
 		{/if}
 	</div></nav
 >
-
-<!-- `alwaysPortal`: the sidebar's mobile slide-in panel keeps a `transform` that would
-     otherwise confine the dialog to the panel's width. -->
-<ConfirmationModal
-	open={leaveWorkspaceModal}
-	alwaysPortal
-	title="Leave workspace"
-	confirmationText="Leave workspace"
-	on:canceled={() => {
-		leaveWorkspaceModal = false
-	}}
-	on:confirmed={() => {
-		void leaveCurrentWorkspace()
-	}}
->
-	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to leave this workspace?</span>
-	</div>
-</ConfirmationModal>

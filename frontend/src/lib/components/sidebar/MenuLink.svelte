@@ -12,8 +12,11 @@
 		aiId?: string | undefined
 		aiDescription?: string | undefined
 		label: string
+		// Native tooltip in every mode, for a row whose label does not say where it goes.
+		hint?: string | undefined
 		href: string
 		icon?: any | undefined
+		iconProps?: Record<string, unknown>
 		isCollapsed: boolean
 		disabled?: boolean
 		lightMode?: boolean
@@ -26,8 +29,10 @@
 		aiId = undefined,
 		aiDescription = undefined,
 		label,
+		hint = undefined,
 		href,
 		icon = undefined,
+		iconProps = {},
 		isCollapsed,
 		disabled = false,
 		lightMode = false,
@@ -48,7 +53,12 @@
 </script>
 
 {#if !disabled}
-	<Popover appearTimeout={0} disappearTimeout={0} class="w-full" disablePopup={!isCollapsed}>
+	<Popover
+		appearTimeout={0}
+		disappearTimeout={0}
+		class="w-full"
+		disablePopup={!isCollapsed || !!hint}
+	>
 		<a
 			{href}
 			use:triggerableByAI={{
@@ -60,7 +70,9 @@
 			}}
 			{onclick}
 			class={twMerge(
-				'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-2',
+				'group flex items-center px-2 py-1 text-sm font-light rounded-md gap-2',
+				// One height in the rail and the open sidebar, so a row keeps its place in every mode.
+				'h-[30px]',
 				isSelected
 					? sidebarClasses.selectedBg
 					: item
@@ -75,13 +87,14 @@
 			data-light-mode={lightMode}
 			target={href.includes('http') ? '_blank' : null}
 			aria-label={label}
-			title={isCollapsed ? undefined : label}
+			title={hint ?? (isCollapsed ? undefined : label)}
 			use:conditionalMelt={item}
 			{...$item}
 		>
 			{#if icon}
 				{@const SvelteComponent = icon}
 				<SvelteComponent
+					{...iconProps}
 					size={16}
 					class={twMerge(
 						'flex-shrink-0 transition-all',

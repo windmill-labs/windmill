@@ -3,19 +3,17 @@
 
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
-	import { VariableService } from '$lib/gen'
 	import { allTrue, type DynamicInput } from '$lib/utils'
 	import { computeShow, quickjsSettled } from '$lib/utils/quickjsEval.svelte'
 	import { Button } from './common'
-	import ItemPicker from './ItemPicker.svelte'
-	import VariableEditor from './VariableEditor.svelte'
+	import type ItemPicker from './ItemPicker.svelte'
+	import type VariableEditor from './VariableEditor.svelte'
+	import VariablePicker from './VariablePicker.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { getResourceTypes } from './resourceTypesStore'
-	import { Plus } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
-	import { watch } from 'runed'
 	import { deepEqual } from 'fast-equals'
 	import {
 		dragHandleZone,
@@ -158,11 +156,6 @@
 	let pickForField: string | undefined = $state()
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
-
-	watch(
-		() => ws,
-		() => itemPicker?.reloadItems()
-	)
 
 	let resourceTypes: string[] | undefined = $state(undefined)
 
@@ -506,36 +499,14 @@
 	{/if}
 </div>
 {#if !noVariablePicker}
-	<ItemPicker
-		bind:this={itemPicker}
-		pickCallback={(path, _) => {
+	<VariablePicker
+		bind:itemPicker
+		bind:variableEditor
+		workspace={ws}
+		onPick={(path) => {
 			if (pickForField && args) {
 				args[pickForField] = '$var:' + path
 			}
 		}}
-		itemName="Variable"
-		tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
-		documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
-		extraField="path"
-		loadItems={async () =>
-			(await VariableService.listVariable({ workspace: ws ?? '' })).map((x) => ({
-				name: x.path,
-				...x
-			}))}
-	>
-		{#snippet submission()}
-			<div>
-				<Button
-					variant="default"
-					unifiedSize="md"
-					startIcon={{ icon: Plus }}
-					on:click={() => variableEditor?.initNew?.()}
-				>
-					New variable
-				</Button>
-			</div>
-		{/snippet}
-	</ItemPicker>
-
-	<VariableEditor bind:this={variableEditor} workspace={ws} />
+	/>
 {/if}

@@ -31,6 +31,7 @@
 	} from '$lib/components/raw_apps/utils'
 	import type { RawAppDomRequester } from '$lib/components/raw_apps/rawAppDom'
 	import type { InspectorElementInfo } from '$lib/components/copilot/chat/app/core'
+	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 
 	let {
 		runtime,
@@ -39,7 +40,8 @@
 		onNavigate,
 		isActiveSession = true,
 		active = true,
-		newRawApp = false
+		newRawApp = false,
+		fullscreen = false
 	}: {
 		runtime: SessionRuntime
 		path: string
@@ -52,7 +54,33 @@
 		active?: boolean
 		/** The tab was opened on an app the new-app builder just started. */
 		newRawApp?: boolean
+		/** Preview panel is in full screen. */
+		fullscreen?: boolean
 	} = $props()
+
+	// The side panel leaves little room for the file sidebar, full screen leaves plenty:
+	// each keeps its own sidebar and split preferences, the sidebar open by default only
+	// in full screen.
+	const panelSidebarCollapsed = useLocalStorageValue(
+		'raw-app-sidebar-collapsed-preview',
+		true,
+		'boolean'
+	)
+	const fullscreenSidebarCollapsed = useLocalStorageValue(
+		'raw-app-sidebar-collapsed-preview-fullscreen',
+		false,
+		'boolean'
+	)
+	const panelSplitWithPreview = useLocalStorageValue(
+		'raw-app-split-with-preview-preview',
+		false,
+		'boolean'
+	)
+	const fullscreenSplitWithPreview = useLocalStorageValue(
+		'raw-app-split-with-preview-preview-fullscreen',
+		false,
+		'boolean'
+	)
 
 	// This tab's own raw-app cell; each open app editor binds its own store.
 	const cell = $derived(runtime.rawAppCell(path))
@@ -80,6 +108,8 @@
 	const awaitingSetup = $derived(
 		newRawApp &&
 			!setupSettled &&
+			// Held until the first send, it was set up before this view remounted.
+			!runtime.holdsDraft(workspaceId, 'raw_app', path) &&
 			isActiveSession &&
 			active &&
 			cell.slot.loadedPath === path &&
@@ -103,8 +133,18 @@
 			data: result.data,
 			policy: result.policy
 		}
+		if (mode === 'ai') {
+			// The session's first send saves it; until then it lives in this tab only.
+			runtime.holdDraftUntilSend(workspaceId, 'raw_app', path)
+			cell.store.val = setUp
+			// Written now rather than on the autosave debounce: the reload below reads it back.
+			UserDraft.save('raw_app', path, runtimeRawAppToDraft(setUp), { workspace: workspaceId })
+			// Remounts the editor so the preview builds the picked template.
+			await runtime.loadRawApp(workspaceId, path, true)
+			return
+		}
 		cell.store.val = setUp
-		// Saved now rather than on the autosave debounce: both ways out read it back by path.
+		// Saved now rather than on the autosave debounce: the editor page reads it back by path.
 		const key = { workspace: workspaceId, itemKind: 'raw_app' as const, path }
 		UserDraft.save('raw_app', path, runtimeRawAppToDraft(setUp), { workspace: workspaceId })
 		await tick()
@@ -115,15 +155,10 @@
 			sendUserToast(`Could not save the app: ${saved.failureMessage ?? 'unknown error'}`, true)
 			return
 		}
-		if (mode === 'code') {
-			// The session was opened for this app alone; with nothing said in it, it goes.
-			const unused = runtime.manager.displayMessages.length === 0
-			await goto(withWorkspaceParam(`/apps_raw/edit/${path}`, workspaceId))
-			if (unused) removeSession(runtime.sessionId)
-			return
-		}
-		// Remounts the editor so the preview builds the picked template.
-		await runtime.loadRawApp(workspaceId, path, true)
+		// The session was opened for this app alone; with nothing said in it, it goes.
+		const unused = runtime.manager.displayMessages.length === 0
+		await goto(withWorkspaceParam(`/apps_raw/edit/${path}`, workspaceId))
+		if (unused) removeSession(runtime.sessionId)
 	}
 
 	// Path typed in the editor header, surfaced when it differs from the stored
@@ -398,8 +433,8 @@
 				condensedHeader={true}
 				onResetToDeployed={reloadDeployed}
 				onDeploy={(e) => runtime.itemDeployed(workspaceId, 'raw_app', path, e.path)}
-				defaultSidebarCollapsed
-				sidebarStorageKey="raw-app-sidebar-collapsed-preview"
+				sidebarCollapsedState={fullscreen ? fullscreenSidebarCollapsed : panelSidebarCollapsed}
+				splitWithPreviewState={fullscreen ? fullscreenSplitWithPreview : panelSplitWithPreview}
 				defaultSplitWithPreview={false}
 				onRuntimeLogRequester={registerRuntimeLogRequester}
 				onRunsProvider={registerRunsProvider}

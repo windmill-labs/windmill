@@ -7,6 +7,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ArtifactBody from '$lib/components/copilot/chat/artifacts/ArtifactBody.svelte'
 	import ArtifactExportButton from '$lib/components/copilot/chat/artifacts/ArtifactExportButton.svelte'
+	import MermaidCodeBlock from '$lib/components/copilot/chat/artifacts/MermaidCodeBlock.svelte'
 	import { AiService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -123,7 +124,7 @@
 				</div>
 			</div>
 			<div class="min-h-0 flex-1 overflow-auto rounded-md bg-surface-tertiary px-8">
-				<ArtifactBody content={artifact.content} {source} />
+				<ArtifactBody content={artifact.content} {source} pre={MermaidCodeBlock} />
 			</div>
 		{:else if shared.current?.state === 'gone'}
 			<EmptyState

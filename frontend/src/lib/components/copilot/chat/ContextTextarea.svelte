@@ -787,6 +787,12 @@
 		}
 	}
 
+	/** Whether the `@` or `/` picker is open. It closes itself on an Escape reaching
+	 * `document` unprevented. */
+	export function hasOpenPicker(): boolean {
+		return showContextTooltip || showCommandTooltip
+	}
+
 	// Wipe after dispatching a send: pre-zero `prevMentionedTitles` so the effect
 	// above sees no diff when `value` clears, leaving `selectedContext` for the
 	// send that is already carrying it to settle (see the caller). A manual
@@ -813,6 +819,7 @@
 
 <!-- The box that opens a session grows and shrinks between its one-line and full shapes. -->
 <div
+	data-composer-box
 	class={twMerge(composerBoxClass(disabled), hero && HERO_BOX_CLASS)}
 	use:smoothHeight={{ enabled: hero, key: oneLine }}
 >
@@ -857,7 +864,7 @@
 			bind:this={textarea}
 			onkeydown={handleKeyDown}
 			bind:value
-			use:autosize={hero && !oneLine ? { maxHeight: 160, minHeight: 56 } : { maxHeight: '40vh' }}
+			use:autosize={hero && !oneLine ? { maxHeight: 160, minHeight: 80 } : { maxHeight: '40vh' }}
 			rows={1}
 			oninput={handleInput}
 			onpaste={handlePaste}

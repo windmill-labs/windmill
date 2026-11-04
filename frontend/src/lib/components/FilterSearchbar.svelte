@@ -3,6 +3,10 @@
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { useHostedPage } from '$lib/components/hostedPage'
 	import { formatDatePretty, parsePrettyDate, type IconType } from '$lib/utils'
+	import { lazyModule } from '$lib/lazyModule.svelte'
+
+	// Its date-fns would otherwise load with every list page that has a searchbar.
+	const calendarModule = lazyModule(() => import('./common/InlineCalendarInput.svelte'))
 
 	export type FilterSchemaRec = Record<string, FilterSchema>
 	export type FilterSchema = (
@@ -332,10 +336,7 @@
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
 	import Badge from './common/badge/Badge.svelte'
-	import InlineCalendarInput, {
-		fromCalendarDate,
-		toCalendarDate
-	} from './common/InlineCalendarInput.svelte'
+	import { fromCalendarDate, toCalendarDate } from './common/calendarDate'
 	import { ButtonType } from './common'
 
 	type Props<SchemaT extends FilterSchemaRec> = {
@@ -888,35 +889,37 @@
 	{:else if filter.type === 'date'}
 		{@const filterMode = filter.mode}
 		<div class="p-3 mb-1">
-			{#if !filterMode || filterMode === 'single'}
-				<InlineCalendarInput
-					bind:value={
-						() => toCalendarDate(value[currentTag!]),
-						(v) => {
-							setValueForCurrentTag(fromCalendarDate(v))
-							taggedTextInput?.preventCursorMoveOnNextSync()
+			{#await calendarModule.load() then { default: InlineCalendarInput }}
+				{#if !filterMode || filterMode === 'single'}
+					<InlineCalendarInput
+						bind:value={
+							() => toCalendarDate(value[currentTag!]),
+							(v) => {
+								setValueForCurrentTag(fromCalendarDate(v))
+								taggedTextInput?.preventCursorMoveOnNextSync()
+							}
 						}
-					}
-				/>
-			{:else}
-				{@const curr = toCalendarDate(value[currentTag!])}
-				{@const obj =
-					filterMode === 'end'
-						? { start: toCalendarDate(value[filter.otherField as keyof SchemaT]), end: curr }
-						: { end: toCalendarDate(value[filter.otherField as keyof SchemaT]), start: curr }}
-				<InlineCalendarInput
-					mode="range"
-					onClickBehavior={`set-${filterMode}`}
-					infiniteRange
-					bind:value={
-						() => obj,
-						(v) => {
-							setValueForCurrentTag(fromCalendarDate(v[filterMode]))
-							taggedTextInput?.preventCursorMoveOnNextSync()
+					/>
+				{:else}
+					{@const curr = toCalendarDate(value[currentTag!])}
+					{@const obj =
+						filterMode === 'end'
+							? { start: toCalendarDate(value[filter.otherField as keyof SchemaT]), end: curr }
+							: { end: toCalendarDate(value[filter.otherField as keyof SchemaT]), start: curr }}
+					<InlineCalendarInput
+						mode="range"
+						onClickBehavior={`set-${filterMode}`}
+						infiniteRange
+						bind:value={
+							() => obj,
+							(v) => {
+								setValueForCurrentTag(fromCalendarDate(v[filterMode]))
+								taggedTextInput?.preventCursorMoveOnNextSync()
+							}
 						}
-					}
-				/>
-			{/if}
+					/>
+				{/if}
+			{/await}
 		</div>
 	{:else if filter.type === 'string' && filter.format === 'json'}
 		<div class="px-2 pb-2">

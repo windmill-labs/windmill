@@ -1,17 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { get } from 'svelte/store'
 import {
-	enterSessionMode,
-	enterSessionModeFromNav,
-	exitSessionMode,
-	navRouteItemMoved,
+	noteArrival,
 	openSourceInSession,
-	rememberNavRoute,
-	startSessionWithPrompt,
-	takeNewSessionSeed
+	resumeAiSessions,
+	startSessionWithPrompt
 } from './sessionSwitch.svelte'
 import {
 	getSessionAutoSendDomElement,
+	homeDraft,
 	peekSessionAutoSend,
 	sessionState,
 	takeSessionAutoSend,
@@ -27,96 +24,78 @@ import { goto } from '$lib/navigation'
 // monaco (hence that import being dynamic in the first place) and cannot load
 // under node.
 vi.mock('./sessionRuntime.svelte', () => ({ resetSessionPreviewTabs: vi.fn() }))
-import { resetSessionPreviewTabs } from './sessionRuntime.svelte'
-import { registerMountedOpenInSessionHandoff } from './openInSessionContext'
 
-function session(over: Partial<Session> = {}): Session {
-	return { id: 's1', name: 'sess', createdAt: 0, ...over }
-}
 function ws(id: string, parent?: string): UserWorkspace {
 	return { id, name: id, parent_workspace_id: parent } as unknown as UserWorkspace
 }
 
-// Two-family fixture: rootA (with forkA) and rootB. Returns a restore fn.
+function session(over: Partial<Session> & { id: string }): Session {
+	return { createdAt: 0, ...over }
+}
+
+// Two families: rootA (with forkA) and rootB. Returns a restore fn.
 function withTwoFamilies(activeWorkspace: string): () => void {
 	const prevUsers = get(usersWorkspaceStore)
 	const prevWs = get(workspaceStore)
+	const prevCurrent = sessionState.currentSessionId
 	usersWorkspaceStore.set({
 		email: 't@t',
 		workspaces: [ws('rootA'), ws('forkA', 'rootA'), ws('rootB')]
 	} as never)
 	workspaceStore.set(activeWorkspace)
 	return () => {
+		sessionState.sessions = sessionState.sessions.filter((s) => !s.id.startsWith('sw-'))
+		sessionState.currentSessionId = prevCurrent
 		usersWorkspaceStore.set(prevUsers)
 		workspaceStore.set(prevWs)
 	}
 }
 
-describe('enterSessionMode — restore is scoped to the active family', () => {
+describe('the sessions page resumes the last session opened', () => {
 	beforeEach(() => {
 		vi.mocked(goto).mockClear()
 	})
 
-	it('keeps the current session when it belongs to the active family', async () => {
+	it('resumes the session last opened, within the active family', async () => {
 		const restore = withTwoFamilies('forkA')
-		const prevCurrent = sessionState.currentSessionId
-		const inFamily = session({ id: 'sw-in-family', name: 'session-911', workspace_id: 'rootA' })
-		sessionState.sessions.push(inFamily)
-		sessionState.currentSessionId = 'sw-in-family'
+		sessionState.sessions.push(
+			session({ id: 'sw-opened', workspace_id: 'rootA', lastActivityAt: 1 }),
+			session({ id: 'sw-recent', workspace_id: 'forkA', lastActivityAt: 2 }),
+			session({ id: 'sw-foreign', workspace_id: 'rootB', lastActivityAt: 3 })
+		)
 		try {
-			await enterSessionMode()
-			expect(sessionState.currentSessionId).toBe('sw-in-family')
-			expect(goto).toHaveBeenCalledWith('/sessions?session=sw-in-family', {
+			noteArrival(new URL('http://localhost/sessions?session=sw-opened'))
+			await resumeAiSessions()
+			expect(goto).toHaveBeenLastCalledWith('/sessions?session=sw-opened', {
+				replaceState: false
+			})
+			// Another family's session would pull its scope into this one: the family's most
+			// recently used session stands in.
+			noteArrival(new URL('http://localhost/sessions?session=sw-foreign'))
+			await resumeAiSessions()
+			expect(goto).toHaveBeenLastCalledWith('/sessions?session=sw-recent', {
 				replaceState: false
 			})
 		} finally {
-			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'sw-in-family')
-			sessionState.currentSessionId = prevCurrent
 			restore()
 		}
 	})
 
-	it('skips a cross-family current session in favor of the most recent in-family one', async () => {
-		const restore = withTwoFamilies('rootB')
-		const prevCurrent = sessionState.currentSessionId
-		const foreign = session({ id: 'sw-foreign', name: 'session-912', workspace_id: 'rootA' })
-		const local = session({ id: 'sw-local', name: 'session-913', workspace_id: 'rootB' })
-		sessionState.sessions.push(foreign, local)
-		sessionState.currentSessionId = 'sw-foreign'
+	it('reopens an unsent draft in Home’s composer', async () => {
+		const restore = withTwoFamilies('rootA')
+		sessionState.sessions.push(
+			session({ id: 'sw-draft', pending_workspace_id: 'rootA', draftPrompt: 'half typed' })
+		)
+		// Not on Home already, so the resume navigates there.
+		vi.stubGlobal('window', { location: { pathname: '/runs' } })
 		try {
-			await enterSessionMode()
-			expect(sessionState.currentSessionId).toBe('sw-local')
-			expect(goto).toHaveBeenCalledWith('/sessions?session=sw-local', {
-				replaceState: false
-			})
+			noteArrival(new URL('http://localhost/sessions?session=sw-draft'))
+			await resumeAiSessions()
+			expect(goto).toHaveBeenLastCalledWith('/', { replaceState: false })
+			expect(homeDraft.id).toBe('sw-draft')
 		} finally {
-			sessionState.sessions = sessionState.sessions.filter(
-				(s) => s.id !== 'sw-foreign' && s.id !== 'sw-local'
-			)
-			sessionState.currentSessionId = prevCurrent
-			restore()
-		}
-	})
-
-	it('creates a fresh session in the active workspace when no in-family session exists', async () => {
-		const restore = withTwoFamilies('rootB')
-		const prevCurrent = sessionState.currentSessionId
-		const foreign = session({ id: 'sw-only-foreign', name: 'session-914', workspace_id: 'rootA' })
-		sessionState.sessions.push(foreign)
-		sessionState.currentSessionId = 'sw-only-foreign'
-		let createdId: string | undefined
-		try {
-			await enterSessionMode()
-			createdId = sessionState.currentSessionId
-			expect(createdId).not.toBe('sw-only-foreign')
-			const created = sessionState.sessions.find((s) => s.id === createdId)
-			expect(created?.pending_workspace_id).toBe('rootB')
-			expect(created?.transient).toBe(true)
-		} finally {
-			sessionState.sessions = sessionState.sessions.filter(
-				(s) => s.id !== 'sw-only-foreign' && s.id !== createdId
-			)
-			sessionState.currentSessionId = prevCurrent
+			vi.unstubAllGlobals()
+			homeDraft.id = undefined
 			restore()
 		}
 	})
@@ -277,198 +256,6 @@ describe('startSessionWithPrompt', () => {
 			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== createdId)
 			sessionState.currentSessionId = prevCurrent
 			usersWorkspaceStore.set(prevUsers)
-			workspaceStore.set(prevWs)
-		}
-	})
-})
-
-describe('takeNewSessionSeed', () => {
-	it('offers the item editor the user came from, once per arrival', () => {
-		rememberNavRoute('/flows/edit/u/me/my_flow?workspace=ws')
-		expect(takeNewSessionSeed()).toEqual({
-			url: '/flows/edit/u/me/my_flow?workspace=ws',
-			kind: 'flow',
-			path: 'u/me/my_flow'
-		})
-		// A dismissed or taken offer is not repeated until the user leaves again.
-		expect(takeNewSessionSeed()).toBeUndefined()
-		rememberNavRoute('/apps_raw/edit/f/team/dashboard?workspace=ws')
-		expect(takeNewSessionSeed()).toMatchObject({ kind: 'app', path: 'f/team/dashboard' })
-	})
-
-	it('offers the pipeline the user came from, named by its folder', () => {
-		rememberNavRoute('/pipeline/crm?workspace=ws')
-		expect(takeNewSessionSeed()).toEqual({
-			url: '/pipeline/crm?workspace=ws',
-			kind: 'pipeline',
-			path: 'f/crm'
-		})
-	})
-
-	it('offers nothing for a non-item page', () => {
-		rememberNavRoute('/runs?workspace=ws')
-		expect(takeNewSessionSeed()).toBeUndefined()
-	})
-})
-
-describe('enterSessionModeFromNav', () => {
-	const HOUR = 60 * 60 * 1000
-	beforeEach(() => {
-		vi.mocked(goto).mockClear()
-		vi.mocked(resetSessionPreviewTabs).mockClear()
-	})
-
-	// One session in the active family (rootA), as the one the rail would resume.
-	// Restores everything the test touched, the module-level nav route included,
-	// and drops whatever session the call under test created.
-	function withResumable(over: Partial<Session>): { restore: () => void } {
-		const restoreFamilies = withTwoFamilies('rootA')
-		const prevCurrent = sessionState.currentSessionId
-		const before = new Set(sessionState.sessions.map((s) => s.id))
-		const s = session({ workspace_id: 'rootA', ...over })
-		sessionState.sessions.push(s)
-		sessionState.currentSessionId = s.id
-		return {
-			restore: () => {
-				sessionState.sessions = sessionState.sessions.filter((x) => before.has(x.id))
-				sessionState.currentSessionId = prevCurrent
-				rememberNavRoute('/')
-				restoreFamilies()
-			}
-		}
-	}
-
-	it('resumes a recently active session even when coming from an item', async () => {
-		const { restore } = withResumable({
-			id: 'nav-recent',
-			name: 'session-921',
-			lastActivityAt: Date.now() - HOUR / 2
-		})
-		try {
-			rememberNavRoute('/flows/edit/u/me/f?workspace=rootA')
-			await enterSessionModeFromNav()
-			expect(sessionState.currentSessionId).toBe('nav-recent')
-			expect(resetSessionPreviewTabs).not.toHaveBeenCalled()
-		} finally {
-			restore()
-		}
-	})
-
-	it('starts a session on the item, by route, instead of resuming one idle for hours', async () => {
-		const { restore } = withResumable({
-			id: 'nav-stale',
-			name: 'session-922',
-			lastActivityAt: Date.now() - 3 * HOUR
-		})
-		try {
-			rememberNavRoute('/flows/edit/u/me/f?workspace=forkA')
-			await enterSessionModeFromNav()
-			const createdId = sessionState.currentSessionId
-			expect(createdId).not.toBe('nav-stale')
-			expect(resetSessionPreviewTabs).toHaveBeenCalledWith(
-				createdId,
-				'/flows/edit/u/me/f?workspace=forkA'
-			)
-			// The route's workspace, not createSession's pick for the active one.
-			const created = sessionState.sessions.find((s) => s.id === createdId)
-			expect(created?.pending_workspace_id).toBe('forkA')
-			// The arrival opened the item itself, so "New session" does not offer it.
-			expect(takeNewSessionSeed()).toBeUndefined()
-		} finally {
-			restore()
-		}
-	})
-
-	// The editor's hand-off is what its own "Open in AI session" button uses: its
-	// beforeOpen persists the draft the preview loads, and it names the item's
-	// workspace. The rail must take it over opening the route as last persisted.
-	it('hands off through the mounted editor of the item, running its beforeOpen first', async () => {
-		const { restore } = withResumable({
-			id: 'nav-stale-editor',
-			name: 'session-924',
-			lastActivityAt: Date.now() - 3 * HOUR
-		})
-		const order: string[] = []
-		vi.mocked(goto).mockImplementation((async () => {
-			order.push('goto')
-		}) as never)
-		// A script editor mounted alongside (a flow's drawer) must not be taken
-		// for the page's own item.
-		const unregisterScript = registerMountedOpenInSessionHandoff({
-			source: () => ({ target: { kind: 'script', path: 'u/me/s' }, workspaceId: 'rootB' })
-		})
-		const unregisterFlow = registerMountedOpenInSessionHandoff({
-			source: () => ({
-				target: { kind: 'flow', path: 'u/me/f' },
-				workspaceId: 'forkA',
-				beforeOpen: () => {
-					order.push('beforeOpen')
-				}
-			})
-		})
-		try {
-			rememberNavRoute('/flows/edit/u/me/f?workspace=rootA')
-			await enterSessionModeFromNav()
-			const createdId = sessionState.currentSessionId
-			expect(createdId).not.toBe('nav-stale-editor')
-			expect(order).toEqual(['beforeOpen', 'goto'])
-			expect(resetSessionPreviewTabs).toHaveBeenCalledWith(
-				createdId,
-				expect.stringMatching(/\/flows\/edit\/u\/me\/f$/)
-			)
-			const created = sessionState.sessions.find((s) => s.id === createdId)
-			expect(created?.pending_workspace_id).toBe('forkA')
-		} finally {
-			unregisterFlow()
-			unregisterScript()
-			vi.mocked(goto).mockReset()
-			vi.mocked(goto).mockResolvedValue(undefined as never)
-			restore()
-		}
-	})
-
-	it('resumes a stale session when coming from a non-item page', async () => {
-		const { restore } = withResumable({
-			id: 'nav-stale-runs',
-			name: 'session-923',
-			lastActivityAt: Date.now() - 3 * HOUR
-		})
-		try {
-			rememberNavRoute('/runs?workspace=rootA')
-			await enterSessionModeFromNav()
-			expect(sessionState.currentSessionId).toBe('nav-stale-runs')
-			expect(resetSessionPreviewTabs).not.toHaveBeenCalled()
-		} finally {
-			restore()
-		}
-	})
-})
-
-describe('exitSessionMode after a first deploy from the session', () => {
-	it('returns to the deployed item, not the draft row the deploy discarded', async () => {
-		const prevWs = get(workspaceStore)
-		workspaceStore.set('w')
-		vi.mocked(goto).mockClear()
-		try {
-			rememberNavRoute('/flows/edit/u/me/draft_ab12_cd34?workspace=w&nodraft=true&new_draft=true')
-			navRouteItemMoved('flow', 'w', 'u/me/draft_ab12_cd34', 'f/ops/sync_invoices')
-			await exitSessionMode()
-			expect(goto).toHaveBeenCalledWith('/flows/edit/f/ops/sync_invoices?workspace=w')
-		} finally {
-			workspaceStore.set(prevWs)
-		}
-	})
-
-	it('keeps the route when the move happened in a fork of its workspace', async () => {
-		const prevWs = get(workspaceStore)
-		workspaceStore.set('w')
-		vi.mocked(goto).mockClear()
-		try {
-			rememberNavRoute('/flows/edit/f/ops/existing?workspace=w')
-			navRouteItemMoved('flow', 'wm-fork-w', 'f/ops/existing', 'f/ops/fork_only')
-			await exitSessionMode()
-			expect(goto).toHaveBeenCalledWith('/flows/edit/f/ops/existing?workspace=w')
-		} finally {
 			workspaceStore.set(prevWs)
 		}
 	})

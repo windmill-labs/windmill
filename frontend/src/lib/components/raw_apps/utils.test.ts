@@ -7,6 +7,7 @@ import {
 	formatRuntimeLogsForChat,
 	genWmillTs,
 	normalizeRawAppRuntimeLogs,
+	rawAppCtx,
 	rawAppPreviewModules,
 	stripRawAppDiffNoise,
 	type Runnable
@@ -52,6 +53,16 @@ const flowSchema = {
 		}
 	}
 } as const
+
+describe('rawAppCtx', () => {
+	it("carries the page's query without Windmill's own parameters", () => {
+		expect(rawAppCtx(undefined, 'ws', 'u/me/app', '?customer=42&wm_coep=1&tab=b').query).toEqual({
+			customer: '42',
+			tab: 'b'
+		})
+		expect(rawAppCtx(undefined, 'ws', 'u/me/app', '').query).toEqual({})
+	})
+})
 
 describe('genWmillTs', () => {
 	it('generates the correct flow args type for path runnables', () => {

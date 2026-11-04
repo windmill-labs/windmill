@@ -1,14 +1,13 @@
 import { z } from 'zod'
-import YAML from 'yaml'
-import { ApiError, WorkspaceService, type ApplyWorkspaceSettingsDocumentResponse } from '$lib/gen'
+import type { ApplyWorkspaceSettingsDocumentResponse } from '$lib/gen'
 import { createToolDef, type ToolCodeDiff } from '../shared'
 import type { SessionTool, SessionToolPolicy } from '../sessionCapabilities'
 import { toStableYaml } from './draftDiff'
+import { runOnServer, runServerTool, type SessionToolEffect } from './backendSessionTools'
 
 // Both endpoints call `require_admin`.
 const ADMIN: SessionToolPolicy = ['admin']
 
-const MAX_READ_CHARS = 20_000
 
 type SettingsChange = ApplyWorkspaceSettingsDocumentResponse['changes'][number]
 
@@ -26,21 +25,6 @@ const setWorkspaceSettingsSchema = z.object({
 			'A YAML mapping of only the top-level keys to change, each given whole (a nested object replaces the stored one). A key set to null clears it.'
 		)
 })
-
-function apiErrorText(e: unknown): string {
-	if (e instanceof ApiError) {
-		return typeof e.body === 'string' ? e.body : JSON.stringify(e.body)
-	}
-	return e instanceof Error ? e.message : String(e)
-}
-
-function parseSettingsYaml(text: string): Record<string, unknown> {
-	const doc = YAML.parse(text)
-	if (doc === null || typeof doc !== 'object' || Array.isArray(doc)) {
-		throw new Error('The yaml must be a mapping of setting keys to values.')
-	}
-	return doc
-}
 
 // An unset value is left out rather than written as null, so a side with nothing set is empty.
 function changesSide(changes: SettingsChange[], side: 'before' | 'after'): string {
@@ -72,23 +56,7 @@ export const workspaceSettingsTools: SessionTool<{}>[] = [
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = getWorkspaceSettingsSchema.parse(args)
-			const doc = (await WorkspaceService.getWorkspaceSettingsDocument({
-				workspace,
-				secrets: 'redacted'
-			})) as Record<string, unknown>
-			let picked = doc
-			let note = ''
-			if (parsed.keys?.length) {
-				picked = Object.fromEntries(parsed.keys.filter((k) => k in doc).map((k) => [k, doc[k]]))
-				const unset = parsed.keys.filter((k) => !(k in doc))
-				if (unset.length) {
-					note = `\n# Not in the document (unset, or not a setting): ${unset.join(', ')}`
-				}
-			}
-			let text = YAML.stringify(picked, { aliasDuplicateObjects: false, lineWidth: 0 }) + note
-			if (text.length > MAX_READ_CHARS) {
-				text = `${text.slice(0, MAX_READ_CHARS)}\n… truncated at ${MAX_READ_CHARS} chars; read the keys you need with \`keys\`.`
-			}
+			const { text } = await runOnServer('get_workspace_settings', workspace, args)
 			toolCallbacks.setToolStatus(toolId, {
 				content: parsed.keys?.length
 					? `Read workspace settings: ${parsed.keys.join(', ')}`
@@ -110,27 +78,15 @@ export const workspaceSettingsTools: SessionTool<{}>[] = [
 		cancellationMessage: 'The user declined: no setting was changed.',
 		showDetails: true,
 		validateBeforeConfirmation: async ({ args, workspace }) => {
-			let changes: SettingsChange[]
-			let warnings: string[] | undefined
-			try {
-				const document = parseSettingsYaml(setWorkspaceSettingsSchema.parse(args).yaml)
-				;({ changes, warnings } = await WorkspaceService.applyWorkspaceSettingsDocument({
-					workspace,
-					requestBody: { document, replace: false, dry_run: true }
-				}))
-			} catch (e) {
-				const error = apiErrorText(e)
-				return { label: `Invalid settings: ${error}`, result: `Nothing was changed: ${error}` }
+			setWorkspaceSettingsSchema.parse(args)
+			const { text, effects } = await runOnServer('set_workspace_settings', workspace, args, {
+				check_only: true
+			})
+			const facts = settingsFacts(effects)
+			if (facts.refused) {
+				return { label: facts.refused, result: text }
 			}
-			if (changes.length === 0) {
-				return {
-					label: 'No settings change',
-					result: `The settings already hold these values: nothing to change.${
-						warnings?.length ? ` Warnings: ${warnings.join(' ')}` : ''
-					}`
-				}
-			}
-			dryRuns.set(args, changes)
+			dryRuns.set(args, facts.changes ?? [])
 			return undefined
 		},
 		onConfirmationRequested: ({ args, toolCallbacks, toolId }) => {
@@ -140,31 +96,33 @@ export const workspaceSettingsTools: SessionTool<{}>[] = [
 			}
 		},
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-			const document = parseSettingsYaml(setWorkspaceSettingsSchema.parse(args).yaml)
+			setWorkspaceSettingsSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, { content: 'Changing workspace settings...' })
-			try {
-				const { changes, warnings } = await WorkspaceService.applyWorkspaceSettingsDocument({
-					workspace,
-					requestBody: { document, replace: false }
-				})
-				const keys = changes.map((c) => c.key)
+			const { text, effects } = await runServerTool('set_workspace_settings', {
+				args,
+				workspace,
+				toolId,
+				toolCallbacks
+			})
+			const { changes } = settingsFacts(effects)
+			if (changes) {
 				toolCallbacks.setToolStatus(toolId, {
-					content: `Changed workspace settings: ${keys.join(', ')}`,
+					content: `Changed workspace settings: ${changes.map((c) => c.key).join(', ')}`,
 					codeDiff: changesDiff(changes)
 				})
-				return JSON.stringify({
-					success: true,
-					message: `The user approved and these settings are now applied: ${keys.join(', ')}.`,
-					...(warnings?.length ? { warnings } : {})
-				})
-			} catch (e) {
-				const error = apiErrorText(e)
-				toolCallbacks.setToolStatus(toolId, {
-					content: 'Failed to change workspace settings',
-					error
-				})
-				return JSON.stringify({ success: false, error })
 			}
+			return text
 		}
 	}
 ]
+
+function settingsFacts(effects: SessionToolEffect[]): {
+	refused?: string
+	changes?: SettingsChange[]
+} {
+	const facts = effects.find((e) => e.type === 'facts') as Record<string, unknown> | undefined
+	return {
+		refused: facts?.refused as string | undefined,
+		changes: facts?.changes as SettingsChange[] | undefined
+	}
+}

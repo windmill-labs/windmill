@@ -37,6 +37,8 @@ import type { Kind } from '$lib/utils_deployable'
 import {
 	canRecord,
 	canRecordSession,
+	commonFolderPath,
+	folderSubPaths,
 	inputResourceTypes,
 	mergeAppTableOrigin,
 	HIDDEN_RESOURCE_TYPES,
@@ -141,6 +143,9 @@ export class DeployToHubSession {
 	readonly folder: string
 	/** `f/`-prefixed folder path the project is scoped to. */
 	readonly selectedFolder: string
+	/** The base folder whose items are offered for selection; `folder` is it or one of
+	 * its sub-paths. */
+	readonly listFolder: string
 
 	#disposed = false
 	#deps: SessionDeps
@@ -265,11 +270,22 @@ export class DeployToHubSession {
 	#previewItemCache = new Map<string, Promise<FetchedItem | undefined>>()
 	#previewTypeCache = new Map<string, Promise<string | undefined>>()
 
-	constructor(workspace: string, folder: string, deps: SessionDeps) {
+	constructor(
+		workspace: string,
+		folder: string,
+		deps: SessionDeps,
+		listFolder: string = folder,
+		seed?: { items: DeployItem[]; deselected: Set<string> }
+	) {
 		this.workspace = workspace
 		this.folder = folder
 		this.selectedFolder = `f/${folder}`
+		this.listFolder = listFolder
 		this.#deps = deps
+		if (seed) {
+			this.workspaceItems = seed.items
+			this.manualDeselected = seed.deselected
+		}
 	}
 
 	dispose() {
@@ -301,8 +317,22 @@ export class DeployToHubSession {
 		}
 	}
 
+	/** Set once the Hub has said whether this scope already has a project. */
+	hubChecked = $state(false)
+	/** Sub-paths of the base folder that are Hub projects of their own. */
+	subProjects = $state<{ folder: string; status: string; name: string }[]>([])
+	/** Set once `subProjects` has been looked up. */
+	subProjectsChecked = $state(false)
+	#subProjectsLoaded = false
+	/** Folders already published as other projects: their items cannot join this one. */
+	blockedFolders = $state<string[]>([])
+	isBlocked = (path: string) => this.blockedFolders.some((f) => path.startsWith(`f/${f}/`))
+	// A scope with a Hub project offers only its own items, so an update cannot drift
+	// into another scope's project; until then the whole base folder is offered.
 	filteredWorkspaceItems = $derived(
-		this.workspaceItems.filter((i) => i.path.startsWith(this.selectedFolder + '/'))
+		this.workspaceItems.filter((i) =>
+			i.path.startsWith(`f/${this.effectiveSlug ? this.folder : this.listFolder}/`)
+		)
 	)
 	// Derived (not merged at load time) so it settles regardless of which of the
 	// racing loads (#loadWorkspace / rehydrateFromHub) finishes last.
@@ -312,13 +342,24 @@ export class DeployToHubSession {
 	)
 	selectedItems = $derived(
 		this.phase === 'predeploy'
-			? this.filteredWorkspaceItems.filter((i) => !this.manualDeselected.has(i.key))
+			? this.filteredWorkspaceItems.filter(
+					(i) => !this.manualDeselected.has(i.key) && !this.isBlocked(i.path)
+				)
 			: []
 	)
 	selectedItemKeys = $derived(this.selectedItems.map((i) => i.key))
 	allSelected = $derived(
 		this.phase === 'predeploy' &&
-			this.selectedItemKeys.length === this.filteredWorkspaceItems.length
+			this.selectedItemKeys.length ===
+				this.filteredWorkspaceItems.filter((i) => !this.isBlocked(i.path)).length
+	)
+	/** The project the selection describes: the whole base folder while everything is
+	 * selected and no other project holds part of it, else the deepest sub-path holding
+	 * all of it. */
+	selectionScope = $derived.by(() =>
+		this.allSelected && !this.blockedFolders.length
+			? this.listFolder
+			: (commonFolderPath(this.selectedItems.map((i) => i.path)) ?? this.folder)
 	)
 	// A raw app's recorded session counts towards the project's recordings just as
 	// a script's captured run does — both are what a visitor replays.
@@ -596,6 +637,36 @@ export class DeployToHubSession {
 		}
 	}
 
+	// ponytail: one lookup per sub-path; a by-prefix Hub query if folders grow deep.
+	async loadSubProjects() {
+		if (this.#subProjectsLoaded) return
+		this.#subProjectsLoaded = true
+		const subs = folderSubPaths(
+			this.workspaceItems.map((i) => i.path),
+			this.listFolder
+		)
+		const found = await Promise.all(
+			subs.map(async (folder) => {
+				try {
+					const res = await fetch(
+						`/api/w/${this.workspace}/hub/project?folder=${encodeURIComponent(folder)}`,
+						{ credentials: 'include', headers: { accept: 'application/json' } }
+					)
+					if (!res.ok) return undefined
+					const p = await res.json()
+					return p?.slug
+						? { folder, status: String(p.status ?? 'draft'), name: String(p.name || p.slug) }
+						: undefined
+				} catch {
+					return undefined
+				}
+			})
+		)
+		if (this.#disposed) return
+		this.subProjects = found.filter((p) => p !== undefined)
+		this.subProjectsChecked = true
+	}
+
 	async rehydrateFromHub() {
 		try {
 			const res = await fetch(`/api/w/${this.workspace}/hub/project${this.#folderQs()}`, {
@@ -638,7 +709,10 @@ export class DeployToHubSession {
 				} satisfies DeployItem
 			})
 			this.hubItemIds = ids
-		} catch {}
+		} catch {
+		} finally {
+			if (!this.#disposed) this.hubChecked = true
+		}
 	}
 
 	/** Kick off schedule-preview fetches for any relevant schedule trigger missing one. */
@@ -689,7 +763,14 @@ export class DeployToHubSession {
 		const triggerVars = this.#triggerVarPaths(this.relevantTriggers)
 		let cancelled = false
 		const timer = setTimeout(() => {
-			buildProjectBundle(seed, slug, this.#cachedBundleDeps(), triggerResources, triggerVars)
+			buildProjectBundle(
+				seed,
+				slug,
+				this.#cachedBundleDeps(),
+				triggerResources,
+				triggerVars,
+				this.folder
+			)
 				.then((b) => {
 					if (cancelled) return
 					this.bundlePreview = b
@@ -887,7 +968,7 @@ export class DeployToHubSession {
 
 	/** Prefill bundle metadata and start migration detection (bundle drawer opening). */
 	prepareBundle() {
-		this.hubName = this.hubName || this.folder
+		this.hubName = this.hubName || (this.folder.split('/').pop() ?? this.folder)
 		void this.regenerateMigrations()
 	}
 
@@ -1062,7 +1143,8 @@ export class DeployToHubSession {
 	): Promise<void> {
 		const pathMap = buildPathMap(
 			relevant.map((t) => t.path),
-			slug
+			slug,
+			this.folder
 		)
 		const triggers: Array<Record<string, unknown>> = []
 		const skipped: string[] = []
@@ -1157,7 +1239,8 @@ export class DeployToHubSession {
 				slug,
 				this.#buildBundleDeps(),
 				triggerResources,
-				triggerVars
+				triggerVars,
+				this.folder
 			)
 			// Full path map (incl. unresolved) so a trigger's resource path is always
 			// relocated — never leaks the publisher's original private path to the Hub.
@@ -1858,6 +1941,8 @@ export class DeployToHubSession {
 export function useDeployToHubSession(args: {
 	workspace: () => string | undefined
 	folder: () => string
+	/** The base folder offered for selection; `folder` is it or one of its sub-paths. */
+	listFolder: () => string
 	hasEeLicense: () => boolean
 }) {
 	let session = $state<DeployToHubSession | undefined>()
@@ -1865,13 +1950,28 @@ export function useDeployToHubSession(args: {
 	$effect(() => {
 		const workspace = args.workspace()
 		const folder = args.folder()
+		const listFolder = args.listFolder()
 		if (!workspace) return
 		untrack(() => {
 			if (session && session.workspace === workspace && session.folder === folder) return
-			session?.dispose()
-			const next = new DeployToHubSession(workspace, folder, {
-				hasEeLicense: args.hasEeLicense
-			})
+			const prev = session
+			// A scope change made by editing the selection keeps that selection.
+			const seed =
+				prev &&
+				prev.workspace === workspace &&
+				prev.listFolder === listFolder &&
+				prev.phase === 'predeploy' &&
+				!prev.effectiveSlug
+					? { items: prev.workspaceItems, deselected: prev.manualDeselected }
+					: undefined
+			prev?.dispose()
+			const next = new DeployToHubSession(
+				workspace,
+				folder,
+				{ hasEeLicense: args.hasEeLicense },
+				listFolder,
+				seed
+			)
 			session = next
 			next.load()
 		})
@@ -1889,14 +1989,25 @@ export function useDeployToHubSession(args: {
 		})
 	})
 
-	// Leaving/entering predeploy invalidates manual selection tweaks.
+	// Leaving/entering predeploy invalidates manual selection tweaks; a new session
+	// keeps the selection it was seeded with.
+	let phaseSeen: { s: DeployToHubSession; phase: Phase } | undefined
 	$effect(() => {
 		const s = session
 		if (!s) return
-		s.phase
+		const phase = s.phase
 		untrack(() => {
-			s.manualDeselected = new Set()
+			if (phaseSeen?.s === s && phaseSeen.phase !== phase) s.manualDeselected = new Set()
+			phaseSeen = { s, phase }
 		})
+	})
+
+	// The base folder looks up which of its sub-paths are published on their own, once
+	// its items have loaded.
+	$effect(() => {
+		const s = session
+		if (s && s.hubChecked && !s.loading && s.folder === s.listFolder)
+			untrack(() => void s.loadSubProjects())
 	})
 
 	// Schedule previews for relevant schedule triggers (deduped in the session).

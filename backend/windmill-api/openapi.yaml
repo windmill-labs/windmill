@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.854.2
+  version: 1.860.0
   title: Windmill API
 
   contact:
@@ -7828,6 +7828,24 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/variables/external_secret_prefixes:
+    get:
+      summary: list the external secret prefixes allowed for this workspace (admin only)
+      operationId: listExternalSecretPrefixes
+      tags:
+        - variable
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: allowed prefixes, such as vault://secret/team
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/variables/delete/{path}:
     delete:
       summary: delete variable
@@ -12222,6 +12240,11 @@ paths:
                   $ref: "#/components/schemas/ScriptLang"
                 content:
                   type: string
+                path:
+                  type: string
+                  description: |
+                    The script's path. A `// materialize` that names no table writes the
+                    table named after the script, so without it such a target is not checked.
       responses:
         "200":
           description: contract warnings (empty when all references match)
@@ -13732,6 +13755,11 @@ paths:
               - test
               - deployed
               - all
+        - name: mine
+          description: only list the caller's own conversations (an admin otherwise lists every user's)
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: flow conversations list
@@ -14782,6 +14810,84 @@ paths:
                   truncated:
                     type: boolean
                     description: more buckets matched than were returned, so summing them under-reports
+
+  /w/{workspace}/ai_session_tools/{name}:
+    post:
+      summary: run one of the AI session's tools as the calling user
+      description: The in-app chat's entry to the session toolset the MCP server also serves. Refused for job tokens and scoped tokens.
+      operationId: callAiSessionTool
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                args:
+                  description: the tool's arguments, as the model sent them
+                context:
+                  type: object
+                  description: browser-held state the tool reads
+                  additionalProperties: true
+                  properties:
+                    live_editors:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - kind
+                          - storage_path
+                        properties:
+                          kind:
+                            type: string
+                          storage_path:
+                            type: string
+                          effective_path:
+                            type: string
+                    cells:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - kind
+                          - storage_path
+                          - value
+                        properties:
+                          kind:
+                            type: string
+                          storage_path:
+                            type: string
+                          value: {}
+      responses:
+        "200":
+          description: what the model reads, and what the chat applies
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - text
+                  - is_error
+                  - effects
+                properties:
+                  text:
+                    type: string
+                  is_error:
+                    type: boolean
+                  effects:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
 
   /w/{workspace}/ai/sessions/list:
     get:
@@ -17929,6 +18035,101 @@ paths:
               schema:
                 type: string
                 description: Summary of deleted jobs and rows
+
+  /w/{workspace}/jobs/recent_runs:
+    get:
+      summary: list what ran recently, one entry per script, flow or agent
+      operationId: listRecentRuns
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: folder
+          description: only runs of items in this folder
+          in: query
+          schema:
+            type: string
+        - name: failed_ids_kind
+          description: with failed_ids_path, the item whose unresolved failed run ids to list in failed_run_ids
+          in: query
+          schema:
+            type: string
+            enum: [script, flow, agent]
+        - name: failed_ids_path
+          description: with failed_ids_kind, the path of that item
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: runs that completed in the window or are running, grouped by item, newest run first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  window_hours:
+                    type: integer
+                  capped:
+                    description: the window holds more runs than were read, so counts cover the newest ones only
+                    type: boolean
+                  total_runs:
+                    type: integer
+                  failed_runs:
+                    type: integer
+                  failing_items:
+                    type: integer
+                  running_items:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        kind:
+                          type: string
+                          enum: [script, flow, agent]
+                        summary:
+                          type: string
+                        status:
+                          $ref: "#/components/schemas/RecentRunStatus"
+                        failed_runs:
+                          description: unresolved failed runs of the item over the whole window, not only those in runs
+                          type: integer
+                        failed_run_ids:
+                          description: the ids of those failed runs, only for the item named by failed_ids_kind and failed_ids_path
+                          type: array
+                          items:
+                            type: string
+                            format: uuid
+                        runs:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                                format: uuid
+                              status:
+                                $ref: "#/components/schemas/RecentRunStatus"
+                              ran_at:
+                                description: when the run started, or was created for one that has not reported a start
+                                type: string
+                                format: date-time
+                              duration_ms:
+                                type: integer
+                            required: [id, status, ran_at]
+                      required: [path, kind, status, failed_runs, runs]
+                required:
+                  - window_hours
+                  - capped
+                  - total_runs
+                  - failed_runs
+                  - failing_items
+                  - running_items
+                  - items
 
   /w/{workspace}/jobs/list:
     get:
@@ -25026,6 +25227,31 @@ paths:
                 type: string
                 description: Minimum semantic version across all workers (e.g. "1.583.0")
 
+  /w/{workspace}/access/get:
+    get:
+      summary: list what a workspace member or group can reach, and why
+      description: |
+        Workspace admins can query any principal; other members only themselves and the groups
+        they belong to. An admin principal reaches everything, so `items` is empty.
+      operationId: getPrincipalAccess
+      tags:
+        - granular_acl
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: principal
+          description: "`u/<username>` or `g/<group>`"
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the principal's access
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrincipalAccess"
+
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
       summary: get granular acls
@@ -29993,14 +30219,13 @@ components:
       type: object
       required:
         - address
-        - mount_path
       properties:
         address:
           type: string
           description: HashiCorp Vault server address (e.g., https://vault.company.com:8200)
         mount_path:
           type: string
-          description: KV v2 secrets engine mount path (e.g., windmill)
+          description: KV v2 secrets engine mount path (e.g., windmill). Empty to test the connection used for `$external:vault://` references, which checks only that Vault accepts Windmill's token.
         kv_secret_path_prefix:
           type: string
           description: Optional path prefix inserted between the KV data/metadata segment and the workspace id (e.g., "apps/windmill"). When set, secrets are stored at `<mount>/data/<prefix>/<workspace>/<secret>`, allowing a Vault policy scoped to exactly `<mount>/data/<prefix>/*`.
@@ -30010,6 +30235,12 @@ components:
         jwt_mount_path:
           type: string
           description: Mount path for the JWT auth method in Vault (optional, defaults to "jwt"). Set this when the JWT auth method is mounted at a non-default path, e.g. via `vault auth enable -path=<mount> jwt`.
+        approle_role_id:
+          type: string
+          description: AppRole role_id (optional). When set and no static token is given, Windmill logs in with AppRole; the secret_id is read from the `VAULT_APPROLE_SECRET_ID` environment variable of servers and workers.
+        approle_mount_path:
+          type: string
+          description: Mount path of the AppRole auth method (optional, defaults to "approle").
         namespace:
           type: string
           description: Vault Enterprise namespace (optional)
@@ -32336,6 +32567,9 @@ components:
           format: date-time
         operator:
           type: boolean
+        role:
+          type: string
+          description: The member's workspace role by name (`developer`, `operator` or a custom role). Admin is the separate `is_admin` flag.
         disabled:
           type: boolean
         groups:
@@ -32885,7 +33119,13 @@ components:
           description: The path to the variable
         value:
           type: string
-          description: The value of the variable
+          description: >
+            The value of the variable. For a secret, `$external:vault://<path>#<key>`
+            stores a reference to an existing secret in the instance's external
+            HashiCorp Vault (path as `vault kv get` takes it) instead of a value; without
+            `#<key>` it reads the whole secret as a JSON object of its fields. It is
+            resolved on each read, only under the path prefixes a superadmin allowed for
+            the workspace, and is returned as-is when the secret is not decrypted.
         is_secret:
           type: boolean
           description: Whether the variable is a secret
@@ -32934,7 +33174,7 @@ components:
           description: The path to the variable
         value:
           type: string
-          description: The new value of the variable
+          description: The new value of the variable. Accepts an `$external:vault://<path>[#<key>]` reference for a secret, as in CreateVariable.
         is_secret:
           type: boolean
           description: Whether the variable is a secret
@@ -33256,6 +33496,11 @@ components:
         - error
         - auto_kind
         - has_preprocessor
+
+    RecentRunStatus:
+      description: a failure someone or something marked as handled is `resolved`, not `failure`
+      type: string
+      enum: [success, failure, resolved, canceled, running]
 
     ScriptLang:
       type: string
@@ -37019,6 +37264,66 @@ components:
         - path
         - script_path
         - is_flow
+
+    PrincipalAccess:
+      type: object
+      properties:
+        principal:
+          type: string
+        is_admin:
+          type: boolean
+        groups:
+          type: array
+          items:
+            type: string
+        folders:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              write:
+                type: boolean
+              owner:
+                type: boolean
+              via:
+                description: the `u/<user>` or `g/<group>` grants on the folder that reach the principal
+                type: array
+                items:
+                  type: string
+            required: [name, write, owner, via]
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              kind:
+                type: string
+              path:
+                type: string
+              write:
+                type: boolean
+              reasons:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AccessReason"
+            required: [kind, path, write, reasons]
+      required: [principal, is_admin, groups, folders, items]
+
+    AccessReason:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [own, group_path, user, group, folder]
+        group:
+          type: string
+        folder:
+          type: string
+        write:
+          type: boolean
+      required: [type]
 
     Group:
       type: object
