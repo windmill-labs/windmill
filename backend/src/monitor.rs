@@ -5900,22 +5900,32 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
 
         if **wc != config || has_dedicated {
             if kill_if_change && !only_pause_changed {
-                if has_dedicated
-                    || wc.dedicated_worker != config.dedicated_worker
+                // Every worker of a dedicated group sees the same change at once: they restart
+                // one at a time instead, so the group keeps warm workers to serve its jobs.
+                // A cache clear still restarts at once: the cache goes away under the workers.
+                let restart_in_turn =
+                    has_dedicated && **wc != config && wc.cache_clear == config.cache_clear;
+                let (deferred, _deferred_rx) = KillpillSender::new(1);
+                let kill = if restart_in_turn { deferred } else { tx.clone() };
+                if wc.dedicated_worker != config.dedicated_worker
                     || wc.dedicated_workers != config.dedicated_workers
+                    || (has_dedicated && **wc != config)
                 {
                     tracing::info!("Dedicated worker config changed, sending killpill. Expecting to be restarted by supervisor.");
-                    let _ = tx.send();
+                    let _ = kill.send();
+                } else if has_dedicated {
+                    // Re-saved unchanged: a dedicated script of this group was deployed.
+                    windmill_common::worker::DEDICATED_WORKER_RELOAD.notify_one();
                 }
 
                 if wc.init_bash != config.init_bash {
                     tracing::info!("Init bash config changed, sending killpill. Expecting to be restarted by supervisor.");
-                    let _ = tx.send();
+                    let _ = kill.send();
                 }
 
                 if wc.cache_clear != config.cache_clear {
                     tracing::info!("Cache clear changed, sending killpill. Expecting to be restarted by supervisor.");
-                    let _ = tx.send();
+                    let _ = kill.send();
                     tracing::info!("Waiting 5 seconds to allow others workers to start potential jobs that depend on a potential shared cache volume");
                     tokio::time::sleep(Duration::from_secs(5)).await;
                     if let Err(e) = windmill_worker::common::clean_cache().await {
@@ -5925,17 +5935,21 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
 
                 if wc.periodic_script_bash != config.periodic_script_bash {
                     tracing::info!("Periodic script bash config changed, sending killpill. Expecting to be restarted by supervisor.");
-                    let _ = tx.send();
+                    let _ = kill.send();
                 }
 
                 if wc.periodic_script_interval_seconds != config.periodic_script_interval_seconds {
                     tracing::info!("Periodic script interval config changed, sending killpill. Expecting to be restarted by supervisor.");
-                    let _ = tx.send();
+                    let _ = kill.send();
                 }
 
                 if wc.native_mode != config.native_mode {
                     tracing::info!("Native mode config changed, sending killpill. Expecting to be restarted by supervisor.");
-                    let _ = tx.send();
+                    let _ = kill.send();
+                }
+
+                if restart_in_turn {
+                    windmill_common::worker::restart_dedicated_worker_in_turn(db.clone(), tx.clone());
                 }
             }
             drop(wc);
