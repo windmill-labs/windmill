@@ -12,6 +12,7 @@ use crate::ee_oss::LICENSE_KEY_ID;
 use crate::ee_oss::{send_critical_alert, CriticalAlertKind};
 use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
+use crate::tz::Tz;
 use crate::worker::{EXIT_AFTER_N_JOBS, WORKER_SUFFIX};
 use crate::DB;
 use anyhow::Context;
@@ -1032,10 +1033,7 @@ impl ScheduleType {
     /// date), and schedule pushes disable the schedule on it. Every other error must stay
     /// transient: croner fails across a DST jump longer than an hour (Antarctica/Troll)
     /// and succeeds again once the jump has passed.
-    pub fn find_next(
-        &self,
-        starting_from: &chrono::DateTime<chrono_tz::Tz>,
-    ) -> Result<chrono::DateTime<chrono_tz::Tz>> {
+    pub fn find_next(&self, starting_from: &chrono::DateTime<Tz>) -> Result<chrono::DateTime<Tz>> {
         let no_run_left = || {
             Error::NotFound(format!(
                 "cron: the schedule has no run left after {}",
@@ -1116,7 +1114,7 @@ impl ScheduleType {
 
                 // Additional check to make sure the provided schedule can generate a next event
                 if let Ok(ScheduleType::Croner(croner_schedule)) = &schedule_type_result {
-                    let test_time = chrono::Utc::now().with_timezone(&chrono_tz::UTC);
+                    let test_time = chrono::Utc::now().with_timezone(&Tz::UTC);
                     let result = panic::catch_unwind(AssertUnwindSafe(|| {
                         croner_schedule
                             .find_next_occurrence(&test_time, false)
@@ -1148,7 +1146,7 @@ impl ScheduleType {
 
     pub fn upcoming(
         &self,
-        tz: chrono_tz::Tz,
+        tz: Tz,
         count: usize, // Number of upcoming events to take
     ) -> Result<Vec<chrono::DateTime<Utc>>> {
         let start_time = Utc::now().with_timezone(&tz);
@@ -1804,7 +1802,7 @@ mod tests {
     #[test]
     fn find_next_reports_only_a_cron_with_no_run_left_as_not_found() {
         use chrono::TimeZone;
-        let troll: chrono_tz::Tz = "Antarctica/Troll".parse().unwrap();
+        let troll: Tz = "Antarctica/Troll".parse().unwrap();
         // Troll's clocks jump from 01:00 to 03:00 on the last Sunday of March.
         let before_jump = troll.with_ymd_and_hms(2027, 3, 28, 0, 30, 0).unwrap();
 
