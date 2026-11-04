@@ -120,6 +120,9 @@ export interface FlowAIChatHelpers {
 	setCode: (id: string, code: string) => Promise<void>
 	setFlowJson: (update: FlowJsonUpdate) => Promise<FlowJsonUpdateResult>
 	getFlowInputsSchema: () => Promise<Record<string, any>>
+	/** False when the host locked the flow inputs (`customUi.aiFlowInputs`): `setFlowJson` then
+	 * refuses any schema change. */
+	canEditFlowInputs: () => boolean
 	/** Update exprsToSet store for InputTransformForm components (only if module is selected) */
 	updateExprsToSet: (id: string, inputTransforms: Record<string, InputTransform>) => void
 
@@ -1199,7 +1202,8 @@ export function prepareFlowUserMessage(
 	instructions: string,
 	flowAndSelectedId?: { flow: ExtendedOpenFlow; selectedId: string },
 	selectedContext: ContextElement[] = [],
-	inlineScriptSession?: InlineScriptSession
+	inlineScriptSession?: InlineScriptSession,
+	options: { flowInputsLocked?: boolean } = {}
 ): ChatCompletionUserMessageParam {
 	const flow = flowAndSelectedId?.flow
 	const selectedId = flowAndSelectedId?.selectedId
@@ -1231,6 +1235,11 @@ currently selected step:
 ${selectedId}`
 
 	flowContent += contextInstructions
+
+	if (options.flowInputsLocked) {
+		flowContent += `\n\n## FLOW INPUTS ARE LOCKED:
+The flow inputs cannot be added, changed or removed in this editor: keep \`schema\` exactly as it is in the current flow JSON. Steps may reference only the existing \`flow_input\` fields; give any other value a step needs as a static value or a step result. If the request needs a new flow input, say that the flow inputs are locked instead of adding one.`
+	}
 
 	flowContent += `\n\n## INSTRUCTIONS:
 ${instructions}`

@@ -480,7 +480,7 @@ async fn get_value(
 /// The grants alone can't explain a denial: a job started on behalf of another
 /// user is authorized as that user, so the error has to name who was actually
 /// asking or it reads as a grant bug.
-fn describe_authed(authed: Option<&(impl Authable + Sync)>) -> String {
+pub(crate) fn describe_authed(authed: Option<&(impl Authable + Sync)>) -> String {
     match authed {
         Some(authed) => format!(
             "username: {}, email: {}, groups: {:?}, folders: {:?}",
@@ -491,6 +491,25 @@ fn describe_authed(authed: Option<&(impl Authable + Sync)>) -> String {
         ),
         None => "unauthenticated".to_string(),
     }
+}
+
+/// `extra_perms` maps a `u/<user>` or `g/<group>` to whether it may write; the raw `true` /
+/// `false` reads as allowed / denied, so name the access level instead.
+pub(crate) fn describe_extra_perms(perms: Option<&Value>) -> String {
+    let Some(perms) = perms else {
+        return "folder not found".to_string();
+    };
+    let Some(map) = perms.as_object().filter(|m| !m.is_empty()) else {
+        return "none".to_string();
+    };
+    map.iter()
+        .map(|(grantee, can_write)| match can_write.as_bool() {
+            Some(true) => format!("{grantee} (read & write)"),
+            Some(false) => format!("{grantee} (read only)"),
+            None => format!("{grantee} ({can_write})"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Including the variable's and its folder's `extra_perms` in the error is intended, not a
@@ -526,12 +545,14 @@ async fn explain_variable_perm_error(
         .await?;
         return Err(Error::NotAuthorized(format!(
             "Variable exists but you don't have access to it:\nvariable perms: {}\nfolder perms: {}\nauthed as: {}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default(), describe_authed(authed)
+            describe_extra_perms(Some(&extra_perms)),
+            describe_extra_perms(folder_extra_perms.as_ref()),
+            describe_authed(authed)
         )));
     } else {
         return Err(Error::NotAuthorized(format!(
             "Variable exists but you don't have access to it:\nvariable perms: {}\nauthed as: {}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(),
+            describe_extra_perms(Some(&extra_perms)),
             describe_authed(authed)
         )));
     }

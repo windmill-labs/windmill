@@ -10,9 +10,11 @@
 		kind: ArtifactKind
 		content: string
 		disabled?: boolean
+		/** The icon alone, for a bar too narrow for the label. */
+		iconOnly?: boolean
 	}
 
-	let { name, kind, content, disabled = false }: Props = $props()
+	let { name, kind, content, disabled = false, iconOnly = false }: Props = $props()
 
 	let copied = $state(false)
 	async function copyRaw() {
@@ -27,6 +29,7 @@
 	unifiedSize="sm"
 	variant="default"
 	{disabled}
+	{iconOnly}
 	startIcon={{ icon: copied ? Check : Copy }}
 	onClick={copyRaw}
 	title="Copy raw markdown"

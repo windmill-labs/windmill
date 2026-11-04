@@ -466,7 +466,7 @@
 			const v = pendingLoad.value as RawAppDraft
 			files = v.files ?? {}
 			runnables = v.runnables ?? {}
-			data = v.data ?? { ...DEFAULT_DATA }
+			data = extractDataConfig(v) ?? { ...DEFAULT_DATA }
 			summary = v.summary ?? ''
 			policy = v.policy ?? {}
 			labels = v.labels ?? labels
