@@ -385,21 +385,27 @@ function repeated(name: string, n: number): string {
  * says what will happen rather than what did. */
 export type GroupState = 'queued' | 'running' | 'settled'
 
+// Past this many kinds of call the header names the rest only as a count, so a long read run
+// keeps its first kinds legible instead of being cut off by the row's ellipsis.
+const LISTED_KINDS = 3
+
 /** The group's header, e.g. `Edited` + `f/a/flow · 3 changes`,
- * `search workspace 2 times, read 2 workspace item`, `github` + `list issues, get issue 2 times`. */
+ * `search workspace 2 times, read 2 workspace item`, `github` + `list issues, get issue 2 times`.
+ * `more` holds the kinds left out of `label`. */
 export function groupHeader(
 	group: ToolGroup,
 	state: GroupState
-): { prefix: string; label: string } {
+): { prefix: string; label: string; more: string[] } {
 	const calls = group.entries
 		.map((e) => e.message)
 		.filter((m): m is ToolDisplayMessage => m.role === 'tool')
 	if (group.groupKind === 'waiting') {
 		// A queued row's content is its imperative label, e.g. `Execute SQL on "main"`.
-		const names = [...new Set(calls.map((m) => m.content))].join(', ')
+		const names = [...new Set(calls.map((m) => m.content))]
 		return {
 			prefix: `${plural(calls.length, 'more call')} waiting:`,
-			label: names
+			label: names.slice(0, LISTED_KINDS).join(', '),
+			more: names.slice(LISTED_KINDS)
 		}
 	}
 	if (group.groupKind === 'edit') {
@@ -408,18 +414,21 @@ export function groupHeader(
 		).length
 		return {
 			prefix: { queued: 'Edit', running: 'Editing', settled: 'Edited' }[state],
-			label: `${group.target || 'the flow'} · ${plural(edits, 'change')}`
+			label: `${group.target || 'the flow'} · ${plural(edits, 'change')}`,
+			more: []
 		}
 	}
 	const counts = new Map<string, number>()
 	for (const call of calls) counts.set(callName(call), (counts.get(callName(call)) ?? 0) + 1)
-	const list = [...counts].map(([name, n]) => repeated(name, n)).join(', ')
+	const kinds = [...counts].map(([name, n]) => repeated(name, n))
+	const list = kinds.slice(0, LISTED_KINDS).join(', ')
+	const more = kinds.slice(LISTED_KINDS)
 	// A tool search spans every server and usually comes right before the calls it found, so it
 	// does not stop the group from reading as one server's.
 	const servers = new Set(
 		calls.filter((call) => call.toolName !== 'search_mcp_tools').map(mcpServerPath)
 	)
 	const [server] = servers
-	if (servers.size === 1 && server) return { prefix: server.split('/').at(-1)!, label: list }
-	return { prefix: '', label: list.charAt(0).toUpperCase() + list.slice(1) }
+	if (servers.size === 1 && server) return { prefix: server.split('/').at(-1)!, label: list, more }
+	return { prefix: '', label: list.charAt(0).toUpperCase() + list.slice(1), more }
 }
