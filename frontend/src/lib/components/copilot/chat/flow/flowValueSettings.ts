@@ -13,6 +13,7 @@ export const flowValueSettingsSchema = z
 		concurrent_limit: z.number(),
 		concurrency_key: z.string(),
 		concurrency_time_window_s: z.number(),
+		on_concurrency_limit: z.enum(['queue', 'fail']),
 		debounce_delay_s: z.number(),
 		debounce_key: z.string(),
 		debounce_args_to_accumulate: z.array(z.string()),
