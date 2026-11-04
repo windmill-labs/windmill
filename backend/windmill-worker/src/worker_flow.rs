@@ -480,6 +480,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         failure_step_recovers,
         _cleanup_module,
         chat_ai_info,
+        own_timeout,
     ) = {
         // tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
 
@@ -1801,15 +1802,13 @@ pub async fn update_flow_status_after_job_completion_internal(
             && step_failure.honors_step_error_policy()
             && (skip_seq_branch_failure || skip_loop_failures || continue_on_error);
 
-        // A root flow cancelled by its timeout still runs its failure module, once, before it
+        // A flow cancelled by its own timeout still runs its failure module, once, before it
         // ends, whatever its loops' stop conditions say. The subflows and loop iterations
-        // cancelled with it share its `canceled_by` and just stop, so `has_triggered_error_handler`
-        // (set on a parallel node, whose iterations normally run the handler) must not hold it back.
-        let timeout_to_failure_module = flow_job.canceled_by.as_deref()
-            == Some(windmill_common::jobs::FLOW_TIMEOUT_CANCELER)
-            && flow_job.parent_job.is_none()
-            && !is_failure_step
-            && flow_value.failure_module.is_some();
+        // cancelled with it just stop, so `has_triggered_error_handler` (set on a parallel node,
+        // whose iterations normally run the handler) must not hold it back.
+        let own_timeout = cancelled_by_own_timeout(db, &flow_job).await?;
+        let timeout_to_failure_module =
+            own_timeout && !is_failure_step && flow_value.failure_module.is_some();
 
         let should_continue_flow = match success {
             _ if timeout_to_failure_module => true,
@@ -1901,6 +1900,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             failure_step_recovers,
             old_status.cleanup_module,
             chat_ai_info,
+            own_timeout,
         )
     };
 
@@ -2242,8 +2242,15 @@ pub async fn update_flow_status_after_job_completion_internal(
                     RecUpdateFlowStatusAfterJobCompletion {
                         flow: parent_job,
                         job_id_for_status: flow,
-                        success: success && !is_failure_step,
-                        canceled_by: if !success { canceled_by.clone() } else { None },
+                        // A cancelled subflow never reports success, whatever its last step's
+                        // error policy. One that timed out is a failed step to its parent, as a
+                        // script that timed out is, not a cancellation of the parent.
+                        success: success && !is_failure_step && !flow_job.is_canceled(),
+                        canceled_by: if !success && !own_timeout {
+                            canceled_by.clone()
+                        } else {
+                            None
+                        },
                         flow_job_duration: flow_job_duration.clone(),
                         result: nresult.clone(),
                         stop_early_override: if stop_early {
@@ -6687,6 +6694,23 @@ async fn flow_to_payload(
         timeout: None,
         on_behalf_of,
     })
+}
+
+/// Whether the timeout sweep cancelled this flow itself, rather than an ancestor whose cancel
+/// reached it: the ancestor's parent-to-child cancel leaves the parent cancelled too.
+async fn cancelled_by_own_timeout(db: &DB, flow_job: &MiniPulledJob) -> error::Result<bool> {
+    if flow_job.canceled_by.as_deref() != Some(windmill_common::jobs::FLOW_TIMEOUT_CANCELER) {
+        return Ok(false);
+    }
+    let Some(parent) = flow_job.parent_job else {
+        return Ok(true);
+    };
+    let parent_canceled_by =
+        sqlx::query_scalar!("SELECT canceled_by FROM v2_job_queue WHERE id = $1", parent)
+            .fetch_optional(db)
+            .await?
+            .flatten();
+    Ok(parent_canceled_by.as_deref() != Some(windmill_common::jobs::FLOW_TIMEOUT_CANCELER))
 }
 
 /// Effective timeout for a flow step given the module's (already-evaluated) timeout override and

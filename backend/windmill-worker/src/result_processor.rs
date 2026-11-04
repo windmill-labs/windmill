@@ -2089,18 +2089,32 @@ pub async fn handle_job_error(
         .await
     };
 
+    // A subflow woken by a timeout's cancel is updated as a flow, as a root is, so its failure
+    // module can run before its parent hears of it. Its `canceled_by` is read from the queue:
+    // the error of a cancelled job pulled from it does not carry one.
+    let own_flow_update = job.is_flow()
+        && job.parent_job.is_some()
+        && sqlx::query_scalar!("SELECT canceled_by FROM v2_job_queue WHERE id = $1", job.id)
+            .fetch_optional(db)
+            .await
+            .ok()
+            .flatten()
+            .flatten()
+            .as_deref()
+            == Some(windmill_common::jobs::FLOW_TIMEOUT_CANCELER);
     let update_job_future = if job.is_flow_step() || job.is_flow() {
-        let (flow, job_status_to_update) = if let Some(parent_job_id) = job.parent_job {
-            if let Err(e) = update_job_future().await {
-                tracing::error!(
-                    "error updating job future for job {} for handle_job_error: {e:#}",
-                    job.id
-                );
-            }
-            (parent_job_id, job.id)
-        } else {
-            (job.id, Uuid::nil())
-        };
+        let (flow, job_status_to_update) =
+            if let Some(parent_job_id) = job.parent_job.filter(|_| !own_flow_update) {
+                if let Err(e) = update_job_future().await {
+                    tracing::error!(
+                        "error updating job future for job {} for handle_job_error: {e:#}",
+                        job.id
+                    );
+                }
+                (parent_job_id, job.id)
+            } else {
+                (job.id, Uuid::nil())
+            };
 
         let wrapped_error = WrappedError { error: err_json.clone() };
         tracing::error!(parent_flow = %flow, subflow = %job_status_to_update, "handle job error, updating flow status: {err_json:?}");
