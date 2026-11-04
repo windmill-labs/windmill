@@ -282,6 +282,15 @@ paths:
           description: get audit logs for all workspaces
           schema:
             type: boolean
+        - name: job_id
+          in: query
+          description: >
+            only the entries about this run and the jobs under it (steps, loop iterations
+            and subflows at any depth): who started, viewed, cancelled, approved, resumed
+            or deleted each
+          schema:
+            type: string
+            format: uuid
 
       responses:
         "200":

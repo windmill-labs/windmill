@@ -42,7 +42,8 @@
 		Users,
 		Play,
 		SearchX,
-		ArrowRight
+		ArrowRight,
+		Eye
 	} from 'lucide-svelte'
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
 	import { forLater } from '$lib/forLater'
@@ -57,7 +58,13 @@
 	import DbtRunGraph from '$lib/components/dbt/DbtRunGraph.svelte'
 	import DispatchEventsPanel from '$lib/components/runs/DispatchEventsPanel.svelte'
 	import UpstreamSnapshotsPanel from '$lib/components/runs/UpstreamSnapshotsPanel.svelte'
-	import { enterpriseLicense, initialArgsStore, superadmin, userWorkspaces } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		initialArgsStore,
+		roleCapabilities,
+		superadmin,
+		userWorkspaces
+	} from '$lib/stores'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import JobLoader from '$lib/components/JobLoader.svelte'
@@ -816,6 +823,36 @@
 		if (!forceCancel) setTimeout(() => (forceCancel = true), 3001)
 	}
 
+	// The run's life and a day after it: the audit filter on a run id has no index, so its cost
+	// grows with the time range it covers. Later entries are a widened range away on that page.
+	const auditLogsHref = $derived.by(() => {
+		if (!job) return undefined
+		const params = new URLSearchParams({ job_id: job.id })
+		if (job.created_at) {
+			params.set('after', new Date(new Date(job.created_at).getTime() - 1000).toISOString())
+		}
+		if (job.type === 'CompletedJob') {
+			const end = job.completed_at
+				? new Date(job.completed_at).getTime()
+				: new Date(job.started_at).getTime() + job.duration_ms
+			params.set('before', new Date(end + 24 * 3600 * 1000).toISOString())
+		}
+		return `/audit_logs?${params}`
+	})
+	const moreItems = $derived<Item[]>([
+		{
+			displayName: 'Audit logs',
+			icon: Eye,
+			href: auditLogsHref,
+			hide: !job || !$roleCapabilities.visibility.audit_logs
+		},
+		{
+			displayName: 'Show flow debug info',
+			icon: EllipsisVertical,
+			action: debugInfo,
+			hide: !canDebug
+		}
+	])
 	// The same actions as the row, most used first; the restart and session controls stay beside
 	// the menu, since each opens a popover of its own that a menu row cannot hold.
 	const menuItems = $derived.by((): Item[] => {
@@ -881,6 +918,12 @@
 				icon: List,
 				href: runsHref,
 				hide: !canDelete || !(job.job_kind === 'script' || job.job_kind === 'flow')
+			},
+			{
+				displayName: 'Audit logs',
+				icon: Eye,
+				href: auditLogsHref,
+				hide: !$roleCapabilities.visibility.audit_logs
 			},
 			{
 				displayName: 'Copy link for members',
@@ -1122,6 +1165,9 @@
 	{/snippet}
 
 	{#snippet runActionsRow()}
+		{#if moreItems.some((i) => !i.hide)}
+			<Dropdown items={moreItems} size="sm" />
+		{/if}
 		{#if canDelete}
 			<Dropdown
 				items={[
@@ -1184,29 +1230,6 @@
 					</Button>
 				{/snippet}
 			</Dropdown>
-		{/if}
-		{#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
-			<div class="inline">
-				<Dropdown
-					items={[
-						{
-							displayName: 'Show Flow Debug Info',
-							action: () => {
-								debugInfo()
-							}
-						}
-					]}
-					class="h-auto"
-				>
-					{#snippet buttonReplacement()}
-						<Button nonCaptureEvent unifiedSize="sm" variant="subtle">
-							<div class="flex flex-row items-center">
-								<EllipsisVertical size={14} />
-							</div>
-						</Button>
-					{/snippet}
-				</Dropdown>
-			</div>
 		{/if}
 		{#if isFlowPreview(job?.job_kind) || isScriptPreview(job?.job_kind)}
 			<Button
