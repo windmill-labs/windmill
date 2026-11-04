@@ -120,7 +120,7 @@
 							<tr>
 								<td>
 									<a
-										href="#{name}"
+										href="#{encodeURIComponent(name)}"
 										onclick={(e) => {
 											if (isNewTabClick(e)) return
 											handledName = name
