@@ -290,7 +290,13 @@ not this component) — so the lead can run the whole line.
 				<ChevronDown size={ICON} class="flex-shrink-0" />
 			</span>
 		{:else}
-			<BreadcrumbNavPicker {item} pagePath={routePage?.path} {actingWorkspaceId} iconSize={ICON} />
+			<BreadcrumbNavPicker
+				{item}
+				pagePath={routePage?.path}
+				artifacts={section?.navArtifacts}
+				{actingWorkspaceId}
+				iconSize={ICON}
+			/>
 		{/if}
 	{/if}
 {/snippet}
