@@ -28,6 +28,7 @@ export type ScriptAdvancedSettingsFields = {
 	concurrent_limit?: number
 	concurrency_time_window_s?: number
 	concurrency_key?: string
+	on_concurrency_limit?: 'queue' | 'fail'
 	cache_ttl?: number
 	cache_ignore_s3_path?: boolean
 	timeout?: number

@@ -1692,10 +1692,24 @@ pub async fn update_flow_status_after_job_completion_internal(
                         );
                         None
                     });
+                // The limit itself is re-applied through the job's columns below; only the
+                // behaviour on reaching it has no column and must ride in the handle.
+                let concurrency_hash = windmill_common::runnable_settings::ConcurrencySettings {
+                    on_concurrency_limit: flow_value.concurrency_settings.on_concurrency_limit,
+                    ..Default::default()
+                }
+                .insert_cached(db)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!(
+                        "Failed to insert concurrency settings for post-preprocessing: {e:#}"
+                    );
+                    None
+                });
                 windmill_common::runnable_settings::insert_rs(
                     windmill_common::runnable_settings::RunnableSettings {
                         debouncing_settings: debouncing_hash,
-                        concurrency_settings: None,
+                        concurrency_settings: concurrency_hash,
                         retry_settings: None,
                     },
                     db,

@@ -2267,8 +2267,7 @@ async fn restart_job_if_perpetual_inner(
                 apply_preprocessor: false,
                 concurrency_settings: ConcurrencySettings {
                     concurrency_key: custom_concurrency_key(db, &queued_job.id).await?,
-                    concurrent_limit: None,
-                    concurrency_time_window_s: None,
+                    ..Default::default()
                 },
                 // TODO(debouncing): handle properly
                 debouncing_settings: DebouncingSettings::default(),
@@ -4454,7 +4453,20 @@ pub struct PulledJobResult {
     pub job: Option<PulledJob>,
     pub suspended: bool,
     pub missing_concurrency_key: bool,
-    pub error_while_preprocessing: Option<String>,
+    /// Completes the pulled job as failed with this error instead of running it.
+    pub error_while_preprocessing: Option<PulledJobError>,
+}
+
+#[derive(Debug)]
+pub struct PulledJobError {
+    pub name: &'static str,
+    pub message: String,
+}
+
+impl From<String> for PulledJobError {
+    fn from(message: String) -> Self {
+        Self { name: "Pulled job preprocessing error", message }
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -4496,8 +4508,8 @@ impl PulledJobResult {
                     job: MiniCompletedJob::from(job.job),
                     success: false,
                     result: Arc::new(windmill_common::worker::to_raw_value(&json!({
-                        "name": "Pulled job preprocessing error",
-                        "message": e
+                        "name": e.name,
+                        "message": e.message
                     }))),
                     result_columns: None,
                     mem_peak: 0,
@@ -7465,6 +7477,7 @@ async fn push_inner<'c, 'd>(
                     concurrency_key: Some(concurrency_key),
                     concurrent_limit: Some(1),
                     concurrency_time_window_s: Some(0),
+                    ..Default::default()
                 },
                 debouncing_settings,
                 ..Default::default()

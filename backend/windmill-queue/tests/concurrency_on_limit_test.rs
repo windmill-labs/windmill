@@ -1,0 +1,153 @@
+//! The concurrency limiter's behaviour on a full key (`apply_concurrency_limit`,
+//! windmill-queue/jobs_ee.rs), driven through `pull` without a worker.
+//!
+//! Run with:
+//!   cargo test -p windmill-queue --test concurrency_on_limit_test --features private,enterprise
+
+#[cfg(all(feature = "private", feature = "enterprise"))]
+mod concurrency_on_limit {
+    use std::collections::HashMap;
+
+    use chrono::{DateTime, Utc};
+    use sqlx::{Pool, Postgres};
+    use uuid::Uuid;
+    use windmill_common::jobs::{JobPayload, RawCode};
+    use windmill_common::runnable_settings::{ConcurrencySettings, OnConcurrencyLimit};
+    use windmill_common::scripts::ScriptLang;
+    use windmill_common::worker::make_pull_query;
+    use windmill_queue::{pull, push, PulledJobResult, PushArgs, PushIsolationLevel};
+
+    const WS: &str = "test-workspace";
+
+    async fn push_job(db: &Pool<Postgres>, on_limit: Option<OnConcurrencyLimit>) -> Uuid {
+        let payload = JobPayload::Code(RawCode {
+            content: "echo".to_string(),
+            path: Some("u/test-user/limited".to_string()),
+            hash: None,
+            language: ScriptLang::Bash,
+            lock: None,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            tag: None,
+            concurrency_settings: ConcurrencySettings {
+                concurrent_limit: Some(1),
+                on_concurrency_limit: on_limit,
+                ..Default::default()
+            }
+            .into(),
+            debouncing_settings: Default::default(),
+            modules: None,
+        });
+        let args = HashMap::new();
+        let (id, tx) = push(
+            db,
+            PushIsolationLevel::IsolatedRoot(db.clone()),
+            WS,
+            payload,
+            PushArgs { extra: None, args: &args },
+            "test-user",
+            "test@windmill.dev",
+            "u/test-user".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            true,
+            Some("bash".to_string()),
+            None,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("push");
+        tx.commit().await.expect("commit push");
+        id
+    }
+
+    async fn pull_one(db: &Pool<Postgres>) -> PulledJobResult {
+        let query = (String::new(), make_pull_query(&["bash".to_string()]));
+        pull(db, false, "test-worker", Some(&query))
+            .await
+            .expect("pull")
+    }
+
+    async fn scheduled_for(db: &Pool<Postgres>, id: Uuid) -> DateTime<Utc> {
+        sqlx::query_scalar::<_, DateTime<Utc>>(
+            "SELECT scheduled_for FROM v2_job_queue WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_one(db)
+        .await
+        .expect("scheduled_for")
+    }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn fail_mode_fails_the_run_over_the_limit(db: Pool<Postgres>) {
+        let first = push_job(&db, Some(OnConcurrencyLimit::Fail)).await;
+        let second = push_job(&db, Some(OnConcurrencyLimit::Fail)).await;
+
+        let admitted = pull_one(&db).await;
+        assert_eq!(admitted.job.as_ref().map(|j| j.id), Some(first));
+        assert!(admitted.error_while_preprocessing.is_none());
+
+        let rejected = pull_one(&db).await;
+        assert_eq!(rejected.job.as_ref().map(|j| j.id), Some(second));
+        let err = rejected
+            .error_while_preprocessing
+            .expect("run over the limit fails");
+        assert_eq!(err.name, "ConcurrencyLimitReached");
+        assert!(err.message.contains("1 run(s) allowed"), "{}", err.message);
+
+        // It never held a slot, so its end must not count against the key's window.
+        let key_rows =
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM concurrency_key WHERE job_id = $1")
+                .bind(second)
+                .fetch_one(&db)
+                .await
+                .unwrap();
+        assert_eq!(key_rows, 0);
+    }
+
+    // An older run that wakes at its estimated slot to a still-full key must be re-queued ahead
+    // of a younger run already holding a later slot, not behind it.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn queue_mode_keeps_submission_order_on_requeue(db: Pool<Postgres>) {
+        let running = push_job(&db, None).await;
+        let older = push_job(&db, None).await;
+        let younger = push_job(&db, None).await;
+
+        assert_eq!(pull_one(&db).await.job.map(|j| j.id), Some(running));
+        // Both waiting runs are pulled and re-queued in this one call.
+        assert!(pull_one(&db).await.job.is_none());
+        assert!(scheduled_for(&db, older).await < scheduled_for(&db, younger).await);
+
+        // The older run's slot arrives while the key is still full.
+        sqlx::query(
+            "UPDATE v2_job_queue SET scheduled_for = now() - INTERVAL '1 second' WHERE id = $1",
+        )
+        .bind(older)
+        .execute(&db)
+        .await
+        .unwrap();
+        assert!(pull_one(&db).await.job.is_none());
+
+        assert!(
+            scheduled_for(&db, older).await < scheduled_for(&db, younger).await,
+            "the older run must still start first"
+        );
+    }
+}
