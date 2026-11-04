@@ -43,7 +43,7 @@
 		Play,
 		SearchX,
 		ArrowRight,
-		ScrollText
+		Eye
 	} from 'lucide-svelte'
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
 	import { forLater } from '$lib/forLater'
@@ -823,6 +823,20 @@
 		if (!forceCancel) setTimeout(() => (forceCancel = true), 3001)
 	}
 
+	const moreItems = $derived<Item[]>([
+		{
+			displayName: 'Audit logs',
+			icon: Eye,
+			href: `/audit_logs?job_id=${job?.id}`,
+			hide: !job || !$roleCapabilities.visibility.audit_logs
+		},
+		{
+			displayName: 'Show flow debug info',
+			icon: EllipsisVertical,
+			action: debugInfo,
+			hide: !canDebug
+		}
+	])
 	// The same actions as the row, most used first; the restart and session controls stay beside
 	// the menu, since each opens a popover of its own that a menu row cannot hold.
 	const menuItems = $derived.by((): Item[] => {
@@ -891,7 +905,7 @@
 			},
 			{
 				displayName: 'Audit logs',
-				icon: ScrollText,
+				icon: Eye,
 				href: `/audit_logs?job_id=${job.id}`,
 				hide: !$roleCapabilities.visibility.audit_logs
 			},
@@ -1135,6 +1149,9 @@
 	{/snippet}
 
 	{#snippet runActionsRow()}
+		{#if moreItems.some((i) => !i.hide)}
+			<Dropdown items={moreItems} size="sm" />
+		{/if}
 		{#if canDelete}
 			<Dropdown
 				items={[
@@ -1162,16 +1179,6 @@
 					View runs
 				</Button>
 			{/if}
-		{/if}
-		{#if job && $roleCapabilities.visibility.audit_logs}
-			<Button
-				href={`/audit_logs?job_id=${job.id}`}
-				variant="default"
-				unifiedSize="sm"
-				iconOnly
-				title="Audit logs of this run"
-				startIcon={{ icon: ScrollText }}
-			/>
 		{/if}
 		{#if job}
 			<Dropdown
@@ -1207,29 +1214,6 @@
 					</Button>
 				{/snippet}
 			</Dropdown>
-		{/if}
-		{#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
-			<div class="inline">
-				<Dropdown
-					items={[
-						{
-							displayName: 'Show Flow Debug Info',
-							action: () => {
-								debugInfo()
-							}
-						}
-					]}
-					class="h-auto"
-				>
-					{#snippet buttonReplacement()}
-						<Button nonCaptureEvent unifiedSize="sm" variant="subtle">
-							<div class="flex flex-row items-center">
-								<EllipsisVertical size={14} />
-							</div>
-						</Button>
-					{/snippet}
-				</Dropdown>
-			</div>
 		{/if}
 		{#if isFlowPreview(job?.job_kind) || isScriptPreview(job?.job_kind)}
 			<Button
