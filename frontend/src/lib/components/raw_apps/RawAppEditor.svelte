@@ -178,6 +178,8 @@
 		/** `Exit & see details`: see RawAppEditorHeader. */
 		onDetails?: (e: { path: string }) => void
 		/** See RawAppEditorHeader. */
+		detailsHref?: (path: string) => string
+		/** See RawAppEditorHeader. */
 		onOpenFork?: (path: string) => void
 		onResetToDeployed?: () => void | Promise<void>
 		/** The app_version the draft forked from, for the deploy-time "new version
@@ -251,6 +253,7 @@
 		pendingDraftPath = $bindable(undefined),
 		pendingDraftSettings = $bindable(),
 		onDetails,
+		detailsHref,
 		onOpenFork,
 		onResetToDeployed,
 		loadedFromDraft = false,
@@ -2742,6 +2745,7 @@ addEventListener('message', function (e) {
 		{onNavigate}
 		{onDeploy}
 		{onDetails}
+		{detailsHref}
 		{onOpenFork}
 		{onResetToDeployed}
 		{loadedFromDraft}

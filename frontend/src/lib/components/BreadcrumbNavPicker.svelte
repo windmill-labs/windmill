@@ -128,6 +128,10 @@ highlighted, a workspace page inside Pages with that page highlighted.
 			{currentItem}
 			artifacts={artifacts?.items}
 			workspaceId={actingWorkspaceId}
+			targetHref={(target) => {
+				const href = hrefFor(target)
+				return href ? withWorkspace(href) : undefined
+			}}
 			onPick={pick}
 		/>
 	{/snippet}

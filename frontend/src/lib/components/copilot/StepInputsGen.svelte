@@ -1,5 +1,6 @@
 <script lang="ts">
 	import YAML from 'yaml'
+	import { isNewTabClick } from '$lib/navigation'
 	import { yamlStringifyExceptKeys } from './utils'
 	import { sliceModules } from '../flows/flowStateUtils.svelte'
 	import { dfs } from '../flows/dfs'
@@ -261,8 +262,8 @@ input_name2: expression2
 							<a
 								href="#user-settings"
 								class="inline-flex flex-row items-center gap-1"
-								onclick={() => {
-									close()
+								onclick={(e) => {
+									if (!isNewTabClick(e)) close()
 								}}
 							>
 								user settings

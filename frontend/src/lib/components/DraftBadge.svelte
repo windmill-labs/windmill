@@ -23,7 +23,6 @@
 	import { GitCompareArrows, Pencil, Wrench } from 'lucide-svelte'
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { goto } from '$lib/navigation'
 	import { OtherUserDraftLoad, editRouteFor } from '$lib/components/otherUserDraftLoad.svelte'
 	import { fetchDeployedValueForDiff } from '$lib/components/otherUserDraftDiff'
 	import { roleCapabilities, userStore } from '$lib/stores'
@@ -328,7 +327,7 @@
 											variant="subtle"
 											size="xs3"
 											startIcon={{ icon: Pencil }}
-											on:click={() => goto(editRouteFor(itemKind, path))}
+											href={editRouteFor(itemKind, path)}
 										>
 											Edit
 										</Button>

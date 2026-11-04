@@ -12,7 +12,7 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import { Eye, Pen, RefreshCw, Trash } from 'lucide-svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import { goto } from '$lib/navigation'
+	import { isNewTabClick } from '$lib/navigation'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import GoogleDriveIcon from '$lib/components/icons/GoogleDriveIcon.svelte'
 	import GoogleCalendarIcon from '$lib/components/icons/GoogleCalendarIcon.svelte'
@@ -119,8 +119,11 @@
 						<RowIcon kind={isFlow ? 'flow' : 'script'} />
 
 						<a
-							href="#{trigger.external_id}"
-							onclick={() => onEdit?.(trigger)}
+							href="#{encodeURIComponent(trigger.external_id)}"
+							onclick={(e) => {
+								if (isNewTabClick(e)) return
+								onEdit?.(trigger)
+							}}
 							class="min-w-0 grow hover:underline decoration-gray-400"
 						>
 							<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
@@ -185,9 +188,7 @@
 									{
 										displayName: `View ${isFlow ? 'Flow' : 'Script'}`,
 										icon: Eye,
-										action: () => {
-											goto(href)
-										}
+										href
 									},
 									{
 										displayName: 'Delete',

@@ -23,6 +23,7 @@
 		isScriptPreview,
 		type Item
 	} from '$lib/utils'
+	import { isNewTabClick } from '$lib/navigation'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import {
@@ -744,6 +745,13 @@
 			: `${stem}/get/${isScriptJob ? job?.script_hash : job?.script_path}`
 	)
 	const editHref = $derived(`${stem}/edit/${job?.script_path}?workspace=${workspaceId}`)
+	// The run's args reach the editor through the in-memory store, never the URL: they can hold
+	// secrets that must not land in history or access logs. A new tab can't read the store, so
+	// it opens the editor without them, and the store is left alone for this tab's next editor.
+	function seedEditArgs(e?: Event) {
+		if (e instanceof MouseEvent && isNewTabClick(e)) return
+		$initialArgsStore = job?.args
+	}
 	const forkPreviewLabel = $derived(
 		isHubFlowPreview
 			? 'Fork flow into workspace'
@@ -877,7 +885,7 @@
 				displayName: 'Edit',
 				icon: Pen,
 				href: editHref,
-				action: () => ($initialArgsStore = job?.args),
+				action: seedEditArgs,
 				disabled: !showEditButton,
 				hide: !canEdit
 			},
@@ -1348,10 +1356,8 @@
 			{#if canEdit || canEditInFork}
 				{#if editRights.canEditItem(isScriptJob ? 'script' : 'flow', job?.script_path ?? '', {})}
 					<Button
-						href={`${stem}/edit/${job?.script_path}?workspace=${workspaceId}`}
-						on:click={() => {
-							$initialArgsStore = job?.args
-						}}
+						href={editHref}
+						onClick={seedEditArgs}
 						unifiedSize="sm"
 						variant="default"
 						disabled={!showEditButton}
