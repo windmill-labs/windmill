@@ -79,7 +79,6 @@
 		type DurationScale,
 		type DurationUnit
 	} from './runs/durationAxis'
-	import { logChartResize, logDurationScale, logDurationUnit } from './runs/runsChartTelemetry'
 	import { useResizeObserver } from 'runed'
 
 	interface Props {
@@ -1116,7 +1115,6 @@
 										(v) => {
 											if (DURATION_UNITS.includes(v as DurationUnit) && v !== durationUnit) {
 												durationUnitStorage.val = v
-												logDurationUnit(v)
 											}
 										}
 									}
@@ -1138,7 +1136,6 @@
 										(v) => {
 											if ((v === 'log' || v === 'linear') && v !== durationScale) {
 												durationScaleStorage.val = v
-												logDurationScale(v)
 											}
 										}
 									}
@@ -1191,7 +1188,6 @@
 				min={CHART_MIN_HEIGHT}
 				max={chartMaxHeight}
 				defaultHeight={CHART_DEFAULT_HEIGHT}
-				onResized={logChartResize}
 			/>
 		</div>
 

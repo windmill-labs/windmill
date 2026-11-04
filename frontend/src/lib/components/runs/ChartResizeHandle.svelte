@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
-	import type { ChartResizeEvent } from './runsChartTelemetry'
 
 	interface Props {
 		height: number
@@ -8,7 +7,6 @@
 		max: number
 		defaultHeight: number
 		class?: string
-		onResized?: (event: ChartResizeEvent) => void
 	}
 
 	let {
@@ -16,8 +14,7 @@
 		min,
 		max,
 		defaultHeight,
-		class: className = '',
-		onResized
+		class: className = ''
 	}: Props = $props()
 
 	const KEYBOARD_STEP_PX = 16
@@ -40,14 +37,11 @@
 	}
 
 	function endDrag() {
-		if (drag && height !== drag.startHeight) onResized?.('drag')
 		drag = undefined
 	}
 
 	function ondblclick() {
-		if (height === defaultHeight) return
 		height = defaultHeight
-		onResized?.('reset')
 	}
 
 	function onkeydown(e: KeyboardEvent) {
@@ -55,10 +49,7 @@
 		e.preventDefault()
 		// The runs table reads these keys at `window` to move its selected run.
 		e.stopPropagation()
-		const next = clamp(height + (e.key === 'ArrowDown' ? KEYBOARD_STEP_PX : -KEYBOARD_STEP_PX))
-		if (next === height) return
-		height = next
-		onResized?.('keyboard')
+		height = clamp(height + (e.key === 'ArrowDown' ? KEYBOARD_STEP_PX : -KEYBOARD_STEP_PX))
 	}
 </script>
 
