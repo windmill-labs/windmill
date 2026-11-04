@@ -4,7 +4,13 @@
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { Info, X } from 'lucide-svelte'
 	import { setGrant } from './access'
-	import { detectNeeds, type Needs, type RunnableKind } from './detectNeeds'
+	import {
+		detectNeeds,
+		neededByGrantee,
+		type NeededItem,
+		type Needs,
+		type RunnableKind
+	} from './detectNeeds'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -12,18 +18,25 @@
 		principal,
 		kind,
 		path,
-		reads,
+		held,
 		onGranted,
 		onClose
 	}: {
 		principal: string
 		kind: RunnableKind
 		path: string
-		/** `kind:path` of every item the principal already reads, through any grant. */
-		reads: Set<string>
+		/** `kind:path` of every item the principal reaches through any grant, to whether it can write it. */
+		held: Map<string, boolean>
 		onGranted: () => void
 		onClose: () => void
 	} = $props()
+
+	const KIND_LABELS: Record<NeededItem['kind'], string> = {
+		resource: 'Resource',
+		variable: 'Variable',
+		script: 'Script',
+		flow: 'Flow'
+	}
 
 	let needs: Needs | undefined = $state()
 	let error: string | undefined = $state()
@@ -31,24 +44,43 @@
 	let results: Record<string, string> = $state({})
 	let granting = $state(false)
 
+	const needed = $derived(needs && neededByGrantee(needs, principal))
+	/** The account the item's own reads are made as, when it is not the principal. */
+	const runsAs = $derived(
+		needs?.runs_as.type === 'account' && needs.runs_as.principal !== principal
+			? needs.runs_as.principal
+			: undefined
+	)
+
+	function covered(item: NeededItem): boolean {
+		const write = held.get(`${item.kind}:${item.path}`)
+		return write !== undefined && (write || item.level === 'read')
+	}
+
+	function status(item: NeededItem): string {
+		if (covered(item)) return 'Already has it'
+		if (held.get(`${item.kind}:${item.path}`) === false) return 'Has read, needs write'
+		return item.level === 'write' ? 'Write' : 'Read'
+	}
+
 	// The host keys this component on the runnable, so it detects once per runnable.
 	detectNeeds($operatingWorkspace!, kind, path)
 		.then((found) => {
 			needs = found
 			selected = Object.fromEntries(
-				found.items.map((i) => [`${i.kind}:${i.path}`, !reads.has(`${i.kind}:${i.path}`)])
+				neededByGrantee(found, principal).items.map((i) => [`${i.kind}:${i.path}`, !covered(i)])
 			)
 		})
 		.catch((e) => (error = `${e?.body ?? e}`))
 
 	async function grant() {
-		if (!needs) return
+		if (!needed) return
 		granting = true
-		for (const item of needs.items) {
+		for (const item of needed.items) {
 			const key = `${item.kind}:${item.path}`
 			if (!selected[key]) continue
 			try {
-				await setGrant($operatingWorkspace!, item.kind, item.path, principal, 'read')
+				await setGrant($operatingWorkspace!, item.kind, item.path, principal, item.level)
 				results[key] = 'Granted'
 				selected[key] = false
 			} catch (e) {
@@ -67,8 +99,8 @@
 		<div class="flex flex-col gap-0.5 min-w-0">
 			<span class="text-xs font-semibold text-emphasis truncate">What {path} reads</span>
 			<span class="text-2xs text-secondary">
-				The resources and variables it reads when it runs, so {principal} can run it. The scripts and
-				flows it calls need no grant.
+				What {principal} needs to run it: the resources and variables it reads, and the scripts and flows
+				its code starts. A step that calls a script or flow by path needs no grant on it.
 			</span>
 		</div>
 		<Button
@@ -83,14 +115,25 @@
 
 	{#if error}
 		<Alert type="error" size="xs" title="Could not read {path}">{error}</Alert>
-	{:else if !needs}
+	{:else if !needs || !needed}
 		<Skeleton layout={[[2], 0.5, [2]]} />
 	{:else}
-		{#if needs.items.length}
+		{#if runsAs}
+			<Alert
+				type="info"
+				size="xs"
+				title={kind === 'app' ? `Its runnables run as ${runsAs}` : `Runs as ${runsAs}`}
+			>
+				{kind === 'app'
+					? 'Only what its frontend reads, as whoever opens it, is listed.'
+					: `What it reads needs no grant for ${principal}.`}
+			</Alert>
+		{/if}
+		{#if needed.items.length}
 			<div class="flex flex-col divide-y border rounded-md">
-				{#each needs.items as item (item.kind + ':' + item.path)}
+				{#each needed.items as item (item.kind + ':' + item.path)}
 					{@const key = `${item.kind}:${item.path}`}
-					{@const already = reads.has(key)}
+					{@const already = covered(item)}
 					<label class="flex items-start gap-2 px-3 py-1.5 text-xs">
 						<Checkbox
 							class="mt-0.5"
@@ -101,23 +144,21 @@
 						<span class="flex flex-col grow min-w-0">
 							<span class="font-mono text-2xs text-emphasis truncate">{item.path}</span>
 							<span class="text-2xs text-secondary truncate">
-								{item.kind === 'resource' ? 'Resource' : 'Variable'}, read by {item.sources.join(
-									', '
-								)}
+								{KIND_LABELS[item.kind]}, used by {item.sources.join(', ')}
 							</span>
 						</span>
 						<span class="text-2xs text-secondary shrink-0">
-							{results[key] ?? (already ? 'Already reads it' : 'Read')}
+							{results[key] ?? status(item)}
 						</span>
 					</label>
 				{/each}
 			</div>
 		{:else}
-			<p class="text-xs text-secondary">No resource or variable found in {path}.</p>
+			<p class="text-xs text-secondary">Nothing {principal} needs was found in {path}.</p>
 		{/if}
-		{#if needs.others.length}
+		{#if needed.others.length}
 			<Alert type="info" size="xs" title="Also used, not granted here">
-				{needs.others.map((o) => `${o.kind} ${o.path}`).join(', ')}. Access to these is set on the
+				{needed.others.map((o) => `${o.kind} ${o.path}`).join(', ')}. Access to these is set on the
 				storage or data table itself.
 			</Alert>
 		{/if}
@@ -139,7 +180,7 @@
 				loading={granting}
 				onClick={grant}
 			>
-				Grant read on {selectedCount}
+				Grant access to {selectedCount}
 			</Button>
 		</div>
 	{/if}

@@ -162,7 +162,7 @@
 		]
 	}
 
-	const reads = $derived(new Set((access?.items ?? []).map((i) => `${i.kind}:${i.path}`)))
+	const held = $derived(new Map((access?.items ?? []).map((i) => [`${i.kind}:${i.path}`, i.write])))
 	// The tree's folder rows carry no grant of their own, so the menu reads it from here.
 	const foldersByName = $derived(new Map((access?.folders ?? []).map((f) => [f.name, f])))
 
@@ -392,7 +392,7 @@
 									{principal}
 									kind={needsOf.kind}
 									path={needsOf.path}
-									{reads}
+									{held}
 									onGranted={reload}
 									onClose={() => (needsOf = undefined)}
 								/>

@@ -1,91 +1,66 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { neededByGrantee, neededByRunAs, type NeededAccess, type Needs } from './detectNeeds'
 
-const readVariable = (path: string) =>
-	`import * as wmill from "windmill-client"\nexport async function main() { return await wmill.getVariable("${path}") }\n`
+const root = { type: 'root' } as const
+const account = (principal: string) => ({ type: 'account', principal }) as const
 
-vi.mock('$lib/gen', () => ({
-	AppService: {
-		getAppByPath: vi.fn(async () => ({
-			value: {
-				files: {
-					'/App.tsx': `export default () => <div>{wmill.getVariable("f/x/browser_secret")}</div>`,
-					'/Db.svelte': `<script>const db = wmill.getResource('f/x/app_db')</script>\n<p>{db}</p>`,
-					'/Secret.svelte': `<script>import * as wmill from 'windmill-client'</script>\n{#await wmill.getVariable("f/x/template_secret") then s}<p>{s}</p>{/await}`,
-					'/notes.md': `getVariable("f/x/not_code")`
-				},
-				runnables: {}
+function needs(runs_as: Needs['runs_as']): Needs {
+	return {
+		runs_as,
+		references: [
+			{
+				kind: 'variable',
+				path: 'f/x/front',
+				access: 'read',
+				reader: { type: 'viewer' },
+				sources: ['f/x/app › /App.tsx']
+			},
+			{ kind: 'resource', path: 'f/x/db', access: 'read', reader: root, sources: ['f/x/app › a'] },
+			{ kind: 'resource', path: 'f/x/db', access: 'write', reader: root, sources: ['f/x/app › b'] },
+			{ kind: 'script', path: 'f/x/helper', access: 'run', reader: root, sources: ['f/x/app › a'] },
+			{
+				kind: 'variable',
+				path: 'f/x/bot_token',
+				access: 'read',
+				reader: account('u/bot'),
+				sources: ['f/x/bot']
 			}
-		}))
-	},
-	AssetService: { listAssetsByUsage: vi.fn(async () => [[]]) },
-	FlowService: {
-		getFlowByPath: vi.fn(async () => ({
-			schema: {},
-			value: {
-				modules: [
-					{
-						id: 'a',
-						value: { type: 'script', path: 'f/x/step', hash: 'old', input_transforms: {} }
-					},
-					{
-						id: 'b',
-						value: {
-							type: 'rawscript',
-							language: 'bun',
-							content: '',
-							input_transforms: { db: { type: 'static', value: '$res:f/x/db' } }
-						}
-					}
-				]
-			}
-		}))
-	},
-	ScriptService: {
-		getScriptByHash: vi.fn(async () => ({
-			language: 'bun',
-			content: readVariable('f/x/pinned_secret'),
-			schema: {}
-		})),
-		getScriptByPath: vi.fn(async () => ({
-			language: 'bun',
-			content: readVariable('f/x/latest_secret'),
-			schema: {}
-		}))
-	},
-	ResourceService: {
-		getResource: vi.fn(async ({ path }: { path: string }) => ({
-			value:
-				path === 'f/x/db'
-					? { password: '$var:f/x/db_password', tls: { ca: '$res:f/x/ca' } }
-					: path === 'f/x/ca'
-						? { cert: '$jsonvar:f/x/ca_cert' }
-						: {}
-		}))
+		],
+		others: [{ kind: 'datatable', path: 'main', reader: root, sources: ['f/x/app › a'] }],
+		errors: []
 	}
-}))
-vi.mock('$lib/infer', () => ({ inferAssets: vi.fn(async () => ({ status: 'ok', assets: [] })) }))
+}
 
-import { detectNeeds } from './detectNeeds'
+const rows = (access: NeededAccess) => access.items.map((i) => `${i.kind}:${i.path}:${i.level}`)
 
-describe('detectNeeds', () => {
-	it('reads the pinned version of a called script and what its resources reference', async () => {
-		const needs = await detectNeeds('w', 'flow', 'f/x/flow')
-		expect(needs.items.map((i) => `${i.kind}:${i.path}`)).toEqual([
-			'resource:f/x/ca',
-			'variable:f/x/ca_cert',
-			'resource:f/x/db',
-			'variable:f/x/db_password',
-			'variable:f/x/pinned_secret'
+describe('neededByGrantee', () => {
+	it('lists what the item reads when it runs as whoever starts it', () => {
+		const access = neededByGrantee(needs({ type: 'caller' }), 'u/alice')
+		expect(rows(access)).toEqual([
+			'variable:f/x/front:read',
+			'resource:f/x/db:write',
+			'script:f/x/helper:read'
 		])
-		expect(needs.errors).toEqual([])
+		expect(access.items[1].sources).toEqual(['f/x/app › a', 'f/x/app › b'])
+		expect(access.others.map((o) => o.path)).toEqual(['main'])
 	})
 
-	it("reads a full-code app's JSX and Svelte source files", async () => {
-		const needs = await detectNeeds('w', 'app', 'f/x/app')
-		expect(needs.items.map((i) => `${i.kind}:${i.path}`)).toEqual([
-			'resource:f/x/app_db',
-			'variable:f/x/browser_secret',
-			'variable:f/x/template_secret'
+	it('leaves out what an account reads unless the grantee is that account', () => {
+		const owned = needs(account('u/owner'))
+		expect(rows(neededByGrantee(owned, 'u/alice'))).toEqual(['variable:f/x/front:read'])
+		expect(rows(neededByGrantee(owned, 'u/bot'))).toEqual([
+			'variable:f/x/front:read',
+			'variable:f/x/bot_token:read'
+		])
+	})
+})
+
+describe('neededByRunAs', () => {
+	it('lists what the account reads, not what whoever opens the app reads', () => {
+		expect(rows(neededByRunAs(needs(account('u/bot')), 'u/bot'))).toEqual([
+			'resource:f/x/db:write',
+			'script:f/x/helper:read',
+			'variable:f/x/bot_token:read'
 		])
 	})
 })
