@@ -589,7 +589,8 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
     /// A message the trigger's filters cannot be evaluated against (not UTF-8, not JSON).
     /// Skipping it would lose it silently and running the target would bypass the filters,
     /// so it goes to the error handler a failed run would reach: the trigger's own for a
-    /// script target, otherwise the workspace's.
+    /// script target, otherwise the workspace's. `throttled` caps that at one handler run per
+    /// trigger per minute, for a stream where such messages are routine (text keepalives).
     async fn handle_unfilterable_message(
         &self,
         db: &DB,
@@ -597,12 +598,17 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         payload: &[u8],
         parse_error: String,
         mut trigger_info: HashMap<String, Box<RawValue>>,
+        throttled: bool,
     ) {
         let trigger_path = format!("{}_trigger/{}", Self::TRIGGER_KIND, listening_trigger.path);
         tracing::warn!(
             "{trigger_path} received a payload its filters cannot parse ({parse_error}): {:?}",
             trigger_info
         );
+        let w_id = &listening_trigger.workspace_id;
+        if throttled && !once_per_minute(&format!("{w_id}/{trigger_path}/handler")) {
+            return;
+        }
         trigger_info.insert("trigger_path".to_string(), to_raw_value(&trigger_path));
         let error = serde_json::json!({ "error": {
             "name": "TriggerFilterError",
@@ -612,7 +618,6 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             "trigger_info": trigger_info,
         }});
 
-        let w_id = &listening_trigger.workspace_id;
         let trigger_handler = listening_trigger
             .error_handling
             .as_ref()
@@ -697,6 +702,11 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             permissioned_as,
             false,
             None,
+            Some(TriggerMetadata::new(
+                Some(listening_trigger.path.clone()),
+                Self::JOB_TRIGGER_KIND,
+            )),
+            Some(listening_trigger.suspended_mode),
         )
         .await
         {
@@ -766,23 +776,24 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
 /// One critical alert per trigger per minute: a stream of unparseable messages (binary
 /// frames, plain-text heartbeats) would otherwise raise one per message.
 async fn report_unfilterable_alert(db: &DB, w_id: &str, trigger_path: &str, message: String) {
-    static LAST_ALERT: std::sync::LazyLock<std::sync::Mutex<HashMap<String, std::time::Instant>>> =
-        std::sync::LazyLock::new(Default::default);
-    let key = format!("{w_id}/{trigger_path}");
-    let due = {
-        let mut last = LAST_ALERT.lock().unwrap_or_else(|e| e.into_inner());
-        let now = std::time::Instant::now();
-        let due = last.get(&key).map_or(true, |at| {
-            now.duration_since(*at) >= std::time::Duration::from_secs(60)
-        });
-        if due {
-            last.insert(key, now);
-        }
-        due
-    };
-    if due {
+    if once_per_minute(&format!("{w_id}/{trigger_path}/alert")) {
         report_critical_error(message, db.clone(), Some(w_id), None).await;
     }
+}
+
+/// Whether `key` was not let through in the last minute, recording it if so.
+fn once_per_minute(key: &str) -> bool {
+    static LAST: std::sync::LazyLock<std::sync::Mutex<HashMap<String, std::time::Instant>>> =
+        std::sync::LazyLock::new(Default::default);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    let now = std::time::Instant::now();
+    let due = last.get(key).map_or(true, |at| {
+        now.duration_since(*at) >= std::time::Duration::from_secs(60)
+    });
+    if due {
+        last.insert(key.to_string(), now);
+    }
+    due
 }
 
 /// Upper bound on [`reconnect_delay`].

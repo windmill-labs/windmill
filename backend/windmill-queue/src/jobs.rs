@@ -3553,6 +3553,8 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         schedule_permissioned_as,
         is_global_error_handler,
         priority,
+        None,
+        None,
     )
     .await
 }
@@ -3578,6 +3580,9 @@ pub async fn push_error_handler_with_parent<'a, 'c, T: Serialize + Send + Sync>(
     schedule_permissioned_as: Option<&str>,
     is_global_error_handler: bool,
     priority: Option<i16>,
+    // Set when a trigger pushes the handler, so a suspended trigger holds it like its runs.
+    trigger: Option<TriggerMetadata>,
+    suspended_mode: Option<bool>,
 ) -> windmill_common::error::Result<Uuid> {
     let handler_w_id = if is_global_error_handler {
         "admins"
@@ -3643,7 +3648,9 @@ pub async fn push_error_handler_with_parent<'a, 'c, T: Serialize + Send + Sync>(
         },
         &email,
         permissioned_as,
-        Some(&format!("error.handler.{}", parent_job.unwrap_or_default())),
+        parent_job
+            .map(|id| format!("error.handler.{id}"))
+            .as_deref(),
         None,
         None,
         None,
@@ -3662,8 +3669,8 @@ pub async fn push_error_handler_with_parent<'a, 'c, T: Serialize + Send + Sync>(
         None,
         false,
         None,
-        None,
-        None,
+        trigger,
+        suspended_mode,
         None,
     )
     .await?;

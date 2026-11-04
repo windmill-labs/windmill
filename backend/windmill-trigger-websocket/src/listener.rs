@@ -535,7 +535,7 @@ impl Listener for WebsocketTrigger {
                                             let _ = self.handle_event(db, listening_trigger, text, trigger_info, return_message_channels.clone()).await;
                                         }
                                         Ok(false) => tracing::debug!("WebSocket trigger {} skipped a message: filters did not match", listening_trigger.path),
-                                        Err(err) => self.handle_unfilterable_message(db, listening_trigger, text.as_bytes(), err.to_string(), trigger_info).await,
+                                        Err(err) => self.handle_unfilterable_message(db, listening_trigger, text.as_bytes(), err.to_string(), trigger_info, true).await,
                                     }
                                 },
                                 Ok(Message::Close(frame)) => {
