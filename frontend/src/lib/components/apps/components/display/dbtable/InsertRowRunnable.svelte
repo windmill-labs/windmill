@@ -9,6 +9,9 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getInsertInput } from './queries/insert'
 	import type { DbInput } from '$lib/components/dbTypes'
+	import { ApiError } from '$lib/gen'
+	import { pollJobResult } from '$lib/components/jobs/utils'
+	import { writingJobOptions } from '$lib/components/jobs/writingJob'
 
 	interface Props {
 		id: string
@@ -53,22 +56,41 @@
 		if (runnableComponent) {
 			const component = runnableComponent
 			await new Promise<void>((resolve, reject) => {
+				let settled = false
+				let confirming = false
+				const succeed = () => {
+					if (settled) return
+					settled = true
+					dispatch('insert')
+					sendUserToast('Row inserted', false)
+					resolve()
+				}
+				const fail = (message: string) => {
+					if (settled) return
+					settled = true
+					reject(new Error(message))
+				}
 				component
 					.runComponent(undefined, undefined, undefined, values, {
 						// The runnable loads only the result, so a failed job lands here as `{ error }`.
-						onDone: (result) => {
-							if (result?.error) {
-								reject(new Error(insertErrorMessage(result)))
-								return
-							}
-							dispatch('insert')
-							sendUserToast('Row inserted', false)
-							resolve()
-						},
-						onCancel: () => reject(new Error('Insert was canceled')),
-						onError: (e) => reject(new Error(insertErrorMessage(e)))
+						onDone: (result) => (result?.error ? fail(insertErrorMessage(result)) : succeed()),
+						onCancel: () => fail('Insert was canceled'),
+						onError: (e, jobId) => {
+							if (!jobId) return fail(insertErrorMessage(e))
+							if (confirming) return
+							confirming = true
+							// A failed status read says nothing about the job, which may still commit:
+							// failing here would invite a retry that inserts the row twice.
+							pollJobResult(jobId, workspace, writingJobOptions).then(succeed, (err) =>
+								fail(
+									err instanceof ApiError
+										? `Could not confirm the insert: ${insertErrorMessage(err)}. Refresh the table to check whether the row was added before retrying.`
+										: insertErrorMessage(err)
+								)
+							)
+						}
 					})
-					.catch(reject)
+					.catch((e) => fail(insertErrorMessage(e)))
 			})
 		}
 
