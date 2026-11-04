@@ -52,7 +52,7 @@
 	<Badge
 		{large}
 		color="red"
-		title={job.system_error ? 'The platform failed this run, not its code' : undefined}
+		title={job.system_error ? 'Database error, lost worker or out of memory' : undefined}
 	>
 		{job.canceled ? 'Canceled' : job.system_error ? 'System error' : 'Failed'} after {msToReadableTime(
 			job.duration_ms

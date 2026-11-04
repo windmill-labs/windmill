@@ -63,7 +63,7 @@
 			color="red"
 			{roundedFull}
 			baseClass={roundedFull ? '' : '!px-1.5'}
-			title="System error: the platform failed this run, not its code"
+			title="System error: database error, lost worker or out of memory"
 		>
 			<ServerCrash size={14} />
 		</Badge>
