@@ -20,6 +20,7 @@
 	import type { Flow } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
 	import { AIBtnClasses } from './chat/AIButtonStyle'
+	import { newFlowInputOf, newFlowInputsInstruction } from './stepInputFlowInputs'
 
 	let loading = $state(false)
 	interface Props {
@@ -30,7 +31,9 @@
 
 	let { pickableProperties = undefined, argNames = [], schema = undefined }: Props = $props()
 
-	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, selectionManager, customUi } =
+		getContext<FlowEditorContext>('FlowEditorContext')
+	const canAddFlowInputs = customUi?.aiFlowInputs != false
 
 	const { exprsToSet, stepInputsLoading, generatedExprs } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
@@ -81,7 +84,7 @@ ${
 Here's a summary of the available data:
 <available>
 ${YAML.stringify(availableData)}</available>
-If none of the available results are appropriate, are already used or are more appropriate for other inputs, you can also imagine new flow_input properties which we will create programmatically based on what you provide.
+${newFlowInputsInstruction(canAddFlowInputs, 'leave that input out of your answer')}
 
 Reply with the most probable answer, do not explain or discuss.
 Use javascript object dot notation to access the properties.
@@ -105,18 +108,14 @@ input_name2: expression2
 			const exprs = {}
 			newFlowInputs = []
 			for (const [key, value] of parsedInputs) {
-				if (argNames.includes(key)) {
+				if (argNames.includes(key) && value) {
+					const newFlowInput = newFlowInputOf(value, pickableProperties)
+					if (newFlowInput && !canAddFlowInputs) continue
 					exprs[key] = value
-					if (
-						pickableProperties &&
-						value.startsWith('flow_input.') &&
-						value.split('.')[1] &&
-						!(value.split('.')[1] in pickableProperties.flow_input)
-					) {
-						newFlowInputs.push(value.split('.')[1])
-					}
+					if (newFlowInput) newFlowInputs.push(newFlowInput)
 				}
 			}
+			parsedInputs = parsedInputs.filter(([key]) => key in exprs)
 			generatedExprs?.set(exprs)
 		} catch (err) {
 			if (!abortController.signal.aborted) {

@@ -4182,6 +4182,9 @@ pub async fn monitor_db(
         if server_mode && !initial_load {
             if let Some(db) = conn.as_sql() {
                 stale_job_cancellation(&db).await;
+                if let Err(e) = windmill_queue::cancel_timed_out_flows(&db).await {
+                    tracing::error!("Error cancelling timed out flows: {:?}", e);
+                }
             }
         }
     };
