@@ -145,6 +145,26 @@ mod schedule_push {
         Ok(())
     }
 
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_push_parses_target(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let authed = make_authed();
+        let schedule = make_schedule(|s| s.script_path = "/f/system/test_script".to_string());
+        let tx = db.begin().await?;
+        push_scheduled_job(&db, tx, &schedule, Some(&authed), None)
+            .await?
+            .commit()
+            .await?;
+        let (_, path, _, _) = get_queued_job(&db).await.unwrap();
+        assert_eq!(path.as_deref(), Some("f/system/test_script"));
+
+        let schedule = make_schedule(|s| s.script_path = "//f/system/test_script".to_string());
+        let tx = db.begin().await?;
+        assert!(push_scheduled_job(&db, tx, &schedule, Some(&authed), None)
+            .await
+            .is_err());
+        Ok(())
+    }
+
     // -----------------------------------------------------------------------
     // push_scheduled_job: flow schedule
     // -----------------------------------------------------------------------

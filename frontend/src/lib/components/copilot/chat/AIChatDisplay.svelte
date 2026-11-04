@@ -18,11 +18,13 @@
 		MousePointer2,
 		Plug,
 		Plus,
+		SlidersHorizontal,
 		TextSelect,
 		X,
 		XIcon
 	} from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -34,7 +36,9 @@
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
 	import ScrollFade from '$lib/components/ScrollFade.svelte'
-	import AssistantSettingsModal from './AssistantSettingsModal.svelte'
+	import AssistantSettingsModal, {
+		type AssistantSettingsSection
+	} from './AssistantSettingsModal.svelte'
 	import WorkingInPicker from './WorkingInPicker.svelte'
 	import { scopeLabel } from './workingScope'
 	import { SkillsMenu } from './skills/skillsMenu.svelte'
@@ -311,11 +315,22 @@
 		aiChatInput?.focusInput(selection)
 	}
 
+	/** With `root`, focused on that folder. */
+	export function openAssistantSettings(section: AssistantSettingsSection, root?: string) {
+		if (root) void assistantSettings?.openFolder(section, root)
+		else assistantSettings?.open(section)
+	}
+
 	/** Mention a workspace item in the draft, as "+" → Mention file does, and hand the user
 	 * the caret after it. Focusing is what opens Home's one-line composer. */
 	export async function attachContext(element: ContextElement) {
 		await mentionWorkspaceItem(element)
 		aiChatInput?.focusInput()
+	}
+
+	/** `text` before what the draft already holds, the caret after it. */
+	export function prefill(text: string) {
+		aiChatInput?.prefill(text)
 	}
 
 	$effect(() => {
@@ -624,6 +639,33 @@
 		if (!isComposerOverlay(e.target) && !asksForComposer(e.target)) closeComposer()
 	}
 
+	// The composer clears on a second Escape: the first only shows the hint, so a single
+	// stray press cannot throw a draft away. Any other key, a click in the composer or
+	// leaving it disarms it.
+	const CLEAR_ARM_MS = 2000
+	let clearArmed = $state(false)
+	let clearArmTimer: ReturnType<typeof setTimeout> | undefined
+	function disarmClear() {
+		clearTimeout(clearArmTimer)
+		clearArmed = false
+	}
+	function onComposerEscape(repeat: boolean) {
+		if (!aiChatInput?.hasClearableContent()) return false
+		// A held key is one press: its repeats must not count as the second.
+		if (repeat) return true
+		if (clearArmed) {
+			// Still armed if refused (an attachment still being read): the next press retries.
+			if (aiChatInput.clearDraft()) disarmClear()
+		} else {
+			clearArmed = true
+			clearArmTimer = setTimeout(disarmClear, CLEAR_ARM_MS)
+		}
+		return true
+	}
+	$effect(() => () => clearTimeout(clearArmTimer))
+	// Off once the draft is gone some other way, such as a send.
+	const clearHintShown = $derived(clearArmed && !!aiChatInput?.hasClearableContent())
+
 	// While the box plays its accent outline (app.css, `data-composer-flash`).
 	let flashing = $state(false)
 
@@ -742,8 +784,10 @@
 					variant="accent"
 					startIcon={{ icon: KeyRound }}
 					href="/workspace_settings?tab=ai"
+					wrapperClasses="min-w-0 max-w-full"
+					btnClasses="min-w-0"
 				>
-					Add your own API key
+					<span class="truncate">Add your own API key</span>
 				</Button>
 			</div>
 		</Alert>
@@ -752,7 +796,7 @@
 
 {#snippet freeTierUsageBanner()}
 	<div
-		class="my-1 flex items-center justify-between gap-2 rounded-md border bg-surface-secondary px-2 py-1"
+		class="my-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-md border bg-surface-secondary px-2 py-1"
 	>
 		<span class="text-xs text-secondary tabular-nums">
 			{freeTierUsedPct}% of your free Windmill AI used
@@ -762,8 +806,10 @@
 			variant="default"
 			startIcon={{ icon: KeyRound }}
 			href="/workspace_settings?tab=ai"
+			wrapperClasses="min-w-0 shrink"
+			btnClasses="min-w-0"
 		>
-			Configure your API key
+			<span class="truncate">Configure your API key</span>
 		</Button>
 	</div>
 {/snippet}
@@ -1037,9 +1083,29 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		onfocusin={(e) => {
 			if (starterLayout && e.target instanceof HTMLTextAreaElement) composerOpened = true
 		}}
+		oninput={() => disarmClear()}
+		onpointerdown={() => disarmClear()}
+		onfocusout={(e) => {
+			if (!composerEl?.contains(e.relatedTarget as Node | null)) disarmClear()
+		}}
 		onkeydown={(e) => {
-			// A prevented Escape closed something inside first, such as the @-mention picker.
-			if (e.key !== 'Escape' || e.defaultPrevented) return
+			// A prevented Escape was handled inside, such as a running turn's stop. An IME
+			// cancel is the input method's.
+			if (e.key !== 'Escape') {
+				disarmClear()
+				return
+			}
+			if (e.defaultPrevented || e.isComposing) return
+			// The `@` and `/` pickers close on this press reaching `document` unprevented.
+			if (aiChatInput?.hasOpenPicker()) return
+			// The field's own presses only: a toolbar button keeps focus while the dialog it
+			// opened (assistant settings) closes on the same Escape.
+			if (e.target instanceof HTMLTextAreaElement && onComposerEscape(e.repeat)) {
+				// Kept from the panel or drawer around the chat, which would close on it.
+				e.preventDefault()
+				e.stopPropagation()
+				return
+			}
 			if (!starterLayout || !composerOpened) return
 			closeComposer()
 			if (aiChatInput?.isDraftEmpty() ?? true) (document.activeElement as HTMLElement)?.blur()
@@ -1114,6 +1180,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				collapsed={composerCollapsed}
 				chatIcon={starterLayout}
 				{onSent}
+				clearHint={!starterLayout && clearHintShown}
 			>
 				{#snippet collapsedControls()}
 					{#if chatHost.mode === AIMode.GLOBAL}
@@ -1124,13 +1191,15 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					{/if}
 				{/snippet}
 				{#snippet toolbar()}
+					<!-- Its rows fade in (`wm-page-in`): they land with the copilot config, after the
+					     box Home's skeleton already drew. -->
 					<div
 						class="flex flex-row flex-wrap items-center gap-x-1.5 gap-y-1"
 						class:justify-between={showFooterLeftControls}
 						class:justify-end={!showFooterLeftControls}
 					>
 						{#if showFooterLeftControls}
-							<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
+							<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap wm-page-in">
 								{#if showContextPicker && !disabled}
 									<Popover placement="bottom-start">
 										{#snippet trigger()}
@@ -1371,11 +1440,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							</div>
 						{/if}
 						{#if footerMessageShown}
-							<div class="text-primary text-xs my-2 px-2">
+							<div class="text-primary text-xs my-2 px-2 wm-page-in">
 								<Markdown md={disabledMessage} />
 							</div>
 						{:else}
-							<div class="flex flex-row gap-x-1.5 min-w-0 flex-wrap items-center">
+							<div class="flex flex-row gap-x-1.5 min-w-0 flex-wrap items-center wm-page-in">
 								{#if chatHost.mode === AIMode.GLOBAL}
 									<AttachedFilesBar />
 								{/if}
@@ -1393,7 +1462,24 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								{/if}
 								{@render footerSettings?.()}
 								{#if chatHost.mode === AIMode.GLOBAL}
-									<AssistantSettingsModal bind:this={assistantSettings} />
+									<Tooltip small placement="top">
+										<Button
+											unifiedSize="2xs"
+											variant="subtle"
+											iconOnly
+											startIcon={{ icon: SlidersHorizontal }}
+											aria-label="Assistant settings"
+											onClick={() => assistantSettings?.open()}
+										/>
+										{#snippet text()}
+											<div class="max-w-64 text-xs">
+												<p class="font-semibold">Assistant settings</p>
+												<p class="mt-1"
+													>The tools, skills, instructions and MCP servers this chat can use.</p
+												>
+											</div>
+										{/snippet}
+									</Tooltip>
 								{/if}
 
 								{#if chatHost.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
@@ -1448,7 +1534,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		<!-- Opens and closes with the box, so the page under it slides rather than jumps. -->
 		<div use:smoothHeight={{ enabled: starterLayout, key: composerCollapsed }}>
 			<div>
-				{#if starterLayout && starter && !disabled && !composerCollapsed && starter.suggestions.length > 0}
+				<!-- On Home the hint stands in for the suggestions, at their height. -->
+				{#if starterLayout && clearHintShown}
+					<div class="pt-2 h-9 flex items-center gap-1 text-xs text-hint" role="status">
+						Press <Kbd small>Esc</Kbd> again to clear
+					</div>
+				{:else if starterLayout && starter && !disabled && !composerCollapsed && starter.suggestions.length > 0}
 					<div class="pt-2">
 						<ComposerSuggestions
 							suggestions={starter.suggestions}
@@ -1476,3 +1567,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		{/if}
 	</div>
 </div>
+<!-- Outside the composer: Home's folded composer drops its toolbar, and the folder badges open
+     this without unfolding it. -->
+{#if chatHost.mode === AIMode.GLOBAL}
+	<AssistantSettingsModal bind:this={assistantSettings} />
+{/if}

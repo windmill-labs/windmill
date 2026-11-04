@@ -3,11 +3,13 @@
 	import { createEventDispatcher, onDestroy, untrack, type Snippet } from 'svelte'
 	import ResizeTransitionWrapper from '$lib/components/common/ResizeTransitionWrapper.svelte'
 
-	import { Eye, Folder, FolderTree, Pen, User } from 'lucide-svelte'
+	import { AtSign, Eye, Folder, FolderTree, Pen, User } from 'lucide-svelte'
 	import { userStore } from '$lib/stores'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import TreeOwnerRow from './TreeOwnerRow.svelte'
 	import HomeFolderBadge from './HomeFolderBadge.svelte'
+	import { homeComposerContext } from '../sessions/homeComposerContext.svelte'
+	import { folderContextElement } from '../copilot/chat/context'
 	import PipelineRow from '../common/table/PipelineRow.svelte'
 	import Item from './Item.svelte'
 	import {
@@ -64,10 +66,15 @@
 		leaf?: Snippet<[ItemType, number]>
 		// Remembers which nodes the user opened by hand, so they reopen on the next visit
 		// while expand/collapse-all is in its collapsed state.
-		openMemory?: TreeOpenMemory
+		openMemory?: Pick<TreeOpenMemory, 'isOpen' | 'setOpen'>
 		// Adds a "Manage folder" menu ("View folder" for a non-owner) to top-level folder rows.
 		// Subfolders are path segments, not folders with permissions of their own, so get none.
 		onManageFolder?: (folderName: string) => void
+		// An always-visible control before a folder/user row's icon, given the node's
+		// full path prefix (e.g. a checkbox selecting everything under it).
+		ownerLead?: Snippet<[string]>
+		// Appended to a folder/user row's item count, given the node's full path prefix.
+		ownerDetail?: Snippet<[string]>
 	}
 
 	let {
@@ -88,7 +95,9 @@
 		indent = 0,
 		leaf,
 		openMemory,
-		onManageFolder
+		onManageFolder,
+		ownerLead,
+		ownerDetail
 	}: Props = $props()
 
 	const unruled = inUnruledList()
@@ -113,6 +122,7 @@
 				? `f/${item.folderName}`
 				: undefined
 	)
+	const mentionRoot = $derived(homeComposerContext.available ? badgeRoot : undefined)
 
 	// Hidden while searching: pipelines aren't part of the text filter (the list
 	// view hides their rows on a query too), so a folder matching the search
@@ -306,10 +316,35 @@
 	}
 </script>
 
-{#snippet folderBadge()}
-	{#if badgeRoot}
-		<HomeFolderBadge root={badgeRoot} />
-	{/if}
+{#snippet folderTrailing()}
+	<span class="flex flex-row items-center gap-2">
+		{#if badgeRoot}
+			<HomeFolderBadge root={badgeRoot} />
+		{/if}
+		{#if mentionRoot}
+			{@const path = mentionRoot}
+			<!-- While Home's composer is open its place is kept on every row, so the badges stay put
+			     to its left, and it shows on the hovered or tabbed-into row. The row toggles on click,
+			     so the press stops here. -->
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<span
+				class="hidden group-has-[[data-composer-open]]/home:inline-flex invisible group-hover/row:visible group-has-[:focus-visible]/row:visible"
+				onclick={(e) => e.stopPropagation()}
+			>
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					btnClasses="!text-ai font-medium"
+					title="Add to AI session context"
+					aria-label="Add {path} to AI session context"
+					onClick={() => homeComposerContext.attach(folderContextElement(path))}
+				>
+					+@
+				</Button>
+			</span>
+		{/if}
+	</span>
 {/snippet}
 
 {#snippet manageFolderMenu()}
@@ -326,12 +361,25 @@
 			placement="bottom-start"
 			items={[
 				{
+					displayName: 'Add to AI session context',
+					icon: AtSign,
+					type: 'ai',
+					action: () => homeComposerContext.attach(folderContextElement(`f/${folderName}`)),
+					hide: !homeComposerContext.available
+				},
+				{
 					displayName: canWrite ? 'Manage folder' : 'View folder',
 					icon: canWrite ? Pen : Eye,
 					action: () => onManageFolder?.(folderName)
 				}
 			]}
 		/>
+	{/if}
+{/snippet}
+
+{#snippet ownerLeadForNode()}
+	{#if nodePrefix != undefined}
+		{@render ownerLead?.(nodePrefix)}
 	{/if}
 {/snippet}
 
@@ -345,7 +393,8 @@
 			expandable={!empty || opened}
 			indent={visualDepth * 16}
 			actions={onManageFolder && depth === 0 && isFolder(item) ? manageFolderMenu : undefined}
-			trailing={badgeRoot ? folderBadge : undefined}
+			lead={ownerLead && nodePrefix != undefined ? ownerLeadForNode : undefined}
+			trailing={badgeRoot ? folderTrailing : undefined}
 		>
 			{#snippet detail()}
 				{#if ownerCount != undefined}
@@ -361,6 +410,9 @@
 					({loadedHere}+ items)
 				{:else}
 					({pluralize(loadedHere, ' item')})
+				{/if}
+				{#if ownerDetail && nodePrefix != undefined}
+					{@render ownerDetail(nodePrefix)}
 				{/if}
 			{/snippet}
 		</TreeOwnerRow>
@@ -400,6 +452,8 @@
 							{indent}
 							{leaf}
 							{onManageFolder}
+							{ownerLead}
+							{ownerDetail}
 						/>
 					{/each}
 					{#if effectiveMax < item.items.length}

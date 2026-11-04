@@ -981,7 +981,7 @@
 			// Authoritative save-time schema-contract check (pipelines gap #2b):
 			// warn-only, post-commit so a self-produced target resolves to the
 			// content just deployed. Fire-and-forget — must never gate the deploy.
-			notifyContractWarnings(opWorkspace!, script.language, script.content)
+			notifyContractWarnings(opWorkspace!, script.language, script.content, script.path)
 
 			// Gated for operators without `manage_triggers`, who cannot have captures to move.
 			if (!initialPath && !$triggerLock) {

@@ -6,6 +6,7 @@ import {
 	createSession,
 	holdSessionUntilStarted,
 	homeDraft,
+	homeStarterSession,
 	opensOnHome,
 	selectSession,
 	sessionInCurrentFamily,
@@ -24,7 +25,6 @@ import {
 } from './sessionState.svelte'
 import { sessionTargetHref, withPreviewParams } from './sessionMode.svelte'
 import { fixupUrlAfterWorkspaceSwitch } from '../sidebar/workspaceSwitchUrl'
-import { pinHomeComposer } from '../home/homeComposerPin.svelte'
 import { homeComposerContext } from './homeComposerContext.svelte'
 // Type-only: erased at compile time, so the component graph stays out of this
 // navigation seam (see the dynamic import in openEditorInSession).
@@ -80,11 +80,9 @@ export async function resumeAiSessions(opts?: { replace?: boolean }): Promise<vo
 }
 
 // A plain session starts on Home, and an unsent draft is shown there rather than on a
-// page of its own. Asking for one puts the composer back on Home if the reader had
-// unpinned it: there is nowhere else to type it.
+// page of its own.
 async function toHome(id: string, opts?: { replace?: boolean; flash?: boolean }): Promise<void> {
 	lastSessionId = id
-	pinHomeComposer()
 	const onHome = typeof window !== 'undefined' && window.location.pathname === '/'
 	// The draft already on screen is focused where it is: rebuilding the composer would fold it
 	// to one line and open it again under the user's eyes.
@@ -100,9 +98,10 @@ async function toHome(id: string, opts?: { replace?: boolean; flash?: boolean })
 	await goto('/', { replaceState: opts?.replace ?? false })
 }
 
-/** New session: Home's composer, blank, focused and outlined for a moment. It acts on the
- * header's workspace, switched to `workspaceId` first when given. A draft already typed stays
- * in the list. */
+/** New session: Home's composer, focused and outlined for a moment. It acts on the header's
+ * workspace, switched to `workspaceId` first when given. An unsent draft of that family is
+ * shown again rather than replaced by a blank: the sidebar does not list it, so a blank would
+ * strand it. */
 export async function openNewSession(workspaceId?: string): Promise<void> {
 	if (workspaceId && workspaceId !== get(workspaceStore)) {
 		// Home's current draft stays where it is: the switch must not take it along.
@@ -112,7 +111,7 @@ export async function openNewSession(workspaceId?: string): Promise<void> {
 		// switch back to it and take the new draft along.
 		await fixupUrlAfterWorkspaceSwitch(workspaceId)
 	}
-	await toHome(blankHomeDraft().id, { flash: true })
+	await toHome(homeStarterSession().id, { flash: true })
 }
 
 /** An unsent draft, opened in Home's composer. `replace` for a redirect off the sessions
@@ -176,12 +175,13 @@ async function openInSession(
 export function editorSessionHref(
 	target: SessionTarget,
 	workspaceId?: string,
-	previewParams?: Record<string, string>
+	previewParams?: Record<string, string>,
+	opts?: Pick<SeedOpts, 'untilStarted'>
 ): Promise<string> {
 	return sessionHrefFor(
 		withPreviewParams(sessionTargetHref(target), previewParams),
 		workspaceId,
-		undefined,
+		opts,
 		presetScopeFor(target.path)
 	)
 }

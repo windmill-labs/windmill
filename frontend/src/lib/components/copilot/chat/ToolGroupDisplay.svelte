@@ -70,6 +70,7 @@
 <ChatCollapsibleCard
 	labelPrefix={header.prefix}
 	label={header.label}
+	labelMore={header.more}
 	{expanded}
 	onToggle={() => (expanded = !expanded)}
 	shimmer={running}

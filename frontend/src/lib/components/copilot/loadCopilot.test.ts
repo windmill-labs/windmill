@@ -1,10 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { get } from 'svelte/store'
 
-vi.mock('./lib', () => ({
-	workspaceAIClients: { init: () => {} }
-}))
-
 let requests: { workspace: string; resolve: (config: any) => void }[] = []
 
 vi.mock('$lib/gen', () => ({

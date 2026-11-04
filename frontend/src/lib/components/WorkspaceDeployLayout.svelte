@@ -1,3 +1,7 @@
+<script lang="ts" module>
+	const treeOpenState = new Map<string, boolean>()
+</script>
+
 <script lang="ts">
 	import { Folder, Loader2, User } from 'lucide-svelte'
 	import { Badge } from './common'
@@ -6,6 +10,8 @@
 	import Tooltip from './Tooltip.svelte'
 	import type { Snippet } from 'svelte'
 	import type { Kind } from '$lib/utils_deployable'
+	import TreeViewRoot from './home/TreeViewRoot.svelte'
+	import type { ItemType } from './home/treeViewUtils'
 
 	interface DeployableItem {
 		key: string
@@ -25,6 +31,11 @@
 
 	interface Props {
 		items: DeployableItem[]
+		/** Show the items as the home page's folder tree, each folder row selecting
+		 * everything under it, instead of grouped by top-level folder. */
+		nested?: boolean
+		/** With `nested`, appended to a folder row's item count, given its full path prefix. */
+		folderDetail?: Snippet<[string]>
 		selectedItems: string[]
 		selectablePredicate?: (item: DeployableItem) => boolean
 		/** Selectable on its own row, but never swept in by a bulk action (the group
@@ -68,6 +79,8 @@
 
 	let {
 		items,
+		nested = false,
+		folderDetail,
 		selectedItems,
 		selectablePredicate = () => true,
 		bulkExcluded = () => false,
@@ -138,15 +151,34 @@
 	// selection frozen, so they don't count toward the group's tri-state. Bulk-excluded
 	// rows are left out too — the group checkbox is a bulk action, so it must neither
 	// select them nor let them hold its tri-state short of full.
-	function groupSelectable(group: DeployGroup): DeployableItem[] {
-		return group.items.filter(
+	function bulkSelectable(list: DeployableItem[]): DeployableItem[] {
+		return list.filter(
 			(i) =>
 				selectablePredicate(i) && !bulkExcluded(i) && deploymentStatus[i.key]?.status !== 'deployed'
 		)
 	}
+	function groupSelectable(group: DeployGroup): DeployableItem[] {
+		return bulkSelectable(group.items)
+	}
 
-	function toggleGroup(group: DeployGroup) {
-		const selectable = groupSelectable(group)
+	// The tree keys its leaves by `type`; the rows keep every other field as they are.
+	let treeItems = $derived(
+		nested ? (items.map((i) => ({ ...i, type: i.kind })) as unknown as ItemType[]) : []
+	)
+	// While selecting, top-level folders start open and sub-folders closed; without a
+	// selection to make, the tree opens fully, since every row may carry an action.
+	// Held at module level so a toggle survives the remount the Hub drawer does when the
+	// selection changes its scope.
+	const treeOpen = {
+		isOpen: (prefix: string) => treeOpenState.get(prefix) ?? prefix.split('/').length === 2,
+		setOpen: (prefix: string, open: boolean) => void treeOpenState.set(prefix, open)
+	}
+	function underPrefix(prefix: string): DeployableItem[] {
+		return items.filter((i) => i.path.startsWith(prefix + '/'))
+	}
+
+	function toggleGroup(group: Pick<DeployGroup, 'items'>) {
+		const selectable = bulkSelectable(group.items)
 		const target = !selectable.every((i) => selectedItems.includes(i.key))
 		// Snapshot which items need flipping before mutating: onToggleItem updates
 		// the parent's selection, which feeds back into `selectedItems` mid-loop.
@@ -156,6 +188,88 @@
 		}
 	}
 </script>
+
+{#snippet itemRow(item: DeployableItem, depth: number, subPath: string)}
+	{@const isSelectable = selectablePredicate(item)}
+	{@const isSelected = selectedItems.includes(item.key)}
+	{@const status = deploymentStatus[item.key]}
+	{@const isDeployed = status?.status === 'deployed'}
+	{@const blockedReason = !isSelectable && !isDeployed ? selectBlockedReason?.(item) : undefined}
+	<!-- A resource is titled by its path, except an agent, titled by its summary. -->
+	{@const showPath =
+		isAgent?.(item) ||
+		(item.kind !== 'resource' && item.kind !== 'variable' && item.kind !== 'resource_type')}
+
+	<Row
+		isSelectable={!hideSelection && isSelectable && !isDeployed}
+		selectDisabledReason={blockedReason}
+		selectOnRowClick={!hideSelection}
+		alignWithSelectable={!hideSelection}
+		disabled={!hideSelection && (blockedReason ? false : !isSelectable)}
+		selected={isSelected && !isDeployed}
+		onSelect={() => handleSelect(item)}
+		path={showPath ? item.path : ''}
+		marked={undefined}
+		kind={isAgent?.(item) ? 'agent' : item.kind}
+		triggerKind={item.triggerKind}
+		canFavorite={false}
+		workspaceId=""
+		{depth}
+	>
+		{#snippet customSummary()}
+			{#if itemSummary}
+				{@render itemSummary(item)}
+			{:else}
+				{item.path}
+			{/if}
+		{/snippet}
+		{#snippet pathDisplay()}
+			{#if itemPath}
+				{@render itemPath(item)}
+			{:else}
+				{showPath ? subPath : ''}
+			{/if}
+		{/snippet}
+		{#snippet actions()}
+			{#if itemActions}
+				{@render itemActions(item)}
+			{/if}
+			<!-- Deployment status always shown -->
+			{#if status}
+				{#if status.status === 'loading'}
+					<Loader2 class="animate-spin" />
+				{:else if status.status === 'deployed'}
+					<Badge color="green">Deployed</Badge>
+				{:else if status.status === 'failed'}
+					<div class="inline-flex gap-1">
+						<Badge color="red">Failed</Badge>
+						<Tooltip>{status.error}</Tooltip>
+					</div>
+				{/if}
+			{/if}
+		{/snippet}
+	</Row>
+{/snippet}
+
+{#snippet treeLeaf(leaf: ItemType, depth: number)}
+	{@const item = leaf as unknown as DeployableItem}
+	{@render itemRow(item, depth, item.path.split('/').pop() ?? item.path)}
+{/snippet}
+
+{#snippet prefixCheckbox(prefix: string)}
+	{@const under = underPrefix(prefix)}
+	{@const selectable = bulkSelectable(under)}
+	{@const selectedCount = selectable.filter((i) => selectedItems.includes(i.key)).length}
+	<Checkbox
+		checked={selectable.length > 0 && selectedCount === selectable.length}
+		indeterminate={selectedCount > 0 && selectedCount < selectable.length}
+		disabled={selectable.length === 0}
+		title={selectedCount === selectable.length
+			? `Deselect all in ${prefix}`
+			: `Select all in ${prefix}`}
+		onChange={() => toggleGroup({ items: under })}
+	/>
+{/snippet}
 
 <div class="flex flex-col h-full">
 	<!-- Header section -->
@@ -197,7 +311,20 @@
 		</div>
 	{/if}
 
-	{#if items.length > 0}
+	{#if items.length > 0 && nested}
+		<div class="overflow-y-auto">
+			<TreeViewRoot
+				items={treeItems}
+				collapseAll={!hideSelection}
+				openMemory={treeOpen}
+				showCode={() => {}}
+				sortCompare={(a, b) => a.path.localeCompare(b.path)}
+				leaf={treeLeaf}
+				ownerLead={hideSelection ? undefined : prefixCheckbox}
+				ownerDetail={folderDetail}
+			/>
+		</div>
+	{:else if items.length > 0}
 		<!-- Items list -->
 		<div class="overflow-y-auto">
 			<div class="border rounded-md bg-surface-tertiary">
@@ -248,73 +375,15 @@
 						</div>
 					{/if}
 					{#each group.items as item (item.key)}
-						{@const isSelectable = selectablePredicate(item)}
-						{@const isSelected = selectedItems.includes(item.key)}
-						{@const status = deploymentStatus[item.key]}
-						{@const isDeployed = status?.status === 'deployed'}
-						{@const blockedReason =
-							!isSelectable && !isDeployed ? selectBlockedReason?.(item) : undefined}
-						<!-- A resource is titled by its path, except an agent, titled by its summary. -->
-						{@const showPath =
-							isAgent?.(item) ||
-							(item.kind !== 'resource' &&
-								item.kind !== 'variable' &&
-								item.kind !== 'resource_type')}
 						<!-- The group header already names the folder — the path line only
 						     carries what's below it. -->
-						{@const subPath =
-							group.key && item.path.startsWith(group.key + '/')
+						{@render itemRow(
+							item,
+							0,
+							showGroupHeaders && group.key && item.path.startsWith(group.key + '/')
 								? item.path.slice(group.key.length + 1)
-								: item.path}
-
-						<Row
-							isSelectable={!hideSelection && isSelectable && !isDeployed}
-							selectDisabledReason={blockedReason}
-							selectOnRowClick={!hideSelection}
-							alignWithSelectable={!hideSelection}
-							disabled={!hideSelection && (blockedReason ? false : !isSelectable)}
-							selected={isSelected && !isDeployed}
-							onSelect={() => handleSelect(item)}
-							path={showPath ? item.path : ''}
-							marked={undefined}
-							kind={isAgent?.(item) ? 'agent' : item.kind}
-							triggerKind={item.triggerKind}
-							canFavorite={false}
-							workspaceId=""
-						>
-							{#snippet customSummary()}
-								{#if itemSummary}
-									{@render itemSummary(item)}
-								{:else}
-									{item.path}
-								{/if}
-							{/snippet}
-							{#snippet pathDisplay()}
-								{#if itemPath}
-									{@render itemPath(item)}
-								{:else}
-									{showPath ? (showGroupHeaders ? subPath : item.path) : ''}
-								{/if}
-							{/snippet}
-							{#snippet actions()}
-								{#if itemActions}
-									{@render itemActions(item)}
-								{/if}
-								<!-- Deployment status always shown -->
-								{#if status}
-									{#if status.status === 'loading'}
-										<Loader2 class="animate-spin" />
-									{:else if status.status === 'deployed'}
-										<Badge color="green">Deployed</Badge>
-									{:else if status.status === 'failed'}
-										<div class="inline-flex gap-1">
-											<Badge color="red">Failed</Badge>
-											<Tooltip>{status.error}</Tooltip>
-										</div>
-									{/if}
-								{/if}
-							{/snippet}
-						</Row>
+								: item.path
+						)}
 					{/each}
 				{/each}
 			</div>

@@ -11,7 +11,9 @@ import {
 	homeStarterSession,
 	isForkSession,
 	isTearingDownOpenSession,
+	markSessionStateChanged,
 	opensOnHome,
+	sessionLastStateChangeAt,
 	renameSession,
 	setDraftsDiscardedHandler,
 	sessionInCurrentFamily,
@@ -347,6 +349,32 @@ describe('session summary generation guards', () => {
 	})
 })
 
+describe('sessionLastStateChangeAt', () => {
+	it('moves on a turn, not on a rename', () => {
+		const now = Date.now()
+		const older = { id: 'sort-older-draft', name: 'd', createdAt: now - 60_000 } as Session
+		const newer = {
+			id: 'sort-newer',
+			name: 'n',
+			createdAt: now - 30_000,
+			lastStateChangeAt: now - 1
+		} as Session
+		sessionState.sessions.push(older, newer)
+		const entry = (id: string) => sessionState.sessions.find((x) => x.id === id)!
+		try {
+			markSessionStateChanged(older.id)
+			const stamped = sessionLastStateChangeAt(entry(older.id))
+			expect(stamped).toBeGreaterThan(sessionLastStateChangeAt(entry(newer.id)))
+			renameSession(older.id, 'Renamed')
+			expect(sessionLastStateChangeAt(entry(older.id))).toBe(stamped)
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== older.id && s.id !== newer.id
+			)
+		}
+	})
+})
+
 describe('decideSessionLifecycle — the never-orphaned rule (pure)', () => {
 	const mk = (over: Partial<Session> = {}): Session => ({
 		id: 'x',
@@ -506,6 +534,14 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 				{ id: 'session', url: '/apps_raw/edit/u/me/app', loc: '/apps_raw/edit/u/me/app' }
 			]
 			setSessionTabs('held-on-app', tabs, 'session')
+			expect(held.transient).toBe(true)
+			vi.useFakeTimers()
+			try {
+				setSessionDraftPrompt('held-on-app', 'make it blue')
+				vi.advanceTimersByTime(1000)
+			} finally {
+				vi.useRealTimers()
+			}
 			expect(held.transient).toBe(true)
 			createdId = createSession().id
 			expect(createdId).not.toBe('held-on-app')

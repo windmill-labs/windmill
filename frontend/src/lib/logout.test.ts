@@ -31,6 +31,14 @@ describe('clearUser', () => {
 		expect(localStorage.getItem('dark-mode')).toBe('true')
 	})
 
+	it("drops the Home snapshot app.html would paint", async () => {
+		localStorage.setItem('wm-home-snapshot', '{}')
+
+		await clearUser()
+
+		expect(localStorage.getItem('wm-home-snapshot')).toBeNull()
+	})
+
 	// Logging out while impersonating must not leave the impersonator's own token behind.
 	it('drops the impersonation token backup', async () => {
 		sessionStorage.setItem('pre_impersonation_token', 'a-token')

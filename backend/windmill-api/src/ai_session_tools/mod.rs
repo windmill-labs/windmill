@@ -1,0 +1,840 @@
+//! The AI session's GLOBAL toolset, run on the server for both of its callers: the
+//! in-app chat (`POST /w/{workspace}/ai_session_tools/{name}`) and the Windmill MCP
+//! server (`/api/mcp`, tokens with `mcp:all`).
+//!
+//! Everything a model reads here — tool names, descriptions, input schemas, the
+//! instructions, the `get_instructions` texts — is generated from the session's own
+//! definitions into `gen/` (`npm run gen:mcp-session` in `frontend/`). What a tool
+//! *does* is written here once; the chat keeps only what needs a browser (cards,
+//! confirmations, the run form, the open editor).
+//!
+//! A tool acts through the API as the caller, so every permission check is the API's
+//! own. It calls the server's router in-process rather than over a socket.
+
+use std::collections::HashMap;
+use std::sync::LazyLock;
+
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+use windmill_common::auth::create_jwt_token;
+
+use crate::db::ApiAuthed;
+
+pub(crate) mod chat;
+
+/// What a caller may do with the toolset. An MCP token sets it from its scopes; the chat
+/// is always `Full`, its own gating running before a tool is called.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(feature = "mcp"), allow(dead_code))]
+pub(crate) enum SessionAccess {
+    ReadOnly,
+    ReadAndRun,
+    Full,
+}
+
+/// Which caller a tool runs for, at the few spots where the two genuinely differ.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Surface {
+    Mcp,
+    Chat,
+}
+
+/// The largest tool result the MCP runner passes on whole; it truncates beyond it.
+pub(crate) const MAX_TOOL_RESULT_BYTES: usize = 87_500;
+
+/// Each running server's fully layered router, by its `base_internal_url`. Keyed rather
+/// than global because the backend tests run one server per test in a single process,
+/// each on its own database: a tool must reach the server it was called on.
+static IN_PROCESS_ROUTERS: LazyLock<std::sync::RwLock<HashMap<String, axum::Router>>> =
+    LazyLock::new(Default::default);
+
+/// Let session tools of the server at `base_internal_url` call its API in-process.
+/// Without a registration they fall back to HTTP.
+pub(crate) fn register_router(base_internal_url: &str, router: Option<axum::Router>) {
+    let mut routers = IN_PROCESS_ROUTERS.write().unwrap();
+    match router {
+        Some(router) => routers.insert(base_internal_url.to_string(), router),
+        None => routers.remove(base_internal_url),
+    };
+}
+
+mod ai_providers;
+mod apps;
+mod data;
+mod deploy;
+mod flows;
+mod guidance;
+#[cfg(feature = "mcp")]
+mod instructions;
+mod items;
+mod misc;
+mod runs;
+mod settings;
+mod views;
+mod workspace;
+
+#[cfg(feature = "mcp")]
+pub(crate) use instructions::{
+    generic_session_instructions, prompt_profile, session_instructions, workspace_context,
+};
+
+#[derive(Deserialize)]
+struct ToolDef {
+    name: String,
+    #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
+    description: String,
+    parameters: Map<String, Value>,
+    read_only: bool,
+}
+
+static TOOL_DEFS: LazyLock<Vec<ToolDef>> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("gen/tools.json")).expect("gen/tools.json is valid")
+});
+
+/// A tool's input schema, as generated from the session's zod schema.
+pub(super) fn tool_parameters(name: &str) -> Option<&'static Map<String, Value>> {
+    TOOL_DEFS
+        .iter()
+        .find(|def| def.name == name)
+        .map(|def| &def.parameters)
+}
+
+/// The JSON Schema text of each trigger kind's config, and of a schedule's `advanced` bag,
+/// as the session renders them from its request schemas.
+#[derive(Deserialize)]
+pub(super) struct Schemas {
+    pub trigger: HashMap<String, String>,
+    pub schedule: String,
+}
+
+pub(super) static SCHEMAS: LazyLock<Schemas> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("gen/schemas.json")).expect("gen/schemas.json is valid")
+});
+
+/// Session tools that need the Windmill UI and have no meaning for an external client.
+/// Every generated tool is either here or implemented by a group below.
+#[cfg(test)]
+const EDITOR_ONLY: &[&str] = &[
+    // The side panel, the question card and the browser-held user instructions.
+    "open_page",
+    "askUserQuestion",
+    "update_user_instructions",
+    // Files attached to the chat.
+    "search_files",
+    "read_file",
+];
+
+/// Tools that can lose work or cannot be taken back: they reach the deployed workspace or a
+/// live datatable, run code, cancel a job, delete work, or replace a draft's content, which
+/// discarding the draft does not restore. Stands in for the session's confirmation card. The
+/// ChatGPT and Claude directories reject such a tool without this hint.
+#[cfg(any(test, feature = "mcp"))]
+const DESTRUCTIVE: &[&str] = &[
+    "write_script",
+    "edit_script",
+    "write_flow",
+    "patch_flow_json",
+    "set_flow_module_code",
+    "write_schedule",
+    "write_trigger",
+    "write_resource",
+    "write_variable",
+    "write_app_file",
+    "patch_app_file",
+    "write_app_runnable",
+    "deploy_workspace_item",
+    "delete_workspace_item",
+    "create_resource_type",
+    "set_workspace_settings",
+    "run_script",
+    "run_flow",
+    "run_agent",
+    "test_run_script",
+    "test_run_flow",
+    "test_run_agent",
+    "test_run_step",
+    "test_run_app_runnable",
+    "cancel_job",
+    "exec_datatable_sql",
+    "create_datatable_migration",
+    "run_datatable_migrations",
+    "rollback_datatable_migration",
+    "discard_local_draft",
+    "rebase_draft",
+    "delete_app_file",
+    "delete_app_runnable",
+];
+
+/// Tools that reach a system outside Windmill on the workspace's behalf: running code can
+/// reach any system the workspace can, and `get_db_schema` connects to a resource's
+/// database, and `search_npm_packages` queries the npm registry, which Windmill does not
+/// control. Reading Windmill's own hub and docs does not count.
+#[cfg(any(test, feature = "mcp"))]
+const OPEN_WORLD: &[&str] = &[
+    "search_npm_packages",
+    "run_script",
+    "run_flow",
+    "run_agent",
+    "test_run_script",
+    "test_run_flow",
+    "test_run_agent",
+    "test_run_step",
+    "test_run_app_runnable",
+    "get_db_schema",
+];
+
+/// Tools the session counts as reads that still start a job. A read-only token runs
+/// nothing on the tools server, so it runs nothing here either.
+const RUNS_A_JOB: &[&str] = &["get_db_schema"];
+
+/// Tools that run a deployed script, flow or agent, the one write a read-and-run token keeps.
+const RUNS_DEPLOYED: &[&str] = &["run_script", "run_flow", "run_agent"];
+
+fn allowed(def: &ToolDef, access: SessionAccess) -> bool {
+    let read = def.read_only && !RUNS_A_JOB.contains(&def.name.as_str());
+    match access {
+        SessionAccess::Full => true,
+        SessionAccess::ReadAndRun => read || RUNS_DEPLOYED.contains(&def.name.as_str()),
+        SessionAccess::ReadOnly => read,
+    }
+}
+
+/// Each group's tools and its dispatcher, tried in order.
+macro_rules! groups {
+    ($($group:ident),*) => {
+        #[cfg(any(test, feature = "mcp"))]
+        fn implemented() -> impl Iterator<Item = &'static str> {
+            std::iter::empty()$(.chain($group::TOOLS.iter().copied()))*
+        }
+
+        async fn dispatch(ctx: &Ctx<'_>, name: &str, args: &Value) -> Option<ToolResult> {
+            $(if $group::TOOLS.contains(&name) {
+                return Some($group::call(ctx, name, args).await);
+            })*
+            None
+        }
+    };
+}
+groups!(guidance, workspace, items, misc, flows, apps, runs, deploy, data, settings);
+
+/// A tool as a client lists it.
+#[cfg(feature = "mcp")]
+pub(crate) struct ToolInfo {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub parameters: &'static Map<String, Value>,
+    pub read_only: bool,
+    pub destructive: bool,
+    pub open_world: bool,
+}
+
+/// The tools implemented here that `access` may call.
+#[cfg(feature = "mcp")]
+pub(crate) fn session_tools(access: SessionAccess) -> impl Iterator<Item = ToolInfo> {
+    TOOL_DEFS
+        .iter()
+        .filter(|def| implemented().any(|name| name == def.name))
+        .filter(move |def| allowed(def, access))
+        .map(|def| {
+            let name = def.name.as_str();
+            ToolInfo {
+                name,
+                description: &def.description,
+                parameters: &def.parameters,
+                read_only: def.read_only && !RUNS_A_JOB.contains(&name),
+                destructive: DESTRUCTIVE.contains(&name),
+                open_world: OPEN_WORLD.contains(&name),
+            }
+        })
+}
+
+/// What a tool hands back: the text the model reads, or the message of a failed call.
+pub(super) type ToolResult = Result<String, String>;
+
+/// The caller, and the API reached as them.
+pub(crate) struct Ctx<'a> {
+    pub auth: &'a ApiAuthed,
+    pub w_id: &'a str,
+    pub base_internal_url: &'a str,
+    pub access: SessionAccess,
+    /// The scheme and host the MCP client reached, when known.
+    pub origin: Option<&'a str>,
+    pub surface: Surface,
+    /// What the chat sends beside a call; `None` for MCP.
+    pub chat: Option<&'a chat::ChatContext>,
+    /// What the call changed that the chat has to apply: its editors, cards and drafts.
+    pub effects: std::sync::Mutex<Vec<chat::Effect>>,
+    /// Minted once per tool call: every JWT the API sees is cached by the auth layer, and a
+    /// tool can make dozens of calls, which would evict other users' cached sessions.
+    pub jwt: tokio::sync::OnceCell<String>,
+    /// What the card draws of this call, as `(key, value)`: returned in the result's
+    /// `_meta`, which the model never reads.
+    pub view: std::sync::Mutex<Option<(&'static str, Value)>>,
+}
+
+impl<'a> Ctx<'a> {
+    pub(crate) fn new(
+        auth: &'a ApiAuthed,
+        w_id: &'a str,
+        base_internal_url: &'a str,
+        access: SessionAccess,
+    ) -> Self {
+        Ctx {
+            auth,
+            w_id,
+            base_internal_url,
+            access,
+            origin: None,
+            surface: Surface::Mcp,
+            chat: None,
+            effects: Default::default(),
+            jwt: Default::default(),
+            view: Default::default(),
+        }
+    }
+
+    /// Hand the chat something to apply. A no-op for MCP, which has no editor.
+    pub(super) fn effect(&self, effect: chat::Effect) {
+        if self.surface == Surface::Chat {
+            self.effects.lock().unwrap().push(effect);
+        }
+    }
+}
+
+/// The total timeout of the HTTP client the in-process router replaces.
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+impl Ctx<'_> {
+    /// Set what the card draws of this call, replacing what an inner step set.
+    pub fn set_view(&self, key: &'static str, value: Value) {
+        *self.view.lock().unwrap() = Some((key, value));
+    }
+
+    /// Call the API as the caller. `path` follows `/api`; a non-2xx answer is the error.
+    pub async fn request(&self, method: &str, path: &str, body: Option<Value>) -> ToolResult {
+        self.request_within(method, path, body, REQUEST_TIMEOUT)
+            .await
+    }
+
+    /// `request` for a route that waits on jobs of its own, like the datatable migration
+    /// routes: each job is bounded server-side, so the default budget would cut a long one
+    /// off midway.
+    pub async fn request_within(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<Value>,
+        timeout: std::time::Duration,
+    ) -> ToolResult {
+        let url = guarded_url(self.base_internal_url, self.w_id, method, path, self.access)?;
+        // No route scope: this server only admits `mcp:all`, several routes (hub, embeddings)
+        // map to none, and `guarded_url` is what keeps a call on its route. The tag fence
+        // is not a route scope and stays: it limits which jobs the caller runs and reads.
+        let tag_scopes: Vec<String> = self
+            .auth
+            .scopes
+            .iter()
+            .flatten()
+            .filter(|s| s.starts_with("if_jobs:filter_tags:"))
+            .cloned()
+            .collect();
+        let scopes = (!tag_scopes.is_empty()).then_some(tag_scopes);
+        let router = IN_PROCESS_ROUTERS
+            .read()
+            .unwrap()
+            .get(self.base_internal_url)
+            .cloned();
+        let (status, text) = match router {
+            Some(router) => {
+                self.call_router(router, method, &url, body, scopes, timeout)
+                    .await?
+            }
+            None => self.call_http(method, &url, body, scopes, timeout).await?,
+        };
+        if status.is_success() {
+            Ok(text)
+        } else if text.trim().is_empty() {
+            // What a browser's request reports for an answer with no body.
+            let reason = status.canonical_reason().unwrap_or_default();
+            Err(format!("{}: {reason}", status.as_u16()))
+        } else {
+            Err(format!("{}: {}", status.as_u16(), text))
+        }
+    }
+
+    /// `request` through the server's own router: the same layers and handlers as over
+    /// HTTP, without a socket.
+    async fn call_router(
+        &self,
+        router: axum::Router,
+        method: &str,
+        url: &str,
+        body: Option<Value>,
+        scopes: Option<Vec<String>>,
+        timeout: std::time::Duration,
+    ) -> Result<(http::StatusCode, String), String> {
+        use tower::ServiceExt;
+        let parsed = reqwest::Url::parse(url).map_err(|e| e.to_string())?;
+        // The router does not see the base URL's own path prefix.
+        let at = reqwest::Url::parse(self.base_internal_url)
+            .map_or(0, |base| base.path().trim_end_matches('/').len());
+        let uri = match parsed.query() {
+            Some(q) => format!("{}?{q}", &parsed.path()[at..]),
+            None => parsed.path()[at..].to_string(),
+        };
+        let token = self
+            .jwt
+            .get_or_try_init(|| mint_caller_jwt(self.w_id, self.auth, scopes))
+            .await
+            .map_err(|e| e.to_string())?;
+        let mut request = http::Request::builder()
+            .method(method)
+            .uri(uri)
+            .header(http::header::AUTHORIZATION, format!("Bearer {token}"));
+        let body = match body {
+            Some(body) => {
+                request = request.header(http::header::CONTENT_TYPE, "application/json");
+                axum::body::Body::from(serde_json::to_vec(&body).map_err(|e| e.to_string())?)
+            }
+            None => axum::body::Body::empty(),
+        };
+        let request = request.body(body).map_err(|e| e.to_string())?;
+        tokio::time::timeout(timeout, async {
+            let response = router.oneshot(request).await.map_err(|e| e.to_string())?;
+            let status = response.status();
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok((status, String::from_utf8_lossy(&bytes).into_owned()))
+        })
+        .await
+        .map_err(|_| format!("Failed to execute request: {method} {url} timed out"))?
+    }
+
+    /// `request` over HTTP, for a server whose router is not registered.
+    async fn call_http(
+        &self,
+        method: &str,
+        url: &str,
+        body: Option<Value>,
+        scopes: Option<Vec<String>>,
+        timeout: std::time::Duration,
+    ) -> Result<(http::StatusCode, String), String> {
+        let method = http::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
+        let token = self
+            .jwt
+            .get_or_try_init(|| mint_caller_jwt(self.w_id, self.auth, scopes))
+            .await
+            .map_err(|e| e.to_string())?;
+        let mut request = crate::HTTP_CLIENT
+            .request(method, url)
+            .header("Authorization", format!("Bearer {token}"))
+            .timeout(timeout);
+        if let Some(body) = body {
+            request = request.json(&body);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|e| format!("Failed to execute request: {e}"))?;
+        let status = response.status();
+        Ok((status, response.text().await.map_err(|e| e.to_string())?))
+    }
+
+    pub async fn get(&self, path: &str) -> Result<Value, String> {
+        let text = self.request("GET", path, None).await?;
+        serde_json::from_str(&text).map_err(|e| format!("unexpected response from {path}: {e}"))
+    }
+
+    /// `POST` a JSON body. Several endpoints answer with plain text (a path, a job id):
+    /// that comes back as a JSON string.
+    pub async fn post(&self, path: &str, body: Value) -> Result<Value, String> {
+        let text = self.request("POST", path, Some(body)).await?;
+        Ok(serde_json::from_str(&text).unwrap_or(Value::String(text)))
+    }
+
+    pub async fn delete(&self, path: &str) -> Result<Value, String> {
+        let text = self.request("DELETE", path, None).await?;
+        Ok(serde_json::from_str(&text).unwrap_or(Value::String(text)))
+    }
+
+    /// A workspace-scoped path: `ws("scripts/list")` is `/w/<workspace>/scripts/list`.
+    pub fn ws(&self, rest: &str) -> String {
+        format!("/w/{}/{}", self.w_id, rest)
+    }
+
+    /// `page_url` for an MCP client only: the chat shows what a tool made or ran in its own
+    /// cards and panel instead.
+    pub fn link(&self, page: &str) -> Option<String> {
+        (self.surface == Surface::Mcp).then(|| self.page_url(page))
+    }
+
+    /// A Windmill page in this workspace, as a link the user can open: an external client
+    /// has no preview panel, so a link is how it shows what a tool made or ran.
+    pub fn page_url(&self, page: &str) -> String {
+        let (page, hash) = page
+            .split_once('#')
+            .map_or((page, None), |(p, h)| (p, Some(h)));
+        let sep = if page.contains('?') { '&' } else { '?' };
+        let hash = hash.map(|h| format!("#{h}")).unwrap_or_default();
+        // An instance that never set its base URL holds this placeholder, which no client
+        // can open; the host the client reached is the better guess then.
+        let base = windmill_common::BASE_URL.load();
+        let base = match self.origin {
+            Some(origin) if base.as_str() == "http://localhost" => origin,
+            _ => base.as_str(),
+        };
+        format!("{base}{page}{sep}workspace={}{hash}", enc(self.w_id))
+    }
+}
+
+/// Routes outside the workspace that a tool reads.
+const INSTANCE_ROUTES: &[&str] = &[
+    "/docs/",
+    "/embeddings/",
+    "/integrations/hub/",
+    "/scripts/hub/",
+    "/users/whoami",
+    "/workers/list",
+    "/workspaces/users",
+];
+
+/// The URL of an API call, refused unless it lands on the route its handler wrote.
+///
+/// The JWT behind a call carries the caller's full rights, and paths embed arguments a
+/// model chose: a `..` segment, or an id carrying `#`, would otherwise turn a read of
+/// one job into a run of any script. A read-only or read-and-run token is held to its rule
+/// here too, since that JWT carries neither.
+fn guarded_url(
+    base: &str,
+    w_id: &str,
+    method: &str,
+    path: &str,
+    access: SessionAccess,
+) -> Result<String, String> {
+    let refused = || format!("Refusing to call `{path}`: not a route of this tool");
+    let route = path.split('?').next().unwrap_or_default();
+    let in_workspace = route
+        .strip_prefix("/w/")
+        .and_then(|rest| rest.strip_prefix(w_id))
+        .is_some_and(|rest| rest.starts_with('/'));
+    let workspace_is_plain = w_id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if path.contains('#')
+        || !workspace_is_plain
+        || !(in_workspace || INSTANCE_ROUTES.iter().any(|r| route.starts_with(r)))
+    {
+        return Err(refused());
+    }
+    let url = format!("{base}/api{path}");
+    let parsed = reqwest::Url::parse(&url).map_err(|_| refused())?;
+    // Parsing resolves dot segments, encoded or not: a path that changed went elsewhere.
+    if !parsed.path().ends_with(&format!("/api{route}")) {
+        return Err(refused());
+    }
+    // Runs of deployed items by path only: the preview routes take code, so they are writes.
+    // A run also stores its secret arguments as expiring variables; the write tools that
+    // could create other variables are not offered to a read-and-run token.
+    let run_writes = method == "POST"
+        && ["jobs/run/p/", "jobs/run/f/", "jobs/run/agent/"]
+            .iter()
+            .any(|run| route.starts_with(&format!("/w/{w_id}/{run}")))
+        || method == "POST" && route == format!("/w/{w_id}/variables/create");
+    let held_to_reads = match access {
+        SessionAccess::Full => false,
+        SessionAccess::ReadAndRun => !run_writes,
+        SessionAccess::ReadOnly => true,
+    };
+    if held_to_reads {
+        windmill_api_auth::scopes::check_read_only_for_route(parsed.path(), method)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(url)
+}
+
+/// A string argument, or the error the model gets for leaving it out.
+pub(super) fn str_arg<'a>(args: &'a Value, name: &str) -> Result<&'a str, String> {
+    args.get(name)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("Missing required string argument `{name}`"))
+}
+
+pub(super) fn opt_str_arg<'a>(args: &'a Value, name: &str) -> Option<&'a str> {
+    args.get(name).and_then(Value::as_str)
+}
+
+/// `JSON.stringify(value, null, 2)`, the form the session's tools return objects in.
+pub(super) fn pretty(value: &Value) -> String {
+    serde_json::to_string_pretty(value).unwrap_or_default()
+}
+
+/// Percent-encode one query-string value.
+pub(super) fn enc(value: &str) -> String {
+    urlencoding::encode(value).into_owned()
+}
+
+pub(super) fn bool_arg(args: &Value, name: &str) -> bool {
+    args.get(name).and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// Whether a `Ctx` error is the API answering 404.
+pub(super) fn is_not_found(error: &str) -> bool {
+    error.starts_with("404: ")
+}
+
+/// JavaScript truthiness, for the fields the session keeps only `if (value)`.
+pub(super) fn truthy(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(Value::Number(n)) => n.as_f64().is_some_and(|n| n != 0.0),
+        Some(Value::String(s)) => !s.is_empty(),
+        Some(_) => true,
+    }
+}
+
+/// `value ?? undefined`: the value unless it is missing or null.
+pub(super) fn non_null(value: Option<&Value>) -> Option<&Value> {
+    value.filter(|v| !v.is_null())
+}
+
+/// Set `key` unless the value is JS `undefined`, which `JSON.stringify` drops.
+pub(super) fn put(map: &mut Map<String, Value>, key: &str, value: Option<Value>) {
+    if let Some(value) = value {
+        map.insert(key.to_string(), value);
+    }
+}
+
+/// The elements of an array; none for anything else.
+pub(super) fn array(value: Option<&Value>) -> &[Value] {
+    value
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+}
+
+/// A value as a JS template literal prints it.
+pub(super) fn js_str(value: &Value) -> String {
+    match value {
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
+/// `String.length`: UTF-16 code units.
+pub(super) fn js_len(text: &str) -> usize {
+    text.encode_utf16().count()
+}
+
+/// `text.slice(0, max)` in UTF-16 units, never splitting a character.
+pub(super) fn js_head(text: &str, max: usize) -> &str {
+    if text.len() <= max {
+        return text;
+    }
+    let mut units = 0;
+    for (i, c) in text.char_indices() {
+        units += c.len_utf16();
+        if units > max {
+            return &text[..i];
+        }
+    }
+    text
+}
+
+/// `text.slice(-max)` in UTF-16 units, never splitting a character.
+pub(super) fn js_tail(text: &str, max: usize) -> &str {
+    if text.len() <= max {
+        return text;
+    }
+    let mut units = 0;
+    for (i, c) in text.char_indices().rev() {
+        units += c.len_utf16();
+        if units > max {
+            return &text[i + c.len_utf8()..];
+        }
+    }
+    text
+}
+
+/// `*` any characters but `/`, `**` any characters, `?` one character but `/`. A pattern
+/// without `/` is matched against the file name alone, so `*.tsx` finds nested files.
+pub(super) fn matches_glob(subject: &str, glob: &str) -> bool {
+    let subject = if glob.contains('/') {
+        subject
+    } else {
+        subject.rsplit('/').next().unwrap_or(subject)
+    };
+    let mut pattern = String::from("^");
+    let mut chars = glob.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '*' if chars.peek() == Some(&'*') => {
+                chars.next();
+                pattern.push_str(".*");
+            }
+            '*' => pattern.push_str("[^/]*"),
+            '?' => pattern.push_str("[^/]"),
+            c => pattern.push_str(&regex::escape(c.encode_utf8(&mut [0; 4]))),
+        }
+    }
+    pattern.push('$');
+    regex::Regex::new(&pattern).is_ok_and(|re| re.is_match(subject))
+}
+
+/// A JWT that acts as `api_authed`, carrying `scopes`; `None` is the caller's full rights.
+pub(crate) async fn mint_caller_jwt(
+    workspace_id: &str,
+    api_authed: &ApiAuthed,
+    scopes: Option<Vec<String>>,
+) -> windmill_common::error::Result<String> {
+    // Carry the caller's job provenance into the JWT: a job's WM_TOKEN is capped at
+    // workspace admin (GHSA-hfh4-cx4h-3fcr), and dropping `job_id` here would re-mint an
+    // uncapped token that satisfies require_super_admin / require_devops_role.
+    // A browser caller stays a session: runs, trigger history and schedules attribute a
+    // session's actions to the UI, and anything else to the API (`webhook`).
+    create_jwt_token(
+        windmill_common::db::Authed::from(api_authed.clone()),
+        workspace_id,
+        3600,
+        api_authed.job_id,
+        api_authed.is_session_token.then(|| "session".to_string()),
+        None,
+        scopes,
+    )
+    .await
+}
+
+/// Why a call was refused before the tool ran.
+pub(crate) enum CallRefused {
+    UnknownTool(String),
+    NotAllowed(String),
+    NotAvailable(String),
+}
+
+/// What the model reads, and whether the call failed.
+#[derive(Serialize)]
+pub(crate) struct ToolOutcome {
+    pub text: String,
+    pub is_error: bool,
+}
+
+/// The card tools only MCP Apps clients draw; the chat draws its own cards.
+#[cfg(feature = "mcp")]
+pub(crate) use views::{allowed as view_allowed, definitions as view_definitions};
+
+pub(crate) async fn call_session_tool(
+    ctx: &Ctx<'_>,
+    name: &str,
+    args: Value,
+) -> Result<ToolOutcome, CallRefused> {
+    if ctx.surface == Surface::Mcp && views::TOOLS.contains(&name) {
+        return Ok(outcome(views::call(ctx, name, &args).await));
+    }
+    let result = call_generated_tool(ctx, name, &args).await?;
+    Ok(outcome(result))
+}
+
+/// A generated session tool, refused when the caller's access does not cover it.
+async fn call_generated_tool(
+    ctx: &Ctx<'_>,
+    name: &str,
+    args: &Value,
+) -> Result<ToolResult, CallRefused> {
+    let Some(def) = TOOL_DEFS.iter().find(|def| def.name == name) else {
+        return Err(CallRefused::UnknownTool(format!("Unknown tool '{name}'")));
+    };
+    if !allowed(def, ctx.access) {
+        let token = match ctx.access {
+            SessionAccess::ReadAndRun => "can only read and run deployed scripts and flows",
+            _ => "is read-only",
+        };
+        return Err(CallRefused::NotAllowed(format!(
+            "Tool '{name}' changes or runs something, and this session {token}"
+        )));
+    }
+    dispatch(ctx, name, args).await.ok_or_else(|| {
+        CallRefused::NotAvailable(format!("Tool '{name}' is not available on this server"))
+    })
+}
+
+fn outcome(result: ToolResult) -> ToolOutcome {
+    match result {
+        Ok(text) => ToolOutcome { text, is_error: false },
+        // Without the status code `Ctx` prefixes an API failure with, as the session reads it.
+        Err(message) => {
+            let body = workspace::api_message(&message);
+            let text = if body.is_empty() { &message } else { body };
+            ToolOutcome { text: text.to_string(), is_error: true }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_call_stays_on_the_route_its_handler_wrote() {
+        use SessionAccess::*;
+        let url = |method, path, access| guarded_url("http://h", "ws", method, path, access);
+        assert!(url("GET", "/w/ws/jobs_u/get/0191?no_logs=true", Full).is_ok());
+        assert!(url("GET", "/docs/search?query=a%2Fb", ReadOnly).is_ok());
+        for path in [
+            "/w/ws/jobs_u/get/../../jobs/run_wait_result/p/u/a/b",
+            "/w/ws/jobs_u/get/%2e%2e/%2E%2E/variables/get_value/u/a/b",
+            "/w/ws/jobs_u/get/x#",
+            "/w/other/scripts/list",
+            "/w/ws",
+            "/settings/global/x",
+            "/docs/../users/tokens/list",
+        ] {
+            assert!(url("GET", path, Full).is_err(), "{path} should be refused");
+        }
+        assert!(guarded_url("http://h", "a/../b", "GET", "/w/a/../b/scripts/list", Full).is_err());
+        // A read-only token neither writes nor runs, whatever the tool.
+        assert!(url("POST", "/w/ws/drafts/update", ReadOnly).is_err());
+        assert!(url("GET", "/w/ws/jobs/run_wait_result/p/u/a/b", ReadOnly).is_err());
+        assert!(url("POST", "/w/ws/jobs/run/p/u/a/b", ReadOnly).is_err());
+        // A read-and-run token runs deployed items by path, and writes nothing else: a
+        // preview takes code.
+        assert!(url("POST", "/w/ws/jobs/run/p/u/a/b", ReadAndRun).is_ok());
+        assert!(url("POST", "/w/ws/jobs/run/f/u/a/b", ReadAndRun).is_ok());
+        assert!(url("POST", "/w/ws/jobs/run/agent/u/a/b", ReadAndRun).is_ok());
+        assert!(url("POST", "/w/ws/jobs/run/preview", ReadAndRun).is_err());
+        assert!(url("POST", "/w/ws/drafts/update", ReadAndRun).is_err());
+        assert!(url("POST", "/w/ws/variables/create", ReadAndRun).is_ok());
+        assert!(url("POST", "/w/ws/variables/update/u/a/b", ReadAndRun).is_err());
+        assert!(url("POST", "/w/ws/variables/create", ReadOnly).is_err());
+    }
+
+    #[test]
+    fn every_session_tool_is_implemented_or_editor_only() {
+        let implemented: Vec<&str> = implemented().collect();
+        for def in TOOL_DEFS.iter() {
+            let name = def.name.as_str();
+            assert!(
+                implemented.contains(&name) != EDITOR_ONLY.contains(&name),
+                "session tool `{name}` must be implemented here or listed in EDITOR_ONLY, not both"
+            );
+        }
+        for name in implemented
+            .iter()
+            .chain(EDITOR_ONLY)
+            .chain(DESTRUCTIVE)
+            .chain(OPEN_WORLD)
+            .chain(RUNS_A_JOB)
+        {
+            assert!(
+                TOOL_DEFS.iter().any(|def| def.name == *name),
+                "`{name}` is not a session tool any more"
+            );
+        }
+        for name in views::TOOLS {
+            assert!(
+                !TOOL_DEFS.iter().any(|def| def.name == *name),
+                "`{name}` is generated too"
+            );
+        }
+    }
+}

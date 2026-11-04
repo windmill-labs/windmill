@@ -6782,6 +6782,8 @@ Svelte (\`index.ts\`): \`mount(App, { target: document.getElementById('root')! }
 
 **Set the browser tab title with \`document.title = '...'\`** (or a \`<title>\` the framework renders into \`<head>\`). The app has no \`index.html\` of its own, so a \`<title>\` written there is never served; the deployed app's page shows whatever \`document.title\` holds, and follows it when it changes.
 
+**Read the page's context from \`window.ctx\`**: \`ctx\` is the viewer (absent for anonymous visitors), \`workspace\` and \`path\` the app's (\`path\` is not set under \`wmill app dev\`), and \`query\` the page URL's query parameters as strings (\`…/apps/get/u/me/app?customer=42\` gives \`window.ctx.query.customer === '42'\`, and no query gives \`{}\`). Read it there, not from \`window.location\`, which in a sandboxed app is not the page's address. It is read once when the app loads.
+
 **Always begin every React file (\`.tsx\`/\`.jsx\`) that uses JSX with \`import React from 'react'\`.** esbuild uses the classic JSX transform, so \`React\` must be in scope wherever JSX appears — a missing import compiles fine but throws \`React is not defined\` at runtime, leaving a blank screen.
 
 ### Generated bindings (\`wmill.d.ts\` / \`wmill.ts\`)
@@ -8340,7 +8342,11 @@ The key must be a **string literal** — the graph parser is static and cannot f
 >
 > The one target ANY language may declare (except a dbt script, whose writes come from its manifest) is a **warehouse relation**: \`// materialize manual dbt://<warehouse>/<schema>/<name>\`, where \`<warehouse>\` is a warehouse the workspace configures under Settings → dbt. \`manual\` is the only mode it has — nothing generates warehouse DDL, so the node issues its own write (a postgresql \`CREATE TABLE\` / \`INSERT\`, an SDK load, …) and the annotation records the outcome. Use it on an ingestion node whose output a dbt project reads as a \`source\`: the declared relation and the dbt model land on ONE graph node, and a downstream \`// on dbt://<warehouse>/<schema>/<name>\` fires when the ingestion node completes.
 
-A managed \`// materialize ducklake://<name>/<table>\` tells the runtime to write the node's output table **for you**: write the body as a single \`SELECT\` and the runtime wraps it in the create/replace — do **not** also write your own \`CREATE TABLE\` / \`INSERT\`. (The opposite holds for the \`dbt://\` target above: there the node writes its own DDL and the strategies below do not apply.) Write strategy:
+A managed \`// materialize ducklake://<name>/<table>\` tells the runtime to write the node's output table **for you**: write the body as a single \`SELECT\` and the runtime wraps it in the create/replace — do **not** also write your own \`CREATE TABLE\` / \`INSERT\`. (The opposite holds for the \`dbt://\` target above: there the node writes its own DDL and the strategies below do not apply.)
+
+A target that names no table — \`// materialize\`, \`// materialize ducklake://<name>\`, or options alone such as \`// materialize key=id\` — writes the table named after the script: node \`f/shop/orders_daily\` materializes \`ducklake://main/orders_daily\` (characters other than letters, digits and \`_\` become \`_\`, and a name starting with a digit gets a leading \`_\`). Name the node after the table it produces and the bare form is enough; write the full target when the table's name differs from the node's, and use that same name in every downstream \`// on\` and read.
+
+Write strategy:
 
 - no option → **replace** the whole table each run (full refresh; the only mode whose output columns may change);
 - \`// materialize <uri> append\` → INSERT-append rows (incremental);
@@ -8371,7 +8377,8 @@ On a node that materializes a DuckLake table, \`// measure <name> = <aggregate> 
 2. Write each node as its own script. Default to \`duckdb\` materializing into DuckLake (see "Default to DuckDB + DuckLake" above); pick \`postgresql\`, \`bun\`, or \`python3\` only when that section says the work calls for it.
 3. Start each body with \`// pipeline\`, then the \`// on\` input declarations, then the transform that writes the output.
 4. **Chain nodes by asset URI**: read an upstream node's output asset, then \`// on <that-same-uri>\` in the downstream node so the edge forms. Reuse exact asset paths from existing nodes rather than inventing parallel ones.
-5. Don't deploy nodes unless the user asks to. A pipeline only "runs" once its scripts are deployed and their triggers exist.
+5. Never guess the columns of a file or table you have not seen: read them first with a query that writes nothing, such as \`DESCRIBE SELECT * FROM read_csv('s3:///raw/orders/*.csv')\` or \`ATTACH 'ducklake://main' AS lake; DESCRIBE lake.orders\`, and use those exact column names. A test run of a node that materializes a table writes that table into the workspace's lake: test-run such a node only while its table does not exist yet, and ask before running one that would replace a table already there.
+6. Don't deploy nodes unless the user asks to. A pipeline only "runs" once its scripts are deployed and their triggers exist.
 
 Locally:
 
@@ -8397,9 +8404,12 @@ Node \`f/sales/orders_daily\` (runs when \`orders\` is produced, writes a rollup
 -- pipeline
 -- on ducklake://main/orders
 -- materialize ducklake://main/orders_daily
+ATTACH 'ducklake://main' AS lake;
 SELECT date_trunc('day', ts) AS day, count(*) AS n
-FROM ducklake.main.orders GROUP BY 1
+FROM lake.orders GROUP BY 1
 \`\`\`
+
+A node reads a DuckLake table only through a lake it attaches itself (\`ATTACH 'ducklake://<name>' AS lake;\`, then \`lake.<table>\`); the materialize target is attached by the runtime under a name of its own, so \`ducklake.main.<table>\` does not resolve.
 `,
   "datatables": `---
 name: datatables

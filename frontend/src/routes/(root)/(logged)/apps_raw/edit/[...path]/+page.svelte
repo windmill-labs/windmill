@@ -11,7 +11,6 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { HiddenRunnable } from '$lib/components/apps/types'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
-	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { get } from 'svelte/store'
@@ -43,7 +42,6 @@
 		react19Template,
 		STARTER_RUNNABLES
 	} from '$lib/components/raw_apps/templates'
-	import { aiChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 
 	type RawAppDraft = {
 		files: Record<string, string>
@@ -583,7 +581,7 @@
 		const workspace = $workspaceStore
 		// Inside a session's preview the sessions page refuses to render, so the editor keeps it.
 		if (window.self !== window.top) return false
-		if (!prefersSessionHandoff(!$roleCaps.code) || !workspace) return false
+		if (!workspace) return false
 		if (get(copilotWorkspace) !== workspace) await loadCopilot(workspace)
 		if (get(copilotWorkspace) !== workspace || !get(copilotInfo).enabled) return false
 		// The session loads the app by path, so it is saved before it opens. `new_draft` tells
@@ -632,17 +630,6 @@
 		policy = picked.policy
 		// Remount RawAppEditor so the iframe picks up the new files.
 		redraw++
-		// Sync to aiChatManager so its prompts respect the picked data config.
-		aiChatManager.datatableCreationPolicy = {
-			enabled: !!result.data.datatable,
-			datatable: result.data.datatable,
-			schema: result.data.schema,
-			roles: result.data.roles
-		}
-		if (mode === 'ai') {
-			aiChatManager.changeMode(AIMode.APP)
-			if (!aiChatManager.open) aiChatManager.toggleOpen()
-		}
 	}
 </script>
 

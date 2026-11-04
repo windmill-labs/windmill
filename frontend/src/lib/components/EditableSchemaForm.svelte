@@ -3,10 +3,11 @@
 
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
-	import { VariableService, type ScriptLang } from '$lib/gen'
+	import { type ScriptLang } from '$lib/gen'
 	import { Button } from './common'
-	import ItemPicker from './ItemPicker.svelte'
-	import VariableEditor from './VariableEditor.svelte'
+	import type ItemPicker from './ItemPicker.svelte'
+	import type VariableEditor from './VariableEditor.svelte'
+	import VariablePicker from './VariablePicker.svelte'
 	import { Pen, Plus, X } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { twMerge } from 'tailwind-merge'
@@ -14,7 +15,6 @@
 	import PropertyEditor from './schema/PropertyEditor.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
-	import { watch } from 'runed'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
@@ -185,11 +185,6 @@
 	let pickForField: string | undefined
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
-
-	watch(
-		() => ws,
-		() => itemPicker?.reloadItems()
-	)
 
 	let keys: string[] = $state(
 		(Array.isArray(schema?.order)
@@ -923,40 +918,16 @@
 </div>
 
 {#if !noVariablePicker}
-	<ItemPicker
-		bind:this={itemPicker}
-		pickCallback={(path, _) => {
-			if (pickForField) {
-				if (args) {
-					args[pickForField] = '$var:' + path
-				}
+	<VariablePicker
+		bind:itemPicker
+		bind:variableEditor
+		workspace={ws}
+		onPick={(path) => {
+			if (pickForField && args) {
+				args[pickForField] = '$var:' + path
 			}
 		}}
-		itemName="Variable"
-		tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
-		documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
-		extraField="path"
-		loadItems={async () =>
-			(await VariableService.listVariable({ workspace: ws ?? '' })).map((x) => ({
-				name: x.path,
-				...x
-			}))}
-	>
-		{#snippet submission()}
-			<div>
-				<Button
-					variant="default"
-					size="sm"
-					startIcon={{ icon: Plus }}
-					on:click={() => variableEditor?.initNew?.()}
-				>
-					New variable
-				</Button>
-			</div>
-		{/snippet}
-	</ItemPicker>
-
-	<VariableEditor bind:this={variableEditor} workspace={ws} />
+	/>
 {/if}
 
 <style>

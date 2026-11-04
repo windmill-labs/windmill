@@ -98,6 +98,7 @@ export type SessionHead = Pick<
 	| 'activePreviewTabId'
 	| 'previewCollapsed'
 	| 'previewSize'
+	| 'lastStateChangeAt'
 >
 
 export function sessionHead(s: Session): SessionHead {
@@ -113,6 +114,7 @@ export function sessionHead(s: Session): SessionHead {
 	if (s.activePreviewTabId !== undefined) head.activePreviewTabId = s.activePreviewTabId
 	if (s.previewCollapsed !== undefined) head.previewCollapsed = s.previewCollapsed
 	if (s.previewSize !== undefined) head.previewSize = s.previewSize
+	if (s.lastStateChangeAt !== undefined) head.lastStateChangeAt = s.lastStateChangeAt
 	return head
 }
 

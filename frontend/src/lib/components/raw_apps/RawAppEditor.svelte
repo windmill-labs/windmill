@@ -32,6 +32,7 @@
 		RAW_APP_SANDBOX_FLAGS,
 		RAW_APP_PREVIEW_RELAY,
 		rawAppStorageKey,
+		rawAppCtx,
 		readRawAppStorage,
 		applyRawAppStorageOp
 	} from './utils'
@@ -43,7 +44,7 @@
 	import type { Modules } from './RawAppModules.svelte'
 	import { isRunnableByName, isRunnableByPath, type PathRunType } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import { onMount, onDestroy, untrack } from 'svelte'
+	import { getContext, onMount, onDestroy, untrack } from 'svelte'
 	import type {
 		AppDatatableMetadata,
 		LintResult,
@@ -83,7 +84,6 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
-	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import {
 		buildDataTableWhitelist,
@@ -1922,9 +1922,17 @@ addEventListener('message', function (e) {
 		})
 	}
 
+	// In a session pane the page's query is the session's (`?session=…`), not the app's.
+	const inSessionPane = !!getContext('aiChatManager')
+
 	// The deployed app's `window.ctx`: the viewer's membership in the app's workspace.
 	function previewCtx() {
-		return $state.snapshot({ ctx: operatingUser.current, workspace: opWorkspace, path })
+		return rawAppCtx(
+			$state.snapshot(operatingUser.current),
+			opWorkspace,
+			path,
+			inSessionPane ? '' : window.location.search
+		)
 	}
 
 	// A build fed before the viewer is known keeps that viewer until the next one. A failed
@@ -2174,14 +2182,11 @@ addEventListener('message', function (e) {
 	let inlinePromptDismissed = $state(false)
 	let inlinePromptPos = $state<{ x: number; y: number } | undefined>(undefined)
 	let inlinePromptLabel = $state('')
-	// Outside a session, with sessions on, there is no docked chat to take the pick:
-	// the prompt opens a new session instead, carrying the element as its chip.
+	// Outside a session there is no chat to take the pick: the prompt opens a new session
+	// instead, carrying the element as its chip.
 	const inlinePrompt: ((selector: string, prompt: string) => void | Promise<boolean>) | undefined =
 		$derived(
-			onInlinePrompt ??
-				(!onInspectorSelect && sessionOpen && prefersSessionHandoff(!$roleCaps.code)
-					? sendPickToNewSession
-					: undefined)
+			onInlinePrompt ?? (!onInspectorSelect && sessionOpen ? sendPickToNewSession : undefined)
 		)
 	const inlinePromptSelector = $derived(
 		inlinePrompt && previewSelectors.length > 0

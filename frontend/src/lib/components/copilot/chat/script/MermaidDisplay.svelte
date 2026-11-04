@@ -7,7 +7,7 @@
 	import { ClipboardCopy, Download, Maximize2, Minus, Plus, RotateCcw } from 'lucide-svelte'
 	import type { PanZoom } from 'panzoom'
 
-	let { code }: { code: string } = $props()
+	let { code, forceLight = false }: { code: string; forceLight?: boolean } = $props()
 
 	const isDarkMode = useIsDarkMode()
 
@@ -19,6 +19,9 @@
 	// Monotonic token so an earlier-started render that resolves late can't
 	// overwrite the result of a newer one (out-of-order async on rapid code/theme changes).
 	let renderSeq = 0
+	// False while a render is in flight, true once it drew or failed. Exposed as
+	// data-mermaid-pending so a print can wait for diagrams without counting fences.
+	let settled = $state(false)
 
 	let expanded = $state(false)
 
@@ -27,8 +30,10 @@
 		if (!source?.trim()) {
 			svg = undefined
 			renderedCode = undefined
+			settled = true
 			return
 		}
+		settled = false
 		try {
 			const mermaid = (await import('mermaid')).default
 			mermaid.initialize({
@@ -65,11 +70,13 @@
 			// Parse failure (often a partial block still streaming in): fall back to the
 			// raw source. `showSvg` already hides any previous diagram since `renderedCode`
 			// no longer matches the current `code`.
+		} finally {
+			if (seq === renderSeq) settled = true
 		}
 	}
 
 	$effect(() => {
-		void render(code, isDarkMode.val)
+		void render(code, !forceLight && isDarkMode.val)
 	})
 
 	// Only show the diagram while it corresponds to the current source.
@@ -130,8 +137,8 @@
 </script>
 
 {#if showSvg}
-	<div class="relative">
-		<div class="absolute top-2 right-2 z-20 flex flex-row gap-1">
+	<div class="relative" data-mermaid-pending={!settled}>
+		<div class="absolute top-2 right-2 z-20 flex flex-row gap-1 print:hidden">
 			<Button
 				onclick={() => copyToClipboard(code)}
 				color="light"
@@ -213,5 +220,5 @@
 	</Modal>
 {:else}
 	<!-- Fallback while loading or when rendering fails: show the raw source -->
-	<pre class="overflow-auto max-h-screen text-xs p-2">{code}</pre>
+	<pre class="overflow-auto max-h-screen text-xs p-2" data-mermaid-pending={!settled}>{code}</pre>
 {/if}

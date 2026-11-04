@@ -1,3 +1,10 @@
+<script lang="ts" module>
+	import { lazyModule } from '$lib/lazyModule.svelte'
+
+	// Its AI review reaches the AI clients, which a list of rows must not load to render.
+	const diffDrawerModule = lazyModule(() => import('./DiffDrawer.svelte'))
+</script>
+
 <script lang="ts">
 	/**
 	 * Home-page draft badge with per-user initial circles. Hover popover lists
@@ -10,7 +17,8 @@
 	import Tooltip from './meltComponents/Tooltip.svelte'
 	import { Badge } from './common'
 	import Button from './common/button/Button.svelte'
-	import DiffDrawer from './DiffDrawer.svelte'
+	import type DiffDrawer from './DiffDrawer.svelte'
+	import { tick } from 'svelte'
 	import MigrateLegacyDraftModal from './common/confirmationModal/MigrateLegacyDraftModal.svelte'
 	import { GitCompareArrows, Pencil, Wrench } from 'lucide-svelte'
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
@@ -169,8 +177,10 @@
 		try {
 			const [draftValue, deployed] = await Promise.all([
 				fetchDraft(owner),
-				fetchDeployedValueForDiff(workspace, itemKind, path)
+				fetchDeployedValueForDiff(workspace, itemKind, path),
+				diffDrawerModule.load()
 			])
+			await tick()
 			// Close the popover so it doesn't render over the drawer.
 			popoverOpen = false
 			diffDrawer?.openDrawer()
@@ -376,8 +386,9 @@
 <!-- Only reachable from the popover's "View Diff", which requires `actionsEnabled`.
      Mounting it unconditionally would put a hidden drawer (portal + effects) on
      every row of unpaginated lists like resources and variables. -->
-{#if actionsEnabled}
-	<DiffDrawer bind:this={diffDrawer} isFlow={itemKind === 'flow'} />
+{#if actionsEnabled && diffDrawerModule.current}
+	{@const LoadedDiffDrawer = diffDrawerModule.current.default}
+	<LoadedDiffDrawer bind:this={diffDrawer} isFlow={itemKind === 'flow'} />
 {/if}
 
 {#if workspace && itemKind && path}

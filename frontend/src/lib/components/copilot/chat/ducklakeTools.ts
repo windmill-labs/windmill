@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { DataMetricService, WorkspaceService } from '$lib/gen'
 import { createToolDef } from './shared'
 import { NONE, type SessionTool } from './sessionCapabilities'
+import { runOnServer } from './global/backendSessionTools'
 
 /**
  * Workspace-scoped DuckLake tools, the pipeline counterpart to `list_datatables`
@@ -16,11 +16,6 @@ import { NONE, type SessionTool } from './sessionCapabilities'
  * workspace membership, so they need no app context and belong in the global tool
  * set.
  */
-
-/** List the names of the DuckLake catalogs configured in the workspace. */
-export async function listDucklakes(workspace: string): Promise<string[]> {
-	return await WorkspaceService.listDucklakes({ workspace })
-}
 
 const NO_DUCKLAKES_CONFIGURED_MESSAGE =
 	'No DuckLake catalogs are configured in this workspace. A data pipeline that materializes DuckLake tables or reads/writes S3 assets cannot run until object storage and a DuckLake catalog are set up. ' +
@@ -59,16 +54,6 @@ const listDataMetricsToolDef = createToolDef(
 	'List the measures and dimensions declared on DuckLake tables (from `// measure` / `// dimension` annotations in deployed scripts). Call this before writing any aggregate query over a DuckLake table: a declared measure is the canonical definition of that number, and reproducing it yourself silently disagrees with it (a `revenue` measure typically excludes refunds or test rows). Use each returned `expr` verbatim, and when a measure has a `filter` write it as `expr FILTER (WHERE filter)` so measures with different predicates share one GROUP BY. Only declarations whose producing script you can read are returned, so what comes back is never proof of what exists: if the number you need is not here you may still write your own aggregate, but say that you found no declared measure for it rather than implying none exists.'
 )
 
-// The endpoint drops declarations whose producing script the caller cannot read
-// (token scope + RLS on `script`), so an empty result means "none declared" or
-// "none readable by you" and the tool cannot tell which.
-const NO_DATA_METRICS_NOTE =
-	'Nothing matched. That does not establish that nothing is declared: declarations whose producing script you cannot read are omitted from this list, not flagged. You may write your own aggregate, but tell the user you found no declared measure you can read rather than stating none is declared.'
-
-// Well under the endpoint's 1000 cap: a full page is pretty-printed into the
-// chat context, and 1000 declarations would cost tens of thousands of tokens.
-const DEFAULT_DATA_METRICS_LIMIT = 200
-
 /** The workspace DuckLake tools, for registration in global mode. */
 export function getDucklakeTools(): SessionTool<{}>[] {
 	return [
@@ -78,59 +63,35 @@ export function getDucklakeTools(): SessionTool<{}>[] {
 			planModeSafe: true,
 			showDetails: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-				const parsed = listDataMetricsSchema.parse(args)
+				listDataMetricsSchema.parse(args)
 				toolCallbacks.setToolStatus(toolId, { content: 'Listing declared measures...' })
-				const limit = parsed.limit ?? DEFAULT_DATA_METRICS_LIMIT
-				const { metrics, next_cursor } = await DataMetricService.listDataMetrics({
-					workspace,
-					table: parsed.table,
-					pathPrefix: parsed.path_prefix,
-					perPage: limit
-				})
-				// `canonical_table_path` expands a value only once it contains a `/`, so a bare
-				// table name matches nothing — a retryable filter, not a permissions outcome.
-				const bareTable = parsed.table?.replace('ducklake://', '')
-				const emptyNote =
-					bareTable && !bareTable.includes('/')
-						? `Nothing matched \`${parsed.table}\`: a table filter must name its lake, as \`<lake>/${bareTable}\`. Re-call with the lake before concluding anything about what is declared.`
-						: NO_DATA_METRICS_NOTE
-				const note = next_cursor
-					? `More declarations exist beyond the first ${limit}. Re-call with table/path_prefix to target what you are looking for, or with a higher limit (max 1000) for the rest of the list, rather than concluding a measure is undeclared.`
-					: metrics.length === 0
-						? emptyNote
-						: undefined
-				const result = JSON.stringify({ metrics, ...(note ? { note } : {}) }, null, 2)
+				const { text } = await runOnServer('list_data_metrics', workspace, args)
 				toolCallbacks.setToolStatus(toolId, {
-					content: `Listed ${metrics.length} declared measure(s)/dimension(s)`,
-					result
+					content: `Listed ${JSON.parse(text).metrics.length} declared measure(s)/dimension(s)`,
+					result: text
 				})
-				return result
+				return text
 			}
 		},
 		{
 			requires: NONE,
 			def: listDucklakesToolDef,
 			planModeSafe: true,
-			fn: async ({ workspace, toolId, toolCallbacks }) => {
+			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				toolCallbacks.setToolStatus(toolId, { content: 'Listing DuckLake catalogs...' })
-				try {
-					const ducklakes = await listDucklakes(workspace)
-					if (ducklakes.length === 0) {
-						toolCallbacks.setToolStatus(toolId, {
-							content:
-								'No DuckLake configured — set up object storage + DuckLake in workspace settings'
-						})
-						return NO_DUCKLAKES_CONFIGURED_MESSAGE
-					}
+				const { text } = await runOnServer('list_ducklakes', workspace, args)
+				if (text === NO_DUCKLAKES_CONFIGURED_MESSAGE) {
 					toolCallbacks.setToolStatus(toolId, {
-						content: `Listed ${ducklakes.length} DuckLake catalog(s)`
+						content: 'No DuckLake configured — set up object storage + DuckLake in workspace settings'
 					})
-					return JSON.stringify({ ducklakes }, null, 2)
-				} catch (e) {
-					const errorMsg = `Error listing DuckLake catalogs: ${e instanceof Error ? e.message : String(e)}`
-					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
-					return errorMsg
+				} else if (text.startsWith('Error listing DuckLake catalogs: ')) {
+					toolCallbacks.setToolStatus(toolId, { content: text, error: text })
+				} else {
+					toolCallbacks.setToolStatus(toolId, {
+						content: `Listed ${JSON.parse(text).ducklakes.length} DuckLake catalog(s)`
+					})
 				}
+				return text
 			}
 		}
 	]
