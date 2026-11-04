@@ -116,11 +116,11 @@
 	// The chart grows into the runs list, which keeps at least this much height.
 	const RUNS_LIST_MIN_HEIGHT = 200
 	const DURATION_UNIT_ITEMS: { label: string; value: DurationUnit }[] = [
-		{ label: 'Auto units', value: 'auto' },
-		{ label: 'Milliseconds', value: 'ms' },
-		{ label: 'Seconds', value: 's' },
-		{ label: 'Minutes', value: 'min' },
-		{ label: 'Hours', value: 'h' }
+		{ label: 'Auto', value: 'auto' },
+		{ label: 'ms', value: 'ms' },
+		{ label: 's', value: 's' },
+		{ label: 'min', value: 'min' },
+		{ label: 'h', value: 'h' }
 	]
 	let durationUnitStorage = useLocalStorageValue<DurationUnit>(
 		'runs_chart_duration_unit',
@@ -1087,10 +1087,11 @@
 					</Button>
 				{/if}
 				{#if graph === 'RunChart'}
-					<div class="ml-auto flex items-center gap-2">
+					<div class="ml-auto flex items-center gap-1 self-center">
 						<Select
 							id="runs-chart-duration-unit"
-							class="w-36"
+							class="w-20"
+							size="sm"
 							items={DURATION_UNIT_ITEMS}
 							bind:value={
 								() => durationUnit,
@@ -1116,8 +1117,8 @@
 							}
 						>
 							{#snippet children({ item })}
-								<ToggleButton value="log" label="Log" {item} />
-								<ToggleButton value="linear" label="Linear" {item} />
+								<ToggleButton value="log" label="Log" size="sm" {item} />
+								<ToggleButton value="linear" label="Linear" size="sm" {item} />
 							{/snippet}
 						</ToggleButtonGroup>
 					</div>
