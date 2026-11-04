@@ -42,19 +42,25 @@
 
 	let editGroupName: string = $state('')
 
-	// Deep link: #<name> opens that group's drawer. Row links pre-set handledHash: their onclick
-	// already opens the drawer.
-	let handledHash = ''
+	// Deep link: #<name> opens that group's drawer. Row links pre-set handledName: their onclick
+	// already opens the drawer. Names are compared decoded since the browser percent-encodes the
+	// hash.
+	let handledName = ''
 	$effect(() => {
 		const hash = page.url.hash
 		if (hash.length <= 1) {
-			handledHash = ''
+			handledName = ''
 			return
 		}
-		if (hash === handledHash || !instanceGroups || !groupDrawer) return
-		const name = hash.slice(1)
+		let name: string
+		try {
+			name = decodeURIComponent(hash.slice(1))
+		} catch {
+			return
+		}
+		if (name === handledName || !instanceGroups || !groupDrawer) return
 		if (instanceGroups.some((g) => g.name === name)) {
-			handledHash = hash
+			handledName = name
 			editGroupName = name
 			groupDrawer.openDrawer()
 		}
@@ -117,7 +123,7 @@
 										href="#{name}"
 										onclick={(e) => {
 											if (isNewTabClick(e)) return
-											handledHash = `#${name}`
+											handledName = name
 											editGroupName = name
 											groupDrawer?.openDrawer()
 										}}
