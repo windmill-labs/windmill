@@ -13,6 +13,7 @@ use std::collections::{HashMap, HashSet};
 use serde_json::value::RawValue;
 use sqlx::types::Json;
 use windmill_common::jobs::get_payload_tag_from_prefixed_path;
+use windmill_common::runnable_ref::RunnableRef;
 use windmill_common::utils::{report_critical_error, report_recovered_critical_error};
 use windmill_common::DB;
 
@@ -116,19 +117,23 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
         }
         // Resolved before the claim's transaction opens, so a pass never holds one connection
         // while waiting on another.
-        let handler = match failed_hub_handlers.get(&row.handler_path) {
-            Some(error) => Err(error.clone()),
-            None => get_payload_tag_from_prefixed_path(&row.handler_path, db, &row.workspace_id)
-                .await
-                .map_err(|e| {
-                    let error = format!("{e:#}");
-                    if row.handler_path.starts_with("script/hub/")
-                        || row.handler_path.starts_with("flow/hub/")
-                    {
-                        failed_hub_handlers.insert(row.handler_path.clone(), error.clone());
-                    }
-                    error
-                }),
+        let handler = match (
+            failed_hub_handlers.get(&row.handler_path),
+            RunnableRef::from_prefixed(&row.handler_path),
+        ) {
+            (Some(error), _) => Err(error.clone()),
+            (None, Err(e)) => Err(format!("{e:#}")),
+            (None, Ok(handler)) => {
+                get_payload_tag_from_prefixed_path(&handler.prefixed(), db, &row.workspace_id)
+                    .await
+                    .map_err(|e| {
+                        let error = format!("{e:#}");
+                        if handler.path().starts_with("hub/") {
+                            failed_hub_handlers.insert(row.handler_path.clone(), error.clone());
+                        }
+                        error
+                    })
+            }
         };
         let handler = match handler {
             Ok(handler) => handler,
