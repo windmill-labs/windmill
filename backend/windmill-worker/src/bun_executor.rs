@@ -4634,7 +4634,7 @@ async fn handle_dedicated_bunnative(
     _w_id: &str,
     script_path: &str,
     db: &DB,
-    jobs_rx: Receiver<DedicatedWorkerJob>,
+    jobs_rx: &mut Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     job_completed_tx: JobCompletedSender,
     client: &windmill_common::client::AuthedClient,
@@ -4709,7 +4709,6 @@ async fn handle_dedicated_bunnative(
         let init_log = format!("dedicated worker nativets: {worker_name}\n\n");
         let alive = true;
         let mut killpill_rx = killpill_rx;
-        let mut jobs_rx = jobs_rx;
         loop {
             tokio::select! {
                 biased;
@@ -4897,7 +4896,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: Receiver<DedicatedWorkerJob>,
+    jobs_rx: &mut Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     client: windmill_common::client::AuthedClient,
     concurrency_semaphore: Option<std::sync::Arc<tokio::sync::Semaphore>>,
