@@ -1,4 +1,4 @@
-import type { FlowStatusModule, Job, WorkflowStatus } from '$lib/gen'
+import type { FlowModule, FlowStatusModule, Job, WorkflowStatus } from '$lib/gen'
 import type { StateStore } from '$lib/utils'
 import type { FlowState } from '../flows/flowState'
 
@@ -75,23 +75,19 @@ export type GraphModuleState = {
 
 /**
  * Mocked and skipped steps complete as a pass-through job, so their success otherwise reads as
- * a real run. `mocked` comes from the run's own flow definition.
+ * a real run. `step` is the module as the run defined it.
  */
 export function notExecutedBadge(
-	step: { mocked?: boolean; hasSkipIf?: boolean },
+	step: Pick<FlowModule, 'mock'> | undefined,
 	state: GraphModuleState | undefined
 ): { label: string; title: string } | undefined {
 	if (state?.type !== 'Success') return undefined
-	if (step.mocked)
+	if (step?.mock?.enabled)
 		return { label: 'Mocked', title: 'Returned the pinned value, nothing was executed' }
-	// `skipped` also marks a step that ran and then stopped the flow as skipped.
+	// `skipped` is also set on a step, or a container, that ran and then stopped the flow early,
+	// which the run state does not tell apart from a skip condition.
 	if (state.skipped)
-		return {
-			label: 'Skipped',
-			title: step.hasSkipIf
-				? 'Its skip condition was true, nothing was executed'
-				: 'It stopped the flow early, which marked it as skipped'
-		}
+		return { label: 'Skipped', title: 'Skipped by its skip condition or an early stop' }
 	return undefined
 }
 

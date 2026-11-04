@@ -151,20 +151,21 @@
 				{sideAnnotation}
 			</div>
 		{/if}
-		{#if statusBadge}
-			<div class="absolute z-10 left-0 -top-5" title={statusBadge.title}>
-				<Badge color="gray" verySmall>{statusBadge.label}</Badge>
-			</div>
-		{/if}
-		{#if annotation && annotation != ''}
+		{#if statusBadge || (annotation && annotation != '')}
 			<div
-				title={annotationTitle}
 				class={twMerge(
-					'absolute z-10 left-0 -top-5 center-center text-primary',
+					'absolute z-10 left-0 -top-5 flex items-center gap-1 text-primary',
 					editMode ? '-top-4 text-gray-400 dark:text-gray-500 text-xs font-normal' : ''
 				)}
 			>
-				{annotation}
+				{#if statusBadge}
+					<span title={statusBadge.title}
+						><Badge color="gray" verySmall>{statusBadge.label}</Badge></span
+					>
+				{/if}
+				{#if annotation && annotation != ''}
+					<span title={annotationTitle}>{annotation}</span>
+				{/if}
 			</div>
 		{/if}
 		{#if flowJobs && !insertable && (mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow')}

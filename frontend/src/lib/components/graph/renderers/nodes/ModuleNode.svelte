@@ -33,14 +33,7 @@
 			: state
 	})
 
-	let statusBadge = $derived(
-		data.editMode
-			? undefined
-			: notExecutedBadge(
-					{ mocked: data.module?.mock?.enabled, hasSkipIf: !!data.module?.skip_if },
-					state
-				)
-	)
+	let statusBadge = $derived(data.editMode ? undefined : notExecutedBadge(data.module, state))
 
 	// A `message` is the one action with no tool node of its own, so the annotation is the only
 	// place it can show.
