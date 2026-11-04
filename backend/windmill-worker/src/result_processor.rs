@@ -1260,6 +1260,7 @@ async fn maybe_record_git_sync_pushed_head(
             &branch,
             &base_sha,
             &sha,
+            *job_id,
         )
         .await
         {
