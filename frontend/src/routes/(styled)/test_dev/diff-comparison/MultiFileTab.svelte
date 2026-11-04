@@ -5,6 +5,7 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import PierreCodeView from '$lib/components/pierre/PierreCodeView.svelte'
+	import { switchMainThreadHighlighter } from '$lib/components/pierre/pierre'
 	import { countNodes, formatMs, observeLongTasks, sleep, waitForSelector } from './measure'
 	import { DEFAULT_SETTINGS, diffOptions, settingsPool } from './pierreSettings'
 	import PierreSettingsBar from './PierreSettingsBar.svelte'
@@ -54,6 +55,9 @@
 		stats[side] = undefined
 		shown = undefined
 		await tick()
+		if (side === 'pierre' && !settings.useWorkers) {
+			await switchMainThreadHighlighter(settings.highlighter)
+		}
 		await sleep(300)
 		const longTasks = observeLongTasks()
 		const start = performance.now()
@@ -105,12 +109,14 @@
 	<div bind:this={box} class="h-[640px] overflow-auto border">
 		{#if shown === 'pierre'}
 			{#key `${settings.useWorkers}:${settings.highlighter}`}
-				<PierreCodeView
-					class="h-full overflow-auto"
-					{items}
-					options={diffOptions(settings)}
-					workerPool={pool}
-				/>
+				{#await settings.useWorkers ? undefined : switchMainThreadHighlighter(settings.highlighter) then}
+					<PierreCodeView
+						class="h-full overflow-auto"
+						{items}
+						options={diffOptions(settings)}
+						workerPool={pool}
+					/>
+				{/await}
 			{/key}
 		{:else if shown === 'monaco'}
 			{#each files.slice(0, MONACO_MAX) as f (f.name)}

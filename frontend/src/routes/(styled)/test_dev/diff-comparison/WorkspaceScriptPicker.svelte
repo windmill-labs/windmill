@@ -14,44 +14,57 @@
 	let toHash: string | undefined = $state()
 	let error: string | undefined = $state()
 
+	const fail = (e: unknown) => (error = e instanceof Error ? e.message : String(e))
+
 	$effect(() => {
 		const workspace = $workspaceStore
 		if (!workspace) return
 		ScriptService.listScriptPaths({ workspace })
 			.then((p) => (paths = p))
-			.catch((e) => (error = e.message))
+			.catch(fail)
 	})
 
-	$effect(() => {
+	function selectPath(p: string | undefined) {
+		path = p
+		history = []
+		fromHash = undefined
+		toHash = undefined
 		const workspace = $workspaceStore
-		if (!workspace || !path) return
-		ScriptService.getScriptHistoryByPath({ workspace, path }).then((h) => {
-			history = h
-			toHash = h[0]?.script_hash
-			fromHash = h[1]?.script_hash ?? h[0]?.script_hash
-		})
-	})
-
-	$effect(() => {
-		const workspace = $workspaceStore
-		if (!workspace || !path || !fromHash || !toHash) return
-		const p = path
-		Promise.all([
-			ScriptService.getScriptByHash({ workspace, hash: fromHash }),
-			ScriptService.getScriptByHash({ workspace, hash: toHash })
-		]).then(([from, to]) => {
-			onLoaded({
-				id: `workspace:${p}:${from.hash}:${to.hash}`,
-				label: p,
-				filename: p.split('/').pop() ?? p,
-				diff: {
-					lang: scriptLangToEditorLang(to.language),
-					beforeLang: scriptLangToEditorLang(from.language),
-					before: from.content,
-					after: to.content
-				}
+		if (!workspace || !p) return
+		ScriptService.getScriptHistoryByPath({ workspace, path: p })
+			.then((h) => {
+				if (path !== p) return
+				history = h
+				toHash = h[0]?.script_hash
+				fromHash = h[1]?.script_hash ?? h[0]?.script_hash
 			})
-		})
+			.catch(fail)
+	}
+
+	$effect(() => {
+		const workspace = $workspaceStore
+		const [p, from, to] = [path, fromHash, toHash]
+		if (!workspace || !p || !from || !to) return
+		Promise.all([
+			ScriptService.getScriptByHash({ workspace, hash: from }),
+			ScriptService.getScriptByHash({ workspace, hash: to })
+		])
+			.then(([before, after]) => {
+				// A later selection may have resolved first.
+				if (path !== p || fromHash !== from || toHash !== to) return
+				onLoaded({
+					id: `workspace:${p}:${from}:${to}`,
+					label: p,
+					filename: p.split('/').pop() ?? p,
+					diff: {
+						lang: scriptLangToEditorLang(after.language),
+						beforeLang: scriptLangToEditorLang(before.language),
+						before: before.content,
+						after: after.content
+					}
+				})
+			})
+			.catch(fail)
 	})
 
 	const versionItems = $derived(
@@ -66,19 +79,20 @@
 	<span class="text-secondary">Workspace script</span>
 	{#if !$workspaceStore}
 		<span class="text-hint">Log in and pick a workspace to diff real script versions</span>
-	{:else if error}
-		<span class="text-red-600">{error}</span>
 	{:else}
 		<Select
 			size="sm"
 			placeholder="Script path"
 			items={paths.map((p) => ({ value: p, label: p }))}
-			bind:value={path}
+			bind:value={() => path, selectPath}
 		/>
 		{#if history.length > 0}
 			<Select size="sm" items={versionItems} bind:value={fromHash} />
 			<span class="text-hint">→</span>
 			<Select size="sm" items={versionItems} bind:value={toHash} />
+		{/if}
+		{#if error}
+			<span class="text-red-600">{error}</span>
 		{/if}
 	{/if}
 </div>

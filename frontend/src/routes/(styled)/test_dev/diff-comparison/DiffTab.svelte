@@ -14,6 +14,7 @@
 
 	let settings = $state({ ...DEFAULT_SETTINGS })
 	let virtualized = $state(false)
+	let benchmarking = $state(false)
 	let workspaceCase: ComparisonCase | undefined = $state()
 	let activeCaseId = $state(cases[0].id)
 	const activeCase = $derived(
@@ -83,14 +84,18 @@
 		<div class="h-[400px] overflow-auto border">
 			<!-- A component's worker pool is fixed at construction. -->
 			{#key `${settings.useWorkers}:${settings.highlighter}:${virtualized}`}
-				{#await settings.useWorkers ? undefined : switchMainThreadHighlighter(settings.highlighter) then}
-					{@render pierre()}
-				{/await}
+				{#if benchmarking}
+					<p class="p-4 text-xs text-hint">Hidden while the benchmark runs.</p>
+				{:else}
+					{#await settings.useWorkers ? undefined : switchMainThreadHighlighter(settings.highlighter) then}
+						{@render pierre()}
+					{/await}
+				{/if}
 			{/key}
 		</div>
 	</section>
 
-	<Benchmark diffCase={activeCase} {settings} />
+	<Benchmark diffCase={activeCase} {settings} onRunningChange={(r) => (benchmarking = r)} />
 </div>
 
 {#snippet pierre()}

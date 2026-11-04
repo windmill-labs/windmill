@@ -10,7 +10,16 @@
 	import { countNodes, formatMs, observeLongTasks, sleep, waitForSelector } from './measure'
 	import { diffOptions, settingsPool, type PierreSettings } from './pierreSettings'
 
-	let { diffCase, settings }: { diffCase: ComparisonCase; settings: PierreSettings } = $props()
+	let {
+		diffCase,
+		settings,
+		onRunningChange
+	}: {
+		diffCase: ComparisonCase
+		settings: PierreSettings
+		/** Other Pierre views must unmount while running: switching backends disposes theirs. */
+		onRunningChange?: (running: boolean) => void
+	} = $props()
 
 	type Renderer = {
 		id: string
@@ -81,6 +90,8 @@
 
 	async function runAll(rounds: number) {
 		running = true
+		onRunningChange?.(true)
+		await tick()
 		results = []
 		for (let run = 1; run <= rounds; run++) {
 			for (const r of renderers) {
@@ -107,7 +118,9 @@
 			}
 		}
 		current = undefined
+		await tick()
 		running = false
+		onRunningChange?.(false)
 	}
 </script>
 
@@ -115,10 +128,12 @@
 	<div class="flex items-center gap-2">
 		<h2 class="text-sm font-semibold">Benchmark</h2>
 		<span class="text-2xs text-hint">
-			Mounts each renderer alone on the current case. Run 1 includes loading code, grammars and
-			workers; run 2 is warm. Long tasks are main-thread blocks over 50 ms (Chromium only). "–"
-			under Highlighted means no colors within 10 s: the native view skips highlighting past 2,000
-			lines.
+			Mounts each renderer alone on the current case, twice. Run 1 pays for the first load of
+			whatever this page has not used yet (code, grammars, workers); run 2 has those cached. A
+			main-thread Pierre backend is rebuilt every time it is picked, since only one exists at a
+			time, so its rows include loading that backend's languages and theme. Long tasks are
+			main-thread blocks over 50 ms (Chromium only). "–" under Highlighted means no colors within 10
+			s: the native view skips highlighting past 2,000 lines.
 		</span>
 	</div>
 	<div class="flex gap-2">
@@ -145,7 +160,7 @@
 			<tbody>
 				{#each results as r (`${r.run}:${r.label}`)}
 					<tr class="border-t border-gray-200 dark:border-gray-700">
-						<td class="py-1">{r.run === 1 ? 'cold' : 'warm'}</td>
+						<td class="py-1">{r.run}</td>
 						<td>{r.label}</td>
 						<td class="text-right">{formatMs(r.painted)}</td>
 						<td class="text-right">{formatMs(r.highlighted)}</td>
