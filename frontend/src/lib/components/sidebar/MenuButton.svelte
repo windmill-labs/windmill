@@ -35,6 +35,8 @@
 		notificationsCount?: number
 		color?: string | null
 		trigger?: MenubarMenuElements['trigger'] | undefined
+		/** Makes the button an item of an enclosing melt menu, in place of a trigger. */
+		item?: MenubarMenuElements['item'] | undefined
 		href?: string | undefined
 		/** Applied to the button AND to the label, so text sizing reaches the label text. */
 		class?: string | undefined
@@ -74,6 +76,7 @@
 		notificationsCount = 0,
 		color = null,
 		trigger = undefined,
+		item = undefined,
 		href = undefined,
 		class: classNames = undefined,
 		buttonClass = undefined,
@@ -86,6 +89,7 @@
 	}: Props = $props()
 
 	let buttonRef: HTMLButtonElement | HTMLAnchorElement | undefined = $state(undefined)
+	const meltElement = $derived(trigger ?? item)
 
 	let dispatch = createEventDispatcher()
 
@@ -126,16 +130,15 @@
 				compact ? 'w-auto' : 'w-full',
 				sidebarClasses.hoverBg,
 				'transition-all relative',
-				// Compact rows sit in the page header and keep its height; the nav's are 30px, and
-				// square on the collapsed rail.
-				sublabel ? 'h-10' : compact || isCollapsed ? 'h-8' : 'h-[30px]',
+				// One height in the rail and the open sidebar, so a row keeps its place in every mode.
+				sublabel ? 'h-10' : 'h-[30px]',
 				classNames,
 				buttonClass
 			)}
-			use:conditionalMelt={trigger}
+			use:conditionalMelt={meltElement}
 			aria-label={ariaLabel ?? label}
 			title={isCollapsed || disableTitle ? undefined : label}
-			{...$trigger}
+			{...$meltElement}
 		>
 			{#if icon}
 				{@const SvelteComponent = icon}

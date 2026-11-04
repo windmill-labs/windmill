@@ -361,7 +361,7 @@
 		{#if tab === 'sso'}
 			<SettingsPageHeader
 				title="Single Sign-On"
-				description="Configure SSO providers to let users authenticate using their existing identity provider credentials. To test SSO, save the settings and try to login in an incognito window."
+				description="Configure SSO providers to let users authenticate using their existing identity provider credentials. To test SSO, save the settings and try logging in from an incognito window."
 				link="https://www.windmill.dev/docs/misc/setup_oauth#sso"
 			/>
 			{#if !$enterpriseLicense || $enterpriseLicense.endsWith('_pro')}
@@ -632,7 +632,7 @@
 										<Toggle
 											options={{
 												right:
-													'Allow workspace admins to setup Google native triggers using these credentials'
+													'Allow workspace admins to set up Google native triggers using these credentials'
 											}}
 											checked={oauths[k]?.share_with_workspaces ?? false}
 											on:change={(e) => {

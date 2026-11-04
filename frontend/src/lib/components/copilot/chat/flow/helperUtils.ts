@@ -8,6 +8,7 @@ import {
 	NoteColor
 } from '$lib/components/graph/noteColors'
 import type { InlineScriptSession } from './inlineScriptsUtils'
+import { deepEqual } from 'fast-equals'
 import { FLOW_VALUE_SETTINGS_KEYS, type FlowValueSettings } from './flowValueSettings'
 
 /** Allowed note/group color names — matches the NoteColor palette the note and
@@ -268,6 +269,19 @@ export function validateFlowNotes(rawNotes: unknown, moduleIds?: Set<string>): F
 
 		return normalized
 	})
+}
+
+/** Whether an AI update's `schema` would change the flow inputs. `patch_flow_json` resends the
+ * schema it was shown, so an unchanged one (in any key order, or absent as `null`) is no change. */
+export function isFlowSchemaChange(
+	current: Record<string, any> | null | undefined,
+	next: Record<string, any> | null | undefined
+): boolean {
+	if (next === undefined) return false
+	return !deepEqual(
+		JSON.parse(JSON.stringify(current ?? null)),
+		JSON.parse(JSON.stringify(next ?? null))
+	)
 }
 
 export function applyFlowJsonUpdate(

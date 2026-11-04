@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.859.0
+  version: 1.860.0
   title: Windmill API
 
   contact:
@@ -15123,6 +15123,27 @@ paths:
                     type: integer
                   share:
                     $ref: "#/components/schemas/SharedAiArtifactInfo"
+
+  /w/{workspace}/ai/shared_artifacts/list:
+    get:
+      summary: list the workspace's live shared AI session artifacts
+      description: >
+        Every share still inside its retention window, newest first, without its content.
+        Capped at 500.
+      operationId: listSharedAiArtifacts
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: the live shares
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SharedAiArtifactInfo"
 
   /w/{workspace}/ai/shared_artifacts/get/{id}:
     get:

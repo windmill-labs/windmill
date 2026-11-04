@@ -77,6 +77,7 @@ use windmill_common::{
     },
     jobs::{get_payload_tag_from_prefixed_path, JobKind, JobPayload, RawCode},
     min_version::{MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440},
+    runnable_ref::RunnableRef,
     schedule::Schedule,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
@@ -2779,13 +2780,7 @@ pub async fn send_error_to_global_handler<'a, T: Serialize + Send + Sync>(
     result: Json<&T>,
 ) -> Result<(), Error> {
     if let Some(ref global_error_handler) = *GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE {
-        let prefixed_global_error_handler_path = if global_error_handler.starts_with("script/")
-            || global_error_handler.starts_with("flow/")
-        {
-            global_error_handler.clone()
-        } else {
-            format!("script/{}", global_error_handler)
-        };
+        let global_error_handler = RunnableRef::from_setting(global_error_handler)?;
         push_error_handler(
             db,
             queued_job.id,
@@ -2793,7 +2788,7 @@ pub async fn send_error_to_global_handler<'a, T: Serialize + Send + Sync>(
             queued_job.runnable_path.clone(),
             queued_job.is_flow(),
             &queued_job.workspace_id,
-            &prefixed_global_error_handler_path,
+            &global_error_handler,
             result,
             None,
             queued_job.started_at,
@@ -2836,29 +2831,33 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
     let (error_handler, error_handler_extra_args) = row_result;
 
     if let Some(error_handler) = error_handler {
-        if let Err(err) = push_error_handler(
-            db,
-            queued_job.id,
-            queued_job.schedule_path(),
-            queued_job.runnable_path.clone(),
-            queued_job.is_flow(),
-            w_id,
-            &error_handler,
-            Json(&json!({
-                "error": {
-                    "message": error_message
-                }
-            })),
-            None,
-            queued_job.started_at,
-            error_handler_extra_args,
-            &queued_job.permissioned_as_email,
-            None,
-            false,
-            None,
-        )
-        .await
-        {
+        let pushed = async {
+            let error_handler = RunnableRef::from_prefixed(&error_handler)?;
+            push_error_handler(
+                db,
+                queued_job.id,
+                queued_job.schedule_path(),
+                queued_job.runnable_path.clone(),
+                queued_job.is_flow(),
+                w_id,
+                &error_handler,
+                Json(&json!({
+                    "error": {
+                        "message": error_message
+                    }
+                })),
+                None,
+                queued_job.started_at,
+                error_handler_extra_args,
+                &queued_job.permissioned_as_email,
+                None,
+                false,
+                None,
+            )
+            .await
+        }
+        .await;
+        if let Err(err) = pushed {
             tracing::error!(
                 "Could not push workspace error handler trying to handle critical error ({error_message}) of failed job ({}): {}",
                 queued_job.id,
@@ -3022,7 +3021,7 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
             queued_job.runnable_path.clone(),
             queued_job.is_flow(),
             &queued_job.workspace_id,
-            &error_handler,
+            &RunnableRef::from_prefixed(&error_handler)?,
             result,
             None,
             queued_job.started_at,
@@ -3130,7 +3129,7 @@ pub async fn send_success_to_workspace_handler<'a, 'c, T: Serialize + Send + Syn
             queued_job.runnable_path.clone(),
             queued_job.is_flow(),
             &queued_job.workspace_id,
-            &success_handler,
+            &RunnableRef::from_prefixed(&success_handler)?,
             result,
             queued_job.started_at,
             success_handler_extra_args,
@@ -3392,50 +3391,6 @@ pub async fn try_schedule_next_job<'c>(
 
 const ERROR_HANDLER_PATH_EMAIL: &str = "/workspace-or-error-handler-email";
 
-/// Every handler version the frontend has offered as a preset (`frontend/src/lib/hubPaths.json`
-/// and its history, which stored schedules still point at). Matched whole: a hub script is
-/// resolved by its numeric id alone, so the name after it proves nothing about its code.
-const PRESET_HANDLER_PATHS: [&str; 26] = [
-    "hub/6512/workspace-or-schedule-error-handler-slack",
-    "hub/5792/workspace-or-schedule-error-handler-slack",
-    "hub/9079/workspace-or-schedule-error-handler-slack",
-    "hub/9206/workspace-or-schedule-error-handler-slack",
-    "hub/19741/workspace-or-schedule-error-handler-slack",
-    "hub/28241/workspace-or-schedule-error-handler-slack",
-    "hub/28794/workspace-or-schedule-error-handler-slack",
-    "hub/30057/workspace-or-schedule-error-handler-slack",
-    "hub/2431/slack/schedule-error-handler-slack",
-    "hub/2430/slack/schedule-recovery-handler-slack",
-    "hub/9067/slack/schedule-recovery-handler-slack",
-    "hub/9080/slack/schedule-recovery-handler-slack",
-    "hub/28239/slack/schedule-recovery-handler-slack",
-    "hub/28791/slack/schedule-recovery-handler-slack",
-    "hub/30054/slack/schedule-recovery-handler-slack",
-    "hub/9069/slack/schedule-success-handler-slack",
-    "hub/9072/slack/schedule-success-handler-slack",
-    "hub/28220/slack/schedule-success-handler-slack",
-    "hub/28240/slack/schedule-success-handler-slack",
-    "hub/28793/slack/schedule-success-handler-slack",
-    "hub/30056/slack/schedule-success-handler-slack",
-    "hub/11598/workspace-or-schedule-error-handler-teams",
-    "hub/19742/workspace-or-schedule-error-handler-teams",
-    "hub/11593/schedule-recovery-handler-teams",
-    "hub/11596/schedule-success-handler-teams",
-    "hub/19795/workspace-or-error-handler-email",
-];
-
-/// The preset handler Windmill ships on the hub that `handler_path` names, `None` for user code.
-fn preset_handler(handler_path: &str) -> Option<&'static str> {
-    let path = handler_path.strip_prefix("script/").unwrap_or(handler_path);
-    PRESET_HANDLER_PATHS.into_iter().find(|p| *p == path)
-}
-
-/// Whether `handler_path` is a preset hub handler, which runs as the shared handler identity
-/// (Slack bot token, instance SMTP) instead of as the schedule or user that set it.
-pub fn is_preset_handler_path(handler_path: &str) -> bool {
-    preset_handler(handler_path).is_some()
-}
-
 /// `(email, permissioned_as)` a schedule handler runs as. The handler identity reads the
 /// workspace Slack bot token and may send through the instance SMTP, and a schedule's handlers
 /// are set by anyone who can write the schedule: only the preset hub handlers get it, custom
@@ -3443,20 +3398,21 @@ pub fn is_preset_handler_path(handler_path: &str) -> bool {
 pub async fn schedule_handler_identity(
     db: &Pool<Postgres>,
     w_id: &str,
-    handler_path: &str,
+    handler: &RunnableRef,
     schedule_permissioned_as: &str,
     preset_email: &str,
 ) -> error::Result<(String, String)> {
-    if is_preset_handler_path(handler_path) {
+    if handler.preset_handler().is_some() {
         return Ok((
             preset_email.to_string(),
             ERROR_HANDLER_USER_GROUP.to_string(),
         ));
     }
-    if handler_path.contains("hub/") && handler_path.contains("-handler-") {
+    if handler.path().starts_with("hub/") && handler.path().contains("-handler-") {
         tracing::warn!(
-            "schedule handler {handler_path} in {w_id} is named like a preset but is not a pinned \
-             preset version: it runs as the schedule ({schedule_permissioned_as})"
+            "schedule handler {} in {w_id} is named like a preset but is not a pinned preset \
+             version: it runs as the schedule ({schedule_permissioned_as})",
+            handler.prefixed()
         );
     }
     let email =
@@ -3468,7 +3424,7 @@ pub async fn schedule_handler_identity(
 async fn error_handler_identity(
     db: &Pool<Postgres>,
     w_id: &str,
-    error_handler_path: &str,
+    error_handler: &RunnableRef,
     is_global_error_handler: bool,
     schedule_permissioned_as: Option<&str>,
 ) -> error::Result<(String, String)> {
@@ -3482,13 +3438,14 @@ async fn error_handler_identity(
         return schedule_handler_identity(
             db,
             w_id,
-            error_handler_path,
+            error_handler,
             schedule_permissioned_as,
             SCHEDULE_ERROR_HANDLER_USER_EMAIL,
         )
         .await;
     }
-    let email = if preset_handler(error_handler_path)
+    let email = if error_handler
+        .preset_handler()
         .is_some_and(|p| p.ends_with(ERROR_HANDLER_PATH_EMAIL))
     {
         EMAIL_ERROR_HANDLER_USER_EMAIL
@@ -3505,7 +3462,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
     script_path: Option<String>,
     is_flow: bool,
     w_id: &str,
-    on_failure_path: &str,
+    on_failure: &RunnableRef,
     result: Json<&'a T>,
     failed_times: Option<i32>,
     started_at: Option<DateTime<Utc>>,
@@ -3522,7 +3479,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         w_id
     };
     let (payload, tag, on_behalf_of) =
-        get_payload_tag_from_prefixed_path(on_failure_path, db, handler_w_id).await?;
+        get_payload_tag_from_prefixed_path(&on_failure.prefixed(), db, handler_w_id).await?;
 
     let mut extra = HashMap::new();
     if let Some(schedule_path) = schedule_path {
@@ -3557,7 +3514,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         error_handler_identity(
             db,
             w_id,
-            on_failure_path,
+            on_failure,
             is_global_error_handler,
             schedule_permissioned_as,
         )
@@ -3709,7 +3666,7 @@ pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
     script_path: Option<String>,
     is_flow: bool,
     w_id: &str,
-    on_success_path: &str,
+    on_success: &RunnableRef,
     result: Json<&'a T>,
     started_at: Option<DateTime<Utc>>,
     extra_args: Option<Json<Box<RawValue>>>,
@@ -3717,7 +3674,7 @@ pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
     priority: Option<i16>,
 ) -> windmill_common::error::Result<Uuid> {
     let (payload, tag, on_behalf_of) =
-        get_payload_tag_from_prefixed_path(on_success_path, db, w_id).await?;
+        get_payload_tag_from_prefixed_path(&on_success.prefixed(), db, w_id).await?;
 
     let mut extra = HashMap::new();
     if let Some(schedule_path) = schedule_path {
@@ -9156,42 +9113,6 @@ mod worker_own_script_tests {
             !MiniPulledJob { runnable_path: None, ..own_script("x", INIT_SCRIPT_TAG) }
                 .is_worker_own_script()
         );
-    }
-}
-
-#[cfg(test)]
-mod preset_handler_path_tests {
-    use super::is_preset_handler_path;
-
-    #[test]
-    fn only_pinned_hub_scripts_are_presets() {
-        assert!(is_preset_handler_path(
-            "script/hub/28791/slack/schedule-recovery-handler-slack"
-        ));
-        // The hub resolves by id: any other id is arbitrary hub code whatever its name.
-        assert!(!is_preset_handler_path(
-            "hub/13968/workspace-or-schedule-error-handler-slack"
-        ));
-        assert!(!is_preset_handler_path(
-            "script/u/me/workspace-or-schedule-error-handler-slack"
-        ));
-    }
-
-    /// A preset version bumped in the frontend without being pinned here would silently run as
-    /// the schedule's owner and lose access to the Slack bot token.
-    #[test]
-    fn frontend_presets_are_pinned() {
-        let hub_paths: std::collections::HashMap<String, String> =
-            serde_json::from_str(include_str!("../../../frontend/src/lib/hubPaths.json")).unwrap();
-        for (name, path) in hub_paths {
-            // Variable expiration handlers run as their own group whatever their path.
-            if path.contains("-handler-") && !path.contains("variable-expiration") {
-                assert!(
-                    is_preset_handler_path(&path),
-                    "{name}: {path} is not pinned"
-                );
-            }
-        }
     }
 }
 

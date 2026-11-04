@@ -306,9 +306,9 @@
 			{/snippet}
 			<button
 				type="button"
-				class="w-full rounded p-1.5 hover:bg-surface-hover flex {isCollapsed
-					? 'justify-center'
-					: 'flex-col gap-1'}"
+				class="w-full h-9 rounded hover:bg-surface-hover flex {isCollapsed
+					? 'items-center px-2'
+					: 'flex-col justify-center gap-1 p-1.5'}"
 				onclick={() => {
 					open = true
 					const key: UsageMeterKey = $isPremiumStore ? 'paid:workspace' : `free:${tightest.key}`

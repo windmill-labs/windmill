@@ -13,14 +13,20 @@ highlighted, a workspace page inside Pages with that page highlighted.
 	import { page } from '$app/state'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import PreviewRouterPicker, { type Scope } from './sessions/PreviewRouterPicker.svelte'
-	import { pageKey, parsePreviewItemRoute, type PreviewTarget } from './sessions/previewRouter'
+	import {
+		artifactKey,
+		pageKey,
+		parsePreviewItemRoute,
+		type PreviewTarget
+	} from './sessions/previewRouter'
 	import { editPathFor, leafKeyFor, viewPathFor, type WorkspaceItem } from './workspacePicker'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
-	import type { PageHeaderItem } from './pageHeaderRegistry.svelte'
+	import type { PageHeaderItem, PageHeaderSection } from './pageHeaderRegistry.svelte'
 
 	let {
 		item,
 		pagePath,
+		artifacts,
 		actingWorkspaceId,
 		iconSize = 14
 	}: {
@@ -28,6 +34,8 @@ highlighted, a workspace page inside Pages with that page highlighted.
 		item?: PageHeaderItem
 		/** The route of a workspace page, to highlight it among the pages. */
 		pagePath?: string
+		/** Artifacts to list, and the one the page shows, to land on it among them. */
+		artifacts?: PageHeaderSection['navArtifacts']
 		/** Load from, and navigate within, this workspace rather than the one the app points at. */
 		actingWorkspaceId?: string
 		iconSize?: number
@@ -53,7 +61,9 @@ highlighted, a workspace page inside Pages with that page highlighted.
 		return parts.length >= 3 ? { kind: 'all', dir: parts.slice(0, -1).join('/') } : undefined
 	})
 	const initialHighlight = $derived(
-		currentItem
+		artifacts?.currentId
+			? artifactKey(artifacts.currentId)
+			: currentItem
 			? leafKeyFor(currentItem.kind, currentItem.path)
 			: pagePath
 				? pageKey(pagePath)
@@ -70,6 +80,7 @@ highlighted, a workspace page inside Pages with that page highlighted.
 
 	function hrefFor(target: PreviewTarget): string | undefined {
 		if (target.type === 'page') return target.href
+		if (target.type === 'artifact') return artifacts?.href(target.id)
 		if (target.type === 'item')
 			return target.mode === 'view' ? viewPathFor(target.item) : editPathFor(target.item)
 		return undefined
@@ -115,6 +126,7 @@ highlighted, a workspace page inside Pages with that page highlighted.
 			{initialScope}
 			{initialHighlight}
 			{currentItem}
+			artifacts={artifacts?.items}
 			workspaceId={actingWorkspaceId}
 			onPick={pick}
 		/>

@@ -1028,8 +1028,7 @@ async fn refuse_upcoming_schedule_tick(db: &DB, w_id: &str, id: Uuid) -> error::
         return Ok(());
     };
     let sched = ScheduleType::from_str(&tick.schedule, tick.cron_version.as_deref(), false)?;
-    let tz =
-        chrono_tz::Tz::from_str(&tick.timezone).map_err(|e| Error::BadRequest(e.to_string()))?;
+    let tz = windmill_common::tz::Tz::from_str(&tick.timezone).map_err(Error::BadRequest)?;
     let just_before = (tick.scheduled_for - chrono::Duration::milliseconds(1)).with_timezone(&tz);
     if sched.find_next(&just_before)? == tick.scheduled_for {
         return Err(Error::BadRequest(format!(

@@ -29,9 +29,12 @@ async function newAppSessionHref(url: URL): Promise<string | undefined> {
 	if ((url.searchParams.get('workspace') ?? workspace) !== workspace) return undefined
 	if (get(copilotWorkspace) !== workspace) await loadCopilot(workspace)
 	if (get(copilotWorkspace) !== workspace || !get(copilotInfo).enabled) return undefined
-	return editorSessionHref({ kind: 'raw_app', path: mintDraftPath() }, workspace, {
-		new_draft: 'true'
-	})
+	return editorSessionHref(
+		{ kind: 'raw_app', path: mintDraftPath() },
+		workspace,
+		{ new_draft: 'true' },
+		{ untilStarted: true }
+	)
 }
 
 export const load: PageLoad = async (event) => {
