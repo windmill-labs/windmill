@@ -24,9 +24,12 @@ jobs:
         with:
           toolchain: stable
       - name: update lockfile
+        # --workspace rewrites only the workspace crates' versions: generate-lockfile
+        # re-resolves every dependency, which ships unreviewed upgrades with each
+        # release and invalidates the CI rust-cache (a full rebuild that times out).
         run: |
           cd backend
-          cargo generate-lockfile
+          cargo update --workspace
       - uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_user_name: windmill-internal-app[bot]

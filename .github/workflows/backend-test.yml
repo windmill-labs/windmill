@@ -244,7 +244,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-duckdb-ffi-
       - name: cargo test
-        timeout-minutes: 30
+        # Builds take 7-10 min on a warm cache but twice that on slower runner hosts,
+        # and the suite adds ~15 min on top.
+        timeout-minutes: 45
         env:
           # setup-rust-toolchain exports RUSTFLAGS=-D warnings, and the RUSTFLAGS env
           # var fully REPLACES (never merges with) target.*.rustflags in
