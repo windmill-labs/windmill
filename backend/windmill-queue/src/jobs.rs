@@ -3558,7 +3558,9 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
 }
 
 /// `None` for a failure no job stands for: a parent id naming no job would hide the handler
-/// from the default runs list.
+/// from the default runs list. Pushes through the root pool without checking the caller: the
+/// handler, workspace and `schedule_permissioned_as` must come from config the caller's owner
+/// was already authorized to write (a trigger's or a workspace's own error handler setting).
 pub async fn push_error_handler_with_parent<'a, 'c, T: Serialize + Send + Sync>(
     db: &Pool<Postgres>,
     parent_job: Option<Uuid>,
