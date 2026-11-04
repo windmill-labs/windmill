@@ -51,21 +51,29 @@
 		await tick()
 
 		if (runnableComponent) {
-			await runnableComponent?.runComponent(undefined, undefined, undefined, values, {
-				onDone: (_x) => {
-					dispatch('insert')
-					sendUserToast('Row inserted', false)
-				},
-				onCancel: () => {
-					sendUserToast('Error inserting row', true)
-				},
-				onError: (e) => {
-					sendUserToast(`Error inserting row: ${e?.message ?? e}`, true)
-				}
+			const component = runnableComponent
+			await new Promise<void>((resolve, reject) => {
+				component
+					.runComponent(undefined, undefined, undefined, values, {
+						onDone: (_x) => {
+							dispatch('insert')
+							sendUserToast('Row inserted', false)
+							resolve()
+						},
+						onCancel: () => reject(new Error('Insert was canceled')),
+						onError: (e) => reject(new Error(insertErrorMessage(e)))
+					})
+					.catch(reject)
 			})
 		}
 
 		return false
+	}
+
+	function insertErrorMessage(e: any): string {
+		const error = e?.error ?? e
+		if (typeof error === 'string') return error
+		return error?.message ?? JSON.stringify(error)
 	}
 </script>
 
