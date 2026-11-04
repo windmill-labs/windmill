@@ -54,44 +54,28 @@
 		await tick()
 
 		if (runnableComponent) {
-			const component = runnableComponent
-			await new Promise<void>((resolve, reject) => {
-				let settled = false
-				let confirming = false
-				const succeed = () => {
-					if (settled) return
-					settled = true
-					dispatch('insert')
-					sendUserToast('Row inserted', false)
-					resolve()
-				}
-				const fail = (message: string) => {
-					if (settled) return
-					settled = true
-					reject(new Error(message))
-				}
-				component
-					.runComponent(undefined, undefined, undefined, values, {
-						// The runnable loads only the result, so a failed job lands here as `{ error }`.
-						onDone: (result) => (result?.error ? fail(insertErrorMessage(result)) : succeed()),
-						onCancel: () => fail('Insert was canceled'),
-						onError: (e, jobId) => {
-							if (!jobId) return fail(insertErrorMessage(e))
-							if (confirming) return
-							confirming = true
-							// A failed status read says nothing about the job, which may still commit:
-							// failing here would invite a retry that inserts the row twice.
-							pollJobResult(jobId, workspace, writingJobOptions).then(succeed, (err) =>
-								fail(
-									err instanceof ApiError
-										? `Could not confirm the insert: ${insertErrorMessage(err)}. Refresh the table to check whether the row was added before retrying.`
-										: insertErrorMessage(err)
-								)
-							)
-						}
-					})
-					.catch((e) => fail(insertErrorMessage(e)))
+			let submitError: unknown
+			const jobId = await runnableComponent.runComponent(undefined, undefined, undefined, values, {
+				onError: (e) => (submitError ??= e)
 			})
+			if (!jobId) {
+				throw new Error(submitError ? insertErrorMessage(submitError) : 'The insert did not start')
+			}
+			// The job's own outcome, not the runnable's loader: the loader also reports failed
+			// status reads and gives up watching while the job may still commit, and failing on
+			// either would invite a retry that inserts the row twice.
+			try {
+				await pollJobResult(jobId, workspace, writingJobOptions)
+			} catch (err) {
+				// A job that ran and failed: its error is the database's.
+				if (err instanceof Error && !(err instanceof ApiError)) throw err
+				console.error('Could not read the insert job result', err)
+				throw new Error(
+					'Could not confirm the insert. Refresh the table to check whether the row was added before retrying.'
+				)
+			}
+			dispatch('insert')
+			sendUserToast('Row inserted', false)
 		}
 
 		return false

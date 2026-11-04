@@ -185,8 +185,7 @@
 	type RunnableCallback = {
 		onDone?: (r: any) => void
 		onCancel?: () => void
-		/** `jobId` is set when the job was submitted: the error may only be a failed status read. */
-		onError?: (e: any, jobId?: string) => void
+		onError?: (e: any) => void
 	}
 	function genCallbacks({ onDone, onCancel, onError }: RunnableCallback) {
 		const callbacks: Callbacks & { doneWithoutCompute?: (r: any) => void } = {
@@ -231,7 +230,7 @@
 				dispatch('cancel', { id })
 			},
 			doneError({ id, error }: { id?: string; error: any }) {
-				onError?.(error, id)
+				onError?.(error)
 				setResult({ error }, id)
 				loading = false
 				dispatch('doneError', { id, error })
