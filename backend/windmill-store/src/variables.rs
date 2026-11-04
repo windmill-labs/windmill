@@ -480,7 +480,7 @@ async fn get_value(
 /// The grants alone can't explain a denial: a job started on behalf of another
 /// user is authorized as that user, so the error has to name who was actually
 /// asking or it reads as a grant bug.
-fn describe_authed(authed: Option<&(impl Authable + Sync)>) -> String {
+pub(crate) fn describe_authed(authed: Option<&(impl Authable + Sync)>) -> String {
     match authed {
         Some(authed) => format!(
             "username: {}, email: {}, groups: {:?}, folders: {:?}",
