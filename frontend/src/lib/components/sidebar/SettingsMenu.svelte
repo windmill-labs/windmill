@@ -150,9 +150,9 @@
 
 	// Account / instance actions gathered under one "Settings" dropdown, shared by
 	// the session rail and the global sidebar so both expose the same entry point.
-	// Workspace- and instance-scoped entries sit between the account entries and Logout.
+	// Workspace- and instance-scoped entries sit between the account entries and Log out.
 	// Leaving a workspace lives on the workspace settings page, which every member reaches,
-	// not in this menu next to Logout: only a workspace admin can undo a leave.
+	// not in this menu next to Log out: only a workspace admin can undo a leave.
 	const workspaceInstanceItems = $derived<Item[]>([
 		...($roleCapabilities.visibility.folders
 			? [{ displayName: 'Folders', icon: FolderOpen, href: '/folders' }]
@@ -268,7 +268,7 @@
 			]
 		},
 		...workspaceInstanceItems.map((item, i) => (i === 0 ? { ...item, separatorTop: true } : item)),
-		{ displayName: 'Logout', icon: LogOut, action: () => logout(), separatorTop: true }
+		{ displayName: 'Log out', icon: LogOut, action: () => logout(), separatorTop: true }
 	])
 
 	const logsItems = $derived<Item[]>([
