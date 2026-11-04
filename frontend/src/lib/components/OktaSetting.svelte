@@ -7,6 +7,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Password from './Password.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
+	import PkceToggle from './PkceToggle.svelte'
 
 	interface Props {
 		value: any
@@ -52,7 +53,7 @@
 			checked={enabled}
 			on:change={(e) => {
 				if (e.detail) {
-					value = { id: '', secret: '', domain: '', custom: false }
+					value = { id: '', secret: '', pkce: true, domain: '', custom: false }
 				} else {
 					value = undefined
 				}
@@ -162,6 +163,7 @@
 					</div>
 				</div>
 			</CollapseLink>
+			<PkceToggle bind:pkce={value['pkce']} />
 		</SettingCard>
 	{/if}
 </div>
