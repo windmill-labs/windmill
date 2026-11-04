@@ -625,7 +625,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             });
         let (handler, extra_args, permissioned_as) = match trigger_handler {
             Some((path, args)) => (
-                Some(format!("script/{path}")),
+                Some(RunnableRef::from_path(path, false)),
                 {
                     let mut a = args.map(|a| a.0.clone()).unwrap_or_default();
                     a.insert("trigger_path".to_string(), trigger_path.clone().into());
@@ -643,15 +643,23 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 .ok()
                 .flatten()
                 .unwrap_or((None, None));
-                (row.0, row.1, None)
+                (row.0.map(|p| RunnableRef::from_prefixed(&p)), row.1, None)
             }
         };
 
         let message =
             format!("{trigger_path} dropped a payload its filters cannot parse ({parse_error})");
-        let Some(handler) = handler else {
-            report_critical_error(message, db.clone(), Some(w_id), None).await;
-            return;
+        let handler = match handler {
+            Some(Ok(handler)) => handler,
+            Some(Err(err)) => {
+                report_critical_error(format!("{message}: {err}"), db.clone(), Some(w_id), None)
+                    .await;
+                return;
+            }
+            None => {
+                report_critical_error(message, db.clone(), Some(w_id), None).await;
+                return;
+            }
         };
         let email = windmill_common::users::get_email_from_permissioned_as(
             &listening_trigger.permissioned_as,
@@ -680,7 +688,10 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         .await
         {
             report_critical_error(
-                format!("{message}, and its error handler {handler} could not be pushed: {err}"),
+                format!(
+                    "{message}, and its error handler {} could not be pushed: {err}",
+                    handler.prefixed()
+                ),
                 db.clone(),
                 Some(w_id),
                 None,
