@@ -30,7 +30,7 @@ use crate::common::{
     s3_stream_and_upload_with_logs, OccupancyMetrics,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
-use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::sanitized_sql_params::{sanitize_and_interpolate_unsafe_sql_args, SqlStringEscaping};
 use crate::sql_s3_input::fetch_s3object_as_json_text;
 use windmill_common::client::AuthedClient;
 use windmill_types::s3::S3Object;
@@ -302,8 +302,13 @@ pub async fn do_mssql(
     let reserved_variables =
         get_reserved_variables(job, &authed_client.token, conn, parent_runnable_path).await?;
 
-    let (query, args_to_skip) =
-        &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &mssql_args, &reserved_variables)?;
+    let (query, args_to_skip) = &sanitize_and_interpolate_unsafe_sql_args(
+        query,
+        &sig,
+        &mssql_args,
+        &reserved_variables,
+        SqlStringEscaping::BothQuotes,
+    )?;
 
     let mut prepared_query = Query::new(query.to_owned());
     for arg in &sig {
