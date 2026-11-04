@@ -5709,7 +5709,7 @@ async fn compute_next_flow_transform(
     if module.mock.is_some() && module.mock.as_ref().unwrap().enabled {
         return Ok(NextFlowTransform::Continue(
             ContinuePayload::SingleJob(JobPayloadWithTag {
-                payload: JobPayload::Identity,
+                payload: JobPayload::Identity { mocked: true, skipped: false },
                 tag: None,
                 delete_after_use: false,
                 delete_after_secs: None,
@@ -5737,11 +5737,13 @@ async fn compute_next_flow_transform(
 
     tracing::debug!(id = %flow_job.id, "computing next flow transform for {:?}", &module.value);
     if is_skipped {
-        return trivial_next_job(JobPayload::Identity);
+        return trivial_next_job(JobPayload::Identity { mocked: false, skipped: true });
     }
 
     match module.get_value()? {
-        FlowModuleValue::Identity => trivial_next_job(JobPayload::Identity),
+        FlowModuleValue::Identity => {
+            trivial_next_job(JobPayload::Identity { mocked: false, skipped: false })
+        }
         FlowModuleValue::Flow { path, .. } => {
             let mut payload = flow_to_payload(
                 path,

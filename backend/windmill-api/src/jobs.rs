@@ -9249,7 +9249,7 @@ async fn run_preview_script(
         tx,
         &w_id,
         match preview.kind {
-            Some(PreviewKind::Identity) => JobPayload::Identity,
+            Some(PreviewKind::Identity) => JobPayload::Identity { mocked: false, skipped: false },
             Some(PreviewKind::Noop) => JobPayload::Noop,
             _ => JobPayload::Code(RawCode {
                 hash: preview

@@ -258,6 +258,19 @@
 												>
 													{logOrDate.log.operation}
 												</Badge>
+												{#if typeof logOrDate.log.parameters?.step_id === 'string'}
+													<Badge
+														color="transparent"
+														title="Step of the flow run {logOrDate.log.parameters.parent_job ?? ''}"
+													>
+														step {logOrDate.log.parameters.step_id}
+													</Badge>
+												{/if}
+												{#if logOrDate.log.parameters?.mocked === 'true'}
+													<Badge color="yellow">mocked</Badge>
+												{:else if logOrDate.log.parameters?.skipped === 'true'}
+													<Badge color="yellow">skipped</Badge>
+												{/if}
 											</div>
 										</div>
 										<div class="w-2/12 text-xs">
