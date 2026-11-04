@@ -23,6 +23,7 @@
 		isScriptPreview,
 		type Item
 	} from '$lib/utils'
+	import { isNewTabClick } from '$lib/navigation'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import {
@@ -736,7 +737,24 @@
 			? `/scripts/get/${job?.script_path}?version=${job?.script_hash}`
 			: `${stem}/get/${isScriptJob ? job?.script_hash : job?.script_path}`
 	)
-	const editHref = $derived(`${stem}/edit/${job?.script_path}?workspace=${workspaceId}`)
+	// The run's args ride in the edit link so a new tab gets them too. Past this length the
+	// request line risks a 414 from a proxy, and the in-memory store carries them instead, which
+	// only the current tab can read.
+	const MAX_URL_ARGS_LENGTH = 4000
+	const encodedEditArgs = $derived(
+		job?.args ? encodeURIComponent(encodeState(job.args)) : undefined
+	)
+	const editArgsInUrl = $derived(
+		encodedEditArgs !== undefined && encodedEditArgs.length <= MAX_URL_ARGS_LENGTH
+	)
+	const editHref = $derived(
+		`${stem}/edit/${job?.script_path}?workspace=${workspaceId}` +
+			(editArgsInUrl ? `&initial_args=${encodedEditArgs}` : '')
+	)
+	function seedEditArgs(e?: Event) {
+		if (editArgsInUrl || (e instanceof MouseEvent && isNewTabClick(e))) return
+		$initialArgsStore = job?.args
+	}
 	const forkPreviewLabel = $derived(
 		isHubFlowPreview
 			? 'Fork flow into workspace'
@@ -840,7 +858,7 @@
 				displayName: 'Edit',
 				icon: Pen,
 				href: editHref,
-				action: () => ($initialArgsStore = job?.args),
+				action: seedEditArgs,
 				disabled: !showEditButton,
 				hide: !canEdit
 			},
@@ -1325,10 +1343,8 @@
 			{#if canEdit || canEditInFork}
 				{#if editRights.canEditItem(isScriptJob ? 'script' : 'flow', job?.script_path ?? '', {})}
 					<Button
-						href={`${stem}/edit/${job?.script_path}?workspace=${workspaceId}`}
-						on:click={() => {
-							$initialArgsStore = job?.args
-						}}
+						href={editHref}
+						onClick={seedEditArgs}
 						unifiedSize="sm"
 						variant="default"
 						disabled={!showEditButton}

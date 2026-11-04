@@ -12,6 +12,8 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { Plus } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { page } from '$app/state'
+	import { isNewTabClick } from '$lib/navigation'
 
 	let newGroupName: string = $state('')
 	let instanceGroups: InstanceGroup[] | undefined = $state(undefined)
@@ -39,6 +41,24 @@
 	})
 
 	let editGroupName: string = $state('')
+
+	// Deep link: #<name> opens that group's drawer. Row links pre-set handledHash: their onclick
+	// already opens the drawer.
+	let handledHash = ''
+	$effect(() => {
+		const hash = page.url.hash
+		if (hash.length <= 1) {
+			handledHash = ''
+			return
+		}
+		if (hash === handledHash || !instanceGroups || !groupDrawer) return
+		const name = hash.slice(1)
+		if (instanceGroups.some((g) => g.name === name)) {
+			handledHash = hash
+			editGroupName = name
+			groupDrawer.openDrawer()
+		}
+	})
 </script>
 
 <Drawer bind:this={groupDrawer}>
@@ -95,7 +115,9 @@
 								<td>
 									<a
 										href="#{name}"
-										onclick={() => {
+										onclick={(e) => {
+											if (isNewTabClick(e)) return
+											handledHash = `#${name}`
 											editGroupName = name
 											groupDrawer?.openDrawer()
 										}}

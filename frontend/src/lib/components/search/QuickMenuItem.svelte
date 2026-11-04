@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { isMac } from '$lib/utils'
+	import { isNewTabClick } from '$lib/navigation'
 	import { onDestroy, onMount, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
@@ -28,6 +29,8 @@
 		hovered?: boolean
 		id: string
 		label?: string
+		/** Renders the item as a link, so ctrl/cmd-, middle- and right-click open it in a new tab. */
+		href?: string
 		icon?: any
 		shortcutKey?: string | undefined
 		containerClass?: string | undefined
@@ -44,6 +47,7 @@
 		hovered = false,
 		id,
 		label = '',
+		href = undefined,
 		icon = undefined,
 		shortcutKey = undefined,
 		containerClass = undefined,
@@ -70,10 +74,16 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<div
+<svelte:element
+	this={href ? 'a' : 'div'}
 	{id}
-	onclick={(e) => {
+	{href}
+	onclick={(e: MouseEvent) => {
 		e.stopImmediatePropagation()
+		// The link only serves ctrl/cmd-, middle- and right-click; a plain or shift click
+		// still goes through onselect, which may select rather than navigate.
+		if (href && isNewTabClick(e)) return
+		if (href) e.preventDefault()
 		onselect(e.shiftKey || e.ctrlKey)
 	}}
 	onmouseenter={() => {
@@ -83,7 +93,7 @@
 		mouseMoved = false
 	}}
 	class={twMerge(
-		`rounded-md w-full transition-all cursor-pointer ${hovered ? 'bg-surface-hover' : ''}`,
+		`block rounded-md w-full transition-all cursor-pointer ${hovered ? 'bg-surface-hover' : ''}`,
 		containerClass
 	)}
 >
@@ -123,4 +133,4 @@
 			{/if}
 		</div>
 	{/if}
-</div>
+</svelte:element>

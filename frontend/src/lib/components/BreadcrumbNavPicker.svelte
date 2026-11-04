@@ -116,6 +116,10 @@ highlighted, a workspace page inside Pages with that page highlighted.
 			{initialHighlight}
 			{currentItem}
 			workspaceId={actingWorkspaceId}
+			targetHref={(target) => {
+				const href = hrefFor(target)
+				return href ? withWorkspace(href) : undefined
+			}}
 			onPick={pick}
 		/>
 	{/snippet}

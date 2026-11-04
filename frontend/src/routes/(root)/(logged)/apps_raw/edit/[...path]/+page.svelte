@@ -688,7 +688,7 @@
 				bind:this={rawAppEditor}
 				ownsPageHeader
 				compact={page.url.searchParams.get('view') === 'preview'}
-				onDetails={(e) => goto(`/apps_raw/get/${e.path}?workspace=${$workspaceStore}`)}
+				detailsHref={(path) => `/apps_raw/get/${path}?workspace=${$workspaceStore}`}
 				onSavedNewAppPath={(savedPath) => {
 					draftSync.remove()
 					goto(`/apps_raw/edit/${savedPath}`)

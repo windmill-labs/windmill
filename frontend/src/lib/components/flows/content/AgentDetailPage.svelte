@@ -8,6 +8,8 @@
 	import AgentUsePanel from '$lib/components/flows/content/AgentUsePanel.svelte'
 	import { SlackAgentsService } from '$lib/gen'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
+	import { interceptNav } from '$lib/components/details/interceptNav'
+	import { useOperatingWorkspaceHref } from '$lib/components/operatingWorkspace.svelte'
 	import OnBehalfOfBadge from '$lib/components/details/OnBehalfOfBadge.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -91,6 +93,7 @@
 	let config = $derived(agent?.state?.args)
 	let chatAvailable = $derived(keepsManagedMemory(config?.memory))
 	const editRights = useEditRights(() => ws)
+	const operatingHref = useOperatingWorkspaceHref()
 	let canAuthor = $derived(editRights.roleCanAuthor('agent'))
 	let canCode = $derived(editRights.capabilities.code)
 
@@ -237,7 +240,10 @@
 					}).map((item) => ({
 						label: item.displayName,
 						Icon: item.icon,
-						onclick: (e: MouseEvent) => item.action?.(e),
+						href: item.href && operatingHref(item.href),
+						onclick: item.href
+							? interceptNav(onNavigate, item.href)
+							: (e: MouseEvent) => item.action?.(e),
 						disabled: item.disabled,
 						color: item.type === 'delete' ? ('red' as const) : undefined
 					}))

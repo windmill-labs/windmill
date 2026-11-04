@@ -19,6 +19,7 @@
 		description?: string
 		onClick?: (e?: Event) => void
 		href?: string
+		hrefTarget?: Item['hrefTarget']
 		icon?: any
 		disabled?: boolean
 		tooltip?: string
@@ -165,6 +166,7 @@
 			icon: item.icon,
 			disabled: item.disabled ?? false,
 			href: item.href,
+			hrefTarget: item.hrefTarget,
 			tooltip: item.tooltip
 		}))
 	}

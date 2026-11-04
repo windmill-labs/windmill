@@ -26,7 +26,6 @@
 		Users
 	} from 'lucide-svelte'
 	import { sidebarPrefs } from './sidebarPrefs.svelte'
-	import { goto } from '$lib/navigation'
 	import { type Item } from '$lib/utils'
 	import { logout } from '$lib/logoutKit'
 	import { isCloudHosted } from '$lib/cloud'
@@ -190,7 +189,7 @@
 					{
 						displayName: 'Instance settings',
 						icon: Settings,
-						action: () => goto(SUPERADMIN_SETTINGS_HASH)
+						href: SUPERADMIN_SETTINGS_HASH
 					}
 				]
 			: [])
@@ -245,14 +244,14 @@
 				{
 					displayName: 'Account settings',
 					icon: Settings,
-					action: () => goto(USER_SETTINGS_HASH)
+					href: USER_SETTINGS_HASH
 				},
 				...(!$roleCapabilities.code
 					? [
 							{
 								displayName: 'Take the tour',
 								icon: GraduationCap,
-								action: () => goto(`/?${TOUR_PARAM}=${TOUR_PARAM_VALUE}`)
+								href: `/?${TOUR_PARAM}=${TOUR_PARAM_VALUE}`
 							}
 						]
 					: []),

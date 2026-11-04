@@ -20,6 +20,8 @@
 	import Cell from '$lib/components/table/Cell.svelte'
 	import Row from '$lib/components/table/Row.svelte'
 	import { untrack } from 'svelte'
+	import { page } from '$app/state'
+	import { isNewTabClick } from '$lib/navigation'
 	import { Tooltip } from '$lib/components/meltComponents'
 	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
 
@@ -58,6 +60,24 @@
 
 	let instanceGroupDrawer: Drawer | undefined = $state()
 	let editInstanceGroupName: string = $state('')
+
+	// Deep link: #<name> opens that instance group's drawer. Row links pre-set handledHash:
+	// their onclick already opens the drawer.
+	let handledHash = ''
+	$effect(() => {
+		const hash = page.url.hash
+		if (hash.length <= 1) {
+			handledHash = ''
+			return
+		}
+		if (hash === handledHash || !instanceGroups || !instanceGroupDrawer) return
+		const name = hash.slice(1)
+		if (instanceGroups.some((g) => g.name === name)) {
+			handledHash = hash
+			editInstanceGroupName = name
+			instanceGroupDrawer.openDrawer()
+		}
+	})
 </script>
 
 <GroupEditorDrawer bind:this={groupEditorDrawer} onSaved={loadGroups} />
@@ -204,7 +224,9 @@
 								<Cell first>
 									<a
 										href="#{name}"
-										onclick={() => {
+										onclick={(e) => {
+											if (isNewTabClick(e)) return
+											handledHash = `#${name}`
 											if (name) {
 												editInstanceGroupName = name
 												instanceGroupDrawer?.openDrawer()

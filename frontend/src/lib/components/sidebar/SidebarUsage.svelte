@@ -9,7 +9,7 @@
 
 <script lang="ts">
 	import { resource } from 'runed'
-	import { goto } from '$lib/navigation'
+	import { isNewTabClick } from '$lib/navigation'
 	import { isCloudHosted } from '$lib/cloud'
 	import { AlertTriangle, Sparkles } from 'lucide-svelte'
 	import { UserService, WorkspaceService } from '$lib/gen'
@@ -372,9 +372,10 @@
 			{#if $userStore?.is_admin}
 				<Button
 					unifiedSize="md"
-					onclick={() => {
+					href="/workspace_settings?tab=premium"
+					onClick={(e) => {
+						if (e instanceof MouseEvent && isNewTabClick(e)) return
 						open = false
-						goto('/workspace_settings?tab=premium')
 					}}
 				>
 					{$isPremiumStore ? 'See billing' : 'See plans'}
