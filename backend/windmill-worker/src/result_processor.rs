@@ -1206,8 +1206,10 @@ async fn maybe_record_git_sync_pushed_head(
         branch: Option<String>,
         #[serde(default)]
         rebased: bool,
+        /// The commit the pushed one sits on; absent from older hub script versions.
+        base_sha: Option<String>,
     }
-    let Ok(PushResult { pushed: true, sha: Some(sha), branch: Some(branch), rebased }) =
+    let Ok(PushResult { pushed: true, sha: Some(sha), branch: Some(branch), rebased, base_sha }) =
         serde_json::from_str::<PushResult>(result)
     else {
         return;
@@ -1249,6 +1251,22 @@ async fn maybe_record_git_sync_pushed_head(
         tracing::warn!(
             "git sync push: failed to record pushed head {sha} on {branch} for {workspace_id}/{repo_path}: {e:#}"
         );
+    }
+    if let Some(base_sha) = base_sha {
+        if let Err(e) = windmill_git_sync::advance_synced_sha_past_own_push(
+            db,
+            workspace_id,
+            &repo_path,
+            &branch,
+            &base_sha,
+            &sha,
+        )
+        .await
+        {
+            tracing::warn!(
+                "git sync push: failed to advance the synced sha past {sha} on {branch} for {workspace_id}/{repo_path}: {e:#}"
+            );
+        }
     }
 }
 
