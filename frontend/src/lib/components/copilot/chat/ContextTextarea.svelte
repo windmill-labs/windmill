@@ -787,6 +787,12 @@
 		}
 	}
 
+	/** Whether the `@` or `/` picker is open. It closes itself on an Escape reaching
+	 * `document` unprevented. */
+	export function hasOpenPicker(): boolean {
+		return showContextTooltip || showCommandTooltip
+	}
+
 	// Wipe after dispatching a send: pre-zero `prevMentionedTitles` so the effect
 	// above sees no diff when `value` clears, leaving `selectedContext` for the
 	// send that is already carrying it to settle (see the caller). A manual

@@ -29,10 +29,10 @@
 		Unplug,
 		AlertCircle,
 		Database,
-		MailIcon
+		MailIcon,
+		Zap
 	} from 'lucide-svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
-	import { slide } from 'svelte/transition'
 	import UserMenu from './UserMenu.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -49,15 +49,10 @@
 		getServiceIcon
 	} from '../triggers/native/utils'
 	import type { NativeServiceName } from '$lib/gen/types.gen'
-	import {
-		Menubar,
-		Menu,
-		MenuSingleItem,
-		MenuItem,
-		MeltButton
-	} from '$lib/components/meltComponents'
+	import { Menubar, Menu, MenuSingleItem, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton from './MenuButton.svelte'
-	import SidebarSectionHeader from './SidebarSectionHeader.svelte'
+	import SidebarSection, { flyoutRowClass } from './SidebarSection.svelte'
+	import DropdownSubmenuItem from '$lib/components/DropdownSubmenuItem.svelte'
 	import GoogleCloudIcon from '../icons/triggers/GoogleCloudIcon.svelte'
 	import AzureIcon from '../icons/triggers/AzureIcon.svelte'
 	import type { VisibilityKey } from '$lib/roleCapabilities'
@@ -479,14 +474,10 @@
 	])
 </script>
 
-<!-- Expanded, each section opens 10px under the one before, the gap the layout's scroll area puts
-     between this nav and the sections after it; the collapsed rail keeps one pitch instead. -->
-<nav
-	class={twMerge(
-		'flex flex-col overflow-x-hidden scrollbar-hidden px-2 gap-2',
-		isCollapsed ? 'md:pb-2' : ''
-	)}
->
+<!-- Each section opens 10px under the one before, the gap the layout's scroll area puts between
+     this nav and the sections after it. The rail spaces them the same, so a row keeps its place
+     in every mode. -->
+<nav class="flex flex-col overflow-x-hidden scrollbar-hidden px-2 gap-2">
 	<div class={twMerge('flex flex-col')}>
 		{#if showMain}
 			<div class="space-y-0.5">
@@ -498,45 +489,48 @@
 		{#if showMain}
 			{#if dataLinks.length > 0}
 				<!-- 8px: the layout's 2px gap above this nav makes it 10 under Runs. -->
-				<div class={isCollapsed ? '' : 'mt-2'}>
-					<!-- Collapsed, no title row: the rail's icons keep one pitch across sections. -->
-					{#if !isCollapsed}
-						<SidebarSectionHeader
-							title="Data"
-							collapsed={dataSectionCollapsed.val}
-							onToggle={() => (dataSectionCollapsed.val = !dataSectionCollapsed.val)}
-						/>
-					{/if}
-					{#if isCollapsed || !dataSectionCollapsed.val}
-						<div transition:slide={{ duration: 180 }} class="flex flex-col gap-0.5">
-							{#each dataLinks as menuLink (menuLink.href)}
-								<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
-							{/each}
-						</div>
-					{/if}
+				<div class="mt-2">
+					<SidebarSection
+						title="Data"
+						icon={Database}
+						folded={dataSectionCollapsed.val}
+						onToggle={() => (dataSectionCollapsed.val = !dataSectionCollapsed.val)}
+						{isCollapsed}
+					>
+						{#snippet children(inPopover, menu)}
+							<div class="flex flex-col gap-0.5">
+								{#each dataLinks as menuLink (menuLink.href)}
+									<MenuLink
+										class="!text-xs"
+										{...menuLink}
+										isCollapsed={isCollapsed && !inPopover}
+										item={menu?.item}
+									/>
+								{/each}
+							</div>
+						{/snippet}
+					</SidebarSection>
 				</div>
 			{/if}
 		{/if}
 		{#if showMain && showTriggersGroup}
-			<!-- Expanded, the + sits at the right of the section's title row, as the AI sessions
-			     section's options do; the collapsed rail has no title row, so it ends the list. -->
-			{#snippet addTriggerMenu(createMenu: any, inHeader: boolean)}
-				<Menu {createMenu} usePointerDownOutside placement={inHeader ? 'bottom-end' : undefined}>
+			{#snippet addTriggerMenu(createMenu: any, rail: boolean)}
+				<Menu
+					{createMenu}
+					usePointerDownOutside
+					placement={rail ? 'right-start' : 'bottom-start'}
+					class="h-[30px]"
+				>
 					{#snippet triggr({ trigger })}
-						<MeltButton
+						<MenuButton
 							aiId="sidebar-menu-link-add-trigger"
 							aiDescription="Button to add a new trigger. Can be HTTP, WebSocket, Postgres, Kafka, NATS, SQS, GCP Pub/Sub, or MQTT"
-							class={twMerge(
-								inHeader
-									? 'h-7 w-7 shrink-0 flex items-center justify-center rounded-md text-secondary hover:bg-surface-hover'
-									: 'w-full text-secondary text-2xs flex flex-row gap-1 py-1 items-center px-2 hover:bg-surface-hover rounded',
-								'data-[highlighted]:bg-surface-hover'
-							)}
-							title="Add trigger"
-							meltElement={trigger}
-						>
-							<Plus size={14} />
-						</MeltButton>
+							icon={Plus}
+							label="New trigger"
+							isCollapsed={rail}
+							buttonClass="data-[highlighted]:bg-surface-hover"
+							{trigger}
+						/>
 					{/snippet}
 					{#snippet children({ item })}
 						{#each extraTriggerLinks as subItem (subItem.href ?? subItem.label)}
@@ -559,37 +553,52 @@
 					{/snippet}
 				</Menu>
 			{/snippet}
-			<div class={isCollapsed ? 'mt-0.5' : 'mt-2.5'}>
-				<!-- Collapsed, no title row: the rail's icons keep one pitch across sections. -->
-				{#if !isCollapsed}
-					<SidebarSectionHeader
-						title="Triggers"
-						collapsed={triggersCollapsed.val}
-						onToggle={() => (triggersCollapsed.val = !triggersCollapsed.val)}
-						actions={showAddTriggerMenu ? triggerHeaderActions : undefined}
-					/>
-					{#snippet triggerHeaderActions()}
-						<Menubar>
-							{#snippet children({ createMenu })}
-								{@render addTriggerMenu(createMenu, true)}
-							{/snippet}
-						</Menubar>
-					{/snippet}
-				{/if}
-				{#if isCollapsed || !triggersCollapsed.val}
-					<div transition:slide={{ duration: 180 }}>
-						<Menubar class="flex flex-col gap-0.5">
-							{#snippet children({ createMenu })}
-								{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-									<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
-								{/each}
-								{#if showAddTriggerMenu && isCollapsed}
-									{@render addTriggerMenu(createMenu, false)}
+			<div class="mt-2.5">
+				<SidebarSection
+					title="Triggers"
+					icon={Zap}
+					folded={triggersCollapsed.val}
+					onToggle={() => (triggersCollapsed.val = !triggersCollapsed.val)}
+					{isCollapsed}
+				>
+					{#snippet children(inPopover, menu)}
+						<div class="flex flex-col gap-0.5">
+							{#if showAddTriggerMenu}
+								{#if menu}
+									<DropdownSubmenuItem
+										item={{
+											displayName: 'New trigger',
+											icon: Plus,
+											submenuItems: extraTriggerLinks.map((l) => ({
+												displayName: l.label,
+												icon: l.icon,
+												href: l.disabled ? undefined : l.href,
+												disabled: l.disabled
+											}))
+										}}
+										builders={menu.builders}
+										meltItem={menu.item}
+										class={flyoutRowClass}
+									/>
+								{:else}
+									<Menubar class="w-full">
+										{#snippet children({ createMenu })}
+											{@render addTriggerMenu(createMenu, isCollapsed)}
+										{/snippet}
+									</Menubar>
 								{/if}
-							{/snippet}
-						</Menubar>
-					</div>
-				{/if}
+							{/if}
+							{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
+								<MenuLink
+									class="!text-xs"
+									{...menuLink}
+									isCollapsed={isCollapsed && !inPopover}
+									item={menu?.item}
+								/>
+							{/each}
+						</div>
+					{/snippet}
+				</SidebarSection>
 			</div>
 		{/if}
 		{#if showSecondary}

@@ -289,6 +289,22 @@ describe('groupToolRuns', () => {
 		const other = tool('call_mcp_read_tool', { server: 'f/team/github', tool: 'get_issue' })
 		expect(header([mcp('list_issues'), other])).toBe('List issues, get issue')
 	})
+
+	it('names the first three kinds of call and leaves the rest to `more`', () => {
+		const group = groupToolRuns([
+			tool('search_workspace'),
+			tool('list_runs'),
+			tool('read_workspace_item'),
+			tool('search_docs'),
+			tool('search_workspace'),
+			tool('list_workers')
+		]).find((item) => item.kind === 'group') as ToolGroup
+		expect(groupHeader(group, 'settled')).toEqual({
+			prefix: '',
+			label: 'Search workspace 2 times, list runs, read workspace item',
+			more: ['search docs', 'list workers']
+		})
+	})
 })
 
 describe('createChatItemGrouper', () => {

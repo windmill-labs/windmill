@@ -52,9 +52,9 @@
 				)
 				return
 			}
-			sendUserToast(`Error trying to login with ${clientName} ${error}`, true)
+			sendUserToast(`Error trying to log in with ${clientName} ${error}`, true)
 			if (closeUponLogin) {
-				closeUponLoginError(`Error trying to login with ${clientName} ${error}`)
+				closeUponLoginError(`Error trying to log in with ${clientName} ${error}`)
 				return
 			}
 			await logoutWithRedirect(rd ?? undefined)

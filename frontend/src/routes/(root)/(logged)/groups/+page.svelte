@@ -7,6 +7,7 @@
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import GroupEditorDrawer from '$lib/components/GroupEditorDrawer.svelte'
+	import AccessDrawer from '$lib/components/AccessDrawer.svelte'
 	import InstanceGroupEditor from '$lib/components/InstanceGroupEditor.svelte'
 	import GroupInfo from '$lib/components/GroupInfo.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -14,7 +15,7 @@
 	import { userStore, workspaceStore, roleCapabilities } from '$lib/stores'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { latestRequest } from '$lib/utils/latestRequest'
-	import { Pen, Plus, Trash } from 'lucide-svelte'
+	import { Pen, Plus, ShieldCheck, Trash } from 'lucide-svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
@@ -32,6 +33,7 @@
 	let groups: Group[] | undefined = $state(undefined)
 	let instanceGroups: InstanceGroupWithWorkspaces[] | undefined = $state(undefined)
 	let groupEditorDrawer: GroupEditorDrawer | undefined = $state()
+	let accessDrawer: AccessDrawer | undefined = $state()
 
 	const groupLoads = latestRequest()
 	async function loadGroups(): Promise<void> {
@@ -61,6 +63,7 @@
 </script>
 
 <GroupEditorDrawer bind:this={groupEditorDrawer} onSaved={loadGroups} />
+<AccessDrawer bind:this={accessDrawer} />
 
 <Drawer bind:this={instanceGroupDrawer}>
 	<DrawerContent
@@ -122,9 +125,13 @@
 					{#if groups === undefined}
 						{#each new Array(4) as _}
 							<tr>
-								<td colspan="5">
-									<Skeleton layout={[[2]]} />
-								</td>
+								<Cell first>
+									<Skeleton layout={[[{ h: 0.75, w: 30 }], 0.25, [{ h: 0.75, w: 60 }], 0.25]} />
+								</Cell>
+								<Cell>
+									<Skeleton layout={[[{ h: 0.75, w: 40 }]]} />
+								</Cell>
+								<Cell last actions />
 							</tr>
 						{/each}
 					{:else}
@@ -149,6 +156,16 @@
 								<Cell last actions shouldStopPropagation>
 									<Dropdown
 										items={[
+											{
+												displayName: 'Access',
+												icon: ShieldCheck,
+												hide: !(
+													$userStore?.is_admin ||
+													$userStore?.is_super_admin ||
+													$userStore?.groups.includes(name)
+												),
+												action: () => accessDrawer?.open(`g/${name}`, 'group')
+											},
 											{
 												displayName: 'Manage group',
 												icon: Pen,

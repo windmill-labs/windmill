@@ -4,12 +4,16 @@
 	let {
 		color,
 		class: className = '',
+		hideScrollbar = false,
 		children
 	}: {
 		// Rail background, so the overflow fades blend into it rather than sitting
 		// as visible bars.
 		color: string
 		class?: string
+		// Even a transparent scrollbar takes its width where the system shows scrollbars,
+		// which narrows rows in the icon rail and leaves their highlight off-center.
+		hideScrollbar?: boolean
 		children: Snippet
 	} = $props()
 
@@ -41,7 +45,9 @@
 	<div
 		bind:this={viewport}
 		onscroll={measure}
-		class="sidebar-scroll h-full overflow-y-auto overflow-x-hidden scrollbar-subtle flex flex-col gap-2.5"
+		class="sidebar-scroll h-full overflow-y-auto overflow-x-hidden {hideScrollbar
+			? 'scrollbar-hidden'
+			: 'scrollbar-subtle'} flex flex-col gap-2.5"
 	>
 		{@render children()}
 	</div>

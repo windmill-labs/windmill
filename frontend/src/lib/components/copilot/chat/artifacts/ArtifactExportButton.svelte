@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { Check, Copy, Download } from 'lucide-svelte'
+	import { Check, Copy, Download, FileDown } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { copyToClipboard, download } from '$lib/utils'
 	import { artifactFilename, artifactMimeType, type ArtifactKind } from './artifactsDB'
+	import { printArtifact } from './printArtifact'
 
 	interface Props {
 		name: string
@@ -31,11 +32,23 @@
 	title="Copy raw markdown"
 	dropdownItems={[
 		{
-			label: 'Download as .md',
+			label: `Download as .${kind}`,
 			icon: Download,
 			onClick: () => download(artifactFilename({ name, kind }), content, artifactMimeType(kind)),
 			disabled
-		}
+		},
+		// Markdown only: an html artifact is agent-written markup, and printing it would run its
+		// scripts in this origin.
+		...(kind === 'md'
+			? [
+					{
+						label: 'Download as PDF',
+						icon: FileDown,
+						onClick: () => printArtifact(name, content),
+						disabled
+					}
+				]
+			: [])
 	]}
 >
 	{copied ? 'Copied' : 'Copy'}

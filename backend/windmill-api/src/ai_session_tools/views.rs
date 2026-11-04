@@ -20,7 +20,7 @@ pub(crate) fn allowed(name: &str, access: SessionAccess) -> bool {
 pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult {
     if !allowed(name, ctx.access) {
         return Err(format!(
-            "{name} shows drafts to deploy, and this token cannot deploy."
+            "{name} shows drafts to deploy, and this session cannot deploy."
         ));
     }
     match name {

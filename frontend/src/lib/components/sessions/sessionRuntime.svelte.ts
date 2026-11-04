@@ -275,6 +275,10 @@ export interface SessionRuntime {
 		 * setup has not been confirmed. Held in the cell only, nothing is saved. */
 		seedIfMissing?: boolean
 	): Promise<void>
+	/** Keep a new item's draft in this tab, unsaved, until the session's first send saves it:
+	 * an AI start the user never sends leaves nothing behind. */
+	holdDraftUntilSend(workspace: string, kind: SessionTargetKind, path: string): void
+	holdsDraft(workspace: string, kind: SessionTargetKind, path: string): boolean
 	/** Register a mounted raw-app preview's log requester, keyed by app path, like
 	 * `registerDomRequester`: build state is per editor, so reads route to the app edited. */
 	registerRuntimeLogRequester(appPath: string, requester: RawAppRuntimeLogRequester): void
@@ -511,11 +515,48 @@ function createRuntime(session: Session): SessionRuntime {
 		if (slot.kind !== 'pageitem') return undefined
 		return { type: 'agent', path: slot.ref.path, storagePath: slot.ref.path, isLiveDraft: true }
 	}
+	// Drafts held by holdDraftUntilSend. Their sync is suspended, so an edit made meanwhile is
+	// in the cell only, so the save sends the current value whatever the mirror last saw.
+	let heldDrafts: { workspace: string; kind: SessionTargetKind; path: string }[] = []
+	// The live editor's value, else the runtime cell's: a collapsed or remounting preview has
+	// released its UserDraft entry, but the cell lives as long as a tab shows the app.
+	function heldDraftValue(workspace: string, kind: SessionTargetKind, path: string) {
+		const live = UserDraft.get(kind, path, { workspace })
+		if (live !== undefined || kind !== 'raw_app') return live
+		const val = rawAppCells.get(path)?.store.val
+		return val ? runtimeRawAppToDraft(val) : undefined
+	}
+	// A draft leaves the list only once saved: a failed send keeps it held, so its retry saves it.
+	async function persistHeldDrafts(): Promise<void> {
+		while (heldDrafts.length > 0) {
+			const { workspace, kind, path } = heldDrafts[0]
+			const value = heldDraftValue(workspace, kind, path)
+			if (value === undefined) throw new Error('the app to save is no longer open')
+			UserDraft.restartSync(kind, path, { workspace })
+			await UserDraftDbSyncer.save({ workspace, itemKind: kind, path, value, immediate: true })
+			const saved = UserDraftDbSyncer.getState({ workspace, itemKind: kind, path })
+			if (saved.state === 'failed') {
+				UserDraft.stopSync(kind, path, { workspace })
+				throw new Error(`the app could not be saved: ${saved.failureMessage ?? 'unknown error'}`)
+			}
+			heldDrafts.shift()
+		}
+	}
+	function isHeldDraft(workspace: string, kind: SessionTargetKind, path: string): boolean {
+		return heldDrafts.some((d) => d.workspace === workspace && d.kind === kind && d.path === path)
+	}
+	function releaseHeldDraft(workspace: string, kind: SessionTargetKind, path: string): void {
+		heldDrafts = heldDrafts.filter(
+			(d) => !(d.workspace === workspace && d.kind === kind && d.path === path)
+		)
+	}
 	// Pre-flight: materialise the (still-transient) session, then commit
 	// the workspace (creating a staged fork if needed) before any send.
 	// AIChatManager awaits this so the first message hits a persisted
 	// session targeting the right workspace. Both calls are idempotent.
 	manager.beforeSend = async () => {
+		// Drafts first: a session stored before its app is saved would reopen onto nothing.
+		await persistHeldDrafts()
 		materializeTransient(session.id)
 		// Session is now persisted → flush any linked files buffered while it was transient.
 		await manager.attachedFiles.flushPending()
@@ -611,6 +652,11 @@ function createRuntime(session: Session): SessionRuntime {
 		for (const p of [...flowCells.keys()]) if (!keep.flow.has(p)) flowCells.delete(p)
 		for (const p of [...scriptCells.keys()]) if (!keep.script.has(p)) scriptCells.delete(p)
 		for (const p of [...rawAppCells.keys()]) if (!keep.raw_app.has(p)) rawAppCells.delete(p)
+		// A held app whose tab is gone was dropped before anything was sent: it is not saved.
+		for (const d of heldDrafts.filter((d) => d.kind === 'raw_app' && !keep.raw_app.has(d.path))) {
+			UserDraft.restartSync(d.kind, d.path, { workspace: d.workspace })
+			releaseHeldDraft(d.workspace, d.kind, d.path)
+		}
 	}
 
 	// Hydrate the preview-tab owner from the session record (the durable backing);
@@ -1065,6 +1111,19 @@ function createRuntime(session: Session): SessionRuntime {
 		) {
 			const { slot, store, saved } = rawAppCell(path)
 			if (slot.loadedPath === path && slot.loadedWorkspace === workspace && !force) return
+			// A held draft exists only in this cell: the server has nothing yet, and the preview's
+			// unmount dropped its UserDraft entry, sync suspension included.
+			if (
+				!force &&
+				store.val &&
+				slot.loadedWorkspace === workspace &&
+				isHeldDraft(workspace, 'raw_app', path)
+			) {
+				UserDraft.stopSync('raw_app', path, { workspace })
+				slot.notFound = false
+				slot.loadedPath = path
+				return
+			}
 			// See loadScript: forced reload remounts via the render gate.
 			if (force || slot.loadedWorkspace !== workspace) slot.loadedPath = undefined
 			slot.loading = true
@@ -1225,7 +1284,16 @@ function createRuntime(session: Session): SessionRuntime {
 			}
 		},
 
+		holdDraftUntilSend(workspace, kind, path) {
+			UserDraft.stopSync(kind, path, { workspace })
+			if (!isHeldDraft(workspace, kind, path)) heldDrafts.push({ workspace, kind, path })
+		},
+		holdsDraft: isHeldDraft,
+
 		itemDeployed(workspace, kind, storagePath, deployedPath = storagePath) {
+			// Deployed, it is saved: forcePersist would write a draft over the deployed item.
+			releaseHeldDraft(workspace, kind, storagePath)
+			releaseHeldDraft(workspace, kind, deployedPath)
 			if (deployedPath !== storagePath) {
 				// Nothing is deployed at the storage path, so its editor would go on
 				// creating the item again and its draft would outlive the deploy: drop
