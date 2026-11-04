@@ -99,12 +99,12 @@ pub enum Error {
     WorkerLost(String),
 }
 
-/// The `error.name`s of a job that the platform failed rather than its own code: an internal or
-/// database error while handling it, its worker lost mid-run (no ping, worker gone, restarts
-/// exhausted), or its process killed for memory. The runs list derives `system_error` from these,
-/// in SQL that must list the same names (`windmill-api-jobs`, `system_error_sql!`).
+/// The `error.name`s of a job that the platform failed rather than its own code: a database error
+/// while handling it, its worker lost mid-run (no ping, worker gone, restarts exhausted), or its
+/// process killed for memory. Not `InternalErr`: the worker also raises it for a job's own bad
+/// inputs. The runs list derives `system_error` from these, in SQL that must list the same names
+/// (`windmill-api-jobs`, `system_error_sql!`).
 pub const SYSTEM_ERROR_NAMES: &[&str] = &[
-    "InternalErr",
     "SqlErr",
     "ConnectingToDatabase",
     "WorkerLost",

@@ -333,7 +333,7 @@ pub struct UnifiedJob {
 macro_rules! system_error_sql {
     () => {
         "COALESCE(v2_job_completed.status = 'failure' AND v2_job_completed.result->'error'->>'name' \
-         IN ('InternalErr', 'SqlErr', 'ConnectingToDatabase', 'WorkerLost', 'OutOfMemory'), false)"
+         IN ('SqlErr', 'ConnectingToDatabase', 'WorkerLost', 'OutOfMemory'), false)"
     };
 }
 pub const SYSTEM_ERROR_SQL: &str = system_error_sql!();

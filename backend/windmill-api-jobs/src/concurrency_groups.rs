@@ -337,11 +337,12 @@ async fn get_concurrent_intervals(
         let sql_c = sqlb_c.query()?;
 
         let mut tx = user_db.begin(&authed).await?;
-        let running_jobs: Vec<UnifiedJob> = if lq.success.is_none() && lq.resolved != Some(true) {
-            sqlx::query_as(&sql_q).fetch_all(&mut *tx).await?
-        } else {
-            vec![]
-        };
+        let running_jobs: Vec<UnifiedJob> =
+            if lq.success.is_none() && lq.resolved != Some(true) && lq.system_error != Some(true) {
+                sqlx::query_as(&sql_q).fetch_all(&mut *tx).await?
+            } else {
+                vec![]
+            };
         let completed_jobs: Vec<UnifiedJob> = if lq.running.is_none() {
             sqlx::query_as(&sql_c).fetch_all(&mut *tx).await?
         } else {

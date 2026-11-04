@@ -662,9 +662,14 @@ pub async fn process_result(
                                     job.flow_step_id.clone(),
                                 )
                             }
-                            Connection::Http(_) => {
-                                to_raw_value(&"See logs for more details".to_string())
-                            }
+                            // An agent worker cannot read the logs back, but the error keeps its
+                            // name and exit code, which is what classifies an OOM kill.
+                            Connection::Http(_) => extract_error_value(
+                                &program,
+                                "See logs for more details",
+                                i,
+                                job.flow_step_id.clone(),
+                            ),
                         }
                     }
                 }
@@ -2204,6 +2209,21 @@ pub fn extract_error_value(
         step_id,
         exit_code: Some(i),
     });
+}
+
+#[cfg(test)]
+mod exit_error_tests {
+    #[test]
+    fn only_exit_137_is_out_of_memory() {
+        let name = |code| {
+            let v: serde_json::Value =
+                serde_json::from_str(super::extract_error_value("p", "", code, None).get())
+                    .unwrap();
+            v["name"].as_str().unwrap().to_string()
+        };
+        assert_eq!(name(137), "OutOfMemory");
+        assert_eq!(name(1), "ExecutionErr");
+    }
 }
 
 #[cfg(all(test, feature = "enterprise", feature = "private"))]

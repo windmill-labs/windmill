@@ -4678,7 +4678,8 @@ async fn list_filtered_job_uuids(
     // Same reasoning as the runs-list union gate: "resolved only" is a completed-jobs
     // concept, so unioning the queue would feed queued jobs into bulk actions taken
     // under that filter. "hide resolved" must still keep them.
-    let query = if lq.status.is_some() || lq.resolved == Some(true) {
+    let query = if lq.status.is_some() || lq.resolved == Some(true) || lq.system_error == Some(true)
+    {
         sqlb.subquery()?
     } else {
         let sqlb2 = list_queue_jobs_query(

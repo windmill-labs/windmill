@@ -17586,9 +17586,9 @@ paths:
             type: boolean
         - name: system_error
           description: >-
-            filter on whether a failed run failed because of the platform (internal or
-            database error, lost worker, out of memory) rather than its code. true keeps only
-            those runs, false hides them
+            filter on whether a failed run failed because of the platform (database error,
+            lost worker, out of memory) rather than its code. true keeps only those runs,
+            false hides them
           in: query
           schema:
             type: boolean
@@ -17906,9 +17906,9 @@ paths:
             type: boolean
         - name: system_error
           description: >-
-            filter on whether a failed run failed because of the platform (internal or
-            database error, lost worker, out of memory) rather than its code. true keeps only
-            those runs, false hides them
+            filter on whether a failed run failed because of the platform (database error,
+            lost worker, out of memory) rather than its code. true keeps only those runs,
+            false hides them
           in: query
           schema:
             type: boolean
@@ -18196,9 +18196,9 @@ paths:
             type: boolean
         - name: system_error
           description: >-
-            filter on whether a failed run failed because of the platform (internal or
-            database error, lost worker, out of memory) rather than its code. true keeps only
-            those runs, false hides them
+            filter on whether a failed run failed because of the platform (database error,
+            lost worker, out of memory) rather than its code. true keeps only those runs,
+            false hides them
           in: query
           schema:
             type: boolean
@@ -27117,9 +27117,9 @@ paths:
             type: boolean
         - name: system_error
           description: >-
-            filter on whether a failed run failed because of the platform (internal or
-            database error, lost worker, out of memory) rather than its code. true keeps only
-            those runs, false hides them
+            filter on whether a failed run failed because of the platform (database error,
+            lost worker, out of memory) rather than its code. true keeps only those runs,
+            false hides them
           in: query
           schema:
             type: boolean
@@ -32237,8 +32237,8 @@ components:
           type: boolean
           description: >-
             true when this failed run failed because of the platform rather than its code,
-            derived from its error name: InternalErr, SqlErr, ConnectingToDatabase,
-            WorkerLost or OutOfMemory
+            derived from its error name: SqlErr, ConnectingToDatabase, WorkerLost or
+            OutOfMemory
         trigger_kind:
           $ref: "#/components/schemas/JobTriggerKind"
         worker:
