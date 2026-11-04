@@ -823,11 +823,27 @@
 		if (!forceCancel) setTimeout(() => (forceCancel = true), 3001)
 	}
 
+	// The run's life and a day after it: the audit filter on a run id has no index, so its cost
+	// grows with the time range it covers. Later entries are a widened range away on that page.
+	const auditLogsHref = $derived.by(() => {
+		if (!job) return undefined
+		const params = new URLSearchParams({ job_id: job.id })
+		if (job.created_at) {
+			params.set('after', new Date(new Date(job.created_at).getTime() - 1000).toISOString())
+		}
+		if (job.type === 'CompletedJob') {
+			const end = job.completed_at
+				? new Date(job.completed_at).getTime()
+				: new Date(job.started_at).getTime() + job.duration_ms
+			params.set('before', new Date(end + 24 * 3600 * 1000).toISOString())
+		}
+		return `/audit_logs?${params}`
+	})
 	const moreItems = $derived<Item[]>([
 		{
 			displayName: 'Audit logs',
 			icon: Eye,
-			href: `/audit_logs?job_id=${job?.id}`,
+			href: auditLogsHref,
 			hide: !job || !$roleCapabilities.visibility.audit_logs
 		},
 		{
@@ -906,7 +922,7 @@
 			{
 				displayName: 'Audit logs',
 				icon: Eye,
-				href: `/audit_logs?job_id=${job.id}`,
+				href: auditLogsHref,
 				hide: !$roleCapabilities.visibility.audit_logs
 			},
 			{
