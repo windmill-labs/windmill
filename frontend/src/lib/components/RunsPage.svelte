@@ -57,8 +57,10 @@
 		Hourglass,
 		TriangleAlertIcon,
 		ArrowLeft,
-		Loader2
+		Loader2,
+		SlidersHorizontal
 	} from 'lucide-svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import TimeframeSelect, {
 		buildManualTimeframe,
@@ -1087,41 +1089,68 @@
 					</Button>
 				{/if}
 				{#if graph === 'RunChart'}
-					<div class="ml-auto flex items-center gap-1 self-center">
-						<Select
-							id="runs-chart-duration-unit"
-							class="w-20"
-							size="sm"
-							items={DURATION_UNIT_ITEMS}
-							bind:value={
-								() => durationUnit,
-								(v) => {
-									if (v && v !== durationUnit) {
-										durationUnitStorage.val = v
-										logDurationUnit(v)
+					<Popover
+						class="ml-auto self-center"
+						floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+						contentClasses="p-3 flex flex-col gap-3"
+					>
+						{#snippet trigger()}
+							<Button
+								id="runs-chart-settings"
+								variant="subtle"
+								unifiedSize="sm"
+								iconOnly
+								nonCaptureEvent
+								title="Chart settings"
+								startIcon={{ icon: SlidersHorizontal }}
+							/>
+						{/snippet}
+						{#snippet content()}
+							<div class="flex flex-col gap-1">
+								<span class="text-xs font-semibold text-emphasis">Unit</span>
+								<ToggleButtonGroup
+									id="runs-chart-duration-unit"
+									noWFull
+									bind:selected={
+										() => durationUnit,
+										(v) => {
+											if (DURATION_UNITS.includes(v as DurationUnit) && v !== durationUnit) {
+												durationUnitStorage.val = v
+												logDurationUnit(v)
+											}
+										}
 									}
-								}
-							}
-						/>
-						<ToggleButtonGroup
-							id="runs-chart-duration-scale"
-							noWFull
-							bind:selected={
-								() => durationScale,
-								(v) => {
-									if ((v === 'log' || v === 'linear') && v !== durationScale) {
-										durationScaleStorage.val = v
-										logDurationScale(v)
+								>
+									{#snippet children({ item })}
+										{#each DURATION_UNIT_ITEMS as unit (unit.value)}
+											<ToggleButton value={unit.value} label={unit.label} size="sm" {item} />
+										{/each}
+									{/snippet}
+								</ToggleButtonGroup>
+							</div>
+							<div class="flex flex-col gap-1">
+								<span class="text-xs font-semibold text-emphasis">Scale</span>
+								<ToggleButtonGroup
+									id="runs-chart-duration-scale"
+									noWFull
+									bind:selected={
+										() => durationScale,
+										(v) => {
+											if ((v === 'log' || v === 'linear') && v !== durationScale) {
+												durationScaleStorage.val = v
+												logDurationScale(v)
+											}
+										}
 									}
-								}
-							}
-						>
-							{#snippet children({ item })}
-								<ToggleButton value="log" label="Log" size="sm" {item} />
-								<ToggleButton value="linear" label="Linear" size="sm" {item} />
-							{/snippet}
-						</ToggleButtonGroup>
-					</div>
+								>
+									{#snippet children({ item })}
+										<ToggleButton value="log" label="Log" size="sm" {item} />
+										<ToggleButton value="linear" label="Linear" size="sm" {item} />
+									{/snippet}
+								</ToggleButtonGroup>
+							</div>
+						{/snippet}
+					</Popover>
 				{/if}
 			</div>
 			<div style:height="{chartHeight}px" bind:this={chartBoxEl}>
