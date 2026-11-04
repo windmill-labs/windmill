@@ -152,6 +152,7 @@ pub mod tracing_init;
 pub mod trashbin;
 pub mod trigger_history;
 pub mod triggers;
+pub mod tz;
 pub mod user_drafts;
 pub mod usernames;
 pub mod users;

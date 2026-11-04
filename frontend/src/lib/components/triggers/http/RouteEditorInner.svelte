@@ -13,7 +13,6 @@
 	import {
 		HttpTriggerService,
 		SettingService,
-		VariableService,
 		type AuthenticationMethod,
 		type HttpTrigger,
 		type NewHttpTrigger,
@@ -24,9 +23,9 @@
 	import { capitalize, emptyString, generateRandomString, sendUserToast } from '$lib/utils'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import Section from '$lib/components/Section.svelte'
-	import { Loader2, Pipette, Plus } from 'lucide-svelte'
+	import { Loader2, Pipette } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
-	import VariableEditor from '../../VariableEditor.svelte'
+	import VariablePicker from '../../VariablePicker.svelte'
 	import { json } from 'svelte-highlight/languages'
 	import { Highlight } from 'svelte-highlight'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
@@ -39,7 +38,6 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import ItemPicker from '../../ItemPicker.svelte'
 	import { Popover } from '$lib/components/meltComponents'
 	import {
 		HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
@@ -174,8 +172,7 @@
 	// Component references
 	let s3FilePicker = $state<S3FilePicker | undefined>(undefined)
 	let s3Editor = $state<SimpleEditor | undefined>(undefined)
-	let variablePicker = $state<ItemPicker | undefined>(undefined)
-	let variableEditor = $state<VariableEditor | undefined>(undefined)
+	let variablePicker = $state<VariablePicker | undefined>(undefined)
 	let drawer = $state<Drawer | undefined>(undefined)
 	let initialConfig: NewHttpTrigger | undefined = undefined
 	let deploymentLoading = $state(false)
@@ -229,10 +226,6 @@
 		value: AuthenticationMethod
 		tooltip?: string
 		resource_type?: string
-	}
-
-	async function loadVariables() {
-		return await VariableService.listVariable({ workspace: wsId ?? '' })
 	}
 
 	const authentication_options: AuthenticationOption[] = [
@@ -1136,32 +1129,11 @@
 	</Section>
 {/if}
 
-<ItemPicker
+<VariablePicker
+	editable
 	bind:this={variablePicker}
-	pickCallback={(path, _) => {
+	workspace={wsId}
+	onPick={(path) => {
 		variable_path = path
 	}}
-	tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
-	documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
-	itemName="Variable"
-	extraField="path"
-	loadItems={loadVariables}
-	buttons={{ 'Edit/View': (x) => variableEditor?.editVariable(x) }}
->
-	{#snippet submission()}
-		<div class="flex flex-row">
-			<Button
-				variant="default"
-				size="sm"
-				startIcon={{ icon: Plus }}
-				on:click={() => {
-					variableEditor?.initNew()
-				}}
-			>
-				New variable
-			</Button>
-		</div>
-	{/snippet}
-</ItemPicker>
-
-<VariableEditor bind:this={variableEditor} on:create={(e) => variablePicker?.openDrawer()} />
+/>

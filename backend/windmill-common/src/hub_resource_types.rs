@@ -11,7 +11,7 @@
 //! superadmins run [`sync`] on demand, and `windmill cache-rt` bakes the public hub's listing
 //! into the image for instances that cannot reach a hub.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,13 @@ use crate::{
     worker::HUB_RT_CACHE_DIR,
     DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
 };
+
+lazy_static::lazy_static! {
+    /// `DISABLE_RT_SYNC`: nothing writes the `admins` types but the instance's own users, so no
+    /// sync of any kind runs and migrations skip the types they would seed.
+    pub static ref DISABLE_RT_SYNC: bool = std::env::var("DISABLE_RT_SYNC")
+        .is_ok_and(|v| v.eq_ignore_ascii_case("true") || v == "1");
+}
 
 const SYNC_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::hours(24);
 const RETRY_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::hours(1);
@@ -143,22 +150,26 @@ pub async fn fetch(
         .collect())
 }
 
-/// The listing of the hub this instance is configured with.
-async fn fetch_configured_hub(db: &DB) -> Result<Vec<HubResourceType>> {
+/// The listing of the hub this instance is configured with, and whether a private hub supplied
+/// it rather than the public one.
+async fn fetch_configured_hub(db: &DB) -> Result<(Vec<HubResourceType>, bool)> {
     let hub = (**HUB_BASE_URL.load()).clone();
     let uid = get_license_id_or_uid(db).await.ok();
     if hub == DEFAULT_HUB_BASE_URL {
-        return fetch(&hub, None, uid.as_deref()).await;
+        return Ok((fetch(&hub, None, uid.as_deref()).await?, false));
     }
     let secret = (**HUB_API_SECRET.load()).clone();
     let types = fetch(&hub, secret.as_deref(), uid.as_deref()).await?;
     if !types.is_empty() {
-        return Ok(types);
+        return Ok((types, true));
     }
     // A private hub that publishes no resource types of its own defers to the public one,
     // which must not be sent the private hub's secret.
     tracing::info!("The hub at {hub} lists no resource types, syncing the public hub's");
-    fetch(DEFAULT_HUB_BASE_URL, None, uid.as_deref()).await
+    Ok((
+        fetch(DEFAULT_HUB_BASE_URL, None, uid.as_deref()).await?,
+        false,
+    ))
 }
 
 #[derive(PartialEq, Debug)]
@@ -298,6 +309,9 @@ async fn apply(db: &DB, source: SyncSource, types: &[HubResourceType]) -> Result
 struct SyncState {
     last_attempt_at: Option<DateTime<Utc>>,
     last_hub_sync_at: Option<DateTime<Utc>>,
+    /// The types the last successful hub sync took from a private hub.
+    #[serde(default)]
+    private_hub_types: HashSet<String>,
 }
 
 async fn load_state(db: &DB) -> Result<SyncState> {
@@ -336,22 +350,32 @@ async fn setting_enabled(db: &DB, name: &str) -> Result<bool> {
 async fn sync_from_hub(db: &DB) -> Result<SyncOutcome> {
     let attempted_at = Utc::now();
     let result = match fetch_configured_hub(db).await {
-        Ok(types) => apply(db, SyncSource::Hub, &types).await,
+        Ok((types, private)) => apply(db, SyncSource::Hub, &types)
+            .await
+            .map(|outcome| (outcome, private)),
         Err(e) => Err(e),
     };
     let state = match &result {
-        Ok(_) => {
-            json!({ "last_attempt_at": attempted_at, "last_hub_sync_at": attempted_at, "last_error": null })
-        }
+        Ok((outcome, private)) => json!({
+            "last_attempt_at": attempted_at,
+            "last_hub_sync_at": attempted_at,
+            "last_error": null,
+            "private_hub_types": if *private { &outcome.listed[..] } else { &[] },
+        }),
         Err(e) => json!({ "last_attempt_at": attempted_at, "last_error": e.to_string() }),
     };
     record_state(db, state).await?;
-    result
+    result.map(|(outcome, _)| outcome)
 }
 
 /// Syncs from the configured hub, falling back to the image's cache when the hub is disabled
 /// or unreachable and the instance has never synced from a hub.
 pub async fn sync(db: &DB) -> Result<SyncOutcome> {
+    if *DISABLE_RT_SYNC {
+        return Err(Error::BadRequest(
+            "Resource type sync is disabled on this instance".to_string(),
+        ));
+    }
     let hub_err = if setting_enabled(db, DISABLE_HUB_SETTING).await? {
         Error::BadRequest("The hub is disabled on this instance".to_string())
     } else {
@@ -384,8 +408,12 @@ async fn fall_back_to_image_cache(db: &DB, path: &str) -> Result<Option<SyncOutc
 /// Applies the listing baked into the image (`SYNC_CACHED_RT`), on every start and whether or
 /// not the instance has synced from a hub: it is how an instance that cannot reach the public
 /// hub, a private hub listing only its own types included, takes each new image's public types.
-/// `None` when the image carries no cache.
+/// Types the last hub sync took from a private hub are left as it wrote them. `None` when the image carries
+/// no cache.
 pub async fn sync_from_image_cache(db: &DB) -> Result<Option<SyncOutcome>> {
+    if *DISABLE_RT_SYNC {
+        return Ok(None);
+    }
     sync_from_cache_file(db, &cache_path()).await
 }
 
@@ -402,11 +430,15 @@ async fn sync_from_cache_file(db: &DB, path: &str) -> Result<Option<SyncOutcome>
             )))
         }
     };
-    let types: Vec<HubResourceType> = serde_json::from_str(&content).map_err(|e| {
+    let mut types: Vec<HubResourceType> = serde_json::from_str(&content).map_err(|e| {
         Error::InternalErr(format!(
             "Failed to parse cached resource types at {path}: {e}"
         ))
     })?;
+    // A private hub's copy of a type is the one the instance chose, however old, so the cache
+    // only fills in the types it does not list. Public types still take each image's copy.
+    let private_hub_types = load_state(db).await?.private_hub_types;
+    types.retain(|rt| !private_hub_types.contains(&rt.name));
     Ok(Some(apply(db, SyncSource::ImageCache, &types).await?))
 }
 
@@ -433,7 +465,8 @@ pub fn spawn_daily_sync(db: DB, mut killpill_rx: tokio::sync::broadcast::Receive
 }
 
 async fn sync_if_due(db: &DB) -> Result<()> {
-    if !setting_enabled(db, SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING).await?
+    if *DISABLE_RT_SYNC
+        || !setting_enabled(db, SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING).await?
         || setting_enabled(db, DISABLE_HUB_SETTING).await?
     {
         return Ok(());
@@ -528,7 +561,7 @@ mod tests {
     }
 
     #[sqlx::test(migrations = "../migrations")]
-    async fn only_sync_cached_rt_applies_the_image_cache_after_a_hub_sync(
+    async fn after_a_hub_sync_the_image_cache_only_fills_in_types_the_hub_does_not_list(
         db: DB,
     ) -> anyhow::Result<()> {
         let dir = tempfile::tempdir()?;
@@ -549,7 +582,11 @@ mod tests {
         assert!(fall_back_to_image_cache(&db, path).await?.is_some());
         assert_eq!(description().await?.as_deref(), Some("image copy"));
 
-        record_state(&db, json!({ "last_hub_sync_at": Utc::now() })).await?;
+        record_state(
+            &db,
+            json!({ "last_hub_sync_at": Utc::now(), "private_hub_types": ["cached_type"] }),
+        )
+        .await?;
         sqlx::query(
             "UPDATE resource_type SET description = 'hub copy' WHERE workspace_id = 'admins' AND name = 'cached_type'",
         )
@@ -558,8 +595,18 @@ mod tests {
         assert!(fall_back_to_image_cache(&db, path).await?.is_none());
         assert_eq!(description().await?.as_deref(), Some("hub copy"));
 
-        assert!(sync_from_cache_file(&db, path).await?.is_some());
-        assert_eq!(description().await?.as_deref(), Some("image copy"));
+        // A newer image: the hub's type keeps the hub's copy, the image's new type arrives.
+        std::fs::write(
+            path,
+            json!([
+                { "name": "cached_type", "schema": null, "description": "image copy" },
+                { "name": "new_type", "schema": null, "description": null }
+            ])
+            .to_string(),
+        )?;
+        let outcome = sync_from_cache_file(&db, path).await?.unwrap();
+        assert_eq!(outcome.changed, vec!["new_type".to_string()]);
+        assert_eq!(description().await?.as_deref(), Some("hub copy"));
         Ok(())
     }
 
