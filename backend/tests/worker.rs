@@ -325,7 +325,7 @@ async fn test_flow_timeout_runs_failure_module(db: Pool<Postgres>) -> anyhow::Re
     let sweep_db = db.clone();
     let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
         .run_until_complete_with(&db, false, server.addr.port(), |id| {
-            sweep_once_suspended(sweep_db.clone(), id)
+            sweep_while_suspended(sweep_db.clone(), id)
         })
         .await;
 
@@ -353,36 +353,56 @@ async fn test_subflow_timeout_fails_the_calling_step(db: Pool<Postgres>) -> anyh
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
 
-    // The subflow's own 1s holds when it runs as a step, and its expiry is a failed step to the
-    // caller, which goes on, not a cancel of the caller.
-    let sub = json!({
-        "timeout": 1,
-        "modules": [
-            {"id": "a", "value": {"type": "identity"},
-             "suspend": {"required_events": 1, "timeout": 600}},
-            {"id": "b", "value": {"type": "identity"}},
-        ],
-        "failure_module": {"id": "failure", "value": {"type": "identity"}},
-    });
-    sqlx::query(
-        "INSERT INTO flow (workspace_id, summary, description, path, versions, schema, value, edited_by)
-         VALUES ('test-workspace', '', '', 'f/system/sub', ARRAY[1]::bigint[], '{}'::jsonb, $1, 'system')",
+    // A subflow's own 1s holds when it runs as a step. Its expiry is a failed step to the caller,
+    // which goes on, not a cancel of the caller, and the caller sees the timeout error whether or
+    // not the subflow has a failure module.
+    let deploy = |path: &'static str, version: i64, value: serde_json::Value| {
+        let db = db.clone();
+        async move {
+            sqlx::query(
+                "INSERT INTO flow (workspace_id, summary, description, path, versions, schema, value, edited_by)
+                 VALUES ('test-workspace', '', '', $1, ARRAY[$2]::bigint[], '{}'::jsonb, $3, 'system')",
+            )
+            .bind(path)
+            .bind(version)
+            .bind(&value)
+            .execute(&db)
+            .await?;
+            sqlx::query(
+                "INSERT INTO flow_version (id, workspace_id, path, schema, value, created_by)
+                 VALUES ($1, 'test-workspace', $2, '{}'::jsonb, $3, 'system')",
+            )
+            .bind(version)
+            .bind(path)
+            .bind(&value)
+            .execute(&db)
+            .await?;
+            anyhow::Ok(())
+        }
+    };
+    let parked = json!([
+        {"id": "a", "value": {"type": "identity"},
+         "suspend": {"required_events": 1, "timeout": 600}},
+        {"id": "b", "value": {"type": "identity"}},
+    ]);
+    deploy(
+        "f/system/handled",
+        1,
+        json!({"timeout": 1, "modules": parked,
+               "failure_module": {"id": "failure", "value": {"type": "identity"}}}),
     )
-    .bind(&sub)
-    .execute(&db)
     .await?;
-    sqlx::query(
-        "INSERT INTO flow_version (id, workspace_id, path, schema, value, created_by)
-         VALUES (1, 'test-workspace', 'f/system/sub', '{}'::jsonb, $1, 'system')",
-    )
-    .bind(&sub)
-    .execute(&db)
-    .await?;
+    deploy("f/system/bare", 2, json!({"timeout": 1, "modules": parked})).await?;
+    let call = |id: &str, path: &str| {
+        json!({"id": id, "continue_on_error": true,
+               "value": {"type": "flow", "path": path, "input_transforms": {}}})
+    };
+    // An identity step returns its input: the error its caller saw from the step before.
+    let seen = |id: &str| json!({"id": id, "value": {"type": "identity"}});
     let flow: FlowValue = serde_json::from_value(json!({
         "modules": [
-            {"id": "call", "continue_on_error": true,
-             "value": {"type": "flow", "path": "f/system/sub", "input_transforms": {}}},
-            {"id": "after", "value": {"type": "identity"}},
+            call("handled", "f/system/handled"), seen("seen_handled"),
+            call("bare", "f/system/bare"), seen("seen_bare"),
         ],
     }))
     .unwrap();
@@ -390,7 +410,7 @@ async fn test_subflow_timeout_fails_the_calling_step(db: Pool<Postgres>) -> anyh
     let sweep_db = db.clone();
     let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
         .run_until_complete_with(&db, false, server.addr.port(), |id| {
-            sweep_once_suspended(sweep_db.clone(), id)
+            sweep_while_suspended(sweep_db.clone(), id)
         })
         .await;
 
@@ -400,23 +420,23 @@ async fn test_subflow_timeout_fails_the_calling_step(db: Pool<Postgres>) -> anyh
         job.json_result()
     );
     assert_eq!(job.canceled_by, None);
-    let steps: Vec<(String, Option<String>)> = sqlx::query_as(
-        "SELECT j.flow_step_id, c.canceled_by FROM v2_job j JOIN v2_job_completed c USING (id)
+    let steps: Vec<(String, Option<String>, serde_json::Value)> = sqlx::query_as(
+        "SELECT j.flow_step_id, c.canceled_by, c.result FROM v2_job j JOIN v2_job_completed c USING (id)
          WHERE j.parent_job = $1 ORDER BY j.created_at",
     )
     .bind(job.id)
     .fetch_all(&db)
     .await?;
-    assert_eq!(
-        steps,
-        vec![
-            ("call".to_string(), Some("timeout".to_string())),
-            ("after".to_string(), None)
-        ]
-    );
+    let timed_out = json!({"name": "ExecutionErr",
+        "message": "flow terminated due to timeout: the flow exceeded its 1s timeout"});
+    for (i, step) in ["handled", "bare"].iter().enumerate() {
+        assert_eq!(steps[2 * i].0, *step);
+        assert_eq!(steps[2 * i].1.as_deref(), Some("timeout"));
+        assert_eq!(steps[2 * i + 1].2["error"], timed_out, "seen after {step}");
+    }
     let sub_steps: Vec<String> = sqlx::query_scalar(
         "SELECT flow_step_id FROM v2_job WHERE parent_job =
-           (SELECT id FROM v2_job WHERE parent_job = $1 AND flow_step_id = 'call')
+           (SELECT id FROM v2_job WHERE parent_job = $1 AND flow_step_id = 'handled')
          ORDER BY created_at",
     )
     .bind(job.id)
@@ -426,24 +446,27 @@ async fn test_subflow_timeout_fails_the_calling_step(db: Pool<Postgres>) -> anyh
     Ok(())
 }
 
-/// Runs the timeout sweep once a flow of `root`'s tree is parked at an approval, a second later
-/// so its 1s timeout has passed: parked, it holds no worker and only the sweep ends it.
-async fn sweep_once_suspended(db: Pool<Postgres>, root: uuid::Uuid) {
+/// Runs the timeout sweep each time a flow of `root`'s tree is parked at an approval, a second
+/// later so its 1s timeout has passed: parked, it holds no worker and only the sweep ends it.
+async fn sweep_while_suspended(db: Pool<Postgres>, root: uuid::Uuid) {
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            let suspended: bool = sqlx::query_scalar(
-                "SELECT EXISTS (SELECT 1 FROM v2_job_queue q JOIN v2_job j USING (id)
-                 WHERE (j.id = $1 OR j.parent_job = $1) AND q.suspend > 0)",
+            let (running, suspended): (bool, bool) = sqlx::query_as(
+                "SELECT EXISTS (SELECT 1 FROM v2_job_queue WHERE id = $1),
+                        EXISTS (SELECT 1 FROM v2_job_queue q JOIN v2_job j USING (id)
+                                WHERE (j.id = $1 OR j.parent_job = $1) AND q.suspend > 0)",
             )
             .bind(root)
             .fetch_one(&db)
             .await
             .unwrap();
+            if !running {
+                break;
+            }
             if suspended {
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                 windmill_queue::cancel_timed_out_flows(&db).await.unwrap();
-                break;
             }
         }
     });

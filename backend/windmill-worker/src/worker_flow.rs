@@ -1844,8 +1844,12 @@ pub async fn update_flow_status_after_job_completion_internal(
             success = true;
         }
 
-        let nresult = if timeout_to_failure_module {
-            step_failure = StepFailureKind::FlowTimeout;
+        // The timeout error is what the failure module and a calling step see, with or without a
+        // failure module, as a script's timeout is an `ExecutionErr` to its caller.
+        let nresult = if own_timeout && !is_failure_step {
+            if timeout_to_failure_module {
+                step_failure = StepFailureKind::FlowTimeout;
+            }
             let message = format!(
                 "flow terminated due to timeout: {}",
                 flow_job
