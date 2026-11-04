@@ -49,6 +49,7 @@ After all code changes are done, run `./update_sqlx.sh` from `backend/` to regen
 - **Bug fixes** for non-obvious bugs: add regression test
 - **Pure UI changes**: no tests required (rely on type checking)
 - **Refactoring**: ensure existing tests pass, don't add new ones
+- **Backend tests**: read `docs/test-suite-cost.md` first for where a new test belongs and what keeps it cheap
 
 ## When to Check Performance
 
