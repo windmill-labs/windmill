@@ -430,17 +430,19 @@ ORDER BY depth, id
     Ok((tx, Some(id)))
 }
 
-/// Enforces a flow job's `timeout` (the flow's own, or its subflow step's) where no worker holds
-/// the flow: it is cancelled with its steps as by a user, which also wakes a flow parked at an
-/// approval, and the worker sends a flow cancelled by [`FLOW_TIMEOUT_CANCELER`] to its failure
-/// module before ending it. `singlestepflow` is left out: its `timeout` is its script's.
+/// Enforces a root flow's `timeout` where no worker holds the flow: it is cancelled with its
+/// steps as by a user, which also wakes a flow parked at an approval, and the worker sends a
+/// flow cancelled by [`FLOW_TIMEOUT_CANCELER`] to its failure module before ending it.
+/// `singlestepflow` is left out: its `timeout` is its script's.
 pub async fn cancel_timed_out_flows(db: &Pool<Postgres>) -> error::Result<()> {
-    // Same shape as the zombie flow sweep: running flow jobs of the queue, joined by id.
+    // Same shape as the zombie flow sweep: running flow jobs of the queue, joined by id. A
+    // child flow job's `timeout` is its subflow step's, which this does not enforce.
     let flows = sqlx::query!(
         "SELECT q.id, q.workspace_id, j.timeout AS \"timeout!\"
         FROM v2_job_queue q JOIN v2_job j USING (id)
         WHERE q.running = true AND q.canceled_by IS NULL
             AND j.kind IN ('flow', 'flowpreview', 'flownode')
+            AND j.parent_job IS NULL
             AND j.timeout > 0
             AND q.started_at + make_interval(secs => j.timeout) <= now()"
     )
@@ -8024,7 +8026,8 @@ async fn push_inner<'c, 'd>(
         guarded_concurrent_limit,
         guarded_concurrency_time_window_s,
         windmill_common::runnable_settings::none_if_non_positive(custom_timeout)
-            .or(windmill_common::runnable_settings::none_if_non_positive(flow_timeout)),
+            .or(windmill_common::runnable_settings::none_if_non_positive(flow_timeout)
+                .filter(|_| parent_job.is_none())),
         flow_step_id,
         cache_ttl,
         final_priority,

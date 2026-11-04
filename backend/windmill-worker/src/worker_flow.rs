@@ -1801,24 +1801,20 @@ pub async fn update_flow_status_after_job_completion_internal(
             && step_failure.honors_step_error_policy()
             && (skip_seq_branch_failure || skip_loop_failures || continue_on_error);
 
-        // A flow cancelled by its own timeout still runs its failure module, once, before it
-        // ends. The subflows and loop iterations cancelled with it share its `canceled_by` but
-        // not its expired deadline, and just stop, so `has_triggered_error_handler` (set on a
-        // parallel node, whose iterations normally run the handler) must not hold the flow's back.
+        // A root flow cancelled by its timeout still runs its failure module, once, before it
+        // ends, whatever its loops' stop conditions say. The subflows and loop iterations
+        // cancelled with it share its `canceled_by` and just stop, so `has_triggered_error_handler`
+        // (set on a parallel node, whose iterations normally run the handler) must not hold it back.
         let timeout_to_failure_module = flow_job.canceled_by.as_deref()
             == Some(windmill_common::jobs::FLOW_TIMEOUT_CANCELER)
-            && flow_job.timeout.is_some_and(|t| {
-                t > 0
-                    && flow_job.started_at.is_some_and(|s| {
-                        s + chrono::Duration::seconds(t as i64) <= chrono::Utc::now()
-                    })
-            })
+            && flow_job.parent_job.is_none()
             && !is_failure_step
             && flow_value.failure_module.is_some();
 
         let should_continue_flow = match success {
+            _ if timeout_to_failure_module => true,
             _ if stop_early => stop_early_err_msg.is_some() && flow_value.failure_module.is_some(), // if stop_early_err_msg some, we want to trigger the error handler before stopping the flow, if any
-            _ if flow_job.is_canceled() => timeout_to_failure_module,
+            _ if flow_job.is_canceled() => false,
             true => !is_last_step,
             // A failure the module's error policy does not describe (a worker crash/OOM
             // surfaced by the zombie handler, an error raised while updating the flow status,
