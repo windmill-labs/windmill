@@ -119,7 +119,7 @@
 						<RowIcon kind={isFlow ? 'flow' : 'script'} />
 
 						<a
-							href="#{trigger.external_id}"
+							href="#{encodeURIComponent(trigger.external_id)}"
 							onclick={(e) => {
 								if (isNewTabClick(e)) return
 								onEdit?.(trigger)
