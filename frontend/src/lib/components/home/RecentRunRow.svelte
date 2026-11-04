@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto, openOnNewTabClick } from '$lib/navigation'
+	import { goto } from '$app/navigation'
 	import { workspaceStore } from '$lib/stores'
 	import { CircleCheck, CircleSlash, CircleX, Loader2, Wrench } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
@@ -91,10 +91,7 @@
 	tabindex="0"
 	aria-label={onSelect ? `Show ${title} in the workspace list` : `Open ${title}`}
 	class="group relative flex items-center gap-2.5 min-h-[42px] px-2.5 py-[5px] rounded-md cursor-pointer hover:bg-surface-hover focus-visible:bg-surface-hover outline-none"
-	onclick={(e) => {
-		if (!openOnNewTabClick(e, itemHref(item))) open()
-	}}
-	onauxclick={(e) => openOnNewTabClick(e, itemHref(item))}
+	onclick={open}
 	onkeydown={(e) => {
 		if (e.key === 'Enter' && e.target === e.currentTarget) open()
 	}}

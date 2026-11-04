@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto, openOnNewTabClick } from '$lib/navigation'
+	import { goto } from '$lib/navigation'
 	import type { Job } from '$lib/gen'
 	import {
 		displayDate,
@@ -88,11 +88,6 @@
 		!showTag}
 	style="width: {containerWidth}px"
 	onclick={() => dispatch('select')}
-	onauxclick={(e) => {
-		// ctrl/cmd-click on a row is multi-select, so only a middle click opens the run.
-		if (!isExternal)
-			openOnNewTabClick(e, `/run/${job.id}?workspace=${job.workspace_id}`, { modifiers: false })
-	}}
 	oncontextmenu={(e) => !selected && dispatch('select')}
 >
 	<!-- Selection column (only when in selection mode) -->
