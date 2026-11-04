@@ -25,7 +25,7 @@ use windmill_common::workspaces::{check_deploy_rules, operator_can_draft, RuleCh
 
 use crate::secret_backend_ext::rename_vault_secret;
 use crate::var_resource_cache::{auth_identity, cache_resource, get_cached_resource};
-use crate::variables::describe_authed;
+use crate::variables::{describe_authed, describe_extra_perms};
 use windmill_common::utils::{
     check_proper_path, check_proper_type_name, escape_ilike_pattern, sanitize_db_error,
     BulkDeleteRequest,
@@ -729,12 +729,14 @@ pub async fn explain_resource_perm_error(
         .await?;
         return Err(Error::NotAuthorized(format!(
             "Resource exists but you don't have access to it:\nresource perms: {}\nfolder perms: {}\nauthed as: {}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default(), describe_authed(Some(authed))
+            describe_extra_perms(Some(&extra_perms)),
+            describe_extra_perms(folder_extra_perms.as_ref()),
+            describe_authed(Some(authed))
         )));
     } else {
         return Err(Error::NotAuthorized(format!(
             "Resource exists but you don't have access to it:\nresource perms: {}\nauthed as: {}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(),
+            describe_extra_perms(Some(&extra_perms)),
             describe_authed(Some(authed))
         )));
     }
