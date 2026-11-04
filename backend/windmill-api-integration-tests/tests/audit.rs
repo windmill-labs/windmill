@@ -166,11 +166,25 @@ async fn test_audit_list_filters_by_run(db: Pool<Postgres>) -> anyhow::Result<()
         .send()
         .await?;
     assert_2xx(resp.status().as_u16(), &resp.text().await?, "cancel");
+    // A subflow of the run and a step of that subflow, whose approval and start are filed under
+    // their own ids.
+    let (sub, step) = (uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+    sqlx::query(
+        "INSERT INTO v2_job (id, workspace_id, parent_job)
+         VALUES ($1, 'test-workspace', $2::uuid), ($3, 'test-workspace', $1)",
+    )
+    .bind(sub)
+    .bind(run)
+    .bind(step)
+    .execute(&db)
+    .await?;
     sqlx::query(
         "INSERT INTO audit_partitioned (workspace_id, username, operation, action_kind, parameters)
-         VALUES ('test-workspace', 'test-user', 'jobs.suspend_resume', 'update', $1)",
+         VALUES ('test-workspace', 'test-user', 'jobs.suspend_resume', 'update', $1),
+                ('test-workspace', 'test-user', 'jobs.run.script', 'execute', $2)",
     )
-    .bind(json!({ "job_id": run }))
+    .bind(json!({ "job_id": sub }))
+    .bind(json!({ "uuid": step }))
     .execute(&db)
     .await?;
 
@@ -187,7 +201,12 @@ async fn test_audit_list_filters_by_run(db: Pool<Postgres>) -> anyhow::Result<()
     ops.sort();
     assert_eq!(
         ops,
-        ["jobs.cancel", "jobs.run.preview", "jobs.suspend_resume"],
+        [
+            "jobs.cancel",
+            "jobs.run.preview",
+            "jobs.run.script",
+            "jobs.suspend_resume"
+        ],
         "entries of {run} (not of {other})"
     );
 

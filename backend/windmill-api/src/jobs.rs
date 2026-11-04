@@ -5841,9 +5841,8 @@ async fn resume_suspended_job_internal(
     Ok(StatusCode::CREATED)
 }
 
-/// `job_id` is the flow the suspended step belongs to, whichever id the resume request named, so
-/// the entry lists under that flow's run (the subflow, for a step nested in one); the step itself
-/// is kept as `step_job_id`.
+/// `job_id` is the flow the suspended step belongs to, whichever id the resume request named; the
+/// step itself is kept as `step_job_id`.
 async fn audit_suspend_resume(
     tx: &mut Transaction<'_, Postgres>,
     author: &AuditAuthor,
