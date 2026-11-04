@@ -67,7 +67,11 @@ export function persistedResource<A, T>(
 	let latest = 0
 	let inFlight = $state(false)
 	let error = $state<unknown>(undefined)
-	const res = resource<A, Tagged<T>>(source, async (args) => {
+	// The identity is a source too: a response is tagged with the keys of its request, and once
+	// the identity changes no response tagged before matches the keys shown, so without a new
+	// request nothing would be shown until the arguments next change.
+	const sourceWithIdentity = () => ({ args: source(), identity: cacheIdentity() })
+	const res = resource(sourceWithIdentity, async ({ args }): Promise<Tagged<T>> => {
 		const id = ++latest
 		inFlight = true
 		try {

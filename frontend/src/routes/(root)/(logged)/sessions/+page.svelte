@@ -10,7 +10,7 @@
 
 <script lang="ts">
 	import { onDestroy, onMount, untrack } from 'svelte'
-	import { SvelteSet } from 'svelte/reactivity'
+	import { MediaQuery, SvelteSet } from 'svelte/reactivity'
 	import { page } from '$app/state'
 	import {
 		Plus,
@@ -438,7 +438,19 @@
 	// pickers at once.
 	let emptyStateNewTabOpen = $state(false)
 
-	let fullscreen = $state(false)
+	// Collapse the preview panel to give the chat the full width. Per-session and
+	// owned by the runtime's previewTabs (restored on switch, written back on
+	// toggle) so it survives session switches with the rest of the tab model.
+	const previewCollapsed = $derived(owner?.collapsed ?? false)
+
+	let fullscreenToggled = $state(false)
+	// Below `sm` the row is too narrow for both panes: the chat's 25% minimum leaves it under
+	// 100px, where messages wrap a character per line. An open panel is full screen there.
+	const narrowScreen = new MediaQuery('(max-width: 639px)')
+	const fullscreen = $derived(fullscreenToggled || (narrowScreen.current && !previewCollapsed))
+	// The band's last breadcrumb stage alone fills a phone's width, leaving the strip and controls
+	// no room there, so a narrow panel keeps them in its own card.
+	const bandFullscreen = $derived(fullscreen && !narrowScreen.current)
 
 	// Going full screen is the preview panel expanding to the left: the chat column shrinks to
 	// nothing and the panel takes its place. Animating that is what carries the switch, so the
@@ -451,7 +463,7 @@
 	let panesAnimating = $state(false)
 	let panesAnimationTimer: ReturnType<typeof setTimeout> | undefined = undefined
 	function toggleFullscreen() {
-		fullscreen = !fullscreen
+		fullscreenToggled = !fullscreenToggled
 		if (reducedMotion.val) return
 		panesAnimating = true
 		clearTimeout(panesAnimationTimer)
@@ -494,10 +506,6 @@
 	$effect(() => {
 		owner?.setFullscreen(fullscreen)
 	})
-	// Collapse the preview panel to give the chat the full width. Per-session and
-	// owned by the runtime's previewTabs (restored on switch, written back on
-	// toggle) so it survives session switches with the rest of the tab model.
-	const previewCollapsed = $derived(owner?.collapsed ?? false)
 
 	// Collapse works by resizing the preview pane to zero, never unmounting it:
 	// the pane hosts every warm session's preview tabs, and unmounting would
@@ -974,12 +982,12 @@
      so from then on the name comes from there, with its pen and its menu. -->
 <PageHeaderContent
 	barRightInset={bandInset}
-	section={fullscreen
+	section={bandFullscreen
 		? { label: activeSession?.summary ?? 'Untitled session', noNavPicker: true }
 		: undefined}
-	actions={fullscreen ? fullscreenBand : sessionPageActions}
-	actionsFill={fullscreen}
-	separator={fullscreen ? 'always' : 'none'}
+	actions={bandFullscreen ? fullscreenBand : sessionPageActions}
+	actionsFill={bandFullscreen}
+	separator={bandFullscreen ? 'always' : 'none'}
 />
 
 {#snippet fullscreenBand()}
@@ -1002,15 +1010,27 @@
 	{#if previewCollapsed && !fullscreen}
 		<!-- Collapsed preview: the way back to the side panel, in the band with the session's own
 		     controls rather than floating over the chat. -->
-		<Button
-			variant="subtle"
-			unifiedSize="sm"
-			startIcon={{ icon: PanelRightOpen }}
-			title="Open side panel"
-			onclick={() => owner?.setCollapsed(false)}
-		>
-			Open side panel
-		</Button>
+		<span class="sm:hidden">
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				iconOnly
+				startIcon={{ icon: PanelRightOpen }}
+				title="Open side panel"
+				onclick={() => owner?.setCollapsed(false)}
+			/>
+		</span>
+		<span class="hidden sm:inline-flex">
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				startIcon={{ icon: PanelRightOpen }}
+				title="Open side panel"
+				onclick={() => owner?.setCollapsed(false)}
+			>
+				Open side panel
+			</Button>
+		</span>
 	{/if}
 {/snippet}
 
@@ -1129,7 +1149,11 @@
 										panelShare = w / contentWidth
 								}
 							}
-							class="flex-1 min-h-0 flex flex-col {fullscreen ? `p-0 ${BAR_TOP_PAD}` : 'p-2 pl-0'}"
+							class="flex-1 min-h-0 flex flex-col {bandFullscreen
+								? `p-0 ${BAR_TOP_PAD}`
+								: fullscreen
+									? `px-2 pb-2 ${BAR_TOP_PAD}`
+									: 'p-2 pl-0'}"
 						>
 							<!-- The action controls float over the tab strip, so the strip has to reserve
 							     their width or tabs slide underneath them. Measured rather than guessed:
@@ -1137,17 +1161,21 @@
 							     page has no View|Edit toggle), so a fixed padding is either short for
 							     the widest case or wasted space for the narrowest. -->
 							<div
-								class="flex flex-col flex-1 min-h-0 overflow-hidden relative bg-surface {fullscreen
+								class="flex flex-col flex-1 min-h-0 overflow-hidden relative bg-surface {bandFullscreen
 									? ''
 									: 'rounded-md border border-light'}"
 								style="--preview-actions-w: {previewActionsWidth + 8}px"
 							>
-								{#if !fullscreen}
+								{#if !bandFullscreen}
 									<!-- Collapse the preview panel — floats over the top-left corner so
 									     the tab strip keeps the full width. -->
 									<button
 										type="button"
-										onclick={() => owner?.setCollapsed(true)}
+										onclick={() => {
+											// Full screen toggled on a wide window outlives a narrowing one.
+											fullscreenToggled = false
+											owner?.setCollapsed(true)
+										}}
 										title="Collapse preview"
 										aria-label="Collapse preview"
 										class="absolute top-1 left-1 z-30 inline-flex items-center justify-center w-6 h-6 rounded text-tertiary hover:text-primary hover:bg-surface-hover"
@@ -1159,7 +1187,7 @@
 								<!-- In full screen the strip and these controls move into the page header band,
 								     which is empty there and has the width for them; the pane below keeps only
 								     the content. -->
-								{#if !fullscreen}
+								{#if !bandFullscreen}
 									<!-- Open-in-full-page + full-screen toggle, floating over the top-right
 									     corner to mirror the collapse control. Its width is measured so the strip
 									     can reserve room and its tabs never scroll underneath. -->
@@ -1291,7 +1319,9 @@
 			<ExternalLink size={14} />
 		</a>
 	{/if}
-	{#if fullscreen}
+	{#if narrowScreen.current}
+		<!-- Full screen is automatic there; the card's collapse button leads back to the chat. -->
+	{:else if fullscreen}
 		<!-- Named rather than an icon alone: full screen hid the chat, and what the user wants back
 		     is the chat, not a window size. The band has the room for the word. -->
 		<button

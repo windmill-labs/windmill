@@ -9,8 +9,11 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 <script lang="ts">
 	import { ChevronDown, PanelLeft } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { BROWSER } from 'esm-env'
 	import { navDetached } from './sidebar/navDetached.svelte'
 	import { navHandleSlot } from './sidebar/navHandlePlacement.svelte'
+	import ModeButtonFlash from './sidebar/ModeButtonFlash.svelte'
 	import NavBreadcrumb from './NavBreadcrumb.svelte'
 	import BreadcrumbNavPicker from './BreadcrumbNavPicker.svelte'
 	import { BAR_HEIGHT, pageHeader, PHONE_BAR } from './pageHeaderRegistry.svelte'
@@ -31,6 +34,39 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		panelled?: boolean
 	} = $props()
 
+	// Read once, as the layout does: whether the card slides in on hover or waits for a tap.
+	const hoverPointer = BROWSER && window.matchMedia('(hover: hover)').matches
+	// Below the layout's 768px breakpoint the sidebar is a drawer whatever the mode, so the handle
+	// has no mode to offer there.
+	let innerWidth = $state(BROWSER ? window.innerWidth : 0)
+
+	// The keyboard's way to the hidden sidebar: focusing the handle shows the card as hovering it
+	// does, and Tab from the handle goes into the card, which comes later in no tab order. Focus
+	// coming back from the card (Esc) or from the handle's menu does not show it again.
+	function cameFromCardOrMenu(e: FocusEvent): boolean {
+		return !!(e.relatedTarget as Element | null)?.closest('[data-nav-card], [role="menu"]')
+	}
+	// A closing menu is gone before focus returns, so that return carries no related target.
+	let focusInHandleMenu = false
+	function revealOnKeyboardFocus(e: FocusEvent) {
+		const fromMenu = focusInHandleMenu
+		focusInHandleMenu = false
+		if (!(e.target as Element).matches(':focus-visible') || fromMenu || cameFromCardOrMenu(e))
+			return
+		navHandleSlot.open()
+	}
+	function hideOnBlur(e: FocusEvent) {
+		if ((e.relatedTarget as Element | null)?.closest('[role="menu"]')) focusInHandleMenu = true
+		if (!cameFromCardOrMenu(e)) navHandleSlot.scheduleClose()
+	}
+	function tabIntoCard(e: KeyboardEvent) {
+		if (e.key !== 'Tab' || e.shiftKey) return
+		const link = document.querySelector<HTMLElement>('[data-nav-card] a[href]')
+		if (!link || link.closest('[inert]')) return
+		e.preventDefault()
+		if (!navHandleSlot.pinned) navHandleSlot.toggle()
+		link.focus()
+	}
 	const content = $derived(pageHeader.content)
 	const actions = $derived(pageHeader.actions)
 	const hasActions = $derived(actions.length > 0)
@@ -167,7 +203,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	const showEdge = $derived(separator === 'always' || (separator === 'onScroll' && scrolledUnder))
 </script>
 
-<svelte:window onscrollcapture={onScrollCapture} />
+<svelte:window onscrollcapture={onScrollCapture} bind:innerWidth />
 
 <!-- The band owns its bottom edge, so a page never draws a second one under it. A page says which
      rule it wants (see `separator` in the registry); the default shows the edge only while
@@ -200,31 +236,55 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 		)}
 	>
 		{#if (navDetached.val || panelled) && !navHidden}
-			<!-- Reveals the hidden sidebar, and only that: the card follows the pointer, holding while it
-		     is on the handle, on the card, or in a menu either opened, and sliding back out when it
-		     leaves. A click or tap pins it instead, until another one here, a press on the page or Esc
-		     puts it back. Attaching
-		     it for good belongs to the toggle in the sidebar's own footer, where detaching it
-		     happened. Docked, the sidebar speaks for itself and nothing leads the bar. -->
+			<!-- Reveals the hidden sidebar: the card follows the pointer, holding while it is on the
+		     handle, on the card, or in a menu either opened, and sliding back out when it leaves. A tap
+		     pins it instead, until another one here, a press on the page or Esc puts it back. Docked,
+		     the sidebar speaks for itself and nothing leads the bar. -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				data-nav-handle
+				class="relative"
 				bind:clientWidth={handleWidth}
 				onmouseenter={() => navHandleSlot.open()}
 				onmouseleave={() => navHandleSlot.scheduleClose()}
+				onfocusin={revealOnKeyboardFocus}
+				onfocusout={hideOnBlur}
+				onkeydown={tabIntoCard}
 			>
+				<ModeButtonFlash />
 				<!-- No tooltip: hovering here already slides the sidebar in, which says what the button
-			     does better than a label popping up over it. -->
-				<Button
-					variant="subtle"
-					unifiedSize="sm"
-					iconOnly
-					startIcon={{ icon: PanelLeft }}
-					aria-label="Show sidebar"
-					selected={navHandleSlot.pinned}
-					aria-pressed={navHandleSlot.pinned}
-					onclick={() => navHandleSlot.toggle()}
-				/>
+			     does better than a label popping up over it. Where hover does that, a click picks the
+			     sidebar's mode, as the card has no footer to hold that menu; a touch screen taps to pin
+			     the card instead. -->
+				{#if navDetached.val && hoverPointer && innerWidth >= 768 && navHandleSlot.modeItems}
+					<DropdownV2
+						placement="bottom-start"
+						fixedHeight={false}
+						items={() => navHandleSlot.modeItems ?? []}
+					>
+						{#snippet buttonReplacement()}
+							<Button
+								nonCaptureEvent
+								variant="subtle"
+								unifiedSize="sm"
+								iconOnly
+								startIcon={{ icon: PanelLeft }}
+								aria-label="Sidebar mode"
+							/>
+						{/snippet}
+					</DropdownV2>
+				{:else}
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						iconOnly
+						startIcon={{ icon: PanelLeft }}
+						aria-label="Show sidebar"
+						selected={navHandleSlot.pinned}
+						aria-pressed={navHandleSlot.pinned}
+						onclick={() => navHandleSlot.toggle()}
+					/>
+				{/if}
 			</div>
 		{/if}
 

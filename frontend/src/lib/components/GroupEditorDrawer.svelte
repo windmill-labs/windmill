@@ -2,8 +2,10 @@
 	import { Button, Drawer, DrawerContent } from './common'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import GroupEditor from './GroupEditor.svelte'
-	import { Save } from 'lucide-svelte'
+	import AccessDrawer from './AccessDrawer.svelte'
+	import { Save, ShieldCheck } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { useOperatingUser } from './operatingWorkspace.svelte'
 
 	let {
 		offset = 0,
@@ -13,7 +15,9 @@
 		onSaved?: (name: string, created: boolean) => void | Promise<void>
 	} = $props()
 
+	const operatingUser = useOperatingUser()
 	let drawer: Drawer | undefined = $state()
+	let accessDrawer: AccessDrawer | undefined = $state()
 	let mode: 'edit' | 'new' = $state('edit')
 	let name: string = $state('')
 	let canSave = $state(false)
@@ -125,6 +129,17 @@
 			{/key}
 		</div>
 		{#snippet actions()}
+			{#if exists && (operatingUser.current?.is_admin || operatingUser.current?.is_super_admin || operatingUser.current?.groups.includes(name))}
+				<Button
+					variant="default"
+					unifiedSize="md"
+					startIcon={{ icon: ShieldCheck }}
+					title="What this group gives its members access to"
+					onClick={() => accessDrawer?.open(`g/${name}`, 'group')}
+				>
+					Access
+				</Button>
+			{/if}
 			<Button
 				variant="accent"
 				unifiedSize="md"
@@ -138,6 +153,8 @@
 		{/snippet}
 	</DrawerContent>
 </Drawer>
+
+<AccessDrawer bind:this={accessDrawer} />
 
 <!-- `alwaysPortal`: this drawer is opened from inside another drawer (the folder editor, itself
      reachable from a resource or variable form), and that outer drawer is a stacking context
