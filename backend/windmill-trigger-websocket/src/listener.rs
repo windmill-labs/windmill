@@ -20,6 +20,7 @@ use windmill_common::ssrf::SsrfValidationError;
 use windmill_common::{
     error::{to_anyhow, Error, Result},
     jobs::JobTriggerKind,
+    runnable_ref::RunnableRef,
     triggers::TriggerMetadata,
     utils::report_critical_error,
     worker::to_raw_value,
@@ -103,15 +104,11 @@ async fn connect_once(
 ) -> std::result::Result<<WebsocketTrigger as Listener>::Consumer, ConnectFailure> {
     let url = &listening_trigger.trigger_config.url;
     let connect_url: Cow<str> = if url.starts_with("$") {
-        let Some((kind, path)) = url
-            .split_once(':')
-            .filter(|(kind, _)| *kind == "$flow" || *kind == "$script")
-        else {
-            return Err(ConnectFailure {
-                error: format!("Invalid WebSocket runnable path: {}", url),
-                transient: false,
-            });
-        };
+        let runnable = match RunnableRef::from_ws_url(url) {
+            Some(parsed) => parsed.map_err(|err| err.to_string()),
+            None => Err(format!("Invalid WebSocket runnable path: {url}")),
+        }
+        .map_err(|error| ConnectFailure { error, transient: false })?;
         update_rw_lock(
             err_message,
             Some("Waiting on runnable to return WebSocket URL...".to_string()),
@@ -125,8 +122,7 @@ async fn connect_once(
         let url = async {
             let authed = listening_trigger.authed(db, "ws").await?;
             get_url_from_runnable_value(
-                path,
-                kind == "$flow",
+                &runnable,
                 db,
                 authed,
                 args,
@@ -270,8 +266,7 @@ async fn send_initial_messages(
                     None,
                     authed.clone(),
                     &listening_trigger.workspace_id,
-                    &path,
-                    is_flow,
+                    &RunnableRef::from_path(&path, is_flow)?,
                     PushArgsOwned { args, extra: None },
                     None,
                     None,
@@ -594,15 +589,10 @@ impl Listener for WebsocketTrigger {
         let WebsocketConfig { url, .. } = trigger_config;
 
         trigger_info.insert("trigger_path".to_string(), to_raw_value(path));
-        let args = WebsocketTrigger::build_job_args(
-            &script_path,
-            *is_flow,
-            workspace_id,
-            db,
-            payload,
-            trigger_info,
-        )
-        .await;
+        let runnable = RunnableRef::from_path(script_path, *is_flow)?;
+        let args =
+            WebsocketTrigger::build_job_args(&runnable, workspace_id, db, payload, trigger_info)
+                .await;
 
         let args = match args {
             Ok(args) => args,
@@ -629,8 +619,7 @@ impl Listener for WebsocketTrigger {
                 None,
                 authed,
                 &workspace_id,
-                &script_path,
-                *is_flow,
+                &runnable,
                 args,
                 retry,
                 error_handler_path,
@@ -644,8 +633,6 @@ impl Listener for WebsocketTrigger {
         } else if let Some(ReturnMessageChannels { send_message_tx, mut killpill_rx }) = extra {
             let db_ = db.clone();
             let url = url.to_owned();
-            let script_path = script_path.to_owned();
-            let is_flow = *is_flow;
             let w_id = workspace_id.to_owned();
             let retry = retry.cloned();
             let error_handler_path = error_handler_path.map(|s| s.to_string());
@@ -662,8 +649,7 @@ impl Listener for WebsocketTrigger {
                         None,
                         authed,
                         &w_id,
-                        &script_path,
-                        is_flow,
+                        &runnable,
                         args,
                         retry.as_ref(),
                         error_handler_path.as_deref(),

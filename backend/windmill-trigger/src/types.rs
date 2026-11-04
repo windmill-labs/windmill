@@ -105,6 +105,7 @@ impl TriggerErrorHandling {
                  (got '{path}')"
             )));
         }
+        windmill_common::runnable_ref::RunnableRef::from_path(path, false)?;
         Ok(())
     }
 }
@@ -313,6 +314,14 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("cannot be a flow"), "{err}");
+    }
+
+    #[test]
+    fn test_error_handler_path_rejects_what_does_not_parse() {
+        for path in ["hub/abc", "hub/0", "//u/admin/handler", ""] {
+            assert!(error_handling(Some(path)).validate().is_err(), "{path:?}");
+        }
+        assert!(error_handling(Some("/u/admin/handler")).validate().is_ok());
     }
 
     // --- TriggerMode serde ---

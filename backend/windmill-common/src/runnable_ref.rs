@@ -26,7 +26,19 @@ impl RunnableRef {
         }
     }
 
-    /// A setting that takes the prefixed form or a bare script path: the global error handler.
+    /// `$script:<path>` or `$flow:<path>`, as a WebSocket trigger's URL names its resolver.
+    /// `None` for anything else, a plain URL or an unknown `$` prefix.
+    pub fn from_ws_url(url: &str) -> Option<Result<Self>> {
+        if let Some(rest) = url.strip_prefix("$script:") {
+            Some(Self::from_path(rest, false))
+        } else {
+            url.strip_prefix("$flow:")
+                .map(|rest| Self::from_path(rest, true))
+        }
+    }
+
+    /// A setting that takes the prefixed form or a bare script path: the global error handler,
+    /// the Slack and Teams command scripts.
     pub fn from_setting(s: &str) -> Result<Self> {
         if s.starts_with("script/") || s.starts_with("flow/") {
             Self::from_prefixed(s)
@@ -179,6 +191,13 @@ mod tests {
         for bad in ["script///u/me/x", "resource/u/me/x", "u/me/x"] {
             assert!(p(bad).is_err(), "{bad}");
         }
+
+        let ws = |s: &str| RunnableRef::from_ws_url(s).expect("runnable url");
+        assert_eq!(ws("$script:/u/me/x").unwrap().path(), "u/me/x");
+        assert!(ws("$flow:f/a/b").unwrap().is_flow());
+        assert!(ws("$script://u/me/x").is_err());
+        assert!(RunnableRef::from_ws_url("wss://example.com").is_none());
+        assert!(RunnableRef::from_ws_url("$other:u/me/x").is_none());
     }
 
     #[test]
