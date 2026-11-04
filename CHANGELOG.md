@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.861.0](https://github.com/windmill-labs/windmill/compare/v1.860.0...v1.861.0) (2026-11-04)
+
+
+### Features
+
+* add unit, scale and height controls to the runs chart ([#12191](https://github.com/windmill-labs/windmill/issues/12191)) ([77fb2ed](https://github.com/windmill-labs/windmill/commit/77fb2eda01312662f5ee0a13ebd0c55d3b61b53f))
+* filter the audit log by run ([#12190](https://github.com/windmill-labs/windmill/issues/12190)) ([f9448bf](https://github.com/windmill-labs/windmill/commit/f9448bf25b20fb63ddb057e32f9aba7370c3a1de))
+* flow-level wall-clock timeout ([#12205](https://github.com/windmill-labs/windmill/issues/12205)) ([6a1a0a3](https://github.com/windmill-labs/windmill/commit/6a1a0a3599e693d43307b67fbba7688176bcbcef))
+* instance groups driven by the IdP groups claim without SCIM ([#12186](https://github.com/windmill-labs/windmill/issues/12186)) ([f2facc7](https://github.com/windmill-labs/windmill/commit/f2facc77324d0e0993820ef097f22c344a42951b))
+* list recently entered workspaces first in the workspace pickers ([#12133](https://github.com/windmill-labs/windmill/issues/12133)) ([d8773f4](https://github.com/windmill-labs/windmill/commit/d8773f4316e2f2682f0c4e27a4abb286af7ca140))
+* open shared artifacts full screen and switch between them ([#12206](https://github.com/windmill-labs/windmill/issues/12206)) ([fa83659](https://github.com/windmill-labs/windmill/commit/fa83659b482d2674c7509bfaa3d22d7e77d485bd))
+* per-provider PKCE for SSO logins ([#12189](https://github.com/windmill-labs/windmill/issues/12189)) ([b09e1bf](https://github.com/windmill-labs/windmill/commit/b09e1bfb2eec8ad51a7f9c6050473ebe5d5028d1))
+
+
+### Bug Fixes
+
+* authorize the existing runnable when updating a native trigger ([#12197](https://github.com/windmill-labs/windmill/issues/12197)) ([da60e86](https://github.com/windmill-labs/windmill/commit/da60e86035c51371d6f8ed63b60983888d774497))
+* keep shared esbuild service alive until the last parallel build ends ([#12210](https://github.com/windmill-labs/windmill/issues/12210)) ([8d7bd15](https://github.com/windmill-labs/windmill/commit/8d7bd153a2dd2de421a5466aae947554050739b8))
+* keep the recent runs popover from overflowing ([#12204](https://github.com/windmill-labs/windmill/issues/12204)) ([7850bd2](https://github.com/windmill-labs/windmill/commit/7850bd213d8a2bdf7a041f2b0bdafb0d77f8fff8))
+* open raw apps whose data config has no tables list ([#12214](https://github.com/windmill-labs/windmill/issues/12214)) ([26f671f](https://github.com/windmill-labs/windmill/commit/26f671fe926955c737ee7cf8ed5114b4d20c9baf))
+* parse handler references once with RunnableRef ([#12203](https://github.com/windmill-labs/windmill/issues/12203)) ([7f6251f](https://github.com/windmill-labs/windmill/commit/7f6251f390893b58f2f52bfbee4da4e712dbfd57))
+* readable caller and grants in variable/resource perm errors ([#12200](https://github.com/windmill-labs/windmill/issues/12200)) ([647452b](https://github.com/windmill-labs/windmill/commit/647452b181ecefdfe78f8ffef00b5d2afa4e1417))
+* stop git sync auto-pull from reverting edits with its own commit ([#12209](https://github.com/windmill-labs/windmill/issues/12209)) ([6268780](https://github.com/windmill-labs/windmill/commit/626878095267bee5832a14b4b8a929da02659346))
+* truncate long ai chat tool labels and fold extra tool kinds into +N ([#12185](https://github.com/windmill-labs/windmill/issues/12185)) ([8dd97a5](https://github.com/windmill-labs/windmill/commit/8dd97a5a2de8207196da2b71dedbaf5557b7b995))
+
 ## [1.860.0](https://github.com/windmill-labs/windmill/compare/v1.859.0...v1.860.0) (2026-11-03)
 
 

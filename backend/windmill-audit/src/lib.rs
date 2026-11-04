@@ -42,4 +42,6 @@ pub struct ListAuditLogQuery {
     // without paying a growing OFFSET on every batch.
     pub before_id: Option<i64>,
     pub all_workspaces: Option<bool>,
+    // The entries about one run: started, viewed, cancelled, resumed, deleted...
+    pub job_id: Option<sqlx::types::Uuid>,
 }

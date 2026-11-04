@@ -135,3 +135,80 @@ async fn test_job_run_is_searchable_by_token_and_by_caller(
 
     Ok(())
 }
+
+/// The run filter must find a run's entries under each key they keep its id in: the run itself
+/// (`parameters.uuid`), a cancel (`resource`) and a resume (`parameters.job_id`), and only those.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_audit_list_filters_by_run(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use serde_json::json;
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let w = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let mut ids = vec![];
+    for _ in 0..2 {
+        let resp = authed(client().post(format!("{w}/jobs/run/preview")))
+            .json(
+                &json!({ "content": "export function main() {}", "language": "deno", "args": {} }),
+            )
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 201);
+        ids.push(resp.text().await?);
+    }
+    let (run, other) = (&ids[0], &ids[1]);
+
+    let resp = authed(client().post(format!("{w}/jobs_u/queue/cancel/{run}")))
+        .json(&json!({}))
+        .send()
+        .await?;
+    assert_2xx(resp.status().as_u16(), &resp.text().await?, "cancel");
+    // A subflow of the run and a step of that subflow, whose approval and start are filed under
+    // their own ids.
+    let (sub, step) = (uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+    sqlx::query(
+        "INSERT INTO v2_job (id, workspace_id, parent_job)
+         VALUES ($1, 'test-workspace', $2::uuid), ($3, 'test-workspace', $1)",
+    )
+    .bind(sub)
+    .bind(run)
+    .bind(step)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO audit_partitioned (workspace_id, username, operation, action_kind, parameters)
+         VALUES ('test-workspace', 'test-user', 'jobs.suspend_resume', 'update', $1),
+                ('test-workspace', 'test-user', 'jobs.run.script', 'execute', $2)",
+    )
+    .bind(json!({ "job_id": sub }))
+    .bind(json!({ "uuid": step }))
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().get(format!("{w}/audit/list?job_id={run}")))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let mut ops = resp
+        .json::<Vec<serde_json::Value>>()
+        .await?
+        .into_iter()
+        .map(|l| l["operation"].as_str().unwrap_or_default().to_string())
+        .collect::<Vec<_>>();
+    ops.sort();
+    assert_eq!(
+        ops,
+        [
+            "jobs.cancel",
+            "jobs.run.preview",
+            "jobs.run.script",
+            "jobs.suspend_resume"
+        ],
+        "entries of {run} (not of {other})"
+    );
+
+    Ok(())
+}
