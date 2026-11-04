@@ -46,6 +46,9 @@
 					href={item.href}
 					class="{rowClass} text-[color:inherit]"
 					onclick={(e) => onRowClick(item, e)}
+					onauxclick={(e) => {
+						if (e.button === 1) onRowClick(item, e)
+					}}
 					onmouseenter={() => item.onHover?.(true)}
 					onmouseleave={() => item.onHover?.(false)}
 				>

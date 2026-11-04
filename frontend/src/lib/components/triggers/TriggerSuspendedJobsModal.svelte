@@ -451,7 +451,7 @@
 										target="_blank"
 										rel="noopener noreferrer"
 										title="Open run in a new tab"
-										class="text-primary hover:underline">{displayDate(job.created_at)}</a
+										class="text-accent hover:underline">{displayDate(job.created_at)}</a
 									>
 								</Cell>
 

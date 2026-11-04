@@ -85,7 +85,10 @@
 		openAgentEditor
 	} from '$lib/components/flows/agentEditorStore.svelte'
 	import { copilotInfo } from '$lib/aiStore'
-	import { setPageDrawerAnchor } from '$lib/components/sessions/pageDrawerSession'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
 	import { useHostedPage } from '$lib/components/hostedPage'
 	import { RESOURCES_PATH } from '$lib/components/sessions/previewPaths'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
@@ -869,7 +872,13 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:this={resourceTypeViewer} size="800px">
+<Drawer
+	bind:this={resourceTypeViewer}
+	size="800px"
+	on:close={() => {
+		if (window.location.hash.startsWith(RESOURCE_TYPE_HASH)) clearPageDrawerAnchor(RESOURCES_PATH)
+	}}
+>
 	<DrawerContent title={resourceTypeViewerObj.rt} on:close={resourceTypeViewer.closeDrawer}>
 		{#snippet titleExtra()}
 			<IconedResourceType
