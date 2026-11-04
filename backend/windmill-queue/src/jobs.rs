@@ -441,7 +441,7 @@ pub async fn cancel_timed_out_flows(db: &Pool<Postgres>) -> error::Result<()> {
         "SELECT q.id, q.workspace_id, j.timeout AS \"timeout!\"
         FROM v2_job_queue q JOIN v2_job j USING (id)
         WHERE q.running = true AND q.canceled_by IS NULL
-            AND j.kind IN ('flow', 'flowpreview', 'flownode')
+            AND j.kind IN ('flow', 'flowpreview')
             AND j.parent_job IS NULL
             AND j.timeout > 0
             AND q.started_at + make_interval(secs => j.timeout) <= now()"
