@@ -105,7 +105,9 @@ export interface Setting {
 	codeAreaLang?: string
 	actionButton?: {
 		label: string
-		onclick: (values: Record<string, any>) => Promise<void>
+		onclick?: (values: Record<string, any>) => Promise<void>
+		/** Opens in a new tab, so unsaved settings survive. */
+		href?: string
 		variant?: ButtonType.Variant
 	}
 }
@@ -139,6 +141,11 @@ function validateIndexerSettings(v: any): Record<string, string> {
 	return errors
 }
 
+const manageInstanceGroupsButton: Setting['actionButton'] = {
+	label: 'Manage instance groups',
+	href: '/instance_groups'
+}
+
 export const scimSamlSetting: Setting[] = [
 	{
 		label: 'SCIM token',
@@ -147,7 +154,8 @@ export const scimSamlSetting: Setting[] = [
 		fieldType: 'password',
 		placeholder: 'mytoken',
 		storage: 'setting',
-		ee_only: ''
+		ee_only: '',
+		actionButton: manageInstanceGroupsButton
 	},
 	{
 		label: 'SAML metadata',
@@ -851,7 +859,8 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'text',
 			placeholder: 'groups',
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			actionButton: manageInstanceGroupsButton
 		},
 		{
 			label: 'MCP external identity provider',

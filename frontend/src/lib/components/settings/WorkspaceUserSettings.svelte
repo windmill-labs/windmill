@@ -694,16 +694,17 @@
 									{#if instanceGroups.length === 0}
 										<span class="text-xs text-secondary">
 											{#if $superadmin}
-												This instance has no groups yet. <a href="/instance_groups">Create one</a>
-												or sync them from your identity provider with
+												This instance has no groups yet. <a href="/instance_groups">Create one</a>,
+												optionally linked to an IdP group so SSO logins set its members, or sync
+												them from your identity provider with
 												<a
 													href="https://www.windmill.dev/docs/misc/saml_and_scim#scim"
 													target="_blank"
 													rel="noopener noreferrer">SCIM</a
 												>.
 											{:else}
-												This instance has no groups yet. A superadmin can create them or sync them
-												from your identity provider.
+												This instance has no groups yet. A superadmin can create them, link them to
+												your identity provider's groups, or sync them with SCIM.
 											{/if}
 										</span>
 									{/if}
@@ -1011,7 +1012,8 @@
 										{@render removeUserButton(true)}
 										<Tooltip
 											>Cannot remove users synced from instance groups. Either disable the user or
-											remove them from the SCIM group.</Tooltip
+											remove them from the instance group, in your identity provider when the group
+											is synced by SCIM or linked to an IdP group.</Tooltip
 										>
 									</div>
 								{:else if canConvertToGroup(user)}
