@@ -1091,7 +1091,7 @@
 				{#if graph === 'RunChart'}
 					<Popover
 						class="ml-auto self-center"
-						floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+						placement="bottom-end"
 						contentClasses="p-3 flex flex-col gap-3"
 					>
 						{#snippet trigger()}
