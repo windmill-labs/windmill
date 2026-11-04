@@ -2,6 +2,7 @@
 	import type { Snippet } from 'svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import SessionStatusToken, { TOKEN_TRIGGER_CLASS } from './SessionStatusToken.svelte'
+	import { isNewTabClick } from '$lib/navigation'
 
 	// Shared shell for the session status-line popovers (Edits / Artifacts / Jobs):
 	// one trigger token, one header, one keyboard-navigable row list — so styling
@@ -13,6 +14,7 @@
 		items,
 		itemKey,
 		onPick,
+		itemHref,
 		rowTitle,
 		row,
 		actions,
@@ -35,7 +37,10 @@
 		items: T[]
 		itemKey: (item: T) => string
 		/** Primary row activation; the popover closes itself first. */
-		onPick: (item: T) => void
+		onPick: (item: T, e: MouseEvent) => void
+		/** Makes a row a link opening this URL in a new tab, which middle and ⌘/Ctrl-click keep
+		 * doing; on a plain click `onPick` may `preventDefault()` to open it in place instead. */
+		itemHref?: (item: T) => string | undefined
 		rowTitle?: (item: T) => string
 		/** Content of the row's primary button. */
 		row: Snippet<[T]>
@@ -59,17 +64,19 @@
 		maxHeightClass?: string
 	} = $props()
 
-	function pick(item: T) {
+	function pick(item: T, e: MouseEvent) {
 		open = false
-		onPick(item)
+		onPick(item, e)
 	}
 
 	// Roving focus over the rows' primary buttons.
 	let listRoot = $state<HTMLDivElement | undefined>(undefined)
 
-	function rowButtons(): HTMLButtonElement[] {
+	function rowButtons(): HTMLElement[] {
 		return listRoot
-			? Array.from(listRoot.querySelectorAll<HTMLButtonElement>('button[data-status-row]'))
+			? Array.from(
+					listRoot.querySelectorAll<HTMLElement>('button[data-status-row], a[data-status-row]')
+				)
 			: []
 	}
 
@@ -123,19 +130,28 @@
 			<div class="flex min-h-0 flex-col" bind:this={listRoot} onkeydown={handleListKeydown}>
 				<div role="list" class="{maxHeightClass} overflow-y-auto py-1">
 					{#each items as item, index (itemKey(item))}
+						{@const href = itemHref?.(item)}
 						<div
 							class="flex items-center gap-2 py-1 pl-3 pr-2 hover:bg-surface-hover focus-within:bg-surface-hover"
 							role="listitem"
 						>
-							<button
-								type="button"
+							<svelte:element
+								this={href ? 'a' : 'button'}
+								type={href ? undefined : 'button'}
+								role={href ? 'link' : 'button'}
+								{href}
+								target={href ? '_blank' : undefined}
+								rel={href ? 'noopener' : undefined}
 								data-status-row
-								class="flex min-w-0 flex-1 items-center gap-2 text-left font-normal focus:outline-none"
+								class="flex min-w-0 flex-1 items-center gap-2 text-left font-normal focus:outline-none text-[color:inherit]"
 								title={rowTitle?.(item)}
-								onclick={() => pick(item)}
+								onclick={(e: MouseEvent) => {
+									if (href && isNewTabClick(e)) return
+									pick(item, e)
+								}}
 							>
 								{@render row(item)}
-							</button>
+							</svelte:element>
 							{#if actions}
 								<div class="flex shrink-0 items-center gap-1.5">
 									{@render actions(item)}

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import { isNewTabClick } from '$lib/navigation'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import {
 		Alert,
@@ -455,7 +456,8 @@
 												<a
 													class="break-all"
 													id="edit-{path}"
-													onclick={() => {
+													onclick={(e) => {
+														if (!hosted && isNewTabClick(e)) return
 														handledHash = `#${path}`
 														editVariable(path)
 													}}

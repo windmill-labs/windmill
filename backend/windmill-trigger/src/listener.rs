@@ -19,6 +19,7 @@ use windmill_api_auth::ApiAuthed;
 use windmill_common::{
     error::{Error, Result},
     jobs::JobTriggerKind,
+    runnable_ref::RunnableRef,
     triggers::{TriggerKind, TriggerMetadata},
     utils::report_critical_error,
     worker::to_raw_value,
@@ -533,9 +534,10 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             "trigger_path".to_string(),
             to_raw_value(&listening_trigger.path),
         );
+        let runnable =
+            RunnableRef::from_path(&listening_trigger.script_path, listening_trigger.is_flow)?;
         let args = Self::build_job_args(
-            &listening_trigger.script_path,
-            listening_trigger.is_flow,
+            &runnable,
             &listening_trigger.workspace_id,
             db,
             payload,
@@ -569,8 +571,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             None,
             authed,
             &listening_trigger.workspace_id,
-            &listening_trigger.script_path,
-            listening_trigger.is_flow,
+            &runnable,
             args,
             retry,
             error_handler_path.as_deref(),

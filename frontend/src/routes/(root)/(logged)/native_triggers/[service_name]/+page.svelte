@@ -45,7 +45,36 @@
 	let loading = $state(true)
 	let serviceAvailable: boolean | undefined = $state(undefined)
 	let serviceSupported = $state(true)
-	let editor: NativeTriggerEditor
+	let editor: NativeTriggerEditor | undefined = $state()
+
+	// Deep link: #<external_id> opens that trigger's editor. Opening a trigger pre-sets
+	// handledId: a row link opens the editor itself, before the hash moves. Ids are compared
+	// decoded since the browser percent-encodes the hash.
+	let handledId = ''
+	$effect(() => {
+		const hash = page.url.hash
+		if (hash.length <= 1) {
+			handledId = ''
+			return
+		}
+		let externalId: string
+		try {
+			externalId = decodeURIComponent(hash.slice(1))
+		} catch {
+			return
+		}
+		if (externalId === handledId || !editor) return
+		const trigger = triggers.find((t) => t.external_id === externalId)
+		if (trigger) {
+			handledId = externalId
+			editor.openEdit(trigger.external_id, trigger.is_flow)
+		}
+	})
+
+	function openEditor(trigger: TriggerW) {
+		handledId = trigger.external_id
+		editor?.openEdit(trigger.external_id, trigger.is_flow)
+	}
 
 	let filteredItems: TriggerW[] = $state([])
 	let items: TriggerW[] = $state([])
@@ -287,7 +316,7 @@
 						service={serviceName}
 						triggers={items.slice(0, nbDisplayed)}
 						{loading}
-						onEdit={(trigger) => editor?.openEdit(trigger.external_id, trigger.is_flow)}
+						onEdit={openEditor}
 						onRecreate={(trigger) => editor?.openRecreate(trigger)}
 						onSync={syncTriggers}
 						onUpdate={loadTriggers}

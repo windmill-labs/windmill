@@ -5,6 +5,7 @@
 	import type { IconType } from '$lib/utils'
 	import { runToolDisplayAction } from './createdResourceActions.svelte'
 	import { openItemPreviewAction, type PreviewCardKind } from './shared'
+	import { isNewTabClick } from '$lib/navigation'
 
 	interface Props {
 		card: { kind: PreviewCardKind | 'agent'; path: string }
@@ -19,9 +20,12 @@
 		 * tabs use. Defaults to the editor: a card sits on a write-tool result, and the
 		 * draft it just wrote is what the reader is being offered. */
 		mode?: 'edit' | 'view'
+		/** The page the chip opens, when it is one: middle and ⌘/Ctrl-click then open it in a new
+		 * tab, while a plain click still opens it where `onOpen` puts it. */
+		href?: string
 	}
 
-	let { card, onOpen, title, kindIcon = true, mode = 'edit' }: Props = $props()
+	let { card, onOpen, title, kindIcon = true, mode = 'edit', href }: Props = $props()
 
 	const kindLabel = $derived(card.kind === 'raw_app' ? 'app' : card.kind)
 
@@ -60,7 +64,14 @@
 		(mode === 'view'
 			? `Open the deployed ${kindLabel}: ${card.path}`
 			: `Open ${kindLabel} preview: ${card.path}`)}
-	onClick={open}
+	{href}
+	onClick={(e) => {
+		if (href) {
+			if (e instanceof MouseEvent && isNewTabClick(e)) return
+			e?.preventDefault()
+		}
+		open()
+	}}
 	startIcon={kindIcon
 		? { icon: RowIcon as unknown as IconType, props: { kind: card.kind, size: 12 } }
 		: undefined}
