@@ -1,12 +1,998 @@
 {
-	"base": "This server works in a Windmill workspace as the user \"{{username}}\".\n\nRules:\n- What you write is a per-user draft, saved server-side and visible only to this user. Nothing reaches the workspace until deploy_workspace_item deploys it, which you call only when the user asks.\n- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, a draft's editor (`url`), an app draft's editor with its live preview (`preview_url`), a deployed item's page. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves: show it with show_run, show_runs, show_item or show_deploy_review when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.\n- Find items with list_workspace_items and read one with read_workspace_item before changing it. An agent is a resource of type `ai_agent`: test it with test_run_agent and run a deployed one with run_agent, never run_flow or run_script.\n- Call get_instructions before writing a script, flow, agent, resource or app, a data pipeline or a datatable migration. For a script, pass its language. Call get_trigger_schema before write_trigger, since each trigger kind takes different fields, and get_db_schema before writing SQL against a database resource.\n- After writing a script, flow, agent or app runnable, test it with test_run_script, test_run_flow, test_run_step, test_run_agent or test_run_app_runnable before saying it works. They run the draft, so nothing needs deploying.\n- A request to run something also goes to the test_run tools. Use run_script, run_flow or run_agent only when the user asks for the deployed version, after reading it with version \"deployed\" so the arguments match.\n- To undo your own work, discard its draft with discard_local_draft. delete_workspace_item removes an item that is deployed.\n- Listings return only what this user can see. When an item they name is missing, say it may be in a folder they cannot read, not that it does not exist.\n- No one can read a variable's value through these tools. When editing a variable, pass only the fields that change.\n- Before writing code against a third-party API, look for its integration with search_hub_scripts and get_hub_integration.\n- Only raw apps (`rawApp` true) can be read, edited and deployed here. When a deploy says it widens who may open an app, tell the user in plain words.\n- Datatables are set up in the workspace settings. Start from list_datatables; one with `migrations_enabled` changes its schema through migrations only.\n- create_resource_type adds a resource type: show the user the schema first and create it once they agree.\n- For how Windmill itself works, use search_docs and read_docs_page, and link the page you relied on.\n\nPath conventions:\n- A workspace path starts with one of two namespaces; its trailing <name> may itself contain \"/\", so a path has three or more segments:\n  - `u/{{username}}/<name>` — your personal scope. Default for ad-hoc, exploratory, or scratch work.\n  - `f/<folder>/<name>` — a shared folder scope; the <folder> must already exist (a bare `f/<name>` with no folder segment is INVALID and will fail).\n- If the user supplies a fully qualified `f/<folder>/...` path, use that exact path; they have already chosen the folder. Do not ask for folder confirmation or substitute a `u/{{username}}/...` path unless a tool rejects it.\n- Default a bare name with no namespace prefix (e.g. \"create a flow called myflow\") to `u/{{username}}/<name>`. Never invent an `f/<folder>/...` path for a folder that does not exist; create one with `create_folder` only when the user explicitly asks for a new folder.{{folder_guidance}}",
+	"template": "This server works in a Windmill workspace as the user \"{{username}}\".{{#read_only}}{{#runs_deployed}}\n\nThis connection can read the workspace's items, runs and data, and run scripts, flows and agents that are already deployed. It cannot create, edit, deploy or delete anything, nor test-run code that is not deployed: when the user asks for such a change, say plainly that this connection cannot make it, rather than describing steps as if you had made it.{{/runs_deployed}}{{^runs_deployed}}\n\nThis connection is read-only: it can read the workspace's items, runs and data, but cannot run, create, edit, deploy or delete anything. When the user asks for a run or a change, say plainly that this connection cannot make it, rather than describing steps as if you had made it.{{/runs_deployed}}{{/read_only}}{{^read_only}}{{^can_write_draft}}\n\nThis user's role does not let them create or edit {{refused_kinds}} here, so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had, and suggest asking a workspace admin, who can grant their role more.{{#builds_flows}} Their role does let them compose flows out of scripts and flows that are already deployed: write flows with write_flow and patch_flow_json, every step calling a deployed script or flow by path. The server refuses inline code anywhere in the flow, so when a flow needs logic no deployed script provides, say so and suggest asking a workspace admin for that script.{{/builds_flows}}{{#builds_apps}} Their role does let them build raw apps whose backend runnables are path runnables to deployed scripts or flows; call get_instructions with subject \"app\" first. The server refuses inline and hub runnables, and runs an app they deploy sandboxed, as the user who deployed it.{{/builds_apps}}{{#has_draft_tools}} They can draft with {{draft_tools}}.{{/has_draft_tools}}{{/can_write_draft}}{{/read_only}}\n\nRules:{{#can_write_any_draft}}\n- What you write is a per-user draft, saved server-side and visible only to this user. {{#can_deploy}}Nothing reaches the workspace until deploy_workspace_item deploys it, which you call only when the user asks.{{/can_deploy}}{{^can_deploy}}{{#can_deploy_any_kind}}Nothing reaches the workspace until it is deployed, and this workspace's deploy rules let this user deploy only the schedules and triggers their role manages: call deploy_workspace_item for those only when the user asks, and for anything else give them the draft's link and say it needs deploying by someone allowed to.{{/can_deploy_any_kind}}{{^can_deploy_any_kind}}Nothing reaches the workspace until it is deployed, which this workspace's deploy rules do not let this user do: when a draft is ready, give them its link and say it needs deploying by someone allowed to.{{/can_deploy_any_kind}}{{/can_deploy}}{{/can_write_any_draft}}\n{{#can_write_any_draft}}- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, a draft's editor (`url`), an app draft's editor with its live preview (`preview_url`), a deployed item's page. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves: show it with show_run, show_runs, show_item or show_deploy_review when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.{{/can_write_any_draft}}{{^can_write_any_draft}}- The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, an item's page. Whenever the user will want to see what you found{{#runs}} or ran{{/runs}}, or has to do a step in Windmill themselves: show it with show_run, show_runs or show_item when you have them (each card carries the link), otherwise open the link in a browser the user can see if you have one, and otherwise give the link.{{/can_write_any_draft}}\n- Find items with list_workspace_items and read one with read_workspace_item{{#can_write_any_draft}} before changing it{{/can_write_any_draft}}. An agent is a resource of type `ai_agent`{{#runs}}: {{#can_run_flow_preview}}test it with test_run_agent and {{/can_run_flow_preview}}run a deployed one with run_agent, never run_flow or run_script.{{/runs}}{{^runs}}.{{/runs}}{{#can_write_draft}}\n- Call get_instructions before writing a script, flow, agent, resource or app, a data pipeline or a datatable migration. For a script, pass its language.{{#can_draft_triggers}} Call get_trigger_schema before write_trigger, since each trigger kind takes different fields, and{{/can_draft_triggers}}{{^can_draft_triggers}} Call{{/can_draft_triggers}} get_db_schema before writing SQL against a database resource.{{/can_write_draft}}{{^can_write_draft}}{{#can_draft_resources}}\n- Call get_instructions before writing a resource.{{#can_draft_triggers}} Call get_trigger_schema before write_trigger, since each trigger kind takes different fields.{{/can_draft_triggers}}{{/can_draft_resources}}{{/can_write_draft}}{{#can_write_draft}}{{#can_run_preview}}\n- After writing a script, flow, agent or app runnable, test it with test_run_script, test_run_flow, test_run_step, test_run_agent or test_run_app_runnable before saying it works. They run the draft, so nothing needs deploying.{{/can_run_preview}}{{/can_write_draft}}{{^can_write_draft}}{{#builds_flows}}{{#can_run_flow_preview}}\n- After writing a flow, test it with test_run_flow before saying it works. It runs the draft, so nothing needs deploying.{{/can_run_flow_preview}}{{/builds_flows}}{{/can_write_draft}}{{#can_run_preview}}\n- A request to run something also goes to the test_run tools. Use run_script, run_flow or run_agent only when the user asks for the deployed version, after reading it with version \"deployed\" so the arguments match.{{/can_run_preview}}{{^can_run_preview}}{{#can_run_flow_preview}}\n- A request to run a flow or agent also goes to test_run_flow or test_run_agent, which run the draft. Use run_flow or run_agent only when the user asks for the deployed version, and run_script for any script: those run the DEPLOYED item as this user, so read it with read_workspace_item version \"deployed\" first so the arguments match.{{/can_run_flow_preview}}{{^can_run_flow_preview}}{{#runs}}\n- run_script, run_flow and run_agent are how you run anything here: they run the DEPLOYED item as this user. Read it with read_workspace_item version \"deployed\" first so the arguments match.{{/runs}}{{/can_run_flow_preview}}{{/can_run_preview}}{{#can_write_any_draft}}\n- To undo your own work, discard its draft with discard_local_draft.{{#can_deploy_any_kind}} delete_workspace_item removes an item that is deployed.{{/can_deploy_any_kind}}{{/can_write_any_draft}}{{^can_write_any_draft}}{{^read_only}}\n- You cannot create or edit anything, but where the server allows it discard_local_draft drops a draft this user left behind, deploy_workspace_item deploys one when the user asks, and delete_workspace_item removes a deployed item.{{/read_only}}{{/can_write_any_draft}}{{^read_only}}{{#unmanaged}}\n- This workspace does not let this user change {{unmanaged_kinds}}, here or in Windmill: suggest asking a workspace admin.{{/unmanaged}}{{/read_only}}\n- Listings return only what this user can see. When an item they name is missing, say it may be in a folder they cannot read, not that it does not exist.\n- No one can read a variable's value through these tools.{{#can_draft_variables}} When editing a variable, pass only the fields that change.{{/can_draft_variables}}{{#can_write_draft}}\n- Before writing code against a third-party API, look for its integration with search_hub_scripts and get_hub_integration.{{/can_write_draft}}\n- {{#can_write_app_draft}}Only raw apps (`rawApp` true) can be read, edited and deployed here. When a deploy says it widens who may open an app, tell the user in plain words.{{/can_write_app_draft}}{{^can_write_app_draft}}Only raw apps (`rawApp` true) can be read here.{{/can_write_app_draft}}\n- Datatables are set up in the workspace settings. Start from list_datatables; one with `migrations_enabled` changes its schema through migrations only.{{#can_draft_resources}}{{#can_create_resource_type}}\n- create_resource_type adds a resource type: show the user the schema first and create it once they agree.{{/can_create_resource_type}}{{^can_create_resource_type}}\n- This user cannot create a resource type here, since the workspace refuses their direct deployment: when one is needed, give them its name and JSON Schema to pass to a workspace admin.{{/can_create_resource_type}}{{/can_draft_resources}}\n- For how Windmill itself works, use search_docs and read_docs_page, and link the page you relied on.{{#can_write_any_draft}}\n\nPath conventions:\n- A workspace path starts with one of two namespaces; its trailing <name> may itself contain \"/\", so a path has three or more segments:\n  - `u/{{username}}/<name>` — your personal scope. Default for ad-hoc, exploratory, or scratch work.\n  - `f/<folder>/<name>` — a shared folder scope; the <folder> must already exist (a bare `f/<name>` with no folder segment is INVALID and will fail).\n- If the user supplies a fully qualified `f/<folder>/...` path, use that exact path; they have already chosen the folder. Do not ask for folder confirmation or substitute a `u/{{username}}/...` path unless a tool rejects it.\n- Default a bare name with no namespace prefix (e.g. \"create a flow called myflow\") to `u/{{username}}/<name>`. Never invent an `f/<folder>/...` path for a folder that does not exist{{#can_create_folder}}; create one with `create_folder` only when the user explicitly asks for a new folder{{/can_create_folder}}.{{folder_guidance}}{{/can_write_any_draft}}{{#can_create_folder}}{{^can_write_any_draft}}\n- You can create a shared folder with `create_folder` when the user explicitly asks for one. You cannot create anything inside it here, so do not offer to.{{/can_write_any_draft}}{{/can_create_folder}}",
+	"profiles": {
+		"read_only": {
+			"flags": "read_only unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, schedules, triggers, resources, or variables",
+				"draft_tools": "",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"read_run": {
+			"flags": "read_only runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, schedules, triggers, resources, or variables",
+				"draft_tools": "",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:11:1:full:full:11": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows, scripts, or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:10:1:full:full:11": {
+			"flags": "can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows, scripts, or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:none:none:11": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows, scripts, or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:none:none:10": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:none:none:01": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:01:1:none:none:00": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:01:1:none:compose:11": {
+			"flags": "builds_apps can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows or scripts",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:none:compose:10": {
+			"flags": "builds_apps can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:none:compose:01": {
+			"flags": "builds_apps can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:01:1:none:compose:00": {
+			"flags": "builds_apps can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:01:1:none:full:11": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows, scripts, or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:none:full:10": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:none:full:01": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:01:1:none:full:00": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:01:1:compose:none:11": {
+			"flags": "builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "scripts or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:compose:none:10": {
+			"flags": "builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:compose:none:01": {
+			"flags": "builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:01:1:compose:none:00": {
+			"flags": "builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:01:1:compose:compose:11": {
+			"flags": "builds_apps builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "scripts",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:compose:compose:10": {
+			"flags": "builds_apps builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:compose:compose:01": {
+			"flags": "builds_apps builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:01:1:compose:compose:00": {
+			"flags": "builds_apps builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:01:1:compose:full:11": {
+			"flags": "builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "scripts or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:compose:full:10": {
+			"flags": "builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:compose:full:01": {
+			"flags": "builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:01:1:compose:full:00": {
+			"flags": "builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:01:1:full:none:11": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows, scripts, or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:full:none:10": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:full:none:01": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:01:1:full:none:00": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:01:1:full:compose:11": {
+			"flags": "builds_apps can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows or scripts",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:full:compose:10": {
+			"flags": "builds_apps can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:full:compose:01": {
+			"flags": "builds_apps can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:01:1:full:compose:00": {
+			"flags": "builds_apps can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:01:1:full:full:11": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows, scripts, or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:full:full:10": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:1:full:full:01": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:01:1:full:full:00": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:01:0:none:none:11": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_write_any_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows, scripts, or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:0:none:none:10": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_write_any_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:0:none:none:01": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_write_any_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:01:0:none:none:00": {
+			"flags": "can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_write_any_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:01:0:none:compose:11": {
+			"flags": "builds_apps can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_write_any_draft can_write_app_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows or scripts",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:0:none:compose:10": {
+			"flags": "builds_apps can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_write_any_draft can_write_app_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:0:none:compose:01": {
+			"flags": "builds_apps can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_write_any_draft can_write_app_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:01:0:none:compose:00": {
+			"flags": "builds_apps can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_write_any_draft can_write_app_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:01:0:compose:none:11": {
+			"flags": "builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_write_any_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "scripts or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:0:compose:none:10": {
+			"flags": "builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_write_any_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:0:compose:none:01": {
+			"flags": "builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_write_any_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:01:0:compose:none:00": {
+			"flags": "builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_write_any_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:01:0:compose:compose:11": {
+			"flags": "builds_apps builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_write_any_draft can_write_app_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "scripts",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:0:compose:compose:10": {
+			"flags": "builds_apps builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_write_any_draft can_write_app_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:01:0:compose:compose:01": {
+			"flags": "builds_apps builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_write_any_draft can_write_app_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:01:0:compose:compose:00": {
+			"flags": "builds_apps builds_flows can_create_folder can_create_resource_type can_deploy can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_write_any_draft can_write_app_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:00:1:none:none:11": {
+			"flags": "can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows, scripts, or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:none:none:10": {
+			"flags": "can_deploy_any_kind can_draft_resources can_draft_variables can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:none:none:01": {
+			"flags": "can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:00:1:none:none:00": {
+			"flags": "can_draft_resources can_draft_variables can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:00:1:none:compose:11": {
+			"flags": "builds_apps can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows or scripts",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:none:compose:10": {
+			"flags": "builds_apps can_deploy_any_kind can_draft_resources can_draft_variables can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:none:compose:01": {
+			"flags": "builds_apps can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:00:1:none:compose:00": {
+			"flags": "builds_apps can_draft_resources can_draft_variables can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:00:1:none:full:11": {
+			"flags": "can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows, scripts, or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:none:full:10": {
+			"flags": "can_deploy_any_kind can_draft_resources can_draft_variables can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:none:full:01": {
+			"flags": "can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:00:1:none:full:00": {
+			"flags": "can_draft_resources can_draft_variables can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:00:1:compose:none:11": {
+			"flags": "builds_flows can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "scripts or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:compose:none:10": {
+			"flags": "builds_flows can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:compose:none:01": {
+			"flags": "builds_flows can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:00:1:compose:none:00": {
+			"flags": "builds_flows can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:00:1:compose:compose:11": {
+			"flags": "builds_apps builds_flows can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "scripts",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:compose:compose:10": {
+			"flags": "builds_apps builds_flows can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:compose:compose:01": {
+			"flags": "builds_apps builds_flows can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:00:1:compose:compose:00": {
+			"flags": "builds_apps builds_flows can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:00:1:compose:full:11": {
+			"flags": "builds_flows can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "scripts or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:compose:full:10": {
+			"flags": "builds_flows can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:compose:full:01": {
+			"flags": "builds_flows can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:00:1:compose:full:00": {
+			"flags": "builds_flows can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:00:1:full:none:11": {
+			"flags": "can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows, scripts, or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:full:none:10": {
+			"flags": "can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:full:none:01": {
+			"flags": "can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:00:1:full:none:00": {
+			"flags": "can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:00:1:full:compose:11": {
+			"flags": "builds_apps can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows or scripts",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:full:compose:10": {
+			"flags": "builds_apps can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:full:compose:01": {
+			"flags": "builds_apps can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:00:1:full:compose:00": {
+			"flags": "builds_apps can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:00:1:full:full:11": {
+			"flags": "can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows, scripts, or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:full:full:10": {
+			"flags": "can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:1:full:full:01": {
+			"flags": "can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:00:1:full:full:00": {
+			"flags": "can_draft_resources can_draft_variables can_run_flow_preview can_run_preview can_write_any_draft can_write_app_draft can_write_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:00:0:none:none:11": {
+			"flags": "can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_write_any_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows, scripts, or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:0:none:none:10": {
+			"flags": "can_deploy_any_kind can_draft_resources can_draft_variables can_write_any_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:0:none:none:01": {
+			"flags": "can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_write_any_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:00:0:none:none:00": {
+			"flags": "can_draft_resources can_draft_variables can_write_any_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, apps, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:00:0:none:compose:11": {
+			"flags": "builds_apps can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_write_any_draft can_write_app_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "flows or scripts",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:0:none:compose:10": {
+			"flags": "builds_apps can_deploy_any_kind can_draft_resources can_draft_variables can_write_any_draft can_write_app_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:0:none:compose:01": {
+			"flags": "builds_apps can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_write_any_draft can_write_app_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:00:0:none:compose:00": {
+			"flags": "builds_apps can_draft_resources can_draft_variables can_write_any_draft can_write_app_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "flows, scripts, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:00:0:compose:none:11": {
+			"flags": "builds_flows can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_write_any_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "scripts or apps",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:0:compose:none:10": {
+			"flags": "builds_flows can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_write_any_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:0:compose:none:01": {
+			"flags": "builds_flows can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_write_any_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:00:0:compose:none:00": {
+			"flags": "builds_flows can_draft_resources can_draft_variables can_run_flow_preview can_write_any_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, apps, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		},
+		"full:00:0:compose:compose:11": {
+			"flags": "builds_apps builds_flows can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_write_any_draft can_write_app_draft has_draft_tools runs runs_deployed",
+			"vars": {
+				"refused_kinds": "scripts",
+				"draft_tools": "write_resource, write_variable, write_schedule, and write_trigger",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:0:compose:compose:10": {
+			"flags": "builds_apps builds_flows can_deploy_any_kind can_draft_resources can_draft_variables can_run_flow_preview can_write_any_draft can_write_app_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts or triggers",
+				"draft_tools": "write_resource, write_variable, and write_schedule",
+				"unmanaged_kinds": "triggers"
+			}
+		},
+		"full:00:0:compose:compose:01": {
+			"flags": "builds_apps builds_flows can_deploy_any_kind can_draft_resources can_draft_triggers can_draft_variables can_run_flow_preview can_write_any_draft can_write_app_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts or schedules",
+				"draft_tools": "write_resource, write_variable, and write_trigger",
+				"unmanaged_kinds": "schedules"
+			}
+		},
+		"full:00:0:compose:compose:00": {
+			"flags": "builds_apps builds_flows can_draft_resources can_draft_variables can_run_flow_preview can_write_any_draft can_write_app_draft has_draft_tools runs runs_deployed unmanaged",
+			"vars": {
+				"refused_kinds": "scripts, schedules, or triggers",
+				"draft_tools": "write_resource and write_variable",
+				"unmanaged_kinds": "schedules or triggers"
+			}
+		}
+	},
 	"folder_guidance": {
-		"admin": "\n- As a workspace admin you can write to any existing folder. Folders here include {{writable_folders}} (you can also write to others not listed; list_workspace_items with type \"folder\" lists them all). If the user names a folder, use it; if they explicitly ask for a new folder, create it with `create_folder`; otherwise ask them which folder to use rather than guessing or creating one unprompted.",
-		"admin_no_folders": "\n- As a workspace admin you can write to any existing folder. If the user names a folder, use it; if they explicitly ask for a new folder, create it with `create_folder`; otherwise ask them which folder to use rather than guessing or creating one unprompted.",
-		"member": "\n- Folders you can write to in this workspace: {{writable_folders}}. For shared/team work, pick the one whose purpose matches the request; if none clearly fits, ask which folder to use rather than inventing a path. Use `create_folder` only when the user explicitly asks for a new folder.",
-		"member_no_folders": "\n- You have no shared folders you can write to in this workspace, so use `u/{{username}}/<name>`. If the user explicitly asks for a shared folder, create one with `create_folder` (you become an owner); otherwise ask before placing shared work rather than inventing an `f/<folder>/...` path.",
-		"member_readonly": "\n- Folders you can write to in this workspace: {{writable_folders}}. For shared/team work, pick the one whose purpose matches the request; if none clearly fits, ask which folder to use rather than inventing a path. Use `create_folder` only when the user explicitly asks for a new folder.\n- You can see but NOT write to: {{readonly_folders}} — never create or deploy items there.",
-		"member_no_folders_readonly": "\n- You have no shared folders you can write to in this workspace, so use `u/{{username}}/<name>`. If the user explicitly asks for a shared folder, create one with `create_folder` (you become an owner); otherwise ask before placing shared work rather than inventing an `f/<folder>/...` path.\n- You can see but NOT write to: {{readonly_folders}} — never create or deploy items there."
+		"create_folder": {
+			"admin": "\n- As a workspace admin you can write to any existing folder. Folders here include {{writable_folders}} (you can also write to others not listed; list_workspace_items with type \"folder\" lists them all). If the user names a folder, use it; if they explicitly ask for a new folder, create it with `create_folder`; otherwise ask them which folder to use rather than guessing or creating one unprompted.",
+			"admin_no_folders": "\n- As a workspace admin you can write to any existing folder. If the user names a folder, use it; if they explicitly ask for a new folder, create it with `create_folder`; otherwise ask them which folder to use rather than guessing or creating one unprompted.",
+			"member": "\n- Folders you can write to in this workspace: {{writable_folders}}. For shared/team work, pick the one whose purpose matches the request; if none clearly fits, ask which folder to use rather than inventing a path. Use `create_folder` only when the user explicitly asks for a new folder.",
+			"member_no_folders": "\n- You have no shared folders you can write to in this workspace, so use `u/{{username}}/<name>`. If the user explicitly asks for a shared folder, create one with `create_folder` (you become an owner); otherwise ask before placing shared work rather than inventing an `f/<folder>/...` path.",
+			"member_readonly": "\n- Folders you can write to in this workspace: {{writable_folders}}. For shared/team work, pick the one whose purpose matches the request; if none clearly fits, ask which folder to use rather than inventing a path. Use `create_folder` only when the user explicitly asks for a new folder.\n- You can see but NOT write to: {{readonly_folders}} — never create or deploy items there.",
+			"member_no_folders_readonly": "\n- You have no shared folders you can write to in this workspace, so use `u/{{username}}/<name>`. If the user explicitly asks for a shared folder, create one with `create_folder` (you become an owner); otherwise ask before placing shared work rather than inventing an `f/<folder>/...` path.\n- You can see but NOT write to: {{readonly_folders}} — never create or deploy items there."
+		},
+		"no_create_folder": {
+			"admin": "\n- As a workspace admin you can write to any existing folder. Folders here include {{writable_folders}} (you can also write to others not listed; list_workspace_items with type \"folder\" lists them all). If the user names a folder, use it; otherwise ask them which folder to use rather than guessing.",
+			"admin_no_folders": "\n- As a workspace admin you can write to any existing folder. If the user names a folder, use it; otherwise ask them which folder to use rather than guessing.",
+			"member": "\n- Folders you can write to in this workspace: {{writable_folders}}. For shared/team work, pick the one whose purpose matches the request; if none clearly fits, ask which folder to use rather than inventing a path.",
+			"member_no_folders": "\n- You have no shared folders you can write to in this workspace, so use `u/{{username}}/<name>`. If the user explicitly asks for a shared folder, say plainly that you cannot create one here; otherwise ask before placing shared work rather than inventing an `f/<folder>/...` path.",
+			"member_readonly": "\n- Folders you can write to in this workspace: {{writable_folders}}. For shared/team work, pick the one whose purpose matches the request; if none clearly fits, ask which folder to use rather than inventing a path.\n- You can see but NOT write to: {{readonly_folders}} — never create or deploy items there.",
+			"member_no_folders_readonly": "\n- You have no shared folders you can write to in this workspace, so use `u/{{username}}/<name>`. If the user explicitly asks for a shared folder, say plainly that you cannot create one here; otherwise ask before placing shared work rather than inventing an `f/<folder>/...` path.\n- You can see but NOT write to: {{readonly_folders}} — never create or deploy items there."
+		}
+	},
+	"rendered_sha256": {
+		"read_only": "a2a002ef12a3714f73938b5451482d5e226144c10f4f3bc09495f6f886dd3624",
+		"read_run": "b1dccd011a0bab7180e949e60f3637759e36dc167a99684c3e76e0d21666f827",
+		"full:11:1:full:full:11": "355657292e125e8a75df0cb0a08da64ae5e268f80682328adf706abf573a27cc",
+		"full:10:1:full:full:11": "d9f688a012c6c75ed811cae1215a3472ddb94bf018edb4f452585ed5c08f5815",
+		"full:01:1:none:none:11": "b7ac91e039c925eb34c58b8fb9a8c6840cd7eac5ab8eb91b35e44ea1cdfd3fbd",
+		"full:01:1:none:none:10": "a46e98609c159e1ece181e61e14e4180cfa619797fd638ce64080673c6c24119",
+		"full:01:1:none:none:01": "8bb8ee7c586040e15a43503c29fabe43852ee33d66288f6d35c37dd377d29540",
+		"full:01:1:none:none:00": "9f3b6d19101c7d644c2c8a8b0f6b75d2c45dd66e9360ef900ab48d610ff90a95",
+		"full:01:1:none:compose:11": "dafeeeb951a5a05441c555201081a510ea349d76fd65fa4a646222c7f31c62e0",
+		"full:01:1:none:compose:10": "dffa6d8f7e14b88eb763f8f52d4979a48620c50e09eb8bca6bc364945c6317e8",
+		"full:01:1:none:compose:01": "ef16520047e87d643618f36070cf255a4c3f0c9a7a6ca0d880225906e70dbd6f",
+		"full:01:1:none:compose:00": "8570d394f70635233118a2bbb70b3c035ffd26414034f484909cfd459d5e88f5",
+		"full:01:1:none:full:11": "dafeeeb951a5a05441c555201081a510ea349d76fd65fa4a646222c7f31c62e0",
+		"full:01:1:none:full:10": "dffa6d8f7e14b88eb763f8f52d4979a48620c50e09eb8bca6bc364945c6317e8",
+		"full:01:1:none:full:01": "ef16520047e87d643618f36070cf255a4c3f0c9a7a6ca0d880225906e70dbd6f",
+		"full:01:1:none:full:00": "8570d394f70635233118a2bbb70b3c035ffd26414034f484909cfd459d5e88f5",
+		"full:01:1:compose:none:11": "9f4ec78b6eb9ec845fe558ddb7cbf0047d5ac41ece2b4f1060585d34ab5873aa",
+		"full:01:1:compose:none:10": "404cbac8cdcfdea36f336a675fbb6ed81ee00e6f540b0970691b1b91080ce853",
+		"full:01:1:compose:none:01": "b276d7a4b1bec12b0f0b3a002c8bc291c51c00095afb287d9cddf703db91b3ed",
+		"full:01:1:compose:none:00": "4728593a56fe37c6f2f0108ae76a444494ef3b9b7d08178ca919dfe42f405044",
+		"full:01:1:compose:compose:11": "355657292e125e8a75df0cb0a08da64ae5e268f80682328adf706abf573a27cc",
+		"full:01:1:compose:compose:10": "3174c7d16f4083f73da28975dee940e878cef65374cbc8cca83ed0a4fe7782f3",
+		"full:01:1:compose:compose:01": "3e02173263aa85dc0806faf4fafc17154347082a3aa2ef7787f567bddf7396ff",
+		"full:01:1:compose:compose:00": "92b5eba68f5b838927b4da52584277c7694a7e7b660662c607db1bcae03b0d09",
+		"full:01:1:compose:full:11": "355657292e125e8a75df0cb0a08da64ae5e268f80682328adf706abf573a27cc",
+		"full:01:1:compose:full:10": "3174c7d16f4083f73da28975dee940e878cef65374cbc8cca83ed0a4fe7782f3",
+		"full:01:1:compose:full:01": "3e02173263aa85dc0806faf4fafc17154347082a3aa2ef7787f567bddf7396ff",
+		"full:01:1:compose:full:00": "92b5eba68f5b838927b4da52584277c7694a7e7b660662c607db1bcae03b0d09",
+		"full:01:1:full:none:11": "9f4ec78b6eb9ec845fe558ddb7cbf0047d5ac41ece2b4f1060585d34ab5873aa",
+		"full:01:1:full:none:10": "404cbac8cdcfdea36f336a675fbb6ed81ee00e6f540b0970691b1b91080ce853",
+		"full:01:1:full:none:01": "b276d7a4b1bec12b0f0b3a002c8bc291c51c00095afb287d9cddf703db91b3ed",
+		"full:01:1:full:none:00": "4728593a56fe37c6f2f0108ae76a444494ef3b9b7d08178ca919dfe42f405044",
+		"full:01:1:full:compose:11": "355657292e125e8a75df0cb0a08da64ae5e268f80682328adf706abf573a27cc",
+		"full:01:1:full:compose:10": "3174c7d16f4083f73da28975dee940e878cef65374cbc8cca83ed0a4fe7782f3",
+		"full:01:1:full:compose:01": "3e02173263aa85dc0806faf4fafc17154347082a3aa2ef7787f567bddf7396ff",
+		"full:01:1:full:compose:00": "92b5eba68f5b838927b4da52584277c7694a7e7b660662c607db1bcae03b0d09",
+		"full:01:1:full:full:11": "355657292e125e8a75df0cb0a08da64ae5e268f80682328adf706abf573a27cc",
+		"full:01:1:full:full:10": "3174c7d16f4083f73da28975dee940e878cef65374cbc8cca83ed0a4fe7782f3",
+		"full:01:1:full:full:01": "3e02173263aa85dc0806faf4fafc17154347082a3aa2ef7787f567bddf7396ff",
+		"full:01:1:full:full:00": "92b5eba68f5b838927b4da52584277c7694a7e7b660662c607db1bcae03b0d09",
+		"full:01:0:none:none:11": "6e298c3aa2c213e11284300395cffa5a50973c08ca99217a8527dac29a1edc39",
+		"full:01:0:none:none:10": "dc91d71b9d073ed7373719375889d3decad8ea8edb55f74592ab743d310c03f0",
+		"full:01:0:none:none:01": "1d57273309c06e5d471da0abf3fe20413766a4e9ec4b4a8844f44a8fee5ea41b",
+		"full:01:0:none:none:00": "291acf6c1aa45d0878839335592f5ad592187cf89bbc22ca2dc0bb3081077a9c",
+		"full:01:0:none:compose:11": "d758f422f6380b3ed8538d10080335fe1997c3d4c023bababe331bb5f6bb6bf4",
+		"full:01:0:none:compose:10": "99ebe299170d1446794ae7c5a3ea3d721719083d49465e73be28cdbf9959486f",
+		"full:01:0:none:compose:01": "63bacd0a11ff0b56da10f61d0b8d07f287bc4a60a6f55dbd9383c738e9b27e38",
+		"full:01:0:none:compose:00": "71121299c61f1317cd9d9cf3d1110e2cd8eeeeb750081ffab831d711d7579ec5",
+		"full:01:0:compose:none:11": "222da08c7bfd03cc4727f7f8b61d5a42f25c8411a94f935cf8b767afad9e4914",
+		"full:01:0:compose:none:10": "10e25b3903215e2187d2b7c073fb9fad3f6742080f6590b4c64fedaf83fcd223",
+		"full:01:0:compose:none:01": "7823826226be878294fcdaa56d2ed9758176527f2bcaac04195f7c4f03255701",
+		"full:01:0:compose:none:00": "c86c23430fbf494f63c71ceb885566e4dfebbf5bcc57f665a984a6fc8fffbb8a",
+		"full:01:0:compose:compose:11": "137549c360e6427c8ff8b04e98f3ad56102326fddd486a76155a2a601a2962ae",
+		"full:01:0:compose:compose:10": "5ea1a20c7f9b390d9bc3e4edc91529387876b7c547bee4a75472979f58c8f0cb",
+		"full:01:0:compose:compose:01": "b3d9ef9882e8d4e17e7899403ab0184c1313d003eebab4de6cf41b59819e2ebb",
+		"full:01:0:compose:compose:00": "f2c815c82abccfdcbf8a6e3c39b17c9a7cbe08db32e531b84cc0f1ae91655335",
+		"full:00:1:none:none:11": "ef4a2f66bd05eb22d92c6a88e5caf83d1a8b02db560db96ccc23755e8fd6d8d9",
+		"full:00:1:none:none:10": "fbb85e9d0036b16025b318ce9ace58d5a163ab0ceeaed918bfbf3b1ab0e93d6f",
+		"full:00:1:none:none:01": "c5bc889a27124519592086f0f94c8313d9ba8a225a50bf16bbb5bb04212f2952",
+		"full:00:1:none:none:00": "584f5d9dcfc95669518e1516e9c282b357024ee24be31047b97cbc035e1cd792",
+		"full:00:1:none:compose:11": "767778374b9da9e43adac84e9a19ea90100f1f1eef6abaca33476b332aa29081",
+		"full:00:1:none:compose:10": "7ae0803c0c47dd8199ad30dbfacae40669bf6e5eb0eed046904b583cf9a3888f",
+		"full:00:1:none:compose:01": "5ca874234ce2a52816e908e8e6b7363c3fe45651702eb4b219151589e5de7977",
+		"full:00:1:none:compose:00": "b37c3e7542d716546db196aa8358e8a0ef8e52dc37b50fbb57f62862d45fde23",
+		"full:00:1:none:full:11": "767778374b9da9e43adac84e9a19ea90100f1f1eef6abaca33476b332aa29081",
+		"full:00:1:none:full:10": "7ae0803c0c47dd8199ad30dbfacae40669bf6e5eb0eed046904b583cf9a3888f",
+		"full:00:1:none:full:01": "5ca874234ce2a52816e908e8e6b7363c3fe45651702eb4b219151589e5de7977",
+		"full:00:1:none:full:00": "b37c3e7542d716546db196aa8358e8a0ef8e52dc37b50fbb57f62862d45fde23",
+		"full:00:1:compose:none:11": "49165f1bbd9e26bc1bb0b32b14bab96c2daa50f816332806c2521b8d46b9134e",
+		"full:00:1:compose:none:10": "d77d7a0566f596c8ba3d34967e490d735618e5b1df95e9984d268b70fc44c432",
+		"full:00:1:compose:none:01": "d3c04033a12757b8b6ced60290084f3ac75344e36a770d6f093c68ac2c0773ad",
+		"full:00:1:compose:none:00": "7d4511f33441526e5653c0a0892fb7aa232b8890c7268eff7cd43ab5c3e6d0ec",
+		"full:00:1:compose:compose:11": "d9f688a012c6c75ed811cae1215a3472ddb94bf018edb4f452585ed5c08f5815",
+		"full:00:1:compose:compose:10": "b7e5f39b2086df783b656a4acea6ab24cc3bdde161f740668ee12ed9beaf28b8",
+		"full:00:1:compose:compose:01": "b494bcc24ae2e6151df360fb37dc17963df500e2ae82cef065ad7b36045c5492",
+		"full:00:1:compose:compose:00": "ed4b08a13b7f4efa79611eaa15b8a923c9d8447cf109b5097e871ff23f19e8b0",
+		"full:00:1:compose:full:11": "d9f688a012c6c75ed811cae1215a3472ddb94bf018edb4f452585ed5c08f5815",
+		"full:00:1:compose:full:10": "b7e5f39b2086df783b656a4acea6ab24cc3bdde161f740668ee12ed9beaf28b8",
+		"full:00:1:compose:full:01": "b494bcc24ae2e6151df360fb37dc17963df500e2ae82cef065ad7b36045c5492",
+		"full:00:1:compose:full:00": "ed4b08a13b7f4efa79611eaa15b8a923c9d8447cf109b5097e871ff23f19e8b0",
+		"full:00:1:full:none:11": "49165f1bbd9e26bc1bb0b32b14bab96c2daa50f816332806c2521b8d46b9134e",
+		"full:00:1:full:none:10": "d77d7a0566f596c8ba3d34967e490d735618e5b1df95e9984d268b70fc44c432",
+		"full:00:1:full:none:01": "d3c04033a12757b8b6ced60290084f3ac75344e36a770d6f093c68ac2c0773ad",
+		"full:00:1:full:none:00": "7d4511f33441526e5653c0a0892fb7aa232b8890c7268eff7cd43ab5c3e6d0ec",
+		"full:00:1:full:compose:11": "d9f688a012c6c75ed811cae1215a3472ddb94bf018edb4f452585ed5c08f5815",
+		"full:00:1:full:compose:10": "b7e5f39b2086df783b656a4acea6ab24cc3bdde161f740668ee12ed9beaf28b8",
+		"full:00:1:full:compose:01": "b494bcc24ae2e6151df360fb37dc17963df500e2ae82cef065ad7b36045c5492",
+		"full:00:1:full:compose:00": "ed4b08a13b7f4efa79611eaa15b8a923c9d8447cf109b5097e871ff23f19e8b0",
+		"full:00:1:full:full:11": "d9f688a012c6c75ed811cae1215a3472ddb94bf018edb4f452585ed5c08f5815",
+		"full:00:1:full:full:10": "b7e5f39b2086df783b656a4acea6ab24cc3bdde161f740668ee12ed9beaf28b8",
+		"full:00:1:full:full:01": "b494bcc24ae2e6151df360fb37dc17963df500e2ae82cef065ad7b36045c5492",
+		"full:00:1:full:full:00": "ed4b08a13b7f4efa79611eaa15b8a923c9d8447cf109b5097e871ff23f19e8b0",
+		"full:00:0:none:none:11": "636f56186fb922e1d8a0a2eb2e47ffcb50dffbc5ede80d1cd6070c31f0ba5d6f",
+		"full:00:0:none:none:10": "7107bcee6ec708a56bb154d6126a5fc50ee06c12f9b08601f4b916861e97bdf3",
+		"full:00:0:none:none:01": "c2f6200dfb97afd78860fe1d38a49992f177a5565d2ffd7bdf846c9c5116eeb5",
+		"full:00:0:none:none:00": "7dc058744dda38885db1952bc4fbf989f36d09a5d00498992d5906fb132d156c",
+		"full:00:0:none:compose:11": "dc5384ae37ad402ff5b70380c5333a4d6bbcd317b4add339fa3b43d87fff4abc",
+		"full:00:0:none:compose:10": "542a4866c165b7f753fda6e4cbee3cf8bdbc33e4f3ac03f009254146f29aa101",
+		"full:00:0:none:compose:01": "05aacb2dca48f9186e8d21b9e147b2761def418279169a79d62d814a3bd555ce",
+		"full:00:0:none:compose:00": "2056da0f3fe9e5fc82861c655808a1d093aabca4619a6d3e2dfabdeb784d007a",
+		"full:00:0:compose:none:11": "d7f332285e0a03bf906ef55b7178cd96bd7d9b6198fba4108d32bfbcc5369f6c",
+		"full:00:0:compose:none:10": "780577681385ce98328e9a15c8a3417cddb2086e2292e7070a77e2e02d5da448",
+		"full:00:0:compose:none:01": "471be94a0143cc25b7a8ac9b7c991fde9be35ad4b939771afb6ec4f5c1c675e4",
+		"full:00:0:compose:none:00": "297f68c33d0a1b93faf873b5406530313c43e40c7f8d678621ce9a44383c64a4",
+		"full:00:0:compose:compose:11": "725154189ee3c9122ed8cc724f4e063afe781d67ca2a3d0c5520b8f879e2eae8",
+		"full:00:0:compose:compose:10": "6d1f7510ad6b84212bd120614d57a38500146c97bf10c2fdcd7160bc3d3bd9a0",
+		"full:00:0:compose:compose:01": "48fd52f95e7fc135245b7028c527552a435a8999abcea57d97d2e8fa55382486",
+		"full:00:0:compose:compose:00": "36166430066476c6763bd29ab0efddf044d17627c4fd2d690b96aea15db843c6"
 	},
 	"skills_header": "\n\nSkills:\n- This workspace keeps skills, guidance documents for specific kinds of tasks, listed below by path and description. read_skill returns one: read it when a request matches its description, then do the work with the tools above.\n",
 	"skill_line": "- {{skill_path}}: {{skill_description}}",

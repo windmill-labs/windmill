@@ -75,7 +75,7 @@ section or the flat layout.
 		workspaceId?: string
 		// Session artifacts to surface as an "Artifacts" branch; omitted or empty
 		// hides the branch (non-session consumers, sessions without artifacts).
-		artifacts?: PersistedArtifact[]
+		artifacts?: Pick<PersistedArtifact, 'id' | 'name'>[]
 		/** The session chat, whose Use mode opens items in their viewer. Read from the
 		 * `aiChatManager` context when omitted. */
 		chat?: { readonly workMode: AIWorkMode }

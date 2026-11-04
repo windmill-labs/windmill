@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = $2)\n                    OR EXISTS(SELECT 1 FROM instance_group WHERE name = $2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "fa97f5dfbe9772472b16e3987e58343102bb0a0195038d7fdac1e80dd45bf604"
+}

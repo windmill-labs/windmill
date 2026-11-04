@@ -194,7 +194,7 @@ async function setupCustomInstanceDb(row: Locator, page: Page, name: string) {
 	await runSetupButton.waitFor({ state: 'visible' })
 	await runSetupButton.click()
 
-	const confirmBtn = page.locator('button:has-text("Setup database")')
+	const confirmBtn = page.locator('button:has-text("Set up database")')
 	await confirmBtn.waitFor({ state: 'visible' })
 	await confirmBtn.click()
 

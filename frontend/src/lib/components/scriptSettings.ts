@@ -75,6 +75,7 @@ export function flowRuntimeFields(flow: {
 		concurrent_limit: v.concurrent_limit,
 		concurrency_time_window_s: v.concurrency_time_window_s,
 		cache_ttl: v.cache_ttl,
+		timeout: v.timeout,
 		debounce_delay_s: v.debounce_delay_s,
 		delete_after_secs: v.delete_after_secs,
 		priority: v.priority,

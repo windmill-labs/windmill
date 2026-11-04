@@ -32,6 +32,7 @@
 		RAW_APP_SANDBOX_FLAGS,
 		RAW_APP_PREVIEW_RELAY,
 		rawAppStorageKey,
+		rawAppCtx,
 		readRawAppStorage,
 		applyRawAppStorageOp
 	} from './utils'
@@ -43,7 +44,7 @@
 	import type { Modules } from './RawAppModules.svelte'
 	import { isRunnableByName, isRunnableByPath, type PathRunType } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import { onMount, onDestroy, untrack } from 'svelte'
+	import { getContext, onMount, onDestroy, untrack } from 'svelte'
 	import type {
 		AppDatatableMetadata,
 		LintResult,
@@ -91,7 +92,8 @@
 		isDatatableTableAllowed,
 		type RawAppData,
 		DEFAULT_DATA,
-		appDatatableRole
+		appDatatableRole,
+		extractDataConfig
 	} from './dataTableRefUtils'
 	import { datatableReference } from '../dbTypes'
 	import { randomSecret, randomUUID } from '$lib/utils/uuid'
@@ -915,7 +917,8 @@ addEventListener('message', function (e) {
 
 	/** Replaces `data` from outside the editor (history, YAML). The policy sync writes the policy
 	 * into `data`, so the policy takes the new values first or it puts the old ones straight back. */
-	function replaceData(next: RawAppData) {
+	function replaceData(replacement: RawAppData) {
+		const next = extractDataConfig({ data: replacement }) ?? { ...DEFAULT_DATA }
 		data = next
 		aiChatManager.datatableCreationPolicy = {
 			...aiChatManager.datatableCreationPolicy,
@@ -1924,9 +1927,17 @@ addEventListener('message', function (e) {
 		})
 	}
 
+	// In a session pane the page's query is the session's (`?session=…`), not the app's.
+	const inSessionPane = !!getContext('aiChatManager')
+
 	// The deployed app's `window.ctx`: the viewer's membership in the app's workspace.
 	function previewCtx() {
-		return $state.snapshot({ ctx: operatingUser.current, workspace: opWorkspace, path })
+		return rawAppCtx(
+			$state.snapshot(operatingUser.current),
+			opWorkspace,
+			path,
+			inSessionPane ? '' : window.location.search
+		)
 	}
 
 	// A build fed before the viewer is known keeps that viewer until the next one. A failed
