@@ -49,8 +49,14 @@
 		{/if}
 	</Badge>
 {:else if job && 'success' in job}
-	<Badge {large} color="red">
-		{job.canceled ? 'Canceled' : 'Failed'} after {msToReadableTime(job.duration_ms)}
+	<Badge
+		{large}
+		color="red"
+		title={job.system_error ? 'The platform failed this run, not its code' : undefined}
+	>
+		{job.canceled ? 'Canceled' : job.system_error ? 'System error' : 'Failed'} after {msToReadableTime(
+			job.duration_ms
+		)}
 		{#if job.self_wait_time_ms || job.aggregate_wait_time_ms}
 			<WaitTimeWarning
 				self_wait_time_ms={job.self_wait_time_ms}

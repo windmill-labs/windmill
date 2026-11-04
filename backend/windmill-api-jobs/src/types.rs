@@ -167,6 +167,8 @@ pub struct ListCompletedQuery {
     // has no resolution, which is why `resolved = false` must not reach the queue side
     // of the runs-list union.
     pub resolved: Option<bool>,
+    // Completed-jobs only, like `resolved`.
+    pub system_error: Option<bool>,
     pub is_flow_step: Option<bool>,
     pub suspended: Option<bool>,
     pub schedule_path: Option<String>,
@@ -323,7 +325,18 @@ pub struct UnifiedJob {
     pub runnable_settings_handle: Option<i64>,
     pub is_retry: Option<bool>,
     pub resolved: Option<bool>,
+    pub system_error: Option<bool>,
 }
+
+/// Whether a completed job failed because of the platform: its stored `error.name` is one of
+/// `windmill_common::error::SYSTEM_ERROR_NAMES`, listed again here as SQL needs them literal.
+macro_rules! system_error_sql {
+    () => {
+        "COALESCE(v2_job_completed.status = 'failure' AND v2_job_completed.result->'error'->>'name' \
+         IN ('InternalErr', 'SqlErr', 'ConnectingToDatabase', 'WorkerLost', 'OutOfMemory'), false)"
+    };
+}
+pub const SYSTEM_ERROR_SQL: &str = system_error_sql!();
 
 const CJ_FIELDS: &[&str] = &[
     "'CompletedJob' as typ",
@@ -366,6 +379,7 @@ const CJ_FIELDS: &[&str] = &[
     "null as runnable_settings_handle",
     "EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry",
     "EXISTS(SELECT 1 FROM job_resolution WHERE job_id = v2_job_completed.id) as resolved",
+    concat!(system_error_sql!(), " as system_error"),
 ];
 
 const QJ_FIELDS: &[&str] = &[
@@ -410,6 +424,7 @@ const QJ_FIELDS: &[&str] = &[
     "EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry",
     // A job still in the queue has not failed, so it can never be resolved.
     "false as resolved",
+    "false as system_error",
 ];
 
 impl UnifiedJob {
@@ -470,6 +485,7 @@ impl From<UnifiedJob> for Job {
                     resolution_note: None,
                     resolved_automatically: None,
                     trigger_kind: None,
+                    system_error: uj.system_error,
                 },
             )),
             "QueuedJob" => Job::QueuedJob(JobExtended::new(
@@ -726,6 +742,7 @@ mod tests {
             ])),
             is_skipped: None,
             resolved: None,
+            system_error: None,
             is_flow_step: None,
             suspended: None,
             schedule_path: None,
@@ -797,6 +814,7 @@ mod tests {
             job_kinds: None,
             is_skipped: None,
             resolved: None,
+            system_error: None,
             is_flow_step: None,
             suspended: None,
             schedule_path: None,

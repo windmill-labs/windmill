@@ -480,6 +480,11 @@ pub struct CompletedJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub trigger_kind: Option<TriggerKindLabel>,
+    // True when the run failed because of the platform rather than its code, derived from the
+    // stored `error.name` (`SYSTEM_ERROR_NAMES`); `status` stays 'failure'.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub system_error: Option<bool>,
 }
 
 impl CompletedJob {

@@ -527,6 +527,13 @@ pub fn filter_list_completed_query(
             sqlb.and_where(format!("NOT {exists}"));
         }
     }
+    if let Some(se) = &lq.system_error {
+        if *se {
+            sqlb.and_where(crate::types::SYSTEM_ERROR_SQL);
+        } else {
+            sqlb.and_where(format!("NOT {}", crate::types::SYSTEM_ERROR_SQL));
+        }
+    }
     if let Some(fs) = &lq.is_flow_step {
         if *fs {
             sqlb.and_where_is_not_null("flow_step_id");
@@ -714,6 +721,7 @@ mod tests {
             job_kinds: None,
             is_skipped: None,
             resolved: None,
+            system_error: None,
             is_flow_step: None,
             suspended: None,
             schedule_path: None,
@@ -1022,6 +1030,28 @@ mod tests {
                 "resolved=true must not negate the anti-join, got: {sql}"
             );
         }
+    }
+
+    #[test]
+    fn system_error_sql_lists_exactly_the_system_error_names() {
+        let sql = crate::types::SYSTEM_ERROR_SQL;
+        for name in windmill_common::error::SYSTEM_ERROR_NAMES {
+            assert!(
+                sql.contains(&format!("'{name}'")),
+                "{name} missing from {sql}"
+            );
+        }
+        let listed = sql
+            .split(" IN (")
+            .nth(1)
+            .unwrap()
+            .split(')')
+            .next()
+            .unwrap();
+        assert_eq!(
+            listed.split(", ").count(),
+            windmill_common::error::SYSTEM_ERROR_NAMES.len()
+        );
     }
 
     #[test]

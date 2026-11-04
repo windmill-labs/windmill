@@ -201,6 +201,7 @@ async fn get_concurrent_intervals(
             parent_job: None,
             is_skipped: None | Some(false),
             resolved: None,
+            system_error: None,
             suspended: None,
             schedule_path: None,
             args: None,

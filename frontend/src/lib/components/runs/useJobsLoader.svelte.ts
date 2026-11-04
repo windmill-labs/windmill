@@ -94,7 +94,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 
 	let label = $derived(filters?.label ?? null)
 	let worker = $derived(filters?.worker ?? null)
-	let success = $derived(filters?.status ?? null)
+	// A system error is a failure with a platform error name, so it loads as one, narrowed.
+	let systemError = $derived(filters?.status === 'system_error')
+	let success = $derived(systemError ? 'failure' : (filters?.status ?? null))
 	let isQueueOnly = $derived(success == 'running' || success == 'suspended' || success == 'waiting')
 	let showSkipped = $derived(filters?.show_skipped ?? false)
 	let resolutionFilter = $derived(filters?.resolved ?? 'all')
@@ -485,6 +487,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 					: resolutionFilter === 'unresolved'
 						? false
 						: undefined,
+			systemError: systemError || undefined,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent: jobKindsCat != 'all' ? true : undefined,
 			label: label == null || label === '' ? undefined : label,
@@ -548,6 +551,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 					: resolutionFilter === 'unresolved'
 						? false
 						: undefined,
+			systemError: systemError || undefined,
 			isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			label: label == null || label === '' ? undefined : label,
 			tag: tag == null || tag === '' ? undefined : tag,

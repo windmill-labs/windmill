@@ -287,7 +287,10 @@
 			status:
 				filters.val.status == 'failure' || filters.val.status == 'canceled'
 					? filters.val.status
-					: undefined,
+					: filters.val.status == 'system_error'
+						? ('failure' as const)
+						: undefined,
+			systemError: filters.val.status == 'system_error' ? true : undefined,
 			running:
 				filters.val.status == 'running' || filters.val.status == 'suspended'
 					? true

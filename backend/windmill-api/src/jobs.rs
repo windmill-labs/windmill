@@ -2796,6 +2796,15 @@ impl<'a> GetQuery<'a> {
 
         if let Some(mut cjob) = cjob {
             cjob.inner = format_completed_job_result(cjob.inner);
+            let failed = !cjob.inner.success && !cjob.inner.canceled;
+            cjob.inner.system_error = Some(
+                failed
+                    && cjob.inner.json_result().is_some_and(|r| {
+                        r["error"]["name"].as_str().is_some_and(|name| {
+                            windmill_common::error::SYSTEM_ERROR_NAMES.contains(&name)
+                        })
+                    }),
+            );
             return Ok(Some(cjob));
         }
         Ok(cjob)
@@ -4988,6 +4997,7 @@ async fn list_jobs(
         // into a resolved-only view. "resolved = false" (hide resolved) must keep them,
         // since a running job has no resolution to hide.
         && lq.resolved != Some(true)
+        && lq.system_error != Some(true)
         && lq.created_before.is_none()
         && lq.started_before.is_none()
         && lq.created_or_started_before.is_none()

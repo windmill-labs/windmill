@@ -17584,6 +17584,14 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: system_error
+          description: >-
+            filter on whether a failed run failed because of the platform (internal or
+            database error, lost worker, out of memory) rather than its code. true keeps only
+            those runs, false hides them
+          in: query
+          schema:
+            type: boolean
         - name: is_flow_step
           description: is the job a flow step
           in: query
@@ -17896,6 +17904,14 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: system_error
+          description: >-
+            filter on whether a failed run failed because of the platform (internal or
+            database error, lost worker, out of memory) rather than its code. true keeps only
+            those runs, false hides them
+          in: query
+          schema:
+            type: boolean
         - name: is_flow_step
           description: is the job a flow step
           in: query
@@ -18175,6 +18191,14 @@ paths:
           description: >-
             filter on whether a failed or canceled run has been marked as handled. true
             keeps only resolved runs, false hides them
+          in: query
+          schema:
+            type: boolean
+        - name: system_error
+          description: >-
+            filter on whether a failed run failed because of the platform (internal or
+            database error, lost worker, out of memory) rather than its code. true keeps only
+            those runs, false hides them
           in: query
           schema:
             type: boolean
@@ -27091,6 +27115,14 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: system_error
+          description: >-
+            filter on whether a failed run failed because of the platform (internal or
+            database error, lost worker, out of memory) rather than its code. true keeps only
+            those runs, false hides them
+          in: query
+          schema:
+            type: boolean
         - name: is_flow_step
           description: is the job a flow step
           in: query
@@ -32201,6 +32233,12 @@ components:
             true when a succeeding retry resolved this rather than a person. Explicit rather
             than inferred from an absent resolved_by, which is also absent for a manual
             resolution outside enterprise
+        system_error:
+          type: boolean
+          description: >-
+            true when this failed run failed because of the platform rather than its code,
+            derived from its error name: InternalErr, SqlErr, ConnectingToDatabase,
+            WorkerLost or OutOfMemory
         trigger_kind:
           $ref: "#/components/schemas/JobTriggerKind"
         worker:

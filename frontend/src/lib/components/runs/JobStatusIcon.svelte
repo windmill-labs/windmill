@@ -8,6 +8,7 @@
 		FastForward,
 		Hourglass,
 		Play,
+		ServerCrash,
 		ShieldQuestion,
 		Wrench,
 		X
@@ -56,6 +57,15 @@
 			title="Failed, marked as resolved"
 		>
 			<Wrench size={14} />
+		</Badge>
+	{:else if 'success' in job && job.system_error}
+		<Badge
+			color="red"
+			{roundedFull}
+			baseClass={roundedFull ? '' : '!px-1.5'}
+			title="System error: the platform failed this run, not its code"
+		>
+			<ServerCrash size={14} />
 		</Badge>
 	{:else if 'success' in job}
 		<Badge color="red" {roundedFull} baseClass={roundedFull ? '' : '!px-1.5'}>

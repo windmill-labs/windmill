@@ -378,7 +378,11 @@ pub async fn handle_child(
         // when the kill could not be confirmed. SIGINT and SIGTERM are only sent where the
         // sends below are compiled in: elsewhere an exit during their wait is unsignaled.
         let unix_signal = |s: &'static str| {
-            if cfg!(any(target_os = "linux", target_os = "macos")) { s } else { "none" }
+            if cfg!(any(target_os = "linux", target_os = "macos")) {
+                s
+            } else {
+                "none"
+            }
         };
         let kill = async {
             #[allow(unused_variables)]
@@ -1253,6 +1257,11 @@ pub fn process_status(
     } else if let Some(code) = status.code() {
         Err(error::Error::ExitStatus(program.to_string(), code))
     } else {
+        // Without tini the OOM killer's SIGKILL arrives as a signal, not as exit code 137.
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        if status.signal() == Some(9) {
+            return Err(error::Error::ExitStatus(program.to_string(), 137));
+        }
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         return Err(error::Error::ExecutionErr(format!(
             "process terminated by signal: {:#?}, stopped_signal: {:#?}, core_dumped: {}",

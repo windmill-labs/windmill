@@ -94,7 +94,22 @@ pub enum Error {
     MigrationNeeded { version: String, feature: String, guide_url: url::Url },
     #[error("{0} is unavailable. It is possible for this worker to be behind.")]
     FeatureUnavailable(String),
+    /// The job's worker stopped reporting on it: a crash, an OOM kill of the worker, a lost host.
+    #[error("{0}")]
+    WorkerLost(String),
 }
+
+/// The `error.name`s of a job that the platform failed rather than its own code: an internal or
+/// database error while handling it, its worker lost mid-run (no ping, worker gone, restarts
+/// exhausted), or its process killed for memory. The runs list derives `system_error` from these,
+/// in SQL that must list the same names (`windmill-api-jobs`, `system_error_sql!`).
+pub const SYSTEM_ERROR_NAMES: &[&str] = &[
+    "InternalErr",
+    "SqlErr",
+    "ConnectingToDatabase",
+    "WorkerLost",
+    "OutOfMemory",
+];
 
 impl Error {
     pub fn name(&self) -> &str {
@@ -130,6 +145,7 @@ impl Error {
             Self::NotAuthorized(_) => "NotAuthorized",
             Self::MetricNotFound(_) => "MetricNotFound",
             Self::PermissionDenied(_) => "PermissionDenied",
+            Self::WorkerLost(_) => "WorkerLost",
             _ => "InternalErr",
         }
     }

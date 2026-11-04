@@ -6442,7 +6442,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 &completed,
                 memory_peak,
                 None,
-                error::Error::ExecutionErr(error_message.clone()),
+                error::Error::WorkerLost(error_message.clone()),
                 // a same worker zombie means the worker itself is gone
                 if matches!(error_kind, ErrorMessage::SameWorker) {
                     StepFailureKind::Unrecoverable
@@ -6501,7 +6501,7 @@ async fn force_complete_zombie_job(
     let error_value = serde_json::json!({
         "error": {
             "message": error_message,
-            "name": "ExecutionErr",
+            "name": "WorkerLost",
         }
     });
 

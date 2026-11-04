@@ -671,7 +671,13 @@ pub async fn process_result(
                 Error::ExecutionRawError(e) => to_raw_value(&e),
                 err @ _ => to_raw_value(&SerializedError {
                     message: format!("execution error:\n{err:#}",),
-                    name: "ExecutionErr".to_string(),
+                    // A platform failure keeps its own name, which is what marks the run as a
+                    // system error.
+                    name: if windmill_common::error::SYSTEM_ERROR_NAMES.contains(&err.name()) {
+                        err.name().to_string()
+                    } else {
+                        "ExecutionErr".to_string()
+                    },
                     step_id: job.flow_step_id.clone(),
                     exit_code: None,
                 }),
@@ -2187,7 +2193,14 @@ pub fn extract_error_value(
             "exit code for \"{program}\": {i}, last log lines:\n{}",
             ANSI_ESCAPE_RE.replace_all(log_lines.trim(), "").to_string()
         ),
-        name: "ExecutionErr".to_string(),
+        // 137 is SIGKILL, which the worker never sends itself without reporting a timeout or a
+        // cancel instead: here it is the OOM killer.
+        name: if i == 137 {
+            "OutOfMemory"
+        } else {
+            "ExecutionErr"
+        }
+        .to_string(),
         step_id,
         exit_code: Some(i),
     });
