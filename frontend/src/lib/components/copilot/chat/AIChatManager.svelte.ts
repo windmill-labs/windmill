@@ -333,7 +333,6 @@ export function supportsPlanMode(mode: AIMode): boolean {
 
 const navCapabilities = fromStore(roleCapabilities)
 
-
 function isWorkspacePath(path: string | undefined): path is string {
 	return path?.startsWith('f/') === true || path?.startsWith('u/') === true
 }
@@ -3543,7 +3542,8 @@ export class AIChatManager implements ChatViewHost {
 							pendingPrompt,
 							this.flowAiChatHelpers!.getFlowAndSelectedId(),
 							[],
-							this.flowAiChatHelpers!.inlineScriptSession
+							this.flowAiChatHelpers!.inlineScriptSession,
+							{ flowInputsLocked: !this.flowAiChatHelpers!.canEditFlowInputs() }
 						)
 					} else if (this.mode === AIMode.NAVIGATOR) {
 						return prepareNavigatorUserMessage(pendingPrompt)
@@ -4393,7 +4393,8 @@ export class AIChatManager implements ChatViewHost {
 						oldInstructions,
 						this.flowAiChatHelpers!.getFlowAndSelectedId(),
 						oldSelectedContext,
-						this.flowAiChatHelpers!.inlineScriptSession
+						this.flowAiChatHelpers!.inlineScriptSession,
+						{ flowInputsLocked: !this.flowAiChatHelpers!.canEditFlowInputs() }
 					)
 					break
 				case AIMode.NAVIGATOR:
