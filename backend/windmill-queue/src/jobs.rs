@@ -5237,7 +5237,8 @@ pub fn has_active_concurrency_limit(concurrent_limit: Option<i32>) -> bool {
 }
 
 /// Admit a job already owned by a worker without releasing its queue reservation.
-/// The caller must maintain its heartbeat while waiting and complete it on failure.
+/// The caller must maintain its heartbeat while waiting and complete it on failure, including
+/// the `ConcurrencyLimitReached` error of a job set to fail on a full key.
 pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<bool> {
     #[cfg(all(feature = "private", feature = "enterprise"))]
     {
@@ -5256,17 +5257,32 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
                 Error::internal_err(format!("No concurrency key found for job {}", job.id))
             })?;
             if !key.is_empty() {
-                return Ok(crate::jobs_ee::update_concurrency_counter(
+                let window = settings.concurrency_time_window_s.unwrap_or(0);
+                let limit = settings.concurrent_limit.unwrap_or_default();
+                let admitted = crate::jobs_ee::update_concurrency_counter(
                     db,
                     &job.id,
-                    key,
+                    key.clone(),
                     serde_json::json!({ job.id.to_string(): {} }),
                     job.id.to_string(),
-                    settings.concurrency_time_window_s.unwrap_or(0),
-                    settings.concurrent_limit.unwrap_or_default(),
+                    window,
+                    limit,
                 )
                 .await?
-                .0);
+                .0;
+                if !admitted
+                    && settings.on_concurrency_limit
+                        == Some(windmill_common::runnable_settings::OnConcurrencyLimit::Fail)
+                {
+                    let e = crate::jobs_ee::reject_over_concurrency_limit(
+                        db, job.id, &key, limit, window,
+                    )
+                    .await?;
+                    return Err(Error::JsonErr(
+                        json!({ "name": e.name, "message": e.message }),
+                    ));
+                }
+                return Ok(admitted);
             }
         }
     }

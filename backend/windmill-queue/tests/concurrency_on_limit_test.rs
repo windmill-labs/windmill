@@ -15,7 +15,10 @@ mod concurrency_on_limit {
     use windmill_common::runnable_settings::{ConcurrencySettings, OnConcurrencyLimit};
     use windmill_common::scripts::ScriptLang;
     use windmill_common::worker::make_pull_query;
-    use windmill_queue::{pull, push, PulledJobResult, PushArgs, PushIsolationLevel};
+    use windmill_queue::{
+        get_mini_pulled_job, pull, push, try_admit_owned_job, PulledJobResult, PushArgs,
+        PushIsolationLevel,
+    };
 
     const WS: &str = "test-workspace";
 
@@ -120,6 +123,27 @@ mod concurrency_on_limit {
                 .await
                 .unwrap();
         assert_eq!(key_rows, 0);
+    }
+
+    // A run reserved by its owner (an AI agent's first tool) is admitted outside `pull` and must
+    // fail the same way instead of waiting for a slot.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn fail_mode_applies_to_owned_admission(db: Pool<Postgres>) {
+        let first = push_job(&db, Some(OnConcurrencyLimit::Fail)).await;
+        let reserved = push_job(&db, Some(OnConcurrencyLimit::Fail)).await;
+        assert_eq!(pull_one(&db).await.job.map(|j| j.id), Some(first));
+
+        let job = get_mini_pulled_job(&db, &reserved)
+            .await
+            .unwrap()
+            .expect("reserved job");
+        let err = try_admit_owned_job(&db, &job)
+            .await
+            .expect_err("a reserved run over the limit fails");
+        assert_eq!(
+            windmill_common::worker::error_to_value(&err)["name"],
+            "ConcurrencyLimitReached"
+        );
     }
 
     // An older run that wakes at its estimated slot to a still-full key must be re-queued ahead
