@@ -5268,12 +5268,18 @@ async fn resume_suspended(
             &serde_json::json!({
                 "approved": approved,
                 "job_id": job_id,
-                "details": resume_audit_details(approved, &approver, deny_reason.as_deref()),
-                "reason": deny_reason,
+                "details": if approved {
+                    format!("Approved by {}", &approver)
+                } else {
+                    format!("Cancelled by {}", &approver)
+                }
             })
             .to_string(),
         ),
-        None,
+        // In the parameters, not the resource, which the audit log cuts at 255 characters.
+        deny_reason
+            .as_deref()
+            .map(|r| HashMap::from([("reason", r)])),
     )
     .await?;
 
@@ -5829,12 +5835,18 @@ async fn resume_suspended_job_internal(
             &serde_json::json!({
                 "approved": approved,
                 "job_id": job_id,
-                "details": resume_audit_details(approved, &approver, deny_reason.as_deref()),
-                "reason": deny_reason,
+                "details": if approved {
+                    format!("Approved by {}", &approver)
+                } else {
+                    format!("Cancelled by {}", &approver)
+                }
             })
             .to_string(),
         ),
-        None,
+        // In the parameters, not the resource, which the audit log cuts at 255 characters.
+        deny_reason
+            .as_deref()
+            .map(|r| HashMap::from([("reason", r)])),
     )
     .await?;
     tx.commit().await?;
@@ -5903,14 +5915,6 @@ async fn decrement_suspend(flow_id: Uuid, tx: &mut Transaction<'_, Postgres>) ->
 fn deny_reason(value: &serde_json::Value) -> Option<String> {
     let reason = value.get("reason")?.as_str()?.trim();
     (!reason.is_empty()).then(|| reason.to_string())
-}
-
-fn resume_audit_details(approved: bool, approver: &str, reason: Option<&str>) -> String {
-    match (approved, reason) {
-        (true, _) => format!("Approved by {approver}"),
-        (false, Some(reason)) => format!("Cancelled by {approver}: {reason}"),
-        (false, None) => format!("Cancelled by {approver}"),
-    }
 }
 
 async fn insert_resume_job<'c>(
