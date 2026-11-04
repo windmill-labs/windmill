@@ -145,6 +145,7 @@
 	import { useDbManagerUriState } from '$lib/components/dbManagerDrawerModel.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import { recordForkParent, rememberForkParent } from '$lib/forkParentMemory'
+	import { recordWorkspaceVisit } from '$lib/utils/recentWorkspaces'
 	import { homeSnapshotShown } from '$lib/homeSnapshot'
 	import { persistedValue } from '$lib/persistedResource.svelte'
 	interface Props {
@@ -413,6 +414,7 @@
 				} catch (e) {
 					console.error('Could not persist workspace to local storage', e)
 				}
+				recordWorkspaceVisit(String(workspace))
 			}
 			// Rendering as the user whoami last confirmed for this session saves its round trip on
 			// a reload; whoami below confirms or replaces them. See lastSession.ts for the binding.
