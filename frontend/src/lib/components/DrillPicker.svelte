@@ -557,7 +557,10 @@ leaves and ignores the current scope.
 			disabled={href ? undefined : leaf.disabled}
 			tabindex={0}
 			onmousedown={(e: MouseEvent) => e.preventDefault()}
-			onclick={(e: MouseEvent) => {
+			onclickcapture={(e: MouseEvent) => {
+				// Capture, not a delegated onclick: the picker is portalled outside the app root,
+				// where a delegated handler runs after SvelteKit's link handler has already
+				// followed the href, too late for preventDefault to keep a plain click on `pick`.
 				if (href && isNewTabClick(e)) return
 				e.preventDefault()
 				pick(leaf, e.metaKey || e.ctrlKey)

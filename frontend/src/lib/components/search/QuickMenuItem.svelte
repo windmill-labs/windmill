@@ -81,10 +81,12 @@
 	{id}
 	{href}
 	tabindex={href ? -1 : undefined}
-	onclick={(e: MouseEvent) => {
+	onclickcapture={(e: MouseEvent) => {
 		e.stopImmediatePropagation()
 		// The link only serves clicks the browser opens elsewhere (modified, middle, right); a
 		// plain click still goes through onselect, which may select rather than navigate.
+		// Capture, not a delegated onclick: the palette is portalled outside the app root, where
+		// a delegated handler runs after SvelteKit's link handler has already followed the href.
 		if (href && isNewTabClick(e)) return
 		if (href) e.preventDefault()
 		onselect(e.shiftKey || e.ctrlKey)
