@@ -182,7 +182,7 @@
 		{/if}
 		{#each flowModules as { id: k, type: typ, suspend: isSuspend, label, module } (k)}
 			{@const subItems = items?.[k]?.filter((x) => x.created_at && x.started_at)}
-			{@const badge = notExecutedBadge(module, localModuleStates[k])}
+			{@const badge = notExecutedBadge(k, module, localModuleStates[k])}
 			<div class="relative px-3 py-1.5">
 				<div class="flex items-center justify-between mb-0.5">
 					<div class="text-xs font-medium"

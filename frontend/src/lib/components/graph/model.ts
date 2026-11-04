@@ -75,14 +75,16 @@ export type GraphModuleState = {
 
 /**
  * Mocked and skipped steps complete as a pass-through job, so their success otherwise reads as
- * a real run. `step` is the module as the run defined it.
+ * a real run. `step` is the module as the run defined it; the steps of an expanded subflow
+ * (`subflow:` ids) are drawn from its current definition, so their mock setting is not trusted.
  */
 export function notExecutedBadge(
+	id: string,
 	step: Pick<FlowModule, 'mock'> | undefined,
 	state: GraphModuleState | undefined
 ): { label: string; title: string } | undefined {
 	if (state?.type !== 'Success') return undefined
-	if (step?.mock?.enabled)
+	if (step?.mock?.enabled && !id.startsWith('subflow:'))
 		return { label: 'Mocked', title: 'Returned the pinned value, nothing was executed' }
 	// `skipped` is also set on a step, or a container, that ran and then stopped the flow early,
 	// which the run state does not tell apart from a skip condition.

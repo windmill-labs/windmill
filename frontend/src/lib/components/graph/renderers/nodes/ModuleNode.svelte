@@ -33,7 +33,9 @@
 			: state
 	})
 
-	let statusBadge = $derived(data.editMode ? undefined : notExecutedBadge(data.module, state))
+	let statusBadge = $derived(
+		data.editMode ? undefined : notExecutedBadge(data.id, data.module, state)
+	)
 
 	// A `message` is the one action with no tool node of its own, so the annotation is the only
 	// place it can show.
