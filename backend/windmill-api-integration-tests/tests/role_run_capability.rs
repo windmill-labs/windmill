@@ -34,23 +34,36 @@ async fn test_withdrawn_run_refuses_runs(db: Pool<Postgres>) -> anyhow::Result<(
             .await?
             .status()
             .as_u16();
-        Ok(vec![post, get])
+        // Previews skip the router layer and check `run` in their handler.
+        let preview = c
+            .post(format!("{api}/jobs/run/preview"))
+            .header("Authorization", &auth)
+            .json(&serde_json::json!({"content": "select 1", "language": "postgresql", "args": {}}))
+            .send()
+            .await?
+            .status()
+            .as_u16();
+        Ok(vec![post, get, preview])
+    };
+    let set_overrides = async |caps: &str| -> anyhow::Result<()> {
+        sqlx::query(
+            "UPDATE workspace_settings SET role_overrides = $2::jsonb WHERE workspace_id = $1",
+        )
+        .bind(WS)
+        .bind(format!("{{\"operator\": {{\"capabilities\": {caps}}}}}"))
+        .execute(&db)
+        .await?;
+        windmill_common::roles::invalidate_all_roles_cache();
+        Ok(())
     };
 
-    // Unset, the operator runs: the route answers for the missing script, not the role.
+    // `code` granted so a preview refusal can only come from `run`. Unset, the operator runs.
+    set_overrides(r#"{"code": true}"#).await?;
     assert!(run("OPERATOR_TOKEN_1").await?.iter().all(|s| *s != 403));
 
-    sqlx::query(
-        "UPDATE workspace_settings SET role_overrides = '{\"operator\": {\"capabilities\": {\"run\": false}}}'
-         WHERE workspace_id = $1",
-    )
-    .bind(WS)
-    .execute(&db)
-    .await?;
-    windmill_common::roles::invalidate_all_roles_cache();
-
+    set_overrides(r#"{"code": true, "run": false}"#).await?;
     // 403, not 401, which the frontend reads as a dead session.
-    assert_eq!(run("OPERATOR_TOKEN_1").await?, vec![403, 403]);
+    assert_eq!(run("OPERATOR_TOKEN_1").await?, vec![403, 403, 403]);
     assert!(run("SECRET_TOKEN").await?.iter().all(|s| *s != 403));
 
     Ok(())

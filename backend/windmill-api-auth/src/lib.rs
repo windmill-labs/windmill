@@ -964,6 +964,8 @@ pub async fn gate_operator_writes(
 fn starts_run(path: &str) -> bool {
     let mut segments = path.trim_start_matches('/').split('/');
     match (segments.next(), segments.next()) {
+        // Script previews check `run` in their handlers, after the in-job data table exemption.
+        (Some("run" | "run_inline" | "run_wait_result"), Some("preview")) => false,
         (Some("run"), Some(next)) => !matches!(
             next,
             "dependencies"

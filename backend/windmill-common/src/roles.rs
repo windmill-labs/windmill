@@ -86,7 +86,7 @@ impl RoleVisibility {
 pub struct RoleCapabilities {
     /// Author scripts and run code of one's own on a worker: script previews, dependency jobs,
     /// dynamic selects, resolving a job's code, data table migrations. `Full` flows or apps
-    /// require it, since both carry inline code.
+    /// require it, since both carry inline code. Previews also need `run`.
     pub code: bool,
     pub flows: AuthorLevel,
     pub apps: AuthorLevel,

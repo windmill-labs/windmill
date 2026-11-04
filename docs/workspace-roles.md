@@ -42,7 +42,10 @@ runs, logs and results included, and start nothing. `gate_role_runs` sits on the
 refuses every path under `run/`, `run_wait_result/`, `run_and_stream/`, `run_inline/`, `restart/`
 and `add_batch_jobs/` (GET included, which starts runs there), so a run route added under those
 prefixes is gated for free. It lets through the dependency-lock and dynamic-select routes, which
-`code` gates, and `run/workflow_as_code`, a step of a run already started. Callers that push
+`code` gates, and `run/workflow_as_code`, a step of a run already started. The three script
+preview routes (`run/preview`, `run_inline/preview`, `run_wait_result/preview`) check `run` in
+their handlers instead, after the exemption that lets a running job's SDK send a data table query
+there, since jobs a view-only member owns still run as them. Callers that push
 without the router check `check_role_can_run` themselves: the MCP per-runnable tools, eval
 experiment runs and members-only Slack agent shares (which run as the asking member). Resuming or approving a suspended step is not a run. Schedules and triggers keep
 their own rights, apps run their runnables on the app's policy and are not gated, and a job

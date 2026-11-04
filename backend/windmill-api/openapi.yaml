@@ -39612,7 +39612,7 @@ components:
       properties:
         code:
           type: boolean
-          description: Author scripts and run code of one's own (previews, dependency jobs, dynamic selects, resolving jobs, data table migrations). Required by `full` flows or apps.
+          description: Author scripts and run code of one's own (previews, dependency jobs, dynamic selects, resolving jobs, data table migrations). Required by `full` flows or apps. Previews also need `run`.
         flows:
           $ref: "#/components/schemas/AuthorLevel"
         apps:

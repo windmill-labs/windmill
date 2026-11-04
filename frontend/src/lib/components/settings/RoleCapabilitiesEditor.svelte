@@ -92,7 +92,7 @@
 			key: 'code',
 			label: 'Write code',
 			description:
-				'Author scripts and run code of their own: previews, dependency jobs, dynamic selects. Required for full flow or app authoring.'
+				'Author scripts and run code of their own: previews, dependency jobs, dynamic selects. Required for full flow or app authoring. Previews also need Can run.'
 		},
 		{
 			key: 'flows',
