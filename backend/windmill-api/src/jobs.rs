@@ -5929,11 +5929,15 @@ async fn insert_resume_job<'c>(
     // The approver, possibly anonymous, writes this payload, and later steps receive it as
     // `resume`, interpolated with the flow's own token.
     if windmill_common::variables::untrusted_arg_interpolates(&value.to_string()) {
-        return Err(Error::BadRequest(
-            "The resume payload cannot hold $var:, $jsonvar:, $res: or $encrypted: references, \
+        let what = if approved {
+            "The resume payload"
+        } else {
+            "The denial reason"
+        };
+        return Err(Error::BadRequest(format!(
+            "{what} cannot hold $var:, $jsonvar:, $res: or $encrypted: references, \
              or a $WM_* variable name"
-                .to_string(),
-        ));
+        )));
     }
     sqlx::query!(
         r#"
