@@ -2,7 +2,7 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { canUseWASM } from '@pierre/diffs'
-	import { THEMES, type PierreSettings } from './pierreSettings'
+	import { THEMES, type PierreSettings } from './pierreSettings.svelte'
 
 	let { settings = $bindable() }: { settings: PierreSettings } = $props()
 

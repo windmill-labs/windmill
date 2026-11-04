@@ -39,7 +39,11 @@ export async function switchMainThreadHighlighter(type: HighlighterTypes): Promi
 
 const pools = new Map<HighlighterTypes, WorkerPoolManager>()
 
-/** One pool per highlighter backend: a pool's backend is fixed when its workers start. */
+/**
+ * One pool per highlighter backend: a pool's backend is fixed when its workers start. Pools live
+ * as long as the page, shared by every component that asks; a caller that wants its workers back
+ * must `terminate()` the pool and accept that later components restart it.
+ */
 export function pierreWorkerPool(preferredHighlighter: HighlighterTypes): WorkerPoolManager {
 	let pool = pools.get(preferredHighlighter)
 	if (!pool) {

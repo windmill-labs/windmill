@@ -10,10 +10,14 @@
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { copilotInfo } from '$lib/aiStore'
 	import { workspaceStore } from '$lib/stores'
+	import { randomUUID } from '$lib/utils/uuid'
 	import { Redo2, Undo2 } from 'lucide-svelte'
 	import { lint } from './lint'
 	import { REVIEW_BEFORE } from './reviewSample'
 
+	// Changing the prediction mode recreates the editor; the key carries the draft and undo
+	// history over. Per tab instance, so reopening the tab starts from the sample again.
+	const editStateKey = randomUUID()
 	let pierreCode = $state(REVIEW_BEFORE)
 	let monacoCode = $state(REVIEW_BEFORE)
 	let markers: Marker[] = $state.raw(lint(REVIEW_BEFORE))
@@ -117,6 +121,7 @@
 			{#key predictionMode}
 				<PierreFileEditor
 					code={REVIEW_BEFORE}
+					{editStateKey}
 					filename="billing.ts"
 					lang="typescript"
 					{editorOptions}

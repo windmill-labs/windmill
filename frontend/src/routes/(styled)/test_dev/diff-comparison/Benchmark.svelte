@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick } from 'svelte'
+	import { onDestroy, tick } from 'svelte'
 	import { Button } from '$lib/components/common'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import ToolCodeDiffView from '$lib/components/copilot/chat/ToolCodeDiffView.svelte'
@@ -8,7 +8,7 @@
 	import { switchMainThreadHighlighter } from '$lib/components/pierre/pierre'
 	import { caseFileDiff, type ComparisonCase } from './cases'
 	import { countNodes, formatMs, observeLongTasks, sleep, waitForSelector } from './measure'
-	import { diffOptions, settingsPool, type PierreSettings } from './pierreSettings'
+	import { diffOptions, useSettingsPool, type PierreSettings } from './pierreSettings.svelte'
 
 	let {
 		diffCase,
@@ -86,7 +86,13 @@
 	let box: HTMLDivElement | undefined = $state()
 
 	const currentSettings = $derived(current?.pierre ? { ...settings, ...current.pierre } : settings)
+	const pool = useSettingsPool(() => currentSettings)
 	const fileDiff = $derived(caseFileDiff(diffCase))
+
+	// Leaving the tab must stop the loop: a later backend switch would dispose the highlighter
+	// whatever is mounted next relies on.
+	let destroyed = false
+	onDestroy(() => (destroyed = true))
 
 	async function runAll(rounds: number) {
 		running = true
@@ -97,6 +103,7 @@
 			for (const r of renderers) {
 				current = undefined
 				await tick()
+				if (destroyed) return
 				const s = { ...settings, ...r.pierre }
 				if (r.pierre && !s.useWorkers) await switchMainThreadHighlighter(s.highlighter)
 				await sleep(300)
@@ -191,7 +198,7 @@
 				class="h-full overflow-auto"
 				items={[{ type: 'diff', id: diffCase.id, fileDiff }]}
 				options={diffOptions(currentSettings)}
-				workerPool={settingsPool(currentSettings)}
+				workerPool={pool.current}
 			/>
 		{:else if current?.pierre}
 			<PierreDiff
@@ -200,7 +207,7 @@
 				filename={diffCase.filename}
 				lang={diffCase.diff.lang}
 				options={diffOptions(currentSettings)}
-				workerPool={settingsPool(currentSettings)}
+				workerPool={pool.current}
 			/>
 		{/if}
 	</div>

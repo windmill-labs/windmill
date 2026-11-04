@@ -56,10 +56,33 @@ export function diffOptions(
 	}
 }
 
-/** Theme and inline-diff granularity belong to the pool when one is used, not to the component. */
-export function settingsPool(s: PierreSettings): WorkerPoolManager | undefined {
-	if (!s.useWorkers) return undefined
-	const pool = pierreWorkerPool(s.highlighter)
-	void pool.setRenderOptions({ theme: THEMES[s.theme], lineDiffType: s.lineDiffType })
-	return pool
+// Pools are shared across components, so the options last applied are tracked per pool.
+const appliedOptions = new WeakMap<WorkerPoolManager, string>()
+
+/**
+ * The pool for these settings, with its render options kept in sync: theme and inline-diff
+ * granularity belong to the pool when one is used, not to the component. Call during component
+ * init; the getter is safe in `$derived` and templates.
+ */
+export function useSettingsPool(settings: () => PierreSettings): {
+	readonly current: WorkerPoolManager | undefined
+} {
+	const pool = $derived(
+		settings().useWorkers ? pierreWorkerPool(settings().highlighter) : undefined
+	)
+	$effect(() => {
+		const s = settings()
+		if (!pool) return
+		const key = `${s.theme}:${s.lineDiffType}`
+		// Setting options re-renders every mounted component and clears the pool's cache.
+		// `pierreWorkerPool` starts a pool on the pierre theme and Pierre's default `word-alt`.
+		if ((appliedOptions.get(pool) ?? 'pierre:word-alt') === key) return
+		appliedOptions.set(pool, key)
+		void pool.setRenderOptions({ theme: THEMES[s.theme], lineDiffType: s.lineDiffType })
+	})
+	return {
+		get current() {
+			return pool
+		}
+	}
 }

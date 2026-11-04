@@ -24,6 +24,8 @@
 		editorOptions?: Omit<FileEditorOptions, 'renderSelectionAction'>
 		selectionAction?: Snippet<[SelectionActionContext]>
 		markers?: Marker[]
+		/** A later editor with the same key resumes this one's draft and undo history. */
+		editStateKey?: string
 		onChange?: (code: string) => void
 		onEditor?: (editor: Editor<'file', undefined, undefined> | undefined) => void
 		class?: string
@@ -38,6 +40,7 @@
 		editorOptions,
 		selectionAction,
 		markers,
+		editStateKey,
 		onChange,
 		onEditor,
 		class: className = ''
@@ -100,7 +103,8 @@
 					renderSelectionAction: selectionAction
 						? (ctx) => elements.render(selectionAction, ctx)
 						: undefined
-				}))
+				})),
+				untrack(() => editStateKey)
 			)
 			dispose = e.edit(f)
 			editor = e

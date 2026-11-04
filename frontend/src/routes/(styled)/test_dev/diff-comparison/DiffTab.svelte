@@ -10,7 +10,7 @@
 	import WorkspaceScriptPicker from './WorkspaceScriptPicker.svelte'
 	import { switchMainThreadHighlighter } from '$lib/components/pierre/pierre'
 	import { caseFileDiff, cases, type ComparisonCase } from './cases'
-	import { DEFAULT_SETTINGS, diffOptions, settingsPool } from './pierreSettings'
+	import { DEFAULT_SETTINGS, diffOptions, useSettingsPool } from './pierreSettings.svelte'
 
 	let settings = $state({ ...DEFAULT_SETTINGS })
 	let virtualized = $state(false)
@@ -23,7 +23,7 @@
 			: (cases.find((c) => c.id === activeCaseId) ?? cases[0])
 	)
 	const options = $derived(diffOptions(settings))
-	const pool = $derived(settingsPool(settings))
+	const pool = useSettingsPool(() => settings)
 </script>
 
 <div class="flex flex-col gap-4">
@@ -104,7 +104,7 @@
 			class="h-full overflow-auto"
 			items={[{ type: 'diff', id: activeCase.id, fileDiff: caseFileDiff(activeCase) }]}
 			{options}
-			workerPool={pool}
+			workerPool={pool.current}
 		/>
 	{:else}
 		<PierreDiff
@@ -114,7 +114,7 @@
 			lang={activeCase.diff.lang}
 			beforeLang={activeCase.diff.beforeLang}
 			{options}
-			workerPool={pool}
+			workerPool={pool.current}
 		/>
 	{/if}
 {/snippet}

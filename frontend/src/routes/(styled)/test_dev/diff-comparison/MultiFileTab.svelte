@@ -7,7 +7,7 @@
 	import PierreCodeView from '$lib/components/pierre/PierreCodeView.svelte'
 	import { switchMainThreadHighlighter } from '$lib/components/pierre/pierre'
 	import { countNodes, formatMs, observeLongTasks, sleep, waitForSelector } from './measure'
-	import { DEFAULT_SETTINGS, diffOptions, settingsPool } from './pierreSettings'
+	import { DEFAULT_SETTINGS, diffOptions, useSettingsPool } from './pierreSettings.svelte'
 	import PierreSettingsBar from './PierreSettingsBar.svelte'
 
 	type Side = 'pierre' | 'monaco'
@@ -49,7 +49,7 @@
 			)
 		}))
 	)
-	const pool = $derived(settingsPool(settings))
+	const pool = useSettingsPool(() => settings)
 
 	async function show(side: Side) {
 		stats[side] = undefined
@@ -114,7 +114,7 @@
 						class="h-full overflow-auto"
 						{items}
 						options={diffOptions(settings)}
-						workerPool={pool}
+						workerPool={pool.current}
 					/>
 				{/await}
 			{/key}
