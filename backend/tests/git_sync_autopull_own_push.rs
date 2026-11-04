@@ -6,7 +6,6 @@
 
 use sqlx::{Pool, Postgres};
 use uuid::Uuid;
-use windmill_common::workspaces::GIT_SYNC_PULL_SCRIPT_PATH;
 use windmill_git_sync::advance_synced_sha_past_own_push;
 
 async fn synced_main(db: &Pool<Postgres>) -> anyhow::Result<String> {
@@ -56,9 +55,10 @@ async fn own_push_advances_only_from_the_synced_head(db: Pool<Postgres>) -> anyh
         .await?;
     assert_eq!(synced_main(&db).await?, "w1");
 
-    // A pull that finished while the push ran may have reverted what it pushed.
+    // A pull that finished while the push ran may have reverted what it pushed, whatever
+    // hub version of the pull script it ran.
     let push = completed_job(&db, "hub/1/sync", 10, 0).await?;
-    completed_job(&db, GIT_SYNC_PULL_SCRIPT_PATH, 20, 5).await?;
+    completed_job(&db, "hub/99999/git-sync-init-repository-windmill", 20, 5).await?;
     advance_synced_sha_past_own_push(&db, "ap-ws", "u/admin/repo", "main", "w1", "w3", push)
         .await?;
     assert_eq!(synced_main(&db).await?, "w1");
