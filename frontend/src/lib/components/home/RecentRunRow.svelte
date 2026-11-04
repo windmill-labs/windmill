@@ -123,7 +123,8 @@
 			{/if}
 			<span class="min-w-0 truncate">{title}</span>
 		</span>
-		<span class="flex items-center gap-1.5 min-w-0 overflow-hidden text-[10.5px] text-hint">
+		<!-- A fixed height: the hover actions are taller than the text, and must not move the row. -->
+		<span class="flex items-center gap-1.5 h-4 min-w-0 overflow-x-clip text-[10.5px] text-hint">
 			<!-- Gives way first: the hover actions shrink only once the path is gone. -->
 			<span class="truncate shrink-[1000]">{item.path}</span>
 			<!-- The header counts failed runs, not failing items: this per-item count shows where its
@@ -131,10 +132,7 @@
 			{#if item.failed_runs > 0}
 				<span class="shrink-0 text-red-600 dark:text-red-400">{item.failed_runs} failed</span>
 				{#if onResolve && $roleCaps.code}
-					<!-- Negative margins keep the button's height from growing the row on hover. -->
-					<span
-						class="hidden group-hover:inline-flex group-focus-within:inline-flex shrink-0 -my-[3px]"
-					>
+					<span class="hidden group-hover:inline-flex group-focus-within:inline-flex shrink-0">
 						<Button
 							variant="subtle"
 							unifiedSize="2xs"
