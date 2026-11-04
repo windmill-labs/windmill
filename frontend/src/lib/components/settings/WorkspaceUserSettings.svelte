@@ -409,7 +409,7 @@
 	}
 
 	const INSTANCE_GROUP_REMOVE_HINT =
-		'Cannot remove users synced from instance groups. Either disable the user or remove them from the SCIM group.'
+		'Cannot remove users synced from instance groups. Either disable the user or remove them from the instance group, in your identity provider when the group is synced by SCIM or linked to an IdP group.'
 
 	function rowActions(user: User): Item[] {
 		const fromInstanceGroup = user.added_via?.source === 'instance_group'
