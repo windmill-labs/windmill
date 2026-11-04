@@ -8409,8 +8409,8 @@ impl QueuedRun {
         result
     }
 
-    /// Whether its script deletes the run's data once its result is read, which only a
-    /// caller waiting on that result does.
+    /// Whether its script deletes the run's data after use, at once or after a delay: only a
+    /// caller that waits for the result applies that setting.
     pub fn deletes_after_use(&self) -> bool {
         resolve_delete_after_secs(self.delete_after_use, self.delete_after_secs).is_some()
     }

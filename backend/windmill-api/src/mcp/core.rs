@@ -112,8 +112,8 @@ impl WindmillBackend {
         queued: QueuedRun,
         request: &McpRequest<'_>,
     ) -> BackendResult<Value> {
-        // No later read can follow these: a hub script's run is outside what `get_run`
-        // reads, and a run deleted once its result is read is gone by then.
+        // A hub script's run is outside what `get_run` reads, and a script's delete-after-use
+        // setting is applied only by a caller that waits for its result.
         if path.starts_with("hub/") || queued.deletes_after_use() {
             let response = queued
                 .wait(&self.db, workspace_id, &auth.username)

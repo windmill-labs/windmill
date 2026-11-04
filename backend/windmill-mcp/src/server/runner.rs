@@ -884,12 +884,17 @@ impl<B: McpBackend> Runner<B> {
                 ));
             }
 
-            tools.extend(
-                self.backend
-                    .session_tools(SessionAccess::ReadOnly)
-                    .into_iter()
-                    .find(|tool| tool.name == GET_RUN),
-            );
+            if scope_config.favorites
+                || scope_config.has_any("script")
+                || scope_config.has_any("flow")
+            {
+                tools.extend(
+                    self.backend
+                        .session_tools(SessionAccess::ReadOnly)
+                        .into_iter()
+                        .find(|tool| tool.name == GET_RUN),
+                );
+            }
         }
 
         // Add endpoint tools from the generated MCP tools, filtered by scope.
@@ -1142,7 +1147,10 @@ impl<B: McpBackend> Runner<B> {
         let id = args.get("id").and_then(Value::as_str).unwrap_or_default();
         let refused = || {
             ErrorData::invalid_params(
-                format!("No run {id} of a script or flow this token runs"),
+                format!(
+                    "No run {id} of a script or flow this token runs. For a step of a flow, \
+                     pass the flow's run id and the step's id as `step`."
+                ),
                 None,
             )
         };
