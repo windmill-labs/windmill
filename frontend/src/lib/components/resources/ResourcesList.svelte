@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { page } from '$app/state'
+	import { isNewTabClick } from '$lib/navigation'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, EmptyState, Skeleton, Tab, TabFade } from '$lib/components/common'
@@ -1219,7 +1220,8 @@
 													<a
 														class="break-all"
 														href="#/resource/{path}"
-														onclick={() => {
+														onclick={(e) => {
+															if (!hosted && isNewTabClick(e)) return
 															handledHash = `#/resource/${path}`
 															openResourceEditor(path, resource_type)
 														}}

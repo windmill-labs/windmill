@@ -4,6 +4,34 @@ import { serializeParam } from '$lib/utils/serializeParam'
 export { goto }
 
 /**
+ * Whether a click asks the browser to open its target in a new tab: a middle click, or a
+ * ctrl/cmd-click. An `<a href>` whose `onclick` also opens something in place (a drawer, a
+ * selection) must skip that work on such a click, since the browser opens the tab itself.
+ */
+export function isNewTabClick(e: MouseEvent): boolean {
+	return e.button === 1 || e.ctrlKey || e.metaKey
+}
+
+/**
+ * For a clickable element that cannot be an `<a href>` (it holds links or buttons of its own):
+ * open `href` in a new tab on a middle click or, unless `modifiers` is false, a ctrl/cmd-click.
+ * Returns whether it did, so the caller skips its own click action. A click that lands on a
+ * nested link or button is left to that control, or both would open a tab.
+ */
+export function openOnNewTabClick(
+	e: MouseEvent,
+	href: string,
+	{ modifiers = true }: { modifiers?: boolean } = {}
+): boolean {
+	if (!(e.button === 1 || (modifiers && (e.ctrlKey || e.metaKey)))) return false
+	const control = (e.target as Element | null)?.closest('a[href], button')
+	if (control && control !== e.currentTarget) return false
+	e.preventDefault()
+	window.open(href, '_blank')
+	return true
+}
+
+/**
  * Build an in-app deep-link to `pathname` with query-param filters, encoded exactly
  * as the pages write them (via `serializeParam`) so `useUrlSyncedFilterInstance`
  * round-trips them back into filter state. Nullish/empty values are dropped; when
