@@ -449,7 +449,7 @@ pub async fn update_flow_status_after_job_completion_internal(
     canceled_by: Option<CanceledBy>,
     mut flow_job_duration: Option<FlowJobDuration>,
     result: Arc<Box<RawValue>>,
-    step_failure: StepFailureKind,
+    mut step_failure: StepFailureKind,
     same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     stop_early_override: Option<bool>,
@@ -480,6 +480,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         failure_step_recovers,
         _cleanup_module,
         chat_ai_info,
+        own_timeout,
     ) = {
         // tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
 
@@ -1801,7 +1802,16 @@ pub async fn update_flow_status_after_job_completion_internal(
             && step_failure.honors_step_error_policy()
             && (skip_seq_branch_failure || skip_loop_failures || continue_on_error);
 
+        // A flow cancelled by its own timeout still runs its failure module, once, before it
+        // ends, whatever its loops' stop conditions say. The subflows and loop iterations
+        // cancelled with it just stop, so `has_triggered_error_handler` (set on a parallel node,
+        // whose iterations normally run the handler) must not hold it back.
+        let own_timeout = cancelled_by_own_timeout(db, &flow_job).await?;
+        let timeout_to_failure_module =
+            own_timeout && !is_failure_step && flow_value.failure_module.is_some();
+
         let should_continue_flow = match success {
+            _ if timeout_to_failure_module => true,
             _ if stop_early => stop_early_err_msg.is_some() && flow_value.failure_module.is_some(), // if stop_early_err_msg some, we want to trigger the error handler before stopping the flow, if any
             _ if flow_job.is_canceled() => false,
             true => !is_last_step,
@@ -1833,6 +1843,26 @@ pub async fn update_flow_status_after_job_completion_internal(
         if recoverable_failure_at_last_step {
             success = true;
         }
+
+        // The timeout error is what the failure module and a calling step see, with or without a
+        // failure module, as a script's timeout is an `ExecutionErr` to its caller.
+        let nresult = if own_timeout && !is_failure_step {
+            if timeout_to_failure_module {
+                step_failure = StepFailureKind::FlowTimeout;
+            }
+            let message = format!(
+                "flow terminated due to timeout: {}",
+                flow_job
+                    .canceled_reason
+                    .as_deref()
+                    .unwrap_or("the flow exceeded its timeout")
+            );
+            Arc::new(to_raw_value(
+                &json!({ "error": { "name": "ExecutionErr", "message": message } }),
+            ))
+        } else {
+            nresult
+        };
 
         tracing::info!(id = %flow_job.id, root_id = %job_root, success = %success, stop_early = %stop_early, is_last_step = %is_last_step, step_failure = ?step_failure,
              skip_seq_branch_failure = %skip_seq_branch_failure, skip_loop_failures = %skip_loop_failures,
@@ -1874,6 +1904,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             failure_step_recovers,
             old_status.cleanup_module,
             chat_ai_info,
+            own_timeout,
         )
     };
 
@@ -2215,8 +2246,15 @@ pub async fn update_flow_status_after_job_completion_internal(
                     RecUpdateFlowStatusAfterJobCompletion {
                         flow: parent_job,
                         job_id_for_status: flow,
-                        success: success && !is_failure_step,
-                        canceled_by: if !success { canceled_by.clone() } else { None },
+                        // A subflow that timed out is a failed step to its parent, as a script
+                        // that timed out is, whatever its last step's error policy, and not a
+                        // cancellation of the parent.
+                        success: success && !is_failure_step && !own_timeout,
+                        canceled_by: if !success && !own_timeout {
+                            canceled_by.clone()
+                        } else {
+                            None
+                        },
                         flow_job_duration: flow_job_duration.clone(),
                         result: nresult.clone(),
                         stop_early_override: if stop_early {
@@ -3666,6 +3704,22 @@ async fn push_next_flow_job(
     };
 
     // tracing::error!("status_module: {status_module:#?}");
+
+    // A flow cancelled by its timeout goes to its failure module from whatever step it was at,
+    // a loop or an approval included, never to a next step, iteration or retry.
+    if step_failure == StepFailureKind::FlowTimeout && !matches!(step, Step::FailureStep) {
+        status_module = FlowStatusModule::Failure {
+            id: status_module.id(),
+            job: Uuid::nil(),
+            flow_jobs: None,
+            flow_jobs_success: None,
+            flow_jobs_duration: None,
+            branch_chosen: None,
+            failed_retries: vec![],
+            agent_actions: None,
+            agent_actions_success: None,
+        };
+    }
 
     let fj: mappable_rc::Marc<MiniPulledJob> = flow_job.clone().into();
     let arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>> =
@@ -6660,6 +6714,23 @@ async fn flow_to_payload(
         timeout: None,
         on_behalf_of,
     })
+}
+
+/// Whether the timeout sweep cancelled this flow itself, rather than an ancestor whose cancel
+/// reached it: the ancestor's parent-to-child cancel leaves the parent cancelled too.
+async fn cancelled_by_own_timeout(db: &DB, flow_job: &MiniPulledJob) -> error::Result<bool> {
+    if flow_job.canceled_by.as_deref() != Some(windmill_common::jobs::FLOW_TIMEOUT_CANCELER) {
+        return Ok(false);
+    }
+    let Some(parent) = flow_job.parent_job else {
+        return Ok(true);
+    };
+    let parent_canceled_by =
+        sqlx::query_scalar!("SELECT canceled_by FROM v2_job_queue WHERE id = $1", parent)
+            .fetch_optional(db)
+            .await?
+            .flatten();
+    Ok(parent_canceled_by.as_deref() != Some(windmill_common::jobs::FLOW_TIMEOUT_CANCELER))
 }
 
 /// Effective timeout for a flow step given the module's (already-evaluated) timeout override and
