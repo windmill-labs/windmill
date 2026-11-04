@@ -4,12 +4,12 @@ import { serializeParam } from '$lib/utils/serializeParam'
 export { goto }
 
 /**
- * Whether a click on an `<a href>` asks the browser to open it in a new tab (ctrl/cmd-click).
- * A link whose `onclick` also opens something in place (a drawer) must skip that work then,
- * since the browser opens the tab itself. A middle click fires `auxclick`, never `click`.
+ * Whether the browser handles a click on an `<a href>` itself, opening it elsewhere (new tab,
+ * new window, download): a modified or non-primary click. A link whose `onclick` also opens
+ * something in place (a drawer) must skip that work then.
  */
 export function isNewTabClick(e: MouseEvent): boolean {
-	return e.ctrlKey || e.metaKey
+	return e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0
 }
 
 /**

@@ -80,8 +80,8 @@
 	{href}
 	onclick={(e: MouseEvent) => {
 		e.stopImmediatePropagation()
-		// The link only serves ctrl/cmd-, middle- and right-click; a plain or shift click
-		// still goes through onselect, which may select rather than navigate.
+		// The link only serves clicks the browser opens elsewhere (modified, middle, right); a
+		// plain click still goes through onselect, which may select rather than navigate.
 		if (href && isNewTabClick(e)) return
 		if (href) e.preventDefault()
 		onselect(e.shiftKey || e.ctrlKey)

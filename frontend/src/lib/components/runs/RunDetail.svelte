@@ -737,22 +737,12 @@
 			? `/scripts/get/${job?.script_path}?version=${job?.script_hash}`
 			: `${stem}/get/${isScriptJob ? job?.script_hash : job?.script_path}`
 	)
-	// The run's args ride in the edit link so a new tab gets them too. Past this length the
-	// request line risks a 414 from a proxy, and the in-memory store carries them instead, which
-	// only the current tab can read.
-	const MAX_URL_ARGS_LENGTH = 4000
-	const encodedEditArgs = $derived(
-		job?.args ? encodeURIComponent(encodeState(job.args)) : undefined
-	)
-	const editArgsInUrl = $derived(
-		encodedEditArgs !== undefined && encodedEditArgs.length <= MAX_URL_ARGS_LENGTH
-	)
-	const editHref = $derived(
-		`${stem}/edit/${job?.script_path}?workspace=${workspaceId}` +
-			(editArgsInUrl ? `&initial_args=${encodedEditArgs}` : '')
-	)
+	const editHref = $derived(`${stem}/edit/${job?.script_path}?workspace=${workspaceId}`)
+	// The run's args reach the editor through the in-memory store, never the URL: they can hold
+	// secrets that must not land in history or access logs. A new tab can't read the store, so
+	// it opens the editor without them, and the store is left alone for this tab's next editor.
 	function seedEditArgs(e?: Event) {
-		if (editArgsInUrl || (e instanceof MouseEvent && isNewTabClick(e))) return
+		if (e instanceof MouseEvent && isNewTabClick(e)) return
 		$initialArgsStore = job?.args
 	}
 	const forkPreviewLabel = $derived(
