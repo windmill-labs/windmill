@@ -112,14 +112,20 @@
 
 	<span class="flex flex-col min-w-0 flex-1">
 		<span
-			class="truncate text-[12.5px] {failing
+			class="flex min-w-0 text-[12.5px] {failing
 				? 'font-semibold text-emphasis'
 				: 'font-medium text-primary'}"
 		>
-			{#if prefix}<span class="text-hint font-normal">{prefix} / </span>{/if}{title}
+			<!-- Capped so a long folder name cannot push the title it disambiguates out of view. -->
+			{#if prefix}
+				<span class="shrink-0 max-w-[45%] truncate text-hint font-normal">{prefix}</span>
+				<span class="shrink-0 whitespace-pre text-hint font-normal">{' / '}</span>
+			{/if}
+			<span class="min-w-0 truncate">{title}</span>
 		</span>
-		<span class="flex items-center gap-1.5 min-w-0 text-[10.5px] text-hint">
-			<span class="truncate">{item.path}</span>
+		<span class="flex items-center gap-1.5 min-w-0 overflow-hidden text-[10.5px] text-hint">
+			<!-- Gives way first: the hover actions shrink only once the path is gone. -->
+			<span class="truncate shrink-[1000]">{item.path}</span>
 			<!-- The header counts failed runs, not failing items: this per-item count shows where its
 			     number comes from. -->
 			{#if item.failed_runs > 0}
@@ -152,7 +158,7 @@
 			{/if}
 			{#if failing && canAskAI() && latest}
 				<button
-					class="hidden group-hover:inline group-focus-within:inline shrink-0 font-medium text-ai hover:underline"
+					class="hidden group-hover:inline group-focus-within:inline min-w-0 truncate font-medium text-ai hover:underline"
 					onclick={(e) => {
 						e.stopPropagation()
 						askAI({ kind: 'run', path: item.path, jobId: latest.id }, 'Why did this run fail?')
