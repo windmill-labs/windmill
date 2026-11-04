@@ -18,6 +18,7 @@ private = ["windmill-common/private", "windmill-api-workspaces/private"]
 [dependencies]
 windmill-common = { workspace = true, default-features = false }
 windmill-api-auth.workspace = true
+windmill-api-scripts.workspace = true
 windmill-api-workspaces.workspace = true
 windmill-audit.workspace = true
 windmill-git-sync.workspace = true
@@ -31,5 +32,6 @@ serde.workspace = true
 serde_json.workspace = true
 sql-builder.workspace = true
 sqlx.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 uuid.workspace = true
