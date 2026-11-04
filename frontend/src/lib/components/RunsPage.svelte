@@ -1090,7 +1090,7 @@
 				{/if}
 				{#if graph === 'RunChart'}
 					<Popover
-						class="ml-auto self-center"
+						class="ml-auto self-start -mr-2"
 						placement="bottom-end"
 						contentClasses="p-3 flex flex-col gap-3"
 					>
