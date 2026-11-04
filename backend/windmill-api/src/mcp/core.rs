@@ -102,7 +102,8 @@ impl WindmillBackend {
 
     /// A tool's answer for a run it queued: the result when the run ends within the session
     /// tools' default wait, otherwise where to follow it. The run is never cancelled for
-    /// outliving the wait, nor when the client goes away before it ends.
+    /// outliving the wait, nor when the client goes away before it ends. A hub script, or a
+    /// script that deletes its run's data after use, is waited on as `run_wait_result` waits.
     async fn settle_run(
         &self,
         auth: &ApiAuthed,
@@ -111,6 +112,15 @@ impl WindmillBackend {
         queued: QueuedRun,
         request: &McpRequest<'_>,
     ) -> BackendResult<Value> {
+        // No later read can follow these: a hub script's run is outside what `get_run`
+        // reads, and a run deleted once its result is read is gone by then.
+        if path.starts_with("hub/") || queued.deletes_after_use() {
+            let response = queued
+                .wait(&self.db, workspace_id, &auth.username)
+                .await
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+            return parse_response_body(response).await;
+        }
         let budget = Duration::from_secs(crate::ai_session_tools::wait_budget(&Value::Null));
         let done = queued
             .wait_within(&self.db, workspace_id, budget)
@@ -119,7 +129,7 @@ impl WindmillBackend {
         if let Some(response) = done {
             return parse_response_body(response).await;
         }
-        let id = queued.uuid;
+        let id = queued.id();
         let origin = request.origin();
         let mut ctx = session::Ctx::new(
             auth,

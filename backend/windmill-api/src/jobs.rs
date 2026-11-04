@@ -8370,9 +8370,11 @@ pub async fn run_wait_result_script_by_path_internal(
     .await
 }
 
-/// A run queued by a caller that reads its result back.
+/// A run queued by a caller that reads its result back. Only the `queue_*_for_result`
+/// functions build one, after checking the caller may run what it queues: its wait methods
+/// read the result with no check of their own.
 pub struct QueuedRun {
-    pub uuid: Uuid,
+    uuid: Uuid,
     early_return: Option<String>,
     has_failure_module: bool,
     delete_after_use: Option<bool>,
@@ -8380,9 +8382,13 @@ pub struct QueuedRun {
 }
 
 impl QueuedRun {
+    pub fn id(&self) -> Uuid {
+        self.uuid
+    }
+
     /// Until the run ends or `TIMEOUT_WAIT_RESULT` passes. The run is cancelled when the wait
     /// times out or is dropped, as a disconnected HTTP caller is.
-    async fn wait(self, db: &DB, w_id: &str, username: &str) -> error::Result<Response> {
+    pub async fn wait(self, db: &DB, w_id: &str, username: &str) -> error::Result<Response> {
         let result = run_wait_result(
             db,
             self.uuid,
@@ -8401,6 +8407,12 @@ impl QueuedRun {
         )
         .await?;
         result
+    }
+
+    /// Whether its script deletes the run's data once its result is read, which only a
+    /// caller waiting on that result does.
+    pub fn deletes_after_use(&self) -> bool {
+        resolve_delete_after_secs(self.delete_after_use, self.delete_after_secs).is_some()
     }
 
     /// Up to `budget`: `None` when the run is still going by then. The run is never

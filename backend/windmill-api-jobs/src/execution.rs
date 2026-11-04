@@ -547,6 +547,7 @@ pub async fn run_wait_result_internal(
 
 /// Poll a job's result for up to `timeout_ms`: the flow's early-return node's when it has
 /// one, otherwise the completed job's. `None` when it has none by then. Never cancels the job.
+/// Reads with no authorization check: `uuid` must be a job the caller just queued.
 pub async fn poll_result(
     db: &DB,
     uuid: Uuid,
