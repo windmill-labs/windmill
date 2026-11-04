@@ -388,3 +388,49 @@ async fn test_app_preview_authorization(db: Pool<Postgres>) -> anyhow::Result<()
 
     Ok(())
 }
+
+#[sqlx::test(fixtures("base"))]
+async fn test_path_with_id_is_refused(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let ws = format!(
+        "http://localhost:{}/api/w/test-workspace",
+        server.addr.port()
+    );
+
+    let app_path = "u/test-user/path_with_id";
+    let resp = authed(client().post(format!("{ws}/apps/create")), "SECRET_TOKEN")
+        .json(&json!({
+            "path": app_path,
+            "summary": "",
+            "value": {},
+            "policy": {
+                "execution_mode": "viewer",
+                "triggerables_v2": {
+                    "comp:script/u/test-user/ok": { "static_inputs": {}, "one_of_inputs": {} }
+                }
+            }
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "create app: {}", resp.text().await?);
+
+    let resp = authed(
+        client().post(format!("{ws}/apps_u/execute_component/{app_path}")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "args": {},
+        "component": "comp",
+        "path": "script/u/test-user/ok",
+        "id": 1
+    }))
+    .send()
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(status, 400, "path with id must be refused: {body}");
+    assert!(body.contains("path and id cannot be set"), "got: {body}");
+
+    Ok(())
+}
