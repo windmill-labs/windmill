@@ -6,6 +6,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ArtifactBody from '$lib/components/copilot/chat/artifacts/ArtifactBody.svelte'
 	import ArtifactExportButton from '$lib/components/copilot/chat/artifacts/ArtifactExportButton.svelte'
@@ -65,6 +66,10 @@
 		return items
 	})
 
+	// The bar's one fold (`actionFolds` below), once the name has given all it can: Stop sharing
+	// and Copy keep their icons and drop their labels.
+	const folded = $derived(pageHeader.actionFold >= 1)
+
 	let showSource = $state(false)
 	const source = $derived(artifact?.kind !== 'md' || showSource)
 
@@ -99,6 +104,7 @@
 	afterName={artifact ? shareDetails : undefined}
 	actions={artifact ? artifactActions : undefined}
 	separator="always"
+	actionFolds={1}
 />
 
 {#snippet shareDetails()}
@@ -120,11 +126,19 @@
 					destructive
 					loading={removing}
 					onClick={stopSharing}
+					iconOnly={folded}
+					startIcon={folded ? { icon: Link2Off } : undefined}
+					title="Stop sharing"
 				>
 					Stop sharing
 				</Button>
 			{/if}
-			<ArtifactExportButton name={artifact.name} kind={artifact.kind} content={artifact.content} />
+			<ArtifactExportButton
+				name={artifact.name}
+				kind={artifact.kind}
+				content={artifact.content}
+				iconOnly={folded}
+			/>
 			{#if artifact.kind === 'md'}
 				<ToggleButtonGroup
 					noWFull
