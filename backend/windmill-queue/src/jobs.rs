@@ -43,7 +43,8 @@ use windmill_common::auth::JobPerms;
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::jobs::{
     args_contain_nul, normalize_nul_in_args, sanitize_untrusted_args, script_path_to_payload,
-    JobTriggerKind, TriggerKindLabel, EMAIL_ERROR_HANDLER_USER_EMAIL, MODULES_ARG,
+    JobTriggerKind, TriggerKindLabel, EMAIL_ERROR_HANDLER_USER_EMAIL, FLOW_TIMEOUT_CANCELER,
+    MODULES_ARG,
 };
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
@@ -428,6 +429,69 @@ ORDER BY depth, id
         }
     }
     Ok((tx, Some(id)))
+}
+
+/// Enforces the `timeout` of a root flow or a subflow step's flow where no worker holds the
+/// flow: it is cancelled with its steps as by a user, which also wakes a flow parked at an
+/// approval, and the worker sends a flow cancelled by [`FLOW_TIMEOUT_CANCELER`] to its failure
+/// module before ending it. `singlestepflow` is left out: its `timeout` is its script's.
+pub async fn cancel_timed_out_flows(db: &Pool<Postgres>) -> error::Result<()> {
+    // Same shape as the zombie flow sweep: running flow jobs of the queue, joined by id. A
+    // subflow step's flow is a `flow` at any depth; a child `flowpreview` or `flownode` is a
+    // loop iteration or branch body, which carries its module's `timeout`, not a flow's.
+    let flows = sqlx::query!(
+        "SELECT q.id, q.workspace_id, j.timeout AS \"timeout!\"
+        FROM v2_job_queue q JOIN v2_job j USING (id)
+        WHERE q.running = true AND q.canceled_by IS NULL
+            AND (j.kind = 'flow' OR (j.kind = 'flowpreview' AND j.parent_job IS NULL))
+            AND j.timeout > 0
+            AND q.started_at + make_interval(secs => j.timeout) <= now()"
+    )
+    .fetch_all(db)
+    .await?;
+
+    for flow in flows {
+        if let Err(e) = cancel_timed_out_flow(db, flow.id, &flow.workspace_id, flow.timeout).await {
+            tracing::error!("Error cancelling timed out flow {}: {e:#}", flow.id);
+        }
+    }
+    Ok(())
+}
+
+async fn cancel_timed_out_flow(
+    db: &Pool<Postgres>,
+    id: Uuid,
+    w_id: &str,
+    timeout: i32,
+) -> error::Result<()> {
+    let mut tx = db.begin().await?;
+    // Another server's sweep may have cancelled it since the select: cancelling again would
+    // cancel the failure module the worker has started for it since.
+    let claimed = sqlx::query_scalar!(
+        "SELECT 1 FROM v2_job_queue WHERE id = $1 AND canceled_by IS NULL FOR UPDATE",
+        id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .is_some();
+    if !claimed {
+        return Ok(());
+    }
+    let reason = windmill_common::jobs::flow_timeout_reason(timeout);
+    tracing::info!("Flow {id} in workspace {w_id}: {reason}");
+    let (tx, _) = cancel_job(
+        FLOW_TIMEOUT_CANCELER,
+        Some(reason),
+        id,
+        w_id,
+        tx,
+        db,
+        false,
+        false,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 /* TODO retry this? */
@@ -6651,6 +6715,8 @@ async fn push_inner<'c, 'd>(
         /// A `dependencies` job that only compiles an already-deployed script's binary.
         /// It shares the job kind, but not the queue policy lock generation needs.
         build_binary_only: bool,
+        /// The flow's own wall-clock `timeout`, which a step timeout passed by the caller overrides.
+        flow_timeout: Option<i32>,
     }
     let mut preprocessed = None;
     #[allow(unused)]
@@ -6672,6 +6738,7 @@ async fn push_inner<'c, 'd>(
         labels,
         job_token_scopes,
         build_binary_only,
+        flow_timeout,
     } = match job_payload {
         JobPayload::ScriptHash {
             hash,
@@ -6975,6 +7042,7 @@ async fn push_inner<'c, 'd>(
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             let priority = value.priority;
             JobPayloadUntagged {
+                flow_timeout: value.timeout,
                 runnable_path: path,
                 job_kind: JobKind::FlowPreview,
                 flow_status: Some(flow_status),
@@ -7222,6 +7290,7 @@ async fn push_inner<'c, 'd>(
                 flow_env: None,
                 delete_after_use: None,
                 delete_after_secs: None,
+                timeout: None,
             };
             // this is a new flow being pushed, flow_status is set to flow_value:
             let flow_status: FlowStatus = FlowStatus::new(&flow_value);
@@ -7286,6 +7355,7 @@ async fn push_inner<'c, 'd>(
                 None
             };
             JobPayloadUntagged {
+                flow_timeout: data.value().timeout,
                 runnable_id: Some(version), // Starting from `v1.436`, the version id is used to fetch the value on pull.
                 runnable_path: Some(path),
                 job_kind: JobKind::Flow,
@@ -7391,6 +7461,7 @@ async fn push_inner<'c, 'd>(
                 None
             };
             JobPayloadUntagged {
+                flow_timeout: value.timeout,
                 runnable_id: version,
                 runnable_path: flow_path,
                 job_kind: original_kind,
@@ -7911,7 +7982,9 @@ async fn push_inner<'c, 'd>(
         flow_innermost_root_job,
         guarded_concurrent_limit,
         guarded_concurrency_time_window_s,
-        custom_timeout,
+        // A calling step's timeout replaces the flow's own, as it replaces a script's.
+        windmill_common::runnable_settings::none_if_non_positive(custom_timeout)
+            .or(windmill_common::runnable_settings::none_if_non_positive(flow_timeout)),
         flow_step_id,
         cache_ttl,
         final_priority,
