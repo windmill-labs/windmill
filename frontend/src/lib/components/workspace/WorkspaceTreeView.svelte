@@ -174,7 +174,7 @@
 			.map((workspace) => buildWorkspaceWithChildren(workspace))
 			.sort((a, b) => {
 				if (recentRoots.has(a.id) !== recentRoots.has(b.id)) return recentRoots.has(a.id) ? -1 : 1
-				// Admin workspace always goes first
+				// Admin workspace leads its group: the recent group stays above it
 				if (a.id === 'admins') return -1
 				if (b.id === 'admins') return 1
 				// Then sort alphabetically by name
