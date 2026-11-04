@@ -7,4 +7,5 @@
  */
 
 pub mod asset_inference;
+pub mod body_parse;
 pub mod scripts;
