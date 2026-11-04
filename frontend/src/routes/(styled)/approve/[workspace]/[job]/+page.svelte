@@ -14,6 +14,7 @@
 	import { mergeSchema } from '$lib/common'
 	import { emptyString } from '$lib/utils'
 	import { Alert } from '$lib/components/common'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { getUserExt } from '$lib/user'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -34,6 +35,7 @@
 	let loading = $state(false)
 	let valid = $state(true)
 	let actionTaken: 'approved' | 'denied' | undefined = $state(undefined)
+	let denyReason = $state('')
 	// Whether the current visitor is a logged-in member of this workspace — if so we can
 	// surface a clear, ready-to-use run-details link (the view token grants them access).
 	let isWorkspaceMember = $state(false)
@@ -131,6 +133,7 @@
 				workspace: page.params.workspace ?? '',
 				jobId: page.params.job ?? '',
 				requestBody: {
+					payload: denyReason.trim() ? { reason: denyReason.trim() } : undefined,
 					approval_token: token,
 					approved: false
 				}
@@ -259,6 +262,7 @@
 			{hasForm}
 			bind:args={default_payload}
 			bind:valid
+			bind:denyReason
 			{isLocked}
 			isSelfApprovalBypass={!!isSelfApprovalBypass}
 			{isWorkspaceMember}
@@ -345,6 +349,14 @@
 			{/if}
 
 			{#if !completed && !actionTaken && approvalInfo.can_approve}
+				{#if approvalInfo.hide_cancel !== true}
+					<div class="mb-4">
+						<TextInput
+							bind:value={denyReason}
+							inputProps={{ placeholder: 'Reason for denying (optional)', maxlength: 1000 }}
+						/>
+					</div>
+				{/if}
 				<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap">
 					{#if approvalInfo.hide_cancel !== true}
 						<Button variant="accent" destructive onclick={cancel} size="lg" disabled={loading}>

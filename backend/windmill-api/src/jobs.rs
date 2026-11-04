@@ -5223,6 +5223,7 @@ async fn resume_suspended(
 
     let approver_value = opt_authed.as_ref().map(|a| a.username.clone());
 
+    let deny_reason = (!approved).then(|| deny_reason(&value)).flatten();
     insert_resume_job(
         resume_id,
         resume_job_id,
@@ -5267,11 +5268,8 @@ async fn resume_suspended(
             &serde_json::json!({
                 "approved": approved,
                 "job_id": job_id,
-                "details": if approved {
-                    format!("Approved by {}", &approver)
-                } else {
-                    format!("Cancelled by {}", &approver)
-                }
+                "details": resume_audit_details(approved, &approver, deny_reason.as_deref()),
+                "reason": deny_reason,
             })
             .to_string(),
         ),
@@ -5777,6 +5775,7 @@ async fn resume_suspended_job_internal(
         reject_mismatched_wac_approval(&mut tx, flow_info.id, resume_id).await?;
     }
 
+    let deny_reason = (!approved).then(|| deny_reason(&value)).flatten();
     insert_resume_job(
         resume_id,
         job_id,
@@ -5830,11 +5829,8 @@ async fn resume_suspended_job_internal(
             &serde_json::json!({
                 "approved": approved,
                 "job_id": job_id,
-                "details": if approved {
-                    format!("Approved by {}", &approver)
-                } else {
-                    format!("Cancelled by {}", &approver)
-                }
+                "details": resume_audit_details(approved, &approver, deny_reason.as_deref()),
+                "reason": deny_reason,
             })
             .to_string(),
         ),
@@ -5901,6 +5897,20 @@ async fn decrement_suspend(flow_id: Uuid, tx: &mut Transaction<'_, Postgres>) ->
     .execute(&mut **tx)
     .await?;
     Ok(())
+}
+
+/// The reason an approver gave for a denial, read from the deny payload's `reason`.
+fn deny_reason(value: &serde_json::Value) -> Option<String> {
+    let reason = value.get("reason")?.as_str()?.trim();
+    (!reason.is_empty()).then(|| reason.to_string())
+}
+
+fn resume_audit_details(approved: bool, approver: &str, reason: Option<&str>) -> String {
+    match (approved, reason) {
+        (true, _) => format!("Approved by {approver}"),
+        (false, Some(reason)) => format!("Cancelled by {approver}: {reason}"),
+        (false, None) => format!("Cancelled by {approver}"),
+    }
 }
 
 async fn insert_resume_job<'c>(

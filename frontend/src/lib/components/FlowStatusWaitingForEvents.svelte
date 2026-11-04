@@ -60,7 +60,7 @@
 		)
 	}
 
-	async function continu(approve: boolean) {
+	async function continu(approve: boolean, reason?: string) {
 		if (!workspaceId) {
 			throw new Error('Cannot resume: the job has no workspace')
 		}
@@ -68,7 +68,7 @@
 			workspace: workspaceId,
 			jobId: job?.id ?? '',
 			requestBody: {
-				payload: approve ? (default_payload as any) : undefined,
+				payload: approve ? (default_payload as any) : reason ? { reason } : undefined,
 				approved: approve
 			}
 		})
@@ -103,6 +103,7 @@
 				approveTooltip="Resume or approve this suspended step"
 				rejectTitle="Cancel the step"
 				hideReject={hide_cancel}
+				rejectReasonPlaceholder="Reason for cancelling (optional)"
 				{light}
 				onAnswer={continu}
 			>

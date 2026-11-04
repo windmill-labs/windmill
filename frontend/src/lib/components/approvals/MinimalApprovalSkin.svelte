@@ -4,6 +4,7 @@
 	import type { BadgeColor } from '$lib/components/common'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Login from '$lib/components/Login.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { enterpriseLicense, userStore } from '$lib/stores'
@@ -21,6 +22,7 @@
 		hasForm: boolean
 		args: any
 		valid: boolean
+		denyReason: string
 		isLocked: boolean
 		isSelfApprovalBypass: boolean
 		isWorkspaceMember: boolean
@@ -40,6 +42,7 @@
 		hasForm,
 		args = $bindable(),
 		valid = $bindable(),
+		denyReason = $bindable(),
 		isLocked,
 		isSelfApprovalBypass,
 		isWorkspaceMember,
@@ -127,6 +130,12 @@
 		{/if}
 
 		{#if approvalInfo.can_approve}
+			{#if approvalInfo.hide_cancel !== true}
+				<TextInput
+					bind:value={denyReason}
+					inputProps={{ placeholder: 'Reason for rejecting (optional)', maxlength: 1000 }}
+				/>
+			{/if}
 			<div class="flex flex-row flex-wrap justify-between gap-4">
 				{#if approvalInfo.hide_cancel !== true}
 					<Button

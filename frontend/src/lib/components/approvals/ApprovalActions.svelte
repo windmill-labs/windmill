@@ -5,6 +5,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { Button } from '../common'
 	import Tooltip from '../Tooltip.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
 
 	interface Props {
 		approveLabel: string
@@ -15,8 +16,10 @@
 		light?: boolean
 		/** Holds the approve button back, e.g. until an answer is typed. */
 		approveDisabled?: boolean
+		/** Offers an optional reason field, passed to `onAnswer` on a rejection. */
+		rejectReasonPlaceholder?: string
 		/** Throws to report a failure; the buttons stay usable then. */
-		onAnswer: (approved: boolean) => Promise<void>
+		onAnswer: (approved: boolean, reason?: string) => Promise<void>
 		/** Shown after the buttons, on the same row. */
 		children?: Snippet
 	}
@@ -28,17 +31,19 @@
 		hideReject = false,
 		light = false,
 		approveDisabled = false,
+		rejectReasonPlaceholder,
 		onAnswer,
 		children
 	}: Props = $props()
 
 	let loading = $state(false)
 	let answered = $state(false)
+	let reason = $state('')
 
 	async function answer(approved: boolean) {
 		loading = true
 		try {
-			await onAnswer(approved)
+			await onAnswer(approved, approved ? undefined : reason.trim() || undefined)
 			answered = true
 		} catch (e: any) {
 			sendUserToast(e?.body ?? e?.message ?? 'Failed', true)
@@ -49,6 +54,17 @@
 </script>
 
 <div class={twMerge('flex gap-2 items-center', light ? 'flex-col' : 'flex-row')}>
+	{#if !hideReject && rejectReasonPlaceholder}
+		<TextInput
+			bind:value={reason}
+			class="min-w-48"
+			inputProps={{
+				placeholder: rejectReasonPlaceholder,
+				maxlength: 1000,
+				disabled: loading || answered
+			}}
+		/>
+	{/if}
 	{#if !hideReject}
 		<Button
 			title={rejectTitle}

@@ -13,6 +13,7 @@
 	import { mergeSchema } from '$lib/common'
 	import { emptyString } from '$lib/utils'
 	import { Alert } from '$lib/components/common'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { getUserExt } from '$lib/user'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -38,6 +39,7 @@
 	let timeout: number | undefined = undefined
 	let error: string | undefined = $state(undefined)
 	let default_payload: any = $state({})
+	let denyReason = $state('')
 	let enum_payload: object = $state({})
 	let description: any = $state(undefined)
 
@@ -128,7 +130,7 @@
 			resumeId: new Number(page.params.resume).valueOf(),
 			signature: page.params.hmac ?? '',
 			approver,
-			requestBody: {}
+			requestBody: denyReason.trim() ? { reason: denyReason.trim() } : {}
 		})
 		sendUserToast('Flow denied!')
 		getJob()
@@ -272,6 +274,14 @@
 			{/if}
 
 			{#if !completed}
+				{#if !job?.raw_flow?.modules?.[approvalStep]?.suspend?.hide_cancel && !alreadyResumed}
+					<div class="mb-4">
+						<TextInput
+							bind:value={denyReason}
+							inputProps={{ placeholder: 'Reason for denying (optional)', maxlength: 1000 }}
+						/>
+					</div>
+				{/if}
 				<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap">
 					{#if !job?.raw_flow?.modules?.[approvalStep]?.suspend?.hide_cancel}
 						<Button
