@@ -714,7 +714,7 @@ export const APP_TO_ICON_COMPONENT = {
 	infoblox: InfobloxIcon,
 	ip_fabric: IpFabricIcon,
 	netskope: NetskopeIcon,
-	palo_alto: PaloAltoIcon,
+	palo_alto_panos: PaloAltoIcon,
 	splunk: SplunkIcon,
 	tufin: TufinIcon,
 	zabbix: ZabbixIcon,
