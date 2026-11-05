@@ -5281,7 +5281,10 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
 /// None for a job that already holds a slot of the key (a resumed flow): refusing it would
 /// leave the jobs ahead of it waiting on the slot it keeps. Must be called under the key's
 /// `concurrency_counter` row lock, which serializes it with every admission of the key.
-pub async fn oldest_waiting_concurrency_job<'c, E: PgExecutor<'c>>(
+/// Queue bookkeeping, not an authorization boundary: only for the queue's own admission
+/// path, never with a key taken from a request.
+#[cfg(feature = "private")]
+pub(crate) async fn oldest_waiting_concurrency_job<'c, E: PgExecutor<'c>>(
     e: E,
     key: &str,
     job_id: &Uuid,
@@ -5313,8 +5316,9 @@ pub async fn oldest_waiting_concurrency_job<'c, E: PgExecutor<'c>>(
 
 /// Make the `n` jobs first in line for `key` due now, so a slot that frees up goes to
 /// them rather than waiting out the delay a limit deferred them by. A job a worker is
-/// already holding is left alone.
-pub async fn wake_concurrency_key_waiters(db: &DB, key: &str, n: i64) -> error::Result<()> {
+/// already holding is left alone. Queue bookkeeping, not an authorization boundary: only
+/// for the queue's own admission and completion paths, never with a key taken from a request.
+pub(crate) async fn wake_concurrency_key_waiters(db: &DB, key: &str, n: i64) -> error::Result<()> {
     sqlx::query!(
         "WITH admitted AS (
             SELECT job_uuids FROM concurrency_counter WHERE concurrency_id = $1
