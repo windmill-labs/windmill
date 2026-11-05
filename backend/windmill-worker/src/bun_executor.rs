@@ -85,6 +85,28 @@ pub const BUN_LOCKB_SPLIT_WINDOWS: &str = "\r\n//bun.lockb\r\n";
 
 pub const EMPTY_FILE: &str = "<empty>";
 
+/// A thrown error's own properties (`extra`) can be cyclic, e.g. AWS SDK v3's `$response`:
+/// a plain `JSON.stringify` then throws and the real error is lost. The fallback replaces
+/// only back-references to an ancestor, so shared non-cyclic objects still serialize in full.
+const STRINGIFY_ERROR_JS: &str = r#"(() => {
+        try {
+            return JSON.stringify(err);
+        } catch {}
+        const ancestors = [];
+        try {
+            return JSON.stringify(err, function (key, value) {
+                if (typeof value !== 'object' || value === null) return value;
+                while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== this) ancestors.pop();
+                if (ancestors.includes(value)) return '[Circular]';
+                ancestors.push(value);
+                return value;
+            });
+        } catch {
+            delete err.extra;
+            return JSON.stringify(err);
+        }
+    })()"#;
+
 /// Bun args for dedicated worker (without the script path)
 pub const BUN_DEDICATED_WORKER_ARGS: &[&str] = &["run", "-i", "--prefer-offline"];
 
@@ -2870,7 +2892,7 @@ try {{
     if (Object.keys(extra).length > 0) {{
         err["extra"] = extra;
     }}
-    await fs.writeFile("result.json", JSON.stringify(err));
+    await fs.writeFile("result.json", {STRINGIFY_ERROR_JS});
     process.exit(1);
 }}
     "#,
@@ -2944,7 +2966,7 @@ try {{
     if (Object.keys(extra).length > 0) {{
         err["extra"] = extra;
     }}
-    await fs.writeFile("result.json", JSON.stringify(err));
+    await fs.writeFile("result.json", {STRINGIFY_ERROR_JS});
     process.exit(1);
 }}
     "#,
