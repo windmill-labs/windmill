@@ -1,4 +1,8 @@
 import { expect, test } from "bun:test";
+import { execSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { SyncOptions } from "../src/core/conf.ts";
 import {
   getEffectiveSettingsForWorkspace,
@@ -40,9 +44,9 @@ test("gitsync-settings: entries sharing a gitBranch resolve by workspace", async
   expect(byProfile.includes).toEqual(["f/team_b/**"]);
 });
 
-// `pull --override` must never write into an entry it cannot prove is this
-// workspace's: the branch, or a fork's parent, does not identify one.
-test("gitsync-settings: override writes only into the workspace's own entry", () => {
+// `pull --override` writes into the entry its diff reads, and never into an
+// entry the branch alone attributes to this workspace.
+test("gitsync-settings: override target", () => {
   const remote = "http://windmill_server:8000/";
   const target = (workspaces: SyncOptions["workspaces"], workspaceId: string, branch: string) =>
     resolveOverrideTarget({ workspaces }, { workspace: workspaceId }, { remote, workspaceId }, branch);
@@ -56,6 +60,28 @@ test("gitsync-settings: override writes only into the workspace's own entry", ()
   expect(() => target({ staging: {} }, "team-c", "staging")).toThrow("already used by staging");
   expect(() => target({ team: { workspaceId: "other", gitBranch: "staging" } }, "team-c", "staging")).toThrow();
   expect(target({ prod: { gitBranch: "main" } }, "team-c", "staging")).toEqual("staging");
-  // A fork reads its parent's entry, but writes beside it
-  expect(target({ staging: {} }, "wm-fork-abc", "wm-fork/staging/abc")).toEqual("wm-fork/staging/abc");
+});
+
+// A fork has no entry of its own: an entry beside its parent's would never be
+// read back, so its override goes into the parent's entry on the fork branch.
+test("gitsync-settings: a fork's override targets its parent's entry", () => {
+  const dir = mkdtempSync(join(tmpdir(), "wmill-fork-"));
+  const cwd = process.cwd();
+  try {
+    execSync(
+      "git init -q -b staging && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m i && git switch -q -c wm-fork/staging/abc",
+      { cwd: dir, stdio: "pipe" },
+    );
+    process.chdir(dir);
+    const target = resolveOverrideTarget(
+      { workspaces: { staging: {}, other: { gitBranch: "main" } } },
+      { workspace: "wm-fork-abc" },
+      { remote: "http://windmill_server:8000/", workspaceId: "wm-fork-abc" },
+      "wm-fork/staging/abc",
+    );
+    expect(target).toEqual("staging");
+  } finally {
+    process.chdir(cwd);
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

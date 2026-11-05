@@ -31,23 +31,11 @@ export function outputResult(opts: { jsonOutput?: boolean }, result: {
   }
 }
 
-/** The entry that names this workspace itself, by `--workspace` key or profile. */
-function resolveOwnWsName(
-  config: SyncOptions,
-  opts: { workspace?: string },
-  workspace: { remote: string; workspaceId: string },
-): string | undefined {
-  return (
-    resolveWsNameForConfigFromFlags({ workspaces: config.workspaces, workspace: opts.workspace }) ??
-    inferWsNameFromProfile(config, workspace)
-  );
-}
-
 /**
  * The wmill.yaml entry whose settings apply to the workspace being synced,
  * resolved by workspace as `sync pull/push` do: several entries can share one
  * `gitBranch`, so matching on the checked-out branch alone picks whichever of
- * them comes first in the file. A fork reads its parent's entry.
+ * them comes first in the file. A fork resolves to its parent's entry.
  */
 export function resolveGitSyncWsName(
   config: SyncOptions,
@@ -55,16 +43,22 @@ export function resolveGitSyncWsName(
   workspace: { remote: string; workspaceId: string },
 ): string | undefined {
   return (
-    resolveOwnWsName(config, opts, workspace) ??
+    resolveWsNameForConfigFromFlags({ workspaces: config.workspaces, workspace: opts.workspace }) ??
+    inferWsNameFromProfile(config, workspace) ??
     inferWsNameFromForkBranch(config, workspace.workspaceId)
   );
 }
 
 /**
- * The entry `pull --override` writes into. Only an entry that names this
- * workspace itself: the branch, or a fork's parent, does not say whose entry it
- * is, and writing there would hand this workspace's settings to another one.
- * With none, a branch-named entry is created, unless the branch is already in use.
+ * The entry `pull --override` writes into: the one its diff was read from.
+ *
+ * A fork writes into its parent's entry on purpose. A fork never has an entry
+ * of its own, so an entry beside the parent's would never be read back; and the
+ * write lands on the fork branch, so it reaches the parent only through the
+ * fork's pull request, which is how a settings change made in a fork is promoted.
+ *
+ * With no resolved entry the branch does not say whose an existing entry is, so
+ * it refuses when the branch is in use and otherwise creates a branch-named entry.
  */
 export function resolveOverrideTarget(
   config: SyncOptions,
@@ -72,8 +66,8 @@ export function resolveOverrideTarget(
   workspace: { remote: string; workspaceId: string },
   currentBranch: string | null | undefined,
 ): string | undefined {
-  const own = resolveOwnWsName(config, opts, workspace);
-  if (own || !currentBranch) return own;
+  const resolved = resolveGitSyncWsName(config, opts, workspace);
+  if (resolved || !currentBranch) return resolved;
   const entries = (config.workspaces ?? {}) as Record<string, WorkspaceEntryConfig>;
   const taken = getWorkspaceNames(config.workspaces).filter(
     (name) => name === currentBranch || getEffectiveGitBranch(name, entries[name]) === currentBranch,
