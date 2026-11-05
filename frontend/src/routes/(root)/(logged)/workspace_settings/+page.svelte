@@ -676,8 +676,9 @@
 			} else {
 				await WorkspaceService.editWebhook({
 					workspace: $workspaceStore!,
-					requestBody: { webhook: undefined }
+					requestBody: { webhook: undefined, events: webhookEvents ?? null }
 				})
+				initialWebhookEvents = $state.snapshot(webhookEvents)
 				sendUserToast(`webhook removed`)
 				initialWebhook = ''
 				webhook = ''
