@@ -34,9 +34,11 @@
 	interface Props {
 		recording: PipelineRecording
 		hideControls?: boolean
+		/** Drop the folder name, for a host that shows its own title. */
+		hideTitle?: boolean
 	}
 
-	let { recording, hideControls = false }: Props = $props()
+	let { recording, hideControls = false, hideTitle = false }: Props = $props()
 
 	let replayState = $state<ReplayState>('loaded')
 	let currentStatuses: Record<string, RecordedNodeState> = $state({})
@@ -317,9 +319,11 @@
 	{#if !hideControls}
 		<div class="flex items-center justify-between shrink-0">
 			<div class="flex items-center gap-2">
-				<h2 class="text-lg font-semibold text-emphasis">
-					{replayState === 'playing' ? 'Replaying: ' : ''}{recording.folder || 'Pipeline'}
-				</h2>
+				{#if !hideTitle}
+					<h2 class="text-lg font-semibold text-emphasis">
+						{replayState === 'playing' ? 'Replaying: ' : ''}{recording.folder || 'Pipeline'}
+					</h2>
+				{/if}
 				<Tooltip placement="bottom">
 					<InfoIcon size={16} class="text-tertiary" />
 					{#snippet text()}
