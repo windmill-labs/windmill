@@ -5303,7 +5303,7 @@ pub async fn wake_deferred_concurrency_job(db: &DB, key: &str, limit: i32) -> er
             WHERE ck.key = $1 AND ck.ended_at IS NULL AND ck.original_scheduled_for IS NOT NULL
                 AND q.canceled_by IS NULL
             ORDER BY ck.original_scheduled_for, ck.job_id
-            LIMIT 2 * $2::int + 1
+            LIMIT 2 * $2::bigint + 1
         ), taken AS (
             SELECT
                 (SELECT count(*)
@@ -5321,7 +5321,7 @@ pub async fn wake_deferred_concurrency_job(db: &DB, key: &str, limit: i32) -> er
                 AND COALESCE(cs.concurrency_time_window_s, j.concurrency_time_window_s, 0) = 0
                 AND (SELECT n FROM taken) < COALESCE(cs.concurrent_limit, j.concurrent_limit, 0)
             ORDER BY h.original_scheduled_for, h.job_id
-            LIMIT GREATEST($2::int - (SELECT n FROM taken), 0)
+            LIMIT GREATEST($2::bigint - (SELECT n FROM taken), 0)
             FOR UPDATE OF q SKIP LOCKED
         )
         UPDATE v2_job_queue SET scheduled_for = now()
@@ -5329,7 +5329,7 @@ pub async fn wake_deferred_concurrency_job(db: &DB, key: &str, limit: i32) -> er
         WHERE v2_job_queue.id = next.id AND NOT v2_job_queue.running
             AND v2_job_queue.scheduled_for > now()",
         key,
-        limit,
+        i64::from(limit),
     )
     .execute(db)
     .await?;
