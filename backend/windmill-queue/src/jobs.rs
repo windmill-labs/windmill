@@ -168,11 +168,11 @@ const MAX_FREE_EXECS: i32 = 1000;
 #[cfg(feature = "cloud")]
 const MAX_FREE_CONCURRENT_RUNS: i32 = 30;
 
-const ERROR_HANDLER_USERNAME: &str = "error_handler";
-pub const SCHEDULE_ERROR_HANDLER_USERNAME: &str = "schedule_error_handler";
-const GLOBAL_ERROR_HANDLER_USERNAME: &str = "global";
-const SUCCESS_HANDLER_USERNAME: &str = "success_handler";
-const VARIABLE_EXPIRATION_HANDLER_USERNAME: &str = "variable_expiration_handler";
+pub use windmill_common::usernames::SCHEDULE_ERROR_HANDLER_USERNAME;
+use windmill_common::usernames::{
+    ERROR_HANDLER_USERNAME, GLOBAL_ERROR_HANDLER_USERNAME, SUCCESS_HANDLER_USERNAME,
+    VARIABLE_EXPIRATION_HANDLER_USERNAME,
+};
 
 pub const ERROR_HANDLER_USER_GROUP: &str = "g/error_handler";
 pub const ERROR_HANDLER_USER_EMAIL: &str = "error_handler@windmill.dev";
