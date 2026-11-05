@@ -978,13 +978,18 @@ async fn web_search_credentials(
             config.resource_path
         ))
     })?;
-    let api_key = value
-        .get("apiKey")
-        .and_then(serde_json::Value::as_str)
-        .filter(|k| !k.is_empty())
+    // `exa` predates the hub's snake_case keys; newer API-key types name the key `token`.
+    let api_key = ["token", "api_key", "apiKey"]
+        .iter()
+        .find_map(|key| {
+            value
+                .get(*key)
+                .and_then(serde_json::Value::as_str)
+                .filter(|k| !k.is_empty())
+        })
         .ok_or_else(|| {
             Error::BadRequest(format!(
-                "The web search resource {} has no apiKey",
+                "The web search resource {} has no API key",
                 config.resource_path
             ))
         })?;
