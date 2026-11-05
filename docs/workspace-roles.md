@@ -19,6 +19,7 @@ code is `windmill_common::roles`.
 | `flows` | `none` / `compose` / `full` | yes; also AI agents, whose tools are checked as composed steps |
 | `apps` | `none` / `compose` / `full` | yes; low-code apps and worker-built apps need `full` |
 | `manage_schedules`, `manage_triggers` | bool | yes, see `docs/operator-write-rights.md` |
+| `run` | bool | yes, see [Runs](#runs) |
 | `fork` | bool | yes, at both fork routes; unset by every layer, it is granted exactly to an unrestricted role |
 | `visibility.*` | bool per page | no, UI only |
 
@@ -33,6 +34,27 @@ other name). A role name no longer defined resolves to `NONE`, so deleting a rol
 deleting one that a member, invite, auto-invite or instance group mapping still names is refused,
 and so is deleting an instance role that a workspace still overrides (the override would fall onto
 `base_for` instead of the definition it was written against).
+
+## Runs
+
+`run` withdrawn makes a role view-only: its members see what folder and item rights grant,
+runs, logs and results included, and start nothing. `gate_role_runs` sits on the jobs router and
+refuses every path under `run/`, `run_wait_result/`, `run_and_stream/`, `run_inline/`, `restart/`
+and `add_batch_jobs/` (GET included, which starts runs there), so a run route added under those
+prefixes is gated for free. It lets through the dependency-lock and dynamic-select routes, which
+`code` gates, and `run/workflow_as_code`, a step of a run already started. The three script
+preview routes (`run/preview`, `run_inline/preview`, `run_wait_result/preview`) check `run` in
+their handlers instead, after the exemption that lets a running job's SDK send a data table query
+there, since jobs a view-only member owns still run as them. Callers that push
+without the router check `check_role_can_run` themselves: the MCP per-runnable tools, eval
+experiment runs and members-only Slack agent shares (which run as the asking member). Resuming or approving a suspended step is not a run. Schedules and triggers keep
+their own rights, apps run their runnables on the app's policy and are not gated, and a job
+started by a schedule or trigger acts as its owner, so from inside it a view-only owner cannot
+start further runs through the API either.
+
+Unlike `fork`, withdrawing `run` makes a role restricted: it is an enforced gate on hot routes,
+and the fast path is what spares every unrestricted caller a role lookup on each run. It does not
+change seats: a role is a full seat by what it authors, not by whether it runs.
 
 ## Forks
 
