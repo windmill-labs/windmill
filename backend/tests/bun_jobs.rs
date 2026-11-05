@@ -365,7 +365,7 @@ export function main() {
         .unwrap()
         .contains("intentional error"));
     assert_eq!(error["extra"]["Code"], "X");
-    assert_eq!(error["extra"]["self"]["self"], "[Circular]");
+    assert_eq!(error["extra"]["self"], "[unserializable]");
     Ok(())
 }
 

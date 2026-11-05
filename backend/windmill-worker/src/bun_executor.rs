@@ -87,24 +87,19 @@ pub const EMPTY_FILE: &str = "<empty>";
 
 /// A thrown error's own properties (`extra`) can be cyclic, e.g. AWS SDK v3's `$response`:
 /// a plain `JSON.stringify` then throws and the real error is lost. The fallback replaces
-/// only back-references to an ancestor, so shared non-cyclic objects still serialize in full.
+/// only the fields that cannot be encoded, so the rest (`Code`, `$metadata`, ...) survive.
 const STRINGIFY_ERROR_JS: &str = r#"(() => {
         try {
             return JSON.stringify(err);
         } catch {}
-        const ancestors = [];
-        try {
-            return JSON.stringify(err, function (key, value) {
-                if (typeof value !== 'object' || value === null) return value;
-                while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== this) ancestors.pop();
-                if (ancestors.includes(value)) return '[Circular]';
-                ancestors.push(value);
-                return value;
-            });
-        } catch {
-            delete err.extra;
-            return JSON.stringify(err);
+        for (const k of Object.keys(err.extra ?? {})) {
+            try {
+                JSON.stringify(err.extra[k]);
+            } catch {
+                err.extra[k] = '[unserializable]';
+            }
         }
+        return JSON.stringify(err);
     })()"#;
 
 /// Bun args for dedicated worker (without the script path)
