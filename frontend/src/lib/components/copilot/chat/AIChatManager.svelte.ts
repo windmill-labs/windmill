@@ -102,6 +102,7 @@ import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
+import { withWebSearchFallback } from './web/core'
 import { prefersInstantReveal, TypewriterReveal } from './typewriterReveal'
 import { triggerablesByAi } from './sharedChatState.svelte'
 import {
@@ -3499,7 +3500,11 @@ export class AIChatManager implements ChatViewHost {
 					return base
 				},
 				get tools() {
-					return self.tools
+					return withWebSearchFallback(
+						self.tools,
+						!!get(copilotInfo).webSearchBackend,
+						self.providerTools.length > 0
+					)
 				},
 				get helpers() {
 					return self.helpers
