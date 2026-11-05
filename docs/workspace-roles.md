@@ -101,3 +101,25 @@ key equal to what the instance gives that role, and the payload is mirrored into
 workspace had changed from its default into `role_overrides.operator` the same way. The workspace
 list still returns an `operator_settings` object for a restricted member, synthesized from its
 role, alongside `role` and `capabilities`.
+
+## In the settings document
+
+`role_overrides` in the settings document (export `settings.json`, `settings.yaml`, git sync) is
+the stored map, except that the entry of a role the instance does not define carries
+`workspace_only: true`. The stored map cannot tell an override of instance role X from adding role
+X, and the target of a promotion may lack X. So the apply refuses the whole document, dry run
+included, before writing anything, if:
+
+- an unmarked entry names a role the target instance does not define, unless the target workspace
+  already has it as a workspace-only role (a file pulled before the marker existed), or
+- a marked entry names a role the target instance defines.
+
+The marker is never stored. Roles are written before every other setting, so an instance group
+mapping in the same file can name a role it adds. A workspace-only role the file removes is kept
+until a final write, after whatever named it has been rewritten, so the in-use check passes.
+
+The document's `operator_settings` is derived from the effective `operator` role, not read from
+the column: only the legacy endpoint rewrites the column, so after a role edit it holds stale
+flags. A document that states `role_overrides` never applies `operator_settings`, and warns when
+it was edited to disagree with the operator role. A document without `role_overrides` (pulled
+before roles existed) applies it as before, diffed against the column.

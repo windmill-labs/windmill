@@ -25,7 +25,7 @@ use windmill_common::{
         read_role_catalog, DatatableRoleCluster, ADMIN_DATATABLE_ROLE, NO_DEFAULT_DATATABLE_ROLE,
     },
     error::{Error, JsonResult, Result},
-    roles::{load_role_overrides, RoleOverrides},
+    roles::{self, load_role_overrides, RoleDefinition, RoleOverride, RoleOverrides},
     utils::require_admin,
     variables::build_crypt,
     workspaces::{
@@ -260,14 +260,48 @@ fn datatable_permissions_document(datatable: Option<&Value>, roles: &DatatableNa
     Value::Object(doc)
 }
 
-/// Protection rules by name, their rules in a fixed order so a reordered file is no change. The
-/// dev workspace lock is left out: the dev workspace setting creates and removes it.
-/// The workspace's role overrides keyed by role name, sorted so a pulled file is stable.
-fn role_overrides_document(overrides: &RoleOverrides) -> Value {
-    let sorted: BTreeMap<&String, _> = overrides.iter().collect();
-    serde_json::to_value(sorted).unwrap_or_else(|_| json!({}))
+/// The workspace's role overrides keyed by role name, sorted so a pulled file is stable. The stored
+/// map does not tell an override of instance role X from adding role X, so the entry of a role
+/// the instance does not define carries [`WORKSPACE_ONLY`]: without it, the target instance
+/// lacking X would silently turn the override into a new role.
+fn role_overrides_document(overrides: &RoleOverrides, instance: &[RoleDefinition]) -> Value {
+    let sorted: BTreeMap<&String, &RoleOverride> = overrides.iter().collect();
+    let mut doc = serde_json::to_value(sorted).unwrap_or_else(|_| json!({}));
+    if let Some(doc) = doc.as_object_mut() {
+        for (name, entry) in doc.iter_mut() {
+            if !instance.iter().any(|d| &d.name == name) {
+                entry[WORKSPACE_ONLY] = Value::Bool(true);
+            }
+        }
+    }
+    doc
 }
 
+const WORKSPACE_ONLY: &str = "workspace_only";
+
+/// A `role_overrides` entry as the document states it.
+#[derive(Deserialize)]
+struct DocumentRoleOverride {
+    #[serde(flatten)]
+    role: RoleOverride,
+    #[serde(default)]
+    workspace_only: bool,
+}
+
+/// What `operator_settings` holds for the effective `operator` role: the column is rewritten only
+/// by the legacy endpoint, so after a role edit it holds stale flags.
+fn implied_operator_settings(
+    instance: &[RoleDefinition],
+    overrides: &RoleOverrides,
+) -> Result<Option<Value>> {
+    Ok(roles::effective_roles(instance, overrides)?
+        .iter()
+        .find(|r| r.name == roles::OPERATOR_ROLE)
+        .map(|r| roles::legacy_operator_settings(&r.capabilities)))
+}
+
+/// Protection rules by name, their rules in a fixed order so a reordered file is no change. The
+/// dev workspace lock is left out: the dev workspace setting creates and removes it.
 async fn protection_rules_document(conn: &mut PgConnection, w_id: &str) -> Result<Value> {
     let rows = sqlx::query_as::<_, (String, i32, Vec<String>, Vec<String>, Value)>(
         "SELECT name, rules, bypass_groups, bypass_users, fork_role_mapping FROM workspace_protection_rule
@@ -360,7 +394,14 @@ pub async fn load_settings_document(
     };
     let datatable_permissions = datatable_permissions_document(row.datatable.as_ref(), &role_names);
     let protection_rules = protection_rules_document(&mut *conn, w_id).await?;
-    let role_overrides = role_overrides_document(&load_role_overrides(&mut *conn, w_id).await?);
+    let instance = roles::instance_roles_on(&mut *conn).await?;
+    let overrides = load_role_overrides(&mut *conn, w_id).await?;
+    let role_overrides = role_overrides_document(&overrides, &instance);
+    // Present exactly when the column is, as it always was.
+    let operator_settings = match row.operator_settings {
+        Some(stored) => Some(implied_operator_settings(&instance, &overrides)?.unwrap_or(stored)),
+        None => None,
+    };
     let git_sync = redact_git_sync(row.git_sync);
     let git_sync = match fork_parent(&mut *conn, w_id).await? {
         Some(parent) => fork_git_sync_document(git_sync, parent.git_sync),
@@ -393,7 +434,7 @@ pub async fn load_settings_document(
             false,
         ),
         ("color", row.color.map(Value::String), false),
-        ("operator_settings", row.operator_settings, false),
+        ("operator_settings", operator_settings, false),
         ("role_overrides", Some(role_overrides), true),
         (
             "datatable",
@@ -923,12 +964,29 @@ async fn plan(db: &DB, w_id: &str, mut desired: Map<String, Value>, replace: boo
             None => current.remove("git_sync"),
         };
     }
+    if !desired.contains_key("role_overrides") {
+        // A file without the roles applies `operator_settings` as it always did: diffed against
+        // the column, since against the value the document derives, an unchanged file with a
+        // stale column would undo a role edit made since.
+        let column: Option<Value> = sqlx::query_scalar(
+            "SELECT operator_settings FROM workspace_settings WHERE workspace_id = $1",
+        )
+        .bind(w_id)
+        .fetch_optional(db)
+        .await?
+        .flatten();
+        match column {
+            Some(column) => current.insert("operator_settings".to_string(), column),
+            None => current.remove("operator_settings"),
+        };
+    }
     let mc = build_crypt(db, w_id).await?;
     let names = match desired.get("datatable_permissions") {
         Some(v) if !v.is_null() => DatatableNames::load(db, w_id, v).await?,
         _ => DatatableNames::default(),
     };
-    plan_document(current, desired, replace, &mc, &names)
+    let instance = roles::instance_roles(db).await?;
+    plan_document(current, desired, replace, &mc, &names, &instance)
 }
 
 /// A fork's parent, read for its `git_sync`.
@@ -1078,6 +1136,7 @@ fn plan_document(
     replace: bool,
     mc: &windmill_common::variables::WorkspaceCrypt,
     names: &DatatableNames,
+    instance: &[RoleDefinition],
 ) -> Result<Plan> {
     let mut warnings = vec![];
     let unknown: Vec<&str> = desired
@@ -1229,6 +1288,10 @@ fn plan_document(
 
     let stated: Vec<String> = desired.keys().cloned().collect();
     let mut p = Plan { current, desired, replace, changes: vec![], writes: vec![], warnings };
+
+    // Before every other setting, so an instance group mapping or invite can name a role the
+    // file adds; a workspace-only role it removes is dropped last, after whatever named it.
+    let deferred_roles = plan_role_overrides(&mut p, instance)?;
 
     let webhook = p.legacy("webhook");
     // The endpoint clears the URL when the body omits it, so the events write sends it along.
@@ -1443,7 +1506,13 @@ fn plan_document(
         |v| json!({ "color": v }),
     );
 
-    if let Some(desired) = p.managed("operator_settings").filter(|o| !o.is_null()) {
+    // A file that states the roles applies the operator role through them alone: the legacy key
+    // beside them would otherwise re-grant or withdraw flags the file's roles do not hold.
+    let roles_stated = p.managed("role_overrides").is_some();
+    if let Some(desired) = p
+        .managed("operator_settings")
+        .filter(|o| !o.is_null() && !roles_stated)
+    {
         // The endpoint keeps the stored value of a write right the document omits, so an
         // older document must not count as differing on those keys.
         let mut compared = desired.clone();
@@ -1469,23 +1538,6 @@ fn plan_document(
         if p.differs("operator_settings", &compared) {
             p.record("operator_settings", compared);
             p.write(Target::Edit(SettingsEdit::OperatorSettings), desired);
-        }
-    }
-
-    // Stated as a whole, after `operator_settings`: a role the map omits loses its override, and
-    // the `operator` override it states wins over the legacy key.
-    if let Some(desired) = p.managed("role_overrides") {
-        let desired = if desired.is_null() {
-            json!({})
-        } else {
-            desired
-        };
-        let overrides: RoleOverrides = serde_json::from_value(desired)
-            .map_err(|e| Error::BadRequest(format!("Invalid role_overrides: {e}")))?;
-        let desired = role_overrides_document(&overrides);
-        if p.differs("role_overrides", &desired) {
-            p.record("role_overrides", desired.clone());
-            p.write(Target::Edit(SettingsEdit::RoleOverrides), desired);
         }
     }
 
@@ -1648,9 +1700,23 @@ fn plan_document(
             .iter()
             .any(|k| c.key == *k || c.key.starts_with(&format!("{k}.")))
     });
-    if replace && !changes_stated {
+    if replace && !changes_stated && deferred_roles.is_none() {
         p.changes.clear();
         p.writes.clear();
+    }
+
+    match deferred_roles {
+        Some((Some(after), body)) => {
+            p.record("role_overrides", after);
+            p.write(Target::Edit(SettingsEdit::RoleOverrides), body);
+        }
+        // Recorded with the staged write.
+        Some((None, body)) => p.writes.push(Write {
+            target: Target::Edit(SettingsEdit::RoleOverrides),
+            body,
+            keys: vec![],
+        }),
+        None => {}
     }
 
     // Refused here rather than by the endpoint, so a dry run already says so.
@@ -1668,6 +1734,117 @@ fn plan_document(
     }
 
     Ok(p)
+}
+
+/// Plans `role_overrides`, stated as a whole: a role the map omits loses its override. Refuses,
+/// before any setting is written, an override of a role the instance does not define. When the
+/// file removes a workspace-only role, the role is kept until the final write it returns (with
+/// the change still to record, unless a staged write recorded it), so the in-use check passes
+/// once the settings naming the role have been rewritten.
+fn plan_role_overrides(
+    p: &mut Plan,
+    instance: &[RoleDefinition],
+) -> Result<Option<(Option<Value>, Value)>> {
+    let Some(desired) = p.managed("role_overrides") else {
+        return Ok(None);
+    };
+    let stated: BTreeMap<String, DocumentRoleOverride> = if desired.is_null() {
+        BTreeMap::new()
+    } else {
+        serde_json::from_value(desired)
+            .map_err(|e| Error::BadRequest(format!("Invalid role_overrides: {e}")))?
+    };
+    let previous: RoleOverrides = object_of(p.current.get("role_overrides"))
+        .into_iter()
+        .filter_map(|(name, v)| {
+            Some((
+                name,
+                serde_json::from_value::<DocumentRoleOverride>(v).ok()?.role,
+            ))
+        })
+        .collect();
+    let defined = |name: &str| instance.iter().any(|d| d.name == name);
+    let mut errors = vec![];
+    for (name, o) in &stated {
+        match (defined(name), o.workspace_only) {
+            (true, true) => errors.push(format!(
+                "role_overrides marks `{name}` as workspace_only, but this instance defines it: \
+                 remove `workspace_only` to override the instance role"
+            )),
+            // An unmarked entry from a file pulled before the marker existed still round-trips
+            // a role the workspace already has.
+            (false, false) if !previous.contains_key(name) => errors.push(format!(
+                "role_overrides overrides role `{name}`, which this instance does not define: \
+                 define it in the instance settings (Workspace roles) first, or set \
+                 `workspace_only: true` on the entry to add it as a role of this workspace only"
+            )),
+            _ => {}
+        }
+    }
+    if !errors.is_empty() {
+        return Err(Error::BadRequest(errors.join("; ")));
+    }
+    let next: RoleOverrides = stated.into_iter().map(|(n, o)| (n, o.role)).collect();
+
+    // Silent only for a legacy key left as pulled, or agreeing with the role it is not applied to.
+    if let (Some(legacy), Some(implied)) = (
+        p.managed("operator_settings").filter(Value::is_object),
+        implied_operator_settings(instance, &next)?,
+    ) {
+        let pulled = implied_operator_settings(instance, &previous)?;
+        if legacy_operator_settings_differ(&legacy, &implied)
+            && pulled.is_none_or(|b| legacy_operator_settings_differ(&legacy, &b))
+        {
+            p.warnings.push(
+                "operator_settings was not applied: role_overrides.operator is what applies. \
+                 Edit the operator role there, or pull again to refresh operator_settings."
+                    .to_string(),
+            );
+        }
+    }
+
+    let after = role_overrides_document(&next, instance);
+    if !p.differs("role_overrides", &after) {
+        return Ok(None);
+    }
+    roles::validate_overrides(instance, &next)?;
+    roles::check_frozen_overrides(instance, &previous, &next)?;
+    let body = |o: &RoleOverrides| {
+        serde_json::to_value(o)
+            .map_err(|e| Error::internal_err(format!("serializing role overrides: {e:#}")))
+    };
+    let mut staged = next.clone();
+    for (name, o) in &previous {
+        if !next.contains_key(name) && !defined(name) {
+            staged.insert(name.clone(), o.clone());
+        }
+    }
+    if staged == next {
+        p.record("role_overrides", after);
+        p.write(Target::Edit(SettingsEdit::RoleOverrides), body(&next)?);
+        return Ok(None);
+    }
+    if staged == previous {
+        return Ok(Some((Some(after), body(&next)?)));
+    }
+    p.record("role_overrides", after);
+    p.write(Target::Edit(SettingsEdit::RoleOverrides), body(&staged)?);
+    Ok(Some((None, body(&next)?)))
+}
+
+/// Whether the endpoint would apply `stated` as something other than `reference`: it keeps the
+/// stored value of an omitted write right, and reads an omitted visibility flag as `false`.
+fn legacy_operator_settings_differ(stated: &Value, reference: &Value) -> bool {
+    object_of(Some(reference)).iter().any(|(key, value)| {
+        let kept = matches!(
+            key.as_str(),
+            "builder_flows" | "builder_apps" | "manage_schedules" | "manage_triggers"
+        );
+        match stated.get(key) {
+            Some(v) => v != value,
+            None => !kept && value != &Value::Bool(false),
+        }
+    })
 }
 
 fn object_of(v: Option<&Value>) -> Map<String, Value> {
@@ -1989,6 +2166,23 @@ mod tests {
         v.as_object().unwrap().clone()
     }
 
+    fn plan_document(
+        current: Map<String, Value>,
+        desired: Map<String, Value>,
+        replace: bool,
+        mc: &WorkspaceCrypt,
+        names: &DatatableNames,
+    ) -> Result<Plan> {
+        super::plan_document(
+            current,
+            desired,
+            replace,
+            mc,
+            names,
+            &roles::default_instance_roles(),
+        )
+    }
+
     fn keys(p: &Plan) -> Vec<&str> {
         p.changes.iter().map(|c| c.key.as_str()).collect()
     }
@@ -2266,48 +2460,104 @@ mod tests {
     }
 
     #[test]
-    fn role_overrides_are_applied_as_a_whole_after_operator_settings() {
+    fn role_overrides_name_only_roles_the_instance_defines_or_marks() {
+        let mc = WorkspaceCrypt::new("k");
+        let names = DatatableNames::default();
+        let mut cur = current();
+        cur.insert(
+            "role_overrides".into(),
+            json!({ "auditor": { "workspace_only": true, "capabilities": { "code": false } } }),
+        );
+        let plan = |roles: Value| {
+            plan_document(
+                cur.clone(),
+                doc(json!({ "webhook": "https://b", "role_overrides": roles })),
+                false,
+                &mc,
+                &names,
+            )
+        };
+
+        // An override of a role the instance lacks refuses the whole document.
+        let err = plan(json!({ "reviewer": { "capabilities": { "code": false } } }))
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("`reviewer`"), "{err}");
+        assert!(plan(json!({ "operator": { "workspace_only": true } })).is_err());
+
+        // A file pulled before the marker still states the workspace's own role.
+        let p = plan(json!({ "auditor": { "capabilities": { "code": false } } })).unwrap();
+        assert_eq!(keys(&p), ["webhook"]);
+    }
+
+    #[test]
+    fn operator_settings_is_not_applied_beside_the_roles() {
+        let mc = WorkspaceCrypt::new("k");
+        let names = DatatableNames::default();
+        let mut cur = current();
+        cur.insert("role_overrides".into(), json!({}));
+        let pulled = roles::legacy_operator_settings(&roles::RoleCapabilities::OPERATOR);
+        let mut edited = pulled.clone();
+        edited["builder_flows"] = json!(true);
+        let plan = |legacy: &Value, roles: Value| {
+            let d = doc(json!({ "operator_settings": legacy, "role_overrides": roles }));
+            plan_document(cur.clone(), d, false, &mc, &names).unwrap()
+        };
+
+        let p = plan(&pulled, json!({}));
+        assert!(p.writes.is_empty() && p.warnings.is_empty());
+
+        let p = plan(
+            &pulled,
+            json!({ "operator": { "capabilities": { "flows": "compose" } } }),
+        );
+        assert_eq!(keys(&p), ["role_overrides"]);
+        assert!(p.warnings.is_empty());
+
+        let p = plan(&edited, json!({}));
+        assert!(p.writes.is_empty());
+        assert_eq!(p.warnings.len(), 1);
+    }
+
+    #[cfg(feature = "enterprise")]
+    #[test]
+    fn workspace_only_roles_are_added_first_and_removed_last() {
         let mc = WorkspaceCrypt::new("k");
         let mut cur = current();
         cur.insert(
             "role_overrides".into(),
-            json!({ "operator": { "capabilities": { "manage_schedules": false } } }),
+            json!({ "auditor": { "workspace_only": true, "capabilities": {} } }),
         );
-        cur.insert("operator_settings".into(), json!({ "runs": true }));
-
-        // Unchanged: no write.
-        let d = doc(json!({ "role_overrides": {
-            "operator": { "capabilities": { "manage_schedules": false } },
-        } }));
-        let p = plan_document(cur.clone(), d, false, &mc, &DatatableNames::default()).unwrap();
-        assert!(keys(&p).is_empty());
-
-        // A custom role added next to the legacy key: role_overrides is written last.
+        cur.insert(
+            "auto_invite".into(),
+            json!({ "instance_groups": ["g"], "instance_groups_roles": { "g": "auditor" } }),
+        );
         let d = doc(json!({
-            "operator_settings": { "runs": false },
-            "role_overrides": {
-                "operator": { "capabilities": { "manage_schedules": false } },
-                "reviewer": { "label": "Reviewer", "capabilities": { "code": false } },
-            },
+            "role_overrides": { "reviewer": { "workspace_only": true, "capabilities": {} } },
+            "auto_invite": { "instance_groups": ["g"], "instance_groups_roles": { "g": "reviewer" } },
         }));
         let p = plan_document(cur.clone(), d, false, &mc, &DatatableNames::default()).unwrap();
-        assert_eq!(keys(&p), ["operator_settings", "role_overrides"]);
+        assert_eq!(keys(&p), ["role_overrides", "auto_invite.instance_groups"]);
+        let bodies: Vec<_> = p.writes.iter().map(|w| (&w.target, &w.body)).collect();
+        assert!(matches!(
+            bodies.as_slice(),
+            [
+                (Target::Edit(SettingsEdit::RoleOverrides), staged),
+                (Target::Edit(SettingsEdit::InstanceGroups), _),
+                (Target::Edit(SettingsEdit::RoleOverrides), last),
+            ] if staged.get("auditor").is_some() && staged.get("reviewer").is_some()
+                && last.get("auditor").is_none()
+        ));
+
+        // A push removing only the role still clears what the file omits.
+        let d = doc(json!({ "role_overrides": {} }));
+        let p = plan_document(cur, d, true, &mc, &DatatableNames::default()).unwrap();
+        assert!(keys(&p).contains(&"webhook"));
         assert!(matches!(
             p.writes.last().unwrap().target,
             Target::Edit(SettingsEdit::RoleOverrides)
         ));
-
-        // An empty map is stated, so it clears the workspace's overrides.
-        let p = plan_document(
-            cur,
-            doc(json!({ "role_overrides": {} })),
-            false,
-            &mc,
-            &DatatableNames::default(),
-        )
-        .unwrap();
-        assert_eq!(keys(&p), ["role_overrides"]);
-        assert_eq!(p.writes[0].body, json!({}));
     }
 
     #[test]
