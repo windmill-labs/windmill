@@ -623,6 +623,7 @@ export const APP_TO_ICON_COMPONENT = {
 	kustomer: KustomerIcon,
 	netbox: NetBoxIcon,
 	arista_eos: AristaIcon,
+	arista_cloudvision: AristaIcon,
 	vmware_vsphere: VmwareIcon,
 	abstractapi: AbstractApiIcon,
 	acumbamail: AcumbamailIcon,
