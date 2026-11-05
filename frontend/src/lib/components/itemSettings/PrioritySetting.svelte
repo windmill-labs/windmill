@@ -57,11 +57,11 @@
 		setting="low_priority"
 		label="Low priority"
 		tooltip={kind === 'flow'
-			? 'The jobs of this flow, of its steps and every job they start run only when no other job is waiting. Use it for large background flows so they do not hold up the rest of the workspace.'
-			: 'The jobs of this script and every job they start run only when no other job is waiting.'}
+			? 'The jobs of this flow, of its steps and every job they start run only when no other job is waiting. Use it for large background flows so they do not hold up the rest of the workspace. A script that waits for a job it started keeps its worker until that job runs.'
+			: 'The jobs of this script and every job they start run only when no other job is waiting. A script that waits for a job it started keeps its worker until that job runs.'}
 		eeOnly
 		disabled={!$enterpriseLicense}
-		checked={priority !== undefined && priority < 0}
+		checked={priority !== undefined && priority < -1}
 		onchange={(on) => (priority = on ? LOW_PRIORITY : undefined)}
 	/>
 {/if}
