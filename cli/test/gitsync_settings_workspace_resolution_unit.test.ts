@@ -8,31 +8,31 @@ test("gitsync-settings: entries sharing a gitBranch resolve by workspace", async
   const config: SyncOptions = {
     includes: ["f/**"],
     workspaces: {
-      "flh-nonprod": {
+      "team-a-staging": {
         baseUrl: "https://windmill.example.com/",
-        gitBranch: "nonprod",
-        overrides: { includes: ["f/ops_flh/**"] },
+        gitBranch: "staging",
+        overrides: { includes: ["f/team_a/**"] },
       },
-      provinzial: {
+      "team-b": {
         baseUrl: "https://windmill.example.com/",
-        workspaceId: "provinzial-nonprod",
-        gitBranch: "nonprod",
-        overrides: { includes: ["f/ops_provinzial/**"] },
+        workspaceId: "team-b-staging",
+        gitBranch: "staging",
+        overrides: { includes: ["f/team_b/**"] },
       },
     },
   };
 
   const byFlag = await getEffectiveSettingsForWorkspace(
     config,
-    { workspace: "flh-nonprod", jsonOutput: true },
-    { remote: "http://windmill_server:8000/", workspaceId: "flh-nonprod" },
+    { workspace: "team-a-staging", jsonOutput: true },
+    { remote: "http://windmill_server:8000/", workspaceId: "team-a-staging" },
   );
-  expect(byFlag.includes).toEqual(["f/ops_flh/**"]);
+  expect(byFlag.includes).toEqual(["f/team_a/**"]);
 
   const byProfile = await getEffectiveSettingsForWorkspace(
     config,
-    { workspace: "provinzial-nonprod", jsonOutput: true },
-    { remote: "https://windmill.example.com/", workspaceId: "provinzial-nonprod" },
+    { workspace: "team-b-staging", jsonOutput: true },
+    { remote: "https://windmill.example.com/", workspaceId: "team-b-staging" },
   );
-  expect(byProfile.includes).toEqual(["f/ops_provinzial/**"]);
+  expect(byProfile.includes).toEqual(["f/team_b/**"]);
 });

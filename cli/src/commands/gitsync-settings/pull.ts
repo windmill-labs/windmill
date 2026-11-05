@@ -6,7 +6,7 @@ import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { SyncOptions, readConfigFile, DEFAULT_SYNC_OPTIONS, getWmillYamlPath, findWorkspaceByGitBranch, WorkspacesConfig } from "../../core/conf.ts";
+import { SyncOptions, readConfigFile, DEFAULT_SYNC_OPTIONS, getWmillYamlPath, findWorkspaceByGitBranch, WorkspacesConfig, getWorkspaceNames, getEffectiveGitBranch } from "../../core/conf.ts";
 import { yamlOptions } from "../sync/sync.ts";
 import { deepEqual } from "../../utils/utils.ts";
 import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
@@ -450,8 +450,19 @@ export async function pullGitSyncSettings(
       if (!overrideTarget && isGitRepository()) {
         const currentBranch = getCurrentGitBranch();
         if (currentBranch) {
-          overrideTarget =
-            findWorkspaceByGitBranch(localConfig.workspaces, currentBranch)?.[0] ?? currentBranch;
+          // A branch shared by several entries does not say which workspace this
+          // is; guessing would overwrite another workspace's overrides
+          const onBranch = getWorkspaceNames(localConfig.workspaces).filter(
+            (name) =>
+              getEffectiveGitBranch(name, (localConfig.workspaces as any)[name]) === currentBranch,
+          );
+          if (onBranch.length > 1) {
+            throw new Error(
+              `Workspace entries ${onBranch.join(", ")} all use git branch '${currentBranch}' and none matches workspace '${workspace.workspaceId}'. ` +
+                `Name its entry '${workspace.workspaceId}' so it can be resolved.`,
+            );
+          }
+          overrideTarget = onBranch[0] ?? currentBranch;
         }
       }
       if (overrideTarget) {
