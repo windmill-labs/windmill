@@ -494,8 +494,12 @@
 		if (aiChatManager.openRunInPreview) {
 			aiChatManager.openRunInPreview({ jobId: job.jobId, workspace: job.workspace, label })
 		} else {
-			window.open(`/run/${job.jobId}?workspace=${job.workspace}`, '_blank', 'noreferrer')
+			window.open(runHref(job), '_blank', 'noreferrer')
 		}
+	}
+
+	function runHref(j: { jobId: string; workspace: string }): string {
+		return `/run/${j.jobId}?workspace=${j.workspace}`
 	}
 </script>
 
@@ -521,6 +525,7 @@
 		card={{ kind: runnableKind, path }}
 		title={previewTitle}
 		onOpen={openPreview}
+		href={previewTarget === 'run' && job ? runHref(job) : undefined}
 		kindIcon={false}
 		mode={previewTarget === 'deployed' ? 'view' : 'edit'}
 	/>

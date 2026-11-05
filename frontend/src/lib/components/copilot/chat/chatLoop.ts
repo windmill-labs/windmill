@@ -427,9 +427,11 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		if (onBeforeIteration) {
 			await onBeforeIteration(modelProvider, lastIterationUsage)
 		}
-		const tools = await Promise.all(
-			config.tools.map(async (t) => (t.schemaFor ? { ...t, def: await t.schemaFor(helpers) } : t))
-		)
+		const resolveTools = () =>
+			Promise.all(
+				config.tools.map(async (t) => (t.schemaFor ? { ...t, def: await t.schemaFor(helpers) } : t))
+			)
+		let tools = await resolveTools()
 
 		const pendingUserMessage = getPendingUserMessage?.()
 
@@ -454,7 +456,14 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			...sanitizeToolCallArguments(visibleMessages),
 			...(pendingUserMessage ? [pendingUserMessage] : [])
 		]
-		const toolDefs = tools.map((t) => t.def)
+		let toolDefs = tools.map((t) => t.def)
+		// Losing the provider's own search (it refused the tool, or the Responses API is off)
+		// makes the toolset offer the workspace's search tools, and the retry of this same
+		// request must already carry them.
+		const reloadToolsWithoutWebSearch = async () => {
+			tools = await resolveTools()
+			toolDefs = tools.map((t) => t.def)
+		}
 		const parseOptions = {
 			workspace,
 			provider: modelProvider.provider,
@@ -534,6 +543,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 						} else if (useWebSearch && shouldRetryWithoutWebSearch(err)) {
 							markWebSearchUnsupported(webSearchCacheKey, err, config.onWebSearchUnavailable)
 							useWebSearch = false
+							await reloadToolsWithoutWebSearch()
 						} else if (usePromptCacheKey && shouldRetryWithoutPromptCacheKey(err)) {
 							markPromptCacheKeyUnsupported(promptCacheSupportKey, err)
 							usePromptCacheKey = false
@@ -555,6 +565,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 				if (errorMessage.includes('Responses API is not enabled')) {
 					skipResponsesApi = true
 					onSkipResponsesApi?.()
+					await reloadToolsWithoutWebSearch()
 				}
 				useCompletionsApi = true
 			}
@@ -618,6 +629,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			} catch (err) {
 				if (webSearch && shouldRetryWithoutWebSearch(err)) {
 					markWebSearchUnsupported(webSearchCacheKey, err, config.onWebSearchUnavailable)
+					await reloadToolsWithoutWebSearch()
 					if (!(await runAnthropic(false))) {
 						break
 					}

@@ -215,17 +215,16 @@
 		return `/run/${job.jobId}?workspace=${job.workspace}`
 	}
 
-	function openRun(job: ChatJob) {
+	function openRun(job: ChatJob, e: MouseEvent) {
 		// In /sessions the run opens in the preview pane; the global side-panel chat
-		// has no runtime, so fall back to a new browser tab.
+		// has no runtime, so the row's link opens it in a new browser tab.
 		if (aiChatManager.openRunInPreview) {
+			e.preventDefault()
 			aiChatManager.openRunInPreview({
 				jobId: job.jobId,
 				workspace: job.workspace,
 				label: job.label
 			})
-		} else {
-			window.open(runHref(job), '_blank', 'noreferrer')
 		}
 	}
 
@@ -312,6 +311,7 @@
 		itemKey={(job) => job.jobId}
 		rowTitle={(job) => job.label}
 		onPick={openRun}
+		itemHref={runHref}
 		placement={standalone ? 'top-end' : 'top-start'}
 		usePointerDownOutside
 		closeOnOtherPopoverOpen={!standalone}

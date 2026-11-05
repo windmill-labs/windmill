@@ -457,8 +457,8 @@ async fn test_removing_a_failing_handler_resolves_its_alert(
     Ok(())
 }
 
-/// The handler endpoint: admin-only, existence-checked, and clearing by omission, which
-/// `wmill sync push` relies on to propagate an absent handler.
+/// The handler endpoint: admin-only, existence-checked, stored in its clean form, and clearing
+/// by omission, which `wmill sync push` relies on to propagate an absent handler.
 #[sqlx::test(fixtures("base"))]
 async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -487,7 +487,7 @@ async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
     };
 
     seed_handler_script(&db, "u/test-user/expiry_handler").await?;
-    let handler = serde_json::json!({ "path": "script/u/test-user/expiry_handler" });
+    let handler = serde_json::json!({ "path": "script//u/test-user/expiry_handler" });
     assert_eq!(edit("SECRET_TOKEN_2", handler.clone()).await?, 403);
     assert!(stored().await?.is_none());
 

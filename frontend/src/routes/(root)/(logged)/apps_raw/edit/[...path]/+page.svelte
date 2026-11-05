@@ -466,7 +466,7 @@
 			const v = pendingLoad.value as RawAppDraft
 			files = v.files ?? {}
 			runnables = v.runnables ?? {}
-			data = v.data ?? { ...DEFAULT_DATA }
+			data = extractDataConfig(v) ?? { ...DEFAULT_DATA }
 			summary = v.summary ?? ''
 			policy = v.policy ?? {}
 			labels = v.labels ?? labels
@@ -688,7 +688,7 @@
 				bind:this={rawAppEditor}
 				ownsPageHeader
 				compact={page.url.searchParams.get('view') === 'preview'}
-				onDetails={(e) => goto(`/apps_raw/get/${e.path}?workspace=${$workspaceStore}`)}
+				detailsHref={(path) => `/apps_raw/get/${path}?workspace=${$workspaceStore}`}
 				onSavedNewAppPath={(savedPath) => {
 					draftSync.remove()
 					goto(`/apps_raw/edit/${savedPath}`)

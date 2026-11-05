@@ -42,6 +42,7 @@ pub fn workspaced_service() -> Router {
             post(share_artifact).layer(DefaultBodyLimit::max(SHARE_BODY_LIMIT)),
         )
         .route("/status", get(get_share_status))
+        .route("/list", get(list_shared_artifacts))
         .route("/get/{id}", get(get_shared_artifact))
         .route("/delete/{id}", delete(unshare_artifact))
 }
@@ -71,7 +72,7 @@ struct ShareArtifact {
     content: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, sqlx::FromRow)]
 struct SharedArtifactInfo {
     id: Uuid,
     name: String,
@@ -241,6 +242,34 @@ async fn get_share_status(
     });
 
     Ok(Json(ShareStatus { retention_secs, share }))
+}
+
+/// Live shares cap at one per author and artifact, but nothing caps authors, so the list is.
+const LIST_LIMIT: i64 = 500;
+
+/// Every live share of the workspace, newest first, without content: any member may open each
+/// of them, so any member may see which there are.
+async fn list_shared_artifacts(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<SharedArtifactInfo>> {
+    let retention_secs = ai_shared_artifact_retention_secs();
+    let rows = sqlx::query_as::<_, SharedArtifactInfo>(
+        "SELECT id, name, kind, version, created_by, shared_at,
+                shared_at + ($2::bigint::text || ' s')::interval AS expires_at
+         FROM ai_shared_artifact
+         WHERE workspace_id = $1
+           AND shared_at > now() - ($2::bigint::text || ' s')::interval
+         ORDER BY shared_at DESC
+         LIMIT $3",
+    )
+    .bind(&w_id)
+    .bind(retention_secs)
+    .bind(LIST_LIMIT)
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(rows))
 }
 
 /// Any member of the workspace may read a live share: that is what sharing it granted.

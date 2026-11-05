@@ -20,8 +20,13 @@
 	import { twMerge } from 'tailwind-merge'
 	import ContentSearchInnerItem from './ContentSearchInnerItem.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
+	import { isNewTabClick } from '$lib/navigation'
 
 	const dispatch = createEventDispatcher()
+
+	function closeUnlessNewTab(e?: Event) {
+		if (!(e instanceof MouseEvent && isNewTabClick(e))) dispatch('close')
+	}
 	interface Props {
 		search?: string
 	}
@@ -249,7 +254,7 @@
 								<Button
 									href={`/scripts/get/${item.path}`}
 									startIcon={{ icon: ExternalLink }}
-									on:click={() => dispatch('close')}
+									onClick={closeUnlessNewTab}
 								>
 									Open
 								</Button>
@@ -281,7 +286,7 @@
 					{#each filteredResourceItems.slice(0, showNbResources) ?? [] as item}
 						<ContentSearchInnerItem
 							title={`Resource: ${item.path}`}
-							href={`/resources#${item.path}`}
+							href={`/resources#/resource/${item.path}`}
 							on:close
 						>
 							{#snippet actions()}
@@ -294,7 +299,11 @@
 										{/snippet}
 									</Tooltip>
 								{/if}
-								<Button href={`/resources#${item.path}`} target="_blank" startIcon={{ icon: Edit }}>
+								<Button
+									href={`/resources#/resource/${item.path}`}
+									target="_blank"
+									startIcon={{ icon: Edit }}
+								>
 									Edit
 								</Button>
 							{/snippet}
@@ -325,7 +334,7 @@
 								<Button
 									href={`/flows/get/${item.path}`}
 									startIcon={{ icon: ExternalLink }}
-									on:click={() => dispatch('close')}
+									onClick={closeUnlessNewTab}
 								>
 									Open
 								</Button>
@@ -365,7 +374,7 @@
 								<Button
 									href={`/apps/get/${item.path}`}
 									startIcon={{ icon: ExternalLink }}
-									on:click={() => dispatch('close')}
+									onClick={closeUnlessNewTab}
 								>
 									Open
 								</Button>

@@ -184,6 +184,47 @@ export async function setActiveWorkspace(
   await writeFile(file, workspaceName, "utf-8");
 }
 
+const CLOUD_REMOTE = "https://app.windmill.dev/";
+
+// Cliffy's list only previews the highlighted entry: Enter submits the typed
+// text (empty, so the default) unless Tab was pressed first.
+class PickableInput extends Input {
+  protected override getValue(): string {
+    const highlighted = this.suggestions[this.suggestionsIndex];
+    if (!this.inputValue && highlighted !== undefined) {
+      return highlighted.toString();
+    }
+    return super.getValue();
+  }
+}
+
+async function knownRemotes(
+  opts: GlobalOptions
+): Promise<{ suggestions: string[]; defaultRemote: string }> {
+  const remotes: string[] = [];
+  for (const w of await allWorkspaces(opts.configDir)) {
+    try {
+      const remote = new URL(w.remote).toString();
+      if (!remotes.includes(remote)) remotes.push(remote);
+    } catch {
+      // skip a malformed profile
+    }
+  }
+  const active = await getActiveWorkspace(opts);
+  let defaultRemote = CLOUD_REMOTE;
+  try {
+    if (active) defaultRemote = new URL(active.remote).toString();
+  } catch {
+    // keep the cloud default
+  }
+  const suggestions = [
+    defaultRemote,
+    ...remotes.filter((r) => r !== defaultRemote),
+  ];
+  if (!suggestions.includes(CLOUD_REMOTE)) suggestions.push(CLOUD_REMOTE);
+  return { suggestions, defaultRemote };
+}
+
 export async function add(
   opts: GlobalOptions & {
     create: boolean;
@@ -225,11 +266,14 @@ export async function add(
       remote = url.toString();
     } catch {
       // not a url
+      const { suggestions, defaultRemote } = await knownRemotes(opts);
       remote = new URL(
-        await Input.prompt({
+        await PickableInput.prompt({
           message: "Enter the Remote URL",
-          suggestions: ["https://app.windmill.dev/"],
-          default: "https://app.windmill.dev/",
+          suggestions,
+          list: suggestions.length > 1,
+          info: suggestions.length > 1,
+          default: defaultRemote,
         })
       ).toString();
     }
