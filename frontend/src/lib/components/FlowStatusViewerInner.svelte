@@ -2086,14 +2086,17 @@
 											{#if !hideTimeline}
 												<Tab value="timeline" label="Timeline" />
 											{/if}
-											<Tab value="node_status" label="Node status" />
+											<Tab value="node_status" label={closableDetails ? 'Status' : 'Node status'} />
 											{#if !hideNodeDefinition}
-												<Tab value="node_definition" label="Node definition" />
+												<Tab
+													value="node_definition"
+													label={closableDetails ? 'Code' : 'Node definition'}
+												/>
 											{/if}
 											{#if Object.keys(job?.flow_status?.user_states ?? {}).length > 0}
 												<Tab value="user_states" label="User States" />
 											{/if}
-											<Tab value="tracing" label="Tracing" />
+											<Tab value="tracing" label={closableDetails ? 'Traces' : 'Tracing'} />
 										</Tabs>
 										{#if closableDetails}
 											<Button
@@ -2117,6 +2120,7 @@
 												selfWaitTime={job?.self_wait_time_ms}
 												aggregateWaitTime={job?.aggregate_wait_time_ms}
 												flowDone={job?.['success'] != undefined}
+												compact={closableDetails}
 												bind:this={flowTimeline}
 												flowModules={allModulesForTimeline(
 													job?.raw_flow?.modules ?? [],
