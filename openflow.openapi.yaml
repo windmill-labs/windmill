@@ -342,6 +342,9 @@ components:
               description: If true, return mock value instead of executing
             return_value:
               description: Value to return when mocked
+            preview_only:
+              type: boolean
+              description: If true, the mock applies only to runs started as a flow preview (from the editor, and every job under it, subflows included). Absent or false, it applies to every run.
         suspend:
           type: object
           description: Configuration for approval/resume steps that wait for user input

@@ -594,6 +594,9 @@ pub struct Mock {
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub return_value: Option<serde_json::Value>,
+    /// Absent means every run, which is what a mock meant before the key existed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub preview_only: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
