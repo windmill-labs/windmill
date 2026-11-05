@@ -1700,14 +1700,23 @@ fn plan_document(
             .iter()
             .any(|k| c.key == *k || c.key.starts_with(&format!("{k}.")))
     });
-    if replace && !changes_stated {
+    if replace && !changes_stated && deferred_roles.is_none() {
         p.changes.clear();
         p.writes.clear();
     }
 
-    if let Some((after, body)) = deferred_roles {
-        p.record("role_overrides", after);
-        p.write(Target::Edit(SettingsEdit::RoleOverrides), body);
+    match deferred_roles {
+        Some((Some(after), body)) => {
+            p.record("role_overrides", after);
+            p.write(Target::Edit(SettingsEdit::RoleOverrides), body);
+        }
+        // Recorded with the staged write.
+        Some((None, body)) => p.writes.push(Write {
+            target: Target::Edit(SettingsEdit::RoleOverrides),
+            body,
+            keys: vec![],
+        }),
+        None => {}
     }
 
     // Refused here rather than by the endpoint, so a dry run already says so.
@@ -1729,12 +1738,13 @@ fn plan_document(
 
 /// Plans `role_overrides`, stated as a whole: a role the map omits loses its override. Refuses,
 /// before any setting is written, an override of a role the instance does not define. When the
-/// file removes a workspace-only role, the role is kept until the final write it returns, so the
-/// in-use check passes once the settings naming the role have been rewritten.
+/// file removes a workspace-only role, the role is kept until the final write it returns (with
+/// the change still to record, unless a staged write recorded it), so the in-use check passes
+/// once the settings naming the role have been rewritten.
 fn plan_role_overrides(
     p: &mut Plan,
     instance: &[RoleDefinition],
-) -> Result<Option<(Value, Value)>> {
+) -> Result<Option<(Option<Value>, Value)>> {
     let Some(desired) = p.managed("role_overrides") else {
         return Ok(None);
     };
@@ -1814,15 +1824,12 @@ fn plan_role_overrides(
         p.write(Target::Edit(SettingsEdit::RoleOverrides), body(&next)?);
         return Ok(None);
     }
-    if staged != previous {
-        // Carries no key: the change is recorded with the final write.
-        p.writes.push(Write {
-            target: Target::Edit(SettingsEdit::RoleOverrides),
-            body: body(&staged)?,
-            keys: vec![],
-        });
+    if staged == previous {
+        return Ok(Some((Some(after), body(&next)?)));
     }
-    Ok(Some((after, body(&next)?)))
+    p.record("role_overrides", after);
+    p.write(Target::Edit(SettingsEdit::RoleOverrides), body(&staged)?);
+    Ok(Some((None, body(&next)?)))
 }
 
 /// Whether the endpoint would apply `stated` as something other than `reference`: it keeps the
@@ -2530,8 +2537,8 @@ mod tests {
             "role_overrides": { "reviewer": { "workspace_only": true, "capabilities": {} } },
             "auto_invite": { "instance_groups": ["g"], "instance_groups_roles": { "g": "reviewer" } },
         }));
-        let p = plan_document(cur, d, false, &mc, &DatatableNames::default()).unwrap();
-        assert_eq!(keys(&p), ["auto_invite.instance_groups", "role_overrides"]);
+        let p = plan_document(cur.clone(), d, false, &mc, &DatatableNames::default()).unwrap();
+        assert_eq!(keys(&p), ["role_overrides", "auto_invite.instance_groups"]);
         let bodies: Vec<_> = p.writes.iter().map(|w| (&w.target, &w.body)).collect();
         assert!(matches!(
             bodies.as_slice(),
@@ -2541,6 +2548,15 @@ mod tests {
                 (Target::Edit(SettingsEdit::RoleOverrides), last),
             ] if staged.get("auditor").is_some() && staged.get("reviewer").is_some()
                 && last.get("auditor").is_none()
+        ));
+
+        // A push removing only the role still clears what the file omits.
+        let d = doc(json!({ "role_overrides": {} }));
+        let p = plan_document(cur, d, true, &mc, &DatatableNames::default()).unwrap();
+        assert!(keys(&p).contains(&"webhook"));
+        assert!(matches!(
+            p.writes.last().unwrap().target,
+            Target::Edit(SettingsEdit::RoleOverrides)
         ));
     }
 
