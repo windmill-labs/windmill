@@ -39,7 +39,6 @@
 	let timeout: number | undefined = undefined
 	let error: string | undefined = $state(undefined)
 	let default_payload: any = $state({})
-	let denyReason = $state('')
 	let enum_payload: object = $state({})
 	let description: any = $state(undefined)
 
@@ -123,14 +122,14 @@
 		getJob()
 	}
 
-	async function cancel() {
+	async function cancel(reason: string | undefined) {
 		await JobService.cancelSuspendedJobPost({
 			workspace: page.params.workspace ?? '',
 			id: page.params.job ?? '',
 			resumeId: new Number(page.params.resume).valueOf(),
 			signature: page.params.hmac ?? '',
 			approver,
-			requestBody: denyReason.trim() ? { reason: denyReason.trim() } : {}
+			requestBody: reason ? { reason } : {}
 		})
 		sendUserToast('Flow denied!')
 		getJob()
@@ -276,22 +275,17 @@
 			{#if !completed}
 				<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap">
 					{#if !job?.raw_flow?.modules?.[approvalStep]?.suspend?.hide_cancel}
-						<div class="flex flex-row items-center gap-2">
-							<Button
-								variant="accent"
-								destructive
-								on:click|once={cancel}
-								size="lg"
-								disabled={completed || alreadyResumed}>Deny</Button
-							>
-							{#if !alreadyResumed}
-								<DenyReason
-									bind:value={denyReason}
-									class="w-72"
-									placeholder="Reason for denying (optional)"
-								/>
-							{/if}
-						</div>
+						<DenyReason confirmLabel="Deny" disabled={completed || alreadyResumed} onDeny={cancel}>
+							{#snippet button()}
+								<Button
+									variant="accent"
+									destructive
+									size="lg"
+									disabled={completed || alreadyResumed}
+									nonCaptureEvent>Deny</Button
+								>
+							{/snippet}
+						</DenyReason>
 					{:else}
 						<div></div>
 					{/if}

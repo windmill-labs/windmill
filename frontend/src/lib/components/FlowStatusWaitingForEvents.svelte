@@ -103,7 +103,7 @@
 				approveTooltip="Resume or approve this suspended step"
 				rejectTitle="Cancel the step"
 				hideReject={hide_cancel}
-				rejectReasonPlaceholder="Reason for cancelling (optional)"
+				askRejectReason
 				{light}
 				onAnswer={continu}
 			>

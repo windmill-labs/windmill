@@ -35,7 +35,6 @@
 	let loading = $state(false)
 	let valid = $state(true)
 	let actionTaken: 'approved' | 'denied' | undefined = $state(undefined)
-	let denyReason = $state('')
 	// Whether the current visitor is a logged-in member of this workspace — if so we can
 	// surface a clear, ready-to-use run-details link (the view token grants them access).
 	let isWorkspaceMember = $state(false)
@@ -126,14 +125,14 @@
 		}
 	}
 
-	async function cancel() {
+	async function cancel(reason: string | undefined) {
 		loading = true
 		try {
 			await JobService.resumeSuspended({
 				workspace: page.params.workspace ?? '',
 				jobId: page.params.job ?? '',
 				requestBody: {
-					payload: denyReason.trim() ? { reason: denyReason.trim() } : undefined,
+					payload: reason ? { reason } : undefined,
 					approval_token: token,
 					approved: false
 				}
@@ -262,7 +261,6 @@
 			{hasForm}
 			bind:args={default_payload}
 			bind:valid
-			bind:denyReason
 			{isLocked}
 			isSelfApprovalBypass={!!isSelfApprovalBypass}
 			{isWorkspaceMember}
@@ -351,17 +349,13 @@
 			{#if !completed && !actionTaken && approvalInfo.can_approve}
 				<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap">
 					{#if approvalInfo.hide_cancel !== true}
-						<div class="flex flex-row items-center gap-2">
-							<Button variant="accent" destructive onclick={cancel} size="lg" disabled={loading}>
-								Deny
-							</Button>
-							<DenyReason
-								bind:value={denyReason}
-								class="w-72"
-								placeholder="Reason for denying (optional)"
-								disabled={loading}
-							/>
-						</div>
+						<DenyReason confirmLabel="Deny" disabled={loading} onDeny={cancel}>
+							{#snippet button()}
+								<Button variant="accent" destructive size="lg" disabled={loading} nonCaptureEvent>
+									Deny
+								</Button>
+							{/snippet}
+						</DenyReason>
 					{:else}
 						<div></div>
 					{/if}

@@ -22,14 +22,13 @@
 		hasForm: boolean
 		args: any
 		valid: boolean
-		denyReason: string
 		isLocked: boolean
 		isSelfApprovalBypass: boolean
 		isWorkspaceMember: boolean
 		runDetailsHref: string
 		rd: string
 		onApprove: () => void
-		onReject: () => void
+		onReject: (reason: string | undefined) => void
 	}
 
 	let {
@@ -42,7 +41,6 @@
 		hasForm,
 		args = $bindable(),
 		valid = $bindable(),
-		denyReason = $bindable(),
 		isLocked,
 		isSelfApprovalBypass,
 		isWorkspaceMember,
@@ -132,23 +130,19 @@
 		{#if approvalInfo.can_approve}
 			<div class="flex flex-row flex-wrap justify-between gap-4">
 				{#if approvalInfo.hide_cancel !== true}
-					<div class="flex flex-row items-center gap-2">
-						<Button
-							unifiedSize="lg"
-							variant="default"
-							destructive
-							onclick={onReject}
-							disabled={loading}
-						>
-							Reject
-						</Button>
-						<DenyReason
-							bind:value={denyReason}
-							class="w-72"
-							placeholder="Reason for rejecting (optional)"
-							disabled={loading}
-						/>
-					</div>
+					<DenyReason confirmLabel="Reject" disabled={loading} onDeny={onReject}>
+						{#snippet button()}
+							<Button
+								unifiedSize="lg"
+								variant="default"
+								destructive
+								disabled={loading}
+								nonCaptureEvent
+							>
+								Reject
+							</Button>
+						{/snippet}
+					</DenyReason>
 				{:else}
 					<div></div>
 				{/if}
