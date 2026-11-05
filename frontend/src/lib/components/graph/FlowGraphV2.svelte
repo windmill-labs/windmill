@@ -383,6 +383,9 @@
 		flowRunStatus.suspendStatus = suspendStatus
 	})
 	$effect(() => {
+		flowRunStatus.showsRun = flowModuleStates !== undefined
+	})
+	$effect(() => {
 		// Each step's state object is replaced rather than mutated, so reading the top level
 		// catches every status change. Walking deeper would subscribe to every step's args and
 		// result on the hottest path in the graph.

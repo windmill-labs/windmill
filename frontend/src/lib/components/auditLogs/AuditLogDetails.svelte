@@ -3,6 +3,9 @@
 	import { type AuditLog } from '$lib/gen'
 	import { displayDate } from '$lib/utils'
 	import { ExternalLink, X } from 'lucide-svelte'
+	import { Highlight } from 'svelte-highlight'
+	import { json } from 'svelte-highlight/languages'
+	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 
 	interface Props {
 		logs: AuditLog[]
@@ -20,6 +23,8 @@
 
 	const ViewAppOp: AuditLog['operation'][] = ['apps.create', 'apps.update']
 </script>
+
+<HighlightTheme />
 
 <div class="flex flex-col items-start">
 	{#if selectedId}
@@ -59,8 +64,8 @@
 				{/if}
 				<div class="flex flex-col gap-1">
 					<span class="font-semibold text-xs text-emphasis">Parameters</span>
-					<div class="text-xs p-2 bg-surface-secondary rounded-md">
-						{JSON.stringify(log.parameters, null, 2)}
+					<div class="text-xs p-2 bg-surface-secondary rounded-md overflow-x-auto">
+						<Highlight language={json} code={JSON.stringify(log.parameters, null, 2)} />
 					</div>
 				</div>
 

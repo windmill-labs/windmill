@@ -1,4 +1,5 @@
 import {
+	ChevronsDown,
 	ChevronsUp,
 	CircleStop,
 	Combine,
@@ -28,6 +29,7 @@ export type ScriptAdvancedSettingsFields = {
 	concurrent_limit?: number
 	concurrency_time_window_s?: number
 	concurrency_key?: string
+	on_concurrency_limit?: 'queue' | 'fail'
 	cache_ttl?: number
 	cache_ignore_s3_path?: boolean
 	timeout?: number
@@ -75,6 +77,7 @@ export function flowRuntimeFields(flow: {
 		concurrent_limit: v.concurrent_limit,
 		concurrency_time_window_s: v.concurrency_time_window_s,
 		cache_ttl: v.cache_ttl,
+		timeout: v.timeout,
 		debounce_delay_s: v.debounce_delay_s,
 		delete_after_secs: v.delete_after_secs,
 		priority: v.priority,
@@ -167,6 +170,15 @@ export function getActiveScriptSettingsBadges(
 			label: 'High priority',
 			icon: ChevronsUp,
 			detail: `Priority ${settings.priority}`
+		})
+	} else if (settings.priority != undefined && settings.priority < 0) {
+		badges.push({
+			key: 'low_priority',
+			short: 'Low priority',
+			setting: 'low_priority',
+			label: 'Low priority',
+			icon: ChevronsDown,
+			detail: 'Runs when no other job is waiting'
 		})
 	}
 	if (settings.restart_unless_cancelled) {

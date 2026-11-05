@@ -67,7 +67,8 @@
 		<Badge color="red" {large}>persistent</Badge>
 	</button>
 {/if}
-{#if job && 'priority' in job}
+<!-- 0 is how a job without priority is stored. -->
+{#if job && 'priority' in job && job.priority != undefined && job.priority !== 0}
 	<div>
 		<Badge color="blue" {large}>priority: {job.priority}</Badge>
 	</div>

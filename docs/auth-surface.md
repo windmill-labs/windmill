@@ -160,6 +160,16 @@ Symbols, not line numbers, are cited: they drift less.
   "true"/"false" strings) and is only consulted for the claim above; only GitHub is filtered to
   `primary && verified`; a missing email is fabricated from `name` as `<name>@windmill.dev` and
   reaches `login_externally` with `email_asserted = false`.
+- **SSO claim names** (`sso_email_claim`, `sso_username_claim`, instance-wide, OIDC and SAML
+  alike): a configured claim absent from a login falls back to the protocol default (OIDC
+  `email` and the chain above, SAML NameID; `preferred_username` / the SAML username list),
+  so one setting serves providers that name it differently. A configured email claim counts
+  as asserted and can claim a `pending_oauth` account, so it must name an attribute users
+  cannot edit at the IdP; `email_verified` is only read when the claim is `email` (the MCP
+  external IdP instead refuses any token marked unverified, whatever its email claim: it never
+  creates or claims an account, so the stricter rule costs nothing there). GitHub and Nextcloud
+  keep their own email source. Accounts stay keyed by email: the username claim only names an
+  account at creation, and an email change at the IdP signs in as a different account.
 - **MCP access tokens from an external issuer** (`mcp_external_idp`, EE, `mcp/external_idp.rs`):
   taken only for a JWT whose unverified `iss` is the configured issuer, then verified against its
   discovery JWKS. With no audience configured, only a token typed as an access token (`at+jwt`

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { page } from '$app/state'
+	import { isNewTabClick } from '$lib/navigation'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, EmptyState, Skeleton, Tab, TabFade } from '$lib/components/common'
@@ -84,7 +85,10 @@
 		openAgentEditor
 	} from '$lib/components/flows/agentEditorStore.svelte'
 	import { copilotInfo } from '$lib/aiStore'
-	import { setPageDrawerAnchor } from '$lib/components/sessions/pageDrawerSession'
+	import {
+		clearPageDrawerAnchor,
+		setPageDrawerAnchor
+	} from '$lib/components/sessions/pageDrawerSession'
 	import { useHostedPage } from '$lib/components/hostedPage'
 	import { RESOURCES_PATH } from '$lib/components/sessions/previewPaths'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
@@ -171,6 +175,23 @@
 			closeAgentEditor()
 			resourceEditor?.initEdit?.(path)
 		}
+	}
+
+	function openResourceTypeViewer(name: string) {
+		const rt = resourceTypes?.find((rt) => rt.name === name)
+		if (!rt) {
+			sendUserToast(`Resource type ${name} not found in workspace.`, true)
+			return
+		}
+		resourceTypeViewerObj = {
+			rt: rt.name,
+			//@ts-ignore
+			schema: rt.schema,
+			description: rt.description ?? '',
+			formatExtension: rt.format_extension,
+			isFileset: rt.is_fileset ?? false
+		}
+		resourceTypeViewer?.openDrawer?.()
 	}
 	let shareModal: ShareModal | undefined = $state(undefined)
 	let appConnect: AppConnect | undefined = $state(undefined)
@@ -704,15 +725,22 @@
 		}
 	})
 
-	// Deep link: #/resource/<path> opens that resource's edit drawer. Reactive
-	// rather than onMount so a hash change on the already-mounted page (e.g. the
-	// AI session preview re-pointing its tab) opens the drawer too. Row links
+	// Deep link: #/resource/<path> opens that resource's edit drawer, #/resource_type/<name>
+	// that type's viewer. Reactive rather than onMount so a hash change on the already-mounted
+	// page (e.g. the AI session preview re-pointing its tab) opens the drawer too. Row links
 	// pre-set handledHash: their onclick already opens the drawer.
+	const RESOURCE_TYPE_HASH = '#/resource_type/'
 	let handledHash = ''
 	$effect(() => {
 		// A host opens rows itself, and the document's hash is not this page's.
 		if (hosted) return
 		const hash = page.url.hash
+		if (hash.startsWith(RESOURCE_TYPE_HASH)) {
+			if (hash === handledHash || !resourceTypes) return
+			handledHash = hash
+			openResourceTypeViewer(hash.slice(RESOURCE_TYPE_HASH.length))
+			return
+		}
 		if (!hash.startsWith('#/resource/')) {
 			// Navigating away from a drawer target must clear the tracker, or
 			// re-targeting the same item later would be skipped as already handled.
@@ -844,7 +872,13 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:this={resourceTypeViewer} size="800px">
+<Drawer
+	bind:this={resourceTypeViewer}
+	size="800px"
+	on:close={() => {
+		if (window.location.hash.startsWith(RESOURCE_TYPE_HASH)) clearPageDrawerAnchor(RESOURCES_PATH)
+	}}
+>
 	<DrawerContent title={resourceTypeViewerObj.rt} on:close={resourceTypeViewer.closeDrawer}>
 		{#snippet titleExtra()}
 			<IconedResourceType
@@ -1219,7 +1253,8 @@
 													<a
 														class="break-all"
 														href="#/resource/{path}"
-														onclick={() => {
+														onclick={(e) => {
+															if (!hosted && isNewTabClick(e)) return
 															handledHash = `#/resource/${path}`
 															openResourceEditor(path, resource_type)
 														}}
@@ -1254,25 +1289,11 @@
 											</Cell>
 											<Cell>
 												<a
-													href="#{name}"
-													onclick={() => {
-														const linkedRt = resourceTypes?.find((rt) => rt.name === resource_type)
-														if (linkedRt) {
-															resourceTypeViewerObj = {
-																rt: linkedRt.name,
-																//@ts-ignore
-																schema: linkedRt.schema,
-																description: linkedRt.description ?? '',
-																formatExtension: linkedRt.format_extension,
-																isFileset: linkedRt.is_fileset ?? false
-															}
-															resourceTypeViewer?.openDrawer?.()
-														} else {
-															sendUserToast(
-																`Resource type ${resource_type} not found in workspace.`,
-																true
-															)
-														}
+													href="{RESOURCE_TYPE_HASH}{resource_type}"
+													onclick={(e) => {
+														if (!hosted && isNewTabClick(e)) return
+														handledHash = `${RESOURCE_TYPE_HASH}${resource_type}`
+														openResourceTypeViewer(resource_type)
 													}}
 												>
 													<IconedResourceType
@@ -1506,23 +1527,16 @@
 							</Head>
 							<tbody class="divide-y bg-surface">
 								{#if filteredResourceTypes}
-									{#each filteredResourceTypes as { name, description, schema, workspace_id, format_extension, is_fileset }}
+									{#each filteredResourceTypes as { name, description, workspace_id, format_extension, is_fileset }}
 										{@const canWrite = workspace_id == $operatingWorkspace}
 										<Row>
 											<Cell first>
 												<a
-													href="#{name}"
-													onclick={() => {
-														resourceTypeViewerObj = {
-															rt: name,
-															//@ts-ignore
-															schema: schema,
-															description: description ?? '',
-															formatExtension: format_extension,
-															isFileset: is_fileset ?? false
-														}
-
-														resourceTypeViewer?.openDrawer?.()
+													href="{RESOURCE_TYPE_HASH}{name}"
+													onclick={(e) => {
+														if (!hosted && isNewTabClick(e)) return
+														handledHash = `${RESOURCE_TYPE_HASH}${name}`
+														openResourceTypeViewer(name)
 													}}
 												>
 													<IconedResourceType

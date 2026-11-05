@@ -58,6 +58,8 @@ export type FlowBuilderProps = {
 	onDeploy?: ({ path }: { path: string }) => void
 	onDeployError?: ({ error }: { error: any }) => void
 	onDetails?: ({ path }: { path: string }) => void
+	/** Makes "Exit & see details" a link, so it opens in a new tab on middle/ctrl-click. Wins over `onDetails`. */
+	detailsHref?: (path: string) => string
 	onHistoryRestore?: () => void
 	onNavigate?: (item: WorkspaceItem) => void
 	// Threaded to the `AutosaveIndicator` popover so its "Reset to

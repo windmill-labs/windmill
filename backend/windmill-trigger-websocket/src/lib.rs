@@ -7,6 +7,7 @@ use windmill_api_auth::ApiAuthed;
 use windmill_common::{
     error::{Error, Result},
     jobs::JobTriggerKind,
+    runnable_ref::RunnableRef,
     triggers::{TriggerKind, TriggerMetadata},
     worker::to_raw_value,
     DB,
@@ -50,6 +51,8 @@ pub struct WebsocketConfig {
     pub filters: Vec<SqlxJson<Box<RawValue>>>,
     #[serde(default = "default_filter_logic")]
     pub filter_logic: String,
+    #[serde(default)]
+    pub run_on_filter_error: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub initial_messages: Option<Vec<SqlxJson<Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -68,6 +71,8 @@ pub struct WebsocketConfigRequest {
     filters: Vec<serde_json::Value>,
     #[serde(default = "default_filter_logic")]
     filter_logic: String,
+    #[serde(default)]
+    run_on_filter_error: bool,
     initial_messages: Option<Vec<serde_json::Value>>,
     url_runnable_args: Option<serde_json::Value>,
     can_return_message: bool,
@@ -187,8 +192,7 @@ pub(crate) fn ssrf_error_to_error(e: windmill_common::ssrf::SsrfValidationError)
 }
 
 pub async fn get_url_from_runnable_value(
-    path: &str,
-    is_flow: bool,
+    runnable: &RunnableRef,
     db: &DB,
     authed: ApiAuthed,
     args: Option<&Box<RawValue>>,
@@ -196,8 +200,8 @@ pub async fn get_url_from_runnable_value(
 ) -> Result<String> {
     tracing::info!(
         "Running {} {} to get WebSocket URL",
-        if is_flow { "flow" } else { "script" },
-        path
+        if runnable.is_flow() { "flow" } else { "script" },
+        runnable.path()
     );
 
     let args = value_to_args_hashmap(args)?;
@@ -207,22 +211,21 @@ pub async fn get_url_from_runnable_value(
         None,
         authed,
         workspace_id,
-        path,
-        is_flow,
+        runnable,
         PushArgsOwned { args, extra: None },
         None,
         None,
         None,
         "".to_string(), // doesn't matter as no retry/error handler
-        TriggerMetadata::new(Some(path.to_owned()), JobTriggerKind::Websocket),
+        TriggerMetadata::new(Some(runnable.path().to_owned()), JobTriggerKind::Websocket),
     )
     .await?;
 
     serde_json::from_str::<String>(result.get()).map_err(|_| {
         Error::BadConfig(format!(
             "{} {} did not return a string",
-            if is_flow { "Flow" } else { "Script" },
-            path,
+            if runnable.is_flow() { "Flow" } else { "Script" },
+            runnable.path(),
         ))
     })
 }

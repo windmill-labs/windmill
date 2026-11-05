@@ -208,6 +208,9 @@
 		/** `Exit & see details`: leaves the editor for the app's deployed page. A session hosts that
 		 *  page itself, so it flips the tab there rather than navigating out of the session. */
 		onDetails?: (e: { path: string }) => void
+		/** Makes `Exit & see details` a link, so it opens in a new tab on middle/ctrl-click. Wins
+		 *  over `onDetails`. */
+		detailsHref?: (path: string) => string
 		/** Opens the draft `Fork` saved. Without it, the fork opens in a new browser tab; a
 		 *  session opens it as one of its own tabs instead. */
 		onOpenFork?: (path: string) => void
@@ -263,6 +266,7 @@
 		pendingDraftPath = $bindable(undefined),
 		pendingDraftSettings = $bindable(),
 		onDetails,
+		detailsHref,
 		onOpenFork,
 		onResetToDeployed,
 		loadedFromDraft = false,
@@ -1347,10 +1351,12 @@
 					...(newApp
 						? []
 						: [
-								{
-									label: 'Exit & see details',
-									onClick: () => onDetails?.({ path: appPath })
-								}
+								detailsHref
+									? { label: 'Exit & see details', href: detailsHref(appPath) }
+									: {
+											label: 'Exit & see details',
+											onClick: () => onDetails?.({ path: appPath })
+										}
 							]),
 					{
 						label: 'Fork',

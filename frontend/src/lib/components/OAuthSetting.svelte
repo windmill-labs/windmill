@@ -10,6 +10,7 @@
 	import Password from './Password.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
 	import SlackAppSetup from './common/slack/SlackAppSetup.svelte'
+	import PkceToggle from './PkceToggle.svelte'
 
 	interface Props {
 		name: string
@@ -93,6 +94,8 @@
 				if (e.detail) {
 					if (name === 'ms_teams') {
 						value = { id: '', secret: '', tenant: '' }
+					} else if (login) {
+						value = { id: '', secret: '', pkce: true }
 					} else {
 						value = { id: '', secret: '' }
 					}
@@ -204,6 +207,9 @@
 						</div>
 					</div>
 				</label>
+			{/if}
+			{#if login}
+				<PkceToggle bind:pkce={value['pkce']} />
 			{/if}
 			{#if name == 'google'}
 				<CollapseLink text="Instructions">

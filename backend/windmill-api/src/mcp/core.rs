@@ -289,6 +289,10 @@ impl McpBackend for WindmillBackend {
         request: &McpRequest<'_>,
     ) -> BackendResult<Value> {
         windmill_common::feature_usage::log_feature_usage("mcp", "runnable_tool_call", "script");
+        // Called directly rather than through the jobs router, so its run gate does not apply.
+        windmill_common::workspaces::check_role_can_run(&self.db, workspace_id, auth)
+            .await
+            .map_err(|e| ErrorData::invalid_request(e.to_string(), None))?;
         let script = RunnableRef::from_path(path, false)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         let push_args = prepare_push_args(&self.db, workspace_id, &script, args, request)
@@ -319,6 +323,10 @@ impl McpBackend for WindmillBackend {
         request: &McpRequest<'_>,
     ) -> BackendResult<Value> {
         windmill_common::feature_usage::log_feature_usage("mcp", "runnable_tool_call", "flow");
+        // Called directly rather than through the jobs router, so its run gate does not apply.
+        windmill_common::workspaces::check_role_can_run(&self.db, workspace_id, auth)
+            .await
+            .map_err(|e| ErrorData::invalid_request(e.to_string(), None))?;
         let flow = RunnableRef::from_path(path, true)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         let push_args = prepare_push_args(&self.db, workspace_id, &flow, args, request)

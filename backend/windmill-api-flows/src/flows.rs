@@ -2477,6 +2477,7 @@ mod tests {
             delete_after_secs: None,
             concurrency_settings: ConcurrencySettings::default(),
             debouncing_settings: DebouncingSettings::default(),
+            timeout: None,
         };
         let expect = serde_json::json!({
           "modules": [

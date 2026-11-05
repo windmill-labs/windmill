@@ -75,10 +75,13 @@ section or the flat layout.
 		workspaceId?: string
 		// Session artifacts to surface as an "Artifacts" branch; omitted or empty
 		// hides the branch (non-session consumers, sessions without artifacts).
-		artifacts?: PersistedArtifact[]
+		artifacts?: Pick<PersistedArtifact, 'id' | 'name'>[]
 		/** The session chat, whose Use mode opens items in their viewer. Read from the
 		 * `aiChatManager` context when omitted. */
 		chat?: { readonly workMode: AIWorkMode }
+		/** Where picking a target navigates, for a host whose pick is a navigation; rows then
+		 * open in a new tab on middle and ⌘/Ctrl-click. */
+		targetHref?: (target: PreviewTarget) => string | undefined
 	}
 
 	let {
@@ -91,7 +94,8 @@ section or the flat layout.
 		flush = false,
 		workspaceId,
 		artifacts,
-		chat
+		chat,
+		targetHref
 	}: Props = $props()
 
 	const kinds: Kind[] = ['flow', 'script', 'app']
@@ -423,5 +427,6 @@ section or the flat layout.
 	onFilterChange={loader.onFilterChange}
 	leafAction={editAction}
 	leafBadge={stateBadge}
+	leafHref={targetHref ? (leaf) => targetHref(leaf.data) : undefined}
 	{rootLoading}
 />

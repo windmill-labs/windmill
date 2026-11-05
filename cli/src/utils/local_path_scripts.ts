@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { readTextFile } from "./utils.ts";
-import { getEsbuild } from "./esbuild_loader.ts";
+import { withEsbuild } from "./esbuild_loader.ts";
 import type { SyncCodebase } from "./codebase.ts";
 import { parseMetadataFileIfExists } from "./metadata.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
@@ -44,8 +44,7 @@ async function bundleSingleFileCodebaseScript(
     ).toString();
   }
 
-  const esbuild = await getEsbuild();
-  const out = await esbuild.build({
+  const out = await withEsbuild((esbuild) => esbuild.build({
     entryPoints: [filePath],
     // Inline rawscripts are executed through the standard module wrapper,
     // so the bundle must expose `main` as an ESM export.
@@ -61,7 +60,7 @@ async function bundleSingleFileCodebaseScript(
     packages: "bundle",
     target: "esnext",
     banner: codebase.banner,
-  });
+  }));
 
   if (out.outputFiles.length === 0) {
     throw new Error(`No output files found for ${filePath}`);

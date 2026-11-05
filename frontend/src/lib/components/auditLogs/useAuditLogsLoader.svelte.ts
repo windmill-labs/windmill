@@ -10,6 +10,7 @@ export interface AuditLogsLoaderArgs {
 	username: string
 	operation: string
 	resource: string | undefined
+	jobId: string | undefined
 	actionKind: ActionKind | 'all'
 	before: string | undefined
 	after: string | undefined
@@ -56,6 +57,7 @@ export function useAuditLogsLoader(args: () => AuditLogsLoaderArgs) {
 			operation: a.operation === 'all' || a.operation === '' ? undefined : a.operation,
 			resource: a.resource === 'all' || a.resource === '' ? undefined : a.resource,
 			actionKind: a.actionKind === 'all' ? undefined : a.actionKind,
+			jobId: a.jobId || undefined,
 			allWorkspaces: a.scope === 'all_workspaces'
 		})
 	}

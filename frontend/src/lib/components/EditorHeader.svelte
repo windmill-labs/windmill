@@ -4,6 +4,7 @@
 	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
 	import {
 		dirKey,
+		editPathFor,
 		KIND_LABEL_LOWER,
 		kindKey,
 		leafKeyFor,
@@ -106,6 +107,7 @@
 					isCurrent={!segments}
 					{currentItem}
 					{workspaceId}
+					itemHref={editPathFor}
 					onPick={handlePickerSelect}
 				/>
 				{#if segments}
@@ -121,6 +123,7 @@
 							initialHighlight={dKey}
 							{currentItem}
 							{workspaceId}
+							itemHref={editPathFor}
 							onPick={handlePickerSelect}
 						/>
 					{/each}
@@ -137,6 +140,7 @@
 						isCurrent
 						{currentItem}
 						{workspaceId}
+						itemHref={editPathFor}
 						onPick={handlePickerSelect}
 					/>
 				{/if}
