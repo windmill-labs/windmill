@@ -14,7 +14,7 @@ use crate::common::types::{
     McpToken, MultiWorkspaceMcp, NoEndpointTools, ResourceInfo, SchemaType, ToolableItem,
     WorkspaceId,
 };
-use crate::server::backend::{McpAuth, McpBackend, McpRequest, PathFilter, SessionAccess};
+use crate::server::backend::{McpAuth, McpBackend, McpRequest, PathFilter};
 use crate::server::endpoints::{
     endpoint_tool_to_mcp_tool, endpoint_tool_to_mcp_tool_multi, list_workspaces_tool, EndpointTool,
 };
@@ -25,7 +25,7 @@ use rmcp::model::{
     CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
     Implementation, InitializeRequestParams, InitializeResult, ListPromptsResult,
     ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
-    ProtocolVersion, ServerCapabilities, ServerInfo, SubscriptionFilter,
+    ProtocolVersion, ServerCapabilities, ServerInfo, SubscriptionFilter, Tool, ToolAnnotations,
 };
 use rmcp::service::{RequestContext, RoleServer, SubscriptionContext};
 use rmcp::ErrorData;
@@ -68,8 +68,36 @@ const LIST_CHANGE_COALESCE: std::time::Duration = std::time::Duration::from_mill
 // Re-export from http crate for extracting request parts
 use http::request::Parts as HttpParts;
 
-/// The session tool a selection is offered to follow the runs its tools start.
+/// The tool a selection is offered to follow the runs its tools start.
 const GET_RUN: &str = "get_run";
+
+/// A selection's `get_run`: what the tool call would have answered and the run's status,
+/// nothing more. The session's `get_run` also reads a run's arguments, steps and logs, which
+/// a selection's tools never answer with.
+fn get_run_tool() -> Tool {
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "id": { "type": "string", "description": "The run id a tool answered with." }
+        },
+        "required": ["id"]
+    });
+    Tool::new(
+        Cow::Borrowed(GET_RUN),
+        "Read a run that a tool here started and left running: its status (queued, running, \
+         suspended while it waits for an approval, success, failure or canceled) and, once it \
+         has one, the result the tool would have answered with.",
+        Arc::new(schema.as_object().cloned().unwrap_or_default()),
+    )
+    .with_title("Get run")
+    .with_annotations(
+        ToolAnnotations::with_title("Get run")
+            .read_only(true)
+            .destructive(false)
+            .idempotent(true)
+            .open_world(false),
+    )
+}
 
 /// Maximum size in bytes for tool result text content.
 /// Anthropic enforces a 25,000 token limit per tool result.
@@ -886,12 +914,7 @@ impl<B: McpBackend> Runner<B> {
 
             // Only beside a script or flow tool the user can run: hub runs are outside it.
             if !filtered_scripts.is_empty() || !filtered_flows.is_empty() {
-                tools.extend(
-                    self.backend
-                        .session_tools(SessionAccess::ReadOnly)
-                        .into_iter()
-                        .find(|tool| tool.name == GET_RUN),
-                );
+                tools.push(get_run_tool());
             }
         }
 
@@ -968,9 +991,7 @@ impl<B: McpBackend> Runner<B> {
         }
 
         if name == GET_RUN {
-            return self
-                .get_run(auth, workspace_id, scope_config, args, request)
-                .await;
+            return self.get_run(auth, workspace_id, scope_config, args).await;
         }
 
         // Resolve the tool name to (type, path, is_hub)
@@ -1133,26 +1154,22 @@ impl<B: McpBackend> Runner<B> {
         }
     }
 
-    /// The session's `get_run`, for runs of the scripts and flows this token lists as tools.
+    /// `get_run`, for runs of the scripts and flows this token lists as tools.
     async fn get_run(
         &self,
         auth: &B::Auth,
         workspace_id: &str,
         scope_config: &crate::common::scope::McpScopeConfig,
         args: Value,
-        request: &McpRequest<'_>,
     ) -> Result<CallToolResult, ErrorData> {
         let id = args.get("id").and_then(Value::as_str).unwrap_or_default();
         let refused = || {
             ErrorData::invalid_params(
-                format!(
-                    "No run {id} of a script or flow this token runs. For a step of a flow, \
-                     pass the flow's run id and the step's id as `step`."
-                ),
+                format!("No run {id} of a script or flow this token runs."),
                 None,
             )
         };
-        let (item_type, path) = self
+        let (item_type, path, status) = self
             .backend
             .job_runnable(auth, workspace_id, id)
             .await?
@@ -1173,17 +1190,15 @@ impl<B: McpBackend> Runner<B> {
         {
             return Err(refused());
         }
-        let origin = request.origin();
-        self.backend
-            .call_session_tool(
-                auth,
-                workspace_id,
-                GET_RUN,
-                args,
-                SessionAccess::ReadOnly,
-                origin.as_deref(),
-            )
-            .await
+        let mut answer = serde_json::json!({ "id": id, "status": status });
+        if let Some(result) = self.backend.run_result(workspace_id, id).await? {
+            answer["result"] = result;
+        }
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            truncate_tool_result(
+                serde_json::to_string_pretty(&answer).unwrap_or_else(|_| "{}".to_string()),
+            ),
+        )]))
     }
 
     /// List tools for a multi-workspace session: the synthetic `list_workspaces`

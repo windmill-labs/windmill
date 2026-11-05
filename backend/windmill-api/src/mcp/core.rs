@@ -396,7 +396,7 @@ impl McpBackend for WindmillBackend {
         auth: &ApiAuthed,
         workspace_id: &str,
         job_id: &str,
-    ) -> BackendResult<Option<(&'static str, String)>> {
+    ) -> BackendResult<Option<(&'static str, String, &'static str)>> {
         let ctx = session::Ctx::new(
             auth,
             workspace_id,
@@ -415,9 +415,45 @@ impl McpBackend for WindmillBackend {
             Some("flow") => "flow",
             _ => return Ok(None),
         };
+        let status = crate::ai_session_tools::run_status(&job);
         Ok(job["script_path"]
             .as_str()
-            .map(|path| (kind, path.to_string())))
+            .map(|path| (kind, path.to_string(), status)))
+    }
+
+    async fn run_result(&self, workspace_id: &str, job_id: &str) -> BackendResult<Option<Value>> {
+        let internal =
+            |e: windmill_common::error::Error| ErrorData::internal_error(e.to_string(), None);
+        let id = uuid::Uuid::parse_str(job_id)
+            .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
+        // A flow's answer is its early-return step's result once that step has one, as when
+        // `settle_run` waits for it.
+        let (early_return, has_failure_module): (Option<String>, bool) = sqlx::query_as(
+            "SELECT f.value->>'early_return', f.value ? 'failure_module' FROM v2_job j \
+             JOIN flow_version f ON f.id = j.runnable_id \
+             WHERE j.id = $1 AND j.workspace_id = $2 AND j.kind = 'flow'",
+        )
+        .bind(id)
+        .bind(workspace_id)
+        .fetch_optional(&self.db)
+        .await
+        .map_err(|e| internal(e.into()))?
+        .unwrap_or((None, false));
+        let Some((result, success)) = windmill_api_jobs::poll_result(
+            &self.db,
+            id,
+            workspace_id,
+            early_return.as_deref(),
+            has_failure_module,
+            0,
+        )
+        .await
+        .map_err(internal)?
+        else {
+            return Ok(None);
+        };
+        let response = windmill_api_jobs::result_to_response(result, success).map_err(internal)?;
+        parse_response_body(response).await.map(Some)
     }
 
     async fn call_endpoint(

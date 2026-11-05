@@ -1778,6 +1778,30 @@ fn migrated_agent_value(value: &Value) -> Value {
 // Reading runs back
 // ============================================================================
 
+/// A run's status, from the job as `jobs_u/get` reads it.
+pub(crate) fn run_status(job: &Value) -> &'static str {
+    let flag = |key: &str| truthy(job.get(key));
+    if job.get("success").is_some() {
+        // `success` is true for a skipped job too, so it is read last.
+        if flag("canceled") {
+            "canceled"
+        } else if flag("is_skipped") {
+            "skipped"
+        } else if flag("success") {
+            "success"
+        } else {
+            "failure"
+        }
+    } else if !flag("running") {
+        "queued"
+    } else if flag("suspend") {
+        // Parked on an approval or a parallelism slot, not working.
+        "suspended"
+    } else {
+        "running"
+    }
+}
+
 /// Compact metadata for one run: what identifies it and how it ended.
 fn summarize_run(job: &Value) -> Map<String, Value> {
     let mut out = Map::new();
@@ -1797,27 +1821,7 @@ fn summarize_run(job: &Value) -> Map<String, Value> {
             out.insert(key.into(), value.clone());
         }
     }
-    let flag = |key: &str| truthy(job.get(key));
-    let status = if job.get("success").is_some() {
-        // `success` is true for a skipped job too, so it is read last.
-        if flag("canceled") {
-            "canceled"
-        } else if flag("is_skipped") {
-            "skipped"
-        } else if flag("success") {
-            "success"
-        } else {
-            "failure"
-        }
-    } else if !flag("running") {
-        "queued"
-    } else if flag("suspend") {
-        // Parked on an approval or a parallelism slot, not working.
-        "suspended"
-    } else {
-        "running"
-    };
-    out.insert("status".into(), status.into());
+    out.insert("status".into(), run_status(job).into());
     if job.get("success").is_some() {
         if let Some(duration) = job.get("duration_ms") {
             out.insert("duration_ms".into(), duration.clone());

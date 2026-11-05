@@ -1,7 +1,8 @@
 //! `get_run` as a token scoped to a selection of runnables is offered it: listed only beside a
-//! runnable the user can run, it reads a run of a selected flow, and refuses one of a flow
-//! outside the selection, although the token's owner can read both. The session tool it reuses reads through a JWT without route scopes, so this
-//! check is the only thing holding a selection to its own runs.
+//! runnable the user can run, it reads a run of a selected flow, its status and result alone,
+//! and refuses one of a flow outside the selection, although the token's owner can read both.
+//! Its result read checks nothing itself, so this check is the only thing holding a selection
+//! to its own runs.
 //!
 //! Requires: live database (migrations applied by sqlx::test). No worker: a queued run is
 //! readable.
@@ -104,8 +105,10 @@ async fn test_get_run_reads_only_runs_of_the_selection(db: Pool<Postgres>) -> an
     let text = read["result"]["content"][0]["text"]
         .as_str()
         .unwrap_or_default();
-    assert!(
-        text.contains(SELECTED),
+    // No worker runs it: its status alone, none of the session `get_run`'s arguments, steps or logs.
+    assert_eq!(
+        serde_json::from_str::<Value>(text).ok(),
+        Some(json!({ "id": selected, "status": "queued" })),
         "a run of the selected flow is read: {read}"
     );
 

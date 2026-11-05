@@ -221,14 +221,20 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         request: &McpRequest<'_>,
     ) -> BackendResult<Value>;
 
-    /// The type (`script` or `flow`) and path of what a job runs, read as the caller;
-    /// `None` when they cannot read the job or it runs neither.
+    /// The type (`script` or `flow`) and path of what a job runs, and its status (`queued`,
+    /// `running`, `suspended`, `success`, `failure`, `canceled`), read as the caller; `None`
+    /// when they cannot read the job or it runs neither.
     async fn job_runnable(
         &self,
         auth: &Self::Auth,
         workspace_id: &str,
         job_id: &str,
-    ) -> BackendResult<Option<(&'static str, String)>>;
+    ) -> BackendResult<Option<(&'static str, String, &'static str)>>;
+
+    /// What `run_script` / `run_flow` answer for the run `job_id` once it has a result, its
+    /// error included; `None` until then. Reads with no authorization check: `job_runnable`
+    /// is the caller's read of it.
+    async fn run_result(&self, workspace_id: &str, job_id: &str) -> BackendResult<Option<Value>>;
 
     /// Call an endpoint tool (generated API endpoint)
     async fn call_endpoint(

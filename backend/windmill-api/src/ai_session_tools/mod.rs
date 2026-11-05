@@ -720,7 +720,7 @@ pub(crate) struct ToolOutcome {
 }
 
 #[cfg(feature = "mcp")]
-pub(crate) use runs::wait_budget;
+pub(crate) use runs::{run_status, wait_budget};
 
 /// The card tools only MCP Apps clients draw; the chat draws its own cards.
 #[cfg(feature = "mcp")]
