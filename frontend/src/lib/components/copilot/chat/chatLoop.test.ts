@@ -4,6 +4,7 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 import {
 	closeInterruptedToolBatch,
 	runChatLoop,
+	sendsWebSearch,
 	truncateToToolPairedPrefix,
 	type ChatLoopConfig
 } from './chatLoop'
@@ -281,6 +282,66 @@ describe('runChatLoop web search fallback', () => {
 		)
 		expect(onWebSearchUnavailable).toHaveBeenCalledTimes(1)
 		expect(callbacks.setToolStatus).not.toHaveBeenCalled()
+	})
+
+	it('sends the workspace search tools on the retry once the provider refuses its own', async () => {
+		const workspace = `workspace-${randomUUID()}`
+		const modelProvider: ReasoningProviderModel = {
+			provider: 'anthropic',
+			model: 'claude-3-5-sonnet-latest'
+		}
+		const searchWeb = {
+			def: { type: 'function', function: { name: 'search_web', parameters: {} } },
+			fn: vi.fn()
+		} as unknown as ChatLoopConfig['tools'][number]
+		const config = createConfig({ workspace, modelProvider })
+		Object.defineProperty(config, 'tools', {
+			get: () => (sendsWebSearch(workspace, modelProvider, true) ? [] : [searchWeb])
+		})
+
+		mocks.getAnthropicCompletion
+			.mockRejectedValueOnce(
+				Object.assign(new Error('Your organization must enable web search in the Claude Console'), {
+					status: 400,
+					error: { type: 'invalid_request_error' }
+				})
+			)
+			.mockResolvedValue({})
+
+		await runChatLoop(config)
+
+		const toolNames = (call: unknown[]) =>
+			(call[2] as { function: { name: string } }[]).map((t) => t.function.name)
+		expect(toolNames(mocks.getAnthropicCompletion.mock.calls[0])).toEqual([])
+		expect(toolNames(mocks.getAnthropicCompletion.mock.calls[1])).toEqual(['search_web'])
+	})
+
+	it('sends the workspace search tools when OpenAI falls back to Completions', async () => {
+		const workspace = `workspace-${randomUUID()}`
+		const searchWeb = {
+			def: { type: 'function', function: { name: 'search_web', parameters: {} } },
+			fn: vi.fn()
+		} as unknown as ChatLoopConfig['tools'][number]
+		let skipResponsesApi = false
+		const config = createConfig({ workspace })
+		config.onSkipResponsesApi = () => {
+			skipResponsesApi = true
+		}
+		Object.defineProperty(config, 'tools', {
+			get: () => (skipResponsesApi ? [searchWeb] : [])
+		})
+
+		mocks.getOpenAIResponsesCompletion.mockRejectedValueOnce(
+			new Error('Responses API is not enabled for this deployment')
+		)
+		mocks.getCompletion.mockResolvedValue({})
+
+		await runChatLoop(config)
+
+		const toolNames = (call: unknown[]) =>
+			(call[2] as { function: { name: string } }[]).map((t) => t.function.name)
+		expect(toolNames(mocks.getOpenAIResponsesCompletion.mock.calls[0])).toEqual([])
+		expect(toolNames(mocks.getCompletion.mock.calls[0])).toEqual(['search_web'])
 	})
 
 	it('does not retry Anthropic request errors that only mention web search input', async () => {

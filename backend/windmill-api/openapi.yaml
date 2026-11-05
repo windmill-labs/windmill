@@ -14099,6 +14099,104 @@ paths:
                   - text
                   - model
 
+  /w/{workspace}/ai/web_search:
+    post:
+      summary: search the web through the workspace's web search API
+      description: >
+        Runs a query against the search API (Exa, Tavily or Linkup) set in the workspace's AI
+        settings, with the key of its resource. The AI chat uses it when the model's provider
+        has no built-in web search.
+      operationId: aiWebSearch
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                max_results:
+                  type: integer
+                  minimum: 1
+                  maximum: 10
+              required:
+                - query
+      responses:
+        "200":
+          description: the results, each with an excerpt of its page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        title:
+                          type: string
+                        url:
+                          type: string
+                        published_date:
+                          type: string
+                        content:
+                          type: string
+                      required:
+                        - title
+                        - url
+                        - content
+                required:
+                  - results
+
+  /w/{workspace}/ai/web_fetch:
+    post:
+      summary: read a web page through the workspace's web search API
+      description: >
+        Has the search API set in the workspace's AI settings fetch a page and returns its
+        text as markdown. The page is fetched from the search API's servers, not Windmill's.
+      operationId: aiWebFetch
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+              required:
+                - url
+      responses:
+        "200":
+          description: the page's text
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                  title:
+                    type: string
+                  content:
+                    type: string
+                  truncated:
+                    type: boolean
+                required:
+                  - url
+                  - content
+                  - truncated
+
   /w/{workspace}/ai_evals/datasets/list:
     get:
       summary: list eval datasets
@@ -31121,6 +31219,24 @@ components:
             The server deletes the backup of a session no push has reached for this many
             days. Unset keeps backups until the user deletes the session. Read from the
             workspace's own settings like `copilot_disabled`.
+        web_search:
+          $ref: "#/components/schemas/AIWebSearchConfig"
+
+    AIWebSearchConfig:
+      type: object
+      description: >-
+        The search API the AI chat searches the web and reads pages through when the model's
+        provider has no built-in web search. Read from the workspace's own settings like
+        `copilot_disabled`.
+      properties:
+        provider:
+          type: string
+          enum: [exa, tavily, linkup]
+        resource_path:
+          type: string
+      required:
+        - provider
+        - resource_path
 
     AISessionBackupListing:
       type: object

@@ -7,6 +7,7 @@ import {
 	type AIProviderModel,
 	type AIProvider,
 	type AIConfig,
+	type AIWebSearchConfig,
 	type FreeTierInfo,
 	type ModelPriceOverride
 } from './gen'
@@ -56,6 +57,9 @@ export const copilotInfo = writable<{
 	/** Negotiated rates per `provider:model`, overriding the built-in price table. */
 	modelPricing?: Record<string, ModelPriceOverride>
 	webSearchEnabledProviders?: Partial<Record<AIProvider, boolean>>
+	/** The workspace's search API, which the chat searches through when the model's provider
+	 * does not search on its own (`ai_config.web_search`). */
+	webSearchBackend?: AIWebSearchConfig['provider']
 	// Set only when the workspace has no AI provider of its own and is running on
 	// Windmill's free tier. `exhausted` means the grant is spent: there is no model, but
 	// that is a different state from "never configured" and the UI must say so.
@@ -149,6 +153,7 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			maxTokensPerModel: aiConfig.max_tokens_per_model ?? {},
 			contextWindowPerModel: aiConfig.context_window_per_model ?? {},
 			webSearchEnabledProviders,
+			webSearchBackend: aiConfig.web_search?.provider,
 			modelPricing: aiConfig.model_pricing ?? {},
 			freeTier: aiConfig.free_tier
 		})
