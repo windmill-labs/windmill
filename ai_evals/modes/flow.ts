@@ -4,6 +4,7 @@ import type { FrontendEvalModelConfig } from "../core/models";
 import type { FlowValidationSpec } from "../core/types";
 import { validateFlowState, type FlowState } from "../core/validators";
 import type { BenchmarkArtifactFile, ModeRunner } from "../core/types";
+import { formatPreviewFailureDetails } from "../core/previewFailureDetails";
 import { runFlowEval } from "../adapters/frontend/core/flow/flowEvalRunner";
 import type { FlowWorkspaceFixtures } from "../adapters/frontend/core/flow/fileHelpers";
 import { BackendPreviewClient } from "../adapters/frontend/backendPreview";
@@ -117,7 +118,12 @@ export function createFlowModeRunner(
                 passed: completedJob.success,
                 details: completedJob.success
                   ? `workspace=${workspaceId}`
-                  : `workspace=${workspaceId}; job=${completedJob.id}`,
+                  : formatPreviewFailureDetails({
+                      workspaceId,
+                      jobId: completedJob.id,
+                      logs: completedJob.logs,
+                      result: completedJob.result,
+                    }),
               },
             ],
             artifactFiles: [
