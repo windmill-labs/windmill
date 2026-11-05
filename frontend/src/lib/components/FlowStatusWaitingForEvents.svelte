@@ -101,7 +101,7 @@
 			<ApprovalActions
 				approveLabel="Resume"
 				approveTooltip="Resume or approve this suspended step"
-				rejectTitle="Cancel the step"
+				rejectTitle="Cancel step"
 				hideReject={hide_cancel}
 				askRejectReason
 				{light}
