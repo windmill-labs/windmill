@@ -604,7 +604,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         //     "UPDATE FLOW STATUS 2: {module_step:#?} {module_status:#?} {old_status:#?} "
         // );
 
-        let (is_loop, skip_loop_failures, parallelism, parallel_loop) =
+        let (is_loop, skip_loop_failures, parallelism, parallel_loop, loop_bounds) =
             if let FlowStatusModule::InProgress { iterator: Some(_), parallel, .. } = module_status
             {
                 let value = current_module
@@ -616,11 +616,17 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .as_ref()
                         .and_then(|x| x.skip_failures)
                         .unwrap_or(false),
-                    value.and_then(|x| x.parallelism),
+                    value.as_ref().and_then(|x| x.parallelism.clone()),
                     *parallel,
+                    value.map(|x| {
+                        (
+                            x.max_iterations.filter(|m| *m > 0),
+                            x.max_duration_secs.filter(|m| *m > 0),
+                        )
+                    }),
                 )
             } else {
-                (false, false, None, false)
+                (false, false, None, false, None)
             };
 
         let (is_branch_all, parallel_branchall) = match module_status {
@@ -765,6 +771,48 @@ pub async fn update_flow_status_after_job_completion_internal(
         } else {
             (false, None, false, false, false)
         };
+
+        // A while loop that reached its iteration or duration bound without its stop condition
+        // being met fails. The loop's start is the first iteration's start, which the module
+        // status persists, so the duration bound holds across worker restarts.
+        let loop_exhausted_msg = match (module_status, loop_bounds) {
+            (
+                FlowStatusModule::InProgress {
+                    iterator: Some(FlowIterator { index, .. }),
+                    while_loop: true,
+                    parallel: false,
+                    flow_jobs_duration,
+                    ..
+                },
+                Some((max_iterations, max_duration_secs)),
+            ) if (success || skip_loop_failures) && !stop_early => {
+                let iterations = index + 1;
+                let started_at = flow_jobs_duration
+                    .as_ref()
+                    .and_then(|d| d.started_at.first().copied().flatten())
+                    .or_else(|| flow_job_duration.as_ref().map(|d| d.started_at));
+                let elapsed_secs =
+                    started_at.map(|s| (chrono::Utc::now() - s).num_milliseconds() as f64 / 1000.0);
+                if max_iterations.is_some_and(|m| iterations >= m as usize) {
+                    Some(format!(
+                        "While loop reached its maximum of {iterations} iterations without its stop condition being met"
+                    ))
+                } else {
+                    match (max_duration_secs, elapsed_secs) {
+                        (Some(m), Some(e)) if e >= m as f64 => Some(format!(
+                            "While loop reached its maximum duration of {m}s ({e:.1}s elapsed, {iterations} iterations) without its stop condition being met"
+                        )),
+                        _ => None,
+                    }
+                }
+            }
+            _ => None,
+        };
+        let loop_exhausted_err = loop_exhausted_msg.as_ref().map(|message| {
+            Arc::new(to_raw_value(&serde_json::json!({
+                "error": { "name": "LoopExhausted", "message": message }
+            })))
+        });
 
         let skip_seq_branch_failure = match module_status {
             FlowStatusModule::InProgress {
@@ -1171,6 +1219,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 (*while_loop || *index + 1 < itered_len)
                     && (success || skip_loop_failures)
                     && !stop_early
+                    && loop_exhausted_err.is_none()
             } =>
             {
                 if let Some(jobs) = flow_jobs {
@@ -1298,6 +1347,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 if (success
                     || (flow_jobs.is_some() && (skip_loop_failures || skip_seq_branch_failure)))
                     && !(stop_early && stop_early_err_msg.is_some() && !skip_if_stop_early)
+                    && loop_exhausted_err.is_none()
                 {
                     let is_skipped = (stop_early && skip_if_stop_early)
                         || if current_module.as_ref().is_some_and(|m| m.skip_if.is_some()) {
@@ -1339,7 +1389,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         evaluate_retry(
                             &retry,
                             &old_status.retry,
-                            result.clone(),
+                            loop_exhausted_err.clone().unwrap_or_else(|| result.clone()),
                             Marc::new(args),
                             resolved_flow_env.as_deref(),
                             Some(client),
@@ -1349,7 +1399,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                     } else {
                         false
                     };
-                    if stop_early && stop_early_err_msg.is_some() {
+                    if (stop_early && stop_early_err_msg.is_some()) || loop_exhausted_err.is_some()
+                    {
                         // if stop_early with error message, we need to set explictely success to false as this function was called with success = true as the job succeeded
                         success = false;
                     }
@@ -1388,6 +1439,10 @@ pub async fn update_flow_status_after_job_completion_internal(
             nresult = Some(Arc::new(to_raw_value(
                 &serde_json::json!({ "error": error }),
             )));
+        }
+
+        if loop_exhausted_err.is_some() {
+            nresult = loop_exhausted_err.clone();
         }
 
         let step_counter = if inc_step_counter {
@@ -1780,7 +1835,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             let should_retry = evaluate_retry(
                 retry_config,
                 &old_status.retry,
-                result.clone(),
+                loop_exhausted_err.clone().unwrap_or_else(|| result.clone()),
                 Marc::new(args),
                 resolved_flow_env.as_deref(),
                 Some(client),
