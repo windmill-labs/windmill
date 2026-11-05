@@ -884,10 +884,8 @@ impl<B: McpBackend> Runner<B> {
                 ));
             }
 
-            if scope_config.favorites
-                || scope_config.has_any("script")
-                || scope_config.has_any("flow")
-            {
+            // Only beside a script or flow tool the user can run: hub runs are outside it.
+            if !filtered_scripts.is_empty() || !filtered_flows.is_empty() {
                 tools.extend(
                     self.backend
                         .session_tools(SessionAccess::ReadOnly)
