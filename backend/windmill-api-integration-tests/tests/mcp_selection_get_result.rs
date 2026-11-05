@@ -1,6 +1,7 @@
 //! `get_result` as a token scoped to a selection of runnables is offered it: listed only beside a
 //! runnable the user can run, it reads a run of a selected flow, its status and result alone,
-//! and refuses one of a flow outside the selection, although the token's owner can read both.
+//! and refuses one of a flow outside the selection, or one someone else started, although the
+//! token's owner can read them all.
 //! Its result read checks nothing itself, so this check is the only thing holding a selection
 //! to its own runs.
 //!
@@ -118,6 +119,28 @@ async fn test_get_result_reads_only_runs_of_the_selection(
     assert!(
         refused["error"].is_object() && !refused.to_string().contains(OTHER),
         "a run outside the selection is refused without reading it: {refused}"
+    );
+
+    // A run of the selected flow that someone else started, which the token's owner, an admin,
+    // can read.
+    sqlx::query("UPDATE flow SET extra_perms = '{\"u/test-user-2\": false}' WHERE path = $1")
+        .bind(SELECTED)
+        .execute(&db)
+        .await?;
+    let theirs = reqwest::Client::new()
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/jobs/run/f/{SELECTED}"
+        ))
+        .header("Authorization", "Bearer SECRET_TOKEN_2")
+        .json(&json!({}))
+        .send()
+        .await?
+        .text()
+        .await?;
+    let refused = mcp_call(port, "get_result", json!({ "id": theirs })).await?;
+    assert!(
+        refused["error"].is_object(),
+        "a run another user started is refused: {refused}"
     );
 
     Ok(())

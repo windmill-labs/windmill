@@ -410,6 +410,11 @@ impl McpBackend for WindmillBackend {
         let Ok(job) = ctx.get(&route).await else {
             return Ok(None);
         };
+        // ponytail: the caller only; the MCP client a run came through is not kept once it leaves
+        // the queue (`job_perms` is swept), so a same-client check waits for a durable record.
+        if job["created_by"].as_str() != Some(auth.username.as_str()) {
+            return Ok(None);
+        }
         let kind = match job["job_kind"].as_str() {
             Some("script") => "script",
             Some("flow") => "flow",

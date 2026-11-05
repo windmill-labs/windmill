@@ -221,9 +221,9 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         request: &McpRequest<'_>,
     ) -> BackendResult<Value>;
 
-    /// The type (`script` or `flow`) and path of what a job runs, and its status (`queued`,
-    /// `running`, `suspended`, `success`, `failure`, `canceled`, `skipped`), read as the caller; `None`
-    /// when they cannot read the job or it runs neither.
+    /// The type (`script` or `flow`) and path of what a job the caller started runs, and its
+    /// status (`queued`, `running`, `suspended`, `success`, `failure`, `canceled`, `skipped`),
+    /// read as the caller; `None` when they did not start it, cannot read it, or it runs neither.
     async fn job_runnable(
         &self,
         auth: &Self::Auth,

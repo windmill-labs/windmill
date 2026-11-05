@@ -1167,7 +1167,7 @@ impl<B: McpBackend> Runner<B> {
         let id = args.get("id").and_then(Value::as_str).unwrap_or_default();
         let refused = || {
             ErrorData::invalid_params(
-                format!("No run {id} of a script or flow this token runs."),
+                format!("No run {id} that you started of a script or flow this token runs."),
                 None,
             )
         };
