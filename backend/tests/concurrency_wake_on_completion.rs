@@ -55,10 +55,14 @@ async fn due(db: &Pool<Postgres>, id: Uuid) -> anyhow::Result<bool> {
 
 /// One completion tops the key up: it wakes the jobs the limit deferred first, as many as
 /// the free slots, and a later completion wakes none while they are due. Never a job
-/// scheduled for later or one limited per time window.
+/// scheduled for later or one limited per time window, and older time-window jobs sharing
+/// the key, more of them than the head the wake counts in, do not hide the eligible ones.
 #[sqlx::test(fixtures("base"))]
 async fn completion_fills_the_free_slots(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let windowed = waiting_job(&db, Some(40), Some(10)).await?;
+    let mut windowed = vec![];
+    for i in 0..(2 * LIMIT + 2) as i64 {
+        windowed.push(waiting_job(&db, Some(100 - i), Some(10)).await?);
+    }
     let first = waiting_job(&db, Some(30), None).await?;
     let second = waiting_job(&db, Some(20), None).await?;
     let third = waiting_job(&db, Some(10), None).await?;
@@ -80,10 +84,12 @@ async fn completion_fills_the_free_slots(db: Pool<Postgres>) -> anyhow::Result<(
         !due(&db, third).await?,
         "more jobs were woken than slots are free"
     );
-    assert!(
-        !due(&db, windowed).await?,
-        "a job limited per time window was woken"
-    );
+    for w in windowed {
+        assert!(
+            !due(&db, w).await?,
+            "a job limited per time window was woken"
+        );
+    }
     assert!(
         !due(&db, scheduled_later).await?,
         "a job scheduled for later was woken"

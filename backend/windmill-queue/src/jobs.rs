@@ -5287,21 +5287,25 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
 
 /// Make due now the earliest-deferred jobs of `key`, as many as the slots no admitted or
 /// already-due job holds. It tops up to the limit: waking one job per completion never
-/// refills a slot whose woken job was lost, and the key stays below its limit. Skips jobs
-/// limited per time window, whose slot a completion does not free.
-/// Reads only the first `2 * limit + 1` deferred jobs: wakes go to the earliest-deferred,
-/// so running and already-due jobs come first, and a candidate further back means the slots
-/// are full. Queue bookkeeping, not an authorization boundary: never with a key from a request.
+/// refills a slot whose woken job was lost, and the key stays below its limit.
+/// Already-due jobs are counted in the first `2 * limit + 1` deferred jobs not limited per
+/// time window: wakes go to the earliest of those, so they come first, and missing one can
+/// only over-wake, which admission re-defers. Both walks filter before they stop, so older
+/// time-window jobs or ones at a full lower limit never hide an eligible job on a shared key.
+/// `limit` is the completed job's. Queue bookkeeping, not an authorization boundary.
 #[cfg(all(feature = "enterprise", feature = "private"))]
 pub async fn wake_deferred_concurrency_job(db: &DB, key: &str, limit: i32) -> error::Result<()> {
     sqlx::query!(
         "WITH head AS (
-            SELECT ck.job_id, ck.original_scheduled_for, q.running,
-                q.scheduled_for <= now() AS due
+            SELECT q.running, q.scheduled_for <= now() AS due
             FROM concurrency_key ck
             JOIN v2_job_queue q ON q.id = ck.job_id
+            JOIN v2_job j ON j.id = ck.job_id
+            LEFT JOIN runnable_settings rs ON rs.hash = q.runnable_settings_handle
+            LEFT JOIN concurrency_settings cs ON cs.hash = rs.concurrency_settings
             WHERE ck.key = $1 AND ck.ended_at IS NULL AND ck.original_scheduled_for IS NOT NULL
                 AND q.canceled_by IS NULL
+                AND COALESCE(cs.concurrency_time_window_s, j.concurrency_time_window_s, 0) = 0
             ORDER BY ck.original_scheduled_for, ck.job_id
             LIMIT 2 * $2::bigint + 1
         ), taken AS (
@@ -5312,15 +5316,16 @@ pub async fn wake_deferred_concurrency_job(db: &DB, key: &str, limit: i32) -> er
                 + (SELECT count(*) FROM head WHERE due AND NOT running) AS n
         ), next AS (
             SELECT q.id
-            FROM head h
-            JOIN v2_job_queue q ON q.id = h.job_id
-            JOIN v2_job j ON j.id = h.job_id
+            FROM concurrency_key ck
+            JOIN v2_job_queue q ON q.id = ck.job_id
+            JOIN v2_job j ON j.id = ck.job_id
             LEFT JOIN runnable_settings rs ON rs.hash = q.runnable_settings_handle
             LEFT JOIN concurrency_settings cs ON cs.hash = rs.concurrency_settings
-            WHERE NOT h.running AND NOT h.due
+            WHERE ck.key = $1 AND ck.ended_at IS NULL AND ck.original_scheduled_for IS NOT NULL
+                AND NOT q.running AND q.canceled_by IS NULL AND q.scheduled_for > now()
                 AND COALESCE(cs.concurrency_time_window_s, j.concurrency_time_window_s, 0) = 0
                 AND (SELECT n FROM taken) < COALESCE(cs.concurrent_limit, j.concurrent_limit, 0)
-            ORDER BY h.original_scheduled_for, h.job_id
+            ORDER BY ck.original_scheduled_for, ck.job_id
             LIMIT GREATEST($2::bigint - (SELECT n FROM taken), 0)
             FOR UPDATE OF q SKIP LOCKED
         )
