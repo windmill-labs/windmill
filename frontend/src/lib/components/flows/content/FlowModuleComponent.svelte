@@ -15,6 +15,7 @@
 
 	import type { FlowModule, FlowModuleValue, RawScript, ScriptLang } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
+	import { nextMock } from '../flowMock'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
@@ -1530,7 +1531,7 @@
 												? { type: 'inside', flow: parentLoop.type }
 												: undefined}
 											onUpdateMock={(detail) => {
-												flowModule.mock = detail
+												flowModule.mock = nextMock(flowModule.mock, detail)
 												flowModule = flowModule
 												refreshStateStore(flowStore)
 											}}

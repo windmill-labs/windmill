@@ -594,6 +594,9 @@ pub struct Mock {
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub return_value: Option<serde_json::Value>,
+    /// Absent means every run, which is what a mock meant before the key existed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub preview_only: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
@@ -667,6 +670,8 @@ pub struct FlowModuleValueWithParallel {
 #[derive(Deserialize)]
 pub struct FlowModuleValueWithSkipFailures {
     pub skip_failures: Option<bool>,
+    pub max_iterations: Option<u32>,
+    pub max_duration_secs: Option<u32>,
     pub parallel: Option<bool>,
     #[serde(
         default,
@@ -1107,6 +1112,10 @@ pub enum FlowModuleValue {
         skip_failures: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         squash: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_iterations: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_duration_secs: Option<u32>,
     },
     BranchOne {
         branches: Vec<Branch>,
@@ -1218,6 +1227,8 @@ struct UntaggedFlowModuleValue {
     tool_inputs: Option<HashMap<String, HashMap<String, InputTransform>>>,
     pass_flow_input_directly: Option<bool>,
     squash: Option<bool>,
+    max_iterations: Option<u32>,
+    max_duration_secs: Option<u32>,
     #[serde(flatten)]
     concurrency_settings: ConcurrencySettingsWithCustom,
 }
@@ -1267,6 +1278,8 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 modules_node: untagged.modules_node,
                 skip_failures: untagged.skip_failures.unwrap_or(false),
                 squash: untagged.squash,
+                max_iterations: untagged.max_iterations,
+                max_duration_secs: untagged.max_duration_secs,
             }),
             "branchone" => Ok(FlowModuleValue::BranchOne {
                 branches: untagged
@@ -1733,8 +1746,11 @@ mod tests {
         let val: FlowModuleValue = serde_json::from_value(input).unwrap();
         let output = serde_json::to_value(&val).unwrap();
         let reparsed: FlowModuleWithBranches = serde_json::from_value(output).unwrap();
-        let skips: Vec<bool> =
-            reparsed.branches.iter().map(|b| b.skip_failure.unwrap_or(false)).collect();
+        let skips: Vec<bool> = reparsed
+            .branches
+            .iter()
+            .map(|b| b.skip_failure.unwrap_or(false))
+            .collect();
         assert_eq!(skips, vec![false, true]);
     }
 

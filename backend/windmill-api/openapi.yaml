@@ -4419,6 +4419,11 @@ paths:
                     type: string
                   webhook:
                     type: string
+                  webhook_events:
+                    type: array
+                    description: event types the webhook is sent; absent sends every event
+                    items:
+                      $ref: "#/components/schemas/WorkspaceWebhookEventType"
                   ai_config:
                     $ref: "#/components/schemas/AIConfig"
                   error_handler:
@@ -5277,6 +5282,15 @@ paths:
               properties:
                 webhook:
                   type: string
+                  description: the URL to POST events to. Omitted or empty removes the webhook.
+                events:
+                  type: array
+                  nullable: true
+                  description: >
+                    event types to send, at least one. Omitted keeps the stored filter, null
+                    sends every event.
+                  items:
+                    $ref: "#/components/schemas/WorkspaceWebhookEventType"
 
       responses:
         "200":
@@ -14098,6 +14112,104 @@ paths:
                 required:
                   - text
                   - model
+
+  /w/{workspace}/ai/web_search:
+    post:
+      summary: search the web through the workspace's web search API
+      description: >
+        Runs a query against the search API (Exa, Tavily, Linkup or DeepSeek) set in the workspace's AI
+        settings, with the key of its resource. The AI chat uses it when the model's provider
+        has no built-in web search.
+      operationId: aiWebSearch
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                max_results:
+                  type: integer
+                  minimum: 1
+                  maximum: 10
+              required:
+                - query
+      responses:
+        "200":
+          description: the results, each with an excerpt of its page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        title:
+                          type: string
+                        url:
+                          type: string
+                        published_date:
+                          type: string
+                        content:
+                          type: string
+                      required:
+                        - title
+                        - url
+                        - content
+                required:
+                  - results
+
+  /w/{workspace}/ai/web_fetch:
+    post:
+      summary: read a web page through the workspace's web search API
+      description: >
+        Has the search API set in the workspace's AI settings fetch a page and returns its
+        text as markdown. The page is fetched from the search API's servers, not Windmill's.
+      operationId: aiWebFetch
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+              required:
+                - url
+      responses:
+        "200":
+          description: the page's text
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                  title:
+                    type: string
+                  content:
+                    type: string
+                  truncated:
+                    type: boolean
+                required:
+                  - url
+                  - content
+                  - truncated
 
   /w/{workspace}/ai_evals/datasets/list:
     get:
@@ -31121,6 +31233,24 @@ components:
             The server deletes the backup of a session no push has reached for this many
             days. Unset keeps backups until the user deletes the session. Read from the
             workspace's own settings like `copilot_disabled`.
+        web_search:
+          $ref: "#/components/schemas/AIWebSearchConfig"
+
+    AIWebSearchConfig:
+      type: object
+      description: >-
+        The search API the AI chat searches the web and reads pages through when the model's
+        provider has no built-in web search. Read from the workspace's own settings like
+        `copilot_disabled`.
+      properties:
+        provider:
+          type: string
+          enum: [exa, tavily, linkup, deepseek]
+        resource_path:
+          type: string
+      required:
+        - provider
+        - resource_path
 
     AISessionBackupListing:
       type: object
@@ -37672,6 +37802,36 @@ components:
         - email
         - workspaces
 
+    WorkspaceWebhookEventType:
+      type: string
+      description: the `type` of a workspace webhook message
+      enum:
+        - CreateApp
+        - DeleteApp
+        - UpdateApp
+        - CreateFlow
+        - UpdateFlow
+        - ArchiveFlow
+        - DeleteFlow
+        - CreateFolder
+        - UpdateFolder
+        - DeleteFolder
+        - DeleteResource
+        - CreateResource
+        - UpdateResource
+        - CreateResourceType
+        - DeleteResourceType
+        - UpdateResourceType
+        - CreateScript
+        - UpdateScript
+        - DeleteScript
+        - DeleteScriptPath
+        - CreateVariable
+        - UpdateVariable
+        - DeleteVariable
+        - TokenExpiringSoon
+        - TokenExpired
+
     CreateWorkspace:
       type: object
       properties:
@@ -39649,7 +39809,7 @@ components:
       properties:
         code:
           type: boolean
-          description: Author scripts and run code of one's own (previews, dependency jobs, dynamic selects, resolving jobs, data table migrations). Required by `full` flows or apps.
+          description: Author scripts and run code of one's own (previews, dependency jobs, dynamic selects, resolving jobs, data table migrations). Required by `full` flows or apps. Previews also need `run`.
         flows:
           $ref: "#/components/schemas/AuthorLevel"
         apps:
@@ -39658,12 +39818,15 @@ components:
           type: boolean
         manage_triggers:
           type: boolean
+        run:
+          type: boolean
+          description: Start runs of scripts, flows and AI agents (by path, hash or version, restarts, previews, MCP run tools). Without it a role is view-only. Schedules and triggers keep their own rights; resuming a suspended step is not a run.
         fork:
           type: boolean
           description: Fork the workspace.
         visibility:
           $ref: "#/components/schemas/RoleVisibility"
-      required: [code, flows, apps, manage_schedules, manage_triggers, fork, visibility]
+      required: [code, flows, apps, manage_schedules, manage_triggers, run, fork, visibility]
 
     RoleCapabilitiesPatch:
       type: object
@@ -39676,6 +39839,7 @@ components:
           $ref: "#/components/schemas/AuthorLevel"
         manage_schedules: { type: boolean }
         manage_triggers: { type: boolean }
+        run: { type: boolean }
         fork: { type: boolean }
         visibility:
           type: object

@@ -14,7 +14,7 @@ use crate::smtp_server_oss::SmtpServer;
 use axum::middleware::from_fn_with_state;
 #[cfg(feature = "enterprise")]
 use windmill_api_auth::ee_oss::ExternalJwks;
-use windmill_api_auth::gate_operator_writes;
+use windmill_api_auth::{gate_operator_writes, gate_role_runs};
 use windmill_common::workspaces::ManageKind;
 use windmill_store::resources::public_service;
 
@@ -741,7 +741,11 @@ pub async fn run_server(
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/ai_evals", ai_evals::workspaced_service())
-                        .nest("/jobs", jobs::workspaced_service())
+                        .nest(
+                            "/jobs",
+                            jobs::workspaced_service()
+                                .layer(axum::middleware::from_fn(gate_role_runs)),
+                        )
                         .nest("/debug", windmill_api_debug::workspaced_service())
                         .nest("/native_triggers", {
                             #[cfg(feature = "native_trigger")]
