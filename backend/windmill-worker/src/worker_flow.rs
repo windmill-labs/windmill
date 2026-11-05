@@ -634,6 +634,14 @@ pub async fn update_flow_status_after_job_completion_internal(
             FlowStatusModule::InProgress { branchall: Some(_), parallel, .. } => (true, *parallel),
             _ => (false, false),
         };
+        let parallelism = if parallel_branchall {
+            current_module
+                .as_ref()
+                .and_then(|x| x.get_value_with_skip_failures().ok())
+                .and_then(|x| x.parallelism)
+        } else {
+            parallelism
+        };
 
         // 0 length flows are not failure steps
         let is_failure_step =
@@ -2766,6 +2774,37 @@ fn root_flow_id_for(flow_job: &MiniPulledJob) -> Uuid {
     flow_job.flow_innermost_root_job.unwrap_or(flow_job.id)
 }
 
+/// The step's mock, if this run uses it. A `preview_only` mock applies when the run was started
+/// as a flow preview, so to every job under a preview root, deployed subflows included: the
+/// innermost root cannot be used, since an inline loop body is pushed as a raw flow, which is a
+/// `FlowPreview` job even inside a deployed run.
+async fn applied_mock<'a>(
+    module: &'a FlowModule,
+    flow_job: &MiniPulledJob,
+    db: &DB,
+) -> error::Result<Option<&'a windmill_common::flows::Mock>> {
+    let Some(mock) = module.mock.as_ref().filter(|m| m.enabled) else {
+        return Ok(None);
+    };
+    if !mock.preview_only {
+        return Ok(Some(mock));
+    }
+    let root = get_root_job_id(flow_job);
+    let in_preview = if root == flow_job.id {
+        matches!(flow_job.kind, JobKind::FlowPreview)
+    } else {
+        sqlx::query_scalar!(
+            "SELECT kind = 'flowpreview' AS \"in_preview!\" FROM v2_job WHERE id = $1",
+            root
+        )
+        .fetch_optional(db)
+        .warn_after_seconds(3)
+        .await?
+        .unwrap_or(false)
+    };
+    Ok(in_preview.then_some(mock))
+}
+
 async fn fetch_root_flow_id(db: &DB, flow_id: Uuid) -> Uuid {
     sqlx::query_scalar!(
         "SELECT flow_innermost_root_job FROM v2_job WHERE id = $1",
@@ -4512,17 +4551,13 @@ async fn push_next_flow_job(
         false
     };
 
-    let args: windmill_common::error::Result<_> = if module.mock.is_some()
-        && module.mock.as_ref().unwrap().enabled
-    {
+    let applied_mock = applied_mock(&module, &flow_job, db).await?;
+    let args: windmill_common::error::Result<_> = if let Some(mock) = applied_mock {
         let mut hm = HashMap::new();
         hm.insert(
             "previous_result".to_string(),
             to_raw_value(
-                &module
-                    .mock
-                    .as_ref()
-                    .unwrap()
+                &mock
                     .return_value
                     .clone()
                     .unwrap_or_else(|| serde_json::from_str("null").unwrap()),
@@ -4632,6 +4667,7 @@ async fn push_next_flow_job(
         resume.clone(),
         approvers.clone(),
         is_skipped,
+        applied_mock.is_some(),
     )
     .warn_after_seconds(3)
     .await?;
@@ -5182,7 +5218,7 @@ async fn push_next_flow_job(
 
         // Both run as an identity job that passes a value through, which reads as a real run
         // unless the step's own logs say otherwise.
-        let not_executed_log = if module.mock.as_ref().is_some_and(|m| m.enabled) {
+        let not_executed_log = if applied_mock.is_some() {
             Some("Step mocked: returned the pinned value, nothing was executed\n")
         } else if is_skipped {
             Some("Step skipped: its skip condition was true, nothing was executed\n")
@@ -5229,11 +5265,15 @@ async fn push_next_flow_job(
             }
         }
 
-        if value_with_parallel.type_ == "forloopflow"
-            && value_with_parallel.parallel.unwrap_or(false)
-        {
+        // A branch-all is parallel unless `parallel: false`, a for-loop only with `parallel: true`.
+        let is_parallel_step = match value_with_parallel.type_.as_str() {
+            "forloopflow" => value_with_parallel.parallel.unwrap_or(false),
+            "branchall" => value_with_parallel.parallel.unwrap_or(true),
+            _ => false,
+        };
+        if is_parallel_step {
             if let Some(parallelism_transform) = &value_with_parallel.parallelism {
-                tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for forloopflow job {uuid}");
+                tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for {} job {uuid}", value_with_parallel.type_);
 
                 let ctx = get_transform_context(&flow_job, &previous_id, &status);
 
@@ -5246,8 +5286,15 @@ async fn push_next_flow_job(
                     Some(&ctx),
                 )
                 .await?;
+                // A cap of 0 suspends every child, and only a finishing child releases one.
+                if evaluated_parallelism == 0 {
+                    return Err(Error::BadRequest(format!(
+                        "parallelism of step {} must be at least 1",
+                        module.id
+                    )));
+                }
 
-                tracing::debug!(id = %flow_job.id, root_id = %job_root, "updating suspend for forloopflow job {uuid} with parallelism {evaluated_parallelism}");
+                tracing::debug!(id = %flow_job.id, root_id = %job_root, "updating suspend for parallel job {uuid} with parallelism {evaluated_parallelism}");
 
                 if i as u16 >= evaluated_parallelism {
                     sqlx::query!(
@@ -5853,8 +5900,9 @@ async fn compute_next_flow_transform(
     resume: Arc<Box<RawValue>>,
     approvers: Arc<Box<RawValue>>,
     is_skipped: bool,
+    mocked: bool,
 ) -> error::Result<NextFlowTransform> {
-    if module.mock.is_some() && module.mock.as_ref().unwrap().enabled {
+    if mocked {
         return Ok(NextFlowTransform::Continue(
             ContinuePayload::SingleJob(JobPayloadWithTag {
                 payload: JobPayload::Identity { mocked: true, skipped: false },

@@ -23,6 +23,8 @@
 		icon?: any
 		disabled?: boolean
 		tooltip?: string
+		/** Marks the current choice, for a menu that picks one of several values. */
+		selected?: boolean
 	}
 	interface Props {
 		id?: string
@@ -167,7 +169,8 @@
 			disabled: item.disabled ?? false,
 			href: item.href,
 			hrefTarget: item.hrefTarget,
-			tooltip: item.tooltip
+			tooltip: item.tooltip,
+			selected: item.selected
 		}))
 	}
 
