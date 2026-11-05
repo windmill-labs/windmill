@@ -110,6 +110,12 @@ impl WindmillBackend {
     }
 }
 
+/// The id a tool's run is queued under, chosen here so the tool call's audit entry can name
+/// the run whatever the wait answers.
+fn new_run_id() -> uuid::Uuid {
+    ulid::Ulid::new().into()
+}
+
 #[async_trait]
 impl McpBackend for WindmillBackend {
     type Auth = ApiAuthed;
@@ -120,8 +126,10 @@ impl McpBackend for WindmillBackend {
         workspace_id: &str,
         tool: &str,
         refusal: Option<&str>,
+        run: Option<&str>,
     ) {
-        super::external_idp::audit_tool_call(&self.db, auth, workspace_id, tool, refusal).await;
+        super::external_idp::audit_tool_call(&self.db, auth, workspace_id, tool, refusal, run)
+            .await;
     }
 
     async fn list_scripts(
@@ -287,7 +295,7 @@ impl McpBackend for WindmillBackend {
         path: &str,
         args: Value,
         request: &McpRequest<'_>,
-    ) -> BackendResult<Value> {
+    ) -> BackendResult<(String, Value)> {
         windmill_common::feature_usage::log_feature_usage("mcp", "runnable_tool_call", "script");
         let script = RunnableRef::from_path(path, false)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
@@ -295,9 +303,10 @@ impl McpBackend for WindmillBackend {
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
+        let id = new_run_id();
         let result = run_wait_result_script_by_path_internal(
             self.db.clone(),
-            RunJobQuery::default(),
+            RunJobQuery { job_id: Some(id), ..Default::default() },
             &script,
             auth.clone(),
             self.user_db.clone(),
@@ -307,7 +316,7 @@ impl McpBackend for WindmillBackend {
         .await
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        parse_response_body(result).await
+        Ok((id.to_string(), parse_response_body(result).await?))
     }
 
     async fn run_flow(
@@ -317,7 +326,7 @@ impl McpBackend for WindmillBackend {
         path: &str,
         args: Value,
         request: &McpRequest<'_>,
-    ) -> BackendResult<Value> {
+    ) -> BackendResult<(String, Value)> {
         windmill_common::feature_usage::log_feature_usage("mcp", "runnable_tool_call", "flow");
         let flow = RunnableRef::from_path(path, true)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
@@ -325,9 +334,10 @@ impl McpBackend for WindmillBackend {
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
+        let id = new_run_id();
         let result = run_wait_result_flow_by_path_internal(
             self.db.clone(),
-            RunJobQuery::default(),
+            RunJobQuery { job_id: Some(id), ..Default::default() },
             &flow,
             auth.clone(),
             self.user_db.clone(),
@@ -337,7 +347,7 @@ impl McpBackend for WindmillBackend {
         .await
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        parse_response_body(result).await
+        Ok((id.to_string(), parse_response_body(result).await?))
     }
 
     async fn call_endpoint(

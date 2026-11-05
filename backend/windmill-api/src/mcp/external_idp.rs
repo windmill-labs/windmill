@@ -412,13 +412,15 @@ async fn audit_refusal(db: &DB, refusal: &Refusal) {
 }
 
 /// Records a tool call made through an external client, allowed or refused, with both
-/// identities: the user as author, the client in the parameters.
+/// identities: the user as author, the client in the parameters. `run`, the job the call
+/// started, is kept as `job_id`, which the audit log's filter by run matches.
 pub async fn audit_tool_call(
     db: &DB,
     authed: &ApiAuthed,
     w_id: &str,
     tool: &str,
     refusal: Option<&str>,
+    run: Option<&str>,
 ) {
     let Some(client) = authed.mcp_client.as_deref() else {
         return;
@@ -428,6 +430,9 @@ pub async fn audit_tool_call(
     let mut params = HashMap::from([("mcp_client", client), ("outcome", outcome)]);
     if let Some(reason) = refusal {
         params.insert("reason", reason);
+    }
+    if let Some(run) = run {
+        params.insert("job_id", run);
     }
     if let Err(e) = audit_log(
         db,

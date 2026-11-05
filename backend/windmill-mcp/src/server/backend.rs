@@ -87,6 +87,20 @@ pub trait McpAuth: Send + Sync + Clone + 'static {
     }
 }
 
+/// The `_meta` key a tool result carries the job its call started under, for
+/// `McpBackend::after_tool_call`; taken off by [`take_run`] before the client receives it.
+pub const RUN_META: &str = "windmill/audit_run";
+
+/// The job `result` names under [`RUN_META`], taken off it, along with a `_meta` left empty.
+pub fn take_run(result: &mut CallToolResult) -> Option<String> {
+    let meta = result.meta.as_mut()?;
+    let run = meta.0.remove(RUN_META);
+    if meta.0.is_empty() {
+        result.meta = None;
+    }
+    run.and_then(|v| v.as_str().map(str::to_string))
+}
+
 /// The core backend trait that windmill-api implements
 ///
 /// This trait abstracts the windmill-api specific operations needed by the MCP server.
@@ -98,13 +112,14 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     type Auth: McpAuth;
 
     /// Called once a tool call in a workspace has an outcome: `refusal` is the error the
-    /// caller receives, `None` when it succeeded.
+    /// caller receives, `None` when it succeeded; `run` the job it started.
     async fn after_tool_call(
         &self,
         _auth: &Self::Auth,
         _workspace_id: &str,
         _tool: &str,
         _refusal: Option<&str>,
+        _run: Option<&str>,
     ) {
     }
 
@@ -194,7 +209,7 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     // Execution Operations
     // ─────────────────────────────────────────────────────────────────
 
-    /// Run a script and wait for result
+    /// Run a script and wait for its result: the run's id and the answer
     async fn run_script(
         &self,
         auth: &Self::Auth,
@@ -202,9 +217,9 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         path: &str,
         args: Value,
         request: &McpRequest<'_>,
-    ) -> BackendResult<Value>;
+    ) -> BackendResult<(String, Value)>;
 
-    /// Run a flow and wait for result
+    /// Run a flow and wait for its result: the run's id and the answer
     async fn run_flow(
         &self,
         auth: &Self::Auth,
@@ -212,7 +227,7 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         path: &str,
         args: Value,
         request: &McpRequest<'_>,
-    ) -> BackendResult<Value>;
+    ) -> BackendResult<(String, Value)>;
 
     /// Call an endpoint tool (generated API endpoint)
     async fn call_endpoint(
@@ -296,4 +311,33 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         access: SessionAccess,
         origin: Option<&str>,
     ) -> BackendResult<CallToolResult>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rmcp::model::{ContentBlock, MetaObject};
+    use serde_json::json;
+
+    /// A card's own `_meta` (`show_run` puts its run under `windmill/run`) reaches the client.
+    #[test]
+    fn take_run_leaves_the_rest_of_meta() {
+        let mut result = CallToolResult::success(vec![ContentBlock::text("ok")]);
+        result.meta = Some(MetaObject(serde_json::Map::from_iter([
+            ("windmill/run".to_string(), json!({"status": "running"})),
+            (RUN_META.to_string(), json!("j1")),
+        ])));
+        assert_eq!(take_run(&mut result).as_deref(), Some("j1"));
+        let meta = result.meta.expect("the card's meta is kept").0;
+        assert_eq!(meta.len(), 1);
+        assert_eq!(meta["windmill/run"], json!({"status": "running"}));
+
+        let mut result = CallToolResult::success(vec![ContentBlock::text("ok")]);
+        result.meta = Some(MetaObject(serde_json::Map::from_iter([(
+            RUN_META.to_string(),
+            json!("j2"),
+        )])));
+        assert_eq!(take_run(&mut result).as_deref(), Some("j2"));
+        assert!(result.meta.is_none());
+    }
 }

@@ -201,6 +201,7 @@ pub(super) async fn finish_run(
     tool_args: &Value,
 ) -> ToolResult {
     let id = started.map_err(|e| format!("Failed to execute {action}: {}", api_message(&e)))?;
+    *ctx.run.lock().unwrap() = Some(id.clone());
     let run_page = ctx
         .link(&format!("/run/{id}"))
         .map(|url| format!("\n\nRun page: {url}"))

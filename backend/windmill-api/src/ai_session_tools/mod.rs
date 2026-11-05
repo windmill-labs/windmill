@@ -270,6 +270,8 @@ pub(crate) struct Ctx<'a> {
     /// What the card draws of this call, as `(key, value)`: returned in the result's
     /// `_meta`, which the model never reads.
     pub view: std::sync::Mutex<Option<(&'static str, Value)>>,
+    /// The job the call started, which an MCP call's audit entry records.
+    pub run: std::sync::Mutex<Option<String>>,
 }
 
 impl<'a> Ctx<'a> {
@@ -290,6 +292,7 @@ impl<'a> Ctx<'a> {
             effects: Default::default(),
             jwt: Default::default(),
             view: Default::default(),
+            run: Default::default(),
         }
     }
 

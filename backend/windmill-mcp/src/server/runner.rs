@@ -14,7 +14,7 @@ use crate::common::types::{
     McpToken, MultiWorkspaceMcp, NoEndpointTools, ResourceInfo, SchemaType, ToolableItem,
     WorkspaceId,
 };
-use crate::server::backend::{McpAuth, McpBackend, McpRequest, PathFilter};
+use crate::server::backend::{take_run, McpAuth, McpBackend, McpRequest, PathFilter, RUN_META};
 use crate::server::endpoints::{
     endpoint_tool_to_mcp_tool, endpoint_tool_to_mcp_tool_multi, list_workspaces_tool, EndpointTool,
 };
@@ -24,8 +24,8 @@ use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
     CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
     Implementation, InitializeRequestParams, InitializeResult, ListPromptsResult,
-    ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
-    ProtocolVersion, ServerCapabilities, ServerInfo, SubscriptionFilter,
+    ListResourceTemplatesResult, ListResourcesResult, ListToolsResult, MetaObject,
+    PaginatedRequestParams, ProtocolVersion, ServerCapabilities, ServerInfo, SubscriptionFilter,
 };
 use rmcp::service::{RequestContext, RoleServer, SubscriptionContext};
 use rmcp::ErrorData;
@@ -637,7 +637,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         // client for input, so the MRTR variants of `CallToolResponse` are never built.
         let result = match mode {
             McpMode::Single(workspace_id) => {
-                let result = self
+                let mut result = self
                     .call_tool_single(
                         &auth,
                         &workspace_id,
@@ -648,9 +648,10 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
                         &mcp_request,
                     )
                     .await;
+                let run = result.as_mut().ok().and_then(take_run);
                 let refusal = result.as_ref().err().map(|e| e.message.as_ref());
                 self.backend
-                    .after_tool_call(&auth, &workspace_id, &request.name, refusal)
+                    .after_tool_call(&auth, &workspace_id, &request.name, refusal, run.as_deref())
                     .await;
                 result
             }
@@ -1098,11 +1099,17 @@ impl<B: McpBackend> Runner<B> {
         };
 
         match result {
-            Ok(value) => Ok(CallToolResult::success(vec![ContentBlock::text(
-                truncate_tool_result(
-                    serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()),
-                ),
-            )])),
+            Ok((run, value)) => {
+                let mut result =
+                    CallToolResult::success(vec![ContentBlock::text(truncate_tool_result(
+                        serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()),
+                    ))]);
+                result.meta = Some(MetaObject(serde_json::Map::from_iter([(
+                    RUN_META.to_string(),
+                    Value::String(run),
+                )])));
+                Ok(result)
+            }
             Err(e) => Err(ErrorData::internal_error(
                 format!("Failed to run {}: {}", tool_type, e.message),
                 None,

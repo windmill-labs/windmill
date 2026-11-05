@@ -130,8 +130,22 @@ pub(super) async fn call_session_tool(
     } else {
         CallToolResult::success(content)
     };
-    if let Some((key, view)) = ctx.view.lock().unwrap().take() {
-        result.meta = Some(MetaObject(Map::from_iter([(key.to_string(), view)])));
+    let meta: Map<String, Value> = ctx
+        .view
+        .lock()
+        .unwrap()
+        .take()
+        .map(|(key, view)| (key.to_string(), view))
+        .into_iter()
+        .chain(ctx.run.lock().unwrap().take().map(|run| {
+            (
+                windmill_mcp::server::backend::RUN_META.to_string(),
+                Value::String(run),
+            )
+        }))
+        .collect();
+    if !meta.is_empty() {
+        result.meta = Some(MetaObject(meta));
     }
     Ok(result)
 }
