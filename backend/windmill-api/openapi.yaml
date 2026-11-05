@@ -14117,7 +14117,7 @@ paths:
     post:
       summary: search the web through the workspace's web search API
       description: >
-        Runs a query against the search API (Exa, Tavily or Linkup) set in the workspace's AI
+        Runs a query against the search API (Exa, Tavily, Linkup or DeepSeek) set in the workspace's AI
         settings, with the key of its resource. The AI chat uses it when the model's provider
         has no built-in web search.
       operationId: aiWebSearch
@@ -31245,7 +31245,7 @@ components:
       properties:
         provider:
           type: string
-          enum: [exa, tavily, linkup]
+          enum: [exa, tavily, linkup, deepseek]
         resource_path:
           type: string
       required:
