@@ -39801,7 +39801,7 @@ components:
       properties:
         code:
           type: boolean
-          description: Author scripts and run code of one's own (previews, dependency jobs, dynamic selects, resolving jobs, data table migrations). Required by `full` flows or apps.
+          description: Author scripts and run code of one's own (previews, dependency jobs, dynamic selects, resolving jobs, data table migrations). Required by `full` flows or apps. Previews also need `run`.
         flows:
           $ref: "#/components/schemas/AuthorLevel"
         apps:
@@ -39810,12 +39810,15 @@ components:
           type: boolean
         manage_triggers:
           type: boolean
+        run:
+          type: boolean
+          description: Start runs of scripts, flows and AI agents (by path, hash or version, restarts, previews, MCP run tools). Without it a role is view-only. Schedules and triggers keep their own rights; resuming a suspended step is not a run.
         fork:
           type: boolean
           description: Fork the workspace.
         visibility:
           $ref: "#/components/schemas/RoleVisibility"
-      required: [code, flows, apps, manage_schedules, manage_triggers, fork, visibility]
+      required: [code, flows, apps, manage_schedules, manage_triggers, run, fork, visibility]
 
     RoleCapabilitiesPatch:
       type: object
@@ -39828,6 +39831,7 @@ components:
           $ref: "#/components/schemas/AuthorLevel"
         manage_schedules: { type: boolean }
         manage_triggers: { type: boolean }
+        run: { type: boolean }
         fork: { type: boolean }
         visibility:
           type: object

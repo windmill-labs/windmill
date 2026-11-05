@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n             COUNT(*) FILTER (WHERE webhook_events IS NULL)::BIGINT AS \"all!\",\n             COUNT(*) FILTER (WHERE webhook_events IS NOT NULL)::BIGINT AS \"filtered!\"\n           FROM workspace_settings WHERE webhook IS NOT NULL AND webhook <> ''",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "all!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "filtered!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "ebb44484d03619ca777a06764b4b3b48623d805dc73538c0704b58171bdec9ed"
+}
