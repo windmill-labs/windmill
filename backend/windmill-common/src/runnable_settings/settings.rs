@@ -159,11 +159,13 @@ impl super::private_mod::RunnableSettingsTraitInternal for ConcurrencySettings {
         "concurrency_key",
         "concurrent_limit",
         "concurrency_time_window_s",
+        "on_concurrency_limit",
     ];
     fn bind_arguments<'a>(&'a self, q: Q<'a>) -> Q<'a> {
         q.bind(&self.concurrency_key)
             .bind(&self.concurrent_limit)
             .bind(&self.concurrency_time_window_s)
+            .bind(&self.on_concurrency_limit)
     }
 }
 impl super::RunnableSettingsTrait for ConcurrencySettings {}

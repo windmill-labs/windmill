@@ -59,7 +59,7 @@
 
 	function overriddenKeys(o: RoleOverride | undefined): string[] {
 		const c = o?.capabilities ?? {}
-		const keys = ['code', 'flows', 'apps', 'manage_schedules', 'manage_triggers', 'fork'].filter(
+		const keys = ['code', 'flows', 'apps', 'manage_schedules', 'manage_triggers', 'run', 'fork'].filter(
 			(k) => c[k] != null
 		)
 		for (const { key } of VISIBILITY_KEYS) {
@@ -111,7 +111,8 @@
 		return [
 			c.code ? 'Code' : 'No code',
 			`Flows: ${authorLevelLabel(c.flows).toLowerCase()}`,
-			`Apps: ${authorLevelLabel(c.apps).toLowerCase()}`
+			`Apps: ${authorLevelLabel(c.apps).toLowerCase()}`,
+			...(c.run ? [] : ['View only'])
 		].join(' · ')
 	}
 

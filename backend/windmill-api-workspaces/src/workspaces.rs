@@ -313,6 +313,8 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub webhook_events: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_config: Option<serde_json::Value>,
     /// Pointers to the resources dbt scripts run against by default.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -459,6 +461,12 @@ pub struct EditAutoInvite {
 #[derive(Deserialize)]
 struct EditWebhook {
     webhook: Option<String>,
+    /// Absent keeps the stored filter; `null` sends every event type.
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
+    events: Option<Option<Vec<String>>>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -1190,6 +1198,7 @@ async fn get_settings(
             customer_id,
             plan,
             webhook,
+            webhook_events,
             ai_config,
             dbt_warehouses,
             large_file_storage,
@@ -2100,7 +2109,33 @@ async fn edit_webhook(
         })?;
     }
 
+    if let Some(Some(events)) = &ew.events {
+        if events.is_empty() {
+            return Err(Error::BadRequest(
+                "events must list at least one event type, or be null to send every event"
+                    .to_string(),
+            ));
+        }
+        let known = windmill_common::webhook::webhook_event_types();
+        if let Some(unknown) = events.iter().find(|e| !known.contains(&e.as_str())) {
+            return Err(Error::BadRequest(format!(
+                "Unknown webhook event type: {unknown}. Valid types are: {}",
+                known.join(", ")
+            )));
+        }
+    }
+
     let mut tx = db.begin().await?;
+
+    if let Some(events) = &ew.events {
+        sqlx::query!(
+            "UPDATE workspace_settings SET webhook_events = $1 WHERE workspace_id = $2",
+            events.as_deref(),
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     if let Some(webhook) = &ew.webhook {
         sqlx::query!(
@@ -2125,7 +2160,13 @@ async fn edit_webhook(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some([("webhook", &format!("{:?}", ew.webhook)[..])].into()),
+        Some(
+            [
+                ("webhook", &format!("{:?}", ew.webhook)[..]),
+                ("events", &format!("{:?}", ew.events)[..]),
+            ]
+            .into(),
+        ),
     )
     .await?;
     tx.commit().await?;
@@ -7084,17 +7125,9 @@ async fn user_workspaces(
         };
         // The pre-roles shape the frontend gates on: present exactly for a restricted member.
         let operator_settings = (capabilities.is_restricted()).then(|| {
-            let v = &capabilities.visibility;
-            Some(serde_json::json!({
-                "runs": v.runs, "schedules": v.schedules, "resources": v.resources,
-                "variables": v.variables, "assets": v.assets, "triggers": v.triggers,
-                "audit_logs": v.audit_logs, "groups": v.groups, "folders": v.folders,
-                "workers": v.workers,
-                "builder_flows": capabilities.flows != windmill_common::roles::AuthorLevel::None,
-                "builder_apps": capabilities.apps != windmill_common::roles::AuthorLevel::None,
-                "manage_schedules": capabilities.manage_schedules,
-                "manage_triggers": capabilities.manage_triggers,
-            }))
+            Some(windmill_common::roles::legacy_operator_settings(
+                &capabilities,
+            ))
         });
         workspaces.push(UserWorkspace {
             id: r.id,

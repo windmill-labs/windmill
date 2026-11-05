@@ -10,7 +10,8 @@ import { OutputTokenLimitError } from './outputTokenLimit'
 
 const mocks = vi.hoisted(() => ({
 	getProviderAndCompletionConfig: vi.fn(),
-	applyReasoningToConfig: vi.fn()
+	applyReasoningToConfig: vi.fn(),
+	modelSupportsWebSearch: vi.fn()
 }))
 
 // openai-responses.ts pulls in the chat client/registry layer at import time; the
@@ -19,7 +20,7 @@ vi.mock('../lib', () => ({
 	createOpenAIProxyClient: vi.fn(),
 	getAiProxyBaseURL: vi.fn(),
 	getProviderAndCompletionConfig: mocks.getProviderAndCompletionConfig,
-	providerSupportsWebSearch: vi.fn(),
+	modelSupportsWebSearch: mocks.modelSupportsWebSearch,
 	workspaceAIClients: {}
 }))
 
@@ -29,7 +30,8 @@ vi.mock('../reasoningRegistry', () => ({
 
 vi.mock('./shared', () => ({
 	processToolCall: vi.fn(),
-	appendPendingToolImages: vi.fn()
+	appendPendingToolImages: vi.fn(),
+	queuedToolStatus: vi.fn()
 }))
 
 describe('toResponsesContent', () => {
@@ -137,6 +139,12 @@ describe('getOpenAIResponsesCompletion prompt cache key', () => {
 })
 
 describe('openAIWebSearchDetails', () => {
+	it('drops the call id DeepSeek lists among its queries', () => {
+		expect(
+			openAIWebSearchDetails({ action: { queries: ['windmill', 'ws_call_id=call_00_x'] } }).query
+		).toBe('windmill')
+	})
+
 	it('prefers the queries array over the deprecated singular query', () => {
 		expect(
 			openAIWebSearchDetails({ action: { type: 'search', queries: ['a', 'b'], query: 'old' } })
@@ -184,5 +192,92 @@ describe('parseOpenAIResponsesCompletion output token limit', () => {
 		)
 
 		await expect(parsed).rejects.toBeInstanceOf(OutputTokenLimitError)
+	})
+})
+
+// DeepSeek refuses a function tool named like one of its search tools (`open_page` is the
+// chat's own), and refuses a tool-call turn whose reasoning is not passed back.
+describe('DeepSeek web search on the Responses API', () => {
+	it('renames the reserved tools and replays the reasoning of a tool-call turn', async () => {
+		mocks.getProviderAndCompletionConfig.mockReturnValue({
+			provider: 'deepseek',
+			config: {
+				model: 'deepseek-v4-pro',
+				tools: ['open_page', 'list_runs'].map((name) => ({
+					type: 'function',
+					function: { name, parameters: {} }
+				}))
+			}
+		})
+		mocks.applyReasoningToConfig.mockImplementation((config) => config)
+		mocks.modelSupportsWebSearch.mockReturnValue(true)
+		const stream = vi.fn().mockReturnValue({})
+
+		await getOpenAIResponsesCompletion(
+			[
+				{ role: 'user', content: 'open runs' },
+				{
+					role: 'assistant',
+					content: '',
+					reasoning_content: 'I open it.',
+					tool_calls: [
+						{ id: 'c1', type: 'function', function: { name: 'open_page', arguments: '{}' } }
+					]
+				} as any,
+				{ role: 'tool', tool_call_id: 'c1', content: 'ok' }
+			],
+			new AbortController(),
+			undefined,
+			{ openaiClient: { responses: { stream } } as any, webSearch: true }
+		)
+
+		const body = stream.mock.calls[0][0]
+		expect(body.tools.map((t: any) => t.name ?? t.type)).toEqual([
+			'wm_open_page',
+			'list_runs',
+			'web_search'
+		])
+		expect(body.input.slice(1, 3)).toEqual([
+			{ type: 'reasoning', summary: [], content: [{ type: 'reasoning_text', text: 'I open it.' }] },
+			expect.objectContaining({ type: 'function_call', name: 'wm_open_page' })
+		])
+	})
+
+	it('maps a renamed call back and keeps text and reasoning on the tool-call turn', async () => {
+		const handlers: Record<string, (event: any) => void> = {}
+		const runner = {
+			on: (name: string, fn: (event: any) => void) => {
+				handlers[name] = fn
+			},
+			done: async () => {
+				handlers['response.reasoning_text.delta']({ delta: 'I open it.' })
+				handlers['response.output_text.delta']({ delta: 'Opening.' })
+				handlers['response.output_item.added']({
+					item: { type: 'function_call', id: 'fc1', name: 'wm_open_page', call_id: 'c1' }
+				})
+				handlers['response.function_call_arguments.done']({ item_id: 'fc1', arguments: '{}' })
+			},
+			finalResponse: async () => ({ status: 'completed', output: [] })
+		}
+		const messages: any[] = []
+
+		await parseOpenAIResponsesCompletion(
+			runner as any,
+			{ onNewToken: vi.fn(), onMessageEnd: vi.fn(), setToolStatus: vi.fn() } as any,
+			messages,
+			[],
+			[{ def: { type: 'function', function: { name: 'open_page' } } } as any],
+			{},
+			{ provider: 'deepseek' }
+		)
+
+		expect(messages[0]).toEqual({
+			role: 'assistant',
+			content: 'Opening.',
+			reasoning_content: 'I open it.',
+			tool_calls: [
+				{ id: 'fc1', type: 'function', function: { name: 'open_page', arguments: '{}' } }
+			]
+		})
 	})
 })
