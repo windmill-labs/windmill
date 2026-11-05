@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            workspace_id,\n            slack_team_id,\n            teams_team_id,\n            teams_team_name,\n            teams_team_guid,\n            slack_name,\n            slack_command_script,\n            teams_command_script,\n            slack_email,\n            slack_oauth_client_id,\n            slack_oauth_client_secret,\n            customer_id,\n            plan,\n            webhook,\n            ai_config,\n            dbt_warehouses,\n            large_file_storage,\n            datatable,\n            ducklake,\n            git_sync,\n            deploy_ui,\n            default_app,\n            default_scripts,\n            mute_critical_alerts,\n            color,\n            operator_settings,\n            git_app_installations,\n            auto_invite,\n            error_handler,\n            success_handler,\n            variable_expiration_handler,\n            public_app_execution_limit_per_minute,\n            error_handler_fallback_to_instance_alerts,\n            guest_jwt_public_key,\n            guest_jwt_jwks_url,\n            add_admins_and_developers_to_forks\n        FROM\n            workspace_settings\n        WHERE\n            workspace_id = $1\n        ",
+  "query": "\n        SELECT\n            workspace_id,\n            slack_team_id,\n            teams_team_id,\n            teams_team_name,\n            teams_team_guid,\n            slack_name,\n            slack_command_script,\n            teams_command_script,\n            slack_email,\n            slack_oauth_client_id,\n            slack_oauth_client_secret,\n            customer_id,\n            plan,\n            webhook,\n            webhook_events,\n            ai_config,\n            dbt_warehouses,\n            large_file_storage,\n            datatable,\n            ducklake,\n            git_sync,\n            deploy_ui,\n            default_app,\n            default_scripts,\n            mute_critical_alerts,\n            color,\n            operator_settings,\n            git_app_installations,\n            auto_invite,\n            error_handler,\n            success_handler,\n            variable_expiration_handler,\n            public_app_execution_limit_per_minute,\n            error_handler_fallback_to_instance_alerts,\n            guest_jwt_public_key,\n            guest_jwt_jwks_url,\n            add_admins_and_developers_to_forks\n        FROM\n            workspace_settings\n        WHERE\n            workspace_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -75,111 +75,116 @@
       },
       {
         "ordinal": 14,
+        "name": "webhook_events",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 15,
         "name": "ai_config",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "dbt_warehouses",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "large_file_storage",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 17,
+        "ordinal": 18,
         "name": "datatable",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 18,
+        "ordinal": 19,
         "name": "ducklake",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 19,
+        "ordinal": 20,
         "name": "git_sync",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 20,
+        "ordinal": 21,
         "name": "deploy_ui",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 21,
+        "ordinal": 22,
         "name": "default_app",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 22,
+        "ordinal": 23,
         "name": "default_scripts",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 23,
+        "ordinal": 24,
         "name": "mute_critical_alerts",
         "type_info": "Bool"
       },
       {
-        "ordinal": 24,
+        "ordinal": 25,
         "name": "color",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 25,
+        "ordinal": 26,
         "name": "operator_settings",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 26,
+        "ordinal": 27,
         "name": "git_app_installations",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 27,
+        "ordinal": 28,
         "name": "auto_invite",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 28,
+        "ordinal": 29,
         "name": "error_handler",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 29,
+        "ordinal": 30,
         "name": "success_handler",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 30,
+        "ordinal": 31,
         "name": "variable_expiration_handler",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 31,
+        "ordinal": 32,
         "name": "public_app_execution_limit_per_minute",
         "type_info": "Int4"
       },
       {
-        "ordinal": 32,
+        "ordinal": 33,
         "name": "error_handler_fallback_to_instance_alerts",
         "type_info": "Bool"
       },
       {
-        "ordinal": 33,
+        "ordinal": 34,
         "name": "guest_jwt_public_key",
         "type_info": "Text"
       },
       {
-        "ordinal": 34,
+        "ordinal": 35,
         "name": "guest_jwt_jwks_url",
         "type_info": "Text"
       },
       {
-        "ordinal": 35,
+        "ordinal": 36,
         "name": "add_admins_and_developers_to_forks",
         "type_info": "Bool"
       }
@@ -216,6 +221,7 @@
       true,
       true,
       true,
+      true,
       false,
       true,
       true,
@@ -228,5 +234,5 @@
       false
     ]
   },
-  "hash": "3b98b506c544162e630641147490539dc7e9c440cd1625054d6ee1b67a785418"
+  "hash": "f372a214e952ca3b7b11ed50b9a279cd27973c6974db4ee5ed0d9e061fafe0fc"
 }

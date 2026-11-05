@@ -7,7 +7,7 @@ import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { SyncOptions, readConfigFile, validateBranchConfiguration, getEffectiveSettings, getWmillYamlPath } from "../../core/conf.ts";
+import { SyncOptions, readConfigFile, validateBranchConfiguration, getWmillYamlPath } from "../../core/conf.ts";
 import { deepEqual } from "../../utils/utils.ts";
 
 import { GitSyncRepository } from "./types.ts";
@@ -19,7 +19,8 @@ import {
   generateChanges,
   displayChanges,
   normalizeRepoPath,
-  outputResult
+  outputResult,
+  getEffectiveSettingsForWorkspace
 } from "./utils.ts";
 
 export async function pushGitSyncSettings(
@@ -178,7 +179,7 @@ export async function pushGitSyncSettings(
 
     // Get effective settings for this workspace/repo
     const repoPath = normalizeRepoPath(selectedRepo.git_repo_resource_path);
-    const effectiveSettings = await getEffectiveSettings(localConfig, opts.promotion, true, opts.jsonOutput);
+    const effectiveSettings = await getEffectiveSettingsForWorkspace(localConfig, opts, workspace);
 
     // Convert to backend format
     const backendFormat = GitSyncSettingsConverter.toBackendFormat(effectiveSettings);

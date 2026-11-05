@@ -16,6 +16,7 @@ pub enum WebSearchProvider {
     Exa,
     Tavily,
     Linkup,
+    Deepseek,
 }
 
 pub const MAX_SEARCH_RESULTS: usize = 10;
@@ -50,6 +51,7 @@ impl WebSearchProvider {
             WebSearchProvider::Exa => "https://api.exa.ai",
             WebSearchProvider::Tavily => "https://api.tavily.com",
             WebSearchProvider::Linkup => "https://api.linkup.so/v1",
+            WebSearchProvider::Deepseek => "https://api.deepseek.com/v1/tools",
         }
     }
 
@@ -58,6 +60,7 @@ impl WebSearchProvider {
             WebSearchProvider::Exa => "exa",
             WebSearchProvider::Tavily => "tavily",
             WebSearchProvider::Linkup => "linkup",
+            WebSearchProvider::Deepseek => "deepseek",
         }
     }
 
@@ -66,6 +69,7 @@ impl WebSearchProvider {
             WebSearchProvider::Exa => "Exa",
             WebSearchProvider::Tavily => "Tavily",
             WebSearchProvider::Linkup => "Linkup",
+            WebSearchProvider::Deepseek => "DeepSeek",
         }
     }
 
@@ -76,7 +80,9 @@ impl WebSearchProvider {
             .json(&body);
         let request = match self {
             WebSearchProvider::Exa => request.header("x-api-key", api_key),
-            WebSearchProvider::Tavily | WebSearchProvider::Linkup => request.bearer_auth(api_key),
+            WebSearchProvider::Tavily | WebSearchProvider::Linkup | WebSearchProvider::Deepseek => {
+                request.bearer_auth(api_key)
+            }
         };
         let response = request
             .send()
@@ -87,10 +93,14 @@ impl WebSearchProvider {
             Error::BadGateway(format!("{} response could not be read: {e}", self.name()))
         })?;
         if !status.is_success() {
+            let message = serde_json::from_str::<Value>(&text)
+                .ok()
+                .and_then(|body| str_field(body.get("error")?, "message"))
+                .unwrap_or(text);
             return Err(Error::BadGateway(format!(
                 "{} returned {status}: {}",
                 self.name(),
-                truncate_chars(&text, 500).0
+                truncate_chars(&message, 500).0
             )));
         }
         serde_json::from_str(&text)
@@ -128,6 +138,7 @@ impl WebSearchProvider {
                     "maxResults": n
                 }),
             ),
+            WebSearchProvider::Deepseek => ("/search", json!({ "query": query, "count": n })),
         };
         let response = self.post(api_key, path, body).await?;
         let mut results = parse_search(self, &response);
@@ -144,7 +155,9 @@ impl WebSearchProvider {
             WebSearchProvider::Tavily => {
                 ("/extract", json!({ "urls": [url], "format": "markdown" }))
             }
-            WebSearchProvider::Linkup => ("/fetch", json!({ "url": url })),
+            WebSearchProvider::Linkup | WebSearchProvider::Deepseek => {
+                ("/fetch", json!({ "url": url }))
+            }
         };
         let response = self.post(api_key, path, body).await?;
         parse_fetch(self, url, &response)
@@ -194,6 +207,11 @@ fn parse_search(provider: WebSearchProvider, response: &Value) -> Vec<WebSearchR
                     }
                     (str_field(item, "name"), str_field(item, "content"), None)
                 }
+                WebSearchProvider::Deepseek => (
+                    str_field(item, "title"),
+                    str_field(item, "summary").or_else(|| str_field(item, "snippet")),
+                    str_field(item, "date"),
+                ),
             };
             let url = str_field(item, "url")?;
             Some(WebSearchResult {
@@ -247,6 +265,9 @@ fn parse_fetch(provider: WebSearchProvider, url: &str, response: &Value) -> Resu
             }
         },
         WebSearchProvider::Linkup => (None, str_field(response, "markdown")),
+        WebSearchProvider::Deepseek => {
+            (str_field(response, "title"), str_field(response, "content"))
+        }
     };
     let content = content.ok_or_else(|| not_fetched("the page has no readable text".into()))?;
     let (content, truncated) = truncate_chars(&content, FETCH_CONTENT_CHARS);
@@ -290,6 +311,19 @@ mod tests {
         let parsed = parse_search(WebSearchProvider::Tavily, &tavily);
         assert_eq!(parsed[0].title, "https://c");
         assert_eq!(parsed[0].content.chars().count(), SEARCH_CONTENT_CHARS);
+
+        let deepseek = json!({ "results": [
+            { "title": "DS", "url": "https://d", "date": null, "snippet": "short", "summary": "" }
+        ]});
+        assert_eq!(
+            parse_search(WebSearchProvider::Deepseek, &deepseek),
+            vec![WebSearchResult {
+                title: "DS".into(),
+                url: "https://d".into(),
+                published_date: None,
+                content: "short".into(),
+            }]
+        );
     }
 
     #[test]

@@ -14,7 +14,7 @@ import { OutputTokenLimitError } from './outputTokenLimit'
 const mocks = vi.hoisted(() => ({
 	getCompletion: vi.fn(),
 	parseOpenAICompletion: vi.fn(),
-	providerSupportsWebSearch: vi.fn(),
+	modelSupportsWebSearch: vi.fn(),
 	getOpenAIResponsesCompletion: vi.fn(),
 	parseOpenAIResponsesCompletion: vi.fn(),
 	buildPromptCacheKey: vi.fn(),
@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../lib', () => ({
 	getCompletion: mocks.getCompletion,
 	parseOpenAICompletion: mocks.parseOpenAICompletion,
-	providerSupportsWebSearch: mocks.providerSupportsWebSearch
+	modelSupportsWebSearch: mocks.modelSupportsWebSearch
 }))
 
 vi.mock('../reasoningRegistry', async (importOriginal) => ({
@@ -96,8 +96,11 @@ function createConfig({
 describe('runChatLoop web search fallback', () => {
 	beforeEach(() => {
 		vi.resetAllMocks()
-		mocks.providerSupportsWebSearch.mockImplementation(
-			(provider) => provider === 'openai' || provider === 'anthropic'
+		mocks.modelSupportsWebSearch.mockImplementation(
+			(provider, model) =>
+				provider === 'openai' ||
+				provider === 'anthropic' ||
+				(provider === 'deepseek' && model === 'deepseek-v4-pro')
 		)
 		mocks.resolveRequestReasoning.mockReturnValue(undefined)
 		mocks.parseOpenAICompletion.mockResolvedValue({
@@ -344,6 +347,58 @@ describe('runChatLoop web search fallback', () => {
 		expect(toolNames(mocks.getCompletion.mock.calls[0])).toEqual(['search_web'])
 	})
 
+	it("sends DeepSeek's own search on its Responses API, and keeps the rest on Completions", async () => {
+		const workspace = `workspace-${randomUUID()}`
+		const pro = { provider: 'deepseek', model: 'deepseek-v4-pro' } as const
+		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
+		mocks.getCompletion.mockResolvedValue({})
+
+		await runChatLoop(createConfig({ workspace, modelProvider: pro }))
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(1)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][3]).toEqual(
+			expect.objectContaining({ webSearch: true })
+		)
+
+		// A skip recorded for an OpenAI deployment does not hold for DeepSeek's endpoint.
+		const afterOpenAISkip = createConfig({ workspace, modelProvider: pro })
+		afterOpenAISkip.skipResponsesApi = true
+		await runChatLoop(afterOpenAISkip)
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(2)
+
+		const searchOff = createConfig({ workspace, modelProvider: pro })
+		searchOff.webSearch = false
+		await runChatLoop(searchOff)
+		await runChatLoop(
+			createConfig({ workspace, modelProvider: { provider: 'deepseek', model: 'deepseek-flash' } })
+		)
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(2)
+		expect(mocks.getCompletion).toHaveBeenCalledTimes(2)
+	})
+
+	it('drops DeepSeek search for an endpoint that cannot serve its Responses request', async () => {
+		const workspace = `workspace-${randomUUID()}`
+		const pro = { provider: 'deepseek', model: 'deepseek-v4-pro' } as const
+		const searchWeb = {
+			def: { type: 'function', function: { name: 'search_web', parameters: {} } },
+			fn: vi.fn()
+		} as unknown as ChatLoopConfig['tools'][number]
+		const config = createConfig({ workspace, modelProvider: pro })
+		Object.defineProperty(config, 'tools', {
+			get: () => (sendsWebSearch(workspace, pro, true) ? [] : [searchWeb])
+		})
+		mocks.getOpenAIResponsesCompletion.mockRejectedValueOnce(
+			Object.assign(new Error('404 Not Found'), { status: 404 })
+		)
+		mocks.getCompletion.mockResolvedValue({})
+
+		await runChatLoop(config)
+
+		const toolNames = (call: unknown[]) =>
+			(call[2] as { function: { name: string } }[]).map((t) => t.function.name)
+		expect(toolNames(mocks.getCompletion.mock.calls[0])).toEqual(['search_web'])
+		expect(sendsWebSearch(workspace, pro, true)).toBe(false)
+	})
+
 	it('does not retry Anthropic request errors that only mention web search input', async () => {
 		const callbacks = createCallbacks()
 		const workspace = `workspace-${randomUUID()}`
@@ -370,7 +425,7 @@ describe('runChatLoop web search fallback', () => {
 describe('runChatLoop reasoning summary fallback', () => {
 	beforeEach(() => {
 		vi.resetAllMocks()
-		mocks.providerSupportsWebSearch.mockReturnValue(false)
+		mocks.modelSupportsWebSearch.mockReturnValue(false)
 		mocks.resolveRequestReasoning.mockReturnValue('high')
 		mocks.resolveEffectiveReasoning.mockReturnValue('high')
 		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({
@@ -426,7 +481,7 @@ describe('runChatLoop reasoning summary fallback', () => {
 	})
 
 	it('composes with the web-search fallback when the errors arrive web-search first', async () => {
-		mocks.providerSupportsWebSearch.mockReturnValue(true)
+		mocks.modelSupportsWebSearch.mockReturnValue(true)
 		const onReasoningSummaryUnavailable = vi.fn()
 		const onWebSearchUnavailable = vi.fn()
 		const workspace = `workspace-${randomUUID()}`
@@ -497,7 +552,7 @@ describe('runChatLoop reasoning summary fallback', () => {
 describe('runChatLoop prompt cache key fallback', () => {
 	beforeEach(() => {
 		vi.resetAllMocks()
-		mocks.providerSupportsWebSearch.mockReturnValue(false)
+		mocks.modelSupportsWebSearch.mockReturnValue(false)
 		mocks.resolveRequestReasoning.mockReturnValue(undefined)
 		mocks.resolveEffectiveReasoning.mockReturnValue(undefined)
 		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({
@@ -738,7 +793,7 @@ describe('truncateToToolPairedPrefix', () => {
 describe('runChatLoop history sanitization', () => {
 	beforeEach(() => {
 		vi.resetAllMocks()
-		mocks.providerSupportsWebSearch.mockReturnValue(false)
+		mocks.modelSupportsWebSearch.mockReturnValue(false)
 		mocks.resolveRequestReasoning.mockReturnValue(undefined)
 		mocks.getOpenAIResponsesCompletion.mockResolvedValue({})
 		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({
@@ -777,7 +832,7 @@ describe('runChatLoop history sanitization', () => {
 describe('runChatLoop per-iteration vision gating', () => {
 	beforeEach(() => {
 		vi.resetAllMocks()
-		mocks.providerSupportsWebSearch.mockReturnValue(false)
+		mocks.modelSupportsWebSearch.mockReturnValue(false)
 		mocks.resolveRequestReasoning.mockReturnValue(undefined)
 	})
 
