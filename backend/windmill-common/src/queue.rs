@@ -15,16 +15,17 @@ pub fn pushed_job_priority(priority: Option<i16>, flow_step: bool, dependency_jo
     }
 }
 
-/// A job's stored priority, as an override for the jobs it starts. 0 is how a job without
-/// priority is stored (see [`pushed_job_priority`]): passing it on would replace the started
-/// runnable's own priority instead of leaving it in effect.
+/// A job's stored priority, as an override for the jobs it starts. 0 and 1 are what a job
+/// without priority and a flow step (a loop iteration or branch included) are stored as (see
+/// [`pushed_job_priority`]): passing them on would replace the started runnable's own priority,
+/// a Low subflow's included, instead of leaving it in effect.
 pub fn passed_on_priority(priority: Option<i16>) -> Option<i16> {
-    priority.filter(|p| *p != 0)
+    priority.filter(|p| !matches!(p, 0 | 1))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::pushed_job_priority;
+    use super::{passed_on_priority, pushed_job_priority};
 
     #[test]
     fn low_priority_sorts_after_jobs_without_priority() {
@@ -45,6 +46,19 @@ mod tests {
                 expected,
                 "{p:?} step={step} dep={dep}"
             );
+        }
+    }
+
+    #[test]
+    fn stored_defaults_are_not_passed_on() {
+        for (stored, passed_on) in [
+            (None, None),
+            (Some(0), None),
+            (Some(1), None),
+            (Some(50), Some(50)),
+            (Some(-100), Some(-100)),
+        ] {
+            assert_eq!(passed_on_priority(stored), passed_on, "{stored:?}");
         }
     }
 }
