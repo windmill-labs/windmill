@@ -164,7 +164,13 @@
 							{#if mod.value.max_duration_secs !== undefined}
 								<div class="flex flex-col gap-2 pl-9" transition:slideDynamic>
 									<Label label="Maximum duration">
-										<SecondsInput bind:seconds={mod.value.max_duration_secs} />
+										<SecondsInput
+											bind:seconds={
+												() => (mod.value as WhileloopFlow).max_duration_secs,
+												(v) =>
+													((mod.value as WhileloopFlow).max_duration_secs = Math.max(1, v ?? 1))
+											}
+										/>
 									</Label>
 								</div>
 							{/if}

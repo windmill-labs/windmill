@@ -6969,7 +6969,8 @@ async fn test_whileloop_max_iterations_fails_with_loop_exhausted(
             "id": "loop",
             "value": {
                 "type": "whileloopflow",
-                "skip_failures": false,
+                // skip_failures absorbs failed iterations, never the loop's own exhaustion
+                "skip_failures": true,
                 "max_iterations": 3,
                 "modules": [{ "id": "inner", "value": { "type": "identity" } }],
             },

@@ -813,6 +813,11 @@ pub async fn update_flow_status_after_job_completion_internal(
                 "error": { "name": "LoopExhausted", "message": message }
             })))
         });
+        // skip_failures tolerates failed iterations, not the loop failing as a whole.
+        let skip_loop_failures = skip_loop_failures && loop_exhausted_err.is_none();
+        if loop_exhausted_err.is_some() {
+            has_triggered_error_handler = false;
+        }
 
         let skip_seq_branch_failure = match module_status {
             FlowStatusModule::InProgress {
@@ -1906,9 +1911,9 @@ pub async fn update_flow_status_after_job_completion_internal(
         };
 
         let failure_step_recovers = is_failure_step && result_has_recover_true(nresult.clone());
-        // An error this flow raises on its own (a stop predicate's error message) is a new
-        // failure that no error handler recovered.
-        if stop_early_err_msg.is_some() {
+        // An error this flow raises on its own (a stop predicate's error message, a while loop
+        // reaching its bound) is a new failure that no error handler recovered or saw yet.
+        if stop_early_err_msg.is_some() || loop_exhausted_msg.is_some() {
             recovered_by_child = false;
         }
 
