@@ -569,7 +569,15 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 				console.warn('OpenAI Responses API failed, falling back to Completions API:', fallbackError)
 				const errorMessage = getErrorText(fallbackError)
-				if (errorMessage.includes('Responses API is not enabled')) {
+				if (abortController.signal.aborted) {
+					throw fallbackError
+				}
+				if (modelProvider.provider === 'deepseek') {
+					// DeepSeek is only here for its search, so an endpoint that cannot serve the
+					// request (a gateway without /responses) loses the search, not the provider.
+					markWebSearchUnsupported(webSearchCacheKey, fallbackError, config.onWebSearchUnavailable)
+					await reloadToolsWithoutWebSearch()
+				} else if (errorMessage.includes('Responses API is not enabled')) {
 					skipResponsesApi = true
 					onSkipResponsesApi?.()
 					await reloadToolsWithoutWebSearch()

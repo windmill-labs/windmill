@@ -375,6 +375,30 @@ describe('runChatLoop web search fallback', () => {
 		expect(mocks.getCompletion).toHaveBeenCalledTimes(2)
 	})
 
+	it('drops DeepSeek search for an endpoint that cannot serve its Responses request', async () => {
+		const workspace = `workspace-${randomUUID()}`
+		const pro = { provider: 'deepseek', model: 'deepseek-v4-pro' } as const
+		const searchWeb = {
+			def: { type: 'function', function: { name: 'search_web', parameters: {} } },
+			fn: vi.fn()
+		} as unknown as ChatLoopConfig['tools'][number]
+		const config = createConfig({ workspace, modelProvider: pro })
+		Object.defineProperty(config, 'tools', {
+			get: () => (sendsWebSearch(workspace, pro, true) ? [] : [searchWeb])
+		})
+		mocks.getOpenAIResponsesCompletion.mockRejectedValueOnce(
+			Object.assign(new Error('404 Not Found'), { status: 404 })
+		)
+		mocks.getCompletion.mockResolvedValue({})
+
+		await runChatLoop(config)
+
+		const toolNames = (call: unknown[]) =>
+			(call[2] as { function: { name: string } }[]).map((t) => t.function.name)
+		expect(toolNames(mocks.getCompletion.mock.calls[0])).toEqual(['search_web'])
+		expect(sendsWebSearch(workspace, pro, true)).toBe(false)
+	})
+
 	it('does not retry Anthropic request errors that only mention web search input', async () => {
 		const callbacks = createCallbacks()
 		const workspace = `workspace-${randomUUID()}`
