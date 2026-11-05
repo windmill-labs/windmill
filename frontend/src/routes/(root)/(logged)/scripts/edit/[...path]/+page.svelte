@@ -614,9 +614,7 @@
 			if ($workspaceStore) invalidate($workspaceStore, 'script')
 			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}
-		onSeeDetails={(e) => {
-			goto(`/scripts/get/${e.path}?workspace=${$workspaceStore}`)
-		}}
+		seeDetailsHref={(path) => `/scripts/get/${path}?workspace=${$workspaceStore}`}
 		onNavigate={(item) => goto(editPathFor(item))}
 	/>
 {/if}

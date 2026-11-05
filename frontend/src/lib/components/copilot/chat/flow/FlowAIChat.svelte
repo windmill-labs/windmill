@@ -13,7 +13,11 @@
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { FlowCopilotContext } from '../../flow'
 	import type { ScriptLintResult } from '../shared'
-	import { applyFlowJsonUpdate, updateRawScriptModuleContent } from './helperUtils'
+	import {
+		applyFlowJsonUpdate,
+		isFlowSchemaChange,
+		updateRawScriptModuleContent
+	} from './helperUtils'
 	import { findModuleInFlow } from '$lib/components/flows/flowTree'
 	import { getEditorStoragePath } from '$lib/components/editorStoragePathContext'
 
@@ -27,8 +31,15 @@
 		onTestFlow?: (conversationId?: string) => Promise<string | undefined>
 	} = $props()
 
-	const { flowStore, flowStateStore, selectionManager, currentEditor, previewArgs, opWorkspace } =
-		getContext<FlowEditorContext>('FlowEditorContext')
+	const {
+		flowStore,
+		flowStateStore,
+		selectionManager,
+		currentEditor,
+		previewArgs,
+		opWorkspace,
+		customUi
+	} = getContext<FlowEditorContext>('FlowEditorContext')
 	const selectedId = $derived(selectionManager.getSelectedId())
 
 	const { exprsToSet } = getContext<FlowCopilotContext | undefined>('FlowCopilotContext') ?? {}
@@ -138,6 +149,7 @@
 			}
 			await acceptPendingFlowEditsIfEnabled()
 		},
+		canEditFlowInputs: () => customUi?.aiFlowInputs != false,
 		getFlowInputsSchema: async () => {
 			const s = flowStore.val.schema ?? {}
 			return { type: 'object', properties: {}, required: [], ...s }
@@ -227,6 +239,11 @@
 			notes,
 			settings
 		}) => {
+			if (!flowHelpers.canEditFlowInputs() && isFlowSchemaChange(flowStore.val.schema, schema)) {
+				throw new Error(
+					'The flow inputs (schema) are locked in this editor and cannot be added, changed or removed. Keep the schema exactly as it is: give steps static values or reference only the existing flow_input fields.'
+				)
+			}
 			try {
 				if (
 					modules !== undefined ||

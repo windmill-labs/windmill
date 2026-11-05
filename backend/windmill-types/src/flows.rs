@@ -342,6 +342,8 @@ pub struct FlowValue {
     pub delete_after_use: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delete_after_secs: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<i32>,
 }
 
 impl FlowValue {

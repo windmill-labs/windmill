@@ -82,6 +82,8 @@ export interface ScriptBuilderProps {
 	onDeployError?: (e: { path: string; error: any }) => void
 	onHistoryRestore?: () => void
 	onSeeDetails?: (e: { path: string }) => void
+	/** Makes "Exit & See details" a link, so it opens in a new tab on middle/ctrl-click. Wins over `onSeeDetails`. */
+	seeDetailsHref?: (path: string) => string
 	onNavigate?: (item: WorkspaceItem) => void
 	// Fired whenever a test run is started from the script editor, with the
 	// preview job id. Used by whitelabel embedders to track test jobs.

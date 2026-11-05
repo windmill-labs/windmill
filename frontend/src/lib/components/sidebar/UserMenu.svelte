@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goto } from '$lib/navigation'
 	import { logout } from '$lib/logoutKit'
 	import {
 		userStore,
@@ -169,9 +168,7 @@
 					{#if $userStore?.is_admin}
 						<MenuItem
 							class={twMerge(itemClass, 'py-2')}
-							onClick={() => {
-								goto('/workspace_settings?tab=premium')
-							}}
+							href="/workspace_settings?tab=premium"
 							{item}
 						>
 							Upgrade
@@ -180,9 +177,7 @@
 				{:else}
 					<MenuItem
 						class={twMerge(itemClass, 'py-2')}
-						onClick={() => {
-							goto('/workspace_settings?tab=premium')
-						}}
+						href="/workspace_settings?tab=premium"
 						{item}
 					>
 						Premium plan

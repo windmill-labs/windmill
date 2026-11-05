@@ -38,7 +38,7 @@ let extractCounter = 0;
  * Memoized for the process: concurrent first callers (e.g. a parallel
  * `wmill sync push`) share one probe/download instead of each running their own.
  */
-export function getEsbuild(): Promise<Esbuild> {
+function getEsbuild(): Promise<Esbuild> {
   if (cached) return Promise.resolve(cached);
   if (inFlight) return inFlight;
   inFlight = acquireEsbuild()
@@ -78,13 +78,25 @@ async function acquireEsbuild(): Promise<Esbuild> {
   return loadWasmEsbuild(await nativeHostVersion());
 }
 
+let activeUsers = 0;
+
 /**
- * Stops the esbuild service (native or wasm — both spawn a child process) so the
- * process can exit. Safe to call repeatedly; the service restarts lazily on the
- * next build.
+ * Runs `fn` with the shared esbuild module and stops its service (native or
+ * wasm, both a child process) once no caller is using it any more. Every
+ * concurrent build shares that one service, and stopping it under a pending
+ * `build()` leaves the promise unsettled forever: with nothing else to do, Node
+ * exits 0 mid-push. So the service must never be stopped outside this count.
+ * It restarts lazily on the next call.
  */
-export async function stopEsbuild(): Promise<void> {
-  await cached?.stop();
+export async function withEsbuild<T>(
+  fn: (esbuild: Esbuild) => Promise<T>
+): Promise<T> {
+  activeUsers++;
+  try {
+    return await fn(await getEsbuild());
+  } finally {
+    if (--activeUsers === 0) await cached?.stop();
+  }
 }
 
 async function nativeHostVersion(): Promise<string> {
