@@ -14,6 +14,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import { Pen, Trash, Users } from 'lucide-svelte'
 	import { onMount, type Snippet } from 'svelte'
+	import { page } from '$app/state'
+	import { isNewTabClick } from '$lib/navigation'
 
 	interface Props {
 		/** Renders nothing, header included, when there are no groups. */
@@ -41,9 +43,30 @@
 	}
 
 	export function open(name: string) {
+		handledName = name
 		openName = name
 		drawer?.openDrawer()
 	}
+
+	// Deep link: #<name> opens that group's drawer. `open` pre-sets handledName, so a row
+	// click that also sets the hash doesn't reopen it. Names are compared decoded since the
+	// browser percent-encodes the hash.
+	let handledName = ''
+	$effect(() => {
+		const hash = page.url.hash
+		if (hash.length <= 1) {
+			handledName = ''
+			return
+		}
+		let name: string
+		try {
+			name = decodeURIComponent(hash.slice(1))
+		} catch {
+			return
+		}
+		if (name === handledName || !groups || !drawer) return
+		if (groups.some((g) => g.name === name)) open(name)
+	})
 
 	export async function created(name: string) {
 		await reload()
@@ -108,7 +131,17 @@
 					<Row hoverable on:click={() => open(group.name)}>
 						<Cell first>
 							<div class="flex flex-col min-w-0">
-								<span class="text-emphasis text-xs font-semibold">{group.name}</span>
+								<!-- The row opens the drawer on any click; the name is the link a new-tab click
+								     follows, so it keeps that click from the row. -->
+								<a
+									href="#{encodeURIComponent(group.name)}"
+									class="text-emphasis text-xs font-semibold"
+									onclick={(e) => {
+										e.stopPropagation()
+										if (isNewTabClick(e)) return
+										open(group.name)
+									}}>{group.name}</a
+								>
 								{#if group.summary}
 									<span class="text-2xs font-normal text-secondary truncate" title={group.summary}>
 										{group.summary}

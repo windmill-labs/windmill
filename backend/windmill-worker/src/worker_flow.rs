@@ -4059,16 +4059,23 @@ async fn push_next_flow_job(
 
                     resume_messages.push(to_raw_value(&js));
                     audit_log(
-                         &mut *tx,
-                         &audit_author,
-                         "jobs.suspend_resume",
-                         ActionKind::Update,
-                         &flow_job.workspace_id,
-                         Some(&serde_json::json!({"approved": false, "job_id": flow_job.id, "details": "Suspend timed out without approval but can continue".to_string()}).to_string()),
-                         None,
-                     )
-                     .warn_after_seconds(3)
-                     .await?;
+                        &mut *tx,
+                        &audit_author,
+                        "jobs.suspend_resume",
+                        ActionKind::Update,
+                        &flow_job.workspace_id,
+                        flow_job.runnable_path.as_deref(),
+                        Some(HashMap::from([
+                            ("approved", "false"),
+                            ("job_id", flow_job.id.to_string().as_str()),
+                            (
+                                "details",
+                                "Suspend timed out without approval but can continue",
+                            ),
+                        ])),
+                    )
+                    .warn_after_seconds(3)
+                    .await?;
                 }
 
                 sqlx::query!(
@@ -4153,16 +4160,23 @@ async fn push_next_flow_job(
             } else {
                 if is_disapproved.is_none() {
                     audit_log(
-                         &mut *tx,
-                         &audit_author,
-                         "jobs.suspend_resume",
-                         ActionKind::Update,
-                         &flow_job.workspace_id,
-                         Some(&serde_json::json!({"approved": false, "job_id": flow_job.id, "details": "Suspend timed out without approval and is cancelled".to_string()}).to_string()),
-                         None,
-                     )
-                     .warn_after_seconds(3)
-                     .await?;
+                        &mut *tx,
+                        &audit_author,
+                        "jobs.suspend_resume",
+                        ActionKind::Update,
+                        &flow_job.workspace_id,
+                        flow_job.runnable_path.as_deref(),
+                        Some(HashMap::from([
+                            ("approved", "false"),
+                            ("job_id", flow_job.id.to_string().as_str()),
+                            (
+                                "details",
+                                "Suspend timed out without approval and is cancelled",
+                            ),
+                        ])),
+                    )
+                    .warn_after_seconds(3)
+                    .await?;
                 }
                 tx.commit().warn_after_seconds(3).await?;
 
@@ -5763,7 +5777,7 @@ async fn compute_next_flow_transform(
     if module.mock.is_some() && module.mock.as_ref().unwrap().enabled {
         return Ok(NextFlowTransform::Continue(
             ContinuePayload::SingleJob(JobPayloadWithTag {
-                payload: JobPayload::Identity,
+                payload: JobPayload::Identity { mocked: true, skipped: false },
                 tag: None,
                 delete_after_use: false,
                 delete_after_secs: None,
@@ -5791,11 +5805,13 @@ async fn compute_next_flow_transform(
 
     tracing::debug!(id = %flow_job.id, "computing next flow transform for {:?}", &module.value);
     if is_skipped {
-        return trivial_next_job(JobPayload::Identity);
+        return trivial_next_job(JobPayload::Identity { mocked: false, skipped: true });
     }
 
     match module.get_value()? {
-        FlowModuleValue::Identity => trivial_next_job(JobPayload::Identity),
+        FlowModuleValue::Identity => {
+            trivial_next_job(JobPayload::Identity { mocked: false, skipped: false })
+        }
         FlowModuleValue::Flow { path, .. } => {
             let mut payload = flow_to_payload(
                 path,

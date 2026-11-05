@@ -6747,6 +6747,10 @@ async fn push_inner<'c, 'd>(
         flow_timeout: Option<i32>,
     }
     let mut preprocessed = None;
+    let (identity_mocked, identity_skipped) = match &job_payload {
+        JobPayload::Identity { mocked, skipped } => (*mocked, *skipped),
+        _ => (false, false),
+    };
     #[allow(unused)]
     let JobPayloadUntagged {
         runnable_id,
@@ -7527,7 +7531,7 @@ async fn push_inner<'c, 'd>(
                 ..Default::default()
             }
         }
-        JobPayload::Identity => {
+        JobPayload::Identity { .. } => {
             JobPayloadUntagged { job_kind: JobKind::Identity, ..Default::default() }
         }
         JobPayload::Noop => JobPayloadUntagged { job_kind: JobKind::Noop, ..Default::default() },
@@ -8095,6 +8099,21 @@ async fn push_inner<'c, 'd>(
         let mut hm = HashMap::from([("uuid", uuid_str), ("permissioned_as", &permissioned_as)]);
         if let Some(client) = authed.and_then(|a| a.mcp_client.as_deref()) {
             hm.insert("mcp_client", client);
+        }
+        // A step's entry names its step: a no-code step has no runnable path to show as the
+        // resource, and a script step's path does not say which step of which flow ran it.
+        let parent_job_string = parent_job.map(|p| p.to_string());
+        if let Some(step) = flow_step_id.as_deref() {
+            hm.insert("step_id", step);
+        }
+        if let Some(p) = parent_job_string.as_deref() {
+            hm.insert("parent_job", p);
+        }
+        if identity_mocked {
+            hm.insert("mocked", "true");
+        }
+        if identity_skipped {
+            hm.insert("skipped", "true");
         }
 
         let s: String;
