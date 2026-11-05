@@ -159,6 +159,12 @@ pub const AUTO_LOGIN_PROVIDER_SETTING: &str = "auto_login_provider";
 /// Name of the SAML attribute or OIDC userinfo claim carrying the user's IdP groups. Unset or
 /// empty leaves instance-group membership entirely to SCIM.
 pub const SSO_GROUPS_CLAIM_SETTING: &str = "sso_groups_claim";
+/// OIDC userinfo claim or SAML attribute holding the user's email. Unset, or absent from a
+/// login, keeps the protocol's default (OIDC `email`, SAML NameID).
+pub const SSO_EMAIL_CLAIM_SETTING: &str = "sso_email_claim";
+/// OIDC userinfo claim or SAML attribute (`NameID` for the subject's NameID) holding the
+/// username given to an account created at login. Unset, or absent, keeps the default.
+pub const SSO_USERNAME_CLAIM_SETTING: &str = "sso_username_claim";
 pub const HUB_BASE_URL_SETTING: &str = "hub_base_url";
 pub const HUB_ACCESSIBLE_URL_SETTING: &str = "hub_accessible_url";
 pub const DISABLE_HUB_SETTING: &str = "disable_hub";

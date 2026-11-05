@@ -863,6 +863,30 @@ export const settings: Record<string, Setting[]> = {
 			actionButton: manageInstanceGroupsButton
 		},
 		{
+			label: 'SSO email claim',
+			description:
+				"The claim or SAML attribute holding a user's email. Windmill accounts are keyed by email.",
+			tooltip:
+				'Leave empty to use the email claim on OIDC and the NameID on SAML. A login whose claim is missing falls back to that default, so one setting can serve providers that name it differently. The claim decides which account a login opens, so map it only to an attribute users cannot edit at the identity provider. GitHub and Nextcloud logins always use their own email source. A changed email signs in as a different user.',
+			key: 'sso_email_claim',
+			fieldType: 'text',
+			placeholder: 'email',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'SSO username claim',
+			description:
+				'The claim or SAML attribute holding the username given to an account created at its first SSO login. NameID means the SAML NameID.',
+			tooltip:
+				'Leave empty to use preferred_username on OIDC and the usual username attributes on SAML (uid, username, preferred_username, UPN). A login whose claim is missing falls back to that default. Existing accounts keep their username. Has no effect when automatic username creation is off.',
+			key: 'sso_username_claim',
+			fieldType: 'text',
+			placeholder: 'preferred_username',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
 			label: 'MCP external identity provider',
 			description:
 				'Let MCP clients sign in with your OpenID Connect provider. Each client acts as the signed-in Windmill user, within the access you set for it below.',
