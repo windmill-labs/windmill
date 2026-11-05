@@ -518,8 +518,11 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 				return continueCompletion.shouldContinue
 			}
 
-			let useCompletionsApi = skipResponsesApi
-			if (!skipResponsesApi) {
+			// The skip records an OpenAI deployment without the Responses API; DeepSeek's own
+			// endpoint serves it, and is only routed here to carry its search.
+			const responsesSkipped = skipResponsesApi && modelProvider.provider !== 'deepseek'
+			let useCompletionsApi = responsesSkipped
+			if (!responsesSkipped) {
 				// Retry the Responses call disabling whichever optional feature the
 				// provider rejected (reasoning summary, web search, prompt cache key) in
 				// the order the errors arrive — a turn can hit several, any one first.

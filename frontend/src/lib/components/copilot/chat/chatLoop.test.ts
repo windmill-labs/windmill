@@ -359,13 +359,19 @@ describe('runChatLoop web search fallback', () => {
 			expect.objectContaining({ webSearch: true })
 		)
 
+		// A skip recorded for an OpenAI deployment does not hold for DeepSeek's endpoint.
+		const afterOpenAISkip = createConfig({ workspace, modelProvider: pro })
+		afterOpenAISkip.skipResponsesApi = true
+		await runChatLoop(afterOpenAISkip)
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(2)
+
 		const searchOff = createConfig({ workspace, modelProvider: pro })
 		searchOff.webSearch = false
 		await runChatLoop(searchOff)
 		await runChatLoop(
 			createConfig({ workspace, modelProvider: { provider: 'deepseek', model: 'deepseek-flash' } })
 		)
-		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(1)
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(2)
 		expect(mocks.getCompletion).toHaveBeenCalledTimes(2)
 	})
 
