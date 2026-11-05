@@ -1127,6 +1127,8 @@ pub enum FlowModuleValue {
         branches: Vec<Branch>,
         #[serde(default = "default_true")]
         parallel: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parallelism: Option<InputTransform>,
     },
     RawScript {
         #[serde(default)]
@@ -1295,6 +1297,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     .branches
                     .ok_or_else(|| serde::de::Error::missing_field("branches"))?,
                 parallel: untagged.parallel.unwrap_or(true),
+                parallelism: untagged.parallelism,
             }),
             "rawscript" => Ok(FlowModuleValue::RawScript {
                 input_transforms: untagged.input_transforms.unwrap_or_default(),
@@ -1752,6 +1755,19 @@ mod tests {
             .map(|b| b.skip_failure.unwrap_or(false))
             .collect();
         assert_eq!(skips, vec![false, true]);
+    }
+
+    #[test]
+    fn branchall_parallelism_round_trips() {
+        // Deploying a flow re-serializes every module value; a dropped cap would start
+        // every branch at once.
+        let input = json!({ "type": "branchall", "branches": [], "parallelism": 2 });
+        let val: FlowModuleValue = serde_json::from_value(input).unwrap();
+        let output = serde_json::to_value(&val).unwrap();
+        assert_eq!(
+            output["parallelism"],
+            json!({ "type": "static", "value": 2 })
+        );
     }
 
     #[test]

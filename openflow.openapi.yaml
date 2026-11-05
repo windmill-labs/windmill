@@ -1015,6 +1015,9 @@ components:
         parallel:
           type: boolean
           description: If true, all branches execute concurrently. If false, they execute sequentially
+        parallelism:
+          description: Maximum number of branches running at once when parallel=true. Can be static number or expression
+          $ref: '#/components/schemas/InputTransform'
       required:
         - branches
         - type
