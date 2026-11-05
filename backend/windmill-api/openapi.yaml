@@ -35155,6 +35155,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         initial_messages:
           type: array
           nullable: true
@@ -35222,6 +35226,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         initial_messages:
           type: array
           nullable: true
@@ -35300,6 +35308,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         initial_messages:
           type: array
           nullable: true
@@ -36981,6 +36993,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         auto_offset_reset:
           type: string
           enum:
@@ -37055,6 +37071,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         auto_offset_reset:
           type: string
           enum:
@@ -37125,6 +37145,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         auto_offset_reset:
           type: string
           enum:

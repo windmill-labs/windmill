@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE kafka_trigger\n            SET\n                kafka_resource_path = $1,\n                group_id = $2,\n                topics = $3,\n                filters = $4,\n                filter_logic = $5,\n                auto_offset_reset = $6,\n                auto_commit = $7,\n                script_path = $8,\n                path = $9,\n                is_flow = $10,\n                edited_by = $11,\n                permissioned_as = $12,\n                edited_at = now(),\n                server_id = NULL,\n                error = NULL,\n                error_handler_path = $15,\n                error_handler_args = $16,\n                retry = $17,\n                run_on_filter_error = $18\n            WHERE\n                workspace_id = $13 AND path = $14\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "VarcharArray",
+        "JsonbArray",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Text",
+        "Varchar",
+        "Jsonb",
+        "Jsonb",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6f16ddb07e8543e12a12bd5b312da224e00c5c0ac1ba4abc16fe104d28b59da1"
+}

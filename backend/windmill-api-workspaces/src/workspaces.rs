@@ -7744,14 +7744,14 @@ async fn clone_triggers_and_schedules(
             extra_perms, server_id, last_server_ping, error, filters, initial_messages,
             url_runnable_args, can_return_message, error_handler_path, error_handler_args,
             retry, can_return_error_result, mode, permissioned_as, filter_logic, labels,
-            heartbeat
+            heartbeat, run_on_filter_error
         )
         SELECT
             path, url, script_path, is_flow, $1, edited_by, edited_at,
             extra_perms, NULL, NULL, NULL, filters, initial_messages,
             url_runnable_args, can_return_message, error_handler_path, error_handler_args,
             retry, can_return_error_result, 'disabled'::TRIGGER_MODE, permissioned_as, filter_logic, labels,
-            heartbeat
+            heartbeat, run_on_filter_error
         FROM websocket_trigger WHERE workspace_id = $2"#,
         target_workspace_id,
         source_workspace_id,
@@ -7765,14 +7765,14 @@ async fn clone_triggers_and_schedules(
             workspace_id, edited_by, edited_at, extra_perms, server_id,
             last_server_ping, error, error_handler_path, error_handler_args, retry,
             mode, filters, auto_offset_reset, reset_offset, auto_commit,
-            permissioned_as, filter_logic, labels
+            permissioned_as, filter_logic, labels, run_on_filter_error
         )
         SELECT
             path, kafka_resource_path, topics, group_id, script_path, is_flow,
             $1, edited_by, edited_at, extra_perms, NULL,
             NULL, NULL, error_handler_path, error_handler_args, retry,
             'disabled'::TRIGGER_MODE, filters, auto_offset_reset, reset_offset, auto_commit,
-            permissioned_as, filter_logic, labels
+            permissioned_as, filter_logic, labels, run_on_filter_error
         FROM kafka_trigger WHERE workspace_id = $2"#,
         target_workspace_id,
         source_workspace_id,
