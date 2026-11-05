@@ -313,7 +313,7 @@
 				}
 			}
 		}
-		if (rerunnable)
+		if (rerunnable && $roleCaps.run)
 			actions.push({
 				label: 'Run again',
 				icon: RefreshCwIcon,

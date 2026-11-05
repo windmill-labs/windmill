@@ -1161,15 +1161,19 @@
 								displayName: 'Cancel jobs',
 								action: () => ((manualSelectionMode = 'cancel'), (selectedIds = []))
 							},
-							{
-								displayName: 'Re-run jobs',
-								action: () => {
-									manualSelectionMode = 'rerun'
-									selectedIds = []
-									filterMatchedIds = undefined
-									batchRerunOptionsIsOpen = true
-								}
-							},
+							...($roleCaps.run
+								? [
+										{
+											displayName: 'Re-run jobs',
+											action: () => {
+												manualSelectionMode = 'rerun'
+												selectedIds = []
+												filterMatchedIds = undefined
+												batchRerunOptionsIsOpen = true
+											}
+										}
+									]
+								: []),
 							...($roleCaps.code
 								? [
 										{
@@ -1187,10 +1191,14 @@
 								displayName: 'Cancel all jobs matching filters',
 								action: () => onCancelAllJobsMatchingFilters()
 							},
-							{
-								displayName: 'Re-run all jobs matching filters',
-								action: () => onRerunAllJobsMatchingFilters()
-							}
+							...($roleCaps.run
+								? [
+										{
+											displayName: 'Re-run all jobs matching filters',
+											action: () => onRerunAllJobsMatchingFilters()
+										}
+									]
+								: [])
 						]}
 					/>
 				{:else}
