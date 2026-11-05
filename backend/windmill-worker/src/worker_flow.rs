@@ -634,6 +634,14 @@ pub async fn update_flow_status_after_job_completion_internal(
             FlowStatusModule::InProgress { branchall: Some(_), parallel, .. } => (true, *parallel),
             _ => (false, false),
         };
+        let parallelism = if parallel_branchall {
+            current_module
+                .as_ref()
+                .and_then(|x| x.get_value_with_skip_failures().ok())
+                .and_then(|x| x.parallelism)
+        } else {
+            parallelism
+        };
 
         // 0 length flows are not failure steps
         let is_failure_step =
@@ -1753,10 +1761,24 @@ pub async fn update_flow_status_after_job_completion_internal(
                         );
                         None
                     });
+                // The limit itself is re-applied through the job's columns below; only the
+                // behaviour on reaching it has no column and must ride in the handle.
+                let concurrency_hash = windmill_common::runnable_settings::ConcurrencySettings {
+                    on_concurrency_limit: flow_value.concurrency_settings.on_concurrency_limit,
+                    ..Default::default()
+                }
+                .insert_cached(db)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::error!(
+                        "Failed to insert concurrency settings for post-preprocessing: {e:#}"
+                    );
+                    None
+                });
                 windmill_common::runnable_settings::insert_rs(
                     windmill_common::runnable_settings::RunnableSettings {
                         debouncing_settings: debouncing_hash,
-                        concurrency_settings: None,
+                        concurrency_settings: concurrency_hash,
                         retry_settings: None,
                     },
                     db,
@@ -2766,6 +2788,37 @@ fn root_flow_id_for(flow_job: &MiniPulledJob) -> Uuid {
     flow_job.flow_innermost_root_job.unwrap_or(flow_job.id)
 }
 
+/// The step's mock, if this run uses it. A `preview_only` mock applies when the run was started
+/// as a flow preview, so to every job under a preview root, deployed subflows included: the
+/// innermost root cannot be used, since an inline loop body is pushed as a raw flow, which is a
+/// `FlowPreview` job even inside a deployed run.
+async fn applied_mock<'a>(
+    module: &'a FlowModule,
+    flow_job: &MiniPulledJob,
+    db: &DB,
+) -> error::Result<Option<&'a windmill_common::flows::Mock>> {
+    let Some(mock) = module.mock.as_ref().filter(|m| m.enabled) else {
+        return Ok(None);
+    };
+    if !mock.preview_only {
+        return Ok(Some(mock));
+    }
+    let root = get_root_job_id(flow_job);
+    let in_preview = if root == flow_job.id {
+        matches!(flow_job.kind, JobKind::FlowPreview)
+    } else {
+        sqlx::query_scalar!(
+            "SELECT kind = 'flowpreview' AS \"in_preview!\" FROM v2_job WHERE id = $1",
+            root
+        )
+        .fetch_optional(db)
+        .warn_after_seconds(3)
+        .await?
+        .unwrap_or(false)
+    };
+    Ok(in_preview.then_some(mock))
+}
+
 async fn fetch_root_flow_id(db: &DB, flow_id: Uuid) -> Uuid {
     sqlx::query_scalar!(
         "SELECT flow_innermost_root_job FROM v2_job WHERE id = $1",
@@ -3494,6 +3547,29 @@ pub struct ResumeRow {
     pub resume_id: i32,
 }
 
+impl ResumeRow {
+    /// The step's error for a denial, carrying the reason the approver put in the deny
+    /// payload's `reason`, if any.
+    fn disapproval_error(&self) -> Value {
+        let approver = self.approver.as_deref().unwrap_or("unknown");
+        let reason = serde_json::from_str::<Value>(self.value.get())
+            .ok()
+            .and_then(|v| Some(v.get("reason")?.as_str()?.trim().to_string()))
+            .filter(|r| !r.is_empty());
+        match reason {
+            Some(reason) => json!({"error": {
+                "message": format!("Disapproved by {approver}: {reason}"),
+                "name": "SuspendedDisapproved",
+                "reason": reason,
+            }}),
+            None => json!({"error": {
+                "message": format!("Disapproved by {approver}"),
+                "name": "SuspendedDisapproved",
+            }}),
+        }
+    }
+}
+
 lazy_static::lazy_static! {
     static ref CRASH_FORCEFULLY_AT_STEP: Option<usize> = std::env::var("CRASH_FORCEFULLY_AT_STEP")
         .ok()
@@ -4098,7 +4174,7 @@ async fn push_next_flow_job(
             if can_be_resumed || disapproved_or_timeout_but_continue {
                 if disapproved_or_timeout_but_continue {
                     let js = if let Some(disapproved) = is_disapproved.as_ref() {
-                        json!({"error": {"message": format!("Disapproved by {}", disapproved.approver.clone().unwrap_or_else( || "unknown".to_string())), "name": "SuspendedDisapproved"}})
+                        disapproved.disapproval_error()
                     } else {
                         json!({"error": {"message": "Timed out waiting to be resumed", "name": "SuspendedTimedOut"}})
                     };
@@ -4226,25 +4302,15 @@ async fn push_next_flow_job(
                 }
                 tx.commit().warn_after_seconds(3).await?;
 
-                let (logs, error_name) = if let Some(disapprover) = is_disapproved {
-                    (
-                        format!(
-                            "Disapproved by {}",
-                            disapprover
-                                .approver
-                                .clone()
-                                .unwrap_or_else(|| "unknown".to_string())
-                        ),
-                        "SuspendedDisapproved",
-                    )
+                let result: Value = if let Some(disapprover) = is_disapproved {
+                    disapprover.disapproval_error()
                 } else {
-                    (
-                        "Timed out waiting to be resumed".to_string(),
-                        "SuspendedTimedOut",
-                    )
+                    json!({ "error": {"message": "Timed out waiting to be resumed", "name": "SuspendedTimedOut"}})
                 };
-
-                let result: Value = json!({ "error": {"message": logs, "name": error_name}});
+                let logs = result["error"]["message"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
 
                 append_logs(
                     &flow_job.id,
@@ -4499,17 +4565,13 @@ async fn push_next_flow_job(
         false
     };
 
-    let args: windmill_common::error::Result<_> = if module.mock.is_some()
-        && module.mock.as_ref().unwrap().enabled
-    {
+    let applied_mock = applied_mock(&module, &flow_job, db).await?;
+    let args: windmill_common::error::Result<_> = if let Some(mock) = applied_mock {
         let mut hm = HashMap::new();
         hm.insert(
             "previous_result".to_string(),
             to_raw_value(
-                &module
-                    .mock
-                    .as_ref()
-                    .unwrap()
+                &mock
                     .return_value
                     .clone()
                     .unwrap_or_else(|| serde_json::from_str("null").unwrap()),
@@ -4619,6 +4681,7 @@ async fn push_next_flow_job(
         resume.clone(),
         approvers.clone(),
         is_skipped,
+        applied_mock.is_some(),
     )
     .warn_after_seconds(3)
     .await?;
@@ -4780,13 +4843,13 @@ async fn push_next_flow_job(
         // compute job-to-be-pushed priority
         // The job definition itself might have its own priority, but as we're running
         // it from a flow here, it inherits first the flow step priority and second the
-        // flow priority.
-        let new_job_priority_override = if module.priority.is_some() {
-            module.priority
-        } else if flow_job.priority.is_some() {
-            flow_job.priority
+        // flow priority. A low (negative) flow priority wins over the step's own: a background
+        // flow must not get ahead of other work through one of its steps.
+        let flow_priority = windmill_common::queue::passed_on_priority(flow_job.priority);
+        let new_job_priority_override = if flow_priority.is_some_and(|p| p < 0) {
+            flow_priority
         } else {
-            None
+            module.priority.or(flow_priority)
         };
 
         // The `flow_input` the step's input transforms read, which a `$flow_expr[flow_input...]`
@@ -5167,6 +5230,27 @@ async fn push_next_flow_job(
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
+        // Both run as an identity job that passes a value through, which reads as a real run
+        // unless the step's own logs say otherwise.
+        let not_executed_log = if applied_mock.is_some() {
+            Some("Step mocked: returned the pinned value, nothing was executed\n")
+        } else if is_skipped {
+            Some("Step skipped: its skip condition was true, nothing was executed\n")
+        } else {
+            None
+        };
+        if let Some(log) = not_executed_log {
+            sqlx::query!(
+                "INSERT INTO job_logs (logs, job_id, workspace_id) VALUES ($1, $2, $3) ON CONFLICT (job_id) DO UPDATE SET logs = concat(job_logs.logs, EXCLUDED.logs)",
+                log,
+                uuid,
+                flow_job.workspace_id,
+            )
+            .execute(&mut *inner_tx)
+            .warn_after_seconds(3)
+            .await?;
+        }
+
         // Apply flow node debouncing if configured. Skip parallel steps (for-loops, branchall)
         // where len > 1 — debouncing those would cancel sibling sub-jobs within the same run.
         #[cfg(feature = "private")]
@@ -5195,11 +5279,15 @@ async fn push_next_flow_job(
             }
         }
 
-        if value_with_parallel.type_ == "forloopflow"
-            && value_with_parallel.parallel.unwrap_or(false)
-        {
+        // A branch-all is parallel unless `parallel: false`, a for-loop only with `parallel: true`.
+        let is_parallel_step = match value_with_parallel.type_.as_str() {
+            "forloopflow" => value_with_parallel.parallel.unwrap_or(false),
+            "branchall" => value_with_parallel.parallel.unwrap_or(true),
+            _ => false,
+        };
+        if is_parallel_step {
             if let Some(parallelism_transform) = &value_with_parallel.parallelism {
-                tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for forloopflow job {uuid}");
+                tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for {} job {uuid}", value_with_parallel.type_);
 
                 let ctx = get_transform_context(&flow_job, &previous_id, &status);
 
@@ -5212,8 +5300,15 @@ async fn push_next_flow_job(
                     Some(&ctx),
                 )
                 .await?;
+                // A cap of 0 suspends every child, and only a finishing child releases one.
+                if evaluated_parallelism == 0 {
+                    return Err(Error::BadRequest(format!(
+                        "parallelism of step {} must be at least 1",
+                        module.id
+                    )));
+                }
 
-                tracing::debug!(id = %flow_job.id, root_id = %job_root, "updating suspend for forloopflow job {uuid} with parallelism {evaluated_parallelism}");
+                tracing::debug!(id = %flow_job.id, root_id = %job_root, "updating suspend for parallel job {uuid} with parallelism {evaluated_parallelism}");
 
                 if i as u16 >= evaluated_parallelism {
                     sqlx::query!(
@@ -5819,8 +5914,9 @@ async fn compute_next_flow_transform(
     resume: Arc<Box<RawValue>>,
     approvers: Arc<Box<RawValue>>,
     is_skipped: bool,
+    mocked: bool,
 ) -> error::Result<NextFlowTransform> {
-    if module.mock.is_some() && module.mock.as_ref().unwrap().enabled {
+    if mocked {
         return Ok(NextFlowTransform::Continue(
             ContinuePayload::SingleJob(JobPayloadWithTag {
                 payload: JobPayload::Identity { mocked: true, skipped: false },
@@ -7020,8 +7116,34 @@ pub async fn get_previous_job_result(
 mod tests {
     use super::{
         effective_flow_step_timeout, extract_chat_message_from_flow_result, is_simple_modules,
-        FlowEnvSecrets,
+        FlowEnvSecrets, ResumeRow,
     };
+
+    #[test]
+    fn disapproval_error_carries_the_deny_reason() {
+        let denial = |value: serde_json::Value| ResumeRow {
+            value: sqlx::types::Json(to_raw_value(&value).unwrap()),
+            approver: Some("ann".to_string()),
+            approved: false,
+            resume_id: 0,
+        };
+        assert_eq!(
+            denial(json!({"reason": " too risky "})).disapproval_error(),
+            json!({"error": {"name": "SuspendedDisapproved", "message": "Disapproved by ann: too risky", "reason": "too risky"}})
+        );
+        // A form payload without a string reason denies as before.
+        for value in [
+            json!(null),
+            json!({"reason": "  "}),
+            json!({"reason": 3}),
+            json!({"a": 1}),
+        ] {
+            assert_eq!(
+                denial(value).disapproval_error(),
+                json!({"error": {"name": "SuspendedDisapproved", "message": "Disapproved by ann"}})
+            );
+        }
+    }
 
     // An input computed from a secret is stored encrypted, which an agent worker cannot
     // decrypt, so a key that merely shares a secret entry's name must not count as reading it.

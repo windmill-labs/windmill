@@ -15,6 +15,7 @@
 	import type { FlowNodeState } from '$lib/components/graph'
 	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import { getGraphContext } from '$lib/components/graph/graphContext'
+	import { nextMock } from '../flowMock'
 
 	interface Props {
 		moduleId: string
@@ -37,12 +38,16 @@
 			  }
 			| undefined
 		editMode?: boolean
+		/** Whether the step's mock applies to what the graph shows: in a run, whether it was used; on
+		 * a deployed flow, whether deployed runs use it. A pin shows only where it applies, which is
+		 * what tells a test-runs pin from an every-run one. Undefined in the editor. */
+		mockApplied?: boolean
 		onSelectedIteration: OnSelectedIteration
 		onSelect: (id: string | FlowModule) => void
 		onTestUpTo?: ((id: string) => void) | undefined
 		onUpdateMock?: (detail: {
 			id: string
-			mock: { enabled: boolean; return_value?: unknown }
+			mock: { enabled: boolean; return_value?: unknown; preview_only?: boolean }
 		}) => void
 		onEditInput?: (moduleId: string, key: string) => void
 		flowJob?: Job | undefined
@@ -66,6 +71,7 @@
 		retries = undefined,
 		flowJobs,
 		editMode = false,
+		mockApplied = undefined,
 		onSelect,
 		onTestUpTo,
 		onUpdateMock,
@@ -90,13 +96,20 @@
 
 	let itemProps = $derived({
 		selected: selectionManager && selectionManager.isNodeSelected(mod.id),
-		mock: mod.mock,
+		mock: mockApplied === false ? undefined : mod.mock,
 		settings: describeStepSettings(mod).filter((s) => s.configured)
 	})
 
 	let parentLoop = $derived(
 		flowStore?.val && mod ? checkIfParentLoop(flowStore.val, mod.id) : undefined
 	)
+
+	// `mod` is the flow's own module, so the default must be taken here, from the mock as it was.
+	function updateMock(next: { enabled: boolean; return_value?: unknown; preview_only?: boolean }) {
+		const mock = nextMock(mod.mock, next)
+		mod.mock = mock
+		onUpdateMock?.({ id: mod.id, mock })
+	}
 
 	function handlePointerDown(e: CustomEvent<PointerEvent>) {
 		// Only handle left clicks (button 0)
@@ -190,10 +203,7 @@
 					on:move
 					on:delete
 					on:pointerdown={handlePointerDown}
-					onUpdateMock={(mock) => {
-						mod.mock = mock
-						onUpdateMock?.({ id: mod.id, mock })
-					}}
+					onUpdateMock={updateMock}
 					{...itemProps}
 					{nodeState}
 					warningMessage={mod?.value?.type === 'forloopflow' &&
@@ -219,10 +229,7 @@
 					on:delete
 					on:move
 					on:pointerdown={handlePointerDown}
-					onUpdateMock={(mock) => {
-						mod.mock = mock
-						onUpdateMock?.({ id: mod.id, mock })
-					}}
+					onUpdateMock={updateMock}
 					alwaysShowOutputPicker
 					{...itemProps}
 					id={mod.id}
@@ -244,10 +251,7 @@
 					on:delete
 					on:move
 					on:pointerdown={handlePointerDown}
-					onUpdateMock={(mock) => {
-						mod.mock = mock
-						onUpdateMock?.({ id: mod.id, mock })
-					}}
+					onUpdateMock={updateMock}
 					alwaysShowOutputPicker
 					id={mod.id}
 					{...itemProps}
@@ -269,10 +273,7 @@
 					on:pointerdown={handlePointerDown}
 					on:delete
 					on:move
-					onUpdateMock={(mock) => {
-						mod.mock = mock
-						onUpdateMock?.({ id: mod.id, mock })
-					}}
+					onUpdateMock={updateMock}
 					deletable={insertable}
 					id={mod.id}
 					{...itemProps}

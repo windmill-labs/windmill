@@ -6,7 +6,7 @@ import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { SyncOptions, readConfigFile, DEFAULT_SYNC_OPTIONS, getWmillYamlPath, findWorkspaceByGitBranch, WorkspacesConfig, WorkspaceEntryConfig, getWorkspaceNames, getEffectiveGitBranch } from "../../core/conf.ts";
+import { SyncOptions, readConfigFile, DEFAULT_SYNC_OPTIONS, getWmillYamlPath, findWorkspaceByGitBranch, WorkspacesConfig } from "../../core/conf.ts";
 import { yamlOptions } from "../sync/sync.ts";
 import { deepEqual } from "../../utils/utils.ts";
 import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
@@ -23,7 +23,7 @@ import {
   normalizeRepoPath,
   outputResult,
   getEffectiveSettingsForWorkspace,
-  resolveGitSyncWsName
+  resolveOverrideTarget
 } from "./utils.ts";
 
 export async function pullGitSyncSettings(
@@ -442,30 +442,14 @@ export async function pullGitSyncSettings(
       }
     }
 
-    // Override mode writes to the entry the diff was computed against, so a
-    // second pull finds no conflict
     let overrideTarget: string | undefined;
     if (writeMode === "override") {
-      overrideTarget = resolveGitSyncWsName(localConfig, opts, workspace);
-      if (!overrideTarget && isGitRepository()) {
-        const currentBranch = getCurrentGitBranch();
-        if (currentBranch) {
-          // The branch does not identify a workspace, so an unresolved workspace
-          // never writes into an existing entry: it could be another workspace's.
-          const entries = (localConfig.workspaces ?? {}) as Record<string, WorkspaceEntryConfig>;
-          const taken = getWorkspaceNames(localConfig.workspaces).filter(
-            (name) =>
-              name === currentBranch || getEffectiveGitBranch(name, entries[name]) === currentBranch,
-          );
-          if (taken.length > 0) {
-            throw new Error(
-              `No workspace entry in wmill.yaml matches workspace '${workspace.workspaceId}', and git branch '${currentBranch}' is already used by ${taken.join(", ")}. ` +
-                `Name the entry for this workspace '${workspace.workspaceId}' and keep 'gitBranch: ${currentBranch}' on it so it can be resolved.`,
-            );
-          }
-          overrideTarget = currentBranch;
-        }
-      }
+      overrideTarget = resolveOverrideTarget(
+        localConfig,
+        opts,
+        workspace,
+        isGitRepository() ? getCurrentGitBranch() : undefined,
+      );
       if (overrideTarget) {
         log.info(`Writing settings to workspace entry: ${overrideTarget}`);
         updatedConfig = applyBackendSettingsToBranch(localConfig, overrideTarget, backendSyncOptions);

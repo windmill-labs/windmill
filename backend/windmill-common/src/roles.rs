@@ -323,6 +323,21 @@ pub fn diff_capabilities(
     }
 }
 
+/// A role's capabilities in the pre-roles `operator_settings` shape, which older clients gate on.
+pub fn legacy_operator_settings(c: &RoleCapabilities) -> serde_json::Value {
+    let v = &c.visibility;
+    serde_json::json!({
+        "runs": v.runs, "schedules": v.schedules, "resources": v.resources,
+        "variables": v.variables, "assets": v.assets, "triggers": v.triggers,
+        "audit_logs": v.audit_logs, "groups": v.groups, "folders": v.folders,
+        "workers": v.workers,
+        "builder_flows": c.flows != AuthorLevel::None,
+        "builder_apps": c.apps != AuthorLevel::None,
+        "manage_schedules": c.manage_schedules,
+        "manage_triggers": c.manage_triggers,
+    })
+}
+
 /// One entry of the instance's [`WORKSPACE_ROLES_SETTING`].
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct RoleDefinition {
@@ -573,7 +588,8 @@ fn cached_instance_roles() -> Option<Arc<Vec<RoleDefinition>>> {
         .map(|(r, _)| r)
 }
 
-async fn instance_roles_on(conn: &mut sqlx::PgConnection) -> Result<Arc<Vec<RoleDefinition>>> {
+/// [`instance_roles`] on a connection the caller already holds.
+pub async fn instance_roles_on(conn: &mut sqlx::PgConnection) -> Result<Arc<Vec<RoleDefinition>>> {
     if let Some(roles) = cached_instance_roles() {
         return Ok(roles);
     }
