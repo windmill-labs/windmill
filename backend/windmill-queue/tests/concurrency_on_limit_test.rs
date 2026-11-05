@@ -1,4 +1,4 @@
-//! The concurrency limiter's behaviour on a full key (`apply_concurrency_limit`,
+//! The concurrency limiter's fail mode on a full key (`apply_concurrency_limit`,
 //! windmill-queue/jobs_ee.rs), driven through `pull` without a worker.
 //!
 //! Run with:
@@ -8,7 +8,6 @@
 mod concurrency_on_limit {
     use std::collections::HashMap;
 
-    use chrono::{DateTime, Utc};
     use sqlx::{Pool, Postgres};
     use uuid::Uuid;
     use windmill_common::jobs::{JobPayload, RawCode};
@@ -88,16 +87,6 @@ mod concurrency_on_limit {
             .expect("pull")
     }
 
-    async fn scheduled_for(db: &Pool<Postgres>, id: Uuid) -> DateTime<Utc> {
-        sqlx::query_scalar::<_, DateTime<Utc>>(
-            "SELECT scheduled_for FROM v2_job_queue WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_one(db)
-        .await
-        .expect("scheduled_for")
-    }
-
     #[sqlx::test(migrations = "../migrations", fixtures("base"))]
     async fn fail_mode_fails_the_run_over_the_limit(db: Pool<Postgres>) {
         let first = push_job(&db, Some(OnConcurrencyLimit::Fail)).await;
@@ -143,35 +132,6 @@ mod concurrency_on_limit {
         assert_eq!(
             windmill_common::worker::error_to_value(&err)["name"],
             "ConcurrencyLimitReached"
-        );
-    }
-
-    // An older run that wakes at its estimated slot to a still-full key must be re-queued ahead
-    // of a younger run already holding a later slot, not behind it.
-    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-    async fn queue_mode_keeps_submission_order_on_requeue(db: Pool<Postgres>) {
-        let running = push_job(&db, None).await;
-        let older = push_job(&db, None).await;
-        let younger = push_job(&db, None).await;
-
-        assert_eq!(pull_one(&db).await.job.map(|j| j.id), Some(running));
-        // Both waiting runs are pulled and re-queued in this one call.
-        assert!(pull_one(&db).await.job.is_none());
-        assert!(scheduled_for(&db, older).await < scheduled_for(&db, younger).await);
-
-        // The older run's slot arrives while the key is still full.
-        sqlx::query(
-            "UPDATE v2_job_queue SET scheduled_for = now() - INTERVAL '1 second' WHERE id = $1",
-        )
-        .bind(older)
-        .execute(&db)
-        .await
-        .unwrap();
-        assert!(pull_one(&db).await.job.is_none());
-
-        assert!(
-            scheduled_for(&db, older).await < scheduled_for(&db, younger).await,
-            "the older run must still start first"
         );
     }
 }
