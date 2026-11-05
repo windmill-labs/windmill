@@ -867,7 +867,7 @@ export const settings: Record<string, Setting[]> = {
 			description:
 				"The claim or SAML attribute holding a user's email. Windmill accounts are keyed by email.",
 			tooltip:
-				'Leave empty to use the email claim on OIDC and the NameID on SAML. A login whose claim is missing falls back to that default, so one setting can serve providers that name it differently. GitHub and Nextcloud logins always use their own email source. A changed email signs in as a different user.',
+				'Leave empty to use the email claim on OIDC and the NameID on SAML. A login whose claim is missing falls back to that default, so one setting can serve providers that name it differently. The claim decides which account a login opens, so map it only to an attribute users cannot edit at the identity provider. GitHub and Nextcloud logins always use their own email source. A changed email signs in as a different user.',
 			key: 'sso_email_claim',
 			fieldType: 'text',
 			placeholder: 'email',

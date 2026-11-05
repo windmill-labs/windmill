@@ -164,7 +164,10 @@ Symbols, not line numbers, are cited: they drift less.
   alike): a configured claim absent from a login falls back to the protocol default (OIDC
   `email` and the chain above, SAML NameID; `preferred_username` / the SAML username list),
   so one setting serves providers that name it differently. A configured email claim counts
-  as asserted; `email_verified` is only read when the claim is `email`. GitHub and Nextcloud
+  as asserted and can claim a `pending_oauth` account, so it must name an attribute users
+  cannot edit at the IdP; `email_verified` is only read when the claim is `email` (the MCP
+  external IdP instead refuses any token marked unverified, whatever its email claim: it never
+  creates or claims an account, so the stricter rule costs nothing there). GitHub and Nextcloud
   keep their own email source. Accounts stay keyed by email: the username claim only names an
   account at creation, and an email change at the IdP signs in as a different account.
 - **MCP access tokens from an external issuer** (`mcp_external_idp`, EE, `mcp/external_idp.rs`):
