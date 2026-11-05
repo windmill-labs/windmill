@@ -1622,7 +1622,8 @@ write a secret you were not given: keep the placeholder.
 | \`default_app\` | Path of the app shown as the workspace home. |
 | \`default_scripts\` | \`{ order?, hidden?, default_script_content? }\` for the script language picker. |
 | \`deploy_ui\` | \`{ include_path?, include_type? }\`: what the deploy-to-workspace UI offers. |
-| \`operator_settings\` | What operators see and do: page visibility flags (\`runs\`, \`schedules\`, \`resources\`, \`variables\`, \`assets\`, \`audit_logs\`, \`groups\`, \`folders\`, \`workers\`, \`triggers\`) and write rights (\`manage_schedules\`, \`manage_triggers\`, \`builder_flows\`, \`builder_apps\`). A write right the value omits keeps its stored value. |
+| \`role_overrides\` | \`{ <role>: { label?, capabilities, workspace_only? } }\`: the workspace's overrides of the instance's roles, and with \`workspace_only: true\` a role of this workspace only (Enterprise). A role the value omits loses its override. Overriding a role the instance does not define is refused. Edit operator rights in \`role_overrides.operator\`. |
+| \`operator_settings\` | Legacy view of the \`operator\` role, kept for older servers: page visibility flags (\`runs\`, \`schedules\`, \`resources\`, \`variables\`, \`assets\`, \`audit_logs\`, \`groups\`, \`folders\`, \`workers\`, \`triggers\`) and write rights (\`manage_schedules\`, \`manage_triggers\`, \`builder_flows\`, \`builder_apps\`). Not applied when the document also states \`role_overrides\`. |
 | \`mute_critical_alerts\` | Mute the workspace's critical alerts. |
 | \`slack_team_id\`, \`slack_name\` | Read only: set by connecting Slack on the settings page. |
 | \`slack_command_script\` / \`teams_command_script\` | Script or flow handling the Slack / Teams command. |
