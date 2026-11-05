@@ -19630,7 +19630,9 @@ paths:
               type: object
               properties:
                 payload:
-                  description: payload to send to the resumed job
+                  description: >
+                    payload to send to the resumed job. On a denial, a string `reason` in it
+                    is shown in the step's error and the audit log.
                 approval_token:
                   type: string
                   description: approval token for unauthenticated access

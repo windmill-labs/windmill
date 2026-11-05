@@ -385,7 +385,7 @@ can call one, not an agent used as a tool.
 - `flow_input.iter.value` - Current iteration value inside a `forloopflow`; in a `whileloopflow` it is just the iteration index (a plain number, same as `flow_input.iter.index`)
 - `flow_input.iter.index` - Current loop index when inside a loop (`forloopflow` or `whileloopflow`)
 - After a suspend step (approval), the next step's javascript expressions also get:
-  - `resume` - the last resume payload (the resume form values); with `continue_on_disapprove_timeout`, a disapproval or timeout yields `{ error: { name: "SuspendedDisapproved" | "SuspendedTimedOut", message } }` instead
+  - `resume` - the last resume payload (the resume form values); with `continue_on_disapprove_timeout`, a disapproval or timeout yields `{ error: { name: "SuspendedDisapproved" | "SuspendedTimedOut", message } }` instead, plus `reason` on a disapproval whose approver gave one
   - `resumes` - every resume payload, in arrival order
   - `approvers` - a plain array of strings, one per resume: for a resume through the `resume`/`cancel` URL from `getResumeUrls(approver)`, the `approver` passed there if any; otherwise (including the `approvalPage` link) the resuming user's username, else `"anonymous"`, e.g. `approvers[0]`. It is NOT the `{ resume_id, approver }` objects stored in the flow status, so `approvers[0].approver` is always undefined
 
