@@ -555,9 +555,8 @@
 			menuItems.push({
 				label: 'Audit logs',
 				Icon: Eye,
-				onclick: () => {
-					onNavigate(`/audit_logs?resource=${flow?.path}`)
-				}
+				href: operatingHref(`/audit_logs?resource=${flow.path}`),
+				onclick: interceptNav(onNavigate, `/audit_logs?resource=${flow.path}`)
 			})
 		}
 

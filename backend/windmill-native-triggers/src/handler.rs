@@ -321,6 +321,18 @@ async fn update_native_trigger_handler<T: External>(
         .await?
         .ok_or_else(|| Error::NotFound(format!("Native trigger not found: {}", external_id)))?;
 
+    check_scopes(&authed, || {
+        format!("native_triggers:write:{}", &existing.script_path)
+    })?;
+    require_is_writer_on_runnable(
+        &authed,
+        &existing.script_path,
+        existing.is_flow,
+        &workspace_id,
+        db.clone(),
+    )
+    .await?;
+
     // Saving re-registers the webhook as the connection's account, so the editor must be allowed
     // to act as it, not just to write the runnable.
     let integration_service = service_name.integration_service();

@@ -261,6 +261,6 @@
 	} as any)
 </script>
 
-<div class="relative h-44">
+<div class="relative h-full">
 	<Line {data} {options} />
 </div>

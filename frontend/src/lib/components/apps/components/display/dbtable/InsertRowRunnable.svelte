@@ -9,6 +9,9 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getInsertInput } from './queries/insert'
 	import type { DbInput } from '$lib/components/dbTypes'
+	import { ApiError } from '$lib/gen'
+	import { pollJobResult } from '$lib/components/jobs/utils'
+	import { writingJobOptions } from '$lib/components/jobs/writingJob'
 
 	interface Props {
 		id: string
@@ -51,21 +54,37 @@
 		await tick()
 
 		if (runnableComponent) {
-			await runnableComponent?.runComponent(undefined, undefined, undefined, values, {
-				onDone: (_x) => {
-					dispatch('insert')
-					sendUserToast('Row inserted', false)
-				},
-				onCancel: () => {
-					sendUserToast('Error inserting row', true)
-				},
-				onError: (e) => {
-					sendUserToast(`Error inserting row: ${e?.message ?? e}`, true)
-				}
+			let submitError: unknown
+			const jobId = await runnableComponent.runComponent(undefined, undefined, undefined, values, {
+				onError: (e) => (submitError ??= e)
 			})
+			if (!jobId) {
+				throw new Error(submitError ? insertErrorMessage(submitError) : 'The insert did not start')
+			}
+			// The job's own outcome, not the runnable's loader: the loader also reports failed
+			// status reads and gives up watching while the job may still commit, and failing on
+			// either would invite a retry that inserts the row twice.
+			try {
+				await pollJobResult(jobId, workspace, writingJobOptions)
+			} catch (err) {
+				// A job that ran and failed: its error is the database's.
+				if (err instanceof Error && !(err instanceof ApiError)) throw err
+				console.error('Could not read the insert job result', err)
+				throw new Error(
+					'Could not confirm the insert. Refresh the table to check whether the row was added before retrying.'
+				)
+			}
+			dispatch('insert')
+			sendUserToast('Row inserted', false)
 		}
 
 		return false
+	}
+
+	function insertErrorMessage(e: any): string {
+		const error = e?.error ?? e
+		if (typeof error === 'string') return error
+		return error?.message ?? JSON.stringify(error)
 	}
 </script>
 

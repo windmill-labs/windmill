@@ -4731,6 +4731,8 @@ pub enum StepFailureKind {
     /// leaves state worth pinning to: in the first case that worker is gone, in the second the
     /// flow's own bookkeeping is what just broke.
     Unrecoverable,
+    /// The flow was cancelled by its wall-clock `timeout`: nothing may run but its failure module.
+    FlowTimeout,
 }
 
 impl StepFailureKind {

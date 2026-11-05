@@ -598,9 +598,7 @@
 			if ($workspaceStore) invalidate($workspaceStore, 'flow')
 			goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
 		}}
-		onDetails={(e) => {
-			goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
-		}}
+		detailsHref={(path) => `/flows/get/${path}?workspace=${$workspaceStore}`}
 		onHistoryRestore={() => {
 			loadFlow()
 		}}

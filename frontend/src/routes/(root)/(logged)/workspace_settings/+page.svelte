@@ -1719,6 +1719,11 @@
 		page: () => WORKSPACE_SETTINGS_PATH + window.location.search,
 		workspaceId: $workspaceStore ?? undefined
 	})
+	function tabHref(id: string): string {
+		const params = new URLSearchParams($page.url.searchParams)
+		params.set('tab', id)
+		return `?${params.toString()}`
+	}
 </script>
 
 <CenteredPage wrapperClasses="pb-0 h-full" handleOverflow={false} class="flex flex-col h-full">
@@ -1750,11 +1755,8 @@
 					<SidebarNavigation
 						groups={navigationGroups}
 						selectedId={tab}
-						onNavigate={(id) => {
-							const params = new URLSearchParams($page.url.searchParams)
-							params.set('tab', id)
-							goto(`?${params.toString()}`)
-						}}
+						onNavigate={(id) => goto(tabHref(id))}
+						itemHref={tabHref}
 					/>
 				</div>
 			{/if}
@@ -1822,7 +1824,7 @@
 									<Button
 										variant="default"
 										startIcon={{ icon: Target }}
-										onclick={() => goto('/forks/compare?mode=fork')}
+										href="/forks/compare?mode=fork"
 									>
 										Merge into another workspace
 									</Button>
@@ -2881,10 +2883,10 @@ export async function main(
 		{#if pageHeader.actionFold >= 1}
 			<DropdownV2
 				size="sm"
-				items={[{ displayName: 'Instance settings', action: () => goto('#superadmin-settings') }]}
+				items={[{ displayName: 'Instance settings', href: '#superadmin-settings' }]}
 			/>
 		{:else}
-			<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>
+			<Button variant="default" unifiedSize="sm" href="#superadmin-settings">
 				Instance settings
 			</Button>
 		{/if}
