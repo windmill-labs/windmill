@@ -4816,13 +4816,13 @@ async fn push_next_flow_job(
         // compute job-to-be-pushed priority
         // The job definition itself might have its own priority, but as we're running
         // it from a flow here, it inherits first the flow step priority and second the
-        // flow priority.
-        let new_job_priority_override = if module.priority.is_some() {
-            module.priority
-        } else if flow_job.priority.is_some() {
-            flow_job.priority
+        // flow priority. A low (negative) flow priority wins over the step's own: a background
+        // flow must not get ahead of other work through one of its steps.
+        let flow_priority = windmill_common::queue::passed_on_priority(flow_job.priority);
+        let new_job_priority_override = if flow_priority.is_some_and(|p| p < 0) {
+            flow_priority
         } else {
-            None
+            module.priority.or(flow_priority)
         };
 
         // The `flow_input` the step's input transforms read, which a `$flow_expr[flow_input...]`

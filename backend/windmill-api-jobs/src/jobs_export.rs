@@ -548,7 +548,8 @@ pub async fn import_queued_jobs(
             job.worker,
             job.extras as _,
             &job.tag,
-            job.priority
+            // A job without priority sorts as 0 (see `push`); an older export carries NULL.
+            job.priority.unwrap_or(0)
         )
         .execute(&mut *tx)
         .await?;

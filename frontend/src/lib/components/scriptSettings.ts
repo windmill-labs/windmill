@@ -1,4 +1,5 @@
 import {
+	ChevronsDown,
 	ChevronsUp,
 	CircleStop,
 	Combine,
@@ -168,6 +169,15 @@ export function getActiveScriptSettingsBadges(
 			label: 'High priority',
 			icon: ChevronsUp,
 			detail: `Priority ${settings.priority}`
+		})
+	} else if (settings.priority != undefined && settings.priority < 0) {
+		badges.push({
+			key: 'low_priority',
+			short: 'Low priority',
+			setting: 'low_priority',
+			label: 'Low priority',
+			icon: ChevronsDown,
+			detail: 'Runs when no other job is waiting'
 		})
 	}
 	if (settings.restart_unless_cancelled) {

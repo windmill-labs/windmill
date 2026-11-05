@@ -6480,6 +6480,36 @@ async fn fetch_pushed_flow_version(
     }
 }
 
+/// A job with low (negative) priority passes it to every job it starts, all the way down, so a
+/// background flow cannot get ahead of other work through the jobs its scripts start. It wins
+/// over the priority the run endpoints give a job with a parent, which would otherwise put every
+/// job such a flow starts ahead of all ordinary jobs. Flow steps get their flow's priority as an
+/// override already and are not looked up here.
+#[cfg(feature = "enterprise")]
+async fn inherited_low_priority(
+    tx: &mut PushIsolationLevel<'_>,
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    parent_job: Option<Uuid>,
+    flow_step_id: &Option<String>,
+) -> error::Result<Option<i16>> {
+    let Some(parent_job) = parent_job.filter(|_| flow_step_id.is_none()) else {
+        return Ok(None);
+    };
+    let query = sqlx::query_scalar!(
+        "SELECT priority FROM v2_job WHERE id = $1 AND workspace_id = $2 AND priority < 0",
+        parent_job,
+        workspace_id,
+    );
+    let priority = match tx {
+        PushIsolationLevel::Transaction(ntx) => query.fetch_optional(&mut **ntx).await?,
+        PushIsolationLevel::Isolated(..) | PushIsolationLevel::IsolatedRoot(_) => {
+            query.fetch_optional(db).await?
+        }
+    };
+    Ok(priority.flatten())
+}
+
 // #[instrument(level = "trace", skip_all)]
 async fn push_inner<'c, 'd>(
     db: &Pool<Postgres>,
@@ -7612,6 +7642,10 @@ async fn push_inner<'c, 'd>(
         final_priority = if *CLOUD_HOSTED {
             // for cloud hosted instance, priority queues is disabled
             None
+        } else if let Some(low) =
+            inherited_low_priority(&mut tx, db, workspace_id, parent_job, &flow_step_id).await?
+        {
+            Some(low)
         } else if _priority_override.is_some() {
             _priority_override
         } else {
@@ -7619,16 +7653,13 @@ async fn push_inner<'c, 'd>(
             _low_level_priority
         }; // else it remains empty, i.e. no priority
     }
-    // prioritize flow steps to drain the queue faster
-    let final_priority = if flow_step_id.is_some() && final_priority.is_none() {
-        Some(0)
-    } else if job_kind == JobKind::Dependencies && !build_binary_only {
+    let final_priority = Some(windmill_common::queue::pushed_job_priority(
+        final_priority,
+        flow_step_id.is_some(),
         // A binary build is a background optimization, not a deploy the user waits on, so
         // it does not get the dependency-job jump ahead of ordinary jobs on its tag.
-        Some(0)
-    } else {
-        final_priority
-    };
+        job_kind == JobKind::Dependencies && !build_binary_only,
+    ));
 
     let is_running = same_worker || running;
     if let Some(flow) = raw_flow.as_ref() {
