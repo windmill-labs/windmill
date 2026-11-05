@@ -438,7 +438,7 @@
 									{#if job?.args && Object.keys(job.args).length > 0}
 										{#if stacked}
 											<!-- Collapsed: open, the table would squeeze Logs and Result out of the short pane. -->
-											<details class="shrink-0 max-h-1/2 overflow-auto">
+											<details class="shrink-0 max-h-[50%] overflow-auto">
 												<summary class="text-2xs font-semibold text-tertiary cursor-pointer">
 													Arguments
 												</summary>
