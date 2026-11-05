@@ -364,7 +364,8 @@
 	const WEB_SEARCH_PROVIDERS: { label: string; value: AIWebSearchConfig['provider'] }[] = [
 		{ label: 'Exa', value: 'exa' },
 		{ label: 'Tavily', value: 'tavily' },
-		{ label: 'Linkup', value: 'linkup' }
+		{ label: 'Linkup', value: 'linkup' },
+		{ label: 'DeepSeek', value: 'deepseek' }
 	]
 
 	function isSaveDisabled(): boolean {
@@ -576,7 +577,9 @@
 											options={{
 												right: 'Enable native web search',
 												rightTooltip:
-													'Uses the provider-native web search tool automatically in chat.'
+													provider === 'deepseek'
+														? 'Uses DeepSeek web search automatically in chat with deepseek-v4-pro, the only DeepSeek model that serves it.'
+														: 'Uses the provider-native web search tool automatically in chat.'
 											}}
 											checked={aiProviders[provider].web_search_enabled !== false}
 											on:change={(e) => {

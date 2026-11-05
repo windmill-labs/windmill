@@ -51,6 +51,8 @@ pub struct WebsocketConfig {
     pub filters: Vec<SqlxJson<Box<RawValue>>>,
     #[serde(default = "default_filter_logic")]
     pub filter_logic: String,
+    #[serde(default)]
+    pub run_on_filter_error: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub initial_messages: Option<Vec<SqlxJson<Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -69,6 +71,8 @@ pub struct WebsocketConfigRequest {
     filters: Vec<serde_json::Value>,
     #[serde(default = "default_filter_logic")]
     filter_logic: String,
+    #[serde(default)]
+    run_on_filter_error: bool,
     initial_messages: Option<Vec<serde_json::Value>>,
     url_runnable_args: Option<serde_json::Value>,
     can_return_message: bool,

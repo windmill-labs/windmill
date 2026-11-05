@@ -13,6 +13,7 @@
 	import { mergeSchema } from '$lib/common'
 	import { emptyString } from '$lib/utils'
 	import { Alert } from '$lib/components/common'
+	import DenyReason from '$lib/components/approvals/DenyReason.svelte'
 	import { getUserExt } from '$lib/user'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -121,14 +122,14 @@
 		getJob()
 	}
 
-	async function cancel() {
+	async function cancel(reason: string | undefined) {
 		await JobService.cancelSuspendedJobPost({
 			workspace: page.params.workspace ?? '',
 			id: page.params.job ?? '',
 			resumeId: new Number(page.params.resume).valueOf(),
 			signature: page.params.hmac ?? '',
 			approver,
-			requestBody: {}
+			requestBody: reason ? { reason } : {}
 		})
 		sendUserToast('Flow denied!')
 		getJob()
@@ -274,13 +275,17 @@
 			{#if !completed}
 				<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap">
 					{#if !job?.raw_flow?.modules?.[approvalStep]?.suspend?.hide_cancel}
-						<Button
-							variant="accent"
-							destructive
-							on:click|once={cancel}
-							size="lg"
-							disabled={completed || alreadyResumed}>Deny</Button
-						>
+						<DenyReason confirmLabel="Deny" disabled={completed || alreadyResumed} onDeny={cancel}>
+							{#snippet button()}
+								<Button
+									variant="accent"
+									destructive
+									size="lg"
+									disabled={completed || alreadyResumed}
+									nonCaptureEvent>Deny</Button
+								>
+							{/snippet}
+						</DenyReason>
 					{:else}
 						<div></div>
 					{/if}
