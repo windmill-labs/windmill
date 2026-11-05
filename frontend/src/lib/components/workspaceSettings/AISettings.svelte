@@ -4,6 +4,7 @@
 		WorkspaceService,
 		type AIConfig,
 		type AIProvider,
+		type AIWebSearchConfig,
 		type GetCopilotSettingsStateResponse,
 		type InstanceAISummary,
 		type ModelPriceOverride
@@ -92,6 +93,7 @@
 	let copilotDisabled = $state(false)
 	let sessionsStorageDisabled = $state(false)
 	let sessionsRetentionDays: number | undefined = $state(undefined)
+	let webSearch: AIWebSearchConfig | undefined = $state(undefined)
 
 	// --- Initial state for dirty tracking ---
 	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
@@ -106,6 +108,7 @@
 	let initialCopilotDisabled = $state(false)
 	let initialSessionsStorageDisabled = $state(false)
 	let initialSessionsRetentionDays: number | undefined = $state(undefined)
+	let initialWebSearch: AIWebSearchConfig | undefined = $state(undefined)
 	let lastLoadedConfigKey = $state<string | undefined>(undefined)
 
 	function clone<T>(v: T): T {
@@ -137,6 +140,7 @@
 		copilotDisabled = config?.copilot_disabled === true
 		sessionsStorageDisabled = config?.sessions_storage_disabled === true
 		sessionsRetentionDays = config?.sessions_retention_days
+		webSearch = config?.web_search ? clone(config.web_search) : undefined
 		for (const mode of ['edit', 'fix', 'gen']) {
 			if (!(mode in customPrompts)) {
 				customPrompts[mode] = ''
@@ -157,6 +161,7 @@
 		initialCopilotDisabled = copilotDisabled
 		initialSessionsStorageDisabled = sessionsStorageDisabled
 		initialSessionsRetentionDays = sessionsRetentionDays
+		initialWebSearch = webSearch ? clone(webSearch) : undefined
 	}
 
 	export function loadFromConfig(config: AIConfig | undefined) {
@@ -176,6 +181,7 @@
 		copilotDisabled = initialCopilotDisabled
 		sessionsStorageDisabled = initialSessionsStorageDisabled
 		sessionsRetentionDays = initialSessionsRetentionDays
+		webSearch = initialWebSearch ? clone(initialWebSearch) : undefined
 	}
 
 	$effect(() => {
@@ -214,7 +220,8 @@
 			JSON.stringify(modelPricing) !== JSON.stringify(initialModelPricing) ||
 			copilotDisabled !== initialCopilotDisabled ||
 			sessionsStorageDisabled !== initialSessionsStorageDisabled ||
-			sessionsRetentionDays !== initialSessionsRetentionDays
+			sessionsRetentionDays !== initialSessionsRetentionDays ||
+			JSON.stringify(webSearch) !== JSON.stringify(initialWebSearch)
 	)
 
 	$effect(() => {
@@ -319,11 +326,12 @@
 			.filter(([_, prompt]) => prompt.trim().length > 0)
 			.reduce((acc, [mode, prompt]) => ({ ...acc, [mode]: prompt }), {})
 
-		// The flags and the retention are what a workspace on instance defaults still stores
-		// of its own.
+		// The flags, the retention and the search API are what a workspace on instance
+		// defaults still stores of its own.
 		const copilot_disabled = copilotDisabled ? true : undefined
 		const sessions_storage_disabled = sessionsStorageDisabled ? true : undefined
 		const sessions_retention_days = sessionsRetentionDays
+		const web_search = webSearch
 		return Object.keys(aiProviders ?? {}).length > 0
 			? {
 					providers: aiProviders,
@@ -338,9 +346,10 @@
 					model_pricing: Object.keys(modelPricing).length > 0 ? modelPricing : undefined,
 					copilot_disabled,
 					sessions_storage_disabled,
-					sessions_retention_days
+					sessions_retention_days,
+					web_search
 				}
-			: { copilot_disabled, sessions_storage_disabled, sessions_retention_days }
+			: { copilot_disabled, sessions_storage_disabled, sessions_retention_days, web_search }
 	}
 
 	// The server refuses anything outside this range; the input holds the same bounds.
@@ -352,11 +361,18 @@
 				sessionsRetentionDays > MAX_SESSIONS_RETENTION_DAYS)
 	)
 
+	const WEB_SEARCH_PROVIDERS: { label: string; value: AIWebSearchConfig['provider'] }[] = [
+		{ label: 'Exa', value: 'exa' },
+		{ label: 'Tavily', value: 'tavily' },
+		{ label: 'Linkup', value: 'linkup' }
+	]
+
 	function isSaveDisabled(): boolean {
 		return (
 			!Object.values(aiProviders).every((p) => p.resource_path) ||
 			(metadataModel != undefined && metadataModel.length === 0) ||
 			(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
+			(webSearch != undefined && !webSearch.resource_path) ||
 			retentionInvalid
 		)
 	}
@@ -710,6 +726,42 @@
 	{/if}
 
 	{#if promptScope === 'workspace'}
+		<SettingCard
+			label="Web search"
+			description="The search API that AI chat uses to search the web and read pages when the model's provider has no web search of its own, or when that provider's native web search is turned off above. Members search with the key of the resource picked here, without needing access to it."
+		>
+			<div class="flex flex-col gap-2 max-w-lg">
+				<Select
+					items={WEB_SEARCH_PROVIDERS}
+					bind:value={
+						() => webSearch?.provider,
+						(provider) => {
+							if (provider === webSearch?.provider) return
+							webSearch = provider ? { provider, resource_path: '' } : undefined
+						}
+					}
+					placeholder="No web search API"
+					size="sm"
+					clearable
+				/>
+				{#if webSearch}
+					{#key webSearch.provider}
+						<ResourcePicker
+							selectFirst
+							{workspace}
+							resourceType={webSearch.provider}
+							initialValue={webSearch.resource_path}
+							bind:value={
+								() => webSearch?.resource_path || undefined,
+								(v) => {
+									if (webSearch) webSearch.resource_path = v ?? ''
+								}
+							}
+						/>
+					{/key}
+				{/if}
+			</div>
+		</SettingCard>
 		<SettingCard
 			label="Hide AI sessions"
 			description="Hides AI sessions and every other AI assistant button (chat, code generation and completion, AI fix) from all members of this workspace. AI agent steps and the AI sandbox in flows are not affected and keep using the providers configured above. This hides the assistant in the UI only; it does not restrict API access to the configured providers."
