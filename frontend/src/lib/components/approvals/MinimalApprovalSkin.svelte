@@ -4,7 +4,7 @@
 	import type { BadgeColor } from '$lib/components/common'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import DenyReason from './DenyReason.svelte'
 	import Login from '$lib/components/Login.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { enterpriseLicense, userStore } from '$lib/stores'
@@ -130,23 +130,25 @@
 		{/if}
 
 		{#if approvalInfo.can_approve}
-			{#if approvalInfo.hide_cancel !== true}
-				<TextInput
-					bind:value={denyReason}
-					inputProps={{ placeholder: 'Reason for rejecting (optional)', maxlength: 1000 }}
-				/>
-			{/if}
 			<div class="flex flex-row flex-wrap justify-between gap-4">
 				{#if approvalInfo.hide_cancel !== true}
-					<Button
-						unifiedSize="lg"
-						variant="default"
-						destructive
-						onclick={onReject}
-						disabled={loading}
-					>
-						Reject
-					</Button>
+					<div class="flex flex-row items-center gap-2">
+						<Button
+							unifiedSize="lg"
+							variant="default"
+							destructive
+							onclick={onReject}
+							disabled={loading}
+						>
+							Reject
+						</Button>
+						<DenyReason
+							bind:value={denyReason}
+							class="w-72"
+							placeholder="Reason for rejecting (optional)"
+							disabled={loading}
+						/>
+					</div>
 				{:else}
 					<div></div>
 				{/if}

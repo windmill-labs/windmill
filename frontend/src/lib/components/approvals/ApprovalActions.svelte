@@ -5,7 +5,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { Button } from '../common'
 	import Tooltip from '../Tooltip.svelte'
-	import TextInput from '../text_input/TextInput.svelte'
+	import DenyReason from './DenyReason.svelte'
 
 	interface Props {
 		approveLabel: string
@@ -54,17 +54,6 @@
 </script>
 
 <div class={twMerge('flex gap-2 items-center', light ? 'flex-col' : 'flex-row')}>
-	{#if !hideReject && rejectReasonPlaceholder}
-		<TextInput
-			bind:value={reason}
-			class="min-w-48"
-			inputProps={{
-				placeholder: rejectReasonPlaceholder,
-				maxlength: 1000,
-				disabled: loading || answered
-			}}
-		/>
-	{/if}
 	{#if !hideReject}
 		<Button
 			title={rejectTitle}
@@ -76,6 +65,14 @@
 			unifiedSize="md"
 			onClick={() => answer(false)}
 		/>
+		{#if rejectReasonPlaceholder}
+			<DenyReason
+				bind:value={reason}
+				class="min-w-48"
+				placeholder={rejectReasonPlaceholder}
+				disabled={loading || answered}
+			/>
+		{/if}
 	{/if}
 	<Button
 		variant="accent"

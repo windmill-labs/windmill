@@ -14,7 +14,7 @@
 	import { mergeSchema } from '$lib/common'
 	import { emptyString } from '$lib/utils'
 	import { Alert } from '$lib/components/common'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import DenyReason from '$lib/components/approvals/DenyReason.svelte'
 	import { getUserExt } from '$lib/user'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -349,19 +349,19 @@
 			{/if}
 
 			{#if !completed && !actionTaken && approvalInfo.can_approve}
-				{#if approvalInfo.hide_cancel !== true}
-					<div class="mb-4">
-						<TextInput
-							bind:value={denyReason}
-							inputProps={{ placeholder: 'Reason for denying (optional)', maxlength: 1000 }}
-						/>
-					</div>
-				{/if}
 				<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap">
 					{#if approvalInfo.hide_cancel !== true}
-						<Button variant="accent" destructive onclick={cancel} size="lg" disabled={loading}>
-							Deny
-						</Button>
+						<div class="flex flex-row items-center gap-2">
+							<Button variant="accent" destructive onclick={cancel} size="lg" disabled={loading}>
+								Deny
+							</Button>
+							<DenyReason
+								bind:value={denyReason}
+								class="w-72"
+								placeholder="Reason for denying (optional)"
+								disabled={loading}
+							/>
+						</div>
 					{:else}
 						<div></div>
 					{/if}
