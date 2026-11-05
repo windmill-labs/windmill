@@ -460,7 +460,7 @@ export async function pullGitSyncSettings(
           if (taken.length > 0) {
             throw new Error(
               `No workspace entry in wmill.yaml matches workspace '${workspace.workspaceId}', and git branch '${currentBranch}' is already used by ${taken.join(", ")}. ` +
-                `Name the entry for this workspace '${workspace.workspaceId}' so it can be resolved.`,
+                `Name the entry for this workspace '${workspace.workspaceId}' and keep 'gitBranch: ${currentBranch}' on it so it can be resolved.`,
             );
           }
           overrideTarget = currentBranch;
