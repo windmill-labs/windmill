@@ -1,4 +1,4 @@
-//! `get_run` as a token scoped to a selection of runnables is offered it: listed only beside a
+//! `get_result` as a token scoped to a selection of runnables is offered it: listed only beside a
 //! runnable the user can run, it reads a run of a selected flow, its status and result alone,
 //! and refuses one of a flow outside the selection, although the token's owner can read both.
 //! Its result read checks nothing itself, so this check is the only thing holding a selection
@@ -44,11 +44,11 @@ async fn mcp_call(port: u16, name: &str, arguments: Value) -> anyhow::Result<Val
     .await
 }
 
-async fn lists_get_run(port: u16, token: &str) -> anyhow::Result<bool> {
+async fn lists_get_result(port: u16, token: &str) -> anyhow::Result<bool> {
     let list = mcp(port, token, "tools/list", json!({})).await?;
     Ok(list["result"]["tools"]
         .as_array()
-        .is_some_and(|tools| tools.iter().any(|t| t["name"] == "get_run")))
+        .is_some_and(|tools| tools.iter().any(|t| t["name"] == "get_result")))
 }
 
 async fn create_and_queue(port: u16, path: &str) -> anyhow::Result<String> {
@@ -77,7 +77,9 @@ async fn create_and_queue(port: u16, path: &str) -> anyhow::Result<String> {
 }
 
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_get_run_reads_only_runs_of_the_selection(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_get_result_reads_only_runs_of_the_selection(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
     initialize_tracing().await;
     set_jwt_secret().await;
     sqlx::query(
@@ -95,13 +97,13 @@ async fn test_get_run_reads_only_runs_of_the_selection(db: Pool<Postgres>) -> an
     let selected = create_and_queue(port, SELECTED).await?;
     let other = create_and_queue(port, OTHER).await?;
 
-    assert!(lists_get_run(port, "SELECTION_TOKEN").await?);
+    assert!(lists_get_result(port, "SELECTION_TOKEN").await?);
     assert!(
-        !lists_get_run(port, "NOTHING_TOKEN").await?,
-        "no get_run beside no runnable the user can run"
+        !lists_get_result(port, "NOTHING_TOKEN").await?,
+        "no get_result beside no runnable the user can run"
     );
 
-    let read = mcp_call(port, "get_run", json!({ "id": selected })).await?;
+    let read = mcp_call(port, "get_result", json!({ "id": selected })).await?;
     let text = read["result"]["content"][0]["text"]
         .as_str()
         .unwrap_or_default();
@@ -112,7 +114,7 @@ async fn test_get_run_reads_only_runs_of_the_selection(db: Pool<Postgres>) -> an
         "a run of the selected flow is read: {read}"
     );
 
-    let refused = mcp_call(port, "get_run", json!({ "id": other })).await?;
+    let refused = mcp_call(port, "get_result", json!({ "id": other })).await?;
     assert!(
         refused["error"].is_object() && !refused.to_string().contains(OTHER),
         "a run outside the selection is refused without reading it: {refused}"

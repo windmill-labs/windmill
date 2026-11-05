@@ -112,7 +112,7 @@ impl WindmillBackend {
         queued: QueuedRun,
         request: &McpRequest<'_>,
     ) -> BackendResult<Value> {
-        // A hub script's run is outside what `get_run` reads, and a script's delete-after-use
+        // A hub script's run is outside what `get_result` reads, and a script's delete-after-use
         // setting is applied only by a caller that waits for its result.
         if path.starts_with("hub/") || queued.deletes_after_use() {
             let response = queued
@@ -143,7 +143,7 @@ impl WindmillBackend {
             "status": "running",
             "message": format!(
                 "Job {id} for {path} is taking a while and is now running in the background. \
-                 To inspect it, call get_run with id {id}."
+                 To follow it, call get_result with id {id}."
             ),
             "run_page": ctx.page_url(&format!("/run/{id}")),
         }))
@@ -429,7 +429,7 @@ impl McpBackend for WindmillBackend {
         // A flow's answer is its early-return step's result once that step has one, as when
         // `settle_run` waits for it.
         let (early_return, has_failure_module): (Option<String>, bool) = sqlx::query_as(
-            "SELECT f.value->>'early_return', f.value ? 'failure_module' FROM v2_job j \
+            "SELECT f.value->>'early_return', f.value->>'failure_module' IS NOT NULL FROM v2_job j \
              JOIN flow_version f ON f.id = j.runnable_id \
              WHERE j.id = $1 AND j.workspace_id = $2 AND j.kind = 'flow'",
         )

@@ -69,12 +69,12 @@ const LIST_CHANGE_COALESCE: std::time::Duration = std::time::Duration::from_mill
 use http::request::Parts as HttpParts;
 
 /// The tool a selection is offered to follow the runs its tools start.
-const GET_RUN: &str = "get_run";
+const GET_RESULT: &str = "get_result";
 
-/// A selection's `get_run`: what the tool call would have answered and the run's status,
-/// nothing more. The session's `get_run` also reads a run's arguments, steps and logs, which
+/// A selection's `get_result`: what the tool call would have answered and the run's status,
+/// nothing more. The session's `get_run` reads a run's arguments, steps and logs, which
 /// a selection's tools never answer with.
-fn get_run_tool() -> Tool {
+fn get_result_tool() -> Tool {
     let schema = serde_json::json!({
         "type": "object",
         "properties": {
@@ -83,15 +83,15 @@ fn get_run_tool() -> Tool {
         "required": ["id"]
     });
     Tool::new(
-        Cow::Borrowed(GET_RUN),
+        Cow::Borrowed(GET_RESULT),
         "Read a run that a tool here started and left running: its status (queued, running, \
-         suspended while it waits for an approval, success, failure or canceled) and, once it \
+         suspended while it waits for an approval, success, failure, canceled or skipped) and, once it \
          has one, the result the tool would have answered with.",
         Arc::new(schema.as_object().cloned().unwrap_or_default()),
     )
-    .with_title("Get run")
+    .with_title("Get result")
     .with_annotations(
-        ToolAnnotations::with_title("Get run")
+        ToolAnnotations::with_title("Get result")
             .read_only(true)
             .destructive(false)
             .idempotent(true)
@@ -770,7 +770,7 @@ impl<B: McpBackend> Runner<B> {
         let reserved: HashSet<&str> = endpoint_tools
             .iter()
             .map(|t| t.name.as_ref())
-            .chain([GET_RUN])
+            .chain([GET_RESULT])
             .collect();
         let pairs: Vec<(&str, &str)> = items.iter().map(|(t, p)| (*t, p.as_str())).collect();
         let names = assign_tool_names(&pairs, &reserved);
@@ -914,7 +914,7 @@ impl<B: McpBackend> Runner<B> {
 
             // Only beside a script or flow tool the user can run: hub runs are outside it.
             if !filtered_scripts.is_empty() || !filtered_flows.is_empty() {
-                tools.push(get_run_tool());
+                tools.push(get_result_tool());
             }
         }
 
@@ -990,8 +990,10 @@ impl<B: McpBackend> Runner<B> {
             ));
         }
 
-        if name == GET_RUN {
-            return self.get_run(auth, workspace_id, scope_config, args).await;
+        if name == GET_RESULT {
+            return self
+                .get_result(auth, workspace_id, scope_config, args)
+                .await;
         }
 
         // Resolve the tool name to (type, path, is_hub)
@@ -1154,8 +1156,8 @@ impl<B: McpBackend> Runner<B> {
         }
     }
 
-    /// `get_run`, for runs of the scripts and flows this token lists as tools.
-    async fn get_run(
+    /// `get_result`, for runs of the scripts and flows this token lists as tools.
+    async fn get_result(
         &self,
         auth: &B::Auth,
         workspace_id: &str,
