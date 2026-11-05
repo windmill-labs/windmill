@@ -40,7 +40,9 @@
 		type InstanceAISummary,
 		type GetSettingsResponse
 	} from '$lib/gen'
-	import type { GuestUsage } from '$lib/gen'
+	import type { GuestUsage, WorkspaceWebhookEventType } from '$lib/gen'
+	import { $WorkspaceWebhookEventType as webhookEventTypeSchema } from '$lib/gen/schemas.gen'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import {
 		enterpriseLicense,
 		superadmin,
@@ -211,6 +213,9 @@
 	let plan: string | undefined = $state(undefined)
 	let customer_id: string | undefined = $state(undefined)
 	let webhook: string | undefined = $state(undefined)
+	// undefined sends every event type
+	let webhookEvents: WorkspaceWebhookEventType[] | undefined = $state(undefined)
+	const webhookEventItems = webhookEventTypeSchema.enum.map((value) => ({ label: value, value }))
 	const noErrorHandler = handlerDraftFromStored(
 		'error',
 		undefined,
@@ -294,6 +299,7 @@
 
 	// Track initial webhook for unsaved changes detection
 	let initialWebhook: string | undefined = $state(undefined)
+	let initialWebhookEvents: WorkspaceWebhookEventType[] | undefined = $state(undefined)
 
 	// Track initial encryption key for unsaved changes detection
 	let initialEditedWorkspaceEncryptionKey: string | undefined = $state(undefined)
@@ -653,14 +659,20 @@
 			}
 		}
 
+		if (webhookEvents?.length === 0) {
+			sendUserToast('Select at least one event type, or send all events', true)
+			return
+		}
+
 		try {
 			if (webhook && webhook.trim() !== '') {
 				await WorkspaceService.editWebhook({
 					workspace: $workspaceStore!,
-					requestBody: { webhook }
+					requestBody: { webhook, events: webhookEvents ?? null }
 				})
 				sendUserToast(`webhook set to ${webhook}`)
 				initialWebhook = webhook
+				initialWebhookEvents = $state.snapshot(webhookEvents)
 			} else {
 				await WorkspaceService.editWebhook({
 					workspace: $workspaceStore!,
@@ -809,6 +821,7 @@
 		plan = settings.plan
 		customer_id = settings.customer_id
 		webhook = settings.webhook
+		webhookEvents = settings.webhook_events
 
 		aiInitialConfig = settings.ai_config ?? {}
 		hasInstanceAiConfig = copilotSettingsState.has_instance_ai_config
@@ -905,6 +918,7 @@
 
 		// Store initial webhook state for unsaved changes detection
 		initialWebhook = webhook
+		initialWebhookEvents = $state.snapshot(webhookEvents)
 
 		// Store initial encryption key state for unsaved changes detection
 		initialEditedWorkspaceEncryptionKey = editedWorkspaceEncryptionKey
@@ -1293,11 +1307,13 @@
 			value && value.trim() !== '' ? value : undefined
 
 		const savedValue = {
-			webhook: normalizeWebhookValue(initialWebhook)
+			webhook: normalizeWebhookValue(initialWebhook),
+			events: initialWebhookEvents
 		}
 
 		const modifiedValue = {
-			webhook: normalizeWebhookValue(webhook)
+			webhook: normalizeWebhookValue(webhook),
+			events: webhookEvents
 		}
 
 		return { savedValue, modifiedValue }
@@ -1306,6 +1322,7 @@
 	// Function to discard unsaved webhook settings changes
 	function discardWebhookSettingsChanges() {
 		webhook = initialWebhook || ''
+		webhookEvents = $state.snapshot(initialWebhookEvents)
 	}
 
 	// Function to check if there are unsaved changes in encryption key settings
@@ -2261,12 +2278,43 @@
 									<div class="text-xs text-red-600 dark:text-red-400">{webhookValidationError}</div>
 								{/if}
 							</SettingCard>
+							<SettingCard
+								label="Events to send"
+								description="Limit the webhook to the event types you select."
+								class="mt-6"
+							>
+								<ToggleButtonGroup
+									selected={webhookEvents === undefined ? 'all' : 'selected'}
+									onSelected={(v) => {
+										webhookEvents = v === 'all' ? undefined : [...(initialWebhookEvents ?? [])]
+									}}
+									class="max-w-lg"
+								>
+									{#snippet children({ item })}
+										<ToggleButton {item} value="all" label="All events" />
+										<ToggleButton {item} value="selected" label="Selected events" />
+									{/snippet}
+								</ToggleButtonGroup>
+								{#if webhookEvents !== undefined}
+									<MultiSelect
+										items={webhookEventItems}
+										bind:value={webhookEvents}
+										placeholder="Select event types"
+										class="max-w-lg mt-2"
+									/>
+									{#if webhookEvents.length === 0}
+										<div class="text-xs text-red-600 dark:text-red-400">
+											Select at least one event type
+										</div>
+									{/if}
+								{/if}
+							</SettingCard>
 							<SettingsFooter
 								hasUnsavedChanges={hasWebhookChanges}
 								onSave={editWebhook}
 								onDiscard={discardWebhookSettingsChanges}
 								saveLabel="Save webhook"
-								disabled={!!webhookValidationError}
+								disabled={!!webhookValidationError || webhookEvents?.length === 0}
 								class="mt-8"
 							/>
 						{:else if tab == 'error_handler'}
