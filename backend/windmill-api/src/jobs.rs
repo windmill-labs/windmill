@@ -56,8 +56,8 @@ use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
 };
 use windmill_common::workspaces::{
-    check_operator_can_build, check_user_against_rule, BuilderKind, ProtectionRuleKind,
-    RuleCheckResult,
+    check_operator_can_build, check_role_can_run, check_user_against_rule, BuilderKind,
+    ProtectionRuleKind, RuleCheckResult,
 };
 use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
@@ -9213,21 +9213,22 @@ async fn run_preview_script(
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
-    if !role_can_code(&db, &w_id, &authed).await? {
-        // A deferred run would outlive the running job the exemption keys off.
-        if run_query.get_scheduled_for(&db).await?.is_some()
-            || !operator_may_run_datatable_query(
-                &db,
-                &w_id,
-                authed.job_id,
-                preview.language.as_ref(),
-                preview.content.as_deref().unwrap_or_default(),
-                preview.args.as_ref(),
-            )
-            .await?
-        {
+    // A deferred run would outlive the running job the exemption keys off.
+    let datatable_query = run_query.get_scheduled_for(&db).await?.is_none()
+        && operator_may_run_datatable_query(
+            &db,
+            &w_id,
+            authed.job_id,
+            preview.language.as_ref(),
+            preview.content.as_deref().unwrap_or_default(),
+            preview.args.as_ref(),
+        )
+        .await?;
+    if !datatable_query {
+        if !role_can_code(&db, &w_id, &authed).await? {
             return Err(operator_preview_refusal(authed.job_id));
         }
+        check_role_can_run(&db, &w_id, &authed).await?;
     }
     // Preview runs arbitrary, request-supplied code. require_path_read_access_for_preview
     // only checks folder/namespace *read* access (and is a no-op when path is null), so a
@@ -9344,18 +9345,20 @@ async fn run_inline_preview_script(
     // Same arbitrary-code class as run_preview_script, and every worker and standalone
     // server exposes this route, so an operator is refused on the same terms. A
     // narrowly-scoped token must not escape its scope through inline preview either.
-    if !role_can_code(&db, &w_id, &authed).await?
-        && !operator_may_run_datatable_query(
-            &db,
-            &w_id,
-            job_id,
-            Some(&preview.language),
-            &preview.content,
-            preview.args.as_ref(),
-        )
-        .await?
+    if !operator_may_run_datatable_query(
+        &db,
+        &w_id,
+        job_id,
+        Some(&preview.language),
+        &preview.content,
+        preview.args.as_ref(),
+    )
+    .await?
     {
-        return Err(operator_preview_refusal(job_id));
+        if !role_can_code(&db, &w_id, &authed).await? {
+            return Err(operator_preview_refusal(job_id));
+        }
+        check_role_can_run(&db, &w_id, &authed).await?;
     }
     check_scopes(&authed, || format!("jobs:run"))?;
     windmill_queue::tags::check_inline_run_allowed(&w_id, &db).await?;

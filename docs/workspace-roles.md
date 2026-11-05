@@ -19,6 +19,7 @@ code is `windmill_common::roles`.
 | `flows` | `none` / `compose` / `full` | yes; also AI agents, whose tools are checked as composed steps |
 | `apps` | `none` / `compose` / `full` | yes; low-code apps and worker-built apps need `full` |
 | `manage_schedules`, `manage_triggers` | bool | yes, see `docs/operator-write-rights.md` |
+| `run` | bool | yes, see [Runs](#runs) |
 | `fork` | bool | yes, at both fork routes; unset by every layer, it is granted exactly to an unrestricted role |
 | `visibility.*` | bool per page | no, UI only |
 
@@ -33,6 +34,27 @@ other name). A role name no longer defined resolves to `NONE`, so deleting a rol
 deleting one that a member, invite, auto-invite or instance group mapping still names is refused,
 and so is deleting an instance role that a workspace still overrides (the override would fall onto
 `base_for` instead of the definition it was written against).
+
+## Runs
+
+`run` withdrawn makes a role view-only: its members see what folder and item rights grant,
+runs, logs and results included, and start nothing. `gate_role_runs` sits on the jobs router and
+refuses every path under `run/`, `run_wait_result/`, `run_and_stream/`, `run_inline/`, `restart/`
+and `add_batch_jobs/` (GET included, which starts runs there), so a run route added under those
+prefixes is gated for free. It lets through the dependency-lock and dynamic-select routes, which
+`code` gates, and `run/workflow_as_code`, a step of a run already started. The three script
+preview routes (`run/preview`, `run_inline/preview`, `run_wait_result/preview`) check `run` in
+their handlers instead, after the exemption that lets a running job's SDK send a data table query
+there, since jobs a view-only member owns still run as them. Callers that push
+without the router check `check_role_can_run` themselves: the MCP per-runnable tools, eval
+experiment runs and members-only Slack agent shares (which run as the asking member). Resuming or approving a suspended step is not a run. Schedules and triggers keep
+their own rights, apps run their runnables on the app's policy and are not gated, and a job
+started by a schedule or trigger acts as its owner, so from inside it a view-only owner cannot
+start further runs through the API either.
+
+Unlike `fork`, withdrawing `run` makes a role restricted: it is an enforced gate on hot routes,
+and the fast path is what spares every unrestricted caller a role lookup on each run. It does not
+change seats: a role is a full seat by what it authors, not by whether it runs.
 
 ## Forks
 
@@ -79,3 +101,25 @@ key equal to what the instance gives that role, and the payload is mirrored into
 workspace had changed from its default into `role_overrides.operator` the same way. The workspace
 list still returns an `operator_settings` object for a restricted member, synthesized from its
 role, alongside `role` and `capabilities`.
+
+## In the settings document
+
+`role_overrides` in the settings document (export `settings.json`, `settings.yaml`, git sync) is
+the stored map, except that the entry of a role the instance does not define carries
+`workspace_only: true`. The stored map cannot tell an override of instance role X from adding role
+X, and the target of a promotion may lack X. So the apply refuses the whole document, dry run
+included, before writing anything, if:
+
+- an unmarked entry names a role the target instance does not define, unless the target workspace
+  already has it as a workspace-only role (a file pulled before the marker existed), or
+- a marked entry names a role the target instance defines.
+
+The marker is never stored. Roles are written before every other setting, so an instance group
+mapping in the same file can name a role it adds. A workspace-only role the file removes is kept
+until a final write, after whatever named it has been rewritten, so the in-use check passes.
+
+The document's `operator_settings` is derived from the effective `operator` role, not read from
+the column: only the legacy endpoint rewrites the column, so after a role edit it holds stale
+flags. A document that states `role_overrides` never applies `operator_settings`, and warns when
+it was edited to disagree with the operator role. A document without `role_overrides` (pulled
+before roles existed) applies it as before, diffed against the column.
