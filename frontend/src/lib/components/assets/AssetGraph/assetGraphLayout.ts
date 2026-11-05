@@ -376,7 +376,8 @@ export function layoutAssetGraph(
  */
 export function wrapWideLayers(
 	positions: Map<string, Positioned>,
-	maxPerRow: number | undefined
+	maxPerRow: number | undefined,
+	extraRowHeight = 0
 ): Map<string, Positioned> {
 	if (!maxPerRow || maxPerRow < 1) return positions
 	const layers = new Map<number, [string, Positioned][]>()
@@ -385,7 +386,7 @@ export function wrapWideLayers(
 		if (layer) layer.push(entry)
 		else layers.set(entry[1].y, [entry])
 	}
-	const rowStep = NODE_HEIGHT + LAYER_GAP / 2
+	const rowStep = NODE_HEIGHT + extraRowHeight + LAYER_GAP / 2
 	const wrapped = new Map<string, Positioned>()
 	let pushedDown = 0
 	for (const y of [...layers.keys()].sort((a, b) => a - b)) {

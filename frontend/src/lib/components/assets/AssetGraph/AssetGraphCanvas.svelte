@@ -1753,16 +1753,14 @@
 						: 1
 			)
 	})
+	let extraRowHeight = $derived(
+		assetsOnly ? PIPELINE_NODE_EXTRA_ROW + PIPELINE_NODE_HEADER + PIPELINE_NODE_HEADER_CARD_PAD : 0
+	)
 	let layoutPositions = $derived(
 		wrapWideLayers(
-			layoutAssetGraph(
-				layoutInput,
-				ADD_NODE_ID,
-				assetsOnly
-					? PIPELINE_NODE_EXTRA_ROW + PIPELINE_NODE_HEADER + PIPELINE_NODE_HEADER_CARD_PAD
-					: 0
-			),
-			maxNodesPerRow
+			layoutAssetGraph(layoutInput, ADD_NODE_ID, extraRowHeight),
+			maxNodesPerRow,
+			extraRowHeight
 		)
 	)
 

@@ -190,4 +190,12 @@ describe('wrapWideLayers', () => {
 		expect((pos.get('c')!.x + pos.get('d')!.x) / 2).toBe(150)
 		expect(pos.get('leaf')).toEqual({ x: 150, y: 200 + step })
 	})
+
+	it('spaces wrapped rows by the height the layout gave its taller cards', () => {
+		const step = (extra: number) => {
+			const pos = wrapWideLayers(layers, 2, extra)
+			return pos.get('c')!.y - pos.get('a')!.y
+		}
+		expect(step(40) - step(0)).toBe(40)
+	})
 })
