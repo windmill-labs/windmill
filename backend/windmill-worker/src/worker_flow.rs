@@ -5167,6 +5167,27 @@ async fn push_next_flow_job(
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
+        // Both run as an identity job that passes a value through, which reads as a real run
+        // unless the step's own logs say otherwise.
+        let not_executed_log = if module.mock.as_ref().is_some_and(|m| m.enabled) {
+            Some("Step mocked: returned the pinned value, nothing was executed\n")
+        } else if is_skipped {
+            Some("Step skipped: its skip condition was true, nothing was executed\n")
+        } else {
+            None
+        };
+        if let Some(log) = not_executed_log {
+            sqlx::query!(
+                "INSERT INTO job_logs (logs, job_id, workspace_id) VALUES ($1, $2, $3) ON CONFLICT (job_id) DO UPDATE SET logs = concat(job_logs.logs, EXCLUDED.logs)",
+                log,
+                uuid,
+                flow_job.workspace_id,
+            )
+            .execute(&mut *inner_tx)
+            .warn_after_seconds(3)
+            .await?;
+        }
+
         // Apply flow node debouncing if configured. Skip parallel steps (for-loops, branchall)
         // where len > 1 — debouncing those would cancel sibling sub-jobs within the same run.
         #[cfg(feature = "private")]
