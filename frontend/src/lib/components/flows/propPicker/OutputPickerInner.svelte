@@ -41,6 +41,7 @@
 			| {
 					enabled?: boolean
 					return_value?: unknown
+					preview_only?: boolean
 			  }
 			| undefined
 		moduleId?: string
@@ -62,7 +63,11 @@
 		clazz?: string
 		copilot_fix?: import('svelte').Snippet
 		onSelect?: (key: string) => void
-		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		onUpdateMock?: (mock: {
+			enabled: boolean
+			return_value?: unknown
+			preview_only?: boolean
+		}) => void
 		onEditInput?: (moduleId: string, key: string) => void
 		selectionId?: string
 		initial?: boolean
@@ -106,7 +111,8 @@
 
 	let jsonView = $state(false)
 	let clientHeight: number = $state(0)
-	let tmpMock: { enabled: boolean; return_value?: unknown } | undefined = $state(undefined)
+	let tmpMock: { enabled: boolean; return_value?: unknown; preview_only?: boolean } | undefined =
+		$state(undefined)
 	let error = $state('')
 	let stepHistoryPopover: Popover | undefined = $state(undefined)
 	let historyOpen = $state(false)
@@ -421,6 +427,19 @@
 									>{mock?.enabled ? 'Pin' : 'Last pin'}</span
 								>
 							</div>
+							{#if mock?.enabled && !preview && !disableMock}
+								<Button
+									unifiedSize="xs"
+									variant="subtle"
+									title={mock.preview_only
+										? 'Only runs started from the editor use the pin. Deployed runs execute the step. Click to pin in every run.'
+										: 'Every run uses the pin, deployed runs included. Click to pin in test runs only.'}
+									onClick={() =>
+										onUpdateMock?.({ ...mock, enabled: true, preview_only: !mock.preview_only })}
+								>
+									{mock.preview_only ? 'Test runs' : 'Every run'}
+								</Button>
+							{/if}
 						{:else if preview === 'job' || (selectedJob && !preview)}
 							<OutputBadge
 								job={selectedJob}

@@ -37,12 +37,15 @@
 			  }
 			| undefined
 		editMode?: boolean
+		/** In a run, whether the step's mock was used: a mock limited to test runs is not used by a
+		 * deployed run, so the pin must not show there. Undefined in the editor. */
+		mockApplied?: boolean
 		onSelectedIteration: OnSelectedIteration
 		onSelect: (id: string | FlowModule) => void
 		onTestUpTo?: ((id: string) => void) | undefined
 		onUpdateMock?: (detail: {
 			id: string
-			mock: { enabled: boolean; return_value?: unknown }
+			mock: { enabled: boolean; return_value?: unknown; preview_only?: boolean }
 		}) => void
 		onEditInput?: (moduleId: string, key: string) => void
 		flowJob?: Job | undefined
@@ -66,6 +69,7 @@
 		retries = undefined,
 		flowJobs,
 		editMode = false,
+		mockApplied = undefined,
 		onSelect,
 		onTestUpTo,
 		onUpdateMock,
@@ -90,7 +94,7 @@
 
 	let itemProps = $derived({
 		selected: selectionManager && selectionManager.isNodeSelected(mod.id),
-		mock: mod.mock,
+		mock: mockApplied === false ? undefined : mod.mock,
 		settings: describeStepSettings(mod).filter((s) => s.configured)
 	})
 
