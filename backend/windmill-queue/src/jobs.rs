@@ -6420,6 +6420,36 @@ async fn fetch_pushed_flow_version(
     }
 }
 
+/// A job with low priority (below -1, see `make_pull_query`) passes it to every job it starts,
+/// all the way down, so a background flow cannot get ahead of other work through the jobs its
+/// scripts start. It wins over the priority the run endpoints give a job with a parent, which
+/// would otherwise put every job such a flow starts ahead of all ordinary jobs. Flow steps get
+/// their flow's priority as an override already and are not looked up here.
+#[cfg(feature = "enterprise")]
+async fn inherited_low_priority(
+    tx: &mut PushIsolationLevel<'_>,
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    parent_job: Option<Uuid>,
+    flow_step_id: &Option<String>,
+) -> error::Result<Option<i16>> {
+    let Some(parent_job) = parent_job.filter(|_| flow_step_id.is_none()) else {
+        return Ok(None);
+    };
+    let query = sqlx::query_scalar!(
+        "SELECT priority FROM v2_job WHERE id = $1 AND workspace_id = $2 AND priority < -1",
+        parent_job,
+        workspace_id,
+    );
+    let priority = match tx {
+        PushIsolationLevel::Transaction(ntx) => query.fetch_optional(&mut **ntx).await?,
+        PushIsolationLevel::Isolated(..) | PushIsolationLevel::IsolatedRoot(_) => {
+            query.fetch_optional(db).await?
+        }
+    };
+    Ok(priority.flatten())
+}
+
 // #[instrument(level = "trace", skip_all)]
 async fn push_inner<'c, 'd>(
     db: &Pool<Postgres>,
@@ -7552,6 +7582,10 @@ async fn push_inner<'c, 'd>(
         final_priority = if *CLOUD_HOSTED {
             // for cloud hosted instance, priority queues is disabled
             None
+        } else if let Some(low) =
+            inherited_low_priority(&mut tx, db, workspace_id, parent_job, &flow_step_id).await?
+        {
+            Some(low)
         } else if _priority_override.is_some() {
             _priority_override
         } else {

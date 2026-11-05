@@ -43,7 +43,7 @@ pub async fn get_queue_stats(
             EXTRACT(EPOCH FROM head)::double precision AS \"head_since!\"
         FROM (
             SELECT tag, sum(n)::bigint AS count,
-                (array_agg(head ORDER BY priority DESC NULLS LAST))[1] AS head
+                (array_agg(head ORDER BY COALESCE(priority, -1) DESC))[1] AS head
             FROM (
                 SELECT tag, priority, count(*) AS n, min(scheduled_for) AS head
                 FROM v2_job_queue WHERE

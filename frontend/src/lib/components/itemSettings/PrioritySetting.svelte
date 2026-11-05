@@ -12,6 +12,9 @@
 	}
 
 	let { kind, priority = $bindable() }: Props = $props()
+
+	// Any value below -1 sorts after jobs without priority, which the queue counts as -1.
+	const LOW_PRIORITY = -100
 </script>
 
 <!-- Not available on the cloud, where the toggle could only ever be disabled. -->
@@ -50,4 +53,15 @@
 			/>
 		</Label>
 	</SettingToggle>
+	<SettingToggle
+		setting="low_priority"
+		label="Low priority"
+		tooltip={kind === 'flow'
+			? 'The jobs of this flow, of its steps and every job they start run only when no other job is waiting. Use it for large background flows so they do not hold up the rest of the workspace.'
+			: 'The jobs of this script and every job they start run only when no other job is waiting.'}
+		eeOnly
+		disabled={!$enterpriseLicense}
+		checked={priority !== undefined && priority < 0}
+		onchange={(on) => (priority = on ? LOW_PRIORITY : undefined)}
+	/>
 {/if}

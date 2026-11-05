@@ -29,7 +29,7 @@ async fn queue_job(
 }
 
 /// The delay reported for a tag is that of the job the worker pull takes first, ordered
-/// `priority DESC NULLS LAST, scheduled_for`, not simply the oldest one waiting. Running jobs
+/// `COALESCE(priority, -1) DESC, scheduled_for`, not simply the oldest one waiting. Running jobs
 /// and jobs less than 3 seconds past due are not part of the backlog at all.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn queue_stats_report_the_delay_of_the_job_pulled_next(db: Pool<Postgres>) {
@@ -66,4 +66,49 @@ async fn queue_stats_report_the_delay_of_the_job_pulled_next(db: Pool<Postgres>)
         "expected the oldest job, got a delay of {}",
         unprioritized.delay
     );
+}
+
+/// Workers take high priority first, then flow steps (0), then jobs without priority, and
+/// low (negative) priority last, through `queue_sort_v3` rather than a sort of the queue.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn pull_runs_low_priority_after_unprioritized_jobs(db: Pool<Postgres>) {
+    queue_job(&db, "order", Some(-100), 900.0, false).await;
+    queue_job(&db, "order", None, 600.0, false).await;
+    queue_job(&db, "order", Some(0), 300.0, false).await;
+    queue_job(&db, "order", Some(5), 100.0, false).await;
+
+    let query = windmill_common::worker::make_pull_query(&["order".to_string()]);
+    let mut conn = db.acquire().await.unwrap();
+    sqlx::query("SET enable_seqscan = off")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    let plan: Vec<String> = sqlx::query_scalar(&format!("EXPLAIN {query}"))
+        .bind("worker")
+        .fetch_all(&mut *conn)
+        .await
+        .unwrap();
+    let plan = plan.join("\n");
+    assert!(
+        plan.contains("queue_sort_v3") && !plan.contains("Sort "),
+        "pull query does not scan queue_sort_v3 in order:\n{plan}"
+    );
+
+    let mut pulled = vec![];
+    while let Some(row) = sqlx::query(&query)
+        .bind("worker")
+        .fetch_optional(&mut *conn)
+        .await
+        .unwrap()
+    {
+        let id: uuid::Uuid = sqlx::Row::get(&row, "id");
+        let priority: Option<i16> =
+            sqlx::query_scalar("SELECT priority FROM v2_job_queue WHERE id = $1")
+                .bind(id)
+                .fetch_one(&mut *conn)
+                .await
+                .unwrap();
+        pulled.push(priority);
+    }
+    assert_eq!(pulled, vec![Some(5), Some(0), None, Some(-100)]);
 }
