@@ -53,6 +53,14 @@ impl WebSearchProvider {
         }
     }
 
+    pub fn id(self) -> &'static str {
+        match self {
+            WebSearchProvider::Exa => "exa",
+            WebSearchProvider::Tavily => "tavily",
+            WebSearchProvider::Linkup => "linkup",
+        }
+    }
+
     fn name(self) -> &'static str {
         match self {
             WebSearchProvider::Exa => "Exa",

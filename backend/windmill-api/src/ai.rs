@@ -997,6 +997,14 @@ async fn web_search_credentials(
     Ok((config.provider, api_key))
 }
 
+fn log_web_search_usage(provider: WebSearchProvider, action: &str) {
+    windmill_common::feature_usage::log_feature_usage(
+        "ai_chat",
+        "web_search_backend",
+        &format!("{}:{action}", provider.id()),
+    );
+}
+
 #[derive(Deserialize)]
 struct WebSearchRequest {
     query: String,
@@ -1023,6 +1031,7 @@ async fn web_search(
     let results = provider
         .search(&api_key, query, request.max_results)
         .await?;
+    log_web_search_usage(provider, "search");
     Ok(Json(WebSearchResponse { results }))
 }
 
@@ -1042,7 +1051,9 @@ async fn web_fetch(
         .filter(|u| matches!(u.scheme(), "http" | "https"))
         .ok_or_else(|| Error::BadRequest("The URL must be an http(s) URL".to_string()))?;
     let (provider, api_key) = web_search_credentials(&authed, &db, &w_id).await?;
-    Ok(Json(provider.fetch(&api_key, url.as_str()).await?))
+    let page = provider.fetch(&api_key, url.as_str()).await?;
+    log_web_search_usage(provider, "fetch");
+    Ok(Json(page))
 }
 
 pub fn global_service() -> Router {
