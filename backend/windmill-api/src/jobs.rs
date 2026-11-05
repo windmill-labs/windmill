@@ -5104,6 +5104,7 @@ pub async fn resume_suspended_flow_as_owner(
         job_id,
         true,
         &authed.username,
+        None,
     )
     .await?;
 
@@ -5236,6 +5237,7 @@ async fn resume_suspended(
 
     let approver_value = opt_authed.as_ref().map(|a| a.username.clone());
 
+    let deny_reason = (!approved).then(|| deny_reason(&value)).flatten();
     insert_resume_job(
         resume_id,
         resume_job_id,
@@ -5280,6 +5282,7 @@ async fn resume_suspended(
         resume_job_id,
         approved,
         &approver,
+        deny_reason.as_deref(),
     )
     .await?;
 
@@ -5781,6 +5784,7 @@ async fn resume_suspended_job_internal(
         reject_mismatched_wac_approval(&mut tx, flow_info.id, resume_id).await?;
     }
 
+    let deny_reason = (!approved).then(|| deny_reason(&value)).flatten();
     insert_resume_job(
         resume_id,
         job_id,
@@ -5834,6 +5838,7 @@ async fn resume_suspended_job_internal(
         job_id,
         approved,
         &approver,
+        deny_reason.as_deref(),
     )
     .await?;
     tx.commit().await?;
@@ -5851,6 +5856,7 @@ async fn audit_suspend_resume(
     step_job_id: Uuid,
     approved: bool,
     approver: &str,
+    deny_reason: Option<&str>,
 ) -> error::Result<()> {
     let flow_id_s = flow_id.to_string();
     let step_job_id_s = step_job_id.to_string();
@@ -5866,6 +5872,9 @@ async fn audit_suspend_resume(
     ]);
     if step_job_id != flow_id {
         params.insert("step_job_id", step_job_id_s.as_str());
+    }
+    if let Some(reason) = deny_reason {
+        params.insert("reason", reason);
     }
     audit_log(
         &mut **tx,
@@ -5938,6 +5947,12 @@ async fn decrement_suspend(flow_id: Uuid, tx: &mut Transaction<'_, Postgres>) ->
     Ok(())
 }
 
+/// The reason an approver gave for a denial, read from the deny payload's `reason`.
+fn deny_reason(value: &serde_json::Value) -> Option<String> {
+    let reason = value.get("reason")?.as_str()?.trim();
+    (!reason.is_empty()).then(|| reason.to_string())
+}
+
 async fn insert_resume_job<'c>(
     resume_id: u32,
     job_id: Uuid,
@@ -5950,11 +5965,15 @@ async fn insert_resume_job<'c>(
     // The approver, possibly anonymous, writes this payload, and later steps receive it as
     // `resume`, interpolated with the flow's own token.
     if windmill_common::variables::untrusted_arg_interpolates(&value.to_string()) {
-        return Err(Error::BadRequest(
-            "The resume payload cannot hold $var:, $jsonvar:, $res: or $encrypted: references, \
+        let what = if approved {
+            "The resume payload"
+        } else {
+            "The denial reason"
+        };
+        return Err(Error::BadRequest(format!(
+            "{what} cannot hold $var:, $jsonvar:, $res: or $encrypted: references, \
              or a $WM_* variable name"
-                .to_string(),
-        ));
+        )));
     }
     sqlx::query!(
         r#"
@@ -10291,9 +10310,9 @@ async fn add_batch_jobs(
             INSERT INTO v2_job
                 (id, workspace_id, raw_code, raw_lock, raw_flow, tag, runnable_id, runnable_path, kind,
                 script_lang, created_by, permissioned_as, permissioned_as_email, concurrent_limit,
-                concurrency_time_window_s, timeout, args)
+                concurrency_time_window_s, timeout, args, priority)
                 (SELECT uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                ('{ "uuid": "' || uuid || '" }')::jsonb FROM uuid_table)
+                ('{ "uuid": "' || uuid || '" }')::jsonb, 0 FROM uuid_table)
             RETURNING id AS "id!""#,
             w_id,
             raw_code,
@@ -10320,8 +10339,8 @@ async fn add_batch_jobs(
                 select unnest($4::uuid[]) as uuid
             )
             INSERT INTO v2_job_queue
-                (id, workspace_id, scheduled_for, tag)
-                (SELECT uuid, $1, $2, $3 FROM uuid_table)
+                (id, workspace_id, scheduled_for, tag, priority)
+                (SELECT uuid, $1, $2, $3, 0 FROM uuid_table)
             RETURNING id"#,
         w_id,
         Utc::now(),

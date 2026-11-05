@@ -767,7 +767,9 @@ async fn enqueue_windmill_tool(
             .await?
             .map(|x| x.into());
 
-    let job_priority = tool_module.priority.or(ctx.job.priority);
+    let job_priority = tool_module
+        .priority
+        .or(windmill_common::queue::passed_on_priority(ctx.job.priority));
 
     let tx = PushIsolationLevel::Transaction(tx);
     let (uuid, tx) = push(

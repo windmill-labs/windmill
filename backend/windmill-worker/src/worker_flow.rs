@@ -3547,6 +3547,29 @@ pub struct ResumeRow {
     pub resume_id: i32,
 }
 
+impl ResumeRow {
+    /// The step's error for a denial, carrying the reason the approver put in the deny
+    /// payload's `reason`, if any.
+    fn disapproval_error(&self) -> Value {
+        let approver = self.approver.as_deref().unwrap_or("unknown");
+        let reason = serde_json::from_str::<Value>(self.value.get())
+            .ok()
+            .and_then(|v| Some(v.get("reason")?.as_str()?.trim().to_string()))
+            .filter(|r| !r.is_empty());
+        match reason {
+            Some(reason) => json!({"error": {
+                "message": format!("Disapproved by {approver}: {reason}"),
+                "name": "SuspendedDisapproved",
+                "reason": reason,
+            }}),
+            None => json!({"error": {
+                "message": format!("Disapproved by {approver}"),
+                "name": "SuspendedDisapproved",
+            }}),
+        }
+    }
+}
+
 lazy_static::lazy_static! {
     static ref CRASH_FORCEFULLY_AT_STEP: Option<usize> = std::env::var("CRASH_FORCEFULLY_AT_STEP")
         .ok()
@@ -4151,7 +4174,7 @@ async fn push_next_flow_job(
             if can_be_resumed || disapproved_or_timeout_but_continue {
                 if disapproved_or_timeout_but_continue {
                     let js = if let Some(disapproved) = is_disapproved.as_ref() {
-                        json!({"error": {"message": format!("Disapproved by {}", disapproved.approver.clone().unwrap_or_else( || "unknown".to_string())), "name": "SuspendedDisapproved"}})
+                        disapproved.disapproval_error()
                     } else {
                         json!({"error": {"message": "Timed out waiting to be resumed", "name": "SuspendedTimedOut"}})
                     };
@@ -4279,25 +4302,15 @@ async fn push_next_flow_job(
                 }
                 tx.commit().warn_after_seconds(3).await?;
 
-                let (logs, error_name) = if let Some(disapprover) = is_disapproved {
-                    (
-                        format!(
-                            "Disapproved by {}",
-                            disapprover
-                                .approver
-                                .clone()
-                                .unwrap_or_else(|| "unknown".to_string())
-                        ),
-                        "SuspendedDisapproved",
-                    )
+                let result: Value = if let Some(disapprover) = is_disapproved {
+                    disapprover.disapproval_error()
                 } else {
-                    (
-                        "Timed out waiting to be resumed".to_string(),
-                        "SuspendedTimedOut",
-                    )
+                    json!({ "error": {"message": "Timed out waiting to be resumed", "name": "SuspendedTimedOut"}})
                 };
-
-                let result: Value = json!({ "error": {"message": logs, "name": error_name}});
+                let logs = result["error"]["message"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
 
                 append_logs(
                     &flow_job.id,
@@ -4830,13 +4843,13 @@ async fn push_next_flow_job(
         // compute job-to-be-pushed priority
         // The job definition itself might have its own priority, but as we're running
         // it from a flow here, it inherits first the flow step priority and second the
-        // flow priority.
-        let new_job_priority_override = if module.priority.is_some() {
-            module.priority
-        } else if flow_job.priority.is_some() {
-            flow_job.priority
+        // flow priority. A low (negative) flow priority wins over the step's own: a background
+        // flow must not get ahead of other work through one of its steps.
+        let flow_priority = windmill_common::queue::passed_on_priority(flow_job.priority);
+        let new_job_priority_override = if flow_priority.is_some_and(|p| p < 0) {
+            flow_priority
         } else {
-            None
+            module.priority.or(flow_priority)
         };
 
         // The `flow_input` the step's input transforms read, which a `$flow_expr[flow_input...]`
@@ -7103,8 +7116,34 @@ pub async fn get_previous_job_result(
 mod tests {
     use super::{
         effective_flow_step_timeout, extract_chat_message_from_flow_result, is_simple_modules,
-        FlowEnvSecrets,
+        FlowEnvSecrets, ResumeRow,
     };
+
+    #[test]
+    fn disapproval_error_carries_the_deny_reason() {
+        let denial = |value: serde_json::Value| ResumeRow {
+            value: sqlx::types::Json(to_raw_value(&value).unwrap()),
+            approver: Some("ann".to_string()),
+            approved: false,
+            resume_id: 0,
+        };
+        assert_eq!(
+            denial(json!({"reason": " too risky "})).disapproval_error(),
+            json!({"error": {"name": "SuspendedDisapproved", "message": "Disapproved by ann: too risky", "reason": "too risky"}})
+        );
+        // A form payload without a string reason denies as before.
+        for value in [
+            json!(null),
+            json!({"reason": "  "}),
+            json!({"reason": 3}),
+            json!({"a": 1}),
+        ] {
+            assert_eq!(
+                denial(value).disapproval_error(),
+                json!({"error": {"name": "SuspendedDisapproved", "message": "Disapproved by ann"}})
+            );
+        }
+    }
 
     // An input computed from a secret is stored encrypted, which an agent worker cannot
     // decrypt, so a key that merely shares a secret entry's name must not count as reading it.

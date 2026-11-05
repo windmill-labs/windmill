@@ -4044,8 +4044,11 @@ pub async fn handle_wac_v2_output(
                         step.tag.clone().or_else(|| Some(job.tag.clone())),
                         step.timeout.or(job.timeout),
                         None, // flow_step_id
-                        step.priority
-                            .or(if own_runnable { None } else { job.priority }),
+                        step.priority.or(if own_runnable {
+                            None
+                        } else {
+                            windmill_common::queue::passed_on_priority(job.priority)
+                        }),
                         None,  // authed
                         false, // running
                         job.permissioned_as_end_user_email.clone(),
