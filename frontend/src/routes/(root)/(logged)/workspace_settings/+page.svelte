@@ -43,6 +43,7 @@
 	import type { GuestUsage, WorkspaceWebhookEventType } from '$lib/gen'
 	import { $WorkspaceWebhookEventType as webhookEventTypeSchema } from '$lib/gen/schemas.gen'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import { webhookEventPresets } from '$lib/components/workspaceSettings/webhookEventPresets'
 	import {
 		enterpriseLicense,
 		superadmin,
@@ -216,24 +217,7 @@
 	// undefined sends every event type
 	let webhookEvents: WorkspaceWebhookEventType[] | undefined = $state(undefined)
 	const webhookEventItems = webhookEventTypeSchema.enum.map((value) => ({ label: value, value }))
-	const webhookEventPresets: { label: string; events: WorkspaceWebhookEventType[] }[] = [
-		{
-			label: 'Scripts',
-			events: ['CreateScript', 'UpdateScript', 'DeleteScript', 'DeleteScriptPath']
-		},
-		{ label: 'Flows', events: ['CreateFlow', 'UpdateFlow', 'ArchiveFlow', 'DeleteFlow'] },
-		{ label: 'Apps', events: ['CreateApp', 'UpdateApp', 'DeleteApp'] },
-		{ label: 'Resources', events: ['CreateResource', 'UpdateResource', 'DeleteResource'] },
-		{
-			label: 'Resource types',
-			events: ['CreateResourceType', 'UpdateResourceType', 'DeleteResourceType']
-		},
-		{ label: 'Variables', events: ['CreateVariable', 'UpdateVariable', 'DeleteVariable'] },
-		{ label: 'Folders', events: ['CreateFolder', 'UpdateFolder', 'DeleteFolder'] },
-		{ label: 'Tokens', events: ['TokenExpiringSoon', 'TokenExpired'] }
-	]
-
-	function toggleWebhookEventPreset(events: WorkspaceWebhookEventType[]) {
+	function toggleWebhookEventPreset(events: readonly WorkspaceWebhookEventType[]) {
 		const current = webhookEvents ?? []
 		webhookEvents = events.every((e) => current.includes(e))
 			? current.filter((e) => !events.includes(e))
@@ -2338,7 +2322,12 @@
 										placeholder="Select event types"
 										class="max-w-lg mt-2"
 									/>
-									{#if webhookEvents.length === 0}
+									{#if webhookEventTypeSchema.enum.every((e) => webhookEvents?.includes(e))}
+										<div class="text-xs text-secondary max-w-lg">
+											Every event type is selected. Event types added in later versions are not sent
+											unless you choose All events.
+										</div>
+									{:else if webhookEvents.length === 0}
 										<div class="text-xs text-red-600 dark:text-red-400">
 											Select at least one event type
 										</div>
