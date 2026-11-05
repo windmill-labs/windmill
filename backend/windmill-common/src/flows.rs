@@ -17,6 +17,7 @@ use crate::{
     cache::{self, FlowExtras},
     db::DB,
     error::{to_anyhow, Error},
+    runnable_ref::RunnableRef,
     scripts::ScriptHash,
     utils::{http_get_from_hub, parse_hub_id, StripPath},
     worker::{to_raw_value, Connection},
@@ -342,7 +343,7 @@ fn check_module_value_is_composition_only(
         }
         FlowModuleValue::Identity => {}
         FlowModuleValue::Script { path, hash, tag_override, .. } => {
-            check_composable_path(path, id)?;
+            check_composable_path(path, false, id)?;
             push_tag(tag_override);
             refs.runnables.push((false, path.clone()));
             if let Some(hash) = hash {
@@ -350,7 +351,7 @@ fn check_module_value_is_composition_only(
             }
         }
         FlowModuleValue::Flow { path, .. } => {
-            check_composable_path(path, id)?;
+            check_composable_path(path, true, id)?;
             refs.runnables.push((true, path.clone()));
         }
         FlowModuleValue::ForloopFlow { modules, modules_node, .. }
@@ -424,8 +425,12 @@ fn refused(id: &str, what: &str) -> Error {
     ))
 }
 
-fn check_composable_path(path: &str, id: &str) -> Result<(), Error> {
-    if path.starts_with("hub/") {
+fn check_composable_path(path: &str, is_flow: bool, id: &str) -> Result<(), Error> {
+    if !path.is_empty()
+        && RunnableRef::from_path(path, is_flow)?
+            .path()
+            .starts_with("hub/")
+    {
         return Err(Error::PermissionDenied(format!(
             "Step {id}: hub runnables are not available to operators with builder rights. Deploy \
              it to the workspace first."
@@ -588,10 +593,23 @@ mod tests {
 
     #[test]
     fn composition_check_rejects_hub_runnables() {
-        for kind in ["script", "flow"] {
+        for (kind, path) in [
+            ("script", "hub/1234/thing"),
+            ("script", "/hub/1234/thing"),
+            ("flow", "hub/flows/1234/thing"),
+            ("flow", "/hub/flows/1234/thing"),
+            // Parses as a workspace flow path, so only the Hub check refuses it.
+            ("flow", "hub/1234/thing"),
+        ] {
             let value = serde_json::json!({"modules": [{"id": "a",
-                "value": {"type": kind, "path": "hub/1234/thing"}}]});
-            assert!(check_flow_is_composition_only(&flow(value)).is_err());
+                "value": {"type": kind, "path": path}}]});
+            assert!(
+                matches!(
+                    check_flow_is_composition_only(&flow(value)),
+                    Err(Error::PermissionDenied(_))
+                ),
+                "{kind} {path}"
+            );
         }
     }
 }
