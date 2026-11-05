@@ -112,7 +112,13 @@ for (const file of walk(packageDir)) {
 			return `${prefix}${quote}${relativeSpecifier(file, join(chatSdkDest, 'index.js'))}${quote}`
 		}
 		const target = resolve(dirname(file), specifier)
-		if (target !== packageDir && !target.startsWith(packageDir + sep)) {
+		// Test files ride along in the output but no consumer imports them, so an escaping
+		// import there (e.g. `../app.html?raw`) breaks nothing.
+		if (
+			target !== packageDir &&
+			!target.startsWith(packageDir + sep) &&
+			!/\.test\.js$/.test(file)
+		) {
 			unresolvable.push(`${relative(packageDir, file)}: ${specifier}`)
 			return match
 		}

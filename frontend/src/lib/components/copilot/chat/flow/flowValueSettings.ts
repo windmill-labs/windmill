@@ -22,6 +22,7 @@ export const flowValueSettingsSchema = z
 		cache_ttl: z.number(),
 		cache_ignore_s3_path: z.boolean(),
 		delete_after_secs: z.number(),
+		timeout: z.number(),
 		flow_env: z.record(z.string(), z.any()),
 		priority: z.number(),
 		early_return: z.string(),

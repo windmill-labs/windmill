@@ -35,6 +35,7 @@ leaves and ignores the current scope.
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import type { BadgeColor } from '$lib/components/common/badge/model'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { isNewTabClick } from '$lib/navigation'
 
 	interface Props {
 		tree: DrillNode<L>[]
@@ -88,6 +89,11 @@ leaves and ignores the current scope.
 		/** Status badge on the right of a leaf row. Returns `undefined` for a leaf with
 		 * nothing to report. The hover action, when there is one, covers it. */
 		leafBadge?: (leaf: DrillLeaf<L>) => { label: string; color: BadgeColor } | undefined
+		/** Where picking a leaf navigates, for a host whose pick is a navigation. The row then
+		 * renders as a link: a plain click still goes through `onPick`, while a middle or
+		 * ⌘/Ctrl-click opens it in a new tab — taking ⌘/Ctrl-click from `leafAction`, which
+		 * keeps ⌘/Ctrl-Enter. */
+		leafHref?: (leaf: DrillLeaf<L>) => string | undefined
 	}
 
 	let {
@@ -106,7 +112,8 @@ leaves and ignores the current scope.
 		rootLoading = false,
 		rowTooltip,
 		leafAction,
-		leafBadge
+		leafBadge,
+		leafHref
 	}: Props = $props()
 
 	let searchInput: TextInput | undefined = $state()
@@ -517,6 +524,7 @@ leaves and ignores the current scope.
 	{@const tip = rowTooltip?.(leaf)}
 	{@const action = leaf.disabled ? undefined : leafAction?.(leaf)}
 	{@const badge = leafBadge?.(leaf)}
+	{@const href = leaf.disabled ? undefined : leafHref?.(leaf)}
 	<!-- The row's action sits BESIDE the option rather than inside it: a button nested in
 	     a button is invalid markup. The wrapper carries the row's padding, highlight and
 	     hover group so the two still read as one row. -->
@@ -533,8 +541,10 @@ leaves and ignores the current scope.
 		}}
 		onmouseleave={tooltipLeave}
 	>
-		<button
-			type="button"
+		<svelte:element
+			this={href ? 'a' : 'button'}
+			type={href ? undefined : 'button'}
+			{href}
 			id={idFor(key)}
 			role="option"
 			aria-selected={isHl}
@@ -543,10 +553,18 @@ leaves and ignores the current scope.
 			aria-label={tip ? `${leaf.label} — ${tip}` : undefined}
 			class="min-w-0 flex-1 text-left flex items-center gap-2 pl-3 {isCur
 				? 'cursor-default text-emphasis font-medium'
-				: ''} {leaf.disabled ? 'opacity-50 cursor-not-allowed' : ''}"
-			disabled={leaf.disabled}
-			onmousedown={(e) => e.preventDefault()}
-			onclick={(e) => pick(leaf, e.metaKey || e.ctrlKey)}
+				: 'text-[color:inherit]'} {leaf.disabled ? 'opacity-50 cursor-not-allowed' : ''}"
+			disabled={href ? undefined : leaf.disabled}
+			tabindex={0}
+			onmousedown={(e: MouseEvent) => e.preventDefault()}
+			onclickcapture={(e: MouseEvent) => {
+				// Capture, not a delegated onclick: the picker is portalled outside the app root,
+				// where a delegated handler runs after SvelteKit's link handler has already
+				// followed the href, too late for preventDefault to keep a plain click on `pick`.
+				if (href && isNewTabClick(e)) return
+				e.preventDefault()
+				pick(leaf, e.metaKey || e.ctrlKey)
+			}}
 		>
 			{@render defaultLeafIcon(leaf)}
 			<!-- Centred in a two-line row's height so a one-line leaf sits where a two-line
@@ -566,7 +584,7 @@ leaves and ignores the current scope.
 					</div>
 				{/if}
 			</div>
-		</button>
+		</svelte:element>
 		<!-- Keyed on the props rather than on this leaf's own badge or action, so a picker
 		     that has either holds the column open on every row: paths then truncate at one
 		     column and the button lands in the same place down the list. -->

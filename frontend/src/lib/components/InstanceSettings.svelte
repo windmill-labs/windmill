@@ -1121,7 +1121,10 @@
 					<ul class="list-disc list-inside pl-2">
 						<li>Job counts and durations per language</li>
 						<li>Git sync repository counts</li>
-						<li>Feature usage and adoption counts, including AI model and public Hub names</li>
+						<li
+							>Feature usage and adoption counts, including AI model, web search provider and public
+							Hub names</li
+						>
 						<li>Counts of workspaces, scripts, flows and apps</li>
 						<li>Database, runtime and object storage details</li>
 					</ul>
@@ -1157,7 +1160,10 @@
 						<li>Login types, user and seat counts</li>
 						<li>Worker count, vCPUs and memory</li>
 						<li>Development instance status</li>
-						<li>Feature usage and adoption counts, including AI model and public Hub names</li>
+						<li
+							>Feature usage and adoption counts, including AI model, web search provider and public
+							Hub names</li
+						>
 						<li>Counts of workspaces, scripts, flows and apps</li>
 					</ul>
 				</div>

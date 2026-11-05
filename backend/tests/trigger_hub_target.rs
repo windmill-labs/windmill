@@ -54,8 +54,10 @@ async fn hub_target_with_retry_runs_its_preprocessor(db: Pool<Postgres>) -> anyh
             ..Default::default()
         },
         "test-workspace",
-        &format!("hub/{version}/test/pre"),
-        false,
+        &windmill_common::runnable_ref::RunnableRef::from_path(
+            &format!("hub/{version}/test/pre"),
+            false,
+        )?,
         args,
         Some(&sqlx::types::Json(retry)),
         None,
