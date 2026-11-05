@@ -97,20 +97,15 @@
 					}}
 				>
 					{#snippet children({ item })}
-						<ToggleButton
-							value="preview"
-							label="Test runs"
-							tooltip="Runs started from the editor, and the subflows they call. Deployed runs execute the step."
-							{item}
-						/>
-						<ToggleButton
-							value="every"
-							label="Every run"
-							tooltip="Also deployed runs: run form, schedules, triggers, webhooks, API."
-							{item}
-						/>
+						<ToggleButton value="preview" label="Test runs" {item} />
+						<ToggleButton value="every" label="Every run" {item} />
 					{/snippet}
 				</ToggleButtonGroup>
+				<span class="text-2xs font-normal text-secondary">
+					{flowModule.mock?.preview_only
+						? 'Only runs started from the editor, and the subflows they call, use the pin.'
+						: 'Deployed runs also return the pinned value.'}
+				</span>
 			</Label>
 			<Label label="Pinned value">
 				{#key renderCount}

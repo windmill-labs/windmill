@@ -38,8 +38,9 @@
 			  }
 			| undefined
 		editMode?: boolean
-		/** In a run, whether the step's mock was used: a mock limited to test runs is not used by a
-		 * deployed run, so the pin must not show there. Undefined in the editor. */
+		/** Whether the step's mock applies to what the graph shows: in a run, whether it was used; on
+		 * a deployed flow, whether deployed runs use it. A pin shows only where it applies, which is
+		 * what tells a test-runs pin from an every-run one. Undefined in the editor. */
 		mockApplied?: boolean
 		onSelectedIteration: OnSelectedIteration
 		onSelect: (id: string | FlowModule) => void

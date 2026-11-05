@@ -16,7 +16,20 @@
 
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Pin, History, Pen, Check, X, Loader2, Pencil, ScrollText } from 'lucide-svelte'
+	import {
+		Pin,
+		History,
+		Pen,
+		Check,
+		X,
+		Loader2,
+		Pencil,
+		ScrollText,
+		ChevronDown
+	} from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { Alert } from '$lib/components/common'
+	import type { Item } from '$lib/utils'
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import StepHistory from './StepHistory.svelte'
 	import { Popover } from '$lib/components/meltComponents'
@@ -121,6 +134,41 @@
 	let preview: 'mock' | 'job' | undefined = $state(undefined)
 	let selectedJob: OutputViewerJob = $state(undefined)
 	let showLogs = $state(false)
+
+	const PIN_SCOPE_TIP_KEY = 'hidePinScopeTip'
+	let showPinScopeTip = $state(readPinScopeTip())
+	function readPinScopeTip() {
+		try {
+			return localStorage.getItem(PIN_SCOPE_TIP_KEY) !== 'true'
+		} catch {
+			return false
+		}
+	}
+	function dismissPinScopeTip() {
+		showPinScopeTip = false
+		try {
+			localStorage.setItem(PIN_SCOPE_TIP_KEY, 'true')
+		} catch {}
+	}
+
+	function setPinScope(preview_only: boolean) {
+		if (!mock?.enabled) return
+		onUpdateMock?.({ ...mock, enabled: true, preview_only })
+	}
+	let scopeItems: Item[] = $derived([
+		{
+			displayName: 'Test runs',
+			description: 'Runs started from the editor, and the subflows they call',
+			selected: !!mock?.preview_only,
+			action: () => setPinScope(true)
+		},
+		{
+			displayName: 'Every run',
+			description: 'Deployed runs too: run form, schedules, triggers, webhooks, API',
+			selected: !mock?.preview_only,
+			action: () => setPinScope(false)
+		}
+	])
 
 	function checkOverflow() {
 		if (contentEl) {
@@ -427,19 +475,6 @@
 									>{mock?.enabled ? 'Pin' : 'Last pin'}</span
 								>
 							</div>
-							{#if mock?.enabled && !preview && !disableMock}
-								<Button
-									unifiedSize="xs"
-									variant="subtle"
-									title={mock.preview_only
-										? 'Only runs started from the editor use the pin. Deployed runs execute the step. Click to pin in every run.'
-										: 'Every run uses the pin, deployed runs included. Click to pin in test runs only.'}
-									onClick={() =>
-										onUpdateMock?.({ ...mock, enabled: true, preview_only: !mock.preview_only })}
-								>
-									{mock.preview_only ? 'Test runs' : 'Every run'}
-								</Button>
-							{/if}
 						{:else if preview === 'job' || (selectedJob && !preview)}
 							<OutputBadge
 								job={selectedJob}
@@ -467,30 +502,54 @@
 
 				<!-- Pin button -->
 				{#if !disableMock}
-					<Tooltip disablePopup={mock?.enabled}>
-						<Button
-							color="light"
-							size="xs2"
-							variant="contained"
-							btnClasses={twMerge(
-								'bg-transparent h-[27px]',
-								mock?.enabled || mockUpdateStatus === 'override'
-									? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
-									: '',
-								jsonView ? 'pointer-events-none' : ''
-							)}
-							startIcon={{ icon: Pin }}
-							iconOnly={mockUpdateStatus !== 'override'}
-							on:click={() => togglePin()}
-						>
-							{#if mockUpdateStatus === 'override'}
-								Override pin
-							{/if}
-						</Button>
-						{#snippet text()}
-							Pin data
-						{/snippet}
-					</Tooltip>
+					{@const scoped = mock?.enabled && !preview && !jsonView}
+					<div class="flex items-center">
+						<Tooltip disablePopup={mock?.enabled}>
+							<Button
+								color="light"
+								size="xs2"
+								variant="contained"
+								btnClasses={twMerge(
+									'bg-transparent h-[27px]',
+									mock?.enabled || mockUpdateStatus === 'override'
+										? 'text-white bg-blue-500 hover:text-primary hover:bg-blue-700 hover:text-gray-100'
+										: '',
+									scoped ? 'rounded-r-none' : '',
+									jsonView ? 'pointer-events-none' : ''
+								)}
+								startIcon={{ icon: Pin }}
+								iconOnly={mockUpdateStatus !== 'override'}
+								on:click={() => togglePin()}
+								title={scoped
+									? mock?.preview_only
+										? 'Pinned in test runs'
+										: 'Pinned in every run'
+									: undefined}
+							>
+								{#if mockUpdateStatus === 'override'}
+									Override pin
+								{/if}
+							</Button>
+							{#snippet text()}
+								Pin data
+							{/snippet}
+						</Tooltip>
+						{#if scoped}
+							<DropdownV2 items={scopeItems} placement="bottom-start" fixedHeight={false}>
+								{#snippet buttonReplacement()}
+									<Button
+										nonCaptureEvent
+										unifiedSize="xs"
+										variant="accent"
+										startIcon={{ icon: ChevronDown }}
+										iconOnly
+										btnClasses="h-[27px] w-4 rounded-l-none border-l border-white/30 bg-blue-500 hover:bg-blue-700 text-white"
+										title="Where the pin applies"
+									/>
+								{/snippet}
+							</DropdownV2>
+						{/if}
+					</div>
 				{/if}
 
 				{#if jsonView}
@@ -605,6 +664,18 @@
 			</div>
 		</div>
 	</div>
+
+	{#if showPinScopeTip && mock?.enabled && !preview && !disableMock}
+		<Alert
+			type="info"
+			size="xs"
+			class="mx-2 mb-1"
+			title="Pins apply to test runs by default"
+			actions={[{ label: 'Got it', onClick: dismissPinScopeTip, variant: 'subtle' }]}
+		>
+			Deployed runs execute the step. Change it from the arrow next to the pin.
+		</Alert>
+	{/if}
 
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<!-- svelte-ignore a11y_mouse_events_have_key_events -->
