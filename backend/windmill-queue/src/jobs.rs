@@ -1601,16 +1601,14 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // Resolve the concurrency-limit settings on the pool *before* opening the
     // completion transaction: doing it inside the tx would hold a second
     // simultaneous connection from the small per-worker pool.
-    let settings_concurrent_limit =
-        windmill_common::runnable_settings::prefetch_cached_from_handle(
-            completed_job.runnable_settings_handle,
-            db,
-        )
-        .await?
-        .1
-        .concurrent_limit;
+    let concurrency_settings = windmill_common::runnable_settings::prefetch_cached_from_handle(
+        completed_job.runnable_settings_handle,
+        db,
+    )
+    .await?
+    .1;
     let has_concurrent_limit = has_active_concurrency_limit(completed_job.concurrent_limit)
-        || has_active_concurrency_limit(settings_concurrent_limit);
+        || has_active_concurrency_limit(concurrency_settings.concurrent_limit);
 
     // A genuine NUL (U+0000) in the result serializes to a `\u0000` escape that
     // the jsonb `result` column rejects with 22P05 ("unsupported Unicode escape
@@ -1870,9 +1868,17 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     if let Some(key) = released_concurrency_key {
         let limit = completed_job
             .concurrent_limit
-            .max(settings_concurrent_limit)
+            .max(concurrency_settings.concurrent_limit)
             .unwrap_or(0);
-        if let Err(e) = wake_deferred_concurrency_job(db, &key, limit).await {
+        if let Err(e) = wake_deferred_concurrency_job(
+            db,
+            &key,
+            limit,
+            &completed_job.id,
+            concurrency_settings.concurrency_time_window_s,
+        )
+        .await
+        {
             tracing::error!("Could not wake a deferred job for concurrency key {key}: {e:#}");
         }
     }
@@ -5292,18 +5298,30 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
 /// time window: wakes go to the earliest of those, so they come first, and missing one can
 /// only over-wake, which admission re-defers. Both walks filter before they stop, so older
 /// time-window jobs or ones at a full lower limit never hide an eligible job on a shared key.
-/// `limit` is the completed job's. Queue bookkeeping, not an authorization boundary.
+/// `limit` and the time window are the completed job's: a job limited per time window wakes
+/// nothing, as its completion frees no slot, and walking such a key would read its whole
+/// backlog. Queue bookkeeping, not an authorization boundary.
 #[cfg(all(feature = "enterprise", feature = "private"))]
-pub async fn wake_deferred_concurrency_job(db: &DB, key: &str, limit: i32) -> error::Result<()> {
+pub async fn wake_deferred_concurrency_job(
+    db: &DB,
+    key: &str,
+    limit: i32,
+    completed_job_id: &Uuid,
+    settings_time_window_s: Option<i32>,
+) -> error::Result<()> {
     sqlx::query!(
-        "WITH head AS (
+        "WITH unwindowed AS (
+            SELECT COALESCE($4::int,
+                (SELECT concurrency_time_window_s FROM v2_job WHERE id = $3), 0) = 0 AS yes
+        ), head AS (
             SELECT q.running, q.scheduled_for <= now() AS due
             FROM concurrency_key ck
             JOIN v2_job_queue q ON q.id = ck.job_id
             JOIN v2_job j ON j.id = ck.job_id
             LEFT JOIN runnable_settings rs ON rs.hash = q.runnable_settings_handle
             LEFT JOIN concurrency_settings cs ON cs.hash = rs.concurrency_settings
-            WHERE ck.key = $1 AND ck.ended_at IS NULL AND ck.original_scheduled_for IS NOT NULL
+            WHERE (SELECT yes FROM unwindowed)
+                AND ck.key = $1 AND ck.ended_at IS NULL AND ck.original_scheduled_for IS NOT NULL
                 AND q.canceled_by IS NULL
                 AND COALESCE(cs.concurrency_time_window_s, j.concurrency_time_window_s, 0) = 0
             ORDER BY ck.original_scheduled_for, ck.job_id
@@ -5321,7 +5339,8 @@ pub async fn wake_deferred_concurrency_job(db: &DB, key: &str, limit: i32) -> er
             JOIN v2_job j ON j.id = ck.job_id
             LEFT JOIN runnable_settings rs ON rs.hash = q.runnable_settings_handle
             LEFT JOIN concurrency_settings cs ON cs.hash = rs.concurrency_settings
-            WHERE ck.key = $1 AND ck.ended_at IS NULL AND ck.original_scheduled_for IS NOT NULL
+            WHERE (SELECT yes FROM unwindowed)
+                AND ck.key = $1 AND ck.ended_at IS NULL AND ck.original_scheduled_for IS NOT NULL
                 AND NOT q.running AND q.canceled_by IS NULL AND q.scheduled_for > now()
                 AND COALESCE(cs.concurrency_time_window_s, j.concurrency_time_window_s, 0) = 0
                 AND (SELECT n FROM taken) < COALESCE(cs.concurrent_limit, j.concurrent_limit, 0)
@@ -5335,6 +5354,8 @@ pub async fn wake_deferred_concurrency_job(db: &DB, key: &str, limit: i32) -> er
             AND v2_job_queue.scheduled_for > now()",
         key,
         i64::from(limit),
+        completed_job_id,
+        settings_time_window_s,
     )
     .execute(db)
     .await?;

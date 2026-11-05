@@ -57,6 +57,7 @@ async fn due(db: &Pool<Postgres>, id: Uuid) -> anyhow::Result<bool> {
 /// the free slots, and a later completion wakes none while they are due. Never a job
 /// scheduled for later or one limited per time window, and older time-window jobs sharing
 /// the key, more of them than the head the wake counts in, do not hide the eligible ones.
+/// The completion of a job limited per time window frees no slot and wakes nothing.
 #[sqlx::test(fixtures("base"))]
 async fn completion_fills_the_free_slots(db: Pool<Postgres>) -> anyhow::Result<()> {
     let mut windowed = vec![];
@@ -67,11 +68,18 @@ async fn completion_fills_the_free_slots(db: Pool<Postgres>) -> anyhow::Result<(
     let second = waiting_job(&db, Some(20), None).await?;
     let third = waiting_job(&db, Some(10), None).await?;
     let scheduled_later = waiting_job(&db, None, None).await?;
+    let completed = Uuid::new_v4();
 
-    wake_deferred_concurrency_job(&db, KEY, LIMIT).await?;
+    wake_deferred_concurrency_job(&db, KEY, LIMIT, &completed, Some(10)).await?;
+    let woken_by_windowed = due(&db, first).await?;
+    wake_deferred_concurrency_job(&db, KEY, LIMIT, &completed, None).await?;
     let second_woken_at_once = due(&db, second).await?;
-    wake_deferred_concurrency_job(&db, KEY, LIMIT).await?;
+    wake_deferred_concurrency_job(&db, KEY, LIMIT, &completed, None).await?;
 
+    assert!(
+        !woken_by_windowed,
+        "a job limited per time window freed a slot on completion"
+    );
     assert!(
         second_woken_at_once,
         "a free slot was left to the deferral estimate"
