@@ -158,7 +158,7 @@
 								options={{
 									right: 'Limit duration',
 									rightTooltip:
-										'Time since the first iteration started, checked after each iteration (a running iteration is not interrupted). When the limit is reached and the break condition did not stop the loop, the loop fails with an error named LoopExhausted, handled like any step failure.'
+										'Checked after each iteration, so the loop can run up to one iteration past the limit. Set a timeout on the steps inside to cap an iteration. When the limit is reached before the break condition, the loop fails with LoopExhausted, handled like any step failure.'
 								}}
 							/>
 							{#if mod.value.max_duration_secs !== undefined}
