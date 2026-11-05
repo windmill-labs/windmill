@@ -176,6 +176,7 @@
 							<FlowGraphViewer
 								flow={recording.flow!}
 								hideDefaultInputs
+								minHeight={0}
 								fillAvailableHeight
 								capToAvailableHeight
 								bind:stepDetail

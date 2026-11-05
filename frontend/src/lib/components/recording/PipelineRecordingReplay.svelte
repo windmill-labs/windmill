@@ -435,11 +435,21 @@
 										{/if}
 									</div>
 								{:else if selectedJobId && recording.jobs[selectedJobId]}
-									{#if !stacked && job?.args && Object.keys(job.args).length > 0}
-										<div class="shrink-0">
-											<h3 class="text-2xs font-semibold text-tertiary mb-1">Arguments</h3>
-											<JobArgs args={job.args} />
-										</div>
+									{#if job?.args && Object.keys(job.args).length > 0}
+										{#if stacked}
+											<!-- Collapsed: open, the table would squeeze Logs and Result out of the short pane. -->
+											<details class="shrink-0 max-h-1/2 overflow-auto">
+												<summary class="text-2xs font-semibold text-tertiary cursor-pointer">
+													Arguments
+												</summary>
+												<JobArgs args={job.args} />
+											</details>
+										{:else}
+											<div class="shrink-0">
+												<h3 class="text-2xs font-semibold text-tertiary mb-1">Arguments</h3>
+												<JobArgs args={job.args} />
+											</div>
+										{/if}
 									{/if}
 									<!-- Stacked, the detail pane is wide and short, so Logs and Result sit side
 									     by side. Otherwise they share the height, Result taking the larger share
