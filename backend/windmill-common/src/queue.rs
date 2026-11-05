@@ -15,6 +15,13 @@ pub fn pushed_job_priority(priority: Option<i16>, flow_step: bool, dependency_jo
     }
 }
 
+/// A job's stored priority, as an override for the jobs it starts. 0 is how a job without
+/// priority is stored (see [`pushed_job_priority`]): passing it on would replace the started
+/// runnable's own priority instead of leaving it in effect.
+pub fn passed_on_priority(priority: Option<i16>) -> Option<i16> {
+    priority.filter(|p| *p != 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::pushed_job_priority;

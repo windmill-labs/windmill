@@ -1,3 +1,3 @@
-UPDATE v2_job_queue
-SET priority = CASE WHEN priority = 0 THEN NULL ELSE 0 END
-WHERE priority = 0 OR priority = 1;
+-- Flow steps and dependency jobs at 1 still sort ahead of NULL, so only the jobs without
+-- priority are moved back.
+UPDATE v2_job_queue SET priority = NULL WHERE priority = 0;
