@@ -634,6 +634,14 @@ pub async fn update_flow_status_after_job_completion_internal(
             FlowStatusModule::InProgress { branchall: Some(_), parallel, .. } => (true, *parallel),
             _ => (false, false),
         };
+        let parallelism = if parallel_branchall {
+            current_module
+                .as_ref()
+                .and_then(|x| x.get_value_with_skip_failures().ok())
+                .and_then(|x| x.parallelism)
+        } else {
+            parallelism
+        };
 
         // 0 length flows are not failure steps
         let is_failure_step =
@@ -5258,11 +5266,15 @@ async fn push_next_flow_job(
             }
         }
 
-        if value_with_parallel.type_ == "forloopflow"
-            && value_with_parallel.parallel.unwrap_or(false)
-        {
+        // A branch-all is parallel unless `parallel: false`, a for-loop only with `parallel: true`.
+        let is_parallel_step = match value_with_parallel.type_.as_str() {
+            "forloopflow" => value_with_parallel.parallel.unwrap_or(false),
+            "branchall" => value_with_parallel.parallel.unwrap_or(true),
+            _ => false,
+        };
+        if is_parallel_step {
             if let Some(parallelism_transform) = &value_with_parallel.parallelism {
-                tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for forloopflow job {uuid}");
+                tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for {} job {uuid}", value_with_parallel.type_);
 
                 let ctx = get_transform_context(&flow_job, &previous_id, &status);
 
@@ -5275,8 +5287,15 @@ async fn push_next_flow_job(
                     Some(&ctx),
                 )
                 .await?;
+                // A cap of 0 suspends every child, and only a finishing child releases one.
+                if evaluated_parallelism == 0 {
+                    return Err(Error::BadRequest(format!(
+                        "parallelism of step {} must be at least 1",
+                        module.id
+                    )));
+                }
 
-                tracing::debug!(id = %flow_job.id, root_id = %job_root, "updating suspend for forloopflow job {uuid} with parallelism {evaluated_parallelism}");
+                tracing::debug!(id = %flow_job.id, root_id = %job_root, "updating suspend for parallel job {uuid} with parallelism {evaluated_parallelism}");
 
                 if i as u16 >= evaluated_parallelism {
                     sqlx::query!(
