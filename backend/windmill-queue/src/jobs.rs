@@ -5278,8 +5278,9 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
 /// became due, that is still queued behind the key and not yet admitted. A job a limit
 /// deferred keeps its place through `concurrency_key.original_scheduled_for`; any other
 /// job is placed by its `scheduled_for`, so jobs scheduled for later are not ahead of it.
-/// Must be called under the key's `concurrency_counter` row lock, which serializes it
-/// with every admission of the key.
+/// None for a job that already holds a slot of the key (a resumed flow): refusing it would
+/// leave the jobs ahead of it waiting on the slot it keeps. Must be called under the key's
+/// `concurrency_counter` row lock, which serializes it with every admission of the key.
 pub async fn oldest_waiting_concurrency_job<'c, E: PgExecutor<'c>>(
     e: E,
     key: &str,
@@ -5296,6 +5297,7 @@ pub async fn oldest_waiting_concurrency_job<'c, E: PgExecutor<'c>>(
         SELECT ck.job_id
         FROM concurrency_key ck JOIN v2_job_queue q ON q.id = ck.job_id
         WHERE ck.key = $1 AND ck.ended_at IS NULL AND ck.job_id <> $2
+            AND NOT COALESCE((SELECT job_uuids ? $2::text FROM admitted), false)
             AND q.canceled_by IS NULL
             AND NOT COALESCE((SELECT job_uuids ? ck.job_id::text FROM admitted), false)
             AND (COALESCE(ck.original_scheduled_for, q.scheduled_for), ck.job_id)

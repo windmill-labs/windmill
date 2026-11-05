@@ -72,6 +72,11 @@ async fn free_slot_goes_to_the_job_first_in_line(db: Pool<Postgres>) -> anyhow::
             .fetch_one(&db)
             .await?;
     let first_admitted = admit(&db, first).await;
+    // A job ahead of one that already holds the slot must not make it give the slot up
+    // when it comes back through admission, as a resumed flow does.
+    let earlier = queue_job(&db, 20).await?;
+    let first_readmitted = admit(&db, first).await;
+    let earlier_admitted = admit(&db, earlier).await;
     CONCURRENCY_LIMIT_IN_ORDER.store(false, Ordering::Relaxed);
 
     assert!(!second_admitted?, "a later job took the slot");
@@ -80,5 +85,7 @@ async fn free_slot_goes_to_the_job_first_in_line(db: Pool<Postgres>) -> anyhow::
         first_admitted?,
         "the job first in line was refused a free slot"
     );
+    assert!(first_readmitted?, "a job holding the slot was refused it");
+    assert!(!earlier_admitted?, "a job was admitted past the limit");
     Ok(())
 }
