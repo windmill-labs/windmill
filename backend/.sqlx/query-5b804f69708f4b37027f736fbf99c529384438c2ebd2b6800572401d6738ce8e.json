@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH ping AS (\n                UPDATE v2_job_runtime SET ping = null WHERE id = $2\n            ), place AS (\n                UPDATE concurrency_key SET original_scheduled_for = COALESCE(\n                    original_scheduled_for,\n                    (SELECT scheduled_for FROM v2_job_queue WHERE id = $2)\n                )\n                WHERE job_id = $2\n            )\n            UPDATE v2_job_queue SET\n                running = false,\n                started_at = null,\n                scheduled_for = $1\n            WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5b804f69708f4b37027f736fbf99c529384438c2ebd2b6800572401d6738ce8e"
+}

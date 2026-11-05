@@ -84,9 +84,9 @@ use windmill_common::{
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
     worker::{
-        to_raw_value, CLOUD_HOSTED, DEPENDENCY_JOB_TAG, DISABLE_FLOW_SCRIPT, NO_LOGS,
-        PREVIEW_TAGS_OVERRIDE, WORKER_PULL_QUERIES, WORKER_PULL_QUERIES_FAIRNESS,
-        WORKER_SUSPENDED_PULL_QUERY, WORKSPACE_FAIRNESS_OVERLOADED,
+        to_raw_value, CLOUD_HOSTED, CONCURRENCY_LIMIT_IN_ORDER, DEPENDENCY_JOB_TAG,
+        DISABLE_FLOW_SCRIPT, NO_LOGS, PREVIEW_TAGS_OVERRIDE, WORKER_PULL_QUERIES,
+        WORKER_PULL_QUERIES_FAIRNESS, WORKER_SUSPENDED_PULL_QUERY, WORKSPACE_FAIRNESS_OVERLOADED,
     },
     DB, METRICS_ENABLED,
 };
@@ -1805,6 +1805,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         }
     }
 
+    let mut released_concurrency_key = None;
     if has_concurrent_limit {
         let concurrency_key = sqlx::query_scalar!(
             "SELECT key FROM concurrency_key WHERE job_id = $1",
@@ -1837,6 +1838,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     completed_job.id
                 ))
             })?;
+            released_concurrency_key = Some(concurrency_key);
         }
 
         if let Err(e) = sqlx::query_scalar!(
@@ -1856,6 +1858,15 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     tx.commit().warn_after_seconds(10).await?;
+
+    // After the commit, so the job first in line can see the slot this one freed.
+    if let Some(key) = released_concurrency_key
+        .filter(|_| CONCURRENCY_LIMIT_IN_ORDER.load(std::sync::atomic::Ordering::Relaxed))
+    {
+        if let Err(e) = wake_concurrency_key_waiters(db, &key, 1).await {
+            tracing::error!("Could not wake the next job for concurrency key {key}: {e:#}");
+        }
+    }
 
     // The handlers read and push through `db`, so they run after the commit: inside the
     // transaction they would hold its connection while waiting for more from the same pool.
@@ -5261,6 +5272,69 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
     #[cfg(not(all(feature = "private", feature = "enterprise")))]
     let _ = (db, job);
     Ok(true)
+}
+
+/// The job that is ahead of `job_id` in line for `key`: the earliest job, by the time it
+/// became due, that is still queued behind the key and not yet admitted. A job a limit
+/// deferred keeps its place through `concurrency_key.original_scheduled_for`; any other
+/// job is placed by its `scheduled_for`, so jobs scheduled for later are not ahead of it.
+/// Must be called under the key's `concurrency_counter` row lock, which serializes it
+/// with every admission of the key.
+pub async fn oldest_waiting_concurrency_job<'c, E: PgExecutor<'c>>(
+    e: E,
+    key: &str,
+    job_id: &Uuid,
+) -> error::Result<Option<Uuid>> {
+    Ok(sqlx::query_scalar!(
+        "WITH me AS (
+            SELECT COALESCE(ck.original_scheduled_for, q.scheduled_for) AS ts
+            FROM concurrency_key ck JOIN v2_job_queue q ON q.id = ck.job_id
+            WHERE ck.job_id = $2
+        ), admitted AS (
+            SELECT job_uuids FROM concurrency_counter WHERE concurrency_id = $1
+        )
+        SELECT ck.job_id
+        FROM concurrency_key ck JOIN v2_job_queue q ON q.id = ck.job_id
+        WHERE ck.key = $1 AND ck.ended_at IS NULL AND ck.job_id <> $2
+            AND q.canceled_by IS NULL
+            AND NOT COALESCE((SELECT job_uuids ? ck.job_id::text FROM admitted), false)
+            AND (COALESCE(ck.original_scheduled_for, q.scheduled_for), ck.job_id)
+                < ((SELECT ts FROM me), $2)
+        ORDER BY COALESCE(ck.original_scheduled_for, q.scheduled_for), ck.job_id
+        LIMIT 1",
+        key,
+        job_id,
+    )
+    .fetch_optional(e)
+    .await?)
+}
+
+/// Make the `n` jobs first in line for `key` due now, so a slot that frees up goes to
+/// them rather than waiting out the delay a limit deferred them by. A job a worker is
+/// already holding is left alone.
+pub async fn wake_concurrency_key_waiters(db: &DB, key: &str, n: i64) -> error::Result<()> {
+    sqlx::query!(
+        "WITH admitted AS (
+            SELECT job_uuids FROM concurrency_counter WHERE concurrency_id = $1
+        ), head AS (
+            SELECT ck.job_id
+            FROM concurrency_key ck JOIN v2_job_queue q ON q.id = ck.job_id
+            WHERE ck.key = $1 AND ck.ended_at IS NULL AND q.canceled_by IS NULL
+                AND NOT COALESCE((SELECT job_uuids ? ck.job_id::text FROM admitted), false)
+                AND COALESCE(ck.original_scheduled_for, q.scheduled_for) <= now()
+            ORDER BY COALESCE(ck.original_scheduled_for, q.scheduled_for), ck.job_id
+            LIMIT $2
+        )
+        UPDATE v2_job_queue SET scheduled_for = now()
+        FROM head
+        WHERE v2_job_queue.id = head.job_id AND NOT v2_job_queue.running
+            AND v2_job_queue.scheduled_for > now()",
+        key,
+        n,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 pub async fn custom_concurrency_key(
