@@ -1258,7 +1258,9 @@ impl PgDatabase {
 
     /// Connect under whichever [`PgAuthMode`] the resource selects. Every connection to a
     /// user's database goes through here, so a token mode handled anywhere else would
-    /// send its sentinel to the server as a literal password.
+    /// send its sentinel to the server as a literal password. The token modes authenticate
+    /// as this process's own cloud identity: a server-side caller given a resource the
+    /// requester can merely read must refuse them before connecting.
     pub async fn connect(
         &self,
         main_db: Option<&DB>,
@@ -1542,14 +1544,14 @@ impl PgDatabase {
             .ok_or_else(|| {
                 error::Error::BadRequest(
                     "Azure workload identity authentication requires `user` on the resource. \
-                     Set it to the Postgres role the worker's Entra principal is mapped to, \
+                     Set it to the Postgres role Windmill's Entra principal is mapped to, \
                      as created by pgaadauth_create_principal."
                         .to_string(),
                 )
             })
     }
 
-    /// Connect to Azure Database for PostgreSQL as the worker's federated identity.
+    /// Connect to Azure Database for PostgreSQL as this process's federated identity.
     /// The Entra ID access token replaces the password.
     #[cfg(feature = "enterprise")]
     async fn connect_with_workload_identity(

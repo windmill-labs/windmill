@@ -3367,6 +3367,18 @@ pub(crate) async fn resolve_pg_source_checked_with_kind(
     // comes through this function, and `validate_dbname` only ever reaches a target. The check is
     // deliberately the narrow one — see `validate_dbname_not_option_like`.
     windmill_common::validate_dbname_not_option_like(&pg.dbname)?;
+    // A token mode authenticates as the API server's own cloud identity, minted for whatever host
+    // the resource names. A data table is configured by an admin; a `$res:` source only needs to
+    // be readable by the caller, so it must not borrow that identity.
+    if source.starts_with("$res:")
+        && windmill_common::PgAuthMode::of(&pg)? != windmill_common::PgAuthMode::Password
+    {
+        return Err(Error::BadRequest(
+            "IAM and Azure workload identity authentication are only available to data tables \
+             here, not to a resource source"
+                .to_string(),
+        ));
+    }
     Ok((pg, managed_kind))
 }
 
