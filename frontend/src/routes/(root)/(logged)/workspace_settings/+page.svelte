@@ -216,6 +216,29 @@
 	// undefined sends every event type
 	let webhookEvents: WorkspaceWebhookEventType[] | undefined = $state(undefined)
 	const webhookEventItems = webhookEventTypeSchema.enum.map((value) => ({ label: value, value }))
+	const webhookEventPresets: { label: string; events: WorkspaceWebhookEventType[] }[] = [
+		{
+			label: 'Scripts',
+			events: ['CreateScript', 'UpdateScript', 'DeleteScript', 'DeleteScriptPath']
+		},
+		{ label: 'Flows', events: ['CreateFlow', 'UpdateFlow', 'ArchiveFlow', 'DeleteFlow'] },
+		{ label: 'Apps', events: ['CreateApp', 'UpdateApp', 'DeleteApp'] },
+		{ label: 'Resources', events: ['CreateResource', 'UpdateResource', 'DeleteResource'] },
+		{
+			label: 'Resource types',
+			events: ['CreateResourceType', 'UpdateResourceType', 'DeleteResourceType']
+		},
+		{ label: 'Variables', events: ['CreateVariable', 'UpdateVariable', 'DeleteVariable'] },
+		{ label: 'Folders', events: ['CreateFolder', 'UpdateFolder', 'DeleteFolder'] },
+		{ label: 'Tokens', events: ['TokenExpiringSoon', 'TokenExpired'] }
+	]
+
+	function toggleWebhookEventPreset(events: WorkspaceWebhookEventType[]) {
+		const current = webhookEvents ?? []
+		webhookEvents = events.every((e) => current.includes(e))
+			? current.filter((e) => !events.includes(e))
+			: [...current, ...events.filter((e) => !current.includes(e))]
+	}
 	const noErrorHandler = handlerDraftFromStored(
 		'error',
 		undefined,
@@ -2297,6 +2320,18 @@
 									{/snippet}
 								</ToggleButtonGroup>
 								{#if webhookEvents !== undefined}
+									<div class="flex flex-wrap gap-1 mt-2">
+										{#each webhookEventPresets as preset (preset.label)}
+											<Button
+												unifiedSize="xs"
+												variant="default"
+												selected={preset.events.every((e) => webhookEvents?.includes(e))}
+												onclick={() => toggleWebhookEventPreset(preset.events)}
+											>
+												{preset.label}
+											</Button>
+										{/each}
+									</div>
 									<MultiSelect
 										items={webhookEventItems}
 										bind:value={webhookEvents}
