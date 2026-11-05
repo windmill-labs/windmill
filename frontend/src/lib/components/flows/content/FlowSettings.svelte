@@ -341,6 +341,7 @@
 											bind:limit={flowStore.val.value.concurrent_limit}
 											bind:timeWindowS={flowStore.val.value.concurrency_time_window_s}
 											bind:concurrencyKey={flowStore.val.value.concurrency_key}
+											bind:onLimit={flowStore.val.value.on_concurrency_limit}
 											keyPlaceholder={`$workspace/flow/${$pathStore}-$args[foo]`}
 										/>
 									{/if}

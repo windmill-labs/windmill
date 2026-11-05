@@ -1,4 +1,5 @@
 import {
+	ChevronsDown,
 	ChevronsUp,
 	CircleStop,
 	Combine,
@@ -28,6 +29,7 @@ export type ScriptAdvancedSettingsFields = {
 	concurrent_limit?: number
 	concurrency_time_window_s?: number
 	concurrency_key?: string
+	on_concurrency_limit?: 'queue' | 'fail'
 	cache_ttl?: number
 	cache_ignore_s3_path?: boolean
 	timeout?: number
@@ -168,6 +170,15 @@ export function getActiveScriptSettingsBadges(
 			label: 'High priority',
 			icon: ChevronsUp,
 			detail: `Priority ${settings.priority}`
+		})
+	} else if (settings.priority != undefined && settings.priority < 0) {
+		badges.push({
+			key: 'low_priority',
+			short: 'Low priority',
+			setting: 'low_priority',
+			label: 'Low priority',
+			icon: ChevronsDown,
+			detail: 'Runs when no other job is waiting'
 		})
 	}
 	if (settings.restart_unless_cancelled) {

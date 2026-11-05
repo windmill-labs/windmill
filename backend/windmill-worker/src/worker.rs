@@ -3764,7 +3764,7 @@ pub async fn run_worker(
                             .map_err(error::Error::from)
                             .and_then(|r| r)
                             {
-                                pulled_job_res.error_while_preprocessing = Some(e.to_string());
+                                pulled_job_res.error_while_preprocessing = Some(e.to_string().into());
                             }
                         }
 

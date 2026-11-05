@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH uuid_table as (\n                select gen_random_uuid() as uuid from generate_series(1, $16)\n            )\n            INSERT INTO v2_job\n                (id, workspace_id, raw_code, raw_lock, raw_flow, tag, runnable_id, runnable_path, kind,\n                script_lang, created_by, permissioned_as, permissioned_as_email, concurrent_limit,\n                concurrency_time_window_s, timeout, args)\n                (SELECT uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,\n                ('{ \"uuid\": \"' || uuid || '\" }')::jsonb FROM uuid_table)\n            RETURNING id AS \"id!\"",
+  "query": "WITH uuid_table as (\n                select gen_random_uuid() as uuid from generate_series(1, $16)\n            )\n            INSERT INTO v2_job\n                (id, workspace_id, raw_code, raw_lock, raw_flow, tag, runnable_id, runnable_path, kind,\n                script_lang, created_by, permissioned_as, permissioned_as_email, concurrent_limit,\n                concurrency_time_window_s, timeout, args, priority)\n                (SELECT uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,\n                ('{ \"uuid\": \"' || uuid || '\" }')::jsonb, 0 FROM uuid_table)\n            RETURNING id AS \"id!\"",
   "describe": {
     "columns": [
       {
@@ -96,5 +96,5 @@
       false
     ]
   },
-  "hash": "7bb8ff3426ec73672fb572cd1ce36f495a84e0ad7d60fd39eddcccbc129d43c8"
+  "hash": "df06e6136337d19e9f2753a92414aac10a3f7e2218e043829f40c8d155ec6688"
 }

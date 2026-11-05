@@ -1068,6 +1068,12 @@ async fn answer(
             .await?
         }
     };
+    // A members-only share runs as the asking member, outside the jobs router and its run gate.
+    if members_only {
+        if let Err(e) = windmill_common::workspaces::check_role_can_run(db, w_id, &authed).await {
+            return reply.send(e.to_string(), None).await;
+        }
+    }
     let user_db = UserDB::new(db.clone());
 
     // Keyed with the workspace's secret: anyone who can read the agent's runs could rebuild the
