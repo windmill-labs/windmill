@@ -605,7 +605,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         //     "UPDATE FLOW STATUS 2: {module_step:#?} {module_status:#?} {old_status:#?} "
         // );
 
-        let (is_loop, skip_loop_failures, parallelism, parallel_loop) =
+        let (is_loop, skip_loop_failures, parallelism, parallel_loop, loop_bounds) =
             if let FlowStatusModule::InProgress { iterator: Some(_), parallel, .. } = module_status
             {
                 let value = current_module
@@ -617,11 +617,17 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .as_ref()
                         .and_then(|x| x.skip_failures)
                         .unwrap_or(false),
-                    value.and_then(|x| x.parallelism),
+                    value.as_ref().and_then(|x| x.parallelism.clone()),
                     *parallel,
+                    value.map(|x| {
+                        (
+                            x.max_iterations.filter(|m| *m > 0),
+                            x.max_duration_secs.filter(|m| *m > 0),
+                        )
+                    }),
                 )
             } else {
-                (false, false, None, false)
+                (false, false, None, false, None)
             };
 
         let (is_branch_all, parallel_branchall) = match module_status {
@@ -774,6 +780,53 @@ pub async fn update_flow_status_after_job_completion_internal(
         } else {
             (false, None, false, false, false)
         };
+
+        // A while loop that reached its iteration or duration bound without its stop condition
+        // being met fails. The loop's start is the first iteration's start, which the module
+        // status persists, so the duration bound holds across worker restarts.
+        let loop_exhausted_msg = match (module_status, loop_bounds) {
+            (
+                FlowStatusModule::InProgress {
+                    iterator: Some(FlowIterator { index, .. }),
+                    while_loop: true,
+                    parallel: false,
+                    flow_jobs_duration,
+                    ..
+                },
+                Some((max_iterations, max_duration_secs)),
+            ) if (success || skip_loop_failures) && !stop_early => {
+                let iterations = index + 1;
+                let started_at = flow_jobs_duration
+                    .as_ref()
+                    .and_then(|d| d.started_at.first().copied().flatten())
+                    .or_else(|| flow_job_duration.as_ref().map(|d| d.started_at));
+                let elapsed_secs =
+                    started_at.map(|s| (chrono::Utc::now() - s).num_milliseconds() as f64 / 1000.0);
+                if max_iterations.is_some_and(|m| iterations >= m as usize) {
+                    Some(format!(
+                        "While loop reached its maximum of {iterations} iterations without its stop condition being met"
+                    ))
+                } else {
+                    match (max_duration_secs, elapsed_secs) {
+                        (Some(m), Some(e)) if e >= m as f64 => Some(format!(
+                            "While loop reached its maximum duration of {m}s ({e:.1}s elapsed, {iterations} iterations) without its stop condition being met"
+                        )),
+                        _ => None,
+                    }
+                }
+            }
+            _ => None,
+        };
+        let loop_exhausted_err = loop_exhausted_msg.as_ref().map(|message| {
+            Arc::new(to_raw_value(&serde_json::json!({
+                "error": { "name": "LoopExhausted", "message": message }
+            })))
+        });
+        // skip_failures tolerates failed iterations, not the loop failing as a whole.
+        let skip_loop_failures = skip_loop_failures && loop_exhausted_err.is_none();
+        if loop_exhausted_err.is_some() {
+            has_triggered_error_handler = false;
+        }
 
         let skip_seq_branch_failure = match module_status {
             FlowStatusModule::InProgress {
@@ -1180,6 +1233,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 (*while_loop || *index + 1 < itered_len)
                     && (success || skip_loop_failures)
                     && !stop_early
+                    && loop_exhausted_err.is_none()
             } =>
             {
                 if let Some(jobs) = flow_jobs {
@@ -1307,6 +1361,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 if (success
                     || (flow_jobs.is_some() && (skip_loop_failures || skip_seq_branch_failure)))
                     && !(stop_early && stop_early_err_msg.is_some() && !skip_if_stop_early)
+                    && loop_exhausted_err.is_none()
                 {
                     let is_skipped = (stop_early && skip_if_stop_early)
                         || if current_module.as_ref().is_some_and(|m| m.skip_if.is_some()) {
@@ -1348,7 +1403,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         evaluate_retry(
                             &retry,
                             &old_status.retry,
-                            result.clone(),
+                            loop_exhausted_err.clone().unwrap_or_else(|| result.clone()),
                             Marc::new(args),
                             resolved_flow_env.as_deref(),
                             Some(client),
@@ -1358,7 +1413,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                     } else {
                         false
                     };
-                    if stop_early && stop_early_err_msg.is_some() {
+                    if (stop_early && stop_early_err_msg.is_some()) || loop_exhausted_err.is_some()
+                    {
                         // if stop_early with error message, we need to set explictely success to false as this function was called with success = true as the job succeeded
                         success = false;
                     }
@@ -1397,6 +1453,10 @@ pub async fn update_flow_status_after_job_completion_internal(
             nresult = Some(Arc::new(to_raw_value(
                 &serde_json::json!({ "error": error }),
             )));
+        }
+
+        if loop_exhausted_err.is_some() {
+            nresult = loop_exhausted_err.clone();
         }
 
         let step_counter = if inc_step_counter {
@@ -1789,7 +1849,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             let should_retry = evaluate_retry(
                 retry_config,
                 &old_status.retry,
-                result.clone(),
+                loop_exhausted_err.clone().unwrap_or_else(|| result.clone()),
                 Marc::new(args),
                 resolved_flow_env.as_deref(),
                 Some(client),
@@ -1889,9 +1949,9 @@ pub async fn update_flow_status_after_job_completion_internal(
         };
 
         let failure_step_recovers = is_failure_step && result_has_recover_true(nresult.clone());
-        // An error this flow raises on its own (a stop predicate's error message) is a new
-        // failure that no error handler recovered.
-        if stop_early_err_msg.is_some() {
+        // An error this flow raises on its own (a stop predicate's error message, a while loop
+        // reaching its bound) is a new failure that no error handler recovered or saw yet.
+        if stop_early_err_msg.is_some() || loop_exhausted_msg.is_some() {
             recovered_by_child = false;
         }
 
@@ -2712,6 +2772,37 @@ async fn append_predicate_error_to_root_logs(
 
 fn root_flow_id_for(flow_job: &MiniPulledJob) -> Uuid {
     flow_job.flow_innermost_root_job.unwrap_or(flow_job.id)
+}
+
+/// The step's mock, if this run uses it. A `preview_only` mock applies when the run was started
+/// as a flow preview, so to every job under a preview root, deployed subflows included: the
+/// innermost root cannot be used, since an inline loop body is pushed as a raw flow, which is a
+/// `FlowPreview` job even inside a deployed run.
+async fn applied_mock<'a>(
+    module: &'a FlowModule,
+    flow_job: &MiniPulledJob,
+    db: &DB,
+) -> error::Result<Option<&'a windmill_common::flows::Mock>> {
+    let Some(mock) = module.mock.as_ref().filter(|m| m.enabled) else {
+        return Ok(None);
+    };
+    if !mock.preview_only {
+        return Ok(Some(mock));
+    }
+    let root = get_root_job_id(flow_job);
+    let in_preview = if root == flow_job.id {
+        matches!(flow_job.kind, JobKind::FlowPreview)
+    } else {
+        sqlx::query_scalar!(
+            "SELECT kind = 'flowpreview' AS \"in_preview!\" FROM v2_job WHERE id = $1",
+            root
+        )
+        .fetch_optional(db)
+        .warn_after_seconds(3)
+        .await?
+        .unwrap_or(false)
+    };
+    Ok(in_preview.then_some(mock))
 }
 
 async fn fetch_root_flow_id(db: &DB, flow_id: Uuid) -> Uuid {
@@ -4447,17 +4538,13 @@ async fn push_next_flow_job(
         false
     };
 
-    let args: windmill_common::error::Result<_> = if module.mock.is_some()
-        && module.mock.as_ref().unwrap().enabled
-    {
+    let applied_mock = applied_mock(&module, &flow_job, db).await?;
+    let args: windmill_common::error::Result<_> = if let Some(mock) = applied_mock {
         let mut hm = HashMap::new();
         hm.insert(
             "previous_result".to_string(),
             to_raw_value(
-                &module
-                    .mock
-                    .as_ref()
-                    .unwrap()
+                &mock
                     .return_value
                     .clone()
                     .unwrap_or_else(|| serde_json::from_str("null").unwrap()),
@@ -4567,6 +4654,7 @@ async fn push_next_flow_job(
         resume.clone(),
         approvers.clone(),
         is_skipped,
+        applied_mock.is_some(),
     )
     .warn_after_seconds(3)
     .await?;
@@ -5114,6 +5202,27 @@ async fn push_next_flow_job(
         }
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
+
+        // Both run as an identity job that passes a value through, which reads as a real run
+        // unless the step's own logs say otherwise.
+        let not_executed_log = if applied_mock.is_some() {
+            Some("Step mocked: returned the pinned value, nothing was executed\n")
+        } else if is_skipped {
+            Some("Step skipped: its skip condition was true, nothing was executed\n")
+        } else {
+            None
+        };
+        if let Some(log) = not_executed_log {
+            sqlx::query!(
+                "INSERT INTO job_logs (logs, job_id, workspace_id) VALUES ($1, $2, $3) ON CONFLICT (job_id) DO UPDATE SET logs = concat(job_logs.logs, EXCLUDED.logs)",
+                log,
+                uuid,
+                flow_job.workspace_id,
+            )
+            .execute(&mut *inner_tx)
+            .warn_after_seconds(3)
+            .await?;
+        }
 
         // Apply flow node debouncing if configured. Skip parallel steps (for-loops, branchall)
         // where len > 1 — debouncing those would cancel sibling sub-jobs within the same run.
@@ -5778,8 +5887,9 @@ async fn compute_next_flow_transform(
     resume: Arc<Box<RawValue>>,
     approvers: Arc<Box<RawValue>>,
     is_skipped: bool,
+    mocked: bool,
 ) -> error::Result<NextFlowTransform> {
-    if module.mock.is_some() && module.mock.as_ref().unwrap().enabled {
+    if mocked {
         return Ok(NextFlowTransform::Continue(
             ContinuePayload::SingleJob(JobPayloadWithTag {
                 payload: JobPayload::Identity { mocked: true, skipped: false },

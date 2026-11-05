@@ -47,6 +47,7 @@ use windmill_ai::proxy::{
 };
 use windmill_ai::retry::send_with_retries;
 use windmill_ai::types::{OpenAIContent, OpenAIMessage};
+use windmill_ai::web_search::{WebPage, WebSearchProvider, WebSearchResult};
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::client::AuthedClient;
 use windmill_common::db::UserDB;
@@ -752,6 +753,17 @@ pub struct AIConfig {
     /// like `copilot_disabled`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sessions_retention_days: Option<u32>,
+    /// The search API the AI chat searches the web and reads pages through when the model's
+    /// provider has no built-in search, or the workspace turned it off. Read from the
+    /// workspace's own row like `copilot_disabled`, its resource from that workspace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web_search: Option<WebSearchConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct WebSearchConfig {
+    pub provider: WebSearchProvider,
+    pub resource_path: String,
 }
 
 /// Negotiated rates in USD per million tokens. An unset cache rate is read as the
@@ -928,6 +940,122 @@ fn parse_ai_resource(
     serde_json::from_str::<AIResource>(value.0.get()).map_err(|e| Error::BadRequest(e.to_string()))
 }
 
+/// The workspace's search API and its key. The resource was picked by a workspace admin, so,
+/// like a provider's, it is read with the raw pool: a member searches without read access to
+/// the key.
+async fn web_search_credentials(
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+) -> Result<(WebSearchProvider, String)> {
+    let config = sqlx::query_scalar!(
+        "SELECT ai_config FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_one(db)
+    .await?
+    .and_then(|v| serde_json::from_value::<AIConfig>(v).ok())
+    .and_then(|c| c.web_search)
+    .ok_or_else(|| {
+        Error::BadRequest(
+            "No web search API is configured for this workspace: a workspace admin can set one in the workspace's AI settings".to_string(),
+        )
+    })?;
+    check_scopes(authed, || {
+        format!("resources:read:{}", config.resource_path)
+    })?;
+    let value = sqlx::query_scalar::<_, Option<sqlx::types::Json<serde_json::Value>>>(
+        "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(&config.resource_path)
+    .bind(w_id)
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .ok_or_else(|| {
+        Error::NotFound(format!(
+            "Could not find the web search resource {}, update it in the workspace's AI settings",
+            config.resource_path
+        ))
+    })?;
+    // `exa` predates the hub's snake_case keys; newer API-key types name the key `token`.
+    let api_key = ["token", "api_key", "apiKey"]
+        .iter()
+        .find_map(|key| {
+            value
+                .get(*key)
+                .and_then(serde_json::Value::as_str)
+                .filter(|k| !k.is_empty())
+        })
+        .ok_or_else(|| {
+            Error::BadRequest(format!(
+                "The web search resource {} has no API key",
+                config.resource_path
+            ))
+        })?;
+    let api_key = get_variable_or_self(api_key.to_string(), db, w_id).await?;
+    Ok((config.provider, api_key))
+}
+
+fn log_web_search_usage(provider: WebSearchProvider, action: &str) {
+    windmill_common::feature_usage::log_feature_usage(
+        "ai_chat",
+        "web_search_backend",
+        &format!("{}:{action}", provider.id()),
+    );
+}
+
+#[derive(Deserialize)]
+struct WebSearchRequest {
+    query: String,
+    #[serde(default)]
+    max_results: Option<usize>,
+}
+
+#[derive(Serialize)]
+struct WebSearchResponse {
+    results: Vec<WebSearchResult>,
+}
+
+async fn web_search(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(request): Json<WebSearchRequest>,
+) -> JsonResult<WebSearchResponse> {
+    let query = request.query.trim();
+    if query.is_empty() {
+        return Err(Error::BadRequest("The search query is empty".to_string()));
+    }
+    let (provider, api_key) = web_search_credentials(&authed, &db, &w_id).await?;
+    let results = provider
+        .search(&api_key, query, request.max_results)
+        .await?;
+    log_web_search_usage(provider, "search");
+    Ok(Json(WebSearchResponse { results }))
+}
+
+#[derive(Deserialize)]
+struct WebFetchRequest {
+    url: String,
+}
+
+async fn web_fetch(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(request): Json<WebFetchRequest>,
+) -> JsonResult<WebPage> {
+    let url = reqwest::Url::parse(request.url.trim())
+        .ok()
+        .filter(|u| matches!(u.scheme(), "http" | "https"))
+        .ok_or_else(|| Error::BadRequest("The URL must be an http(s) URL".to_string()))?;
+    let (provider, api_key) = web_search_credentials(&authed, &db, &w_id).await?;
+    let page = provider.fetch(&api_key, url.as_str()).await?;
+    log_web_search_usage(provider, "fetch");
+    Ok(Json(page))
+}
+
 pub fn global_service() -> Router {
     Router::new().route("/proxy/{*ai}", post(global_proxy).get(global_proxy))
 }
@@ -936,6 +1064,8 @@ pub fn workspaced_service() -> Router {
     let router = Router::new()
         .route("/proxy/{*ai}", post(proxy).get(proxy))
         .route("/complete", post(complete))
+        .route("/web_search", post(web_search))
+        .route("/web_fetch", post(web_fetch))
         .route(
             "/usage",
             post(record_ai_usage)

@@ -1016,6 +1016,7 @@
 						logs: job.logs,
 						result: job['result'],
 						job_id: job.id,
+						job_kind: job.job_kind,
 						tag: job.tag,
 						parent_module,
 						duration_ms: job['duration_ms'],

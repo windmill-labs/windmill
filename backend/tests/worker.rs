@@ -7122,3 +7122,39 @@ async fn test_results_length_in_input_transform(db: Pool<Postgres>) -> anyhow::R
 
     Ok(())
 }
+
+#[cfg(feature = "quickjs")]
+#[sqlx::test(fixtures("base"))]
+async fn test_whileloop_max_iterations_fails_with_loop_exhausted(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "id": "loop",
+            "value": {
+                "type": "whileloopflow",
+                // skip_failures absorbs failed iterations, never the loop's own exhaustion
+                "skip_failures": true,
+                "max_iterations": 3,
+                "modules": [{ "id": "inner", "value": { "type": "identity" } }],
+            },
+        }],
+    }))
+    .unwrap();
+
+    let job = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete(&db, false, server.addr.port())
+        .await;
+
+    assert!(!job.success);
+    let error = job.json_result().unwrap()["error"].clone();
+    assert_eq!(error["name"], "LoopExhausted", "{error}");
+    let iterations = job.flow_status.unwrap()["modules"][0]["flow_jobs"]
+        .as_array()
+        .map(|a| a.len());
+    assert_eq!(iterations, Some(3));
+    Ok(())
+}
