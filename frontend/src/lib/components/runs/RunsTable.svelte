@@ -19,7 +19,6 @@
 	import RightClickPopover from '../RightClickPopover.svelte'
 	import DropdownMenu, { type Props as DropdownMenuProps } from '../DropdownMenu.svelte'
 	import { clickOutside, isJobCancelable, isJobReRunnable, isJobResolvable } from '$lib/utils'
-	import { goto } from '$lib/navigation'
 	import { useHostedPage } from '../hostedPage'
 	import { useOperatingWorkspace } from '../operatingWorkspace.svelte'
 	import { useRoleCapabilities } from '$lib/operatorWriteRights'
@@ -210,9 +209,12 @@
 
 	// Under a host the link opens where it decides, in the workspace the run belongs to: the
 	// document's own router would leave the host for the navigation workspace.
-	function open(href: string) {
-		if (!hosted) goto(href)
-		else hosted.openLink(withWorkspaceParam(href, selectedWorkspace ?? $operatingWorkspace))
+	function linkTo(href: string): { href: string } | { onClick: () => void } {
+		if (!hosted) return { href }
+		return {
+			onClick: () =>
+				hosted.openLink(withWorkspaceParam(href, selectedWorkspace ?? $operatingWorkspace))
+		}
 	}
 
 	let scrollToIndex = $state(0)
@@ -285,7 +287,7 @@
 			actions.push({
 				label: 'Show run details',
 				icon: ExternalLinkIcon,
-				onClick: () => open(`/run/${selectedIds[0]}`)
+				...linkTo(`/run/${selectedIds[0]}`)
 			})
 			const job = flatJobs?.find(
 				(jobOrDate) => jobOrDate.type === 'job' && jobOrDate.job.id === selectedIds[0]
@@ -295,20 +297,19 @@
 					actions.push({
 						label: 'Go to script page',
 						icon: Code2Icon,
-						onClick: () =>
-							open(
-								// A host addresses an item by its path, and pins a version in the query.
-								hosted
-									? `/scripts/get/${job.job.script_path}?version=${job.job.script_hash}`
-									: `/scripts/get/${job.job.script_hash}`
-							)
+						...linkTo(
+							// A host addresses an item by its path, and pins a version in the query.
+							hosted
+								? `/scripts/get/${job.job.script_path}?version=${job.job.script_hash}`
+								: `/scripts/get/${job.job.script_hash}`
+						)
 					})
 				}
 				if (job.job.job_kind === 'flow') {
 					actions.push({
 						label: 'Go to flow page',
 						icon: BarsStaggered,
-						onClick: () => open(`/flows/get/${job.job.script_path}`)
+						...linkTo(`/flows/get/${job.job.script_path}`)
 					})
 				}
 			}

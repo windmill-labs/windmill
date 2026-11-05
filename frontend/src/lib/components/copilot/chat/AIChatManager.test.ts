@@ -217,6 +217,7 @@ function createFlowHelpers({
 		setCode: vi.fn(),
 		setFlowJson: vi.fn(),
 		getFlowInputsSchema: vi.fn(),
+		canEditFlowInputs: () => true,
 		updateExprsToSet: vi.fn(),
 		acceptAllModuleActions,
 		rejectAllModuleActions: vi.fn(),

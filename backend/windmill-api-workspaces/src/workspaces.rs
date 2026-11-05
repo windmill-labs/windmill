@@ -12,6 +12,7 @@ use windmill_api_auth::{
 };
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
+use windmill_common::runnable_ref::RunnableRef;
 use windmill_common::ssrf::{validate_webhook_url, webhook_ssrf_error_message};
 use windmill_common::usernames::{get_instance_username_or_create_pending, validate_username};
 use windmill_common::webhook::WebhookShared;
@@ -1722,8 +1723,10 @@ async fn run_slack_message_test_job(
     Json(req): Json<RunSlackMessageTestJobRequest>,
 ) -> JsonResult<RunSlackMessageTestJobResponse> {
     // Runs as the error handler identity, handed the Slack bot token.
-    if !(windmill_queue::is_preset_handler_path(&req.hub_script_path)
-        && req.hub_script_path.ends_with("-slack"))
+    let handler = RunnableRef::from_path(&req.hub_script_path, false)?;
+    if !handler
+        .preset_handler()
+        .is_some_and(|p| p.ends_with("-slack"))
     {
         return Err(Error::BadRequest(
             "Only a preset Slack handler from the hub can be tested".to_string(),
@@ -1747,7 +1750,7 @@ async fn run_slack_message_test_job(
         Some("slack_message_test".to_string()),
         false,
         w_id.as_str(),
-        &format!("script/{}", req.hub_script_path.as_str()),
+        &handler,
         sqlx::types::Json(&fake_result),
         None,
         Some(Utc::now()),
@@ -3364,6 +3367,18 @@ pub(crate) async fn resolve_pg_source_checked_with_kind(
     // comes through this function, and `validate_dbname` only ever reaches a target. The check is
     // deliberately the narrow one — see `validate_dbname_not_option_like`.
     windmill_common::validate_dbname_not_option_like(&pg.dbname)?;
+    // A token mode authenticates as the API server's own cloud identity. An admin chose to back a
+    // data table with its resource; a `$res:` source only needs to be readable by the caller, so
+    // it must not borrow that identity at all.
+    if source.starts_with("$res:")
+        && windmill_common::PgAuthMode::of(&pg)? != windmill_common::PgAuthMode::Password
+    {
+        return Err(Error::BadRequest(
+            "IAM and Azure workload identity authentication are only available to data tables \
+             here, not to a resource source"
+                .to_string(),
+        ));
+    }
     Ok((pg, managed_kind))
 }
 
@@ -3453,6 +3468,19 @@ pub(crate) struct PgDumpOptions<'a> {
     pub(crate) no_acl: bool,
 }
 
+/// The CLIs are handed the resource's password as is, so a token mode would reach the server as
+/// the literal sentinel. Minting the token for them is not supported.
+fn ensure_cli_password_auth(pg_db: &PgDatabase) -> Result<()> {
+    match windmill_common::PgAuthMode::of(pg_db)? {
+        windmill_common::PgAuthMode::Password => Ok(()),
+        _ => Err(Error::BadRequest(
+            "Copying, importing and exporting a database are not supported with IAM or Azure \
+             workload identity authentication"
+                .to_string(),
+        )),
+    }
+}
+
 /// A pg_dump invocation against `pg_db` writing to `dump_path`, carrying the connection settings
 /// the CLI reads from the environment. The returned file, when there is one, holds the root
 /// certificate the command points at and must outlive it.
@@ -3461,6 +3489,7 @@ fn pg_dump_command(
     opts: PgDumpOptions<'_>,
     dump_path: &std::path::Path,
 ) -> Result<(tokio::process::Command, Option<DumpFile>)> {
+    ensure_cli_password_auth(pg_db)?;
     let host = &pg_db.host;
     let port = pg_db.port.unwrap_or(5432).to_string();
     let user = pg_db.login_name();
@@ -3627,6 +3656,7 @@ async fn comment_out_unsupported_settings(
 /// A psql invocation against `pg_db`, carrying the connection settings the CLI reads
 /// from the environment.
 fn psql_command(pg_db: &PgDatabase) -> Result<(tokio::process::Command, Option<DumpFile>)> {
+    ensure_cli_password_auth(pg_db)?;
     let mut cmd = tokio::process::Command::new("psql");
     cmd.arg("--host")
         .arg(&pg_db.host)
@@ -4054,6 +4084,9 @@ async fn create_pg_database(
     } else {
         let source_pg =
             resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
+        // The import that fills this database refuses a token-mode source, and would leave the
+        // database behind empty.
+        ensure_cli_password_auth(&source_pg)?;
         create_database_on_server(&db, &source_pg, &req.target_dbname).await?;
     }
 
@@ -6388,30 +6421,28 @@ async fn edit_variable_expiration_handler(
             ));
         }
 
-        // Any hub script is left unchecked, so saving never needs the hub.
-        let exists = if let Some(p) = path.strip_prefix("script/") {
-            p.starts_with("hub/")
+        // Any hub script is left unchecked, so saving never needs the hub. A hub flow is not
+        // exempt: it is looked up in the workspace like any flow, and so refused.
+        let handler = RunnableRef::from_prefixed(path)?;
+        let exists = if !handler.is_flow() {
+            handler.path().starts_with("hub/")
                 || sqlx::query_scalar!(
                     "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2 AND archived = false AND deleted = false)",
                     w_id,
-                    p
+                    handler.path()
                 )
                 .fetch_one(&mut *tx)
                 .await?
                 .unwrap_or(false)
-        } else if let Some(p) = path.strip_prefix("flow/") {
+        } else {
             sqlx::query_scalar!(
                 "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2 AND archived = false)",
                 w_id,
-                p
+                handler.path()
             )
             .fetch_one(&mut *tx)
             .await?
             .unwrap_or(false)
-        } else {
-            return Err(Error::BadRequest(format!(
-                "Field `path` must start with script/ or flow/ (got {path})"
-            )));
         };
         if !exists {
             return Err(Error::BadRequest(format!(
@@ -6421,7 +6452,7 @@ async fn edit_variable_expiration_handler(
 
         // Persisted even when false, like `error_handler`'s.
         let mut variable_expiration_handler = serde_json::json!({
-            "path": path,
+            "path": handler.prefixed(),
             "muted_on_user_path": es.muted_on_user_path,
         });
         if let Some(extra_args) = &es.extra_args {

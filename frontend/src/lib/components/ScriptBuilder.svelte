@@ -119,7 +119,7 @@
 	import type { ScheduleTrigger, TriggerContext } from './triggers'
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
-	import DeployButton from './DeployButton.svelte'
+	import DeployButton, { type DeployDropdownItem } from './DeployButton.svelte'
 	import { type Trigger, deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
 	import DraftChangesConfirmationModal from './common/confirmationModal/DraftChangesConfirmationModal.svelte'
 	import PerpetualRunsDeployModal from './scripts/PerpetualRunsDeployModal.svelte'
@@ -172,6 +172,7 @@
 		onDeploy,
 		onDeployError,
 		onSeeDetails,
+		seeDetailsHref,
 		onNavigate,
 		onTestJob,
 		disableAi,
@@ -1245,22 +1246,21 @@
 		initialPath: string,
 		savedScript: ((Script | NewScript) & { no_deployed?: boolean }) | undefined
 	) {
-		let dropdownItems: { label: string; onClick: (deploymentMsg: string) => void }[] =
+		let dropdownItems: DeployDropdownItem[] =
 			initialPath != '' && customUi?.topBar?.extraDeployOptions != false
 				? [
 						...(!inSessionPane
 							? [
 									{
 										label: 'Deploy & Stay here',
-										onClick: (deploymentMsg) => {
+										onClick: (deploymentMsg: string) => {
 											handleEditScript(true, deploymentMsg)
 										}
 									},
 									{
 										label: 'Fork',
-										onClick: () => {
-											window.open(`/scripts/add?template=${initialPath}`)
-										}
+										href: `/scripts/add?template=${initialPath}`,
+										hrefTarget: '_blank' as const
 									},
 									...(!isCloudHosted() && editInForkAllowed(opWorkspace, $userWorkspaces)
 										? [
@@ -1279,12 +1279,14 @@
 						script.kind === 'script' &&
 						!script.auto_kind
 							? [
-									{
-										label: 'Exit & See details',
-										onClick: () => {
-											onSeeDetails?.({ path: initialPath })
-										}
-									}
+									seeDetailsHref
+										? { label: 'Exit & See details', href: seeDetailsHref(initialPath) }
+										: {
+												label: 'Exit & See details',
+												onClick: () => {
+													onSeeDetails?.({ path: initialPath })
+												}
+											}
 								]
 							: []),
 						...(!inSessionPane && isWorkflowAsCode(script.content, script.language)
