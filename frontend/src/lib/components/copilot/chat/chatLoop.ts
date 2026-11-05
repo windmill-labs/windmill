@@ -457,8 +457,9 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			...(pendingUserMessage ? [pendingUserMessage] : [])
 		]
 		let toolDefs = tools.map((t) => t.def)
-		// A provider refusing its own search makes the toolset offer the workspace's
-		// search tools instead, and the retry of this same request must already carry them.
+		// Losing the provider's own search (it refused the tool, or the Responses API is off)
+		// makes the toolset offer the workspace's search tools, and the retry of this same
+		// request must already carry them.
 		const reloadToolsWithoutWebSearch = async () => {
 			tools = await resolveTools()
 			toolDefs = tools.map((t) => t.def)
@@ -564,6 +565,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 				if (errorMessage.includes('Responses API is not enabled')) {
 					skipResponsesApi = true
 					onSkipResponsesApi?.()
+					await reloadToolsWithoutWebSearch()
 				}
 				useCompletionsApi = true
 			}

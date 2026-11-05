@@ -1,6 +1,7 @@
 import type { ChatCompletionTool } from 'openai/resources/index.mjs'
 import { AiService } from '$lib/gen'
 import { NONE, type SessionTool } from '../sessionCapabilities'
+import { formatToolError } from '../shared'
 
 // The workspace's search API (`ai_config.web_search`), reached through /ai/web_search and
 // /ai/web_fetch, which read its key server-side. Offered only to a model whose provider
@@ -41,12 +42,6 @@ const FETCH_WEB_PAGE_TOOL: ChatCompletionTool = {
 	}
 }
 
-function errorMessage(error: unknown): string {
-	const body = (error as { body?: unknown })?.body
-	if (typeof body === 'string' && body) return body
-	return error instanceof Error ? error.message : String(error)
-}
-
 export const searchWebTool: SessionTool<{}> = {
 	requires: NONE,
 	def: SEARCH_WEB_TOOL,
@@ -79,7 +74,7 @@ export const searchWebTool: SessionTool<{}> = {
 				.join('\n\n')
 			return `${UNTRUSTED}\n\n${formatted}`
 		} catch (error) {
-			const message = errorMessage(error)
+			const message = formatToolError(error)
 			toolCallbacks.setToolStatus(toolId, { content: 'Web search failed', error: message })
 			return `Failed to search the web: ${message}`
 		}
@@ -103,7 +98,7 @@ export const fetchWebPageTool: SessionTool<{}> = {
 			const cut = page.truncated ? '\n\n[The page was cut at 40,000 characters.]' : ''
 			return `${UNTRUSTED}\n\n# ${page.title ?? page.url}\n\n${page.content}${cut}`
 		} catch (error) {
-			const message = errorMessage(error)
+			const message = formatToolError(error)
 			toolCallbacks.setToolStatus(toolId, { content: 'Could not read the page', error: message })
 			return `Failed to read ${url}: ${message}`
 		}
