@@ -29,20 +29,29 @@ export function outputResult(opts: { jsonOutput?: boolean }, result: {
 }
 
 /**
- * The wmill.yaml settings that apply to the workspace being synced. Resolved by
- * workspace first, as `sync pull/push` do: several entries can share one
- * `gitBranch`, so matching on the checked-out branch alone picks whichever of
- * them comes first in the file.
+ * The wmill.yaml entry of the workspace being synced, resolved by workspace as
+ * `sync pull/push` do: several entries can share one `gitBranch`, so matching on
+ * the checked-out branch alone picks whichever of them comes first in the file.
+ * Undefined when no entry names this workspace.
  */
+export function resolveGitSyncWsName(
+  config: SyncOptions,
+  opts: { workspace?: string },
+  workspace: { remote: string; workspaceId: string },
+): string | undefined {
+  return (
+    resolveWsNameForConfigFromFlags({ workspaces: config.workspaces, workspace: opts.workspace }) ??
+    inferWsNameFromProfile(config, workspace) ??
+    inferWsNameFromForkBranch(config, workspace.workspaceId)
+  );
+}
+
 export async function getEffectiveSettingsForWorkspace(
   config: SyncOptions,
   opts: { workspace?: string; promotion?: string; jsonOutput?: boolean },
   workspace: { remote: string; workspaceId: string },
 ): Promise<SyncOptions> {
-  const wsName =
-    resolveWsNameForConfigFromFlags({ workspaces: config.workspaces, workspace: opts.workspace }) ??
-    inferWsNameFromProfile(config, workspace) ??
-    inferWsNameFromForkBranch(config, workspace.workspaceId);
+  const wsName = resolveGitSyncWsName(config, opts, workspace);
   return await getEffectiveSettings(config, opts.promotion, true, opts.jsonOutput, wsName);
 }
 

@@ -22,7 +22,8 @@ import {
   applyBackendSettingsToBranch,
   normalizeRepoPath,
   outputResult,
-  getEffectiveSettingsForWorkspace
+  getEffectiveSettingsForWorkspace,
+  resolveGitSyncWsName
 } from "./utils.ts";
 
 export async function pullGitSyncSettings(
@@ -441,12 +442,21 @@ export async function pullGitSyncSettings(
       }
     }
 
-    // For override mode, write to branch overrides
-    if (writeMode === "override" && isGitRepository()) {
-      const currentBranch = getCurrentGitBranch();
-      if (currentBranch) {
-        log.info(`Detected Git repository, writing settings to branch: ${currentBranch}`);
-        updatedConfig = applyBackendSettingsToBranch(localConfig, currentBranch, backendSyncOptions);
+    // Override mode writes to the entry the diff was computed against, so a
+    // second pull finds no conflict
+    let overrideTarget: string | undefined;
+    if (writeMode === "override") {
+      overrideTarget = resolveGitSyncWsName(localConfig, opts, workspace);
+      if (!overrideTarget && isGitRepository()) {
+        const currentBranch = getCurrentGitBranch();
+        if (currentBranch) {
+          overrideTarget =
+            findWorkspaceByGitBranch(localConfig.workspaces, currentBranch)?.[0] ?? currentBranch;
+        }
+      }
+      if (overrideTarget) {
+        log.info(`Writing settings to workspace entry: ${overrideTarget}`);
+        updatedConfig = applyBackendSettingsToBranch(localConfig, overrideTarget, backendSyncOptions);
       }
     }
 
@@ -468,10 +478,9 @@ export async function pullGitSyncSettings(
         ),
       );
       if (writeMode === "override") {
-        const currentBranch = getCurrentGitBranch();
-        if (currentBranch) {
+        if (overrideTarget) {
           log.info(
-            colors.gray(`Settings written to branch '${currentBranch}' overrides`),
+            colors.gray(`Settings written to workspace '${overrideTarget}' overrides`),
           );
         }
       } else if (writeMode === "replace") {
