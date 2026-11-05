@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goto } from '$lib/navigation'
 	import { tick } from 'svelte'
 	import { page } from '$app/state'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -86,9 +85,7 @@
 				<div class="text-center space-y-4">
 					<p class="text-red-500">Invalid or missing reset token.</p>
 					<div class="pt-4">
-						<Button variant="accent" on:click={() => goto('/user/forgot-password')}>
-							Request New Reset Link
-						</Button>
+						<Button variant="accent" href="/user/forgot-password">Request New Reset Link</Button>
 					</div>
 				</div>
 			{:else if success}
@@ -96,7 +93,7 @@
 					<p class="text-secondary"> Your password has been reset successfully. </p>
 					<p class="text-secondary text-sm"> You can now log in with your new password. </p>
 					<div class="pt-4">
-						<Button variant="accent" on:click={() => goto('/user/login')}>Go to login</Button>
+						<Button variant="accent" href="/user/login">Go to login</Button>
 					</div>
 				</div>
 			{:else}
@@ -146,7 +143,7 @@
 						>
 							{loading ? 'Resetting...' : 'Reset password'}
 						</Button>
-						<Button variant="subtle" on:click={() => goto('/user/login')}>Back to login</Button>
+						<Button variant="subtle" href="/user/login">Back to login</Button>
 					</div>
 				</div>
 			{/if}

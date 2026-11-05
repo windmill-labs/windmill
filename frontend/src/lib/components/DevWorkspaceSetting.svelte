@@ -7,7 +7,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import { goto } from '$app/navigation'
+	import { isNewTabClick } from '$lib/navigation'
 	import {
 		findCanonicalDevWorkspace,
 		findWorkspaceAncestors,
@@ -244,20 +244,29 @@
 
 	// With a name, deep-links into that rule's drawer; without one, the rulesets list. Built from
 	// scratch rather than from the current query so no stale `?workspace=<dev>` survives a switch.
-	function rulesetsHref(name?: string): string {
+	function rulesetsHref(name?: string, workspace?: string): string {
 		const rule = name ? `&rule=${encodeURIComponent(name)}` : ''
-		return `/workspace_settings?tab=rulesets${rule}`
+		const ws = workspace ? `&workspace=${encodeURIComponent(workspace)}` : ''
+		return `/workspace_settings?tab=rulesets${rule}${ws}`
 	}
 
-	function openRulesets(name?: string) {
-		goto(rulesetsHref(name))
-	}
+	type RulesetsLink = { href: (name?: string) => string; onclick?: (e?: Event) => void }
 
-	function openRulesetsInParent(name?: string) {
-		if (!parentId) return
-		switchWorkspace(parentId)
-		goto(rulesetsHref(name))
-	}
+	const ownRulesetsLink: RulesetsLink = { href: (name) => rulesetsHref(name) }
+
+	// The `?workspace=` param is what switches a new tab; this tab switches through the store,
+	// which also resets the protection rules state of the workspace it leaves.
+	let parentRulesetsLink: RulesetsLink | undefined = $derived.by(() => {
+		const id = parentId
+		if (!id || !canEditParentRules) return undefined
+		return {
+			href: (name) => rulesetsHref(name, id),
+			onclick: (e) => {
+				if (e instanceof MouseEvent && isNewTabClick(e)) return
+				switchWorkspace(id)
+			}
+		}
+	})
 
 	// Reparenting an ancestor below this workspace would close a parent<->child cycle, which the
 	// backend rejects: with a dev workspace allowed as prod, the family root is such an ancestor and
@@ -349,18 +358,18 @@
 </script>
 
 <!-- The locks are protection rules, so being paired does not imply them: a pairing that came from the
-     deploy_to migration rather than from an attach carries neither. `onOpen` navigates to the rules
+     deploy_to migration rather than from an attach carries neither. `open` links to the rules
      of the workspace this panel describes, which is not the active one on the dev side; it is
      undefined when the reader is not an admin there. The labels name that workspace in that case,
      so the button does not switch workspaces without saying so. -->
 {#snippet protectionsPanel(opts: {
 	title: string
 	rules: ReturnType<typeof useProtectionRules>
-	onOpen?: (name?: string) => void
+	open?: RulesetsLink
 	editLabel: string
 	manageLabel: string
 })}
-	{@const onOpen = opts.onOpen}
+	{@const open = opts.open}
 	{@const rules = opts.rules}
 	<div class="flex flex-col gap-1 rounded-md border bg-surface-secondary p-3">
 		<span class="text-xs font-semibold text-emphasis">{opts.title}</span>
@@ -397,12 +406,13 @@
 									<span class="text-2xs text-secondary">Applied by this pairing</span>
 								{/if}
 							</div>
-							{#if onOpen}
+							{#if open}
 								<Button
 									variant="subtle"
 									unifiedSize="2xs"
 									startIcon={{ icon: Pen }}
-									onclick={() => onOpen(ruleset.name)}
+									href={open.href(ruleset.name)}
+									onClick={open.onclick}
 								>
 									{opts.editLabel}
 								</Button>
@@ -412,9 +422,9 @@
 				</div>
 			{/if}
 		{/if}
-		{#if onOpen && rules.enforcingRulesets.length === 0}
+		{#if open && rules.enforcingRulesets.length === 0}
 			<div class="self-start mt-1">
-				<Button variant="subtle" unifiedSize="2xs" onclick={() => onOpen()}>
+				<Button variant="subtle" unifiedSize="2xs" href={open.href()} onClick={open.onclick}>
 					{opts.manageLabel}
 				</Button>
 			</div>
@@ -435,7 +445,7 @@
 			{@render protectionsPanel({
 				title: 'Protections in force on this workspace',
 				rules: ownRules,
-				onOpen: openRulesets,
+				open: ownRulesetsLink,
 				editLabel: 'Edit',
 				manageLabel: 'Manage in Rulesets'
 			})}
@@ -547,7 +557,7 @@
 				<Button
 					variant="default"
 					startIcon={{ icon: GitFork }}
-					onclick={() => goto('/user/fork_workspace?dev=true')}
+					href="/user/fork_workspace?dev=true"
 				>
 					Create a new dev workspace
 				</Button>
@@ -605,7 +615,7 @@
 			{@render protectionsPanel({
 				title: `Protections in force on ${parentId}`,
 				rules: parentRules,
-				onOpen: canEditParentRules ? openRulesetsInParent : undefined,
+				open: parentRulesetsLink,
 				editLabel: `Edit in ${parentId}`,
 				manageLabel: `Manage in ${parentId}`
 			})}

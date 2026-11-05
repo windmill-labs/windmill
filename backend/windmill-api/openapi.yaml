@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.860.0
+  version: 1.862.0
   title: Windmill API
 
   contact:
@@ -282,6 +282,15 @@ paths:
           description: get audit logs for all workspaces
           schema:
             type: boolean
+        - name: job_id
+          in: query
+          description: >
+            only the entries about this run and the jobs under it (steps, loop iterations
+            and subflows at any depth): who started, viewed, cancelled, approved, resumed
+            or deleted each
+          schema:
+            type: string
+            format: uuid
 
       responses:
         "200":
@@ -14090,6 +14099,104 @@ paths:
                   - text
                   - model
 
+  /w/{workspace}/ai/web_search:
+    post:
+      summary: search the web through the workspace's web search API
+      description: >
+        Runs a query against the search API (Exa, Tavily or Linkup) set in the workspace's AI
+        settings, with the key of its resource. The AI chat uses it when the model's provider
+        has no built-in web search.
+      operationId: aiWebSearch
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                max_results:
+                  type: integer
+                  minimum: 1
+                  maximum: 10
+              required:
+                - query
+      responses:
+        "200":
+          description: the results, each with an excerpt of its page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        title:
+                          type: string
+                        url:
+                          type: string
+                        published_date:
+                          type: string
+                        content:
+                          type: string
+                      required:
+                        - title
+                        - url
+                        - content
+                required:
+                  - results
+
+  /w/{workspace}/ai/web_fetch:
+    post:
+      summary: read a web page through the workspace's web search API
+      description: >
+        Has the search API set in the workspace's AI settings fetch a page and returns its
+        text as markdown. The page is fetched from the search API's servers, not Windmill's.
+      operationId: aiWebFetch
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+              required:
+                - url
+      responses:
+        "200":
+          description: the page's text
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                  title:
+                    type: string
+                  content:
+                    type: string
+                  truncated:
+                    type: boolean
+                required:
+                  - url
+                  - content
+                  - truncated
+
   /w/{workspace}/ai_evals/datasets/list:
     get:
       summary: list eval datasets
@@ -15115,6 +15222,27 @@ paths:
                     type: integer
                   share:
                     $ref: "#/components/schemas/SharedAiArtifactInfo"
+
+  /w/{workspace}/ai/shared_artifacts/list:
+    get:
+      summary: list the workspace's live shared AI session artifacts
+      description: >
+        Every share still inside its retention window, newest first, without its content.
+        Capped at 500.
+      operationId: listSharedAiArtifacts
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: the live shares
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SharedAiArtifactInfo"
 
   /w/{workspace}/ai/shared_artifacts/get/{id}:
     get:
@@ -23821,6 +23949,9 @@ paths:
                   type: string
                 summary:
                   type: string
+                external_id:
+                  type: string
+                  description: "IdP group the SSO groups claim links this group to: a group id or a full path such as /operators/network-team. Blank or omitted leaves it unlinked."
               required:
                 - name
       responses:
@@ -23853,6 +23984,9 @@ paths:
                   type: string
                   nullable: true
                   description: "Instance-level role for group members. 'superadmin', 'devops', 'user' or empty to clear."
+                external_id:
+                  type: string
+                  description: "IdP group the SSO groups claim links this group to: a group id or a full path such as /operators/network-team. Omitted keeps the current link, blank clears it. Refused on a group SCIM provisioned."
               required:
                 - new_summary
       responses:
@@ -31085,6 +31219,24 @@ components:
             The server deletes the backup of a session no push has reached for this many
             days. Unset keeps backups until the user deletes the session. Read from the
             workspace's own settings like `copilot_disabled`.
+        web_search:
+          $ref: "#/components/schemas/AIWebSearchConfig"
+
+    AIWebSearchConfig:
+      type: object
+      description: >-
+        The search API the AI chat searches the web and reads pages through when the model's
+        provider has no built-in web search. Read from the workspace's own settings like
+        `copilot_disabled`.
+      properties:
+        provider:
+          type: string
+          enum: [exa, tavily, linkup]
+        resource_path:
+          type: string
+      required:
+        - provider
+        - resource_path
 
     AISessionBackupListing:
       type: object
@@ -37362,6 +37514,13 @@ components:
           enum:
             - superadmin
             - devops
+        external_id:
+          type: string
+          nullable: true
+          description: IdP group this group is linked to; its membership then follows the SSO groups claim
+        scim_managed:
+          type: boolean
+          description: Provisioned by SCIM, which then owns external_id
 
     InstanceGroupWithWorkspaces:
       type: object
@@ -37382,6 +37541,13 @@ components:
           enum:
             - superadmin
             - devops
+        external_id:
+          type: string
+          nullable: true
+          description: IdP group this group is linked to; its membership then follows the SSO groups claim
+        scim_managed:
+          type: boolean
+          description: Provisioned by SCIM, which then owns external_id
         workspaces:
           type: array
           items:

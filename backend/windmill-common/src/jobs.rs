@@ -22,6 +22,13 @@ use crate::{
     FlowVersionInfo, ScriptHashInfo, Tag,
 };
 
+/// `canceled_by` of a flow cancelled by its own wall-clock `timeout`, as of a script timeout.
+pub const FLOW_TIMEOUT_CANCELER: &str = "timeout";
+
+pub fn flow_timeout_reason(secs: i32) -> String {
+    format!("the flow exceeded its {secs}s timeout")
+}
+
 /// Whether `args` already reads the way `push` will store it, i.e. holds no NUL escape in a
 /// name or a value. Cheap (one SIMD substring scan per value) so the normalization below can
 /// be a no-op on the overwhelmingly common clean case.

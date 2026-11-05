@@ -28,6 +28,7 @@ in a live editor) are still navigable.
 	} from '$lib/components/copilot/chat/global/userDraftAdapter'
 	import { resource } from 'runed'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -53,10 +54,14 @@ in a live editor) are still navigable.
 		// Load items and drafts from this workspace; defaults to the operating workspace
 		// (see `useOperatingWorkspace`).
 		workspaceId?: string
+		/** Where picking an item navigates, for a host whose pick is a navigation; rows then
+		 * open in a new tab on middle and ⌘/Ctrl-click. Stamped with the picker's workspace. */
+		itemHref?: (item: WorkspaceItem) => string
 	}
 
 	let {
 		onPick,
+		itemHref,
 		kinds = ['flow', 'script', 'app'],
 		initialScope,
 		initialHighlight,
@@ -174,4 +179,7 @@ in a live editor) are still navigable.
 		else if (kinds.length === 1) loader.ensureLoaded(kinds[0])
 	}}
 	onFilterChange={loader.onFilterChange}
+	leafHref={itemHref
+		? (leaf) => withWorkspaceParam(itemHref(leaf.data), effectiveWorkspace)
+		: undefined}
 />

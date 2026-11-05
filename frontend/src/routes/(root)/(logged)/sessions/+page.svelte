@@ -1298,7 +1298,7 @@
 				>
 					<p class="text-primary font-medium">AI Sessions are hidden in this workspace</p>
 					<p>A workspace admin hid AI sessions in the workspace settings.</p>
-					<Button unifiedSize="sm" onclick={() => goto('/')}>Back to workspace</Button>
+					<Button unifiedSize="sm" href="/">Back to workspace</Button>
 				</div>
 			{/if}
 		</div>

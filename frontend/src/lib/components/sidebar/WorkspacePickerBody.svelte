@@ -35,7 +35,6 @@
 	import { EXECUTIONS_HINT } from './executionsHint'
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
 	import { fixupUrlAfterWorkspaceSwitch } from './workspaceSwitchUrl'
-	import { goto } from '$lib/navigation'
 	import { page } from '$app/state'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { isCloudHosted } from '$lib/cloud'
@@ -680,9 +679,7 @@
 							'data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900',
 							highlightedId === ACTION_PREFIX + 'upgrade' && 'bg-gray-100 text-gray-900'
 						)}
-						onClick={() => {
-							goto('/workspace_settings?tab=premium')
-						}}
+						href="/workspace_settings?tab=premium"
 						{item}
 					>
 						Upgrade

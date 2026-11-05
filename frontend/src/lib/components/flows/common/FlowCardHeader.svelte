@@ -91,13 +91,10 @@
 		})
 	})
 
-	function reportIssue() {
+	function reportIssueHref(): string {
 		const targetHubBaseUrl =
 			Number(hubVersionId) < PRIVATE_HUB_MIN_VERSION ? DEFAULT_HUB_BASE_URL : $hubBaseUrlStore
-		window.open(
-			`${targetHubBaseUrl}/from_version/${hubVersionId}?report_issue=${hubVersionId}`,
-			'_blank'
-		)
+		return `${targetHubBaseUrl}/from_version/${hubVersionId}?report_issue=${hubVersionId}`
 	}
 
 	// Every one of these acts on the referenced script rather than the step, so they share
@@ -194,7 +191,8 @@
 				displayName: 'Report issue',
 				icon: Flag,
 				separatorTop: items.length > 0,
-				action: reportIssue
+				href: reportIssueHref(),
+				hrefTarget: '_blank'
 			})
 		}
 		return items
