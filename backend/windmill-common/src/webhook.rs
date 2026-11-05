@@ -248,6 +248,7 @@ impl WebhookShared {
                                 let timer = if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
                                 tracing::info!("Sending webhook message to {}", url);
                                 let _ = client.post(url).json(&message).send().await;
+                                crate::feature_usage::log_feature_usage("workspace_webhook", "sent", message.event_type());
                                 #[cfg(feature = "prometheus")]
                                 timer.map(|x| x.stop_and_record());
                             }
