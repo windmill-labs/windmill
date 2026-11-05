@@ -1261,10 +1261,34 @@ impl PgDatabase {
     /// send its sentinel to the server as a literal password. The token modes authenticate
     /// as this process's own cloud identity: a server-side caller given a resource the
     /// requester can merely read must refuse them before connecting.
+    ///
+    /// The Entra ID token is not bound to a host, so whoever can edit the resource could
+    /// repoint it and collect the token. Here it is only sent to an Azure Database for
+    /// PostgreSQL host whose certificate verifies; see [`Self::connect_for_job`].
     pub async fn connect(
         &self,
         main_db: Option<&DB>,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        self.connect_as(main_db, false).await
+    }
+
+    /// [`Self::connect`] for a job's own connection on a worker, which sends the Entra ID
+    /// token to whatever host the resource names. Anyone who can run a job there can use
+    /// the worker's identity anyway; admins confine it with worker groups.
+    pub async fn connect_for_job(
+        &self,
+        main_db: Option<&DB>,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        self.connect_as(main_db, true).await
+    }
+
+    async fn connect_as(
+        &self,
+        main_db: Option<&DB>,
+        trust_resource_host: bool,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        #[cfg(not(feature = "enterprise"))]
+        let _ = trust_resource_host;
         match PgAuthMode::of(self)? {
             PgAuthMode::Iam => {
                 #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -1281,7 +1305,8 @@ impl PgDatabase {
             PgAuthMode::WorkloadIdentity => {
                 #[cfg(feature = "enterprise")]
                 {
-                    self.connect_with_workload_identity().await
+                    self.connect_with_workload_identity(trust_resource_host)
+                        .await
                 }
                 #[cfg(not(feature = "enterprise"))]
                 {
@@ -1528,7 +1553,9 @@ impl PgDatabase {
                 error::Error::InternalErr(format!("IAM token generation failed: {e:#}"))
             })?;
 
-        self.connect_with_token("IAM RDS", user, &token).await
+        // An IAM token is signed for this one host, so it is worthless anywhere else.
+        self.connect_with_token("IAM RDS", user, &token, false)
+            .await
     }
 
     /// The role an Entra-authenticated connection logs in as. Azure maps each Entra
@@ -1556,18 +1583,32 @@ impl PgDatabase {
     #[cfg(feature = "enterprise")]
     async fn connect_with_workload_identity(
         &self,
+        trust_resource_host: bool,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
         // Before the token exchange: a missing login is worth reporting without first
         // spending a round trip to Entra ID on it.
         let user = self.entra_login()?;
+        if !trust_resource_host && !azure_workload_identity::is_azure_postgres_host(&self.host) {
+            return Err(error::Error::BadRequest(format!(
+                "Azure workload identity authentication from the API server only connects to an \
+                 Azure Database for PostgreSQL host (*{}), not to '{}'",
+                azure_workload_identity::AZURE_POSTGRES_HOST_SUFFIXES[0],
+                self.host
+            )));
+        }
 
         let workload_identity = azure_workload_identity::WorkloadIdentityConfig::resolve()?;
         let token = workload_identity
             .access_token(azure_workload_identity::AZURE_OSSRDBMS_SCOPE)
             .await?;
 
-        self.connect_with_token("Azure workload identity", user, &token)
-            .await
+        self.connect_with_token(
+            "Azure workload identity",
+            user,
+            &token,
+            !trust_resource_host,
+        )
+        .await
     }
 
     /// Connect with an externally issued access token in place of the password.
@@ -1575,11 +1616,15 @@ impl PgDatabase {
     /// regardless of the resource's sslmode; the sslmode still selects how far the
     /// server's certificate is verified.
     #[cfg(feature = "enterprise")]
+    ///
+    /// `verify_host` verifies the certificate and hostname against the system roots alone,
+    /// whatever the resource says: the resource's own CA would let it vouch for any host.
     async fn connect_with_token(
         &self,
         auth_kind: &str,
         user: &str,
         token: &str,
+        verify_host: bool,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
         use native_tls::TlsConnector;
         use postgres_native_tls::MakeTlsConnector;
@@ -1587,12 +1632,21 @@ impl PgDatabase {
         let port = self.port.unwrap_or(5432);
 
         let mut connector = TlsConnector::builder();
-        let verified = Self::configure_pg_tls_verification(
-            &mut connector,
-            self.sslmode.as_deref(),
-            self.root_certificate_pem.as_deref(),
-            self.accept_invalid_certs,
-        )?;
+        let verified = if verify_host {
+            Self::configure_pg_tls_verification(
+                &mut connector,
+                Some("verify-full"),
+                None,
+                Some(false),
+            )?
+        } else {
+            Self::configure_pg_tls_verification(
+                &mut connector,
+                self.sslmode.as_deref(),
+                self.root_certificate_pem.as_deref(),
+                self.accept_invalid_certs,
+            )?
+        };
         if !verified {
             tracing::warn!("{auth_kind} auth without certificate verification: TLS certificate verification is disabled. Provide root_certificate_pem (and set sslmode=verify-full) to enforce verification.");
         }

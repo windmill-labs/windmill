@@ -506,7 +506,7 @@ async fn new_pg_connection(
     database: &PgDatabase,
     main_db: Option<&DB>,
 ) -> error::Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>)> {
-    let (client, connection) = database.connect(main_db).await?;
+    let (client, connection) = database.connect_for_job(main_db).await?;
     let handle = tokio::spawn(async move {
         if let Err(e) = connection.await {
             tracing::error!("connection error: {}", e);
