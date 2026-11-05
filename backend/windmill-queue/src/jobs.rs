@@ -1824,8 +1824,9 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             tracing::warn!("Concurrency limit is disabled, skipping");
         } else {
             let concurrency_key = concurrency_key.unwrap();
-            sqlx::query_scalar!(
-                "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
+            let released = sqlx::query_scalar!(
+                "UPDATE concurrency_counter SET job_uuids = job_uuids - $2
+                WHERE concurrency_id = $1 AND job_uuids ? $2",
                 concurrency_key,
                 completed_job.id.hyphenated().to_string(),
             )
@@ -1837,8 +1838,13 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     "Could not decrement concurrency counter for job_id={}: {e:#}",
                     completed_job.id
                 ))
-            })?;
-            released_concurrency_key = Some(concurrency_key);
+            })?
+            .rows_affected()
+                > 0;
+            // A job canceled while waiting held no slot, so its completion frees none.
+            if released {
+                released_concurrency_key = Some(concurrency_key);
+            }
         }
 
         if let Err(e) = sqlx::query_scalar!(
