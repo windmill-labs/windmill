@@ -931,6 +931,14 @@ components:
           $ref: '#/components/schemas/InputTransform'
         squash:
           type: boolean
+        max_iterations:
+          type: integer
+          minimum: 1
+          description: Maximum number of iterations. Checked after each iteration; when reached and stop_after_if did not stop the loop, the loop fails with an error named 'LoopExhausted'
+        max_duration_secs:
+          type: integer
+          minimum: 1
+          description: Maximum wall-clock seconds since the first iteration started, checked after each iteration. A running iteration is not interrupted, so the loop can exceed the limit by up to one iteration; the timeout of the body's steps caps an iteration. When reached and stop_after_if did not stop the loop, the loop fails with an error named 'LoopExhausted'
       required:
         - modules
         - skip_failures
