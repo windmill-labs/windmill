@@ -2374,6 +2374,14 @@ async fn transform_attach_ducklake(
     if db_type == "postgres" {
         apply_pg_iam_auth(&mut ducklake.catalog_resource, hidden_passwords).await?;
     }
+    // A fork attaches each ancestor's catalog too, usually the same IAM-auth database.
+    for a in ducklake
+        .fork_defer
+        .iter_mut()
+        .flat_map(|d| d.ancestors.iter_mut())
+    {
+        apply_pg_iam_auth(&mut a.catalog_resource, hidden_passwords).await?;
+    }
 
     // Escape single quotes: db_conn_str, storage and data_path are embedded in
     // single-quoted DuckDB literals below, so an unescaped quote in a resource
