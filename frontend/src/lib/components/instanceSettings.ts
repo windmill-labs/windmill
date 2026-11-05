@@ -617,7 +617,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Run concurrency-limited jobs in order',
 			description:
-				'Jobs sharing a concurrency key start in the order they became due. By default, a job deferred by its concurrency limit can be overtaken by one queued after it. In order, a slot is only given to the job first in line, so a job that no worker picks up (for example one whose tag no worker listens to) holds back the jobs behind it on the same key, and admitting a job costs an extra query per key.',
+				'Jobs sharing a concurrency key start in the order they became due, regardless of their priority. By default, a job deferred by its concurrency limit can be overtaken by one queued after it. In order, a slot is only given to the job first in line, so a job that no worker picks up (for example one whose tag no worker listens to) holds back the jobs behind it on the same key. Admitting a job scans the jobs waiting on its key, so the database cost per job grows with the number of jobs queued behind a key.',
 			key: 'concurrency_limit_in_order',
 			fieldType: 'boolean',
 			storage: 'setting',
