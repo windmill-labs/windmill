@@ -206,7 +206,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/30168/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/30174/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -214,12 +214,12 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/30168/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/30163/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/30172/git-sync-init-repository-windmill";
 
 /// Hub script that reviews a pull request with the workspace's AI (`ai_review_prs`): clones
 /// the base branch, fetches the pull request's head and runs `wmill review --json` from the
 /// `windmill-cli` it pins. The server posts what it returns.
-pub const GIT_SYNC_REVIEW_SCRIPT_PATH: &str = "hub/30164/git-sync-review-pull-request-windmill";
+pub const GIT_SYNC_REVIEW_SCRIPT_PATH: &str = "hub/30173/git-sync-review-pull-request-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.

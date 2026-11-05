@@ -1,7 +1,14 @@
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { deepEqual, selectRepository } from "../../utils/utils.ts";
-import { SyncOptions, getEffectiveSettings, DEFAULT_SYNC_OPTIONS } from "../../core/conf.ts";
+import {
+  SyncOptions,
+  getEffectiveSettings,
+  DEFAULT_SYNC_OPTIONS,
+  resolveWsNameForConfigFromFlags,
+  inferWsNameFromProfile,
+  inferWsNameFromForkBranch,
+} from "../../core/conf.ts";
 import { GitSyncRepository, GIT_SYNC_FIELDS } from "./types.ts";
 import { GitSyncSettingsConverter } from "./converter.ts";
 
@@ -19,6 +26,33 @@ export function outputResult(opts: { jsonOutput?: boolean }, result: {
   } else if (!result.success && result.error) {
     log.error(colors.red(result.error));
   }
+}
+
+/**
+ * The wmill.yaml entry of the workspace being synced, resolved by workspace as
+ * `sync pull/push` do: several entries can share one `gitBranch`, so matching on
+ * the checked-out branch alone picks whichever of them comes first in the file.
+ * Undefined when no entry names this workspace.
+ */
+export function resolveGitSyncWsName(
+  config: SyncOptions,
+  opts: { workspace?: string },
+  workspace: { remote: string; workspaceId: string },
+): string | undefined {
+  return (
+    resolveWsNameForConfigFromFlags({ workspaces: config.workspaces, workspace: opts.workspace }) ??
+    inferWsNameFromProfile(config, workspace) ??
+    inferWsNameFromForkBranch(config, workspace.workspaceId)
+  );
+}
+
+export async function getEffectiveSettingsForWorkspace(
+  config: SyncOptions,
+  opts: { workspace?: string; promotion?: string; jsonOutput?: boolean },
+  workspace: { remote: string; workspaceId: string },
+): Promise<SyncOptions> {
+  const wsName = resolveGitSyncWsName(config, opts, workspace);
+  return await getEffectiveSettings(config, opts.promotion, true, opts.jsonOutput, wsName);
 }
 
 // Helper to normalize repository path by removing $res: prefix
