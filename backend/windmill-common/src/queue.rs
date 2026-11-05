@@ -35,7 +35,7 @@ pub async fn get_queue_stats(
     db: &Pool<Postgres>,
 ) -> crate::error::Result<HashMap<String, QueueStat>> {
     // Grouping by (tag, priority) first finds every head in the same single pass as the
-    // count. A per-tag `ORDER BY ... LIMIT 1` walks `queue_sort_v2`, whose `tag` column comes
+    // count. A per-tag `ORDER BY ... LIMIT 1` walks `queue_sort_v3`, whose `tag` column comes
     // last, through every other tag's backlog queued ahead of it.
     let rows = sqlx::query!(
         "SELECT tag AS \"tag!\", count AS \"count!\",

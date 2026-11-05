@@ -5,7 +5,8 @@
 -- Dropped before it is built rather than relying on IF NOT EXISTS: the OVERRIDDEN_MIGRATIONS
 -- rewrite in windmill-api/src/db.rs runs this CONCURRENTLY, and an interrupted concurrent
 -- build leaves an invalid index that IF NOT EXISTS would skip. queue_sort_v2 is kept for the
--- previous release's workers, which still pull with `priority DESC NULLS LAST`.
+-- previous release's workers, which still pull with `priority DESC NULLS LAST`: until they are
+-- all upgraded, they run a low (negative) priority job ahead of jobs without priority.
 DROP INDEX IF EXISTS queue_sort_v3;
 
 CREATE INDEX IF NOT EXISTS queue_sort_v3
