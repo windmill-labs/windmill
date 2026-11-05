@@ -1,5 +1,5 @@
 use serde::{
-    de::{self, MapAccess, Visitor},
+    de::{self, IgnoredAny, MapAccess, Visitor},
     Deserialize, Deserializer,
 };
 use serde_json::{value::RawValue, Value};
@@ -131,7 +131,13 @@ impl CompiledFilters {
             Err(_) if eval_all(&self.filters, self.use_or_logic, &HashMap::new()) => {
                 return Ok(true)
             }
-            Err(err) if err.is_data() => return Ok(false),
+            // A data error is raised on the first token (`[`, `"`, ...), before the rest is read:
+            // parse it all so a truncated array is not taken for valid JSON that is not an object.
+            Err(err) if err.is_data() => {
+                return serde_json::from_str::<IgnoredAny>(text)
+                    .map(|_| false)
+                    .map_err(|err| format!("payload is not valid JSON: {err}"))
+            }
             Err(err) => return Err(format!("payload is not valid JSON: {err}")),
         };
 
@@ -412,6 +418,8 @@ mod tests {
         let keyed = compile(json!([{"key": "a", "value": 1}]));
         assert!(keyed.matches("not json").is_err());
         assert!(keyed.matches(r#"{"a": 1, "b""#).is_err());
+        assert!(keyed.matches("[1,").is_err());
+        assert!(!keyed.matches("[1, 2]").unwrap());
         let negated = compile(json!([{"none_of": [{"key": "a", "value": 1}]}]));
         assert!(negated.matches("not json").unwrap());
         assert!(negated.matches("[1, 2]").unwrap());
