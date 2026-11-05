@@ -27,7 +27,7 @@ lazy_static::lazy_static! {
     pub static ref INSTANCE_EVENTS_WEBHOOK: arc_swap::ArcSwap<Option<String>> =
         arc_swap::ArcSwap::from_pointee(std::env::var("INSTANCE_EVENTS_WEBHOOK").ok());
 
-    pub static ref WEBHOOK_CACHE: Cache<String, Option<String>> = Cache::new(100);
+    static ref WEBHOOK_CACHE: Cache<String, Option<WorkspaceWebhook>> = Cache::new(100);
 
 }
 
@@ -36,7 +36,36 @@ pub enum WebhookPayload {
     InstanceEvent(InstanceEvent),
 }
 
-#[derive(Serialize)]
+#[derive(Clone)]
+struct WorkspaceWebhook {
+    url: String,
+    /// `None` sends every event.
+    events: Option<Vec<String>>,
+}
+
+impl WorkspaceWebhook {
+    fn sends(&self, message: &WebhookMessage) -> bool {
+        self.events
+            .as_ref()
+            .is_none_or(|events| events.iter().any(|e| e == message.event_type()))
+    }
+}
+
+/// Called on `notify_webhook_change`, which a change of either webhook column fires.
+pub fn invalidate_webhook_cache(workspace_id: &str) {
+    WEBHOOK_CACHE.remove(workspace_id);
+}
+
+/// The event types a workspace webhook can be limited to: the `type` of each [`WebhookMessage`].
+pub fn webhook_event_types() -> &'static [&'static str] {
+    <WebhookEventType as strum::VariantNames>::VARIANTS
+}
+
+#[derive(Serialize, strum_macros::EnumDiscriminants)]
+#[strum_discriminants(
+    name(WebhookEventType),
+    derive(strum_macros::IntoStaticStr, strum_macros::VariantNames)
+)]
 #[serde(tag = "type")]
 pub enum WebhookMessage {
     // See https://serde.rs/enum-representations.html#internally-tagged for how this looks in JSON
@@ -151,6 +180,29 @@ pub enum WebhookMessage {
     },
 }
 
+impl WebhookMessage {
+    /// The message's `type` tag.
+    pub fn event_type(&self) -> &'static str {
+        WebhookEventType::from(self).into()
+    }
+}
+
+async fn load_workspace_webhook(
+    db: &DB,
+    workspace_id: &str,
+) -> Result<Option<WorkspaceWebhook>, sqlx::Error> {
+    let row = sqlx::query!(
+        "SELECT webhook, webhook_events FROM workspace_settings WHERE workspace_id = $1",
+        workspace_id
+    )
+    .fetch_one(db)
+    .await?;
+    Ok(row
+        .webhook
+        .filter(|url| !url.is_empty())
+        .map(|url| WorkspaceWebhook { url, events: row.webhook_events }))
+}
+
 #[derive(Clone)]
 pub struct WebhookShared {
     pub channel: mpsc::UnboundedSender<WebhookPayload>,
@@ -179,30 +231,19 @@ impl WebhookShared {
                     r = rx.recv() => match r {
                         Some(WebhookPayload::WorkspaceEvent(workspace_id, message)) => {
                             let webhook_opt = match WEBHOOK_CACHE.get(&workspace_id) {
-                                Some(guard) => {
-                                    guard
-                                },
-                                None => {
-                                    let Ok(mut webhook_opt) =
-                                        sqlx::query_scalar!(
-                                            "SELECT webhook FROM workspace_settings WHERE workspace_id = $1",
-                                            workspace_id
-                                        )
-                                        .fetch_one(
-                                            &db,
-                                        )
-                                        .await else {
-                                            tracing::error!("Webhook Message to send - but cannot get workspace settings! Workspace: {workspace_id}");
-                                            continue;
-                                        };
-                                    if webhook_opt.as_ref().is_some_and(|x| x.is_empty()) {
-                                        webhook_opt = None;
+                                Some(webhook) => webhook,
+                                None => match load_workspace_webhook(&db, &workspace_id).await {
+                                    Ok(webhook) => {
+                                        WEBHOOK_CACHE.insert(workspace_id, webhook.clone());
+                                        webhook
                                     }
-                                    WEBHOOK_CACHE.insert(workspace_id, webhook_opt.clone());
-                                    webhook_opt
-                                }
+                                    Err(e) => {
+                                        tracing::error!("Webhook Message to send - but cannot get workspace settings! Workspace: {workspace_id}: {e}");
+                                        continue;
+                                    }
+                                },
                             };
-                            if let Some(url) = webhook_opt {
+                            if let Some(url) = webhook_opt.filter(|w| w.sends(&message)).map(|w| w.url) {
                                 #[cfg(feature = "prometheus")]
                                 let timer = if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
                                 tracing::info!("Sending webhook message to {}", url);
@@ -383,11 +424,13 @@ mod tests {
 
         for msg in &messages {
             let json = serde_json::to_value(msg).unwrap();
-            assert!(
-                json.get("type").is_some(),
-                "Missing 'type' tag in: {}",
+            assert_eq!(
+                json["type"],
+                msg.event_type(),
+                "event_type differs from the 'type' tag in: {}",
                 serde_json::to_string(msg).unwrap()
             );
+            assert!(webhook_event_types().contains(&msg.event_type()));
         }
     }
 
