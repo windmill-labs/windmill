@@ -3367,6 +3367,18 @@ pub(crate) async fn resolve_pg_source_checked_with_kind(
     // comes through this function, and `validate_dbname` only ever reaches a target. The check is
     // deliberately the narrow one — see `validate_dbname_not_option_like`.
     windmill_common::validate_dbname_not_option_like(&pg.dbname)?;
+    // A token mode authenticates as the API server's own cloud identity. An admin chose to back a
+    // data table with its resource; a `$res:` source only needs to be readable by the caller, so
+    // it must not borrow that identity at all.
+    if source.starts_with("$res:")
+        && windmill_common::PgAuthMode::of(&pg)? != windmill_common::PgAuthMode::Password
+    {
+        return Err(Error::BadRequest(
+            "IAM and Azure workload identity authentication are only available to data tables \
+             here, not to a resource source"
+                .to_string(),
+        ));
+    }
     Ok((pg, managed_kind))
 }
 
@@ -3456,6 +3468,19 @@ pub(crate) struct PgDumpOptions<'a> {
     pub(crate) no_acl: bool,
 }
 
+/// The CLIs are handed the resource's password as is, so a token mode would reach the server as
+/// the literal sentinel. Minting the token for them is not supported.
+fn ensure_cli_password_auth(pg_db: &PgDatabase) -> Result<()> {
+    match windmill_common::PgAuthMode::of(pg_db)? {
+        windmill_common::PgAuthMode::Password => Ok(()),
+        _ => Err(Error::BadRequest(
+            "Copying, importing and exporting a database are not supported with IAM or Azure \
+             workload identity authentication"
+                .to_string(),
+        )),
+    }
+}
+
 /// A pg_dump invocation against `pg_db` writing to `dump_path`, carrying the connection settings
 /// the CLI reads from the environment. The returned file, when there is one, holds the root
 /// certificate the command points at and must outlive it.
@@ -3464,6 +3489,7 @@ fn pg_dump_command(
     opts: PgDumpOptions<'_>,
     dump_path: &std::path::Path,
 ) -> Result<(tokio::process::Command, Option<DumpFile>)> {
+    ensure_cli_password_auth(pg_db)?;
     let host = &pg_db.host;
     let port = pg_db.port.unwrap_or(5432).to_string();
     let user = pg_db.login_name();
@@ -3630,6 +3656,7 @@ async fn comment_out_unsupported_settings(
 /// A psql invocation against `pg_db`, carrying the connection settings the CLI reads
 /// from the environment.
 fn psql_command(pg_db: &PgDatabase) -> Result<(tokio::process::Command, Option<DumpFile>)> {
+    ensure_cli_password_auth(pg_db)?;
     let mut cmd = tokio::process::Command::new("psql");
     cmd.arg("--host")
         .arg(&pg_db.host)
@@ -4057,6 +4084,9 @@ async fn create_pg_database(
     } else {
         let source_pg =
             resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
+        // The import that fills this database refuses a token-mode source, and would leave the
+        // database behind empty.
+        ensure_cli_password_auth(&source_pg)?;
         create_database_on_server(&db, &source_pg, &req.target_dbname).await?;
     }
 
