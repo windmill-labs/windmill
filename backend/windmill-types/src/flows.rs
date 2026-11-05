@@ -243,10 +243,11 @@ fn validate_retry(retry: &Retry, module_id: &str) -> anyhow::Result<()> {
 }
 
 /// Script/sub-flow step references must be workspace paths (`u/`, `f/`, `g/`) or a hub
-/// reference (`hub/`). Empty is tolerated for intermediate/incomplete steps. This blocks
+/// reference (`hub/`). Empty is tolerated for intermediate/incomplete steps. This keeps
 /// absolute or local filesystem paths (e.g. `/tmp/.../ops/scripts/...` baked in by a
-/// `wmill sync push` from a feature-branch checkout) from being persisted into a flow,
-/// where they silently mis-resolve to an unrelated script at runtime (#9751).
+/// `wmill sync push` from a feature-branch checkout) out of stored flows (#9751). Refuses a
+/// leading `/`, which `RunnableRef` tolerates, so stored paths keep the canonical spelling; it
+/// is not a substitute for the parse, which refuses some paths this accepts.
 fn is_workspace_runnable_path(path: &str) -> bool {
     path.is_empty()
         || path.starts_with("u/")

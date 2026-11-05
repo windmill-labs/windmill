@@ -48,6 +48,7 @@ use windmill_common::jobs::{
     script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, TriggerKindLabel,
     ENTRYPOINT_OVERRIDE,
 };
+use windmill_common::runnable_ref::RunnableRef;
 use windmill_common::runnable_settings::{
     ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettingsTrait,
 };
@@ -6851,11 +6852,13 @@ async fn flow_to_payload(
     w_id: &str,
     db: &DB,
 ) -> Result<JobPayloadWithTag, Error> {
-    let flow_info = get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
+    let flow = RunnableRef::from_path(&path, true)?;
+    let flow_info =
+        get_latest_flow_version_info_for_path(None, &db, w_id, flow.path(), true).await?;
     let on_behalf_of = flow_info.on_behalf_of(w_id, &db).await?;
     let FlowVersionInfo { version, tag, job_token_scopes, .. } = flow_info;
     let payload = JobPayload::Flow {
-        path,
+        path: flow.path().to_string(),
         dedicated_worker: None,
         apply_preprocessor: false,
         version,
@@ -6917,9 +6920,10 @@ pub async fn script_to_payload(
     };
     let (payload, tag, delete_after_use, delete_after_secs, script_timeout, on_behalf_of) =
         if script_hash.is_none() {
+            let script = RunnableRef::from_path(&script_path, false)?;
             let (jp, tag, delete_after_use, delete_after_secs, script_timeout, on_behalf_of) =
                 script_path_to_payload(
-                    &script_path,
+                    script.path(),
                     None,
                     db.clone(),
                     &flow_job.workspace_id,
@@ -6959,6 +6963,8 @@ pub async fn script_to_payload(
             (
                 JobPayload::ScriptHash {
                     hash,
+                    // Not parsed: the hash alone decides what runs, and flows pinned with a path
+                    // the parser refuses (deploy accepts an empty one) must keep running.
                     path: script_path,
                     concurrency_settings,
                     debouncing_settings,
