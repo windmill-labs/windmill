@@ -1151,6 +1151,62 @@ pub fn set_pg_keepalive(config: &mut tokio_postgres::Config) {
         .tcp_user_timeout(std::time::Duration::from_secs(120));
 }
 
+/// How a [`PgDatabase`] authenticates, which also keys the worker's connection cache: a
+/// connection established under one mode must never be handed to a request asking for
+/// another.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PgAuthMode {
+    Password,
+    /// AWS RDS IAM.
+    Iam,
+    /// Azure Entra ID, via the federated identity of the process connecting.
+    WorkloadIdentity,
+}
+
+impl PgAuthMode {
+    pub fn of(database: &PgDatabase) -> error::Result<Self> {
+        let workload_identity = database.password.as_deref().map(str::trim)
+            == Some(azure_workload_identity::WORKLOAD_IDENTITY_PASSWORD);
+        match (database.use_iam_auth == Some(true), workload_identity) {
+            (true, true) => Err(error::Error::BadRequest(
+                "IAM RDS authentication cannot use the Azure workload identity password"
+                    .to_string(),
+            )),
+            (true, false) => Ok(PgAuthMode::Iam),
+            (false, true) => Ok(PgAuthMode::WorkloadIdentity),
+            (false, false) => Ok(PgAuthMode::Password),
+        }
+    }
+
+    /// What to announce in the job log. Password auth is the default and stays silent.
+    /// The token modes name the login they present, which is the one thing the token
+    /// itself does not carry.
+    pub fn log_name(&self, database: &PgDatabase) -> Option<String> {
+        match self {
+            PgAuthMode::Password => None,
+            PgAuthMode::Iam => Some(format!(
+                "IAM RDS authentication (login {})",
+                database.login_name()
+            )),
+            PgAuthMode::WorkloadIdentity => Some(match database.entra_login() {
+                Ok(login) => format!("Azure Workload Identity (login {login})"),
+                // Connecting rejects a missing login; do not invent one here.
+                Err(_) => "Azure Workload Identity".to_string(),
+            }),
+        }
+    }
+
+    pub fn cache_key_segment(&self) -> &'static str {
+        match self {
+            // Workload identity needs no segment of its own: to_uri() carries the raw
+            // password and the mode is a pure function of it, so two modes can never
+            // share a key even though the mode is selected on the trimmed value.
+            PgAuthMode::Password | PgAuthMode::WorkloadIdentity => "",
+            PgAuthMode::Iam => "&iam=true",
+        }
+    }
+}
+
 impl PgDatabase {
     /// The role the connection logs in as, whichever way it authenticates.
     pub fn login_name(&self) -> &str {
@@ -1200,7 +1256,45 @@ impl PgDatabase {
         Ok(config)
     }
 
+    /// Connect under whichever [`PgAuthMode`] the resource selects. Every connection to a
+    /// user's database goes through here, so a token mode handled anywhere else would
+    /// send its sentinel to the server as a literal password.
     pub async fn connect(
+        &self,
+        main_db: Option<&DB>,
+    ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        match PgAuthMode::of(self)? {
+            PgAuthMode::Iam => {
+                #[cfg(all(feature = "enterprise", feature = "private"))]
+                {
+                    self.connect_with_iam().await
+                }
+                #[cfg(not(all(feature = "enterprise", feature = "private")))]
+                {
+                    Err(error::Error::ExecutionErr(
+                        "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
+                    ))
+                }
+            }
+            PgAuthMode::WorkloadIdentity => {
+                #[cfg(feature = "enterprise")]
+                {
+                    self.connect_with_workload_identity().await
+                }
+                #[cfg(not(feature = "enterprise"))]
+                {
+                    Err(error::Error::ExecutionErr(
+                        "Azure workload identity authentication requires Windmill Enterprise \
+                         Edition"
+                            .to_string(),
+                    ))
+                }
+            }
+            PgAuthMode::Password => self.connect_with_password(main_db).await,
+        }
+    }
+
+    async fn connect_with_password(
         &self,
         main_db: Option<&DB>,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
@@ -1410,7 +1504,7 @@ impl PgDatabase {
     }
 
     #[cfg(all(feature = "enterprise", feature = "private"))]
-    pub async fn connect_with_iam(
+    async fn connect_with_iam(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
         // Resolve region: resource field takes priority, then env var
@@ -1458,7 +1552,7 @@ impl PgDatabase {
     /// Connect to Azure Database for PostgreSQL as the worker's federated identity.
     /// The Entra ID access token replaces the password.
     #[cfg(feature = "enterprise")]
-    pub async fn connect_with_workload_identity(
+    async fn connect_with_workload_identity(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
         // Before the token exchange: a missing login is worth reporting without first
@@ -1611,6 +1705,79 @@ pub async fn shutdown_pg_connection(
             abort_handle.abort();
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod pg_auth_mode_tests {
+    use super::*;
+    use azure_workload_identity::WORKLOAD_IDENTITY_PASSWORD;
+
+    /// The sentinel password is the whole opt-in: nothing else marks the resource, so a
+    /// resource carrying it must not fall through to password auth.
+    #[test]
+    fn test_workload_identity_password_selects_the_auth_mode() {
+        let db = |password: &str| {
+            PgDatabase::parse_uri(&format!("postgres://someuser:{password}@host:5432/db")).unwrap()
+        };
+        assert_eq!(
+            PgAuthMode::of(&db(WORKLOAD_IDENTITY_PASSWORD)).unwrap(),
+            PgAuthMode::WorkloadIdentity
+        );
+        assert_eq!(
+            PgAuthMode::of(&db("hunter2")).unwrap(),
+            PgAuthMode::Password
+        );
+        // A pasted sentinel keeps its surrounding whitespace, and an unrecognized one is
+        // forwarded to the server as a real password instead of selecting the mode.
+        assert_eq!(
+            PgAuthMode::of(&db("%20ms_entraid%0A")).unwrap(),
+            PgAuthMode::WorkloadIdentity
+        );
+    }
+
+    /// The job log is the only place the presented login is visible, and the two token
+    /// modes differ on whether a missing one has a default at all.
+    #[test]
+    fn test_log_name_reports_the_presented_login() {
+        let db = |user: &str| {
+            PgDatabase::parse_uri(&format!("postgres://{user}:pw@host:5432/db")).unwrap()
+        };
+
+        assert_eq!(PgAuthMode::Password.log_name(&db("someuser")), None);
+        assert_eq!(
+            PgAuthMode::Iam.log_name(&db("someuser")).unwrap(),
+            "IAM RDS authentication (login someuser)"
+        );
+        assert_eq!(
+            PgAuthMode::Iam.log_name(&db("")).unwrap(),
+            "IAM RDS authentication (login postgres)"
+        );
+        assert_eq!(
+            PgAuthMode::WorkloadIdentity
+                .log_name(&db("someuser"))
+                .unwrap(),
+            "Azure Workload Identity (login someuser)"
+        );
+        // Entra has no default login, so none is named rather than implying `postgres`.
+        assert_eq!(
+            PgAuthMode::WorkloadIdentity.log_name(&db("")).unwrap(),
+            "Azure Workload Identity"
+        );
+    }
+
+    /// The datatable endpoints connect from the server, not through the worker's
+    /// executor: the mode must be selected in `connect` itself, or the sentinel reaches the
+    /// server as a literal password.
+    #[tokio::test]
+    async fn test_connect_does_not_send_the_sentinel_as_a_password() {
+        // Nothing listens there, so falling through to password auth fails on the socket.
+        let db = PgDatabase::parse_uri(&format!(
+            "postgres://someuser:{WORKLOAD_IDENTITY_PASSWORD}@127.0.0.1:1/db"
+        ))
+        .unwrap();
+        let err = db.connect(None).await.err().unwrap().to_string();
+        assert!(err.contains("orkload identity"), "{err}");
     }
 }
 

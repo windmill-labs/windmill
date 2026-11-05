@@ -102,7 +102,7 @@ impl WorkloadIdentityConfig {
                 .filter(|v| !v.is_empty())
                 .ok_or_else(|| {
                     Error::BadConfig(format!(
-                        "Workload identity authentication requires the {} env var on the worker, \
+                        "Workload identity authentication requires the {} env var on the Windmill process connecting, \
                          injected by the Azure workload identity webhook",
                         env_var
                     ))
