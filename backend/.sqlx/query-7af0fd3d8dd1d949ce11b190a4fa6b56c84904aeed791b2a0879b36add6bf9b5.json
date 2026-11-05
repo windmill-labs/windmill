@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT tag AS \"tag!\", count AS \"count!\",\n            EXTRACT(EPOCH FROM now() - head)::double precision AS \"delay!\",\n            EXTRACT(EPOCH FROM head)::double precision AS \"head_since!\"\n        FROM (\n            SELECT tag, sum(n)::bigint AS count,\n                (array_agg(head ORDER BY priority DESC NULLS LAST))[1] AS head\n            FROM (\n                SELECT tag, priority, count(*) AS n, min(scheduled_for) AS head\n                FROM v2_job_queue WHERE\n                    scheduled_for <= now() - ('3 seconds')::interval AND running = false\n                    GROUP BY tag, priority\n            ) g\n            GROUP BY tag\n        ) t",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "tag!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "delay!",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 3,
+        "name": "head_since!",
+        "type_info": "Float8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "7af0fd3d8dd1d949ce11b190a4fa6b56c84904aeed791b2a0879b36add6bf9b5"
+}

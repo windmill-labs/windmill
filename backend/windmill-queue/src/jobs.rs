@@ -6420,11 +6420,11 @@ async fn fetch_pushed_flow_version(
     }
 }
 
-/// A job with low priority (below -1, see `make_pull_query`) passes it to every job it starts,
-/// all the way down, so a background flow cannot get ahead of other work through the jobs its
-/// scripts start. It wins over the priority the run endpoints give a job with a parent, which
-/// would otherwise put every job such a flow starts ahead of all ordinary jobs. Flow steps get
-/// their flow's priority as an override already and are not looked up here.
+/// A job with low (negative) priority passes it to every job it starts, all the way down, so a
+/// background flow cannot get ahead of other work through the jobs its scripts start. It wins
+/// over the priority the run endpoints give a job with a parent, which would otherwise put every
+/// job such a flow starts ahead of all ordinary jobs. Flow steps get their flow's priority as an
+/// override already and are not looked up here.
 #[cfg(feature = "enterprise")]
 async fn inherited_low_priority(
     tx: &mut PushIsolationLevel<'_>,
@@ -6437,7 +6437,7 @@ async fn inherited_low_priority(
         return Ok(None);
     };
     let query = sqlx::query_scalar!(
-        "SELECT priority FROM v2_job WHERE id = $1 AND workspace_id = $2 AND priority < -1",
+        "SELECT priority FROM v2_job WHERE id = $1 AND workspace_id = $2 AND priority < 0",
         parent_job,
         workspace_id,
     );
@@ -7593,16 +7593,13 @@ async fn push_inner<'c, 'd>(
             _low_level_priority
         }; // else it remains empty, i.e. no priority
     }
-    // prioritize flow steps to drain the queue faster
-    let final_priority = if flow_step_id.is_some() && final_priority.is_none() {
-        Some(0)
-    } else if job_kind == JobKind::Dependencies && !build_binary_only {
+    let final_priority = Some(windmill_common::queue::pushed_job_priority(
+        final_priority,
+        flow_step_id.is_some(),
         // A binary build is a background optimization, not a deploy the user waits on, so
         // it does not get the dependency-job jump ahead of ordinary jobs on its tag.
-        Some(0)
-    } else {
-        final_priority
-    };
+        job_kind == JobKind::Dependencies && !build_binary_only,
+    ));
 
     let is_running = same_worker || running;
     if let Some(flow) = raw_flow.as_ref() {

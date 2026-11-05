@@ -10290,9 +10290,9 @@ async fn add_batch_jobs(
             INSERT INTO v2_job
                 (id, workspace_id, raw_code, raw_lock, raw_flow, tag, runnable_id, runnable_path, kind,
                 script_lang, created_by, permissioned_as, permissioned_as_email, concurrent_limit,
-                concurrency_time_window_s, timeout, args)
+                concurrency_time_window_s, timeout, args, priority)
                 (SELECT uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                ('{ "uuid": "' || uuid || '" }')::jsonb FROM uuid_table)
+                ('{ "uuid": "' || uuid || '" }')::jsonb, 0 FROM uuid_table)
             RETURNING id AS "id!""#,
             w_id,
             raw_code,
@@ -10319,8 +10319,8 @@ async fn add_batch_jobs(
                 select unnest($4::uuid[]) as uuid
             )
             INSERT INTO v2_job_queue
-                (id, workspace_id, scheduled_for, tag)
-                (SELECT uuid, $1, $2, $3 FROM uuid_table)
+                (id, workspace_id, scheduled_for, tag, priority)
+                (SELECT uuid, $1, $2, $3, 0 FROM uuid_table)
             RETURNING id"#,
         w_id,
         Utc::now(),

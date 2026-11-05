@@ -270,7 +270,7 @@ async fn fairness_pull_query_skips_capped_workspace(db: Pool<Postgres>) {
     let regular_pick: Option<Uuid> = sqlx::query_scalar(
         "SELECT id FROM v2_job_queue
          WHERE running = false AND tag IN ('deno') AND scheduled_for <= now()
-         ORDER BY COALESCE(priority, -1) DESC, scheduled_for LIMIT 1",
+         ORDER BY priority DESC NULLS LAST, scheduled_for LIMIT 1",
     )
     .fetch_optional(&db)
     .await
@@ -282,7 +282,7 @@ async fn fairness_pull_query_skips_capped_workspace(db: Pool<Postgres>) {
         "SELECT id FROM v2_job_queue
          WHERE running = false AND tag IN ('deno') AND scheduled_for <= now()
            AND workspace_id <> ALL($1::text[])
-         ORDER BY COALESCE(priority, -1) DESC, scheduled_for LIMIT 1",
+         ORDER BY priority DESC NULLS LAST, scheduled_for LIMIT 1",
     )
     .bind(&capped)
     .fetch_optional(&db)
@@ -621,7 +621,7 @@ async fn mock_worker(
     let standard_sql = "WITH picked AS (
                     SELECT id FROM v2_job_queue
                     WHERE running = false AND scheduled_for <= now()
-                    ORDER BY COALESCE(priority, -1) DESC, scheduled_for
+                    ORDER BY priority DESC NULLS LAST, scheduled_for
                     FOR UPDATE SKIP LOCKED LIMIT 1
                 )
                 UPDATE v2_job_queue q
@@ -633,7 +633,7 @@ async fn mock_worker(
                     SELECT id FROM v2_job_queue
                     WHERE running = false AND scheduled_for <= now()
                       AND workspace_id <> ALL($1::text[])
-                    ORDER BY COALESCE(priority, -1) DESC, scheduled_for
+                    ORDER BY priority DESC NULLS LAST, scheduled_for
                     FOR UPDATE SKIP LOCKED LIMIT 1
                 )
                 UPDATE v2_job_queue q

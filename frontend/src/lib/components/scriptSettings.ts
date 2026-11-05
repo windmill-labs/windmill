@@ -170,7 +170,7 @@ export function getActiveScriptSettingsBadges(
 			icon: ChevronsUp,
 			detail: `Priority ${settings.priority}`
 		})
-	} else if (settings.priority != undefined && settings.priority < -1) {
+	} else if (settings.priority != undefined && settings.priority < 0) {
 		badges.push({
 			key: 'low_priority',
 			short: 'Low priority',

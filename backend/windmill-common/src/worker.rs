@@ -867,15 +867,12 @@ pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
     WORKER_SUSPENDED_PULL_QUERY.store(std::sync::Arc::new(query));
 }
 
-// `COALESCE(priority, -1) DESC` puts a job without priority after flow steps (0) and before
-// low-priority jobs (< -1). It is the expression `queue_sort_v3` (migration 20261105184430)
-// is built on: the three pull queries below must use it verbatim to keep their index scan.
 pub fn make_pull_query(tags: &[String]) -> String {
     let query = format_pull_query(format!(
         "SELECT id
         FROM v2_job_queue
         WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
-        ORDER BY COALESCE(priority, -1) DESC, scheduled_for
+        ORDER BY priority DESC NULLS LAST, scheduled_for
         FOR UPDATE SKIP LOCKED
         LIMIT 1",
         tags.iter().map(|x| format!("'{x}'")).join(", ")
@@ -896,7 +893,7 @@ pub fn make_tool_job_pull_query(job_ids: &[uuid::Uuid], tags: &[String]) -> Stri
         "SELECT id FROM v2_job_queue
         WHERE running = false AND id = ANY(ARRAY[{ids}]::uuid[]) AND scheduled_for <= now()
         AND tag = ANY(ARRAY[{tags}]::text[])
-        ORDER BY COALESCE(priority, -1) DESC, scheduled_for
+        ORDER BY priority DESC NULLS LAST, scheduled_for
         FOR UPDATE SKIP LOCKED LIMIT 1"
     ))
 }
@@ -914,7 +911,7 @@ pub(crate) fn make_pull_query_fairness(tags: &[String]) -> String {
         FROM v2_job_queue
         WHERE running = false AND tag IN ({}) AND scheduled_for <= now()
           AND workspace_id <> ALL($2::text[])
-        ORDER BY COALESCE(priority, -1) DESC, scheduled_for
+        ORDER BY priority DESC NULLS LAST, scheduled_for
         FOR UPDATE SKIP LOCKED
         LIMIT 1",
         tags.iter().map(|x| format!("'{x}'")).join(", ")

@@ -2,6 +2,46 @@ use std::collections::HashMap;
 
 use sqlx::{Pool, Postgres};
 
+/// The priority a job is pushed with. Workers pull `ORDER BY priority DESC NULLS LAST`, so a
+/// job without priority is stored as 0 rather than NULL, which leaves negative values (low
+/// priority) below it. Flow steps and dependency jobs run at 1 or above, ahead of jobs without
+/// priority, to drain the queue faster; a low flow keeps its steps low.
+pub fn pushed_job_priority(priority: Option<i16>, flow_step: bool, dependency_job: bool) -> i16 {
+    match priority {
+        _ if dependency_job => 1,
+        Some(p) if p < 0 => p,
+        p if flow_step => p.unwrap_or(0).max(1),
+        p => p.unwrap_or(0),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pushed_job_priority;
+
+    #[test]
+    fn low_priority_sorts_after_jobs_without_priority() {
+        // (priority, flow step, dependency job) -> stored priority
+        let cases = [
+            ((None, false, false), 0),
+            ((Some(100), false, false), 100),
+            ((Some(-100), false, false), -100),
+            ((None, true, false), 1),
+            ((Some(0), true, false), 1),
+            ((Some(50), true, false), 50),
+            ((Some(-100), true, false), -100),
+            ((None, false, true), 1),
+        ];
+        for ((p, step, dep), expected) in cases {
+            assert_eq!(
+                pushed_job_priority(p, step, dep),
+                expected,
+                "{p:?} step={step} dep={dep}"
+            );
+        }
+    }
+}
+
 pub async fn get_queue_counts(db: &Pool<Postgres>) -> HashMap<String, u32> {
     sqlx::query!(
         "SELECT tag AS \"tag!\", count(*) AS \"count!\" FROM v2_job_queue WHERE
@@ -35,7 +75,7 @@ pub async fn get_queue_stats(
     db: &Pool<Postgres>,
 ) -> crate::error::Result<HashMap<String, QueueStat>> {
     // Grouping by (tag, priority) first finds every head in the same single pass as the
-    // count. A per-tag `ORDER BY ... LIMIT 1` walks `queue_sort_v3`, whose `tag` column comes
+    // count. A per-tag `ORDER BY ... LIMIT 1` walks `queue_sort_v2`, whose `tag` column comes
     // last, through every other tag's backlog queued ahead of it.
     let rows = sqlx::query!(
         "SELECT tag AS \"tag!\", count AS \"count!\",
@@ -43,7 +83,7 @@ pub async fn get_queue_stats(
             EXTRACT(EPOCH FROM head)::double precision AS \"head_since!\"
         FROM (
             SELECT tag, sum(n)::bigint AS count,
-                (array_agg(head ORDER BY COALESCE(priority, -1) DESC, head))[1] AS head
+                (array_agg(head ORDER BY priority DESC NULLS LAST))[1] AS head
             FROM (
                 SELECT tag, priority, count(*) AS n, min(scheduled_for) AS head
                 FROM v2_job_queue WHERE

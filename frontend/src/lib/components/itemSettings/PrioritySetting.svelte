@@ -13,7 +13,7 @@
 
 	let { kind, priority = $bindable() }: Props = $props()
 
-	// Any value below -1 sorts after jobs without priority, which the queue counts as -1.
+	// Any negative value sorts after jobs without priority, which are stored as 0.
 	const LOW_PRIORITY = -100
 </script>
 
@@ -61,7 +61,7 @@
 			: 'The jobs of this script and every job they start run only when no other job is waiting. A script that waits for a job it started keeps its worker until that job runs.'}
 		eeOnly
 		disabled={!$enterpriseLicense}
-		checked={priority !== undefined && priority < -1}
+		checked={priority !== undefined && priority < 0}
 		onchange={(on) => (priority = on ? LOW_PRIORITY : undefined)}
 	/>
 {/if}

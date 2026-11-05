@@ -4780,9 +4780,9 @@ async fn push_next_flow_job(
         // compute job-to-be-pushed priority
         // The job definition itself might have its own priority, but as we're running
         // it from a flow here, it inherits first the flow step priority and second the
-        // flow priority. A low flow priority (below -1) wins over the step's own: a background
+        // flow priority. A low (negative) flow priority wins over the step's own: a background
         // flow must not get ahead of other work through one of its steps.
-        let new_job_priority_override = if flow_job.priority.is_some_and(|p| p < -1) {
+        let new_job_priority_override = if flow_job.priority.is_some_and(|p| p < 0) {
             flow_job.priority
         } else if module.priority.is_some() {
             module.priority
