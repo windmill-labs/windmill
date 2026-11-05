@@ -37,6 +37,13 @@
 	let previewIterationArgs = $derived(flowStateStore.val[mod.id]?.previewArgs ?? {})
 
 	let selectedTab = $state('loop')
+	// Keeps "Limit iterations" open while its field is emptied mid-edit; the model holds no
+	// limit meanwhile, and leaving the field empty turns the limit off.
+	let iterationsFieldEmpty = $state(false)
+	let isIterationsLimited = $derived(
+		(mod.value.type === 'whileloopflow' && mod.value.max_iterations !== undefined) ||
+			iterationsFieldEmpty
+	)
 
 	useUiIntent(`whileloopflow-${mod.id}`, {
 		openTab: async (tab) => {
@@ -118,8 +125,9 @@
 							<Toggle
 								size="xs"
 								textClass="text-xs font-normal text-primary"
-								checked={mod.value.max_iterations !== undefined}
+								checked={isIterationsLimited}
 								on:change={({ detail }) => {
+									iterationsFieldEmpty = false
 									;(mod.value as WhileloopFlow).max_iterations = detail ? 10 : undefined
 								}}
 								options={{
@@ -128,19 +136,24 @@
 										'Checked after each iteration. When the limit is reached and the break condition did not stop the loop, the loop fails with an error named LoopExhausted, handled like any step failure (retries, error handler, or Continue on error then a branch on the error).'
 								}}
 							/>
-							{#if mod.value.max_iterations !== undefined}
+							{#if isIterationsLimited}
 								<div class="flex flex-col gap-2 pl-9" transition:slideDynamic>
 									<Label label="Maximum iterations">
 										<TextInput
 											class="w-24"
 											bind:value={
 												() => (mod.value as WhileloopFlow).max_iterations,
-												(v) =>
-													((mod.value as WhileloopFlow).max_iterations = v
-														? Math.max(1, Math.floor(Number(v)))
-														: 1)
+												(v) => {
+													const n = Math.floor(Number(v))
+													iterationsFieldEmpty = !(n >= 1)
+													;(mod.value as WhileloopFlow).max_iterations = n >= 1 ? n : undefined
+												}
 											}
-											inputProps={{ type: 'number', min: 1 }}
+											inputProps={{
+												type: 'number',
+												min: 1,
+												onblur: () => (iterationsFieldEmpty = false)
+											}}
 										/>
 									</Label>
 								</div>
