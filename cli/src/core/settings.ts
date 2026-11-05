@@ -95,6 +95,7 @@ export const SETTINGS_MANAGED_ONLY_WHEN_PRESENT = [
   "add_admins_and_developers_to_forks",
   "variable_expiration_handler",
   "role_overrides",
+  "webhook_events",
 ] as const;
 
 /** Keys earlier versions wrote that no longer configure anything; the server ignores them,

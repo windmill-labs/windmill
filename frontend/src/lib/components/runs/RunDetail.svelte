@@ -132,7 +132,7 @@
 		useOperatingUser
 	} from '$lib/components/operatingWorkspace.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { useEditRights } from '$lib/operatorWriteRights'
+	import { useEditRights, useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { AGENT_STEP_ID } from '$lib/components/flows/conversations/agentEditorChat'
 
 	let {
@@ -164,6 +164,8 @@
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
 	const editRights = useEditRights()
+	// A role without `run` is refused by every run route; `Run now` only advances a queued job.
+	const roleCaps = useRoleCapabilities()
 
 	// Protection rules are only kept loaded for the navigation workspace.
 	const foreignRulesets = resource(
@@ -241,6 +243,7 @@
 	const restart = $derived(selectionRestartable ? selectedRestart : failedRestart)
 	function canRestart(state: ReturnType<typeof useNestedRestartState>) {
 		return (
+			$roleCaps.run &&
 			job?.type === 'CompletedJob' &&
 			job.job_kind === 'flow' &&
 			(state.topLevelRestartable || state.nestedRestartSupported)
@@ -646,7 +649,8 @@
 		const id = job?.id
 		const failed = job?.language === 'dbt' && job?.type === 'CompletedJob' && !job?.success
 		dbtResumable = false
-		if (!ws || !id || !failed) return
+		// Resuming starts a run, so every resume control keys off this.
+		if (!ws || !id || !failed || !$roleCaps.run) return
 		JobService.getDbtResumable({ workspace: ws, id })
 			.then((held) => {
 				// The page may have moved on, or the workspace changed, in flight.
@@ -868,7 +872,12 @@
 		const kind = isScriptJob ? 'script' : 'flow'
 		return [
 			{ displayName: viewLabel, icon: Code2, href: viewHref, hide: !isRunnableJob },
-			{ displayName: 'Run again', icon: RefreshCw, action: runAgain, hide: !isRunnableJob },
+			{
+				displayName: 'Run again',
+				icon: RefreshCw,
+				action: runAgain,
+				hide: !isRunnableJob || !$roleCaps.run
+			},
 			{
 				displayName: 'dbt retry with same args',
 				icon: RefreshCw,
@@ -879,7 +888,7 @@
 				displayName: 'Run immediately with same args',
 				icon: RefreshCw,
 				action: () => runImmediately(),
-				hide: !isRunnableJob
+				hide: !isRunnableJob || !$roleCaps.run
 			},
 			{
 				displayName: 'Edit',
@@ -1329,7 +1338,7 @@
 		{#if restartStep !== undefined && canRestart(restart)}
 			{@render flowRestartButton(restart, restartStep, 'button')}
 		{/if}
-		{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
+		{#if $roleCaps.run && (job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow')}
 			<Button
 				on:click={runAgain}
 				unifiedSize="sm"
