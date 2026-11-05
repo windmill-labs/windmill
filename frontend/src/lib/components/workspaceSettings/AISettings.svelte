@@ -364,7 +364,8 @@
 	const WEB_SEARCH_PROVIDERS: { label: string; value: AIWebSearchConfig['provider'] }[] = [
 		{ label: 'Exa', value: 'exa' },
 		{ label: 'Tavily', value: 'tavily' },
-		{ label: 'Linkup', value: 'linkup' }
+		{ label: 'Linkup', value: 'linkup' },
+		{ label: 'DeepSeek', value: 'deepseek' }
 	]
 
 	function isSaveDisabled(): boolean {
