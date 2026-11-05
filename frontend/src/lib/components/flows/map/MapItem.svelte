@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Badge, Button } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import type { FlowModule, Job } from '$lib/gen'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
@@ -25,8 +25,6 @@
 		annotationTitle?: string | undefined
 		sideAnnotation?: string | undefined
 		sideAnnotationTitle?: string | undefined
-		/** A run state the node color alone does not tell apart, shown as a badge above the node. */
-		statusBadge?: { label: string; title: string } | undefined
 		nodeState?: FlowNodeState
 		duration_ms?: number | undefined
 		retries?: number | undefined
@@ -63,7 +61,6 @@
 		annotationTitle = undefined,
 		sideAnnotation = undefined,
 		sideAnnotationTitle = undefined,
-		statusBadge = undefined,
 		nodeState,
 		duration_ms = undefined,
 		retries = undefined,
@@ -151,21 +148,15 @@
 				{sideAnnotation}
 			</div>
 		{/if}
-		{#if statusBadge || (annotation && annotation != '')}
+		{#if annotation && annotation != ''}
 			<div
+				title={annotationTitle}
 				class={twMerge(
-					'absolute z-10 left-0 -top-5 flex items-center gap-1 text-primary',
+					'absolute z-10 left-0 -top-5 center-center text-primary',
 					editMode ? '-top-4 text-gray-400 dark:text-gray-500 text-xs font-normal' : ''
 				)}
 			>
-				{#if statusBadge}
-					<span title={statusBadge.title}
-						><Badge color="gray" verySmall>{statusBadge.label}</Badge></span
-					>
-				{/if}
-				{#if annotation && annotation != ''}
-					<span title={annotationTitle}>{annotation}</span>
-				{/if}
+				{annotation}
 			</div>
 		{/if}
 		{#if flowJobs && !insertable && (mod.value.type === 'forloopflow' || mod.value.type === 'whileloopflow')}

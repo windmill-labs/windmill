@@ -11,7 +11,6 @@
 	import { getGraphContext } from '../../graphContext'
 	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
 	import { waitingRequest } from '$lib/components/agentRequest'
-	import { notExecutedBadge } from '../../model'
 
 	interface Props {
 		data: ModuleN['data']
@@ -32,10 +31,6 @@
 			? { ...state, type: 'WaitingForEvents' as const }
 			: state
 	})
-
-	let statusBadge = $derived(
-		data.editMode ? undefined : notExecutedBadge(data.id, data.module, state)
-	)
 
 	// A `message` is the one action with no tool node of its own, so the annotation is the only
 	// place it can show.
@@ -186,7 +181,6 @@
 			{menuItems}
 			sideAnnotation={agentToolSummary?.short}
 			sideAnnotationTitle={agentToolSummary?.detail}
-			{statusBadge}
 			annotation={flowJobs &&
 			(data.module?.value?.type === 'forloopflow' || data.module?.value?.type === 'whileloopflow')
 				? 'Iteration: ' +

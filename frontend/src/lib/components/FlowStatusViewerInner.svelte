@@ -1247,8 +1247,6 @@
 		suspend?: boolean
 		/** Shown in place of the id. */
 		label?: string
-		/** The module as the run defined it. */
-		module?: FlowModule
 	}
 
 	function allModulesForTimeline(
@@ -1262,8 +1260,7 @@
 					id: x.id,
 					type: x.value.type,
 					suspend: x.suspend != undefined,
-					label: x.id === AGENT_STEP_ID ? agentStepLabel(job?.script_path) : undefined,
-					module: x
+					label: x.id === AGENT_STEP_ID ? agentStepLabel(job?.script_path) : undefined
 				}) as FlowModuleForTimeline,
 			{
 				skipToolNodes: true
@@ -1289,8 +1286,7 @@
 									(x) => ({
 										id: x.id.startsWith('subflow:') ? x.id : buildSubflowKey(x.id, nprefix),
 										type: x.value.type,
-										suspend: x.suspend != undefined,
-										module: x
+										suspend: x.suspend != undefined
 									}),
 									{ skipToolNodes: true }
 								),
