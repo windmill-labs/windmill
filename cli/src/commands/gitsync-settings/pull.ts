@@ -450,26 +450,20 @@ export async function pullGitSyncSettings(
       if (!overrideTarget && isGitRepository()) {
         const currentBranch = getCurrentGitBranch();
         if (currentBranch) {
-          // The branch alone does not say which workspace this is: an entry that
-          // names another workspaceId, or one of several sharing the branch, must
-          // not be overwritten. A branch-keyed entry without workspaceId (the
-          // legacy layout) is still adopted.
+          // The branch does not identify a workspace, so an unresolved workspace
+          // never writes into an existing entry: it could be another workspace's.
           const entries = (localConfig.workspaces ?? {}) as Record<string, WorkspaceEntryConfig>;
-          const onBranch = getWorkspaceNames(localConfig.workspaces).filter(
-            (name) => getEffectiveGitBranch(name, entries[name]) === currentBranch,
-          );
-          const usable = onBranch.filter(
+          const taken = getWorkspaceNames(localConfig.workspaces).filter(
             (name) =>
-              entries[name].workspaceId === undefined ||
-              entries[name].workspaceId === workspace.workspaceId,
+              name === currentBranch || getEffectiveGitBranch(name, entries[name]) === currentBranch,
           );
-          if (usable.length > 1 || (usable.length === 0 && onBranch.length > 0)) {
+          if (taken.length > 0) {
             throw new Error(
-              `No workspace entry matches workspace '${workspace.workspaceId}', and git branch '${currentBranch}' is used by ${onBranch.join(", ")}. ` +
-                `Add an entry named '${workspace.workspaceId}' so it can be resolved.`,
+              `No workspace entry in wmill.yaml matches workspace '${workspace.workspaceId}', and git branch '${currentBranch}' is already used by ${taken.join(", ")}. ` +
+                `Name the entry for this workspace '${workspace.workspaceId}' so it can be resolved.`,
             );
           }
-          overrideTarget = usable[0] ?? currentBranch;
+          overrideTarget = currentBranch;
         }
       }
       if (overrideTarget) {
