@@ -1419,6 +1419,8 @@ impl PgDatabase {
     }
 
     /// An RDS IAM token for this resource's host, port and login, used as the password.
+    /// It is signed with the worker's own AWS credentials and checks nothing itself: call it
+    /// only on a resource the caller was already authorized to read, never on caller-built values.
     #[cfg(all(feature = "enterprise", feature = "private"))]
     pub async fn iam_auth_token(&self) -> Result<String, error::Error> {
         // Resolve region: resource field takes priority, then env var
