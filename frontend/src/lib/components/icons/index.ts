@@ -409,6 +409,7 @@ export const APP_TO_ICON_COMPONENT = {
 	funkwhale: FunkwhaleIcon,
 	helper: WindmillIcon,
 	windmillhub: WindmillIcon,
+	jmespath: WindmillIcon,
 	gdocs: GdocsIcon,
 	gchat: GchatIcon,
 	ocs: NextcloudIcon,
