@@ -588,7 +588,8 @@ fn cached_instance_roles() -> Option<Arc<Vec<RoleDefinition>>> {
         .map(|(r, _)| r)
 }
 
-async fn instance_roles_on(conn: &mut sqlx::PgConnection) -> Result<Arc<Vec<RoleDefinition>>> {
+/// [`instance_roles`] on a connection the caller already holds.
+pub async fn instance_roles_on(conn: &mut sqlx::PgConnection) -> Result<Arc<Vec<RoleDefinition>>> {
     if let Some(roles) = cached_instance_roles() {
         return Ok(roles);
     }

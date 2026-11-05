@@ -394,7 +394,7 @@ pub async fn load_settings_document(
     };
     let datatable_permissions = datatable_permissions_document(row.datatable.as_ref(), &role_names);
     let protection_rules = protection_rules_document(&mut *conn, w_id).await?;
-    let instance = roles::instance_roles(db).await?;
+    let instance = roles::instance_roles_on(&mut *conn).await?;
     let overrides = load_role_overrides(&mut *conn, w_id).await?;
     let role_overrides = role_overrides_document(&overrides, &instance);
     // Present exactly when the column is, as it always was.
