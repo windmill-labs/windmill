@@ -74,8 +74,8 @@ pub use feature_usage_oss as feature_usage;
 pub mod flow_conversations;
 pub mod flow_status;
 pub mod flows;
-pub mod fork_storage;
 pub mod folders;
+pub mod fork_storage;
 pub mod global_settings;
 pub mod guest_jwt;
 pub mod hub_resource_types;
@@ -1413,6 +1413,14 @@ impl PgDatabase {
     pub async fn connect_with_iam(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        let token = self.iam_auth_token().await?;
+        self.connect_with_token("IAM RDS", self.login_name(), &token)
+            .await
+    }
+
+    /// An RDS IAM token for this resource's host, port and login, used as the password.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    pub async fn iam_auth_token(&self) -> Result<String, error::Error> {
         // Resolve region: resource field takes priority, then env var
         let region = match self.region.as_deref() {
             Some(r) => r.to_string(),
@@ -1426,13 +1434,9 @@ impl PgDatabase {
         let port = self.port.unwrap_or(5432);
         let user = self.login_name();
 
-        let token = db_iam_ee::generate_auth_token(&region, &self.host, port as u64, user)
+        db_iam_ee::generate_auth_token(&region, &self.host, port as u64, user)
             .await
-            .map_err(|e| {
-                error::Error::InternalErr(format!("IAM token generation failed: {e:#}"))
-            })?;
-
-        self.connect_with_token("IAM RDS", user, &token).await
+            .map_err(|e| error::Error::InternalErr(format!("IAM token generation failed: {e:#}")))
     }
 
     /// The role an Entra-authenticated connection logs in as. Azure maps each Entra

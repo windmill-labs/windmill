@@ -2221,6 +2221,41 @@ fn get_attach_db_install_str(db_type: &str) -> Result<&str> {
     }
 }
 
+/// A postgres resource with `use_iam_auth` authenticates with an RDS IAM token, which DuckDB's
+/// postgres extension cannot mint: swap one in as the password before the ATTACH is built, and
+/// force TLS as every IAM connection does. The token is valid for 15 minutes, so a connection
+/// DuckDB opens later in the job is refused.
+async fn apply_pg_iam_auth(
+    db_resource: &mut Value,
+    hidden_passwords: &Arc<Mutex<Vec<String>>>,
+) -> Result<()> {
+    if db_resource.get("use_iam_auth").and_then(Value::as_bool) != Some(true) {
+        return Ok(());
+    }
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    {
+        let res: PgDatabase = serde_json::from_value(db_resource.clone())?;
+        let token = res.iam_auth_token().await?;
+        // DuckDB's connection errors echo the attach URI, where the token is percent-encoded.
+        hidden_passwords
+            .lock()
+            .unwrap()
+            .extend([urlencoding::encode(&token).into_owned(), token.clone()]);
+        db_resource["password"] = json!(token);
+        if !matches!(res.sslmode.as_deref(), Some("verify-ca" | "verify-full")) {
+            db_resource["sslmode"] = json!("require");
+        }
+        Ok(())
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "private")))]
+    {
+        let _ = hidden_passwords;
+        Err(Error::ExecutionErr(
+            "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
+        ))
+    }
+}
+
 async fn transform_attach_db_resource_query(
     parsed: &ParsedAttachDbResource<'_>,
     job_id: &Uuid,
@@ -2228,11 +2263,17 @@ async fn transform_attach_db_resource_query(
     hidden_passwords: &mut Arc<Mutex<Vec<String>>>,
     job_dir: &str,
 ) -> Result<Vec<String>> {
-    let db_resource: Value = client
+    let mut db_resource: Value = client
         .get_resource_value_interpolated(parsed.resource_path, Some(job_id.to_string()))
         .await?;
     if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
+    }
+    if matches!(
+        parsed.db_type.to_lowercase().as_str(),
+        "postgres" | "postgresql"
+    ) {
+        apply_pg_iam_auth(&mut db_resource, hidden_passwords).await?;
     }
     db_resource_to_attach_statements(
         db_resource,
@@ -2299,7 +2340,7 @@ async fn transform_attach_ducklake(
         .map(|m| m.as_str()[1..m.as_str().len() - 1].to_string())
         .unwrap_or_default();
 
-    let ducklake = match conn {
+    let mut ducklake = match conn {
         Connection::Http(client) => get_ducklake_from_agent_http(client, name, w_id).await?,
         Connection::Sql(db) => get_ducklake_from_db_unchecked(name, w_id, db).await?,
     };
@@ -2329,6 +2370,9 @@ async fn transform_attach_ducklake(
         .and_then(|p| p.as_str())
     {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
+    }
+    if db_type == "postgres" {
+        apply_pg_iam_auth(&mut ducklake.catalog_resource, hidden_passwords).await?;
     }
 
     // Escape single quotes: db_conn_str, storage and data_path are embedded in
@@ -2669,6 +2713,8 @@ async fn transform_attach_datatable(
     if let Some(pwd) = db_resource.get("password").and_then(|p| p.as_str()) {
         hidden_passwords.lock().unwrap().push(pwd.to_string());
     }
+    let mut db_resource = db_resource;
+    apply_pg_iam_auth(&mut db_resource, hidden_passwords).await?;
 
     Ok(Some(pg_secret_attach_statements(
         db_resource,
