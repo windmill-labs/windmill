@@ -1318,8 +1318,8 @@
 	// Splitpanes keeps a lone pane at its bound size rather than growing it to fill the row.
 	$effect.pre(() => {
 		if (!closableDetails) return
-		graphPaneSize = detailsOpen ? 58 : 100
-		detailsPaneSize = 42
+		graphPaneSize = detailsOpen ? 54 : 100
+		detailsPaneSize = 46
 	})
 
 	function setParentModuleState(modId: string, state: Partial<GraphModuleState>) {
@@ -2084,19 +2084,28 @@
 											wrapperClass={closableDetails ? 'grow min-w-0' : 'shrink-0'}
 										>
 											{#if !hideTimeline}
-												<Tab value="timeline" label="Timeline" />
+												<Tab value="timeline" label="Timeline" class={closableDetails ? 'px-0' : ''} />
 											{/if}
-											<Tab value="node_status" label={closableDetails ? 'Status' : 'Node status'} />
+											<Tab
+												value="node_status"
+												label={closableDetails ? 'Status' : 'Node status'}
+												class={closableDetails ? 'px-0' : ''}
+											/>
 											{#if !hideNodeDefinition}
 												<Tab
 													value="node_definition"
 													label={closableDetails ? 'Code' : 'Node definition'}
+													class={closableDetails ? 'px-0' : ''}
 												/>
 											{/if}
 											{#if Object.keys(job?.flow_status?.user_states ?? {}).length > 0}
 												<Tab value="user_states" label="User States" />
 											{/if}
-											<Tab value="tracing" label={closableDetails ? 'Traces' : 'Tracing'} />
+											<Tab
+												value="tracing"
+												label={closableDetails ? 'Traces' : 'Tracing'}
+												class={closableDetails ? 'px-0' : ''}
+											/>
 										</Tabs>
 										{#if closableDetails}
 											<Button

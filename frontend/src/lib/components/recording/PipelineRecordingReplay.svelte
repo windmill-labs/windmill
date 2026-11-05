@@ -34,7 +34,7 @@
 	interface Props {
 		recording: PipelineRecording
 		hideControls?: boolean
-		/** Drop the folder name, for a host that shows its own title. */
+		/** Drop the folder name and its details, for a host that shows its own title. */
 		hideTitle?: boolean
 	}
 
@@ -324,16 +324,18 @@
 						{replayState === 'playing' ? 'Replaying: ' : ''}{recording.folder || 'Pipeline'}
 					</h2>
 				{/if}
-				<Tooltip placement="bottom">
-					<InfoIcon size={16} class="text-tertiary" />
-					{#snippet text()}
-						<span class="text-2xs">
-							Recorded {new Date(recording.recorded_at).toLocaleString()} &mdash;
-							{(recording.total_duration_ms / 1000).toFixed(1)}s &mdash;
-							{Object.keys(recording.jobs).length} job(s)
-						</span>
-					{/snippet}
-				</Tooltip>
+				{#if !hideTitle}
+					<Tooltip placement="bottom">
+						<InfoIcon size={16} class="text-tertiary" />
+						{#snippet text()}
+							<span class="text-2xs">
+								Recorded {new Date(recording.recorded_at).toLocaleString()} &mdash;
+								{(recording.total_duration_ms / 1000).toFixed(1)}s &mdash;
+								{Object.keys(recording.jobs).length} job(s)
+							</span>
+						{/snippet}
+					</Tooltip>
+				{/if}
 			</div>
 			{#if replayState === 'playing'}
 				<Button variant="border" size="xs" onclick={stop} startIcon={{ icon: Square }}>Stop</Button>

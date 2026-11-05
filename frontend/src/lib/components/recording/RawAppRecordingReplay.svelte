@@ -35,7 +35,7 @@
 		hideTitle = false
 	}: {
 		recording: RawAppRecording
-		/** Drop the app path, for a host that shows its own title. */
+		/** Drop the app path and its details, for a host that shows its own title. */
 		hideTitle?: boolean
 	} = $props()
 
@@ -187,21 +187,23 @@
 					{recording.app_path || 'Untitled app'}
 				</h2>
 			{/if}
-			<span class="text-xs text-secondary px-2 py-0.5 bg-surface-secondary rounded shrink-0">
-				{steps.length} step{steps.length === 1 ? '' : 's'}
-			</span>
-			<Tooltip placement="bottom">
-				<InfoIcon size={16} class="text-tertiary" />
-				{#snippet text()}
-					<span class="text-2xs">
-						{recording.workspace ? `${recording.workspace} · ` : ''}Recorded {new Date(
-							recording.recorded_at
-						).toLocaleString()} ·
-						{fmtTime(recording.total_duration_ms)} ·
-						{recording.viewport?.width}×{recording.viewport?.height}
-					</span>
-				{/snippet}
-			</Tooltip>
+			{#if !hideTitle}
+				<span class="text-xs text-secondary px-2 py-0.5 bg-surface-secondary rounded shrink-0">
+					{steps.length} step{steps.length === 1 ? '' : 's'}
+				</span>
+				<Tooltip placement="bottom">
+					<InfoIcon size={16} class="text-tertiary" />
+					{#snippet text()}
+						<span class="text-2xs">
+							{recording.workspace ? `${recording.workspace} · ` : ''}Recorded {new Date(
+								recording.recorded_at
+							).toLocaleString()} ·
+							{fmtTime(recording.total_duration_ms)} ·
+							{recording.viewport?.width}×{recording.viewport?.height}
+						</span>
+					{/snippet}
+				</Tooltip>
+			{/if}
 			{#if recording.truncated}
 				<span class="flex items-center gap-1 text-2xs text-yellow-600 dark:text-yellow-400">
 					<TriangleAlert size={14} /> recording truncated
