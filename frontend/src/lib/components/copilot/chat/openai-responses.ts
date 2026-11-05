@@ -9,7 +9,7 @@ import {
 	createOpenAIProxyClient,
 	getAiProxyBaseURL,
 	getProviderAndCompletionConfig,
-	providerSupportsWebSearch,
+	modelSupportsWebSearch,
 	testedCredentialHeaders,
 	usesGlobalAiProxy,
 	workspaceAIClients
@@ -25,6 +25,7 @@ import {
 	type WebSearchSource
 } from './shared'
 import { OutputTokenLimitError } from './outputTokenLimit'
+import { buildAssistantToolCallMessage } from './openaiReasoning'
 import type { ResponseStream } from 'openai/lib/responses/ResponseStream.mjs'
 import type { AIProviderModel } from '$lib/gen'
 import { openAIResponsesUsageToChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
@@ -81,8 +82,9 @@ export function openAIWebSearchDetails(item: any): {
 	// The current schema sends a `queries` array and may omit the deprecated
 	// singular `query`; support both so the label never falls back to the bare
 	// "Searched the web".
+	// DeepSeek lists its internal call id among the queries as `ws_call_id=<id>`.
 	const queries: string[] = Array.isArray(action?.queries)
-		? action.queries.filter((q: any) => typeof q === 'string' && q)
+		? action.queries.filter((q: any) => typeof q === 'string' && q && !q.startsWith('ws_call_id='))
 		: []
 	const query = queries.length
 		? queries.join(', ')
@@ -292,11 +294,11 @@ export async function getOpenAIResponsesCompletion(
 		responsesConfig.reasoning = { ...responsesConfig.reasoning, summary: 'auto' }
 	}
 
-	// Enable OpenAI's built-in web search tool. The proxy forwards the body
-	// verbatim, so this reaches OpenAI as a native server-side tool. Sources
+	// Enable the provider's built-in web search tool. The proxy forwards the body
+	// verbatim, so this reaches the provider as a native server-side tool. Sources
 	// (the URLs each search consulted) are only returned when asked for via
 	// `include` — they feed the expandable source list on the tool card.
-	if (options?.webSearch && providerSupportsWebSearch(provider)) {
+	if (options?.webSearch && modelSupportsWebSearch(provider, config.model)) {
 		responsesConfig.tools = [...(responsesConfig.tools ?? []), { type: 'web_search' }]
 		responsesConfig.include = [...(responsesConfig.include ?? []), 'web_search_call.action.sources']
 	}
@@ -416,6 +418,7 @@ export async function parseOpenAIResponsesCompletion(
 	helpers: any,
 	options?: {
 		workspace?: string
+		provider?: string
 		onTokenUsage?: (usage: ChatTokenUsage) => void
 		live?: LiveToolSet
 	}
@@ -448,6 +451,14 @@ export async function parseOpenAIResponsesCompletion(
 		}
 	})
 	runner.on('response.reasoning_summary_text.delta', (event) => {
+		callbacks.onReasoningDelta?.(event.delta)
+	})
+	// DeepSeek streams its full reasoning rather than a summary. Its Chat Completions API
+	// refuses a tool-call turn whose reasoning is not passed back, so the text is kept on
+	// the turn for when the conversation goes back there.
+	let reasoningText = ''
+	runner.on('response.reasoning_text.delta', (event) => {
+		reasoningText += event.delta
 		callbacks.onReasoningDelta?.(event.delta)
 	})
 
@@ -610,10 +621,12 @@ export async function parseOpenAIResponsesCompletion(
 
 	// Process tool calls if any
 	if (toolCallsToProcess.length > 0) {
-		const assistantWithTools = {
-			role: 'assistant' as const,
-			tool_calls: toolCallsToProcess
-		}
+		const assistantWithTools = buildAssistantToolCallMessage({
+			content: '',
+			reasoning: { hasReasoningContent: !!reasoningText, reasoningContent: reasoningText },
+			toolCalls: toolCallsToProcess,
+			provider: options?.provider
+		})
 		messages.push(assistantWithTools)
 		addedMessages.push(assistantWithTools)
 

@@ -19,7 +19,7 @@ vi.mock('../lib', () => ({
 	createOpenAIProxyClient: vi.fn(),
 	getAiProxyBaseURL: vi.fn(),
 	getProviderAndCompletionConfig: mocks.getProviderAndCompletionConfig,
-	providerSupportsWebSearch: vi.fn(),
+	modelSupportsWebSearch: vi.fn(),
 	workspaceAIClients: {}
 }))
 

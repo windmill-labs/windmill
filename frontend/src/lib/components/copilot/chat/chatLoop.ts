@@ -6,7 +6,7 @@ import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
-import { getCompletion, parseOpenAICompletion, providerSupportsWebSearch } from '../lib'
+import { getCompletion, parseOpenAICompletion, modelSupportsWebSearch } from '../lib'
 import {
 	resolveEffectiveReasoning,
 	resolveRequestReasoning,
@@ -194,7 +194,7 @@ export function sendsWebSearch(
 ): boolean {
 	return (
 		enabled &&
-		providerSupportsWebSearch(modelProvider.provider) &&
+		modelSupportsWebSearch(modelProvider.provider, modelProvider.model) &&
 		!unsupportedWebSearchCache.has(getWebSearchCacheKey(workspace, modelProvider))
 	)
 }
@@ -435,7 +435,11 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 		const pendingUserMessage = getPendingUserMessage?.()
 
-		const isOpenAI = usesOpenAIResponsesApi(modelProvider.provider, modelProvider.model)
+		// DeepSeek's own search exists only on its Responses API, so a request carrying it goes
+		// there; the rest of DeepSeek's traffic stays on Chat Completions.
+		const isOpenAI =
+			usesOpenAIResponsesApi(modelProvider.provider, modelProvider.model) ||
+			(webSearch && modelProvider.provider === 'deepseek')
 		const isAnthropic = usesAnthropicMessagesApi(modelProvider.provider, modelProvider.model)
 		// Resolve effort once in chat context (applies the default-on level for
 		// capable models, and the provider-native disable token for an explicit
