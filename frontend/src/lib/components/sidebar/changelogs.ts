@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Kubernetes autoscaling scale-in prefers idle worker pods',
+		href: 'https://www.windmill.dev/changelog/k8s-scale-in-pod-deletion-cost',
+		date: '2026-06-10'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
