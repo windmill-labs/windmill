@@ -150,6 +150,10 @@
 	const parallelismCapped = $derived(
 		mod.value.type === 'forloopflow' && mod.value.parallelism != undefined
 	)
+	// Bumped only when the cap is switched on: the form seeds its static/expression mode once,
+	// so a fresh static value needs a fresh form. Switching off must not remount it, or the old
+	// form slides its input out next to the new collapsed one and the header shows twice.
+	let parallelismFormKey = $state(0)
 </script>
 
 {#snippet parallelismToggle()}
@@ -158,6 +162,7 @@
 		textClass="text-xs font-normal text-primary"
 		checked={parallelismCapped}
 		on:change={({ detail }) => {
+			if (detail) parallelismFormKey++
 			;(mod.value as ForloopFlow).parallelism = detail
 				? { type: 'static', value: DEFAULT_PARALLELISM }
 				: undefined
@@ -331,9 +336,7 @@
 											parallelismEditor?.focus()
 										}}
 									>
-										<!-- Keyed on the toggle: the form seeds its static/expression mode once, so re-enabling
-										     the cap would hand a fresh static value to a form still in expression mode. -->
-										{#key parallelismCapped}
+										{#key parallelismFormKey}
 											<InputTransformForm
 												bind:arg={
 													() => (mod.value as ForloopFlow).parallelism,
