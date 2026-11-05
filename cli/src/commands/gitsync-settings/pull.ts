@@ -6,7 +6,7 @@ import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { SyncOptions, readConfigFile, getEffectiveSettings, DEFAULT_SYNC_OPTIONS, getWmillYamlPath, findWorkspaceByGitBranch, WorkspacesConfig } from "../../core/conf.ts";
+import { SyncOptions, readConfigFile, DEFAULT_SYNC_OPTIONS, getWmillYamlPath, findWorkspaceByGitBranch, WorkspacesConfig } from "../../core/conf.ts";
 import { yamlOptions } from "../sync/sync.ts";
 import { deepEqual } from "../../utils/utils.ts";
 import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
@@ -21,7 +21,8 @@ import {
   displayChanges,
   applyBackendSettingsToBranch,
   normalizeRepoPath,
-  outputResult
+  outputResult,
+  getEffectiveSettingsForWorkspace
 } from "./utils.ts";
 
 export async function pullGitSyncSettings(
@@ -199,7 +200,7 @@ export async function pullGitSyncSettings(
 
     // For existing wmill.yaml files, continue with the normal flow
     // Calculate current settings once and reuse throughout
-    const currentSettings = await getEffectiveSettings(localConfig, opts.promotion, true, opts.jsonOutput);
+    const currentSettings = await getEffectiveSettingsForWorkspace(localConfig, opts, workspace);
 
     // Determine write mode for branch-based configuration
     let writeMode: WriteMode = "replace";
@@ -280,7 +281,7 @@ export async function pullGitSyncSettings(
       !opts.override
     ) {
       // Recalculate current settings with promotion if needed
-      const effectiveCurrentSettings = await getEffectiveSettings(localConfig, opts.promotion, true, opts.jsonOutput);
+      const effectiveCurrentSettings = await getEffectiveSettingsForWorkspace(localConfig, opts, workspace);
       // Use the same logic as diff to determine current settings
       const gitSyncBackend = GitSyncSettingsConverter.extractGitSyncFields(
         GitSyncSettingsConverter.normalize(backendSyncOptions),
