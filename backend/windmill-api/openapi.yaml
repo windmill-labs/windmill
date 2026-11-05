@@ -5282,12 +5282,13 @@ paths:
               properties:
                 webhook:
                   type: string
+                  description: the URL to POST events to. Omitted or empty removes the webhook.
                 events:
                   type: array
                   nullable: true
                   description: >
-                    event types to send. Omitted keeps the stored filter, null sends every
-                    event.
+                    event types to send, at least one. Omitted keeps the stored filter, null
+                    sends every event.
                   items:
                     $ref: "#/components/schemas/WorkspaceWebhookEventType"
 

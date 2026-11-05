@@ -2110,6 +2110,12 @@ async fn edit_webhook(
     }
 
     if let Some(Some(events)) = &ew.events {
+        if events.is_empty() {
+            return Err(Error::BadRequest(
+                "events must list at least one event type, or be null to send every event"
+                    .to_string(),
+            ));
+        }
         let known = windmill_common::webhook::webhook_event_types();
         if let Some(unknown) = events.iter().find(|e| !known.contains(&e.as_str())) {
             return Err(Error::BadRequest(format!(

@@ -1132,12 +1132,13 @@ fn plan_document(
     if let Some(events) = desired.get("webhook_events").filter(|v| !v.is_null()) {
         let known = windmill_common::webhook::webhook_event_types();
         let valid = events.as_array().is_some_and(|a| {
-            a.iter()
-                .all(|e| e.as_str().is_some_and(|e| known.contains(&e)))
+            !a.is_empty()
+                && a.iter()
+                    .all(|e| e.as_str().is_some_and(|e| known.contains(&e)))
         });
         if !valid {
             return Err(Error::BadRequest(format!(
-                "webhook_events must be null (every event) or a list of event types among: {}",
+                "webhook_events must be null (every event) or a non-empty list of event types among: {}",
                 known.join(", ")
             )));
         }
@@ -2027,8 +2028,10 @@ mod tests {
             json!({ "webhook": "https://b", "events": null })
         );
 
-        let d = doc(json!({ "webhook_events": ["NotAnEvent"] }));
-        assert!(plan_document(current(), d, false, &mc, &names).is_err());
+        for bad in [json!(["NotAnEvent"]), json!([])] {
+            let d = doc(json!({ "webhook_events": bad }));
+            assert!(plan_document(current(), d, false, &mc, &names).is_err());
+        }
     }
 
     #[test]
