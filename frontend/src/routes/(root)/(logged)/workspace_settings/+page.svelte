@@ -43,6 +43,7 @@
 	import type { GuestUsage, WorkspaceWebhookEventType } from '$lib/gen'
 	import { $WorkspaceWebhookEventType as webhookEventTypeSchema } from '$lib/gen/schemas.gen'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
 	import { webhookEventPresets } from '$lib/components/workspaceSettings/webhookEventPresets'
 	import {
 		enterpriseLicense,
@@ -223,6 +224,21 @@
 			? current.filter((e) => !events.includes(e))
 			: [...current, ...events.filter((e) => !current.includes(e))]
 	}
+	function webhookPresetSelectedCount(events: readonly WorkspaceWebhookEventType[]) {
+		return events.filter((e) => webhookEvents?.includes(e)).length
+	}
+	let customizeWebhookEvents = $state(false)
+	// A partly selected category can only be read in the per-event list.
+	$effect(() => {
+		if (
+			webhookEventPresets.some((p) => {
+				const n = webhookPresetSelectedCount(p.events)
+				return n > 0 && n < p.events.length
+			})
+		) {
+			customizeWebhookEvents = true
+		}
+	})
 	const noErrorHandler = handlerDraftFromStored(
 		'error',
 		undefined,
@@ -2288,7 +2304,7 @@
 							</SettingCard>
 							<SettingCard
 								label="Events to send"
-								description="Limit the webhook to the event types you select."
+								description="Send every event, or only the categories you select."
 								class="mt-6"
 							>
 								<ToggleButtonGroup
@@ -2304,24 +2320,31 @@
 									{/snippet}
 								</ToggleButtonGroup>
 								{#if webhookEvents !== undefined}
-									<div class="flex flex-wrap gap-1 mt-2">
+									<div class="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 max-w-lg mt-3">
 										{#each webhookEventPresets as preset (preset.label)}
-											<Button
-												unifiedSize="xs"
-												variant="default"
-												selected={preset.events.every((e) => webhookEvents?.includes(e))}
-												onclick={() => toggleWebhookEventPreset(preset.events)}
-											>
+											{@const count = webhookPresetSelectedCount(preset.events)}
+											<label class="flex items-center gap-2 text-xs text-primary cursor-pointer">
+												<Checkbox
+													checked={count === preset.events.length}
+													indeterminate={count > 0 && count < preset.events.length}
+													onChange={() => toggleWebhookEventPreset(preset.events)}
+												/>
 												{preset.label}
-											</Button>
+											</label>
 										{/each}
 									</div>
-									<MultiSelect
-										items={webhookEventItems}
-										bind:value={webhookEvents}
-										placeholder="Select event types"
-										class="max-w-lg mt-2"
-									/>
+									<CollapseLink
+										text="Customize individual events"
+										bind:open={customizeWebhookEvents}
+										class="mt-3"
+									>
+										<MultiSelect
+											items={webhookEventItems}
+											bind:value={webhookEvents}
+											placeholder="Select event types"
+											class="max-w-lg"
+										/>
+									</CollapseLink>
 									{#if webhookEventTypeSchema.enum.every((e) => webhookEvents?.includes(e))}
 										<div class="text-xs text-secondary max-w-lg">
 											Every event type is selected. Event types added in later versions are not sent
@@ -2329,7 +2352,7 @@
 										</div>
 									{:else if webhookEvents.length === 0}
 										<div class="text-xs text-red-600 dark:text-red-400">
-											Select at least one event type
+											Select at least one category or event type
 										</div>
 									{/if}
 								{/if}
