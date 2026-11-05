@@ -6,7 +6,7 @@ import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import { SyncOptions, readConfigFile, getEffectiveSettings, DEFAULT_SYNC_OPTIONS, getWmillYamlPath, findWorkspaceByGitBranch, WorkspacesConfig } from "../../core/conf.ts";
+import { SyncOptions, readConfigFile, DEFAULT_SYNC_OPTIONS, getWmillYamlPath, findWorkspaceByGitBranch, WorkspacesConfig, WorkspaceEntryConfig, getWorkspaceNames, getEffectiveGitBranch } from "../../core/conf.ts";
 import { yamlOptions } from "../sync/sync.ts";
 import { deepEqual } from "../../utils/utils.ts";
 import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
@@ -21,7 +21,9 @@ import {
   displayChanges,
   applyBackendSettingsToBranch,
   normalizeRepoPath,
-  outputResult
+  outputResult,
+  getEffectiveSettingsForWorkspace,
+  resolveGitSyncWsName
 } from "./utils.ts";
 
 export async function pullGitSyncSettings(
@@ -199,7 +201,7 @@ export async function pullGitSyncSettings(
 
     // For existing wmill.yaml files, continue with the normal flow
     // Calculate current settings once and reuse throughout
-    const currentSettings = await getEffectiveSettings(localConfig, opts.promotion, true, opts.jsonOutput);
+    const currentSettings = await getEffectiveSettingsForWorkspace(localConfig, opts, workspace);
 
     // Determine write mode for branch-based configuration
     let writeMode: WriteMode = "replace";
@@ -280,7 +282,7 @@ export async function pullGitSyncSettings(
       !opts.override
     ) {
       // Recalculate current settings with promotion if needed
-      const effectiveCurrentSettings = await getEffectiveSettings(localConfig, opts.promotion, true, opts.jsonOutput);
+      const effectiveCurrentSettings = await getEffectiveSettingsForWorkspace(localConfig, opts, workspace);
       // Use the same logic as diff to determine current settings
       const gitSyncBackend = GitSyncSettingsConverter.extractGitSyncFields(
         GitSyncSettingsConverter.normalize(backendSyncOptions),
@@ -440,12 +442,33 @@ export async function pullGitSyncSettings(
       }
     }
 
-    // For override mode, write to branch overrides
-    if (writeMode === "override" && isGitRepository()) {
-      const currentBranch = getCurrentGitBranch();
-      if (currentBranch) {
-        log.info(`Detected Git repository, writing settings to branch: ${currentBranch}`);
-        updatedConfig = applyBackendSettingsToBranch(localConfig, currentBranch, backendSyncOptions);
+    // Override mode writes to the entry the diff was computed against, so a
+    // second pull finds no conflict
+    let overrideTarget: string | undefined;
+    if (writeMode === "override") {
+      overrideTarget = resolveGitSyncWsName(localConfig, opts, workspace);
+      if (!overrideTarget && isGitRepository()) {
+        const currentBranch = getCurrentGitBranch();
+        if (currentBranch) {
+          // The branch does not identify a workspace, so an unresolved workspace
+          // never writes into an existing entry: it could be another workspace's.
+          const entries = (localConfig.workspaces ?? {}) as Record<string, WorkspaceEntryConfig>;
+          const taken = getWorkspaceNames(localConfig.workspaces).filter(
+            (name) =>
+              name === currentBranch || getEffectiveGitBranch(name, entries[name]) === currentBranch,
+          );
+          if (taken.length > 0) {
+            throw new Error(
+              `No workspace entry in wmill.yaml matches workspace '${workspace.workspaceId}', and git branch '${currentBranch}' is already used by ${taken.join(", ")}. ` +
+                `Name the entry for this workspace '${workspace.workspaceId}' and keep 'gitBranch: ${currentBranch}' on it so it can be resolved.`,
+            );
+          }
+          overrideTarget = currentBranch;
+        }
+      }
+      if (overrideTarget) {
+        log.info(`Writing settings to workspace entry: ${overrideTarget}`);
+        updatedConfig = applyBackendSettingsToBranch(localConfig, overrideTarget, backendSyncOptions);
       }
     }
 
@@ -467,10 +490,9 @@ export async function pullGitSyncSettings(
         ),
       );
       if (writeMode === "override") {
-        const currentBranch = getCurrentGitBranch();
-        if (currentBranch) {
+        if (overrideTarget) {
           log.info(
-            colors.gray(`Settings written to branch '${currentBranch}' overrides`),
+            colors.gray(`Settings written to workspace '${overrideTarget}' overrides`),
           );
         }
       } else if (writeMode === "replace") {

@@ -1673,7 +1673,7 @@ async fn process_notify_event(
                 "Webhook change detected, invalidating webhook cache: {}",
                 payload
             );
-            windmill_api::webhook_util::WEBHOOK_CACHE.remove(payload);
+            windmill_api::webhook_util::invalidate_webhook_cache(payload);
         }
         "notify_workspace_envs_change" => {
             tracing::info!(

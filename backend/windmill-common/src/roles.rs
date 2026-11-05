@@ -86,12 +86,16 @@ impl RoleVisibility {
 pub struct RoleCapabilities {
     /// Author scripts and run code of one's own on a worker: script previews, dependency jobs,
     /// dynamic selects, resolving a job's code, data table migrations. `Full` flows or apps
-    /// require it, since both carry inline code.
+    /// require it, since both carry inline code. Previews also need `run`.
     pub code: bool,
     pub flows: AuthorLevel,
     pub apps: AuthorLevel,
     pub manage_schedules: bool,
     pub manage_triggers: bool,
+    /// Start runs of scripts, flows and AI agents: by path, hash or version, restarts, previews,
+    /// and the MCP run tools. Without it a role is view-only. Schedules and triggers keep their
+    /// own rights, and resuming a suspended step is not a run.
+    pub run: bool,
     /// Fork the workspace. Like visibility, it does not make a role restricted: it is read from
     /// the role at the fork routes, never through [`caller_capabilities`]'s fast path. Left unset
     /// by every layer, it is granted exactly to an unrestricted role (see [`Self::resolve`]).
@@ -106,6 +110,7 @@ impl RoleCapabilities {
         apps: AuthorLevel::Full,
         manage_schedules: true,
         manage_triggers: true,
+        run: true,
         fork: true,
         visibility: RoleVisibility::ALL,
     };
@@ -118,6 +123,7 @@ impl RoleCapabilities {
         apps: AuthorLevel::None,
         manage_schedules: true,
         manage_triggers: true,
+        run: true,
         fork: false,
         visibility: RoleVisibility::ALL,
     };
@@ -130,6 +136,7 @@ impl RoleCapabilities {
         apps: AuthorLevel::None,
         manage_schedules: false,
         manage_triggers: false,
+        run: false,
         fork: false,
         visibility: RoleVisibility::NONE,
     };
@@ -201,6 +208,9 @@ impl RoleCapabilities {
         if let Some(v) = patch.manage_triggers {
             self.manage_triggers = v;
         }
+        if let Some(v) = patch.run {
+            self.run = v;
+        }
         if let Some(v) = patch.fork {
             self.fork = v;
         }
@@ -236,6 +246,8 @@ pub struct RoleCapabilitiesPatch {
     pub manage_schedules: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manage_triggers: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fork: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -305,6 +317,7 @@ pub fn diff_capabilities(
         apps: d(base.apps, target.apps),
         manage_schedules: d(base.manage_schedules, target.manage_schedules),
         manage_triggers: d(base.manage_triggers, target.manage_triggers),
+        run: d(base.run, target.run),
         fork: d(base.fork, target.fork),
         visibility: (visibility != RoleVisibilityPatch::default()).then_some(visibility),
     }

@@ -59,6 +59,7 @@ pub enum SecretMode {
 struct SettingsRow {
     auto_invite: Option<Value>,
     webhook: Option<String>,
+    webhook_events: Option<Vec<String>>,
     error_handler: Option<Value>,
     success_handler: Option<Value>,
     variable_expiration_handler: Option<Value>,
@@ -315,7 +316,7 @@ pub async fn load_settings_document(
 ) -> Result<Map<String, Value>> {
     let row = sqlx::query_as::<_, SettingsRow>(
         r#"SELECT
-             auto_invite, webhook, error_handler, success_handler, variable_expiration_handler,
+             auto_invite, webhook, webhook_events, error_handler, success_handler, variable_expiration_handler,
              ai_config, large_file_storage,
              git_sync, default_app, default_scripts, workspace.name AS name, mute_critical_alerts,
              color, operator_settings, datatable, slack_team_id, slack_name, slack_command_script,
@@ -369,9 +370,10 @@ pub async fn load_settings_document(
     // In the order `wmill sync pull` has always written settings.yaml. A key that predates the
     // document and is not marked `always` is written only when set, as it always was; a key
     // added since is always written, so a pulled file states it and from then on manages it.
-    let entries: [(&str, Option<Value>, bool); 32] = [
+    let entries: [(&str, Option<Value>, bool); 33] = [
         ("auto_invite", row.auto_invite, false),
         ("webhook", row.webhook.map(Value::String), false),
+        ("webhook_events", row.webhook_events.map(|e| json!(e)), true),
         ("error_handler", row.error_handler, true),
         ("success_handler", row.success_handler, true),
         (
@@ -701,6 +703,7 @@ const RETIRED_KEYS: &[&str] = &["guest_access_enabled"];
 const KNOWN_KEYS: &[&str] = &[
     "auto_invite",
     "webhook",
+    "webhook_events",
     "error_handler",
     "success_handler",
     "variable_expiration_handler",
@@ -1126,6 +1129,20 @@ fn plan_document(
     ] {
         typed(key, desired.get(key), Value::is_string, "a string")?;
     }
+    if let Some(events) = desired.get("webhook_events").filter(|v| !v.is_null()) {
+        let known = windmill_common::webhook::webhook_event_types();
+        let valid = events.as_array().is_some_and(|a| {
+            !a.is_empty()
+                && a.iter()
+                    .all(|e| e.as_str().is_some_and(|e| known.contains(&e)))
+        });
+        if !valid {
+            return Err(Error::BadRequest(format!(
+                "webhook_events must be null (every event) or a non-empty list of event types among: {}",
+                known.join(", ")
+            )));
+        }
+    }
     typed(
         "public_app_execution_limit_per_minute",
         desired.get("public_app_execution_limit_per_minute"),
@@ -1214,11 +1231,24 @@ fn plan_document(
     let mut p = Plan { current, desired, replace, changes: vec![], writes: vec![], warnings };
 
     let webhook = p.legacy("webhook");
+    // The endpoint clears the URL when the body omits it, so the events write sends it along.
+    let url = webhook
+        .clone()
+        .or_else(|| p.current.get("webhook").cloned())
+        .unwrap_or(Value::Null);
     p.simple(
         "webhook",
         webhook,
         Target::Edit(SettingsEdit::Webhook),
         |v| json!({ "webhook": v }),
+    );
+
+    let events = p.managed("webhook_events");
+    p.simple(
+        "webhook_events",
+        events,
+        Target::Edit(SettingsEdit::Webhook),
+        |v| json!({ "webhook": url, "events": v }),
     );
 
     if let Some(auto_invite) = p.legacy("auto_invite") {
@@ -1974,6 +2004,34 @@ mod tests {
             "guest_jwt_jwks_url": null,
             "public_app_execution_limit_per_minute": 5,
         }))
+    }
+
+    #[test]
+    fn webhook_events_write_keeps_the_url() {
+        let mc = WorkspaceCrypt::new("k");
+        let names = DatatableNames::default();
+        let d = doc(json!({ "webhook_events": ["CreateScript"] }));
+        let p = plan_document(current(), d, false, &mc, &names).unwrap();
+        assert_eq!(keys(&p), ["webhook_events"]);
+        assert_eq!(
+            p.writes[0].body,
+            json!({ "webhook": "https://a", "events": ["CreateScript"] })
+        );
+
+        let d = doc(json!({ "webhook": "https://b", "webhook_events": null }));
+        let mut cur = current();
+        cur.insert("webhook_events".into(), json!(["CreateScript"]));
+        let p = plan_document(cur, d, false, &mc, &names).unwrap();
+        assert_eq!(keys(&p), ["webhook", "webhook_events"]);
+        assert_eq!(
+            p.writes[1].body,
+            json!({ "webhook": "https://b", "events": null })
+        );
+
+        for bad in [json!(["NotAnEvent"]), json!([])] {
+            let d = doc(json!({ "webhook_events": bad }));
+            assert!(plan_document(current(), d, false, &mc, &names).is_err());
+        }
     }
 
     #[test]

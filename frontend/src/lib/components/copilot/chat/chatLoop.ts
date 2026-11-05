@@ -6,7 +6,7 @@ import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
-import { getCompletion, parseOpenAICompletion, providerSupportsWebSearch } from '../lib'
+import { getCompletion, parseOpenAICompletion, modelSupportsWebSearch } from '../lib'
 import {
 	resolveEffectiveReasoning,
 	resolveRequestReasoning,
@@ -194,7 +194,7 @@ export function sendsWebSearch(
 ): boolean {
 	return (
 		enabled &&
-		providerSupportsWebSearch(modelProvider.provider) &&
+		modelSupportsWebSearch(modelProvider.provider, modelProvider.model) &&
 		!unsupportedWebSearchCache.has(getWebSearchCacheKey(workspace, modelProvider))
 	)
 }
@@ -435,7 +435,11 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 		const pendingUserMessage = getPendingUserMessage?.()
 
-		const isOpenAI = usesOpenAIResponsesApi(modelProvider.provider, modelProvider.model)
+		// DeepSeek's own search exists only on its Responses API, so a request carrying it goes
+		// there; the rest of DeepSeek's traffic stays on Chat Completions.
+		const isOpenAI =
+			usesOpenAIResponsesApi(modelProvider.provider, modelProvider.model) ||
+			(webSearch && modelProvider.provider === 'deepseek')
 		const isAnthropic = usesAnthropicMessagesApi(modelProvider.provider, modelProvider.model)
 		// Resolve effort once in chat context (applies the default-on level for
 		// capable models, and the provider-native disable token for an explicit
@@ -514,8 +518,11 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 				return continueCompletion.shouldContinue
 			}
 
-			let useCompletionsApi = skipResponsesApi
-			if (!skipResponsesApi) {
+			// The skip records an OpenAI deployment without the Responses API; DeepSeek's own
+			// endpoint serves it, and is only routed here to carry its search.
+			const responsesSkipped = skipResponsesApi && modelProvider.provider !== 'deepseek'
+			let useCompletionsApi = responsesSkipped
+			if (!responsesSkipped) {
 				// Retry the Responses call disabling whichever optional feature the
 				// provider rejected (reasoning summary, web search, prompt cache key) in
 				// the order the errors arrive — a turn can hit several, any one first.
@@ -562,7 +569,15 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 				console.warn('OpenAI Responses API failed, falling back to Completions API:', fallbackError)
 				const errorMessage = getErrorText(fallbackError)
-				if (errorMessage.includes('Responses API is not enabled')) {
+				if (abortController.signal.aborted) {
+					throw fallbackError
+				}
+				if (modelProvider.provider === 'deepseek') {
+					// DeepSeek is only here for its search, so an endpoint that cannot serve the
+					// request (a gateway without /responses) loses the search, not the provider.
+					markWebSearchUnsupported(webSearchCacheKey, fallbackError, config.onWebSearchUnavailable)
+					await reloadToolsWithoutWebSearch()
+				} else if (errorMessage.includes('Responses API is not enabled')) {
 					skipResponsesApi = true
 					onSkipResponsesApi?.()
 					await reloadToolsWithoutWebSearch()
