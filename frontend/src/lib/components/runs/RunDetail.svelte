@@ -641,7 +641,8 @@
 		const id = job?.id
 		const failed = job?.language === 'dbt' && job?.type === 'CompletedJob' && !job?.success
 		dbtResumable = false
-		if (!ws || !id || !failed) return
+		// Resuming starts a run, so every resume control keys off this.
+		if (!ws || !id || !failed || !$roleCaps.run) return
 		JobService.getDbtResumable({ workspace: ws, id })
 			.then((held) => {
 				// The page may have moved on, or the workspace changed, in flight.
@@ -836,7 +837,7 @@
 				displayName: 'dbt retry with same args',
 				icon: RefreshCw,
 				action: resumeDbtRun,
-				hide: !isRunnableJob || !dbtResumable || !$roleCaps.run
+				hide: !isRunnableJob || !dbtResumable
 			},
 			{
 				displayName: 'Run immediately with same args',
