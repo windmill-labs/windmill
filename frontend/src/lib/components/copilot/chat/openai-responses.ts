@@ -99,6 +99,27 @@ export function openAIWebSearchDetails(item: any): {
 	return { query, sources }
 }
 
+/**
+ * Function tool names DeepSeek refuses next to its own web search, which calls internal
+ * tools by these names. A tool of the chat's (`open_page`) or of an MCP server (`search`)
+ * goes out under a prefixed name instead, and its calls are mapped back.
+ */
+const DEEPSEEK_SEARCH_RESERVED_NAMES = new Set(['search', 'open_page', 'find_in_page'])
+const DEEPSEEK_RENAMED_TOOL_PREFIX = 'wm_'
+
+function toDeepSeekSearchToolName(name: string): string {
+	return DEEPSEEK_SEARCH_RESERVED_NAMES.has(name) ? DEEPSEEK_RENAMED_TOOL_PREFIX + name : name
+}
+
+export function fromDeepSeekSearchToolName(name: string, tools: Tool<any>[]): string {
+	const original = name.slice(DEEPSEEK_RENAMED_TOOL_PREFIX.length)
+	return name.startsWith(DEEPSEEK_RENAMED_TOOL_PREFIX) &&
+		DEEPSEEK_SEARCH_RESERVED_NAMES.has(original) &&
+		!tools.some((t) => t.def.function.name === name)
+		? original
+		: name
+}
+
 // Conversion utilities for Responses API
 
 /**
@@ -117,7 +138,19 @@ export function toResponsesContent(content: unknown): unknown {
 	})
 }
 
-function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[]): {
+/** A tool-call turn's `reasoning_content` as the reasoning item DeepSeek's Responses API
+ * takes back. OpenAI's would refuse it: it only takes back reasoning items it issued. */
+function toResponsesReasoningItem(m: ChatCompletionMessageParam) {
+	const text = (m as { reasoning_content?: unknown }).reasoning_content
+	return typeof text === 'string' && text
+		? { type: 'reasoning', summary: [], content: [{ type: 'reasoning_text', text }] }
+		: undefined
+}
+
+function convertMessagesToResponsesInput(
+	messages: ChatCompletionMessageParam[],
+	replayReasoning = false
+): {
 	instructions?: string
 	input: Array<any>
 } {
@@ -129,6 +162,10 @@ function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[])
 	for (const m of nonSystemMessages) {
 		// Handle assistant messages with tool calls
 		if (m.role === 'assistant' && 'tool_calls' in m && m.tool_calls) {
+			const reasoning = replayReasoning ? toResponsesReasoningItem(m) : undefined
+			if (reasoning) {
+				input.push(reasoning)
+			}
 			// First, add the assistant's text content if it exists
 			if ('content' in m && m.content) {
 				input.push({
@@ -280,7 +317,7 @@ export async function getOpenAIResponsesCompletion(
 		forceModelProvider: options?.forceModelProvider,
 		reasoningEffort: options?.reasoningEffort
 	})
-	const { instructions, input } = convertMessagesToResponsesInput(messages)
+	const { instructions, input } = convertMessagesToResponsesInput(messages, provider === 'deepseek')
 	const responsesConfig = applyReasoningToConfig(
 		convertCompletionConfigToResponsesConfig(config, options?.promptCacheKey),
 		'responses',
@@ -299,6 +336,16 @@ export async function getOpenAIResponsesCompletion(
 	// (the URLs each search consulted) are only returned when asked for via
 	// `include` — they feed the expandable source list on the tool card.
 	if (options?.webSearch && modelSupportsWebSearch(provider, config.model)) {
+		if (provider === 'deepseek') {
+			responsesConfig.tools = responsesConfig.tools?.map((tool: any) =>
+				tool.type === 'function' ? { ...tool, name: toDeepSeekSearchToolName(tool.name) } : tool
+			)
+			for (const item of input) {
+				if (item.type === 'function_call') {
+					item.name = toDeepSeekSearchToolName(item.name)
+				}
+			}
+		}
 		responsesConfig.tools = [...(responsesConfig.tools ?? []), { type: 'web_search' }]
 		responsesConfig.include = [...(responsesConfig.include ?? []), 'web_search_call.action.sources']
 	}
@@ -453,9 +500,9 @@ export async function parseOpenAIResponsesCompletion(
 	runner.on('response.reasoning_summary_text.delta', (event) => {
 		callbacks.onReasoningDelta?.(event.delta)
 	})
-	// DeepSeek streams its full reasoning rather than a summary. Its Chat Completions API
-	// refuses a tool-call turn whose reasoning is not passed back, so the text is kept on
-	// the turn for when the conversation goes back there.
+	// DeepSeek streams its full reasoning rather than a summary, and both of its APIs refuse
+	// a tool-call turn whose reasoning is not passed back, so a turn that carries reasoning
+	// keeps it, with its text, on the tool-call message (see toResponsesReasoningItem).
 	let reasoningText = ''
 	runner.on('response.reasoning_text.delta', (event) => {
 		reasoningText += event.delta
@@ -470,24 +517,26 @@ export async function parseOpenAIResponsesCompletion(
 			// text; surface a live "Thinking" indicator so the user can see it reason.
 			callbacks.onReasoningStart?.()
 		} else if (item.type === 'function_call' && item.id) {
-			const tool = tools.find((t) => t.def.function.name === item.name)
+			const name =
+				options?.provider === 'deepseek' ? fromDeepSeekSearchToolName(item.name, tools) : item.name
+			const tool = tools.find((t) => t.def.function.name === name)
 			const shouldStream = tool?.streamArguments ?? false
 
 			toolCallsMap[item.id] = {
-				name: item.name,
+				name,
 				call_id: item.call_id
 			}
 
 			// Reset streaming state for new tool
 			accumulatedJson = ''
-			currentStreamingTool = { itemId: item.id, shouldStream, toolName: item.name }
+			currentStreamingTool = { itemId: item.id, shouldStream, toolName: name }
 
 			// Show temporary loading state for the tool call
 			callbacks.onMessageEnd()
 			callbacks.setToolStatus(`${item.id}`, {
 				isLoading: true,
-				content: tool?.streamingLabel ?? `Preparing ${item.name}...`,
-				toolName: item.name,
+				content: tool?.streamingLabel ?? `Preparing ${name}...`,
+				toolName: name,
 				isStreamingArguments: shouldStream,
 				showFade: tool?.showFade,
 				showDetails: tool?.showDetails,
@@ -596,8 +645,9 @@ export async function parseOpenAIResponsesCompletion(
 	// Wait for completion
 	await runner.done()
 
+	const textGoesOnToolCall = !!reasoningText && toolCallsToProcess.length > 0
 	// Add text message if we got any text
-	if (textContent) {
+	if (textContent && !textGoesOnToolCall) {
 		const assistantMessage = { role: 'assistant' as const, content: textContent }
 		messages.push(assistantMessage)
 		addedMessages.push(assistantMessage)
@@ -621,8 +671,11 @@ export async function parseOpenAIResponsesCompletion(
 
 	// Process tool calls if any
 	if (toolCallsToProcess.length > 0) {
+		if (textGoesOnToolCall && textContent) {
+			callbacks.onMessageEnd()
+		}
 		const assistantWithTools = buildAssistantToolCallMessage({
-			content: '',
+			content: textGoesOnToolCall ? textContent : '',
 			reasoning: { hasReasoningContent: !!reasoningText, reasoningContent: reasoningText },
 			toolCalls: toolCallsToProcess,
 			provider: options?.provider
