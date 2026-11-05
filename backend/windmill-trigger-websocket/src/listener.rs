@@ -527,15 +527,22 @@ impl Listener for WebsocketTrigger {
                                         }
                                     }
 
-                                    let trigger_info = HashMap::from([
+                                    let mut trigger_info = HashMap::from([
                                         ("url".to_string(), to_raw_value(&listening_trigger.trigger_config.url)),
                                     ]);
-                                    match filters.matches(&text) {
-                                        Ok(true) => {
-                                            let _ = self.handle_event(db, listening_trigger, text, trigger_info, return_message_channels.clone()).await;
+                                    let should_handle = match filters.matches(&text) {
+                                        Ok(matched) => matched,
+                                        Err(error) if listening_trigger.trigger_config.run_on_filter_error => {
+                                            trigger_info.insert("filter_error".to_string(), to_raw_value(&error));
+                                            true
                                         }
-                                        Ok(false) => tracing::debug!("WebSocket trigger {} skipped a message: filters did not match", listening_trigger.path),
-                                        Err(err) => self.handle_unfilterable_message(db, listening_trigger, text.as_bytes(), err.to_string(), trigger_info, true).await,
+                                        Err(error) => {
+                                            tracing::warn!("WebSocket trigger {} skipped a message: its filters could not be applied, {}", listening_trigger.path, error);
+                                            false
+                                        }
+                                    };
+                                    if should_handle {
+                                        let _ = self.handle_event(db, listening_trigger, text, trigger_info, return_message_channels.clone()).await;
                                     }
                                 },
                                 Ok(Message::Close(frame)) => {

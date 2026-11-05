@@ -115,9 +115,9 @@ impl CompiledFilters {
 
     /// Whether `text`, parsed as a JSON object, satisfies the filters. Anything else is judged
     /// as an object with no keys, which a `none_of` filter accepts. When that rejects it, JSON
-    /// that is not an object is a mismatch, and text that is not JSON an error: dropping it
-    /// would lose the message without a trace.
-    pub fn matches(&self, text: &str) -> serde_json::Result<bool> {
+    /// that is not an object is a mismatch, and text that is not JSON an error the trigger's
+    /// `run_on_filter_error` setting decides on.
+    pub fn matches(&self, text: &str) -> std::result::Result<bool, String> {
         if self.filters.is_empty() {
             return Ok(true);
         }
@@ -132,7 +132,7 @@ impl CompiledFilters {
                 return Ok(true)
             }
             Err(err) if err.is_data() => return Ok(false),
-            Err(err) => return Err(err),
+            Err(err) => return Err(format!("payload is not valid JSON: {err}")),
         };
 
         Ok(eval_all(&self.filters, self.use_or_logic, &values))

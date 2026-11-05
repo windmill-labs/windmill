@@ -175,24 +175,9 @@ pub async fn resume_suspended_trigger_jobs(
     let mut unsuspended_in_place = 0;
 
     for job in jobs {
-        // A held error handler run (a message the trigger's filters could not parse) runs the
-        // handler, not the target: repushing it against the edited trigger would run the
-        // target with the handler's args.
-        let is_handler_run = job.created_at <= trigger.edited_at
-            && sqlx::query_scalar::<_, bool>(
-                "SELECT created_by = ANY($2) FROM v2_job WHERE id = $1",
-            )
-            .bind(job.id)
-            .bind(vec![
-                windmill_queue::ERROR_HANDLER_USERNAME,
-                windmill_queue::SCHEDULE_ERROR_HANDLER_USERNAME,
-            ])
-            .fetch_one(&mut *tx)
-            .await?;
-
         // If job was created after trigger was edited, simply update it to unsuspend
         // instead of deleting and repushing
-        if job.created_at > trigger.edited_at || is_handler_run {
+        if job.created_at > trigger.edited_at {
             unsuspended_in_place += 1;
             // Map the placeholder unassigned kind back to its assigned counterpart so
             // singlestepflow wrappers (retry/error_handler/skip_handler) keep their

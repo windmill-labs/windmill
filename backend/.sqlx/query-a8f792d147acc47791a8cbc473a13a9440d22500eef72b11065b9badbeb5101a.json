@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO kafka_trigger (\n            path, kafka_resource_path, topics, group_id, script_path, is_flow,\n            workspace_id, edited_by, edited_at, extra_perms, server_id,\n            last_server_ping, error, error_handler_path, error_handler_args, retry,\n            mode, filters, auto_offset_reset, reset_offset, auto_commit,\n            permissioned_as, filter_logic, labels, run_on_filter_error\n        )\n        SELECT\n            path, kafka_resource_path, topics, group_id, script_path, is_flow,\n            $1, edited_by, edited_at, extra_perms, NULL,\n            NULL, NULL, error_handler_path, error_handler_args, retry,\n            'disabled'::TRIGGER_MODE, filters, auto_offset_reset, reset_offset, auto_commit,\n            permissioned_as, filter_logic, labels, run_on_filter_error\n        FROM kafka_trigger WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a8f792d147acc47791a8cbc473a13a9440d22500eef72b11065b9badbeb5101a"
+}

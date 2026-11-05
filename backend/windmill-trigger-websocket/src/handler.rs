@@ -74,6 +74,7 @@ impl TriggerCrud for WebsocketTrigger {
         "url",
         "filters",
         "filter_logic",
+        "run_on_filter_error",
         "initial_messages",
         "url_runnable_args",
         "can_return_message",
@@ -176,9 +177,10 @@ impl TriggerCrud for WebsocketTrigger {
                 error_handler_path,
                 error_handler_args,
                 retry,
-                heartbeat
+                heartbeat,
+                run_on_filter_error
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), $15, $16, $17, $18
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), $15, $16, $17, $18, $19
             )
             "#,
             w_id,
@@ -201,7 +203,8 @@ impl TriggerCrud for WebsocketTrigger {
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _,
-            trigger.config.heartbeat.map(SqlxJson) as _
+            trigger.config.heartbeat.map(SqlxJson) as _,
+            trigger.config.run_on_filter_error
         )
         .execute(&mut *tx)
         .await?;
@@ -258,7 +261,8 @@ impl TriggerCrud for WebsocketTrigger {
             error_handler_path = $15,
             error_handler_args = $16,
             retry = $17,
-            heartbeat = $18
+            heartbeat = $18,
+            run_on_filter_error = $19
         WHERE
             workspace_id = $13 AND path = $14
     ",
@@ -283,7 +287,8 @@ impl TriggerCrud for WebsocketTrigger {
             trigger.error_handling.error_handler_path,
             trigger.error_handling.error_handler_args as _,
             trigger.error_handling.retry as _,
-            trigger.config.heartbeat.map(SqlxJson) as _
+            trigger.config.heartbeat.map(SqlxJson) as _,
+            trigger.config.run_on_filter_error
         )
         .execute(&mut *tx)
         .await?;

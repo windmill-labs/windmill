@@ -168,7 +168,7 @@ const MAX_FREE_EXECS: i32 = 1000;
 #[cfg(feature = "cloud")]
 const MAX_FREE_CONCURRENT_RUNS: i32 = 30;
 
-pub const ERROR_HANDLER_USERNAME: &str = "error_handler";
+const ERROR_HANDLER_USERNAME: &str = "error_handler";
 pub const SCHEDULE_ERROR_HANDLER_USERNAME: &str = "schedule_error_handler";
 const GLOBAL_ERROR_HANDLER_USERNAME: &str = "global";
 const SUCCESS_HANDLER_USERNAME: &str = "success_handler";
@@ -3537,53 +3537,6 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
     is_global_error_handler: bool,
     priority: Option<i16>,
 ) -> windmill_common::error::Result<Uuid> {
-    push_error_handler_with_parent(
-        db,
-        Some(job_id),
-        schedule_path,
-        script_path,
-        is_flow,
-        w_id,
-        on_failure,
-        result,
-        failed_times,
-        started_at,
-        extra_args,
-        email,
-        schedule_permissioned_as,
-        is_global_error_handler,
-        priority,
-        None,
-        None,
-    )
-    .await
-}
-
-/// `None` for a failure no job stands for: a parent id naming no job would hide the handler
-/// from the default runs list. Pushes through the root pool without checking the caller: the
-/// handler, workspace and `schedule_permissioned_as` must come from config the caller's owner
-/// was already authorized to write (a trigger's or a workspace's own error handler setting).
-pub async fn push_error_handler_with_parent<'a, 'c, T: Serialize + Send + Sync>(
-    db: &Pool<Postgres>,
-    parent_job: Option<Uuid>,
-    schedule_path: Option<String>,
-    script_path: Option<String>,
-    is_flow: bool,
-    w_id: &str,
-    on_failure: &RunnableRef,
-    result: Json<&'a T>,
-    failed_times: Option<i32>,
-    started_at: Option<DateTime<Utc>>,
-    extra_args: Option<Json<Box<RawValue>>>,
-    email: &str,
-    // The schedule's `permissioned_as` when this is a schedule's own error handler.
-    schedule_permissioned_as: Option<&str>,
-    is_global_error_handler: bool,
-    priority: Option<i16>,
-    // Set when a trigger pushes the handler, so a suspended trigger holds it like its runs.
-    trigger: Option<TriggerMetadata>,
-    suspended_mode: Option<bool>,
-) -> windmill_common::error::Result<Uuid> {
     let handler_w_id = if is_global_error_handler {
         "admins"
     } else {
@@ -3597,7 +3550,7 @@ pub async fn push_error_handler_with_parent<'a, 'c, T: Serialize + Send + Sync>(
         extra.insert("schedule_path".to_string(), to_raw_value(&schedule_path));
     }
     extra.insert("workspace_id".to_string(), to_raw_value(&w_id));
-    extra.insert("job_id".to_string(), to_raw_value(&parent_job));
+    extra.insert("job_id".to_string(), to_raw_value(&job_id));
     extra.insert("path".to_string(), to_raw_value(&script_path));
     extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
     extra.insert("started_at".to_string(), to_raw_value(&started_at));
@@ -3648,15 +3601,13 @@ pub async fn push_error_handler_with_parent<'a, 'c, T: Serialize + Send + Sync>(
         },
         &email,
         permissioned_as,
-        parent_job
-            .map(|id| format!("error.handler.{id}"))
-            .as_deref(),
+        Some(&format!("error.handler.{job_id}")),
         None,
         None,
         None,
-        parent_job,
+        Some(job_id),
         None,
-        parent_job,
+        Some(job_id),
         None,
         false,
         false,
@@ -3669,8 +3620,8 @@ pub async fn push_error_handler_with_parent<'a, 'c, T: Serialize + Send + Sync>(
         None,
         false,
         None,
-        trigger,
-        suspended_mode,
+        None,
+        None,
         None,
     )
     .await?;

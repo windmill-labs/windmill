@@ -17226,7 +17226,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
- "base64 0.22.1",
  "chrono",
  "http 1.5.0",
  "hyper 1.12.0",
