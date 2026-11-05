@@ -1601,16 +1601,16 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // Resolve the concurrency-limit settings on the pool *before* opening the
     // completion transaction: doing it inside the tx would hold a second
     // simultaneous connection from the small per-worker pool.
+    let settings_concurrent_limit =
+        windmill_common::runnable_settings::prefetch_cached_from_handle(
+            completed_job.runnable_settings_handle,
+            db,
+        )
+        .await?
+        .1
+        .concurrent_limit;
     let has_concurrent_limit = has_active_concurrency_limit(completed_job.concurrent_limit)
-        || has_active_concurrency_limit(
-            windmill_common::runnable_settings::prefetch_cached_from_handle(
-                completed_job.runnable_settings_handle,
-                db,
-            )
-            .await?
-            .1
-            .concurrent_limit,
-        );
+        || has_active_concurrency_limit(settings_concurrent_limit);
 
     // A genuine NUL (U+0000) in the result serializes to a `\u0000` escape that
     // the jsonb `result` column rejects with 22P05 ("unsupported Unicode escape
@@ -1868,7 +1868,11 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // After the commit, so the woken job finds the slot this one freed.
     #[cfg(all(feature = "enterprise", feature = "private"))]
     if let Some(key) = released_concurrency_key {
-        if let Err(e) = wake_deferred_concurrency_job(db, &key).await {
+        let limit = completed_job
+            .concurrent_limit
+            .max(settings_concurrent_limit)
+            .unwrap_or(0);
+        if let Err(e) = wake_deferred_concurrency_job(db, &key, limit).await {
             tracing::error!("Could not wake a deferred job for concurrency key {key}: {e:#}");
         }
     }
@@ -5281,42 +5285,51 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
     Ok(true)
 }
 
-/// Make due now the job of `key` that a concurrency limit deferred first, so the slot a
-/// completed job freed is taken rather than left empty until the deferral's estimate.
-/// No-op while the jobs of the key already due fill the free slots, and for a job limited
-/// per time window, whose slot a completion does not free. Queue bookkeeping, not an
-/// authorization boundary: only for the completion path, never with a key taken from a request.
+/// Make due now the earliest-deferred jobs of `key`, as many as the slots no admitted or
+/// already-due job holds. It tops up to the limit: waking one job per completion never
+/// refills a slot whose woken job was lost, and the key stays below its limit. Skips jobs
+/// limited per time window, whose slot a completion does not free.
+/// Reads only the first `2 * limit + 1` deferred jobs: wakes go to the earliest-deferred,
+/// so running and already-due jobs come first, and a candidate further back means the slots
+/// are full. Queue bookkeeping, not an authorization boundary: never with a key from a request.
 #[cfg(all(feature = "enterprise", feature = "private"))]
-pub async fn wake_deferred_concurrency_job(db: &DB, key: &str) -> error::Result<()> {
+pub async fn wake_deferred_concurrency_job(db: &DB, key: &str, limit: i32) -> error::Result<()> {
     sqlx::query!(
-        "WITH taken AS (
+        "WITH head AS (
+            SELECT ck.job_id, ck.original_scheduled_for, q.running,
+                q.scheduled_for <= now() AS due
+            FROM concurrency_key ck
+            JOIN v2_job_queue q ON q.id = ck.job_id
+            WHERE ck.key = $1 AND ck.ended_at IS NULL AND ck.original_scheduled_for IS NOT NULL
+                AND q.canceled_by IS NULL
+            ORDER BY ck.original_scheduled_for, ck.job_id
+            LIMIT 2 * $2::int + 1
+        ), taken AS (
             SELECT
                 (SELECT count(*)
                 FROM concurrency_counter, jsonb_object_keys(job_uuids)
                 WHERE concurrency_id = $1)
-                + (SELECT count(*)
-                FROM concurrency_key due_ck
-                JOIN v2_job_queue due ON due.id = due_ck.job_id
-                WHERE due_ck.key = $1 AND due_ck.ended_at IS NULL
-                    AND NOT due.running AND due.canceled_by IS NULL
-                    AND due.scheduled_for <= now()) AS n
+                + (SELECT count(*) FROM head WHERE due AND NOT running) AS n
         ), next AS (
             SELECT q.id
-            FROM concurrency_key ck
-            JOIN v2_job_queue q ON q.id = ck.job_id
-            JOIN v2_job j ON j.id = ck.job_id
+            FROM head h
+            JOIN v2_job_queue q ON q.id = h.job_id
+            JOIN v2_job j ON j.id = h.job_id
             LEFT JOIN runnable_settings rs ON rs.hash = q.runnable_settings_handle
             LEFT JOIN concurrency_settings cs ON cs.hash = rs.concurrency_settings
-            WHERE ck.key = $1 AND ck.ended_at IS NULL AND ck.original_scheduled_for IS NOT NULL
-                AND NOT q.running AND q.canceled_by IS NULL AND q.scheduled_for > now()
+            WHERE NOT h.running AND NOT h.due
                 AND COALESCE(cs.concurrency_time_window_s, j.concurrency_time_window_s, 0) = 0
                 AND (SELECT n FROM taken) < COALESCE(cs.concurrent_limit, j.concurrent_limit, 0)
-            ORDER BY ck.original_scheduled_for, ck.job_id
-            LIMIT 1
+            ORDER BY h.original_scheduled_for, h.job_id
+            LIMIT GREATEST($2::int - (SELECT n FROM taken), 0)
             FOR UPDATE OF q SKIP LOCKED
         )
-        UPDATE v2_job_queue SET scheduled_for = now() FROM next WHERE v2_job_queue.id = next.id",
+        UPDATE v2_job_queue SET scheduled_for = now()
+        FROM next
+        WHERE v2_job_queue.id = next.id AND NOT v2_job_queue.running
+            AND v2_job_queue.scheduled_for > now()",
         key,
+        limit,
     )
     .execute(db)
     .await?;

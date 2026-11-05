@@ -53,27 +53,28 @@ async fn due(db: &Pool<Postgres>, id: Uuid) -> anyhow::Result<bool> {
     )
 }
 
-/// Completions wake the jobs the limit deferred first, as many as the free slots, never
-/// a job scheduled for later or one limited per time window.
+/// One completion tops the key up: it wakes the jobs the limit deferred first, as many as
+/// the free slots, and a later completion wakes none while they are due. Never a job
+/// scheduled for later or one limited per time window.
 #[sqlx::test(fixtures("base"))]
-async fn completions_wake_the_first_deferred_jobs(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn completion_fills_the_free_slots(db: Pool<Postgres>) -> anyhow::Result<()> {
     let windowed = waiting_job(&db, Some(40), Some(10)).await?;
     let first = waiting_job(&db, Some(30), None).await?;
     let second = waiting_job(&db, Some(20), None).await?;
     let third = waiting_job(&db, Some(10), None).await?;
     let scheduled_later = waiting_job(&db, None, None).await?;
 
-    for _ in 0..3 {
-        wake_deferred_concurrency_job(&db, KEY).await?;
-    }
+    wake_deferred_concurrency_job(&db, KEY, LIMIT).await?;
+    let second_woken_at_once = due(&db, second).await?;
+    wake_deferred_concurrency_job(&db, KEY, LIMIT).await?;
 
+    assert!(
+        second_woken_at_once,
+        "a free slot was left to the deferral estimate"
+    );
     assert!(
         due(&db, first).await?,
         "the first deferred job was not woken"
-    );
-    assert!(
-        due(&db, second).await?,
-        "a free slot was left to the deferral estimate"
     );
     assert!(
         !due(&db, third).await?,
