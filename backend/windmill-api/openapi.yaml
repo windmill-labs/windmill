@@ -31812,6 +31812,10 @@ components:
           type: integer
         concurrency_time_window_s:
           type: integer
+        on_concurrency_limit:
+          type: string
+          enum: [queue, fail]
+          description: What a run does when its concurrency limit is reached when a worker picks it up. `queue` (default) re-queues it to a later slot, `fail` ends it immediately as failed.
         concurrency_key:
           type: string
         debounce_key:
@@ -31953,6 +31957,10 @@ components:
           type: integer
         concurrency_time_window_s:
           type: integer
+        on_concurrency_limit:
+          type: string
+          enum: [queue, fail]
+          description: What a run does when its concurrency limit is reached when a worker picks it up. `queue` (default) re-queues it to a later slot, `fail` ends it immediately as failed.
         cache_ttl:
           type: number
         cache_ignore_s3_path:

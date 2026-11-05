@@ -944,6 +944,7 @@
 					dedicated_worker: script.dedicated_worker,
 					concurrent_limit: script.concurrent_limit,
 					concurrency_time_window_s: script.concurrency_time_window_s,
+					on_concurrency_limit: script.on_concurrency_limit,
 					debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
 					debounce_delay_s: script.debounce_delay_s,
 					debounce_args_to_accumulate:

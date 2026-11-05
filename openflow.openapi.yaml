@@ -75,6 +75,10 @@ components:
         concurrency_time_window_s:
           type: number
           description: Time window in seconds for concurrent_limit
+        on_concurrency_limit:
+          type: string
+          enum: [queue, fail]
+          description: What a run of this flow does when its concurrency limit is reached. `queue` (default) re-queues it to a later slot, `fail` ends it immediately as failed, like any failed step.
         debounce_delay_s:
           type: integer
           description: Delay in seconds to debounce flow executions
@@ -782,6 +786,10 @@ components:
         concurrency_time_window_s:
           type: number
           description: Time window for concurrent_limit
+        on_concurrency_limit:
+          type: string
+          enum: [queue, fail]
+          description: What a run of this step does when its concurrency limit is reached. `queue` (default) re-queues it to a later slot, `fail` ends it immediately as failed.
         custom_concurrency_key:
           type: string
           description: Custom key for grouping concurrent executions

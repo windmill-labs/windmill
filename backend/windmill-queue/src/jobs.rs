@@ -2350,8 +2350,7 @@ async fn restart_job_if_perpetual_inner(
                 apply_preprocessor: false,
                 concurrency_settings: ConcurrencySettings {
                     concurrency_key: custom_concurrency_key(db, &queued_job.id).await?,
-                    concurrent_limit: None,
-                    concurrency_time_window_s: None,
+                    ..Default::default()
                 },
                 // TODO(debouncing): handle properly
                 debouncing_settings: DebouncingSettings::default(),
@@ -4493,7 +4492,20 @@ pub struct PulledJobResult {
     pub job: Option<PulledJob>,
     pub suspended: bool,
     pub missing_concurrency_key: bool,
-    pub error_while_preprocessing: Option<String>,
+    /// Completes the pulled job as failed with this error instead of running it.
+    pub error_while_preprocessing: Option<PulledJobError>,
+}
+
+#[derive(Debug)]
+pub struct PulledJobError {
+    pub name: &'static str,
+    pub message: String,
+}
+
+impl From<String> for PulledJobError {
+    fn from(message: String) -> Self {
+        Self { name: "Pulled job preprocessing error", message }
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -4535,8 +4547,8 @@ impl PulledJobResult {
                     job: MiniCompletedJob::from(job.job),
                     success: false,
                     result: Arc::new(windmill_common::worker::to_raw_value(&json!({
-                        "name": "Pulled job preprocessing error",
-                        "message": e
+                        "name": e.name,
+                        "message": e.message
                     }))),
                     result_columns: None,
                     mem_peak: 0,
@@ -5243,7 +5255,8 @@ pub fn has_active_concurrency_limit(concurrent_limit: Option<i32>) -> bool {
 }
 
 /// Admit a job already owned by a worker without releasing its queue reservation.
-/// The caller must maintain its heartbeat while waiting and complete it on failure.
+/// The caller must maintain its heartbeat while waiting and complete it on failure, including
+/// the `ConcurrencyLimitReached` error of a job set to fail on a full key.
 pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<bool> {
     #[cfg(all(feature = "private", feature = "enterprise"))]
     {
@@ -5262,17 +5275,32 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
                 Error::internal_err(format!("No concurrency key found for job {}", job.id))
             })?;
             if !key.is_empty() {
-                return Ok(crate::jobs_ee::update_concurrency_counter(
+                let window = settings.concurrency_time_window_s.unwrap_or(0);
+                let limit = settings.concurrent_limit.unwrap_or_default();
+                let admitted = crate::jobs_ee::update_concurrency_counter(
                     db,
                     &job.id,
-                    key,
+                    key.clone(),
                     serde_json::json!({ job.id.to_string(): {} }),
                     job.id.to_string(),
-                    settings.concurrency_time_window_s.unwrap_or(0),
-                    settings.concurrent_limit.unwrap_or_default(),
+                    window,
+                    limit,
                 )
                 .await?
-                .0);
+                .0;
+                if !admitted
+                    && settings.on_concurrency_limit
+                        == Some(windmill_common::runnable_settings::OnConcurrencyLimit::Fail)
+                {
+                    let e = crate::jobs_ee::reject_over_concurrency_limit(
+                        db, job.id, &key, limit, window,
+                    )
+                    .await?;
+                    return Err(Error::JsonErr(
+                        json!({ "name": e.name, "message": e.message }),
+                    ));
+                }
+                return Ok(admitted);
             }
         }
     }
@@ -7587,6 +7615,7 @@ async fn push_inner<'c, 'd>(
                     concurrency_key: Some(concurrency_key),
                     concurrent_limit: Some(1),
                     concurrency_time_window_s: Some(0),
+                    ..Default::default()
                 },
                 debouncing_settings,
                 ..Default::default()

@@ -1128,7 +1128,7 @@ async fn claim_local_tool(
     )
     .await?;
     if let Err(err) = pulled.maybe_apply_debouncing(ctx.db).await {
-        pulled.error_while_preprocessing = Some(err.to_string());
+        pulled.error_while_preprocessing = Some(err.to_string().into());
     }
     match pulled.to_pulled_job() {
         Ok(job) => Ok(job.map(|job| spawn_local_tool(ctx, job.job, false))),
