@@ -881,17 +881,20 @@ async fn handle_ansible_python_deps(
                     .map(PyV::from)
                     .unwrap_or_default();
             if let Some(ansible_py) = ansible_py.as_ref() {
-                if !r.trim().is_empty()
-                    && locked.release().get(..2) != ansible_py.release().get(..2)
-                {
+                // A script without python dependencies still has a lock: the `# py:` line.
+                let pins_something = r.lines().any(|l| {
+                    let l = l.trim();
+                    !l.is_empty() && !l.starts_with('#') && !l.starts_with("--")
+                });
+                if pins_something && locked.release().get(..2) != ansible_py.release().get(..2) {
                     append_logs(
                         job_id,
                         w_id,
                         format!(
                             "WARN: the python dependencies are locked for python {}, but \
-                             ansible-playbook runs on python {}: they are installed for {} \
-                             with the locked versions. Redeploy the script to lock them for {}.\n",
-                            *locked, **ansible_py, **ansible_py, **ansible_py
+                             ansible-playbook runs on python {}, so their locked versions are \
+                             installed for it. Redeploy the script to lock them for it.\n",
+                            *locked, **ansible_py
                         ),
                         conn,
                     )
