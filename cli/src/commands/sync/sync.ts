@@ -71,7 +71,6 @@ import {
 import { DbtPathCollisionError, handleFile } from "../script/script.ts";
 import {
   deepEqual,
-  sameScriptSchema,
   fetchRemoteVersion,
   getHeaders,
   isFileResource,
@@ -138,6 +137,7 @@ import {
   UnknownLockVersionError,
   MalformedLockfileError,
   workspaceDependenciesPathToLanguageAndFilename,
+  effectiveScriptSchema,
 } from "../../utils/metadata.ts";
 import {
   DoubleLinkedDependencyTree,
@@ -201,7 +201,11 @@ import {
   DBT_DESCRIPTOR_NAME,
   isDbtDescriptorPath,
 } from "../../utils/resource_folders.ts";
-import { isSharedLockPath, SHARED_LOCK_DIR } from "../../utils/script_common.ts";
+import {
+  inferContentTypeFromFilePath,
+  isSharedLockPath,
+  SHARED_LOCK_DIR,
+} from "../../utils/script_common.ts";
 import {
   applySharedLockPlanToDisk,
   applySharedLockPlanToMap,
@@ -574,18 +578,22 @@ export function findCodebase(
 
 /** Script metadata that differs only in fields the server derives from what is sent: the
  * `.tar` a multi-output bundle adds to the codebase digest and, on push, a schema left for
- * the server to infer. `els1` is the side the diff applies. */
-function scriptMetadataEquivalent(els1: any, els2: any, isPush: boolean): boolean {
+ * the server to infer (`sentSchema` maps it to the one the deploy would store). `els1` is
+ * the side the diff applies. */
+async function scriptMetadataEquivalent(
+  els1: any,
+  els2: any,
+  sentSchema?: (sent: unknown, stored: unknown) => Promise<unknown>,
+): Promise<boolean> {
   if (!els1 || !els2 || typeof els1 != "object" || typeof els2 != "object") {
     return false;
   }
   const { codebase: c1, schema: s1, ...rest1 } = els1;
   const { codebase: c2, schema: s2, ...rest2 } = els2;
-  return (
-    sameCodebaseDigest(c1, c2) &&
-    (isPush ? sameScriptSchema(s1, s2) : deepEqual(s1, s2)) &&
-    deepEqual(rest1, rest2)
-  );
+  if (!sameCodebaseDigest(c1, c2) || !deepEqual(rest1, rest2)) {
+    return false;
+  }
+  return deepEqual(sentSchema ? await sentSchema(s1, s2) : s1, s2);
 }
 
 async function addCodebaseDigestIfRelevant(
@@ -2897,6 +2905,25 @@ export async function compareDynFSElement(
 
   const codebaseChanges: Record<string, string> = {};
 
+  // On push, the schema a local metadata file's deploy would store, inferred from its
+  // content file in the local tree when the metadata leaves the schema to the server.
+  const pushedSchema = (metadataPath: string) => {
+    if (isEls1Remote !== false) return undefined;
+    return async (sent: unknown, stored: unknown) => {
+      const contentPath = exts
+        .map((e) => metadataPath.replace(/\.script\.(yaml|json)$/, e))
+        .find((p) => p != metadataPath && m1[p] !== undefined);
+      if (!contentPath) return sent;
+      return effectiveScriptSchema(
+        sent,
+        stored,
+        inferContentTypeFromFilePath(contentPath, undefined),
+        m1[contentPath],
+        contentPath,
+      );
+    };
+  };
+
   for (let [k, v] of Object.entries(m1)) {
     const isScriptMetadata =
       k.endsWith(".script.yaml") || k.endsWith(".script.json");
@@ -2949,7 +2976,7 @@ export async function compareDynFSElement(
         if (
           deepEqual(parsedV, parsedM2) ||
           (isScriptMetadata &&
-            scriptMetadataEquivalent(parsedV, parsedM2, isEls1Remote === false))
+            (await scriptMetadataEquivalent(parsedV, parsedM2, pushedSchema(k))))
         ) {
           continue;
         }
@@ -2970,7 +2997,7 @@ export async function compareDynFSElement(
         if (
           deepEqual(before, after) ||
           (isScriptMetadata &&
-            scriptMetadataEquivalent(after, before, isEls1Remote === false))
+            (await scriptMetadataEquivalent(after, before, pushedSchema(k))))
         ) {
           continue;
         }
