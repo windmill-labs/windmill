@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { classes as alertClasses, icons as alertIcons } from '$lib/components/common/alert/model'
+	import { superadminSettingsHref } from '$lib/components/sidebar/settings'
+	import { superadmin } from '$lib/stores'
 	import {
+		DEFAULT_SUPERADMIN_EMAIL,
 		isDefaultSuperadminActive,
 		REPLACE_DEFAULT_SUPERADMIN_HREF
 	} from '$lib/defaultSuperadmin'
@@ -12,6 +15,10 @@
 	// remounts the shell and re-checks.
 	let active = $state(false)
 	isDefaultSuperadminActive().then((v) => (active = v))
+
+	// The replace step deletes the signed-in account, so another superadmin is sent to the
+	// instance users list to remove admin@windmill.dev instead.
+	let signedInAsDefault = $derived($superadmin === DEFAULT_SUPERADMIN_EMAIL)
 
 	const palette = alertClasses.error
 	const Icon = alertIcons.error
@@ -24,11 +31,17 @@
 	>
 		<Icon size={16} class="shrink-0 {palette.iconClass}" />
 		<span class="text-xs font-medium {palette.titleClass}">
-			The default superadmin account admin@windmill.dev / changeme is still active. Anyone who can
-			reach this instance can log in with it.
+			The default superadmin account {DEFAULT_SUPERADMIN_EMAIL} / changeme is still active. Anyone who
+			can reach this instance can log in with it.
 		</span>
-		<Button variant="default" unifiedSize="xs" href={REPLACE_DEFAULT_SUPERADMIN_HREF}>
-			Replace account
-		</Button>
+		{#if signedInAsDefault}
+			<Button variant="default" unifiedSize="xs" href={REPLACE_DEFAULT_SUPERADMIN_HREF}>
+				Replace account
+			</Button>
+		{:else}
+			<Button variant="default" unifiedSize="xs" href={superadminSettingsHref('users')}>
+				Manage instance users
+			</Button>
+		{/if}
 	</div>
 {/if}

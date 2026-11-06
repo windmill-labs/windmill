@@ -29,7 +29,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import InstanceAISettings from '$lib/components/instanceSettings/InstanceAISettings.svelte'
 	import DefaultSuperadminSkipModal from '$lib/components/DefaultSuperadminSkipModal.svelte'
-	import { isDefaultSuperadminActive } from '$lib/defaultSuperadmin'
+	import { isSignedInAsActiveDefaultSuperadmin } from '$lib/defaultSuperadmin'
 
 	const settingsSteps = [
 		{ id: 'Core', label: 'Core' },
@@ -277,7 +277,7 @@
 	let showSkipWarning = $state(false)
 
 	async function skipSetup() {
-		if (await isDefaultSuperadminActive()) {
+		if (await isSignedInAsActiveDefaultSuperadmin()) {
 			showSkipWarning = true
 		} else {
 			finishSetup()

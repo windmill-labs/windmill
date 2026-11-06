@@ -3,7 +3,7 @@
 	import { Button } from '$lib/components/common'
 	import DefaultSuperadminSkipModal from '$lib/components/DefaultSuperadminSkipModal.svelte'
 	import {
-		isDefaultSuperadminActive,
+		isSignedInAsActiveDefaultSuperadmin,
 		REPLACE_DEFAULT_SUPERADMIN_HREF
 	} from '$lib/defaultSuperadmin'
 	import { goto } from '$lib/navigation'
@@ -17,7 +17,7 @@
 	let showSkipWarning = $state(false)
 
 	async function skip() {
-		if (await isDefaultSuperadminActive()) {
+		if (await isSignedInAsActiveDefaultSuperadmin()) {
 			showSkipWarning = true
 		} else {
 			goto('/user/workspaces')
