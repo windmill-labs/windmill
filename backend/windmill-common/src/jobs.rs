@@ -13,10 +13,11 @@ use crate::{
     client::AuthedClient,
     db::{AuthedRef, UserDbWithAuthed, DB},
     error::{self, to_anyhow, Error},
-    flows::get_full_hub_flow_by_path,
+    flows::get_full_hub_flow_by_id,
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
-    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
-    utils::{strip_json_nul, StripPath, HTTP_CLIENT},
+    runnable_ref::RunnableRef,
+    scripts::{get_full_hub_script_by_id, ScriptHash, ScriptLang},
+    utils::{strip_json_nul, HTTP_CLIENT},
     worker::{custom_tag_matches, to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, WINDMILL_DIR},
     workspaces::workspace_with_fork_ancestors,
     FlowVersionInfo, ScriptHashInfo, Tag,
@@ -148,7 +149,7 @@ pub fn resolve_delete_after_secs(
 }
 
 pub async fn script_path_to_payload<'e>(
-    script_path: &str,
+    script: &RunnableRef,
     db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
     db: DB,
     w_id: &str,
@@ -161,11 +162,10 @@ pub async fn script_path_to_payload<'e>(
     Option<i32>,
     Option<OnBehalfOf>,
 )> {
+    let script_path = script.path();
     let (job_payload, tag, delete_after_use, delete_after_secs, script_timeout, on_behalf_of) =
-        if script_path.starts_with("hub/") {
-            let hub_script =
-                get_full_hub_script_by_path(StripPath(script_path.to_string()), &HTTP_CLIENT, None)
-                    .await?;
+        if let Some(hub_id) = script.hub_id() {
+            let hub_script = get_full_hub_script_by_id(hub_id, &HTTP_CLIENT, None).await?;
 
             let has_preprocessor = get_has_preprocessor_from_content_and_lang(
                 &hub_script.content,
@@ -245,25 +245,17 @@ pub async fn script_path_to_payload<'e>(
     ))
 }
 
-pub async fn get_payload_tag_from_prefixed_path(
-    path: &str,
+pub async fn runnable_ref_to_payload(
+    runnable: &RunnableRef,
     db: &DB,
     w_id: &str,
 ) -> Result<(JobPayload, Option<String>, Option<OnBehalfOf>), Error> {
-    let (payload, tag, _, _, _, on_behalf_of) = if path.starts_with("script/") {
-        script_path_to_payload(
-            path.strip_prefix("script/").unwrap(),
-            None,
-            db.clone(),
-            w_id,
-            Some(true),
-        )
-        .await?
-    } else if path.starts_with("flow/") {
-        let path = path.strip_prefix("flow/").unwrap().to_string();
-        if path.starts_with("hub/flows/") {
-            let hub_flow =
-                get_full_hub_flow_by_path(StripPath(path.clone()), &HTTP_CLIENT, Some(db)).await?;
+    let (payload, tag, _, _, _, on_behalf_of) = if !runnable.is_flow() {
+        script_path_to_payload(runnable, None, db.clone(), w_id, Some(true)).await?
+    } else {
+        let path = runnable.path().to_string();
+        if let Some(hub_id) = runnable.hub_id() {
+            let hub_flow = get_full_hub_flow_by_id(hub_id, &HTTP_CLIENT, Some(db)).await?;
             (
                 JobPayload::RawFlow {
                     value: hub_flow.value,
@@ -296,11 +288,6 @@ pub async fn get_payload_tag_from_prefixed_path(
                 None,
             )
         }
-    } else {
-        return Err(Error::BadRequest(format!(
-            "path must start with script/ or flow/ (got {})",
-            path
-        )));
     };
     Ok((payload, tag, on_behalf_of))
 }

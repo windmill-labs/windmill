@@ -743,11 +743,7 @@ async fn route_job(
     let runnable = RunnableRef::from_path(&trigger.script_path, trigger.is_flow)
         .map_err(|e| e.into_response())?;
     let runnable_format = get_runnable_format(
-        if runnable.is_flow() {
-            RunnableId::from_flow_path(runnable.path())
-        } else {
-            RunnableId::from_script_path(runnable.path())
-        },
+        RunnableId::from_ref(&runnable),
         &trigger.workspace_id,
         &db,
         &TriggerKind::Http,
