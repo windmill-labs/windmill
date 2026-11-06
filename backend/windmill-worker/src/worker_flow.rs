@@ -3644,6 +3644,52 @@ pub(crate) fn resolve_flow_step_tag(
     }
 }
 
+/// Whether a flow enclosing `flow_job` on the same tag preserves step tags. A subflow without a
+/// tag of its own runs on its caller's tag, so the caller's `preserve_step_tags` must reach the
+/// subflow's steps: otherwise the subflow's own setting, off by default and irrelevant until it
+/// runs under a custom tag, silently pins its tagged steps to the caller's tag.
+async fn enclosing_flow_preserves_step_tags(
+    db: &DB,
+    flow_job: &MiniPulledJob,
+) -> error::Result<bool> {
+    let Some(parent_job) = flow_job.parent_job else {
+        return Ok(false);
+    };
+    let ancestors = sqlx::query!(
+        r#"WITH RECURSIVE chain AS (
+            SELECT id, parent_job, kind, runnable_id, 1 AS depth
+            FROM v2_job WHERE id = $1 AND workspace_id = $2 AND tag = $3
+          UNION ALL
+            SELECT j.id, j.parent_job, j.kind, j.runnable_id, chain.depth + 1
+            FROM v2_job j JOIN chain ON j.id = chain.parent_job
+            WHERE j.workspace_id = $2 AND j.tag = $3 AND chain.depth < 64
+        )
+        SELECT id AS "id!", kind AS "kind!: JobKind", runnable_id AS "runnable_id: ScriptHash"
+        FROM chain ORDER BY depth"#,
+        parent_job,
+        &flow_job.workspace_id,
+        &flow_job.tag,
+    )
+    .fetch_all(db)
+    .await?;
+    for ancestor in ancestors {
+        let flow_data = match ancestor.kind {
+            JobKind::Flow | JobKind::FlowNode => {
+                cache::job::fetch_flow(db, &ancestor.kind, ancestor.runnable_id).await?
+            }
+            JobKind::FlowPreview => cache::job::fetch_preview_flow(db, &ancestor.id, None).await?,
+            // Its `runnable_id` is the wrapped runnable's, and its own flow never preserves tags.
+            JobKind::SingleStepFlow => continue,
+            // Only a flow job can enclose a flow, so the chain has left the flow tree.
+            _ => return Ok(false),
+        };
+        if flow_data.value().preserve_step_tags {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// Resolves each `$flow_expr[root.key.path]` of a step tag by reading `key.path` from `results`
 /// (where `key` is a step id), `flow_input` or `flow_env`, rendered as `$args[key.path]` would be.
 async fn interpolate_flow_expr_tag(
@@ -5059,16 +5105,34 @@ async fn push_next_flow_job(
         let job_perms: Option<Authed> = root_job_perms.map(|x| x.into());
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed perms for job {i} of {len}");
-        let tag = resolve_flow_step_tag(
-            step.is_preprocessor_step(),
-            &flow_job.tag,
-            &flow_job.workspace_id,
-            flow.preserve_step_tags,
-            payload_tag.tag.as_deref(),
+        let dev_suffix =
             windmill_queue::tags::dev_flow_tag_suffix(&flow_job.workspace_id, &flow_job.tag, db)
-                .await?
-                .as_deref(),
-        );
+                .await?;
+        let resolve_tag = |preserve_step_tags: bool| {
+            resolve_flow_step_tag(
+                step.is_preprocessor_step(),
+                &flow_job.tag,
+                &flow_job.workspace_id,
+                preserve_step_tags,
+                payload_tag.tag.as_deref(),
+                dev_suffix.as_deref(),
+            )
+        };
+        let tag = if flow.preserve_step_tags {
+            resolve_tag(true)
+        } else {
+            let inherited = resolve_tag(false);
+            let preserved = resolve_tag(true);
+            if preserved != inherited
+                && enclosing_flow_preserves_step_tags(db, &flow_job)
+                    .warn_after_seconds(3)
+                    .await?
+            {
+                preserved
+            } else {
+                inherited
+            }
+        };
 
         // A step whose inputs failed to evaluate, or whose `$flow_expr[...]` tag failed to resolve,
         // is pushed only to report the error, and a computed tag can then name a queue nobody
