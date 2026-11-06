@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE tags AS (\n            (SELECT tag FROM concurrency_key\n            WHERE key = $1 AND ended_at IS NULL AND place IS NOT NULL\n            ORDER BY tag LIMIT 1)\n            UNION ALL\n            SELECT (SELECT ck.tag FROM concurrency_key ck\n                WHERE ck.key = $1 AND ck.ended_at IS NULL AND ck.place IS NOT NULL AND ck.tag > t.tag\n                ORDER BY ck.tag LIMIT 1)\n            FROM tags t WHERE t.tag IS NOT NULL\n        ), admitted AS (\n            SELECT job_uuids FROM concurrency_counter WHERE concurrency_id = $1\n        ), fronts AS (\n            SELECT f.job_id, f.priority, f.place\n            FROM tags t\n            CROSS JOIN LATERAL (\n                SELECT ck.job_id, ck.priority, ck.place\n                FROM concurrency_key ck JOIN v2_job_queue q ON q.id = ck.job_id\n                WHERE ck.key = $1 AND ck.tag = t.tag AND ck.ended_at IS NULL\n                    AND ck.place IS NOT NULL AND q.canceled_by IS NULL\n                    AND NOT q.running AND q.scheduled_for > now() - interval '5 seconds'\n                    AND NOT COALESCE((SELECT job_uuids ? ck.job_id::text FROM admitted), false)\n                ORDER BY ck.priority DESC, ck.place, ck.job_id\n                LIMIT $2\n            ) f\n            WHERE t.tag IS NOT NULL\n        ), picked AS (\n            SELECT job_id FROM fronts ORDER BY priority DESC, place, job_id LIMIT $2\n        )\n        UPDATE v2_job_queue SET scheduled_for = now()\n        FROM picked\n        WHERE v2_job_queue.id = picked.job_id AND NOT v2_job_queue.running\n            AND v2_job_queue.scheduled_for > now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fad17dde667ba38ebc73946d7136501cfd6b7a8e8e0f991a7ec4174a8f7e9cdb"
+}

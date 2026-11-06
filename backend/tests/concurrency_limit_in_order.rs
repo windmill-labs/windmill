@@ -161,14 +161,16 @@ async fn completion_fills_free_slots_from_the_front_of_the_line(
 #[serial_test::serial]
 async fn lines_are_per_tag_by_priority_then_place(db: Pool<Postgres>) -> anyhow::Result<()> {
     CONCURRENCY_LIMIT_IN_ORDER.store(true, Ordering::Relaxed);
-    // Woken long ago on a tag no worker serves: due, never pulled again. Its priority puts it
-    // ahead of every other job, so only skipping already-due jobs keeps it from taking the wake.
+    // Woken a minute ago on a tag no worker serves: due, never pulled again. Its priority puts it
+    // ahead of every other job, so only leaving out long-due jobs keeps it from taking the wake.
     let stuck = queue_job_on(&db, 60, "gpu", 9).await?;
     defer(&db, stuck).await?;
-    sqlx::query("UPDATE v2_job_queue SET scheduled_for = now() WHERE id = $1")
-        .bind(stuck)
-        .execute(&db)
-        .await?;
+    sqlx::query(
+        "UPDATE v2_job_queue SET scheduled_for = now() - interval '1 minute' WHERE id = $1",
+    )
+    .bind(stuck)
+    .execute(&db)
+    .await?;
     let low = queue_job_on(&db, 30, "other", 0).await?;
     defer(&db, low).await?;
     let urgent = queue_job_on(&db, 10, "other", 5).await?;
@@ -193,5 +195,29 @@ async fn lines_are_per_tag_by_priority_then_place(db: Pool<Postgres>) -> anyhow:
         urgent_admitted?,
         "the job first in its tag's line was held back by another tag"
     );
+    Ok(())
+}
+
+/// A job woken a moment ago, not pulled yet, fills the slot it was woken for: a completion does
+/// not wake the job behind it too, which admission would only refuse and defer again.
+#[sqlx::test(fixtures("base"))]
+async fn a_job_just_woken_fills_its_slot(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let woken = queue_job(&db, 20).await?;
+    defer(&db, woken).await?;
+    sqlx::query("UPDATE v2_job_queue SET scheduled_for = now() WHERE id = $1")
+        .bind(woken)
+        .execute(&db)
+        .await?;
+    let behind = queue_job(&db, 10).await?;
+    defer(&db, behind).await?;
+
+    windmill_queue::fill_concurrency_key_slots_in_order(&db, KEY, 1).await?;
+
+    let behind_due: bool =
+        sqlx::query_scalar("SELECT scheduled_for <= now() FROM v2_job_queue WHERE id = $1")
+            .bind(behind)
+            .fetch_one(&db)
+            .await?;
+    assert!(!behind_due, "a second job was woken for a slot the first already fills");
     Ok(())
 }

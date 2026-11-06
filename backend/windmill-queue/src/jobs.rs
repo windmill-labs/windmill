@@ -5389,9 +5389,11 @@ pub async fn fill_concurrency_key_slots_in_order(
 
 /// Make due now the `n` best deferred jobs at the front of `key`'s lines, one line per tag, by
 /// priority then place, so a slot that frees up goes to them rather than waiting out the delay
-/// a limit deferred them by. Only jobs still deferred are picked: one already due but not pulled
-/// (no worker serves its tag) would otherwise take a wake on every completion, and the other
-/// tags' lines would never be woken. Reads the key's tags by skip-scanning
+/// a limit deferred them by. A job made due in the last few seconds, a wake on its way to a
+/// worker, fills a pick without being woken again; waking past it would have admission refuse
+/// and re-defer the extra jobs. One due for longer is not pulled (no worker serves its tag) and
+/// is left out, as it would take a pick on every completion and the other tags' lines would
+/// never be woken. Reads the key's tags by skip-scanning
 /// `concurrency_key_place_idx`, then the front of each line. Queue bookkeeping, not an
 /// authorization boundary: only for the queue's own admission and completion paths, never with
 /// a key taken from a request.
@@ -5417,7 +5419,7 @@ pub(crate) async fn wake_concurrency_key_waiters(db: &DB, key: &str, n: i64) -> 
                 FROM concurrency_key ck JOIN v2_job_queue q ON q.id = ck.job_id
                 WHERE ck.key = $1 AND ck.tag = t.tag AND ck.ended_at IS NULL
                     AND ck.place IS NOT NULL AND q.canceled_by IS NULL
-                    AND NOT q.running AND q.scheduled_for > now()
+                    AND NOT q.running AND q.scheduled_for > now() - interval '5 seconds'
                     AND NOT COALESCE((SELECT job_uuids ? ck.job_id::text FROM admitted), false)
                 ORDER BY ck.priority DESC, ck.place, ck.job_id
                 LIMIT $2
