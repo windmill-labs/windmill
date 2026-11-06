@@ -1035,9 +1035,9 @@
 										<div class="flex flex-row items-center gap-1">
 											Failed jobs
 											<Tooltip>
-												Share of this worker's jobs that failed over the last 24h, its last 100 jobs
-												and since it first started under this name. Canceled jobs are not counted as
-												failures.
+												Share of the script and flow-step jobs run by this worker that failed, over
+												the last 24h, its last 100 jobs and since it first started under this name.
+												Flows themselves are not counted, and canceled jobs are not failures.
 											</Tooltip>
 										</div>
 									</Cell>

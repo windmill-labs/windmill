@@ -37773,8 +37773,10 @@ components:
         job_stats:
           type: object
           description: >-
-            jobs this worker completed and how many of them failed, over its whole life, the
-            last 24 hours and its last 100 jobs. Canceled jobs count as executed, not failed.
+            script and flow-step jobs this worker ran and how many of them failed, over its whole
+            life, the last 24 hours and its last 100 jobs. A flow's own outcome is not counted, since
+            its failure is that of a step already counted on the worker that ran it. Canceled jobs
+            count as executed, not failed.
           properties:
             total:
               $ref: "#/components/schemas/WorkerJobCounts"

@@ -665,7 +665,11 @@ pub async fn update_worker_ping_for_failed_init_script(
                         native_mode: None,
                         draining: None,
                         ping_type: PingType::InitScript,
-                        job_stats: None,
+                        // The worker exits right after this ping, so it is its last chance to
+                        // report the init script's outcome.
+                        job_stats: windmill_common::worker_job_stats::job_stats_snapshot(
+                            worker_name,
+                        ),
                     },
                 )
                 .await

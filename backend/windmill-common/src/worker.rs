@@ -2149,7 +2149,10 @@ pub async fn update_ping_http(
                 insert_ping.last_job_executed.unwrap_or_default(),
                 db,
             )
-            .await?
+            .await?;
+            if let Some(job_stats) = insert_ping.job_stats.as_ref() {
+                set_worker_job_stats_query(worker_name, job_stats, db).await?;
+            }
         }
         PingType::Draining => set_worker_draining_query(worker_name, db).await?,
     }
