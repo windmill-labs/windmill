@@ -170,6 +170,14 @@ async fn lines_are_per_tag_by_priority_then_place(db: Pool<Postgres>) -> anyhow:
     .bind(stuck)
     .execute(&db)
     .await?;
+    // Soft-canceled while deferred, as a canceled flow's children are: it keeps its place until
+    // a worker of its tag processes it, and must not take a wake either.
+    let canceled = queue_job_on(&db, 50, "gpu2", 9).await?;
+    defer(&db, canceled).await?;
+    sqlx::query("UPDATE v2_job_queue SET canceled_by = 'admin' WHERE id = $1")
+        .bind(canceled)
+        .execute(&db)
+        .await?;
     let low = queue_job_on(&db, 30, "other", 0).await?;
     defer(&db, low).await?;
     let urgent = queue_job_on(&db, 10, "other", 5).await?;
@@ -216,6 +224,9 @@ async fn a_job_just_woken_fills_its_slot(db: Pool<Postgres>) -> anyhow::Result<(
             .bind(behind)
             .fetch_one(&db)
             .await?;
-    assert!(!behind_due, "a second job was woken for a slot the first already fills");
+    assert!(
+        !behind_due,
+        "a second job was woken for a slot the first already fills"
+    );
     Ok(())
 }

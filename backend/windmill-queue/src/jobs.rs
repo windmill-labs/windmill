@@ -5323,9 +5323,9 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
 
 /// The job that is ahead of `job_id` in line: the first job still waiting, not admitted, in the
 /// line of `key` and `job_id`'s tag, by priority then place (the order workers pull jobs in), if
-/// it is not `job_id` itself. A stuck tag holds back only its own line. Walks
-/// `concurrency_key_place_idx` from the front, so it reads the admitted jobs and the one
-/// returned, not the key's backlog. Admission records a job's tag, priority and place when it is
+/// it is not `job_id` itself. A stuck tag holds back only its own line. A canceled job keeps its
+/// place until a worker of its tag, `job_id`'s, processes it; not skipping it keeps the walk to
+/// the admitted jobs and the one returned, an index-only read, never the key's backlog. Admission records a job's tag, priority and place when it is
 /// first pulled, and a deferral when it is first deferred, from its queue row then, which nothing
 /// moves back before it is due: a job not pulled yet is in no line. None for a job that already holds a slot of
 /// the key (a resumed flow): refusing it would leave the jobs ahead of it waiting on the slot
@@ -5345,11 +5345,10 @@ pub(crate) async fn oldest_waiting_concurrency_job<'c, E: PgExecutor<'c>>(
             SELECT job_uuids FROM concurrency_counter WHERE concurrency_id = $1
         ), first_in_line AS (
             SELECT ck.job_id
-            FROM concurrency_key ck JOIN v2_job_queue q ON q.id = ck.job_id
+            FROM concurrency_key ck
             WHERE ck.key = $1 AND ck.tag = (SELECT tag FROM me)
                 AND ck.ended_at IS NULL AND ck.place IS NOT NULL
                 AND NOT COALESCE((SELECT job_uuids ? $2::text FROM admitted), false)
-                AND q.canceled_by IS NULL
                 AND NOT COALESCE((SELECT job_uuids ? ck.job_id::text FROM admitted), false)
             ORDER BY ck.priority DESC, ck.place, ck.job_id
             LIMIT 1
@@ -5389,8 +5388,10 @@ pub async fn fill_concurrency_key_slots_in_order(
 
 /// Make due now the `n` best deferred jobs at the front of `key`'s lines, one line per tag, by
 /// priority then place, so a slot that frees up goes to them rather than waiting out the delay
-/// a limit deferred them by. Reads only the first `n` waiting jobs of each line: a job behind
-/// them could not be admitted before them anyway. Among those, a job a worker holds, or one made
+/// a limit deferred them by. Reads only the first `n` waiting jobs of each line, canceled ones
+/// included (a canceled job keeps its row until a worker processes it, never on a tag no worker
+/// serves): a job behind them could not be admitted before them anyway. Among those, a canceled
+/// one is not picked, and a job a worker holds, or one made
 /// due in the last few seconds (a wake on its way to a worker), fills a pick without being woken
 /// again; waking past it would have admission refuse and re-defer the extra jobs. One due for
 /// longer is not pulled (no worker serves its tag) and is left out, so that a stuck line takes
@@ -5400,7 +5401,9 @@ pub async fn fill_concurrency_key_slots_in_order(
 /// a key taken from a request.
 #[cfg(feature = "private")]
 pub(crate) async fn wake_concurrency_key_waiters(db: &DB, key: &str, n: i64) -> error::Result<()> {
-    sqlx::query!(
+    // Picked first, then woken by id in a statement of its own: joined into one statement, the
+    // generic plan scans v2_job_queue by scheduled_for rather than probing the few ids picked.
+    let picked = sqlx::query_scalar!(
         "WITH RECURSIVE tags AS (
             (SELECT tag FROM concurrency_key
             WHERE key = $1 AND ended_at IS NULL AND place IS NOT NULL
@@ -5416,28 +5419,33 @@ pub(crate) async fn wake_concurrency_key_waiters(db: &DB, key: &str, n: i64) -> 
             SELECT f.job_id, f.priority, f.place
             FROM tags t
             CROSS JOIN LATERAL (
-                SELECT ck.job_id, ck.priority, ck.place, q.running, q.scheduled_for
+                SELECT ck.job_id, ck.priority, ck.place, q.running, q.scheduled_for,
+                    q.canceled_by IS NOT NULL AS canceled
                 FROM concurrency_key ck JOIN v2_job_queue q ON q.id = ck.job_id
                 WHERE ck.key = $1 AND ck.tag = t.tag AND ck.ended_at IS NULL
-                    AND ck.place IS NOT NULL AND q.canceled_by IS NULL
+                    AND ck.place IS NOT NULL
                     AND NOT COALESCE((SELECT job_uuids ? ck.job_id::text FROM admitted), false)
                 ORDER BY ck.priority DESC, ck.place, ck.job_id
                 LIMIT $2
             ) f
-            WHERE t.tag IS NOT NULL
+            WHERE t.tag IS NOT NULL AND NOT f.canceled
                 AND (f.running OR f.scheduled_for > now() - interval '5 seconds')
-        ), picked AS (
-            SELECT job_id FROM fronts ORDER BY priority DESC, place, job_id LIMIT $2
         )
-        UPDATE v2_job_queue SET scheduled_for = now()
-        FROM picked
-        WHERE v2_job_queue.id = picked.job_id AND NOT v2_job_queue.running
-            AND v2_job_queue.scheduled_for > now()",
+        SELECT job_id AS \"job_id!\" FROM fronts ORDER BY priority DESC, place, job_id LIMIT $2",
         key,
         n,
     )
-    .execute(db)
+    .fetch_all(db)
     .await?;
+    if !picked.is_empty() {
+        sqlx::query!(
+            "UPDATE v2_job_queue SET scheduled_for = now()
+            WHERE id = ANY($1) AND NOT running AND scheduled_for > now()",
+            &picked,
+        )
+        .execute(db)
+        .await?;
+    }
     Ok(())
 }
 
