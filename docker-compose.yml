@@ -72,9 +72,11 @@ services:
           memory: 2048M
           # for GB, use syntax '2Gi'
     restart: unless-stopped
-    # Uncomment to enable PID namespace isolation (recommended for security)
-    # Requires privileged mode for --mount-proc flag
-    # See: https://www.windmill.dev/docs/advanced/security_isolation
+    # PID namespace isolation is enabled: each job runs under `unshare` in its own PID
+    # namespace, so it cannot see or signal the worker or other jobs. FAVOR_UNSHARE_PID=true
+    # below turns it on unless the "Job isolation" instance setting picks another mode, and
+    # privileged: true is what its --mount-proc flag needs. To disable it, remove both lines,
+    # or set Job isolation to None. See: https://www.windmill.dev/docs/advanced/security_isolation
     privileged: true
     environment:
       - DATABASE_URL=${DATABASE_URL}
@@ -112,8 +114,10 @@ services:
           memory: 2048M
           # for GB, use syntax '2Gi'
     restart: unless-stopped
-    # Uncomment to enable PID namespace isolation (recommended for security)
-    # Requires privileged mode for --mount-proc flag
+    # This worker runs without privileged mode or PID namespace isolation: native jobs run
+    # inside the worker process rather than as subprocesses, so there is nothing to unshare.
+    # If you also route subprocess jobs here, add `privileged: true` and
+    # `- FAVOR_UNSHARE_PID=true` as on windmill_worker to isolate them.
     # See: https://www.windmill.dev/docs/advanced/security_isolation
     environment:
       - DATABASE_URL=${DATABASE_URL}
@@ -138,8 +142,8 @@ services:
   #         memory: 2048M
   #         # for GB, use syntax '2Gi'
   #   restart: unless-stopped
-  #   # Uncomment to enable PID namespace isolation (recommended for security)
-  #   # Requires privileged mode for --mount-proc flag
+  #   # PID namespace isolation, as on windmill_worker: privileged: true and
+  #   # FAVOR_UNSHARE_PID=true enable it; remove both to disable it.
   #   # See: https://www.windmill.dev/docs/advanced/security_isolation
   #   privileged: true
   #   environment:
@@ -182,7 +186,9 @@ services:
   #   - ENABLE_MULTIPLAYER=false - Real-time collaboration (Enterprise Edition)
   #   - ENABLE_DEBUGGER=false - Interactive debugging via DAP WebSocket
   windmill_extra:
-    image: ghcr.io/windmill-labs/windmill-extra:latest
+    # Set WM_EXTRA_IMAGE in .env to the same release as WM_IMAGE when you pin it:
+    # a windmill_server older than this image cannot sign LSP sessions.
+    image: ${WM_EXTRA_IMAGE:-ghcr.io/windmill-labs/windmill-extra:latest}
     pull_policy: always
     restart: unless-stopped
     expose:
