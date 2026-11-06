@@ -215,17 +215,13 @@ pub(crate) async fn lock_mcp_oauth_grants(
 
 async fn revoke_mcp_oauth_grants(tx: &mut sqlx::PgConnection, email: &str) -> Result<()> {
     lock_mcp_oauth_grants(&mut *tx, email, true).await?;
-    // The token trigger only notifies for sessions, so evict deleted MCP access tokens explicitly.
     sqlx::query!(
         "WITH revoked AS (
-             DELETE FROM token WHERE email = $1 AND label LIKE 'mcp-oauth-%' RETURNING token_prefix
+             DELETE FROM token WHERE email = $1 AND label LIKE 'mcp-oauth-%'
          ), refresh AS (
              DELETE FROM mcp_oauth_refresh_token WHERE user_email = $1
-         ), code AS (
-             DELETE FROM mcp_oauth_server_code WHERE user_email = $1
          )
-         INSERT INTO notify_event (channel, payload)
-         SELECT 'notify_token_invalidation', token_prefix FROM revoked",
+         DELETE FROM mcp_oauth_server_code WHERE user_email = $1",
         email
     )
     .execute(&mut *tx)

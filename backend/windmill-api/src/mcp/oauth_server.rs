@@ -594,6 +594,21 @@ async fn handle_refresh_token_grant(
         return Err(OAuthTokenError::invalid_request("client_id is required"));
     }
 
+    // Deleting the access token revokes this grant from a trigger, locking the token row and
+    // then this one; take them in that same order, or a concurrent delete deadlocks.
+    sqlx::query!(
+        "SELECT 1 AS locked FROM token WHERE token_hash =
+             (SELECT access_token_hash FROM mcp_oauth_refresh_token WHERE refresh_token = $1)
+         FOR UPDATE",
+        refresh_token_value
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| {
+        tracing::error!("Database error locking MCP access token: {}", e);
+        OAuthTokenError::server_error("Database error")
+    })?;
+
     // Atomically claim the refresh token by setting used_at in a single UPDATE.
     let token_row = match sqlx::query_as!(
         RefreshTokenRow,
