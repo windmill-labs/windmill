@@ -703,10 +703,15 @@ pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> e
     sqlx::query!("DELETE FROM job_resolution WHERE job_id = ANY($1)", ids)
         .execute(&mut *conn)
         .await?;
-    // A job deleted while it waited on a concurrency limit must leave its key's line.
-    sqlx::query!("DELETE FROM concurrency_key WHERE job_id = ANY($1)", ids)
-        .execute(&mut *conn)
-        .await?;
+    // A job deleted while it waited on a concurrency limit must leave its key's line. Only an
+    // open key goes: a finished job's ended key still counts toward its concurrency time window,
+    // which retention can be shorter than.
+    sqlx::query!(
+        "DELETE FROM concurrency_key WHERE job_id = ANY($1) AND ended_at IS NULL",
+        ids
+    )
+    .execute(&mut *conn)
+    .await?;
     sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", ids)
         .execute(&mut *conn)
         .await?;

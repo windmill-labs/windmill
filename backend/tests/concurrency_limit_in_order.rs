@@ -273,3 +273,30 @@ async fn jobs_gone_from_the_queue_do_not_hold_the_line(db: Pool<Postgres>) -> an
     assert_eq!(keys_left, 0, "a stale concurrency key was left behind");
     Ok(())
 }
+
+/// Deleting jobs removes the concurrency key of one still waiting, and keeps the ended key of
+/// one that ran: that key still counts toward its time window, which retention can outlast.
+#[sqlx::test(fixtures("base"))]
+async fn deleting_jobs_keeps_ended_keys(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let waiting = queue_job(&db, 10).await?;
+    defer(&db, waiting).await?;
+    let ran = queue_job(&db, 20).await?;
+    sqlx::query("UPDATE concurrency_key SET ended_at = now() WHERE job_id = $1")
+        .bind(ran)
+        .execute(&db)
+        .await?;
+    sqlx::query("DELETE FROM v2_job_queue WHERE id = ANY($1)")
+        .bind(vec![waiting, ran])
+        .execute(&db)
+        .await?;
+
+    let mut conn = db.acquire().await?;
+    windmill_common::jobs::delete_jobs(&mut conn, &[waiting, ran]).await?;
+    let left: Vec<Uuid> = sqlx::query_scalar("SELECT job_id FROM concurrency_key WHERE job_id = ANY($1)")
+        .bind(vec![waiting, ran])
+        .fetch_all(&db)
+        .await?;
+
+    assert_eq!(left, vec![ran], "deleting jobs removed an ended key, or kept a waiting one");
+    Ok(())
+}
