@@ -418,6 +418,11 @@
 				</p>
 			{/if}
 		{/if}
+		{#if $superadmin && !mcpSuperAdmin && (mcpAccess === 'selected' || !mcpAllWorkspaces)}
+			<p class="text-xs text-tertiary">
+				Showing workspaces you are a member of. Superadmin rights, under Access, opens the rest.
+			</p>
+		{/if}
 	</div>
 {/snippet}
 

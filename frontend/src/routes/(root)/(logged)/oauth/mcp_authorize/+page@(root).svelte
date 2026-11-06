@@ -269,6 +269,12 @@
 							/>
 						{/if}
 					{/if}
+					{#if isSuperAdmin && !superAdmin && (access === 'selected' || !allWorkspaces)}
+						<p class="text-xs text-tertiary">
+							Showing workspaces you are a member of. Superadmin rights, under Access, opens the
+							rest.
+						</p>
+					{/if}
 				</div>
 			{/if}
 
