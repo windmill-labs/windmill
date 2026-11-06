@@ -4512,8 +4512,10 @@ export async function dedupeLockfilesOnDisk(args: {
     failed = [],
     dryRun,
   } = args;
+  // The plan reads only locks, so codebase digests (a bundle pass per script
+  // under `per_script_digest`) are not computed for it.
   const map = await elementsToMap(
-    await FSFSElement(process.cwd(), codebases, false),
+    await FSFSElement(process.cwd(), codebases, true),
     ignore,
     opts.json ?? false,
     opts,
