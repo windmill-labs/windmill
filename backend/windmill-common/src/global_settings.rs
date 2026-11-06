@@ -485,6 +485,10 @@ pub const WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING: &str = "workspace_fairness_min_t
 // `check_concurrency_key_queue_cap`.
 pub const CONCURRENCY_KEY_MAX_QUEUED_SETTING: &str = "concurrency_key_max_queued_jobs";
 
+// Admit the jobs waiting behind a concurrency key in the order they became due.
+// See `windmill-queue/src/jobs.rs`, `oldest_waiting_concurrency_job`.
+pub const CONCURRENCY_LIMIT_IN_ORDER_SETTING: &str = "concurrency_limit_in_order";
+
 // Cloud-only ceiling on how many jobs a single workspace may have queued in
 // total, across every key and script. Applies even to premium workspaces. `0`
 // disables the cap. See `windmill-queue/src/jobs.rs`, `check_workspace_queue_cap`.

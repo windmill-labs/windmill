@@ -58,13 +58,14 @@ use windmill_common::{
         API_BASE_URL_APPLIES_TO_MCP, API_BASE_URL_APPLIES_TO_SETTING, API_BASE_URL_SETTING,
         AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
         BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CONCURRENCY_KEY_MAX_QUEUED_SETTING,
-        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING,
-        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, DEPENDENCY_JOB_TAG_SETTING,
-        DEV_WORKSPACE_ISOLATION_SETTING, DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING,
-        DEV_WORKSPACE_TAG_SUFFIX_SETTING, DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        CONCURRENCY_LIMIT_IN_ORDER_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
+        CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        DEPENDENCY_JOB_TAG_SETTING, DEV_WORKSPACE_ISOLATION_SETTING,
+        DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING, DEV_WORKSPACE_TAG_SUFFIX_SETTING,
+        DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING, EXPOSE_DEBUG_METRICS_SETTING,
+        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
         HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
@@ -96,7 +97,7 @@ use windmill_common::{
         load_periodic_bash_script_from_env, load_periodic_bash_script_interval_from_env,
         load_whitelist_env_vars_from_env, load_worker_config, store_pull_query,
         store_suspended_pull_query, Connection, WorkerConfig, CLOUD_HOSTED,
-        CONCURRENCY_KEY_MAX_QUEUED, CONCURRENCY_KEY_MAX_QUEUED_DEFAULT,
+        CONCURRENCY_KEY_MAX_QUEUED, CONCURRENCY_KEY_MAX_QUEUED_DEFAULT, CONCURRENCY_LIMIT_IN_ORDER,
         DEFAULT_DEV_WORKSPACE_TAG_SUFFIX, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
         DEPENDENCY_JOB_TAG, DEV_WORKSPACE_ISOLATION, DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS,
         DEV_WORKSPACE_TAG_SUFFIX, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG,
@@ -380,6 +381,10 @@ pub async fn initial_load(
         );
         pass.setting(WORKSPACE_FAIRNESS_ENABLED_SETTING, false, |v| {
             apply_workspace_fairness_enabled(v)
+        });
+
+        pass.setting(CONCURRENCY_LIMIT_IN_ORDER_SETTING, false, |v| async move {
+            apply_concurrency_limit_in_order(v)
         });
 
         // Only the cloud reads these caps, so don't ask for them anywhere else.
@@ -1063,6 +1068,18 @@ pub fn apply_workspace_fairness_min_total(value: Option<serde_json::Value>) {
                 .store(WORKSPACE_FAIRNESS_MIN_TOTAL_DEFAULT, Ordering::Relaxed);
         }
     }
+}
+
+pub async fn load_concurrency_limit_in_order(db: &DB) -> error::Result<()> {
+    let v = load_value_from_global_settings(db, CONCURRENCY_LIMIT_IN_ORDER_SETTING).await?;
+    apply_concurrency_limit_in_order(v);
+    Ok(())
+}
+
+/// On unless set to false: in-order admission is the default.
+pub fn apply_concurrency_limit_in_order(value: Option<serde_json::Value>) {
+    let enabled = !matches!(value, Some(serde_json::Value::Bool(false)));
+    CONCURRENCY_LIMIT_IN_ORDER.store(enabled, Ordering::Relaxed);
 }
 
 pub async fn load_concurrency_key_max_queued(db: &DB) -> error::Result<()> {
