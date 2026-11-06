@@ -20,7 +20,9 @@ export async function dedicatedWorkerTag(workspaceId: string, path: string): Pro
 // Same rule as `dedicated_worker_pattern_prefix()` in backend/windmill-common/src/worker.rs:
 // `f/dw/*` stands for every dedicated script under `f/dw/`. Flows are listed one by one.
 export function isDedicatedPattern(path: string): boolean {
-	return path.endsWith('/*') && path.length > 2 && !path.startsWith('flow/')
+	return (
+		path.endsWith('/*') && path.length > 2 && !path.startsWith('flow/') && !path.includes(':')
+	)
 }
 
 export function parseTag(

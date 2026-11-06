@@ -797,7 +797,7 @@
 						<div class="flex flex-col gap-1">
 							<span class="text-xs text-secondary">Folder pattern</span>
 							<div class="flex gap-2 items-center">
-								<TextInput bind:value={patternInput} inputProps={{ placeholder: 'f/folder/*' }} />
+								<TextInput bind:value={patternInput} inputProps={{ placeholder: 'f/folder/*', disabled }} />
 								<Button
 									unifiedSize="md"
 									variant="default"

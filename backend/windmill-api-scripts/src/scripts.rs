@@ -3033,7 +3033,8 @@ async fn create_script_internal<'c>(
     if ns.dedicated_worker == Some(true) && resolved_job_token_scopes.is_none() {
         // Its dependency job is tagged for a dedicated worker. One taking it through a
         // `dedicated_workers` pattern only listens to the scripts it found at its last config
-        // load: re-saving the group's config reloads it, unless its parent was served already.
+        // load: re-saving the group's config reloads it, unless the live version it replaces
+        // was served already (a version adopted from a deleted path was not).
         sqlx::query(
             "UPDATE config SET config = config
              WHERE name LIKE 'worker\\_\\_%'
@@ -3047,7 +3048,11 @@ async fn create_script_internal<'c>(
         )
         .bind(&w_id)
         .bind(&ns.path)
-        .bind(p_hashes.and_then(|h| h.first().copied()))
+        .bind(
+            p_hashes
+                .filter(|_| !parent_adopted_from_retired_path)
+                .and_then(|h| h.first().copied()),
+        )
         .execute(&mut *tx)
         .await?;
     }
