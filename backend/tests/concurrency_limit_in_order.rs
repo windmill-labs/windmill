@@ -81,6 +81,7 @@ async fn free_slot_goes_to_the_job_first_in_line(db: Pool<Postgres>) -> anyhow::
     // A job ahead of one that already holds the slot must not make it give the slot up
     // when it comes back through admission, as a resumed flow does.
     let earlier = queue_job(&db, 20).await?;
+    defer(&db, earlier).await?;
     let first_readmitted = admit(&db, first).await;
     let earlier_admitted = admit(&db, earlier).await;
     CONCURRENCY_LIMIT_IN_ORDER.store(false, Ordering::Relaxed);
