@@ -123,7 +123,11 @@ import {
 } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
-import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
+import {
+  isPerScriptDigest,
+  listSyncCodebases,
+  SyncCodebase,
+} from "../../utils/codebase.ts";
 import {
   beginLockfileBatch,
   flushLockfileBatch,
@@ -567,6 +571,39 @@ export function findCodebase(
   }
 }
 
+/** Computes the per-script codebase digests of every local codebase script in one
+ * esbuild pass, before the diff asks for them one script at a time. */
+async function primeCodebaseDigests(
+  codebases: SyncCodebase[],
+  ignore: (p: string, isDirectory: boolean) => boolean,
+): Promise<void> {
+  if (!codebases.some(isPerScriptDigest)) return;
+  const scripts = new Map<SyncCodebase, string[]>();
+  const walk = async (dir: string) => {
+    for (const e of await readdir(dir || ".", { withFileTypes: true })) {
+      const p = dir ? path.join(dir, e.name) : e.name;
+      if (e.isDirectory()) {
+        if (e.name != "node_modules" && !e.name.startsWith(".")) await walk(p);
+        continue;
+      }
+      if (!e.name.endsWith(".script.yaml") || ignore(p, false)) continue;
+      const ts = p.replace(/\.script\.yaml$/, ".ts");
+      const c = findCodebase(ts, codebases);
+      if (!c || !isPerScriptDigest(c)) continue;
+      if (!(await stat(ts).then((s) => s.isFile(), () => false))) continue;
+      scripts.set(c, [...(scripts.get(c) ?? []), ts]);
+    }
+  };
+  await walk("");
+  for (const [c, paths] of scripts) {
+    const start = performance.now();
+    await c.primeDigests(paths);
+    log.info(
+      `Codebase ${c.relative_path}: digested ${paths.length} scripts in ${((performance.now() - start) / 1000).toFixed(1)}s`,
+    );
+  }
+}
+
 async function addCodebaseDigestIfRelevant(
   path: string,
   content: string,
@@ -603,7 +640,7 @@ async function addCodebaseDigestIfRelevant(
         if (ignoreCodebaseChanges) {
           parsed["codebase"] = undefined;
         } else {
-          parsed["codebase"] = await c.getDigest();
+          parsed["codebase"] = await c.getDigest(replacedPath);
         }
         parsed["lock"] = "";
         return yamlStringify(parsed, yamlOptions);
@@ -3008,7 +3045,7 @@ export async function compareDynFSElement(
         continue;
       }
       const c = findCodebase(tsFile, codebases);
-      if ((await c?.getDigest()) != v) {
+      if ((await c?.getDigest(tsFile)) != v) {
         changes.push({
           name: "edited",
           path: tsFile,
@@ -5070,6 +5107,9 @@ export async function push(
     localFlowInlineMapping,
   );
 
+  if (!opts.skipScripts) {
+    await primeCodebaseDigests(codebases, await ignoreF(opts));
+  }
   const local = await FSFSElement(
     path.join(process.cwd(), ""),
     codebases,

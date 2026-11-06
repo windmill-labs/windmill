@@ -1,7 +1,8 @@
 import { Codebase, SyncOptions } from "../core/conf.ts";
 import * as log from "../core/log.ts";
 import { digestDir, generateHash, generateHashFromBuffer } from "./utils.ts";
-import { readFile, stat } from "node:fs/promises";
+import { withEsbuild } from "./esbuild_loader.ts";
+import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 // A bare string is accepted, like `includes`/`excludes` in findCodebase.
@@ -40,9 +41,20 @@ export function uncoveredBundleInputs(
   });
 }
 
+/** Whether a codebase digests each script from its own bundle inputs. A custom
+ * bundler's inputs are unknown, so it keeps the directory digest. */
+export function isPerScriptDigest(codebase: Codebase): boolean {
+  return codebase.per_script_digest === true && !codebase.customBundler;
+}
+
 export type SyncCodebase = Codebase & {
-  getDigest: (forceTar?: boolean) => Promise<string>;
+  /** The `codebase` value a push stores for the script at `scriptPath`. */
+  getDigest: (scriptPath: string, forceTar?: boolean) => Promise<string>;
+  /** Computes the digests of many scripts in one esbuild pass. Only per-script
+   * digest codebases do any work. */
+  primeDigests: (scriptPaths: string[]) => Promise<void>;
 };
+
 export function listSyncCodebases(options: SyncOptions): SyncCodebase[] {
   const res: SyncCodebase[] = [];
   const nb_codebase = options?.codebases?.length ?? 0;
@@ -53,43 +65,282 @@ export function listSyncCodebases(options: SyncOptions): SyncCodebase[] {
         .join(", ")}`
     );
   }
+  const hasher = new FileHasher();
   for (const codebase of options?.codebases ?? []) {
-    let _digest: string | undefined = undefined;
-    let alreadyPrinted = false;
-    let hasAssets = false;
-    const getDigest: (forceTar?: boolean) => Promise<string> = async (
-      forceTar?: boolean
-    ) => {
-      if (_digest == undefined) {
-        // Concurrent callers read `_digest` across these awaits: assign it only once complete.
-        let digest = await digestDir(
-          codebase.relative_path,
-          JSON.stringify(codebase)
-        );
-        const extra = extraDigestPaths(codebase);
-        if (extra.length > 0) {
-          const hashes = await Promise.all(extra.map(digestPath));
-          digest = await generateHash(digest + hashes.join(""));
-        }
-        if (codebase.format == "esm") {
-          digest += ".esm";
-        }
-        _digest = digest;
-        if (!alreadyPrinted) {
-          alreadyPrinted = true;
-          log.info(`Codebase ${codebase.relative_path}, digest: ${_digest}`);
-        }
-        hasAssets =
-          Array.isArray(codebase.assets) && codebase.assets.length > 0;
-      }
-      if (forceTar || hasAssets) {
-        return _digest + ".tar";
-      } else {
-        return _digest;
-      }
+    const hasAssets =
+      Array.isArray(codebase.assets) && codebase.assets.length > 0;
+    const withSuffixes = (digest: string, forceTar?: boolean) => {
+      if (codebase.format == "esm") digest += ".esm";
+      return forceTar || hasAssets ? digest + ".tar" : digest;
     };
-    res.push({ ...codebase, getDigest });
+
+    if (!isPerScriptDigest(codebase)) {
+      let dirDigest: Promise<string> | undefined;
+      const getDigest = async (_scriptPath: string, forceTar?: boolean) => {
+        if (!dirDigest) {
+          dirDigest = (async () => {
+            let digest = await digestDir(
+              codebase.relative_path,
+              JSON.stringify(codebase)
+            );
+            const extra = extraDigestPaths(codebase);
+            if (extra.length > 0) {
+              const hashes = await Promise.all(extra.map(digestPath));
+              digest = await generateHash(digest + hashes.join(""));
+            }
+            log.info(
+              `Codebase ${codebase.relative_path}, digest: ${withSuffixes(digest)}`
+            );
+            return digest;
+          })();
+        }
+        return withSuffixes(await dirDigest, forceTar);
+      };
+      res.push({ ...codebase, getDigest, primeDigests: async () => {} });
+      continue;
+    }
+
+    const digests = new Map<string, Promise<string>>();
+    const primeDigests = async (scriptPaths: string[]) => {
+      const missing = [
+        ...new Set(scriptPaths.map((p) => path.resolve(p))),
+      ].filter((p) => !digests.has(p));
+      if (missing.length == 0) return;
+      const computed = scriptDigests(codebase, missing, hasher);
+      for (const p of missing) {
+        const d = computed.then((m) => {
+          const v = m.get(p)!;
+          if (v instanceof Error) throw v;
+          return v;
+        });
+        // A primed script nobody asks for must not fail the run.
+        d.catch(() => {});
+        digests.set(p, d);
+      }
+      await Promise.allSettled(missing.map((p) => digests.get(p)));
+    };
+    const getDigest = async (scriptPath: string, forceTar?: boolean) => {
+      const abs = path.resolve(scriptPath);
+      if (!digests.has(abs)) await primeDigests([abs]);
+      return withSuffixes(await digests.get(abs)!, forceTar);
+    };
+    res.push({ ...codebase, getDigest, primeDigests });
   }
 
   return res;
+}
+
+/** Memoized content hashes, shared by every codebase of a run. */
+class FileHasher {
+  private hashes = new Map<string, Promise<string>>();
+  private configs = new Map<string, Promise<string[]>>();
+
+  hash(absPath: string): Promise<string> {
+    let h = this.hashes.get(absPath);
+    if (!h) {
+      h = readFile(absPath).then(generateHashFromBuffer);
+      this.hashes.set(absPath, h);
+    }
+    return h;
+  }
+
+  /** The tsconfig/jsconfig files of `dir` and its ancestors: esbuild applies the
+   * nearest one (and whatever it extends) to every file below it. */
+  configsAbove(dir: string): Promise<string[]> {
+    let c = this.configs.get(dir);
+    if (!c) {
+      c = (async () => {
+        const parent = path.dirname(dir);
+        const above = parent == dir ? [] : await this.configsAbove(parent);
+        const here: string[] = [];
+        for (const name of TS_CONFIG_NAMES) {
+          const p = path.join(dir, name);
+          if (await stat(p).then((s) => s.isFile(), () => false)) here.push(p);
+        }
+        return [...here, ...above];
+      })();
+      this.configs.set(dir, c);
+    }
+    return c;
+  }
+}
+
+const TS_CONFIG_NAMES = ["tsconfig.json", "jsconfig.json"];
+
+/** A file input of an esbuild metafile, as opposed to "<define:x>", "(disabled):x"
+ * or a plugin namespace. */
+function isFileInput(key: string): boolean {
+  return !/^[<(]|^[a-z-]{2,}:/i.test(key);
+}
+
+const toPosix = (p: string) => p.split(path.sep).join("/");
+
+/**
+ * Per-script digests: each covers the files the script's bundle is built from
+ * (the transitive imports esbuild resolves, `node_modules` included, by path and
+ * content), the TS configs that apply to them, the codebase's assets and
+ * `extra_digest_paths`, and the codebase config.
+ *
+ * It follows the import graph rather than the bundle output: an output's input list
+ * drops files whose values are inlined (TS enums), and hashing output would make
+ * every digest depend on esbuild's code generation. Paths are relative to the
+ * working directory, the sync checkout root, so a script digests the same alone and
+ * in a batch, on any machine.
+ */
+async function scriptDigests(
+  codebase: Codebase,
+  scriptPaths: string[],
+  hasher: FileHasher
+): Promise<Map<string, string | Error>> {
+  const cwd = await realpath(process.cwd());
+  const parts = [JSON.stringify(codebase)];
+  for (const p of extraDigestPaths(codebase)) parts.push(await digestPath(p));
+  for (const a of codebase.assets ?? []) {
+    parts.push(`${a.to}\0${await hasher.hash(path.resolve(a.from))}`);
+  }
+  const shared = parts.join("\n");
+
+  const closures = await importClosures(codebase, scriptPaths, cwd);
+  const res = new Map<string, string | Error>();
+  await Promise.all(
+    scriptPaths.map(async (script) => {
+      const files = closures.get(script)!;
+      if (files instanceof Error) {
+        res.set(script, files);
+        return;
+      }
+      const configs = new Set<string>();
+      for (const f of files) {
+        if (f.split(path.sep).includes("node_modules")) continue;
+        for (const c of await hasher.configsAbove(path.dirname(f))) {
+          configs.add(c);
+        }
+      }
+      const entries = await Promise.all(
+        [...files, ...configs].map(
+          async (f) => `${toPosix(path.relative(cwd, f))}\0${await hasher.hash(f)}`
+        )
+      );
+      entries.sort();
+      res.set(
+        script,
+        await generateHash(shared + "\n" + entries.join("\n"))
+      );
+    })
+  );
+  return res;
+}
+
+/** Each script's bundle inputs as real absolute paths, the script itself included.
+ * esbuild reports real paths, so `cwd` and the entries are resolved the same way: a
+ * checkout under a symlink would otherwise find no inputs for its scripts. */
+async function importClosures(
+  codebase: Codebase,
+  scriptPaths: string[],
+  cwd: string
+): Promise<Map<string, Set<string> | Error>> {
+  const res = new Map<string, Set<string> | Error>();
+  const entries = new Map<string, string>();
+  for (const s of scriptPaths) {
+    try {
+      entries.set(s, await realpath(s));
+    } catch (e) {
+      res.set(s, bundleError(s, e));
+    }
+  }
+  const inject = await Promise.all(
+    (codebase.inject ?? []).map((p) => realpath(path.resolve(p)))
+  );
+  const graph = async (entries: string[], batched: boolean) => {
+    const out = await withEsbuild((esbuild) =>
+      esbuild.build({
+        ...graphBuildOptions(codebase, batched),
+        entryPoints: entries,
+        absWorkingDir: cwd,
+      })
+    );
+    const imports = new Map<string, string[]>();
+    for (const [key, input] of Object.entries(out.metafile?.inputs ?? {})) {
+      if (!isFileInput(key)) continue;
+      imports.set(
+        path.resolve(cwd, key),
+        input.imports
+          .filter((i) => !i.external && isFileInput(i.path))
+          .map((i) => path.resolve(cwd, i.path))
+      );
+    }
+    return imports;
+  };
+  const closure = (imports: Map<string, string[]>, script: string) => {
+    if (!imports.has(script)) {
+      throw new Error(`esbuild reported no inputs for ${script}`);
+    }
+    const seen = new Set<string>();
+    const todo = [script, ...inject];
+    while (todo.length > 0) {
+      const f = todo.pop()!;
+      if (seen.has(f)) continue;
+      seen.add(f);
+      todo.push(...(imports.get(f) ?? []));
+    }
+    return seen;
+  };
+
+  if (entries.size > 1) {
+    try {
+      const imports = await graph([...entries.values()], true);
+      for (const [s, real] of entries) res.set(s, closure(imports, real));
+      return res;
+    } catch (e) {
+      log.debug(`Batched codebase digest failed, digesting scripts one by one: ${e}`);
+    }
+  }
+  // One script that does not bundle fails the whole batch; only it should fail.
+  const queue = [...entries];
+  await Promise.all(
+    Array.from({ length: Math.min(8, queue.length) }, async () => {
+      for (let q = queue.shift(); q != undefined; q = queue.shift()) {
+        const [s, real] = q;
+        try {
+          res.set(s, closure(await graph([real], false), real));
+        } catch (e) {
+          res.set(s, bundleError(s, e));
+        }
+      }
+    })
+  );
+  return res;
+}
+
+function bundleError(script: string, e: unknown): Error {
+  const msg = e instanceof Error ? e.message : String(e);
+  return new Error(
+    `Cannot compute the codebase digest of ${toPosix(path.relative(process.cwd(), script))}: bundling it failed.\n${msg}`
+  );
+}
+
+/**
+ * The esbuild options of the digest pass. Only the options that decide which files
+ * are bundled matter (`external`, `inject`, `define`, which can drop a dead
+ * `require`, `loader`, `platform`, `packages`); the output is discarded. A batch is
+ * built with code splitting so that code shared by many scripts is generated once.
+ */
+function graphBuildOptions(codebase: Codebase, batched: boolean) {
+  return {
+    bundle: true,
+    write: false,
+    metafile: true,
+    logLevel: "silent" as const,
+    outdir: "/",
+    platform: "node" as const,
+    packages: "bundle" as const,
+    external: codebase.external,
+    inject: codebase.inject,
+    define: codebase.define,
+    loader: codebase.loader ?? { ".node": "file" },
+    target: "esnext",
+    ...(batched
+      ? { format: "esm" as const, splitting: true }
+      : { format: codebase.format ?? "cjs" }),
+  };
 }
