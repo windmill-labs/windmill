@@ -960,9 +960,9 @@
 						{@const activeWorkers = worker_group?.[1].flatMap((x) =>
 							x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
 						)}
-						{@const groupJobStats = sumJobStats(
-							worker_group[1].flatMap((x) => x[1] ?? []).map((w) => w.job_stats)
-						)}
+						{@const groupWorkers = worker_group[1].flatMap((x) => x[1] ?? [])}
+						{@const groupJobStats = sumJobStats(groupWorkers.map((w) => w.job_stats))}
+						{@const groupJobsRan = groupWorkers.reduce((acc, w) => acc + (w.jobs_executed ?? 0), 0)}
 
 						<WorkspaceGroup
 							{customTags}
@@ -996,7 +996,10 @@
 										last100Label="last 100 jobs of each worker"
 										row
 									>
-										<span class="text-2xs text-hint">Failed jobs</span>
+										<span class="flex flex-row items-baseline gap-1">
+											<span class="text-2xs text-hint">Jobs ran</span>
+											<span class="text-xs text-secondary">{groupJobsRan}</span>
+										</span>
 									</WorkerJobFailures>
 								{/if}
 							</div>
