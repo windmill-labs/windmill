@@ -1076,8 +1076,9 @@ pub async fn load_concurrency_limit_in_order(db: &DB) -> error::Result<()> {
     Ok(())
 }
 
+/// On unless set to false: in-order admission is the default.
 pub fn apply_concurrency_limit_in_order(value: Option<serde_json::Value>) {
-    let enabled = matches!(value, Some(serde_json::Value::Bool(true)));
+    let enabled = !matches!(value, Some(serde_json::Value::Bool(false)));
     CONCURRENCY_LIMIT_IN_ORDER.store(enabled, Ordering::Relaxed);
 }
 

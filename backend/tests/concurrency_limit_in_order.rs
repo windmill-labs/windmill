@@ -98,7 +98,6 @@ async fn free_slot_goes_to_the_job_first_in_line(db: Pool<Postgres>) -> anyhow::
     defer(&db, earlier).await?;
     let first_readmitted = admit(&db, first).await;
     let earlier_admitted = admit(&db, earlier).await;
-    CONCURRENCY_LIMIT_IN_ORDER.store(false, Ordering::Relaxed);
 
     assert!(!second_admitted?, "a later job took the slot");
     assert!(first_due, "the job first in line was not woken");
@@ -184,7 +183,6 @@ async fn lines_are_per_tag_by_priority_then_place(db: Pool<Postgres>) -> anyhow:
             .fetch_one(&db)
             .await?;
     let urgent_admitted = admit(&db, urgent).await;
-    CONCURRENCY_LIMIT_IN_ORDER.store(false, Ordering::Relaxed);
 
     assert!(
         !low_admitted?,

@@ -617,9 +617,10 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Run concurrency-limited jobs in order',
 			description:
-				"Jobs waiting on a concurrency limit keep the order workers pull jobs in: for each tag, by priority, then by when they became due. By default, a job deferred by its concurrency limit loses its place and can be overtaken by one queued after it. In order, a slot is only given to the job first in its tag's line, so a job that cannot start yet (for example one its own concurrency time window still holds back) holds back the jobs behind it on the same key and tag; jobs of other tags are not held back. Jobs that become due at the same moment, before any of them has waited, start in the order workers pick them up. Admitting jobs of a key one at a time in order lowers its throughput at high limits.",
+				"Jobs waiting on a concurrency limit keep the order workers pull jobs in: for each tag, by priority, then by when they became due. On by default. Turned off, a job deferred by its concurrency limit loses its place and can be overtaken by one queued after it, which drains a busy key of short jobs faster. In order, a slot is only given to the job first in its tag's line, so a job that cannot start yet (for example one its own concurrency time window still holds back) holds back the jobs behind it on the same key and tag; jobs of other tags are not held back. Jobs that become due at the same moment, before any of them has waited, start in the order workers pick them up. Admitting jobs of a key one at a time in order lowers its throughput at high limits.",
 			key: 'concurrency_limit_in_order',
 			fieldType: 'boolean',
+			defaultValue: () => true,
 			storage: 'setting',
 			ee_only: 'Concurrency limits are an Enterprise feature.',
 			hideInQuickSetup: true
