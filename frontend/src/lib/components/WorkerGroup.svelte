@@ -872,9 +872,35 @@
 					/>
 				{/if}
 
-				<p class="text-xs text-secondary"
-					>Workers that restart must be brought back by a supervisor.</p
-				>
+				<div class="flex items-center gap-1 text-xs text-secondary">
+					Most changes restart the workers, which must be brought back by a supervisor.
+					<Tooltip>
+						{#snippet text()}
+							<div class="flex flex-col gap-2 text-left">
+								<div>
+									<div class="font-semibold">Config changes</div>
+									<ul class="list-disc pl-4">
+										<li>Restart the workers one at a time (pausing aside)</li>
+										<li>A cache clear restarts them all at once</li>
+									</ul>
+								</div>
+								<div>
+									<div class="font-semibold">Script deploys</div>
+									<ul class="list-disc pl-4">
+										<li
+											>A new version of a listed script reloads in place, shared runners included</li
+										>
+										<li
+											>Workers restart, one at a time, when a listed script becomes deployable, is
+											toggled, archived, or gains or loses its <code>requirements</code> annotation</li
+										>
+										<li>Any deploy restarts them if the group serves a flow</li>
+									</ul>
+								</div>
+							</div>
+						{/snippet}
+					</Tooltip>
+				</div>
 
 				{#if nconfig !== undefined}
 					<DedicatedWorkersSelector
