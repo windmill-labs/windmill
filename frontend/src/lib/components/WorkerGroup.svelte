@@ -493,6 +493,12 @@
 			Workers finish their running job, shut down gracefully and are expected to be restarted by
 			their supervisor.</span
 		>
+		{#if pendingConfig?.dedicated_worker != undefined || (pendingConfig?.dedicated_workers?.length ?? 0) > 0}
+			<Alert size="xs" type="info" title="Dedicated workers restart one host at a time">
+				Each host waits until the previous one is back up, for up to 5 minutes, so the group keeps
+				serving jobs. Until its turn, a worker runs its dedicated scripts with the previous config.
+			</Alert>
+		{/if}
 		<span>Pausing or resuming a worker group alone does not restart its workers.</span>
 	</div>
 </ConfirmationModal>
