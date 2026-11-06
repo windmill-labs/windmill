@@ -873,9 +873,7 @@
 				{/if}
 
 				<p class="text-xs text-secondary"
-					>Deploys reload scripts in place, shared runners included. Workers restart when a deploy
-					adds or removes a dedicated script or moves one between runners, or for groups serving
-					flows. A supervisor is expected to restart them.</p
+					>Workers that restart must be brought back by a supervisor.</p
 				>
 
 				{#if nconfig !== undefined}
