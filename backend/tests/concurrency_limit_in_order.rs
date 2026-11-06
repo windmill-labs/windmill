@@ -9,17 +9,28 @@ use windmill_queue::jobs_ee::update_concurrency_counter;
 const KEY: &str = "in-order-key";
 
 async fn queue_job(db: &Pool<Postgres>, due_secs_ago: i64) -> anyhow::Result<Uuid> {
+    queue_job_on(db, due_secs_ago, "other", 0).await
+}
+
+async fn queue_job_on(
+    db: &Pool<Postgres>,
+    due_secs_ago: i64,
+    tag: &str,
+    priority: i16,
+) -> anyhow::Result<Uuid> {
     let id = Uuid::new_v4();
     sqlx::query("INSERT INTO v2_job (id, workspace_id) VALUES ($1, 'test-workspace')")
         .bind(id)
         .execute(db)
         .await?;
     sqlx::query(
-        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for)
-         VALUES ($1, 'test-workspace', now() - make_interval(secs => $2))",
+        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag, priority)
+         VALUES ($1, 'test-workspace', now() - make_interval(secs => $2), $3, $4)",
     )
     .bind(id)
     .bind(due_secs_ago as f64)
+    .bind(tag)
+    .bind(priority)
     .execute(db)
     .await?;
     sqlx::query("INSERT INTO concurrency_key (key, job_id) VALUES ($1, $2)")
@@ -34,10 +45,13 @@ async fn queue_job(db: &Pool<Postgres>, due_secs_ago: i64) -> anyhow::Result<Uui
 async fn defer(db: &Pool<Postgres>, id: Uuid) -> anyhow::Result<()> {
     sqlx::query(
         "WITH place AS (
-            UPDATE concurrency_key
-            SET original_scheduled_for = (SELECT scheduled_for FROM v2_job_queue WHERE id = $1),
-                place = COALESCE(place, (SELECT scheduled_for FROM v2_job_queue WHERE id = $1))
-            WHERE job_id = $1
+            UPDATE concurrency_key ck
+            SET original_scheduled_for = q.scheduled_for,
+                place = COALESCE(ck.place, q.scheduled_for),
+                tag = COALESCE(ck.tag, q.tag),
+                priority = COALESCE(ck.priority, q.priority, -32768)
+            FROM v2_job_queue q
+            WHERE ck.job_id = $1 AND q.id = $1
         )
         UPDATE v2_job_queue SET scheduled_for = now() + interval '1 hour' WHERE id = $1",
     )
@@ -136,6 +150,48 @@ async fn completion_fills_free_slots_from_the_front_of_the_line(
         due,
         vec![true, true, false, false],
         "the two jobs first in line were not both woken, or a debounced job was"
+    );
+    Ok(())
+}
+
+/// Each tag of a key has its own line, by priority then place, the order workers pull jobs in:
+/// a later job of higher priority is ahead of an earlier one, and a job of another tag that no
+/// worker picks up holds back neither the admission nor the wakes of this tag's line.
+#[sqlx::test(fixtures("base"))]
+#[serial_test::serial]
+async fn lines_are_per_tag_by_priority_then_place(db: Pool<Postgres>) -> anyhow::Result<()> {
+    CONCURRENCY_LIMIT_IN_ORDER.store(true, Ordering::Relaxed);
+    // Woken long ago on a tag no worker serves: due, never pulled again. Its priority puts it
+    // ahead of every other job, so only skipping already-due jobs keeps it from taking the wake.
+    let stuck = queue_job_on(&db, 60, "gpu", 9).await?;
+    defer(&db, stuck).await?;
+    sqlx::query("UPDATE v2_job_queue SET scheduled_for = now() WHERE id = $1")
+        .bind(stuck)
+        .execute(&db)
+        .await?;
+    let low = queue_job_on(&db, 30, "other", 0).await?;
+    defer(&db, low).await?;
+    let urgent = queue_job_on(&db, 10, "other", 5).await?;
+    defer(&db, urgent).await?;
+
+    let low_admitted = admit(&db, low).await;
+    windmill_queue::fill_concurrency_key_slots_in_order(&db, KEY, 1).await?;
+    let urgent_woken: bool =
+        sqlx::query_scalar("SELECT scheduled_for <= now() FROM v2_job_queue WHERE id = $1")
+            .bind(urgent)
+            .fetch_one(&db)
+            .await?;
+    let urgent_admitted = admit(&db, urgent).await;
+    CONCURRENCY_LIMIT_IN_ORDER.store(false, Ordering::Relaxed);
+
+    assert!(
+        !low_admitted?,
+        "an earlier job of lower priority took the slot"
+    );
+    assert!(urgent_woken, "the stuck job of another tag took the wake");
+    assert!(
+        urgent_admitted?,
+        "the job first in its tag's line was held back by another tag"
     );
     Ok(())
 }
