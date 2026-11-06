@@ -230,3 +230,30 @@ async fn a_job_just_woken_fills_its_slot(db: Pool<Postgres>) -> anyhow::Result<(
     );
     Ok(())
 }
+
+/// A job ahead in line whose queue row is deleted without its concurrency key being ended (as a
+/// path that deletes a waiting job may do) does not hold the line: the next job is admitted, and
+/// the stale key is ended.
+#[sqlx::test(fixtures("base"))]
+#[serial_test::serial]
+async fn a_job_gone_from_the_queue_does_not_hold_the_line(db: Pool<Postgres>) -> anyhow::Result<()> {
+    CONCURRENCY_LIMIT_IN_ORDER.store(true, Ordering::Relaxed);
+    let gone = queue_job(&db, 20).await?;
+    defer(&db, gone).await?;
+    sqlx::query("DELETE FROM v2_job_queue WHERE id = $1")
+        .bind(gone)
+        .execute(&db)
+        .await?;
+    let next = queue_job(&db, 10).await?;
+
+    let next_admitted = admit(&db, next).await;
+    let gone_ended: bool =
+        sqlx::query_scalar("SELECT ended_at IS NOT NULL FROM concurrency_key WHERE job_id = $1")
+            .bind(gone)
+            .fetch_one(&db)
+            .await?;
+
+    assert!(next_admitted?, "a job no longer queued held the line");
+    assert!(gone_ended, "the stale concurrency key was left open");
+    Ok(())
+}
