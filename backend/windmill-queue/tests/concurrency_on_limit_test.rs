@@ -134,4 +134,70 @@ mod concurrency_on_limit {
             "ConcurrencyLimitReached"
         );
     }
+
+    /// Defers `id` an hour out, first in its line, as a job refused by its limit is left.
+    async fn defer_first_in_line(db: &Pool<Postgres>, id: Uuid) {
+        sqlx::query(
+            "WITH place AS (
+                UPDATE concurrency_key ck
+                SET original_scheduled_for = q.scheduled_for,
+                    place = q.scheduled_for - interval '1 minute',
+                    tag = q.tag, priority = COALESCE(q.priority, -32768)
+                FROM v2_job_queue q
+                WHERE ck.job_id = $1 AND q.id = $1
+            )
+            UPDATE v2_job_queue SET scheduled_for = now() + interval '1 hour' WHERE id = $1",
+        )
+        .bind(id)
+        .execute(db)
+        .await
+        .unwrap();
+    }
+
+    // With a slot free, a job behind another in its line waits its turn: it is not over its
+    // limit, so fail mode does not apply.
+    #[sqlx::test(migrations = "../migrations", fixtures("base"))]
+    async fn fail_mode_spares_a_run_waiting_its_turn(db: Pool<Postgres>) {
+        let ahead = push_job(&db, Some(OnConcurrencyLimit::Fail)).await;
+        let reserved = push_job(&db, Some(OnConcurrencyLimit::Fail)).await;
+        let behind = push_job(&db, Some(OnConcurrencyLimit::Fail)).await;
+        defer_first_in_line(&db, ahead).await;
+
+        let job = get_mini_pulled_job(&db, &reserved)
+            .await
+            .unwrap()
+            .expect("reserved job");
+        let admitted = try_admit_owned_job(&db, &job)
+            .await
+            .expect("a reserved run waiting its turn is not failed");
+        assert!(
+            !admitted,
+            "a reserved run behind another in line took the slot"
+        );
+
+        // Each pull takes one due run; the runs behind are refused for their turn, which wakes
+        // `ahead`, the only one to get the slot.
+        let mut started = None;
+        for _ in 0..3 {
+            let pulled = pull_one(&db).await;
+            assert!(
+                pulled.error_while_preprocessing.is_none(),
+                "a run waiting its turn was failed"
+            );
+            if let Some(j) = pulled.job {
+                started = Some(j.id);
+                break;
+            }
+        }
+        assert_eq!(started, Some(ahead));
+
+        let completed = sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM v2_job_completed WHERE id = ANY($1)",
+        )
+        .bind(vec![behind, reserved])
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert_eq!(completed, 0, "a run waiting its turn was failed");
+    }
 }
