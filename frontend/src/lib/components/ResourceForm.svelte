@@ -5,7 +5,8 @@
 	import { onDestroy, untrack } from 'svelte'
 	import { setEditorUnparseable } from './pendingEditorFlush'
 	import { emptyString, isOwner, urlize } from '$lib/utils'
-	import { Alert, Skeleton } from './common'
+	import { Alert, Button, Skeleton } from './common'
+	import { AlertTriangle, Trash2 } from 'lucide-svelte'
 	import Path from './Path.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 	import { type UserExt } from '$lib/stores'
@@ -143,8 +144,30 @@
 		return Object.keys(args).filter((k) => !(k in props))
 	})
 
-	function removeOrphanKeys() {
-		args = Object.fromEntries(Object.entries(args).filter(([k]) => !orphanKeys.includes(k)))
+	// Rendered untyped, which the form shows as a JSON input, so any stored value fits.
+	let formSchema = $derived(
+		orphanKeys.length > 0 && resourceSchema
+			? {
+					...resourceSchema,
+					properties: {
+						...resourceSchema.properties,
+						...Object.fromEntries(
+							orphanKeys.map((k) => [
+								k,
+								{
+									description:
+										'Not in the resource type schema, but still passed to scripts using this resource. Remove it if it is no longer used.'
+								}
+							])
+						)
+					}
+				}
+			: resourceSchema
+	)
+
+	function removeOrphanKey(key: string) {
+		const { [key]: _, ...rest } = args
+		args = rest
 	}
 
 	// This field is a bare SimpleEditor parsed here, so it never passes through JsonEditor —
@@ -376,38 +399,34 @@
 					/>
 				</div>
 			{:else}
-				{#if orphanKeys.length > 0}
-					<Alert
-						type="warning"
-						size="xs"
-						class="mb-2"
-						title="Properties not in the resource type schema"
-						actions={can_write ? [{ label: 'Remove them', onClick: removeOrphanKeys }] : undefined}
-					>
-						This value holds properties the form cannot show. They are still passed to scripts using
-						this resource:
-						<ul class="list-disc pl-4 mt-1">
-							{#each orphanKeys as key (key)}
-								{@const v = args[key]}
-								<li>
-									<code>{key}</code
-									>{#if typeof v === 'string' && (v.startsWith('$var:') || v.startsWith('$res:'))}:
-										<code>{v}</code>{/if}
-								</li>
-							{/each}
-						</ul>
-					</Alert>
-				{/if}
 				<SchemaForm
 					onlyMaskPassword
 					noDelete
 					disabled={!can_write}
 					compact
-					schema={resourceSchema}
+					schema={formSchema}
 					bind:args
 					bind:isValid
 					{workspace}
-				/>
+				>
+					{#snippet actions({ item })}
+						{#if orphanKeys.includes(item.value)}
+							<span title="Not in the resource type schema" class="flex">
+								<AlertTriangle size={16} class="text-yellow-500" />
+							</span>
+							{#if can_write}
+								<Button
+									variant="subtle"
+									unifiedSize="sm"
+									iconOnly
+									startIcon={{ icon: Trash2 }}
+									title="Remove from this resource"
+									onclick={() => removeOrphanKey(item.value)}
+								/>
+							{/if}
+						{/if}
+					{/snippet}
+				</SchemaForm>
 			{/if}
 		{:else if !can_write}
 			<input type="text" disabled value={rawCode} />
