@@ -2200,25 +2200,27 @@ pub fn restart_dedicated_worker_in_turn(db: DB, killpill_tx: KillpillSender) {
 
 async fn claim_dedicated_restart_turn(db: &DB) -> sqlx::Result<bool> {
     let mut tx = db.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('dedicated_restart_turn:' || $1))")
-        .bind(&*WORKER_GROUP)
-        .execute(&mut *tx)
-        .await?;
-    let busy: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM worker_ping WHERE worker_group = $1 AND worker_instance <> $2
-            AND dedicated_restart_at > now() - make_interval(secs => $3))",
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtext('dedicated_restart_turn:' || $1))",
+        &*WORKER_GROUP
     )
-    .bind(&*WORKER_GROUP)
-    .bind(&*crate::utils::HOSTNAME)
-    .bind(DEDICATED_RESTART_TURN_SECS)
+    .execute(&mut *tx)
+    .await?;
+    let busy = sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM worker_ping WHERE worker_group = $1 AND worker_instance <> $2
+            AND dedicated_restart_at > now() - make_interval(secs => $3)) AS "busy!""#,
+        &*WORKER_GROUP,
+        &*crate::utils::HOSTNAME,
+        DEDICATED_RESTART_TURN_SECS
+    )
     .fetch_one(&mut *tx)
     .await?;
     if !busy {
-        sqlx::query(
+        sqlx::query!(
             "UPDATE worker_ping SET dedicated_restart_at = now() WHERE worker_group = $1 AND worker_instance = $2",
+            &*WORKER_GROUP,
+            &*crate::utils::HOSTNAME
         )
-        .bind(&*WORKER_GROUP)
-        .bind(&*crate::utils::HOSTNAME)
         .execute(&mut *tx)
         .await?;
     }
@@ -2228,12 +2230,12 @@ async fn claim_dedicated_restart_turn(db: &DB) -> sqlx::Result<bool> {
 
 /// Releases the restart turn held by this host's previous worker of the group, if any.
 pub async fn dedicated_worker_ready(db: &DB) -> sqlx::Result<()> {
-    sqlx::query(
+    sqlx::query!(
         "UPDATE worker_ping SET dedicated_restart_at = NULL
             WHERE worker_group = $1 AND worker_instance = $2 AND dedicated_restart_at IS NOT NULL",
+        &*WORKER_GROUP,
+        &*crate::utils::HOSTNAME
     )
-    .bind(&*WORKER_GROUP)
-    .bind(&*crate::utils::HOSTNAME)
     .execute(db)
     .await?;
     Ok(())
