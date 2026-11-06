@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH target AS (\n            SELECT id FROM v2_job_queue WHERE id = $1 AND NOT running FOR UPDATE\n        ), completed AS (\n            INSERT INTO v2_job_completed\n                (workspace_id, id, started_at, duration_ms, result,\n                 flow_status, workflow_as_code_status, status, worker)\n            SELECT\n                q.workspace_id, q.id, q.started_at,\n                (EXTRACT('epoch' FROM now()) - EXTRACT('epoch' FROM COALESCE(q.started_at, now()))) * 1000,\n                $3::text::jsonb,\n                s.flow_status,\n                s.workflow_as_code_status,\n                'skipped'::job_status,\n                q.worker\n            FROM v2_job_queue q\n            LEFT JOIN v2_job_status s ON s.id = q.id\n            WHERE q.id IN (SELECT id FROM target)\n            ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = EXCLUDED.result\n            RETURNING 1 AS x\n        ), _deleted AS (\n            DELETE FROM v2_job_queue WHERE id IN (SELECT id FROM target)\n        ), _key_gone AS (\n            -- The job leaves the queue without having run: its concurrency key goes, so that\n            -- it does not stay first in line, nor count as a run in a time window.\n            DELETE FROM concurrency_key\n            WHERE job_id IN (SELECT id FROM target) AND ended_at IS NULL\n        ), _logged AS (\n            INSERT INTO job_logs (logs, job_id, workspace_id)\n            SELECT $4, $1, $2 WHERE EXISTS (SELECT 1 FROM target)\n            ON CONFLICT (job_id) DO UPDATE SET logs = concat(job_logs.logs, EXCLUDED.logs)\n        )\n        SELECT x FROM completed\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "x",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3b07ab8a26a72de09e8a24de28d6a7bfbaffc815b049d821ae4189fe129a8444"
+}

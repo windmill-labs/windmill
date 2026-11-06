@@ -328,7 +328,17 @@ pub async fn handle_dependency_job(
     // hash names an archived version. What it generates is committed against the live version
     // re-read under a row lock, so a deploy landing mid-generation is caught there too.
     let target_hash = if triggered_by_relative_import {
-        Some(ScriptHash(live_head_hash(db, w_id, script_path).await?))
+        let head = live_head(db, w_id, script_path).await?;
+        if head.is_codebase {
+            // The fan-out skips codebase importers (see `trigger_dependents`), but a codebase
+            // deploy can land after this relock was queued.
+            let log_msg = "\nCodebase script: its bundle carries its imports, no relock needed";
+            append_logs(&job.id, w_id, log_msg, &db.into()).await;
+            return Ok(to_raw_value_owned(
+                json!({ "status": "Skipped: codebase script, no relock needed" }),
+            ));
+        }
+        Some(ScriptHash(head.hash))
     } else {
         job.runnable_id
     };
@@ -750,12 +760,18 @@ pub async fn handle_dependency_job(
     }
 }
 
+struct LiveHead {
+    hash: i64,
+    is_codebase: bool,
+}
+
 /// The version of `script_path` that runs resolve to, which is what a relative-import relock
 /// locks. `NotFound` when the path holds none, which a job pushed for a path since archived or
 /// deleted reports as its own failure.
-async fn live_head_hash(db: &DB, w_id: &str, script_path: &str) -> error::Result<i64> {
-    sqlx::query_scalar!(
-        "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false AND archived = false ORDER BY created_at DESC LIMIT 1",
+async fn live_head(db: &DB, w_id: &str, script_path: &str) -> error::Result<LiveHead> {
+    sqlx::query_as!(
+        LiveHead,
+        "SELECT hash, codebase IS NOT NULL AS \"is_codebase!\" FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false AND archived = false ORDER BY created_at DESC LIMIT 1",
         script_path,
         w_id
     )

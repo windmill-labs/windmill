@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM dependency_map WHERE workspace_id = $1 AND importer_kind = 'script'\n             AND (importer_path = $2 OR importer_path = $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c02a84a0891d307708806bcc53d089941e2a1dcaafdc0d2d93d59072fb2217a0"
+}

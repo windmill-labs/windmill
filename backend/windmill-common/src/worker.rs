@@ -524,6 +524,10 @@ lazy_static::lazy_static! {
     pub static ref CONCURRENCY_KEY_MAX_QUEUED: AtomicU32 =
         AtomicU32::new(CONCURRENCY_KEY_MAX_QUEUED_DEFAULT);
 
+    /// Admit the jobs waiting on a concurrency key in order: per tag, by priority, then by
+    /// when they became due. On unless the `concurrency_limit_in_order` setting is false.
+    pub static ref CONCURRENCY_LIMIT_IN_ORDER: AtomicBool = AtomicBool::new(true);
+
     /// Cloud-only ceiling on the total number of jobs a workspace may have queued at once,
     /// across every concurrency key and script. Guards against a workspace flooding the queue
     /// generally (not just behind one key), including from parallel for-loops. `0` disables it.
