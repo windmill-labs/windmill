@@ -3630,19 +3630,87 @@ pub(crate) fn resolve_flow_step_tag(
     // and their steps are suffixed when pushed.
     dev_suffix: Option<&str>,
 ) -> Option<String> {
-    let generic_flow_tag = dev_suffix
-        .and_then(|s| flow_tag.strip_suffix(s))
-        .unwrap_or(flow_tag);
-    if is_preprocessor_step
-        || generic_flow_tag == "flow"
-        || generic_flow_tag == format!("flow-{}", workspace_id)
-    {
+    if is_preprocessor_step || is_default_flow_tag(flow_tag, workspace_id, dev_suffix) {
         step_tag.map(str::to_string)
     } else if preserve_step_tags && step_tag.is_some_and(|t| !t.is_empty()) {
         step_tag.map(str::to_string)
     } else {
         Some(flow_tag.to_string())
     }
+}
+
+/// Whether a flow on `flow_tag` runs on the default flow tag, under which every child keeps its
+/// own tag whatever `preserve_step_tags` says.
+pub(crate) fn is_default_flow_tag(
+    flow_tag: &str,
+    workspace_id: &str,
+    dev_suffix: Option<&str>,
+) -> bool {
+    let generic_flow_tag = dev_suffix
+        .and_then(|s| flow_tag.strip_suffix(s))
+        .unwrap_or(flow_tag);
+    generic_flow_tag == "flow" || generic_flow_tag == format!("flow-{}", workspace_id)
+}
+
+/// Whether the flow job `flow_job_id` runs on its tag only because a caller passed it down, and
+/// that caller preserves step tags. A subflow without a tag of its own runs on its caller's tag,
+/// so the caller's `preserve_step_tags` must reach the subflow's steps: otherwise the subflow's
+/// own setting, off by default and irrelevant until it runs under a custom tag, pins them to the
+/// caller's tag. A subflow that declares its own tag keeps its own setting, whatever the tag.
+pub(crate) async fn enclosing_flow_preserves_step_tags(
+    db: &DB,
+    workspace_id: &str,
+    flow_job_id: Uuid,
+) -> error::Result<bool> {
+    let ancestors = sqlx::query!(
+        r#"WITH RECURSIVE chain AS (
+            SELECT id, parent_job, kind, runnable_id, runnable_path, tag, 1 AS depth
+            FROM v2_job WHERE id = $1 AND workspace_id = $2
+          UNION ALL
+            SELECT j.id, j.parent_job, j.kind, j.runnable_id, j.runnable_path, j.tag,
+                chain.depth + 1
+            FROM v2_job j JOIN chain ON j.id = chain.parent_job
+            WHERE j.workspace_id = $2 AND j.tag = chain.tag AND chain.depth < 64
+        )
+        SELECT id AS "id!", kind AS "kind!: JobKind", runnable_id AS "runnable_id: ScriptHash",
+            (kind = 'flow' AND EXISTS (
+                SELECT 1 FROM flow
+                WHERE flow.workspace_id = $2 AND flow.path = chain.runnable_path
+                    AND COALESCE(flow.tag, '') <> ''
+            )) AS "declares_tag!"
+        FROM chain ORDER BY depth"#,
+        flow_job_id,
+        workspace_id,
+    )
+    .fetch_all(db)
+    .await?;
+    for (depth, ancestor) in ancestors.into_iter().enumerate() {
+        // The flow job itself was already checked by the caller; past it, a flow declaring its own
+        // tag is a boundary, though its own setting still counts.
+        if depth == 0 {
+            if ancestor.declares_tag {
+                return Ok(false);
+            }
+            continue;
+        }
+        let flow_data = match ancestor.kind {
+            JobKind::Flow | JobKind::FlowNode => {
+                cache::job::fetch_flow(db, &ancestor.kind, ancestor.runnable_id).await?
+            }
+            JobKind::FlowPreview => cache::job::fetch_preview_flow(db, &ancestor.id, None).await?,
+            // Its `runnable_id` is the wrapped runnable's, and its own flow never preserves tags.
+            JobKind::SingleStepFlow => continue,
+            // Only a flow job can enclose a flow, so the chain has left the flow tree.
+            _ => return Ok(false),
+        };
+        if flow_data.value().preserve_step_tags {
+            return Ok(true);
+        }
+        if ancestor.declares_tag {
+            return Ok(false);
+        }
+    }
+    Ok(false)
 }
 
 /// Resolves each `$flow_expr[root.key.path]` of a step tag by reading `key.path` from `results`
@@ -4816,6 +4884,21 @@ async fn push_next_flow_job(
     };
     let len = job_payloads.len();
 
+    let dev_suffix =
+        windmill_queue::tags::dev_flow_tag_suffix(&flow_job.workspace_id, &flow_job.tag, db)
+            .await?;
+    let enclosing_flow_preserves = !flow.preserve_step_tags
+        && flow_job.parent_job.is_some()
+        && !is_default_flow_tag(&flow_job.tag, &flow_job.workspace_id, dev_suffix.as_deref())
+        && job_payloads.iter().any(|p| {
+            p.tag
+                .as_deref()
+                .is_some_and(|t| !t.is_empty() && t != flow_job.tag)
+        })
+        && enclosing_flow_preserves_step_tags(db, &flow_job.workspace_id, flow_job.id)
+            .warn_after_seconds(3)
+            .await?;
+
     let mut tx = db.begin().warn_after_seconds(3).await?;
     let nargs = args.as_ref();
     for (i, mut payload_tag) in job_payloads.into_iter().enumerate() {
@@ -5064,11 +5147,9 @@ async fn push_next_flow_job(
             step.is_preprocessor_step(),
             &flow_job.tag,
             &flow_job.workspace_id,
-            flow.preserve_step_tags,
+            flow.preserve_step_tags || enclosing_flow_preserves,
             payload_tag.tag.as_deref(),
-            windmill_queue::tags::dev_flow_tag_suffix(&flow_job.workspace_id, &flow_job.tag, db)
-                .await?
-                .as_deref(),
+            dev_suffix.as_deref(),
         );
 
         // A step whose inputs failed to evaluate, or whose `$flow_expr[...]` tag failed to resolve,
