@@ -278,21 +278,23 @@
 					initialScopes={requestedScopes}
 					bind:scopes
 					bind:access={() => access, setAccess}
-				/>
+				>
+					{#snippet afterAccess()}
+						{#if isSuperAdmin}
+							<div class="flex flex-col gap-1">
+								<Toggle
+									bind:checked={() => superAdmin, setSuperAdmin}
+									options={{ right: 'Superadmin rights' }}
+									size="xs"
+								/>
+								<p class="text-xs text-tertiary">
+									Admin in every workspace of the instance, including ones you are not a member of.
+								</p>
+							</div>
+						{/if}
+					{/snippet}
+				</McpAccessPicker>
 			</div>
-
-			{#if isSuperAdmin}
-				<div class="mb-6 flex flex-col gap-1">
-					<Toggle
-						bind:checked={() => superAdmin, setSuperAdmin}
-						options={{ right: 'Superadmin rights' }}
-						size="xs"
-					/>
-					<p class="text-xs text-tertiary">
-						Admin in every workspace of the instance, including ones you are not a member of.
-					</p>
-				</div>
-			{/if}
 
 			<div class="flex flex-row justify-around gap-x-4">
 				<Button variant="border" size="lg" disabled={loading} onClick={onDeny}>Deny</Button>

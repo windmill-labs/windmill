@@ -146,9 +146,14 @@
 		mcpCreationMode = true
 		void loadMcpUrlPolicy()
 		resetExpirationOnModeChange()
-		mcpSuperAdmin = false
 		mcpAllWorkspaces = false
 		const current = defaultNewTokenWorkspace ?? $operatingWorkspace
+		// A token locked to a workspace the superadmin is not a member of works only with their rights.
+		mcpSuperAdmin =
+			lockWorkspace &&
+			!!$superadmin &&
+			!!current &&
+			!($usersWorkspaceStore?.workspaces ?? []).some((w) => w.id === current)
 		mcpWorkspaces =
 			current && (lockWorkspace || mcpWorkspaceItems.some((w) => w.value === current))
 				? [current]
@@ -329,19 +334,22 @@
 			workspaceId={scopeWorkspaceId}
 			bind:scopes={mcpScopes}
 			bind:access={() => mcpAccess, setMcpAccess}
-		/>
-		{#if $superadmin}
-			<div class="flex flex-col gap-1">
-				<Toggle
-					bind:checked={() => mcpSuperAdmin, setMcpSuperAdmin}
-					options={{ right: 'Superadmin rights' }}
-					size="xs"
-				/>
-				<p class="text-xs text-tertiary">
-					Admin in every workspace of the instance, including ones you are not a member of.
-				</p>
-			</div>
-		{/if}
+		>
+			{#snippet afterAccess()}
+				{#if $superadmin}
+					<div class="flex flex-col gap-1">
+						<Toggle
+							bind:checked={() => mcpSuperAdmin, setMcpSuperAdmin}
+							options={{ right: 'Superadmin rights' }}
+							size="xs"
+						/>
+						<p class="text-xs text-tertiary">
+							Admin in every workspace of the instance, including ones you are not a member of.
+						</p>
+					</div>
+				{/if}
+			{/snippet}
+		</McpAccessPicker>
 		{#if !mcpOnly}
 			<div>
 				<span class="block mb-1 text-emphasis text-xs font-semibold"
