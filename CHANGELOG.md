@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.864.0](https://github.com/windmill-labs/windmill/compare/v1.863.0...v1.864.0) (2026-11-06)
+
+
+### Features
+
+* let admins discard another user's draft from the draft badge ([#12274](https://github.com/windmill-labs/windmill/issues/12274)) ([35cad95](https://github.com/windmill-labs/windmill/commit/35cad95a843577112a5712c48e3eb3eab6f1e047))
+* track failed job rates per worker (24h, last 100, lifetime) ([#12275](https://github.com/windmill-labs/windmill/issues/12275)) ([caf0d67](https://github.com/windmill-labs/windmill/commit/caf0d6756346e846ee70d5c4d81d1dc8c03ff09b))
+
+
+### Bug Fixes
+
+* apply preserve_step_tags to steps of untagged subflows ([#12278](https://github.com/windmill-labs/windmill/issues/12278)) ([2516d3f](https://github.com/windmill-labs/windmill/commit/2516d3fca20a52928e4ef82126491fc8cddc7acc))
+* undo SMTP dot-stuffing in email trigger raw_email ([#12281](https://github.com/windmill-labs/windmill/issues/12281)) ([b4ea988](https://github.com/windmill-labs/windmill/commit/b4ea98815bee51a0b129fd5d9f28916be187c14c))
+
 ## [1.863.0](https://github.com/windmill-labs/windmill/compare/v1.862.0...v1.863.0) (2026-11-06)
 
 
