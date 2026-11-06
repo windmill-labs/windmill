@@ -84,7 +84,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                 Some(row) if row.is_codebase => {
                     // A codebase bundle carries its imports and only the CLI can rebuild it, so
                     // a relock would deploy a version with no bundle and every run would fail.
-                    // Any rows it still has predate its codebase deploy: drop them.
+                    // Its importer rows serve no relock, so they go too.
                     sqlx::query!(
                         "DELETE FROM dependency_map WHERE workspace_id = $1 AND importer_path = $2 AND importer_kind = 'script'",
                         w_id,
