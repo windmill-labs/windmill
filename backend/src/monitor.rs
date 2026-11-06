@@ -5898,11 +5898,19 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
 
         // Pausing or resuming must not restart the workers, dedicated ones included: a reload
         // whose only difference is the flag skips every restart below.
-        let only_pause_changed = wc.paused != config.paused
-            && WorkerConfig { paused: wc.paused, ..config.clone() } == **wc;
+        // Tags only decide what the workers pull, and the pull query is swapped below: a change
+        // to them alone needs no restart either. A script toggled under a `dedicated_workers`
+        // pattern comes in this way, its dependency job tagged for the group before it has a lock.
+        let only_live_fields_changed = **wc != config
+            && WorkerConfig {
+                paused: wc.paused,
+                worker_tags: wc.worker_tags.clone(),
+                priority_tags_sorted: wc.priority_tags_sorted.clone(),
+                ..config.clone()
+            } == **wc;
 
         if **wc != config || has_dedicated {
-            if kill_if_change && !only_pause_changed {
+            if kill_if_change && !only_live_fields_changed {
                 // Every worker of a dedicated group sees the same change at once: they restart
                 // one at a time instead, so the group keeps warm workers to serve its jobs.
                 // A cache clear still restarts at once: the cache goes away under the workers.
