@@ -987,19 +987,19 @@
 
 						<div class="mt-6"></div>
 
-						{#if groupJobStats}
-							<div class="flex flex-row gap-3 items-center mb-4">
-								<div class="text-emphasis font-semibold text-xs">Failed jobs in this group</div>
-								<WorkerJobFailures
-									stats={groupJobStats}
-									last100Label="last 100 jobs of each worker"
-									inline
-								/>
-							</div>
-						{/if}
-
 						<div class="flex flex-row gap-2 items-center justify-between">
-							<div class="text-emphasis font-semibold text-xs">Active workers</div>
+							<div class="flex flex-row items-center gap-4">
+								<div class="text-emphasis font-semibold text-xs">Active workers</div>
+								{#if groupJobStats}
+									<WorkerJobFailures
+										stats={groupJobStats}
+										last100Label="last 100 jobs of each worker"
+										row
+									>
+										<span class="text-2xs text-hint">Failed jobs</span>
+									</WorkerJobFailures>
+								{/if}
+							</div>
 							<div class="flex flex-row items-center gap-2 relative mb-2">
 								<TextInput
 									inputProps={{

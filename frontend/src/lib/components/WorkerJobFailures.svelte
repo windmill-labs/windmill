@@ -31,12 +31,12 @@
 		stats: WorkerJobStats | undefined
 		/** Label of the last-100 window, which sums per-worker windows for a group. */
 		last100Label?: string
-		/** All three windows side by side; otherwise a 24h bar under `children`, the rest in a tooltip. */
-		inline?: boolean
+		/** Bar beside `children` rather than under it. */
+		row?: boolean
 		children?: Snippet
 	}
 
-	let { stats, last100Label = 'last 100 jobs', inline = false, children }: Props = $props()
+	let { stats, last100Label = 'last 100 jobs', row = false, children }: Props = $props()
 
 	function failedPct(c: WorkerJobCounts): number {
 		return c.executed == 0 ? 0 : (c.failed / c.executed) * 100
@@ -60,50 +60,30 @@
 	)
 </script>
 
-{#if !inline}
-	<!-- Wraps the row's job count: a grey track with the 24h failed share in red, the other
-	     windows in the tooltip. A healthy worker shows an all-grey track. -->
-	{#if !stats}
-		{@render children?.()}
-	{:else}
-		{@const failedShare = failedPct(stats.last_24h)}
-		<MeltTooltip>
-			<div class="flex flex-col gap-1 w-fit">
-				{@render children?.()}
-				<div class="h-1.5 w-12 rounded-full bg-surface-secondary border overflow-hidden">
-					{#if failedShare > 0}
-						<div
-							class="h-full bg-red-500 dark:bg-red-400"
-							style="width: {Math.max(failedShare, 8)}%"
-						></div>
-					{/if}
-				</div>
-			</div>
-			{#snippet text()}
-				<div class="font-semibold">Failed jobs</div>
-				{#each windows as w (w.short)}
-					<div>{w.label}: {pct(w.counts)} ({w.counts.failed} failed of {w.counts.executed})</div>
-				{/each}
-				<div class="text-hint">Flows are not counted; canceled jobs are not failures.</div>
-			{/snippet}
-		</MeltTooltip>
-	{/if}
-{:else if !stats}
-	<span class="text-hint">--</span>
+<!-- A grey track with the 24h failed share in red next to `children`; the other windows are in
+     the tooltip. Healthy workers show an all-grey track. -->
+{#if !stats}
+	{@render children?.()}
 {:else}
-	<div class="flex flex-row gap-3 text-xs">
-		{#each windows as w (w.short)}
-			<MeltTooltip>
-				<div class="flex flex-row gap-1 items-baseline whitespace-nowrap">
-					<span class="text-hint text-2xs w-6">{w.short}</span>
-					<span class={w.counts.failed > 0 ? 'text-red-600 dark:text-red-400' : 'text-secondary'}>
-						{pct(w.counts)}
-					</span>
-				</div>
-				{#snippet text()}
-					{w.label}: {w.counts.failed} failed of {w.counts.executed} jobs
-				{/snippet}
-			</MeltTooltip>
-		{/each}
-	</div>
+	{@const failedShare = failedPct(stats.last_24h)}
+	<MeltTooltip>
+		<div class="flex w-fit {row ? 'flex-row items-center gap-2' : 'flex-col gap-1'}">
+			{@render children?.()}
+			<div class="h-1.5 w-12 rounded-full bg-surface-secondary border overflow-hidden">
+				{#if failedShare > 0}
+					<div
+						class="h-full bg-red-500 dark:bg-red-400"
+						style="width: {Math.max(failedShare, 8)}%"
+					></div>
+				{/if}
+			</div>
+		</div>
+		{#snippet text()}
+			<div class="font-semibold">Failed jobs</div>
+			{#each windows as w (w.short)}
+				<div>{w.label}: {pct(w.counts)} ({w.counts.failed} failed of {w.counts.executed})</div>
+			{/each}
+			<div class="text-hint">Flows are not counted; canceled jobs are not failures.</div>
+		{/snippet}
+	</MeltTooltip>
 {/if}
