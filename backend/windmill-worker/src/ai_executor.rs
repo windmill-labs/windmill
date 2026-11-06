@@ -67,8 +67,8 @@ use windmill_common::{
     get_latest_hash_for_path,
     jobs::JobKind,
     runnable_ref::RunnableRef,
-    scripts::get_full_hub_script_by_path,
-    utils::{StripPath, HTTP_CLIENT},
+    scripts::get_full_hub_script_by_id,
+    utils::HTTP_CLIENT,
     worker::{to_raw_value, Connection},
 };
 use windmill_queue::{append_logs, cancel_single_job, CanceledBy, MiniPulledJob};
@@ -1079,13 +1079,9 @@ pub async fn handle_ai_agent_job(
                         }
                         None => {
                             let tool = RunnableRef::from_path(path, false)?;
-                            if tool.path().starts_with("hub/") {
-                                let hub_script = get_full_hub_script_by_path(
-                                    StripPath(tool.path().to_string()),
-                                    &HTTP_CLIENT,
-                                    None,
-                                )
-                                .await?;
+                            if let Some(hub_id) = tool.hub_id() {
+                                let hub_script =
+                                    get_full_hub_script_by_id(hub_id, &HTTP_CLIENT, None).await?;
                                 // Hub scripts carry their free-text description in `summary`.
                                 derived_description = hub_script
                                     .summary

@@ -10,6 +10,7 @@ use crate::utils::{parse_hub_id, RunnableKind};
 pub struct RunnableRef {
     kind: RunnableKind,
     path: String,
+    hub_id: Option<i32>,
 }
 
 impl RunnableRef {
@@ -67,10 +68,11 @@ impl RunnableRef {
             RunnableKind::Script => "hub/",
             RunnableKind::Flow => "hub/flows/",
         };
-        if canonical.starts_with(hub_prefix) {
-            parse_hub_id(canonical, hub_prefix)?;
-        }
-        Ok(Self { kind, path: canonical.to_string() })
+        let hub_id = canonical
+            .starts_with(hub_prefix)
+            .then(|| parse_hub_id(canonical, hub_prefix))
+            .transpose()?;
+        Ok(Self { kind, path: canonical.to_string(), hub_id })
     }
 
     pub fn is_flow(&self) -> bool {
@@ -80,6 +82,12 @@ impl RunnableRef {
     /// The path without its leading `/`.
     pub fn path(&self) -> &str {
         &self.path
+    }
+
+    /// The id to fetch this from the Hub with. A flow at `hub/123` is a workspace flow and has
+    /// none, so a check that can see flows and refuses or gates on Hub paths reads `path()`.
+    pub fn hub_id(&self) -> Option<i32> {
+        self.hub_id
     }
 
     /// The canonical `script/<path>` or `flow/<path>` form.
@@ -157,6 +165,19 @@ mod tests {
         ] {
             let got = got.unwrap_or_else(|e| panic!("{name}: {e}"));
             assert_eq!((got.is_flow(), got.path()), (is_flow, path), "{name}");
+        }
+
+        for (s, is_flow, hub_id) in [
+            ("u/me/x", false, None),
+            ("hub/12/x", false, Some(12)),
+            ("/hub/9/x", false, Some(9)),
+            ("hub/flows/76/x", true, Some(76)),
+            ("hub/flows/76", true, Some(76)),
+            // A flow under `hub/` but not `hub/flows/` is a workspace flow.
+            ("hub/123", true, None),
+            ("hub/1234/thing", true, None),
+        ] {
+            assert_eq!(bare(s, is_flow).unwrap().hub_id(), hub_id, "{s}");
         }
 
         for (name, got) in [

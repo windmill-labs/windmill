@@ -7115,18 +7115,23 @@ async fn batch_rerun_handle_job(
     // Call appropriate function to push job to queue
     match job.kind {
         JobKind::Flow => {
-            let result = push_flow_job_by_path_into_queue(
-                authed.clone(),
-                db.clone(),
-                None,
-                user_db.clone(),
-                w_id.clone(),
-                StripPath(job.script_path.clone()),
-                RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
-                PushArgsOwned { extra: None, args },
-                None,
-            )
-            .await;
+            let result = match RunnableRef::from_path(&job.script_path, true) {
+                Ok(flow) => {
+                    push_flow_job_by_path_into_queue(
+                        authed.clone(),
+                        db.clone(),
+                        None,
+                        user_db.clone(),
+                        w_id.clone(),
+                        &flow,
+                        RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
+                        PushArgsOwned { extra: None, args },
+                        None,
+                    )
+                    .await
+                }
+                Err(e) => Err(e),
+            };
             if let Ok((uuid, _, _, _)) = result {
                 resolve_batch_rerun_source(authed, db, user_db, w_id, job.id, uuid).await;
                 return Ok(uuid.to_string());
@@ -7134,19 +7139,22 @@ async fn batch_rerun_handle_job(
         }
         JobKind::Script => {
             let result = if use_latest_version {
-                push_script_job_by_path_into_queue(
-                    authed.clone(),
-                    db.clone(),
-                    None,
-                    user_db.clone(),
-                    w_id.clone(),
-                    StripPath(job.script_path.clone()),
-                    RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
-                    PushArgsOwned { extra: None, args },
-                    None,
-                )
-                .await
-                .map(|r| r.0)
+                match RunnableRef::from_path(&job.script_path, false) {
+                    Ok(script) => push_script_job_by_path_into_queue(
+                        authed.clone(),
+                        db.clone(),
+                        None,
+                        user_db.clone(),
+                        w_id.clone(),
+                        &script,
+                        RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
+                        PushArgsOwned { extra: None, args },
+                        None,
+                    )
+                    .await
+                    .map(|r| r.0),
+                    Err(e) => Err(e),
+                }
             } else {
                 run_job_by_hash_inner(
                     authed.clone(),
@@ -7247,7 +7255,7 @@ pub async fn run_flow_by_path(
     let (args, trigger_metadata) = match get_args_and_trigger_metadata(
         &db,
         &authed,
-        RunnableId::from_flow_path(flow.path()),
+        RunnableId::from_ref(&flow),
         &run_query,
         &w_id,
         args,
@@ -7268,7 +7276,7 @@ pub async fn run_flow_by_path(
         None,
         user_db,
         w_id,
-        StripPath(flow.path().to_string()),
+        &flow,
         run_query,
         args,
         trigger_metadata,
@@ -7701,7 +7709,7 @@ pub async fn run_script_by_path(
     let (args, trigger_metadata) = match get_args_and_trigger_metadata(
         &db,
         &authed,
-        RunnableId::from_script_path(script.path()),
+        RunnableId::from_ref(&script),
         &run_query,
         &w_id,
         args,
@@ -7720,7 +7728,7 @@ pub async fn run_script_by_path(
         None,
         user_db,
         w_id,
-        StripPath(script.path().to_string()),
+        &script,
         run_query,
         args,
         trigger_metadata,
@@ -7930,7 +7938,7 @@ pub async fn run_workflow_as_code(
                     UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
                 let script = RunnableRef::from_path(job.script_path(), false)?;
                 script_path_to_payload(
-                    script.path(),
+                    &script,
                     Some(userdb_authed),
                     db.clone(),
                     &w_id,
@@ -8263,7 +8271,7 @@ pub async fn run_wait_result_job_by_path_get(
         UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_authed) =
         script_path_to_payload(
-            script_path,
+            &script,
             Some(user_db_with_authed),
             db.clone(),
             &w_id,
@@ -8364,7 +8372,7 @@ pub async fn run_wait_result_flow_by_path_get(
         .to_args_from_runnable(
             &db,
             &w_id,
-            RunnableId::from_flow_path(path),
+            RunnableId::from_ref(&flow),
             run_query.skip_preprocessor,
         )
         .await?;
@@ -8392,7 +8400,7 @@ pub async fn run_wait_result_script_by_path(
             &authed,
             &db,
             &w_id,
-            RunnableId::from_script_path(path),
+            RunnableId::from_ref(&script),
             run_query.skip_preprocessor,
         )
         .await?;
@@ -8415,7 +8423,7 @@ pub async fn run_wait_result_script_by_path_internal(
     let db_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
     let (job_payload, tag, delete_after_use, delete_after_secs, timeout, on_behalf_of) =
         script_path_to_payload(
-            script.path(),
+            script,
             Some(db_authed),
             db.clone(),
             &w_id,
@@ -8641,7 +8649,7 @@ pub async fn run_wait_result_flow_by_path(
             &authed,
             &db,
             &w_id,
-            RunnableId::from_flow_path(path),
+            RunnableId::from_ref(&flow),
             run_query.skip_preprocessor,
         )
         .await?;
@@ -8663,7 +8671,7 @@ pub async fn stream_flow_by_path(
         db,
         user_db,
         w_id,
-        RunnableId::from_flow_path(RunnableRef::from_path(&flow_path.0, true)?.path()),
+        RunnableId::from_ref(&RunnableRef::from_path(&flow_path.0, true)?),
         args,
         run_query,
         method == http::Method::GET,
@@ -8778,15 +8786,14 @@ pub async fn stream_job(
 
     let poll_delay_ms = run_query.poll_delay_ms;
     let (uuid, early_return, has_failure_module) = match runnable_id {
-        RunnableId::ScriptId(ScriptId::ScriptPath(script_path))
-        | RunnableId::HubScript(script_path) => {
+        RunnableId::ScriptId(ScriptId::ScriptPath(script)) | RunnableId::HubScript(script) => {
             let (uuid, _, _) = push_script_job_by_path_into_queue(
                 authed.clone(),
                 db.clone(),
                 None,
                 user_db,
                 w_id.clone(),
-                StripPath(script_path),
+                &script,
                 run_query,
                 args,
                 None,
@@ -8808,14 +8815,14 @@ pub async fn stream_job(
             .await?;
             (uuid, None, false)
         }
-        RunnableId::FlowId(FlowId::FlowPath(flow_path)) => {
+        RunnableId::FlowId(FlowId::FlowPath(flow)) => {
             let (uuid, early_return, has_failure_module, _) = push_flow_job_by_path_into_queue(
                 authed.clone(),
                 db.clone(),
                 None,
                 user_db,
                 w_id.clone(),
-                StripPath(flow_path),
+                &flow,
                 run_query,
                 args,
                 None,
@@ -10635,7 +10642,7 @@ async fn run_dynamic_select(
                     None,
                     user_db.clone(),
                     w_id.clone(),
-                    StripPath(RunnableRef::from_path(&path, false)?.path().to_string()),
+                    &RunnableRef::from_path(&path, false)?,
                     run_query.clone(),
                     push_args,
                     None,

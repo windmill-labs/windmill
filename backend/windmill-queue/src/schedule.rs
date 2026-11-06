@@ -27,7 +27,7 @@ use windmill_common::runnable_ref::RunnableRef;
 use windmill_common::runnable_settings::ConcurrencySettings;
 use windmill_common::runnable_settings::DebouncingSettings;
 use windmill_common::schedule::schedule_to_user;
-use windmill_common::scripts::get_full_hub_script_by_path;
+use windmill_common::scripts::get_full_hub_script_by_id;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::WarnAfterExt;
@@ -405,7 +405,7 @@ pub async fn push_scheduled_job<'c>(
             None,
             on_behalf_of,
         )
-    } else if target.path().starts_with("hub/") {
+    } else if let Some(hub_id) = target.hub_id() {
         let tag = schedule.tag.clone().filter(|t| !t.is_empty());
         let payload = match &schedule.retry {
             // The language is what lets `push` materialize this as a native retry
@@ -415,13 +415,9 @@ pub async fn push_scheduled_job<'c>(
                 hash: None,
                 flow_version: None,
                 language: Some(
-                    get_full_hub_script_by_path(
-                        StripPath(target.path().to_string()),
-                        &HTTP_CLIENT,
-                        Some(db),
-                    )
-                    .await?
-                    .language,
+                    get_full_hub_script_by_id(hub_id, &HTTP_CLIENT, Some(db))
+                        .await?
+                        .language,
                 ),
                 retry: Some(serde_json::from_value::<Retry>(retry.clone()).map_err(|e| {
                     error::Error::internal_err(format!(
