@@ -3,6 +3,10 @@
 
 	// Its AI review reaches the AI clients, which a list of rows must not load to render.
 	const diffDrawerModule = lazyModule(() => import('./DiffDrawer.svelte'))
+
+	// Admin flag per `email:workspace`, for a badge describing a workspace other than the one
+	// `$userStore` was fetched for. Shared so a list of badges asks once.
+	const adminInWorkspace = new Map<string, Promise<boolean>>()
 </script>
 
 <script lang="ts">
@@ -22,7 +26,7 @@
 	import MigrateLegacyDraftModal from './common/confirmationModal/MigrateLegacyDraftModal.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { GitCompareArrows, Pencil, Trash2, Wrench } from 'lucide-svelte'
-	import { DraftService, type UserDraftItemKind } from '$lib/gen'
+	import { DraftService, UserService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { OtherUserDraftLoad, editRouteFor } from '$lib/components/otherUserDraftLoad.svelte'
 	import { fetchDeployedValueForDiff } from '$lib/components/otherUserDraftDiff'
@@ -155,11 +159,37 @@
 	// Legacy (no-owner) drafts can only be resolved by workspace admins / superadmins.
 	const canMigrateLegacy = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
 	// Discarding another user's draft is `drafts/delete_for_user`, admin-only in `workspace`.
-	// `$userStore` describes the navigation workspace, so its admin flag only counts there;
-	// superadmin is global.
+	// `$userStore` describes the navigation workspace, and the review page can show another
+	// one, whose admin flag is read from its own whoami. Superadmin is global.
+	let adminElsewhere = $state<{ key: string; admin: boolean } | undefined>(undefined)
+	const elsewhereKey = $derived(
+		actionsEnabled &&
+			workspace &&
+			$userStore &&
+			!$userStore.is_super_admin &&
+			$userStore.workspace_id !== workspace
+			? `${$userStore.email}:${workspace}`
+			: undefined
+	)
+	$effect(() => {
+		const key = elsewhereKey
+		if (!key || !workspace) return
+		let request = adminInWorkspace.get(key)
+		if (!request) {
+			request = UserService.whoami({ workspace })
+				.then((u) => !!u.is_admin)
+				.catch(() => false)
+			adminInWorkspace.set(key, request)
+		}
+		void request.then((admin) => {
+			if (elsewhereKey === key) adminElsewhere = { key, admin }
+		})
+	})
 	const canDiscardOthers = $derived(
 		!!$userStore?.is_super_admin ||
-			(!!$userStore?.is_admin && $userStore?.workspace_id === workspace)
+			($userStore?.workspace_id === workspace
+				? !!$userStore?.is_admin
+				: adminElsewhere?.key === elsewhereKey && !!adminElsewhere?.admin)
 	)
 
 	let discardTarget = $state<DraftUser | undefined>(undefined)
