@@ -494,9 +494,9 @@
 			their supervisor.</span
 		>
 		{#if activeWorkers > 1 && (pendingConfig?.dedicated_worker != undefined || (pendingConfig?.dedicated_workers?.length ?? 0) > 0)}
-			<Alert size="xs" type="info" title="Dedicated workers restart one host at a time">
-				Each host waits until the previous one is back up, for up to 5 minutes, so the group keeps
-				serving jobs. Until its turn, a worker runs its dedicated scripts with the previous config.
+			<Alert size="xs" type="info" title="Dedicated workers restart one at a time">
+				A worker restarts only once the one restarting before it is back up (up to 5 minutes), so
+				the group keeps serving jobs. Workers waiting their turn keep the old config.
 			</Alert>
 		{/if}
 		<span>Pausing or resuming a worker group alone does not restart its workers.</span>
