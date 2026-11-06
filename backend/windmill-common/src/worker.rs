@@ -2402,6 +2402,21 @@ pub async fn update_job_ping_query(
     }
 }
 
+pub async fn set_worker_job_stats_query(
+    worker_name: &str,
+    job_stats: &crate::worker_job_stats::WorkerJobStats,
+    db: &DB,
+) -> anyhow::Result<()> {
+    sqlx::query!(
+        "UPDATE worker_ping SET job_stats = $1 WHERE worker = $2",
+        serde_json::to_value(job_stats)?,
+        worker_name,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 pub async fn update_worker_ping_main_loop_query(
     worker_name: &str,
     tags: &[String],

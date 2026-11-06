@@ -3798,7 +3798,8 @@ pub async fn run_worker(
                             .map_err(error::Error::from)
                             .and_then(|r| r)
                             {
-                                pulled_job_res.error_while_preprocessing = Some(e.to_string().into());
+                                pulled_job_res.error_while_preprocessing =
+                                    Some(e.to_string().into());
                             }
                         }
 
@@ -4485,6 +4486,19 @@ pub async fn run_worker(
     if let Some(send_result) = send_result {
         if let Err(e) = send_result.await {
             tracing::error!("error in awaiting send_result process: {e:?}")
+        }
+    }
+
+    // The last ping can run before the processor recorded the final jobs; a worker restarting
+    // under this name restores whatever the row holds, so write the drained counters.
+    if let (Some(db), Some(job_stats)) = (
+        conn.as_sql(),
+        windmill_common::worker_job_stats::job_stats_snapshot(&worker_name),
+    ) {
+        if let Err(e) =
+            windmill_common::worker::set_worker_job_stats_query(&worker_name, &job_stats, db).await
+        {
+            tracing::error!(worker = %worker_name, "failed to persist final job stats: {e:#}");
         }
     }
 
