@@ -5361,10 +5361,6 @@ pub(crate) async fn oldest_waiting_concurrency_job<'c, E: PgExecutor<'c>>(
     .await?)
 }
 
-/// Make the `n` jobs first in line for `key` due now, so a slot that frees up goes to
-/// them rather than waiting out the delay a limit deferred them by. A job a worker is
-/// already holding is left alone. Queue bookkeeping, not an authorization boundary: only
-/// for the queue's own admission and completion paths, never with a key taken from a request.
 /// In order, the slots a completion frees go to the jobs first in line: wakes as many of them
 /// as the slots no admitted job holds. One wake per completion never refills a slot whose
 /// woken job was lost, and the key would stay below its limit. `limit` is the completed
@@ -5390,6 +5386,10 @@ pub async fn fill_concurrency_key_slots_in_order(
     Ok(())
 }
 
+/// Make the `n` jobs first in line for `key` due now, so a slot that frees up goes to
+/// them rather than waiting out the delay a limit deferred them by. A job a worker is
+/// already holding is left alone. Queue bookkeeping, not an authorization boundary: only
+/// for the queue's own admission and completion paths, never with a key taken from a request.
 #[cfg(feature = "private")]
 pub(crate) async fn wake_concurrency_key_waiters(db: &DB, key: &str, n: i64) -> error::Result<()> {
     sqlx::query!(
