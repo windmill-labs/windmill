@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte'
-	import { userWorkspaces, usersWorkspaceStore, type UserWorkspace } from '$lib/stores'
+	import { superadmin, userWorkspaces, usersWorkspaceStore, type UserWorkspace } from '$lib/stores'
 	import { Button, Skeleton } from '../common'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
 	import { SettingService, UserService, type NewToken } from '$lib/gen'
-	import { mcpTokenUrlDisabled } from '$lib/mcpAuth'
+	import { listEveryWorkspace, mcpTokenUrlDisabled } from '$lib/mcpAuth'
 	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import TokenDisplay from './TokenDisplay.svelte'
 	import ScopesPicker from './ScopesPicker.svelte'
@@ -61,6 +61,9 @@
 	// reaches the workspaces its owner joins later.
 	let mcpWorkspaces = $state<string[]>([])
 	let mcpAllWorkspaces = $state(false)
+	// A superadmin's MCP token reaches only their memberships unless it carries their rights.
+	let mcpSuperAdmin = $state(false)
+	let everyWorkspace = $state<{ id: string; name: string }[]>([])
 	let mcpCreationMode = $state(false)
 	let lastRequestedMcpMode = $state<boolean | undefined>(undefined)
 	let mcpLabelAutofilled = $state(false)
@@ -146,6 +149,7 @@
 		const current = defaultNewTokenWorkspace ?? $operatingWorkspace
 		mcpWorkspaces = current ? [current] : []
 		mcpAllWorkspaces = false
+		mcpSuperAdmin = false
 		newToken = undefined
 		newMcpToken = undefined
 		if (!newTokenLabel) {
@@ -177,6 +181,15 @@
 		}
 	}
 
+	async function setMcpSuperAdmin(on: boolean) {
+		mcpSuperAdmin = on
+		if (on) {
+			everyWorkspace = await listEveryWorkspace()
+		}
+		const offered = new Set(mcpWorkspaceItems.map((w) => w.value))
+		mcpWorkspaces = mcpWorkspaces.filter((w) => offered.has(w))
+	}
+
 	async function createToken(mcpMode: boolean = false): Promise<void> {
 		try {
 			let date: Date | undefined
@@ -194,7 +207,8 @@
 					expiration: date?.toISOString(),
 					scopes: tokenScopes,
 					workspace_id: tokenWorkspaceId,
-					read_only: mcpMode ? false : readOnly
+					read_only: mcpMode ? false : readOnly,
+					super_admin: mcpMode && mcpSuperAdmin
 				} as NewToken
 			})
 
@@ -217,6 +231,16 @@
 	}
 
 	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $operatingWorkspace))
+	// `$userWorkspaces` offers a superadmin workspaces they are not a member of, which only a
+	// token carrying their rights reaches.
+	const mcpWorkspaceItems = $derived(
+		($superadmin
+			? mcpSuperAdmin
+				? everyWorkspace
+				: ($usersWorkspaceStore?.workspaces ?? [])
+			: workspaces
+		).map((w) => ({ label: w.name, value: w.id }))
+	)
 	const mcpBoundWorkspace = $derived(
 		!mcpAllWorkspaces && mcpWorkspaces.length === 1 ? mcpWorkspaces[0] : undefined
 	)
@@ -338,24 +362,39 @@
 
 {#snippet mcpWorkspacePicker()}
 	<div class="flex flex-col gap-1">
+		{#if $superadmin}
+			<Toggle
+				bind:checked={() => mcpSuperAdmin, setMcpSuperAdmin}
+				options={{
+					right: 'Superadmin access',
+					rightTooltip:
+						'The token carries your superadmin rights and reaches every workspace of the instance, not only the ones you are a member of.'
+				}}
+				size="xs"
+			/>
+		{/if}
 		{#if mcpAccess === 'selected'}
 			<span class="block text-emphasis text-xs font-semibold">Workspace</span>
 			<Select
 				bind:value={() => mcpWorkspaces[0], (v) => (mcpWorkspaces = v ? [v] : [])}
-				items={workspaces.map((w) => ({ label: w.name, value: w.id }))}
+				items={mcpWorkspaceItems}
 				placeholder="Pick a workspace"
 			/>
 		{:else}
 			<span class="block text-emphasis text-xs font-semibold">Workspaces</span>
 			<Toggle
 				bind:checked={mcpAllWorkspaces}
-				options={{ right: 'All my workspaces, including ones I join later' }}
+				options={{
+					right: mcpSuperAdmin
+						? 'All workspaces, including ones created later'
+						: 'All my workspaces, including ones I join later'
+				}}
 				size="xs"
 			/>
 			{#if !mcpAllWorkspaces}
 				<MultiSelect
 					bind:value={mcpWorkspaces}
-					items={workspaces.map((w) => ({ label: w.name, value: w.id }))}
+					items={mcpWorkspaceItems}
 					placeholder="Pick workspaces"
 					reorderable={false}
 				/>

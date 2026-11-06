@@ -33183,6 +33183,12 @@ components:
             If true, the token is restricted to read-only HTTP methods
             (GET/HEAD/OPTIONS). Mutating endpoints and job-run actions are
             rejected with 403, regardless of the scopes attached.
+        super_admin:
+          type: boolean
+          description: |
+            For an MCP token (an `mcp:` scope) owned by a superadmin: carry the owner's
+            superadmin rights, reaching every workspace rather than only their
+            memberships. Ignored for other tokens, which always carry them.
 
     NewTokenImpersonate:
       type: object

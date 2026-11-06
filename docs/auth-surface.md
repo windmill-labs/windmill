@@ -49,6 +49,12 @@ Symbols, not line numbers, are cited: they drift less.
   `ephemeral-` prefix needs no other change (keep it clear of `is_server_minted_label` if minted
   through `tokens/create`); a new prefix also goes into the SQL and Svelte mirrors that function's
   doc lists.
+- **A token's `super_admin` column is what lets it into a workspace its owner is not a member
+  of**, and makes a workspace-less MCP token list every workspace. `create_token_internal` copies
+  it from `password` for every token except an MCP one (an `mcp:` scope), which carries it only
+  when the request sets `super_admin`; the MCP OAuth approve stores the same request on its code
+  and refresh rows, and each exchange re-checks `password`. A new path minting an MCP token must
+  ask the same question, or it reaches a different set of workspaces than the other two.
 - **Every superadmin route refuses a job token**: `require_super_admin`
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user

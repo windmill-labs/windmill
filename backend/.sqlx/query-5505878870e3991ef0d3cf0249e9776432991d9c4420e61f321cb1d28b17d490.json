@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE mcp_oauth_refresh_token\n         SET used_at = now()\n         WHERE refresh_token = $1\n           AND client_id = $2\n           AND used_at IS NULL\n           AND NOT revoked\n           AND expires_at > now()\n         RETURNING id, refresh_token, access_token_hash, client_id, user_email, workspace_id,\n                   scopes, token_family, created_at, expires_at, used_at, revoked",
+  "query": "UPDATE mcp_oauth_refresh_token\n         SET used_at = now()\n         WHERE refresh_token = $1\n           AND client_id = $2\n           AND used_at IS NULL\n           AND NOT revoked\n           AND expires_at > now()\n         RETURNING id, refresh_token, access_token_hash, client_id, user_email, workspace_id,\n                   scopes, token_family, created_at, expires_at, used_at, revoked, super_admin",
   "describe": {
     "columns": [
       {
@@ -62,6 +62,11 @@
         "ordinal": 11,
         "name": "revoked",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "super_admin",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -82,8 +87,9 @@
       false,
       false,
       true,
+      false,
       false
     ]
   },
-  "hash": "c2efefded4eaea858c41c32ef20e2c11ed88327cf033e1abfd7c0458b71f53da"
+  "hash": "5505878870e3991ef0d3cf0249e9776432991d9c4420e61f321cb1d28b17d490"
 }
