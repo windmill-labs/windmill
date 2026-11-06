@@ -124,6 +124,7 @@ import {
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
 import {
+  isPerScriptDigest,
   listSyncCodebases,
   sameCodebaseDigest,
   SyncCodebase,
@@ -571,6 +572,39 @@ export function findCodebase(
   }
 }
 
+/** Computes the per-script codebase digests of every local codebase script in one
+ * esbuild pass, before the diff asks for them one script at a time. */
+async function primeCodebaseDigests(
+  codebases: SyncCodebase[],
+  ignore: (p: string, isDirectory: boolean) => boolean,
+): Promise<void> {
+  if (!codebases.some(isPerScriptDigest)) return;
+  const scripts = new Map<SyncCodebase, string[]>();
+  const walk = async (dir: string) => {
+    for (const e of await readdir(dir || ".", { withFileTypes: true })) {
+      const p = dir ? path.join(dir, e.name) : e.name;
+      if (e.isDirectory()) {
+        if (e.name != "node_modules" && !e.name.startsWith(".")) await walk(p);
+        continue;
+      }
+      if (!e.name.endsWith(".script.yaml") || ignore(p, false)) continue;
+      const ts = p.replace(/\.script\.yaml$/, ".ts");
+      const c = findCodebase(ts, codebases);
+      if (!c || !isPerScriptDigest(c)) continue;
+      if (!(await stat(ts).then((s) => s.isFile(), () => false))) continue;
+      scripts.set(c, [...(scripts.get(c) ?? []), ts]);
+    }
+  };
+  await walk("");
+  for (const [c, paths] of scripts) {
+    const start = performance.now();
+    await c.primeDigests(paths);
+    log.info(
+      `Codebase ${c.relative_path}: digested ${paths.length} scripts in ${((performance.now() - start) / 1000).toFixed(1)}s`,
+    );
+  }
+}
+
 /** Script metadata that differs only by the `.tar` a multi-output bundle adds to the
  * deployed codebase digest. */
 function sameScriptMetadataModuloTar(a: any, b: any): boolean {
@@ -618,7 +652,7 @@ async function addCodebaseDigestIfRelevant(
         if (ignoreCodebaseChanges) {
           parsed["codebase"] = undefined;
         } else {
-          parsed["codebase"] = await c.getDigest();
+          parsed["codebase"] = await c.getDigest(replacedPath);
         }
         parsed["lock"] = "";
         return yamlStringify(parsed, yamlOptions);
@@ -3026,7 +3060,7 @@ export async function compareDynFSElement(
         continue;
       }
       const c = findCodebase(tsFile, codebases);
-      if (!sameCodebaseDigest(await c?.getDigest(), v)) {
+      if (!sameCodebaseDigest(await c?.getDigest(tsFile), v)) {
         changes.push({
           name: "edited",
           path: tsFile,
@@ -4493,8 +4527,10 @@ export async function dedupeLockfilesOnDisk(args: {
     failed = [],
     dryRun,
   } = args;
+  // The plan reads only locks, so codebase digests (a bundle pass per script
+  // under `per_script_digest`) are not computed for it.
   const map = await elementsToMap(
-    await FSFSElement(process.cwd(), codebases, false),
+    await FSFSElement(process.cwd(), codebases, true),
     ignore,
     opts.json ?? false,
     opts,
@@ -5088,6 +5124,9 @@ export async function push(
     localFlowInlineMapping,
   );
 
+  if (!opts.skipScripts) {
+    await primeCodebaseDigests(codebases, await ignoreF(opts));
+  }
   const local = await FSFSElement(
     path.join(process.cwd(), ""),
     codebases,
