@@ -5453,9 +5453,16 @@ pub(crate) async fn wake_concurrency_key_waiters(db: &DB, key: &str, n: i64) -> 
     .fetch_all(db)
     .await?;
     if !picked.is_empty() {
+        // SKIP LOCKED: two completions on a key wake overlapping jobs concurrently, and each
+        // update moves the rows it writes, so waiting on the other's locks can deadlock. A row
+        // locked elsewhere is being woken, pulled or deferred already.
         sqlx::query!(
             "UPDATE v2_job_queue SET scheduled_for = now()
-            WHERE id = ANY($1) AND NOT running AND scheduled_for > now()",
+            WHERE id IN (
+                SELECT id FROM v2_job_queue
+                WHERE id = ANY($1) AND NOT running AND scheduled_for > now()
+                FOR UPDATE SKIP LOCKED
+            )",
             &picked,
         )
         .execute(db)
