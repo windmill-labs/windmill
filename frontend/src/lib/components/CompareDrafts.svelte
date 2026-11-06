@@ -12,6 +12,7 @@
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { AlertTriangle, ArrowRight, DiffIcon, GitFork, Pencil, Undo2 } from 'lucide-svelte'
 	import { untrack } from 'svelte'
+	import { resource } from 'runed'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import { editUrlFor } from './sessions/forkEditUrl'
 	import {
@@ -20,6 +21,7 @@
 		FlowService,
 		ResourceService,
 		ScriptService,
+		UserService,
 		type WorkspaceItemDiff
 	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -196,8 +198,19 @@
 	)
 
 	const currentUsername = $derived($userStore?.username)
-	// Mirrors the server's `require_admin` on `drafts/delete_for_user`.
-	const isAdmin = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
+	// Mirrors the server's `require_admin` on `drafts/delete_for_user`, in the reviewed workspace:
+	// this page can review one other than the navigation workspace `$userStore` describes, and the
+	// admin flag is per membership (only superadmin is global).
+	const reviewedWorkspaceUser = resource(
+		() => ($userStore?.workspace_id === currentWorkspaceId ? undefined : currentWorkspaceId),
+		async (ws) => (ws ? await UserService.whoami({ workspace: ws }).catch(() => undefined) : undefined)
+	)
+	const isAdmin = $derived(
+		!!$userStore?.is_super_admin ||
+			!!($userStore?.workspace_id === currentWorkspaceId
+				? $userStore?.is_admin
+				: reviewedWorkspaceUser.current?.is_admin)
+	)
 
 	// Other real users (not me, not the legacy NULL-email row) who also drafted
 	// this path. Only the shared full-page-editor kinds carry draft_users, so this
@@ -216,8 +229,8 @@
 	)
 
 	// Selection gate: a row is actionable when it isn't already deployed this
-	// session AND it's the user's own draft (someone else's shows view-only in the
-	// "all drafts" view). A data-pipeline bundle is excluded — its scripts deploy
+	// session AND it's the user's own draft (someone else's is never selectable in
+	// the "all drafts" view; an admin discards it from its row). A data-pipeline bundle is excluded — its scripts deploy
 	// individually inside the pipeline view. Every selectable row can at least be
 	// discarded: discarding your own email-scoped draft never needs write
 	// permission on the path — only legacy (ownerless) drafts stay write-gated,
