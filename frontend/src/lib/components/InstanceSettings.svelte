@@ -4,6 +4,12 @@
 		settings,
 		settingsKeys,
 		instanceSettingsSaved,
+		SENSITIVE_UNCHANGED,
+		sensitiveKeys,
+		nestedSensitiveFields,
+		getField,
+		setField,
+		maskSensitive,
 		type Setting
 	} from './instanceSettings'
 	import { Alert, Button, Tab, TabContent, Tabs } from '$lib/components/common'
@@ -736,18 +742,6 @@
 	let yamlError = $state('')
 	let showSensitive = $state(false)
 
-	const SENSITIVE_UNCHANGED = '__SENSITIVE_AND_UNCHANGED__'
-
-	const sensitiveKeys: Set<string> = new Set([
-		...[...Object.values(settings), scimSamlSetting]
-			.flatMap((s) => Object.values(s))
-			.filter((s) => s.fieldType === 'password' || s.fieldType === 'license_key')
-			.map((s) => s.key),
-		'ducklake_user_pg_pwd',
-		'jwt_secret',
-		'workspace_registries'
-	])
-
 	// Settings that should never appear in YAML export/import.
 	// `worker_configs` is a legacy ghost key: worker configs live in the `config`
 	// table (managed from /workers), not in `global_settings`. Older DBs may
@@ -755,81 +749,17 @@
 	// so it never round-trips through this editor.
 	const excludedKeys: Set<string> = new Set(['worker_configs'])
 
-	// Nested fields inside object-valued settings that contain secrets.
-	// Each entry maps a top-level key to its sensitive sub-field names.
-	const nestedSensitiveFields: Record<string, string[]> = {
-		smtp_settings: ['smtp_password'],
-		secret_backend: ['token', 'client_secret', 'secret_access_key'],
-		object_store_cache_config: ['secret_key', 'serviceAccountKey', 'accessKey'],
-		custom_instance_pg_databases: ['user_pwd'],
-		external_instance_pg: ['password'],
-		rsa_keys: ['private_key'],
-		github_enterprise_app: ['private_key'],
-		external_secrets: ['vault.token']
-	}
-
-	// A field may name one nested level, `parent.child`.
-	function getField(obj: any, field: string): any {
-		const [a, b] = field.split('.')
-		return b === undefined ? obj?.[a] : obj?.[a]?.[b]
-	}
-
-	function setField(obj: any, field: string, value: any) {
-		const [a, b] = field.split('.')
-		if (b === undefined) obj[a] = value
-		else if (obj[a] && typeof obj[a] === 'object') obj[a] = { ...obj[a], [b]: value }
-	}
-
-	/** Returns SENSITIVE_UNCHANGED if the value is non-empty and matches the initial */
-	function maskField(current: any, initial: any): string | undefined {
-		if (current != null && current !== '' && current === initial) return SENSITIVE_UNCHANGED
-		return undefined
-	}
-
-	function maskSensitive(obj: Record<string, any>): Record<string, any> {
-		const masked: Record<string, any> = {}
-		for (const [key, value] of Object.entries(obj)) {
-			if (key === 'oauths' && typeof value === 'object' && value !== null) {
-				const maskedOauths: Record<string, any> = {}
-				for (const [provider, config] of Object.entries(value as Record<string, any>)) {
-					if (typeof config === 'object' && config !== null && 'secret' in config) {
-						const m = maskField(config.secret, initialOauths?.[provider]?.secret)
-						maskedOauths[provider] = m ? { ...config, secret: m } : config
-					} else {
-						maskedOauths[provider] = config
-					}
-				}
-				masked[key] = maskedOauths
-			} else if (key in nestedSensitiveFields && typeof value === 'object' && value !== null) {
-				const cp = { ...value }
-				const init = initialValues?.[key]
-				for (const field of nestedSensitiveFields[key]) {
-					const m = maskField(
-						field === 'serviceAccountKey' ? JSON.stringify(cp[field]) : getField(cp, field),
-						field === 'serviceAccountKey' ? JSON.stringify(init?.[field]) : getField(init, field)
-					)
-					if (m) setField(cp, field, m)
-				}
-				masked[key] = cp
-			} else if (sensitiveKeys.has(key) && value != null && value !== '') {
-				masked[key] = value === initialValues?.[key] ? SENSITIVE_UNCHANGED : value
-			} else {
-				masked[key] = value
-			}
-		}
-		return masked
-	}
-
 	/**
 	 * Builds a sorted YAML string of all instance settings.
 	 * - normalize: strip keys whose values match the default (empty/falsy or key-specific defaults)
 	 * - mask: replace sensitive values with placeholder (for display)
+	 * - markChanged: with mask, also hide changed secrets (read-only views)
 	 */
 	function buildSettingsYaml(
 		vals: Record<string, any>,
 		oauthsObj: Record<string, any>,
 		reqPreexisting: boolean,
-		opts: { normalize?: boolean; mask?: boolean } = {}
+		opts: { normalize?: boolean; mask?: boolean; markChanged?: boolean } = {}
 	): string {
 		// Merge all settings (including oauths) into one object so they sort together
 		const merged: Record<string, any> = { ...vals }
@@ -850,7 +780,11 @@
 			obj['custom_instance_pg_databases'] = { ...obj['custom_instance_pg_databases'] }
 			delete obj['custom_instance_pg_databases'].databases
 		}
-		return YAML.stringify(opts.mask ? maskSensitive(obj) : obj)
+		return YAML.stringify(
+			opts.mask
+				? maskSensitive(obj, initialValues, initialOauths, { markChanged: opts.markChanged })
+				: obj
+		)
 	}
 
 	function syncFormToYaml() {
@@ -982,10 +916,12 @@
 				initialValues,
 				initialOauths,
 				initialRequirePreexistingUserForOauth,
-				{ normalize: true }
+				{ normalize: true, mask: true, markChanged: true }
 			),
 			modified: buildSettingsYaml($values, oauths, requirePreexistingUserForOauth, {
-				normalize: true
+				normalize: true,
+				mask: true,
+				markChanged: true
 			})
 		}
 	}
