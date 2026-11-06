@@ -146,10 +146,13 @@
 		mcpCreationMode = true
 		void loadMcpUrlPolicy()
 		resetExpirationOnModeChange()
-		const current = defaultNewTokenWorkspace ?? $operatingWorkspace
-		mcpWorkspaces = current ? [current] : []
-		mcpAllWorkspaces = false
 		mcpSuperAdmin = false
+		mcpAllWorkspaces = false
+		const current = defaultNewTokenWorkspace ?? $operatingWorkspace
+		mcpWorkspaces =
+			current && (lockWorkspace || mcpWorkspaceItems.some((w) => w.value === current))
+				? [current]
+				: []
 		newToken = undefined
 		newMcpToken = undefined
 		if (!newTokenLabel) {
@@ -186,8 +189,10 @@
 		if (on) {
 			everyWorkspace = await listEveryWorkspace()
 		}
-		const offered = new Set(mcpWorkspaceItems.map((w) => w.value))
-		mcpWorkspaces = mcpWorkspaces.filter((w) => offered.has(w))
+		if (!lockWorkspace) {
+			const offered = new Set(mcpWorkspaceItems.map((w) => w.value))
+			mcpWorkspaces = mcpWorkspaces.filter((w) => offered.has(w))
+		}
 	}
 
 	async function createToken(mcpMode: boolean = false): Promise<void> {
@@ -317,6 +322,17 @@
 
 {#snippet mcpTokenForm()}
 	<div class="flex flex-col gap-3">
+		{#if $superadmin}
+			<Toggle
+				bind:checked={() => mcpSuperAdmin, setMcpSuperAdmin}
+				options={{
+					right: 'Superadmin access',
+					rightTooltip:
+						'The token carries your superadmin rights and reaches every workspace of the instance, not only the ones you are a member of.'
+				}}
+				size="xs"
+			/>
+		{/if}
 		{#if !lockWorkspace}
 			{@render mcpWorkspacePicker()}
 		{/if}
@@ -362,17 +378,6 @@
 
 {#snippet mcpWorkspacePicker()}
 	<div class="flex flex-col gap-1">
-		{#if $superadmin}
-			<Toggle
-				bind:checked={() => mcpSuperAdmin, setMcpSuperAdmin}
-				options={{
-					right: 'Superadmin access',
-					rightTooltip:
-						'The token carries your superadmin rights and reaches every workspace of the instance, not only the ones you are a member of.'
-				}}
-				size="xs"
-			/>
-		{/if}
 		{#if mcpAccess === 'selected'}
 			<span class="block text-emphasis text-xs font-semibold">Workspace</span>
 			<Select

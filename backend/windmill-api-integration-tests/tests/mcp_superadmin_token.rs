@@ -38,7 +38,7 @@ async fn test_mcp_token_super_admin_is_opt_in(db: Pool<Postgres>) -> anyhow::Res
         .as_str()
         .unwrap()
         .to_string();
-    let approve = |bearer: &'static str, super_admin: bool| {
+    let approve = |bearer: &str, super_admin: bool| {
         http.post(format!("{base}/mcp/gateway/oauth/server/approve"))
             .bearer_auth(bearer)
             .json(&json!({
@@ -102,6 +102,31 @@ async fn test_mcp_token_super_admin_is_opt_in(db: Pool<Postgres>) -> anyhow::Res
         approve("SECRET_TOKEN_2", true).await?.status(),
         401,
         "only a superadmin may grant superadmin rights"
+    );
+
+    let opted_out = http
+        .post(format!("{base}/users/tokens/create"))
+        .bearer_auth("SECRET_TOKEN")
+        .json(&json!({ "label": "mcp", "scopes": ["mcp:all"] }))
+        .send()
+        .await?
+        .text()
+        .await?;
+    assert_eq!(
+        approve(&opted_out, true).await?.status(),
+        401,
+        "an MCP token without superadmin access cannot approve one that has it"
+    );
+
+    http.post(format!("{base}/users/update/test@windmill.dev"))
+        .bearer_auth("SECRET_TOKEN")
+        .json(&json!({ "is_super_admin": true }))
+        .send()
+        .await?
+        .error_for_status()?;
+    assert!(
+        !token_is_super_admin(&db, &opted_out).await?,
+        "a promotion must not hand superadmin access to an MCP token minted without it"
     );
     Ok(())
 }

@@ -871,8 +871,19 @@ async fn oauth_approve_inner(
     // the gateway approve route reach the exchange through here.
     forbid_elevated_job_token(db, &authed.email, authed.job_id).await?;
 
+    let caller_restricted = authed
+        .scopes
+        .as_deref()
+        .is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")));
     if form.super_admin {
         windmill_api_auth::require_super_admin(db, authed).await?;
+        // The owner's role is not the credential's: an MCP token minted without superadmin
+        // access may approve a narrower token, never one carrying that access.
+        if caller_restricted {
+            return Err(Error::NotAuthorized(
+                "Only an interactive session can grant superadmin access".to_string(),
+            ));
+        }
     } else if let Some(workspace_id) = workspace_id {
         ensure_member(db, workspace_id, &authed.email).await?;
     }
@@ -929,10 +940,6 @@ async fn oauth_approve_inner(
     // which is the normal consent flow. This is the legitimate MCP-narrowing
     // path, so it uses MCP-pattern containment rather than the byte-identical
     // rule ensure_scopes_within_caller applies on the generic token endpoints.
-    let caller_restricted = authed
-        .scopes
-        .as_deref()
-        .is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")));
     if caller_restricted {
         // An empty grant would mint a token the auth layer treats as unscoped
         // (full privileges), so a restricted approver must not produce one.
