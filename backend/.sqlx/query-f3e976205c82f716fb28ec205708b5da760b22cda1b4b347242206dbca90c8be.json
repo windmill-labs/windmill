@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT EXISTS (SELECT 1 FROM resource WHERE workspace_id = $1 AND starts_with(path, $2))",
+  "query": "SELECT EXISTS (SELECT 1 FROM resource WHERE workspace_id = $1 AND starts_with(path || '/', $2))",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       null
     ]
   },
-  "hash": "192d1b971d2800d43885435728c53288de092a72d5a4659431ef7009c242dee0"
+  "hash": "f3e976205c82f716fb28ec205708b5da760b22cda1b4b347242206dbca90c8be"
 }
