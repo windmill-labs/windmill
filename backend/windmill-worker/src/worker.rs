@@ -2090,6 +2090,15 @@ impl JobCompletedSender {
     }
 
     pub async fn send_job(&self, jc: JobCompleted, wait_for_capacity: bool) -> anyhow::Result<()> {
+        self.send_job_inner(jc, wait_for_capacity, true).await
+    }
+
+    async fn send_job_inner(
+        &self,
+        jc: JobCompleted,
+        wait_for_capacity: bool,
+        record_outcome: bool,
+    ) -> anyhow::Result<()> {
         match self {
             Self::Sql(SqlJobCompletedSender { sender, unbounded_sender, .. }) => {
                 if wait_for_capacity {
@@ -2112,7 +2121,7 @@ impl JobCompletedSender {
                 let failed = jc.canceled_by.is_none()
                     && (!jc.success || jc.result.result_metadata().wm_failure.is_some());
                 crate::agent_workers::send_result(client, jc).await?;
-                if let Some(worker_name) = worker_name {
+                if let (true, Some(worker_name)) = (record_outcome, worker_name) {
                     windmill_common::worker_job_stats::record_job_outcome(worker_name, failed);
                 }
                 Ok(())
@@ -2492,6 +2501,7 @@ pub async fn handle_all_job_kind_error(
     authed_client: &AuthedClient,
     job: MiniCompletedJob,
     err: Error,
+    canceled: bool,
     same_worker_tx: Option<&SameWorkerSender>,
     worker_dir: &str,
     worker_name: &str,
@@ -2499,6 +2509,9 @@ pub async fn handle_all_job_kind_error(
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
+    // These jobs fail before reaching the result processor, so their outcome is counted here
+    // for both connection kinds; a job canceled before it ran is not held against the worker.
+    windmill_common::worker_job_stats::record_job_outcome(worker_name, !canceled);
     match conn {
         Connection::Sql(db) => {
             handle_job_error(
@@ -2521,7 +2534,7 @@ pub async fn handle_all_job_kind_error(
         }
         Connection::Http(_) => {
             job_completed_tx
-                .send_job(
+                .send_job_inner(
                     JobCompleted {
                         preprocessed_args: None,
                         job: job,
@@ -2541,6 +2554,7 @@ pub async fn handle_all_job_kind_error(
                         flow_runners: None,
                         done_tx: None,
                     },
+                    false,
                     false,
                 )
                 .await
@@ -4012,6 +4026,7 @@ pub async fn run_worker(
                                         error::Error::InternalErr(format!(
                                             "failed to send jobs to flow runners: {e:?}"
                                         )),
+                                        false,
                                         Some(&same_worker_tx),
                                         &worker_dir,
                                         &worker_name,
@@ -4292,11 +4307,13 @@ pub async fn run_worker(
                                     .await;
                                 }
                             }
+                            let canceled = arc_job.canceled_by.is_some();
                             handle_all_job_kind_error(
                                 &conn,
                                 &authed_client,
                                 MiniCompletedJob::from(arc_job),
                                 err,
+                                canceled,
                                 Some(&same_worker_tx),
                                 &worker_dir,
                                 &worker_name,
