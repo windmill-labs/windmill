@@ -2,7 +2,7 @@ import { Codebase, SyncOptions } from "../core/conf.ts";
 import * as log from "../core/log.ts";
 import { digestDir, generateHash, generateHashFromBuffer } from "./utils.ts";
 import { withEsbuild } from "./esbuild_loader.ts";
-import { readFile, realpath, stat } from "node:fs/promises";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 // A bare string is accepted, like `includes`/`excludes` in findCodebase.
@@ -201,11 +201,60 @@ class FileHasher {
     seen.add(config);
     const res = [config];
     for (const spec of tsconfigExtends(await readFile(config, "utf8"))) {
-      const base = await resolveTsconfigExtends(spec, path.dirname(config));
-      if (base) res.push(...(await this.extendsChain(base, seen)));
+      const dir = path.dirname(config);
+      const bases = isPackageSpec(spec)
+        ? await packageConfigFiles(spec, dir)
+        : [await resolveRelativeExtends(spec, dir)].filter((b) => b != undefined);
+      for (const base of bases) res.push(...(await this.extendsChain(base, seen)));
     }
     return res;
   }
+}
+
+const isPackageSpec = (spec: string) =>
+  !/^\.{1,2}(\/|\\|$)/.test(spec) && !path.isAbsolute(spec);
+
+/** A path `extends`, as esbuild 0.28 resolves it: relative to the config, with
+ * `.json` appended only when it lacks it, and `.`/`..` meaning their tsconfig.json. */
+async function resolveRelativeExtends(spec: string, dir: string): Promise<string | undefined> {
+  const p = path.resolve(dir, spec == "." || spec == ".." ? spec + "/tsconfig.json" : spec);
+  if (await isFile(p)) return p;
+  return !p.endsWith(".json") && (await isFile(p + ".json")) ? p + ".json" : undefined;
+}
+
+/**
+ * Every config a package `extends` could resolve to: all `.json` files of the
+ * package in each `node_modules` above the config (its `package.json` included),
+ * plus the file its `tsconfig` field names. esbuild picks one through the package's
+ * `exports` conditions, `tsconfig` field and subpath; hashing them all covers its
+ * pick without reimplementing that resolution, at the cost of redeploying when an
+ * unused config of the package changes.
+ */
+async function packageConfigFiles(spec: string, dir: string): Promise<string[]> {
+  const name = spec.split("/").slice(0, spec.startsWith("@") ? 2 : 1).join("/");
+  const res: string[] = [];
+  for (let d = dir; ; d = path.dirname(d)) {
+    const pkgDir = path.join(d, "node_modules", name);
+    if (await stat(pkgDir).then((s) => s.isDirectory(), () => false)) {
+      res.push(...(await jsonFilesUnder(pkgDir)));
+      const field = (await readJson(path.join(pkgDir, "package.json")))?.tsconfig;
+      if (typeof field == "string" && field != "") {
+        const p = path.resolve(pkgDir, field);
+        if (await isFile(p)) res.push(p);
+      }
+    }
+    if (path.dirname(d) == d) return [...new Set(res)].sort();
+  }
+}
+
+async function jsonFilesUnder(dir: string): Promise<string[]> {
+  const res: string[] = [];
+  for (const e of await readdir(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory() && e.name != "node_modules") res.push(...(await jsonFilesUnder(p)));
+    else if (e.isFile() && e.name.endsWith(".json")) res.push(p);
+  }
+  return res;
 }
 
 const isFile = (p: string) => stat(p).then((s) => s.isFile(), () => false);
@@ -246,104 +295,6 @@ async function readJson(p: string): Promise<any> {
   } catch {
     return undefined;
   }
-}
-
-/**
- * Resolves an `extends` as esbuild 0.28 does (`parseTSConfigFromSource` in its
- * resolver). A path is relative to the config, with `.json` appended only when it
- * lacks it. A package is looked up in each `node_modules` above the config: through
- * its `exports` under the `require` conditions, else at the path its `tsconfig`
- * field names or at the subpath, as `<p>/tsconfig.json`, `<p>` or `<p>.json`.
- */
-async function resolveTsconfigExtends(spec: string, dir: string): Promise<string | undefined> {
-  const isPackage = !/^\.{1,2}(\/|\\|$)/.test(spec) && !path.isAbsolute(spec);
-  if (!isPackage) {
-    let p = spec == "." || spec == ".." ? spec + "/tsconfig.json" : spec;
-    p = path.resolve(dir, p);
-    if (await isFile(p)) return p;
-    return !p.endsWith(".json") && (await isFile(p + ".json")) ? p + ".json" : undefined;
-  }
-  const parts = spec.split("/");
-  const nameLen = spec.startsWith("@") ? 2 : 1;
-  const name = parts.slice(0, nameLen).join("/");
-  const subpath = parts.slice(nameLen).join("/");
-  for (let d = dir; ; d = path.dirname(d)) {
-    if (path.basename(d) != "node_modules") {
-      let join = path.join(d, "node_modules", spec);
-      const pkgDir = path.join(d, "node_modules", name);
-      const pkg = await readJson(path.join(pkgDir, "package.json"));
-      if (pkg && typeof pkg == "object") {
-        if (typeof pkg.tsconfig == "string" && pkg.tsconfig != "") {
-          join = path.resolve(pkgDir, pkg.tsconfig);
-        }
-        const target = exportsTarget(pkg.exports, subpath ? "./" + subpath : ".");
-        if (target != undefined && (await isFile(path.join(pkgDir, target)))) {
-          return path.join(pkgDir, target);
-        }
-      }
-      for (const c of [path.join(join, "tsconfig.json"), join, join + ".json"]) {
-        if (await isFile(c)) return c;
-      }
-    }
-    if (path.dirname(d) == d) return undefined;
-  }
-}
-
-/** The conditions esbuild resolves a tsconfig `extends` through `exports` with, for
- * `platform: "node"` and no custom `conditions`. */
-const TSCONFIG_EXPORTS_CONDITIONS = new Set(["require", "node", "default"]);
-
-/** The file a package's `exports` maps `key` ("." or "./sub") to under
- * {@link TSCONFIG_EXPORTS_CONDITIONS}, following node's algorithm: an exact subpath
- * first, else the `*` pattern with the longest prefix; within a conditions object,
- * the first key that is an active condition. */
-export function exportsTarget(exports: unknown, key: string): string | undefined {
-  const pick = (v: unknown): string | undefined => {
-    if (typeof v == "string") return v;
-    if (Array.isArray(v)) {
-      for (const x of v) {
-        const r = pick(x);
-        if (r != undefined) return r;
-      }
-      return undefined;
-    }
-    if (v && typeof v == "object") {
-      for (const [cond, x] of Object.entries(v)) {
-        if (!TSCONFIG_EXPORTS_CONDITIONS.has(cond)) continue;
-        // A matching condition with no target for us falls through to the next one.
-        const r = pick(x);
-        if (r != undefined) return r;
-      }
-    }
-    return undefined;
-  };
-  if (exports == undefined || exports === null) return undefined;
-  const isSubpathMap =
-    typeof exports == "object" &&
-    !Array.isArray(exports) &&
-    Object.keys(exports).some((k) => k.startsWith("."));
-  if (!isSubpathMap) return key == "." ? pick(exports) : undefined;
-  const map = exports as Record<string, unknown>;
-  if (key in map && !key.includes("*")) return pick(map[key]);
-  let best: { pattern: string; pre: string; post: string } | undefined;
-  for (const pattern of Object.keys(map)) {
-    const star = pattern.indexOf("*");
-    if (star < 0 || pattern.indexOf("*", star + 1) >= 0) continue;
-    const pre = pattern.slice(0, star);
-    const post = pattern.slice(star + 1);
-    if (!key.startsWith(pre) || key == pre) continue;
-    if (post && (!key.endsWith(post) || key.length < pattern.length)) continue;
-    if (
-      !best ||
-      pre.length > best.pre.length ||
-      (pre.length == best.pre.length && pattern.length > best.pattern.length)
-    ) {
-      best = { pattern, pre, post };
-    }
-  }
-  if (!best) return undefined;
-  const t = pick(map[best.pattern]);
-  return t?.replaceAll("*", key.slice(best.pre.length, key.length - best.post.length));
 }
 
 /** The fields of a package.json that change how esbuild compiles or tree-shakes the

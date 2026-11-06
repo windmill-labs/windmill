@@ -3,7 +3,6 @@ import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-  exportsTarget,
   listSyncCodebases,
   tsconfigExtends,
   uncoveredBundleInputs,
@@ -159,9 +158,10 @@ test("per_script_digest covers build fields of package.json, not its dependencie
   }
 });
 
-// Pins the digest's tsconfig resolution to esbuild's: in each layout, editing the base
-// config esbuild applies must change both the bundle and the digest, and editing the
-// decoy must change neither.
+// Pins the digest's tsconfig coverage to what esbuild applies: in each layout, editing
+// the base config esbuild applies must change both the bundle and the digest. The decoy
+// is a config esbuild does not apply (its edit leaves the bundle alone), which proves
+// the layout resolves where it claims to.
 const ON = `{ "compilerOptions": { "useDefineForClassFields": true } }`;
 const OFF = `{ "compilerOptions": { "useDefineForClassFields": false } }`;
 const tsconfigLayouts: { name: string; files: Record<string, string>; applied: string; decoy?: string }[] = [
@@ -186,6 +186,39 @@ const tsconfigLayouts: { name: string; files: Record<string, string>; applied: s
     },
     applied: "node_modules/cfg/req.json",
     decoy: "node_modules/cfg/esm.json",
+  },
+  {
+    name: "explicit null condition",
+    files: {
+      "node_modules/cfg/package.json": JSON.stringify({ exports: { ".": { node: null, require: "./req.json" } } }),
+      "node_modules/cfg/req.json": ON,
+      "node_modules/cfg/tsconfig.json": ON,
+      "f/tsconfig.json": `{ "extends": "cfg" }`,
+    },
+    applied: "node_modules/cfg/tsconfig.json",
+    decoy: "node_modules/cfg/req.json",
+  },
+  {
+    name: "module condition",
+    files: {
+      "node_modules/cfg/package.json": JSON.stringify({ exports: { ".": { module: "./module.json", require: "./req.json" } } }),
+      "node_modules/cfg/module.json": ON,
+      "node_modules/cfg/req.json": ON,
+      "f/tsconfig.json": `{ "extends": "cfg" }`,
+    },
+    applied: "node_modules/cfg/module.json",
+    decoy: "node_modules/cfg/req.json",
+  },
+  {
+    name: "invalid target in a fallback array",
+    files: {
+      "node_modules/cfg/package.json": JSON.stringify({ exports: { ".": ["invalid", "./req.json"] } }),
+      "node_modules/cfg/req.json": ON,
+      "node_modules/cfg/tsconfig.json": ON,
+      "f/tsconfig.json": `{ "extends": "cfg" }`,
+    },
+    applied: "node_modules/cfg/req.json",
+    decoy: "node_modules/cfg/tsconfig.json",
   },
   {
     name: "overlapping wildcard exports",
@@ -239,29 +272,18 @@ for (const layout of tsconfigLayouts) {
       const [b0, d0] = [await bundle(), await digest()];
       if (layout.decoy) {
         await writeFile(join(root, layout.decoy), OFF);
-        expect([await bundle(), await digest()]).toEqual([b0, d0]);
+        expect(await bundle()).toBe(b0);
       }
+      const d1 = await digest();
       await writeFile(join(root, layout.applied), OFF);
       expect(await bundle()).not.toBe(b0);
-      expect(await digest()).not.toBe(d0);
+      expect(await digest()).not.toBe(d1);
     } finally {
       process.chdir(cwd);
       await rm(root, { recursive: true, force: true });
     }
   });
 }
-
-test("exportsTarget resolves subpaths, patterns and conditions", () => {
-  expect(exportsTarget("./base.json", ".")).toBe("./base.json");
-  // esbuild resolves `extends` with the require conditions, never `import` or `types`.
-  expect(exportsTarget({ ".": { import: "./esm.json", require: "./cjs.json" } }, ".")).toBe("./cjs.json");
-  expect(exportsTarget({ ".": { types: "./t.json", default: "./d.json" } }, ".")).toBe("./d.json");
-  expect(exportsTarget({ ".": { node: { import: "./esm.json" }, require: "./r.json" } }, ".")).toBe("./r.json");
-  expect(exportsTarget({ "./*": "./configs/*.json" }, "./strict")).toBe("./configs/strict.json");
-  // The pattern with the longest prefix wins, whatever the declaration order.
-  expect(exportsTarget({ "./*": "./any/*.json", "./node/*": "./node/*.json" }, "./node/20")).toBe("./node/20.json");
-  expect(exportsTarget({ "./a": "./a.json" }, "./b")).toBeUndefined();
-});
 
 test("tsconfigExtends reads extends from JSON with comments", () => {
   expect(tsconfigExtends(`{ "a": "x // not a comment", // c\n "extends": ["./a", "b"], }`)).toEqual(["./a", "b"]);
