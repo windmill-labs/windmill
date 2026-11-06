@@ -75,6 +75,10 @@ components:
         concurrency_time_window_s:
           type: number
           description: Time window in seconds for concurrent_limit
+        on_concurrency_limit:
+          type: string
+          enum: [queue, fail]
+          description: What a run of this flow does when its concurrency limit is reached. `queue` (default) re-queues it to a later slot, `fail` ends it immediately as failed, like any failed step.
         debounce_delay_s:
           type: integer
           description: Delay in seconds to debounce flow executions
@@ -342,6 +346,9 @@ components:
               description: If true, return mock value instead of executing
             return_value:
               description: Value to return when mocked
+            preview_only:
+              type: boolean
+              description: If true, the mock applies only to runs started as a flow preview (from the editor, and every job under it, subflows included). Absent or false, it applies to every run.
         suspend:
           type: object
           description: Configuration for approval/resume steps that wait for user input
@@ -779,6 +786,10 @@ components:
         concurrency_time_window_s:
           type: number
           description: Time window for concurrent_limit
+        on_concurrency_limit:
+          type: string
+          enum: [queue, fail]
+          description: What a run of this step does when its concurrency limit is reached. `queue` (default) re-queues it to a later slot, `fail` ends it immediately as failed.
         custom_concurrency_key:
           type: string
           description: Custom key for grouping concurrent executions
@@ -1012,6 +1023,9 @@ components:
         parallel:
           type: boolean
           description: If true, all branches execute concurrently. If false, they execute sequentially
+        parallelism:
+          description: Maximum number of branches running at once when parallel=true. Can be static number or expression
+          $ref: '#/components/schemas/InputTransform'
       required:
         - branches
         - type

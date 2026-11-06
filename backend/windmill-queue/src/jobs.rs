@@ -168,11 +168,11 @@ const MAX_FREE_EXECS: i32 = 1000;
 #[cfg(feature = "cloud")]
 const MAX_FREE_CONCURRENT_RUNS: i32 = 30;
 
-const ERROR_HANDLER_USERNAME: &str = "error_handler";
-pub const SCHEDULE_ERROR_HANDLER_USERNAME: &str = "schedule_error_handler";
-const GLOBAL_ERROR_HANDLER_USERNAME: &str = "global";
-const SUCCESS_HANDLER_USERNAME: &str = "success_handler";
-const VARIABLE_EXPIRATION_HANDLER_USERNAME: &str = "variable_expiration_handler";
+pub use windmill_common::usernames::SCHEDULE_ERROR_HANDLER_USERNAME;
+use windmill_common::usernames::{
+    ERROR_HANDLER_USERNAME, GLOBAL_ERROR_HANDLER_USERNAME, SUCCESS_HANDLER_USERNAME,
+    VARIABLE_EXPIRATION_HANDLER_USERNAME,
+};
 
 pub const ERROR_HANDLER_USER_GROUP: &str = "g/error_handler";
 pub const ERROR_HANDLER_USER_EMAIL: &str = "error_handler@windmill.dev";
@@ -1601,16 +1601,16 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // Resolve the concurrency-limit settings on the pool *before* opening the
     // completion transaction: doing it inside the tx would hold a second
     // simultaneous connection from the small per-worker pool.
+    let settings_concurrent_limit =
+        windmill_common::runnable_settings::prefetch_cached_from_handle(
+            completed_job.runnable_settings_handle,
+            db,
+        )
+        .await?
+        .1
+        .concurrent_limit;
     let has_concurrent_limit = has_active_concurrency_limit(completed_job.concurrent_limit)
-        || has_active_concurrency_limit(
-            windmill_common::runnable_settings::prefetch_cached_from_handle(
-                completed_job.runnable_settings_handle,
-                db,
-            )
-            .await?
-            .1
-            .concurrent_limit,
-        );
+        || has_active_concurrency_limit(settings_concurrent_limit);
 
     // A genuine NUL (U+0000) in the result serializes to a `\u0000` escape that
     // the jsonb `result` column rejects with 22P05 ("unsupported Unicode escape
@@ -1869,12 +1869,16 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // goes to the job first in line, deferred or not.
     #[cfg(all(feature = "enterprise", feature = "private"))]
     if let Some(key) = released_concurrency_key {
+        let limit = completed_job
+            .concurrent_limit
+            .max(settings_concurrent_limit)
+            .unwrap_or(0);
         let woken = if windmill_common::worker::CONCURRENCY_LIMIT_IN_ORDER
             .load(std::sync::atomic::Ordering::Relaxed)
         {
             wake_concurrency_key_waiters(db, &key, 1).await
         } else {
-            wake_deferred_concurrency_job(db, &key).await
+            wake_deferred_concurrency_job(db, &key, limit).await
         };
         if let Err(e) = woken {
             tracing::error!("Could not wake a deferred job for concurrency key {key}: {e:#}");
@@ -2358,8 +2362,7 @@ async fn restart_job_if_perpetual_inner(
                 apply_preprocessor: false,
                 concurrency_settings: ConcurrencySettings {
                     concurrency_key: custom_concurrency_key(db, &queued_job.id).await?,
-                    concurrent_limit: None,
-                    concurrency_time_window_s: None,
+                    ..Default::default()
                 },
                 // TODO(debouncing): handle properly
                 debouncing_settings: DebouncingSettings::default(),
@@ -4501,7 +4504,20 @@ pub struct PulledJobResult {
     pub job: Option<PulledJob>,
     pub suspended: bool,
     pub missing_concurrency_key: bool,
-    pub error_while_preprocessing: Option<String>,
+    /// Completes the pulled job as failed with this error instead of running it.
+    pub error_while_preprocessing: Option<PulledJobError>,
+}
+
+#[derive(Debug)]
+pub struct PulledJobError {
+    pub name: &'static str,
+    pub message: String,
+}
+
+impl From<String> for PulledJobError {
+    fn from(message: String) -> Self {
+        Self { name: "Pulled job preprocessing error", message }
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -4543,8 +4559,8 @@ impl PulledJobResult {
                     job: MiniCompletedJob::from(job.job),
                     success: false,
                     result: Arc::new(windmill_common::worker::to_raw_value(&json!({
-                        "name": "Pulled job preprocessing error",
-                        "message": e
+                        "name": e.name,
+                        "message": e.message
                     }))),
                     result_columns: None,
                     mem_peak: 0,
@@ -5251,7 +5267,8 @@ pub fn has_active_concurrency_limit(concurrent_limit: Option<i32>) -> bool {
 }
 
 /// Admit a job already owned by a worker without releasing its queue reservation.
-/// The caller must maintain its heartbeat while waiting and complete it on failure.
+/// The caller must maintain its heartbeat while waiting and complete it on failure, including
+/// the `ConcurrencyLimitReached` error of a job set to fail on a full key.
 pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<bool> {
     #[cfg(all(feature = "private", feature = "enterprise"))]
     {
@@ -5270,17 +5287,32 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
                 Error::internal_err(format!("No concurrency key found for job {}", job.id))
             })?;
             if !key.is_empty() {
-                return Ok(crate::jobs_ee::update_concurrency_counter(
+                let window = settings.concurrency_time_window_s.unwrap_or(0);
+                let limit = settings.concurrent_limit.unwrap_or_default();
+                let admitted = crate::jobs_ee::update_concurrency_counter(
                     db,
                     &job.id,
-                    key,
+                    key.clone(),
                     serde_json::json!({ job.id.to_string(): {} }),
                     job.id.to_string(),
-                    settings.concurrency_time_window_s.unwrap_or(0),
-                    settings.concurrent_limit.unwrap_or_default(),
+                    window,
+                    limit,
                 )
                 .await?
-                .0);
+                .0;
+                if !admitted
+                    && settings.on_concurrency_limit
+                        == Some(windmill_common::runnable_settings::OnConcurrencyLimit::Fail)
+                {
+                    let e = crate::jobs_ee::reject_over_concurrency_limit(
+                        db, job.id, &key, limit, window,
+                    )
+                    .await?;
+                    return Err(Error::JsonErr(
+                        json!({ "name": e.name, "message": e.message }),
+                    ));
+                }
+                return Ok(admitted);
             }
         }
     }
@@ -5359,25 +5391,36 @@ pub(crate) async fn wake_concurrency_key_waiters(db: &DB, key: &str, n: i64) -> 
     Ok(())
 }
 
-/// Make due now the job of `key` that a concurrency limit deferred first, so the slot a
-/// completed job freed is taken rather than left empty until the deferral's estimate.
-/// No-op while the jobs of the key already due fill the free slots, and for a job limited
-/// per time window, whose slot a completion does not free. Queue bookkeeping, not an
-/// authorization boundary: only for the completion path, never with a key taken from a request.
+/// Make due now the earliest-deferred jobs of `key`, as many as the slots no admitted or
+/// already-due job holds. It tops up to the limit: waking one job per completion never
+/// refills a slot whose woken job was lost, and the key stays below its limit.
+/// Already-due jobs are counted in the first `2 * limit + 1` deferred jobs not limited per
+/// time window: wakes go to the earliest of those, so they come first, and missing one can
+/// only over-wake, which admission re-defers. Both walks filter before they stop, so older
+/// time-window jobs or ones at a full lower limit never hide an eligible job on a shared key.
+/// `limit` is the completed job's. Runs whatever the completed job's own time window: its slot
+/// can go to a waiter that has none. Queue bookkeeping, not an authorization boundary.
 #[cfg(all(feature = "enterprise", feature = "private"))]
-pub async fn wake_deferred_concurrency_job(db: &DB, key: &str) -> error::Result<()> {
+pub async fn wake_deferred_concurrency_job(db: &DB, key: &str, limit: i32) -> error::Result<()> {
     sqlx::query!(
-        "WITH taken AS (
+        "WITH head AS (
+            SELECT q.running, q.scheduled_for <= now() AS due
+            FROM concurrency_key ck
+            JOIN v2_job_queue q ON q.id = ck.job_id
+            JOIN v2_job j ON j.id = ck.job_id
+            LEFT JOIN runnable_settings rs ON rs.hash = q.runnable_settings_handle
+            LEFT JOIN concurrency_settings cs ON cs.hash = rs.concurrency_settings
+            WHERE ck.key = $1 AND ck.ended_at IS NULL AND ck.original_scheduled_for IS NOT NULL
+                AND q.canceled_by IS NULL
+                AND COALESCE(cs.concurrency_time_window_s, j.concurrency_time_window_s, 0) = 0
+            ORDER BY ck.original_scheduled_for, ck.job_id
+            LIMIT 2 * $2::bigint + 1
+        ), taken AS (
             SELECT
                 (SELECT count(*)
                 FROM concurrency_counter, jsonb_object_keys(job_uuids)
                 WHERE concurrency_id = $1)
-                + (SELECT count(*)
-                FROM concurrency_key due_ck
-                JOIN v2_job_queue due ON due.id = due_ck.job_id
-                WHERE due_ck.key = $1 AND due_ck.ended_at IS NULL
-                    AND NOT due.running AND due.canceled_by IS NULL
-                    AND due.scheduled_for <= now()) AS n
+                + (SELECT count(*) FROM head WHERE due AND NOT running) AS n
         ), next AS (
             SELECT q.id
             FROM concurrency_key ck
@@ -5390,11 +5433,15 @@ pub async fn wake_deferred_concurrency_job(db: &DB, key: &str) -> error::Result<
                 AND COALESCE(cs.concurrency_time_window_s, j.concurrency_time_window_s, 0) = 0
                 AND (SELECT n FROM taken) < COALESCE(cs.concurrent_limit, j.concurrent_limit, 0)
             ORDER BY ck.original_scheduled_for, ck.job_id
-            LIMIT 1
+            LIMIT GREATEST($2::bigint - (SELECT n FROM taken), 0)
             FOR UPDATE OF q SKIP LOCKED
         )
-        UPDATE v2_job_queue SET scheduled_for = now() FROM next WHERE v2_job_queue.id = next.id",
+        UPDATE v2_job_queue SET scheduled_for = now()
+        FROM next
+        WHERE v2_job_queue.id = next.id AND NOT v2_job_queue.running
+            AND v2_job_queue.scheduled_for > now()",
         key,
+        i64::from(limit),
     )
     .execute(db)
     .await?;
@@ -6558,6 +6605,36 @@ async fn fetch_pushed_flow_version(
     }
 }
 
+/// A job with low (negative) priority passes it to every job it starts, all the way down, so a
+/// background flow cannot get ahead of other work through the jobs its scripts start. It wins
+/// over the priority the run endpoints give a job with a parent, which would otherwise put every
+/// job such a flow starts ahead of all ordinary jobs. Flow steps get their flow's priority as an
+/// override already and are not looked up here.
+#[cfg(feature = "enterprise")]
+async fn inherited_low_priority(
+    tx: &mut PushIsolationLevel<'_>,
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    parent_job: Option<Uuid>,
+    flow_step_id: &Option<String>,
+) -> error::Result<Option<i16>> {
+    let Some(parent_job) = parent_job.filter(|_| flow_step_id.is_none()) else {
+        return Ok(None);
+    };
+    let query = sqlx::query_scalar!(
+        "SELECT priority FROM v2_job WHERE id = $1 AND workspace_id = $2 AND priority < 0",
+        parent_job,
+        workspace_id,
+    );
+    let priority = match tx {
+        PushIsolationLevel::Transaction(ntx) => query.fetch_optional(&mut **ntx).await?,
+        PushIsolationLevel::Isolated(..) | PushIsolationLevel::IsolatedRoot(_) => {
+            query.fetch_optional(db).await?
+        }
+    };
+    Ok(priority.flatten())
+}
+
 // #[instrument(level = "trace", skip_all)]
 async fn push_inner<'c, 'd>(
     db: &Pool<Postgres>,
@@ -7635,6 +7712,7 @@ async fn push_inner<'c, 'd>(
                     concurrency_key: Some(concurrency_key),
                     concurrent_limit: Some(1),
                     concurrency_time_window_s: Some(0),
+                    ..Default::default()
                 },
                 debouncing_settings,
                 ..Default::default()
@@ -7690,6 +7768,10 @@ async fn push_inner<'c, 'd>(
         final_priority = if *CLOUD_HOSTED {
             // for cloud hosted instance, priority queues is disabled
             None
+        } else if let Some(low) =
+            inherited_low_priority(&mut tx, db, workspace_id, parent_job, &flow_step_id).await?
+        {
+            Some(low)
         } else if _priority_override.is_some() {
             _priority_override
         } else {
@@ -7697,16 +7779,13 @@ async fn push_inner<'c, 'd>(
             _low_level_priority
         }; // else it remains empty, i.e. no priority
     }
-    // prioritize flow steps to drain the queue faster
-    let final_priority = if flow_step_id.is_some() && final_priority.is_none() {
-        Some(0)
-    } else if job_kind == JobKind::Dependencies && !build_binary_only {
+    let final_priority = Some(windmill_common::queue::pushed_job_priority(
+        final_priority,
+        flow_step_id.is_some(),
         // A binary build is a background optimization, not a deploy the user waits on, so
         // it does not get the dependency-job jump ahead of ordinary jobs on its tag.
-        Some(0)
-    } else {
-        final_priority
-    };
+        job_kind == JobKind::Dependencies && !build_binary_only,
+    ));
 
     let is_running = same_worker || running;
     if let Some(flow) = raw_flow.as_ref() {

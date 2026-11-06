@@ -735,11 +735,13 @@ pub async fn handle_receive_completed_job(
     let workspace = jc.job.workspace_id.clone();
     // This client drives post-completion orchestration (the next step's input transforms fetch
     // prior results) and outlives the finished step, so the step's own token can already be near
-    // expiry. Refresh it — but only from the server-written job_perms row, never from the
-    // completion payload's owner fields, which are untrusted on the agent-worker path.
+    // expiry, or absent for a step failed before it ran (e.g. on a full concurrency key). Refresh
+    // it — but only from the server-written job_perms row, never from the completion payload's
+    // owner fields, which are untrusted on the agent-worker path.
     let token = if jc.job.is_flow_step()
-        && windmill_common::auth::job_token_remaining_lifetime_secs(&jc.token)
-            .is_some_and(|r| r < windmill_common::auth::JOB_TOKEN_REFRESH_MARGIN_SECS)
+        && (jc.token.is_empty()
+            || windmill_common::auth::job_token_remaining_lifetime_secs(&jc.token)
+                .is_some_and(|r| r < windmill_common::auth::JOB_TOKEN_REFRESH_MARGIN_SECS))
     {
         let label = windmill_common::auth::ephemeral_script_token_label(
             &jc.job.permissioned_as,
@@ -771,7 +773,7 @@ pub async fn handle_receive_completed_job(
             }),
             // No perms row (e.g. a zombie replay after the queue row was reaped): keep the step
             // token rather than minting an identity from untrusted payload fields. The token is
-            // near expiry, so trace it — the downstream fetch may hit the original failure.
+            // near expiry or absent, so trace it — the downstream fetch may hit the original failure.
             Ok(None) => {
                 tracing::warn!(
                     "no job_perms row to refresh flow-orchestration token for job {}, reusing step token",

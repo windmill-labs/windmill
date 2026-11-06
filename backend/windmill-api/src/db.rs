@@ -120,6 +120,9 @@ lazy_static::lazy_static! {
                     (20261015114712, include_str!(
                         "../../migrations/20261015114712_queue_workspace_scheduled_for_index.up.sql"
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20261105203203, include_str!(
+                        "../../migrations/20261105203203_concurrency_key_waiting_index.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
                     // The widening fails every query the previous release's still-running
                     // servers prepared on the column; `variables::widen_variable_value` does it
                     // once they are gone.

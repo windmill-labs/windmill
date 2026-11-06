@@ -8,6 +8,9 @@ import {
   resolveWsNameForConfigFromFlags,
   inferWsNameFromProfile,
   inferWsNameFromForkBranch,
+  getWorkspaceNames,
+  getEffectiveGitBranch,
+  type WorkspaceEntryConfig,
 } from "../../core/conf.ts";
 import { GitSyncRepository, GIT_SYNC_FIELDS } from "./types.ts";
 import { GitSyncSettingsConverter } from "./converter.ts";
@@ -29,10 +32,10 @@ export function outputResult(opts: { jsonOutput?: boolean }, result: {
 }
 
 /**
- * The wmill.yaml entry of the workspace being synced, resolved by workspace as
- * `sync pull/push` do: several entries can share one `gitBranch`, so matching on
- * the checked-out branch alone picks whichever of them comes first in the file.
- * Undefined when no entry names this workspace.
+ * The wmill.yaml entry whose settings apply to the workspace being synced,
+ * resolved by workspace as `sync pull/push` do: several entries can share one
+ * `gitBranch`, so matching on the checked-out branch alone picks whichever of
+ * them comes first in the file. A fork resolves to its parent's entry.
  */
 export function resolveGitSyncWsName(
   config: SyncOptions,
@@ -44,6 +47,38 @@ export function resolveGitSyncWsName(
     inferWsNameFromProfile(config, workspace) ??
     inferWsNameFromForkBranch(config, workspace.workspaceId)
   );
+}
+
+/**
+ * The entry `pull --override` writes into: the one its diff was read from.
+ *
+ * A fork writes into its parent's entry on purpose. A fork never has an entry
+ * of its own, so an entry beside the parent's would never be read back; and the
+ * write lands on the fork branch, so it reaches the parent only through the
+ * fork's pull request, which is how a settings change made in a fork is promoted.
+ *
+ * With no resolved entry the branch does not say whose an existing entry is, so
+ * it refuses when the branch is in use and otherwise creates a branch-named entry.
+ */
+export function resolveOverrideTarget(
+  config: SyncOptions,
+  opts: { workspace?: string },
+  workspace: { remote: string; workspaceId: string },
+  currentBranch: string | null | undefined,
+): string | undefined {
+  const resolved = resolveGitSyncWsName(config, opts, workspace);
+  if (resolved || !currentBranch) return resolved;
+  const entries = (config.workspaces ?? {}) as Record<string, WorkspaceEntryConfig>;
+  const taken = getWorkspaceNames(config.workspaces).filter(
+    (name) => name === currentBranch || getEffectiveGitBranch(name, entries[name]) === currentBranch,
+  );
+  if (taken.length > 0) {
+    throw new Error(
+      `No workspace entry in wmill.yaml matches workspace '${workspace.workspaceId}', and git branch '${currentBranch}' is already used by ${taken.join(", ")}. ` +
+        `Name the entry for this workspace '${workspace.workspaceId}' and keep 'gitBranch: ${currentBranch}' on it so it can be resolved.`,
+    );
+  }
+  return currentBranch;
 }
 
 export async function getEffectiveSettingsForWorkspace(

@@ -433,6 +433,7 @@ export const APP_TO_ICON_COMPONENT = {
 	surrealdb: SurrealdbIcon,
 	activitypub: ActivitypubIcon,
 	aws_ecr: AwsEcrIcon,
+	aws_sqs: AwsIcon,
 	calcom: CalcomIcon,
 	clickup: ClickupIcon,
 	cloudflare: CloudflareIcon,

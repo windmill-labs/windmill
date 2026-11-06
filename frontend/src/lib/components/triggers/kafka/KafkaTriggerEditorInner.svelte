@@ -134,6 +134,7 @@
 	let retry: Retry | undefined = $state()
 	let filters: FilterNode[] = $state([])
 	let filterLogic = $state<'and' | 'or'>('and')
+	let runOnFilterError = $state(false)
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
@@ -264,6 +265,7 @@
 			retry = nDefaultValues?.retry ?? undefined
 			filters = nDefaultValues?.filters ?? []
 			filterLogic = 'and'
+			runOnFilterError = false
 			mode = nDefaultValues?.mode ?? 'enabled'
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
@@ -304,6 +306,7 @@
 		retry = cfg?.retry
 		filters = cfg?.filters ?? []
 		filterLogic = cfg?.filter_logic ?? 'and'
+		runOnFilterError = cfg?.run_on_filter_error ?? false
 		permissionedAs = cfg?.permissioned_as
 		selectedPermissionedAs = cfg?.permissioned_as
 		preservePermissionedAs = !!cfg?.permissioned_as
@@ -342,6 +345,7 @@
 			topics: kafkaCfg.topics,
 			filters,
 			filter_logic: filterLogic,
+			run_on_filter_error: runOnFilterError,
 			auto_offset_reset: autoOffsetReset,
 			auto_commit: autoCommit,
 			mode,
@@ -711,6 +715,7 @@
 					<TriggerFilters
 						bind:filters
 						bind:filterLogic
+						bind:runOnFilterError
 						disabled={!can_write}
 						payloadBase64Encoded
 					/>

@@ -85,6 +85,23 @@ pub const BUN_LOCKB_SPLIT_WINDOWS: &str = "\r\n//bun.lockb\r\n";
 
 pub const EMPTY_FILE: &str = "<empty>";
 
+/// A thrown error's own properties (`extra`) can be cyclic, e.g. AWS SDK v3's `$response`:
+/// a plain `JSON.stringify` then throws and the real error is lost. The fallback replaces
+/// only the fields that cannot be encoded, so the rest (`Code`, `$metadata`, ...) survive.
+const STRINGIFY_ERROR_JS: &str = r#"(() => {
+        try {
+            return JSON.stringify(err);
+        } catch {}
+        for (const k of Object.keys(err.extra ?? {})) {
+            try {
+                JSON.stringify(err.extra[k]);
+            } catch {
+                err.extra[k] = '[unserializable]';
+            }
+        }
+        return JSON.stringify(err);
+    })()"#;
+
 /// Bun args for dedicated worker (without the script path)
 pub const BUN_DEDICATED_WORKER_ARGS: &[&str] = &["run", "-i", "--prefer-offline"];
 
@@ -2870,7 +2887,7 @@ try {{
     if (Object.keys(extra).length > 0) {{
         err["extra"] = extra;
     }}
-    await fs.writeFile("result.json", JSON.stringify(err));
+    await fs.writeFile("result.json", {STRINGIFY_ERROR_JS});
     process.exit(1);
 }}
     "#,
@@ -2944,7 +2961,7 @@ try {{
     if (Object.keys(extra).length > 0) {{
         err["extra"] = extra;
     }}
-    await fs.writeFile("result.json", JSON.stringify(err));
+    await fs.writeFile("result.json", {STRINGIFY_ERROR_JS});
     process.exit(1);
 }}
     "#,
@@ -4044,8 +4061,11 @@ pub async fn handle_wac_v2_output(
                         step.tag.clone().or_else(|| Some(job.tag.clone())),
                         step.timeout.or(job.timeout),
                         None, // flow_step_id
-                        step.priority
-                            .or(if own_runnable { None } else { job.priority }),
+                        step.priority.or(if own_runnable {
+                            None
+                        } else {
+                            windmill_common::queue::passed_on_priority(job.priority)
+                        }),
                         None,  // authed
                         false, // running
                         job.permissioned_as_end_user_email.clone(),

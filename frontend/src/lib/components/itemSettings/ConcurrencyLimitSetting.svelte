@@ -5,12 +5,14 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import SettingToggle from './SettingToggle.svelte'
+	import ConcurrencyOnLimitSelect from './ConcurrencyOnLimitSelect.svelte'
 
 	interface Props {
 		kind: 'flow' | 'script'
 		limit: number | undefined
 		timeWindowS: number | undefined
 		concurrencyKey: string | undefined
+		onLimit: 'queue' | 'fail' | undefined
 		keyPlaceholder: string
 	}
 
@@ -19,6 +21,7 @@
 		limit = $bindable(),
 		timeWindowS = $bindable(),
 		concurrencyKey = $bindable(),
+		onLimit = $bindable(),
 		keyPlaceholder
 	}: Props = $props()
 
@@ -28,7 +31,7 @@
 <SettingToggle
 	setting="concurrency"
 	label="Concurrency limit"
-	tooltip={`Caps how many runs of this ${kind} can start within a time window. The runs over the limit wait in the queue.`}
+	tooltip={`Caps how many runs of this ${kind} can start within a time window. The runs over the limit wait in the queue, or fail at once.`}
 	documentationLink={kind === 'flow'
 		? 'https://www.windmill.dev/docs/flows/concurrency_limit'
 		: 'https://www.windmill.dev/docs/core_concepts/concurrency_limits'}
@@ -44,6 +47,7 @@
 			if (kind === 'script') {
 				timeWindowS = undefined
 				concurrencyKey = undefined
+				onLimit = undefined
 			}
 		}
 	}}
@@ -54,6 +58,7 @@
 	<Label label="Time window in seconds">
 		<SecondsInput {disabled} bind:seconds={timeWindowS} />
 	</Label>
+	<ConcurrencyOnLimitSelect bind:onLimit {disabled} />
 	<Label label="Custom concurrency key (optional)">
 		{#snippet header()}
 			<Tooltip

@@ -620,6 +620,7 @@ export async function handleFile(
       has_preprocessor: typed?.has_preprocessor,
       priority: typed?.priority,
       concurrency_key: typed?.concurrency_key,
+      on_concurrency_limit: typed?.on_concurrency_limit,
       debounce_key: typed?.debounce_key,
       debounce_delay_s: typed?.debounce_delay_s,
       debounce_args_to_accumulate: typed?.debounce_args_to_accumulate,
@@ -701,6 +702,8 @@ export async function handleFile(
             typed.delete_after_secs == remote.delete_after_secs &&
             //@ts-ignore
             typed.concurrency_key == remote["concurrency_key"] &&
+            (typed.on_concurrency_limit ?? "queue") ==
+              (remote.on_concurrency_limit ?? "queue") &&
             typed.debounce_key == remote["debounce_key"] &&
             typed.debounce_delay_s == remote["debounce_delay_s"] &&
             deepEqual(
