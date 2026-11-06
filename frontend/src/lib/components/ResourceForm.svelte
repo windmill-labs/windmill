@@ -5,7 +5,8 @@
 	import { onDestroy, untrack } from 'svelte'
 	import { setEditorUnparseable } from './pendingEditorFlush'
 	import { emptyString, isOwner, urlize } from '$lib/utils'
-	import { Alert, Skeleton } from './common'
+	import { Alert, Button, Skeleton } from './common'
+	import { AlertTriangle, Trash2 } from 'lucide-svelte'
 	import Path from './Path.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 	import { type UserExt } from '$lib/stores'
@@ -122,6 +123,52 @@
 	$effect(() => {
 		if (showReference) isValid = true
 	})
+
+	// Keys the schema form cannot render (e.g. a property later removed from the resource type)
+	// still ship with the value, and a `$var:` among them fails the job once the variable is gone.
+	let orphanKeys = $derived.by(() => {
+		const props = resourceSchema?.properties
+		if (
+			!props ||
+			showReference ||
+			rawMode ||
+			loadingSchema ||
+			resourceTypeInfo?.is_fileset ||
+			resourceTypeInfo?.format_extension ||
+			!args ||
+			typeof args !== 'object' ||
+			Array.isArray(args)
+		) {
+			return []
+		}
+		return Object.keys(args).filter((k) => !(k in props))
+	})
+
+	// Rendered untyped, which the form shows as a JSON input, so any stored value fits.
+	let formSchema = $derived(
+		orphanKeys.length > 0 && resourceSchema
+			? {
+					...resourceSchema,
+					properties: {
+						...resourceSchema.properties,
+						...Object.fromEntries(
+							orphanKeys.map((k) => [
+								k,
+								{
+									description:
+										'Not in the resource type schema, but still passed to scripts using this resource. Remove it if it is no longer used.'
+								}
+							])
+						)
+					}
+				}
+			: resourceSchema
+	)
+
+	function removeOrphanKey(key: string) {
+		const { [key]: _, ...rest } = args
+		args = rest
+	}
 
 	// This field is a bare SimpleEditor parsed here, so it never passes through JsonEditor —
 	// it has to register itself, or a caller persisting what is on screen would save the
@@ -357,11 +404,29 @@
 					noDelete
 					disabled={!can_write}
 					compact
-					schema={resourceSchema}
+					schema={formSchema}
 					bind:args
 					bind:isValid
 					{workspace}
-				/>
+				>
+					{#snippet actions({ item })}
+						{#if orphanKeys.includes(item.value)}
+							<span title="Not in the resource type schema" class="flex">
+								<AlertTriangle size={16} class="text-yellow-500" />
+							</span>
+							{#if can_write}
+								<Button
+									variant="subtle"
+									unifiedSize="sm"
+									iconOnly
+									startIcon={{ icon: Trash2 }}
+									title="Remove from this resource"
+									onclick={() => removeOrphanKey(item.value)}
+								/>
+							{/if}
+						{/if}
+					{/snippet}
+				</SchemaForm>
 			{/if}
 		{:else if !can_write}
 			<input type="text" disabled value={rawCode} />
