@@ -1872,14 +1872,7 @@ pub async fn do_duckdb(
             // Passwords might appear in the error message — and, for the
             // structured data-test failure, in sampled row data read from an
             // attached database — so every outgoing error is sanitized here.
-            let sanitize = |mut s: String| {
-                for pwd in hidden_passwords.lock().unwrap().iter() {
-                    if let Some(sanitized) = sanitize_string_from_password(&s, &pwd.clone()) {
-                        s = sanitized;
-                    }
-                }
-                s
-            };
+            let sanitize = |s: String| mask_secrets(s, &hidden_passwords.lock().unwrap());
             match e {
                 // The structured payload must keep its variant: flattening it
                 // to a string (the arm below) would strip the data-test
@@ -1945,6 +1938,20 @@ fn cgroup_bytes_to_duckdb_memory_limit(bytes: i64) -> Option<String> {
 // The runner reports an engine error as `ERROR <json-encoded-message>`. Decode the JSON string
 // back so multi-line errors render with real newlines, not escaped `\n` inside wrapping quotes;
 // fall back to the raw slice if it is somehow not a JSON string.
+/// Longest first: a short secret can occur inside a longer one (an IAM resource's placeholder
+/// password inside the token minted for it), and masking it first leaves the rest unmatched.
+/// An empty secret would put a mask between every character.
+fn mask_secrets(mut s: String, secrets: &[String]) -> String {
+    let mut secrets: Vec<&String> = secrets.iter().filter(|p| !p.is_empty()).collect();
+    secrets.sort_by_key(|p| std::cmp::Reverse(p.len()));
+    for pwd in secrets {
+        if let Some(sanitized) = sanitize_string_from_password(&s, pwd) {
+            s = sanitized;
+        }
+    }
+    s
+}
+
 fn decode_ffi_error(result_str: &str) -> String {
     let raw = result_str.strip_prefix("ERROR ").unwrap_or(result_str);
     serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.to_string())
@@ -2982,6 +2989,16 @@ mod tests {
         ] {
             assert!(parse(malformed).is_err(), "silently ignored: {malformed}");
         }
+    }
+
+    #[test]
+    fn mask_secrets_masks_a_token_containing_a_shorter_secret() {
+        let token = "h:5432/?Action=connect&DBUser=rds_iam&X-Amz-Signature=abc123";
+        let secrets = [String::new(), "rds_iam".to_string(), token.to_string()];
+        assert_eq!(
+            mask_secrets(format!("failed for {token} as rds_iam"), &secrets),
+            "failed for ****** as ******"
+        );
     }
 
     #[test]
