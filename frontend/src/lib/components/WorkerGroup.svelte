@@ -869,10 +869,12 @@
 				{/if}
 
 				<p class="text-xs text-secondary"
-					>Workers restart upon detecting config changes, one at a time: each waits until the
-					previous one is back up, for up to 5 minutes. Deploying a script reloads its process
-					without restarting the worker. It is assumed workers run in an environment where the
-					supervisor will restart them.</p
+					>Workers restart upon detecting config changes, one host at a time: each waits until the
+					previous one is back up, for up to 5 minutes. A cache clear restarts them all at once.
+					Deploying a script reloads its process in place, unless the deploy changes which scripts
+					are dedicated or how they share a runner, or the group serves flows: workers then restart
+					in turn. It is assumed workers run in an environment where the supervisor will restart
+					them.</p
 				>
 
 				{#if nconfig !== undefined}
