@@ -28,6 +28,8 @@
 	import SettingCard from '$lib/components/instanceSettings/SettingCard.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import InstanceAISettings from '$lib/components/instanceSettings/InstanceAISettings.svelte'
+	import DefaultSuperadminSkipModal from '$lib/components/DefaultSuperadminSkipModal.svelte'
+	import { isDefaultSuperadminActive } from '$lib/defaultSuperadmin'
 
 	const settingsSteps = [
 		{ id: 'Core', label: 'Core' },
@@ -45,16 +47,20 @@
 	const fullStepLabels = ['Settings', 'Root login & Resource Types']
 
 	const initialMode = page.url.searchParams.get('mode') === 'full' ? 'full' : 'wizard'
-	const initialStep = Math.max(
-		0,
-		Math.min(parseInt(page.url.searchParams.get('step') ?? '0') || 0, wizardStepLabels.length - 1)
-	)
+	const ACCOUNT_STEP_INDEX = wizardStepLabels.length - 1
+
+	// `step=account` lets links elsewhere reach the account step without knowing its index.
+	const stepParam = page.url.searchParams.get('step')
+	const initialStep =
+		stepParam === 'account'
+			? ACCOUNT_STEP_INDEX
+			: Math.max(0, Math.min(parseInt(stepParam ?? '0') || 0, ACCOUNT_STEP_INDEX))
 	const initialFullStep =
 		initialMode === 'full'
 			? Math.max(
 					0,
 					Math.min(
-						parseInt(page.url.searchParams.get('step') ?? '0') || 0,
+						stepParam === 'account' ? fullStepLabels.length - 1 : parseInt(stepParam ?? '0') || 0,
 						fullStepLabels.length - 1
 					)
 				)
@@ -266,6 +272,28 @@
 
 	function finishSetup() {
 		goto('/user/workspaces')
+	}
+
+	let showSkipWarning = $state(false)
+
+	async function skipSetup() {
+		if (await isDefaultSuperadminActive()) {
+			showSkipWarning = true
+		} else {
+			finishSetup()
+		}
+	}
+
+	function goToAccountStep() {
+		showSkipWarning = false
+		saveAndProceed(() => {
+			if (mode === 'wizard') {
+				wizardStep = ACCOUNT_STEP_INDEX
+			} else {
+				yamlMode = false
+				fullStep = fullStepLabels.length - 1
+			}
+		})
 	}
 
 	async function submitAccount() {
@@ -624,10 +652,20 @@
 			<p class="text-secondary text-xs">
 				You can change these settings later in the instance settings.
 			</p>
-			<Button variant="subtle" unifiedSize="sm" onClick={finishSetup}>Skip setup</Button>
+			<Button variant="subtle" unifiedSize="sm" onClick={skipSetup}>Skip setup</Button>
 		</div>
 	</div>
 </CenteredModal>
+
+<DefaultSuperadminSkipModal
+	open={showSkipWarning}
+	onSkip={() => {
+		showSkipWarning = false
+		finishSetup()
+	}}
+	onSetAccount={goToAccountStep}
+	onCancel={() => (showSkipWarning = false)}
+/>
 
 {#if showLicenseKeyWarning}
 	<ConfirmationModal
