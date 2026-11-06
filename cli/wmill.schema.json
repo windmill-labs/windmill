@@ -156,7 +156,7 @@
           },
           "per_script_digest": {
             "type": "boolean",
-            "description": "Redeploy a script only when a file it bundles changes, instead of on any change under relative_path. Each push bundles every script of the codebase once to find its inputs"
+            "description": "Redeploy a script only when a file it bundles changes, instead of on any change under relative_path. Each push bundles every script of the codebase once to find its inputs, so every one of them must bundle"
           },
           "includes": {
             "type": "array",

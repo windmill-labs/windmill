@@ -177,8 +177,12 @@ test("per_script_digest follows a tsconfig extends resolved through a package", 
 
 test("exportsTarget resolves subpaths, patterns and conditions", () => {
   expect(exportsTarget("./base.json", ".")).toBe("./base.json");
-  expect(exportsTarget({ ".": { require: "./r.json", default: "./d.json" } }, ".")).toBe("./r.json");
+  // esbuild resolves `extends` with the require conditions, never `import` or `types`.
+  expect(exportsTarget({ ".": { import: "./esm.json", require: "./cjs.json" } }, ".")).toBe("./cjs.json");
+  expect(exportsTarget({ ".": { types: "./t.json", default: "./d.json" } }, ".")).toBe("./d.json");
   expect(exportsTarget({ "./*": "./configs/*.json" }, "./strict")).toBe("./configs/strict.json");
+  // The pattern with the longest prefix wins, whatever the declaration order.
+  expect(exportsTarget({ "./*": "./any/*.json", "./node/*": "./node/*.json" }, "./node/20")).toBe("./node/20.json");
   expect(exportsTarget({ "./a": "./a.json" }, "./b")).toBeUndefined();
 });
 
@@ -186,6 +190,7 @@ test("tsconfigExtends reads extends from JSON with comments", () => {
   expect(tsconfigExtends(`{ "a": "x // not a comment", // c\n "extends": ["./a", "b"], }`)).toEqual(["./a", "b"]);
   expect(tsconfigExtends(`{ /* "extends": "no" */ }`)).toEqual([]);
   expect(tsconfigExtends(`not json`)).toEqual([]);
+  expect(tsconfigExtends(`﻿{ "extends": "./base.json" }`)).toEqual(["./base.json"]);
 });
 
 test("per_script_digest fails only the script that does not bundle", async () => {

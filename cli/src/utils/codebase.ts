@@ -213,6 +213,7 @@ const isFile = (p: string) => stat(p).then((s) => s.isFile(), () => false);
 /** The `extends` of a tsconfig, which is JSON with comments and trailing commas.
  * An unparseable config extends nothing; its own content is still hashed. */
 export function tsconfigExtends(text: string): string[] {
+  text = text.replace(/^﻿/, "");
   let json = "";
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
@@ -241,87 +242,105 @@ export function tsconfigExtends(text: string): string[] {
 
 async function readJson(p: string): Promise<any> {
   try {
-    return JSON.parse(await readFile(p, "utf8"));
+    return JSON.parse((await readFile(p, "utf8")).replace(/^﻿/, ""));
   } catch {
     return undefined;
   }
 }
 
-/** Resolves an `extends` as esbuild does: a path relative to the config, or a package
- * in a `node_modules` above it, through its `exports`, then its `tsconfig` field,
- * then a file at the subpath. */
+/**
+ * Resolves an `extends` as esbuild 0.28 does (`parseTSConfigFromSource` in its
+ * resolver). A path is relative to the config, with `.json` appended only when it
+ * lacks it. A package is looked up in each `node_modules` above the config: through
+ * its `exports` under the `require` conditions, else at the path its `tsconfig`
+ * field names or at the subpath, as `<p>/tsconfig.json`, `<p>` or `<p>.json`.
+ */
 async function resolveTsconfigExtends(spec: string, dir: string): Promise<string | undefined> {
-  const firstFile = async (p: string) => {
-    for (const c of [p, p + ".json", path.join(p, "tsconfig.json")]) {
-      if (await isFile(c)) return c;
-    }
-    return undefined;
-  };
-  if (spec.startsWith(".") || path.isAbsolute(spec)) {
-    return await firstFile(path.resolve(dir, spec));
+  const isPackage = !/^\.{1,2}(\/|\\|$)/.test(spec) && !path.isAbsolute(spec);
+  if (!isPackage) {
+    let p = spec == "." || spec == ".." ? spec + "/tsconfig.json" : spec;
+    p = path.resolve(dir, p);
+    if (await isFile(p)) return p;
+    return !p.endsWith(".json") && (await isFile(p + ".json")) ? p + ".json" : undefined;
   }
   const parts = spec.split("/");
   const nameLen = spec.startsWith("@") ? 2 : 1;
   const name = parts.slice(0, nameLen).join("/");
   const subpath = parts.slice(nameLen).join("/");
   for (let d = dir; ; d = path.dirname(d)) {
-    const pkgDir = path.join(d, "node_modules", name);
-    if (await stat(pkgDir).then((s) => s.isDirectory(), () => false)) {
+    if (path.basename(d) != "node_modules") {
+      let join = path.join(d, "node_modules", spec);
+      const pkgDir = path.join(d, "node_modules", name);
       const pkg = await readJson(path.join(pkgDir, "package.json"));
-      const target = exportsTarget(pkg?.exports, subpath ? "./" + subpath : ".");
-      if (target && (await isFile(path.resolve(pkgDir, target)))) {
-        return path.resolve(pkgDir, target);
+      if (pkg && typeof pkg == "object") {
+        if (typeof pkg.tsconfig == "string" && pkg.tsconfig != "") {
+          join = path.resolve(pkgDir, pkg.tsconfig);
+        }
+        const target = exportsTarget(pkg.exports, subpath ? "./" + subpath : ".");
+        if (target != undefined && (await isFile(path.join(pkgDir, target)))) {
+          return path.join(pkgDir, target);
+        }
       }
-      if (!subpath && typeof pkg?.tsconfig == "string") {
-        const p = path.resolve(pkgDir, pkg.tsconfig);
-        if (await isFile(p)) return p;
+      for (const c of [path.join(join, "tsconfig.json"), join, join + ".json"]) {
+        if (await isFile(c)) return c;
       }
-      return await firstFile(path.join(pkgDir, subpath));
     }
     if (path.dirname(d) == d) return undefined;
   }
 }
 
-/** The file a package's `exports` maps `key` ("." or "./sub") to, under the
- * conditions a tsconfig is resolved with. */
+/** The conditions esbuild resolves a tsconfig `extends` through `exports` with, for
+ * `platform: "node"` and no custom `conditions`. */
+const TSCONFIG_EXPORTS_CONDITIONS = new Set(["require", "node", "default"]);
+
+/** The file a package's `exports` maps `key` ("." or "./sub") to under
+ * {@link TSCONFIG_EXPORTS_CONDITIONS}, following node's algorithm: an exact subpath
+ * first, else the `*` pattern with the longest prefix; within a conditions object,
+ * the first key that is an active condition. */
 export function exportsTarget(exports: unknown, key: string): string | undefined {
   const pick = (v: unknown): string | undefined => {
     if (typeof v == "string") return v;
     if (Array.isArray(v)) {
       for (const x of v) {
         const r = pick(x);
-        if (r) return r;
+        if (r != undefined) return r;
       }
       return undefined;
     }
     if (v && typeof v == "object") {
       for (const [cond, x] of Object.entries(v)) {
-        if (["types", "require", "import", "node", "default"].includes(cond)) {
-          const r = pick(x);
-          if (r) return r;
-        }
+        if (TSCONFIG_EXPORTS_CONDITIONS.has(cond)) return pick(x);
       }
     }
     return undefined;
   };
-  if (exports == undefined) return undefined;
+  if (exports == undefined || exports === null) return undefined;
   const isSubpathMap =
     typeof exports == "object" &&
     !Array.isArray(exports) &&
     Object.keys(exports).some((k) => k.startsWith("."));
   if (!isSubpathMap) return key == "." ? pick(exports) : undefined;
   const map = exports as Record<string, unknown>;
-  if (key in map) return pick(map[key]);
-  for (const [pattern, v] of Object.entries(map)) {
+  if (key in map && !key.includes("*")) return pick(map[key]);
+  let best: { pattern: string; pre: string; post: string } | undefined;
+  for (const pattern of Object.keys(map)) {
     const star = pattern.indexOf("*");
-    if (star < 0) continue;
-    const [pre, post] = [pattern.slice(0, star), pattern.slice(star + 1)];
-    if (key.startsWith(pre) && key.endsWith(post) && key.length >= pattern.length - 1) {
-      const t = pick(v);
-      if (t) return t.replace("*", key.slice(pre.length, key.length - post.length));
+    if (star < 0 || pattern.indexOf("*", star + 1) >= 0) continue;
+    const pre = pattern.slice(0, star);
+    const post = pattern.slice(star + 1);
+    if (!key.startsWith(pre) || key == pre) continue;
+    if (post && (!key.endsWith(post) || key.length < pattern.length)) continue;
+    if (
+      !best ||
+      pre.length > best.pre.length ||
+      (pre.length == best.pre.length && pattern.length > best.pattern.length)
+    ) {
+      best = { pattern, pre, post };
     }
   }
-  return undefined;
+  if (!best) return undefined;
+  const t = pick(map[best.pattern]);
+  return t?.replaceAll("*", key.slice(best.pre.length, key.length - best.post.length));
 }
 
 /** The fields of a package.json that change how esbuild compiles or tree-shakes the
@@ -461,7 +480,10 @@ async function importClosures(
       for (const [s, real] of entries) res.set(s, closure(imports, real));
       return res;
     } catch (e) {
-      log.debug(`Batched codebase digest failed, digesting scripts one by one: ${e}`);
+      const reason = (e instanceof Error ? e.message : String(e)).split("\n")[0];
+      log.info(
+        `Codebase digest: the batched build failed (${reason}), digesting ${entries.size} scripts one by one`
+      );
     }
   }
   // One script that does not bundle fails the whole batch; only it should fail.
@@ -484,7 +506,8 @@ async function importClosures(
 function bundleError(script: string, e: unknown): Error {
   const msg = e instanceof Error ? e.message : String(e);
   return new Error(
-    `Cannot compute the codebase digest of ${toPosix(path.relative(process.cwd(), script))}: bundling it failed.\n${msg}`
+    `Cannot compute the codebase digest of ${toPosix(path.relative(process.cwd(), script))}: bundling it failed. ` +
+      `With per_script_digest every codebase script must bundle for a push to compare it; fix the script or exclude it from the codebase.\n${msg}`
   );
 }
 
