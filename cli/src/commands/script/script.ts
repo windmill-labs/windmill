@@ -63,6 +63,7 @@ import {
 } from "../../core/conf.ts";
 import {
   SyncCodebase,
+  isPerScriptDigest,
   listSyncCodebases,
   uncoveredBundleInputs,
 } from "../../utils/codebase.ts";
@@ -451,11 +452,13 @@ export async function handleFile(
           metafile: true,
         }));
         const endTime = performance.now();
-        const uncovered = uncoveredBundleInputs(
-          codebase,
-          path,
-          Object.keys(out.metafile?.inputs ?? {})
-        );
+        const uncovered = isPerScriptDigest(codebase)
+          ? []
+          : uncoveredBundleInputs(
+              codebase,
+              path,
+              Object.keys(out.metafile?.inputs ?? {})
+            );
         if (uncovered.length > 0) {
           log.warnAlways(
             `${path} bundles files outside codebase ${codebase.relative_path}; edits to them won't be detected as changes unless listed in extra_digest_paths: ${uncovered.join(", ")}`
@@ -569,7 +572,7 @@ export async function handleFile(
     }
 
     if (typed && codebase) {
-      typed.codebase = await codebase.getDigest(forceTar);
+      typed.codebase = await codebase.getDigest(path, forceTar);
     }
 
     // Scan for modules: folder layout (entry point inside __mod/) or flat layout
@@ -626,7 +629,7 @@ export async function handleFile(
       debounce_args_to_accumulate: typed?.debounce_args_to_accumulate,
       max_total_debouncing_time: typed?.max_total_debouncing_time,
       max_total_debounces_amount: typed?.max_total_debounces_amount,
-      codebase: await codebase?.getDigest(forceTar),
+      codebase: await codebase?.getDigest(path, forceTar),
       timeout: nonePositiveInt(typed?.timeout),
       // 0 means "delete immediately after completion", so it must survive as 0
       // rather than being folded into "unset" the way the positive-only settings are.

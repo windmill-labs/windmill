@@ -3,6 +3,7 @@ use uuid::Uuid;
 use windmill_common::{
     external_ip::UNKNOWN_IP,
     worker::{insert_ping_query, set_worker_draining_query, update_worker_ping_main_loop_query},
+    worker_job_stats::WorkerJobStats,
 };
 
 async fn insert_ping(db: &Pool<Postgres>, worker: &str, ip: Option<&str>) -> anyhow::Result<()> {
@@ -81,6 +82,7 @@ async fn main_loop_ping(
     db: &Pool<Postgres>,
     worker: &str,
     last_job: Option<(Uuid, &str)>,
+    job_stats: Option<&WorkerJobStats>,
 ) -> anyhow::Result<()> {
     update_worker_ping_main_loop_query(
         worker,
@@ -97,6 +99,7 @@ async fn main_loop_ping(
         false,
         None,
         last_job,
+        job_stats,
         db,
     )
     .await
@@ -108,8 +111,8 @@ async fn main_loop_ping(
 async fn main_loop_ping_without_a_job_keeps_the_last_one(db: Pool<Postgres>) -> anyhow::Result<()> {
     insert_ping(&db, "wk-last-job", None).await?;
     let job_id = Uuid::new_v4();
-    main_loop_ping(&db, "wk-last-job", Some((job_id, "admins"))).await?;
-    main_loop_ping(&db, "wk-last-job", None).await?;
+    main_loop_ping(&db, "wk-last-job", Some((job_id, "admins")), None).await?;
+    main_loop_ping(&db, "wk-last-job", None, None).await?;
     let (current_job_id, workspace_id): (Option<Uuid>, Option<String>) = sqlx::query_as(
         "SELECT current_job_id, current_job_workspace_id FROM worker_ping WHERE worker = $1",
     )
@@ -118,5 +121,40 @@ async fn main_loop_ping_without_a_job_keeps_the_last_one(db: Pool<Postgres>) -> 
     .await?;
     assert_eq!(current_job_id, Some(job_id));
     assert_eq!(workspace_id.as_deref(), Some("admins"));
+    Ok(())
+}
+
+/// Job outcome counters live in the worker's memory, so a worker restarting under the same name
+/// gets them back only from the row it reclaims; a ping without counters must not erase them.
+#[sqlx::test]
+async fn reclaimed_row_returns_the_job_stats(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let reclaimed = |db: Pool<Postgres>| async move {
+        insert_ping_query(
+            "test-instance",
+            "wk-stats",
+            "default",
+            None,
+            &[],
+            None,
+            None,
+            "test",
+            None,
+            None,
+            None,
+            false,
+            Some(false),
+            &db,
+        )
+        .await
+    };
+    assert!(reclaimed(db.clone()).await?.job_stats.is_none());
+
+    let mut stats = WorkerJobStats::default();
+    stats.record(true, 0);
+    stats.record(false, 0);
+    main_loop_ping(&db, "wk-stats", None, Some(&stats)).await?;
+    main_loop_ping(&db, "wk-stats", None, None).await?;
+
+    assert_eq!(reclaimed(db.clone()).await?.job_stats, Some(stats));
     Ok(())
 }

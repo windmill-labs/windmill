@@ -5490,6 +5490,130 @@ async fn test_saved_flow_preserves_nested_step_tags(db: Pool<Postgres>) -> anyho
     Ok(())
 }
 
+/// An untagged subflow runs on its caller's tag, so its steps follow the caller's
+/// `preserve_step_tags` even though the subflow's own setting is off. A subflow that declares
+/// the same tag itself keeps its own setting.
+#[sqlx::test(fixtures("base"))]
+async fn test_subflow_steps_follow_caller_preserve_step_tags(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use futures::StreamExt;
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = reqwest::Client::new();
+    let subflow = |path: &str, tag: Option<&str>, tagged_step: &str| {
+        json!({
+            "path": path, "summary": "", "description": "", "tag": tag,
+            "schema": { "type": "object", "properties": {}, "required": [] },
+            "value": {
+                "modules": [{
+                    "id": tagged_step,
+                    "value": {
+                        "type": "rawscript", "language": "bun", "lock": "", "tag": "bun",
+                        "content": "export function main() { return 1; }",
+                        "input_transforms": {}
+                    }
+                }, {
+                    "id": format!("{tagged_step}_untagged"),
+                    "value": {
+                        "type": "rawscript", "language": "bun", "lock": "",
+                        "content": "export function main() { return 2; }",
+                        "input_transforms": {}
+                    }
+                }]
+            }
+        })
+    };
+    let caller = json!({
+        "path": "g/all/preserving_caller", "summary": "", "description": "", "tag": "python3",
+        "schema": { "type": "object", "properties": {}, "required": [] },
+        "value": {
+            "preserve_step_tags": true,
+            "modules": [{
+                "id": "sub",
+                "value": { "type": "flow", "path": "g/all/untagged_subflow", "input_transforms": {} }
+            }, {
+                "id": "tagged_sub",
+                "value": { "type": "flow", "path": "g/all/tagged_subflow", "input_transforms": {} }
+            }]
+        }
+    });
+    // The flow cache is process-wide and keyed by version and node ids, which every test database
+    // numbers from the same start: move ours out of the way of flows deployed by concurrent tests.
+    for table in ["flow_version", "flow_node"] {
+        sqlx::query(&format!(
+            "SELECT setval(pg_get_serial_sequence('{table}', 'id'), 7316000)"
+        ))
+        .execute(&db)
+        .await?;
+    }
+    let mut completed = listen_for_completed_jobs(&db).await;
+    for flow in [
+        subflow("g/all/untagged_subflow", None, "own_tag"),
+        subflow("g/all/tagged_subflow", Some("python3"), "pinned"),
+        caller,
+    ] {
+        client
+            .post(format!(
+                "http://localhost:{port}/api/w/test-workspace/flows/create"
+            ))
+            .bearer_auth("SECRET_TOKEN")
+            .json(&flow)
+            .send()
+            .await?
+            .error_for_status()?;
+        let deployment = in_test_worker(&db, completed.next(), port).await.unwrap();
+        let deployed = completed_job(deployment, &db).await;
+        assert!(deployed.success, "{:?}", deployed.result);
+    }
+
+    let job_id = client
+        .post(format!(
+            "http://localhost:{port}/api/w/test-workspace/jobs/run/f/g/all/preserving_caller"
+        ))
+        .bearer_auth("SECRET_TOKEN")
+        .json(&json!({}))
+        .send()
+        .await?
+        .error_for_status()?
+        .text()
+        .await?
+        .parse::<Uuid>()?;
+    in_test_worker(&db, completed.find(&job_id), port).await;
+    let job = completed_job(job_id, &db).await;
+    assert!(job.success, "{:?}", job.result);
+    let tags = sqlx::query_as::<_, (String, String)>(
+        "WITH RECURSIVE descendants AS (
+            SELECT id FROM v2_job WHERE id = $1
+            UNION ALL
+            SELECT child.id FROM v2_job child JOIN descendants ON child.parent_job = descendants.id
+        )
+        SELECT DISTINCT flow_step_id, tag FROM v2_job
+        WHERE id IN (SELECT id FROM descendants)
+        AND flow_step_id <> ''
+        ORDER BY flow_step_id, tag",
+    )
+    .bind(job_id)
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        tags,
+        [
+            ("own_tag", "bun"),
+            ("own_tag_untagged", "python3"),
+            ("pinned", "python3"),
+            ("pinned_untagged", "python3"),
+            ("sub", "python3"),
+            ("tagged_sub", "python3"),
+        ]
+        .map(|(step, tag)| (step.to_owned(), tag.to_owned()))
+        .to_vec()
+    );
+    Ok(())
+}
+
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 

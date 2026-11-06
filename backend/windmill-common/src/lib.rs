@@ -162,6 +162,7 @@ pub mod wac;
 pub mod webhook;
 pub mod worker;
 pub mod worker_group_job_stats;
+pub mod worker_job_stats;
 pub mod workspace_crypt;
 pub mod workspaces;
 

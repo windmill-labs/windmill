@@ -10,7 +10,8 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import McpAccessPicker, { type McpAccess } from '$lib/components/mcp/McpAccessPicker.svelte'
-	import { WorkspaceService } from '$lib/gen'
+	import { UserService, WorkspaceService } from '$lib/gen'
+	import { listEveryWorkspace } from '$lib/mcpAuth'
 	import { sendUserToast } from '$lib/toast'
 	import Check from 'lucide-svelte/icons/check'
 
@@ -57,7 +58,12 @@
 
 	// Gateway mode: fetch user's workspaces for the picker. One picked workspace binds the
 	// token to it; several, or all of them, leave it unbound and its tools name their workspace.
-	let workspaces: Array<{ value: string; label: string }> = $state([])
+	let memberWorkspaces: Array<{ value: string; label: string }> = $state([])
+	// A superadmin's token reaches only their memberships unless it carries their rights.
+	let isSuperAdmin = $state(false)
+	let superAdmin = $state(false)
+	let everyWorkspace: Array<{ value: string; label: string }> = $state([])
+	const workspaces = $derived(superAdmin ? everyWorkspace : memberWorkspaces)
 	let pickedWorkspaces = $state<string[]>([])
 	let allWorkspaces = $state(false)
 	let loadingWorkspaces = $state(false)
@@ -79,15 +85,15 @@
 		loadingWorkspaces = true
 		WorkspaceService.listUserWorkspaces()
 			.then((result) => {
-				workspaces = result.workspaces
+				memberWorkspaces = result.workspaces
 					.filter((w) => !w.disabled)
 					.map((w) => ({
 						value: w.id,
 						label: w.name
 					}))
 				// Auto-select if only one workspace
-				if (workspaces.length === 1) {
-					pickedWorkspaces = [workspaces[0].value]
+				if (memberWorkspaces.length === 1) {
+					pickedWorkspaces = [memberWorkspaces[0].value]
 				}
 			})
 			.catch((e) => {
@@ -98,6 +104,18 @@
 			.finally(() => {
 				loadingWorkspaces = false
 			})
+	}
+	UserService.globalWhoami()
+		.then((me) => (isSuperAdmin = me.super_admin))
+		.catch(() => {})
+
+	async function setSuperAdmin(on: boolean) {
+		superAdmin = on
+		if (on && isGateway) {
+			everyWorkspace = (await listEveryWorkspace()).map((w) => ({ value: w.id, label: w.name }))
+		}
+		const offered = new Set(workspaces.map((w) => w.value))
+		pickedWorkspaces = pickedWorkspaces.filter((w) => offered.has(w))
 	}
 
 	function onDeny() {
@@ -133,7 +151,8 @@
 				scope: scopes.join(' '),
 				state: oauthState,
 				code_challenge: codeChallenge,
-				code_challenge_method: codeChallengeMethod
+				code_challenge_method: codeChallengeMethod,
+				super_admin: superAdmin
 			}
 
 			// Gateway mode sends the workspaces in the body
@@ -230,7 +249,11 @@
 					{:else}
 						<Toggle
 							bind:checked={allWorkspaces}
-							options={{ right: 'All my workspaces, including ones I join later' }}
+							options={{
+								right: superAdmin
+									? 'All workspaces, including ones created later'
+									: 'All my workspaces, including ones I join later'
+							}}
 							size="xs"
 						/>
 						{#if workspaces.length === 0 && !allWorkspaces}
@@ -246,6 +269,12 @@
 							/>
 						{/if}
 					{/if}
+					{#if isSuperAdmin && !superAdmin && (access === 'selected' || !allWorkspaces)}
+						<p class="text-xs text-tertiary">
+							Showing workspaces you are a member of. Superadmin rights, under Access, opens the
+							rest.
+						</p>
+					{/if}
 				</div>
 			{/if}
 
@@ -255,7 +284,21 @@
 					initialScopes={requestedScopes}
 					bind:scopes
 					bind:access={() => access, setAccess}
-				/>
+				>
+					{#snippet afterAccess()}
+						{#if isSuperAdmin}
+							<Toggle
+								bind:checked={() => superAdmin, setSuperAdmin}
+								options={{
+									right: 'Superadmin rights',
+									rightTooltip:
+										'The token carries your superadmin rights: admin in every workspace of the instance, including ones you are not a member of.'
+								}}
+								size="xs"
+							/>
+						{/if}
+					{/snippet}
+				</McpAccessPicker>
 			</div>
 
 			<div class="flex flex-row justify-around gap-x-4">

@@ -277,8 +277,9 @@ pub async fn get_payload_tag_from_prefixed_path(
                 None,
             )
         } else {
-            let FlowVersionInfo { dedicated_worker, tag, version, labels, job_token_scopes, .. } =
-                get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
+            let FlowVersionInfo {
+                dedicated_worker, tag, version, labels, job_token_scopes, ..
+            } = get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
             (
                 JobPayload::Flow {
                     path,
@@ -561,7 +562,10 @@ pub struct RunInlinePreviewScriptFnParams {
 
 pub enum InlineScriptTarget {
     /// A script addressed by path, pinned to the version the caller resolved and checked.
-    Path { path: String, hash: i64 },
+    Path {
+        path: String,
+        hash: i64,
+    },
     Hash(i64),
 }
 
@@ -699,6 +703,15 @@ pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> e
     sqlx::query!("DELETE FROM job_resolution WHERE job_id = ANY($1)", ids)
         .execute(&mut *conn)
         .await?;
+    // A job deleted while it waited on a concurrency limit must leave its key's line. Only an
+    // open key goes: a finished job's ended key still counts toward its concurrency time window,
+    // which retention can be shorter than.
+    sqlx::query!(
+        "DELETE FROM concurrency_key WHERE job_id = ANY($1) AND ended_at IS NULL",
+        ids
+    )
+    .execute(&mut *conn)
+    .await?;
     sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", ids)
         .execute(&mut *conn)
         .await?;

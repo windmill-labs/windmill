@@ -91,7 +91,8 @@
 		Search,
 		ArrowLeft,
 		Star,
-		MessagesSquare
+		MessagesSquare,
+		House
 	} from 'lucide-svelte'
 	import { homeRowLearned, sidebarPrefs } from '$lib/components/sidebar/sidebarPrefs.svelte'
 	import { Button } from '$lib/components/common'
@@ -1425,6 +1426,8 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 					}}
 					icon={WindmillIcon}
 					iconProps={{ white: darkMode, width: '16px', height: '16px' }}
+					hoverIcon={House}
+					hoverLabel="Home"
 					isCollapsed={collapsed}
 					aiId="sidebar-menu-link-home"
 					aiDescription="Button to navigate to home which contains all the user's scripts, flows and apps"

@@ -1865,14 +1865,22 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     tx.commit().warn_after_seconds(10).await?;
 
-    // After the commit, so the woken job finds the slot this one freed.
+    // After the commit, so the woken job finds the slot this one freed. In order, the slot
+    // goes to the job first in line, deferred or not.
     #[cfg(all(feature = "enterprise", feature = "private"))]
     if let Some(key) = released_concurrency_key {
         let limit = completed_job
             .concurrent_limit
             .max(settings_concurrent_limit)
             .unwrap_or(0);
-        if let Err(e) = wake_deferred_concurrency_job(db, &key, limit).await {
+        let woken = if windmill_common::worker::CONCURRENCY_LIMIT_IN_ORDER
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            fill_concurrency_key_slots_in_order(db, &key, limit).await
+        } else {
+            wake_deferred_concurrency_job(db, &key, limit).await
+        };
+        if let Err(e) = woken {
             tracing::error!("Could not wake a deferred job for concurrency key {key}: {e:#}");
         }
     }
@@ -5281,7 +5289,7 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
             if !key.is_empty() {
                 let window = settings.concurrency_time_window_s.unwrap_or(0);
                 let limit = settings.concurrent_limit.unwrap_or_default();
-                let admitted = crate::jobs_ee::update_concurrency_counter(
+                let admission = crate::jobs_ee::admit_to_concurrency_limit(
                     db,
                     &job.id,
                     key.clone(),
@@ -5290,9 +5298,10 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
                     window,
                     limit,
                 )
-                .await?
-                .0;
+                .await?;
+                let admitted = admission.admitted;
                 if !admitted
+                    && !admission.behind_in_line
                     && settings.on_concurrency_limit
                         == Some(windmill_common::runnable_settings::OnConcurrencyLimit::Fail)
                 {
@@ -5311,6 +5320,156 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
     #[cfg(not(all(feature = "private", feature = "enterprise")))]
     let _ = (db, job);
     Ok(true)
+}
+
+/// The job that is ahead of `job_id` in line: the first job still waiting, not admitted, in the
+/// line of `key` and `job_id`'s tag, by priority then place (the order workers pull jobs in), if
+/// it is not `job_id` itself. A stuck tag holds back only its own line. A canceled job keeps its
+/// place until a worker of its tag, `job_id`'s, processes it; not skipping it keeps the walk to
+/// the admitted jobs and the first few, never the key's backlog. A job whose queue row is gone
+/// with its key left behind (by a path that deletes a waiting job) is in no line: its key is
+/// deleted here, not ended, so that it counts as no run in a time window. When every entry read
+/// is such a job, the line may continue past them and the job is not admitted this time. Admission records a job's tag, priority and place when it is
+/// first pulled, and a deferral when it is first deferred, from its queue row then, which nothing
+/// moves back before it is due: a job not pulled yet is in no line. None for a job that already holds a slot of
+/// the key (a resumed flow): refusing it would leave the jobs ahead of it waiting on the slot
+/// it keeps. Must be called under the key's `concurrency_counter` row lock, which serializes it
+/// with every admission of the key. Queue bookkeeping, not an authorization boundary: only for
+/// the queue's own admission path, never with a key taken from a request.
+#[cfg(feature = "private")]
+pub(crate) async fn oldest_waiting_concurrency_job<'c, E: PgExecutor<'c>>(
+    e: E,
+    key: &str,
+    job_id: &Uuid,
+) -> error::Result<Option<Uuid>> {
+    Ok(sqlx::query_scalar!(
+        "WITH me AS (
+            SELECT tag FROM concurrency_key WHERE job_id = $2
+        ), admitted AS (
+            SELECT job_uuids FROM concurrency_counter WHERE concurrency_id = $1
+        ), front AS (
+            SELECT ck.job_id, ck.priority, ck.place, q.id IS NULL AS gone
+            FROM concurrency_key ck LEFT JOIN v2_job_queue q ON q.id = ck.job_id
+            WHERE ck.key = $1 AND ck.tag = (SELECT tag FROM me)
+                AND ck.ended_at IS NULL AND ck.place IS NOT NULL
+                AND NOT COALESCE((SELECT job_uuids ? $2::text FROM admitted), false)
+                AND NOT COALESCE((SELECT job_uuids ? ck.job_id::text FROM admitted), false)
+            ORDER BY ck.priority DESC, ck.place, ck.job_id
+            LIMIT 8
+        ), _gone AS (
+            DELETE FROM concurrency_key
+            WHERE job_id IN (SELECT job_id FROM front WHERE gone) AND ended_at IS NULL
+        ), first_in_line AS (
+            SELECT COALESCE(
+                (SELECT job_id FROM front WHERE NOT gone ORDER BY priority DESC, place, job_id LIMIT 1),
+                -- Every entry read is gone: the line may continue past them, so this attempt
+                -- does not admit; the next one reads past the entries deleted here.
+                CASE WHEN (SELECT count(*) FROM front) = 8 THEN
+                    (SELECT job_id FROM front WHERE gone ORDER BY priority DESC, place, job_id LIMIT 1)
+                END
+            ) AS job_id
+        )
+        SELECT job_id AS \"job_id!\" FROM first_in_line WHERE job_id <> $2",
+        key,
+        job_id,
+    )
+    .fetch_optional(e)
+    .await?)
+}
+
+/// In order, the slots a completion frees go to the jobs first in line: wakes as many of them
+/// as the slots no admitted job holds. One wake per completion never refills a slot whose
+/// woken job was lost, and the key would stay below its limit. `limit` is the completed
+/// job's. Queue bookkeeping, not an authorization boundary: never with a key from a request.
+#[cfg(feature = "private")]
+pub async fn fill_concurrency_key_slots_in_order(
+    db: &DB,
+    key: &str,
+    limit: i32,
+) -> error::Result<()> {
+    let admitted = sqlx::query_scalar!(
+        "SELECT count(*) FROM concurrency_counter, jsonb_object_keys(job_uuids)
+        WHERE concurrency_id = $1",
+        key,
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+    let free = i64::from(limit) - admitted;
+    if free > 0 {
+        wake_concurrency_key_waiters(db, key, free).await?;
+    }
+    Ok(())
+}
+
+/// Make due now the `n` best deferred jobs at the front of `key`'s lines, one line per tag, by
+/// priority then place, so a slot that frees up goes to them rather than waiting out the delay
+/// a limit deferred them by. Reads only the first `n` waiting jobs of each line, canceled ones
+/// included (a canceled job keeps its row until a worker processes it, never on a tag no worker
+/// serves): a job behind them could not be admitted before them anyway. Among those, a canceled
+/// one is not picked, and a job a worker holds, or one made
+/// due in the last few seconds (a wake on its way to a worker), fills a pick without being woken
+/// again; waking past it would have admission refuse and re-defer the extra jobs. One due for
+/// longer is not pulled (no worker serves its tag) and is left out, so that a stuck line takes
+/// no pick and holds back only itself. Reads the key's tags by skip-scanning
+/// `concurrency_key_place_idx`, then the front of each line. Queue bookkeeping, not an
+/// authorization boundary: only for the queue's own admission and completion paths, never with
+/// a key taken from a request.
+#[cfg(feature = "private")]
+pub(crate) async fn wake_concurrency_key_waiters(db: &DB, key: &str, n: i64) -> error::Result<()> {
+    // Picked first, then woken by id in a statement of its own: joined into one statement, the
+    // generic plan scans v2_job_queue by scheduled_for rather than probing the few ids picked.
+    let picked = sqlx::query_scalar!(
+        "WITH RECURSIVE tags AS (
+            (SELECT tag FROM concurrency_key
+            WHERE key = $1 AND ended_at IS NULL AND place IS NOT NULL
+            ORDER BY tag LIMIT 1)
+            UNION ALL
+            SELECT (SELECT ck.tag FROM concurrency_key ck
+                WHERE ck.key = $1 AND ck.ended_at IS NULL AND ck.place IS NOT NULL AND ck.tag > t.tag
+                ORDER BY ck.tag LIMIT 1)
+            FROM tags t WHERE t.tag IS NOT NULL
+        ), admitted AS (
+            SELECT job_uuids FROM concurrency_counter WHERE concurrency_id = $1
+        ), fronts AS (
+            SELECT f.job_id, f.priority, f.place
+            FROM tags t
+            CROSS JOIN LATERAL (
+                SELECT ck.job_id, ck.priority, ck.place, q.running, q.scheduled_for,
+                    q.canceled_by IS NOT NULL AS canceled, q.id IS NULL AS gone
+                FROM concurrency_key ck LEFT JOIN v2_job_queue q ON q.id = ck.job_id
+                WHERE ck.key = $1 AND ck.tag = t.tag AND ck.ended_at IS NULL
+                    AND ck.place IS NOT NULL
+                    AND NOT COALESCE((SELECT job_uuids ? ck.job_id::text FROM admitted), false)
+                ORDER BY ck.priority DESC, ck.place, ck.job_id
+                LIMIT $2
+            ) f
+            WHERE t.tag IS NOT NULL AND NOT f.canceled AND NOT f.gone
+                AND (f.running OR f.scheduled_for > now() - interval '5 seconds')
+        )
+        SELECT job_id AS \"job_id!\" FROM fronts ORDER BY priority DESC, place, job_id LIMIT $2",
+        key,
+        n,
+    )
+    .fetch_all(db)
+    .await?;
+    if !picked.is_empty() {
+        // SKIP LOCKED: two completions on a key wake overlapping jobs concurrently, and each
+        // update moves the rows it writes, so waiting on the other's locks can deadlock. A row
+        // locked elsewhere is being woken, pulled or deferred already.
+        sqlx::query!(
+            "UPDATE v2_job_queue SET scheduled_for = now()
+            WHERE id IN (
+                SELECT id FROM v2_job_queue
+                WHERE id = ANY($1) AND NOT running AND scheduled_for > now()
+                FOR UPDATE SKIP LOCKED
+            )",
+            &picked,
+        )
+        .execute(db)
+        .await?;
+    }
+    Ok(())
 }
 
 /// Make due now the earliest-deferred jobs of `key`, as many as the slots no admitted or

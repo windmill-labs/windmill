@@ -29,7 +29,7 @@
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { appendViewToken } from '$lib/viewToken'
 	import JobArgs from './JobArgs.svelte'
-	import { ChevronDown, Download, ExternalLink, Hourglass } from 'lucide-svelte'
+	import { ChevronDown, Download, ExternalLink, Hourglass, X } from 'lucide-svelte'
 	import { deepEqual } from 'fast-equals'
 	import FlowTimeline from './FlowTimeline.svelte'
 	import { dfs } from './flows/dfs'
@@ -156,6 +156,9 @@
 		hideFlowResult?: boolean
 		notes?: FlowNote[]
 		groups?: FlowValue['groups']
+		fillHeight?: boolean
+		hideRunTabs?: boolean
+		closableDetails?: boolean
 	}
 
 	let {
@@ -199,7 +202,10 @@
 		showJobDetailHeader = false,
 		hideFlowResult = false,
 		notes: notesProp = undefined,
-		groups: groupsProp = undefined
+		groups: groupsProp = undefined,
+		fillHeight = false,
+		hideRunTabs = false,
+		closableDetails = false
 	}: Props = $props()
 
 	let getTopModuleStates = $derived(topModuleStates ?? localModuleStates)
@@ -1307,6 +1313,16 @@
 	let graphPaneSize = $state(66)
 	let detailsPaneSize = $state(34)
 
+	let detailsDismissed = $state(false)
+	let detailsOpen = $derived(!closableDetails || !!selectedNode || !detailsDismissed)
+
+	// Splitpanes keeps a lone pane at its bound size rather than growing it to fill the row.
+	$effect.pre(() => {
+		if (!closableDetails) return
+		graphPaneSize = detailsOpen ? 54 : 100
+		detailsPaneSize = 46
+	})
+
 	function setParentModuleState(modId: string, state: Partial<GraphModuleState>) {
 		;[localModuleStates, ...globalModuleStates].forEach((stateMap) => {
 			if (stateMap[modId]) {
@@ -1539,7 +1555,7 @@
 				{/if}
 			</div>
 		{/if}
-		{#if render}
+		{#if render && !hideRunTabs}
 			{#if innerModules && innerModules.length > 0 && !isListJob}
 				<Tabs
 					class="mx-auto pt-2 {wideResults ? '' : 'max-w-7xl'}"
@@ -1977,14 +1993,14 @@
 	{#if render}
 		{#if job.raw_flow && !isListJob}
 			<div
-				class="{selected != 'graph' ? 'hidden' : ''} grow mt-4"
+				class="{selected != 'graph' ? 'hidden' : ''} grow mt-4 {fillHeight ? 'min-h-0' : ''}"
 				bind:clientHeight={tabsHeight.graphHeight}
-				style="min-height: {minTabHeight}px"
+				style={fillHeight ? undefined : `min-height: ${minTabHeight}px`}
 			>
 				<div class="border h-full rounded-md" bind:clientHeight={wrapperHeight}>
 					<Splitpanes>
 						<Pane bind:size={graphPaneSize} minSize={30}>
-							<div class="bg-surface-secondary h-full max-h-[1200px]">
+							<div class="bg-surface-secondary h-full {fillHeight ? '' : 'max-h-[1200px]'}">
 								<div class="flex flex-col" bind:clientHeight={retryStatusHeight}>
 									{#each Object.values(retryStatus?.val ?? {}) as count}
 										{#if count}
@@ -2004,7 +2020,9 @@
 									triggerNode={true}
 									download={!hideDownloadInGraph}
 									minHeight={wrapperHeight - retryStatusHeight}
-									outerDivClass="max-h-[1200px]"
+									maxHeight={fillHeight ? wrapperHeight - retryStatusHeight : undefined}
+									fitOnLoad={fillHeight}
+									outerDivClass={fillHeight ? '' : 'max-h-[1200px]'}
 									success={jobId != undefined && isSuccess(job?.['success'])}
 									flowModuleStates={localModuleStates}
 									bind:expandedSubflows
@@ -2053,266 +2071,307 @@
 								/>
 							</div>
 						</Pane>
-						<Pane bind:size={detailsPaneSize} minSize={25} class="!overflow-visible">
-							<!-- A fixed height, not a cap: the node status content fills it through h-full, which
+						{#if detailsOpen}
+							<Pane bind:size={detailsPaneSize} minSize={25} class="!overflow-visible">
+								<!-- A fixed height, not a cap: the node status content fills it through h-full, which
 							     resolves only against a definite height -->
-							<div class="pt-1 h-[1200px] flex flex-col relative">
-								<Tabs bind:selected={rightColumnSelect} wrapperClass="shrink-0">
-									{#if !hideTimeline}
-										<Tab value="timeline" label="Timeline" />
-									{/if}
-									<Tab value="node_status" label="Node status" />
-									{#if !hideNodeDefinition}
-										<Tab value="node_definition" label="Node definition" />
-									{/if}
-									{#if Object.keys(job?.flow_status?.user_states ?? {}).length > 0}
-										<Tab value="user_states" label="User States" />
-									{/if}
-									<Tab value="tracing" label="Tracing" />
-								</Tabs>
-								<div class="overflow-auto grow min-h-0">
-									{#if rightColumnSelect == 'timeline'}
-										<FlowTimeline
-											{localModuleStates}
-											{onSelectedIteration}
-											selfWaitTime={job?.self_wait_time_ms}
-											aggregateWaitTime={job?.aggregate_wait_time_ms}
-											flowDone={job?.['success'] != undefined}
-											bind:this={flowTimeline}
-											flowModules={allModulesForTimeline(
-												job?.raw_flow?.modules ?? [],
-												expandedSubflows ?? {}
-											)}
-											buildSubflowKey={(key) => buildSubflowKey(key, prefix)}
-											durationStatuses={localDurationStatuses}
-										/>
-									{:else if rightColumnSelect == 'node_status'}
-										<div class="p-4 h-full flex flex-col gap-6">
-											{#if selectedNode?.startsWith(AI_TOOL_MESSAGE_PREFIX)}
-												{@const [, agentModuleId, toolCallIndex] = selectedNode.split('-')}
-												{@const agentNode = localModuleStates?.[agentModuleId]}
-												{@const actionIndex = parseInt(toolCallIndex)}
-												{@const messageContent = getAgentActionContent(
-													agentNode?.result,
-													actionIndex
+								<div
+									class="pt-1 flex flex-col relative {fillHeight ? '' : 'h-[1200px]'}"
+									style={fillHeight ? `height: ${wrapperHeight}px` : undefined}
+								>
+									<div class={closableDetails ? 'flex items-center shrink-0 pr-1' : 'contents'}>
+										<Tabs
+											bind:selected={rightColumnSelect}
+											wrapperClass={closableDetails ? 'grow min-w-0' : 'shrink-0'}
+										>
+											{#if !hideTimeline}
+												<Tab value="timeline" label="Timeline" class={closableDetails ? 'px-0' : ''} />
+											{/if}
+											<Tab
+												value="node_status"
+												label={closableDetails ? 'Status' : 'Node status'}
+												class={closableDetails ? 'px-0' : ''}
+											/>
+											{#if !hideNodeDefinition}
+												<Tab
+													value="node_definition"
+													label={closableDetails ? 'Code' : 'Node definition'}
+													class={closableDetails ? 'px-0' : ''}
+												/>
+											{/if}
+											{#if Object.keys(job?.flow_status?.user_states ?? {}).length > 0}
+												<Tab value="user_states" label="User States" />
+											{/if}
+											<Tab
+												value="tracing"
+												label={closableDetails ? 'Traces' : 'Tracing'}
+												class={closableDetails ? 'px-0' : ''}
+											/>
+										</Tabs>
+										{#if closableDetails}
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: X }}
+												aria-label="Close details"
+												onclick={() => {
+													selectedNode = undefined
+													detailsDismissed = true
+												}}
+											/>
+										{/if}
+									</div>
+									<div class="overflow-auto grow min-h-0">
+										{#if rightColumnSelect == 'timeline'}
+											<FlowTimeline
+												{localModuleStates}
+												{onSelectedIteration}
+												selfWaitTime={job?.self_wait_time_ms}
+												aggregateWaitTime={job?.aggregate_wait_time_ms}
+												flowDone={job?.['success'] != undefined}
+												compact={closableDetails}
+												bind:this={flowTimeline}
+												flowModules={allModulesForTimeline(
+													job?.raw_flow?.modules ?? [],
+													expandedSubflows ?? {}
 												)}
-												{#if messageContent !== undefined && typeof messageContent === 'string'}
-													<div>
-														<div class="text-xs text-emphasis font-semibold mb-1">Message</div>
-														<div class="border rounded p-2 overflow-auto max-h-[500px]">
-															<GfmMarkdown md={messageContent} />
-														</div>
-													</div>
-												{:else}
-													<div class="pt-2 pb-4">
-														<Alert
-															type="info"
-															title="Message output is available on the AI agent node"
-														/>
-													</div>
-												{/if}
-											{:else if selectedNode?.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
-												{@const [, agentModuleId, toolCallIndex] = selectedNode.split('-')}
-												{@const agentNode = localModuleStates?.[agentModuleId]}
-												{@const agentActions = agentNode?.agent_actions}
-												{@const mcpActionIndex = parseInt(toolCallIndex)}
-												{@const mcpAction =
-													agentActions &&
-													mcpActionIndex >= 0 &&
-													mcpActionIndex < agentActions.length
-														? agentActions[mcpActionIndex]
-														: undefined}
-												{#if mcpAction?.type === 'mcp_tool_call' && agentNode?.result?.messages}
-													{@const message = agentNode.result.messages.find(
-														(m: { agent_action?: { call_id?: string }; content?: any }) =>
-															m.agent_action?.call_id === mcpAction.call_id
+												buildSubflowKey={(key) => buildSubflowKey(key, prefix)}
+												durationStatuses={localDurationStatuses}
+											/>
+										{:else if rightColumnSelect == 'node_status'}
+											<div class="p-4 h-full flex flex-col gap-6">
+												{#if selectedNode?.startsWith(AI_TOOL_MESSAGE_PREFIX)}
+													{@const [, agentModuleId, toolCallIndex] = selectedNode.split('-')}
+													{@const agentNode = localModuleStates?.[agentModuleId]}
+													{@const actionIndex = parseInt(toolCallIndex)}
+													{@const messageContent = getAgentActionContent(
+														agentNode?.result,
+														actionIndex
 													)}
-													<McpToolCallDetails
-														functionName={mcpAction.function_name}
-														args={mcpAction.arguments ?? {}}
-														result={message?.content}
-														type="Success"
-														workspaceId={job?.workspace_id}
-													/>
-												{/if}
-											{:else if selectedNode?.startsWith(AI_WEBSEARCH_PREFIX)}
-												<Alert type="info" title="Web search was used in this step" />
-											{:else if selectedNode?.startsWith(AI_APPROVAL_PREFIX) || selectedNode?.startsWith(AI_QUESTION_PREFIX)}
-												{@const [, agentModuleId, actionIndex] = selectedNode.split('-')}
-												{@const agentNode = localModuleStates?.[agentModuleId]}
-												{@const approvalIndex = parseInt(actionIndex)}
-												{@const approval = agentNode?.agent_actions?.[approvalIndex]}
-												{#if (approval?.type === 'approval' || approval?.type === 'question') && agentNode?.job_id}
-													<div class="p-4">
-														<!-- One form per request: its answered state must not carry over to the next. -->
-														{#key `${agentNode.job_id}-${approval.call_id}`}
-															<AgentApprovalRequest
-																workspaceId={job.workspace_id ?? ''}
-																agentJobId={agentNode.job_id}
-																request={approval}
-																pending={job.type === 'QueuedJob' &&
-																	agentNode?.agent_actions_success?.[approvalIndex] === undefined}
-															/>
-														{/key}
-													</div>
-												{/if}
-											{:else if selectedNode}
-												{@const node = localModuleStates[selectedNode]}
-												{#if selectedNode == 'end'}
-													<FlowJobResult
-														tagLabel={customUi?.tagLabel}
-														workspaceId={isReplay ? undefined : job?.workspace_id}
-														jobId={isReplay ? undefined : job?.id}
-														runKey={job?.id}
-														filename={job.id}
-														loading={job['running']}
-														tag={job?.tag}
-														col
-														result={job['result']}
-														logs={job.logs ?? ''}
-														downloadLogs={!hideDownloadLogs && !isReplay}
-													/>
-												{:else if selectedNode == 'start'}
-													{#if job.args}
-														<JobArgs
-															id={isReplay ? undefined : job.id}
-															workspace={isReplay
-																? undefined
-																: (job.workspace_id ?? $operatingWorkspace ?? 'no_w')}
-															args={job.args}
-														/>
-													{:else}
-														<p class="text-secondary">No arguments</p>
-													{/if}
-												{:else if node}
-													{#if node.flow_jobs_results}
+													{#if messageContent !== undefined && typeof messageContent === 'string'}
 														<div>
-															<span class="pl-1 text-emphasis text-xs font-medium"
-																>Result of step as collection of all subflows</span
-															>
-															<div class="overflow-auto max-h-[200px] p-2">
-																<DisplayResult
-																	workspaceId={isReplay ? undefined : job?.workspace_id}
-																	result={node.flow_jobs_results}
-																	nodeId={selectedNode}
-																	jobId={isReplay ? undefined : job?.id}
-																	language={job?.language}
-																/>
+															<div class="text-xs text-emphasis font-semibold mb-1">Message</div>
+															<div class="border rounded p-2 overflow-auto max-h-[500px]">
+																<GfmMarkdown md={messageContent} />
 															</div>
 														</div>
+													{:else}
+														<div class="pt-2 pb-4">
+															<Alert
+																type="info"
+																title="Message output is available on the AI agent node"
+															/>
+														</div>
 													{/if}
-													<div class="flex flex-col gap-2 flex-1 min-h-0">
-														{#if node.flow_jobs_results}
-															<span class="pl-1 text-xs font-medium text-emphasis pt-4"
-																>Selected subflow</span
-															>
+												{:else if selectedNode?.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
+													{@const [, agentModuleId, toolCallIndex] = selectedNode.split('-')}
+													{@const agentNode = localModuleStates?.[agentModuleId]}
+													{@const agentActions = agentNode?.agent_actions}
+													{@const mcpActionIndex = parseInt(toolCallIndex)}
+													{@const mcpAction =
+														agentActions &&
+														mcpActionIndex >= 0 &&
+														mcpActionIndex < agentActions.length
+															? agentActions[mcpActionIndex]
+															: undefined}
+													{#if mcpAction?.type === 'mcp_tool_call' && agentNode?.result?.messages}
+														{@const message = agentNode.result.messages.find(
+															(m: { agent_action?: { call_id?: string }; content?: any }) =>
+																m.agent_action?.call_id === mcpAction.call_id
+														)}
+														<McpToolCallDetails
+															functionName={mcpAction.function_name}
+															args={mcpAction.arguments ?? {}}
+															result={message?.content}
+															type="Success"
+															workspaceId={job?.workspace_id}
+														/>
+													{/if}
+												{:else if selectedNode?.startsWith(AI_WEBSEARCH_PREFIX)}
+													<Alert type="info" title="Web search was used in this step" />
+												{:else if selectedNode?.startsWith(AI_APPROVAL_PREFIX) || selectedNode?.startsWith(AI_QUESTION_PREFIX)}
+													{@const [, agentModuleId, actionIndex] = selectedNode.split('-')}
+													{@const agentNode = localModuleStates?.[agentModuleId]}
+													{@const approvalIndex = parseInt(actionIndex)}
+													{@const approval = agentNode?.agent_actions?.[approvalIndex]}
+													{#if (approval?.type === 'approval' || approval?.type === 'question') && agentNode?.job_id}
+														<div class="p-4">
+															<!-- One form per request: its answered state must not carry over to the next. -->
+															{#key `${agentNode.job_id}-${approval.call_id}`}
+																<AgentApprovalRequest
+																	workspaceId={job.workspace_id ?? ''}
+																	agentJobId={agentNode.job_id}
+																	request={approval}
+																	pending={job.type === 'QueuedJob' &&
+																		agentNode?.agent_actions_success?.[approvalIndex] === undefined}
+																/>
+															{/key}
+														</div>
+													{/if}
+												{:else if selectedNode}
+													{@const node = localModuleStates[selectedNode]}
+													{#if selectedNode == 'end'}
+														<FlowJobResult
+															tagLabel={customUi?.tagLabel}
+															workspaceId={isReplay ? undefined : job?.workspace_id}
+															jobId={isReplay ? undefined : job?.id}
+															runKey={job?.id}
+															filename={job.id}
+															loading={job['running']}
+															tag={job?.tag}
+															col
+															result={job['result']}
+															logs={job.logs ?? ''}
+															downloadLogs={!hideDownloadLogs && !isReplay}
+														/>
+													{:else if selectedNode == 'start'}
+														{#if job.args}
+															<JobArgs
+																id={isReplay ? undefined : job.id}
+																workspace={isReplay
+																	? undefined
+																	: (job.workspace_id ?? $operatingWorkspace ?? 'no_w')}
+																args={job.args}
+															/>
+														{:else}
+															<p class="text-secondary">No arguments</p>
 														{/if}
-														<div class="flex flex-col gap-6 flex-1 min-h-0">
-															<div class="flex flex-col gap-6">
-																<div class="flex gap-2 min-w-0 w-full items-center">
-																	<ModuleStatus
-																		type={node.type}
-																		scheduled_for={node.scheduled_for}
-																		skipped={node.skipped}
+													{:else if node}
+														{#if node.flow_jobs_results}
+															<div>
+																<span class="pl-1 text-emphasis text-xs font-medium"
+																	>Result of step as collection of all subflows</span
+																>
+																<div class="overflow-auto max-h-[200px] p-2">
+																	<DisplayResult
+																		workspaceId={isReplay ? undefined : job?.workspace_id}
+																		result={node.flow_jobs_results}
+																		nodeId={selectedNode}
+																		jobId={isReplay ? undefined : job?.id}
+																		language={job?.language}
 																	/>
-																	{#if node.duration_ms}
-																		<Badge>
-																			<Hourglass class="mr-2" size={10} />
-																			{msToSec(node.duration_ms)} s
-																		</Badge>
-																	{/if}
-																	{#if node.job_id && !isReplay}
-																		<div class="grow w-full flex flex-row-reverse">
-																			<a
-																				class="text-right text-xs"
-																				rel="noreferrer"
-																				target="_blank"
-																				href="/run/{node.job_id ??
-																					''}?workspace={job?.workspace_id}"
+																</div>
+															</div>
+														{/if}
+														<div class="flex flex-col gap-2 flex-1 min-h-0">
+															{#if node.flow_jobs_results}
+																<span class="pl-1 text-xs font-medium text-emphasis pt-4"
+																	>Selected subflow</span
+																>
+															{/if}
+															<div class="flex flex-col gap-6 flex-1 min-h-0">
+																<div class="flex flex-col gap-6">
+																	<div class="flex gap-2 min-w-0 w-full items-center">
+																		<ModuleStatus
+																			type={node.type}
+																			scheduled_for={node.scheduled_for}
+																			skipped={node.skipped}
+																		/>
+																		{#if node.duration_ms}
+																			<Badge>
+																				<Hourglass class="mr-2" size={10} />
+																				{msToSec(node.duration_ms)} s
+																			</Badge>
+																		{/if}
+																		{#if node.job_id && !isReplay}
+																			<div class="grow w-full flex flex-row-reverse">
+																				<a
+																					class="text-right text-xs"
+																					rel="noreferrer"
+																					target="_blank"
+																					href="/run/{node.job_id ??
+																						''}?workspace={job?.workspace_id}"
+																				>
+																					{truncateRev(node.job_id ?? '', 10)}
+																					<ExternalLink size={12} class="inline-block" />
+																				</a>
+																			</div>
+																		{/if}
+																	</div>
+																	{#if !node.isListJob}
+																		<div>
+																			<div class="text-xs text-emphasis font-semibold mb-1"
+																				>Inputs</div
 																			>
-																				{truncateRev(node.job_id ?? '', 10)}
-																				<ExternalLink size={12} class="inline-block" />
-																			</a>
+																			<JobArgs
+																				id={isReplay ? undefined : node.job_id}
+																				workspace={isReplay
+																					? undefined
+																					: (job.workspace_id ?? $operatingWorkspace ?? 'no_w')}
+																				args={node.args}
+																			/>
+																		</div>
+																	{/if}
+																	{#if node.workflow_as_code_status}
+																		<div>
+																			<div class="text-xs text-emphasis font-semibold mb-1"
+																				>Workflow timeline</div
+																			>
+																			<WorkflowTimeline
+																				flow_status={asWorkflowStatus(node.workflow_as_code_status)}
+																				flowDone={node.type === 'Success' ||
+																					node.type === 'Failure'}
+																				stepResults={getStepResults(node.workflow_as_code_status)}
+																				result={node.result}
+																				success={node.type === 'Success'}
+																				jobId={node.job_id}
+																			/>
 																		</div>
 																	{/if}
 																</div>
-																{#if !node.isListJob}
-																	<div>
-																		<div class="text-xs text-emphasis font-semibold mb-1"
-																			>Inputs</div
-																		>
-																		<JobArgs
-																			id={isReplay ? undefined : node.job_id}
-																			workspace={isReplay
-																				? undefined
-																				: (job.workspace_id ?? $operatingWorkspace ?? 'no_w')}
-																			args={node.args}
-																		/>
-																	</div>
-																{/if}
-																{#if node.workflow_as_code_status}
-																	<div>
-																		<div class="text-xs text-emphasis font-semibold mb-1"
-																			>Workflow timeline</div
-																		>
-																		<WorkflowTimeline
-																			flow_status={asWorkflowStatus(node.workflow_as_code_status)}
-																			flowDone={node.type === 'Success' || node.type === 'Failure'}
-																			stepResults={getStepResults(node.workflow_as_code_status)}
-																			result={node.result}
-																			success={node.type === 'Success'}
-																			jobId={node.job_id}
-																		/>
-																	</div>
-																{/if}
+																<FlowJobResult
+																	tagLabel={customUi?.tagLabel}
+																	workspaceId={isReplay ? undefined : job?.workspace_id}
+																	jobId={isReplay ? undefined : node.job_id}
+																	runKey={node.job_id}
+																	loading={node.type != 'Success' && node.type != 'Failure'}
+																	waitingForExecutor={node.type == 'WaitingForExecutor'}
+																	refreshLog={node.type == 'InProgress'}
+																	col
+																	result_stream={resultStreams[node.job_id ?? '']}
+																	result={node.result}
+																	tag={node.tag}
+																	logs={node.logs}
+																	downloadLogs={!hideDownloadLogs && !isReplay}
+																/>
 															</div>
-															<FlowJobResult
-																tagLabel={customUi?.tagLabel}
-																workspaceId={isReplay ? undefined : job?.workspace_id}
-																jobId={isReplay ? undefined : node.job_id}
-																runKey={node.job_id}
-																loading={node.type != 'Success' && node.type != 'Failure'}
-																waitingForExecutor={node.type == 'WaitingForExecutor'}
-																refreshLog={node.type == 'InProgress'}
-																col
-																result_stream={resultStreams[node.job_id ?? '']}
-																result={node.result}
-																tag={node.tag}
-																logs={node.logs}
-																downloadLogs={!hideDownloadLogs && !isReplay}
-															/>
 														</div>
-													</div>
-												{:else}
-													<p class="p-2 text-primary italic"
-														>The execution of this node has no information attached to it. The job
-														likely did not run yet</p
-													>
-												{/if}
-											{:else}<p class="text-secondary text-xs italic"
-													>Select a node to see its details here</p
-												>{/if}
-										</div>
-									{:else if rightColumnSelect == 'node_definition'}
-										{@const node = selectedNode ? localModuleStates[selectedNode] : undefined}
-										<FlowGraphViewerStep {stepDetail} jobScriptHash={node?.script_hash} />
-									{:else if rightColumnSelect == 'user_states'}
-										<div class="p-2">
-											<JobArgs argLabel="Key" args={job?.flow_status?.user_states ?? {}} />
-										</div>
-									{:else if rightColumnSelect == 'tracing'}
-										{@const node = selectedNode ? localModuleStates[selectedNode] : undefined}
-										{#if node?.job_id}
-											<JobOtelTraces jobId={node.job_id} />
-										{:else}
-											<div class="p-4 text-secondary text-xs italic"
-												>Select a node with a job to see HTTP request traces</div
-											>
+													{:else}
+														<p class="p-2 text-primary italic"
+															>The execution of this node has no information attached to it. The job
+															likely did not run yet</p
+														>
+													{/if}
+												{:else}<p class="text-secondary text-xs italic"
+														>Select a node to see its details here</p
+													>{/if}
+											</div>
+										{:else if rightColumnSelect == 'node_definition'}
+											{@const node = selectedNode ? localModuleStates[selectedNode] : undefined}
+											<FlowGraphViewerStep {stepDetail} jobScriptHash={node?.script_hash} />
+										{:else if rightColumnSelect == 'user_states'}
+											<div class="p-2">
+												<JobArgs argLabel="Key" args={job?.flow_status?.user_states ?? {}} />
+											</div>
+										{:else if rightColumnSelect == 'tracing'}
+											{@const node = selectedNode ? localModuleStates[selectedNode] : undefined}
+											{#if isReplay}
+												<div class="p-4 text-secondary text-xs italic"
+													>HTTP request traces are not included in recordings</div
+												>
+											{:else if node?.job_id}
+												<JobOtelTraces jobId={node.job_id} />
+											{:else}
+												<div class="p-4 text-secondary text-xs italic"
+													>Select a node with a job to see HTTP request traces</div
+												>
+											{/if}
 										{/if}
-									{/if}
+									</div>
 								</div>
-							</div>
-						</Pane>
+							</Pane>
+						{/if}
 					</Splitpanes>
 				</div>
 			</div>
