@@ -1206,6 +1206,7 @@ const NESTED_SENSITIVE_FIELDS: &[(&str, &[&str])] = &[
         "secret_backend",
         &[
             "token",
+            "approle_secret_id",
             "client_secret",
             "secret_access_key",
             "auth",
@@ -1245,7 +1246,7 @@ fn mask_nested_sensitive(key: &str, value: &serde_json::Value) -> serde_json::Va
     // Settings that are maps-of-objects where each child has a sensitive sub-field.
     const NESTED_MAP_SENSITIVE: &[(&str, &[&str])] = &[
         ("oauths", &["secret", "signing_secret"]),
-        ("external_secrets", &["token"]),
+        ("external_secrets", &["token", "approle_secret_id"]),
     ];
     for &(parent_key, child_fields) in NESTED_MAP_SENSITIVE {
         if key == parent_key {
