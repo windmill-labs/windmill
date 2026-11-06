@@ -3619,7 +3619,7 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: tokio::sync::mpsc::Receiver<DedicatedWorkerJob>,
+    jobs_rx: &mut tokio::sync::mpsc::Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     client: windmill_common::client::AuthedClient,
     concurrency_semaphore: Option<std::sync::Arc<tokio::sync::Semaphore>>,
