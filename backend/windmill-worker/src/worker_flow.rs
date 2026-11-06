@@ -3644,17 +3644,16 @@ pub(crate) fn resolve_flow_step_tag(
     }
 }
 
-/// Whether a flow enclosing `flow_job` on the same tag preserves step tags. A subflow without a
-/// tag of its own runs on its caller's tag, so the caller's `preserve_step_tags` must reach the
-/// subflow's steps: otherwise the subflow's own setting, off by default and irrelevant until it
-/// runs under a custom tag, silently pins its tagged steps to the caller's tag.
-async fn enclosing_flow_preserves_step_tags(
+/// Whether `first` or a flow job above it, up the chain of jobs running on `tag`, preserves step
+/// tags. A subflow without a tag of its own runs on its caller's tag, so the caller's
+/// `preserve_step_tags` must reach the subflow's steps: otherwise the subflow's own setting, off
+/// by default and irrelevant until it runs under a custom tag, pins them to the caller's tag.
+pub(crate) async fn enclosing_flow_preserves_step_tags(
     db: &DB,
-    flow_job: &MiniPulledJob,
+    workspace_id: &str,
+    tag: &str,
+    first: Uuid,
 ) -> error::Result<bool> {
-    let Some(parent_job) = flow_job.parent_job else {
-        return Ok(false);
-    };
     let ancestors = sqlx::query!(
         r#"WITH RECURSIVE chain AS (
             SELECT id, parent_job, kind, runnable_id, 1 AS depth
@@ -3666,9 +3665,9 @@ async fn enclosing_flow_preserves_step_tags(
         )
         SELECT id AS "id!", kind AS "kind!: JobKind", runnable_id AS "runnable_id: ScriptHash"
         FROM chain ORDER BY depth"#,
-        parent_job,
-        &flow_job.workspace_id,
-        &flow_job.tag,
+        first,
+        workspace_id,
+        tag,
     )
     .fetch_all(db)
     .await?;
@@ -4861,6 +4860,27 @@ async fn push_next_flow_job(
     };
     let len = job_payloads.len();
 
+    let enclosing_flow_preserves = match flow_job.parent_job {
+        Some(parent_job)
+            if !flow.preserve_step_tags
+                && job_payloads.iter().any(|p| {
+                    p.tag
+                        .as_deref()
+                        .is_some_and(|t| !t.is_empty() && t != flow_job.tag)
+                }) =>
+        {
+            enclosing_flow_preserves_step_tags(
+                db,
+                &flow_job.workspace_id,
+                &flow_job.tag,
+                parent_job,
+            )
+            .warn_after_seconds(3)
+            .await?
+        }
+        _ => false,
+    };
+
     let mut tx = db.begin().warn_after_seconds(3).await?;
     let nargs = args.as_ref();
     for (i, mut payload_tag) in job_payloads.into_iter().enumerate() {
@@ -5105,34 +5125,16 @@ async fn push_next_flow_job(
         let job_perms: Option<Authed> = root_job_perms.map(|x| x.into());
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed perms for job {i} of {len}");
-        let dev_suffix =
+        let tag = resolve_flow_step_tag(
+            step.is_preprocessor_step(),
+            &flow_job.tag,
+            &flow_job.workspace_id,
+            flow.preserve_step_tags || enclosing_flow_preserves,
+            payload_tag.tag.as_deref(),
             windmill_queue::tags::dev_flow_tag_suffix(&flow_job.workspace_id, &flow_job.tag, db)
-                .await?;
-        let resolve_tag = |preserve_step_tags: bool| {
-            resolve_flow_step_tag(
-                step.is_preprocessor_step(),
-                &flow_job.tag,
-                &flow_job.workspace_id,
-                preserve_step_tags,
-                payload_tag.tag.as_deref(),
-                dev_suffix.as_deref(),
-            )
-        };
-        let tag = if flow.preserve_step_tags {
-            resolve_tag(true)
-        } else {
-            let inherited = resolve_tag(false);
-            let preserved = resolve_tag(true);
-            if preserved != inherited
-                && enclosing_flow_preserves_step_tags(db, &flow_job)
-                    .warn_after_seconds(3)
-                    .await?
-            {
-                preserved
-            } else {
-                inherited
-            }
-        };
+                .await?
+                .as_deref(),
+        );
 
         // A step whose inputs failed to evaluate, or whose `$flow_expr[...]` tag failed to resolve,
         // is pushed only to report the error, and a computed tag can then name a queue nobody

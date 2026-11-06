@@ -761,7 +761,14 @@ pub async fn handle_ai_agent_job(
     };
 
     let value = flow_data.value();
-    let preserve_step_tags = value.preserve_step_tags;
+    let preserve_step_tags = value.preserve_step_tags
+        || crate::worker_flow::enclosing_flow_preserves_step_tags(
+            db,
+            &job.workspace_id,
+            &job.tag,
+            flow_job_id,
+        )
+        .await?;
 
     let module = if direct_parent_job_kind == JobKind::AIAgent {
         let parent_agent_step_id = direct_parent_job_flow_step_id.as_deref().ok_or_else(|| {
