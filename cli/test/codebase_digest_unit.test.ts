@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   listSyncCodebases,
+  tsconfigExtends,
   uncoveredBundleInputs,
 } from "../src/utils/codebase.ts";
 
@@ -113,6 +114,39 @@ test("per_script_digest follows the imports of a script reached through a symlin
     await rm(link, { force: true });
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("per_script_digest covers the nearest tsconfig and what it extends, not shadowed ones", async () => {
+  const { root, digests } = await perScriptFixture();
+  try {
+    await writeFile(join(root, "tsconfig.json"), "{}");
+    await writeFile(join(root, "tsconfig.base.json"), `{ "compilerOptions": {} }`);
+    await writeFile(
+      join(root, "f/app/tsconfig.json"),
+      `{\n  // shared settings\n  "extends": "../../tsconfig.base.json", /* jsonc */\n}`
+    );
+    const before = await digests();
+
+    // f/app's own tsconfig shadows the root one; only c, which also imports
+    // packages/utils, has a file the root tsconfig applies to.
+    await writeFile(join(root, "tsconfig.json"), `{ "compilerOptions": { "strict": true } }`);
+    const shadowed = await digests();
+    expect(shadowed.slice(0, 2)).toEqual(before.slice(0, 2));
+    expect(shadowed[2]).not.toBe(before[2]);
+
+    await writeFile(join(root, "tsconfig.base.json"), `{ "compilerOptions": { "jsx": "react" } }`);
+    const extended = await digests();
+    expect(extended[0]).not.toBe(shadowed[0]);
+    expect(extended[1]).not.toBe(shadowed[1]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("tsconfigExtends reads extends from JSON with comments", () => {
+  expect(tsconfigExtends(`{ "a": "x // not a comment", // c\n "extends": ["./a", "b"], }`)).toEqual(["./a", "b"]);
+  expect(tsconfigExtends(`{ /* "extends": "no" */ }`)).toEqual([]);
+  expect(tsconfigExtends(`not json`)).toEqual([]);
 });
 
 test("per_script_digest fails only the script that does not bundle", async () => {

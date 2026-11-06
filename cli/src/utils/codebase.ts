@@ -144,28 +144,82 @@ class FileHasher {
     return h;
   }
 
-  /** The tsconfig/jsconfig files of `dir` and its ancestors: esbuild applies the
-   * nearest one (and whatever it extends) to every file below it. */
-  configsAbove(dir: string): Promise<string[]> {
+  /** The TS config esbuild applies to files in `dir`, as it picks it: the nearest
+   * `tsconfig.json`, else `jsconfig.json`, in `dir` or an ancestor, followed by the
+   * configs it `extends`. Ancestors it shadows are left out. */
+  configsFor(dir: string): Promise<string[]> {
     let c = this.configs.get(dir);
     if (!c) {
       c = (async () => {
-        const parent = path.dirname(dir);
-        const above = parent == dir ? [] : await this.configsAbove(parent);
-        const here: string[] = [];
-        for (const name of TS_CONFIG_NAMES) {
+        for (const name of ["tsconfig.json", "jsconfig.json"]) {
           const p = path.join(dir, name);
-          if (await stat(p).then((s) => s.isFile(), () => false)) here.push(p);
+          if (await isFile(p)) return await this.extendsChain(p, new Set());
         }
-        return [...here, ...above];
+        const parent = path.dirname(dir);
+        return parent == dir ? [] : await this.configsFor(parent);
       })();
       this.configs.set(dir, c);
     }
     return c;
   }
+
+  private async extendsChain(config: string, seen: Set<string>): Promise<string[]> {
+    if (seen.has(config)) return [];
+    seen.add(config);
+    const res = [config];
+    for (const spec of tsconfigExtends(await readFile(config, "utf8"))) {
+      const base = await resolveTsconfigExtends(spec, path.dirname(config));
+      if (base) res.push(...(await this.extendsChain(base, seen)));
+    }
+    return res;
+  }
 }
 
-const TS_CONFIG_NAMES = ["tsconfig.json", "jsconfig.json"];
+const isFile = (p: string) => stat(p).then((s) => s.isFile(), () => false);
+
+/** The `extends` of a tsconfig, which is JSON with comments and trailing commas.
+ * An unparseable config extends nothing; its own content is still hashed. */
+export function tsconfigExtends(text: string): string[] {
+  let json = "";
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch == '"') {
+      const start = i;
+      for (i++; i < text.length && text[i] != '"'; i++) if (text[i] == "\\") i++;
+      json += text.slice(start, i + 1);
+    } else if (ch == "/" && text[i + 1] == "/") {
+      while (i < text.length && text[i] != "\n") i++;
+      json += "\n";
+    } else if (ch == "/" && text[i + 1] == "*") {
+      i = text.indexOf("*/", i + 2);
+      if (i < 0) break;
+      i++;
+    } else {
+      json += ch;
+    }
+  }
+  try {
+    const ext = JSON.parse(json.replace(/,(\s*[}\]])/g, "$1"))?.extends;
+    return ([] as unknown[]).concat(ext ?? []).filter((e): e is string => typeof e == "string");
+  } catch {
+    return [];
+  }
+}
+
+/** Resolves an `extends` the way TypeScript does: a path relative to the config, or
+ * a file or package in a `node_modules` above it. */
+async function resolveTsconfigExtends(spec: string, dir: string): Promise<string | undefined> {
+  const candidates = (p: string) => [p, p + ".json", path.join(p, "tsconfig.json")];
+  if (spec.startsWith(".") || path.isAbsolute(spec)) {
+    for (const c of candidates(path.resolve(dir, spec))) if (await isFile(c)) return c;
+    return undefined;
+  }
+  for (let d = dir; ; d = path.dirname(d)) {
+    const p = path.join(d, "node_modules", spec);
+    for (const c of candidates(p)) if (await isFile(c)) return c;
+    if (path.dirname(d) == d) return undefined;
+  }
+}
 
 /** A file input of an esbuild metafile, as opposed to "<define:x>", "(disabled):x"
  * or a plugin namespace. */
@@ -212,7 +266,7 @@ async function scriptDigests(
       const configs = new Set<string>();
       for (const f of files) {
         if (f.split(path.sep).includes("node_modules")) continue;
-        for (const c of await hasher.configsAbove(path.dirname(f))) {
+        for (const c of await hasher.configsFor(path.dirname(f))) {
           configs.add(c);
         }
       }
