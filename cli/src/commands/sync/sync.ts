@@ -123,7 +123,11 @@ import {
 } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
-import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
+import {
+  listSyncCodebases,
+  sameCodebaseDigest,
+  SyncCodebase,
+} from "../../utils/codebase.ts";
 import {
   beginLockfileBatch,
   flushLockfileBatch,
@@ -565,6 +569,17 @@ export function findCodebase(
       return c;
     }
   }
+}
+
+/** Script metadata that differs only by the `.tar` a multi-output bundle adds to the
+ * deployed codebase digest. */
+function sameScriptMetadataModuloTar(a: any, b: any): boolean {
+  if (!a || !b || typeof a != "object" || typeof b != "object") {
+    return false;
+  }
+  const { codebase: c1, ...rest1 } = a;
+  const { codebase: c2, ...rest2 } = b;
+  return sameCodebaseDigest(c1, c2) && deepEqual(rest1, rest2);
 }
 
 async function addCodebaseDigestIfRelevant(
@@ -2942,7 +2957,10 @@ export async function compareDynFSElement(
         if (isEls1Remote === false && isWorkspaceSettingsFile(k)) {
           stripUnappliedSettingsFields(after, before);
         }
-        if (deepEqual(before, after)) {
+        if (
+          deepEqual(before, after) ||
+          (isScriptMetadata && sameScriptMetadataModuloTar(before, after))
+        ) {
           continue;
         }
         if (!ignoreCodebaseChanges) {
@@ -2956,7 +2974,7 @@ export async function compareDynFSElement(
             delete after.codebase;
             v = yamlStringify(after, yamlOptions);
           }
-          if (beforeCodebase != afterCodebase) {
+          if (!sameCodebaseDigest(beforeCodebase, afterCodebase)) {
             codebaseChanges[k] = afterCodebase ?? beforeCodebase ?? "";
           }
         }
@@ -3008,7 +3026,7 @@ export async function compareDynFSElement(
         continue;
       }
       const c = findCodebase(tsFile, codebases);
-      if ((await c?.getDigest()) != v) {
+      if (!sameCodebaseDigest(await c?.getDigest(), v)) {
         changes.push({
           name: "edited",
           path: tsFile,
