@@ -17,7 +17,8 @@ use windmill_common::{
     error,
     git_sync_oss::{sanitize_git_url, validate_git_repo_url},
     worker::{
-        is_allowed_file_location, split_python_requirements, to_raw_value, write_file,
+        is_allowed_file_location, split_python_requirements, to_raw_value,
+        try_parse_locked_python_version_from_requirements, write_file,
         write_file_at_user_defined_location, Connection, PyVAlias, WORKER_CONFIG,
     },
 };
@@ -874,7 +875,31 @@ async fn handle_ansible_python_deps(
 
     let mut requirements;
     let requirements = match requirements_o {
-        Some(r) => r,
+        Some(r) => {
+            let locked =
+                try_parse_locked_python_version_from_requirements(&r.lines().collect_vec())
+                    .map(PyV::from)
+                    .unwrap_or_default();
+            if let Some(ansible_py) = ansible_py.as_ref() {
+                if !r.trim().is_empty()
+                    && locked.release().get(..2) != ansible_py.release().get(..2)
+                {
+                    append_logs(
+                        job_id,
+                        w_id,
+                        format!(
+                            "WARN: the python dependencies are locked for python {}, but \
+                             ansible-playbook runs on python {}: they are installed for {} \
+                             with the locked versions. Redeploy the script to lock them for {}.\n",
+                            *locked, **ansible_py, **ansible_py, **ansible_py
+                        ),
+                        conn,
+                    )
+                    .await;
+                }
+            }
+            r
+        }
         None => {
             requirements = ansible_reqs
                 .map(|x| x.python_reqs.join("\n"))

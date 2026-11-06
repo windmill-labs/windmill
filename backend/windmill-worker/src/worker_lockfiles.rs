@@ -3189,6 +3189,28 @@ async fn ansible_dep(
     };
     use windmill_common::client::AuthedClient;
 
+    let py_version = match crate::ansible_executor::ansible_python_version().await {
+        Some(v) => v,
+        None => {
+            let v = crate::PyV::gravitational_version(job_id, w_id, Some(db.clone().into())).await;
+            if !reqs.python_reqs.is_empty() {
+                append_logs(
+                    job_id,
+                    w_id,
+                    format!(
+                        "WARN: could not read the python version of ansible-playbook here, \
+                         the python dependencies are locked for python {}. If ansible runs on \
+                         another version, run dependency jobs on a worker with ansible.\n",
+                        *v
+                    ),
+                    &Connection::Sql(db.clone()),
+                )
+                .await;
+            }
+            v
+        }
+    };
+
     let python_lockfile = python_dep(
         reqs.python_reqs.join("\n").to_string(),
         job_id,
@@ -3200,10 +3222,7 @@ async fn ansible_dep(
         w_id,
         worker_dir,
         &mut Some(occupancy_metrics),
-        match crate::ansible_executor::ansible_python_version().await {
-            Some(v) => v,
-            None => crate::PyV::gravitational_version(job_id, w_id, Some(db.clone().into())).await,
-        },
+        py_version,
         PythonAnnotations::default(),
     )
     .await?;
