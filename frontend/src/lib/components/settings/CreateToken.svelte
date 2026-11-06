@@ -322,17 +322,6 @@
 
 {#snippet mcpTokenForm()}
 	<div class="flex flex-col gap-3">
-		{#if $superadmin}
-			<Toggle
-				bind:checked={() => mcpSuperAdmin, setMcpSuperAdmin}
-				options={{
-					right: 'Superadmin access',
-					rightTooltip:
-						'The token carries your superadmin rights and reaches every workspace of the instance, not only the ones you are a member of.'
-				}}
-				size="xs"
-			/>
-		{/if}
 		{#if !lockWorkspace}
 			{@render mcpWorkspacePicker()}
 		{/if}
@@ -341,6 +330,18 @@
 			bind:scopes={mcpScopes}
 			bind:access={() => mcpAccess, setMcpAccess}
 		/>
+		{#if $superadmin}
+			<div class="flex flex-col gap-1">
+				<Toggle
+					bind:checked={() => mcpSuperAdmin, setMcpSuperAdmin}
+					options={{ right: 'Superadmin rights' }}
+					size="xs"
+				/>
+				<p class="text-xs text-tertiary">
+					Admin in every workspace of the instance, including ones you are not a member of.
+				</p>
+			</div>
+		{/if}
 		{#if !mcpOnly}
 			<div>
 				<span class="block mb-1 text-emphasis text-xs font-semibold"

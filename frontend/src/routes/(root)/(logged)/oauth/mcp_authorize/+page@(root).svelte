@@ -231,20 +231,6 @@
 				{/if}
 			</p>
 
-			{#if isSuperAdmin}
-				<div class="mb-4">
-					<Toggle
-						bind:checked={() => superAdmin, setSuperAdmin}
-						options={{
-							right: 'Superadmin access',
-							rightTooltip:
-								'The token carries your superadmin rights and reaches every workspace of the instance, not only the ones you are a member of.'
-						}}
-						size="xs"
-					/>
-				</div>
-			{/if}
-
 			{#if isGateway}
 				<div class="mb-6 flex flex-col gap-2">
 					<p class="text-xs font-semibold text-emphasis">
@@ -294,6 +280,19 @@
 					bind:access={() => access, setAccess}
 				/>
 			</div>
+
+			{#if isSuperAdmin}
+				<div class="mb-6 flex flex-col gap-1">
+					<Toggle
+						bind:checked={() => superAdmin, setSuperAdmin}
+						options={{ right: 'Superadmin rights' }}
+						size="xs"
+					/>
+					<p class="text-xs text-tertiary">
+						Admin in every workspace of the instance, including ones you are not a member of.
+					</p>
+				</div>
+			{/if}
 
 			<div class="flex flex-row justify-around gap-x-4">
 				<Button variant="border" size="lg" disabled={loading} onClick={onDeny}>Deny</Button>
