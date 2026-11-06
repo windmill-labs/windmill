@@ -16,6 +16,7 @@
 	import { editUrlFor } from './sessions/forkEditUrl'
 	import {
 		AppService,
+		DraftService,
 		FlowService,
 		ResourceService,
 		ScriptService,
@@ -120,8 +121,8 @@
 		can_write: boolean
 		draft_users?: { username?: string | null }[]
 		/** The row is my own draft (or the legacy no-owner row) — only then is it
-		 * actionable. Other users' rows (shown when "Show all drafts" is on) are
-		 * view-only: you can't deploy/discard someone else's draft. */
+		 * selectable or deployable. Other users' rows (shown when "Show all drafts"
+		 * is on) can only be discarded one by one, by an admin. */
 		mine: boolean
 		/** Fork only: true when this draft is identical to the parent's (inherited
 		 * on fork, never edited here). Drives "Hide unchanged drafts". */
@@ -195,6 +196,8 @@
 	)
 
 	const currentUsername = $derived($userStore?.username)
+	// Mirrors the server's `require_admin` on `drafts/delete_for_user`.
+	const isAdmin = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
 
 	// Other real users (not me, not the legacy NULL-email row) who also drafted
 	// this path. Only the shared full-page-editor kinds carry draft_users, so this
@@ -248,7 +251,8 @@
 	// write permission on the path — except for legacy (ownerless) drafts, which
 	// the server write-gates like a deploy.
 	function discardBlockedReason(item: Row): string | undefined {
-		if (!item.mine) return 'This draft belongs to another user'
+		if (!item.mine)
+			return isAdmin ? undefined : "Only workspace admins can discard another user's draft"
 		if (item.legacy_draft && !item.can_write)
 			return 'Discarding a legacy draft requires write permission on the path'
 		return undefined
@@ -551,7 +555,9 @@
 	}
 
 	function onDiscardClick(item: Row) {
-		if (isDestructiveDiscard(item)) {
+		if (!item.mine) {
+			othersDiscardTarget = item
+		} else if (isDestructiveDiscard(item)) {
 			discardTarget = item
 		} else {
 			void doDiscard(item)
@@ -579,6 +585,39 @@
 		const item = discardTarget
 		discardTarget = undefined
 		if (item) void doDiscard(item)
+	}
+
+	// --- Admin discard of other users' drafts ---
+	// A row that isn't mine stands for every other user's draft at the path (the
+	// listing keeps one row per item), so the admin removes them all at once and
+	// always confirms: it destroys someone else's unsaved work.
+	let othersDiscardTarget = $state<Row | undefined>(undefined)
+	let othersDiscardBusy = $state(false)
+	const othersDiscardOwners = $derived(
+		othersDiscardTarget ? otherDraftUsers(othersDiscardTarget) : []
+	)
+
+	async function confirmOthersDiscard() {
+		const item = othersDiscardTarget
+		if (!item) return
+		othersDiscardBusy = true
+		try {
+			await DraftService.deleteDraftForUser({
+				workspace: currentWorkspaceId,
+				kind: item.draftKind,
+				path: item.path,
+				othersOnly: true
+			})
+			sendUserToast(`Discarded other users' drafts of ${item.draft_path ?? item.path}`)
+		} catch (e) {
+			sendUserToast(`Failed to discard ${item.path}: ${e.body ?? e.message}`, true)
+			return
+		} finally {
+			othersDiscardBusy = false
+			othersDiscardTarget = undefined
+		}
+		invalidateWorkspaceDrafts(currentWorkspaceId)
+		onChanged?.()
 	}
 
 	// --- Bulk discard ---
@@ -756,8 +795,9 @@
 						size="xs"
 						options={{
 							right: 'Show all drafts',
-							rightTooltip:
-								"Show every user's drafts in this workspace, not just yours. Others' drafts are view-only — you can only deploy or discard your own."
+							rightTooltip: isAdmin
+								? "Show every user's drafts in this workspace, not just yours. You can only deploy your own; as an admin you can also discard others' drafts."
+								: "Show every user's drafts in this workspace, not just yours. Others' drafts are view-only — you can only deploy or discard your own."
 						}}
 					/>
 				</div>
@@ -1006,6 +1046,37 @@
 				<li>{item.draft_path ?? item.path}</li>
 			{/each}
 		</ul>
+	{/if}
+</ConfirmationModal>
+
+<ConfirmationModal
+	open={othersDiscardTarget !== undefined}
+	title={othersDiscardOwners.length === 1
+		? `Discard ${othersDiscardOwners[0]}'s draft`
+		: "Discard other users' drafts"}
+	confirmationText="Discard"
+	loading={othersDiscardBusy}
+	onConfirmed={confirmOthersDiscard}
+	onCanceled={() => (othersDiscardTarget = undefined)}
+>
+	<p>
+		This permanently deletes
+		{#if othersDiscardOwners.length > 0}
+			the {othersDiscardOwners.length === 1 ? 'draft' : 'drafts'} of
+			<span class="font-medium text-primary">{othersDiscardOwners.join(', ')}</span>
+		{:else}
+			every other user's draft
+		{/if}
+		at
+		<span class="font-mono font-medium text-primary"
+			>{othersDiscardTarget?.draft_path ?? othersDiscardTarget?.path}</span
+		>. Their unsaved work there is lost and can't be recovered.
+	</p>
+	{#if othersDiscardTarget?.draft_only}
+		<p class="mt-2">
+			This item exists only as a draft, so it will be
+			<span class="font-semibold">permanently deleted</span>.
+		</p>
 	{/if}
 </ConfirmationModal>
 

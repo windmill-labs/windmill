@@ -142,8 +142,8 @@ async fn list_drafts(
     //  - own drafts (incl. legacy no-owner rows, `mine = true`): the actionable
     //    gate is write permission — run the exact check deploy/discard enforce so
     //    the UI never offers an action that would 403.
-    //  - other users' drafts (only present with `all_users`, `mine = false`): the
-    //    UI never lets you act on them (`isSelectable` requires `mine`), so skip
+    //  - other users' drafts (only present with `all_users`, `mine = false`): never
+    //    deployable, and only an admin may discard them (`delete_for_user`), so skip
     //    the write probe (`can_write = false`) and instead require READ access —
     //    otherwise the broadened listing would disclose the path/summary/authors
     //    of items the caller can't see. Unreadable rows are dropped, mirroring the
@@ -1070,6 +1070,12 @@ pub struct DeleteDraftForUserQuery {
     /// Workspace username of the draft owner. Absent: every draft at the path,
     /// the legacy ownerless one and the caller's own included.
     pub username: Option<String>,
+    /// Without `username`: delete every owned draft at the path except the
+    /// caller's own (the legacy ownerless row is kept too). Allowed for every
+    /// kind, drawer kinds included: it names no owner, so it reveals nothing the
+    /// all-users draft listing doesn't already show an admin.
+    #[serde(default)]
+    pub others_only: bool,
 }
 
 /// Delete ANOTHER user's draft at a path, or every draft there, for workspace
@@ -1083,7 +1089,13 @@ async fn delete_draft_for_user(
     Query(query): Query<DeleteDraftForUserQuery>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
-    if !kind.shares_drafts_across_users() {
+    let others_only = query.others_only;
+    if others_only && query.username.is_some() {
+        return Err(Error::BadRequest(
+            "others_only cannot be combined with username".to_string(),
+        ));
+    }
+    if !others_only && !kind.shares_drafts_across_users() {
         return Err(Error::NotFound(
             "drafts for this item kind are private to their owner".to_string(),
         ));
@@ -1106,11 +1118,14 @@ async fn delete_draft_for_user(
         r#"DELETE FROM draft
            WHERE workspace_id = $1 AND path = $2 AND typ = $3
              AND ($4::text IS NULL OR email = $4)
+             AND (NOT $5 OR (email IS NOT NULL AND email <> $6))
            RETURNING 1 as "one!""#,
         &w_id,
         path,
         kind as UserDraftItemKind,
         owner_email.as_deref(),
+        others_only,
+        &authed.email,
     )
     .fetch_all(&mut *tx)
     .await?
@@ -1118,6 +1133,7 @@ async fn delete_draft_for_user(
     if deleted == 0 {
         return Err(Error::NotFound(match username {
             Some(username) => format!("no draft for {username} at {path}"),
+            None if others_only => format!("no other user's draft at {path}"),
             None => format!("no draft at {path}"),
         }));
     }
@@ -1131,7 +1147,10 @@ async fn delete_draft_for_user(
         Some(
             [
                 ("kind", kind.as_str()),
-                ("username", username.unwrap_or("*")),
+                (
+                    "username",
+                    username.unwrap_or(if others_only { "*others" } else { "*" }),
+                ),
             ]
             .into(),
         ),
@@ -1140,6 +1159,7 @@ async fn delete_draft_for_user(
     tx.commit().await?;
     Ok(match username {
         Some(username) => format!("Deleted {username}'s draft at {path}"),
+        None if others_only => format!("Deleted {deleted} other user draft(s) at {path}"),
         None => format!("Deleted {deleted} draft(s) at {path}"),
     })
 }
