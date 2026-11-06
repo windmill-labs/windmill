@@ -15,6 +15,7 @@
 	{open}
 	title="Default superadmin account still active"
 	confirmationText="Skip anyway"
+	keyListen={false}
 	onConfirmed={onSkip}
 	onCanceled={onCancel}
 >

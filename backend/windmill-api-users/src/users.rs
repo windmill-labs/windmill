@@ -395,6 +395,11 @@ async fn is_default_superadmin_active(
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
 ) -> JsonResult<bool> {
     require_super_admin(&db, &authed).await?;
+    if windmill_common::global_settings::DISABLE_PASSWORD_LOGIN
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Ok(Json(false));
+    }
     let hash: Option<String> = sqlx::query_scalar(
         "SELECT password_hash FROM password WHERE email = 'admin@windmill.dev' \
          AND login_type = 'password' AND disabled = false AND password_hash IS NOT NULL",
