@@ -5289,7 +5289,7 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
             if !key.is_empty() {
                 let window = settings.concurrency_time_window_s.unwrap_or(0);
                 let limit = settings.concurrent_limit.unwrap_or_default();
-                let admitted = crate::jobs_ee::update_concurrency_counter(
+                let admission = crate::jobs_ee::admit_to_concurrency_limit(
                     db,
                     &job.id,
                     key.clone(),
@@ -5298,9 +5298,10 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
                     window,
                     limit,
                 )
-                .await?
-                .0;
+                .await?;
+                let admitted = admission.admitted;
                 if !admitted
+                    && !admission.behind_in_line
                     && settings.on_concurrency_limit
                         == Some(windmill_common::runnable_settings::OnConcurrencyLimit::Fail)
                 {
