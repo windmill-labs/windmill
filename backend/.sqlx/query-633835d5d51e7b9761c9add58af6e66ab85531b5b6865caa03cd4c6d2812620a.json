@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT hash, codebase IS NOT NULL AS \"is_codebase!\" FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false AND archived = false ORDER BY created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "is_codebase!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "633835d5d51e7b9761c9add58af6e66ab85531b5b6865caa03cd4c6d2812620a"
+}
