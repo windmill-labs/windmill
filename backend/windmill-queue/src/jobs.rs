@@ -1876,7 +1876,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         let woken = if windmill_common::worker::CONCURRENCY_LIMIT_IN_ORDER
             .load(std::sync::atomic::Ordering::Relaxed)
         {
-            wake_concurrency_key_waiters(db, &key, 1).await
+            fill_concurrency_key_slots_in_order(db, &key, limit).await
         } else {
             wake_deferred_concurrency_job(db, &key, limit).await
         };
@@ -5365,6 +5365,31 @@ pub(crate) async fn oldest_waiting_concurrency_job<'c, E: PgExecutor<'c>>(
 /// them rather than waiting out the delay a limit deferred them by. A job a worker is
 /// already holding is left alone. Queue bookkeeping, not an authorization boundary: only
 /// for the queue's own admission and completion paths, never with a key taken from a request.
+/// In order, the slots a completion frees go to the jobs first in line: wakes as many of them
+/// as the slots no admitted job holds. One wake per completion never refills a slot whose
+/// woken job was lost, and the key would stay below its limit. `limit` is the completed
+/// job's. Queue bookkeeping, not an authorization boundary: never with a key from a request.
+#[cfg(feature = "private")]
+pub async fn fill_concurrency_key_slots_in_order(
+    db: &DB,
+    key: &str,
+    limit: i32,
+) -> error::Result<()> {
+    let admitted = sqlx::query_scalar!(
+        "SELECT count(*) FROM concurrency_counter, jsonb_object_keys(job_uuids)
+        WHERE concurrency_id = $1",
+        key,
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(0);
+    let free = i64::from(limit) - admitted;
+    if free > 0 {
+        wake_concurrency_key_waiters(db, key, free).await?;
+    }
+    Ok(())
+}
+
 #[cfg(feature = "private")]
 pub(crate) async fn wake_concurrency_key_waiters(db: &DB, key: &str, n: i64) -> error::Result<()> {
     sqlx::query!(

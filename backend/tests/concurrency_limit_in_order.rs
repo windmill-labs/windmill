@@ -89,3 +89,44 @@ async fn free_slot_goes_to_the_job_first_in_line(db: Pool<Postgres>) -> anyhow::
     assert!(!earlier_admitted?, "a job was admitted past the limit");
     Ok(())
 }
+
+/// A completion in order refills every free slot from the front of the line, not one per
+/// completion, so a woken job that is lost does not leave the key below its limit.
+#[sqlx::test(fixtures("base"))]
+async fn completion_fills_free_slots_from_the_front_of_the_line(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    let mut line = vec![];
+    for due_secs_ago in [30, 20, 10] {
+        let id = queue_job(&db, due_secs_ago).await?;
+        // Deferred an hour out by the limit, keeping its place, as `apply_concurrency_limit` does.
+        sqlx::query(
+            "WITH place AS (
+                UPDATE concurrency_key SET original_scheduled_for =
+                    (SELECT scheduled_for FROM v2_job_queue WHERE id = $1)
+                WHERE job_id = $1
+            )
+            UPDATE v2_job_queue SET scheduled_for = now() + interval '1 hour' WHERE id = $1",
+        )
+        .bind(id)
+        .execute(&db)
+        .await?;
+        line.push(id);
+    }
+
+    windmill_queue::fill_concurrency_key_slots_in_order(&db, KEY, 2).await?;
+
+    let mut due = vec![];
+    for id in &line {
+        due.push(
+            sqlx::query_scalar::<_, bool>(
+                "SELECT scheduled_for <= now() FROM v2_job_queue WHERE id = $1",
+            )
+            .bind(id)
+            .fetch_one(&db)
+            .await?,
+        );
+    }
+    assert_eq!(due, vec![true, true, false], "the two jobs first in line were not both woken");
+    Ok(())
+}
