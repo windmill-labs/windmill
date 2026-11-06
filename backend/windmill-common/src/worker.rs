@@ -2570,7 +2570,9 @@ pub fn dedicated_worker_pattern_prefix(path: &str) -> Option<&str> {
 
 /// `entries` with each pattern replaced by the scripts under it that a dedicated worker serves:
 /// those enabling `dedicated_worker` with an unrestricted job token, the only ones whose jobs
-/// get the dedicated tag on push.
+/// get the dedicated tag on push. Reads every workspace's scripts unchecked: `entries` must come
+/// from a worker group config, which only an instance admin or devops user can write, never from a
+/// request.
 pub async fn expand_dedicated_workers(
     db: &DB,
     entries: &[WorkspacedPath],
