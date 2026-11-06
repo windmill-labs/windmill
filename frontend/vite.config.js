@@ -259,6 +259,34 @@ function assertAiEngineFreeAppShell() {
 	}
 }
 
+/**
+ * Fail the build if zod's English messages were tree-shaken out of the client bundle (see the
+ * root +layout.js). Only a production bundle can lose them, so a dev server or a unit test
+ * passes either way.
+ */
+function assertZodMessagesKept() {
+	// The server pass leaves zod external, so none of its chunks hold the messages.
+	// isClientBuild can't skip that pass: it also writes under _app/immutable/, so every build would fail.
+	let ssr = false
+	return {
+		name: 'wm-assert-zod-messages-kept',
+		configResolved(config) {
+			ssr = !!config.build.ssr
+		},
+		generateBundle(_options, bundle) {
+			if (ssr) return
+			const kept = Object.values(bundle).some(
+				(c) => c.type === 'chunk' && c.code.includes('Too big: expected')
+			)
+			if (!kept) {
+				this.error(
+					'No chunk holds zod\'s English messages, so every zod error would read "Invalid input". See the root +layout.js.'
+				)
+			}
+		}
+	}
+}
+
 const remoteUrl =
 	process.env.REMOTE ??
 	(process.env.BACKEND_PORT
@@ -460,7 +488,8 @@ const config = {
 		preloadWithoutLinkScan(),
 		assertLeanPublicAppRoutes(),
 		assertMonacoFreeAppShell(),
-		assertAiEngineFreeAppShell()
+		assertAiEngineFreeAppShell(),
+		assertZodMessagesKept()
 	],
 	define: { '__pkg__.version': JSON.stringify(version) },
 	optimizeDeps: {
