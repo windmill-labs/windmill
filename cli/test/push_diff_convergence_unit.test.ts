@@ -520,23 +520,3 @@ test("push: a multi-output bundle's `.tar` digest matches the local codebase dig
     ),
   ).toEqual(["edited f/c/multi.script.yaml"]);
 });
-
-test("push: `schema: {}` compares as the schema the server infers from the content", async () => {
-  const content = "export async function main() {\n  return 1;\n}\n";
-  const tree = (meta: string, schema: string) =>
-    local({ "f/p/s.ts": content, "f/p/s.script.yaml": SCRIPT_META(schema).replace("summary: s", meta) });
-  const remote = tree("summary: s", EXPANDED_EMPTY_SCHEMA);
-
-  expect(await diff(tree("summary: s", "schema: {}\n"), remote, {})).toEqual([]);
-  // Any other field still counts.
-  expect(await diff(tree("summary: t", "schema: {}\n"), remote, {})).toEqual([
-    "edited f/p/s.script.yaml",
-  ]);
-  // A stored schema the content no longer has is reset by pushing `{}`.
-  const stale =
-    EXPANDED_EMPTY_SCHEMA.replace("properties: {}", "properties:\n    old:\n      type: string")
-      .replace("required: []", "required:\n    - old");
-  expect(
-    await diff(tree("summary: s", "schema: {}\n"), tree("summary: s", stale), {}),
-  ).toEqual(["edited f/p/s.script.yaml"]);
-});

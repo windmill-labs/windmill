@@ -1015,37 +1015,6 @@ export async function inferSchema(
   };
 }
 
-/** The schema a deploy would store for `sent`. The server infers it from the content,
- * starting from the previous version's, when the one sent is absent or `{}`, so comparing
- * `sent` literally never matches. Content that cannot be parsed here returns `sent`, so the
- * comparison fails and the deploy lets the server infer. */
-export async function effectiveScriptSchema(
-  sent: unknown,
-  stored: unknown,
-  language: ScriptLanguage,
-  content: string,
-  path: string
-): Promise<unknown> {
-  const leftToServer =
-    sent == null ||
-    (typeof sent === "object" && !Array.isArray(sent) && Object.keys(sent).length === 0);
-  if (!leftToServer) {
-    return sent;
-  }
-  try {
-    const { schema } = await inferSchema(
-      language,
-      content,
-      stored == null ? {} : structuredClone(stored),
-      path
-    );
-    // inferSchema leaves `default: undefined` on arguments without one; the stored JSON has no key.
-    return JSON.parse(JSON.stringify(schema));
-  } catch {
-    return sent;
-  }
-}
-
 function sortObject(obj: any): any {
   return Object.keys(obj)
     .sort()

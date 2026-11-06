@@ -38,7 +38,6 @@ import {
   getRawWorkspaceDependencies,
   parseMetadataFile,
   readLockfile,
-  effectiveScriptSchema,
 } from "../../utils/metadata.ts";
 import { validateRequiredArgs } from "../../utils/utils.ts";
 import {
@@ -661,9 +660,6 @@ export async function handleFile(
 
     if (remote) {
       if (content === remote.content) {
-        const sentSchema =
-          typed &&
-          (await effectiveScriptSchema(typed.schema, remote.schema, language, content, path));
         if (
           typed == undefined ||
           (typed.description === remote.description &&
@@ -680,7 +676,7 @@ export async function handleFile(
               ? remote?.lock?.join("\n")
               : remote?.lock ?? ""
             ).trim() == (typed?.lock ?? "").trim() &&
-            deepEqual(sentSchema, remote.schema) &&
+            deepEqual(typed.schema, remote.schema) &&
             typed.tag == remote.tag &&
             (typed.ws_error_handler_muted ?? false) ==
               remote.ws_error_handler_muted &&
