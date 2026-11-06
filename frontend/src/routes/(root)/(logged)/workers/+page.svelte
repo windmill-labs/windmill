@@ -988,7 +988,7 @@
 						<div class="mt-6"></div>
 
 						<div class="flex flex-row gap-2 items-center justify-between">
-							<div class="flex flex-row items-center gap-4">
+							<div class="flex flex-row items-baseline gap-4">
 								<div class="text-emphasis font-semibold text-xs">Active workers</div>
 								{#if groupJobStats}
 									<WorkerJobFailures
