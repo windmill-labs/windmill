@@ -5326,8 +5326,9 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
 /// it is not `job_id` itself. A stuck tag holds back only its own line. A canceled job keeps its
 /// place until a worker of its tag, `job_id`'s, processes it; not skipping it keeps the walk to
 /// the admitted jobs and the first few, never the key's backlog. A job whose queue row is gone
-/// without the completion path ending its key (one of the paths that delete a waiting job) is in
-/// no line: its key is ended here, so that it can never stay first in line. Admission records a job's tag, priority and place when it is
+/// with its key left behind (by a path that deletes a waiting job) is in no line: its key is
+/// deleted here, not ended, so that it counts as no run in a time window. When every entry read
+/// is such a job, the line may continue past them and the job is not admitted this time. Admission records a job's tag, priority and place when it is
 /// first pulled, and a deferral when it is first deferred, from its queue row then, which nothing
 /// moves back before it is due: a job not pulled yet is in no line. None for a job that already holds a slot of
 /// the key (a resumed flow): refusing it would leave the jobs ahead of it waiting on the slot
@@ -5354,13 +5355,20 @@ pub(crate) async fn oldest_waiting_concurrency_job<'c, E: PgExecutor<'c>>(
                 AND NOT COALESCE((SELECT job_uuids ? ck.job_id::text FROM admitted), false)
             ORDER BY ck.priority DESC, ck.place, ck.job_id
             LIMIT 8
-        ), _ended AS (
-            UPDATE concurrency_key SET ended_at = now()
+        ), _gone AS (
+            DELETE FROM concurrency_key
             WHERE job_id IN (SELECT job_id FROM front WHERE gone) AND ended_at IS NULL
         ), first_in_line AS (
-            SELECT job_id FROM front WHERE NOT gone ORDER BY priority DESC, place, job_id LIMIT 1
+            SELECT COALESCE(
+                (SELECT job_id FROM front WHERE NOT gone ORDER BY priority DESC, place, job_id LIMIT 1),
+                -- Every entry read is gone: the line may continue past them, so this attempt
+                -- does not admit; the next one reads past the entries deleted here.
+                CASE WHEN (SELECT count(*) FROM front) = 8 THEN
+                    (SELECT job_id FROM front WHERE gone ORDER BY priority DESC, place, job_id LIMIT 1)
+                END
+            ) AS job_id
         )
-        SELECT job_id FROM first_in_line WHERE job_id <> $2",
+        SELECT job_id AS \"job_id!\" FROM first_in_line WHERE job_id <> $2",
         key,
         job_id,
     )

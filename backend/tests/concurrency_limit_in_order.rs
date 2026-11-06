@@ -231,29 +231,45 @@ async fn a_job_just_woken_fills_its_slot(db: Pool<Postgres>) -> anyhow::Result<(
     Ok(())
 }
 
-/// A job ahead in line whose queue row is deleted without its concurrency key being ended (as a
-/// path that deletes a waiting job may do) does not hold the line: the next job is admitted, and
-/// the stale key is ended.
+/// Jobs ahead in line whose queue rows are deleted with their concurrency keys left behind (as a
+/// path that deletes a waiting job may do) do not hold the line, and their keys are deleted, not
+/// ended, so that they count as no run in a time window. More of them than the head check reads
+/// at once never let a later job past a real one waiting behind them.
 #[sqlx::test(fixtures("base"))]
 #[serial_test::serial]
-async fn a_job_gone_from_the_queue_does_not_hold_the_line(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn jobs_gone_from_the_queue_do_not_hold_the_line(db: Pool<Postgres>) -> anyhow::Result<()> {
     CONCURRENCY_LIMIT_IN_ORDER.store(true, Ordering::Relaxed);
-    let gone = queue_job(&db, 20).await?;
-    defer(&db, gone).await?;
-    sqlx::query("DELETE FROM v2_job_queue WHERE id = $1")
-        .bind(gone)
-        .execute(&db)
-        .await?;
-    let next = queue_job(&db, 10).await?;
+    let mut gone = vec![];
+    for i in 0..9 {
+        let id = queue_job(&db, 100 - i).await?;
+        defer(&db, id).await?;
+        sqlx::query("DELETE FROM v2_job_queue WHERE id = $1")
+            .bind(id)
+            .execute(&db)
+            .await?;
+        gone.push(id);
+    }
+    let earlier = queue_job(&db, 20).await?;
+    defer(&db, earlier).await?;
+    let later = queue_job(&db, 10).await?;
 
-    let next_admitted = admit(&db, next).await;
-    let gone_ended: bool =
-        sqlx::query_scalar("SELECT ended_at IS NOT NULL FROM concurrency_key WHERE job_id = $1")
-            .bind(gone)
+    let mut later_admitted = vec![];
+    for _ in 0..2 {
+        later_admitted.push(admit(&db, later).await?);
+    }
+    let earlier_admitted = admit(&db, earlier).await?;
+    let keys_left: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM concurrency_key WHERE job_id = ANY($1)")
+            .bind(&gone)
             .fetch_one(&db)
             .await?;
 
-    assert!(next_admitted?, "a job no longer queued held the line");
-    assert!(gone_ended, "the stale concurrency key was left open");
+    assert_eq!(
+        later_admitted,
+        vec![false, false],
+        "a later job was admitted past a job waiting behind stale keys"
+    );
+    assert!(earlier_admitted, "jobs no longer queued held the line");
+    assert_eq!(keys_left, 0, "a stale concurrency key was left behind");
     Ok(())
 }
