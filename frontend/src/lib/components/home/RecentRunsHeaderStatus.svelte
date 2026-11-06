@@ -91,13 +91,16 @@
 				{/if}
 			{/snippet}
 			{#snippet content()}
-				<div class="w-[380px] p-1.5 text-xs">
+				<div class="w-[380px] max-w-[calc(100vw-32px)] p-1.5 text-xs">
 					{#if data}
-						<div class="flex items-center gap-2 px-2.5 pt-2 pb-1.5 text-secondary">
+						<!-- Wraps between its parts, never inside one: large counts move Ask AI to its own line. -->
+						<div
+							class="flex flex-wrap items-center gap-x-2 gap-y-1 px-2.5 pt-2 pb-1.5 text-secondary whitespace-nowrap"
+						>
 							<b class="font-semibold text-emphasis text-[12.5px]">
 								{windowLabel(data.window_hours)}
 							</b>
-							<span>
+							<span class="min-w-0 truncate">
 								{totalLabel(data)} ·
 								<span class={data.failed_runs > 0 ? 'text-red-600 dark:text-red-400' : ''}>
 									{data.failed_runs} failed
@@ -105,7 +108,7 @@
 							</span>
 							{#if canAskAI() && failing.length > 0}
 								<button
-									class="ml-auto h-[26px] px-2.5 rounded text-xs font-medium text-ai bg-ai/10 hover:bg-ai/15"
+									class="ml-auto h-[26px] max-w-full truncate px-2.5 rounded text-xs font-medium text-ai bg-ai/10 hover:bg-ai/15"
 									onclick={() =>
 										askAI(
 											{ kind: 'failing', items: failing },
@@ -155,7 +158,7 @@
 					{/if}
 
 					<div
-						class="flex items-center gap-1 px-1.5 pb-1 whitespace-nowrap {data
+						class="flex flex-wrap items-center gap-1 px-1.5 pb-1 whitespace-nowrap {data
 							? 'mt-1.5 pt-2 border-t border-border-light'
 							: 'pt-1'}"
 					>

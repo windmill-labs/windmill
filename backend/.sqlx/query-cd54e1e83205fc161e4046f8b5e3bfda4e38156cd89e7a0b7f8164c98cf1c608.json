@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO websocket_trigger (\n            path, url, script_path, is_flow, workspace_id, edited_by, edited_at,\n            extra_perms, server_id, last_server_ping, error, filters, initial_messages,\n            url_runnable_args, can_return_message, error_handler_path, error_handler_args,\n            retry, can_return_error_result, mode, permissioned_as, filter_logic, labels,\n            heartbeat, run_on_filter_error\n        )\n        SELECT\n            path, url, script_path, is_flow, $1, edited_by, edited_at,\n            extra_perms, NULL, NULL, NULL, filters, initial_messages,\n            url_runnable_args, can_return_message, error_handler_path, error_handler_args,\n            retry, can_return_error_result, 'disabled'::TRIGGER_MODE, permissioned_as, filter_logic, labels,\n            heartbeat, run_on_filter_error\n        FROM websocket_trigger WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cd54e1e83205fc161e4046f8b5e3bfda4e38156cd89e7a0b7f8164c98cf1c608"
+}

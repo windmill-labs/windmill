@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE concurrency_counter SET job_uuids = job_uuids - $2\n                WHERE concurrency_id = $1 AND job_uuids ? $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "115c9833ef5fe5c398b7851b3e3626121fe1b988702ae25f62a9dfd167be614c"
+}

@@ -13,7 +13,6 @@
 	import { getContext, tick, untrack } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
 	import { workspaceStore, type DBSchemas } from '$lib/stores'
-	import { Drawer } from '$lib/components/common'
 
 	import { sendUserToast } from '$lib/toast'
 	import type { AppInput, StaticInput } from '$lib/components/apps/inputType'
@@ -126,7 +125,6 @@
 	let updateCell: UpdateCell | undefined = $state()
 
 	let renderCount = $state(0)
-	let insertDrawer: Drawer | undefined = undefined
 	let componentContainerHeight: number | undefined = $state(undefined)
 	let buttonContainerHeight: number | undefined = $state(undefined)
 
@@ -528,21 +526,15 @@
 	}
 
 	async function insert(args: object) {
-		try {
-			const selected = resolvedConfig.type.selected
-			await insertRowRunnable?.insertRow(
-				dbInput,
-				$workspaceStore,
-				resolvedConfig.type.configuration[selected].table,
-				resolvedConfig.columnDefs,
-				args
-			)
-
-			insertDrawer?.closeDrawer()
-			renderCount++
-		} catch (e) {
-			sendUserToast(e.message, true)
-		}
+		const selected = resolvedConfig.type.selected
+		await insertRowRunnable?.insertRow(
+			dbInput,
+			$workspaceStore,
+			resolvedConfig.type.configuration[selected].table,
+			resolvedConfig.columnDefs,
+			args
+		)
+		renderCount++
 	}
 
 	let runnableComponent: RunnableComponent | undefined = $state()

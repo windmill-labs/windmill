@@ -71,6 +71,8 @@ export type GraphModuleState = {
 	agent_actions_success?: FlowStatusModule['agent_actions_success']
 	script_hash?: string
 	workflow_as_code_status?: WorkflowStatus
+	/** Kind of the step's own job: `identity` when the worker stood in for the step. */
+	job_kind?: Job['job_kind']
 }
 
 export type NestedNodes = GraphItem[]

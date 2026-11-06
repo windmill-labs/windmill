@@ -15,16 +15,18 @@
 		CodeXml,
 		ExternalLink,
 		TriangleAlert,
-		Layers
+		Layers,
+		Folder
 	} from 'lucide-svelte'
 	import { Button } from './common'
+	import TextInput from './text_input/TextInput.svelte'
 	import Select from './select/Select.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import Badge from './common/badge/Badge.svelte'
 	import { SvelteMap } from 'svelte/reactivity'
 	import { untrack } from 'svelte'
 	import BarsStaggered from './icons/BarsStaggered.svelte'
-	import { parseTag } from './dedicated_worker'
+	import { isDedicatedPattern, parseTag } from './dedicated_worker'
 	import Tooltip from './Tooltip.svelte'
 
 	// A "Runnable" is a script or flow with dedicated_worker=true
@@ -73,7 +75,7 @@
 	interface SelectedTagInfo {
 		tag: string
 		workspace: string
-		type: 'script' | 'flow'
+		type: 'script' | 'flow' | 'pattern'
 		path: string
 		language?: string
 		runners?: FlowRunner[]
@@ -218,7 +220,7 @@
 					const parsed = parseTag(tag)
 					if (!parsed) return
 
-					if (disabled) {
+					if (disabled || parsed.type === 'pattern') {
 						// Read-only: just show path info, skip API calls
 						newInfo.set(tag, {
 							tag,
@@ -525,6 +527,20 @@
 		onchange?.(selectedTags)
 	}
 
+	let patternInput = $state('')
+	let patternTag = $derived(
+		selectedWorkspace && isDedicatedPattern(patternInput.trim())
+			? `${selectedWorkspace}:${patternInput.trim()}`
+			: undefined
+	)
+
+	function addPattern() {
+		if (!patternTag || selectedTags.includes(patternTag)) return
+		selectedTags = [...selectedTags, patternTag]
+		patternInput = ''
+		onchange?.(selectedTags)
+	}
+
 	function removeTag(tag: string) {
 		selectedTags = selectedTags.filter((t) => t !== tag)
 		// Also update runnable state if visible
@@ -651,12 +667,21 @@
 				{#if info}
 					{#if info.type === 'flow'}
 						<BarsStaggered size={14} class="flex-shrink-0 text-secondary" />
+					{:else if info.type === 'pattern'}
+						<Folder size={14} class="flex-shrink-0 text-secondary" />
 					{:else}
 						<CodeXml size={14} class="flex-shrink-0 text-secondary" />
 					{/if}
 					<span class="text-xs truncate min-w-0">{info.path}</span>
 					<span class="text-xs text-tertiary flex-shrink-0">({info.workspace})</span>
 					<span class="flex-1"></span>
+					{#if info.type === 'pattern'}
+						<Tooltip small>
+							Serves every script under this folder that has the dedicated worker setting enabled.
+							A script enabling it later is picked up once deployed.
+						</Tooltip>
+						<Badge color="gray" small>All dedicated scripts</Badge>
+					{/if}
 					{#if !tagRunnerGroup.has(tag)}
 						{#if info.workspaceDeps}
 							{#each info.workspaceDeps as dep}
@@ -767,6 +792,25 @@
 							disabled={disabled || workspacesLoading}
 						/>
 					</div>
+
+					{#if selectedWorkspace}
+						<div class="flex flex-col gap-1">
+							<span class="text-xs text-secondary">Folder pattern</span>
+							<div class="flex gap-2 items-center">
+								<TextInput bind:value={patternInput} inputProps={{ placeholder: 'f/folder/*', disabled }} />
+								<Button
+									unifiedSize="md"
+									variant="default"
+									disabled={disabled || !patternTag}
+									onclick={addPattern}>Add</Button
+								>
+							</div>
+							<span class="text-2xs text-tertiary"
+								>Every script under the folder that enables the dedicated worker setting, including
+								ones deployed later.</span
+							>
+						</div>
+					{/if}
 
 					<!-- Scripts/flows list -->
 					{#if selectedWorkspace}

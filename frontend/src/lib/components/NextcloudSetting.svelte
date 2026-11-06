@@ -5,6 +5,7 @@
 	import Password from './Password.svelte'
 	import Toggle from './Toggle.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
+	import PkceToggle from './PkceToggle.svelte'
 
 	interface Props {
 		value: any
@@ -53,7 +54,7 @@
 			checked={enabled}
 			on:change={(e) => {
 				if (e.detail) {
-					value = { id: '', secret: '', domain: '' }
+					value = { id: '', secret: '', pkce: true, domain: '' }
 				} else {
 					value = undefined
 				}
@@ -108,6 +109,7 @@
 					5. Copy the Client ID and Client Secret to the fields above<br />
 				</div>
 			</CollapseLink>
+			<PkceToggle bind:pkce={value['pkce']} />
 		</SettingCard>
 	{/if}
 </div>

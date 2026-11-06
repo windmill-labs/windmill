@@ -27,10 +27,12 @@
 		groups: NavigationGroup[]
 		selectedId: string
 		onNavigate: (id: string) => void
+		/** Renders each item as a link to this URL; the link navigates, so `onNavigate` is not called. */
+		itemHref?: (id: string) => string
 		class?: string
 	}
 
-	let { groups, selectedId, onNavigate, class: className = '' }: Props = $props()
+	let { groups, selectedId, onNavigate, itemHref, class: className = '' }: Props = $props()
 </script>
 
 <!-- Up/Down walks the items, wrapping at the ends. On the wrapper rather than on each
@@ -57,7 +59,8 @@
 							aiDescription={item.aiDescription}
 							startIcon={item.icon ? { icon: item.icon } : undefined}
 							btnClasses={'!justify-start text-left !w-full'}
-							onClick={() => onNavigate(item.id)}
+							href={itemHref?.(item.id)}
+							onClick={itemHref ? undefined : () => onNavigate(item.id)}
 						>
 							<span class="truncate">{item.label}</span>
 							<div class="ml-auto flex items-center gap-1">

@@ -716,19 +716,16 @@
 		menuItems.push({
 			label: 'Audit logs',
 			Icon: Eye,
-			onclick: () => {
-				onNavigate(`/audit_logs?resource=${script?.path}`)
-			}
+			href: operatingHref(`/audit_logs?resource=${script.path}`),
+			onclick: interceptNav(onNavigate, `/audit_logs?resource=${script.path}`)
 		})
 
 		if (!$disableHubStore) {
 			menuItems.push({
 				label: 'Publish to Hub',
 				Icon: Globe2,
-				onclick: () => {
-					if (!script) return
-					window.open(scriptToHubUrl(script, $hubBaseUrlStore).toString(), '_blank', 'noopener')
-				}
+				href: scriptToHubUrl(script, $hubBaseUrlStore).toString(),
+				hrefTarget: '_blank'
 			})
 		}
 

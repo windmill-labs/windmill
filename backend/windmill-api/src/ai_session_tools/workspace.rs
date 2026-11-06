@@ -96,6 +96,7 @@ pub(super) const FLOW_VALUE_SETTINGS_KEYS: &[&str] = &[
     "concurrent_limit",
     "concurrency_key",
     "concurrency_time_window_s",
+    "on_concurrency_limit",
     "debounce_delay_s",
     "debounce_key",
     "debounce_args_to_accumulate",

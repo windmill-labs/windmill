@@ -56,8 +56,8 @@ use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
 };
 use windmill_common::workspaces::{
-    check_operator_can_build, check_user_against_rule, BuilderKind, ProtectionRuleKind,
-    RuleCheckResult,
+    check_operator_can_build, check_role_can_run, check_user_against_rule, BuilderKind,
+    ProtectionRuleKind, RuleCheckResult,
 };
 use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
@@ -5082,17 +5082,31 @@ pub async fn resume_suspended_flow_as_owner(
         job_id,
         &flow,
         value,
-        Some(authed.username),
+        Some(authed.username.clone()),
         true,
         &mut tx,
     )
     .await?;
 
+    let (flow_id, flow_path) = (flow.id, flow.script_path.clone());
     if is_wac {
         decrement_suspend(flow.id, &mut tx).await?;
     } else {
         resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
     }
+
+    audit_suspend_resume(
+        &mut tx,
+        &AuditAuthor::from(&authed),
+        &w_id,
+        flow_path.as_deref(),
+        flow_id,
+        job_id,
+        true,
+        &authed.username,
+        None,
+    )
+    .await?;
 
     tx.commit().await?;
     Ok(StatusCode::CREATED)
@@ -5223,6 +5237,7 @@ async fn resume_suspended(
 
     let approver_value = opt_authed.as_ref().map(|a| a.username.clone());
 
+    let deny_reason = (!approved).then(|| deny_reason(&value)).flatten();
     insert_resume_job(
         resume_id,
         resume_job_id,
@@ -5234,6 +5249,7 @@ async fn resume_suspended(
     )
     .await?;
 
+    let (flow_id, flow_path) = (flow.id, flow.script_path.clone());
     if !approved {
         sqlx::query("UPDATE v2_job_queue SET suspend = 0 WHERE id = $1")
             .bind(&flow.id)
@@ -5257,25 +5273,16 @@ async fn resume_suspended(
         }
     };
 
-    audit_log(
-        &mut *tx,
+    audit_suspend_resume(
+        &mut tx,
         &audit_author,
-        "jobs.suspend_resume",
-        ActionKind::Update,
         &w_id,
-        Some(
-            &serde_json::json!({
-                "approved": approved,
-                "job_id": job_id,
-                "details": if approved {
-                    format!("Approved by {}", &approver)
-                } else {
-                    format!("Cancelled by {}", &approver)
-                }
-            })
-            .to_string(),
-        ),
-        None,
+        flow_path.as_deref(),
+        flow_id,
+        resume_job_id,
+        approved,
+        &approver,
+        deny_reason.as_deref(),
     )
     .await?;
 
@@ -5777,6 +5784,7 @@ async fn resume_suspended_job_internal(
         reject_mismatched_wac_approval(&mut tx, flow_info.id, resume_id).await?;
     }
 
+    let deny_reason = (!approved).then(|| deny_reason(&value)).flatten();
     insert_resume_job(
         resume_id,
         job_id,
@@ -5788,6 +5796,7 @@ async fn resume_suspended_job_internal(
     )
     .await?;
 
+    let (flow_id, flow_path) = (flow_info.id, flow_info.script_path.clone());
     if !approved {
         sqlx::query!(
             "UPDATE v2_job_queue SET suspend = 0 WHERE id = $1",
@@ -5820,29 +5829,64 @@ async fn resume_suspended_job_internal(
                 .map(|s| s[0..TOKEN_PREFIX_LEN].to_string()),
         },
     };
-    audit_log(
-        &mut *tx,
+    audit_suspend_resume(
+        &mut tx,
         &audit_author,
-        "jobs.suspend_resume",
-        ActionKind::Update,
         &w_id,
-        Some(
-            &serde_json::json!({
-                "approved": approved,
-                "job_id": job_id,
-                "details": if approved {
-                    format!("Approved by {}", &approver)
-                } else {
-                    format!("Cancelled by {}", &approver)
-                }
-            })
-            .to_string(),
-        ),
-        None,
+        flow_path.as_deref(),
+        flow_id,
+        job_id,
+        approved,
+        &approver,
+        deny_reason.as_deref(),
     )
     .await?;
     tx.commit().await?;
     Ok(StatusCode::CREATED)
+}
+
+/// `job_id` is the flow the suspended step belongs to, whichever id the resume request named; the
+/// step itself is kept as `step_job_id`.
+async fn audit_suspend_resume(
+    tx: &mut Transaction<'_, Postgres>,
+    author: &AuditAuthor,
+    w_id: &str,
+    flow_path: Option<&str>,
+    flow_id: Uuid,
+    step_job_id: Uuid,
+    approved: bool,
+    approver: &str,
+    deny_reason: Option<&str>,
+) -> error::Result<()> {
+    let flow_id_s = flow_id.to_string();
+    let step_job_id_s = step_job_id.to_string();
+    let details = if approved {
+        format!("Approved by {approver}")
+    } else {
+        format!("Cancelled by {approver}")
+    };
+    let mut params = HashMap::from([
+        ("approved", if approved { "true" } else { "false" }),
+        ("job_id", flow_id_s.as_str()),
+        ("details", details.as_str()),
+    ]);
+    if step_job_id != flow_id {
+        params.insert("step_job_id", step_job_id_s.as_str());
+    }
+    if let Some(reason) = deny_reason {
+        params.insert("reason", reason);
+    }
+    audit_log(
+        &mut **tx,
+        author,
+        "jobs.suspend_resume",
+        ActionKind::Update,
+        w_id,
+        flow_path,
+        Some(params),
+    )
+    .await?;
+    Ok(())
 }
 
 async fn verify_suspended_secret(
@@ -5903,6 +5947,12 @@ async fn decrement_suspend(flow_id: Uuid, tx: &mut Transaction<'_, Postgres>) ->
     Ok(())
 }
 
+/// The reason an approver gave for a denial, read from the deny payload's `reason`.
+fn deny_reason(value: &serde_json::Value) -> Option<String> {
+    let reason = value.get("reason")?.as_str()?.trim();
+    (!reason.is_empty()).then(|| reason.to_string())
+}
+
 async fn insert_resume_job<'c>(
     resume_id: u32,
     job_id: Uuid,
@@ -5915,11 +5965,15 @@ async fn insert_resume_job<'c>(
     // The approver, possibly anonymous, writes this payload, and later steps receive it as
     // `resume`, interpolated with the flow's own token.
     if windmill_common::variables::untrusted_arg_interpolates(&value.to_string()) {
-        return Err(Error::BadRequest(
-            "The resume payload cannot hold $var:, $jsonvar:, $res: or $encrypted: references, \
+        let what = if approved {
+            "The resume payload"
+        } else {
+            "The denial reason"
+        };
+        return Err(Error::BadRequest(format!(
+            "{what} cannot hold $var:, $jsonvar:, $res: or $encrypted: references, \
              or a $WM_* variable name"
-                .to_string(),
-        ));
+        )));
     }
     sqlx::query!(
         r#"
@@ -9159,21 +9213,22 @@ async fn run_preview_script(
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
-    if !role_can_code(&db, &w_id, &authed).await? {
-        // A deferred run would outlive the running job the exemption keys off.
-        if run_query.get_scheduled_for(&db).await?.is_some()
-            || !operator_may_run_datatable_query(
-                &db,
-                &w_id,
-                authed.job_id,
-                preview.language.as_ref(),
-                preview.content.as_deref().unwrap_or_default(),
-                preview.args.as_ref(),
-            )
-            .await?
-        {
+    // A deferred run would outlive the running job the exemption keys off.
+    let datatable_query = run_query.get_scheduled_for(&db).await?.is_none()
+        && operator_may_run_datatable_query(
+            &db,
+            &w_id,
+            authed.job_id,
+            preview.language.as_ref(),
+            preview.content.as_deref().unwrap_or_default(),
+            preview.args.as_ref(),
+        )
+        .await?;
+    if !datatable_query {
+        if !role_can_code(&db, &w_id, &authed).await? {
             return Err(operator_preview_refusal(authed.job_id));
         }
+        check_role_can_run(&db, &w_id, &authed).await?;
     }
     // Preview runs arbitrary, request-supplied code. require_path_read_access_for_preview
     // only checks folder/namespace *read* access (and is a no-op when path is null), so a
@@ -9213,7 +9268,7 @@ async fn run_preview_script(
         tx,
         &w_id,
         match preview.kind {
-            Some(PreviewKind::Identity) => JobPayload::Identity,
+            Some(PreviewKind::Identity) => JobPayload::Identity { mocked: false, skipped: false },
             Some(PreviewKind::Noop) => JobPayload::Noop,
             _ => JobPayload::Code(RawCode {
                 hash: preview
@@ -9290,18 +9345,20 @@ async fn run_inline_preview_script(
     // Same arbitrary-code class as run_preview_script, and every worker and standalone
     // server exposes this route, so an operator is refused on the same terms. A
     // narrowly-scoped token must not escape its scope through inline preview either.
-    if !role_can_code(&db, &w_id, &authed).await?
-        && !operator_may_run_datatable_query(
-            &db,
-            &w_id,
-            job_id,
-            Some(&preview.language),
-            &preview.content,
-            preview.args.as_ref(),
-        )
-        .await?
+    if !operator_may_run_datatable_query(
+        &db,
+        &w_id,
+        job_id,
+        Some(&preview.language),
+        &preview.content,
+        preview.args.as_ref(),
+    )
+    .await?
     {
-        return Err(operator_preview_refusal(job_id));
+        if !role_can_code(&db, &w_id, &authed).await? {
+            return Err(operator_preview_refusal(job_id));
+        }
+        check_role_can_run(&db, &w_id, &authed).await?;
     }
     check_scopes(&authed, || format!("jobs:run"))?;
     windmill_queue::tags::check_inline_run_allowed(&w_id, &db).await?;
@@ -10080,6 +10137,7 @@ async fn add_batch_jobs(
                     concurrent_limit,
                     concurrency_time_window_s,
                     concurrency_key: custom_concurrency_key,
+                    ..
                 },
             ..
         },
@@ -10252,9 +10310,9 @@ async fn add_batch_jobs(
             INSERT INTO v2_job
                 (id, workspace_id, raw_code, raw_lock, raw_flow, tag, runnable_id, runnable_path, kind,
                 script_lang, created_by, permissioned_as, permissioned_as_email, concurrent_limit,
-                concurrency_time_window_s, timeout, args)
+                concurrency_time_window_s, timeout, args, priority)
                 (SELECT uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                ('{ "uuid": "' || uuid || '" }')::jsonb FROM uuid_table)
+                ('{ "uuid": "' || uuid || '" }')::jsonb, 0 FROM uuid_table)
             RETURNING id AS "id!""#,
             w_id,
             raw_code,
@@ -10281,8 +10339,8 @@ async fn add_batch_jobs(
                 select unnest($4::uuid[]) as uuid
             )
             INSERT INTO v2_job_queue
-                (id, workspace_id, scheduled_for, tag)
-                (SELECT uuid, $1, $2, $3 FROM uuid_table)
+                (id, workspace_id, scheduled_for, tag, priority)
+                (SELECT uuid, $1, $2, $3, 0 FROM uuid_table)
             RETURNING id"#,
         w_id,
         Utc::now(),

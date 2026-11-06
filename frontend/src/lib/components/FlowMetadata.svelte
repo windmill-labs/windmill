@@ -4,6 +4,7 @@
 	import { flowPathToHref } from '$lib/scripts'
 	import { agentRunHref } from '$lib/components/flows/conversations/agentEditorChat'
 	import { displayDate, truncateRev } from '$lib/utils'
+	import { isNewTabClick } from '$lib/navigation'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import TimeAgo from './TimeAgo.svelte'
 	import { workspaceStore } from '$lib/stores'
@@ -79,12 +80,14 @@
 				<Calendar size={SMALL_ICON_SIZE} class="min-w-3.5" />
 				<span class="whitespace-nowrap">
 					Schedule:
-					<!-- svelte-ignore a11y_invalid_attribute -->
 					<a
-						href="#"
+						href={`/schedules?workspace=${$workspaceStore}#${job.schedule_path}`}
 						class="break-words text-blue-600 font-normal"
-						onclick={() =>
-							scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
+						onclick={(e) => {
+							if (isNewTabClick(e)) return
+							e.preventDefault()
+							scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')
+						}}
 					>
 						{truncateRev(job.schedule_path, 40)}
 					</a>

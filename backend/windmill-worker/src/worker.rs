@@ -3774,7 +3774,7 @@ pub async fn run_worker(
                             .map_err(error::Error::from)
                             .and_then(|r| r)
                             {
-                                pulled_job_res.error_while_preprocessing = Some(e.to_string());
+                                pulled_job_res.error_while_preprocessing = Some(e.to_string().into());
                             }
                         }
 
@@ -4741,6 +4741,8 @@ pub enum StepFailureKind {
     /// leaves state worth pinning to: in the first case that worker is gone, in the second the
     /// flow's own bookkeeping is what just broke.
     Unrecoverable,
+    /// The flow was cancelled by its wall-clock `timeout`: nothing may run but its failure module.
+    FlowTimeout,
 }
 
 impl StepFailureKind {

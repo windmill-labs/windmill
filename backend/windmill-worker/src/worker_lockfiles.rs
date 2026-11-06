@@ -1710,7 +1710,7 @@ async fn lock_modules(
                     }
                     .into()
                 }
-                FlowModuleValue::BranchAll { branches, parallel } => {
+                FlowModuleValue::BranchAll { branches, parallel, parallelism } => {
                     let mut nbranches = vec![];
                     for mut b in branches {
                         let nmodules;
@@ -1743,9 +1743,18 @@ async fn lock_modules(
                         b.modules = nmodules;
                         nbranches.push(b)
                     }
-                    e.value = FlowModuleValue::BranchAll { branches: nbranches, parallel }.into()
+                    e.value =
+                        FlowModuleValue::BranchAll { branches: nbranches, parallel, parallelism }
+                            .into()
                 }
-                FlowModuleValue::WhileloopFlow { modules, modules_node, skip_failures, squash } => {
+                FlowModuleValue::WhileloopFlow {
+                    modules,
+                    modules_node,
+                    skip_failures,
+                    squash,
+                    max_iterations,
+                    max_duration_secs,
+                } => {
                     let nmodules;
                     (nmodules, nmodified_ids, nerrors) = Box::pin(lock_modules(
                         modules,
@@ -1774,6 +1783,8 @@ async fn lock_modules(
                         modules_node,
                         skip_failures,
                         squash,
+                        max_iterations,
+                        max_duration_secs,
                     }
                     .into()
                 }

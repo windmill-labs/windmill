@@ -155,7 +155,7 @@ vi.mock('../lib', () => ({
 		getAnthropicClient: mocks.getAnthropicClient
 	},
 	getStreamedCompletionText: mocks.getStreamedCompletionText,
-	providerSupportsWebSearch: (provider: string) => provider === 'openai' || provider === 'anthropic'
+	modelSupportsWebSearch: (provider: string) => provider === 'openai' || provider === 'anthropic'
 }))
 
 vi.mock('./api/apiTools', () => ({
@@ -217,6 +217,7 @@ function createFlowHelpers({
 		setCode: vi.fn(),
 		setFlowJson: vi.fn(),
 		getFlowInputsSchema: vi.fn(),
+		canEditFlowInputs: () => true,
 		updateExprsToSet: vi.fn(),
 		acceptAllModuleActions,
 		rejectAllModuleActions: vi.fn(),

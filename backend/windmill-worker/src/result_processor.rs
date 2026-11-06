@@ -739,11 +739,13 @@ pub async fn handle_receive_completed_job(
     let workspace = jc.job.workspace_id.clone();
     // This client drives post-completion orchestration (the next step's input transforms fetch
     // prior results) and outlives the finished step, so the step's own token can already be near
-    // expiry. Refresh it — but only from the server-written job_perms row, never from the
-    // completion payload's owner fields, which are untrusted on the agent-worker path.
+    // expiry, or absent for a step failed before it ran (e.g. on a full concurrency key). Refresh
+    // it — but only from the server-written job_perms row, never from the completion payload's
+    // owner fields, which are untrusted on the agent-worker path.
     let token = if jc.job.is_flow_step()
-        && windmill_common::auth::job_token_remaining_lifetime_secs(&jc.token)
-            .is_some_and(|r| r < windmill_common::auth::JOB_TOKEN_REFRESH_MARGIN_SECS)
+        && (jc.token.is_empty()
+            || windmill_common::auth::job_token_remaining_lifetime_secs(&jc.token)
+                .is_some_and(|r| r < windmill_common::auth::JOB_TOKEN_REFRESH_MARGIN_SECS))
     {
         let label = windmill_common::auth::ephemeral_script_token_label(
             &jc.job.permissioned_as,
@@ -775,7 +777,7 @@ pub async fn handle_receive_completed_job(
             }),
             // No perms row (e.g. a zombie replay after the queue row was reaped): keep the step
             // token rather than minting an identity from untrusted payload fields. The token is
-            // near expiry, so trace it — the downstream fetch may hit the original failure.
+            // near expiry or absent, so trace it — the downstream fetch may hit the original failure.
             Ok(None) => {
                 tracing::warn!(
                     "no job_perms row to refresh flow-orchestration token for job {}, reusing step token",
@@ -1210,8 +1212,10 @@ async fn maybe_record_git_sync_pushed_head(
         branch: Option<String>,
         #[serde(default)]
         rebased: bool,
+        /// The commit the pushed one sits on; absent from older hub script versions.
+        base_sha: Option<String>,
     }
-    let Ok(PushResult { pushed: true, sha: Some(sha), branch: Some(branch), rebased }) =
+    let Ok(PushResult { pushed: true, sha: Some(sha), branch: Some(branch), rebased, base_sha }) =
         serde_json::from_str::<PushResult>(result)
     else {
         return;
@@ -1253,6 +1257,23 @@ async fn maybe_record_git_sync_pushed_head(
         tracing::warn!(
             "git sync push: failed to record pushed head {sha} on {branch} for {workspace_id}/{repo_path}: {e:#}"
         );
+    }
+    if let Some(base_sha) = base_sha {
+        if let Err(e) = windmill_git_sync::advance_synced_sha_past_own_push(
+            db,
+            workspace_id,
+            &repo_path,
+            &branch,
+            &base_sha,
+            &sha,
+            *job_id,
+        )
+        .await
+        {
+            tracing::warn!(
+                "git sync push: failed to advance the synced sha past {sha} on {branch} for {workspace_id}/{repo_path}: {e:#}"
+            );
+        }
     }
 }
 
@@ -2093,18 +2114,32 @@ pub async fn handle_job_error(
         .await
     };
 
+    // A subflow woken by a timeout's cancel is updated as a flow, as a root is, so its failure
+    // module can run before its parent hears of it. Its `canceled_by` is read from the queue:
+    // the error of a cancelled job pulled from it does not carry one.
+    let own_flow_update = job.is_flow()
+        && job.parent_job.is_some()
+        && sqlx::query_scalar!("SELECT canceled_by FROM v2_job_queue WHERE id = $1", job.id)
+            .fetch_optional(db)
+            .await
+            .ok()
+            .flatten()
+            .flatten()
+            .as_deref()
+            == Some(windmill_common::jobs::FLOW_TIMEOUT_CANCELER);
     let update_job_future = if job.is_flow_step() || job.is_flow() {
-        let (flow, job_status_to_update) = if let Some(parent_job_id) = job.parent_job {
-            if let Err(e) = update_job_future().await {
-                tracing::error!(
-                    "error updating job future for job {} for handle_job_error: {e:#}",
-                    job.id
-                );
-            }
-            (parent_job_id, job.id)
-        } else {
-            (job.id, Uuid::nil())
-        };
+        let (flow, job_status_to_update) =
+            if let Some(parent_job_id) = job.parent_job.filter(|_| !own_flow_update) {
+                if let Err(e) = update_job_future().await {
+                    tracing::error!(
+                        "error updating job future for job {} for handle_job_error: {e:#}",
+                        job.id
+                    );
+                }
+                (parent_job_id, job.id)
+            } else {
+                (job.id, Uuid::nil())
+            };
 
         let wrapped_error = WrappedError { error: err_json.clone() };
         tracing::error!(parent_flow = %flow, subflow = %job_status_to_update, "handle job error, updating flow status: {err_json:?}");
