@@ -71,6 +71,7 @@ import {
 import { DbtPathCollisionError, handleFile } from "../script/script.ts";
 import {
   deepEqual,
+  sameScriptSchema,
   fetchRemoteVersion,
   getHeaders,
   isFileResource,
@@ -123,7 +124,11 @@ import {
 } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
-import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
+import {
+  listSyncCodebases,
+  sameCodebaseDigest,
+  SyncCodebase,
+} from "../../utils/codebase.ts";
 import {
   beginLockfileBatch,
   flushLockfileBatch,
@@ -565,6 +570,22 @@ export function findCodebase(
       return c;
     }
   }
+}
+
+/** Script metadata that differs only in fields the server derives from what is sent: the
+ * `.tar` a multi-output bundle adds to the codebase digest and, on push, a schema left for
+ * the server to infer. `els1` is the side the diff applies. */
+function scriptMetadataEquivalent(els1: any, els2: any, isPush: boolean): boolean {
+  if (!els1 || !els2 || typeof els1 != "object" || typeof els2 != "object") {
+    return false;
+  }
+  const { codebase: c1, schema: s1, ...rest1 } = els1;
+  const { codebase: c2, schema: s2, ...rest2 } = els2;
+  return (
+    sameCodebaseDigest(c1, c2) &&
+    (isPush ? sameScriptSchema(s1, s2) : deepEqual(s1, s2)) &&
+    deepEqual(rest1, rest2)
+  );
 }
 
 async function addCodebaseDigestIfRelevant(
@@ -2925,7 +2946,11 @@ export async function compareDynFSElement(
         if (isEls1Remote === false && isWorkspaceSettingsFile(k)) {
           stripUnappliedSettingsFields(parsedV, parsedM2);
         }
-        if (deepEqual(parsedV, parsedM2)) {
+        if (
+          deepEqual(parsedV, parsedM2) ||
+          (isScriptMetadata &&
+            scriptMetadataEquivalent(parsedV, parsedM2, isEls1Remote === false))
+        ) {
           continue;
         }
       } else if (k.endsWith(".yaml")) {
@@ -2942,7 +2967,11 @@ export async function compareDynFSElement(
         if (isEls1Remote === false && isWorkspaceSettingsFile(k)) {
           stripUnappliedSettingsFields(after, before);
         }
-        if (deepEqual(before, after)) {
+        if (
+          deepEqual(before, after) ||
+          (isScriptMetadata &&
+            scriptMetadataEquivalent(after, before, isEls1Remote === false))
+        ) {
           continue;
         }
         if (!ignoreCodebaseChanges) {
@@ -2956,7 +2985,7 @@ export async function compareDynFSElement(
             delete after.codebase;
             v = yamlStringify(after, yamlOptions);
           }
-          if (beforeCodebase != afterCodebase) {
+          if (!sameCodebaseDigest(beforeCodebase, afterCodebase)) {
             codebaseChanges[k] = afterCodebase ?? beforeCodebase ?? "";
           }
         }
@@ -3008,7 +3037,7 @@ export async function compareDynFSElement(
         continue;
       }
       const c = findCodebase(tsFile, codebases);
-      if ((await c?.getDigest()) != v) {
+      if (!sameCodebaseDigest(await c?.getDigest(), v)) {
         changes.push({
           name: "edited",
           path: tsFile,

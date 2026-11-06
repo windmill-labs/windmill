@@ -13,6 +13,16 @@ import { updateGlobalVersions } from "../commands/sync/global.ts";
 import { isRawAppPath } from "./resource_folders.ts";
 import { VERSION } from "../core/constants.ts";
 
+/** Whether deploying a script with schema `sent` would leave the `stored` one unchanged.
+ * The server infers the schema from the content when the one sent is absent or `{}`, so
+ * such a schema never matches the stored one literally; a content change is what changes it. */
+export function sameScriptSchema(sent: unknown, stored: unknown): boolean {
+  const leftToServer =
+    sent == null ||
+    (typeof sent === "object" && !Array.isArray(sent) && Object.keys(sent).length === 0);
+  return leftToServer || deepEqual(sent, stored);
+}
+
 export function deepEqual<T>(a: T, b: T): boolean {
   if (a === b) return true;
 

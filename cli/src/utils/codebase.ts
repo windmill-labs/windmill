@@ -43,6 +43,20 @@ export function uncoveredBundleInputs(
 export type SyncCodebase = Codebase & {
   getDigest: (forceTar?: boolean) => Promise<string>;
 };
+
+/** Whether two codebase digests name the same bundle. A push adds `.tar` when esbuild emits
+ * more than one output file, which only bundling reveals, so a diff computing `getDigest()`
+ * must accept the deployed digest with that suffix. The layout follows from the sources and
+ * the codebase config, both already in the digest. */
+export function sameCodebaseDigest(
+  a: string | null | undefined,
+  b: string | null | undefined
+): boolean {
+  const base = (d: string | null | undefined) =>
+    d ? (d.endsWith(".tar") ? d.slice(0, -4) : d) : undefined;
+  return base(a) === base(b);
+}
+
 export function listSyncCodebases(options: SyncOptions): SyncCodebase[] {
   const res: SyncCodebase[] = [];
   const nb_codebase = options?.codebases?.length ?? 0;

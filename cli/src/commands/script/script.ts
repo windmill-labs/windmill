@@ -19,7 +19,7 @@ import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
 import * as path from "node:path";
 import { stringify as yamlStringify } from "yaml";
-import { deepEqual, getHeaders, isFileResource, isFilesetResource, readTextFile, readTextFileSync, sleep } from "../../utils/utils.ts";
+import { deepEqual, getHeaders, isFileResource, isFilesetResource, readTextFile, readTextFileSync, sameScriptSchema, sleep } from "../../utils/utils.ts";
 import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import * as specificItems from "../../core/specific_items.ts";
@@ -676,7 +676,7 @@ export async function handleFile(
               ? remote?.lock?.join("\n")
               : remote?.lock ?? ""
             ).trim() == (typed?.lock ?? "").trim() &&
-            deepEqual(typed.schema, remote.schema) &&
+            sameScriptSchema(typed.schema, remote.schema) &&
             typed.tag == remote.tag &&
             (typed.ws_error_handler_muted ?? false) ==
               remote.ws_error_handler_muted &&
