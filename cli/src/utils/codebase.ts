@@ -309,7 +309,10 @@ export function exportsTarget(exports: unknown, key: string): string | undefined
     }
     if (v && typeof v == "object") {
       for (const [cond, x] of Object.entries(v)) {
-        if (TSCONFIG_EXPORTS_CONDITIONS.has(cond)) return pick(x);
+        if (!TSCONFIG_EXPORTS_CONDITIONS.has(cond)) continue;
+        // A matching condition with no target for us falls through to the next one.
+        const r = pick(x);
+        if (r != undefined) return r;
       }
     }
     return undefined;
@@ -480,7 +483,10 @@ async function importClosures(
       for (const [s, real] of entries) res.set(s, closure(imports, real));
       return res;
     } catch (e) {
-      const reason = (e instanceof Error ? e.message : String(e)).split("\n")[0];
+      const first = (e as { errors?: { text: string; location?: { file: string } }[] })?.errors?.[0];
+      const reason = first
+        ? `${first.location?.file ? first.location.file + ": " : ""}${first.text}`
+        : String(e).split("\n")[0];
       log.info(
         `Codebase digest: the batched build failed (${reason}), digesting ${entries.size} scripts one by one`
       );

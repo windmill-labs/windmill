@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   exportsTarget,
   listSyncCodebases,
@@ -159,27 +159,104 @@ test("per_script_digest covers build fields of package.json, not its dependencie
   }
 });
 
-test("per_script_digest follows a tsconfig extends resolved through a package", async () => {
-  const { root, digests } = await perScriptFixture();
-  const pkg = join(root, "node_modules/@acme/config");
-  try {
-    await mkdir(join(pkg, "configs"), { recursive: true });
-    await writeFile(join(pkg, "package.json"), `{ "name": "@acme/config", "tsconfig": "./configs/base.json" }`);
-    await writeFile(join(pkg, "configs/base.json"), "{}");
-    await writeFile(join(root, "f/app/tsconfig.json"), `{ "extends": "@acme/config" }`);
-    const before = await digests();
-    await writeFile(join(pkg, "configs/base.json"), `{ "compilerOptions": { "useDefineForClassFields": false } }`);
-    expect((await digests())[0]).not.toBe(before[0]);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
+// Pins the digest's tsconfig resolution to esbuild's: in each layout, editing the base
+// config esbuild applies must change both the bundle and the digest, and editing the
+// decoy must change neither.
+const ON = `{ "compilerOptions": { "useDefineForClassFields": true } }`;
+const OFF = `{ "compilerOptions": { "useDefineForClassFields": false } }`;
+const tsconfigLayouts: { name: string; files: Record<string, string>; applied: string; decoy?: string }[] = [
+  {
+    name: "conditional exports",
+    files: {
+      "node_modules/cfg/package.json": JSON.stringify({ exports: { ".": { import: "./esm.json", require: "./cjs.json" } } }),
+      "node_modules/cfg/esm.json": ON,
+      "node_modules/cfg/cjs.json": ON,
+      "f/tsconfig.json": `{ "extends": "cfg" }`,
+    },
+    applied: "node_modules/cfg/cjs.json",
+    decoy: "node_modules/cfg/esm.json",
+  },
+  {
+    name: "nested unmatched condition",
+    files: {
+      "node_modules/cfg/package.json": JSON.stringify({ exports: { ".": { node: { import: "./esm.json" }, require: "./req.json" } } }),
+      "node_modules/cfg/esm.json": ON,
+      "node_modules/cfg/req.json": ON,
+      "f/tsconfig.json": `{ "extends": "cfg" }`,
+    },
+    applied: "node_modules/cfg/req.json",
+    decoy: "node_modules/cfg/esm.json",
+  },
+  {
+    name: "overlapping wildcard exports",
+    files: {
+      "node_modules/cfg/package.json": JSON.stringify({ exports: { "./*": "./any/*.json", "./node/*": "./node/*.json" } }),
+      "node_modules/cfg/any/node/20.json": ON,
+      "node_modules/cfg/node/20.json": ON,
+      "f/tsconfig.json": `{ "extends": "cfg/node/20" }`,
+    },
+    applied: "node_modules/cfg/node/20.json",
+    decoy: "node_modules/cfg/any/node/20.json",
+  },
+  {
+    name: "package tsconfig field",
+    files: {
+      "node_modules/cfg/package.json": JSON.stringify({ tsconfig: "./configs/base.json" }),
+      "node_modules/cfg/configs/base.json": ON,
+      "node_modules/cfg/tsconfig.json": ON,
+      "f/tsconfig.json": `{ "extends": "cfg" }`,
+    },
+    applied: "node_modules/cfg/configs/base.json",
+    decoy: "node_modules/cfg/tsconfig.json",
+  },
+  {
+    name: "BOM-prefixed config, relative extends without .json",
+    files: { "base.json": ON, "f/tsconfig.json": `﻿{ "extends": "../base" }` },
+    applied: "base.json",
+  },
+];
+
+for (const layout of tsconfigLayouts) {
+  test(`per_script_digest applies the tsconfig esbuild applies: ${layout.name}`, async () => {
+    const esbuild = await import("esbuild");
+    const root = await realpath(await mkdtemp(join(tmpdir(), "wmill-tsconfig-")));
+    const cwd = process.cwd();
+    try {
+      for (const [p, c] of Object.entries(layout.files)) {
+        await mkdir(dirname(join(root, p)), { recursive: true });
+        await writeFile(join(root, p), c);
+      }
+      // useDefineForClassFields decides whether the field shadows the accessor.
+      await writeFile(
+        join(root, "f/a.ts"),
+        "class A { x = 1; constructor() { Object.defineProperty(this, 'x', { get: () => 0 }) } }\nexport const main = () => new A().x\n"
+      );
+      process.chdir(root);
+      const bundle = async () =>
+        (await esbuild.build({ entryPoints: ["f/a.ts"], bundle: true, write: false, platform: "node", logLevel: "silent", absWorkingDir: root })).outputFiles[0].text;
+      const digest = () =>
+        listSyncCodebases({ codebases: [{ relative_path: "f", per_script_digest: true }] } as any)[0].getDigest("f/a.ts");
+      const [b0, d0] = [await bundle(), await digest()];
+      if (layout.decoy) {
+        await writeFile(join(root, layout.decoy), OFF);
+        expect([await bundle(), await digest()]).toEqual([b0, d0]);
+      }
+      await writeFile(join(root, layout.applied), OFF);
+      expect(await bundle()).not.toBe(b0);
+      expect(await digest()).not.toBe(d0);
+    } finally {
+      process.chdir(cwd);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
 
 test("exportsTarget resolves subpaths, patterns and conditions", () => {
   expect(exportsTarget("./base.json", ".")).toBe("./base.json");
   // esbuild resolves `extends` with the require conditions, never `import` or `types`.
   expect(exportsTarget({ ".": { import: "./esm.json", require: "./cjs.json" } }, ".")).toBe("./cjs.json");
   expect(exportsTarget({ ".": { types: "./t.json", default: "./d.json" } }, ".")).toBe("./d.json");
+  expect(exportsTarget({ ".": { node: { import: "./esm.json" }, require: "./r.json" } }, ".")).toBe("./r.json");
   expect(exportsTarget({ "./*": "./configs/*.json" }, "./strict")).toBe("./configs/strict.json");
   // The pattern with the longest prefix wins, whatever the declaration order.
   expect(exportsTarget({ "./*": "./any/*.json", "./node/*": "./node/*.json" }, "./node/20")).toBe("./node/20.json");
