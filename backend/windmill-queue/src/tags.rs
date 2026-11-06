@@ -207,26 +207,24 @@ async fn is_dedicated_worker_tag_of(
     let configs = sqlx::query_scalar!("SELECT config FROM config WHERE name LIKE 'worker\\_\\_%'")
         .fetch_all(db)
         .await?;
-    let entries: Vec<WorkspacedPath> = configs
-        .into_iter()
-        .flatten()
-        .flat_map(|config| {
-            let single = config.get("dedicated_worker").cloned().into_iter();
-            let many = config
-                .get("dedicated_workers")
-                .and_then(|v| v.as_array().cloned())
-                .unwrap_or_default();
-            single.chain(many).collect::<Vec<_>>()
-        })
-        .filter_map(|entry| {
-            let (ws, path) = entry.as_str()?.split_once(':')?;
-            (ws == workspace_id)
-                .then(|| WorkspacedPath { workspace_id: ws.to_string(), path: path.to_string() })
-        })
-        .collect();
-    Ok(expand_dedicated_workers(db, &entries)
-        .await?
+    let of_workspace = |entry: &serde_json::Value| {
+        let (ws, path) = entry.as_str()?.split_once(':')?;
+        (ws == workspace_id)
+            .then(|| WorkspacedPath { workspace_id: ws.to_string(), path: path.to_string() })
+    };
+    let mut single = vec![];
+    let mut many = vec![];
+    for config in configs.into_iter().flatten() {
+        single.extend(config.get("dedicated_worker").and_then(of_workspace));
+        if let Some(entries) = config.get("dedicated_workers").and_then(|v| v.as_array()) {
+            many.extend(entries.iter().filter_map(of_workspace));
+        }
+    }
+    // Only the list takes patterns, as in `load_worker_config`.
+    many = expand_dedicated_workers(db, &many).await?;
+    Ok(single
         .iter()
+        .chain(many.iter())
         .any(|wp| dedicated_worker_tag(&wp.workspace_id, &wp.path) == tag))
 }
 
