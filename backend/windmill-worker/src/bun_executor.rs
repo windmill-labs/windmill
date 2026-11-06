@@ -4706,6 +4706,10 @@ async fn handle_dedicated_bunnative(
             )
         });
 
+        // Counted as up once warmed, as subprocesses are on their "start" line.
+        crate::worker::STARTED_DEDICATED_PROCESSES
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
         let init_log = format!("dedicated worker nativets: {worker_name}\n\n");
         let alive = true;
         let mut killpill_rx = killpill_rx;
