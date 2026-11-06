@@ -875,8 +875,9 @@
 				{/if}
 
 				<p class="text-xs text-secondary"
-					>Config changes restart workers one host at a time (up to 5 min each). Deploys reload
-					scripts in place when possible. A supervisor is expected to restart workers.</p
+					>Deploying a script reloads it in place. Workers restart instead when a deploy changes
+					which scripts are dedicated or how they share a runner, or when the group serves flows. A
+					supervisor is expected to restart workers.</p
 				>
 
 				{#if nconfig !== undefined}
