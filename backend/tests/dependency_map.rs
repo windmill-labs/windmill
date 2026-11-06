@@ -641,13 +641,6 @@ def main():
         .fetch_one(&db)
         .await?;
         assert_eq!(queued, 0, "a codebase script must not be relocked");
-        let rows: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM dependency_map WHERE workspace_id = 'test-workspace'
-             AND importer_path = 'f/app/hello'",
-        )
-        .fetch_one(&db)
-        .await?;
-        assert_eq!(rows, 0, "a codebase script's importer rows must be dropped");
         Ok(())
     }
 }
