@@ -865,19 +865,17 @@
 		{:else if selected == 'dedicated'}
 			<div class="flex flex-col gap-4">
 				{#if $superadmin || $devopsRole}
-					<div class="py-2">
-						<Alert
-							size="xs"
-							type="info"
-							title="The 'dedicated worker' runtime setting of the runnables must be enabled to be selected here"
-						/>
-					</div>
+					<Alert
+						size="xs"
+						type="info"
+						title="The 'dedicated worker' runtime setting of the runnables must be enabled to be selected here"
+					/>
 				{/if}
 
 				<p class="text-xs text-secondary"
-					>Deploying a script reloads it in place. Workers restart instead when a deploy changes
-					which scripts are dedicated or how they share a runner, or when the group serves flows. A
-					supervisor is expected to restart workers.</p
+					>Deploys reload scripts in place, shared runners included. Workers restart when a deploy
+					adds or removes a dedicated script or moves one between runners, or for groups serving
+					flows. A supervisor is expected to restart them.</p
 				>
 
 				{#if nconfig !== undefined}
