@@ -1665,6 +1665,8 @@ pub async fn do_duckdb(
             Ok(r) => r,
             Err(e) => {
                 if let Some((_, meta)) = &materialize {
+                    // Persisted and served by the assets API, so masked like the job error.
+                    let error = mask_secrets(e.to_string(), &hidden_passwords.lock().unwrap());
                     record_mat(
                         conn,
                         &job.workspace_id,
@@ -1674,7 +1676,7 @@ pub async fn do_duckdb(
                         None,
                         None,
                         None,
-                        Some(&e.to_string()),
+                        Some(&error),
                     )
                     .await;
                 }
@@ -1935,9 +1937,6 @@ fn cgroup_bytes_to_duckdb_memory_limit(bytes: i64) -> Option<String> {
     Some(format!("{}MiB", mib.max(64)))
 }
 
-// The runner reports an engine error as `ERROR <json-encoded-message>`. Decode the JSON string
-// back so multi-line errors render with real newlines, not escaped `\n` inside wrapping quotes;
-// fall back to the raw slice if it is somehow not a JSON string.
 /// Longest first: a short secret can occur inside a longer one (an IAM resource's placeholder
 /// password inside the token minted for it), and masking it first leaves the rest unmatched.
 /// An empty secret would put a mask between every character.
@@ -1952,6 +1951,9 @@ fn mask_secrets(mut s: String, secrets: &[String]) -> String {
     s
 }
 
+// The runner reports an engine error as `ERROR <json-encoded-message>`. Decode the JSON string
+// back so multi-line errors render with real newlines, not escaped `\n` inside wrapping quotes;
+// fall back to the raw slice if it is somehow not a JSON string.
 fn decode_ffi_error(result_str: &str) -> String {
     let raw = result_str.strip_prefix("ERROR ").unwrap_or(result_str);
     serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.to_string())
