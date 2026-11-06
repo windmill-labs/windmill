@@ -5,9 +5,16 @@ Symbols, not line numbers, are cited: they drift less.
 - **Credential precedence** (`windmill-api-auth/src/auth.rs` `extract_token`): `Authorization: Bearer`
   → `token` cookie → `?token=` query param. A URL with `?token=` is a credential on every route, but
   an existing cookie silently wins over it.
-- **`AUTH_CACHE`** caches a token's identity for 120 s. Deleting a token row does not purge it: the
-  DB trigger (`migrations/20260316000001_token_hash_pk_swap.up.sql`) notifies only for
-  `label = 'session'` rows, and `delete_token` never calls `invalidate_token_from_cache`.
+- **`AUTH_CACHE`** caches a token's identity for 120 s. Deleting a token row purges it only for
+  some rows: the delete trigger (`notify_token_invalidation`, last replaced in
+  `migrations/20261106141303_mcp_oauth_token_delete_revokes_grant.up.sql`) notifies every
+  instance for `session` and unexpired `mcp-oauth-*` rows, within the notify poll (≤10 s), and
+  `delete_token` also evicts at once on the instance serving it. Other labels deleted by other
+  paths stay cached until the TTL.
+- **Deleting an MCP OAuth access token revokes its refresh grant**, by whatever path: the same
+  trigger marks the `mcp_oauth_refresh_token` row issued with it (`access_token_hash`) revoked, so
+  only that client's connection ends. A token past its expiration is left alone, since the expiry
+  sweep deletes it and its client must still refresh.
 - **Sessions** are `token` rows with `label='session'` plus the HttpOnly `token` cookie, minted only
   by `create_session_token` (`windmill-api-users/src/users.rs`). `GET /api/users/refresh_token`
   mints one for any non-job token but returns plain text, no redirect.

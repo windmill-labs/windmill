@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH revoked AS (\n             DELETE FROM token WHERE email = $1 AND label LIKE 'mcp-oauth-%'\n         ), refresh AS (\n             DELETE FROM mcp_oauth_refresh_token WHERE user_email = $1\n         )\n         DELETE FROM mcp_oauth_server_code WHERE user_email = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "967b18c97ab9fa2e09bee821bb4b400c27a9936228473da0df503cdd47cf21ff"
+}

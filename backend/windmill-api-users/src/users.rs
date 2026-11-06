@@ -4022,6 +4022,9 @@ async fn delete_token(
     )
     .await?;
     tx.commit().await?;
+    if !tokens_deleted.is_empty() {
+        windmill_api_auth::invalidate_token_from_cache(&token_prefix);
+    }
 
     Ok(format!(
         "deleted {} tokens {:?} with prefix {}",
