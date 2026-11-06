@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE concurrency_key\n            SET place = (SELECT scheduled_for FROM v2_job_queue WHERE id = $1)\n            WHERE job_id = $1 AND place IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b0735ad7759444807913427df0d4254fd7a2bb60f51e49634118db2f0d271138"
+}

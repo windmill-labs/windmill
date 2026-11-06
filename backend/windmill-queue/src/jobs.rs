@@ -5324,8 +5324,9 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
 /// The job that is ahead of `job_id` in line for `key`: the earliest job, by
 /// `concurrency_key.place`, that is still queued behind the key and not yet admitted. Walks
 /// `concurrency_key_place_idx` from the front, so it reads the admitted jobs and the one
-/// returned, not the key's backlog. A row without a place (inserted by an older server) is in
-/// no line until its first deferral gives it one. None for a job that already holds a slot of
+/// returned, not the key's backlog. Admission writes a job's place when it is first pulled, and
+/// a deferral when it is first deferred, both from its scheduled_for then, which nothing moves
+/// back before it is due: a job not pulled yet is in no line. None for a job that already holds a slot of
 /// the key (a resumed flow): refusing it would leave the jobs ahead of it waiting on the slot
 /// it keeps. Must be called under the key's `concurrency_counter` row lock, which serializes it
 /// with every admission of the key. Queue bookkeeping, not an authorization boundary: only for
@@ -8013,13 +8014,6 @@ async fn push_inner<'c, 'd>(
         check_workspace_queue_cap(&mut *tx, workspace_id).await?;
     }
 
-    // A suspended job is queued unassigned, a month out; its place in line on a concurrency
-    // key is that same time, so that it does not hold back the jobs behind it in order.
-    let scheduled_for_o = if suspended_mode.unwrap_or(false) {
-        Some(Utc::now() + chrono::Duration::days(30))
-    } else {
-        scheduled_for_o
-    };
     if has_active_concurrency_limit(concurrency_settings.concurrent_limit) {
         let concurrency_key = resolve_concurrency_key(
             workspace_id,
@@ -8036,7 +8030,6 @@ async fn push_inner<'c, 'd>(
             &concurrency_key,
             &mut *tx,
             job_id,
-            scheduled_for_o,
             &runnable_path,
             workspace_id,
         )
@@ -8117,15 +8110,19 @@ async fn push_inner<'c, 'd>(
         root_job
     };
 
-    let job_kind = if suspended_mode.unwrap_or(false) {
-        match job_kind {
+    let (job_kind, scheduled_for_o) = if suspended_mode.unwrap_or(false) {
+        let unassigned_job_kind = match job_kind {
             JobKind::Script => JobKind::UnassignedScript,
             JobKind::Flow => JobKind::UnassignedFlow,
             JobKind::SingleStepFlow => JobKind::UnassignedSinglestepFlow,
             _ => return Err(Error::internal_err(format!("Cannot suspend job of kind {job_kind:?} as it is not a script, flow or single step flow"))),
-        }
+        };
+        (
+            unassigned_job_kind,
+            Some(Utc::now() + chrono::Duration::days(30)),
+        )
     } else {
-        job_kind
+        (job_kind, scheduled_for_o)
     };
 
     let (guarded_concurrent_limit, guarded_concurrency_time_window_s) =
@@ -8465,24 +8462,13 @@ pub async fn insert_concurrency_key_capped<'d, 'c, E: PgExecutor<'c> + Copy>(
     }
     #[cfg(not(feature = "cloud"))]
     let _ = concurrent_limit;
-    insert_resolved_concurrency_key(
-        &concurrency_key,
-        db,
-        job_id,
-        None,
-        script_path,
-        workspace_id,
-    )
-    .await
+    insert_resolved_concurrency_key(&concurrency_key, db, job_id, script_path, workspace_id).await
 }
 
-/// `place` is the job's place in line, its scheduled_for; None reads it from the job's queue row,
-/// for a job already queued.
 async fn insert_resolved_concurrency_key<'c>(
     concurrency_key: &str,
     db: impl PgExecutor<'c>,
     job_id: Uuid,
-    place: Option<chrono::DateTime<Utc>>,
     script_path: &Option<String>,
     workspace_id: &str,
 ) -> Result<(), Error> {
@@ -8492,11 +8478,9 @@ async fn insert_resolved_concurrency_key<'c>(
                 VALUES ($1, '{}'::jsonb)
                 ON CONFLICT DO NOTHING
             )
-            INSERT INTO concurrency_key(key, job_id, place)
-            VALUES ($1, $2, COALESCE($3, (SELECT scheduled_for FROM v2_job_queue WHERE id = $2), now()))",
+            INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
         concurrency_key,
         job_id,
-        place,
     )
     .execute(db)
     .warn_after_seconds(3)

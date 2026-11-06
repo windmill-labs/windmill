@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                WITH inserted_concurrency_counter AS (\n                    INSERT INTO concurrency_counter (concurrency_id, job_uuids)\n                    VALUES ($1, '{}'::jsonb)\n                    ON CONFLICT DO NOTHING\n                )\n                INSERT INTO concurrency_key(key, job_id)\n                VALUES ($1, $2)\n                ON CONFLICT (job_id) DO NOTHING\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "82e1ad04f4030fd20e4738b3cebba728eb654566d3f1d9d9711f4340fa1b47fd"
+}

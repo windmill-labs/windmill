@@ -10393,9 +10393,7 @@ async fn add_batch_jobs(
         .execute(&mut *tx)
         .await?;
         sqlx::query!(
-            "INSERT INTO concurrency_key (job_id, key, place)
-            SELECT u.id, $1, (SELECT scheduled_for FROM v2_job_queue q WHERE q.id = u.id)
-            FROM unnest($2::uuid[]) AS u(id)",
+            "INSERT INTO concurrency_key (job_id, key) SELECT id, $1 FROM unnest($2::uuid[]) as id",
             custom_concurrency_key,
             &uuids
         )

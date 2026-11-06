@@ -596,8 +596,8 @@ pub async fn import_queued_jobs(
                     VALUES ($1, '{}'::jsonb)
                     ON CONFLICT DO NOTHING
                 )
-                INSERT INTO concurrency_key(key, job_id, place)
-                VALUES ($1, $2, (SELECT scheduled_for FROM v2_job_queue WHERE id = $2))
+                INSERT INTO concurrency_key(key, job_id)
+                VALUES ($1, $2)
                 ON CONFLICT (job_id) DO NOTHING
                 "#,
                 concurrency_key,

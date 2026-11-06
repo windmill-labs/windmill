@@ -22,15 +22,29 @@ async fn queue_job(db: &Pool<Postgres>, due_secs_ago: i64) -> anyhow::Result<Uui
     .bind(due_secs_ago as f64)
     .execute(db)
     .await?;
+    sqlx::query("INSERT INTO concurrency_key (key, job_id) VALUES ($1, $2)")
+        .bind(KEY)
+        .bind(id)
+        .execute(db)
+        .await?;
+    Ok(id)
+}
+
+/// Defers `id` an hour out, keeping its place in line, as `apply_concurrency_limit` does.
+async fn defer(db: &Pool<Postgres>, id: Uuid) -> anyhow::Result<()> {
     sqlx::query(
-        "INSERT INTO concurrency_key (key, job_id, place)
-         VALUES ($1, $2, (SELECT scheduled_for FROM v2_job_queue WHERE id = $2))",
+        "WITH place AS (
+            UPDATE concurrency_key
+            SET original_scheduled_for = (SELECT scheduled_for FROM v2_job_queue WHERE id = $1),
+                place = COALESCE(place, (SELECT scheduled_for FROM v2_job_queue WHERE id = $1))
+            WHERE job_id = $1
+        )
+        UPDATE v2_job_queue SET scheduled_for = now() + interval '1 hour' WHERE id = $1",
     )
-    .bind(KEY)
     .bind(id)
     .execute(db)
     .await?;
-    Ok(id)
+    Ok(())
 }
 
 async fn admit(db: &Pool<Postgres>, id: Uuid) -> anyhow::Result<bool> {
@@ -55,18 +69,7 @@ async fn free_slot_goes_to_the_job_first_in_line(db: Pool<Postgres>) -> anyhow::
     CONCURRENCY_LIMIT_IN_ORDER.store(true, Ordering::Relaxed);
     let first = queue_job(&db, 10).await?;
     let second = queue_job(&db, 5).await?;
-    // `first` was deferred an hour out by the limit, as `apply_concurrency_limit` does.
-    sqlx::query(
-        "WITH place AS (
-            UPDATE concurrency_key SET original_scheduled_for =
-                (SELECT scheduled_for FROM v2_job_queue WHERE id = $1)
-            WHERE job_id = $1
-        )
-        UPDATE v2_job_queue SET scheduled_for = now() + interval '1 hour' WHERE id = $1",
-    )
-    .bind(first)
-    .execute(&db)
-    .await?;
+    defer(&db, first).await?;
 
     let second_admitted = admit(&db, second).await;
     let first_due: bool =
@@ -99,25 +102,23 @@ async fn free_slot_goes_to_the_job_first_in_line(db: Pool<Postgres>) -> anyhow::
 async fn completion_fills_free_slots_from_the_front_of_the_line(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
+    // Queued first, then debounced a minute out without ever being pulled: it must keep waiting.
+    let debounced = queue_job(&db, 40).await?;
+    sqlx::query(
+        "UPDATE v2_job_queue SET scheduled_for = now() + interval '1 minute' WHERE id = $1",
+    )
+    .bind(debounced)
+    .execute(&db)
+    .await?;
     let mut line = vec![];
     for due_secs_ago in [30, 20, 10] {
         let id = queue_job(&db, due_secs_ago).await?;
-        // Deferred an hour out by the limit, keeping its place, as `apply_concurrency_limit` does.
-        sqlx::query(
-            "WITH place AS (
-                UPDATE concurrency_key SET original_scheduled_for =
-                    (SELECT scheduled_for FROM v2_job_queue WHERE id = $1)
-                WHERE job_id = $1
-            )
-            UPDATE v2_job_queue SET scheduled_for = now() + interval '1 hour' WHERE id = $1",
-        )
-        .bind(id)
-        .execute(&db)
-        .await?;
+        defer(&db, id).await?;
         line.push(id);
     }
 
     windmill_queue::fill_concurrency_key_slots_in_order(&db, KEY, 2).await?;
+    line.push(debounced);
 
     let mut due = vec![];
     for id in &line {
@@ -132,8 +133,8 @@ async fn completion_fills_free_slots_from_the_front_of_the_line(
     }
     assert_eq!(
         due,
-        vec![true, true, false],
-        "the two jobs first in line were not both woken"
+        vec![true, true, false, false],
+        "the two jobs first in line were not both woken, or a debounced job was"
     );
     Ok(())
 }
