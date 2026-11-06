@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  exportsTarget,
   listSyncCodebases,
   tsconfigExtends,
   uncoveredBundleInputs,
@@ -141,6 +142,44 @@ test("per_script_digest covers the nearest tsconfig and what it extends, not sha
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("per_script_digest covers build fields of package.json, not its dependencies", async () => {
+  const { root, digests } = await perScriptFixture();
+  try {
+    await writeFile(join(root, "package.json"), `{ "name": "x", "dependencies": {} }`);
+    const before = await digests();
+    await writeFile(join(root, "package.json"), `{ "name": "x", "dependencies": { "pg": "8" } }`);
+    expect(await digests()).toEqual(before);
+    await writeFile(join(root, "package.json"), `{ "name": "x", "sideEffects": false }`);
+    const after = await digests();
+    expect(after.every((d, i) => d != before[i])).toBe(true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("per_script_digest follows a tsconfig extends resolved through a package", async () => {
+  const { root, digests } = await perScriptFixture();
+  const pkg = join(root, "node_modules/@acme/config");
+  try {
+    await mkdir(join(pkg, "configs"), { recursive: true });
+    await writeFile(join(pkg, "package.json"), `{ "name": "@acme/config", "tsconfig": "./configs/base.json" }`);
+    await writeFile(join(pkg, "configs/base.json"), "{}");
+    await writeFile(join(root, "f/app/tsconfig.json"), `{ "extends": "@acme/config" }`);
+    const before = await digests();
+    await writeFile(join(pkg, "configs/base.json"), `{ "compilerOptions": { "useDefineForClassFields": false } }`);
+    expect((await digests())[0]).not.toBe(before[0]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("exportsTarget resolves subpaths, patterns and conditions", () => {
+  expect(exportsTarget("./base.json", ".")).toBe("./base.json");
+  expect(exportsTarget({ ".": { require: "./r.json", default: "./d.json" } }, ".")).toBe("./r.json");
+  expect(exportsTarget({ "./*": "./configs/*.json" }, "./strict")).toBe("./configs/strict.json");
+  expect(exportsTarget({ "./a": "./a.json" }, "./b")).toBeUndefined();
 });
 
 test("tsconfigExtends reads extends from JSON with comments", () => {

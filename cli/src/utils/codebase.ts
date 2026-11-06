@@ -134,6 +134,39 @@ export function listSyncCodebases(options: SyncOptions): SyncCodebase[] {
 class FileHasher {
   private hashes = new Map<string, Promise<string>>();
   private configs = new Map<string, Promise<string[]>>();
+  private packages = new Map<string, Promise<string | undefined>>();
+  private packageFields = new Map<string, Promise<string>>();
+
+  /** The nearest package.json at or above `dir`. */
+  packageFor(dir: string): Promise<string | undefined> {
+    let p = this.packages.get(dir);
+    if (!p) {
+      p = (async () => {
+        const here = path.join(dir, "package.json");
+        if (await isFile(here)) return here;
+        const parent = path.dirname(dir);
+        return parent == dir ? undefined : await this.packageFor(parent);
+      })();
+      this.packages.set(dir, p);
+    }
+    return p;
+  }
+
+  /** A hash of the build-relevant fields of a package.json, or of the whole file
+   * when it does not parse. */
+  hashPackageFields(pkgPath: string): Promise<string> {
+    let h = this.packageFields.get(pkgPath);
+    if (!h) {
+      h = (async () => {
+        const pkg = await readJson(pkgPath);
+        if (!pkg || typeof pkg != "object") return await this.hash(pkgPath);
+        const fields = BUILD_PACKAGE_FIELDS.map((f) => [f, pkg[f]]);
+        return await generateHash(JSON.stringify(fields));
+      })();
+      this.packageFields.set(pkgPath, h);
+    }
+    return h;
+  }
 
   hash(absPath: string): Promise<string> {
     let h = this.hashes.get(absPath);
@@ -206,20 +239,96 @@ export function tsconfigExtends(text: string): string[] {
   }
 }
 
-/** Resolves an `extends` the way TypeScript does: a path relative to the config, or
- * a file or package in a `node_modules` above it. */
-async function resolveTsconfigExtends(spec: string, dir: string): Promise<string | undefined> {
-  const candidates = (p: string) => [p, p + ".json", path.join(p, "tsconfig.json")];
-  if (spec.startsWith(".") || path.isAbsolute(spec)) {
-    for (const c of candidates(path.resolve(dir, spec))) if (await isFile(c)) return c;
+async function readJson(p: string): Promise<any> {
+  try {
+    return JSON.parse(await readFile(p, "utf8"));
+  } catch {
     return undefined;
   }
+}
+
+/** Resolves an `extends` as esbuild does: a path relative to the config, or a package
+ * in a `node_modules` above it, through its `exports`, then its `tsconfig` field,
+ * then a file at the subpath. */
+async function resolveTsconfigExtends(spec: string, dir: string): Promise<string | undefined> {
+  const firstFile = async (p: string) => {
+    for (const c of [p, p + ".json", path.join(p, "tsconfig.json")]) {
+      if (await isFile(c)) return c;
+    }
+    return undefined;
+  };
+  if (spec.startsWith(".") || path.isAbsolute(spec)) {
+    return await firstFile(path.resolve(dir, spec));
+  }
+  const parts = spec.split("/");
+  const nameLen = spec.startsWith("@") ? 2 : 1;
+  const name = parts.slice(0, nameLen).join("/");
+  const subpath = parts.slice(nameLen).join("/");
   for (let d = dir; ; d = path.dirname(d)) {
-    const p = path.join(d, "node_modules", spec);
-    for (const c of candidates(p)) if (await isFile(c)) return c;
+    const pkgDir = path.join(d, "node_modules", name);
+    if (await stat(pkgDir).then((s) => s.isDirectory(), () => false)) {
+      const pkg = await readJson(path.join(pkgDir, "package.json"));
+      const target = exportsTarget(pkg?.exports, subpath ? "./" + subpath : ".");
+      if (target && (await isFile(path.resolve(pkgDir, target)))) {
+        return path.resolve(pkgDir, target);
+      }
+      if (!subpath && typeof pkg?.tsconfig == "string") {
+        const p = path.resolve(pkgDir, pkg.tsconfig);
+        if (await isFile(p)) return p;
+      }
+      return await firstFile(path.join(pkgDir, subpath));
+    }
     if (path.dirname(d) == d) return undefined;
   }
 }
+
+/** The file a package's `exports` maps `key` ("." or "./sub") to, under the
+ * conditions a tsconfig is resolved with. */
+export function exportsTarget(exports: unknown, key: string): string | undefined {
+  const pick = (v: unknown): string | undefined => {
+    if (typeof v == "string") return v;
+    if (Array.isArray(v)) {
+      for (const x of v) {
+        const r = pick(x);
+        if (r) return r;
+      }
+      return undefined;
+    }
+    if (v && typeof v == "object") {
+      for (const [cond, x] of Object.entries(v)) {
+        if (["types", "require", "import", "node", "default"].includes(cond)) {
+          const r = pick(x);
+          if (r) return r;
+        }
+      }
+    }
+    return undefined;
+  };
+  if (exports == undefined) return undefined;
+  const isSubpathMap =
+    typeof exports == "object" &&
+    !Array.isArray(exports) &&
+    Object.keys(exports).some((k) => k.startsWith("."));
+  if (!isSubpathMap) return key == "." ? pick(exports) : undefined;
+  const map = exports as Record<string, unknown>;
+  if (key in map) return pick(map[key]);
+  for (const [pattern, v] of Object.entries(map)) {
+    const star = pattern.indexOf("*");
+    if (star < 0) continue;
+    const [pre, post] = [pattern.slice(0, star), pattern.slice(star + 1)];
+    if (key.startsWith(pre) && key.endsWith(post) && key.length >= pattern.length - 1) {
+      const t = pick(v);
+      if (t) return t.replace("*", key.slice(pre.length, key.length - post.length));
+    }
+  }
+  return undefined;
+}
+
+/** The fields of a package.json that change how esbuild compiles or tree-shakes the
+ * files below it without changing which files it bundles. Hashed instead of the
+ * whole file, so adding a dependency does not redeploy every script; a dependency's
+ * new version shows up in its bundled files. */
+const BUILD_PACKAGE_FIELDS = ["sideEffects", "type", "main", "module", "browser", "exports", "imports"];
 
 /** A file input of an esbuild metafile, as opposed to "<define:x>", "(disabled):x"
  * or a plugin namespace. */
@@ -232,7 +341,8 @@ const toPosix = (p: string) => p.split(path.sep).join("/");
 /**
  * Per-script digests: each covers the files the script's bundle is built from
  * (the transitive imports esbuild resolves, `node_modules` included, by path and
- * content), the TS configs that apply to them, the codebase's assets and
+ * content), the TS configs and package.json build fields that apply to them, the
+ * codebase's assets and
  * `extra_digest_paths`, and the codebase config.
  *
  * It follows the import graph rather than the bundle output: an output's input list
@@ -264,17 +374,22 @@ async function scriptDigests(
         return;
       }
       const configs = new Set<string>();
+      const packages = new Set<string>();
       for (const f of files) {
+        const pkg = await hasher.packageFor(path.dirname(f));
+        if (pkg) packages.add(pkg);
         if (f.split(path.sep).includes("node_modules")) continue;
         for (const c of await hasher.configsFor(path.dirname(f))) {
           configs.add(c);
         }
       }
-      const entries = await Promise.all(
-        [...files, ...configs].map(
-          async (f) => `${toPosix(path.relative(cwd, f))}\0${await hasher.hash(f)}`
-        )
-      );
+      const rel = (f: string) => toPosix(path.relative(cwd, f));
+      const entries = await Promise.all([
+        ...[...files, ...configs].map(async (f) => `${rel(f)}\0${await hasher.hash(f)}`),
+        ...[...packages].map(
+          async (p) => `${rel(p)}\0fields\0${await hasher.hashPackageFields(p)}`
+        ),
+      ]);
       entries.sort();
       res.set(
         script,
