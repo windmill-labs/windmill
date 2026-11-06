@@ -146,6 +146,7 @@ export async function resolvePreviewLocalScriptState(
       codebase,
       codebaseDigest: codebase
         ? await codebase.getDigest(
+            filePath,
             Array.isArray(codebase.assets) && codebase.assets.length > 0
           )
         : undefined,

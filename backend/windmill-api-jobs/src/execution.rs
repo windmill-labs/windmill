@@ -349,6 +349,14 @@ pub async fn cancel_jobs(
     )
     .execute(&mut *tx)
     .await?;
+    // These jobs leave the queue without having run: their concurrency keys go, so that none
+    // stays first in its key's line, and none counts as a run in a time window.
+    sqlx::query!(
+        "DELETE FROM concurrency_key WHERE job_id = any($1) AND ended_at IS NULL",
+        &trivial_jobs,
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
 
     for job_id in jobs.into_iter() {

@@ -33,6 +33,7 @@
 	import { Badge } from '$lib/components/common'
 	import Section from '$lib/components/Section.svelte'
 	import { SvelteMap } from 'svelte/reactivity'
+	import type { Snippet } from 'svelte'
 
 	interface Props {
 		/** The workspace the selection picker browses. */
@@ -41,13 +42,16 @@
 		scopes?: string[]
 		access?: McpAccess
 		initialScopes?: string[]
+		/** Rendered between the access choice and the tool list. */
+		afterAccess?: Snippet
 	}
 
 	let {
 		workspaceId,
 		scopes = $bindable(),
 		access = $bindable(),
-		initialScopes = []
+		initialScopes = [],
+		afterAccess
 	}: Props = $props()
 
 	const initialAccess = mcpAccessOf(initialScopes)
@@ -116,6 +120,7 @@
 			{/snippet}
 		</ToggleButtonGroup>
 	</div>
+	{@render afterAccess?.()}
 	{#if toolsetAccess}
 		<Section label="Tools the client gets" small collapsable bind:collapsed={toolsCollapsed}>
 			<div class="flex flex-col gap-1 -mt-2">
