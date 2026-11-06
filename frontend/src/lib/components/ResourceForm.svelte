@@ -123,6 +123,30 @@
 		if (showReference) isValid = true
 	})
 
+	// Keys the schema form cannot render (e.g. a property later removed from the resource type)
+	// still ship with the value, and a `$var:` among them fails the job once the variable is gone.
+	let orphanKeys = $derived.by(() => {
+		const props = resourceSchema?.properties
+		if (
+			!props ||
+			showReference ||
+			rawMode ||
+			loadingSchema ||
+			resourceTypeInfo?.is_fileset ||
+			resourceTypeInfo?.format_extension ||
+			!args ||
+			typeof args !== 'object' ||
+			Array.isArray(args)
+		) {
+			return []
+		}
+		return Object.keys(args).filter((k) => !(k in props))
+	})
+
+	function removeOrphanKeys() {
+		args = Object.fromEntries(Object.entries(args).filter(([k]) => !orphanKeys.includes(k)))
+	}
+
 	// This field is a bare SimpleEditor parsed here, so it never passes through JsonEditor —
 	// it has to register itself, or a caller persisting what is on screen would save the
 	// last value that parsed and leave without the text in front of the user.
@@ -352,6 +376,28 @@
 					/>
 				</div>
 			{:else}
+				{#if orphanKeys.length > 0}
+					<Alert
+						type="warning"
+						size="xs"
+						class="mb-2"
+						title="Properties not in the resource type schema"
+						actions={can_write ? [{ label: 'Remove them', onClick: removeOrphanKeys }] : undefined}
+					>
+						This value holds properties the form cannot show. They are still passed to scripts using
+						this resource:
+						<ul class="list-disc pl-4 mt-1">
+							{#each orphanKeys as key (key)}
+								{@const v = args[key]}
+								<li>
+									<code>{key}</code
+									>{#if typeof v === 'string' && (v.startsWith('$var:') || v.startsWith('$res:'))}:
+										<code>{v}</code>{/if}
+								</li>
+							{/each}
+						</ul>
+					</Alert>
+				{/if}
 				<SchemaForm
 					onlyMaskPassword
 					noDelete
