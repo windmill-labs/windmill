@@ -5491,7 +5491,8 @@ async fn test_saved_flow_preserves_nested_step_tags(db: Pool<Postgres>) -> anyho
 }
 
 /// An untagged subflow runs on its caller's tag, so its steps follow the caller's
-/// `preserve_step_tags` even though the subflow's own setting is off.
+/// `preserve_step_tags` even though the subflow's own setting is off. A subflow that declares
+/// the same tag itself keeps its own setting.
 #[sqlx::test(fixtures("base"))]
 async fn test_subflow_steps_follow_caller_preserve_step_tags(
     db: Pool<Postgres>,
@@ -5502,27 +5503,29 @@ async fn test_subflow_steps_follow_caller_preserve_step_tags(
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let client = reqwest::Client::new();
-    let subflow = json!({
-        "path": "g/all/untagged_subflow", "summary": "", "description": "",
-        "schema": { "type": "object", "properties": {}, "required": [] },
-        "value": {
-            "modules": [{
-                "id": "own_tag",
-                "value": {
-                    "type": "rawscript", "language": "bun", "lock": "", "tag": "bun",
-                    "content": "export function main() { return 1; }",
-                    "input_transforms": {}
-                }
-            }, {
-                "id": "untagged",
-                "value": {
-                    "type": "rawscript", "language": "bun", "lock": "",
-                    "content": "export function main() { return 2; }",
-                    "input_transforms": {}
-                }
-            }]
-        }
-    });
+    let subflow = |path: &str, tag: Option<&str>, tagged_step: &str| {
+        json!({
+            "path": path, "summary": "", "description": "", "tag": tag,
+            "schema": { "type": "object", "properties": {}, "required": [] },
+            "value": {
+                "modules": [{
+                    "id": tagged_step,
+                    "value": {
+                        "type": "rawscript", "language": "bun", "lock": "", "tag": "bun",
+                        "content": "export function main() { return 1; }",
+                        "input_transforms": {}
+                    }
+                }, {
+                    "id": format!("{tagged_step}_untagged"),
+                    "value": {
+                        "type": "rawscript", "language": "bun", "lock": "",
+                        "content": "export function main() { return 2; }",
+                        "input_transforms": {}
+                    }
+                }]
+            }
+        })
+    };
     let caller = json!({
         "path": "g/all/preserving_caller", "summary": "", "description": "", "tag": "python3",
         "schema": { "type": "object", "properties": {}, "required": [] },
@@ -5531,16 +5534,27 @@ async fn test_subflow_steps_follow_caller_preserve_step_tags(
             "modules": [{
                 "id": "sub",
                 "value": { "type": "flow", "path": "g/all/untagged_subflow", "input_transforms": {} }
+            }, {
+                "id": "tagged_sub",
+                "value": { "type": "flow", "path": "g/all/tagged_subflow", "input_transforms": {} }
             }]
         }
     });
-    // The flow cache is process-wide and keyed by version id, which every test database numbers
-    // from the same start: move ours out of the way of flows deployed by concurrent tests.
-    sqlx::query("SELECT setval(pg_get_serial_sequence('flow_version', 'id'), 7316000)")
+    // The flow cache is process-wide and keyed by version and node ids, which every test database
+    // numbers from the same start: move ours out of the way of flows deployed by concurrent tests.
+    for table in ["flow_version", "flow_node"] {
+        sqlx::query(&format!(
+            "SELECT setval(pg_get_serial_sequence('{table}', 'id'), 7316000)"
+        ))
         .execute(&db)
         .await?;
+    }
     let mut completed = listen_for_completed_jobs(&db).await;
-    for flow in [subflow, caller] {
+    for flow in [
+        subflow("g/all/untagged_subflow", None, "own_tag"),
+        subflow("g/all/tagged_subflow", Some("python3"), "pinned"),
+        caller,
+    ] {
         client
             .post(format!(
                 "http://localhost:{port}/api/w/test-workspace/flows/create"
@@ -5578,7 +5592,7 @@ async fn test_subflow_steps_follow_caller_preserve_step_tags(
         )
         SELECT DISTINCT flow_step_id, tag FROM v2_job
         WHERE id IN (SELECT id FROM descendants)
-        AND flow_step_id IN ('sub', 'own_tag', 'untagged')
+        AND flow_step_id <> ''
         ORDER BY flow_step_id, tag",
     )
     .bind(job_id)
@@ -5586,11 +5600,16 @@ async fn test_subflow_steps_follow_caller_preserve_step_tags(
     .await?;
     assert_eq!(
         tags,
-        vec![
-            ("own_tag".to_owned(), "bun".to_owned()),
-            ("sub".to_owned(), "python3".to_owned()),
-            ("untagged".to_owned(), "python3".to_owned())
+        [
+            ("own_tag", "bun"),
+            ("own_tag_untagged", "python3"),
+            ("pinned", "python3"),
+            ("pinned_untagged", "python3"),
+            ("sub", "python3"),
+            ("tagged_sub", "python3"),
         ]
+        .map(|(step, tag)| (step.to_owned(), tag.to_owned()))
+        .to_vec()
     );
     Ok(())
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH RECURSIVE chain AS (\n            SELECT id, parent_job, kind, runnable_id, 1 AS depth\n            FROM v2_job WHERE id = $1 AND workspace_id = $2 AND tag = $3\n          UNION ALL\n            SELECT j.id, j.parent_job, j.kind, j.runnable_id, chain.depth + 1\n            FROM v2_job j JOIN chain ON j.id = chain.parent_job\n            WHERE j.workspace_id = $2 AND j.tag = $3 AND chain.depth < 64\n        )\n        SELECT id AS \"id!\", kind AS \"kind!: JobKind\", runnable_id AS \"runnable_id: ScriptHash\"\n        FROM chain ORDER BY depth",
+  "query": "WITH RECURSIVE chain AS (\n            SELECT id, parent_job, kind, runnable_id, runnable_path, 1 AS depth\n            FROM v2_job WHERE id = $1 AND workspace_id = $2 AND tag = $3\n          UNION ALL\n            SELECT j.id, j.parent_job, j.kind, j.runnable_id, j.runnable_path, chain.depth + 1\n            FROM v2_job j JOIN chain ON j.id = chain.parent_job\n            WHERE j.workspace_id = $2 AND j.tag = $3 AND chain.depth < 64\n        )\n        SELECT id AS \"id!\", kind AS \"kind!: JobKind\", runnable_id AS \"runnable_id: ScriptHash\",\n            (kind = 'flow' AND EXISTS (\n                SELECT 1 FROM flow\n                WHERE flow.workspace_id = $2 AND flow.path = chain.runnable_path\n                    AND COALESCE(flow.tag, '') <> ''\n            )) AS \"declares_tag!\"\n        FROM chain ORDER BY depth",
   "describe": {
     "columns": [
       {
@@ -47,6 +47,11 @@
         "ordinal": 2,
         "name": "runnable_id: ScriptHash",
         "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "declares_tag!",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -59,8 +64,9 @@
     "nullable": [
       null,
       null,
+      null,
       null
     ]
   },
-  "hash": "e9d0fe5ab93e63a689f98598919f542107864af1bb22f67f5604027e746a6cbe"
+  "hash": "24c4796753b2d957e81f9703af50fc1a545321988aab3e91180808b028c13e16"
 }
