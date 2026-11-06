@@ -598,7 +598,7 @@
 
 	let columnCount = $derived.by(() => {
 		const config = (workerGroups ?? {})[selectedTab]
-		let cols = 8 // Worker, Worker start, Jobs ran, Failed jobs, Memory usage, Limits, Version, Status
+		let cols = 7 // Worker, Worker start, Jobs ran, Memory usage, Limits, Version, Status
 		if (!config || !config.worker_tags || config.worker_tags.length === 0) cols += 1 // Worker tags
 		if ((!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole))
 			cols += 2 // Last job, Occupancy rate
@@ -1031,16 +1031,6 @@
 									{/if}
 									<Cell head>Worker start</Cell>
 									<Cell head>Jobs ran</Cell>
-									<Cell head>
-										<div class="flex flex-row items-center gap-1">
-											Failed (24h)
-											<Tooltip>
-												Share of the script and flow-step jobs run by this worker in the last 24h that
-												failed. Hover a value for its last 100 jobs and its whole life under this name.
-												Flows themselves are not counted, and canceled jobs are not failures.
-											</Tooltip>
-										</div>
-									</Cell>
 									{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
 										<Cell head>Last job</Cell>
 										<Cell head>Occupancy rate<br />(15s/5m/30m/ever)</Cell>
@@ -1176,8 +1166,9 @@
 														</Cell>
 													{/if}
 													<Cell class="text-secondary">{displayDate(started_at)}</Cell>
-													<Cell class="text-secondary">{jobs_executed}</Cell>
-													<Cell><WorkerJobFailures stats={job_stats} /></Cell>
+													<Cell class="text-secondary">
+														<WorkerJobFailures stats={job_stats}>{jobs_executed}</WorkerJobFailures>
+													</Cell>
 													{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
 														<Cell class="text-secondary">
 															<!-- The run page switches to the job's workspace, which strands a

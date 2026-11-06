@@ -25,16 +25,22 @@
 
 <script lang="ts">
 	import MeltTooltip from '$lib/components/meltComponents/Tooltip.svelte'
+	import type { Snippet } from 'svelte'
 
 	interface Props {
 		stats: WorkerJobStats | undefined
 		/** Label of the last-100 window, which sums per-worker windows for a group. */
 		last100Label?: string
-		/** All three windows side by side; otherwise only the 24h rate, the rest in a tooltip. */
+		/** All three windows side by side; otherwise a 24h bar under `children`, the rest in a tooltip. */
 		inline?: boolean
+		children?: Snippet
 	}
 
-	let { stats, last100Label = 'last 100 jobs', inline = false }: Props = $props()
+	let { stats, last100Label = 'last 100 jobs', inline = false, children }: Props = $props()
+
+	function failedPct(c: WorkerJobCounts): number {
+		return c.executed == 0 ? 0 : (c.failed / c.executed) * 100
+	}
 
 	function pct(c: WorkerJobCounts): string {
 		if (c.executed == 0) return '--'
@@ -54,24 +60,36 @@
 	)
 </script>
 
-{#if !stats}
+{#if !inline}
+	<!-- Wraps the row's job count: a grey track with the 24h failed share in red, the other
+	     windows in the tooltip. A healthy worker shows an all-grey track. -->
+	{#if !stats}
+		{@render children?.()}
+	{:else}
+		{@const failedShare = failedPct(stats.last_24h)}
+		<MeltTooltip>
+			<div class="flex flex-col gap-1 w-fit">
+				{@render children?.()}
+				<div class="h-1.5 w-12 rounded-full bg-surface-secondary border overflow-hidden">
+					{#if failedShare > 0}
+						<div
+							class="h-full bg-red-500 dark:bg-red-400"
+							style="width: {Math.max(failedShare, 8)}%"
+						></div>
+					{/if}
+				</div>
+			</div>
+			{#snippet text()}
+				<div class="font-semibold">Failed jobs</div>
+				{#each windows as w (w.short)}
+					<div>{w.label}: {pct(w.counts)} ({w.counts.failed} failed of {w.counts.executed})</div>
+				{/each}
+				<div class="text-hint">Flows are not counted; canceled jobs are not failures.</div>
+			{/snippet}
+		</MeltTooltip>
+	{/if}
+{:else if !stats}
 	<span class="text-hint">--</span>
-{:else if !inline}
-	<!-- One figure per table row; the other windows are in the tooltip. -->
-	<MeltTooltip>
-		<span
-			class="text-xs whitespace-nowrap {stats.last_24h.failed > 0
-				? 'text-red-600 dark:text-red-400'
-				: 'text-secondary'}"
-		>
-			{pct(stats.last_24h)}
-		</span>
-		{#snippet text()}
-			{#each windows as w (w.short)}
-				<div>{w.label}: {pct(w.counts)} ({w.counts.failed} failed of {w.counts.executed})</div>
-			{/each}
-		{/snippet}
-	</MeltTooltip>
 {:else}
 	<div class="flex flex-row gap-3 text-xs">
 		{#each windows as w (w.short)}
