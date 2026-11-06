@@ -71,12 +71,17 @@
 
 	function setAuthMethod(method: string | undefined) {
 		if (!vault || !method) return
-		const { token: _t, approle_role_id: _a, jwt_role: _j, ...rest } = vault
+		const { token: _t, approle_role_id: _a, approle_secret_id: _s, jwt_role: _j, ...rest } = vault
 		update({
 			vault: {
 				...rest,
 				...(method === 'token' ? { token: vault.token ?? '' } : {}),
-				...(method === 'approle' ? { approle_role_id: vault.approle_role_id ?? '' } : {}),
+				...(method === 'approle'
+					? {
+							approle_role_id: vault.approle_role_id ?? '',
+							approle_secret_id: vault.approle_secret_id
+						}
+					: {}),
 				...(method === 'jwt' ? { jwt_role: vault.jwt_role ?? 'windmill-secrets' } : {})
 			}
 		})
@@ -209,11 +214,21 @@
 							(v) => update({ vault: { ...vault, approle_role_id: v ?? '' } })
 						}
 					/>
+					<span class="text-xs font-semibold text-emphasis">
+						Secret ID <span class="text-2xs font-normal text-secondary">(optional)</span>
+					</span>
 					<span class="text-2xs text-secondary">
-						The secret_id is read from the <code>VAULT_APPROLE_SECRET_ID</code> environment variable
-						of every server and worker, so it is never stored in Windmill. Leave it unset for a role
+						Leave blank to read it from the <code>VAULT_APPROLE_SECRET_ID</code> environment
+						variable of every server and worker. With neither set, no secret_id is sent, for a role
 						with <code>bind_secret_id=false</code>.
 					</span>
+					<Password
+						bind:password={
+							() => vault?.approle_secret_id ?? '', (v) => setVaultField('approle_secret_id', v)
+						}
+						small
+						{disabled}
+					/>
 					<label for="ext_vault_approle_mount" class="text-xs font-semibold text-emphasis">
 						AppRole mount path (optional)
 					</label>

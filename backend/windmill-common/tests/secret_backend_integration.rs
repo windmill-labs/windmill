@@ -80,6 +80,7 @@ mod tests {
             jwt_role: None, // Static token mode
             jwt_mount_path: None,
             approle_role_id: None,
+            approle_secret_id: None,
             approle_mount_path: None,
             namespace: None,
             token: Some(
@@ -99,6 +100,7 @@ mod tests {
             jwt_role: Some("windmill-secrets".to_string()), // JWT mode
             jwt_mount_path: None,
             approle_role_id: None,
+            approle_secret_id: None,
             approle_mount_path: None,
             namespace: None,
             token: None, // No static token - use JWT
