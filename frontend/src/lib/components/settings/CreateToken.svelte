@@ -337,16 +337,15 @@
 		>
 			{#snippet afterAccess()}
 				{#if $superadmin}
-					<div class="flex flex-col gap-1">
-						<Toggle
-							bind:checked={() => mcpSuperAdmin, setMcpSuperAdmin}
-							options={{ right: 'Superadmin rights' }}
-							size="xs"
-						/>
-						<p class="text-xs text-tertiary">
-							Admin in every workspace of the instance, including ones you are not a member of.
-						</p>
-					</div>
+					<Toggle
+						bind:checked={() => mcpSuperAdmin, setMcpSuperAdmin}
+						options={{
+							right: 'Superadmin rights',
+							rightTooltip:
+								'The token carries your superadmin rights: admin in every workspace of the instance, including ones you are not a member of.'
+						}}
+						size="xs"
+					/>
 				{/if}
 			{/snippet}
 		</McpAccessPicker>
