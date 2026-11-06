@@ -254,7 +254,7 @@ async function filesUnder(dir: string, seenDirs: Set<string>): Promise<string[]>
   if (seenDirs.has(real)) return [];
   seenDirs.add(real);
   const res: string[] = [];
-  for (const e of await readdir(dir)) {
+  for (const e of (await readdir(dir)).sort()) {
     const p = path.join(dir, e);
     const s = await stat(p).catch(() => undefined);
     if (s?.isDirectory() && e != "node_modules") res.push(...(await filesUnder(p, seenDirs)));
@@ -268,7 +268,7 @@ const isFile = (p: string) => stat(p).then((s) => s.isFile(), () => false);
 /** The `extends` of a tsconfig, which is JSON with comments and trailing commas.
  * An unparseable config extends nothing; its own content is still hashed. */
 export function tsconfigExtends(text: string): string[] {
-  text = text.replace(/^﻿/, "");
+  text = text.replace(/^\uFEFF/, "");
   let json = "";
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
@@ -297,7 +297,7 @@ export function tsconfigExtends(text: string): string[] {
 
 async function readJson(p: string): Promise<any> {
   try {
-    return JSON.parse((await readFile(p, "utf8")).replace(/^﻿/, ""));
+    return JSON.parse((await readFile(p, "utf8")).replace(/^\uFEFF/, ""));
   } catch {
     return undefined;
   }

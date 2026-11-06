@@ -280,7 +280,7 @@ const tsconfigLayouts: {
   },
   {
     name: "BOM-prefixed config, relative extends without .json",
-    files: { "base.json": ON, "f/tsconfig.json": `﻿{ "extends": "../base" }` },
+    files: { "base.json": ON, "f/tsconfig.json": `\uFEFF{ "extends": "../base" }` },
     applied: "base.json",
   },
 ];
@@ -329,7 +329,7 @@ test("tsconfigExtends reads extends from JSON with comments", () => {
   expect(tsconfigExtends(`{ "a": "x // not a comment", // c\n "extends": ["./a", "b"], }`)).toEqual(["./a", "b"]);
   expect(tsconfigExtends(`{ /* "extends": "no" */ }`)).toEqual([]);
   expect(tsconfigExtends(`not json`)).toEqual([]);
-  expect(tsconfigExtends(`﻿{ "extends": "./base.json" }`)).toEqual(["./base.json"]);
+  expect(tsconfigExtends(`\uFEFF{ "extends": "./base.json" }`)).toEqual(["./base.json"]);
 });
 
 test("per_script_digest fails only the script that does not bundle", async () => {
