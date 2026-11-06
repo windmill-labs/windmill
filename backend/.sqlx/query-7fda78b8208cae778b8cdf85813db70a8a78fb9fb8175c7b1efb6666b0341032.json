@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH me AS (\n            SELECT place FROM concurrency_key WHERE job_id = $2\n        ), admitted AS (\n            SELECT job_uuids FROM concurrency_counter WHERE concurrency_id = $1\n        )\n        SELECT ck.job_id\n        FROM concurrency_key ck JOIN v2_job_queue q ON q.id = ck.job_id\n        WHERE ck.key = $1 AND ck.ended_at IS NULL AND ck.place IS NOT NULL\n            AND (ck.place, ck.job_id) < ((SELECT place FROM me), $2)\n            AND NOT COALESCE((SELECT job_uuids ? $2::text FROM admitted), false)\n            AND q.canceled_by IS NULL\n            AND NOT COALESCE((SELECT job_uuids ? ck.job_id::text FROM admitted), false)\n        ORDER BY ck.place, ck.job_id\n        LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7fda78b8208cae778b8cdf85813db70a8a78fb9fb8175c7b1efb6666b0341032"
+}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO concurrency_key (job_id, key, place)\n            SELECT u.id, $1, (SELECT scheduled_for FROM v2_job_queue q WHERE q.id = u.id)\n            FROM unnest($2::uuid[]) AS u(id)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ec3f2a97754624562707591339fcf3b2d8f3c65323703b9fc7f560f148bca78c"
+}

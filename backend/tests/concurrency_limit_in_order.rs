@@ -22,11 +22,14 @@ async fn queue_job(db: &Pool<Postgres>, due_secs_ago: i64) -> anyhow::Result<Uui
     .bind(due_secs_ago as f64)
     .execute(db)
     .await?;
-    sqlx::query("INSERT INTO concurrency_key (key, job_id) VALUES ($1, $2)")
-        .bind(KEY)
-        .bind(id)
-        .execute(db)
-        .await?;
+    sqlx::query(
+        "INSERT INTO concurrency_key (key, job_id, place)
+         VALUES ($1, $2, (SELECT scheduled_for FROM v2_job_queue WHERE id = $2))",
+    )
+    .bind(KEY)
+    .bind(id)
+    .execute(db)
+    .await?;
     Ok(id)
 }
 
@@ -127,6 +130,10 @@ async fn completion_fills_free_slots_from_the_front_of_the_line(
             .await?,
         );
     }
-    assert_eq!(due, vec![true, true, false], "the two jobs first in line were not both woken");
+    assert_eq!(
+        due,
+        vec![true, true, false],
+        "the two jobs first in line were not both woken"
+    );
     Ok(())
 }

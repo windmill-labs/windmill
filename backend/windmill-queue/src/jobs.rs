@@ -5321,15 +5321,15 @@ pub async fn try_admit_owned_job(db: &DB, job: &MiniPulledJob) -> error::Result<
     Ok(true)
 }
 
-/// The job that is ahead of `job_id` in line for `key`: the earliest job, by the time it
-/// became due, that is still queued behind the key and not yet admitted. A job a limit
-/// deferred keeps its place through `concurrency_key.original_scheduled_for`; any other
-/// job is placed by its `scheduled_for`, so jobs scheduled for later are not ahead of it.
-/// None for a job that already holds a slot of the key (a resumed flow): refusing it would
-/// leave the jobs ahead of it waiting on the slot it keeps. Must be called under the key's
-/// `concurrency_counter` row lock, which serializes it with every admission of the key.
-/// Queue bookkeeping, not an authorization boundary: only for the queue's own admission
-/// path, never with a key taken from a request.
+/// The job that is ahead of `job_id` in line for `key`: the earliest job, by
+/// `concurrency_key.place`, that is still queued behind the key and not yet admitted. Walks
+/// `concurrency_key_place_idx` from the front, so it reads the admitted jobs and the one
+/// returned, not the key's backlog. A row without a place (inserted by an older server) is in
+/// no line until its first deferral gives it one. None for a job that already holds a slot of
+/// the key (a resumed flow): refusing it would leave the jobs ahead of it waiting on the slot
+/// it keeps. Must be called under the key's `concurrency_counter` row lock, which serializes it
+/// with every admission of the key. Queue bookkeeping, not an authorization boundary: only for
+/// the queue's own admission path, never with a key taken from a request.
 #[cfg(feature = "private")]
 pub(crate) async fn oldest_waiting_concurrency_job<'c, E: PgExecutor<'c>>(
     e: E,
@@ -5338,21 +5338,18 @@ pub(crate) async fn oldest_waiting_concurrency_job<'c, E: PgExecutor<'c>>(
 ) -> error::Result<Option<Uuid>> {
     Ok(sqlx::query_scalar!(
         "WITH me AS (
-            SELECT COALESCE(ck.original_scheduled_for, q.scheduled_for) AS ts
-            FROM concurrency_key ck JOIN v2_job_queue q ON q.id = ck.job_id
-            WHERE ck.job_id = $2
+            SELECT place FROM concurrency_key WHERE job_id = $2
         ), admitted AS (
             SELECT job_uuids FROM concurrency_counter WHERE concurrency_id = $1
         )
         SELECT ck.job_id
         FROM concurrency_key ck JOIN v2_job_queue q ON q.id = ck.job_id
-        WHERE ck.key = $1 AND ck.ended_at IS NULL AND ck.job_id <> $2
+        WHERE ck.key = $1 AND ck.ended_at IS NULL AND ck.place IS NOT NULL
+            AND (ck.place, ck.job_id) < ((SELECT place FROM me), $2)
             AND NOT COALESCE((SELECT job_uuids ? $2::text FROM admitted), false)
             AND q.canceled_by IS NULL
             AND NOT COALESCE((SELECT job_uuids ? ck.job_id::text FROM admitted), false)
-            AND (COALESCE(ck.original_scheduled_for, q.scheduled_for), ck.job_id)
-                < ((SELECT ts FROM me), $2)
-        ORDER BY COALESCE(ck.original_scheduled_for, q.scheduled_for), ck.job_id
+        ORDER BY ck.place, ck.job_id
         LIMIT 1",
         key,
         job_id,
@@ -5388,8 +5385,9 @@ pub async fn fill_concurrency_key_slots_in_order(
 
 /// Make the `n` jobs first in line for `key` due now, so a slot that frees up goes to
 /// them rather than waiting out the delay a limit deferred them by. A job a worker is
-/// already holding is left alone. Queue bookkeeping, not an authorization boundary: only
-/// for the queue's own admission and completion paths, never with a key taken from a request.
+/// already holding is left alone. Walks `concurrency_key_place_idx` from the front, skipping
+/// only the admitted jobs. Queue bookkeeping, not an authorization boundary: only for the
+/// queue's own admission and completion paths, never with a key taken from a request.
 #[cfg(feature = "private")]
 pub(crate) async fn wake_concurrency_key_waiters(db: &DB, key: &str, n: i64) -> error::Result<()> {
     sqlx::query!(
@@ -5398,10 +5396,10 @@ pub(crate) async fn wake_concurrency_key_waiters(db: &DB, key: &str, n: i64) -> 
         ), head AS (
             SELECT ck.job_id
             FROM concurrency_key ck JOIN v2_job_queue q ON q.id = ck.job_id
-            WHERE ck.key = $1 AND ck.ended_at IS NULL AND q.canceled_by IS NULL
+            WHERE ck.key = $1 AND ck.ended_at IS NULL AND ck.place IS NOT NULL
+                AND ck.place <= now() AND q.canceled_by IS NULL
                 AND NOT COALESCE((SELECT job_uuids ? ck.job_id::text FROM admitted), false)
-                AND COALESCE(ck.original_scheduled_for, q.scheduled_for) <= now()
-            ORDER BY COALESCE(ck.original_scheduled_for, q.scheduled_for), ck.job_id
+            ORDER BY ck.place, ck.job_id
             LIMIT $2
         )
         UPDATE v2_job_queue SET scheduled_for = now()
@@ -8015,6 +8013,13 @@ async fn push_inner<'c, 'd>(
         check_workspace_queue_cap(&mut *tx, workspace_id).await?;
     }
 
+    // A suspended job is queued unassigned, a month out; its place in line on a concurrency
+    // key is that same time, so that it does not hold back the jobs behind it in order.
+    let scheduled_for_o = if suspended_mode.unwrap_or(false) {
+        Some(Utc::now() + chrono::Duration::days(30))
+    } else {
+        scheduled_for_o
+    };
     if has_active_concurrency_limit(concurrency_settings.concurrent_limit) {
         let concurrency_key = resolve_concurrency_key(
             workspace_id,
@@ -8031,6 +8036,7 @@ async fn push_inner<'c, 'd>(
             &concurrency_key,
             &mut *tx,
             job_id,
+            scheduled_for_o,
             &runnable_path,
             workspace_id,
         )
@@ -8111,19 +8117,15 @@ async fn push_inner<'c, 'd>(
         root_job
     };
 
-    let (job_kind, scheduled_for_o) = if suspended_mode.unwrap_or(false) {
-        let unassigned_job_kind = match job_kind {
+    let job_kind = if suspended_mode.unwrap_or(false) {
+        match job_kind {
             JobKind::Script => JobKind::UnassignedScript,
             JobKind::Flow => JobKind::UnassignedFlow,
             JobKind::SingleStepFlow => JobKind::UnassignedSinglestepFlow,
             _ => return Err(Error::internal_err(format!("Cannot suspend job of kind {job_kind:?} as it is not a script, flow or single step flow"))),
-        };
-        (
-            unassigned_job_kind,
-            Some(Utc::now() + chrono::Duration::days(30)),
-        )
+        }
     } else {
-        (job_kind, scheduled_for_o)
+        job_kind
     };
 
     let (guarded_concurrent_limit, guarded_concurrency_time_window_s) =
@@ -8463,13 +8465,24 @@ pub async fn insert_concurrency_key_capped<'d, 'c, E: PgExecutor<'c> + Copy>(
     }
     #[cfg(not(feature = "cloud"))]
     let _ = concurrent_limit;
-    insert_resolved_concurrency_key(&concurrency_key, db, job_id, script_path, workspace_id).await
+    insert_resolved_concurrency_key(
+        &concurrency_key,
+        db,
+        job_id,
+        None,
+        script_path,
+        workspace_id,
+    )
+    .await
 }
 
+/// `place` is the job's place in line, its scheduled_for; None reads it from the job's queue row,
+/// for a job already queued.
 async fn insert_resolved_concurrency_key<'c>(
     concurrency_key: &str,
     db: impl PgExecutor<'c>,
     job_id: Uuid,
+    place: Option<chrono::DateTime<Utc>>,
     script_path: &Option<String>,
     workspace_id: &str,
 ) -> Result<(), Error> {
@@ -8479,9 +8492,11 @@ async fn insert_resolved_concurrency_key<'c>(
                 VALUES ($1, '{}'::jsonb)
                 ON CONFLICT DO NOTHING
             )
-            INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
+            INSERT INTO concurrency_key(key, job_id, place)
+            VALUES ($1, $2, COALESCE($3, (SELECT scheduled_for FROM v2_job_queue WHERE id = $2), now()))",
         concurrency_key,
         job_id,
+        place,
     )
     .execute(db)
     .warn_after_seconds(3)
