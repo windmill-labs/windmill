@@ -1760,11 +1760,13 @@ async fn process_notify_event(
                             windmill_api_scripts::scripts::RAW_SCRIPT_LATEST_HASH_CACHE
                                 .remove(&format!("{workspace_id}:{path}"));
                             if *kind == "preprocessor" {
+                                // A stored flow can spell the path with the leading `/` the worker
+                                // tolerates, and must not keep the old format when it runs.
                                 match sqlx::query_scalar::<_, i64>(
                                     "SELECT fv.id
                                     FROM flow f
                                     INNER JOIN flow_version fv ON fv.id = f.versions[array_upper(f.versions, 1)]
-                                    WHERE fv.value->'preprocessor_module'->'value'->>'path' = $1 AND f.workspace_id = $2",
+                                    WHERE fv.value->'preprocessor_module'->'value'->>'path' IN ($1, '/' || $1) AND f.workspace_id = $2",
                                 )
                                 .bind(*path)
                                 .bind(*workspace_id)

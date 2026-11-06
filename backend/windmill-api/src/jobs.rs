@@ -7928,8 +7928,9 @@ pub async fn run_workflow_as_code(
             JobKind::Script => {
                 let userdb_authed =
                     UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+                let script = RunnableRef::from_path(job.script_path(), false)?;
                 script_path_to_payload(
-                    job.script_path(),
+                    script.path(),
                     Some(userdb_authed),
                     db.clone(),
                     &w_id,
