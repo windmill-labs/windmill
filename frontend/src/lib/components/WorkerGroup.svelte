@@ -869,8 +869,10 @@
 				{/if}
 
 				<p class="text-xs text-secondary"
-					>Workers will get killed upon detecting changes. It is assumed they are in an environment
-					where the supervisor will restart them.</p
+					>Workers restart upon detecting config changes, one at a time: each waits until the
+					previous one is back up, for up to 5 minutes. Deploying a script reloads its process
+					without restarting the worker. It is assumed workers run in an environment where the
+					supervisor will restart them.</p
 				>
 
 				{#if nconfig !== undefined}
