@@ -3,7 +3,7 @@
 
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
-	import { allTrue, type DynamicInput } from '$lib/utils'
+	import { type DynamicInput } from '$lib/utils'
 	import { computeShow, quickjsSettled } from '$lib/utils/quickjsEval.svelte'
 	import { Button } from './common'
 	import type ItemPicker from './ItemPicker.svelte'
@@ -278,7 +278,8 @@
 		untrack(() => handleHiddenFields(schema, args ?? {}))
 	})
 	$effect.pre(() => {
-		isValid = allTrue(inputCheck ?? {})
+		// A field that left the schema keeps its last check here; it must not block validity.
+		isValid = keys.every((k) => !(k in inputCheck) || !!inputCheck[k])
 	})
 </script>
 
