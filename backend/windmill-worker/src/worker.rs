@@ -82,6 +82,7 @@ use windmill_queue::DedicatedWorkerJob;
 use windmill_queue::FlowRunners;
 use windmill_queue::MiniCompletedJob;
 use windmill_queue::PulledJobResultToJobErr;
+use windmill_queue::ValidableJson;
 
 use uuid::Uuid;
 
@@ -2004,7 +2005,8 @@ pub struct SameWorkerSender(pub Sender<SameWorkerPayload>, pub Arc<AtomicU16>);
 #[derive(Clone)]
 pub enum JobCompletedSender {
     Sql(SqlJobCompletedSender),
-    Http(HttpClient),
+    /// The worker name keys the job outcome counters an agent worker reports in its pings.
+    Http(HttpClient, Option<Arc<str>>),
     NeverUsed,
 }
 
@@ -2016,6 +2018,12 @@ impl JobCompletedSender {
     pub fn set_worker_killpill(&mut self, killpill_tx: KillpillSender) {
         if let Self::Sql(sql) = self {
             sql.worker_killpill_tx = Some(killpill_tx);
+        }
+    }
+
+    pub fn set_worker_name(&mut self, worker_name: &str) {
+        if let Self::Http(_, name) = self {
+            *name = Some(worker_name.into());
         }
     }
 
@@ -2073,7 +2081,7 @@ impl JobCompletedSender {
                 let result = Self::new_job_completed_sender_sql(buffer_size);
                 (result.0, Some(result.1))
             }
-            Connection::Http(client) => (Self::Http(client.clone()), None),
+            Connection::Http(client) => (Self::Http(client.clone(), None), None),
         }
     }
 
@@ -2098,8 +2106,15 @@ impl JobCompletedSender {
                     anyhow::anyhow!("Failed to send job completed to background processor")
                 })
             }
-            Self::Http(client) => {
+            Self::Http(client, worker_name) => {
+                // An agent worker's completion is processed on the server, so its outcome is
+                // counted here, with the same `wm_failure` override the result processor applies.
+                let failed = jc.canceled_by.is_none()
+                    && (!jc.success || jc.result.result_metadata().wm_failure.is_some());
                 crate::agent_workers::send_result(client, jc).await?;
+                if let Some(worker_name) = worker_name {
+                    windmill_common::worker_job_stats::record_job_outcome(worker_name, failed);
+                }
                 Ok(())
             }
             Self::NeverUsed => {
@@ -2128,7 +2143,7 @@ impl JobCompletedSender {
                         .await
                 }
             }
-            Self::Http(_) => {
+            Self::Http(..) => {
                 tracing::error!("Sending job completed to http client, this should not happen");
                 Ok(())
             }
@@ -2148,7 +2163,7 @@ impl JobCompletedSender {
                 killpill_tx.send(())?;
                 Ok(())
             }
-            Self::Http(_) => {
+            Self::Http(..) => {
                 tracing::error!("Sending kill to http client, this should not happen");
                 Ok(())
             }
@@ -2974,9 +2989,13 @@ pub async fn run_worker(
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
     let mut reported_ip = cached_ip();
-    let previous_jobs_executed = insert_ping(hostname, &worker_name, reported_ip, true, conn)
+    let reclaimed = insert_ping(hostname, &worker_name, reported_ip, true, conn)
         .await
         .expect("initial ping could be sent");
+    let previous_jobs_executed = reclaimed.jobs_executed;
+    if let Some(job_stats) = reclaimed.job_stats {
+        windmill_common::worker_job_stats::restore_job_stats(&worker_name, job_stats);
+    }
 
     #[cfg(feature = "prometheus")]
     let uptime_metric = if METRICS_ENABLED.load(Ordering::Relaxed) {
@@ -3259,6 +3278,7 @@ pub async fn run_worker(
 
     let (mut job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
     job_completed_tx.set_worker_killpill(killpill_tx.clone());
+    job_completed_tx.set_worker_name(&worker_name);
 
     let same_worker_queue_size = Arc::new(AtomicU16::new(0));
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());

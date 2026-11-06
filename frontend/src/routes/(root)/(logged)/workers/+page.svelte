@@ -4,6 +4,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import OccupancyBars from '$lib/components/OccupancyBars.svelte'
+	import WorkerJobFailures, { sumJobStats } from '$lib/components/WorkerJobFailures.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -597,7 +598,7 @@
 
 	let columnCount = $derived.by(() => {
 		const config = (workerGroups ?? {})[selectedTab]
-		let cols = 7 // Worker, Worker start, Jobs ran, Memory usage, Limits, Version, Status
+		let cols = 8 // Worker, Worker start, Jobs ran, Failed jobs, Memory usage, Limits, Version, Status
 		if (!config || !config.worker_tags || config.worker_tags.length === 0) cols += 1 // Worker tags
 		if ((!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole))
 			cols += 2 // Last job, Occupancy rate
@@ -959,6 +960,9 @@
 						{@const activeWorkers = worker_group?.[1].flatMap((x) =>
 							x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
 						)}
+						{@const groupJobStats = sumJobStats(
+							worker_group[1].flatMap((x) => x[1] ?? []).map((w) => w.job_stats)
+						)}
 
 						<WorkspaceGroup
 							{customTags}
@@ -982,6 +986,17 @@
 						/>
 
 						<div class="mt-6"></div>
+
+						{#if groupJobStats}
+							<div class="flex flex-row gap-3 items-center mb-4">
+								<div class="text-emphasis font-semibold text-xs">Failed jobs in this group</div>
+								<WorkerJobFailures
+									stats={groupJobStats}
+									last100Label="last 100 jobs of each worker"
+									inline
+								/>
+							</div>
+						{/if}
 
 						<div class="flex flex-row gap-2 items-center justify-between">
 							<div class="text-emphasis font-semibold text-xs">Active workers</div>
@@ -1016,6 +1031,16 @@
 									{/if}
 									<Cell head>Worker start</Cell>
 									<Cell head>Jobs ran</Cell>
+									<Cell head>
+										<div class="flex flex-row items-center gap-1">
+											Failed jobs
+											<Tooltip>
+												Share of this worker's jobs that failed over the last 24h, its last 100 jobs
+												and since it first started under this name. Canceled jobs are not counted as
+												failures.
+											</Tooltip>
+										</div>
+									</Cell>
 									{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
 										<Cell head>Last job</Cell>
 										<Cell head>Occupancy rate<br />(15s/5m/30m/ever)</Cell>
@@ -1063,7 +1088,7 @@
 											</Cell>
 										</tr>
 										{#if workers}
-											{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage, native_mode, draining }}
+											{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage, native_mode, draining, job_stats }}
 												{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
 												{@const tagMismatchInfo = getTagMismatchInfo(
 													custom_tags,
@@ -1152,6 +1177,7 @@
 													{/if}
 													<Cell class="text-secondary">{displayDate(started_at)}</Cell>
 													<Cell class="text-secondary">{jobs_executed}</Cell>
+													<Cell><WorkerJobFailures stats={job_stats} /></Cell>
 													{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
 														<Cell class="text-secondary">
 															<!-- The run page switches to the job's workspace, which strands a

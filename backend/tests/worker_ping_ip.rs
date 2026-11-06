@@ -97,6 +97,7 @@ async fn main_loop_ping(
         false,
         None,
         last_job,
+        None,
         db,
     )
     .await
