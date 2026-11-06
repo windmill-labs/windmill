@@ -4706,13 +4706,20 @@ async fn handle_dedicated_bunnative(
             )
         });
 
-        // Counted as up once warmed, as subprocesses are on their "start" line.
-        crate::worker::STARTED_DEDICATED_PROCESSES
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let mut killpill_rx = killpill_rx;
+        // Counted as up once its isolate is ready, as subprocesses are on their "start" line:
+        // `spawn` returns before initialization. A failed init is reported to the first job.
+        let mut init_err = tokio::select! {
+            _ = killpill_rx.recv() => return Ok(()),
+            r = warm.wait_ready() => r.err(),
+        };
+        if init_err.is_none() {
+            crate::worker::STARTED_DEDICATED_PROCESSES
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
 
         let init_log = format!("dedicated worker nativets: {worker_name}\n\n");
         let alive = true;
-        let mut killpill_rx = killpill_rx;
         loop {
             tokio::select! {
                 biased;
@@ -4744,7 +4751,11 @@ async fn handle_dedicated_bunnative(
                         // Run the job: preprocess if needed, then execute main.
                         // Uses a labeled block to unify error handling with a single JobCompleted send.
                         let (result, success, preprocessed_args, logs) = 'job: {
-                            if let Err(e) = warm.wait_ready().await {
+                            let ready = match init_err.take() {
+                                Some(e) => Err(e),
+                                None => warm.wait_ready().await,
+                            };
+                            if let Err(e) = ready {
                                 break 'job (
                                     Arc::new(to_raw_value(&serde_json::json!({"message": format!("isolate init failed: {e}"), "name": "Error"}))),
                                     false, None, init_log.clone(),
