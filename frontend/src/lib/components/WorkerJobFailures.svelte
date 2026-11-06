@@ -30,6 +30,7 @@
 		stats: WorkerJobStats | undefined
 		/** Label of the last-100 window, which sums per-worker windows for a group. */
 		last100Label?: string
+		/** All three windows side by side; otherwise only the 24h rate, the rest in a tooltip. */
 		inline?: boolean
 	}
 
@@ -55,8 +56,24 @@
 
 {#if !stats}
 	<span class="text-hint">--</span>
+{:else if !inline}
+	<!-- One figure per table row; the other windows are in the tooltip. -->
+	<MeltTooltip>
+		<span
+			class="text-xs whitespace-nowrap {stats.last_24h.failed > 0
+				? 'text-red-600 dark:text-red-400'
+				: 'text-secondary'}"
+		>
+			{pct(stats.last_24h)}
+		</span>
+		{#snippet text()}
+			{#each windows as w (w.short)}
+				<div>{w.label}: {pct(w.counts)} ({w.counts.failed} failed of {w.counts.executed})</div>
+			{/each}
+		{/snippet}
+	</MeltTooltip>
 {:else}
-	<div class="flex {inline ? 'flex-row gap-3' : 'flex-col gap-0.5'} text-xs">
+	<div class="flex flex-row gap-3 text-xs">
 		{#each windows as w (w.short)}
 			<MeltTooltip>
 				<div class="flex flex-row gap-1 items-baseline whitespace-nowrap">

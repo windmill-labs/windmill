@@ -1033,10 +1033,10 @@
 									<Cell head>Jobs ran</Cell>
 									<Cell head>
 										<div class="flex flex-row items-center gap-1">
-											Failed jobs
+											Failed (24h)
 											<Tooltip>
-												Share of the script and flow-step jobs run by this worker that failed, over
-												the last 24h, its last 100 jobs and since it first started under this name.
+												Share of the script and flow-step jobs run by this worker in the last 24h that
+												failed. Hover a value for its last 100 jobs and its whole life under this name.
 												Flows themselves are not counted, and canceled jobs are not failures.
 											</Tooltip>
 										</div>
