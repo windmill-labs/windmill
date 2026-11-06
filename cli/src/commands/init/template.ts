@@ -144,7 +144,7 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
       properties: {
         relative_path: { type: "string", description: "Path to the codebase directory" },
         extra_digest_paths: { type: "array", items: { type: "string" }, description: "Paths outside relative_path that scripts import, relative to wmill.yaml; hashed recursively" },
-        per_script_digest: { type: "boolean", description: "Redeploy a script only when a file it bundles changes, instead of on any change under relative_path. Each push bundles every script of the codebase once to find its inputs, so every one of them must bundle" },
+        per_script_digest: { type: "boolean", description: "Redeploy a script only when a file it bundles changes, instead of on any change under relative_path. Each push bundles every script of the codebase once to find its inputs, so every one of them must bundle. Files a script reads at runtime rather than imports are not covered: list them in extra_digest_paths" },
         includes: { type: "array", items: { type: "string" }, description: "Glob patterns for files to include in bundle" },
         excludes: { type: "array", items: { type: "string" }, description: "Glob patterns for files to exclude from bundle" },
         format: { type: "string", enum: ["cjs", "esm"], description: "Bundle output format" },
