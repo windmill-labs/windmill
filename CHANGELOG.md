@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.864.1](https://github.com/windmill-labs/windmill/compare/v1.864.0...v1.864.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* install ansible python deps for the python ansible-playbook runs on ([#12283](https://github.com/windmill-labs/windmill/issues/12283)) ([728b3dd](https://github.com/windmill-labs/windmill/commit/728b3dd1aa2e7ce84175d093d0490612380ca33b))
+
 ## [1.864.0](https://github.com/windmill-labs/windmill/compare/v1.863.0...v1.864.0) (2026-11-06)
 
 
