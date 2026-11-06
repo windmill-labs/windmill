@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "WITH RECURSIVE chain AS (\n            SELECT id, parent_job, kind, runnable_id, runnable_path, 1 AS depth\n            FROM v2_job WHERE id = $1 AND workspace_id = $2 AND tag = $3\n          UNION ALL\n            SELECT j.id, j.parent_job, j.kind, j.runnable_id, j.runnable_path, chain.depth + 1\n            FROM v2_job j JOIN chain ON j.id = chain.parent_job\n            WHERE j.workspace_id = $2 AND j.tag = $3 AND chain.depth < 64\n        )\n        SELECT id AS \"id!\", kind AS \"kind!: JobKind\", runnable_id AS \"runnable_id: ScriptHash\",\n            (kind = 'flow' AND EXISTS (\n                SELECT 1 FROM flow\n                WHERE flow.workspace_id = $2 AND flow.path = chain.runnable_path\n                    AND COALESCE(flow.tag, '') <> ''\n            )) AS \"declares_tag!\"\n        FROM chain ORDER BY depth",
+  "query": "WITH RECURSIVE chain AS (\n            SELECT id, parent_job, kind, runnable_id, runnable_path, tag, 1 AS depth\n            FROM v2_job WHERE id = $1 AND workspace_id = $2\n          UNION ALL\n            SELECT j.id, j.parent_job, j.kind, j.runnable_id, j.runnable_path, j.tag,\n                chain.depth + 1\n            FROM v2_job j JOIN chain ON j.id = chain.parent_job\n            WHERE j.workspace_id = $2 AND j.tag = chain.tag AND chain.depth < 64\n        )\n        SELECT id AS \"id!\", kind AS \"kind!: JobKind\", runnable_id AS \"runnable_id: ScriptHash\",\n            (kind = 'flow' AND EXISTS (\n                SELECT 1 FROM flow\n                WHERE flow.workspace_id = $2 AND flow.path = chain.runnable_path\n                    AND COALESCE(flow.tag, '') <> ''\n            )) AS \"declares_tag!\"\n        FROM chain ORDER BY depth",
   "describe": {
     "columns": [
       {
@@ -57,7 +57,6 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Text",
         "Text"
       ]
     },
@@ -68,5 +67,5 @@
       null
     ]
   },
-  "hash": "24c4796753b2d957e81f9703af50fc1a545321988aab3e91180808b028c13e16"
+  "hash": "e553a5167c51f32ba07153dd52e15de4d5f3719e5ebda0bd95bb6c68b3cc9662"
 }

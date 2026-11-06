@@ -761,14 +761,22 @@ pub async fn handle_ai_agent_job(
     };
 
     let value = flow_data.value();
+    // Tools resolve their tag against the agent's, so only a custom agent tag needs the walk.
     let preserve_step_tags = value.preserve_step_tags
-        || crate::worker_flow::enclosing_flow_preserves_step_tags(
-            db,
-            &job.workspace_id,
-            &job.tag,
-            flow_job_id,
-        )
-        .await?;
+        || (flow_job.parent_job.is_some()
+            && !crate::worker_flow::is_default_flow_tag(
+                &job.tag,
+                &job.workspace_id,
+                windmill_queue::tags::dev_flow_tag_suffix(&job.workspace_id, &job.tag, db)
+                    .await?
+                    .as_deref(),
+            )
+            && crate::worker_flow::enclosing_flow_preserves_step_tags(
+                db,
+                &job.workspace_id,
+                flow_job_id,
+            )
+            .await?);
 
     let module = if direct_parent_job_kind == JobKind::AIAgent {
         let parent_agent_step_id = direct_parent_job_flow_step_id.as_deref().ok_or_else(|| {
