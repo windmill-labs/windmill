@@ -891,8 +891,8 @@
 											>A new version of a listed script reloads in place, shared runners included</li
 										>
 										<li
-											>Workers restart, one at a time, when a listed script becomes deployable, is
-											toggled, archived, or gains or loses its <code>requirements</code> annotation</li
+											>Workers restart when the scripts they run, or how those scripts share a
+											runner, change</li
 										>
 										<li>Any deploy restarts them if the group serves a flow</li>
 									</ul>
