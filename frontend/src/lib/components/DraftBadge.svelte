@@ -20,13 +20,15 @@
 	import type DiffDrawer from './DiffDrawer.svelte'
 	import { tick } from 'svelte'
 	import MigrateLegacyDraftModal from './common/confirmationModal/MigrateLegacyDraftModal.svelte'
-	import { GitCompareArrows, Pencil, Wrench } from 'lucide-svelte'
+	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
+	import { GitCompareArrows, Pencil, Trash2, Wrench } from 'lucide-svelte'
 	import { DraftService, type UserDraftItemKind } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { OtherUserDraftLoad, editRouteFor } from '$lib/components/otherUserDraftLoad.svelte'
 	import { fetchDeployedValueForDiff } from '$lib/components/otherUserDraftDiff'
 	import { roleCapabilities, userStore } from '$lib/stores'
 	import { roleCanAuthor } from '$lib/editRights'
+	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 
 	type DraftUser = { username?: string | null }
 
@@ -40,8 +42,9 @@
 		workspace?: string
 		itemKind?: UserDraftItemKind
 		path?: string
-		/** Called after an admin migrates (deletes / assigns) the legacy draft, so
-		 *  the parent row can refetch and drop the now-resolved legacy entry. */
+		/** Called after an admin migrates (deletes / assigns) the legacy draft or
+		 *  discards another user's draft, so the parent row can refetch and drop
+		 *  the resolved entry. */
 		onMigrated?: () => void
 		/** Offer "Load" alongside "View Diff" on other users' rows. The deploy /
 		 * review page sets this false: loading into a fresh editor is moot there. */
@@ -151,6 +154,43 @@
 
 	// Legacy (no-owner) drafts can only be resolved by workspace admins / superadmins.
 	const canMigrateLegacy = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin)
+	// Discarding another user's draft is `drafts/delete_for_user`, admin-only in `workspace`.
+	// `$userStore` describes the navigation workspace, so its admin flag only counts there;
+	// superadmin is global.
+	const canDiscardOthers = $derived(
+		!!$userStore?.is_super_admin ||
+			(!!$userStore?.is_admin && $userStore?.workspace_id === workspace)
+	)
+
+	let discardTarget = $state<DraftUser | undefined>(undefined)
+	let discardBusy = $state(false)
+	// Their draft is the last one of a never-deployed item: discarding it deletes the item.
+	const discardDeletesItem = $derived(
+		draft_only && draft_users.every((u) => ownerKey(u) === ownerKey(discardTarget ?? {}))
+	)
+
+	async function discardDraft() {
+		const owner = discardTarget
+		if (!owner?.username || !workspace || !itemKind || !path) return
+		discardBusy = true
+		try {
+			await DraftService.deleteDraftForUser({
+				workspace,
+				kind: itemKind,
+				path,
+				username: owner.username
+			})
+			sendUserToast(`Discarded ${owner.username}'s draft`)
+		} catch (e: any) {
+			sendUserToast(`Could not discard draft: ${e.body ?? e.message}`, true)
+			return
+		} finally {
+			discardBusy = false
+			discardTarget = undefined
+		}
+		invalidateWorkspaceDrafts(workspace)
+		onMigrated?.()
+	}
 
 	function ownerKey(owner: DraftUser): string {
 		return owner.username ?? '__legacy__'
@@ -359,6 +399,21 @@
 											Load
 										</Button>
 									{/if}
+									{#if u.username && canDiscardOthers}
+										<Button
+											variant="subtle"
+											unifiedSize="2xs"
+											destructive
+											startIcon={{ icon: Trash2 }}
+											disabled={busyFor !== null}
+											onclick={() => {
+												popoverOpen = false
+												discardTarget = u
+											}}
+										>
+											Discard
+										</Button>
+									{/if}
 									{#if !u.username && canMigrateLegacy}
 										<Button
 											variant="subtle"
@@ -388,6 +443,29 @@
 {#if actionsEnabled && diffDrawerModule.current}
 	{@const LoadedDiffDrawer = diffDrawerModule.current.default}
 	<LoadedDiffDrawer bind:this={diffDrawer} isFlow={itemKind === 'flow'} />
+{/if}
+
+{#if actionsEnabled}
+	<ConfirmationModal
+		open={discardTarget !== undefined}
+		title="Discard {discardTarget?.username}'s draft?"
+		confirmationText="Discard"
+		loading={discardBusy}
+		onConfirmed={() => void discardDraft()}
+		onCanceled={() => (discardTarget = undefined)}
+	>
+		<p class="text-sm">
+			This permanently deletes the draft {discardTarget?.username} has at
+			<span class="font-mono font-medium text-primary">{path}</span>. Their unsaved work there is
+			lost and can't be recovered.
+		</p>
+		{#if discardDeletesItem}
+			<p class="text-sm mt-2">
+				This {kindLabel} was never deployed and this is its last draft, so it will be
+				<span class="font-semibold">permanently deleted</span>.
+			</p>
+		{/if}
+	</ConfirmationModal>
 {/if}
 
 {#if workspace && itemKind && path}
