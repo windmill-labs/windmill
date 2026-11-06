@@ -164,7 +164,43 @@ test("per_script_digest covers build fields of package.json, not its dependencie
 // the layout resolves where it claims to.
 const ON = `{ "compilerOptions": { "useDefineForClassFields": true } }`;
 const OFF = `{ "compilerOptions": { "useDefineForClassFields": false } }`;
-const tsconfigLayouts: { name: string; files: Record<string, string>; applied: string; decoy?: string }[] = [
+const tsconfigLayouts: {
+  name: string;
+  files: Record<string, string>;
+  links?: Record<string, string>;
+  applied: string;
+  decoy?: string;
+}[] = [
+  {
+    name: ".jsonc exports target",
+    files: {
+      "node_modules/cfg/package.json": JSON.stringify({ exports: { ".": "./base.jsonc" } }),
+      "node_modules/cfg/base.jsonc": ON,
+      "node_modules/cfg/tsconfig.json": ON,
+      "f/tsconfig.json": `{ "extends": "cfg" }`,
+    },
+    applied: "node_modules/cfg/base.jsonc",
+    decoy: "node_modules/cfg/tsconfig.json",
+  },
+  {
+    name: "extensionless subpath",
+    files: {
+      "node_modules/cfg/package.json": "{}",
+      "node_modules/cfg/strict": ON,
+      "f/tsconfig.json": `{ "extends": "cfg/strict" }`,
+    },
+    applied: "node_modules/cfg/strict",
+  },
+  {
+    name: "workspace package symlinked into node_modules",
+    files: {
+      "packages/cfg/package.json": "{}",
+      "packages/cfg/tsconfig.json": ON,
+      "f/tsconfig.json": `{ "extends": "cfg" }`,
+    },
+    links: { "node_modules/cfg": "../packages/cfg" },
+    applied: "packages/cfg/tsconfig.json",
+  },
   {
     name: "conditional exports",
     files: {
@@ -258,6 +294,10 @@ for (const layout of tsconfigLayouts) {
       for (const [p, c] of Object.entries(layout.files)) {
         await mkdir(dirname(join(root, p)), { recursive: true });
         await writeFile(join(root, p), c);
+      }
+      for (const [p, target] of Object.entries(layout.links ?? {})) {
+        await mkdir(dirname(join(root, p)), { recursive: true });
+        await symlink(target, join(root, p));
       }
       // useDefineForClassFields decides whether the field shadows the accessor.
       await writeFile(

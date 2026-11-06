@@ -223,12 +223,13 @@ async function resolveRelativeExtends(spec: string, dir: string): Promise<string
 }
 
 /**
- * Every config a package `extends` could resolve to: all `.json` files of the
- * package in each `node_modules` above the config (its `package.json` included),
- * plus the file its `tsconfig` field names. esbuild picks one through the package's
+ * Every config a package `extends` could resolve to: every file of the package in
+ * each `node_modules` above the config, whatever its extension (an `exports` target
+ * can be `.jsonc` or extensionless) and through symlinks (workspace packages), plus
+ * the file its `tsconfig` field names. esbuild picks one through the package's
  * `exports` conditions, `tsconfig` field and subpath; hashing them all covers its
- * pick without reimplementing that resolution, at the cost of redeploying when an
- * unused config of the package changes.
+ * pick without reimplementing that resolution, at the cost of redeploying when any
+ * file of the package changes.
  */
 async function packageConfigFiles(spec: string, dir: string): Promise<string[]> {
   const name = spec.split("/").slice(0, spec.startsWith("@") ? 2 : 1).join("/");
@@ -236,7 +237,7 @@ async function packageConfigFiles(spec: string, dir: string): Promise<string[]> 
   for (let d = dir; ; d = path.dirname(d)) {
     const pkgDir = path.join(d, "node_modules", name);
     if (await stat(pkgDir).then((s) => s.isDirectory(), () => false)) {
-      res.push(...(await jsonFilesUnder(pkgDir)));
+      res.push(...(await filesUnder(pkgDir, new Set())));
       const field = (await readJson(path.join(pkgDir, "package.json")))?.tsconfig;
       if (typeof field == "string" && field != "") {
         const p = path.resolve(pkgDir, field);
@@ -247,12 +248,17 @@ async function packageConfigFiles(spec: string, dir: string): Promise<string[]> 
   }
 }
 
-async function jsonFilesUnder(dir: string): Promise<string[]> {
+/** The files under `dir`, following symlinks, without nested `node_modules`. */
+async function filesUnder(dir: string, seenDirs: Set<string>): Promise<string[]> {
+  const real = await realpath(dir);
+  if (seenDirs.has(real)) return [];
+  seenDirs.add(real);
   const res: string[] = [];
-  for (const e of await readdir(dir, { withFileTypes: true })) {
-    const p = path.join(dir, e.name);
-    if (e.isDirectory() && e.name != "node_modules") res.push(...(await jsonFilesUnder(p)));
-    else if (e.isFile() && e.name.endsWith(".json")) res.push(p);
+  for (const e of await readdir(dir)) {
+    const p = path.join(dir, e);
+    const s = await stat(p).catch(() => undefined);
+    if (s?.isDirectory() && e != "node_modules") res.push(...(await filesUnder(p, seenDirs)));
+    else if (s?.isFile()) res.push(p);
   }
   return res;
 }
