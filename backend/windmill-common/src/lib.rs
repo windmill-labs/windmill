@@ -1535,6 +1535,17 @@ impl PgDatabase {
     async fn connect_with_iam(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
+        let token = self.iam_auth_token().await?;
+        // An IAM token is signed for this one host, so it is worthless anywhere else.
+        self.connect_with_token("IAM RDS", self.login_name(), &token, false)
+            .await
+    }
+
+    /// An RDS IAM token for this resource's host, port and login, used as the password.
+    /// It is signed with the worker's own AWS credentials and checks nothing itself: call it
+    /// only on a resource the caller was already authorized to read, never on caller-built values.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    pub async fn iam_auth_token(&self) -> Result<String, error::Error> {
         // Resolve region: resource field takes priority, then env var
         let region = match self.region.as_deref() {
             Some(r) => r.to_string(),
@@ -1548,15 +1559,9 @@ impl PgDatabase {
         let port = self.port.unwrap_or(5432);
         let user = self.login_name();
 
-        let token = db_iam_ee::generate_auth_token(&region, &self.host, port as u64, user)
+        db_iam_ee::generate_auth_token(&region, &self.host, port as u64, user)
             .await
-            .map_err(|e| {
-                error::Error::InternalErr(format!("IAM token generation failed: {e:#}"))
-            })?;
-
-        // An IAM token is signed for this one host, so it is worthless anywhere else.
-        self.connect_with_token("IAM RDS", user, &token, false)
-            .await
+            .map_err(|e| error::Error::InternalErr(format!("IAM token generation failed: {e:#}")))
     }
 
     /// The role an Entra-authenticated connection logs in as. Azure maps each Entra
