@@ -94,7 +94,7 @@ jobs:
           echo "$PG_BIN" >> "$GITHUB_PATH"
           "$PG_BIN/pg_dump" --version
         working-directory: /
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           cache-workspaces: backend
           toolchain: 1.97.0

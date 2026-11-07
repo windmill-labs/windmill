@@ -47,7 +47,7 @@ jobs:
           database: windmill
           port: 5432
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           cache-workspaces: backend
           toolchain: 1.97.0
