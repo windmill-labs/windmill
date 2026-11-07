@@ -16382,6 +16382,7 @@ paths:
                 #flow: flow/<path>
                 path:
                   type: string
+                  description: Runnable to run. Cannot be sent with `raw_code` or `id`.
                 version:
                   type: integer
                 args: {}
@@ -16411,6 +16412,7 @@ paths:
                     - language
                 id:
                   type: integer
+                  description: ID of a deployed inline script, sent with `raw_code`. Cannot be sent with `path`.
                 force_viewer_static_fields:
                   type: object
                 force_viewer_one_of_fields:
