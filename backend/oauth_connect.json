@@ -14,7 +14,36 @@
     "auth_url": "https://bitbucket.org/site/oauth2/authorize",
     "token_url": "https://bitbucket.org/site/oauth2/access_token",
     "grant_types": ["authorization_code", "client_credentials"],
-    "scopes": ["repository"]
+    "scopes": [
+      "account",
+      "repository",
+      "repository:write",
+      "pullrequest",
+      "pullrequest:write",
+      "pipeline",
+      "pipeline:write"
+    ],
+    "cc_scopes": [
+      "account",
+      "repository",
+      "repository:write",
+      "pullrequest",
+      "pullrequest:write",
+      "pipeline",
+      "pipeline:write"
+    ],
+    "scope_options": [
+      { "value": "account", "label": "Read your account and workspaces" },
+      { "value": "repository", "label": "Read repositories" },
+      { "value": "repository:write", "label": "Push to repositories, create branches and tags" },
+      { "value": "repository:admin", "label": "Create and administer repositories" },
+      { "value": "pullrequest", "label": "Read pull requests" },
+      { "value": "pullrequest:write", "label": "Create, comment on, approve and merge pull requests" },
+      { "value": "pipeline", "label": "Read pipelines" },
+      { "value": "pipeline:write", "label": "Run and stop pipelines" },
+      { "value": "snippet", "label": "Read and comment on snippets" },
+      { "value": "webhook", "label": "Manage webhooks" }
+    ]
   },
   "slack": {
     "auth_url": "https://slack.com/oauth/v2/authorize",
