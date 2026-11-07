@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT path AS \"path!\", value AS \"value?\"\n            FROM resource\n            WHERE workspace_id = $1 AND path = ANY($2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "value?",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "424247c6ef5bb5739a5f6894aaefdf47ac6dcbfd110401e0a924302581f7e206"
+}

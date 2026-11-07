@@ -47,6 +47,9 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Workspace roles**: `docs/workspace-roles.md` — instance-defined roles with per-workspace
   overrides, the capabilities a role holds, why `ApiAuthed::is_operator` must be derived from the
   role, and the `role_seat` table billing reads
+- **Access reads**: `docs/access-reads.md` — what `/access/reads` says an item reads and who
+  performs each read (its caller, its account, a step's own account, an app's viewer). The scan
+  mirrors who the runtime runs each piece as, so changing that changes `tag` in `access_reads.rs`.
 - **Operator write rights**: `docs/operator-write-rights.md` — which `operator_settings` flags are
   enforced rather than cosmetic, and why a right that is granted-unless-withdrawn needs `Option`
   fields and a jsonb merge rather than a serde default

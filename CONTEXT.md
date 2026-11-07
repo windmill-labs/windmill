@@ -92,3 +92,10 @@ _Avoid_: permission level, access level, rank
 Reserved for the path prefix that says where an item lives — `u/alice` or `f/team`. A folder's
 `owners` column in the database is its admin members; call those admins, never owners, in the UI.
 _Avoid_: using "owner" for a folder admin
+
+**Reference**:
+A workspace item that a script, flow or app names by path: a resource or variable it reads or
+writes, or a script or flow its code starts. The access views turn references into grants. An
+**asset** is the data the code touches, such as a data table or an object storage file, recorded
+in `asset` rows; a resource can be both, but only a reference says what access the code needs.
+_Avoid_: dependency (the packages in a lockfile), asset (for an item the code names)

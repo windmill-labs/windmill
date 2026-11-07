@@ -25402,6 +25402,127 @@ paths:
               schema:
                 $ref: "#/components/schemas/PrincipalAccess"
 
+  /w/{workspace}/access/browse_folders:
+    get:
+      summary: list the folders the caller can read, with the principal's direct grant on each
+      operationId: browseAccessFolders
+      tags:
+        - granular_acl
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: principal
+          description: "`u/<username>` or `g/<group>`"
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: folders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    grant:
+                      description: the principal's entry in the folder's extra_perms; absent when none, false for read, true for write
+                      type: boolean
+                      nullable: true
+                    target_owner:
+                      type: boolean
+                    blocked:
+                      description: why the caller cannot change this grant
+                      type: string
+                  required: [name, target_owner]
+
+  /w/{workspace}/access/browse_items:
+    get:
+      summary: list items the caller can read, with the principal's direct grant on each
+      operationId: browseAccessItems
+      tags:
+        - granular_acl
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: principal
+          description: "`u/<username>` or `g/<group>`"
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: prefix
+          description: only paths starting with this, e.g. `f/billing/`
+          in: query
+          schema:
+            type: string
+        - name: kind
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: a page of 100 items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        kind:
+                          type: string
+                        path:
+                          type: string
+                        grant:
+                          type: boolean
+                          nullable: true
+                        blocked:
+                          description: why the caller cannot change this grant
+                          type: string
+                      required: [kind, path]
+                  has_more:
+                    type: boolean
+                required: [items, has_more]
+
+  /w/{workspace}/access/reads:
+    post:
+      summary: list what an item reads when it runs, and who performs each read
+      description: >-
+        Reads only what the caller can read: anything else is listed under `errors`, with the
+        same line whether it is missing or hidden.
+      operationId: getAccessReads
+      tags:
+        - granular_acl
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccessReadsRequest"
+      responses:
+        "200":
+          description: what the item reads, each read with who performs it
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessReads"
+
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
       summary: get granular acls
@@ -37498,6 +37619,12 @@ components:
                 type: array
                 items:
                   type: string
+              grant:
+                description: the principal's own entry on the folder; absent when none, false for read, true for write
+                type: boolean
+              blocked:
+                description: why the caller cannot change the principal's own entry; set only where there is one
+                type: string
             required: [name, write, owner, via]
         items:
           type: array
@@ -37514,6 +37641,9 @@ components:
                 type: array
                 items:
                   $ref: "#/components/schemas/AccessReason"
+              blocked:
+                description: why the caller cannot change the principal's own grant; set only where there is one
+                type: string
             required: [kind, path, write, reasons]
       required: [principal, is_admin, groups, folders, items]
 
@@ -37530,6 +37660,124 @@ components:
         write:
           type: boolean
       required: [type]
+
+    AccessReadsRequest:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [script, flow, app]
+        path:
+          description: the saved item to scan or, with `source`, the path that labels it
+          type: string
+        source:
+          $ref: "#/components/schemas/AccessReadsSource"
+      required: [kind]
+
+    AccessReadsSource:
+      description: unsaved editor content, scanned in place of the saved item
+      type: object
+      properties:
+        language:
+          description: a script's language
+          type: string
+        content:
+          description: a script's code, required for a script
+          type: string
+        modules:
+          description: a script's other files, by name
+        value:
+          description: a flow's or an app's value, required for those
+        schema:
+          description: a script's or a flow's input schema
+        on_behalf_of:
+          description: the account a script or flow runs as, when it has one
+          type: string
+        policy:
+          description: an app's policy, which says who its runnables run as
+
+    AccessReads:
+      type: object
+      properties:
+        runs_as:
+          $ref: "#/components/schemas/AccessRunsAs"
+        references:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessReference"
+        others:
+          description: assets that are not workspace items, such as data tables and object storage files
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessOtherAsset"
+        errors:
+          description: what could not be followed, one line each
+          type: array
+          items:
+            type: string
+      required: [runs_as, references, others, errors]
+
+    AccessRunsAs:
+      description: who the scanned item runs as
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [caller, account]
+        principal:
+          description: the account, for `account`; missing for an app whose policy names none
+          type: string
+      required: [type]
+
+    AccessReader:
+      description: >-
+        who performs a read: `viewer` is whoever opens the app, `root` whoever the scanned item
+        runs as, and `account` the fixed identity of a runnable the item reaches
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [viewer, root, account]
+        principal:
+          description: the account, for `account`
+          type: string
+      required: [type]
+
+    AccessReference:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [resource, variable, script, flow]
+        path:
+          type: string
+        access:
+          description: "`run` is a script or flow started through the run API, which takes read on it"
+          type: string
+          enum: [read, write, run]
+        reader:
+          $ref: "#/components/schemas/AccessReader"
+        sources:
+          description: the parts of the item that make the read, as `<path> › <step or file>`
+          type: array
+          items:
+            type: string
+      required: [kind, path, access, reader, sources]
+
+    AccessOtherAsset:
+      type: object
+      properties:
+        kind:
+          $ref: "#/components/schemas/AssetKind"
+        path:
+          type: string
+        reader:
+          $ref: "#/components/schemas/AccessReader"
+        sources:
+          type: array
+          items:
+            type: string
+      required: [kind, path, reader, sources]
 
     Group:
       type: object
