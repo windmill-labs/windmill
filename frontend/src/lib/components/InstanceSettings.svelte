@@ -350,7 +350,9 @@
 				auth_url: tmpl.auth_url ? tmpl.auth_url.replaceAll('{instance}', v) : '',
 				token_url: tmpl.token_url.replaceAll('{instance}', v),
 				req_body_auth: tmpl.req_body_auth ?? false,
-				extra_params: { [key]: v },
+				// This connect_config replaces the registry entry in the connect flow, so
+				// carry over the entry's own extra_params (Zoho's access_type=offline).
+				extra_params: { ...(oauthConnectRegistry as any)[name]?.extra_params, [key]: v },
 				extra_params_callback: {}
 			}
 		}
