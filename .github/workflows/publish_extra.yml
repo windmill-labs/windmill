@@ -38,7 +38,7 @@ jobs:
       # Matches the Node major DockerfileExtra installs. The pin is load-bearing:
       # glob arguments to `node --test` need Node >= 21.
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
