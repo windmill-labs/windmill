@@ -146,7 +146,14 @@ export type DisplayLookups = {
 	revealed?: (message: ChatMessage) => Revealed | undefined
 	/** The approval or question the running turn's agent waits on. */
 	request?: AgentRequest
+	/** The running turn's agent answered and waits on tools running in the background: the calls
+	 *  it shows as running are those. */
+	backgroundWait?: boolean
 }
+
+/** The row the worker writes when a call goes to the background. Its result is a later row of
+ *  the same job, which this call's card shows in its place. */
+const BACKGROUND_START = /^(?:Started .+ in|Moved .+ to) the background$/
 
 const QUESTION_CALL = /^ask_question(_\d+)?$/
 
@@ -260,7 +267,27 @@ export function toDisplayMessages(
 	}
 	const request = lookups.request
 	let requestShown = false
-	const shown = messages.flatMap((message, i): DisplayMessage[] => {
+	// A background call's result row, by the index of the row that started it.
+	const backgroundResults = new Map<number, number>()
+	const backgroundStarts = new Map<string, number>()
+	messages.forEach((message, i) => {
+		if (message.role !== 'tool' || !message.jobId) return
+		const start = backgroundStarts.get(message.jobId)
+		if (start !== undefined) backgroundResults.set(start, i)
+		else if (BACKGROUND_START.test(message.content)) backgroundStarts.set(message.jobId, i)
+	})
+	const shownElsewhere = new Set(backgroundResults.values())
+	const shown = messages.flatMap((row, i): DisplayMessage[] => {
+		if (shownElsewhere.has(i)) return []
+		const resultRow = backgroundResults.get(i)
+		const message =
+			resultRow === undefined ? row : { ...messages[resultRow], id: row.id }
+		// Started in the background, its result not in yet.
+		const inBackground =
+			message.role === 'tool' &&
+			resultRow === undefined &&
+			(BACKGROUND_START.test(message.content) ||
+				(!!lookups.backgroundWait && !!message.pending && message.tool?.status === 'running'))
 		switch (message.role) {
 			case 'user': {
 				const index = userIndex++
@@ -322,7 +349,9 @@ export function toDisplayMessages(
 					tool_call_id: message.id,
 					// The card's header is the row's text, which the server only words once the
 					// tool has returned; until then the row says what is running.
-					content: message.content || unfinished || (toolName ? `Running ${toolName}` : ''),
+					content: inBackground
+						? `Running ${toolName ?? 'tool'} in the background`
+						: message.content || unfinished || (toolName ? `Running ${toolName}` : ''),
 					// Withheld for the copilot's two plan-mode names: `toolName` is what makes
 					// ToolExecutionDisplay render a plan card, and an agent tool that happened to
 					// share one would silently become one.
@@ -331,7 +360,7 @@ export function toDisplayMessages(
 					result,
 					showDetails: parameters !== undefined || result !== undefined,
 					error: failed ? (toolErrorText(result) ?? message.content) : unfinished,
-					isLoading: message.pending && message.tool?.status === 'running',
+					isLoading: inBackground || (message.pending && message.tool?.status === 'running'),
 					jobId: message.jobId
 				}
 				if (request && i > latestUser && call.isLoading && holds(request, toolName)) {
@@ -538,7 +567,8 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 		toDisplayMessages(this.#state.messages, isBusy(this.#state.status), this.#stoppedTurns, {
 			workspace: this.#options.workspace?.(),
 			revealed: (message) => this.#revealed[message.id],
-			request: this.#agentRequest?.action
+			request: this.#agentRequest?.action,
+			backgroundWait: this.backgroundWait
 		})
 	)
 
@@ -575,6 +605,9 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	}
 	get loading(): boolean {
 		return isBusy(this.#state.status)
+	}
+	get backgroundWait(): boolean {
+		return isBusy(this.#state.status) && !!this.#state.waitingOnBackground
 	}
 	// No transcript restore to wait for: a flow chat renders from its rows.
 	sendPending = false

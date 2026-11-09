@@ -370,6 +370,52 @@ describe('toDisplayMessages', () => {
 
 	// A row stored before the worker kept the call has only its sentence: the card names the
 	// tool and links its job, and has no details to open.
+	it('shows a background call as one card, running until its result row comes in', () => {
+		const started = message({
+			id: 'started',
+			role: 'tool',
+			content: 'Started report in the background',
+			jobId: 'bg-job',
+			tool: { name: 'report', status: 'success' }
+		})
+		const later = [
+			message({ role: 'assistant', content: 'On it' }),
+			message({ role: 'user', content: 'meanwhile' }),
+			message({
+				role: 'tool',
+				content: 'Used report tool',
+				jobId: 'bg-job',
+				tool: { name: 'report', status: 'success', result: '"42 rows"' }
+			})
+		]
+		expect(toDisplayMessages([started, later[0]])[0]).toMatchObject({
+			tool_call_id: 'started',
+			content: 'Running report in the background',
+			isLoading: true
+		})
+		const display = toDisplayMessages([started, ...later])
+		expect(display.filter((m) => m.role === 'tool')).toHaveLength(1)
+		expect(display[0]).toMatchObject({
+			tool_call_id: 'started',
+			content: 'Used report tool',
+			result: '42 rows',
+			isLoading: false
+		})
+	})
+
+	it('shows the calls still running as in the background while the agent waits on them', () => {
+		const running = message({
+			role: 'tool',
+			pending: true,
+			tool: { callId: 'c1', name: 'report', status: 'running' }
+		})
+		expect(toDisplayMessages([running])[0]).toMatchObject({ content: 'Running report' })
+		expect(toDisplayMessages([running], true, new Set(), { backgroundWait: true })[0]).toMatchObject({
+			content: 'Running report in the background',
+			isLoading: true
+		})
+	})
+
 	it('builds a tool card from the row alone, with its job link', () => {
 		const display = toDisplayMessages([
 			message({

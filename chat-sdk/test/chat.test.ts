@@ -26,6 +26,34 @@ function options(extra: Partial<ChatOptions>, fetch: ChatOptions['fetch']): Chat
 }
 
 describe('createChat with local history', () => {
+  test('marks a turn waiting on background tools until the agent streams again', async () => {
+    const { fetch } = fetchMock(run, (c) =>
+      c.url.pathname === streamPath
+        ? sseTimed([
+            {
+              type: 'update',
+              new_result_stream: ndjson({ type: 'token_delta', content: 'On it' }, { type: 'background_wait' }),
+              stream_offset: 1
+            },
+            200,
+            {
+              type: 'update',
+              new_result_stream: ndjson({ type: 'token_delta', content: ' and done' }),
+              stream_offset: 2,
+              completed: true,
+              only_result: { windmill_chat_answer: 'On it and done' }
+            }
+          ])
+        : undefined
+    )
+    const chat = createChat(options({}, fetch))
+    const sent = chat.sendMessage('go')
+    await until(() => chat.getState().waitingOnBackground === true, 'the background wait')
+    expect(chat.getState().status).toBe('streaming')
+    await sent
+    expect(chat.getState().waitingOnBackground).toBeFalsy()
+  })
+
   test('streams text and tool calls, then finalizes and persists the turn', async () => {
     const storage = memoryStorage()
     const { fetch, calls } = fetchMock(run, (c) =>

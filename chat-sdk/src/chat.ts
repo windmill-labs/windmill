@@ -349,7 +349,9 @@ class ChatImpl implements Chat {
       this.#failTurn(turn, e)
     } finally {
       if (this.#turn === turn) this.#turn = undefined
-      if (this.#state.runningJobId === turn.jobId) this.#set({ runningJobId: undefined })
+      if (this.#state.runningJobId === turn.jobId) {
+        this.#set({ runningJobId: undefined, waitingOnBackground: undefined })
+      }
     }
     if (nextTurn) await this.resumeTurn(nextTurn)
   }
@@ -718,7 +720,10 @@ class ChatImpl implements Chat {
         })
       }
     }
+    // Anything the agent streams after it means it woke up.
+    let waitingOnBackground = false
     for (const event of events) {
+      waitingOnBackground = event.type === 'background_wait'
       switch (event.type) {
         case 'token_delta':
           turn.streamedText = true
@@ -750,7 +755,7 @@ class ChatImpl implements Chat {
           break
       }
     }
-    this.#set({ messages, status: 'streaming' })
+    this.#set({ messages, status: 'streaming', waitingOnBackground })
   }
 
   async #finishTurn(turn: Turn, result: unknown, isNew: boolean): Promise<RunningTurn | undefined> {

@@ -556,6 +556,9 @@ pub enum StreamingEvent {
     ToolExecution { call_id: String, function_name: String },
     /// Tool execution result
     ToolResult { call_id: String, function_name: String, result: String, success: bool },
+    /// The agent has answered and waits, without a worker, on tools still running in the
+    /// background: nothing more streams until one of them finishes and wakes it.
+    BackgroundWait,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
