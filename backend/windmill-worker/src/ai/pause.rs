@@ -212,11 +212,13 @@ pub(crate) async fn load_checkpoint(
     db: &DB,
     job_id: &Uuid,
 ) -> error::Result<Option<AgentCheckpoint>> {
-    let raw: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>> =
-        sqlx::query_scalar("SELECT checkpoint FROM ai_agent_checkpoint WHERE job_id = $1")
-            .bind(job_id)
-            .fetch_optional(db)
-            .await?;
+    let raw = sqlx::query_scalar!(
+        r#"SELECT checkpoint AS "checkpoint: sqlx::types::Json<Box<serde_json::value::RawValue>>"
+           FROM ai_agent_checkpoint WHERE job_id = $1"#,
+        job_id
+    )
+    .fetch_optional(db)
+    .await?;
     raw.map(|r| {
         serde_json::from_str(r.0.get())
             .map_err(|e| Error::internal_err(format!("Invalid AI agent checkpoint: {e}")))
@@ -264,26 +266,27 @@ pub(crate) async fn park(
     // and a monitor tick. While an approval is open, results wait for the answer anyway.
     let waiting_on: Vec<Uuid> = if waits_on_approval { vec![] } else { running };
     if !waiting_on.is_empty() {
-        let finished: bool =
-            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM v2_job_completed WHERE id = ANY($1))")
-                .bind(&waiting_on)
-                .fetch_one(&mut *tx)
-                .await?;
+        let finished = sqlx::query_scalar!(
+            r#"SELECT EXISTS (SELECT 1 FROM v2_job_completed WHERE id = ANY($1)) AS "finished!""#,
+            &waiting_on
+        )
+        .fetch_one(&mut *tx)
+        .await?;
         if finished {
             tx.rollback().await?;
             return Ok(ParkOutcome::JobFinished);
         }
     }
-    sqlx::query(
+    sqlx::query!(
         "INSERT INTO ai_agent_checkpoint (job_id, workspace_id, checkpoint, waiting_on)
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (job_id) DO UPDATE
              SET checkpoint = EXCLUDED.checkpoint, waiting_on = EXCLUDED.waiting_on",
+        job.id,
+        &job.workspace_id,
+        checkpoint,
+        &waiting_on
     )
-    .bind(&job.id)
-    .bind(&job.workspace_id)
-    .bind(&checkpoint)
-    .bind(&waiting_on)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -300,16 +303,16 @@ pub(crate) async fn resume_without_approval(
     consumed_resume_rows: &mut Vec<Uuid>,
 ) -> error::Result<()> {
     let mut tx = db.begin().await?;
-    sqlx::query("UPDATE v2_job_queue SET suspend = 0 WHERE id = $1")
-        .bind(job_id)
+    sqlx::query!("UPDATE v2_job_queue SET suspend = 0 WHERE id = $1", job_id)
         .execute(&mut *tx)
         .await?;
-    let stray: Vec<Uuid> =
-        sqlx::query_scalar("SELECT id FROM resume_job WHERE job = $1 AND id <> ALL($2)")
-            .bind(job_id)
-            .bind(&*consumed_resume_rows)
-            .fetch_all(&mut *tx)
-            .await?;
+    let stray = sqlx::query_scalar!(
+        "SELECT id FROM resume_job WHERE job = $1 AND id <> ALL($2)",
+        job_id,
+        &*consumed_resume_rows
+    )
+    .fetch_all(&mut *tx)
+    .await?;
     tx.commit().await?;
     consumed_resume_rows.extend(stray);
     Ok(())
@@ -345,23 +348,20 @@ pub(crate) async fn answer_pause(
     consumed_resume_rows: &mut Vec<Uuid>,
 ) -> error::Result<Resumed> {
     let mut tx = db.begin().await?;
-    sqlx::query("UPDATE v2_job_queue SET suspend = 0 WHERE id = $1")
-        .bind(job_id)
+    sqlx::query!("UPDATE v2_job_queue SET suspend = 0 WHERE id = $1", job_id)
         .execute(&mut *tx)
         .await?;
-    let rows: Vec<(
-        Uuid,
-        sqlx::types::Json<serde_json::Value>,
-        Option<String>,
-        bool,
-    )> = sqlx::query_as(
-        "SELECT id, value, approver, approved FROM resume_job
-             WHERE job = $1 AND id <> ALL($2) ORDER BY created_at ASC",
+    let rows = sqlx::query!(
+        r#"SELECT id, value AS "value: sqlx::types::Json<serde_json::Value>", approver, approved
+           FROM resume_job WHERE job = $1 AND id <> ALL($2) ORDER BY created_at ASC"#,
+        job_id,
+        &*consumed_resume_rows
     )
-    .bind(job_id)
-    .bind(&*consumed_resume_rows)
     .fetch_all(&mut *tx)
-    .await?;
+    .await?
+    .into_iter()
+    .map(|r| (r.id, r.value, r.approver, r.approved))
+    .collect::<Vec<_>>();
     tx.commit().await?;
     consumed_resume_rows.extend(rows.iter().map(|(id, ..)| *id));
 

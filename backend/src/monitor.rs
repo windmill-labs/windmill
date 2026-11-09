@@ -7837,7 +7837,7 @@ async fn cleanup_job_result_stream_orphaned_jobs(db: &DB) -> error::Result<()> {
 /// suspended pull takes it back. Each job is listed by one park only, and an agent no longer
 /// parked (`suspend_until` cleared by its pull) is left alone.
 async fn wake_ai_agents_with_finished_background_jobs(db: &DB) -> error::Result<()> {
-    let woken = sqlx::query(
+    let woken = sqlx::query!(
         "UPDATE v2_job_queue q SET suspend = 0
          FROM ai_agent_checkpoint c
          WHERE c.waiting_on <> '{}' AND q.id = c.job_id
@@ -7856,7 +7856,7 @@ async fn wake_ai_agents_with_finished_background_jobs(db: &DB) -> error::Result<
 /// A parked agent cancelled from outside, or a worker that died mid-segment, never deletes its
 /// checkpoint itself.
 async fn cleanup_ai_agent_checkpoint_orphaned_jobs(db: &DB) -> error::Result<()> {
-    let deleted = sqlx::query(
+    let deleted = sqlx::query!(
         "DELETE FROM ai_agent_checkpoint c
          WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = c.job_id)",
     )

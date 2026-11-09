@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM ai_agent_checkpoint c\n         WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = c.job_id)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "f688cb133dc6e916ef575d4ea7a55ac041db620c5bd881110efcb8ceb6fd1f8b"
+}
