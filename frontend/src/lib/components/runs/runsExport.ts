@@ -48,6 +48,23 @@ export function runsExportRows(jobs: Job[]): Record<string, Cell>[] {
 	}))
 }
 
+// Labels, tags and paths are set by whoever runs a job, and a spreadsheet evaluates a cell
+// starting with one of these as a formula, so they are quoted as text.
+const FORMULA_PREFIX = /^[=+\-@\t\r]/
+
+export function toCsv(rows: Record<string, Cell>[]): string {
+	const fields = Object.keys(rows[0] ?? {})
+	const safe = rows.map((row) =>
+		Object.fromEntries(
+			Object.entries(row).map(([k, v]) => [
+				k,
+				typeof v === 'string' && FORMULA_PREFIX.test(v) ? `'${v}` : v
+			])
+		)
+	)
+	return new Parser({ fields }).parse(safe)
+}
+
 export async function exportRuns(jobs: Job[], format: RunsExportFormat): Promise<void> {
 	const rows = runsExportRows(jobs)
 	const stamp = new Date().toISOString().replace(/[:.]/g, '-')
@@ -55,8 +72,7 @@ export async function exportRuns(jobs: Job[], format: RunsExportFormat): Promise
 	if (format === 'json') {
 		download(filename, JSON.stringify(rows, null, 2), 'application/json')
 	} else if (format === 'csv') {
-		const fields = Object.keys(rows[0] ?? {})
-		download(filename, new Parser({ fields }).parse(rows), 'text/csv;charset=utf-8')
+		download(filename, toCsv(rows), 'text/csv;charset=utf-8')
 	} else {
 		const blob = await toXlsx(rows)
 		const url = URL.createObjectURL(blob)
