@@ -121,6 +121,7 @@ fn set_aside_path(trash_id: i64) -> String {
     format!("__deleted/{trash_id}")
 }
 
+/// No permission check: the caller must have deleted the flow at `path` itself, in `tx`.
 pub async fn set_aside_flow_versions(
     tx: &mut PgConnection,
     workspace_id: &str,
@@ -136,6 +137,7 @@ pub async fn set_aside_flow_versions(
     Ok(())
 }
 
+/// No permission check: the caller must have authorized restoring trash item `trash_id`.
 pub async fn restore_flow_versions(
     tx: &mut PgConnection,
     workspace_id: &str,
