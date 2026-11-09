@@ -7,9 +7,11 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import McpAccessPicker, { type McpAccess } from '$lib/components/mcp/McpAccessPicker.svelte'
-	import { WorkspaceService } from '$lib/gen'
+	import { UserService, WorkspaceService } from '$lib/gen'
+	import { listEveryWorkspace } from '$lib/mcpAuth'
 	import { sendUserToast } from '$lib/toast'
 	import Check from 'lucide-svelte/icons/check'
 
@@ -20,9 +22,16 @@
 	let clientName = page.url.searchParams.get('client_name') || 'Unknown Client'
 	let redirectUri = page.url.searchParams.get('redirect_uri') || ''
 	// What the client asked for seeds the access picker; what is approved is the picker's.
-	const requestedScopes = (page.url.searchParams.get('scope') || 'mcp:all')
+	const askedScopes = (page.url.searchParams.get('scope') || 'mcp:all')
 		.split(' ')
 		.filter((s) => s.startsWith('mcp:'))
+	// Both narrowings at once is a client requesting every scope it was offered, not a choice.
+	const requestedScopes =
+		askedScopes.includes('mcp:all') &&
+		askedScopes.includes('mcp:read_only') &&
+		askedScopes.includes('mcp:read_run')
+			? askedScopes.filter((s) => s !== 'mcp:read_only' && s !== 'mcp:read_run')
+			: askedScopes
 	let scopes = $state<string[]>([])
 	let access = $state<McpAccess>()
 	let oauthState = page.url.searchParams.get('state') || ''
@@ -49,15 +58,24 @@
 
 	// Gateway mode: fetch user's workspaces for the picker. One picked workspace binds the
 	// token to it; several, or all of them, leave it unbound and its tools name their workspace.
-	let workspaces: Array<{ value: string; label: string }> = $state([])
+	let memberWorkspaces: Array<{ value: string; label: string }> = $state([])
+	// A superadmin's token reaches only their memberships unless it carries their rights.
+	let isSuperAdmin = $state(false)
+	let superAdmin = $state(false)
+	let everyWorkspace: Array<{ value: string; label: string }> = $state([])
+	const workspaces = $derived(superAdmin ? everyWorkspace : memberWorkspaces)
 	let pickedWorkspaces = $state<string[]>([])
 	let allWorkspaces = $state(false)
 	let loadingWorkspaces = $state(false)
 	const grantsWorkspace = $derived(!isGateway || allWorkspaces || pickedWorkspaces.length > 0)
-	// Selected scripts and flows are listed per workspace: across several, a path could be two.
-	const selectionNeedsOneWorkspace = $derived(
-		isGateway && access === 'selected' && (allWorkspaces || pickedWorkspaces.length !== 1)
-	)
+	// Selected scripts and flows are listed per workspace, so a selection keeps one of them.
+	function setAccess(next: McpAccess | undefined) {
+		access = next
+		if (next === 'selected') {
+			allWorkspaces = false
+			pickedWorkspaces = pickedWorkspaces.slice(0, 1)
+		}
+	}
 	// The workspace the scope picker browses scripts and flows in.
 	const scopeWorkspaceId = $derived(
 		isGateway ? (pickedWorkspaces[0] ?? (allWorkspaces ? workspaces[0]?.value : '')) : workspaceId
@@ -67,15 +85,15 @@
 		loadingWorkspaces = true
 		WorkspaceService.listUserWorkspaces()
 			.then((result) => {
-				workspaces = result.workspaces
+				memberWorkspaces = result.workspaces
 					.filter((w) => !w.disabled)
 					.map((w) => ({
 						value: w.id,
 						label: w.name
 					}))
 				// Auto-select if only one workspace
-				if (workspaces.length === 1) {
-					pickedWorkspaces = [workspaces[0].value]
+				if (memberWorkspaces.length === 1) {
+					pickedWorkspaces = [memberWorkspaces[0].value]
 				}
 			})
 			.catch((e) => {
@@ -86,6 +104,18 @@
 			.finally(() => {
 				loadingWorkspaces = false
 			})
+	}
+	UserService.globalWhoami()
+		.then((me) => (isSuperAdmin = me.super_admin))
+		.catch(() => {})
+
+	async function setSuperAdmin(on: boolean) {
+		superAdmin = on
+		if (on && isGateway) {
+			everyWorkspace = (await listEveryWorkspace()).map((w) => ({ value: w.id, label: w.name }))
+		}
+		const offered = new Set(workspaces.map((w) => w.value))
+		pickedWorkspaces = pickedWorkspaces.filter((w) => offered.has(w))
 	}
 
 	function onDeny() {
@@ -121,7 +151,8 @@
 				scope: scopes.join(' '),
 				state: oauthState,
 				code_challenge: codeChallenge,
-				code_challenge_method: codeChallengeMethod
+				code_challenge_method: codeChallengeMethod,
+				super_admin: superAdmin
 			}
 
 			// Gateway mode sends the workspaces in the body
@@ -202,18 +233,34 @@
 
 			{#if isGateway}
 				<div class="mb-6 flex flex-col gap-2">
-					<p class="text-xs font-semibold text-emphasis">Workspaces it may work in:</p>
+					<p class="text-xs font-semibold text-emphasis">
+						{access === 'selected'
+							? 'Workspace of its scripts and flows:'
+							: 'Workspaces it may work in:'}
+					</p>
 					{#if loadingWorkspaces}
 						<p class="text-xs text-secondary">Loading workspaces...</p>
-					{:else if workspaces.length === 0}
-						<p class="text-xs text-secondary">No workspaces available.</p>
+					{:else if access === 'selected'}
+						<Select
+							items={workspaces}
+							bind:value={() => pickedWorkspaces[0], (v) => (pickedWorkspaces = v ? [v] : [])}
+							placeholder="Choose a workspace"
+						/>
 					{:else}
 						<Toggle
 							bind:checked={allWorkspaces}
-							options={{ right: 'All my workspaces, including ones I join later' }}
+							options={{
+								right: superAdmin
+									? 'All workspaces, including ones created later'
+									: 'All my workspaces, including ones I join later'
+							}}
 							size="xs"
 						/>
-						{#if !allWorkspaces}
+						{#if workspaces.length === 0 && !allWorkspaces}
+							<p class="text-xs text-secondary">
+								You are not in any workspace yet. Turn this on to give it the ones you join later.
+							</p>
+						{:else if !allWorkspaces}
 							<MultiSelect
 								items={workspaces}
 								bind:value={pickedWorkspaces}
@@ -221,6 +268,12 @@
 								reorderable={false}
 							/>
 						{/if}
+					{/if}
+					{#if isSuperAdmin && !superAdmin && (access === 'selected' || !allWorkspaces)}
+						<p class="text-xs text-tertiary">
+							Showing workspaces you are a member of. Superadmin rights, under Access, opens the
+							rest.
+						</p>
 					{/if}
 				</div>
 			{/if}
@@ -230,13 +283,22 @@
 					workspaceId={scopeWorkspaceId ?? ''}
 					initialScopes={requestedScopes}
 					bind:scopes
-					bind:access
-				/>
-				{#if selectionNeedsOneWorkspace}
-					<p class="text-2xs text-secondary">
-						Selected scripts and flows come from one workspace: pick one.
-					</p>
-				{/if}
+					bind:access={() => access, setAccess}
+				>
+					{#snippet afterAccess()}
+						{#if isSuperAdmin}
+							<Toggle
+								bind:checked={() => superAdmin, setSuperAdmin}
+								options={{
+									right: 'Superadmin rights',
+									rightTooltip:
+										'The token carries your superadmin rights: admin in every workspace of the instance, including ones you are not a member of.'
+								}}
+								size="xs"
+							/>
+						{/if}
+					{/snippet}
+				</McpAccessPicker>
 			</div>
 
 			<div class="flex flex-row justify-around gap-x-4">
@@ -244,10 +306,7 @@
 				<Button
 					variant="accent"
 					size="lg"
-					disabled={loading ||
-						!grantsWorkspace ||
-						selectionNeedsOneWorkspace ||
-						scopes.length === 0}
+					disabled={loading || !grantsWorkspace || scopes.length === 0}
 					{loading}
 					onClick={onApprove}>Approve</Button
 				>

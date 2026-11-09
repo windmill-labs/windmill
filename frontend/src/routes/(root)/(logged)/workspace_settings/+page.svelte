@@ -3,7 +3,7 @@
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, SecondsInput, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
@@ -28,6 +28,7 @@
 	import WorkspaceUserSettings from '$lib/components/settings/WorkspaceUserSettings.svelte'
 	import ForkMemberSettings from '$lib/components/settings/ForkMemberSettings.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
+	import MemberWorkspaceSettings from '$lib/components/settings/MemberWorkspaceSettings.svelte'
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
 	import {
 		OauthService,
@@ -39,7 +40,11 @@
 		type InstanceAISummary,
 		type GetSettingsResponse
 	} from '$lib/gen'
-	import type { GuestUsage } from '$lib/gen'
+	import type { GuestUsage, WorkspaceWebhookEventType } from '$lib/gen'
+	import { $WorkspaceWebhookEventType as webhookEventTypeSchema } from '$lib/gen/schemas.gen'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
+	import { webhookEventPresets } from '$lib/components/workspaceSettings/webhookEventPresets'
 	import {
 		enterpriseLicense,
 		superadmin,
@@ -60,6 +65,7 @@
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import SlackChannelAgents from '$lib/components/workspaceSettings/SlackChannelAgents.svelte'
 
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
@@ -208,6 +214,30 @@
 	let plan: string | undefined = $state(undefined)
 	let customer_id: string | undefined = $state(undefined)
 	let webhook: string | undefined = $state(undefined)
+	// undefined sends every event type
+	let webhookEvents: WorkspaceWebhookEventType[] | undefined = $state(undefined)
+	const webhookEventItems = webhookEventTypeSchema.enum.map((value) => ({ label: value, value }))
+	function toggleWebhookEventPreset(events: readonly WorkspaceWebhookEventType[]) {
+		const current = webhookEvents ?? []
+		webhookEvents = events.every((e) => current.includes(e))
+			? current.filter((e) => !events.includes(e))
+			: [...current, ...events.filter((e) => !current.includes(e))]
+	}
+	function webhookPresetSelectedCount(events: readonly WorkspaceWebhookEventType[]) {
+		return events.filter((e) => webhookEvents?.includes(e)).length
+	}
+	let customizeWebhookEvents = $state(false)
+	// A partly selected category can only be read in the per-event list.
+	$effect(() => {
+		if (
+			webhookEventPresets.some((p) => {
+				const n = webhookPresetSelectedCount(p.events)
+				return n > 0 && n < p.events.length
+			})
+		) {
+			customizeWebhookEvents = true
+		}
+	})
 	const noErrorHandler = handlerDraftFromStored(
 		'error',
 		undefined,
@@ -221,12 +251,25 @@
 	let errorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let errorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
 	let successHandlerScriptPath: string | undefined = $state(undefined)
+	const noVariableExpirationHandler = handlerDraftFromStored('variableExpiration', undefined)
+	let variableExpirationDraft: HandlerDraft = $state(cloneHandlerDraft(noVariableExpirationHandler))
+	let variableExpirationMutedOnUserPath: boolean = $state(false)
+	// The sweep's default when the stored handler has no `notify_before_secs`.
+	const defaultNotifyBeforeSecs = 24 * 3600
+	let variableExpirationNotifyBeforeSecs: number = $state(defaultNotifyBeforeSecs)
+	let variableExpirationRemindEverySecs: number | undefined = $state(undefined)
+	// The sweep runs every 5 minutes, so shorter intervals count as 5 minutes.
+	let variableExpirationRuns = $derived(
+		variableExpirationRemindEverySecs
+			? Math.ceil(
+					variableExpirationNotifyBeforeSecs / Math.max(variableExpirationRemindEverySecs, 300)
+				)
+			: 1
+	)
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let publicAppRateLimitPerMinute: number | undefined = $state(undefined)
-	let guestAccessEnabled: boolean = $state(false)
 	let guestUsage: GuestUsage | undefined = $state(undefined)
-	let initialGuestAccessEnabled: boolean = $state(false)
 	// A guest JWT is verified against one key: a PEM public key, or a JWKS URL. The
 	// type picks which field is live; the other is cleared on save.
 	let guestJwtKeyType = $state<'pem' | 'jwks'>('pem')
@@ -240,8 +283,8 @@
 		pem: guestJwtKeyType === 'pem' ? guestJwtPublicKey.trim() : '',
 		jwks: guestJwtKeyType === 'jwks' ? guestJwtJwksUrl.trim() : ''
 	})
-	// Whether the deployment can have guests at all; off, the card offers no switch to
-	// turn on. The backend decides; the hostname stands in until it has answered.
+	// Whether the deployment can have guests at all; off, the card offers no guest key to
+	// configure. The backend decides; the hostname stands in until it has answered.
 	let guestsAvailable = $derived.by(() => guestUsage?.available ?? !isCloudHosted())
 	let initialPublicAppRateLimitPerMinute: number | undefined = $state(undefined)
 
@@ -278,6 +321,7 @@
 
 	// Track initial webhook for unsaved changes detection
 	let initialWebhook: string | undefined = $state(undefined)
+	let initialWebhookEvents: WorkspaceWebhookEventType[] | undefined = $state(undefined)
 
 	// Track initial encryption key for unsaved changes detection
 	let initialEditedWorkspaceEncryptionKey: string | undefined = $state(undefined)
@@ -289,6 +333,14 @@
 
 	// Track initial success handler for unsaved changes detection
 	let initialSuccessHandlerScriptPath: string | undefined = $state(undefined)
+
+	// Track initial variable expiration handler for unsaved changes detection
+	let initialVariableExpirationDraft: HandlerDraft = $state(
+		cloneHandlerDraft(noVariableExpirationHandler)
+	)
+	let initialVariableExpirationMutedOnUserPath: boolean = $state(false)
+	let initialVariableExpirationNotifyBeforeSecs: number = $state(defaultNotifyBeforeSecs)
+	let initialVariableExpirationRemindEverySecs: number | undefined = $state(undefined)
 
 	let s3ResourceSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
@@ -344,6 +396,43 @@
 		return hasUnsavedChanges(
 			{ successHandlerScriptPath: initialSuccessHandlerScriptPath },
 			{ successHandlerScriptPath: successHandlerScriptPath }
+		)
+	})
+
+	// The mute flag is stored inside the handler setting, which saving with no handler
+	// clears, so the toggle is gated on having one.
+	let variableExpirationHasHandler = $derived(!!handlerDraftToStored(variableExpirationDraft).path)
+
+	// The stored handler is nested because `hasUnsavedChanges` drops a top-level `path`.
+	function variableExpirationSettingsValue(
+		draft: HandlerDraft,
+		mutedOnUserPath: boolean,
+		notifyBeforeSecs: number,
+		remindEverySecs: number | undefined
+	) {
+		return {
+			handler: handlerDraftToStored(draft),
+			mutedOnUserPath,
+			notifyBeforeSecs,
+			remindEverySecs: remindEverySecs || undefined
+		}
+	}
+
+	let hasVariableExpirationChanges = $derived.by(() => {
+		if (tab !== 'variable_expiration') return false
+		return hasUnsavedChanges(
+			variableExpirationSettingsValue(
+				initialVariableExpirationDraft,
+				initialVariableExpirationMutedOnUserPath,
+				initialVariableExpirationNotifyBeforeSecs,
+				initialVariableExpirationRemindEverySecs
+			),
+			variableExpirationSettingsValue(
+				variableExpirationDraft,
+				variableExpirationMutedOnUserPath,
+				variableExpirationNotifyBeforeSecs,
+				variableExpirationRemindEverySecs
+			)
 		)
 	})
 
@@ -490,6 +579,7 @@
 			| 'dev_workspace'
 			| 'error_handler'
 			| 'success_handler'
+			| 'variable_expiration'
 			| 'critical_alerts'
 			| 'ai'
 			| 'windmill_data_tables'
@@ -591,19 +681,26 @@
 			}
 		}
 
+		if (webhookEvents?.length === 0) {
+			sendUserToast('Select at least one event type, or send all events', true)
+			return
+		}
+
 		try {
 			if (webhook && webhook.trim() !== '') {
 				await WorkspaceService.editWebhook({
 					workspace: $workspaceStore!,
-					requestBody: { webhook }
+					requestBody: { webhook, events: webhookEvents ?? null }
 				})
 				sendUserToast(`webhook set to ${webhook}`)
 				initialWebhook = webhook
+				initialWebhookEvents = $state.snapshot(webhookEvents)
 			} else {
 				await WorkspaceService.editWebhook({
 					workspace: $workspaceStore!,
-					requestBody: { webhook: undefined }
+					requestBody: { webhook: undefined, events: webhookEvents ?? null }
 				})
+				initialWebhookEvents = $state.snapshot(webhookEvents)
 				sendUserToast(`webhook removed`)
 				initialWebhook = ''
 				webhook = ''
@@ -634,11 +731,8 @@
 	}
 
 	async function saveDefaultAppSettings(): Promise<void> {
-		// Guest access and the guest JWT key are the writes of this card available on every plan;
-		// save them first so a refused Enterprise-only write after cannot swallow them.
-		if (guestAccessEnabled !== initialGuestAccessEnabled) {
-			await editGuestAccess()
-		}
+		// The guest JWT key is the write of this card available on every plan; save it first so
+		// a refused Enterprise-only write after cannot swallow it.
 		if (
 			effectiveGuestJwt.pem !== initialGuestJwtPublicKey ||
 			effectiveGuestJwt.jwks !== initialGuestJwtJwksUrl
@@ -678,19 +772,6 @@
 		initialGuestJwtPublicKey = ''
 		initialGuestJwtJwksUrl = ''
 		sendUserToast('Guest JWT key cleared')
-	}
-
-	async function editGuestAccess(): Promise<void> {
-		await WorkspaceService.editGuestAccess({
-			workspace: $workspaceStore!,
-			requestBody: { guest_access_enabled: guestAccessEnabled }
-		})
-		initialGuestAccessEnabled = guestAccessEnabled
-		sendUserToast(
-			guestAccessEnabled
-				? 'Guests can now open apps set to Guests in this workspace'
-				: 'Guests can no longer sign in to this workspace'
-		)
 	}
 
 	async function loadWorkspaceEncryptionKey(): Promise<void> {
@@ -763,6 +844,7 @@
 		plan = settings.plan
 		customer_id = settings.customer_id
 		webhook = settings.webhook
+		webhookEvents = settings.webhook_events
 
 		aiInitialConfig = settings.ai_config ?? {}
 		hasInstanceAiConfig = copilotSettingsState.has_instance_ai_config
@@ -778,8 +860,6 @@
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
 		publicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
 		initialPublicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
-		guestAccessEnabled = settings.guest_access_enabled ?? false
-		initialGuestAccessEnabled = settings.guest_access_enabled ?? false
 		guestJwtPublicKey = settings.guest_jwt_public_key ?? ''
 		guestJwtJwksUrl = settings.guest_jwt_jwks_url ?? ''
 		initialGuestJwtPublicKey = guestJwtPublicKey
@@ -808,6 +888,20 @@
 			| { path?: string; extra_args?: any }
 			| undefined
 		successHandlerScriptPath = (successHandler?.path ?? '').split('/').slice(1).join('/')
+		const variableExpirationHandler = settings.variable_expiration_handler
+		const [variableExpirationKind, ...variableExpirationPath] = (
+			variableExpirationHandler?.path ?? ''
+		).split('/')
+		variableExpirationDraft = handlerDraftFromStored(
+			'variableExpiration',
+			variableExpirationPath.join('/'),
+			variableExpirationKind === 'flow' ? 'flow' : 'script',
+			variableExpirationHandler?.extra_args
+		)
+		variableExpirationMutedOnUserPath = variableExpirationHandler?.muted_on_user_path ?? false
+		variableExpirationNotifyBeforeSecs =
+			variableExpirationHandler?.notify_before_secs ?? defaultNotifyBeforeSecs
+		variableExpirationRemindEverySecs = variableExpirationHandler?.remind_every_secs || undefined
 		workspaceDefaultAppPath = settings.default_app
 		initialWorkspaceDefaultAppPath = settings.default_app
 
@@ -847,6 +941,7 @@
 
 		// Store initial webhook state for unsaved changes detection
 		initialWebhook = webhook
+		initialWebhookEvents = $state.snapshot(webhookEvents)
 
 		// Store initial encryption key state for unsaved changes detection
 		initialEditedWorkspaceEncryptionKey = editedWorkspaceEncryptionKey
@@ -858,6 +953,12 @@
 
 		// Store initial success handler state for unsaved changes detection
 		initialSuccessHandlerScriptPath = successHandlerScriptPath
+
+		// Store initial variable expiration handler state for unsaved changes detection
+		initialVariableExpirationDraft = cloneHandlerDraft(variableExpirationDraft)
+		initialVariableExpirationMutedOnUserPath = variableExpirationMutedOnUserPath
+		initialVariableExpirationNotifyBeforeSecs = variableExpirationNotifyBeforeSecs
+		initialVariableExpirationRemindEverySecs = variableExpirationRemindEverySecs
 
 		loadedSettings = true
 	}
@@ -1065,6 +1166,46 @@
 		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
 	}
 
+	async function editVariableExpirationHandler() {
+		const handler = handlerDraftToStored(variableExpirationDraft)
+		await WorkspaceService.editVariableExpirationHandler({
+			workspace: $workspaceStore!,
+			requestBody: {
+				path: handler.path ? `${handler.kind}/${handler.path}` : undefined,
+				extra_args: handler.args,
+				muted_on_user_path: variableExpirationMutedOnUserPath,
+				notify_before_secs: variableExpirationNotifyBeforeSecs,
+				remind_every_secs: variableExpirationRemindEverySecs || undefined
+			}
+		})
+		sendUserToast(
+			handler.path
+				? `Variable expiration handler set to ${handler.path}`
+				: handlerDraftToStored(initialVariableExpirationDraft).path
+					? 'Variable expiration handler removed'
+					: 'Variable expiration settings saved'
+		)
+
+		// Rebuilt from what was stored, so Discard also drops the other tabs' unsaved edits.
+		initialVariableExpirationDraft = handlerDraftFromStored(
+			'variableExpiration',
+			handler.path,
+			handler.kind,
+			handler.args,
+			{ emptySelected: variableExpirationDraft.selected }
+		)
+		initialVariableExpirationMutedOnUserPath = variableExpirationMutedOnUserPath
+		initialVariableExpirationNotifyBeforeSecs = variableExpirationNotifyBeforeSecs
+		initialVariableExpirationRemindEverySecs = variableExpirationRemindEverySecs
+	}
+
+	function discardVariableExpirationChanges() {
+		variableExpirationDraft = cloneHandlerDraft(initialVariableExpirationDraft)
+		variableExpirationMutedOnUserPath = initialVariableExpirationMutedOnUserPath
+		variableExpirationNotifyBeforeSecs = initialVariableExpirationNotifyBeforeSecs
+		variableExpirationRemindEverySecs = initialVariableExpirationRemindEverySecs
+	}
+
 	async function editSuccessHandler() {
 		if (successHandlerScriptPath) {
 			await WorkspaceService.editSuccessHandler({
@@ -1189,11 +1330,13 @@
 			value && value.trim() !== '' ? value : undefined
 
 		const savedValue = {
-			webhook: normalizeWebhookValue(initialWebhook)
+			webhook: normalizeWebhookValue(initialWebhook),
+			events: initialWebhookEvents
 		}
 
 		const modifiedValue = {
-			webhook: normalizeWebhookValue(webhook)
+			webhook: normalizeWebhookValue(webhook),
+			events: webhookEvents
 		}
 
 		return { savedValue, modifiedValue }
@@ -1202,6 +1345,7 @@
 	// Function to discard unsaved webhook settings changes
 	function discardWebhookSettingsChanges() {
 		webhook = initialWebhook || ''
+		webhookEvents = $state.snapshot(initialWebhookEvents)
 	}
 
 	// Function to check if there are unsaved changes in encryption key settings
@@ -1228,14 +1372,12 @@
 			savedValue: {
 				defaultAppPath: initialWorkspaceDefaultAppPath,
 				publicAppRateLimitPerMinute: initialPublicAppRateLimitPerMinute,
-				guestAccessEnabled: initialGuestAccessEnabled,
 				guestJwtPem: initialGuestJwtPublicKey,
 				guestJwtJwks: initialGuestJwtJwksUrl
 			},
 			modifiedValue: {
 				defaultAppPath: workspaceDefaultAppPath,
 				publicAppRateLimitPerMinute: publicAppRateLimitPerMinute,
-				guestAccessEnabled: guestAccessEnabled,
 				guestJwtPem: effectiveGuestJwt.pem,
 				guestJwtJwks: effectiveGuestJwt.jwks
 			}
@@ -1246,7 +1388,6 @@
 	function discardDefaultAppSettingsChanges() {
 		workspaceDefaultAppPath = initialWorkspaceDefaultAppPath
 		publicAppRateLimitPerMinute = initialPublicAppRateLimitPerMinute
-		guestAccessEnabled = initialGuestAccessEnabled
 		guestJwtPublicKey = initialGuestJwtPublicKey
 		guestJwtJwksUrl = initialGuestJwtJwksUrl
 		guestJwtKeyType = initialGuestJwtJwksUrl ? 'jwks' : 'pem'
@@ -1329,6 +1470,21 @@
 					}
 				}
 			}
+			case 'variable_expiration':
+				return {
+					savedValue: variableExpirationSettingsValue(
+						initialVariableExpirationDraft,
+						initialVariableExpirationMutedOnUserPath,
+						initialVariableExpirationNotifyBeforeSecs,
+						initialVariableExpirationRemindEverySecs
+					),
+					modifiedValue: variableExpirationSettingsValue(
+						variableExpirationDraft,
+						variableExpirationMutedOnUserPath,
+						variableExpirationNotifyBeforeSecs,
+						variableExpirationRemindEverySecs
+					)
+				}
 			case 'critical_alerts':
 				return {
 					savedValue: { criticalAlertUIMuted: initialCriticalAlertUIMuted },
@@ -1372,6 +1528,9 @@
 			case 'error_handler':
 				discardErrorHandlerSettingsChanges()
 				successHandlerScriptPath = initialSuccessHandlerScriptPath
+				break
+			case 'variable_expiration':
+				discardVariableExpirationChanges()
 				break
 			case 'critical_alerts':
 				criticalAlertUIMuted = initialCriticalAlertUIMuted
@@ -1479,6 +1638,13 @@
 					aiId: 'workspace-settings-error-handler',
 					aiDescription: 'Error and success handler workspace settings',
 					isEE: true
+				},
+				{
+					id: 'variable_expiration',
+					label: 'Variable expiration',
+					aiId: 'workspace-settings-variable-expiration',
+					aiDescription:
+						'Runnable executed when a variable value is about to expire, so the value can be rotated'
 				},
 				{
 					id: 'critical_alerts',
@@ -1593,6 +1759,11 @@
 		page: () => WORKSPACE_SETTINGS_PATH + window.location.search,
 		workspaceId: $workspaceStore ?? undefined
 	})
+	function tabHref(id: string): string {
+		const params = new URLSearchParams($page.url.searchParams)
+		params.set('tab', id)
+		return `?${params.toString()}`
+	}
 </script>
 
 <CenteredPage wrapperClasses="pb-0 h-full" handleOverflow={false} class="flex flex-col h-full">
@@ -1624,11 +1795,8 @@
 					<SidebarNavigation
 						groups={navigationGroups}
 						selectedId={tab}
-						onNavigate={(id) => {
-							const params = new URLSearchParams($page.url.searchParams)
-							params.set('tab', id)
-							goto(`?${params.toString()}`)
-						}}
+						onNavigate={(id) => goto(tabHref(id))}
+						itemHref={tabHref}
 					/>
 				</div>
 			{/if}
@@ -1696,7 +1864,7 @@
 									<Button
 										variant="default"
 										startIcon={{ icon: Target }}
-										onclick={() => goto('/forks/compare?mode=fork')}
+										href="/forks/compare?mode=fork"
 									>
 										Merge into another workspace
 									</Button>
@@ -2133,12 +2301,67 @@
 									<div class="text-xs text-red-600 dark:text-red-400">{webhookValidationError}</div>
 								{/if}
 							</SettingCard>
+							<SettingCard
+								label="Events to send"
+								description="Send every event, or only the categories you select."
+								class="mt-6"
+							>
+								<ToggleButtonGroup
+									selected={webhookEvents === undefined ? 'all' : 'selected'}
+									onSelected={(v) => {
+										webhookEvents = v === 'all' ? undefined : [...(initialWebhookEvents ?? [])]
+									}}
+									class="max-w-lg"
+								>
+									{#snippet children({ item })}
+										<ToggleButton {item} value="all" label="All events" />
+										<ToggleButton {item} value="selected" label="Selected events" />
+									{/snippet}
+								</ToggleButtonGroup>
+								{#if webhookEvents !== undefined}
+									<div class="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 max-w-lg mt-3">
+										{#each webhookEventPresets as preset (preset.label)}
+											{@const count = webhookPresetSelectedCount(preset.events)}
+											<label class="flex items-center gap-2 text-xs text-primary cursor-pointer">
+												<Checkbox
+													checked={count === preset.events.length}
+													indeterminate={count > 0 && count < preset.events.length}
+													onChange={() => toggleWebhookEventPreset(preset.events)}
+												/>
+												{preset.label}
+											</label>
+										{/each}
+									</div>
+									<CollapseLink
+										text="Customize individual events"
+										bind:open={customizeWebhookEvents}
+										class="mt-3"
+									>
+										<MultiSelect
+											items={webhookEventItems}
+											bind:value={webhookEvents}
+											placeholder="Select event types"
+											class="max-w-lg"
+										/>
+									</CollapseLink>
+									{#if webhookEventTypeSchema.enum.every((e) => webhookEvents?.includes(e))}
+										<div class="text-xs text-secondary max-w-lg">
+											Every event type is selected. Event types added in later versions are not sent
+											unless you choose All events.
+										</div>
+									{:else if webhookEvents.length === 0}
+										<div class="text-xs text-red-600 dark:text-red-400">
+											Select at least one category or event type
+										</div>
+									{/if}
+								{/if}
+							</SettingCard>
 							<SettingsFooter
 								hasUnsavedChanges={hasWebhookChanges}
 								onSave={editWebhook}
 								onDiscard={discardWebhookSettingsChanges}
 								saveLabel="Save webhook"
-								disabled={!!webhookValidationError}
+								disabled={!!webhookValidationError || webhookEvents?.length === 0}
 								class="mt-8"
 							/>
 						{:else if tab == 'error_handler'}
@@ -2294,6 +2517,125 @@ export async function main(
 									disabled={!$enterpriseLicense}
 								/>
 							</Section>
+						{:else if tab == 'variable_expiration'}
+							<SettingsPageHeader
+								title="Variable expiration handler"
+								description="Run a script or flow ahead of the date the value of a workspace variable expires, so it can be rotated before it stops working."
+								link="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
+							/>
+
+							{#if !$enterpriseLicense && variableExpirationDraft.selected !== 'custom'}
+								<Alert type="warning" title="Slack and Teams handlers are an EE feature">
+									Connecting a workspace to Slack or Teams is a Windmill EE feature.
+								</Alert>
+							{/if}
+
+							<Section label="Handler">
+								<div class="flex flex-col gap-6">
+									<ErrorOrRecoveryHandler
+										noMargin
+										isEditable={true}
+										errorOrRecovery="variableExpiration"
+										customRequiresEE={false}
+										toggleText="Notify when a variable is about to expire"
+										bind:draft={variableExpirationDraft}
+										customScriptTemplate="/scripts/add?hub=hub%2F30050%2Fwindmill%2Fworkspace_variable_expiration_handler_template"
+									/>
+
+									<SettingCard
+										label="Notify before expiry"
+										description="How long before a variable's value expires the handler runs"
+										class="gap-2"
+									>
+										<SecondsInput
+											bind:seconds={variableExpirationNotifyBeforeSecs}
+											disabled={!variableExpirationHasHandler}
+											hideSeconds
+											hideTotal
+										/>
+										<div class="flex flex-col gap-1 mt-4">
+											<span class="text-xs font-semibold text-emphasis">Remind every</span>
+											<span class="text-xs text-secondary">
+												Run the handler again at this interval until the value expires. Expiries are
+												checked every 5 minutes, so shorter intervals act as 5 minutes. Leave empty
+												or at 0 for a single notice.
+											</span>
+											<SecondsInput
+												bind:seconds={variableExpirationRemindEverySecs}
+												disabled={!variableExpirationHasHandler}
+												clearable
+												hideSeconds
+												hideTotal
+											/>
+											{#if variableExpirationRemindEverySecs && variableExpirationRemindEverySecs >= variableExpirationNotifyBeforeSecs}
+												<span class="text-xs text-yellow-600 dark:text-yellow-400">
+													No reminder will be sent: the interval must be shorter than Notify before
+													expiry.
+												</span>
+											{:else if variableExpirationRuns >= 24}
+												<span class="text-xs text-yellow-600 dark:text-yellow-400">
+													This runs the handler up to {variableExpirationRuns} times before the value
+													expires.
+												</span>
+											{/if}
+										</div>
+									</SettingCard>
+
+									<SettingCard class="gap-2">
+										<!-- `w-fit`: the trigger is a flex item of the card, so it would otherwise
+										stretch the full width and anchor the popup away from the toggle. -->
+										<Popover
+											notClickable
+											disablePopup={variableExpirationHasHandler}
+											placement="bottom-start"
+											class="w-fit"
+										>
+											<Toggle
+												bind:checked={variableExpirationMutedOnUserPath}
+												disabled={!variableExpirationHasHandler}
+												options={{
+													right: 'Do not run the handler for variables in u/ paths'
+												}}
+											/>
+											{#snippet text()}
+												Select a handler first
+											{/snippet}
+										</Popover>
+									</SettingCard>
+
+									<Alert type="info" title="Runs as g/variable_expiration_handler">
+										{#if variableExpirationDraft.selected === 'custom'}
+											The handler is executed by the automatically created group
+											g/variable_expiration_handler. Rotating a variable means writing to it, so
+											grant that group write access to the variables it is meant to rotate. It
+											starts with none. A script that carries an on-behalf-of identity is the
+											exception: it runs as that user, with their permissions rather than the
+											group's.
+										{:else}
+											The handler is executed by the automatically created group
+											g/variable_expiration_handler. It only posts a message, so it needs no access
+											to your variables: it is given the path and the expiry date, never the value.
+											{#if variableExpirationDraft.selected === 'slack'}
+												Access to the Slack bot token is granted for you.
+											{/if}
+										{/if}
+									</Alert>
+									<span class="text-xs text-secondary">
+										If the handler fails to start, a critical alert is raised once and the handler
+										is tried again at every check. The alert is resolved as soon as it starts.
+									</span>
+								</div>
+
+								<SettingsFooter
+									class="mt-6"
+									inline
+									hasUnsavedChanges={hasVariableExpirationChanges}
+									onSave={editVariableExpirationHandler}
+									onDiscard={discardVariableExpirationChanges}
+									saveLabel="Save variable expiration handler"
+									disabled={!$enterpriseLicense && variableExpirationDraft.selected !== 'custom'}
+								/>
+							</Section>
 						{:else if tab == 'critical_alerts'}
 							<SettingsPageHeader
 								title="Workspace critical alerts"
@@ -2439,7 +2781,7 @@ export async function main(
 
 							<SettingCard
 								label="Guests"
-								description="Let anyone your identity provider authenticates, or a JWT your own backend signs (configured below), open the apps set to Guests without a Windmill account. They join no workspace, see nothing else, and take no seat. Off by default. Turning it off stops guests immediately, even for apps already set to Guests."
+								description="An app set to Guests can be opened by anyone your identity provider authenticates, or by a JWT your own backend signs (configured below), without a Windmill account. They join no workspace, see nothing else, and take no seat. To limit who may set an app to Guests, add the 'Restrict guest app access' rule to a protection ruleset."
 								class="mt-6"
 							>
 								{#if !guestsAvailable}
@@ -2458,16 +2800,7 @@ export async function main(
 										</div>
 									{/if}
 								{:else}
-									<Toggle
-										bind:checked={guestAccessEnabled}
-										options={{ right: 'Allow guests to open apps set to Guests' }}
-									/>
-									{#if guestUsage && !guestUsage.instance_enabled}
-										<span class="text-hint text-2xs">
-											A superadmin has turned guests off for this instance, so this switch has no
-											effect until they are allowed again.
-										</span>
-									{:else if guestUsage}
+									{#if guestUsage}
 										<span class="text-hint text-2xs">
 											{guestUsage.guest_count} of {guestUsage.free_allowance} free guests used across
 											this instance in the last {guestUsage.window_days} days.
@@ -2537,7 +2870,6 @@ export async function main(
 								onDiscard={discardDefaultAppSettingsChanges}
 								saveLabel="Save app settings"
 								disabled={!$enterpriseLicense &&
-									guestAccessEnabled === initialGuestAccessEnabled &&
 									effectiveGuestJwt.pem === initialGuestJwtPublicKey &&
 									effectiveGuestJwt.jwks === initialGuestJwtJwksUrl}
 							/>
@@ -2606,10 +2938,8 @@ export async function main(
 			</div>
 		</div>
 	{:else}
-		<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4" role="alert">
-			<p class="font-bold">Not an admin</p>
-			<p>Workspace settings are only available for admin of workspaces</p>
-		</div>
+		<PageHeaderContent separator="always" />
+		<MemberWorkspaceSettings />
 	{/if}
 </CenteredPage>
 
@@ -2648,10 +2978,10 @@ export async function main(
 		{#if pageHeader.actionFold >= 1}
 			<DropdownV2
 				size="sm"
-				items={[{ displayName: 'Instance settings', action: () => goto('#superadmin-settings') }]}
+				items={[{ displayName: 'Instance settings', href: '#superadmin-settings' }]}
 			/>
 		{:else}
-			<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>
+			<Button variant="default" unifiedSize="sm" href="#superadmin-settings">
 				Instance settings
 			</Button>
 		{/if}

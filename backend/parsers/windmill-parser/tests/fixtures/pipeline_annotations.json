@@ -860,6 +860,41 @@
 		}
 	},
 	{
+		"name": "materialize without a target is the default lake, its table named later",
+		"code": "-- pipeline\n-- materialize\nSELECT 1;",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "main"
+			}
+		}
+	},
+	{
+		"name": "materialize with options only is the default lake",
+		"code": "-- pipeline\n-- materialize key=order_id\nSELECT 1;",
+		"expected": {
+			"in_pipeline": true,
+			"asset_triggers": [],
+			"native_triggers": [],
+			"partition": null,
+			"freshness": null,
+			"tag": null,
+			"retry": null,
+			"materialize": {
+				"target_kind": "ducklake",
+				"target_path": "main",
+				"unique_key": "order_id"
+			}
+		}
+	},
+	{
 		"name": "on asset ref strips trailing key=value opts",
 		"code": "// pipeline\n// on ducklake://main.orders debounce=60s\nselect 1",
 		"expected": {

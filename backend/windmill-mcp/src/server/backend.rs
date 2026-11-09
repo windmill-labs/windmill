@@ -17,8 +17,8 @@ use crate::server::endpoints::EndpointTool;
 /// Result type for backend operations using rmcp's ErrorData directly
 pub type BackendResult<T> = Result<T, ErrorData>;
 
-/// What a v2 token may do: read, read and run deployed scripts and flows (`mcp:read_run`),
-/// or everything its owner can.
+/// What a v2 token may do: read, read and run deployed scripts, flows and agents
+/// (`mcp:read_run`), or everything its owner can.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SessionAccess {
     ReadOnly,
@@ -96,6 +96,17 @@ pub trait McpAuth: Send + Sync + Clone + 'static {
 pub trait McpBackend: Send + Sync + Clone + 'static {
     /// The authentication context type
     type Auth: McpAuth;
+
+    /// Called once a tool call in a workspace has an outcome: `refusal` is the error the
+    /// caller receives, `None` when it succeeded.
+    async fn after_tool_call(
+        &self,
+        _auth: &Self::Auth,
+        _workspace_id: &str,
+        _tool: &str,
+        _refusal: Option<&str>,
+    ) {
+    }
 
     // ─────────────────────────────────────────────────────────────────
     // Listing Operations
@@ -250,21 +261,31 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     // ─────────────────────────────────────────────────────────────────
 
     /// The instructions a client reaching one workspace receives on connecting, built for
-    /// this user.
+    /// this user and what the token lets them do.
     async fn session_instructions(
         &self,
         auth: &Self::Auth,
         workspace_id: &str,
+        access: SessionAccess,
     ) -> BackendResult<String>;
 
     /// The instructions for a client reaching several workspaces: what holds in all of them.
-    fn generic_session_instructions(&self) -> String;
+    fn generic_session_instructions(&self, access: SessionAccess) -> String;
 
     /// What `generic_session_instructions` leaves out, for one workspace.
-    async fn workspace_context(&self, auth: &Self::Auth, workspace_id: &str) -> String;
+    async fn workspace_context(
+        &self,
+        auth: &Self::Auth,
+        workspace_id: &str,
+        access: SessionAccess,
+    ) -> String;
 
     /// The tools a token with this access is offered.
     fn session_tools(&self, access: SessionAccess) -> Vec<Tool>;
+
+    /// The MCP Apps views (`ui://` HTML) session tools render their results in, as
+    /// `(uri, html)`.
+    fn session_views(&self) -> &'static [(&'static str, &'static str)];
 
     async fn call_session_tool(
         &self,

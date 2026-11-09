@@ -71,7 +71,6 @@
 		Loader2,
 		Pen,
 		ChevronUpSquare,
-		Shield,
 		Trash,
 		Play,
 		ClipboardCopy,
@@ -103,6 +102,7 @@
 	import {
 		setOperatingWorkspace,
 		useOperatingUser,
+		useReadOnlyWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
 	import { useEditRights } from '$lib/operatorWriteRights'
@@ -173,10 +173,12 @@
 	// lookup does. Assigned once, that leaves the page permanently read-only — `canWrite`
 	// refuses an unknown user — with nothing to recompute it. A hub script is never writable.
 	const promptForAi = $derived((script?.schema?.prompt_for_ai as string | undefined) ?? '')
+	const readOnly = useReadOnlyWorkspace()
 	const can_write = $derived(
 		!isHubScript &&
 			!!script &&
 			script.workspace_id == workspace &&
+			!readOnly(workspace) &&
 			canWrite(script.path, script.extra_perms!, actingUser)
 	)
 	const editRights = useEditRights()
@@ -714,27 +716,16 @@
 		menuItems.push({
 			label: 'Audit logs',
 			Icon: Eye,
-			onclick: () => {
-				onNavigate(`/audit_logs?resource=${script?.path}`)
-			}
-		})
-
-		menuItems.push({
-			label: 'Permissions',
-			Icon: Shield,
-			onclick: () => {
-				shareModal?.openDrawer(script?.path ?? '', 'script')
-			}
+			href: operatingHref(`/audit_logs?resource=${script.path}`),
+			onclick: interceptNav(onNavigate, `/audit_logs?resource=${script.path}`)
 		})
 
 		if (!$disableHubStore) {
 			menuItems.push({
 				label: 'Publish to Hub',
 				Icon: Globe2,
-				onclick: () => {
-					if (!script) return
-					window.open(scriptToHubUrl(script, $hubBaseUrlStore).toString(), '_blank', 'noopener')
-				}
+				href: scriptToHubUrl(script, $hubBaseUrlStore).toString(),
+				hrefTarget: '_blank'
 			})
 		}
 
@@ -845,7 +836,7 @@
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <PersistentScriptDrawer bind:this={persistentScriptDrawer} />
-<ShareModal bind:this={shareModal} />
+<ShareModal bind:this={shareModal} source="detail" />
 
 <Drawer bind:open={versionsDrawerOpen} size="1200px">
 	<DrawerContent title="Versions History" on:close={() => (versionsDrawerOpen = false)} noPadding>
@@ -871,13 +862,17 @@
 				ownsPageHeader={!embedded}
 				{mainButtons}
 				menuItems={getMenuItems(script, deployUiSettings)}
+				onShare={script && caps.code
+					? () => shareModal?.openDrawer(script?.path ?? '', 'script')
+					: undefined}
 				bind:errorHandlerMuted={
 					() => script?.ws_error_handler_muted ?? false,
 					(v) => {
 						if (script !== undefined) script.ws_error_handler_muted = v
 					}
 				}
-				errorHandlerKind="script"
+				itemKind="script"
+				errorHandlerKind={readOnly(workspace) ? undefined : 'script'}
 				scriptOrFlowPath={script?.path ?? ''}
 				tag={script?.tag ?? ''}
 				labels={script?.labels}

@@ -79,8 +79,8 @@ export function isFallbackStorage(name: string): boolean {
 /**
  * The part of a session record the backup keeps. Left out on purpose: `name` (a
  * per-browser legacy label), the unsent-draft fields (`pending_*`, `draftPrompt`,
- * `autoSendDraftAt`), `workspace_root_id` (derived on import), `transient`, `restoredAt`
- * (this browser's clock), and the two fields reading a session bumps (`lastSeenCount`,
+ * `autoSendDraftAt`, `autoSendDomElement`), `workspace_root_id` (derived on import),
+ * `transient`, `restoredAt` (this browser's clock), and the two fields reading a session bumps (`lastSeenCount`,
  * `lastActivityAt`) — so opening a session and reading its new messages never costs a push.
  */
 export type SessionHead = Pick<
@@ -98,6 +98,7 @@ export type SessionHead = Pick<
 	| 'activePreviewTabId'
 	| 'previewCollapsed'
 	| 'previewSize'
+	| 'lastStateChangeAt'
 >
 
 export function sessionHead(s: Session): SessionHead {
@@ -113,6 +114,7 @@ export function sessionHead(s: Session): SessionHead {
 	if (s.activePreviewTabId !== undefined) head.activePreviewTabId = s.activePreviewTabId
 	if (s.previewCollapsed !== undefined) head.previewCollapsed = s.previewCollapsed
 	if (s.previewSize !== undefined) head.previewSize = s.previewSize
+	if (s.lastStateChangeAt !== undefined) head.lastStateChangeAt = s.lastStateChangeAt
 	return head
 }
 

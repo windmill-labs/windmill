@@ -38,10 +38,20 @@
 		// Open on hover without pinning, so the menu closes again once the pointer leaves.
 		// A click then pins it open until a click outside or on the trigger.
 		openOnHover?: boolean
+		// A click inside the hover-opened content pins it too, for content that changes size
+		// under the pointer: a menu that grows near the window's edge moves, and the pointer
+		// it leaves behind would close it.
+		pinOnClick?: boolean
 		// Grace period before a hover-opened menu closes, so the pointer can travel from
 		// the trigger to the content.
 		debounceDelay?: number
 		classNames?: string
+		/** Element to focus when the menu closes; defaults to the trigger, `null` leaves focus alone. */
+		closeFocus?:
+			| string
+			| HTMLElement
+			| ((trigger?: HTMLElement | null) => HTMLElement | null)
+			| null
 		triggr?: import('svelte').Snippet<[any]>
 		children?: import('svelte').Snippet<[any]>
 		class?: string
@@ -62,8 +72,10 @@
 		renderContent = false,
 		submenuSafe = false,
 		openOnHover = false,
+		pinOnClick = false,
 		debounceDelay = 150,
 		class: classNames = '',
+		closeFocus = undefined,
 		triggr,
 		children
 	}: Props = $props()
@@ -80,6 +92,7 @@
 			strategy: 'fixed'
 		},
 		loop: true,
+		closeFocus: untrack(() => closeFocus),
 		// Hover tooltips (e.g. NameIdTooltip on menu rows) portal to body, so a
 		// click inside one — like its copy button — registers as an outside click.
 		// Veto the close so interacting with a tooltip doesn't tear the menu down.
@@ -225,6 +238,12 @@
 			data-menu
 			onmouseenter={cancelPendingClose}
 			onmouseleave={scheduleClose}
+			onclickcapture={() => {
+				if (openOnHover && pinOnClick && open) {
+					cancelPendingClose()
+					pinned = true
+				}
+			}}
 			transition:placementFly={{ duration: 100, placement }}
 			style={contentStyle}
 			class={twMerge(

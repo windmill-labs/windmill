@@ -7,6 +7,7 @@
  */
 
 pub mod auth;
+pub mod composed;
 #[cfg(feature = "private")]
 pub mod ee;
 pub mod ee_oss;
@@ -89,6 +90,9 @@ pub struct ApiAuthed {
     /// this, since the JWT's expiry is a guest's only revocation and there is no row to
     /// look the limit up in. `None` for every credential whose limit lives in `token`.
     pub credential_expiry: Option<chrono::DateTime<chrono::Utc>>,
+    /// The OAuth client of an external issuer acting for this user (`mcp_external_idp`).
+    /// Recorded on the runs it starts and handed to their steps as `WM_MCP_CLIENT`.
+    pub mcp_client: Option<String>,
 }
 
 impl ApiAuthed {
@@ -156,6 +160,7 @@ impl From<ApiAuthed> for Authed {
             folders: value.folders,
             scopes: value.scopes,
             token_prefix: value.token_prefix,
+            mcp_client: value.mcp_client,
         }
     }
 }
@@ -177,6 +182,7 @@ impl From<Authed> for ApiAuthed {
             read_only: false,
             job_id: None,
             credential_expiry: None,
+            mcp_client: value.mcp_client,
         }
     }
 }
@@ -590,7 +596,9 @@ pub fn ensure_scopes_within_caller(
 
         for requested in requested_restrictions {
             if requested.starts_with("mcp:") {
-                if !caller_mcp.contains(requested.as_str()) {
+                // `mcp:session` (windmill_mcp's SESSION_SCOPE) grants nothing: it only picks
+                // the toolset an `mcp:all` token gets, and `mcp:all` is matched here itself.
+                if requested != "mcp:session" && !caller_mcp.contains(requested.as_str()) {
                     return Err(Error::PermissionDenied(format!(
                         "A scope-restricted token cannot grant MCP scope '{requested}' unless the \
                          caller holds the same scope verbatim"
@@ -948,6 +956,67 @@ pub async fn gate_operator_writes(
     Ok(next.run(Request::from_parts(parts, body)).await)
 }
 
+/// Whether a path of the jobs router starts a run on the caller's behalf. Anything under a run
+/// prefix is, so a run route added later is gated without its author doing anything; the
+/// exceptions are code tooling gated by `code` (dependency locks, inline dynamic selects) or steps
+/// of a run already started (workflow-as-code), which a view-only member's scheduled or triggered
+/// runs still need.
+fn starts_run(path: &str) -> bool {
+    let mut segments = path.trim_start_matches('/').split('/');
+    match (segments.next(), segments.next()) {
+        // Script previews check `run` in their handlers, after the in-job data table exemption.
+        (Some("run" | "run_inline" | "run_wait_result"), Some("preview")) => false,
+        (Some("run"), Some(next)) => !matches!(
+            next,
+            "dependencies"
+                | "dependencies_async"
+                | "flow_dependencies"
+                | "flow_dependencies_async"
+                | "dynamic_select"
+                | "workflow_as_code"
+        ),
+        (
+            Some(
+                "run_wait_result" | "run_and_stream" | "run_inline" | "restart" | "add_batch_jobs",
+            ),
+            _,
+        ) => true,
+        _ => false,
+    }
+}
+
+/// Refuses a run under the jobs router unless the caller's role holds `run`. Layered on the router
+/// rather than per handler for the reason `gate_operator_writes` is; GET counts, since
+/// `run_and_stream` and `run_wait_result` start runs over GET.
+pub async fn gate_role_runs(
+    Extension(db): Extension<DB>,
+    request: Request,
+    next: Next,
+) -> Result<Response> {
+    if matches!(
+        *request.method(),
+        http::Method::HEAD | http::Method::OPTIONS
+    ) || !starts_run(request.uri().path())
+    {
+        return Ok(next.run(request).await);
+    }
+    let (mut parts, body) = request.into_parts();
+    let Path(params) = <Path<HashMap<String, String>> as FromRequestParts<()>>::from_request_parts(
+        &mut parts,
+        &(),
+    )
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!("run gate layered outside a workspaced router: {e}"))
+    })?;
+    let authed = <ApiAuthed as FromRequestParts<()>>::from_request_parts(&mut parts, &()).await?;
+    let w_id = params.get("workspace_id").ok_or_else(|| {
+        Error::internal_err("run gate layered outside a workspaced router".to_string())
+    })?;
+    windmill_common::workspaces::check_role_can_run(&db, w_id, &authed).await?;
+    Ok(next.run(Request::from_parts(parts, body)).await)
+}
+
 // ------------ FromRequestParts impls (direct call to auth module) ------------
 
 impl<S> FromRequestParts<S> for ApiAuthed
@@ -1096,6 +1165,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 read_only: false,
                 job_id: None,
                 credential_expiry: None,
+                mcp_client: None,
             };
 
             API_AUTHED_CACHE.insert(
@@ -1127,6 +1197,9 @@ pub struct NewToken {
     pub workspace_id: Option<String>,
     #[serde(default)]
     pub read_only: Option<bool>,
+    /// An MCP token carries its owner's superadmin rights (every workspace) only when asked.
+    #[serde(default)]
+    pub super_admin: Option<bool>,
 }
 
 impl NewToken {
@@ -1138,7 +1211,15 @@ impl NewToken {
         workspace_id: Option<String>,
         read_only: Option<bool>,
     ) -> Self {
-        Self { label, expiration, impersonate_email, scopes, workspace_id, read_only }
+        Self {
+            label,
+            expiration,
+            impersonate_email,
+            scopes,
+            workspace_id,
+            read_only,
+            super_admin: None,
+        }
     }
 }
 
@@ -1182,6 +1263,11 @@ pub async fn create_token_internal(
     .fetch_optional(&mut *tx)
     .await?
     .unwrap_or(false);
+    let is_mcp = token_config
+        .scopes
+        .as_deref()
+        .is_some_and(|s| s.iter().any(|scope| scope.starts_with("mcp:")));
+    let is_super_admin = is_super_admin && (!is_mcp || token_config.super_admin == Some(true));
     if *CLOUD_HOSTED {
         let nb_tokens =
             sqlx::query_scalar!("SELECT COUNT(*) FROM token WHERE email = $1", &authed.email)
@@ -1963,6 +2049,11 @@ mod tests {
             opt_scopes(Some(vec!["mcp:scripts:*"])).as_deref()
         )
         .is_err());
+        assert!(ensure_scopes_within_caller(
+            &mcp_all,
+            opt_scopes(Some(vec!["mcp:all", "mcp:session"])).as_deref()
+        )
+        .is_ok());
     }
 
     #[test]

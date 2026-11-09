@@ -1078,6 +1078,7 @@
 		<div class="mt-8"></div>
 
 		<AutoscalingConfigEditor
+			worker_group={name}
 			worker_tags={config?.worker_tags}
 			group_has_tags={nconfig.worker_tags !== undefined
 				? nconfig.worker_tags.length > 0
@@ -1352,7 +1353,7 @@
 				<p class="text-xs text-tertiary">Requires a superadmin token.</p>
 				<pre
 					class="mt-1 p-2 bg-surface-secondary rounded text-xs overflow-x-auto whitespace-pre-wrap break-all"
-					>curl -X POST '{apiBaseUrl()}/api/configs/update/worker__{name}' \
+					>curl -X POST '{apiBaseUrl('cli')}/api/configs/update/worker__{name}' \
   -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer &lt;token&gt;' \
   -d '{JSON.stringify(cleanWorkerGroupConfig(nconfig ?? {}), null, 2)}'</pre

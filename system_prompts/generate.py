@@ -1683,6 +1683,12 @@ TOPICS: dict[str, dict] = {
         'chat_helper': 'getResourcePrompt',
         'parts': ['resources.md'],
     },
+    'agent': {
+        'skill': 'agents',
+        'description': 'MUST use when creating or changing an AI agent, the reusable `ai_agent` resource the Agents page lists.',
+        'chat_helper': 'getAgentPrompt',
+        'parts': ['agent.md'],
+    },
     'workflow_as_code': {
         'skill': 'write-workflow-as-code',
         'description': 'MUST use when writing or modifying Windmill Workflow-as-Code scripts using workflow, task, step, sleep, approvals, taskScript, taskFlow, task_script, or task_flow.',
@@ -1725,6 +1731,7 @@ CHAT_CONSTANTS = {
     'script-base.md': 'SCRIPT_BASE',
     'flow-base.md': 'FLOW_BASE',
     'resources.md': 'RESOURCES_BASE',
+    'agent.md': 'AGENT_BASE',
     'raw-app.md': 'RAW_APP_BASE',
     'pipeline-base.md': 'PIPELINE_BASE',
     'datatable.md': 'DATATABLE_BASE',
@@ -2647,6 +2654,11 @@ export function getResourcePrompt(): string {
   __RETURN_resources__
 }
 
+// Helper for AI agent authoring
+export function getAgentPrompt(): string {
+  __RETURN_agent__
+}
+
 // Helper for raw app authoring (chat consumers). Inline backend runnables are
 // ordinary Windmill jobs, so the reference has to carry the SDK the runnable
 // calls — without it an agent invents client functions and hand-rolls HTTP.
@@ -2733,6 +2745,7 @@ export function getWorkflowAsCodePrompt(language?: string): string {
 export declare function getScriptPrompt(language: string): string;
 export declare function getFlowPrompt(): string;
 export declare function getResourcePrompt(): string;
+export declare function getAgentPrompt(): string;
 export declare function getRawAppPrompt(language?: string): string;
 export declare function getPipelinePrompt(): string;
 export declare function getDatatablePrompt(): string;

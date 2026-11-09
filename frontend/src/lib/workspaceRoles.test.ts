@@ -4,6 +4,7 @@ import {
 	applyCapabilitiesPatch,
 	baseCapabilitiesFor,
 	FULL_CAPABILITIES,
+	resolveCapabilities,
 	validRoleOr,
 	workspaceRolesErrors
 } from './workspaceRoles'
@@ -60,5 +61,21 @@ describe('validRoleOr', () => {
 		expect(validRoleOr([role('builder'), role('viewer')], undefined)).toBe('builder')
 		expect(validRoleOr([role('builder'), role('viewer')], 'developer')).toBe('builder')
 		expect(validRoleOr([role('builder')], 'admin')).toBe('admin')
+	})
+})
+
+describe('resolveCapabilities', () => {
+	it('derives an unset fork from the restriction, as the server does', () => {
+		const maintainer = resolveCapabilities(
+			baseCapabilitiesFor('maintainer'),
+			{ code: true, flows: 'full', apps: 'full' },
+			false
+		)
+		expect(maintainer.fork).toBe(true)
+		const developer = resolveCapabilities(baseCapabilitiesFor('developer'), { code: false }, false)
+		expect(developer.fork).toBe(false)
+		expect(resolveCapabilities(baseCapabilitiesFor('operator'), { fork: true }, false).fork).toBe(
+			true
+		)
 	})
 })

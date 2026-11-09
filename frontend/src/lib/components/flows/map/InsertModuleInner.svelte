@@ -84,19 +84,20 @@
 	let savedAgentsLoading = $state(false)
 	let savedAgentsWs: string | undefined = undefined
 	async function loadSavedAgents() {
-		// The backend refuses a linked agent in a builder's flow.
-		if (!ws || savedAgentsWs === ws || composeOnlyFlows) {
+		const requested = ws
+		if (!requested || savedAgentsWs === requested) {
 			return
 		}
 		savedAgentsLoading = true
 		try {
 			const rs = await ResourceService.listResource({
-				workspace: ws,
+				workspace: requested,
 				resourceType: 'ai_agent',
 				perPage: 1000
 			})
+			if (requested !== ws) return
 			savedAgents = rs.map((r) => ({ path: r.path, description: r.description }))
-			savedAgentsWs = ws
+			savedAgentsWs = requested
 		} catch {
 			savedAgents = []
 		} finally {
@@ -242,12 +243,22 @@
 						}}
 					/>
 					<TopLevelNode
-						label="Web Search"
+						label="Web search"
 						onSelect={() => {
 							dispatch('pickWebsearchTool')
 							dispatch('close')
 						}}
 					/>
+					<!-- A nested agent cannot park, so the worker drops it from its roster. -->
+					{#if !nestedAgent}
+						<TopLevelNode
+							label="Ask a question"
+							onSelect={() => {
+								dispatch('pickQuestionTool')
+								dispatch('close')
+							}}
+						/>
+					{/if}
 					<TopLevelNode
 						label="AI Agent"
 						chevron={false}
@@ -386,9 +397,7 @@
 						<kbd class="!text-xs">&crarr;</kbd>
 					{/if}
 				</Button>
-				{#if composeOnlyFlows}
-					<!-- Linked agents are refused to builders, see `loadSavedAgents`. -->
-				{:else if savedAgentsLoading}
+				{#if savedAgentsLoading}
 					<div class="flex items-center gap-2 p-2 text-xs text-tertiary">
 						<Loader2 size={13} class="animate-spin" /> Loading saved agents
 					</div>

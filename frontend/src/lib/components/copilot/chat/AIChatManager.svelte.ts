@@ -102,8 +102,9 @@ import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { readDocsPageTool, searchDocsTool } from './docs/core'
+import { withWebSearchFallback } from './web/core'
 import { prefersInstantReveal, TypewriterReveal } from './typewriterReveal'
-import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
+import { triggerablesByAi } from './sharedChatState.svelte'
 import {
 	createAppBackendRunnableContextElement,
 	createAppFrontendFileContextElement,
@@ -139,13 +140,39 @@ import {
 } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
 import { resolveSessionAccess } from './global/sessionAccess'
-import type { SessionAccess } from './sessionCapabilities'
-import { filterSessionTools } from './global/sessionToolset'
 import {
+	canBuild,
+	isReadOnlyAccess,
+	USE_MODE_ACCESS,
+	type SessionAccess,
+	type SessionTool
+} from './sessionCapabilities'
+import {
+	AIWorkMode,
+	ENTER_BUILD_MODE_TOOL,
+	ENTER_USE_MODE_TOOL,
+	isWorkModeSwitchTool,
+	WORK_MODE_SWITCH_TARGET,
+	type WorkModeSwitchTool
+} from './workMode'
+import { workModeSwitchTools } from './workModeSwitch'
+import { filterSessionTools, sessionToolAllowed } from './global/sessionToolset'
+import {
+	formatFolderInstructions,
+	instructionsCovering,
 	listFolderInstructions,
+	readFolderInstructionBody,
 	type FolderInstruction,
 	type FolderInstructionsDelivery
 } from './folderInstructions'
+import {
+	logWorkingScope,
+	ownerRoot,
+	scopeKind,
+	WorkingScope,
+	type ScopeDecision,
+	type ScopeSource
+} from './workingScope'
 import {
 	loadWorkspaceSkills,
 	resolveGlobalPromptIdentity,
@@ -155,7 +182,8 @@ import {
 	type ChatCommandItem,
 	type SessionPromptContext,
 	type GlobalToolHelpers,
-	type GlobalActivePreviewContext
+	type GlobalActivePreviewContext,
+	type GlobalActiveEditorContext
 } from './global/core'
 import {
 	assembleGlobalSystemMessage,
@@ -163,7 +191,6 @@ import {
 	type GlobalAssemblyOpts
 } from './global/globalAssembly'
 import { formatChatJobCompletion } from './datatableTools'
-import { isGlobalAiEnabled } from './global/gate'
 import { loadMcpServers, type McpServer } from './global/mcpTools'
 import type { PipelineAIChatHelpers } from './pipeline/core'
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
@@ -269,7 +296,6 @@ export enum AIMode {
 }
 
 export enum AIAutonomyMode {
-	PLAN = 'plan',
 	DEFAULT = 'default',
 	ACCEPT_EDIT = 'acceptedit',
 	YOLO = 'yolo'
@@ -308,14 +334,6 @@ export function supportsPlanMode(mode: AIMode): boolean {
 
 const navCapabilities = fromStore(roleCapabilities)
 
-export function isAIModeVisible(mode: AIMode): boolean {
-	return mode !== AIMode.GLOBAL || isGlobalAiEnabled()
-}
-
-export function getVisibleAIModes(): AIMode[] {
-	return ALL_AI_MODES.filter(isAIModeVisible)
-}
-
 function isWorkspacePath(path: string | undefined): path is string {
 	return path?.startsWith('f/') === true || path?.startsWith('u/') === true
 }
@@ -332,7 +350,7 @@ function getPersistedAutonomyMode(): AIAutonomyMode {
 		return AIAutonomyMode.ACCEPT_EDIT
 	}
 	const persistedMode = getLocalSetting(key)
-	if (isAIAutonomyMode(persistedMode) && persistedMode !== AIAutonomyMode.PLAN) {
+	if (isAIAutonomyMode(persistedMode)) {
 		return persistedMode
 	}
 	// No stored preference: default to auto-accepting edits (tool calls still
@@ -345,11 +363,6 @@ function getPersistedAutonomyMode(): AIAutonomyMode {
 }
 
 function persistAutonomyMode(mode: AIAutonomyMode) {
-	// Plan is session-only: persisting it would re-block a later session where the
-	// picker never offered Plan. The stored pre-plan baseline is what a reload restores.
-	if (mode === AIAutonomyMode.PLAN) {
-		return
-	}
 	const key = scopedKey(AI_AUTONOMY_MODE_STORAGE_KEY)
 	if (!BROWSER || !key) {
 		return
@@ -466,8 +479,8 @@ function planModeHostFor(m: AIChatManager): PlanModeHost {
 			return m.artifacts
 		},
 		openArtifact: (id, name, version) => m.openArtifact?.(id, name, version),
-		enter: () => m.setAutonomyMode(AIAutonomyMode.PLAN),
-		restore: () => m.setAutonomyMode(m.prePlanAutonomyMode ?? AIAutonomyMode.DEFAULT)
+		enter: () => m.setWorkMode(AIWorkMode.PLAN),
+		build: () => m.setWorkMode(AIWorkMode.BUILD)
 	}
 }
 
@@ -517,8 +530,6 @@ export class AIChatManager implements ChatViewHost {
 	// reopens the tab through this, so a page shown in between costs no failed call.
 	#pipelineReopener: ((folder: string) => void) | undefined = undefined
 	#openedPipelineFolders = new Set<string>()
-	readonly isOpen = $derived(chatState.size > 0)
-	savedSize = $state<number>(0)
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
 	// Message queued while a turn is streaming. There is only ever one queued
@@ -589,7 +600,7 @@ export class AIChatManager implements ChatViewHost {
 	 * control elsewhere. */
 	openRunOnDeployedPage?: (a: {
 		toolCallId: string
-		kind: 'script' | 'flow'
+		kind: 'script' | 'flow' | 'agent'
 		path: string
 		summary: string
 		carries: boolean
@@ -761,12 +772,48 @@ export class AIChatManager implements ChatViewHost {
 				this.autonomyMode === AIAutonomyMode.YOLO)
 	)
 	autoAcceptToolConfirmationsAvailable = $derived(supportsAutoAcceptToolConfirmations(this.mode))
+	/** Use, Plan or Build. A session keeps its own: the runtime seeds it from the session record
+	 * and stores each change through `onWorkModeChanged`. */
+	workMode = $state<AIWorkMode>(AIWorkMode.BUILD)
+	onWorkModeChanged: ((mode: AIWorkMode) => void) | undefined = undefined
+	workModesAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
+	/** Use is the only mode: the workspace is protected, or the user's role builds nothing in it. */
+	#useOnly = $derived(this.workModesAvailable && !canBuild(this.sessionAccess))
+	// A plan ends in edits, which neither case allows. The user's own Use mode leaves Plan open:
+	// it is one click away from Build anyway.
+	planModeAvailable = $derived(this.workModesAvailable && !this.#useOnly)
+	planModeActive = $derived(this.workMode === AIWorkMode.PLAN && this.planModeAvailable)
+	// Not while planning: approving the plan is the user's to do, and Yolo applies once they have.
 	autoAcceptToolConfirmationsActive = $derived(
-		this.autonomyMode === AIAutonomyMode.YOLO && this.autoAcceptToolConfirmationsAvailable
+		this.autonomyMode === AIAutonomyMode.YOLO &&
+			this.autoAcceptToolConfirmationsAvailable &&
+			!this.planModeActive
 	)
-	planModeAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
-	planModeActive = $derived(this.autonomyMode === AIAutonomyMode.PLAN && this.planModeAvailable)
-	prePlanAutonomyMode = $state<AIAutonomyMode | undefined>(undefined)
+	/** The chat is in Use, by the user's pick or because Use is the only mode. */
+	useModeActive = $derived(
+		this.workModesAvailable && (this.workMode === AIWorkMode.USE || this.#useOnly)
+	)
+	/** Why the chat is in Use; undefined in Plan and Build. A protected workspace's access builds
+	 * nothing too, so it is told apart from the role first. */
+	#useReason = $derived.by((): 'protected' | 'role' | 'chosen' | undefined => {
+		if (!this.useModeActive) return undefined
+		if (isReadOnlyAccess(this.sessionAccess)) return 'protected'
+		return this.#useOnly ? 'role' : 'chosen'
+	})
+	#workModeSwitches: Record<WorkModeSwitchTool, SessionTool<any>> = workModeSwitchTools({
+		offers: (tool) => this.workModeSwitchOffered === tool,
+		setWorkMode: (mode) => this.setWorkMode(mode)
+	})
+	/** The switch the current mode offers between Use and Use & build. None from Plan, which
+	 * leaves through its plan's approval, from a session held in Use, or while confirmations are
+	 * auto-accepted: the switch is the user's answer, which that posture would give for them. */
+	workModeSwitchOffered = $derived.by((): WorkModeSwitchTool | undefined => {
+		if (!this.workModesAvailable || this.autoAcceptToolConfirmationsActive) return undefined
+		if (this.#useReason === 'chosen') return ENTER_BUILD_MODE_TOOL
+		return this.useModeActive || this.planModeActive ? undefined : ENTER_USE_MODE_TOOL
+	})
+	/** What the tools and the prompt are built for. */
+	#toolAccess = $derived(this.useModeActive ? USE_MODE_ACCESS : this.sessionAccess)
 	// The posture's own state — its two tools, the plan document and the planning round.
 	// Everything it needs from this manager goes through the host above.
 	planMode = new PlanModeController(planModeHostFor(this))
@@ -783,15 +830,33 @@ export class AIChatManager implements ChatViewHost {
 	/** Both views narrow the same way — concatenate every source, then filter — so a tool
 	 * reaching either one can never arrive unfiltered. A session withholds what its user's
 	 * capabilities do not cover; elsewhere `sessionAccess` is unset and nothing is dropped. */
-	#shipped = (planTools: Tool<any>[]): Tool<any>[] =>
-		filterSessionTools([...this.#assembledTools, ...planTools], this.sessionAccess)
-	/** What the request carries: the assembled tools plus the plan-mode transition the current
+	#shipped = (modeTools: Tool<any>[]): Tool<any>[] =>
+		filterSessionTools([...this.#assembledTools, ...modeTools], this.#toolAccess)
+	/** What the request carries: the assembled tools plus the mode transitions the current
 	 * posture offers. Read by the request path and by the YOLO disclosure. */
-	tools: Tool<any>[] = $derived(this.#shipped(this.planMode.tools))
+	tools: Tool<any>[] = $derived(
+		this.#shipped([
+			...this.planMode.tools,
+			...(this.workModeSwitchOffered ? [this.#workModeSwitches[this.workModeSwitchOffered]] : [])
+		])
+	)
 	/** What the assistant can call in this session, posture-independent: both plan-mode
-	 * transitions, whichever one is offered right now. A reference answer, so flipping the
-	 * autonomy picker must not change it. */
-	availableTools: Tool<any>[] = $derived(this.#shipped(this.planMode.availableTools))
+	 * transitions and both switches, whichever one is offered right now. A reference answer, so
+	 * flipping the autonomy picker must not change it. */
+	availableTools: Tool<any>[] = $derived(
+		this.#shipped([
+			...this.planMode.availableTools,
+			...(this.workModesAvailable && !this.#useOnly ? Object.values(this.#workModeSwitches) : [])
+		])
+	)
+	/** Whether a tool the call was made with is no longer shipped: a switch to Use withdraws
+	 * every write while its card waits. The mode transitions are not assembled, so never are. */
+	isToolWithdrawn = (toolName: string): boolean => {
+		const access = this.#toolAccess
+		if (!access) return false
+		const tool = this.#assembledTools.find((t) => t.def.function.name === toolName)
+		return !!tool && !sessionToolAllowed(tool, access)
+	}
 	#copilotInfo = fromStore(copilotInfo)
 	#sessionModel = fromStore(copilotSessionModel)
 	/** Capabilities the provider runs on its own servers, attached by the adapter at send
@@ -850,6 +915,9 @@ export class AIChatManager implements ChatViewHost {
 		{ resolve: (value: boolean) => void; toolName?: string }
 	>()
 	private userQuestionCallbacks = new Map<string, (choices: string[] | undefined) => void>()
+	// Kept apart from confirmationCallbacks: YOLO answers those, and never answers these.
+	// Resolved undefined when the turn stops first.
+	private scopeCallbacks = new Map<string, (decision: ScopeDecision | undefined) => void>()
 	/**
 	 * One run form's whole life while it waits, so ending it is one delete and cannot end half
 	 * of it. Held here rather than in the form, which unmounts and remounts as it moves between
@@ -871,6 +939,101 @@ export class AIChatManager implements ChatViewHost {
 	// sessions modules — and re-read on every system-message rebuild; the send
 	// path rebuilds after beforeSend, so a fork committed there is picked up.
 	sessionContextResolver: (() => SessionPromptContext | undefined) | undefined = undefined
+	// The session's scope, read from its record (roots undefined for the whole workspace), and
+	// the write that stores a change the user makes. Same seam as above. Unset outside sessions,
+	// which always work in the whole workspace.
+	workingInResolver:
+		| (() => { roots: readonly string[] | undefined; source: ScopeSource })
+		| undefined = undefined
+	onWorkingInChanged:
+		| ((roots: readonly string[] | undefined, source: 'manual' | undefined) => void)
+		| undefined = undefined
+	/** The scope the picker shows: the session's, which the next turn takes. */
+	get workingIn(): readonly string[] | undefined {
+		return this.workingInResolver?.().roots
+	}
+	get supportsWorkingIn(): boolean {
+		return this.workingInResolver !== undefined
+	}
+	/** The scope the running turn took when it was sent: a change from the picker waits for the
+	 * next turn, so the prompt and the gate agree for the whole request. Undefined between turns. */
+	#turnScope: { roots: readonly string[] | undefined } | undefined = undefined
+	/** A pick in the picker; `fallback` for the scope dropped because the folder is not in the
+	 * workspace "Acting on" switched to, which leaves the default rather than a choice. */
+	setWorkingIn = (roots: readonly string[] | undefined, { fallback = false } = {}) => {
+		this.onWorkingInChanged?.(roots, fallback ? undefined : 'manual')
+		// Before the first send, that send counts the scope it goes out in.
+		if (this.#loggedScopeSet && !fallback) {
+			logWorkingScope(`scope:${scopeKind(roots)}:manual`, this.operatingWorkspace)
+		}
+		if (this.#turnScope) return
+		if (this.mode === AIMode.GLOBAL) {
+			void this.refreshGlobalFolderInstructions()
+			this.configureGlobalMode()
+		}
+	}
+	/** The card's "Allow writes in <root>": unlike the picker, it applies to the running turn. */
+	#addToScope = (root: string) => {
+		const roots = this.#turnScope ? this.#turnScope.roots : this.workingIn
+		if (!roots || roots.includes(root)) return
+		const next = [...roots, root]
+		this.onWorkingInChanged?.(next, 'manual')
+		if (!this.#turnScope || this.mode !== AIMode.GLOBAL) return
+		this.#turnScope = { roots: next }
+		// The gate widened for this turn, so its prompt and skills widen with it.
+		void this.refreshGlobalFolderInstructions()
+		this.configureGlobalMode()
+	}
+	/** What a picker row badges: the instructions, skills and MCP servers under it. */
+	get scopeResources(): {
+		instructions: readonly { path: string }[]
+		skills: readonly { path: string }[]
+		mcpServers: readonly { path: string }[]
+	} {
+		return {
+			instructions: this.globalFolderInstructions,
+			skills: this.globalSkills,
+			mcpServers: this.mcpServers
+		}
+	}
+	get scopeIdentity(): GlobalPromptIdentity | undefined {
+		return this.globalIdentity
+	}
+	// Use writes nothing, so a scope there would only narrow listing and swap skills without
+	// guarding anything: the session works as if no folder were picked.
+	#workingScope = (): WorkingScope | undefined =>
+		this.mode === AIMode.GLOBAL && this.workingInResolver && !this.useModeActive
+			? new WorkingScope(
+					this.#turnScope ? this.#turnScope.roots : this.workingIn,
+					this.globalIdentity
+				)
+			: undefined
+	/** The scope in force: the running turn's, else the one the next turn takes. */
+	get workingScope(): WorkingScope | undefined {
+		return this.#workingScope()
+	}
+	// Skills saved in other folders are suspended while scoped, from every way in: the prompt's
+	// list, the `/` picker and a typed `/name`. read_skill refuses them on its own.
+	#loadedSkills = (): AiSkillListItem[] => {
+		const scope = this.#workingScope()
+		return scope ? this.globalSkills.filter((s) => scope.loadsSkill(s.path)) : this.globalSkills
+	}
+	/** The scoped folders' instructions, formatted for the system prompt, and the paths they
+	 * carry, which first-touch delivery then skips. `scope` is the label they were read for. */
+	#scopeInstructions:
+		| { scope: string; workspace: string; text: string; paths: string[] }
+		| undefined = undefined
+	/** Folders a whole-workspace session wrote to, for the `written:` counter. */
+	#writtenRoots = new Set<string>()
+	#loggedScopeSet = false
+	/** The scoped folders' instructions, while they were read for the scope and workspace in
+	 * force: a scope changed since keeps none until the next refresh rather than the old ones. */
+	#currentScopeInstructions = (scope = this.#workingScope()) => {
+		const held = this.#scopeInstructions
+		return held && held.scope === scope?.label && held.workspace === (this.operatingWorkspace ?? '')
+			? held
+			: undefined
+	}
 	// Whether another tab is running a turn on this session right now (sessions
 	// wiring, same seam as above). The composer locks on it, and sendRequest
 	// refuses on it — the refusal covers the send already in flight when the
@@ -883,6 +1046,8 @@ export class AIChatManager implements ChatViewHost {
 	// a page tab is an iframe in its own realm, so the tab model is the only place the
 	// chat can learn it. Undefined for a live editor — ACTIVE EDITOR covers those.
 	activePreviewResolver: (() => GlobalActivePreviewContext | undefined) | undefined = undefined
+	// An editor the draft registry does not cover, such as an agent's in a session tab.
+	activeEditorResolver: (() => GlobalActiveEditorContext | undefined) | undefined = undefined
 	// Resolves the workspace this chat operates on. Session chats set it to their
 	// own (possibly forked) workspace so the chat targets it WITHOUT switching the
 	// global workspaceStore. Undefined for the global side-panel chat, which
@@ -1434,7 +1599,7 @@ export class AIChatManager implements ChatViewHost {
 	// The `ai_instruction` resources readable in the operating workspace, loaded
 	// alongside skills. The prompt names their folders; the tool loop delivers each
 	// one's body the first time a call touches its folder, recording which call did.
-	private globalFolderInstructions: FolderInstruction[] = []
+	private globalFolderInstructions = $state<FolderInstruction[]>([])
 	private globalFolderInstructionsRefreshId = 0
 	private folderInstructionsDeliveredBy = new Map<string, FolderInstructionsDelivery>()
 
@@ -1475,7 +1640,7 @@ export class AIChatManager implements ChatViewHost {
 	// those by path and the submit path declines to guess between them.
 	sessionCommands: ChatCommandItem[] = $derived([
 		...this.sessionBuiltinCommands,
-		...this.globalSkills
+		...this.#loadedSkills()
 			.filter((s) => !this.sessionBuiltinCommands.some((b) => b.name === s.name))
 			.map((s) => ({ ...s, kind: 'skill' as const }))
 	])
@@ -1499,11 +1664,8 @@ export class AIChatManager implements ChatViewHost {
 		navigator: !this.disabledModes.navigator,
 		ask: !this.disabledModes.ask,
 		API: !this.disabledModes.API,
-		// Dev-only gate. See `./global/gate.ts` for how to enable.
-		global: isAIModeVisible(AIMode.GLOBAL)
+		global: true
 	})
-
-	open = $derived(chatState.size > 0)
 
 	// one token is ~ 4 characters
 	private estimateMessagesTokens = (messages: ChatCompletionMessageParam[]) => {
@@ -1964,8 +2126,10 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	/** enter_plan_mode never qualifies: YOLO means "stop asking and run it", and a research
-	 * posture inverts that. Every accept path asks here rather than carrying its own copy. */
-	private autoAcceptsTool = (toolName: string | undefined) => toolName !== ENTER_PLAN_MODE_TOOL
+	 * posture inverts that. Nor does a switch between Use and Use & build, which only the user
+	 * picks. Every accept path asks here rather than carrying its own copy. */
+	private autoAcceptsTool = (toolName: string | undefined) =>
+		toolName !== ENTER_PLAN_MODE_TOOL && !isWorkModeSwitchTool(toolName)
 
 	/** Asked before the confirmation wait is skipped, so a tool the posture will not answer
 	 * for still gets a card rather than running unasked. */
@@ -1981,6 +2145,33 @@ export class AIChatManager implements ChatViewHost {
 		return new Promise((resolve) => {
 			this.confirmationCallbacks.set(toolId, { resolve, toolName })
 		})
+	}
+
+	requestScopeDecision = (toolId: string): Promise<ScopeDecision | undefined> =>
+		new Promise((resolve) => {
+			this.scopeCallbacks.set(toolId, resolve)
+		})
+
+	handleScopeDecision = (toolId: string, decision: ScopeDecision) => {
+		const resolve = this.scopeCallbacks.get(toolId)
+		if (!resolve) return
+		this.scopeCallbacks.delete(toolId)
+		logWorkingScope(`block:${decision}`, this.operatingWorkspace)
+		resolve(decision)
+	}
+
+	/** Counts the folders a whole-workspace session's AI writes to: `1` on its first, `2+` on
+	 * its second, which is where a one-folder scope would have got in the way. */
+	#recordWrite = (paths: readonly string[]) => {
+		if (!this.workingInResolver || this.#workingScope()?.roots) return
+		const before = this.#writtenRoots.size
+		for (const path of paths) {
+			const root = ownerRoot(path)
+			if (root) this.#writtenRoots.add(root)
+		}
+		const after = this.#writtenRoots.size
+		if (before === 0 && after >= 1) logWorkingScope('written:1', this.operatingWorkspace)
+		if (before < 2 && after >= 2) logWorkingScope('written:2+', this.operatingWorkspace)
 	}
 
 	// Handle confirmation response for a specific tool
@@ -2005,7 +2196,7 @@ export class AIChatManager implements ChatViewHost {
 		}
 	}
 
-	private resolvePendingPlanCard = (toolName: string, confirmed: boolean) => {
+	private resolvePendingModeCard = (toolName: string, confirmed: boolean) => {
 		for (const [toolId, cb] of this.confirmationCallbacks) {
 			if (cb.toolName === toolName) {
 				cb.resolve(confirmed)
@@ -2015,29 +2206,47 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	setAutonomyMode = (mode: AIAutonomyMode) => {
-		const enteringPlan = mode === AIAutonomyMode.PLAN && this.autonomyMode !== AIAutonomyMode.PLAN
-		const leavingPlan = mode !== AIAutonomyMode.PLAN && this.autonomyMode === AIAutonomyMode.PLAN
-		if (enteringPlan) {
-			this.prePlanAutonomyMode = this.autonomyMode
-			this.planMode.startRound()
-		} else if (mode !== AIAutonomyMode.PLAN) {
-			this.prePlanAutonomyMode = undefined
-			this.planMode.resetBlocks()
-		}
 		this.autonomyMode = mode
 		persistAutonomyMode(mode)
-
-		if (enteringPlan) {
-			this.resolvePendingPlanCard(ENTER_PLAN_MODE_TOOL, true)
-		} else if (leavingPlan) {
-			// Opting into YOLO means "run it"; leaving plan mode any other way is not a sign-off.
-			this.resolvePendingPlanCard(EXIT_PLAN_MODE_TOOL, mode === AIAutonomyMode.YOLO)
-		}
 		if (this.autoAcceptToolConfirmationsActive) {
 			this.acceptPendingToolConfirmations()
 		}
 		if (this.autoAcceptEditsActive) {
 			this.acceptPendingFlowEdits()
+		}
+	}
+
+	setWorkMode = (mode: AIWorkMode) => {
+		const enteringPlan = mode === AIWorkMode.PLAN && this.workMode !== AIWorkMode.PLAN
+		const leavingPlan = mode !== AIWorkMode.PLAN && this.workMode === AIWorkMode.PLAN
+		const useChanges = (mode === AIWorkMode.USE) !== (this.workMode === AIWorkMode.USE)
+		if (enteringPlan) {
+			this.planMode.startRound()
+		} else if (mode !== AIWorkMode.PLAN) {
+			this.planMode.resetBlocks()
+		}
+		this.workMode = mode
+		this.onWorkModeChanged?.(mode)
+
+		if (enteringPlan) {
+			this.resolvePendingModeCard(ENTER_PLAN_MODE_TOOL, true)
+		} else if (leavingPlan) {
+			// Building under Yolo means "run it"; leaving plan mode any other way is not a sign-off.
+			this.resolvePendingModeCard(
+				EXIT_PLAN_MODE_TOOL,
+				mode === AIWorkMode.BUILD && this.autonomyMode === AIAutonomyMode.YOLO
+			)
+		}
+		// A switch card the picker answered: accepted when the picker went where the card asked.
+		for (const tool of [ENTER_BUILD_MODE_TOOL, ENTER_USE_MODE_TOOL] as const) {
+			this.resolvePendingModeCard(tool, mode === WORK_MODE_SWITCH_TARGET[tool])
+		}
+		if (this.autoAcceptToolConfirmationsActive) {
+			this.acceptPendingToolConfirmations()
+		}
+		// The helpers and the system prompt are built for one access; the tool list follows alone.
+		if (useChanges && this.mode === AIMode.GLOBAL) {
+			this.configureGlobalMode()
 		}
 	}
 
@@ -2054,7 +2263,6 @@ export class AIChatManager implements ChatViewHost {
 	hydrateUserScopedAutonomy = () => {
 		migrateLegacyAutonomyKeys()
 		this.autonomyMode = getPersistedAutonomyMode()
-		this.prePlanAutonomyMode = undefined
 		this.planMode.resetRound()
 	}
 
@@ -2152,7 +2360,7 @@ export class AIChatManager implements ChatViewHost {
 		if (form.kind === 'run' && form.path && !form.conversational) {
 			this.openRunOnDeployedPage?.({
 				toolCallId: toolId,
-				kind: form.runnableKind === 'flow' ? 'flow' : 'script',
+				kind: form.agentPage ? 'agent' : form.runnableKind === 'flow' ? 'flow' : 'script',
 				path: form.path,
 				summary: form.summary || form.path,
 				carries: true,
@@ -2467,12 +2675,12 @@ export class AIChatManager implements ChatViewHost {
 	 *
 	 * Gated on `sendInFlight` as well as `loading`: `loading` only rises after a
 	 * send's attachment upkeep, so between the two a click would slip past. */
-	sendOrQueue(text: string) {
+	sendOrQueue(text: string, context?: ContextElement[]) {
 		if (this.loading || this.sendInFlight || this.sendPending) {
-			this.queueMessage(text)
+			this.queueMessage(text, [], context)
 			return
 		}
-		void this.sendRequest({ instructions: text })
+		void this.sendRequest({ instructions: text, contextOverride: context })
 	}
 
 	/** Remove the queued message and put it back into the input, images included. */
@@ -2562,7 +2770,6 @@ export class AIChatManager implements ChatViewHost {
 			workflowAsCode?: boolean
 		}
 	) {
-		if (!isAIModeVisible(mode)) return
 		// A session chat is GLOBAL for its whole life, and two things read that mode: moving it
 		// lifts the plan gate on a session the user still has set to Plan, and hands the
 		// capability filter tools that declare no `requires`, so it fails closed to nothing.
@@ -2687,7 +2894,7 @@ export class AIChatManager implements ChatViewHost {
 						sessionId: this.sessionId,
 						operatingWorkspace: this.operatingWorkspace,
 						artifacts: this.artifacts,
-						access: this.sessionAccess,
+						access: this.#toolAccess,
 						getChatId: () => this.historyManager.getCurrentChatId(),
 						openArtifact: this.openArtifact
 					}
@@ -2720,16 +2927,33 @@ export class AIChatManager implements ChatViewHost {
 		this.syncArtifactsSession()
 	}
 
-	private globalAssemblyOpts = (): GlobalAssemblyOpts => ({
-		previewTools: this.isSessionChat,
-		user: this.globalIdentity,
-		skills: this.globalSkills,
-		folderInstructions: this.globalFolderInstructions,
-		mcpServers: this.mcpServers,
-		access: this.sessionAccess,
-		sessionContext: this.sessionContextResolver?.(),
-		pipelineFolders: this.#pipelineFolders()
-	})
+	private globalAssemblyOpts = (): GlobalAssemblyOpts => {
+		const workingScope = this.#workingScope()
+		const inPrompt = this.#currentScopeInstructions(workingScope)
+		return {
+			previewTools: this.isSessionChat,
+			user: this.globalIdentity,
+			skills: this.#loadedSkills(),
+			// The scoped folders' instructions are in the prompt already, not delivered on first touch.
+			folderInstructions: inPrompt
+				? this.globalFolderInstructions.filter((i) => !inPrompt.paths.includes(i.path))
+				: this.globalFolderInstructions,
+			mcpServers: this.mcpServers,
+			workingScope,
+			scopeInstructions: inPrompt?.text,
+			access: this.#toolAccess,
+			sessionContext: this.#sessionPromptContext(),
+			pipelineFolders: this.#pipelineFolders()
+		}
+	}
+
+	#sessionPromptContext = (): SessionPromptContext | undefined => {
+		const ctx = this.sessionContextResolver?.()
+		const reason = this.#useReason
+		// A protected workspace needs no reason here: the prompt's own read-only line names it.
+		if (!ctx || !reason || reason === 'protected') return ctx
+		return { ...ctx, useMode: reason }
+	}
 
 	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
 	// the system message so the next chat-loop iteration advertises them. Ignore
@@ -2764,6 +2988,37 @@ export class AIChatManager implements ChatViewHost {
 		}
 		this.globalFolderInstructions =
 			workspace === (this.operatingWorkspace ?? '') ? instructions : []
+		const scope = this.#workingScope()
+		const covering = scope?.roots
+			? instructionsCovering(this.globalFolderInstructions, scope.roots)
+			: []
+		const blocks = (
+			await Promise.all(
+				covering.map(async (instruction) => {
+					try {
+						return {
+							instruction,
+							body: await readFolderInstructionBody(workspace, instruction.path)
+						}
+					} catch (e) {
+						console.error(`Failed to read folder instructions ${instruction.path}`, e)
+						return undefined
+					}
+				})
+			)
+		).filter((b) => b !== undefined)
+		if (refreshId !== this.globalFolderInstructionsRefreshId) {
+			return
+		}
+		this.#scopeInstructions =
+			scope?.roots && blocks.length
+				? {
+						scope: scope.label,
+						workspace,
+						text: formatFolderInstructions(blocks),
+						paths: blocks.map((b) => b.instruction.path)
+					}
+				: undefined
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 		}
@@ -2868,8 +3123,9 @@ export class AIChatManager implements ChatViewHost {
 		}
 		// A path identifies one skill; a name shared by two would otherwise silently
 		// apply instructions the user did not choose, so it is left unexpanded.
-		const byPath = this.globalSkills.find((s) => s.path === match[1])
-		const matches = byPath ? [byPath] : this.globalSkills.filter((s) => s.name === match[1])
+		const skills = this.#loadedSkills()
+		const byPath = skills.find((s) => s.path === match[1])
+		const matches = byPath ? [byPath] : skills.filter((s) => s.name === match[1])
 		if (matches.length !== 1) {
 			return instructions
 		}
@@ -2887,9 +3143,7 @@ export class AIChatManager implements ChatViewHost {
 				name: 'change_mode',
 				description:
 					'Change the AI mode to the one specified. Script mode is used to create scripts. Flow mode is used to create flows.' +
-					(isGlobalAiEnabled()
-						? ' Global mode is used to inspect workspace scripts and flows and create draft changes.'
-						: '') +
+					' Global mode is used to inspect workspace scripts and flows and create draft changes.' +
 					' Navigator mode is used to navigate the application and help the user find what they are looking for. API mode is used to make API calls to the Windmill backend.',
 				parameters: {
 					type: 'object',
@@ -2897,13 +3151,7 @@ export class AIChatManager implements ChatViewHost {
 						mode: {
 							type: 'string',
 							description: 'The mode to change to',
-							enum: [
-								'script',
-								'flow',
-								...(isGlobalAiEnabled() ? ['global'] : []),
-								'navigator',
-								'API'
-							]
+							enum: ['script', 'flow', 'global', 'navigator', 'API']
 						},
 						pendingPrompt: {
 							type: 'string',
@@ -2916,7 +3164,7 @@ export class AIChatManager implements ChatViewHost {
 			}
 		},
 		fn: async ({ args, toolId, toolCallbacks }) => {
-			if (!isAIMode(args.mode) || !isAIModeVisible(args.mode)) {
+			if (!isAIMode(args.mode)) {
 				throw new Error(`AI mode "${args.mode}" is not enabled`)
 			}
 			toolCallbacks.setToolStatus(toolId, { content: 'Switching to ' + args.mode + ' mode...' })
@@ -2926,32 +3174,6 @@ export class AIChatManager implements ChatViewHost {
 			toolCallbacks.setToolStatus(toolId, { content: 'Switched to ' + args.mode + ' mode' })
 			return 'Mode changed to ' + args.mode
 		}
-	}
-
-	openChat = () => {
-		// Nothing may open the docked pane in a workspace that hid the assistant.
-		if (get(copilotInfo).workspaceDisabled) {
-			return
-		}
-		chatState.size = this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE
-		localStorage.setItem('ai-chat-open', 'true')
-	}
-
-	closeChat = () => {
-		this.savedSize = chatState.size
-		chatState.size = 0
-		localStorage.setItem('ai-chat-open', 'false')
-	}
-
-	toggleOpen = () => {
-		if (chatState.size === 0 && get(copilotInfo).workspaceDisabled) {
-			return
-		}
-		if (chatState.size > 0) {
-			this.savedSize = chatState.size
-		}
-		chatState.size = chatState.size === 0 ? (this.savedSize > 0 ? this.savedSize : DEFAULT_SIZE) : 0
-		localStorage.setItem('ai-chat-open', chatState.size === 0 ? 'false' : 'true')
 	}
 
 	askAi = (
@@ -3278,7 +3500,11 @@ export class AIChatManager implements ChatViewHost {
 					return base
 				},
 				get tools() {
-					return self.tools
+					return withWebSearchFallback(
+						self.tools,
+						!!get(copilotInfo).webSearchBackend,
+						self.providerTools.length > 0
+					)
 				},
 				get helpers() {
 					return self.helpers
@@ -3321,7 +3547,8 @@ export class AIChatManager implements ChatViewHost {
 							pendingPrompt,
 							this.flowAiChatHelpers!.getFlowAndSelectedId(),
 							[],
-							this.flowAiChatHelpers!.inlineScriptSession
+							this.flowAiChatHelpers!.inlineScriptSession,
+							{ flowInputsLocked: !this.flowAiChatHelpers!.canEditFlowInputs() }
 						)
 					} else if (this.mode === AIMode.NAVIGATOR) {
 						return prepareNavigatorUserMessage(pendingPrompt)
@@ -3332,6 +3559,7 @@ export class AIChatManager implements ChatViewHost {
 							{
 								workspace: this.operatingWorkspace,
 								activePreview: this.activePreviewResolver?.(),
+								activeEditor: this.activeEditorResolver?.(),
 								resourceTypeSync: this.resourceTypeSync
 							}
 						)
@@ -3506,10 +3734,11 @@ export class AIChatManager implements ChatViewHost {
 				this.#ready = undefined
 			}
 		}
-		// A turn with nowhere to render still streams, spends tokens and applies
-		// tool calls — entirely off-screen. Refuse instead. `sendInlineRequest` is
-		// exempt: the ⌘K widget renders its own composer inside Monaco.
-		if (!this.isSessionChat && !chatState.dockedChatAvailable) {
+		// The shared manager has no chat on screen: turns render only in a session's own chat.
+		// One started here would still stream, spend tokens and apply tool calls, entirely
+		// off-screen, so refuse it. `sendInlineRequest` is exempt: the ⌘K widget renders its own
+		// composer inside Monaco.
+		if (this === aiChatManager) {
 			console.error('sendRequest called with no chat UI mounted; dropping the turn')
 			sendUserToast('This action needs the AI chat. Start an AI session to continue.', true)
 			return
@@ -3536,7 +3765,7 @@ export class AIChatManager implements ChatViewHost {
 				this.#scheduleAutoResumeRetry()
 			} else {
 				if (!options.queued) {
-					// Programmatic prompts (askAi, fix) stage their text in
+					// Programmatic prompts (askAi) stage their text in
 					// `this.instructions` and pass no option — fall back to it so
 					// they are handed back too.
 					this.restoreToInput(
@@ -3607,10 +3836,6 @@ export class AIChatManager implements ChatViewHost {
 		// releases the right key.
 		let reservationKey = options.resendReservationKey
 		const requestedMode = options.mode ?? this.mode
-		if (!isAIModeVisible(requestedMode)) {
-			this.#releaseOutgoingReservation(reservationKey)
-			return false
-		}
 		this.changeMode(requestedMode, undefined, {
 			lang: options.lang,
 			isPreprocessor: options.isPreprocessor
@@ -3731,7 +3956,10 @@ export class AIChatManager implements ChatViewHost {
 						options.images ?? [],
 						options.files ?? []
 					) === true
-				if (taken) this.#restoreMentionContext(options.contextOverride, requestedMode)
+				if (taken) {
+					this.#restoreDomContext(options.contextOverride, true)
+					this.#restoreMentionContext(options.contextOverride, requestedMode)
+				}
 			}
 			return false
 		}
@@ -3798,6 +4026,11 @@ export class AIChatManager implements ChatViewHost {
 		// controller here that abort would hit nothing and the request would still fire
 		// once the pre-flight resolves; the pre-flight-cancel check after beforeSend honours it.
 		this.abortController = new AbortController()
+		// Taken once, with the message: the bubble records the scope it was sent in, and the
+		// prompt and gate keep it for the whole turn.
+		const sentScope =
+			this.mode === AIMode.GLOBAL && !this.useModeActive ? this.workingInResolver?.() : undefined
+		if (sentScope) this.#turnScope = { roots: sentScope.roots }
 		this.displayMessages = [
 			...this.displayMessages,
 			{
@@ -3809,6 +4042,7 @@ export class AIChatManager implements ChatViewHost {
 				images: images.length > 0 ? images : undefined,
 				files: files.length > 0 ? files : undefined,
 				synthetic: options.synthetic ? true : undefined,
+				workingIn: sentScope ? (sentScope.roots ? [...sentScope.roots] : null) : undefined,
 				index: this.messages.length // matching with actual messages index. not -1 because it's not yet added to the messages array
 			}
 		]
@@ -3822,6 +4056,7 @@ export class AIChatManager implements ChatViewHost {
 			this.displayMessages = this.displayMessages.filter((_, i) => i !== optimisticIndex)
 			this.loading = false
 			this.loadingLabel = undefined
+			this.#turnScope = undefined
 		}
 		if (this.beforeSend) {
 			try {
@@ -3841,7 +4076,10 @@ export class AIChatManager implements ChatViewHost {
 					// mentions on that draft and every turn after it.
 					const taken =
 						this.aiChatInput?.restoreInstructions(this.instructions, pastes, images, files) === true
-					if (taken) this.#restoreMentionContext(options.contextOverride, requestedMode)
+					if (taken) {
+						this.#restoreDomContext(options.contextOverride, true)
+						this.#restoreMentionContext(options.contextOverride, requestedMode)
+					}
 				}
 				sendUserToast(
 					`Could not prepare the session before sending: ${
@@ -3858,6 +4096,13 @@ export class AIChatManager implements ChatViewHost {
 		// keeps the prompt — the cached prefix of every iteration — stable for the whole
 		// request.
 		if (this.mode === AIMode.GLOBAL) {
+			if (sentScope && !this.#loggedScopeSet) {
+				this.#loggedScopeSet = true
+				logWorkingScope(
+					`scope:${scopeKind(sentScope.roots)}:${sentScope.source}`,
+					this.operatingWorkspace
+				)
+			}
 			await Promise.all([
 				this.refreshGlobalIdentity(this.operatingWorkspace ?? ''),
 				this.refreshGlobalSkills(this.operatingWorkspace ?? ''),
@@ -3891,7 +4136,10 @@ export class AIChatManager implements ChatViewHost {
 				// text, only if the composer took it.
 				const taken =
 					this.aiChatInput?.restoreInstructions(this.instructions, pastes, images, files) === true
-				if (taken) this.#restoreMentionContext(options.contextOverride, requestedMode)
+				if (taken) {
+					this.#restoreDomContext(options.contextOverride, true)
+					this.#restoreMentionContext(options.contextOverride, requestedMode)
+				}
 			}
 			return true
 		}
@@ -4041,10 +4289,24 @@ export class AIChatManager implements ChatViewHost {
 					workspace: this.operatingWorkspace
 				})
 				logFeatureUsage('ai_session', 'autonomy', {
-					key: this.autonomyMode,
+					// Planning keeps its own key, `plan`, so the series still tells it apart.
+					key: this.planModeActive ? AIWorkMode.PLAN : this.autonomyMode,
 					entityId: this.sessionId,
 					workspace: this.operatingWorkspace
 				})
+				if (this.workModesAvailable) {
+					// Keyed by the mode the message runs in, not `workMode`, which a held session keeps.
+					// Held Use has its own keys, so `use_chosen` counts only sessions that could build.
+					logFeatureUsage('ai_session', 'work_mode', {
+						key: this.#useReason
+							? `use_${this.#useReason}`
+							: this.planModeActive
+								? AIWorkMode.PLAN
+								: AIWorkMode.BUILD,
+						entityId: this.sessionId,
+						workspace: this.operatingWorkspace
+					})
+				}
 			}
 
 			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {
@@ -4136,7 +4398,8 @@ export class AIChatManager implements ChatViewHost {
 						oldInstructions,
 						this.flowAiChatHelpers!.getFlowAndSelectedId(),
 						oldSelectedContext,
-						this.flowAiChatHelpers!.inlineScriptSession
+						this.flowAiChatHelpers!.inlineScriptSession,
+						{ flowInputsLocked: !this.flowAiChatHelpers!.canEditFlowInputs() }
 					)
 					break
 				case AIMode.NAVIGATOR:
@@ -4155,6 +4418,7 @@ export class AIChatManager implements ChatViewHost {
 					userMessage = prepareGlobalUserMessage(modelInstructions, oldSelectedContext, {
 						workspace: this.operatingWorkspace,
 						activePreview: this.activePreviewResolver?.(),
+						activeEditor: this.activeEditorResolver?.(),
 						images: sentImages,
 						files: files,
 						resourceTypeSync: this.resourceTypeSync
@@ -4291,7 +4555,14 @@ export class AIChatManager implements ChatViewHost {
 								onJobDetached: (jobId) => this.markJobDetached(jobId),
 								folderInstructions: {
 									list: () => this.globalFolderInstructions,
-									deliveredBy: this.folderInstructionsDeliveredBy
+									deliveredBy: this.folderInstructionsDeliveredBy,
+									inPrompt: () => this.#currentScopeInstructions()?.paths ?? []
+								},
+								workingScope: {
+									scope: this.#workingScope,
+									requestDecision: this.requestScopeDecision,
+									add: this.#addToScope,
+									recordWrite: this.#recordWrite
 								}
 							}
 						: {}),
@@ -4308,6 +4579,7 @@ export class AIChatManager implements ChatViewHost {
 					shouldAutoAcceptToolConfirmations: this.shouldAutoAcceptTool,
 					isPlanModeActive: () => this.planModeActive,
 					onToolBlockedByPlanMode: this.planMode.noteBlockedTool,
+					isToolWithdrawn: this.isToolWithdrawn,
 					requestUserQuestion: this.requestUserQuestion,
 					requestRunArgs: this.requestRunArgs,
 					markRunFormStarted: this.markRunFormStarted,
@@ -4552,6 +4824,7 @@ export class AIChatManager implements ChatViewHost {
 			sendUserToast(getSendRequestErrorMessage(err, webSearchUnavailable), true)
 		} finally {
 			this.loading = false
+			this.#turnScope = undefined
 			// Backstop for the paths that leave the try without reaching either call
 			// above (a pre-flight throw, an aborted compaction).
 			stopCheckpoints()
@@ -4606,6 +4879,11 @@ export class AIChatManager implements ChatViewHost {
 			resolve(false)
 		}
 		this.confirmationCallbacks.clear()
+		for (const resolve of this.scopeCallbacks.values()) {
+			logWorkingScope('block:none', this.operatingWorkspace)
+			resolve(undefined)
+		}
+		this.scopeCallbacks.clear()
 		for (const resolveQuestion of this.userQuestionCallbacks.values()) {
 			resolveQuestion(undefined)
 		}
@@ -4760,25 +5038,12 @@ export class AIChatManager implements ChatViewHost {
 		})
 	}
 
-	fix = () => {
-		if (!this.open) {
-			this.toggleOpen()
-		}
-		this.changeMode(AIMode.SCRIPT)
-		this.instructions = 'Fix the error'
-		this.contextManager?.setFixContext()
-		this.sendRequest()
-	}
-
 	addSelectedLinesToContext = (
 		lines: string,
 		startLine: number,
 		endLine: number,
 		moduleId?: string
 	) => {
-		if (!this.open) {
-			this.toggleOpen()
-		}
 		if (!moduleId) {
 			this.changeMode(AIMode.SCRIPT)
 		}
@@ -4894,19 +5159,6 @@ export class AIChatManager implements ChatViewHost {
 
 	enableAutomaticScroll = () => {
 		this.#automaticScroll = true
-	}
-
-	generateStep = async (moduleId: string, lang: ScriptLang, instructions: string) => {
-		if (!this.flowAiChatHelpers) {
-			throw new Error('No flow helpers found')
-		}
-		this.flowAiChatHelpers.selectStep(moduleId)
-		await this.sendRequest({
-			instructions: instructions,
-			mode: AIMode.SCRIPT,
-			lang: lang,
-			isPreprocessor: moduleId === 'preprocessor'
-		})
 	}
 
 	listenForContextChange = (dbSchemas: DBSchemas, workspaceStore: string | undefined) => {
@@ -5305,10 +5557,8 @@ export const aiChatManager = new AIChatManager()
 // Hydrate both from user-scoped storage once the email is known, and on any
 // later user change. Registered only here (not in the constructor) so
 // per-session managers don't accumulate never-removed callbacks.
-//
-// init() is email-gated and idempotent, so re-opening the scoped DB here
-// (alongside AiChatLayout's mount-time init()) is harmless and lets the
-// singleton self-heal on email change like the other user-scoped surfaces.
+// init() is email-gated and idempotent, so it self-heals on an email change like the
+// other user-scoped surfaces.
 onUserChange(() => {
 	aiChatManager.hydrateUserScopedAutonomy()
 	void aiChatManager.historyManager.init()

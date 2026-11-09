@@ -7,6 +7,7 @@ use windmill_api_auth::ApiAuthed;
 use windmill_common::{
     error::{Error, Result},
     jobs::JobTriggerKind,
+    runnable_ref::RunnableRef,
     triggers::{TriggerKind, TriggerMetadata},
     worker::to_raw_value,
     DB,
@@ -50,6 +51,8 @@ pub struct WebsocketConfig {
     pub filters: Vec<SqlxJson<Box<RawValue>>>,
     #[serde(default = "default_filter_logic")]
     pub filter_logic: String,
+    #[serde(default)]
+    pub run_on_filter_error: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub initial_messages: Option<Vec<SqlxJson<Box<RawValue>>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -68,6 +71,8 @@ pub struct WebsocketConfigRequest {
     filters: Vec<serde_json::Value>,
     #[serde(default = "default_filter_logic")]
     filter_logic: String,
+    #[serde(default)]
+    run_on_filter_error: bool,
     initial_messages: Option<Vec<serde_json::Value>>,
     url_runnable_args: Option<serde_json::Value>,
     can_return_message: bool,
@@ -128,6 +133,19 @@ pub const ALLOW_PRIVATE_WEBSOCKET_URLS_ENV: &str = "ALLOW_PRIVATE_WEBSOCKET_URLS
 pub async fn validate_websocket_url_for_ssrf(
     url: &str,
 ) -> Result<windmill_common::ssrf::ValidatedTarget> {
+    check_websocket_url_for_ssrf(url)
+        .await
+        .map_err(ssrf_error_to_error)
+}
+
+/// [`validate_websocket_url_for_ssrf`] before its error is flattened into an [`Error`],
+/// so a listener can tell a DNS failure (worth retrying) from a rejected URL.
+pub(crate) async fn check_websocket_url_for_ssrf(
+    url: &str,
+) -> std::result::Result<
+    windmill_common::ssrf::ValidatedTarget,
+    windmill_common::ssrf::SsrfValidationError,
+> {
     // `ws`/`wss` aren't recognised by `validate_url_for_ssrf`'s scheme check, so
     // map them to the http(s) equivalent the same connection would tunnel over.
     // The prefixes are ASCII, so byte-slicing at their length stays on a char
@@ -155,25 +173,26 @@ pub async fn validate_websocket_url_for_ssrf(
         return Ok(windmill_common::ssrf::ValidatedTarget { host, addrs: Vec::new() });
     }
 
-    windmill_common::ssrf::validate_url_for_ssrf(&http_url)
-        .await
-        .map_err(|e| match e {
-            // The env-var hint is only actionable for a well-formed URL blocked
-            // for targeting a private address; a malformed URL or bad scheme
-            // surfaces its real error so the user fixes the URL (see #9171).
-            e @ windmill_common::ssrf::SsrfValidationError::Private { .. } => {
-                Error::BadRequest(format!(
-                    "{e}. If you need to connect to private/internal WebSocket endpoints, \
-                     set the {ALLOW_PRIVATE_WEBSOCKET_URLS_ENV}=true environment variable"
-                ))
-            }
-            e => Error::from(e),
-        })
+    windmill_common::ssrf::validate_url_for_ssrf(&http_url).await
+}
+
+pub(crate) fn ssrf_error_to_error(e: windmill_common::ssrf::SsrfValidationError) -> Error {
+    match e {
+        // The env-var hint is only actionable for a well-formed URL blocked
+        // for targeting a private address; a malformed URL or bad scheme
+        // surfaces its real error so the user fixes the URL (see #9171).
+        e @ windmill_common::ssrf::SsrfValidationError::Private { .. } => {
+            Error::BadRequest(format!(
+                "{e}. If you need to connect to private/internal WebSocket endpoints, \
+                 set the {ALLOW_PRIVATE_WEBSOCKET_URLS_ENV}=true environment variable"
+            ))
+        }
+        e => Error::from(e),
+    }
 }
 
 pub async fn get_url_from_runnable_value(
-    path: &str,
-    is_flow: bool,
+    runnable: &RunnableRef,
     db: &DB,
     authed: ApiAuthed,
     args: Option<&Box<RawValue>>,
@@ -181,8 +200,8 @@ pub async fn get_url_from_runnable_value(
 ) -> Result<String> {
     tracing::info!(
         "Running {} {} to get WebSocket URL",
-        if is_flow { "flow" } else { "script" },
-        path
+        if runnable.is_flow() { "flow" } else { "script" },
+        runnable.path()
     );
 
     let args = value_to_args_hashmap(args)?;
@@ -192,22 +211,21 @@ pub async fn get_url_from_runnable_value(
         None,
         authed,
         workspace_id,
-        path,
-        is_flow,
+        runnable,
         PushArgsOwned { args, extra: None },
         None,
         None,
         None,
         "".to_string(), // doesn't matter as no retry/error handler
-        TriggerMetadata::new(Some(path.to_owned()), JobTriggerKind::Websocket),
+        TriggerMetadata::new(Some(runnable.path().to_owned()), JobTriggerKind::Websocket),
     )
     .await?;
 
     serde_json::from_str::<String>(result.get()).map_err(|_| {
         Error::BadConfig(format!(
             "{} {} did not return a string",
-            if is_flow { "Flow" } else { "Script" },
-            path,
+            if runnable.is_flow() { "Flow" } else { "Script" },
+            runnable.path(),
         ))
     })
 }

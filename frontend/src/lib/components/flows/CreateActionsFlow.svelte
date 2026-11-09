@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$lib/navigation'
+	import { goto, isNewTabClick } from '$lib/navigation'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import { Button } from '$lib/components/common'
@@ -42,24 +42,8 @@
 		flowModalOpen = true
 	}
 
-	function selectFlowEditor() {
-		flowModalOpen = false
-		goto('/flows/add')
-	}
-
-	function selectWacPython() {
-		flowModalOpen = false
-		goto('/scripts/add?wac=python')
-	}
-
-	function selectWacTypescript() {
-		flowModalOpen = false
-		goto('/scripts/add?wac=typescript')
-	}
-
-	function selectPipeline() {
-		flowModalOpen = false
-		goto('/pipeline')
+	function closeUnlessNewTab(e: MouseEvent) {
+		if (!isNewTabClick(e)) flowModalOpen = false
 	}
 </script>
 
@@ -83,11 +67,11 @@
 			},
 			{
 				label: 'Workflow-as-Code in TypeScript',
-				onClick: () => selectWacTypescript()
+				href: '/scripts/add?wac=typescript'
 			},
 			{
 				label: 'Workflow-as-Code in Python',
-				onClick: () => selectWacPython()
+				href: '/scripts/add?wac=python'
 			},
 			{
 				label: 'Import Workflow-as-Code',
@@ -97,7 +81,7 @@
 			},
 			{
 				label: 'Pipeline (alpha)',
-				onClick: () => selectPipeline()
+				href: '/pipeline'
 			}
 		]}
 	>
@@ -112,9 +96,10 @@
 	<div class="flex flex-col gap-4 pr-4">
 		<div class="grid grid-cols-2 gap-6">
 			<!-- Flow Editor option -->
-			<button
+			<a
+				href="/flows/add"
 				class="flex flex-col items-center gap-3 p-6 rounded-lg border-2 border-gray-200 dark:border-gray-700 hover:border-blue-500 dark:hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all cursor-pointer group"
-				onclick={selectFlowEditor}
+				onclick={closeUnlessNewTab}
 			>
 				<div
 					class="w-32 h-32 rounded-xl bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center group-hover:bg-blue-200 dark:group-hover:bg-blue-800/50 transition-colors"
@@ -128,7 +113,7 @@
 						handling.
 					</p>
 				</div>
-			</button>
+			</a>
 
 			<!-- Workflow-as-Code option -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -160,9 +145,10 @@
 					class="flex flex-col h-full transition-all duration-300"
 					style="opacity: {wacHovered ? 1 : 0}; transform: scale({wacHovered ? 1 : 0.95})"
 				>
-					<button
+					<a
+						href="/scripts/add?wac=typescript"
 						class="flex-1 flex items-center justify-center gap-3 p-4 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors border-b border-gray-200 dark:border-gray-700"
-						onclick={selectWacTypescript}
+						onclick={closeUnlessNewTab}
 					>
 						<div
 							class="w-12 h-12 rounded-xl bg-purple-100 dark:bg-purple-900/40 flex items-center justify-center"
@@ -170,10 +156,11 @@
 							<TypeScriptIcon width={24} height={24} />
 						</div>
 						<span class="font-semibold text-sm text-primary">TypeScript</span>
-					</button>
-					<button
+					</a>
+					<a
+						href="/scripts/add?wac=python"
 						class="flex-1 flex items-center justify-center gap-3 p-4 hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors"
-						onclick={selectWacPython}
+						onclick={closeUnlessNewTab}
 					>
 						<div
 							class="w-12 h-12 rounded-xl bg-purple-100 dark:bg-purple-900/40 flex items-center justify-center"
@@ -181,7 +168,7 @@
 							<PythonIcon width={24} height={24} />
 						</div>
 						<span class="font-semibold text-sm text-primary">Python</span>
-					</button>
+					</a>
 				</div>
 			</div>
 		</div>

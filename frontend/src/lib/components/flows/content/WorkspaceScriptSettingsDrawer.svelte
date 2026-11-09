@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import ScriptAdvancedSettings from '$lib/components/ScriptAdvancedSettings.svelte'
+	import ScriptRuntimeSettings from '$lib/components/itemSettings/ScriptRuntimeSettings.svelte'
 	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
 	import { ScriptService, type Script } from '$lib/gen'
 	import { emptyString, sendUserToast } from '$lib/utils'
@@ -17,7 +17,7 @@
 
 	let drawer: Drawer | undefined = $state()
 	// cache_ignore_s3_path lives on NewScript but not the returned Script type;
-	// ScriptAdvancedSettings still edits it, so widen the local type to keep it.
+	// ScriptRuntimeSettings still edits it, so widen the local type to keep it.
 	let script: (Script & { cache_ignore_s3_path?: boolean }) | undefined = $state(undefined)
 	let loading = $state(false)
 	let loadError = $state<string | undefined>(undefined)
@@ -105,7 +105,7 @@
 </script>
 
 <Drawer bind:this={drawer} size="600px">
-	<DrawerContent title="Script settings" on:close={() => drawer?.closeDrawer()}>
+	<DrawerContent title="Runtime settings" on:close={() => drawer?.closeDrawer()}>
 		{#if loading}
 			<div class="center-center flex-col h-full text-tertiary">
 				<Loader2 class="animate-spin" size={16} />
@@ -118,8 +118,8 @@
 				</Alert>
 				{#if current}
 					<Button
-						size="xs"
-						variant="border"
+						unifiedSize="xs"
+						variant="default"
 						on:click={() => current && load(current.path, current.hash)}
 					>
 						Retry
@@ -136,7 +136,7 @@
 					Saving creates a new version of the workspace script with these runtime settings. The code
 					is left unchanged.
 				</p>
-				<ScriptAdvancedSettings {script} workspaceId={opWs} />
+				<ScriptRuntimeSettings {script} workspaceId={opWs} />
 			</div>
 		{/if}
 		{#snippet actions()}

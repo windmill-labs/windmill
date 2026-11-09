@@ -1,0 +1,22 @@
+{
+  "user": {
+    "username": "admin",
+    "is_admin": true
+  },
+  "workspace": {
+    "resources": [
+      {
+        "path": "f/data/warehouse",
+        "resource_type": "postgresql",
+        "description": "Production warehouse",
+        "value": {
+          "host": "db.internal",
+          "port": 5432,
+          "dbname": "warehouse",
+          "user": "windmill",
+          "password": "$var:f/data/warehouse_password"
+        }
+      }
+    ]
+  }
+}

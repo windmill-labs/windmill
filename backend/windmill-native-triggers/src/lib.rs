@@ -812,7 +812,7 @@ pub async fn decrypt_oauth_data<T: DeserializeOwned>(
     })?;
 
     let row = sqlx::query!(
-        r#"SELECT v.value, r.value AS "resource_value", a.id AS "account_id?",
+        r#"SELECT v.value::text AS "value!", r.value AS "resource_value", a.id AS "account_id?",
              a.refresh_token AS "refresh_token?", a.is_workspace_integration AS "managed?"
          FROM variable v
          JOIN resource r ON r.workspace_id = v.workspace_id AND r.path = v.path

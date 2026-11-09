@@ -43,6 +43,10 @@ function describeEntry(entry: ProtectionRuleEntry): string {
   if (n.bypass_users.length > 0) {
     parts.push(`bypass_users=[${n.bypass_users.join(", ")}]`);
   }
+  if (n.fork_role_mapping) {
+    const pairs = Object.entries(n.fork_role_mapping).map(([f, t]) => `${f}->${t}`);
+    parts.push(`fork_role_mapping=[${pairs.join(", ")}]`);
+  }
   return parts.join(" ");
 }
 

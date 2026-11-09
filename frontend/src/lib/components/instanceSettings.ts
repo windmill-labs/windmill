@@ -70,15 +70,18 @@ export interface Setting {
 		| 'otel'
 		| 'otel_tracing_proxy'
 		| 'secret_backend'
+		| 'external_secrets'
 		| 'external_instance_pg'
 		| 'instance_pg'
 		| 'github_enterprise_app'
 		| 'webhook_base_url'
+		| 'api_base_url'
 		| 'ws_connectivity'
 		| 'retention_overrides'
 		| 'instance_banner'
 		| 'accent_color'
 		| 'agent_workload_identity_issuers'
+		| 'mcp_external_idp'
 		| 'workspace_roles'
 	storage: SettingStorage
 	advancedToggle?: {
@@ -86,6 +89,9 @@ export interface Setting {
 		onChange: (values: Record<string, any>) => Record<string, any>
 		checked: (values: Record<string, any>) => boolean
 	}
+	/** Other global settings the field reads and writes besides `key`, so the form tracks
+	 * their changes too. */
+	companionKeys?: string[]
 	hiddenIfNull?: boolean
 	hiddenIfEmpty?: boolean
 	hiddenInEe?: boolean
@@ -99,7 +105,9 @@ export interface Setting {
 	codeAreaLang?: string
 	actionButton?: {
 		label: string
-		onclick: (values: Record<string, any>) => Promise<void>
+		onclick?: (values: Record<string, any>) => Promise<void>
+		/** Opens in a new tab, so unsaved settings survive. */
+		href?: string
 		variant?: ButtonType.Variant
 	}
 }
@@ -133,6 +141,11 @@ function validateIndexerSettings(v: any): Record<string, string> {
 	return errors
 }
 
+const manageInstanceGroupsButton: Setting['actionButton'] = {
+	label: 'Manage instance groups',
+	href: '/instance_groups'
+}
+
 export const scimSamlSetting: Setting[] = [
 	{
 		label: 'SCIM token',
@@ -141,7 +154,8 @@ export const scimSamlSetting: Setting[] = [
 		fieldType: 'password',
 		placeholder: 'mytoken',
 		storage: 'setting',
-		ee_only: ''
+		ee_only: '',
+		actionButton: manageInstanceGroupsButton
 	},
 	{
 		label: 'SAML metadata',
@@ -217,6 +231,7 @@ export const settings: Record<string, Setting[]> = {
 				label: 'The API is served on a different url than the UI',
 				onChange(values) {
 					values['api_base_url'] = values['api_base_url'] == null ? '' : null
+					if (values['api_base_url'] == null) values['api_base_url_applies_to'] = null
 					return values
 				},
 				checked: (values) => values['api_base_url'] != null
@@ -225,9 +240,10 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'API base url',
 			description:
-				'Base url shown to users for the endpoints external clients call (webhooks, HTTP routes, push trigger endpoints, the CLI remote), without trailing slash. Leave empty to show the url the UI is browsed on. Set it when the API is served on a separate domain or behind an API gateway. If that url does not also serve the UI, the CLI must authenticate with a token rather than the browser login.',
+				"Base url shown to users for the endpoints external clients call (webhooks, HTTP routes, push trigger endpoints, the CLI remote, the MCP server), without trailing slash. Leave empty to show the url the UI is browsed on. Set it when the API is served on a separate domain or behind an API gateway, and untick what that url does not serve: those keep the url the UI is browsed on. If it does not also serve the UI, the CLI must authenticate with a token rather than the browser login. MCP clients get their OAuth endpoints on it, except sign-in, which opens on the base url in the user's browser; a host serving only MCP must forward /api/mcp/* and /.well-known/oauth-*/api/mcp/*.",
 			key: 'api_base_url',
-			fieldType: 'text',
+			fieldType: 'api_base_url',
+			companionKeys: ['api_base_url_applies_to'],
 			placeholder: 'https://api.windmill.company.com',
 			storage: 'setting',
 			ee_only: '',
@@ -599,6 +615,17 @@ export const settings: Record<string, Setting[]> = {
 			hideInQuickSetup: true
 		},
 		{
+			label: 'Run concurrency-limited jobs in order',
+			description:
+				"Jobs waiting on a concurrency limit keep the order workers pull jobs in: for each tag, by priority, then by when they became due. On by default. Turned off, a job deferred by its concurrency limit loses its place and can be overtaken by one queued after it, which drains a busy key of short jobs faster. In order, a slot is only given to the job first in its tag's line, so a job that cannot start yet (for example one its own concurrency time window still holds back) holds back the jobs behind it on the same key and tag; jobs of other tags are not held back. Jobs that become due at the same moment, before any of them has waited, start in the order workers pick them up. Admitting jobs of a key one at a time in order lowers its throughput at high limits.",
+			key: 'concurrency_limit_in_order',
+			fieldType: 'boolean',
+			defaultValue: () => true,
+			storage: 'setting',
+			ee_only: 'Concurrency limits are an Enterprise feature.',
+			hideInQuickSetup: true
+		},
+		{
 			label: 'Max jobs queued per concurrency key',
 			description:
 				'Rejects new jobs once this many are already queued behind one concurrency key. Jobs sharing a key run at most <em>concurrent limit</em> at a time regardless of spare worker capacity, so a caller pushing faster than the key drains grows a backlog no capacity can absorb. Scoped per key, so a runaway producer cannot block the rest of the workspace. Set 0 to disable. Default 10000.',
@@ -825,8 +852,9 @@ export const settings: Record<string, Setting[]> = {
 		},
 		{
 			label: 'Auto-login SSO provider',
-			description:
-				'If set, the login page redirects automatically to this provider. Use the OAuth provider key (e.g. "okta", "google") or "saml". The provider must be configured; otherwise the setting is ignored. Visit /user/login?no_sso=1 to bypass the redirect and fall back to the normal login form.',
+			description: 'Send the login page straight to this provider.',
+			tooltip:
+				'Use the OAuth provider key (okta, google) or saml. Ignored when that provider is not configured. /user/login?no_sso=1 shows the normal login form.',
 			key: 'auto_login_provider',
 			fieldType: 'text',
 			placeholder: 'okta',
@@ -835,12 +863,51 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'SSO groups claim',
 			description:
-				'Name of the SAML attribute or OIDC userinfo claim carrying the user\'s IdP groups ("http://schemas.microsoft.com/ws/2008/06/identity/claims/groups" on Entra SAML, "groups" for most OIDC providers). Its values must be the same group ids that SCIM stored as the instance groups\' external id (Entra emits object ids in both), since matching is by external id only. When set, every SSO login reconciles the user\'s membership in those SCIM-provisioned instance groups against the claim, so IdP group changes take effect at the next login instead of waiting for the SCIM push. Instance groups without an external id are never touched, and a login whose claim is absent or empty changes nothing. Leave empty to disable.',
+				"The claim or SAML attribute listing a user's IdP groups. Each SSO login then updates their membership in the instance groups linked to an IdP group.",
+			tooltip:
+				'Usually groups on OIDC (read from the userinfo response), or http://schemas.microsoft.com/ws/2008/06/identity/claims/groups on Entra SAML. Values must match the IdP group of each instance group: the id SCIM stored, or the id or full path set on the group (Entra uses object ids). Groups without an IdP group are never changed. Without SCIM, a login with an empty or missing claim removes the user from every linked group; with SCIM, it changes nothing. An Entra groups overage changes nothing either. MCP requests signed in through the external identity provider use the groups in their token the same way.',
 			key: 'sso_groups_claim',
 			fieldType: 'text',
 			placeholder: 'groups',
 			storage: 'setting',
+			ee_only: '',
+			actionButton: manageInstanceGroupsButton
+		},
+		{
+			label: 'SSO email claim',
+			description:
+				"The claim or SAML attribute holding a user's email. Windmill accounts are keyed by email.",
+			tooltip:
+				'Leave empty to use the email claim on OIDC and the NameID on SAML. A login whose claim is missing falls back to that default, so one setting can serve providers that name it differently. The claim decides which account a login opens, so map it only to an attribute users cannot edit at the identity provider. GitHub and Nextcloud logins always use their own email source. A changed email signs in as a different user.',
+			key: 'sso_email_claim',
+			fieldType: 'text',
+			placeholder: 'email',
+			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'SSO username claim',
+			description:
+				'The claim or SAML attribute holding the username given to an account created at its first SSO login. NameID means the SAML NameID.',
+			tooltip:
+				'Leave empty to use preferred_username on OIDC and the usual username attributes on SAML (uid, username, preferred_username, UPN). A login whose claim is missing falls back to that default. Existing accounts keep their username. Has no effect when automatic username creation is off.',
+			key: 'sso_username_claim',
+			fieldType: 'text',
+			placeholder: 'preferred_username',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'MCP external identity provider',
+			description:
+				'Let MCP clients sign in with your OpenID Connect provider. Each client acts as the signed-in Windmill user, within the access you set for it below.',
+			tooltip:
+				'Tokens Windmill issued keep working. The user must already exist in Windmill: they sign in once first. When the SSO groups claim is set, each request uses the groups listed in its token, so a change in the IdP applies at the next token. Runs record the client, and their steps read it as WM_MCP_CLIENT.',
+			key: 'mcp_external_idp',
+			fieldType: 'mcp_external_idp',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
 		}
 	],
 	'Agent workers': [
@@ -1242,12 +1309,20 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Backend type',
 			description:
-				'By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault, Azure Key Vault, and AWS Secrets Manager as external secret backends.',
+				'By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault, Azure Key Vault, AWS Secrets Manager, and any secret store with an HTTP API (read-only) as external secret backends.',
 			key: 'secret_backend',
 			fieldType: 'secret_backend',
 			storage: 'setting',
-			ee_only:
-				'HashiCorp Vault, Azure Key Vault, and AWS Secrets Manager integrations are Enterprise Edition features'
+			ee_only: 'External secret store integrations are Enterprise Edition features'
+		},
+		{
+			label: 'External secret references',
+			description:
+				'Let secret variables reference existing secrets in HashiCorp Vault, read when the variable is read, under the path prefixes allowed here.',
+			key: 'external_secrets',
+			fieldType: 'external_secrets',
+			storage: 'setting',
+			ee_only: 'External secret references are an Enterprise Edition feature'
 		}
 	],
 	'GitHub App': [

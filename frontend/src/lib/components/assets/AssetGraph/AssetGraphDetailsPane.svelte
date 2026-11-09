@@ -925,7 +925,12 @@
 			sendUserToast(`Saved ${script.path}`)
 			// Authoritative save-time schema-contract check (pipelines gap #2b):
 			// warn-only, post-commit. Fire-and-forget — must never gate the save.
-			notifyContractWarnings(workspace, script.language as ScriptLang, script.content)
+			notifyContractWarnings(
+				workspace,
+				script.language as ScriptLang,
+				script.content,
+				script.path
+			)
 			if (isDraft) {
 				onDraftSaved?.(script.path)
 			} else {

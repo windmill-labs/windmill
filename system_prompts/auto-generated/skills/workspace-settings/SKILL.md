@@ -44,21 +44,22 @@ write a secret you were not given: keep the placeholder.
 | `ai_config` | Providers, default and completion models, custom prompts, `copilot_disabled`. |
 | `large_file_storage` | Workspace object storage: `{ type, s3_resource_path \| azure_blob_resource_path \| gcs_resource_path, public_resource?, secondary_storage?, advanced_permissions? }`. |
 | `git_sync` | `{ repositories: [...] }`, each with `git_repo_resource_path`, `script_path` and `settings` (include/exclude paths and types). Server-owned fields (webhook secrets, sync state, credentials) are never read nor written. |
-| `datatable` | `{ datatables: { <name>: { database: { resource_type, resource_path? } } } }`. Role permissions are `datatable_permissions`. |
+| `datatable` | `{ datatables: { <name>: { database: { resource_type, resource_path } } } }`, both required: `resource_type: postgresql` with `resource_path` a Postgres resource's path, or `instance`, or `external_instance` (Enterprise only), with `resource_path` the name of a database a superadmin set up. A fork's entry can instead be `{ reference: { workspace_id, datatable } }`, pointing at its parent's data table; keep it as is. `main` is the one scripts use by default. Role permissions are `datatable_permissions`. |
 | `datatable_permissions` | `{ <data table>: { default_role, roles: { <role>: [tenants] } } }`: who may connect to each data table as which role. Tenants are `u/<user>`, `g/<group>`, `f/<folder>` or `*`; `admin` is always a role, and `default_role: null` means no default. A data table the value omits is no longer under roles. Only a data table on a cluster Windmill manages can be. |
-| `protection_rules` | `{ <rule name>: { rules: [...], bypass_groups: [...], bypass_users: [...] } }`, rules among `DisableDirectDeployment`, `DisableWorkspaceForking`, `RestrictDeployToDeployers`, `RestrictAnonymousAppDeployment`, `RestrictPublicRunSharing`, `RestrictGuestAppDeployment`, `RequireIsolatedForks`. A rule the value omits is deleted. The dev workspace lock is not listed and cannot be set here. |
+| `protection_rules` | `{ <rule name>: { rules: [...], bypass_groups: [...], bypass_users: [...], fork_role_mapping?: { <role here>: <role in its forks> } } }`, rules among `DisableDirectDeployment`, `DisableWorkspaceForking`, `RestrictDeployToDeployers`, `RestrictAnonymousAppDeployment`, `RestrictPublicRunSharing`, `RestrictGuestAppDeployment`, `RequireIsolatedForks`. A rule the value omits is deleted. The dev workspace lock is not listed and cannot be set here. |
 | `ducklake` | `{ ducklakes: { <name>: { catalog, storage, ... } } }`. |
 | `dbt_warehouses` | dbt warehouse connections. |
 | `default_app` | Path of the app shown as the workspace home. |
 | `default_scripts` | `{ order?, hidden?, default_script_content? }` for the script language picker. |
 | `deploy_ui` | `{ include_path?, include_type? }`: what the deploy-to-workspace UI offers. |
-| `operator_settings` | What operators see and do: page visibility flags (`runs`, `schedules`, `resources`, `variables`, `assets`, `audit_logs`, `groups`, `folders`, `workers`, `triggers`) and write rights (`manage_schedules`, `manage_triggers`, `builder_flows`, `builder_apps`). A write right the value omits keeps its stored value. |
+| `role_overrides` | `{ <role>: { label?, capabilities, workspace_only? } }`: the workspace's overrides of the instance's roles, and with `workspace_only: true` a role of this workspace only (Enterprise). A role the value omits loses its override. Overriding a role the instance does not define is refused. Edit operator rights in `role_overrides.operator`. |
+| `operator_settings` | Legacy view of the `operator` role, kept for older servers: page visibility flags (`runs`, `schedules`, `resources`, `variables`, `assets`, `audit_logs`, `groups`, `folders`, `workers`, `triggers`) and write rights (`manage_schedules`, `manage_triggers`, `builder_flows`, `builder_apps`). Not applied when the document also states `role_overrides`. |
 | `mute_critical_alerts` | Mute the workspace's critical alerts. |
 | `slack_team_id`, `slack_name` | Read only: set by connecting Slack on the settings page. |
 | `slack_command_script` / `teams_command_script` | Script or flow handling the Slack / Teams command. |
 | `slack_oauth_client_id` / `slack_oauth_client_secret` | The workspace's own Slack OAuth app. Clearing either removes both. |
 | `public_app_execution_limit_per_minute` | Rate limit for public apps, `null` for none. |
-| `guest_access_enabled`, `guest_jwt_public_key`, `guest_jwt_jwks_url` | Guest access to public apps and the key that signs guest JWTs. |
+| `guest_jwt_public_key`, `guest_jwt_jwks_url` | The key that signs guest JWTs for apps set to Guests. |
 | `add_admins_and_developers_to_forks` | Add the workspace's admins and developers to each fork. |
 | `color` | Workspace color, `#rrggbb`. |
 
@@ -74,10 +75,10 @@ only show them, `-y` to skip the question, `--replace` to clear what the file om
 With `includeSettings: true` in `wmill.yaml`, `wmill sync pull` writes the document to
 `settings.yaml`, secrets encrypted with the workspace key (plaintext only with `plainSecrets`), and
 `wmill sync push` applies it. Unlike a partial apply, a push treats the file as the whole
-document: a setting the file omits is cleared, except `operator_settings`, `color`, the auto-invite
+document: a setting the file omits is cleared, except `operator_settings`, `role_overrides`, `color`, the auto-invite
 instance groups, and the keys `ducklake`, `dbt_warehouses`, `deploy_ui`, `teams_command_script`,
-`public_app_execution_limit_per_minute`, `guest_access_enabled`, `guest_jwt_public_key`,
-`guest_jwt_jwks_url`, `error_handler_fallback_to_instance_alerts` and
+`public_app_execution_limit_per_minute`, `guest_jwt_public_key`, `guest_jwt_jwks_url`,
+`error_handler_fallback_to_instance_alerts` and
 `add_admins_and_developers_to_forks`, which are managed only when the file states them.
 `datatable_permissions` is pushed only with `includeDatatablePermissions: true` (or
 `--include-datatable-permissions`). A push ignores `protection_rules`: `protection-rules.yaml` and

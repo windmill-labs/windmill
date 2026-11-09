@@ -30,8 +30,9 @@ export type EditKind =
  * Whether a role with `caps` lets its member author items of `kind` (create, edit, deploy or
  * delete one): the role half of every check against the item handlers. Saving a draft is
  * `roleCanDraft`'s rule, and which items they may write is `canEditItem`'s other half.
- * - code (scripts, agents, pipelines): `code`;
- * - flows and full-code apps: `compose` or above (`check_operator_can_build`);
+ * - code (scripts, pipelines): `code`;
+ * - flows, agents and full-code apps: `compose` or above (`check_operator_can_build`). An
+ *   agent's tools are checked as a composed flow's steps are, under the flows right;
  * - low-code apps: `full` apps only (apps.rs `require_full_apps`);
  * - schedules and triggers: the matching manage right;
  * - resources, variables and groups: always, their permissions alone decide.
@@ -39,6 +40,7 @@ export type EditKind =
 export function roleCanAuthor(kind: EditKind, caps: RoleCapabilities): boolean {
 	switch (kind) {
 		case 'flow':
+		case 'agent':
 			return caps.flows !== 'none'
 		case 'raw_app':
 			return caps.apps !== 'none'
@@ -65,6 +67,14 @@ export function roleCanAuthor(kind: EditKind, caps: RoleCapabilities): boolean {
 export function roleCanDraft(kind: EditKind, caps: RoleCapabilities): boolean {
 	if (!isRestricted(caps)) return true
 	return kind === 'group' ? false : roleCanAuthor(kind, caps)
+}
+
+/** Whether the role builds anything: code, flows, apps, schedules or triggers. Resources and
+ * variables do not count, since every role edits them. */
+export function buildsAnything(caps: RoleCapabilities): boolean {
+	return (['script', 'flow', 'raw_app', 'schedule', 'trigger'] as const).some((kind) =>
+		roleCanDraft(kind, caps)
+	)
 }
 
 /** `roleCanDraft` for the item at `path`, with its own permissions as in `canEditItem`. */

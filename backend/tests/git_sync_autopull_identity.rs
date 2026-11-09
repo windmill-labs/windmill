@@ -192,3 +192,25 @@ async fn unstamped_fork_pull_runs_as_the_parents_first_admin(
     assert_eq!(pull_identities(&db, FORK).await?, vec![identity("aaron")]);
     Ok(())
 }
+
+/// A workspace with no admin and no stamp runs its pulls as an instance superadmin, skipping
+/// sam, whose instance username a member holds, and the deactivated seeded superadmin.
+#[sqlx::test(fixtures("git_sync_autopull_identity"))]
+async fn unstamped_pull_without_admins_runs_as_a_superadmin(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    sqlx::query("UPDATE usr SET is_admin = false WHERE workspace_id = $1")
+        .bind(PARENT)
+        .execute(&db)
+        .await?;
+    sqlx::query("UPDATE password SET disabled = true WHERE email = 'admin@windmill.dev'")
+        .execute(&db)
+        .await?;
+    let mut repo = repo_enabled_by("alice@windmill.dev");
+    repo.auto_pull.as_mut().unwrap().enabled_by = None;
+
+    let job = reconcile_and_enqueue_pull(&db, PARENT, &repo, "main", "abc123", None).await?;
+    assert!(job.is_some(), "{}", recorded_pull_error(&db, PARENT).await?);
+    assert_eq!(pull_identities(&db, PARENT).await?, vec![identity("sue")]);
+    Ok(())
+}

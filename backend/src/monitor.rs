@@ -54,16 +54,18 @@ use windmill_common::{
     error,
     flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
-        get_or_create_jwt_secret, load_value_from_global_settings,
+        get_or_create_jwt_secret, load_value_from_global_settings, API_BASE_URL,
+        API_BASE_URL_APPLIES_TO_MCP, API_BASE_URL_APPLIES_TO_SETTING, API_BASE_URL_SETTING,
         AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
         BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CONCURRENCY_KEY_MAX_QUEUED_SETTING,
-        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING,
-        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, DEPENDENCY_JOB_TAG_SETTING,
-        DEV_WORKSPACE_ISOLATION_SETTING, DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING,
-        DEV_WORKSPACE_TAG_SUFFIX_SETTING, DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        CONCURRENCY_LIMIT_IN_ORDER_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
+        CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        DEPENDENCY_JOB_TAG_SETTING, DEV_WORKSPACE_ISOLATION_SETTING,
+        DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING, DEV_WORKSPACE_TAG_SUFFIX_SETTING,
+        DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING, EXPOSE_DEBUG_METRICS_SETTING,
+        EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
         HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
@@ -95,7 +97,7 @@ use windmill_common::{
         load_periodic_bash_script_from_env, load_periodic_bash_script_interval_from_env,
         load_whitelist_env_vars_from_env, load_worker_config, store_pull_query,
         store_suspended_pull_query, Connection, WorkerConfig, CLOUD_HOSTED,
-        CONCURRENCY_KEY_MAX_QUEUED, CONCURRENCY_KEY_MAX_QUEUED_DEFAULT,
+        CONCURRENCY_KEY_MAX_QUEUED, CONCURRENCY_KEY_MAX_QUEUED_DEFAULT, CONCURRENCY_LIMIT_IN_ORDER,
         DEFAULT_DEV_WORKSPACE_TAG_SUFFIX, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
         DEPENDENCY_JOB_TAG, DEV_WORKSPACE_ISOLATION, DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS,
         DEV_WORKSPACE_TAG_SUFFIX, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG,
@@ -129,6 +131,7 @@ use windmill_object_store::reload_object_store_setting;
 use windmill_queue::{
     add_completed_job_error, cancel_job, canceled_result, get_queued_job_v2,
     schedule::{find_unarmed_schedules, rearm_schedule, RearmOutcome},
+    variable_expiration::dispatch_expiring_variables,
     CanceledBy, MiniCompletedJob, SameWorkerPayload,
 };
 use windmill_store::resources::MAX_RESOURCE_VERSIONS;
@@ -309,6 +312,17 @@ pub async fn initial_load(
             false,
             |v| async move { apply_mcp_disable_token_query_param(v) },
         );
+        pass.setting(
+            windmill_common::global_settings::MCP_EXTERNAL_IDP_SETTING,
+            false,
+            |v| async move { apply_mcp_external_idp(v) },
+        );
+        pass.setting(API_BASE_URL_SETTING, false, |v| async move {
+            apply_api_base_url(v)
+        });
+        pass.setting(API_BASE_URL_APPLIES_TO_SETTING, false, |v| async move {
+            apply_api_base_url_applies_to(v)
+        });
         pass.setting(DEFAULT_TAGS_PER_WORKSPACE_SETTING, false, |v| async move {
             apply_tag_per_workspace_enabled(v)
         });
@@ -367,6 +381,10 @@ pub async fn initial_load(
         );
         pass.setting(WORKSPACE_FAIRNESS_ENABLED_SETTING, false, |v| {
             apply_workspace_fairness_enabled(v)
+        });
+
+        pass.setting(CONCURRENCY_LIMIT_IN_ORDER_SETTING, false, |v| async move {
+            apply_concurrency_limit_in_order(v)
         });
 
         // Only the cloud reads these caps, so don't ask for them anywhere else.
@@ -1050,6 +1068,18 @@ pub fn apply_workspace_fairness_min_total(value: Option<serde_json::Value>) {
                 .store(WORKSPACE_FAIRNESS_MIN_TOTAL_DEFAULT, Ordering::Relaxed);
         }
     }
+}
+
+pub async fn load_concurrency_limit_in_order(db: &DB) -> error::Result<()> {
+    let v = load_value_from_global_settings(db, CONCURRENCY_LIMIT_IN_ORDER_SETTING).await?;
+    apply_concurrency_limit_in_order(v);
+    Ok(())
+}
+
+/// On unless set to false: in-order admission is the default.
+pub fn apply_concurrency_limit_in_order(value: Option<serde_json::Value>) {
+    let enabled = !matches!(value, Some(serde_json::Value::Bool(false)));
+    CONCURRENCY_LIMIT_IN_ORDER.store(enabled, Ordering::Relaxed);
 }
 
 pub async fn load_concurrency_key_max_queued(db: &DB) -> error::Result<()> {
@@ -1736,6 +1766,63 @@ pub fn apply_mcp_disable_token_query_param(value: Option<serde_json::Value>) {
         None => MCP_DISABLE_TOKEN_QUERY_PARAM.store(false, Ordering::Relaxed),
         _ => (),
     };
+}
+
+pub async fn load_mcp_external_idp(db: &DB) {
+    match load_value_from_global_settings(
+        db,
+        windmill_common::global_settings::MCP_EXTERNAL_IDP_SETTING,
+    )
+    .await
+    {
+        Ok(v) => apply_mcp_external_idp(v),
+        Err(e) => tracing::error!("Error loading mcp_external_idp setting: {e:#}"),
+    };
+}
+
+pub fn apply_mcp_external_idp(value: Option<serde_json::Value>) {
+    use windmill_common::global_settings::{parse_mcp_external_idp, MCP_EXTERNAL_IDP};
+    match parse_mcp_external_idp(value.as_ref()) {
+        Ok(idp) => MCP_EXTERNAL_IDP.store(idp.map(std::sync::Arc::new)),
+        // Refused at write time, so only a hand-written row lands here: keep no issuer
+        // rather than one half-read.
+        Err(e) => {
+            tracing::error!("Invalid mcp_external_idp setting, external MCP tokens disabled: {e}");
+            MCP_EXTERNAL_IDP.store(None);
+        }
+    }
+}
+
+pub async fn load_api_base_url(db: &DB) {
+    match load_value_from_global_settings(db, API_BASE_URL_SETTING).await {
+        Ok(v) => apply_api_base_url(v),
+        Err(e) => tracing::error!("Error loading api_base_url setting: {e:#}"),
+    };
+}
+
+pub fn apply_api_base_url(value: Option<serde_json::Value>) {
+    let url = match value {
+        Some(serde_json::Value::String(s)) => s.trim().trim_end_matches('/').to_string(),
+        None => String::new(),
+        _ => return,
+    };
+    API_BASE_URL.store(Arc::new(url));
+}
+
+pub async fn load_api_base_url_applies_to(db: &DB) {
+    match load_value_from_global_settings(db, API_BASE_URL_APPLIES_TO_SETTING).await {
+        Ok(v) => apply_api_base_url_applies_to(v),
+        Err(e) => tracing::error!("Error loading api_base_url_applies_to setting: {e:#}"),
+    };
+}
+
+pub fn apply_api_base_url_applies_to(value: Option<serde_json::Value>) {
+    let mcp = match value {
+        Some(serde_json::Value::Array(items)) => items.iter().any(|i| i.as_str() == Some("mcp")),
+        None => true,
+        _ => return,
+    };
+    API_BASE_URL_APPLIES_TO_MCP.store(mcp, Ordering::Relaxed);
 }
 
 struct LogFile {
@@ -4112,6 +4199,9 @@ pub async fn monitor_db(
         if server_mode && !initial_load {
             if let Some(db) = conn.as_sql() {
                 stale_job_cancellation(&db).await;
+                if let Err(e) = windmill_queue::cancel_timed_out_flows(&db).await {
+                    tracing::error!("Error cancelling timed out flows: {:?}", e);
+                }
             }
         }
     };
@@ -4170,6 +4260,9 @@ pub async fn monitor_db(
             if let Some(db) = conn.as_sql() {
                 if let Err(e) = cleanup_flow_iterator_data_orphaned_jobs(&db).await {
                     tracing::error!("Error cleaning up flow_iterator_data: {:?}", e);
+                }
+                if let Err(e) = cleanup_ai_agent_checkpoint_orphaned_jobs(&db).await {
+                    tracing::error!("Error cleaning up ai_agent_checkpoint: {:?}", e);
                 }
             }
         }
@@ -4411,6 +4504,15 @@ pub async fn monitor_db(
         }
     };
 
+    // Run every 5 minutes (10 iterations * 30s)
+    let dispatch_expiring_variables_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
+            if let Some(db) = conn.as_sql() {
+                dispatch_expiring_variables(&db).await;
+            }
+        }
+    };
+
     // run every hour (120 iterations * 30s = 3600s)
     let cleanup_stale_server_heartbeats_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
@@ -4617,6 +4719,7 @@ pub async fn monitor_db(
         native_triggers_sync_f,
         cleanup_notify_events_f,
         check_expiring_tokens_f,
+        dispatch_expiring_variables_f,
         cleanup_stale_server_heartbeats_f,
         manage_audit_partitions_f,
         export_audit_logs_to_object_store_f,
@@ -7714,6 +7817,22 @@ async fn cleanup_job_result_stream_orphaned_jobs(db: &DB) -> error::Result<()> {
     if total > 0 {
         tracing::info!("Cleaned up {total} orphaned job_result_stream_v2 rows");
         vacuum_after_sweep(db, "job_result_stream_v2").await;
+    }
+    Ok(())
+}
+
+/// A parked agent cancelled from outside, or a worker that died mid-segment, never deletes its
+/// checkpoint itself.
+async fn cleanup_ai_agent_checkpoint_orphaned_jobs(db: &DB) -> error::Result<()> {
+    let deleted = sqlx::query(
+        "DELETE FROM ai_agent_checkpoint c
+         WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = c.job_id)",
+    )
+    .execute(db)
+    .await?
+    .rows_affected();
+    if deleted > 0 {
+        tracing::info!("Cleaned up {deleted} orphaned ai_agent_checkpoint rows");
     }
     Ok(())
 }

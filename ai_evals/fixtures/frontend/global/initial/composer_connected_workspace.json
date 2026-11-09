@@ -1,0 +1,313 @@
+{
+  "user": {
+    "username": "admin",
+    "is_admin": true
+  },
+  "workspace": {
+    "flows": [
+      {
+        "path": "f/billing/charge_customers",
+        "summary": "Charge customers with due invoices",
+        "description": "Every night, charges each customer whose invoice is due and emails a receipt.",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "dry_run": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "required": []
+        },
+        "value": {
+          "modules": [
+            {
+              "id": "fetch_due",
+              "summary": "Fetch invoices due today from the warehouse",
+              "value": {
+                "type": "rawscript",
+                "language": "postgresql",
+                "content": "-- database f/data/warehouse\nSELECT id, customer_id, amount_cents FROM invoices WHERE due_date = current_date AND paid = false;",
+                "input_transforms": {
+                  "database": {
+                    "type": "static",
+                    "value": "$res:f/data/warehouse"
+                  }
+                }
+              }
+            },
+            {
+              "id": "charge",
+              "summary": "Charge each invoice",
+              "value": {
+                "type": "forloopflow",
+                "iterator": {
+                  "type": "javascript",
+                  "expr": "results.fetch_due"
+                },
+                "skip_failures": false,
+                "modules": [
+                  {
+                    "id": "charge_one",
+                    "summary": "Charge one invoice through the payment API",
+                    "value": {
+                      "type": "rawscript",
+                      "language": "bun",
+                      "content": "export async function main(invoice: { id: number; amount_cents: number }) {\n  const res = await fetch('https://payments.example.com/charge', { method: 'POST', body: JSON.stringify(invoice) })\n  if (!res.ok) throw new Error(`charge failed for invoice ${invoice.id}`)\n  return await res.json()\n}\n",
+                      "input_transforms": {
+                        "invoice": {
+                          "type": "javascript",
+                          "expr": "flow_input.iter.value"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "id": "email_receipts",
+              "summary": "Email a receipt to each charged customer",
+              "value": {
+                "type": "rawscript",
+                "language": "bun",
+                "content": "// Each charge is what the payment API answered, which carries the customer to email.\nexport async function main(charges: { id: string; customer_id: number }[]) {\n  for (const charge of charges) {\n    const res = await fetch('https://mail.example.com/receipts', { method: 'POST', body: JSON.stringify(charge) })\n    if (!res.ok) throw new Error(`receipt failed for charge ${charge.id}`)\n  }\n  return { sent: charges.length }\n}\n",
+                "input_transforms": {
+                  "charges": {
+                    "type": "javascript",
+                    "expr": "results.charge"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "scripts": [
+      {
+        "path": "f/ops/check_ssl_expiry",
+        "summary": "Check SSL certificate expiry",
+        "language": "bun",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "domain": {
+              "type": "string",
+              "description": "The domain whose certificate to check"
+            }
+          },
+          "required": [
+            "domain"
+          ]
+        },
+        "content": "export async function main(domain: string) {\n  const res = await fetch(`https://ssl-check.example.com/${domain}`)\n  return await res.json()\n}\n"
+      }
+    ],
+    "resources": [
+      {
+        "path": "f/data/warehouse",
+        "resource_type": "postgresql",
+        "description": "Production warehouse",
+        "value": {
+          "host": "db.internal",
+          "port": 5432,
+          "dbname": "warehouse",
+          "user": "windmill",
+          "password": "$var:f/data/warehouse_password"
+        },
+        "dbSchema": {
+          "public": {
+            "customers": {
+              "id": {
+                "type": "integer",
+                "required": true
+              },
+              "email": {
+                "type": "text",
+                "required": true
+              },
+              "plan": {
+                "type": "text",
+                "required": false
+              },
+              "created_at": {
+                "type": "timestamp",
+                "required": true,
+                "default": "now()"
+              }
+            },
+            "invoices": {
+              "id": {
+                "type": "integer",
+                "required": true
+              },
+              "customer_id": {
+                "type": "integer",
+                "required": true
+              },
+              "amount_cents": {
+                "type": "integer",
+                "required": true
+              },
+              "due_date": {
+                "type": "date",
+                "required": true
+              },
+              "paid": {
+                "type": "boolean",
+                "required": true,
+                "default": "false"
+              },
+              "created_at": {
+                "type": "timestamp",
+                "required": true,
+                "default": "now()"
+              }
+            },
+            "signups": {
+              "id": {
+                "type": "integer",
+                "required": true
+              },
+              "email": {
+                "type": "text",
+                "required": true
+              },
+              "source": {
+                "type": "text",
+                "required": false
+              },
+              "created_at": {
+                "type": "timestamp",
+                "required": true,
+                "default": "now()"
+              }
+            }
+          }
+        }
+      },
+      {
+        "path": "f/team/slack",
+        "resource_type": "slack",
+        "description": "Team Slack bot",
+        "value": {
+          "token": "$var:f/team/slack_token"
+        }
+      },
+      {
+        "path": "f/support/triage_agent",
+        "resource_type": "ai_agent",
+        "description": "Labels incoming support tickets",
+        "value": {
+          "provider": {
+            "kind": "anthropic",
+            "model": "claude-sonnet-5",
+            "resource": ""
+          },
+          "output_type": "text",
+          "system_prompt": "Read the support ticket and answer with one label: billing, bug or question.",
+          "memory": {
+            "kind": "off"
+          },
+          "tools": []
+        }
+      }
+    ],
+    "apps": [
+      {
+        "path": "f/ops/console",
+        "summary": "Ops console",
+        "value": {
+          "files": {
+            "/App.tsx": "import { useState } from 'react'\nimport { backend } from './wmill'\n\nexport default function App() {\n\tconst [domain, setDomain] = useState('')\n\tconst [result, setResult] = useState<unknown>()\n\treturn (\n\t\t<div>\n\t\t\t<h1>Ops console</h1>\n\t\t\t<input value={domain} onChange={(e) => setDomain(e.target.value)} />\n\t\t\t<button onClick={async () => setResult(await backend.check_ssl({ domain }))}>Check SSL</button>\n\t\t\t<pre>{JSON.stringify(result, null, 2)}</pre>\n\t\t</div>\n\t)\n}\n"
+          },
+          "runnables": {
+            "check_ssl": {
+              "type": "path",
+              "runType": "script",
+              "path": "f/ops/check_ssl_expiry",
+              "fields": {}
+            }
+          }
+        }
+      }
+    ],
+    "datatables": [
+      {
+        "datatable_name": "main",
+        "schemas": {
+          "public": {
+            "feedback": {
+              "columns": {
+                "id": "int4",
+                "customer_email": "text",
+                "rating": "int4",
+                "comment": "text",
+                "created_at": "timestamptz"
+              },
+              "rows": [
+                {
+                  "id": 1,
+                  "customer_email": "ada@example.com",
+                  "rating": 5,
+                  "comment": "Fast support",
+                  "created_at": "2026-10-01T09:00:00Z"
+                }
+              ]
+            },
+            "onboarding_tasks": {
+              "columns": {
+                "id": "int4",
+                "customer_email": "text",
+                "task": "text",
+                "done": "bool"
+              },
+              "rows": [
+                {
+                  "id": 1,
+                  "customer_email": "ada@example.com",
+                  "task": "Connect billing",
+                  "done": false
+                }
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "folders": [
+      {
+        "name": "billing",
+        "summary": "Billing jobs",
+        "owners": [
+          "u/ada"
+        ],
+        "extra_perms": {
+          "g/finance": false,
+          "u/bob": true
+        }
+      },
+      {
+        "name": "ops",
+        "summary": "Operations",
+        "owners": [
+          "u/admin"
+        ],
+        "extra_perms": {}
+      }
+    ],
+    "groups": [
+      {
+        "name": "finance",
+        "summary": "Finance team",
+        "members": [
+          "carol",
+          "dan"
+        ]
+      }
+    ]
+  }
+}

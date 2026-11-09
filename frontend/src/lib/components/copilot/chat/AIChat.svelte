@@ -7,7 +7,6 @@
 	import { getAiChatManager } from './aiChatManagerContext'
 
 	const aiChatManager = getAiChatManager()
-	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
 	import { copilotInfo } from '$lib/aiStore'
 	import type { ComposerSelection } from './composerBox'
@@ -20,10 +19,9 @@
 		wideLayout = false,
 		emptyHint,
 		starter = undefined,
-		viewTransitionNames = false,
 		onSent = undefined,
 		inputPreface,
-		actingOn,
+		workModeLock = undefined,
 		initialInstructions = undefined,
 		onDraftChange = undefined,
 		initialAttachments = undefined,
@@ -44,11 +42,9 @@
 		wideLayout?: boolean
 		emptyHint?: import('svelte').Snippet
 		starter?: import('./starter/starterPrompts.svelte').ChatStarter
-		viewTransitionNames?: boolean
 		onSent?: () => void
 		inputPreface?: import('svelte').Snippet
-		/** Forwarded to AIChatDisplay: where the session acts, first among the controls. */
-		actingOn?: import('svelte').Snippet
+		workModeLock?: import('./workMode').WorkModeLock
 		// Seed / observe the composer's draft (forwarded to AIChatDisplay).
 		initialInstructions?: string
 		onDraftChange?: (text: string) => void
@@ -90,7 +86,7 @@
 							: $aiUserDisabled
 								? 'Windmill AI is disabled in your account settings'
 								: isAdmin
-									? 'Enable Windmill AI in your [workspace settings](/workspace_settings?tab=ai) to use this chat'
+									? 'Enable Windmill AI in your [workspace settings](/workspace_settings?tab=ai) to use this chat, or hide AI sessions there'
 									: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
 						: aiChatManager.mode === AIMode.SCRIPT &&
 							  aiChatManager.scriptEditorOptions?.lang &&
@@ -105,10 +101,6 @@
 		'How can I connect to a database?',
 		'How do I schedule a recurring job?'
 	]
-
-	export async function generateStep(moduleId: string, lang: ScriptLang, instructions: string) {
-		aiChatManager.generateStep(moduleId, lang, instructions)
-	}
 
 	export async function sendRequest(
 		options: {
@@ -125,6 +117,21 @@
 
 	export function focusInput(selection?: ComposerSelection) {
 		aiChatDisplay?.focusInput(selection)
+	}
+
+	export function flashComposer() {
+		aiChatDisplay?.flashComposer()
+	}
+
+	export function openAssistantSettings(
+		section: import('./AssistantSettingsModal.svelte').AssistantSettingsSection,
+		root?: string
+	) {
+		aiChatDisplay?.openAssistantSettings(section, root)
+	}
+
+	export function prefill(text: string) {
+		aiChatDisplay?.prefill(text)
 	}
 
 	export async function attachContext(element: import('./context').ContextElement) {
@@ -152,22 +159,10 @@
 	onkeydown={(e) => {
 		if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
 			e.preventDefault()
-			aiChatManager.toggleOpen()
 			aiChatDisplay?.focusInput()
 		}
 	}}
 />
-
-{#snippet headerLeft()}
-	<HideButton
-		hidden={false}
-		direction="right"
-		panelName="AI"
-		shortcut="L"
-		size="md"
-		on:click={() => aiChatManager.toggleOpen()}
-	/>
-{/snippet}
 
 <AIChatDisplay
 	bind:this={aiChatDisplay}
@@ -206,7 +201,6 @@
 		aiChatManager.loadPastChat(id)
 	}}
 	askAi={aiChatManager.askAi}
-	{headerLeft}
 	hasDiff={aiChatManager.scriptEditorOptions &&
 		!!aiChatManager.scriptEditorOptions.lastDeployedCode &&
 		aiChatManager.scriptEditorOptions.lastDeployedCode !==
@@ -220,10 +214,9 @@
 	{wideLayout}
 	{emptyHint}
 	{starter}
-	{viewTransitionNames}
 	{onSent}
 	{inputPreface}
-	{actingOn}
+	{workModeLock}
 	{initialInstructions}
 	{onDraftChange}
 	{initialAttachments}

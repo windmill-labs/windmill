@@ -182,7 +182,7 @@ where
 
 async fn current_token(db: &DB, w_id: &str, path: &str) -> error::Result<String> {
     let value = sqlx::query_scalar!(
-        "SELECT value FROM variable WHERE workspace_id = $1 AND path = $2",
+        "SELECT value::text AS \"value!\" FROM variable WHERE workspace_id = $1 AND path = $2",
         w_id,
         path
     )

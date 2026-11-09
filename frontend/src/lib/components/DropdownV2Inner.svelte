@@ -7,10 +7,11 @@
 	import type { MenubarMenuElements, createDropdownMenu } from '@melt-ui/svelte'
 	import type { Item } from '$lib/utils'
 	import { Tooltip } from './meltComponents'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		aiId?: string
-		items?: Item[] | (() => Item[]) | (() => Promise<Item[]>)
+		items?: Item[] | (() => Item[] | Promise<Item[]>)
 		meltItem: MenubarMenuElements['item']
 		builders?: ReturnType<typeof createDropdownMenu>['builders']
 		close?: (afterClose?: () => void) => void
@@ -18,16 +19,17 @@
 
 	let { aiId, items = [], meltItem, builders, close }: Props = $props()
 
-	let computedItems: Item[] | undefined = $state(undefined)
-	async function computeItems() {
-		if (typeof items === 'function') {
-			computedItems = ((await items()) ?? []).filter((item) => !item.hide)
-		} else {
-			computedItems = items.filter((item) => !item.hide)
-		}
+	function visible(result: Item[] | undefined): Item[] {
+		return (result ?? []).filter((item) => !item.hide)
 	}
 
-	computeItems()
+	// Items returned synchronously render on the first frame: awaiting them would show the
+	// spinner first, the popover would be placed for the spinner's height, then flip.
+	const initial = untrack(() => (typeof items === 'function' ? items() : items))
+	let computedItems: Item[] | undefined = $state(
+		initial instanceof Promise ? undefined : visible(initial)
+	)
+	if (initial instanceof Promise) initial.then((result) => (computedItems = visible(result)))
 </script>
 
 {#snippet menuItem(item: Item)}
@@ -103,6 +105,11 @@
 		{#each computedItems ?? [] as item}
 			{#if item.separatorTop}
 				<div class="my-1 border-t border-border-light"></div>
+			{/if}
+			{#if item.sectionTitle}
+				<p class="px-4 pt-1.5 pb-1 text-2xs uppercase tracking-wide text-secondary">
+					{item.sectionTitle}
+				</p>
 			{/if}
 			{#if (item.submenuItems || item.customSubmenu) && builders}
 				<DropdownSubmenuItem {item} {builders} {meltItem} close={close ?? (() => {})} />

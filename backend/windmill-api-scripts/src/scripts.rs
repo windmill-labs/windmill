@@ -309,10 +309,10 @@ async fn list_scripts(
     }
     if let Some(label) = &lq.label {
         for l in label.split(',') {
+            // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
             sqlb.and_where(
                 "(o.labels @> ARRAY[?] OR folder_labels(o.workspace_id, o.path) @> ARRAY[?])"
-                    .bind(&l.trim())
-                    .bind(&l.trim()),
+                    .binds(&[&l.trim()]),
             );
         }
     }
@@ -1988,7 +1988,7 @@ async fn create_script_internal<'c>(
     // bare `// pipeline` marker is the opt-in signal for pipeline
     // membership; parsed writes tell us what is produced (we don't record
     // them in auto_kind itself).
-    let pipeline_annotations = parse_pipeline_annotations(&ns.content);
+    let pipeline_annotations = parse_pipeline_annotations(&ns.content).for_script(&ns.path);
     // `// materialize` names what this script produces. Two target kinds, and the
     // runtime behind each is what constrains the annotation:
     //   • `ducklake://<name>/<table>` — the DuckDB executor generates the write
@@ -2873,6 +2873,20 @@ async fn create_script_internal<'c>(
                 windmill_common::dbt_manifest::clear_dbt_script_state(&mut tx, &w_id, old).await?;
             }
         }
+    }
+    if codebase.is_some() {
+        // Cleanup only: rows left from a plain version of this path. A dedicated-worker lock
+        // job or a map rebuild can write them back; `trigger_dependents` is what keeps a lib's
+        // lock change from relocking a codebase script.
+        sqlx::query!(
+            "DELETE FROM dependency_map WHERE workspace_id = $1 AND importer_kind = 'script'
+             AND (importer_path = $2 OR importer_path = $3)",
+            &w_id,
+            &ns.path,
+            p_path_opt.as_deref().unwrap_or(&ns.path),
+        )
+        .execute(&mut *tx)
+        .await?;
     }
     for spec in &pipeline_triggers {
         let Some((trigger_kind, trigger_ref)) = trigger_spec_to_row(spec) else {
@@ -5139,6 +5153,8 @@ async fn get_ci_test_results_batch(
 struct CheckSchemaContractsRequest {
     language: ScriptLang,
     content: String,
+    #[serde(default)]
+    path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -5163,7 +5179,10 @@ async fn check_schema_contracts(
 ) -> JsonResult<CheckSchemaContractsResponse> {
     let assets = crate::asset_inference::effective_script_assets(&req.language, &req.content, None)
         .unwrap_or_default();
-    let ann = parse_pipeline_annotations(&req.content);
+    let mut ann = parse_pipeline_annotations(&req.content);
+    if let Some(path) = req.path.as_deref() {
+        ann = ann.for_script(path);
+    }
     let mut tx = user_db.begin(&authed).await?;
     let warnings = windmill_common::schema_contracts::check_schema_contracts(
         &mut tx,

@@ -16,20 +16,20 @@
 		Workflow,
 		Import,
 		Store,
-		PanelLeftClose
+		PanelLeftClose,
+		Folder
 	} from 'lucide-svelte'
+	import MenuItem from '$lib/components/meltComponents/MenuItem.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
 	import { PythonIcon, TypeScriptIcon } from '$lib/components/common/languageIcons'
 	import { HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
-	import { importFlowStore } from '$lib/components/flows/flowStore.svelte'
 	import { importScriptStore } from '$lib/components/scripts/scriptStore.svelte'
 	import { importStore } from '$lib/components/apps/store'
 	import { conditionalMelt, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import type { EditKind } from '$lib/editRights'
 	import { createDropdownMenu, melt } from '@melt-ui/svelte'
-	import YAML from 'yaml'
 	import type { Snippet } from 'svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
@@ -48,14 +48,22 @@
 		 * serve both this menu and the empty state's own link.
 		 */
 		onImportHubProject?: () => void
+		/** Opens the host's folder drawer. The entry is offered only when this is set. */
+		onCreateFolder?: () => void
 	}
 
-	let { trigger, triggerElement, source = 'toolbar', onImportHubProject }: Props = $props()
+	let {
+		trigger,
+		triggerElement,
+		source = 'toolbar',
+		onImportHubProject,
+		onCreateFolder
+	}: Props = $props()
 
 	type Variant = {
 		label: string
 		icon: typeof PythonIcon
-		onSelect: () => void
+		href: string
 		badge?: { label: string; class: string }
 		/** opened in a new tab from a link beside the variant */
 		docHref?: string
@@ -92,7 +100,8 @@
 		tagline: string
 		description: string
 		bullets: string[]
-		onSelect: () => void
+		/** the editor this option opens; unused when `variants` is set */
+		href: string
 		/** optional sub-choices shown in place of the single create button */
 		variants?: Variant[]
 		/** optional pill shown next to the label; class is the full static tailwind tone */
@@ -103,6 +112,11 @@
 
 	// kept static so tailwind doesn't purge the badge tones
 	const badgeAdvanced = 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+	// While Home's composer is open (`data-composer-open`) the button looks like the default
+	// variant: that state lives in the DOM, not in a prop. The border is an inset ring so the
+	// button keeps its width.
+	const QUIET_AS_DEFAULT =
+		'group-has-[[data-composer-open]]/home:bg-transparent group-has-[[data-composer-open]]/home:hover:bg-surface-hover group-has-[[data-composer-open]]/home:text-primary group-has-[[data-composer-open]]/home:ring-1 group-has-[[data-composer-open]]/home:ring-inset group-has-[[data-composer-open]]/home:ring-border-light'
 	const badgeLegacy = 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
 	const badgeAlpha = 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
 	const badgeRecommended = 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
@@ -123,7 +137,7 @@
 				'Auto-generated UI from parameters',
 				'Instant deploy & versioning'
 			],
-			onSelect: () => goto('/scripts/add')
+			href: '/scripts/add'
 		},
 		...(HOME_SHOW_CREATE_FLOW
 			? ([
@@ -140,7 +154,7 @@
 							'Branches, loops & error handling',
 							'Suspend / approval steps'
 						],
-						onSelect: () => goto('/flows/add'),
+						href: '/flows/add',
 						extras: [{ label: 'Import flow', onSelect: () => openImport('flow') }]
 					}
 				] as Option[])
@@ -156,7 +170,7 @@
 						description:
 							'Full control over the UI with React or Svelte and a powerful AI agent. Best for complex apps that need full flexibility.',
 						bullets: ['React or Svelte', 'Full flexibility & control', 'AI-assisted authoring'],
-						onSelect: () => goto('/apps_raw/add'),
+						href: '/apps_raw/add',
 						extras: [{ label: 'Import full-code app', onSelect: () => openImport('app-fullcode') }]
 					}
 				] as Option[])
@@ -174,7 +188,7 @@
 				'Reusable as a step in any flow',
 				'Tools from scripts, flows and MCP'
 			],
-			onSelect: () => goto('/agents/add')
+			href: '/agents/add'
 		},
 		...(HOME_SHOW_CREATE_FLOW
 			? ([
@@ -191,18 +205,18 @@
 							'Full control via the SDK',
 							'Versioned as a regular script'
 						],
-						onSelect: () => goto('/scripts/add?wac=typescript'),
+						href: '/scripts/add?wac=typescript',
 						badge: { label: 'Advanced', class: badgeAdvanced },
 						variants: [
 							{
 								label: 'TypeScript',
 								icon: TypeScriptIcon,
-								onSelect: () => goto('/scripts/add?wac=typescript')
+								href: '/scripts/add?wac=typescript'
 							},
 							{
 								label: 'Python',
 								icon: PythonIcon,
-								onSelect: () => goto('/scripts/add?wac=python')
+								href: '/scripts/add?wac=python'
 							}
 						],
 						extras: [{ label: 'Import Workflow-as-Code', onSelect: () => openImport('wac') }]
@@ -220,20 +234,20 @@
 							'Partitioned & incremental',
 							'Asset-aware lineage'
 						],
-						onSelect: () => goto('/pipeline'),
+						href: '/pipeline',
 						badge: { label: 'Alpha', class: badgeAlpha },
 						variants: [
 							{
 								label: 'Windmill pipelines',
 								icon: Workflow,
 								badge: { label: 'Recommended', class: badgeRecommended },
-								onSelect: () => goto('/pipeline')
+								href: '/pipeline'
 							},
 							{
 								label: 'dbt',
 								icon: DbtIcon,
 								docHref: DBT_DOCS,
-								onSelect: () => goto('/scripts/add?lang=dbt'),
+								href: '/scripts/add?lang=dbt',
 								doc: {
 									label: 'dbt',
 									icon: DbtIcon,
@@ -263,7 +277,7 @@
 						description:
 							'Assemble an internal UI from 60+ components wired to your scripts and flows. Best for simple apps or apps that need minimal customization.',
 						bullets: ['60+ ready-made components', 'No code required', 'Backed by scripts & flows'],
-						onSelect: () => goto('/apps/add'),
+						href: '/apps/add',
 						badge: { label: 'Legacy', class: badgeLegacy },
 						extras: [{ label: 'Import low-code app', onSelect: () => openImport('app-lowcode') }]
 					}
@@ -484,7 +498,14 @@
 		'app-fullcode': 'Import full-code app'
 	}
 
+	// The parser and the flow store (which reaches the expression parser) are loaded when the
+	// import drawer opens, not with a menu every list page renders.
+	function loadImportDeps() {
+		return Promise.all([import('yaml'), import('$lib/components/flows/flowStore.svelte')])
+	}
+
 	function openImport(kind: ImportKind) {
+		void loadImportDeps()
 		importKind = kind
 		importType = 'yaml'
 		importRaw = ''
@@ -493,6 +514,7 @@
 	}
 
 	async function runImport() {
+		const [{ default: YAML }, { importFlowStore }] = await loadImportDeps()
 		const parsed = importType === 'yaml' ? YAML.parse(importRaw) : JSON.parse(importRaw)
 		if (importKind === 'flow') {
 			importFlowStore.set(parsed)
@@ -525,6 +547,7 @@
 			aiDescription="Create a new script, flow or app"
 			unifiedSize="md"
 			variant="accent"
+			btnClasses={QUIET_AS_DEFAULT}
 			startIcon={{ icon: Plus }}
 			endIcon={{ icon: ChevronDown }}
 			bind:element={triggerEl}
@@ -649,10 +672,10 @@
 							{#each option.variants ?? [] as variant (variant.label)}
 								{@const VariantIcon = variant.icon}
 								<div class="flex flex-row items-center gap-1">
-									<button
+									<a
 										use:melt={$item}
+										href={variant.href}
 										class="flex flex-row flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
-										onclick={() => variant.onSelect()}
 										onfocusin={() => (activeVariantDoc = variant.doc)}
 										onpointerenter={() => (activeVariantDoc = variant.doc)}
 									>
@@ -668,7 +691,7 @@
 												{variant.badge.label}
 											</span>
 										{/if}
-									</button>
+									</a>
 									{#if variant.docHref}
 										<a
 											href={variant.docHref}
@@ -701,20 +724,38 @@
 					{:else if option.variants}
 						{@render variantRow(option, ac, rowClass, $wacSubTrigger, $wacSubMenu, $wacSubOpen)}
 					{:else}
-						<button
+						<a
 							use:melt={$item}
-							class={rowClass}
+							href={option.href}
+							class="{rowClass} text-[color:inherit]"
 							onfocusin={() => highlightOption(option.key)}
 							onpointerenter={() => highlightOption(option.key)}
-							onclick={() => option.onSelect()}
 						>
 							{@render rowBody(option, ac)}
-						</button>
+						</a>
 					{/if}
 				{/each}
 
-				<!-- bottom import section: one entry whose submenu imports any artifact -->
+				<!-- bottom section: a folder, then one entry whose submenu imports any artifact -->
 				<div class="mx-1 my-1 border-t border-gray-200 dark:border-gray-700"></div>
+				{#if onCreateFolder}
+					<!-- Focus also arrives on hover: melt focuses the highlighted item. -->
+					<MenuItem
+						{item}
+						class="w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
+						onFocusIn={() => highlightOption(undefined)}
+						onClick={() => onCreateFolder()}
+					>
+						<div
+							class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-gray-100 dark:bg-gray-700"
+						>
+							<Folder size={14} class="text-gray-600 dark:text-gray-300" />
+						</div>
+						<span class="text-xs font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
+							Folder
+						</span>
+					</MenuItem>
+				{/if}
 				<button
 					use:melt={$importSubTrigger}
 					class="w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"

@@ -6,7 +6,7 @@
 	import RoleCapabilitiesEditor from '../settings/RoleCapabilitiesEditor.svelte'
 	import type { RoleCapabilities, RoleCapabilitiesPatch, RoleDefinition } from '$lib/gen'
 	import {
-		applyCapabilitiesPatch,
+		resolveCapabilities,
 		authorLevelLabel,
 		baseCapabilitiesFor,
 		DEFAULT_INSTANCE_ROLES,
@@ -101,7 +101,8 @@
 		return [
 			caps.code ? 'Code' : 'No code',
 			`Flows: ${authorLevelLabel(caps.flows).toLowerCase()}`,
-			`Apps: ${authorLevelLabel(caps.apps).toLowerCase()}`
+			`Apps: ${authorLevelLabel(caps.apps).toLowerCase()}`,
+			...(caps.run ? [] : ['View only'])
 		].join(' · ')
 	}
 </script>
@@ -154,7 +155,7 @@
 	>
 		{#each rows as row, i (row.id)}
 			{@const base = baseCapabilitiesFor(row.name)}
-			{@const caps = applyCapabilitiesPatch(base, row.capabilities)}
+			{@const caps = resolveCapabilities(base, row.capabilities, false)}
 			<div class="flex flex-col rounded-md border bg-surface-tertiary">
 				<div class="flex items-center gap-2 p-2">
 					<div

@@ -573,6 +573,20 @@ describe('fork mode', () => {
 		expect(entry?.valueMasked).toBe(true)
 	})
 
+	it('sees an expiry-only variable change', async () => {
+		mockComparison([comparisonDiff({ kind: 'variable', path: 'f/a/plain' })])
+		vi.mocked(VariableService.getVariable).mockImplementation(async ({ workspace }: any) => ({
+			path: 'f/a/plain',
+			is_secret: false,
+			value: 'same',
+			description: 'same',
+			value_valid_until: workspace === FORK ? '2027-09-09T10:00:00Z' : '2027-03-01T10:00:00Z'
+		})) as any
+		const entry = await readForkDiffEntryOne(FORK, PARENT, ['variable'], 'f/a/plain')
+		expect(entry?.status).toBe('modified')
+		expect(entry?.patch).toContain('2027-09-09')
+	})
+
 	it('sees flow schema-only changes the shared projection drops', async () => {
 		mockComparison([comparisonDiff({ kind: 'flow', path: 'f/a/fl' })])
 		vi.mocked(FlowService.getFlowByPath).mockImplementation(async ({ workspace }: any) => ({

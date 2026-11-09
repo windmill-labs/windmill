@@ -8,7 +8,7 @@ import * as log from "../../core/log.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as windmillUtils from "@windmill-labs/shared-utils";
 import { readTextFile, readTextFileSync } from "../../utils/utils.ts";
-import { getEsbuild, stopEsbuild } from "../../utils/esbuild_loader.ts";
+import { withEsbuild } from "../../utils/esbuild_loader.ts";
 export interface BundleOptions {
   entryPoint?: string;
   outDir?: string;
@@ -286,6 +286,84 @@ export async function ensureNodeModules(appDir?: string): Promise<void> {
 }
 
 /**
+ * The workspace's shared `ui/` folder for an app: `ui/` next to the nearest
+ * wmill.yaml above `appDir`, the root `wmill app push` and `wmill app bundle`
+ * run from. Undefined when no wmill.yaml is found.
+ */
+export function findSharedUiDir(appDir: string): string | undefined {
+  let dir = path.resolve(appDir);
+  while (true) {
+    if (fs.existsSync(path.join(dir, "wmill.yaml"))) {
+      return path.join(dir, "ui");
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
+/**
+ * Resolves `/ui/<file>` imports to the workspace's shared `ui/` folder, and bare
+ * package imports made from those files against the app's own node_modules: the
+ * server-side bundler places `ui/` inside the app, so walking up from the shared
+ * folder instead would miss the app's packages or load a second copy of them
+ * (two Reacts break hooks at runtime).
+ */
+export function createSharedUiPlugin(sharedUiDir: string, appDir: string): any {
+  // Real paths throughout: esbuild follows symlinks for relative imports, so a
+  // symlinked ui/ would otherwise give its files two different prefixes.
+  const uiPrefix = fs.realpathSync(sharedUiDir) + path.sep;
+  const resolveDir = path.resolve(appDir);
+  return {
+    name: "wmill-shared-ui",
+    setup(build: any) {
+      build.onResolve({ filter: /^\/ui\// }, (args: any) => {
+        const rel = args.path.slice("/ui/".length);
+        const candidates = [rel];
+        if (!path.extname(rel)) {
+          candidates.push(
+            rel + ".tsx",
+            rel + ".ts",
+            rel + ".jsx",
+            rel + ".js",
+            rel + ".css",
+            path.join(rel, "index.tsx"),
+            path.join(rel, "index.ts"),
+          );
+        }
+        for (const c of candidates) {
+          const full = path.join(sharedUiDir, c);
+          if (fs.existsSync(full)) {
+            return { path: fs.realpathSync(full) };
+          }
+        }
+        return {
+          errors: [
+            {
+              text: `Could not resolve shared UI import "${args.path}" in ${sharedUiDir}`,
+            },
+          ],
+        };
+      });
+      build.onResolve({ filter: /^[^./]/ }, async (args: any) => {
+        if (!args.importer.startsWith(uiPrefix)) return undefined;
+        // CSS reads `@import "base.css"` as relative first; keep that when the
+        // sibling resolves, and only send package names to the app.
+        if (args.kind === "import-rule" || args.kind === "url-token") {
+          const sibling = await build.resolve("./" + args.path, {
+            resolveDir: args.resolveDir,
+            kind: args.kind,
+          });
+          if (sibling.errors.length === 0) return sibling;
+        }
+        // No importer is passed, so this nested resolve does not re-enter here.
+        return build.resolve(args.path, { resolveDir, kind: args.kind });
+      });
+    },
+  };
+}
+
+/**
  * Creates an esbuild bundle for the app
  * @param options Bundle configuration options
  * @returns Bundle result containing JS and CSS blobs
@@ -293,10 +371,6 @@ export async function ensureNodeModules(appDir?: string): Promise<void> {
 export async function createBundle(
   options: BundleOptions = {}
 ): Promise<BundleResult> {
-  // Native esbuild with a transparent esbuild-wasm fallback on host/binary
-  // version mismatch (see esbuild_loader.ts).
-  const esbuild = await getEsbuild();
-
   // Detect frameworks to determine default entry point.
   // Use the entryPoint's directory if provided, otherwise fall back to cwd.
   const appDir = options.entryPoint ? path.dirname(options.entryPoint) : process.cwd();
@@ -365,44 +439,10 @@ export async function createBundle(
     },
   };
 
-  const sharedUiPlugins: any[] = [];
-  if (options.sharedUiDir && fs.existsSync(options.sharedUiDir)) {
-    const sharedUiDir = options.sharedUiDir;
-    sharedUiPlugins.push({
-      name: "wmill-shared-ui",
-      setup(build: any) {
-        // Intercept imports of /ui/<file> and resolve to the workspace ui/ folder.
-        build.onResolve({ filter: /^\/ui\// }, (args: any) => {
-          const rel = args.path.slice("/ui/".length);
-          const candidates = [rel];
-          if (!path.extname(rel)) {
-            candidates.push(
-              rel + ".tsx",
-              rel + ".ts",
-              rel + ".jsx",
-              rel + ".js",
-              rel + ".css",
-              path.join(rel, "index.tsx"),
-              path.join(rel, "index.ts"),
-            );
-          }
-          for (const c of candidates) {
-            const full = path.join(sharedUiDir, c);
-            if (fs.existsSync(full)) {
-              return { path: full };
-            }
-          }
-          return {
-            errors: [
-              {
-                text: `Could not resolve shared UI import "${args.path}" in ${sharedUiDir}`,
-              },
-            ],
-          };
-        });
-      },
-    });
-  }
+  const sharedUiPlugins: any[] =
+    options.sharedUiDir && fs.existsSync(options.sharedUiDir)
+      ? [createSharedUiPlugin(options.sharedUiDir, appDir)]
+      : [];
 
   const buildOptions = {
     ...DEFAULT_BUILD_OPTIONS,
@@ -423,38 +463,34 @@ export async function createBundle(
 
   log.info(colors.blue("📦 Building bundle..."));
 
-  try {
-    const result = await esbuild.build(buildOptions);
+  // Native esbuild with a transparent esbuild-wasm fallback on host/binary
+  // version mismatch (see esbuild_loader.ts).
+  const result = await withEsbuild((esbuild) => esbuild.build(buildOptions));
 
-    if (result.errors.length > 0) {
-      log.error(colors.red("❌ Build failed:"));
-      result.errors.forEach((error: any) => {
-        log.error(colors.red(error.text));
-      });
-      throw new Error("Build failed with errors");
-    }
-
-    log.info(colors.green("✅ Bundle created successfully"));
-
-    const outputFiles = result.outputFiles ?? [];
-    const jsFile = outputFiles.find((f) => f.path.endsWith(".js"));
-    const cssFile = outputFiles.find((f) => f.path.endsWith(".css"));
-
-    if (!jsFile) {
-      throw new Error("Expected a JS bundle in esbuild output but none found");
-    }
-
-    try {
-      fs.rmSync(distDir, { recursive: true });
-    } catch {
-      //ignore
-    }
-    return { js: jsFile.text, css: cssFile?.text ?? "" };
-
-  } finally {
-    // Stop the native esbuild service so the process can exit (no-op for wasm).
-    await stopEsbuild();
+  if (result.errors.length > 0) {
+    log.error(colors.red("❌ Build failed:"));
+    result.errors.forEach((error: any) => {
+      log.error(colors.red(error.text));
+    });
+    throw new Error("Build failed with errors");
   }
+
+  log.info(colors.green("✅ Bundle created successfully"));
+
+  const outputFiles = result.outputFiles ?? [];
+  const jsFile = outputFiles.find((f) => f.path.endsWith(".js"));
+  const cssFile = outputFiles.find((f) => f.path.endsWith(".css"));
+
+  if (!jsFile) {
+    throw new Error("Expected a JS bundle in esbuild output but none found");
+  }
+
+  try {
+    fs.rmSync(distDir, { recursive: true });
+  } catch {
+    //ignore
+  }
+  return { js: jsFile.text, css: cssFile?.text ?? "" };
 }
 
 /**

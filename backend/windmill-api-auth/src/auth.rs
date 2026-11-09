@@ -171,10 +171,10 @@ impl AuthCache {
         // from a job's WM_TOKEN, even on an AUTH_CACHE hit whose cached authed
         // predates this field.
         opt_job_authed.authed.job_id = opt_job_authed.job_id;
-        // The workspace's guest switch is enforced here, once, for every guest request
-        // — not per handler, where each guest-reachable route would have to remember
-        // it. Uncached, so turning guests off takes effect on the next request of every
-        // guest session and every token derived from one.
+        // The no-account rule is enforced here, once, for every guest request — not per
+        // handler, where each guest-reachable route would have to remember it. Uncached,
+        // so an account provisioned after the mint ends the guest session, and every
+        // token derived from one, on its next request.
         if crate::scopes::has_guest_sentinel(opt_job_authed.authed.scopes.as_deref()) {
             let Some(w_id) = w_id else { return None };
             let email = &opt_job_authed.authed.email;
@@ -277,11 +277,9 @@ impl AuthCache {
                             return None;
                         }
                     };
-                // The workspace switch, the instance switch and the app being in guest
-                // mode, in one answer (guest_app_admits). The door re-reads the switches
-                // and the no-account rule per request through the sentinel below
-                // (guest_session_stands), so turning any of them off stops a cached JWT
-                // session on its next call.
+                // The app being in guest mode (guest_app_admits). The door re-reads the
+                // no-account rule per request through the sentinel below
+                // (guest_session_stands), and the on-behalf resolver re-reads the mode.
                 match windmill_common::workspaces::guest_app_admits(
                     &self.db,
                     w_id,
@@ -349,6 +347,7 @@ impl AuthCache {
                     read_only: false,
                     job_id: None,
                     credential_expiry: Some(credential_expiry),
+                    mcp_client: None,
                 };
                 AUTH_CACHE.insert(
                     key,
@@ -394,6 +393,7 @@ impl AuthCache {
                             read_only: false,
                             job_id: None,
                             credential_expiry: None,
+                            mcp_client: claims.mcp_client,
                         };
                         // Fail closed: a `job_id` claim that does not parse must reject
                         // the token rather than resolve to `None`, which would clear the
@@ -525,6 +525,7 @@ impl AuthCache {
                                                 read_only,
                                                 job_id: None,
                                                 credential_expiry: None,
+                                                mcp_client: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -579,6 +580,7 @@ impl AuthCache {
                                                 read_only,
                                                 job_id: None,
                                                 credential_expiry: None,
+                                                mcp_client: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -678,6 +680,7 @@ impl AuthCache {
                                                 read_only,
                                                 job_id: None,
                                                 credential_expiry: None,
+                                                mcp_client: None,
                                             })
                                         }
                                         None if super_admin => {
@@ -703,6 +706,7 @@ impl AuthCache {
                                                     read_only,
                                                     job_id: None,
                                                     credential_expiry: None,
+                                                    mcp_client: None,
                                                 }),
                                                 Err(e) => {
                                                     tracing::error!(
@@ -741,6 +745,7 @@ impl AuthCache {
                                                 read_only,
                                                 job_id: None,
                                                 credential_expiry: None,
+                                                mcp_client: None,
                                             })
                                         }
                                         None => None,
@@ -761,6 +766,7 @@ impl AuthCache {
                                         read_only,
                                         job_id: None,
                                         credential_expiry: None,
+                                        mcp_client: None,
                                     })
                                 }
                             }
@@ -787,7 +793,8 @@ impl AuthCache {
                 {
                     let authed = ApiAuthed {
                         email: SUPERADMIN_SECRET_EMAIL.to_string(),
-                        username: "superadmin_secret".to_string(),
+                        username: windmill_common::usernames::SUPERADMIN_SECRET_USERNAME
+                            .to_string(),
                         is_admin: true,
                         is_operator: false,
                         groups: Vec::new(),
@@ -800,6 +807,7 @@ impl AuthCache {
                         read_only: false,
                         job_id: None,
                         credential_expiry: None,
+                        mcp_client: None,
                     };
                     Some(OptJobAuthed { authed, job_id: None })
                 } else {
@@ -811,8 +819,8 @@ impl AuthCache {
 }
 
 /// How long a guest JWT resolves from the auth cache before the arm re-runs (and
-/// re-reads the key). A guest JWT is not revocable except by the workspace switch or
-/// by rotating the key, so the entry must be short enough that a rotated key bites
+/// re-reads the key). A guest JWT is not revocable except by taking its app out of
+/// guest mode or by rotating the key, so the entry must be short enough that a rotated key bites
 /// soon, unlike a normal token whose row can be deleted. Also what makes the
 /// day-keyed activity dedupe below reachable across a midnight.
 const GUEST_JWT_CACHE_TTL: chrono::Duration = chrono::Duration::minutes(5);
@@ -1174,6 +1182,7 @@ fn no_auth_admin_authed() -> ApiAuthed {
         read_only: false,
         job_id: None,
         credential_expiry: None,
+        mcp_client: None,
     }
 }
 

@@ -15,9 +15,11 @@ use crate::server::runner::{
 };
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, DiscoverResult,
-    Implementation, InitializeRequestParams, InitializeResult, ListToolsResult,
-    PaginatedRequestParams, ProtocolVersion, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
+    CallToolRequestParams, CallToolResponse, CallToolResult, ClientCapabilities, ContentBlock,
+    DiscoverResult, Implementation, InitializeRequestParams, InitializeResult, ListResourcesResult,
+    ListToolsResult, MetaObject, PaginatedRequestParams, ProtocolVersion,
+    ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource,
+    ResourceContents, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::ErrorData;
@@ -46,6 +48,34 @@ fn access<A: McpAuth>(auth: &A, scope: &McpScopeConfig) -> SessionAccess {
 
 const GET_WORKSPACE_CONTEXT: &str = "get_workspace_context";
 
+/// The MIME type of an MCP Apps view (the `io.modelcontextprotocol/ui` extension).
+const MCP_APP_MIME_TYPE: &str = "text/html;profile=mcp-app";
+const MCP_APPS_EXTENSION: &str = "io.modelcontextprotocol/ui";
+
+/// A tool that only shows a card does nothing for a client that declares it draws none.
+/// Only a request's own capabilities count: a legacy client's are never seen (the
+/// transport keeps no session), and it keeps the tools.
+fn declines_cards(capabilities: Option<&ClientCapabilities>) -> bool {
+    capabilities.is_some_and(|caps| {
+        !caps
+            .extensions
+            .as_ref()
+            .is_some_and(|e| e.contains_key(MCP_APPS_EXTENSION))
+    })
+}
+
+/// The views load nothing from outside their own page and reach Windmill only through
+/// tools, so they declare no domain; a host reviewing the declared policy holds them to it.
+fn mcp_app_meta() -> MetaObject {
+    let ui = serde_json::json!({
+        "prefersBorder": true,
+        "csp": { "connectDomains": [], "resourceDomains": [], "frameDomains": [] },
+        // The card's copy controls; a host that grants nothing leaves its fallback.
+        "permissions": { "clipboardWrite": {} },
+    });
+    MetaObject(serde_json::Map::from_iter([("ui".to_string(), ui)]))
+}
+
 /// Workspaces named in the instructions before the rest are left to `list_workspaces`.
 const MAX_LISTED_WORKSPACES: usize = 40;
 
@@ -59,7 +89,13 @@ fn get_workspace_context_tool() -> Tool {
              workspace.",
             Arc::new(schema.as_object().unwrap().clone()),
         )
-        .with_annotations(ToolAnnotations::new().read_only(true)),
+        .with_title("Get workspace context")
+        .with_annotations(
+            ToolAnnotations::with_title("Get workspace context")
+                .read_only(true)
+                .destructive(false)
+                .open_world(false),
+        ),
     )
 }
 
@@ -160,7 +196,9 @@ impl<B: McpBackend> SessionRunner<B> {
                     "Every tool takes a `workspace_id`: pass `{}`, the workspace this connection \
                      works in.\n\n{}",
                     only.id,
-                    self.backend.session_instructions(&auth, &only.id).await?
+                    self.backend
+                        .session_instructions(&auth, &only.id, access(&auth, &caller.scope))
+                        .await?
                 )
             }
             _ => {
@@ -184,7 +222,8 @@ impl<B: McpBackend> SessionRunner<B> {
                      below), the folders you can write to, and the workspace's skills and \
                      instructions. When the user has not said which workspace, ask rather than \
                      guess, and name the workspace whenever you change something.\n\n{}",
-                    self.backend.generic_session_instructions()
+                    self.backend
+                        .generic_session_instructions(access(&caller.auth, &caller.scope))
                 )
             }
         };
@@ -198,8 +237,13 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
         let server_info = Implementation::new("windmill", env!("CARGO_PKG_VERSION"))
             .with_title("Windmill")
             .with_website_url("https://windmill.dev");
-        InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(server_info)
+        InitializeResult::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .build(),
+        )
+        .with_server_info(server_info)
     }
 
     fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
@@ -246,10 +290,63 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
                 .into_iter()
                 .map(with_workspace_id_arg),
         );
+        if declines_cards(context.meta.client_capabilities().as_ref()) {
+            tools.retain(|tool| {
+                !tool.meta.as_ref().is_some_and(|m| {
+                    m.0.get("ui")
+                        .is_some_and(|ui| ui.get("resourceUri").is_some())
+                })
+            });
+        }
         // Without these a `2026-07-28` client rejects the whole listing.
         Ok(ListToolsResult::with_all_items(tools)
             .with_ttl_ms(LIST_TTL_MS)
             .with_cache_scope(LIST_CACHE_SCOPE))
+    }
+
+    /// The MCP Apps views a client draws tool results in. Static pages: what they show
+    /// comes from tool results, which every request authorizes on its own.
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        let views = self
+            .backend
+            .session_views()
+            .iter()
+            .map(|(uri, _)| Resource::new(*uri, *uri).with_mime_type(MCP_APP_MIME_TYPE))
+            .collect();
+        Ok(ListResourcesResult::with_all_items(views)
+            .with_ttl_ms(LIST_TTL_MS)
+            .with_cache_scope(LIST_CACHE_SCOPE))
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResponse, ErrorData> {
+        let Some((uri, html)) = self
+            .backend
+            .session_views()
+            .iter()
+            .find(|(uri, _)| *uri == request.uri)
+        else {
+            return Err(ErrorData::resource_not_found(
+                format!("No resource at {}", request.uri),
+                None,
+            ));
+        };
+        // Without these a `2026-07-28` client rejects the view and draws no card.
+        Ok(
+            ReadResourceResult::new(vec![ResourceContents::text(*html, *uri)
+                .with_mime_type(MCP_APP_MIME_TYPE)
+                .with_meta(mcp_app_meta())])
+            .with_ttl_ms(LIST_TTL_MS)
+            .with_cache_scope(LIST_CACHE_SCOPE)
+            .into(),
+        )
     }
 
     async fn call_tool(
@@ -277,10 +374,13 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
             };
         let auth = self.auth_in(&caller, &workspace_id).await?;
         if request.name == GET_WORKSPACE_CONTEXT {
-            let text = self.backend.workspace_context(&auth, &workspace_id).await;
+            let text = self
+                .backend
+                .workspace_context(&auth, &workspace_id, access(&auth, &caller.scope))
+                .await;
             return Ok(CallToolResult::success(vec![ContentBlock::text(text)]).into());
         }
-        let mut result = self
+        let result = self
             .backend
             .call_session_tool(
                 &auth,
@@ -290,7 +390,12 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
                 access(&auth, &caller.scope),
                 caller.origin.as_deref(),
             )
-            .await?;
+            .await;
+        let refusal = result.as_ref().err().map(|e| e.message.as_ref());
+        self.backend
+            .after_tool_call(&auth, &workspace_id, &request.name, refusal)
+            .await;
+        let mut result = result?;
         for block in result.content.iter_mut() {
             if let Some(text) = block.as_text() {
                 *block = ContentBlock::text(truncate_tool_result(text.text.clone()));
@@ -303,6 +408,15 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_client_declaring_no_cards_loses_the_card_tools() {
+        let mut caps: ClientCapabilities = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(declines_cards(Some(&caps)));
+        assert!(!declines_cards(None));
+        caps.extensions = Some([(MCP_APPS_EXTENSION.to_string(), Default::default())].into());
+        assert!(!declines_cards(Some(&caps)));
+    }
 
     #[test]
     fn origin_prefers_forwarded_headers() {

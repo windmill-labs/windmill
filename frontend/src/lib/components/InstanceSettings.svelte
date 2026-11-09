@@ -3,7 +3,8 @@
 		scimSamlSetting,
 		settings,
 		settingsKeys,
-		instanceSettingsSaved
+		instanceSettingsSaved,
+		type Setting
 	} from './instanceSettings'
 	import { Alert, Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { SettingService, SettingsService } from '$lib/gen'
@@ -502,9 +503,10 @@
 		const categorySettings = getSettingsForCategory(category)
 		const obj: Record<string, any> = {}
 		for (const s of categorySettings) {
-			const normalized = normalizeValue(vals[s.key], s.key)
-			if (normalized !== undefined) {
-				obj[s.key] = vals[s.key]
+			for (const key of [s.key, ...(s.companionKeys ?? [])]) {
+				if (normalizeValue(vals[key], key) !== undefined) {
+					obj[key] = vals[key]
+				}
 			}
 		}
 		if (category === 'Auth/OAuth/SAML') {
@@ -570,11 +572,16 @@
 		return dirtyCategories[category] ?? false
 	}
 
+	/** The global settings a field owns: its `key` and any companion keys it also writes. */
+	function settingKeys(s: Setting): string[] {
+		return [s.key, ...(s.companionKeys ?? [])]
+	}
+
 	export function discardCategory(category: string) {
 		const categorySettings = getSettingsForCategory(category)
-		for (const s of categorySettings) {
-			const v = initialValues[s.key]
-			$values[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
+		for (const key of categorySettings.flatMap(settingKeys)) {
+			const v = initialValues[key]
+			$values[key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 		}
 		if (category === 'Auth/OAuth/SAML') {
 			oauths = JSON.parse(JSON.stringify(initialOauths))
@@ -653,10 +660,18 @@
 				})
 		)
 
+		const companionKeys = categorySettings
+			.filter((x) => x.storage === 'setting')
+			.flatMap((x) => x.companionKeys ?? [])
+			.filter((key) => !deepEqual(initialValues?.[key], $values?.[key]))
+		for (const key of companionKeys) {
+			await SettingService.setGlobal({ key, requestBody: { value: $values?.[key] ?? null } })
+		}
+
 		// Update only the saved category's initial values
-		for (const s of categorySettings) {
-			const v = $values[s.key]
-			initialValues[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
+		for (const key of categorySettings.flatMap(settingKeys)) {
+			const v = $values[key]
+			initialValues[key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 		}
 		instanceSettingsSaved.update((n) => n + 1)
 		if (categorySettings.some((s) => s.key === 'base_url')) {
@@ -749,7 +764,20 @@
 		custom_instance_pg_databases: ['user_pwd'],
 		external_instance_pg: ['password'],
 		rsa_keys: ['private_key'],
-		github_enterprise_app: ['private_key']
+		github_enterprise_app: ['private_key'],
+		external_secrets: ['vault.token']
+	}
+
+	// A field may name one nested level, `parent.child`.
+	function getField(obj: any, field: string): any {
+		const [a, b] = field.split('.')
+		return b === undefined ? obj?.[a] : obj?.[a]?.[b]
+	}
+
+	function setField(obj: any, field: string, value: any) {
+		const [a, b] = field.split('.')
+		if (b === undefined) obj[a] = value
+		else if (obj[a] && typeof obj[a] === 'object') obj[a] = { ...obj[a], [b]: value }
 	}
 
 	/** Returns SENSITIVE_UNCHANGED if the value is non-empty and matches the initial */
@@ -777,10 +805,10 @@
 				const init = initialValues?.[key]
 				for (const field of nestedSensitiveFields[key]) {
 					const m = maskField(
-						field === 'serviceAccountKey' ? JSON.stringify(cp[field]) : cp[field],
-						field === 'serviceAccountKey' ? JSON.stringify(init?.[field]) : init?.[field]
+						field === 'serviceAccountKey' ? JSON.stringify(cp[field]) : getField(cp, field),
+						field === 'serviceAccountKey' ? JSON.stringify(init?.[field]) : getField(init, field)
 					)
-					if (m) cp[field] = m
+					if (m) setField(cp, field, m)
 				}
 				masked[key] = cp
 			} else if (sensitiveKeys.has(key) && value != null && value !== '') {
@@ -883,8 +911,8 @@
 				if (parsed[parentKey] && typeof parsed[parentKey] === 'object') {
 					const init = initialValues?.[parentKey]
 					for (const field of fields) {
-						if (parsed[parentKey][field] === SENSITIVE_UNCHANGED) {
-							parsed[parentKey][field] = init?.[field]
+						if (getField(parsed[parentKey], field) === SENSITIVE_UNCHANGED) {
+							setField(parsed[parentKey], field, getField(init, field))
 						}
 					}
 				}
@@ -1093,7 +1121,10 @@
 					<ul class="list-disc list-inside pl-2">
 						<li>Job counts and durations per language</li>
 						<li>Git sync repository counts</li>
-						<li>Feature usage and adoption counts, including AI model and public Hub names</li>
+						<li
+							>Feature usage and adoption counts, including AI model, web search provider and public
+							Hub names</li
+						>
 						<li>Counts of workspaces, scripts, flows and apps</li>
 						<li>Database, runtime and object storage details</li>
 					</ul>
@@ -1129,7 +1160,10 @@
 						<li>Login types, user and seat counts</li>
 						<li>Worker count, vCPUs and memory</li>
 						<li>Development instance status</li>
-						<li>Feature usage and adoption counts, including AI model and public Hub names</li>
+						<li
+							>Feature usage and adoption counts, including AI model, web search provider and public
+							Hub names</li
+						>
 						<li>Counts of workspaces, scripts, flows and apps</li>
 					</ul>
 				</div>
@@ -1246,7 +1280,7 @@
 		<div class="flex-col flex gap-6 pb-6">
 			{#each settings[category] as setting}
 				<!-- slack connect is handled with the alert channels settings, smtp_connect is handled in InstanceSetting -->
-				{#if setting.fieldType != 'slack_connect' && !(quickSetup && setting.hideInQuickSetup) && !(quickSetup && category === 'Core' && setting.key === 'license_key')}
+				{#if setting.fieldType != 'slack_connect' && !(quickSetup && setting.hideInQuickSetup) && !(quickSetup && category === 'Core' && setting.key === 'license_key') && !(setting.key === 'mcp_external_idp' && authSubTab !== 'sso')}
 					<InstanceSetting
 						{openSmtpSettings}
 						on:closeDrawer={() => closeDrawer?.()}

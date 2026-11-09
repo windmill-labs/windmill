@@ -78,7 +78,7 @@
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
-	let base_endpoint = $derived(apiBaseUrl())
+	let base_endpoint = $derived(apiBaseUrl('push_triggers'))
 
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandler = $state(handlerDraftFromStored('error', undefined))

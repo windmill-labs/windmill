@@ -1160,3 +1160,136 @@ async fn test_set_password_revokes_mcp_oauth_grants(db: Pool<Postgres>) -> anyho
 
     Ok(())
 }
+
+/// Without automatic usernames, a username is only unique within a workspace, so renaming one
+/// account must leave the memberships of a like-named account elsewhere alone.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_keeps_other_workspaces_like_named_memberships(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        "INSERT INTO workspace (id, name, owner) VALUES ('other-workspace', 'other', 'test-user');
+         INSERT INTO usr (workspace_id, email, username, is_admin, role)
+             VALUES ('other-workspace', 'test3@windmill.dev', 'test-user-2', false, 'User');
+         INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES
+             ('test-workspace', 'ops', '', '{}'), ('other-workspace', 'finance', '', '{}');
+         INSERT INTO usr_to_group (workspace_id, group_, usr) VALUES
+             ('test-workspace', 'ops', 'test-user-2'),
+             ('other-workspace', 'finance', 'test-user-2');",
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/users/rename/test2@windmill.dev"
+    )))
+    .json(&json!({ "new_username": "alice" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "rename: {}", resp.text().await?);
+
+    let memberships: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT workspace_id, group_, usr FROM usr_to_group
+         WHERE group_ IN ('ops', 'finance') ORDER BY workspace_id",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        memberships,
+        vec![
+            (
+                "other-workspace".into(),
+                "finance".into(),
+                "test-user-2".into()
+            ),
+            ("test-workspace".into(), "ops".into(), "alice".into()),
+        ]
+    );
+
+    Ok(())
+}
+
+/// Renaming an account that holds a reserved job name keeps Windmill's jobs under that name:
+/// `SUPERADMIN_SECRET` runs keep both columns, visitor runs keep `created_by = anonymous`. The
+/// account's own `u/anonymous` principal, and every job of an audit-only name (`sso`), follow it.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_rename_from_reserved_name_keeps_system_jobs(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::raw_sql(
+        "UPDATE usr SET username = 'superadmin_secret' WHERE email = 'test3@windmill.dev';
+         UPDATE password SET username = 'superadmin_secret' WHERE email = 'test3@windmill.dev';
+         UPDATE usr SET username = 'sso' WHERE email = 'test2@windmill.dev';
+         UPDATE password SET username = 'sso' WHERE email = 'test2@windmill.dev';
+         INSERT INTO password (email, password_hash, login_type, verified, username)
+         VALUES ('test4@windmill.dev', 'not-a-real-hash', 'password', true, 'anonymous');
+         INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('test-workspace', 'test4@windmill.dev', 'anonymous', false, 'User');
+         INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, kind, tag, args)
+         VALUES (gen_random_uuid(), 'test-workspace', 'superadmin_secret', 'u/superadmin_secret', 'script', 'deno', '{}'::jsonb),
+                (gen_random_uuid(), 'test-workspace', 'sso', 'u/sso', 'script', 'deno', '{}'::jsonb),
+                (gen_random_uuid(), 'test-workspace', 'anonymous', 'u/test-user', 'script', 'deno', '{}'::jsonb),
+                (gen_random_uuid(), 'test-workspace', 'anonymous', 'u/anonymous', 'script', 'deno', '{}'::jsonb);",
+    )
+    .execute(&db)
+    .await?;
+
+    for (email, new_username) in [
+        ("test3@windmill.dev", "former_secret"),
+        ("test2@windmill.dev", "former_sso"),
+        ("test4@windmill.dev", "former_anonymous"),
+    ] {
+        let resp =
+            authed(client().post(format!("http://localhost:{port}/api/users/rename/{email}")))
+                .json(&json!({ "new_username": new_username }))
+                .send()
+                .await?;
+        assert_eq!(resp.status(), 200, "rename: {}", resp.text().await?);
+    }
+
+    let username: String =
+        sqlx::query_scalar("SELECT username FROM usr WHERE email = 'test3@windmill.dev'")
+            .fetch_one(&db)
+            .await?;
+    assert_eq!(username, "former_secret");
+    let jobs: Vec<(String, String)> = sqlx::query_as(
+        "SELECT created_by, permissioned_as FROM v2_job WHERE workspace_id = 'test-workspace'
+         ORDER BY created_by, permissioned_as",
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        jobs,
+        vec![
+            ("anonymous".to_string(), "u/former_anonymous".to_string()),
+            ("anonymous".to_string(), "u/test-user".to_string()),
+            ("former_sso".to_string(), "u/former_sso".to_string()),
+            (
+                "superadmin_secret".to_string(),
+                "u/superadmin_secret".to_string()
+            ),
+        ]
+    );
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_generated_username_skips_anonymous(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let mut tx = db.begin().await?;
+    let username = windmill_common::usernames::generate_instance_wide_unique_username(
+        &mut tx,
+        "anonymous@acme.com",
+    )
+    .await?;
+    assert_eq!(username, "anonymous2");
+    Ok(())
+}

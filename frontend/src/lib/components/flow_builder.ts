@@ -10,9 +10,9 @@ import type { WorkspaceItem } from './workspacePicker'
 
 export type FlowBuilderProps = {
 	initialPath?: string
-	/** The draft row's own path (the URL path). `initialPath` is re-seeded from the
-	 *  draft's `draft_path` so the topbar shows the pending name, so it can't be used
-	 *  to resolve what is actually deployed. */
+	/** The draft row's own path (the URL path). For a draft-only flow `initialPath` is
+	 *  re-seeded from the draft's `draft_path` so the topbar shows the pending name, so
+	 *  it can't be used to resolve what is actually deployed. */
 	userDraftPath?: string
 	/** Moves the draft's base to the head and keeps its content; offered in the diff
 	 *  drawer while the draft is behind, and called with the version the drawer shows
@@ -58,6 +58,8 @@ export type FlowBuilderProps = {
 	onDeploy?: ({ path }: { path: string }) => void
 	onDeployError?: ({ error }: { error: any }) => void
 	onDetails?: ({ path }: { path: string }) => void
+	/** Makes "Exit & see details" a link, so it opens in a new tab on middle/ctrl-click. Wins over `onDetails`. */
+	detailsHref?: (path: string) => string
 	onHistoryRestore?: () => void
 	onNavigate?: (item: WorkspaceItem) => void
 	// Threaded to the `AutosaveIndicator` popover so its "Reset to

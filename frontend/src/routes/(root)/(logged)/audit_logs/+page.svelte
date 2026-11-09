@@ -19,6 +19,7 @@
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
 	import AuditLogsTimeline from '$lib/components/auditLogs/AuditLogsTimeline.svelte'
 	import { useAuditLogsLoader } from '$lib/components/auditLogs/useAuditLogsLoader.svelte'
+	import { isUuid } from '$lib/utils/uuid'
 
 	let username: string = $state(page.url.searchParams.get('username') ?? 'all')
 	let before: string | undefined = $state(page.url.searchParams.get('before') ?? undefined)
@@ -26,6 +27,7 @@
 	let perPage: number | undefined = $state(Number(page.url.searchParams.get('perPage')) || 100)
 	let operation: string = $state(page.url.searchParams.get('operation') ?? 'all')
 	let resource: string | undefined = $state(page.url.searchParams.get('resource') ?? undefined)
+	let jobId: string | undefined = $state(page.url.searchParams.get('job_id') ?? undefined)
 	let scope: undefined | 'all_workspaces' | 'instance' = $state(
 		(page.url.searchParams.get('scope') ?? undefined) as undefined | 'all_workspaces' | 'instance'
 	)
@@ -40,6 +42,7 @@
 		username,
 		operation,
 		resource,
+		jobId: isUuid(jobId) ? jobId.trim() : undefined,
 		actionKind,
 		before,
 		after,
@@ -165,6 +168,7 @@
 						bind:actionKind
 						bind:operation
 						bind:resource
+						bind:jobId
 						bind:perPage
 						bind:scope
 						loading={auditLogsLoader.loading}
@@ -182,6 +186,7 @@
 								bind:actionKind
 								bind:operation
 								bind:resource
+								bind:jobId
 								bind:scope
 								loading={auditLogsLoader.loading}
 								onRefresh={() => auditLogsLoader.reload()}

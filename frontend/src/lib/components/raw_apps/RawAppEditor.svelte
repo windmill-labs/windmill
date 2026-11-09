@@ -28,9 +28,11 @@
 		type RawAppRunSummary,
 		type RawAppRunsProvider,
 		type RawAppScreenshotRequester,
+		type LayoutFlag,
 		RAW_APP_SANDBOX_FLAGS,
 		RAW_APP_PREVIEW_RELAY,
 		rawAppStorageKey,
+		rawAppCtx,
 		readRawAppStorage,
 		applyRawAppStorageOp
 	} from './utils'
@@ -42,16 +44,21 @@
 	import type { Modules } from './RawAppModules.svelte'
 	import { isRunnableByName, isRunnableByPath, type PathRunType } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import { onMount, onDestroy, untrack } from 'svelte'
+	import { getContext, onMount, onDestroy, untrack } from 'svelte'
 	import type {
 		AppDatatableMetadata,
 		LintResult,
 		InspectorElementInfo
 	} from '../copilot/chat/app/core'
-	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
+	import {
+		createAppDomSelectorElement,
+		createAppSelectedContext,
+		type AppCodeSelectionElement
+	} from '../copilot/chat/context'
 	import { captureScale, MAX_IMAGE_EDGE } from '../copilot/chat/imageUtils'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas, userStore } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import { appPreviewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
 	import RawAppSdkConsent from './RawAppSdkConsent.svelte'
@@ -77,6 +84,7 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
+	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import {
 		buildDataTableWhitelist,
 		parseDataTableRef,
@@ -84,7 +92,8 @@
 		isDatatableTableAllowed,
 		type RawAppData,
 		DEFAULT_DATA,
-		appDatatableRole
+		appDatatableRole,
+		extractDataConfig
 	} from './dataTableRefUtils'
 	import { datatableReference } from '../dbTypes'
 	import { randomSecret, randomUUID } from '$lib/utils/uuid'
@@ -134,14 +143,14 @@
 			headBy?: string
 			headAt?: string
 		}) => void
-		/** Initial collapsed state for the file/runnable sidebar. The user's
-		 * toggled preference is persisted under `sidebarStorageKey`; this prop
-		 * only seeds the very first open. */
-		defaultSidebarCollapsed?: boolean
-		/** localStorage key for the persisted sidebar state. Pass a different
-		 * key when the editor is rendered in a context that wants its own
-		 * preference. */
-		sidebarStorageKey?: string
+		/** Collapsed state of the file/runnable sidebar, for a context that keeps its
+		 * own preference; the editor follows it live when the caller swaps it and
+		 * never collapses it on a narrow open. Defaults to the full-page editor's
+		 * persisted preference. */
+		sidebarCollapsedState?: LayoutFlag
+		/** "Split with Preview" state, likewise owned by the caller and followed live.
+		 * Takes precedence over `defaultSplitWithPreview` and `compact`. */
+		splitWithPreviewState?: LayoutFlag
 		liveEditorDraftStoragePath?: string
 		/** Indicator-only overrides forwarded to RawAppEditorHeader so the
 		 *  sessions preview's AutosaveIndicator watches the session's
@@ -163,9 +172,15 @@
 		/** User-typed path when it differs from `savedApp.path`. The route injects
 		 *  it as `draft_path` so the home row shows the friendly name, not `draft_{uuid}`. */
 		pendingDraftPath?: string | undefined
+		/** The labels being edited, for the route's autosaved draft. */
+		pendingDraftSettings?: { labels: string[] } | undefined
 		// Threaded to the AutosaveIndicator's "Reset to deployed" button.
 		/** `Exit & see details`: see RawAppEditorHeader. */
 		onDetails?: (e: { path: string }) => void
+		/** See RawAppEditorHeader. */
+		detailsHref?: (path: string) => string
+		/** See RawAppEditorHeader. */
+		onOpenFork?: (path: string) => void
 		onResetToDeployed?: () => void | Promise<void>
 		/** The app_version the draft forked from, for the deploy-time "new version
 		 *  deployed" guard: deploying is refused with a confirmation while it is not
@@ -219,7 +234,7 @@
 		runnables = $bindable({}),
 		data = $bindable(DEFAULT_DATA),
 		newApp,
-		policy,
+		policy = $bindable(),
 		summary = $bindable(''),
 		path,
 		newPath = undefined,
@@ -228,15 +243,18 @@
 		diffDrawer = undefined,
 		onNavigate,
 		onDeploy = undefined,
-		defaultSidebarCollapsed = false,
-		sidebarStorageKey = 'raw-app-sidebar-collapsed',
+		sidebarCollapsedState = undefined,
+		splitWithPreviewState = undefined,
 		liveEditorDraftStoragePath = undefined,
 		autosaveWorkspace = undefined,
 		autosavePath = undefined,
 		defaultSplitWithPreview = true,
 		compact = false,
 		pendingDraftPath = $bindable(undefined),
+		pendingDraftSettings = $bindable(),
 		onDetails,
+		detailsHref,
+		onOpenFork,
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
@@ -478,6 +496,12 @@ addEventListener('message', function (e) {
 	}
 	let previewIframe: HTMLIFrameElement | undefined = $state(undefined)
 	let previewIframeLoaded = $state(false)
+	// The shell answers every build with `inspectorClear`, and the UI Builder
+	// rebuilds unchanged code (twice on load). Only a changed build can move what a
+	// chip points at, so the clears of the others are skipped: they would drop a
+	// chip handed in from the editor before it is sent.
+	let previewShellBuild: { css: string; js: string } | undefined = undefined
+	let previewClearsToSkip = 0
 	// Sandboxed only: the handshake's port, the one channel to the preview that
 	// can't reach a document app code navigated the frame to.
 	let previewPort: MessagePort | undefined = undefined
@@ -573,7 +597,17 @@ addEventListener('message', function (e) {
 	let activeTabId: string = $state(PREVIEW_TAB_ID)
 	// Seed from the prop, then own the state locally so the user's toggle
 	// after mount sticks even if the prop reference changes.
-	let splitWithPreview: boolean = $state(untrack(() => defaultSplitWithPreview && !compact))
+	let ownSplitWithPreview: boolean = $state(untrack(() => defaultSplitWithPreview && !compact))
+	const ownSplitState: LayoutFlag = {
+		get val() {
+			return ownSplitWithPreview
+		},
+		set val(v) {
+			ownSplitWithPreview = v
+		}
+	}
+	const splitState = $derived(splitWithPreviewState ?? ownSplitState)
+	const splitWithPreview = $derived(splitState.val)
 	const activeTabKind = $derived<'file' | 'runnable' | 'preview'>(
 		activeTabId === PREVIEW_TAB_ID
 			? 'preview'
@@ -800,21 +834,38 @@ addEventListener('message', function (e) {
 	}
 
 	function toggleSplit() {
-		if (splitWithPreview) {
-			splitWithPreview = false
+		splitState.val = !splitWithPreview
+	}
+
+	// Entering split, whether toggled or by the caller swapping `splitWithPreviewState`:
+	// Preview leaves the left bar, so give the left pane the last file/runnable tab,
+	// or the default file when none is open (this also boots the UI Builder iframe).
+	// A swap to an unsplit state lands on Preview, the single-pane view's default; a
+	// manual unsplit keeps the tab the user is on.
+	let lastSplitState = untrack(() => splitState)
+	$effect(() => {
+		const state = splitState
+		const split = splitWithPreview
+		const swapped = state !== lastSplitState
+		lastSplitState = state
+		if (!split) {
+			if (swapped) untrack(() => select({ kind: 'preview' }, { force: true }))
 			return
 		}
-		// single → split: if Preview is active, move focus to the last
-		// file/runnable tab (it's leaving the left bar).
-		if (activeTabId === PREVIEW_TAB_ID) {
+		untrack(() => {
+			if (activeTabId !== PREVIEW_TAB_ID) return
 			const lastUserTab = tabs
 				.slice()
 				.reverse()
 				.find((t) => t.id !== PREVIEW_TAB_ID)
-			if (lastUserTab) activateTab(lastUserTab.id)
-		}
-		splitWithPreview = true
-	}
+			if (lastUserTab) {
+				activateTab(lastUserTab.id)
+				return
+			}
+			const def = pickDefaultFile(files)
+			if (def) select({ kind: 'file', path: def })
+		})
+	})
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
 
 	// Sidebar: honor the user's `%` but never shrink below SIDEBAR_PX_MIN.
@@ -825,21 +876,15 @@ addEventListener('message', function (e) {
 	const sidebarMinPercent = $derived(paneMinPercent(splitContainerWidth, SIDEBAR_PX_MIN))
 	const sidebarPanelSize = $derived(Math.max(rawSidebarSize, sidebarMinPercent))
 
-	// Persisted across opens. Seeded with `defaultSidebarCollapsed` only when
-	// localStorage has no entry yet — callers (like the session preview pane)
-	// can default the initial state without overriding a user who has already
-	// expressed a preference.
-	const sidebarCollapsed = useLocalStorageValue(
-		sidebarStorageKey,
-		defaultSidebarCollapsed,
-		'boolean'
-	)
+	const ownSidebarCollapsed = useLocalStorageValue('raw-app-sidebar-collapsed', false, 'boolean')
+	const sidebarCollapsed = $derived(sidebarCollapsedState ?? ownSidebarCollapsed)
 
-	// Auto-compact when the editor opens in a narrow container (e.g. the session
-	// preview pane): drop to the merged single-pane view and retract the file
-	// sidebar. Applied once, on the first measured layout — later resizes are the
-	// user's call. The sidebar is set without persisting so a transient narrow
-	// open never overrides the user's saved expand/collapse preference.
+	// Auto-compact when the editor opens in a narrow container: drop to the merged
+	// single-pane view and retract the file sidebar. Applied once, on the first
+	// measured layout — later resizes are the user's call. The sidebar is set without
+	// persisting so a transient narrow open never overrides the saved preference.
+	// Caller-owned layout state is left alone: its owner already picks a default
+	// for the context it renders in.
 	let rootWidth = $state(0)
 	const NARROW_PX = 900
 	let appliedNarrowDefault = false
@@ -848,8 +893,8 @@ addEventListener('message', function (e) {
 		if (appliedNarrowDefault || w <= 0) return
 		appliedNarrowDefault = true
 		if (compact || w < NARROW_PX) {
-			splitWithPreview = false
-			sidebarCollapsed.setWithoutPersist(true)
+			if (!splitWithPreviewState) ownSplitWithPreview = false
+			if (!sidebarCollapsedState) ownSidebarCollapsed.setWithoutPersist(true)
 		}
 	})
 
@@ -872,7 +917,8 @@ addEventListener('message', function (e) {
 
 	/** Replaces `data` from outside the editor (history, YAML). The policy sync writes the policy
 	 * into `data`, so the policy takes the new values first or it puts the old ones straight back. */
-	function replaceData(next: RawAppData) {
+	function replaceData(replacement: RawAppData) {
+		const next = extractDataConfig({ data: replacement }) ?? { ...DEFAULT_DATA }
 		data = next
 		aiChatManager.datatableCreationPolicy = {
 			...aiChatManager.datatableCreationPolicy,
@@ -1544,7 +1590,7 @@ addEventListener('message', function (e) {
 		// Escape inside the preview exits inspect mode, and also dismisses a lingering
 		// green "selected" overlay after a pick (which auto-disables hover).
 		if (fromPreview && e.data.type === 'previewEscape') {
-			if (inspectorEnabled || inspectorElement || selectedDomSelectors.length > 0) {
+			if (inspectorEnabled || inspectorElement || previewSelectors.length > 0) {
 				disableInspector()
 			}
 			return
@@ -1581,15 +1627,28 @@ addEventListener('message', function (e) {
 			// picking (the chip list, not the harness, holds the selection). Shift
 			// held → add to the selection; a plain click replaces it.
 			if (onInspectorSelect) onInspectorSelect(inspectorElement, !!e.data.additive)
-			else inspectorEnabled = false
+			else {
+				inspectorEnabled = false
+				// The preview keeps picking until told to stop.
+				postToPreview({ type: 'inspectorDisable' })
+			}
 			return
 		}
 		if (fromPreview && e.data.type === 'inspectorDeselect') {
 			// User clicked × on a selected overlay in the preview — drop that chip.
 			if (typeof e.data.selector === 'string') onInspectorDeselect?.(e.data.selector)
+			if (!onInspectorSelect && e.data.selector === inspectorElement?.path) {
+				inspectorElement = undefined
+			}
 			return
 		}
 		if (fromPreview && e.data.type === 'inspectorClear') {
+			if (previewClearsToSkip > 0) {
+				previewClearsToSkip--
+				// The shell dropped its outlines along with the old DOM.
+				postToPreview({ type: 'inspectorSetSelection', selectors: [...previewSelectors] })
+				return
+			}
 			inspectorElement = undefined
 			// A rebuild invalidates the selection — clear all session chips.
 			onInspectorClearAll?.()
@@ -1851,6 +1910,13 @@ addEventListener('message', function (e) {
 		if (previewSdkPending || previewUserPending || !previewIframeLoaded) return
 		runtimeError = undefined
 		emptyRender = false
+		if (
+			!previewShellBuild ||
+			(previewShellBuild.css === build.css && previewShellBuild.js === build.js)
+		) {
+			previewClearsToSkip++
+		}
+		previewShellBuild = build
 		postToPreview({
 			type: 'preview',
 			css: build.css,
@@ -1861,20 +1927,22 @@ addEventListener('message', function (e) {
 		})
 	}
 
+	// In a session pane the page's query is the session's (`?session=…`), not the app's.
+	const inSessionPane = !!getContext('aiChatManager')
+
 	// The deployed app's `window.ctx`: the viewer's membership in the app's workspace.
 	function previewCtx() {
-		return $state.snapshot({ ctx: operatingUser.current, workspace: opWorkspace, path })
+		return rawAppCtx(
+			$state.snapshot(operatingUser.current),
+			opWorkspace,
+			path,
+			inSessionPane ? '' : window.location.search
+		)
 	}
 
-	// A build fed before the viewer is known keeps that viewer until the next one. Outside
-	// the navigation workspace the viewer is looked up; in it, `$userStore` still holds the
-	// previous workspace's membership right after a switch. A failed lookup also settles
-	// this: the app then runs with no viewer, as we don't know who it is.
-	const previewUserPending = $derived(
-		!!opWorkspace &&
-			(!operatingUser.resolved(opWorkspace) ||
-				(!!operatingUser.current && operatingUser.current.workspace_id !== opWorkspace))
-	)
+	// A build fed before the viewer is known keeps that viewer until the next one. A failed
+	// lookup also settles this: the app then runs with no viewer, as we don't know who it is.
+	const previewUserPending = $derived(!!opWorkspace && !operatingUser.resolved(opWorkspace))
 	$effect(() => {
 		if (previewUserPending) return
 		untrack(() => {
@@ -2106,18 +2174,52 @@ addEventListener('message', function (e) {
 		return { text }
 	}
 
-	// ---- Inline "prompt this element" mini-composer (session preview only) ----
+	// What the preview outlines as selected: the session's chips when a session
+	// drives the inspector, else this editor's single pick.
+	const previewSelectors = $derived.by(() =>
+		onInspectorSelect ? selectedDomSelectors : inspectorElement ? [inspectorElement.path] : []
+	)
+
+	// ---- Inline "prompt this element" mini-composer ----
 	// Anchored over the most-recently selected element in the live preview. It's a
 	// host overlay (position: fixed in the top document) computed from the element's
 	// rect inside the preview iframe, repositioned as the preview scrolls.
 	let inlinePromptDismissed = $state(false)
 	let inlinePromptPos = $state<{ x: number; y: number } | undefined>(undefined)
 	let inlinePromptLabel = $state('')
+	// Outside a session there is no chat to take the pick: the prompt opens a new session
+	// instead, carrying the element as its chip.
+	const inlinePrompt: ((selector: string, prompt: string) => void | Promise<boolean>) | undefined =
+		$derived(
+			onInlinePrompt ?? (!onInspectorSelect && sessionOpen ? sendPickToNewSession : undefined)
+		)
 	const inlinePromptSelector = $derived(
-		onInlinePrompt && selectedDomSelectors.length > 0
-			? selectedDomSelectors[selectedDomSelectors.length - 1]
+		inlinePrompt && previewSelectors.length > 0
+			? previewSelectors[previewSelectors.length - 1]
 			: undefined
 	)
+
+	async function sendPickToNewSession(selector: string, prompt: string) {
+		const el = inspectorElement
+		if (!sessionOpen || !el) return false
+		try {
+			await openSourceInSession(sessionOpen, {
+				seedPrompt: prompt,
+				autoSend: true,
+				seedDomElement: createAppDomSelectorElement({
+					selector,
+					appPath: sessionOpen.target.path,
+					tagName: el.tagName,
+					id: el.id,
+					className: el.className
+				})
+			})
+			return true
+		} catch (e) {
+			sendUserToast(e instanceof Error ? e.message : String(e), true)
+			return false
+		}
+	}
 
 	function shortElementLabel(el: { tagName: string; id: string; className: string }): string {
 		const tag = el.tagName.toLowerCase()
@@ -2181,7 +2283,7 @@ addEventListener('message', function (e) {
 		// overlay pinned as the host scrolls/resizes. The preview's own scrolls arrive
 		// as `previewScroll` messages.
 		inlinePromptSelector
-		selectedDomSelectors
+		previewSelectors
 		previewIframeLoaded
 		inlinePromptDismissed
 		updateInlinePromptPos()
@@ -2299,6 +2401,8 @@ addEventListener('message', function (e) {
 	})
 	function onPreviewShellReady() {
 		previewIframeLoaded = true
+		previewShellBuild = undefined
+		previewClearsToSkip = 0
 		// Replay the last build so the preview repopulates without
 		// waiting for the user to trigger another bundle.
 		if (lastBuild) {
@@ -2342,7 +2446,7 @@ addEventListener('message', function (e) {
 		// Push the chat's DOM-selector chips into the preview (source of truth):
 		// the harness renders one highlight per selector. Re-posts on every
 		// selection change and on preview (re)load.
-		const selectors = selectedDomSelectors
+		const selectors = previewSelectors
 		if (previewIframeLoaded) {
 			postToPreview({ type: 'inspectorSetSelection', selectors: [...selectors] })
 		}
@@ -2393,20 +2497,6 @@ addEventListener('message', function (e) {
 			}
 			prevSelectedRunnable = selectedRunnable
 			prevSelectedDocument = selectedDocument
-		}
-	})
-
-	// Open a default file on mount (boots the iframe in split mode and gives
-	// the user something to edit on the left). When the caller seeded
-	// `defaultSplitWithPreview=false` we instead want the Preview tab as the
-	// only-visible / active surface, so skip the file-tab activation — the
-	// iframe still boots via `populateFiles`/`setFilesInIframe` even without
-	// a selected document.
-	onMount(() => {
-		if (!splitWithPreview) return
-		if (tabs.length === 1) {
-			const def = pickDefaultFile(files)
-			if (def) select({ kind: 'file', path: def })
 		}
 	})
 
@@ -2491,7 +2581,7 @@ addEventListener('message', function (e) {
 		// selection (highlights + the inline prompt), so a chip-only selection
 		// (picking already toggled off) must still be dismissable. Bail only
 		// when there is genuinely nothing to dismiss.
-		if (!inspectorEnabled && !inspectorElement && selectedDomSelectors.length === 0) return
+		if (!inspectorEnabled && !inspectorElement && previewSelectors.length === 0) return
 		inspectorEnabled = false
 		// `inspectorDisable` only stops hover/click; the green "selected"
 		// overlay from a prior pick persists until we explicitly clear it.
@@ -2514,7 +2604,7 @@ addEventListener('message', function (e) {
 		const onEscapeCapture = (e: KeyboardEvent) => {
 			if (
 				e.key === 'Escape' &&
-				(inspectorEnabled || inspectorElement || selectedDomSelectors.length > 0)
+				(inspectorEnabled || inspectorElement || previewSelectors.length > 0)
 			) {
 				disableInspector()
 				e.stopImmediatePropagation()
@@ -2627,6 +2717,7 @@ addEventListener('message', function (e) {
 		bind:savedApp
 		bind:summary
 		bind:pendingDraftPath
+		bind:pendingDraftSettings
 		{version}
 		{onTakeLatest}
 		{draftBaseVersion}
@@ -2637,7 +2728,7 @@ addEventListener('message', function (e) {
 			}
 			onSavedNewAppPath?.(newAppPath)
 		}}
-		{policy}
+		bind:policy
 		{diffDrawer}
 		{newApp}
 		{newPath}
@@ -2654,6 +2745,8 @@ addEventListener('message', function (e) {
 		{onNavigate}
 		{onDeploy}
 		{onDetails}
+		{detailsHref}
+		{onOpenFork}
 		{onResetToDeployed}
 		{loadedFromDraft}
 		{othersDraftsCount}
@@ -2873,28 +2966,30 @@ addEventListener('message', function (e) {
 													{bundlerType}
 												</Button>
 											{/if}
-											<Button
-												variant="subtle"
-												unifiedSize="sm"
-												iconOnly
-												startIcon={{ icon: MousePointerSquareDashed }}
-												selected={inspectorEnabled}
-												title={inspectorEnabled
-													? 'Click to disable element inspector'
-													: 'Click to enable element inspector'}
-												aria-label="Toggle element inspector"
-												aria-pressed={inspectorEnabled}
-												onClick={() => {
-													if (inspectorEnabled) {
-														// Turning off is a full exit: stop picking and clear the
-														// selection + inline prompt (mirrors Escape).
-														disableInspector()
-													} else {
-														inspectorEnabled = true
-														postToPreview({ type: 'inspectorEnable' })
-													}
-												}}
-											/>
+											{#if !$copilotInfo.workspaceDisabled}
+												<Button
+													variant="subtle"
+													unifiedSize="sm"
+													iconOnly
+													startIcon={{ icon: MousePointerSquareDashed }}
+													selected={inspectorEnabled}
+													title={inspectorEnabled
+														? 'Click to disable element inspector'
+														: 'Click to enable element inspector'}
+													aria-label="Toggle element inspector"
+													aria-pressed={inspectorEnabled}
+													onClick={() => {
+														if (inspectorEnabled) {
+															// Turning off is a full exit: stop picking and clear the
+															// selection + inline prompt (mirrors Escape).
+															disableInspector()
+														} else {
+															inspectorEnabled = true
+															postToPreview({ type: 'inspectorEnable' })
+														}
+													}}
+												/>
+											{/if}
 											<Button
 												variant="subtle"
 												unifiedSize="sm"
@@ -3054,7 +3149,7 @@ addEventListener('message', function (e) {
 	</div>
 </div>
 
-{#if inlinePromptPos && inlinePromptSelector && onInlinePrompt}
+{#if inlinePromptPos && inlinePromptSelector && inlinePrompt}
 	<!-- Key on the selector so selecting a different element remounts the input
 	     (fresh value + autofocus); repositioning on scroll keeps the same key so
 	     it never steals focus mid-scroll. -->
@@ -3063,8 +3158,9 @@ addEventListener('message', function (e) {
 			x={inlinePromptPos.x}
 			y={inlinePromptPos.y}
 			label={inlinePromptLabel}
-			onSend={(prompt) => {
-				onInlinePrompt?.(inlinePromptSelector!, prompt)
+			inNewSession={!onInlinePrompt}
+			onSend={async (prompt) => {
+				if ((await inlinePrompt?.(inlinePromptSelector!, prompt)) === false) return false
 				inlinePromptDismissed = true
 			}}
 			onClose={() => (inlinePromptDismissed = true)}

@@ -67,8 +67,12 @@ value:
 ## AI Agent Modules
 
 An `aiagent` module runs an LLM that can call tools. Each entry of `value.tools` is a module-shaped
-object with an extra `value.tool_type`: `flowmodule` for a script/flow tool, `mcp` for an MCP server
-tool, `websearch` for web search.
+object with an extra `value.tool_type`: `flowmodule` for a script or inline script tool (or a nested
+agent or AI decision), `mcp` for an MCP server tool, `websearch` for web search, `question` for a
+built-in `ask_question` tool (the agent stops, without holding a worker, until someone answers from
+the run page or the chat; optional `value.timeout` in seconds, default 1800). Set
+`requires_approval: true` on a `flowmodule` or `mcp` tool to have a person approve or reject each of
+its calls before it runs.
 
 ```json
 {
@@ -95,7 +99,7 @@ tool, `websearch` for web search.
           "type": "rawscript",
           "language": "bun",
           "content": "export async function main(query: string) { return ['doc1', 'doc2']; }",
-          "input_transforms": { "query": { "type": "static", "value": "" } }
+          "input_transforms": { "query": { "type": "ai" } }
         }
       }
     ]
@@ -103,6 +107,11 @@ tool, `websearch` for web search.
 }
 ```
 
+- A flow cannot be a tool: a run offered one fails with `Unsupported tool`. Wrap it in a script
+  that runs the flow
+- Each argument of a tool is either the model's or fixed. `{ "type": "ai" }` (or no value) lets the
+  model fill it; a static value, an empty string included, fixes it and hides it from the model. Fix
+  what the model must not choose, such as a resource, a table name or a limit
 - `provider` is an object, not a bare resource string: `{ "kind": <provider kind>,
   "resource": "$res:<path>", "model": <model id> }`. Required unless the module links to a saved
   agent through `value.agent`. Static is right for a flow run from a form; a chat flow wires its
@@ -164,9 +173,9 @@ needs becomes unreachable.
 
 ### Tool Naming Rules
 
-These rules cover `flowmodule` tools, the ones the agent calls by name. A `websearch` tool's
-`summary` is a plain label (`Web Search`), and an `mcp` tool exposes the MCP server's own tool
-names, so neither is name-checked at all — leave those summaries as they are.
+These rules cover `flowmodule` tools, the ones the agent calls by name. A `websearch` or `question`
+tool's `summary` is a plain label (`Web Search`), and an `mcp` tool exposes the MCP
+server's own tool names, so none is name-checked at all — leave those summaries as they are.
 
 - A flowmodule tool's `summary` is the **name the agent calls it by**, not a human label. Put the
   human-readable explanation in `description`
@@ -294,7 +303,7 @@ can call one, not an agent used as a tool.
 - `flow_input.iter.value` - Current iteration value inside a `forloopflow`; in a `whileloopflow` it is just the iteration index (a plain number, same as `flow_input.iter.index`)
 - `flow_input.iter.index` - Current loop index when inside a loop (`forloopflow` or `whileloopflow`)
 - After a suspend step (approval), the next step's javascript expressions also get:
-  - `resume` - the last resume payload (the resume form values); with `continue_on_disapprove_timeout`, a disapproval or timeout yields `{ error: { name: "SuspendedDisapproved" | "SuspendedTimedOut", message } }` instead
+  - `resume` - the last resume payload (the resume form values); with `continue_on_disapprove_timeout`, a disapproval or timeout yields `{ error: { name: "SuspendedDisapproved" | "SuspendedTimedOut", message } }` instead, plus `reason` on a disapproval whose approver gave one
   - `resumes` - every resume payload, in arrival order
   - `approvers` - a plain array of strings, one per resume: for a resume through the `resume`/`cancel` URL from `getResumeUrls(approver)`, the `approver` passed there if any; otherwise (including the `approvalPage` link) the resuming user's username, else `"anonymous"`, e.g. `approvers[0]`. It is NOT the `{ resume_id, approver }` objects stored in the flow status, so `approvers[0].approver` is always undefined
 
@@ -307,6 +316,7 @@ can call one, not an agent used as a tool.
 - `stop_after_if` is evaluated after each iteration: on the loop module, `result` is that iteration's result (what its last step returned); on an inner step, it is that step's result
 - `flow_input.iter.value` in a `whileloopflow` is just the iteration index (same number as `flow_input.iter.index`) — it never carries state, so `flow_input.iter.value.<field>` is always undefined and a loop whose stop condition depends on it never terminates
 - To carry state across iterations, a step reads its own previous-iteration result via `results.<its_own_id>` with a first-iteration fallback (e.g. `results.b ?? flow_input.start`) — but then the loop's `stop_after_if` MUST sit on that inner step, not on the loop module: a body that is exactly one plain step with the stop condition on the loop module runs on a fast path where `results.<step_id>` is null on every iteration and the loop never terminates (bodies with 2+ steps, or whose single step has its own `stop_after_if`, retry or similar, resolve `results` across iterations regardless of stop placement)
+- To cap a `whileloopflow`, set `max_iterations` and/or `max_duration_secs` (seconds since the first iteration started) on the loop's `value`, rather than encoding the bound into `stop_after_if`. Both are checked after each iteration, so a running iteration is never interrupted and the loop can exceed `max_duration_secs` by at most one iteration (bound an iteration with its steps' `timeout`); whichever is reached first, unless `stop_after_if` stopped the loop at that iteration, fails the loop with `{ error: { name: "LoopExhausted", message } }`. To handle it, set `continue_on_error: true` on the loop and branch in the next step on `results.<loop_id>.error?.name === "LoopExhausted"` (only the step right after the loop sees the error there; later steps see the iterations' results); retries and the failure module apply as for any step failure. For a pause between iterations, set `sleep` on the body's step
 - For state that is just a counter, derive it from the index instead (e.g. `flow_input.iter.index + 1`) — that works in every configuration, including with `stop_after_if` on the loop module
 - If the user asks for a final scalar/object after a loop, add a normal step after the loop that extracts the final value from the loop result instead of returning the whole loop result array
 

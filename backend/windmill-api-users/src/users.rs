@@ -772,7 +772,8 @@ async fn whoami(
     authed: ApiAuthed,
 ) -> JsonResult<UserInfo> {
     let is_guest = windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref());
-    let ApiAuthed { username, email, is_admin, is_operator, groups, folders, .. } = authed;
+    let ApiAuthed { username, email, is_admin, is_operator, groups, folders, mcp_client, .. } =
+        authed;
     // A guest would otherwise fall through to the non-member branch below and be
     // handed a `superadmin` role. Answer it here, as the operator-shaped identity it is.
     if is_guest {
@@ -804,10 +805,23 @@ async fn whoami(
         // The frontend gates pages on `operator`, so it reports what `caller_capabilities`
         // decides rather than the raw column: an admin (or superadmin) whose row still carries
         // `operator` holds everything.
-        Ok(Json(UserInfo {
-            operator: is_operator && !is_admin,
-            ..user
-        }))
+        let user = UserInfo { operator: is_operator && !is_admin, ..user };
+        // An external MCP token brings its own groups, which the request and the jobs it starts
+        // act with, so report those rather than the stored memberships.
+        if mcp_client.is_some() {
+            return Ok(Json(UserInfo {
+                groups,
+                folders_read: folders.iter().map(|x| x.0.clone()).collect(),
+                folders_owners: folders
+                    .iter()
+                    .filter(|x| x.2)
+                    .map(|x| x.0.clone())
+                    .collect(),
+                folders: folders.into_iter().filter(|x| x.1).map(|x| x.0).collect(),
+                ..user
+            }));
+        }
+        Ok(Json(user))
     } else {
         Ok(Json(UserInfo {
             workspace_id: w_id,
@@ -956,7 +970,7 @@ pub struct User2 {
 async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo>> {
     let user = sqlx::query_as!(
         User2,
-        "SELECT usr.*, COALESCE(password.super_admin, false) as \"super_admin!\", password.name FROM usr LEFT JOIN password ON usr.email = password.email Where usr.username = $1 AND workspace_id = $2
+        "SELECT usr.workspace_id, usr.email, usr.username, usr.is_admin, usr.created_at, usr.operator, usr.disabled, usr.role, usr.added_via, usr.is_service_account, usr.workspace_role, COALESCE(password.super_admin, false) as \"super_admin!\", password.name FROM usr LEFT JOIN password ON usr.email = password.email Where usr.username = $1 AND workspace_id = $2
         ",
         username,
         w_id
@@ -1098,8 +1112,6 @@ async fn decline_invite(
         )))
     }
 }
-
-pub use windmill_common::usernames::VALID_USERNAME;
 
 async fn accept_invite(
     authed: ApiAuthed,
@@ -1244,11 +1256,7 @@ async fn join_workspace<'c>(
             )));
         }
 
-        if !VALID_USERNAME.is_match(&username) {
-            return Err(windmill_common::error::Error::BadRequest(format!(
-                "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
-            )));
-        }
+        windmill_common::usernames::validate_username(&username)?;
         username.to_string()
     };
 
@@ -1582,7 +1590,8 @@ async fn update_user(
         .await?;
         // Update super_admin flag on non-session tokens (webhooks, API tokens, etc.)
         sqlx::query!(
-            "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'",
+            "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'
+                 AND (NOT $1 OR NOT EXISTS (SELECT 1 FROM unnest(scopes) s WHERE s LIKE 'mcp:%'))",
             sa,
             &email_to_update
         )
@@ -1647,7 +1656,8 @@ async fn update_user(
                     .execute(&mut *tx)
                     .await?;
                     sqlx::query!(
-                        "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'",
+                        "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'
+                 AND (NOT $1 OR NOT EXISTS (SELECT 1 FROM unnest(scopes) s WHERE s LIKE 'mcp:%'))",
                         sa,
                         &email_to_update
                     )
@@ -1748,9 +1758,13 @@ async fn delete_user(
             .execute(&mut *tx)
             .await?;
 
-        sqlx::query!("DELETE FROM usr_to_group WHERE usr = $1", &username)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query!(
+            "DELETE FROM usr_to_group WHERE usr = $1 AND workspace_id = $2",
+            &username,
+            &row.workspace_id
+        )
+        .execute(&mut *tx)
+        .await?;
 
         sqlx::query!(
             "DELETE FROM workspace_invite WHERE email = $1",
@@ -3283,6 +3297,17 @@ async fn create_token(
     }
 
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
+    // Mirrors the MCP OAuth approve: a scoped token cannot mint superadmin access it may lack.
+    if token_config.super_admin == Some(true)
+        && authed
+            .scopes
+            .as_deref()
+            .is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")))
+    {
+        return Err(Error::NotAuthorized(
+            "Only an unscoped token can grant superadmin access".to_string(),
+        ));
+    }
 
     token_config.expiration = cap_token_expiration(
         &db,

@@ -31,7 +31,7 @@
 		editMode?: boolean
 		action?: 'added' | 'removed' | 'modified' | 'shadowed' | undefined
 		icon?: import('svelte').Snippet
-		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown; preview_only?: boolean }) => void
 		onEditInput?: (moduleId: string, key: string) => void
 		onTestFlow?: () => void
 		isRunning?: boolean

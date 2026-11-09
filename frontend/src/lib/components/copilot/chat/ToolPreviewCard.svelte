@@ -5,9 +5,10 @@
 	import type { IconType } from '$lib/utils'
 	import { runToolDisplayAction } from './createdResourceActions.svelte'
 	import { openItemPreviewAction, type PreviewCardKind } from './shared'
+	import { isNewTabClick } from '$lib/navigation'
 
 	interface Props {
-		card: { kind: PreviewCardKind; path: string }
+		card: { kind: PreviewCardKind | 'agent'; path: string }
 		/** Opens something other than the item's own preview — the run card opens the call
 		 * it owns, which is a form before it is a run. */
 		onOpen?: () => void
@@ -19,9 +20,12 @@
 		 * tabs use. Defaults to the editor: a card sits on a write-tool result, and the
 		 * draft it just wrote is what the reader is being offered. */
 		mode?: 'edit' | 'view'
+		/** The page the chip opens, when it is one: middle and ⌘/Ctrl-click then open it in a new
+		 * tab, while a plain click still opens it where `onOpen` puts it. */
+		href?: string
 	}
 
-	let { card, onOpen, title, kindIcon = true, mode = 'edit' }: Props = $props()
+	let { card, onOpen, title, kindIcon = true, mode = 'edit', href }: Props = $props()
 
 	const kindLabel = $derived(card.kind === 'raw_app' ? 'app' : card.kind)
 
@@ -34,7 +38,18 @@
 		}
 		opening = true
 		try {
-			await runToolDisplayAction(openItemPreviewAction(card.kind, card.path, mode))
+			// An agent is not a live editor the panel hosts: its editor opens as a page tab.
+			await runToolDisplayAction(
+				card.kind === 'agent'
+					? {
+							id: `open-agent:${card.path}`,
+							type: 'open_created_resource',
+							label: 'Open agent',
+							resource: 'agent',
+							path: card.path
+						}
+					: openItemPreviewAction(card.kind, card.path, mode)
+			)
 		} finally {
 			opening = false
 		}
@@ -49,7 +64,14 @@
 		(mode === 'view'
 			? `Open the deployed ${kindLabel}: ${card.path}`
 			: `Open ${kindLabel} preview: ${card.path}`)}
-	onClick={open}
+	{href}
+	onClick={(e) => {
+		if (href) {
+			if (e instanceof MouseEvent && isNewTabClick(e)) return
+			e?.preventDefault()
+		}
+		open()
+	}}
 	startIcon={kindIcon
 		? { icon: RowIcon as unknown as IconType, props: { kind: card.kind, size: 12 } }
 		: undefined}

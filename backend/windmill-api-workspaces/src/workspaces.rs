@@ -12,8 +12,9 @@ use windmill_api_auth::{
 };
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
+use windmill_common::runnable_ref::RunnableRef;
 use windmill_common::ssrf::{validate_webhook_url, webhook_ssrf_error_message};
-use windmill_common::usernames::{get_instance_username_or_create_pending, VALID_USERNAME};
+use windmill_common::usernames::{get_instance_username_or_create_pending, validate_username};
 use windmill_common::webhook::WebhookShared;
 use windmill_common::{BASE_URL, DB};
 use windmill_dep_map::lock_hash::record_lock_hashes_for_workspace;
@@ -29,7 +30,7 @@ use regex::Regex;
 
 use hex;
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use strum::IntoEnumIterator;
 use uuid::Uuid;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
@@ -77,7 +78,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::secret_backend::{
-    get_secret_backend, is_external_stored_value, is_vault_backend_configured,
+    get_secret_backend, is_external_ref_value, is_external_stored_value,
+    is_vault_backend_configured,
 };
 use windmill_common::utils::not_found_if_none;
 
@@ -128,6 +130,10 @@ pub fn workspaced_service() -> Router {
         .route("/edit_error_handler", post(edit_error_handler))
         .route("/edit_success_handler", post(edit_success_handler))
         .route(
+            "/edit_variable_expiration_handler",
+            post(edit_variable_expiration_handler),
+        )
+        .route(
             "/edit_large_file_storage_config",
             post(edit_large_file_storage_config),
         )
@@ -159,7 +165,6 @@ pub fn workspaced_service() -> Router {
         )
         .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
-        .route("/edit_guest_access", post(edit_guest_access))
         .route(
             "/edit_add_admins_and_developers_to_forks",
             post(edit_add_admins_and_developers_to_forks),
@@ -308,6 +313,8 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub webhook_events: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_config: Option<serde_json::Value>,
     /// Pointers to the resources dbt scripts run against by default.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -342,15 +349,14 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub success_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub variable_expiration_handler: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
     pub error_handler_fallback_to_instance_alerts: bool,
-    /// Whether this workspace admits guest sessions (`ExecutionMode::Guest`). An app's
-    /// own `execution_mode: guest` is inert while this is off.
-    pub guest_access_enabled: bool,
     /// The key a guest JWT is verified against: a PEM public key, or a JWKS URL, at most
     /// one (a DB CHECK enforces it). Public material, not a secret, so it is admin-
     /// readable here. `None`/`None` falls back to the instance issuer (`JWT_EXT_JWKS_URL`)
-    /// off cloud, or accepts no JWT guest if none is set; `guest_access_enabled` is the switch.
+    /// off cloud, or accepts no JWT guest if none is set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub guest_jwt_public_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -378,9 +384,6 @@ pub struct WorkspacePublicSettings {
     pub teams_team_guid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mute_critical_alerts: Option<bool>,
-    /// Not sensitive, and the app editor needs it to say whether the guest rung is
-    /// live -- an app can be set to `guest` while the workspace has guests off.
-    pub guest_access_enabled: bool,
     /// Read by the fork dialog, which tells the forker who else the fork will include.
     pub add_admins_and_developers_to_forks: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -458,6 +461,12 @@ pub struct EditAutoInvite {
 #[derive(Deserialize)]
 struct EditWebhook {
     webhook: Option<String>,
+    /// Absent keeps the stored filter; `null` sends every event type.
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
+    events: Option<Option<Vec<String>>>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -1147,6 +1156,8 @@ async fn reject_parent_only_git_sync_settings_on_fork<'a>(
             Some("Promotion mode")
         } else if r.fork_open_prs {
             Some("Opening PRs for fork deploys")
+        } else if r.ai_review_prs {
+            Some("Reviewing pull requests with AI")
         } else {
             None
         }
@@ -1187,6 +1198,7 @@ async fn get_settings(
             customer_id,
             plan,
             webhook,
+            webhook_events,
             ai_config,
             dbt_warehouses,
             large_file_storage,
@@ -1203,9 +1215,9 @@ async fn get_settings(
             auto_invite,
             error_handler,
             success_handler,
+            variable_expiration_handler,
             public_app_execution_limit_per_minute,
             error_handler_fallback_to_instance_alerts,
-            guest_access_enabled,
             guest_jwt_public_key,
             guest_jwt_jwks_url,
             add_admins_and_developers_to_forks
@@ -1249,7 +1261,6 @@ async fn get_public_settings(
             teams_team_name,
             teams_team_guid,
             mute_critical_alerts,
-            guest_access_enabled,
             add_admins_and_developers_to_forks,
             deploy_ui,
             large_file_storage,
@@ -1721,8 +1732,10 @@ async fn run_slack_message_test_job(
     Json(req): Json<RunSlackMessageTestJobRequest>,
 ) -> JsonResult<RunSlackMessageTestJobResponse> {
     // Runs as the error handler identity, handed the Slack bot token.
-    if !(windmill_queue::is_preset_handler_path(&req.hub_script_path)
-        && req.hub_script_path.ends_with("-slack"))
+    let handler = RunnableRef::from_path(&req.hub_script_path, false)?;
+    if !handler
+        .preset_handler()
+        .is_some_and(|p| p.ends_with("-slack"))
     {
         return Err(Error::BadRequest(
             "Only a preset Slack handler from the hub can be tested".to_string(),
@@ -1746,7 +1759,7 @@ async fn run_slack_message_test_job(
         Some("slack_message_test".to_string()),
         false,
         w_id.as_str(),
-        &format!("script/{}", req.hub_script_path.as_str()),
+        &handler,
         sqlx::types::Json(&fake_result),
         None,
         Some(Utc::now()),
@@ -2096,7 +2109,33 @@ async fn edit_webhook(
         })?;
     }
 
+    if let Some(Some(events)) = &ew.events {
+        if events.is_empty() {
+            return Err(Error::BadRequest(
+                "events must list at least one event type, or be null to send every event"
+                    .to_string(),
+            ));
+        }
+        let known = windmill_common::webhook::webhook_event_types();
+        if let Some(unknown) = events.iter().find(|e| !known.contains(&e.as_str())) {
+            return Err(Error::BadRequest(format!(
+                "Unknown webhook event type: {unknown}. Valid types are: {}",
+                known.join(", ")
+            )));
+        }
+    }
+
     let mut tx = db.begin().await?;
+
+    if let Some(events) = &ew.events {
+        sqlx::query!(
+            "UPDATE workspace_settings SET webhook_events = $1 WHERE workspace_id = $2",
+            events.as_deref(),
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     if let Some(webhook) = &ew.webhook {
         sqlx::query!(
@@ -2121,7 +2160,13 @@ async fn edit_webhook(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some([("webhook", &format!("{:?}", ew.webhook)[..])].into()),
+        Some(
+            [
+                ("webhook", &format!("{:?}", ew.webhook)[..]),
+                ("events", &format!("{:?}", ew.events)[..]),
+            ]
+            .into(),
+        ),
     )
     .await?;
     tx.commit().await?;
@@ -3359,6 +3404,22 @@ pub(crate) async fn resolve_pg_source_checked_with_kind(
 
     let pg: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+    // Checked here rather than at each caller: every source and target of a dump, restore or copy
+    // comes through this function, and `validate_dbname` only ever reaches a target. The check is
+    // deliberately the narrow one — see `validate_dbname_not_option_like`.
+    windmill_common::validate_dbname_not_option_like(&pg.dbname)?;
+    // A token mode authenticates as the API server's own cloud identity. An admin chose to back a
+    // data table with its resource; a `$res:` source only needs to be readable by the caller, so
+    // it must not borrow that identity at all.
+    if source.starts_with("$res:")
+        && windmill_common::PgAuthMode::of(&pg)? != windmill_common::PgAuthMode::Password
+    {
+        return Err(Error::BadRequest(
+            "IAM and Azure workload identity authentication are only available to data tables \
+             here, not to a resource source"
+                .to_string(),
+        ));
+    }
     Ok((pg, managed_kind))
 }
 
@@ -3448,21 +3509,34 @@ pub(crate) struct PgDumpOptions<'a> {
     pub(crate) no_acl: bool,
 }
 
-/// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
-/// Returns a DumpFile handle; the file is deleted when the handle is dropped.
-pub(crate) async fn pg_dump_database(
+/// The CLIs are handed the resource's password as is, so a token mode would reach the server as
+/// the literal sentinel. Minting the token for them is not supported.
+fn ensure_cli_password_auth(pg_db: &PgDatabase) -> Result<()> {
+    match windmill_common::PgAuthMode::of(pg_db)? {
+        windmill_common::PgAuthMode::Password => Ok(()),
+        _ => Err(Error::BadRequest(
+            "Copying, importing and exporting a database are not supported with IAM or Azure \
+             workload identity authentication"
+                .to_string(),
+        )),
+    }
+}
+
+/// A pg_dump invocation against `pg_db` writing to `dump_path`, carrying the connection settings
+/// the CLI reads from the environment. The returned file, when there is one, holds the root
+/// certificate the command points at and must outlive it.
+fn pg_dump_command(
     pg_db: &PgDatabase,
     opts: PgDumpOptions<'_>,
-) -> Result<DumpFile> {
-    let dump_file = DumpFile::new()?;
-
+    dump_path: &std::path::Path,
+) -> Result<(tokio::process::Command, Option<DumpFile>)> {
+    ensure_cli_password_auth(pg_db)?;
     let host = &pg_db.host;
     let port = pg_db.port.unwrap_or(5432).to_string();
     let user = pg_db.login_name();
-    let dbname = &pg_db.dbname;
 
     let mut cmd = tokio::process::Command::new("pg_dump");
-    cmd.arg("--format=plain").arg("--file").arg(&dump_file.path);
+    cmd.arg("--format=plain").arg("--file").arg(dump_path);
     if opts.schema_only {
         cmd.arg("--schema-only");
     }
@@ -3480,13 +3554,31 @@ pub(crate) async fn pg_dump_database(
         .arg("--port")
         .arg(&port)
         .arg("--username")
-        .arg(user)
-        .arg(dbname);
+        .arg(user);
+
+    // The name comes from a resource, so it never goes on the command line: as the positional
+    // argument a name starting with `-` is read as an option of pg_dump (`--file`,
+    // `--restrict-key`), and as `--dbname` a name holding `=` is expanded as a libpq connection
+    // string overriding the host, port and user set above. libpq takes the environment variable
+    // as a plain database name, neither parsed as an option nor expanded.
+    cmd.env("PGDATABASE", &pg_db.dbname);
 
     if let Some(ref password) = pg_db.password {
         cmd.env("PGPASSWORD", password);
     }
-    let _root_cert = apply_pg_tls_env(&mut cmd, pg_db)?;
+    let root_cert = apply_pg_tls_env(&mut cmd, pg_db)?;
+    Ok((cmd, root_cert))
+}
+
+/// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
+/// Returns a DumpFile handle; the file is deleted when the handle is dropped.
+pub(crate) async fn pg_dump_database(
+    pg_db: &PgDatabase,
+    opts: PgDumpOptions<'_>,
+) -> Result<DumpFile> {
+    let dump_file = DumpFile::new()?;
+
+    let (mut cmd, _root_cert) = pg_dump_command(pg_db, opts, &dump_file.path)?;
 
     let output = cmd
         .output()
@@ -3605,6 +3697,7 @@ async fn comment_out_unsupported_settings(
 /// A psql invocation against `pg_db`, carrying the connection settings the CLI reads
 /// from the environment.
 fn psql_command(pg_db: &PgDatabase) -> Result<(tokio::process::Command, Option<DumpFile>)> {
+    ensure_cli_password_auth(pg_db)?;
     let mut cmd = tokio::process::Command::new("psql");
     cmd.arg("--host")
         .arg(&pg_db.host)
@@ -3612,11 +3705,13 @@ fn psql_command(pg_db: &PgDatabase) -> Result<(tokio::process::Command, Option<D
         .arg(pg_db.port.unwrap_or(5432).to_string())
         .arg("--username")
         .arg(pg_db.login_name())
-        .arg("--dbname")
-        .arg(&pg_db.dbname)
         .arg("--no-psqlrc")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
+
+    // Not `--dbname`, which expands a name holding `=` as a libpq connection string overriding
+    // the host, port and user set above. See `pg_dump_command`.
+    cmd.env("PGDATABASE", &pg_db.dbname);
 
     if let Some(ref password) = pg_db.password {
         cmd.env("PGPASSWORD", password);
@@ -3705,6 +3800,97 @@ mod pg_tls_env_tests {
             root_cert_env("verify-ca").as_deref(),
             Some("system".as_ref())
         );
+    }
+}
+
+/// The database name of a resource reaches `pg_dump` and `psql` through `PGDATABASE`, never in
+/// their argument vector, so neither an option (`--file=`, `--restrict-key=`) nor a libpq
+/// connection string (`host=... port=...`) in that field is parsed as one.
+#[cfg(test)]
+mod pg_dbname_env_tests {
+    use super::{pg_dump_command, pg_dump_database, psql_command, DumpFile, PgDumpOptions};
+    use windmill_common::PgDatabase;
+
+    /// Nothing listens on that port.
+    fn pg_db(dbname: &str) -> PgDatabase {
+        PgDatabase {
+            host: "127.0.0.1".to_string(),
+            user: None,
+            password: None,
+            port: Some(1),
+            sslmode: None,
+            dbname: dbname.to_string(),
+            root_certificate_pem: None,
+            accept_invalid_certs: None,
+            use_iam_auth: None,
+            region: None,
+            options: None,
+        }
+    }
+
+    fn pgdatabase_of(cmd: &std::process::Command) -> Option<std::ffi::OsString> {
+        cmd.get_envs()
+            .find(|(k, _)| *k == "PGDATABASE")
+            .and_then(|(_, v)| v.map(|v| v.to_os_string()))
+    }
+
+    #[test]
+    fn pg_dump_takes_the_dbname_from_the_environment() {
+        let dump_file = DumpFile::new().unwrap();
+        let name = "--file=/tmp/written_by_the_caller";
+        let (cmd, _root_cert) =
+            pg_dump_command(&pg_db(name), PgDumpOptions::default(), &dump_file.path).unwrap();
+        let cmd = cmd.as_std();
+        assert!(
+            cmd.get_args().all(|arg| arg != name),
+            "the dbname is still in pg_dump's argument vector"
+        );
+        assert_eq!(pgdatabase_of(cmd).as_deref(), Some(name.as_ref()));
+        // The only `--file` pg_dump is given is still Windmill's own.
+        assert_eq!(
+            cmd.get_args()
+                .filter(|arg| arg.to_string_lossy().starts_with("--file"))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn psql_takes_the_dbname_from_the_environment() {
+        let name = "host=elsewhere";
+        let (cmd, _root_cert) = psql_command(&pg_db(name)).unwrap();
+        let cmd = cmd.as_std();
+        assert!(
+            cmd.get_args().all(|arg| arg != name),
+            "the dbname is still in psql's argument vector"
+        );
+        assert_eq!(pgdatabase_of(cmd).as_deref(), Some(name.as_ref()));
+    }
+
+    /// The same, observed on the real binary: an option-shaped name must reach the connection
+    /// attempt rather than pg_dump's option parser. Skipped where pg_dump is not installed —
+    /// which is why the assertion also requires that pg_dump ran at all (our `pg_dump failed:`
+    /// prefix) instead of only that the option message is absent.
+    #[tokio::test]
+    async fn pg_dump_does_not_read_an_option_shaped_dbname_as_an_option() {
+        if std::process::Command::new("pg_dump")
+            .arg("--version")
+            .output()
+            .is_err()
+        {
+            eprintln!("skipped: pg_dump is not installed");
+            return;
+        }
+        let Err(err) = pg_dump_database(&pg_db("--no-such-option"), PgDumpOptions::default()).await
+        else {
+            panic!("pg_dump reached a server on 127.0.0.1:1");
+        };
+        let err = err.to_string();
+        assert!(
+            err.contains("pg_dump failed:"),
+            "pg_dump did not run: {err}"
+        );
+        assert!(!err.contains("unrecognized option"), "{err}");
     }
 }
 
@@ -3939,6 +4125,9 @@ async fn create_pg_database(
     } else {
         let source_pg =
             resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
+        // The import that fills this database refuses a token-mode source, and would leave the
+        // database behind empty.
+        ensure_cli_password_auth(&source_pg)?;
         create_database_on_server(&db, &source_pg, &req.target_dbname).await?;
     }
 
@@ -4054,6 +4243,25 @@ fn ensure_copied_without_roles(governing: &GoverningDatatable) -> Result<()> {
     Ok(())
 }
 
+/// Gate for the endpoints that make the API server run `pg_dump`/`psql` against a database a
+/// request names.
+///
+/// Those two processes are children of the API server, outside any job sandbox and holding its
+/// environment, and the dump they exchange is a `psql` script assembled from strings the source
+/// server returns — so reaching them is close enough to running code on the server that the role
+/// which may not run code at all must not reach them either. `code` is the capability the data
+/// table migration endpoints next door already ask for (`datatable_migrations::ensure_not_operator`),
+/// and not admin: the database manager offers an export and an import of a user's own Postgres
+/// resource to every author, who can run the same `pg_dump` in a job anyway.
+async fn ensure_can_dump_databases(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    action: &str,
+) -> Result<()> {
+    windmill_common::workspaces::check_role_can_code(db, w_id, authed, action).await
+}
+
 /// Import (pg_dump/pg_import) from source to target
 async fn import_pg_database(
     authed: ApiAuthed,
@@ -4062,6 +4270,8 @@ async fn import_pg_database(
     Path(w_id): Path<String>,
     Json(req): Json<ImportPgDatabaseRequest>,
 ) -> Result<String> {
+    ensure_can_dump_databases(&db, &w_id, &authed, "import a database").await?;
+
     if req.fork_behavior == DataTableForkBehavior::KeepOriginal {
         return Ok("No action needed for KeepOriginal behavior".to_string());
     }
@@ -4178,6 +4388,8 @@ async fn export_pg_schema(
     Path(w_id): Path<String>,
     Json(req): Json<ExportPgSchemaRequest>,
 ) -> Result<String> {
+    ensure_can_dump_databases(&db, &w_id, &authed, "export a database schema").await?;
+
     let pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
     let dump_file = pg_dump_database(
         &pg,
@@ -5802,53 +6014,6 @@ async fn edit_default_app(
 }
 
 #[derive(Deserialize)]
-struct EditGuestAccess {
-    guest_access_enabled: bool,
-}
-
-/// Turn guest sessions on or off for this workspace. Off by default, and off is
-/// authoritative and immediate: the switch is re-read where a guest session is
-/// minted (`guest_app_admits`) and at the auth door on every guest request, so an app
-/// whose policy already says `guest` — pushed by git-sync, say — closes to guests on
-/// the next request, sessions already issued included.
-async fn edit_guest_access(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Json(EditGuestAccess { guest_access_enabled }): Json<EditGuestAccess>,
-) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-    if guest_access_enabled {
-        windmill_common::workspaces::require_guest_support()?;
-    }
-
-    let mut tx = db.begin().await?;
-    sqlx::query!(
-        "UPDATE workspace_settings SET guest_access_enabled = $1 WHERE workspace_id = $2",
-        guest_access_enabled,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "workspaces.edit_guest_access",
-        ActionKind::Update,
-        &w_id,
-        Some(&guest_access_enabled.to_string()),
-        None,
-    )
-    .await?;
-    tx.commit().await?;
-
-    Ok(format!(
-        "Guest access set to {guest_access_enabled} for workspace {w_id}"
-    ))
-}
-
-#[derive(Deserialize)]
 struct EditAddAdminsAndDevelopersToForks {
     add_admins_and_developers_to_forks: bool,
 }
@@ -5893,13 +6058,13 @@ async fn edit_add_admins_and_developers_to_forks(
 struct EditGuestJwtKey {
     /// A PEM public key (RS or ES family), or a JWKS URL, at most one. Both empty clears the
     /// workspace key; verification then falls back to the instance issuer (`JWT_EXT_JWKS_URL`)
-    /// off cloud, or refuses the JWT if none is set. The off-switch is `guest_access_enabled`.
+    /// off cloud, or refuses the JWT if none is set.
     public_key: Option<String>,
     jwks_url: Option<String>,
 }
 
 /// Configure the key a guest JWT (`jwt_guest_`) is verified against for this workspace.
-/// Workspace-admin gated, like the guest switch: guests are free up to the instance
+/// Workspace-admin gated: guests are free up to the instance
 /// allowance on any plan, so configuring their key needs no licence. The key is
 /// validated before it is stored so a typo is refused here, not silently on every guest
 /// later: a PEM must parse as an RS/ES public key (HS* has no PEM form and is
@@ -6253,6 +6418,155 @@ async fn edit_error_handler(
     Ok(format!("Edit error_handler for workspace {}", &w_id))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EditVariableExpirationHandler {
+    pub path: Option<String>,
+    pub extra_args: Option<serde_json::Value>,
+    #[serde(default)]
+    pub muted_on_user_path: bool,
+    pub notify_before_secs: Option<u32>,
+    pub remind_every_secs: Option<u32>,
+}
+
+async fn edit_variable_expiration_handler(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(es): Json<EditVariableExpirationHandler>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = db.begin().await?;
+
+    // Created with no access: an admin grants it write access to each variable it rotates.
+    sqlx::query_as!(
+        Group,
+        "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        w_id,
+        "variable_expiration_handler",
+        "The group the variable expiration handler acts on behalf of",
+        serde_json::json!({username_to_permissioned_as(&authed.username): true})
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    if let Some(path) = &es.path {
+        if es
+            .extra_args
+            .as_ref()
+            .is_some_and(|extra_args| !extra_args.is_object())
+        {
+            return Err(Error::BadRequest(
+                "Field `extra_args` expected to be JSON object".to_string(),
+            ));
+        }
+
+        // Any hub script is left unchecked, so saving never needs the hub. A hub flow is not
+        // exempt: it is looked up in the workspace like any flow, and so refused.
+        let handler = RunnableRef::from_prefixed(path)?;
+        let exists = if !handler.is_flow() {
+            handler.path().starts_with("hub/")
+                || sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2 AND archived = false AND deleted = false)",
+                    w_id,
+                    handler.path()
+                )
+                .fetch_one(&mut *tx)
+                .await?
+                .unwrap_or(false)
+        } else {
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2 AND archived = false)",
+                w_id,
+                handler.path()
+            )
+            .fetch_one(&mut *tx)
+            .await?
+            .unwrap_or(false)
+        };
+        if !exists {
+            return Err(Error::BadRequest(format!(
+                "Variable expiration handler '{path}' not found. The handler must be an existing, non-archived script or flow."
+            )));
+        }
+
+        // Persisted even when false, like `error_handler`'s.
+        let mut variable_expiration_handler = serde_json::json!({
+            "path": handler.prefixed(),
+            "muted_on_user_path": es.muted_on_user_path,
+        });
+        if let Some(extra_args) = &es.extra_args {
+            variable_expiration_handler["extra_args"] = extra_args.clone();
+        }
+        if let Some(notify_before_secs) = es.notify_before_secs {
+            variable_expiration_handler["notify_before_secs"] = notify_before_secs.into();
+        }
+        if let Some(remind_every_secs) = es.remind_every_secs {
+            variable_expiration_handler["remind_every_secs"] = remind_every_secs.into();
+        }
+
+        // A recorded failure is the sweep's: it ends at the handler's next start.
+        sqlx::query!(
+            "UPDATE workspace_settings SET variable_expiration_handler = $1 WHERE workspace_id = $2",
+            variable_expiration_handler,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE workspace_settings SET variable_expiration_handler = NULL WHERE workspace_id = $1",
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_variable_expiration_handler",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("variable_expiration_handler", &format!("{:?}", es.path)[..])].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Settings {
+            setting_type: "variable_expiration_handler".to_string(),
+        },
+        Some("Variable expiration handler configuration updated".to_string()),
+        false,
+        None,
+    )
+    .await?;
+
+    windmill_common::feature_usage::log_feature_usage(
+        "variable_expiration",
+        "handler_configured",
+        // By slug, not hub id, so a bumped hub version still counts as the built-in.
+        match es.path.as_deref() {
+            None => "cleared",
+            Some(p) if p.ends_with("/variable-expiration-handler-slack") => "slack",
+            Some(p) if p.ends_with("/variable-expiration-handler-teams") => "teams",
+            Some(_) => "custom",
+        },
+    );
+
+    Ok(format!(
+        "Edit variable_expiration_handler for workspace {}",
+        &w_id
+    ))
+}
+
 async fn edit_success_handler(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -6524,14 +6838,16 @@ async fn set_encryption_key(
         );
 
         let all_variables = sqlx::query!(
-            "SELECT path, value, is_secret FROM variable WHERE workspace_id = $1",
+            "SELECT path, value::text AS \"value!\", is_secret FROM variable WHERE workspace_id = $1",
             w_id
         )
         .fetch_all(&mut *tx)
         .await?;
 
         for variable in all_variables {
-            if !variable.is_secret {
+            if !variable.is_secret
+                || windmill_common::secret_backend::resolves_externally(&variable.value)
+            {
                 continue;
             }
             let decrypted_value =
@@ -6809,17 +7125,9 @@ async fn user_workspaces(
         };
         // The pre-roles shape the frontend gates on: present exactly for a restricted member.
         let operator_settings = (capabilities.is_restricted()).then(|| {
-            let v = &capabilities.visibility;
-            Some(serde_json::json!({
-                "runs": v.runs, "schedules": v.schedules, "resources": v.resources,
-                "variables": v.variables, "assets": v.assets, "triggers": v.triggers,
-                "audit_logs": v.audit_logs, "groups": v.groups, "folders": v.folders,
-                "workers": v.workers,
-                "builder_flows": capabilities.flows != windmill_common::roles::AuthorLevel::None,
-                "builder_apps": capabilities.apps != windmill_common::roles::AuthorLevel::None,
-                "manage_schedules": capabilities.manage_schedules,
-                "manage_triggers": capabilities.manage_triggers,
-            }))
+            Some(windmill_common::roles::legacy_operator_settings(
+                &capabilities,
+            ))
         });
         workspaces.push(UserWorkspace {
             id: r.id,
@@ -7207,8 +7515,11 @@ async fn create_workspace(
         }
         get_instance_username_or_create_pending(&mut tx, &authed.email).await?
     } else {
-        nw.username
-            .ok_or(Error::BadRequest("username is required".to_string()))?
+        let username = nw
+            .username
+            .ok_or(Error::BadRequest("username is required".to_string()))?;
+        validate_username(&username)?;
+        username
     };
 
     sqlx::query!(
@@ -7433,14 +7744,14 @@ async fn clone_triggers_and_schedules(
             extra_perms, server_id, last_server_ping, error, filters, initial_messages,
             url_runnable_args, can_return_message, error_handler_path, error_handler_args,
             retry, can_return_error_result, mode, permissioned_as, filter_logic, labels,
-            heartbeat
+            heartbeat, run_on_filter_error
         )
         SELECT
             path, url, script_path, is_flow, $1, edited_by, edited_at,
             extra_perms, NULL, NULL, NULL, filters, initial_messages,
             url_runnable_args, can_return_message, error_handler_path, error_handler_args,
             retry, can_return_error_result, 'disabled'::TRIGGER_MODE, permissioned_as, filter_logic, labels,
-            heartbeat
+            heartbeat, run_on_filter_error
         FROM websocket_trigger WHERE workspace_id = $2"#,
         target_workspace_id,
         source_workspace_id,
@@ -7454,14 +7765,14 @@ async fn clone_triggers_and_schedules(
             workspace_id, edited_by, edited_at, extra_perms, server_id,
             last_server_ping, error, error_handler_path, error_handler_args, retry,
             mode, filters, auto_offset_reset, reset_offset, auto_commit,
-            permissioned_as, filter_logic, labels
+            permissioned_as, filter_logic, labels, run_on_filter_error
         )
         SELECT
             path, kafka_resource_path, topics, group_id, script_path, is_flow,
             $1, edited_by, edited_at, extra_perms, NULL,
             NULL, NULL, error_handler_path, error_handler_args, retry,
             'disabled'::TRIGGER_MODE, filters, auto_offset_reset, reset_offset, auto_commit,
-            permissioned_as, filter_logic, labels
+            permissioned_as, filter_logic, labels, run_on_filter_error
         FROM kafka_trigger WHERE workspace_id = $2"#,
         target_workspace_id,
         source_workspace_id,
@@ -7693,7 +8004,7 @@ async fn update_workspace_settings(
         .filter(|r| !r.use_individual_branch.unwrap_or(false))
         .take(1)
         .map(|mut r| {
-            // Auto-pull and fork PRs are parent-owned and must not be inherited:
+            // Auto-pull, fork PRs and PR reviews are parent-owned and must not be inherited:
             // the fork would otherwise carry the parent's webhook id (turning off
             // auto-pull on the fork would delete the parent's webhook). A fork
             // still inherits the push-direction config, the installation, and the
@@ -7702,6 +8013,7 @@ async fn update_workspace_settings(
             // fork unqualified for managed features until its first check.
             r.auto_pull = None;
             r.fork_open_prs = false;
+            r.ai_review_prs = false;
             r.open_pr_error = None;
             r
         })
@@ -7789,34 +8101,48 @@ async fn clone_groups(
     Ok(())
 }
 
-/// Copy the source workspace's members (the `usr` rows, carrying each member's role) into the
-/// target so a fork/dev can be a shared environment. Idempotent — skips members the target already
-/// has. Group memberships are not handled here: the sole caller is the create-fork path, where
-/// `clone_groups` already copies the source's full group structure (including `all` membership).
-async fn copy_workspace_members(
+/// The role each of the parent's roles becomes in a fork of it, after the parent's ruleset
+/// mappings, with the `usr.operator` value that goes with it.
+struct ForkRoles {
+    from: Vec<String>,
+    to: Vec<String>,
+    to_operator: Vec<bool>,
+}
+
+impl ForkRoles {
+    fn maps(&self, role: &str) -> bool {
+        self.from
+            .iter()
+            .zip(&self.to)
+            .any(|(from, to)| from == role && from != to)
+    }
+}
+
+async fn fork_roles(db: &DB, parent_workspace_id: &str) -> Result<ForkRoles> {
+    let mapping = windmill_common::workspaces::fork_role_mapping(parent_workspace_id, db).await?;
+    let roles = windmill_common::roles::workspace_roles(db, parent_workspace_id).await?;
+    let mut out = ForkRoles { from: vec![], to: vec![], to_operator: vec![] };
+    for role in roles.iter() {
+        let to = mapping.get(&role.name).unwrap_or(&role.name);
+        let caps = roles
+            .iter()
+            .find(|r| &r.name == to)
+            .map(|r| r.capabilities)
+            .unwrap_or(windmill_common::roles::RoleCapabilities::NONE);
+        out.from.push(role.name.clone());
+        out.to.push(to.clone());
+        out.to_operator.push(!caps.code);
+    }
+    Ok(out)
+}
+
+/// Give the fork the parent's workspace-only roles and overrides, so a role carried into the fork
+/// means there what it means in the parent.
+async fn copy_workspace_roles(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    admins_and_developers_only: bool,
 ) -> Result<()> {
-    // Admins and developers join as manual members: the fork does not inherit the source's
-    // instance-group config, so a copied `instance_group` provenance would let the fork's
-    // reconciliation delete them and their data.
-    sqlx::query!(
-        "INSERT INTO usr (workspace_id, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via, workspace_role)
-         SELECT $1, username, email, is_admin, created_at, operator, disabled, role, is_service_account,
-                CASE WHEN $3 THEN NULL ELSE added_via END, workspace_role
-         FROM usr WHERE workspace_id = $2
-           AND (NOT $3 OR (NOT operator AND NOT disabled AND NOT is_service_account))
-         ON CONFLICT DO NOTHING",
-        target_workspace_id,
-        source_workspace_id,
-        admins_and_developers_only,
-    )
-    .execute(&mut **tx)
-    .await?;
-    // The members keep their roles, so the fork needs the source's workspace-only roles and
-    // overrides to give them the same meaning.
     sqlx::query!(
         "UPDATE workspace_settings SET role_overrides =
             (SELECT role_overrides FROM workspace_settings WHERE workspace_id = $2)
@@ -7836,6 +8162,50 @@ async fn copy_workspace_members(
     .execute(&mut **tx)
     .await?;
     windmill_common::roles::invalidate_workspace_roles_cache(target_workspace_id);
+    Ok(())
+}
+
+/// Copy the source workspace's members (the `usr` rows) into the target so a fork/dev can be a
+/// shared environment, each with its role after `roles`. Idempotent — skips members the target
+/// already has. `only_email` restricts the copy to one member. Group memberships are not handled
+/// here: the sole caller is the create-fork path, where `clone_groups` already copies the source's
+/// full group structure (including `all` membership).
+async fn copy_workspace_members(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    roles: &ForkRoles,
+    admins_and_developers_only: bool,
+    only_email: Option<&str>,
+) -> Result<()> {
+    // Admins and developers, and a lone member, join as manual members: the fork does not inherit
+    // the source's instance-group config, so a copied `instance_group` provenance would let the fork's
+    // reconciliation delete them and their data. The role is written by name even when unmapped:
+    // `operator` is recomputed from it, and a NULL role would then read as whatever that flag
+    // names. A role the parent no longer defines is carried as is, and resolves to no
+    // capabilities in the fork as it does in the parent.
+    sqlx::query!(
+        "WITH m AS (SELECT * FROM unnest($4::text[], $5::text[], $6::bool[]) AS m(from_role, to_role, to_operator))
+         INSERT INTO usr (workspace_id, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via, workspace_role)
+         SELECT $1, u.username, u.email, u.is_admin, u.created_at, COALESCE(m.to_operator, u.operator), u.disabled, u.role,
+                u.is_service_account, CASE WHEN $3 OR $7::text IS NOT NULL THEN NULL ELSE u.added_via END,
+                COALESCE(m.to_role, u.workspace_role)
+         FROM usr u
+         LEFT JOIN m ON m.from_role = COALESCE(u.workspace_role, CASE WHEN u.operator THEN 'operator' ELSE 'developer' END)
+         WHERE u.workspace_id = $2
+           AND ($7::text IS NULL OR u.email = $7)
+           AND (NOT $3 OR (NOT u.operator AND NOT u.disabled AND NOT u.is_service_account))
+         ON CONFLICT DO NOTHING",
+        target_workspace_id,
+        source_workspace_id,
+        admins_and_developers_only,
+        &roles.from,
+        &roles.to,
+        &roles.to_operator,
+        only_email,
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -7925,9 +8295,10 @@ async fn clone_variables(
     source_workspace_id: &str,
     target_workspace_id: &str,
 ) -> Result<()> {
+    // Dispatch markers are not copied, so the fork re-arms its own handler.
     sqlx::query!(
-        "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at)
-         SELECT $2, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_valid_until)
+         SELECT $2, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_valid_until
          FROM variable
          WHERE workspace_id = $1",
         source_workspace_id,
@@ -7941,6 +8312,13 @@ async fn clone_variables(
     // exist. Replicate every secret, not just marker-valued ones: migration writes
     // to the store without rewriting `value` to a `$...:` marker.
     if is_vault_backend_configured(db).await? {
+        let backend = get_secret_backend(db).await?;
+        // A read-only store is never written: the fork's references resolve under its own
+        // workspace id, and its database-encrypted secrets came with the rows above.
+        if backend.backend_name() == "http_store" {
+            return Ok(());
+        }
+
         let secret_variables = sqlx::query!(
             "SELECT path FROM variable
              WHERE workspace_id = $1 AND is_secret = true AND value != ''",
@@ -7949,7 +8327,6 @@ async fn clone_variables(
         .fetch_all(&mut **tx)
         .await?;
 
-        let backend = get_secret_backend(db).await?;
         for variable in secret_variables {
             match backend
                 .get_secret(source_workspace_id, &variable.path)
@@ -9007,6 +9384,32 @@ async fn clone_workspace_dependencies(
     Ok(())
 }
 
+/// Who may fork `w_id` at all: the instance switch, the caller's role, then the parent's rulesets.
+async fn enforce_fork_allowed(db: &DB, authed: &ApiAuthed, w_id: &str) -> Result<()> {
+    if *DISABLE_WORKSPACE_FORK {
+        require_super_admin(db, authed).await?;
+    }
+    if !windmill_common::roles::caller_can_fork(db, w_id, authed).await? {
+        windmill_common::feature_usage::log_feature_usage("fork_roles", "fork_refused", "");
+        return Err(Error::PermissionDenied(format!(
+            "Your role in {w_id} cannot fork it"
+        )));
+    }
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        w_id,
+        &ProtectionRuleKind::DisableWorkspaceForking,
+        AuditAuthorable::username(authed),
+        &authed.groups,
+        authed.is_admin,
+        db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+    Ok(())
+}
+
 async fn deprecated_create_workspace_fork(_authed: ApiAuthed) -> Result<String> {
     return Err(Error::BadRequest("This API endpoint has been relocated. Your Windmill CLI version is outdated and needs to be updated.".to_string()));
 }
@@ -9026,21 +9429,7 @@ async fn create_workspace_fork_branch(
         enforce_cloud_fork_cap(&db, &w_id).await?;
     }
 
-    if *DISABLE_WORKSPACE_FORK {
-        require_super_admin(&db, &authed).await?;
-    }
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
-        &w_id,
-        &ProtectionRuleKind::DisableWorkspaceForking,
-        AuditAuthorable::username(&authed),
-        &authed.groups,
-        authed.is_admin,
-        &db,
-    )
-    .await?
-    {
-        return Err(Error::PermissionDenied(msg));
-    }
+    enforce_fork_allowed(&db, &authed, &w_id).await?;
     enforce_isolated_forks(&db, &authed, &w_id, &nw).await?;
 
     // Two-phase create for git-synced workspaces: this endpoint only creates the git branch(es) and
@@ -9777,21 +10166,7 @@ async fn create_workspace_fork(
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
 
-    if *DISABLE_WORKSPACE_FORK {
-        require_super_admin(&db, &authed).await?;
-    }
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
-        &parent_workspace_id,
-        &ProtectionRuleKind::DisableWorkspaceForking,
-        AuditAuthorable::username(&authed),
-        &authed.groups,
-        authed.is_admin,
-        &db,
-    )
-    .await?
-    {
-        return Err(Error::PermissionDenied(msg));
-    }
+    enforce_fork_allowed(&db, &authed, &parent_workspace_id).await?;
     enforce_isolated_forks(&db, &authed, &parent_workspace_id, &nw).await?;
 
     if nw.is_dev_workspace {
@@ -10356,6 +10731,8 @@ async fn write_workspace_fork(
     copies: &[crate::datatable_clone::MadeCopy],
     progress: &ForkProgress,
 ) -> Result<String> {
+    // Read on the pool before the transaction holds a connection of its own.
+    let roles = fork_roles(&db, &parent_workspace_id).await?;
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
     // Held until this transaction ends: after an error, the copies' cleanup waits on it, so it reads
     // whether the fork exists only once a commit still being resolved has settled.
@@ -10425,13 +10802,20 @@ async fn write_workspace_fork(
     // Optionally bring the parent's members into the fork (a shared dev env). Dev-only: it's part of the
     // dev-workspace feature (and the frontend only offers it there), so the backend enforces it rather
     // than trusting the client — copying the parent's whole team into an ordinary throwaway fork isn't
-    // intended. Dev creation is already admin-gated, so this is transitively admin-only too. Done before
-    // the explicit creator insert below so the creator (a parent member) is copied with full metadata
-    // (operator/role/is_service_account/added_via), not the bare row the insert alone would leave.
+    // intended. Dev creation is already admin-gated, so this is transitively admin-only too.
     // Independently, the parent's admins can have every fork of it start with its admins and
     // developers; the forker cannot opt out, since the point is that those admins can review it.
+    copy_workspace_roles(&mut tx, &parent_workspace_id, &forked_id).await?;
     if nw.copy_members && nw.is_dev_workspace {
-        copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id, false).await?;
+        copy_workspace_members(
+            &mut tx,
+            &parent_workspace_id,
+            &forked_id,
+            &roles,
+            false,
+            None,
+        )
+        .await?;
     } else if sqlx::query_scalar!(
         "SELECT add_admins_and_developers_to_forks FROM workspace_settings WHERE workspace_id = $1",
         parent_workspace_id
@@ -10440,24 +10824,44 @@ async fn write_workspace_fork(
     .await?
     .unwrap_or(false)
     {
-        copy_workspace_members(&mut tx, &parent_workspace_id, &forked_id, true).await?;
+        copy_workspace_members(
+            &mut tx,
+            &parent_workspace_id,
+            &forked_id,
+            &roles,
+            true,
+            None,
+        )
+        .await?;
     }
 
-    // Ensure the creator is a member of the fork even without copy_members (or if they aren't a parent
-    // member). No-op when copy_members already brought their full row.
-    sqlx::query!(
-        "INSERT INTO usr
-           (workspace_id, email, username, is_admin)
-           SELECT $1, email, username, is_admin FROM usr
-         WHERE workspace_id = $3 AND email = $2
-         ON CONFLICT DO NOTHING
-        ",
-        forked_id,
-        authed.email,
-        parent_workspace_id,
+    // The creator joins with the role they hold in the parent, after its ruleset mappings, even
+    // without copy_members. No-op when copy_members already brought their row.
+    copy_workspace_members(
+        &mut tx,
+        &parent_workspace_id,
+        &forked_id,
+        &roles,
+        false,
+        Some(&authed.email),
     )
-    .execute(&mut *tx)
     .await?;
+    if let Some(forker) = sqlx::query!(
+        "SELECT workspace_role, operator FROM usr WHERE workspace_id = $1 AND email = $2",
+        parent_workspace_id,
+        authed.email,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    {
+        let role =
+            windmill_common::roles::resolve_role_name(forker.workspace_role, forker.operator);
+        windmill_common::feature_usage::log_feature_usage(
+            "fork_roles",
+            "fork_created",
+            if roles.maps(&role) { "mapped" } else { "kept" },
+        );
+    }
 
     // The pointers this fork writes to the parent's data tables stay invisible until it commits, so
     // a rename of one of them cannot carry them. Holding the parent's settings row makes such a
@@ -10960,6 +11364,7 @@ async fn attach_dev_workspace(
                 }
                 r.auto_pull = None;
                 r.fork_open_prs = false;
+                r.ai_review_prs = false;
                 r.open_pr_error = None;
             }
             let serialized =
@@ -11633,8 +12038,10 @@ If you do not have an account on {}, login with SSO or ask an admin to create an
 /// - only on a fork they created, never on a root workspace;
 /// - only as a developer, so it can never mint an admin (nor an operator, which would need the
 ///   workspace's operator settings to be meaningful);
-/// - only for someone who is already a developer or admin of the parent, so pulling them into the
-///   fork cannot widen who can read the parent's data.
+/// - only for a member of the parent whose role in its forks, after the parent's ruleset
+///   mappings, is `developer`, so pulling them into the fork cannot widen who can read the
+///   parent's data nor undo a mapping. A custom role is refused even when unrestricted: the grant
+///   seats a developer, not that role.
 ///
 /// Anything outside those bounds stays an admin's call. Returns the username the new member must be
 /// given in the fork.
@@ -11661,19 +12068,29 @@ async fn authorize_fork_owner_add_user(
         )));
     }
 
-    let parent_username = sqlx::query_scalar!(
-        "SELECT username FROM usr
-         WHERE workspace_id = $1 AND email = $2 AND NOT operator AND NOT disabled",
+    let member = sqlx::query!(
+        "SELECT username, workspace_role, operator FROM usr
+         WHERE workspace_id = $1 AND email = $2 AND NOT disabled",
         parent,
         nu.email,
     )
     .fetch_optional(db)
     .await?;
+    let mut fork_role = None;
+    if let Some(m) = &member {
+        let role = windmill_common::roles::resolve_role_name(m.workspace_role.clone(), m.operator);
+        let mapping = windmill_common::workspaces::fork_role_mapping(&parent, db).await?;
+        fork_role = Some(mapping.get(&role).cloned().unwrap_or(role));
+    }
+    let parent_username = member
+        .filter(|_| fork_role.as_deref() == Some(windmill_common::roles::DEVELOPER_ROLE))
+        .map(|m| m.username);
 
     let Some(parent_username) = parent_username else {
         return Err(Error::PermissionDenied(format!(
-            "as the creator of fork {w_id} you can only add developers or admins of its parent \
-             workspace {parent}; {} is not one, so only an admin of {w_id} can add them",
+            "as the creator of fork {w_id} you can only add members of its parent workspace \
+             {parent} whose role in its forks is developer; {} is not one, so only an admin of \
+             {w_id} can add them",
             nu.email
         )));
     };
@@ -11779,11 +12196,7 @@ async fn add_user(
             .username
             .ok_or(Error::BadRequest("username is required".to_string()))?;
 
-        if !VALID_USERNAME.is_match(&username) {
-            return Err(windmill_common::error::Error::BadRequest(format!(
-                "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
-            )));
-        }
+        validate_username(&username)?;
 
         username
     };
@@ -12285,6 +12698,8 @@ struct CreateProtectionRuleRequest {
     rules: Vec<ProtectionRuleKind>,
     bypass_groups: Vec<String>,
     bypass_users: Vec<String>,
+    #[serde(default)]
+    fork_role_mapping: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -12295,6 +12710,9 @@ struct UpdateProtectionRuleRequest {
     rules: Vec<ProtectionRuleKind>,
     bypass_groups: Vec<String>,
     bypass_users: Vec<String>,
+    /// Absent leaves the stored mapping alone, which is what a client that predates it gets.
+    #[serde(default)]
+    fork_role_mapping: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Serialize)]
@@ -12304,6 +12722,7 @@ struct ProtectionRulesetResponse {
     pub rules: Vec<ProtectionRuleKind>,
     pub bypass_groups: Vec<String>,
     pub bypass_users: Vec<String>,
+    pub fork_role_mapping: BTreeMap<String, String>,
 }
 
 impl From<ProtectionRuleset> for ProtectionRulesetResponse {
@@ -12322,8 +12741,36 @@ impl From<ProtectionRuleset> for ProtectionRulesetResponse {
             name: value.name,
             bypass_groups: value.bypass_groups,
             bypass_users: value.bypass_users,
+            fork_role_mapping: value.fork_role_mapping.0,
         }
     }
+}
+
+/// A fork role mapping may only name roles `w_id` defines, and maps each to a different one.
+async fn validate_fork_role_mapping(
+    db: &DB,
+    w_id: &str,
+    mapping: &BTreeMap<String, String>,
+) -> Result<()> {
+    if mapping.is_empty() {
+        return Ok(());
+    }
+    let roles = windmill_common::roles::workspace_roles(db, w_id).await?;
+    for (from, to) in mapping {
+        for name in [from, to] {
+            if !roles.iter().any(|r| &r.name == name) {
+                return Err(Error::BadRequest(format!(
+                    "fork role mapping: role `{name}` is not defined in workspace {w_id}"
+                )));
+            }
+        }
+        if from == to {
+            return Err(Error::BadRequest(format!(
+                "fork role mapping: `{from}` is mapped to itself"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// List all protection rules for a workspace
@@ -12707,6 +13154,10 @@ async fn create_protection_rule(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
     reject_reserved_rule_name(&req.name)?;
+    validate_fork_role_mapping(&db, &w_id, &req.fork_role_mapping).await?;
+    if !req.fork_role_mapping.is_empty() {
+        windmill_common::feature_usage::log_feature_usage("fork_roles", "mapping_saved", "create");
+    }
 
     let mut tx = db.begin().await?;
 
@@ -12730,14 +13181,15 @@ async fn create_protection_rule(
     // Insert the new rule
     sqlx::query!(
         r#"
-            INSERT INTO workspace_protection_rule (workspace_id, name, rules, bypass_groups, bypass_users)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO workspace_protection_rule (workspace_id, name, rules, bypass_groups, bypass_users, fork_role_mapping)
+            VALUES ($1, $2, $3, $4, $5, $6)
         "#,
         &w_id,
         &req.name,
         ProtectionRules::from(&req.rules).bits(),
         &req.bypass_groups,
         &req.bypass_users,
+        sqlx::types::Json(&req.fork_role_mapping) as _,
     )
     .execute(&mut *tx)
     .await?;
@@ -12803,6 +13255,16 @@ async fn update_protection_rule(
         }
         reject_reserved_rule_name(new_name)?;
     }
+    if let Some(mapping) = &req.fork_role_mapping {
+        validate_fork_role_mapping(&db, &w_id, mapping).await?;
+        if !mapping.is_empty() {
+            windmill_common::feature_usage::log_feature_usage(
+                "fork_roles",
+                "mapping_saved",
+                "update",
+            );
+        }
+    }
 
     let mut tx = db.begin().await?;
 
@@ -12846,7 +13308,8 @@ async fn update_protection_rule(
     sqlx::query!(
         r#"
             UPDATE workspace_protection_rule
-            SET name = $1, rules = $2, bypass_groups = $3, bypass_users = $4
+            SET name = $1, rules = $2, bypass_groups = $3, bypass_users = $4,
+                fork_role_mapping = COALESCE($7, fork_role_mapping)
             WHERE workspace_id = $5 AND name = $6
         "#,
         final_name,
@@ -12854,7 +13317,8 @@ async fn update_protection_rule(
         &req.bypass_groups,
         &req.bypass_users,
         &w_id,
-        &rule_name
+        &rule_name,
+        req.fork_role_mapping.as_ref().map(sqlx::types::Json) as _,
     )
     .execute(&mut *tx)
     .await?;
@@ -13900,6 +14364,7 @@ async fn load_workspace_authed(
             read_only: base_authed.read_only,
             job_id: base_authed.job_id,
             credential_expiry: base_authed.credential_expiry,
+            mcp_client: base_authed.mcp_client.clone(),
         });
     };
 
@@ -13940,6 +14405,7 @@ async fn load_workspace_authed(
         read_only: base_authed.read_only,
         job_id: base_authed.job_id,
         credential_expiry: base_authed.credential_expiry,
+        mcp_client: base_authed.mcp_client.clone(),
     })
 }
 
@@ -14503,7 +14969,7 @@ async fn compare_two_variables(
 
     // Get variable from each workspace
     let source_variable = sqlx::query!(
-        "SELECT value, is_secret, description
+        "SELECT value::text AS \"value!\", is_secret, description, value_valid_until
          FROM variable
          WHERE workspace_id = $1 AND path = $2",
         source_workspace_id,
@@ -14513,7 +14979,7 @@ async fn compare_two_variables(
     .await?;
 
     let target_variable = sqlx::query!(
-        "SELECT value, is_secret, description
+        "SELECT value::text AS \"value!\", is_secret, description, value_valid_until
          FROM variable
          WHERE workspace_id = $1 AND path = $2",
         fork_workspace_id,
@@ -14526,15 +14992,22 @@ async fn compare_two_variables(
 
     // Check metadata differences
     if let (Some(source), Some(target)) = (&source_variable, &target_variable) {
-        if source.is_secret != target.is_secret || source.description != target.description {
+        if source.is_secret != target.is_secret
+            || source.description != target.description
+            || source.value_valid_until != target.value_valid_until
+        {
             has_changes = true;
         } else if source.value != target.value
             || (source.is_secret && is_external_stored_value(&source.value))
         {
             // A secret's ciphertext is randomized on every write, so equal secrets are compared
             // by plaintext, each decrypted with its own workspace's key. An external backend
-            // reference is the same text on both sides but names a per-workspace entry.
+            // reference is the same text on both sides but names a per-workspace entry. An
+            // `$external:` reference is compared as written: two references resolving to equal
+            // values still point at different secrets.
             has_changes = !source.is_secret
+                || is_external_ref_value(&source.value)
+                || is_external_ref_value(&target.value)
                 || !matches!(
                     tokio::try_join!(
                         decrypt_secret_value(db, source_workspace_id, path, source.value.clone()),
@@ -15355,12 +15828,15 @@ pub enum SettingsEdit {
     InstanceGroups,
     ErrorHandler,
     SuccessHandler,
+    VariableExpirationHandler,
     LargeFileStorage,
     GitSync,
     DefaultScripts,
     DefaultApp,
     Color,
     OperatorSettings,
+    /// Body: the workspace's role overrides as a whole, `{ "<role>": { label?, capabilities } }`.
+    RoleOverrides,
     Datatable,
     SlackCommand,
     SetSlackOAuth,
@@ -15368,7 +15844,6 @@ pub enum SettingsEdit {
     Ducklake,
     DbtWarehouses,
     DeployUi,
-    GuestAccess,
     GuestJwtKey,
     PublicAppRateLimit,
     AddAdminsAndDevelopersToForks,
@@ -15407,6 +15882,9 @@ pub async fn apply_settings_edit(
         InstanceGroups => edit_instance_groups(a, d, p, settings_edit_body(edit, body)?).await?,
         ErrorHandler => edit_error_handler(a, d, p, settings_edit_body(edit, body)?).await?,
         SuccessHandler => edit_success_handler(a, d, p, settings_edit_body(edit, body)?).await?,
+        VariableExpirationHandler => {
+            edit_variable_expiration_handler(a, d, p, settings_edit_body(edit, body)?).await?
+        }
         LargeFileStorage => {
             edit_large_file_storage_config(a, d, p, settings_edit_body(edit, body)?).await?
         }
@@ -15423,6 +15901,10 @@ pub async fn apply_settings_edit(
             )
             .await?
         }
+        RoleOverrides => {
+            crate::workspace_roles::update_role_overrides(a, p, d, settings_edit_body(edit, body)?)
+                .await?
+        }
         Datatable => {
             let Json(result) =
                 edit_datatable_config(a, d, p, settings_edit_body(edit, body)?).await?;
@@ -15437,7 +15919,6 @@ pub async fn apply_settings_edit(
         DeployUi => edit_deploy_ui_config(a, d, p, settings_edit_body(edit, body)?).await?,
         #[cfg(not(feature = "enterprise"))]
         DeployUi => edit_deploy_ui_config(a, d, p).await?,
-        GuestAccess => edit_guest_access(a, d, p, settings_edit_body(edit, body)?).await?,
         GuestJwtKey => edit_guest_jwt_key(a, d, p, settings_edit_body(edit, body)?).await?,
         PublicAppRateLimit => {
             edit_public_app_rate_limit(d, p, a, settings_edit_body(edit, body)?).await?

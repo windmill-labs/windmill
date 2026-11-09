@@ -1,11 +1,13 @@
 <script lang="ts">
 	import Section from '$lib/components/Section.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import TriggerFilterList from './TriggerFilterList.svelte'
 	import type { FilterLogic, FilterNode, GroupOp } from './filters'
 
 	interface Props {
 		filters: FilterNode[]
 		filterLogic: FilterLogic
+		runOnFilterError: boolean
 		disabled?: boolean
 		// Set when the runnable receives the payload base64-encoded (e.g. Kafka).
 		// Filters always run on the message parsed as JSON, so we clarify the distinction.
@@ -15,6 +17,7 @@
 	let {
 		filters = $bindable(),
 		filterLogic = $bindable(),
+		runOnFilterError = $bindable(),
 		disabled = false,
 		payloadBase64Encoded = false
 	}: Props = $props()
@@ -48,4 +51,18 @@
 	<div class="mt-1">
 		<TriggerFilterList bind:filters bind:logic={() => filterLogic, setRootLogic} {disabled} />
 	</div>
+	{#if filters.length > 0}
+		<div class="mt-2">
+			<Toggle
+				bind:checked={runOnFilterError}
+				options={{
+					right: "Run on messages the filters can't read",
+					rightTooltip:
+						'Filters cannot read a message that is not valid JSON. When on, such a message runs the runnable as if the trigger had no filters, and a preprocessor finds the reason in event.filter_error. When off, it is skipped.'
+				}}
+				{disabled}
+				size="xs"
+			/>
+		</div>
+	{/if}
 </Section>

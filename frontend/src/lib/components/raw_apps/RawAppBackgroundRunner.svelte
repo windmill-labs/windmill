@@ -170,7 +170,7 @@
 							viewer_data_access: editor ? runnable?.viewer_data_access || undefined : undefined
 						},
 						undefined,
-						undefined,
+						data.memoryId ? { memory_id: data.memoryId } : undefined,
 						editor ? rawAppPreviewModules(runnables, runnable_id) : undefined
 					)
 				} catch (e) {

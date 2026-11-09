@@ -90,6 +90,15 @@ export function buildAgentTrace(messages: AgentMessage[]): AgentTraceEntry[] {
 			entries.push({ kind: 'search' })
 			continue
 		}
+		if (action?.type === 'question') {
+			entries.push({
+				kind: 'tool',
+				name: 'Ask a question',
+				args: message.tool_call_id ? argsByCallId.get(message.tool_call_id) : undefined,
+				result: contentText(message.content)
+			})
+			continue
+		}
 		// Every message this run produced is tagged, including the agent narrating
 		// its next move and its final answer. Untagged ones are the prompt, the
 		// question, or a previous turn replayed out of memory — history loses its

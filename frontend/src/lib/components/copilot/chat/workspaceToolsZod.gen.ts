@@ -112,6 +112,7 @@ export const websocketTriggerRequestSchema = z.object({
 		"none_of": z.array(z.record(z.string(), z.any()))
 	})]).describe("Either a leaf filter, matching a field of the message (parsed as JSON) against a value by equality (or superset, when the value is an object or array) \u2014 addressed by `key` for a top-level field or `path` for a dotted path into nested objects \u2014 or a group nesting sub-filters under a boolean operator (`none_of` matches when none of its sub-filters do).\n")).describe("Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."),
 	"filter_logic": z.enum(["and", "or"]).describe("Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic.").default("and").optional(),
+	"run_on_filter_error": z.boolean().describe("Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped.").default(false).optional(),
 	"initial_messages": z.array(z.union([z.object({
 		"raw_message": z.string()
 	}), z.object({
@@ -172,6 +173,7 @@ export const kafkaTriggerRequestSchema = z.object({
 		"none_of": z.array(z.record(z.string(), z.any()))
 	})]).describe("Either a leaf filter, matching a field of the message (parsed as JSON) against a value by equality (or superset, when the value is an object or array) \u2014 addressed by `key` for a top-level field or `path` for a dotted path into nested objects \u2014 or a group nesting sub-filters under a boolean operator (`none_of` matches when none of its sub-filters do).\n")).describe("Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."),
 	"filter_logic": z.enum(["and", "or"]).describe("Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic.").default("and").optional(),
+	"run_on_filter_error": z.boolean().describe("Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped.").default(false).optional(),
 	"auto_offset_reset": z.enum(["latest", "earliest"]).describe("Initial offset behavior when consumer group has no committed offset.").default("latest").optional(),
 	"auto_commit": z.boolean().describe("When true (default), offsets are committed automatically after receiving each message. When false, you must manually commit offsets using the commit_offsets endpoint.").default(true).optional(),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
@@ -485,12 +487,13 @@ export const emailTriggerRequestSchema = z.object({
 
 export const variableRequestSchema = z.object({
 	"path": z.string().describe("The path to the variable"),
-	"value": z.string().describe("The value of the variable"),
+	"value": z.string().describe("The value of the variable. For a secret, `$external:vault://<path>#<key>` stores a reference to an existing secret in the instance's external HashiCorp Vault (path as `vault kv get` takes it) instead of a value; without `#<key>` it reads the whole secret as a JSON object of its fields. It is resolved on each read, only under the path prefixes a superadmin allowed for the workspace, and is returned as-is when the secret is not decrypted.\n"),
 	"is_secret": z.boolean().describe("Whether the variable is a secret"),
 	"description": z.string().describe("The description of the variable"),
 	"account": z.number().int().describe("Ignored. A variable is linked to an OAuth account only when `createAccount` creates both.").optional(),
 	"is_oauth": z.boolean().describe("Whether the variable is an OAuth variable").optional(),
-	"expires_at": z.string().datetime({ offset: true }).describe("The expiration date of the variable").optional(),
+	"expires_at": z.string().datetime({ offset: true }).describe("When to garbage-collect the variable. Used for ephemeral secrets; the variable is deleted once this is reached. Not the value's expiry \u2014 see value_valid_until.\n").optional(),
+	"value_valid_until": z.string().datetime({ offset: true }).describe("When the value stored in this variable stops working. Triggers the workspace's variable expiration handler ahead of it, by the handler's `notify_before_secs` (1 day by default); never causes the variable to be deleted.\n").optional(),
 	"labels": z.array(z.string()).optional(),
 	"ws_specific": z.boolean().optional()
 })

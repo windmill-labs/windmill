@@ -1,0 +1,202 @@
+<script lang="ts">
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { Button, Skeleton } from '$lib/components/common'
+	import { ChevronDown, ExternalLink, Loader2, PanelRightOpen, Play } from 'lucide-svelte'
+	import RecentRunRow from './RecentRunRow.svelte'
+	import {
+		allRunsHref,
+		askAI,
+		failedRunsHref,
+		canAskAI,
+		collisionPrefixes,
+		itemKey,
+		totalLabel,
+		windowLabel,
+		type RecentRunItem,
+		type RecentRunsState
+	} from './recentRuns.svelte'
+
+	interface Props {
+		runs: RecentRunsState
+		folder: string | undefined
+		/** Absent below the width the side panel needs: there is no panel to bring back. */
+		onShowPanel?: () => void
+		onFocusItem?: (item: RecentRunItem) => void
+		/** A narrow bar: the trigger is one icon, its dot the colour of the worst status. */
+		compact?: boolean
+	}
+
+	let { runs, folder, onShowPanel, onFocusItem, compact = false }: Props = $props()
+
+	const MAX_ITEMS = 8
+
+	let isOpen = $state(false)
+	let data = $derived(runs.current)
+	let failing = $derived(data?.items.filter((i) => i.status === 'failure') ?? [])
+	let prefixes = $derived(data && !folder ? collisionPrefixes(data.items) : new Map())
+</script>
+
+<!-- Without data (still loading, or the request failed) the trigger stays: it is the only way
+     back to a closed panel. -->
+{#if data || onShowPanel}
+	<div class="flex items-center h-[22px] pl-2.5 ml-1.5 border-l border-border-light">
+		<Popover
+			openOnHover
+			debounceDelay={140}
+			placement="bottom-end"
+			bind:isOpen
+			triggerAttrs={{ 'aria-label': 'Recent runs' }}
+			class="flex items-center gap-2.5 h-7 pl-2 pr-1.5 -mr-1.5 rounded-md text-xs font-normal text-secondary whitespace-nowrap hover:bg-surface-secondary {isOpen
+				? 'bg-surface-secondary'
+				: ''}"
+		>
+			{#snippet trigger()}
+				{#if compact}
+					<span class="relative flex">
+						<Play size={14} />
+						{#if data}
+							<span
+								class="absolute -top-0.5 -right-1 w-[7px] h-[7px] rounded-full ring-2 ring-surface {data.failed_runs >
+								0
+									? 'bg-red-500'
+									: data.running_items > 0
+										? 'bg-yellow-500'
+										: 'bg-green-500'}"
+							></span>
+						{/if}
+					</span>
+				{:else}
+					<span>{data ? totalLabel(data) : 'Recent runs'}</span>
+					{#if !data && runs.loading}
+						<Loader2 size={12} class="animate-spin text-hint" />
+					{/if}
+					{#if data && data.failed_runs > 0}
+						<span class="flex items-center gap-1.5 text-red-600 dark:text-red-400">
+							<span class="w-[7px] h-[7px] rounded-full bg-red-500"></span>
+							{data.failed_runs} failed
+						</span>
+					{:else if data}
+						<span class="flex items-center gap-1.5">
+							<span class="w-[7px] h-[7px] rounded-full bg-green-500"></span>
+							all good
+						</span>
+					{/if}
+					{#if data && data.running_items > 0}
+						<span class="flex items-center gap-1.5 text-yellow-600 dark:text-yellow-400">
+							<span class="w-[7px] h-[7px] rounded-full bg-yellow-500"></span>
+							{data.running_items} running
+						</span>
+					{/if}
+					<ChevronDown size={12} class="text-hint" />
+				{/if}
+			{/snippet}
+			{#snippet content()}
+				<div class="w-[380px] max-w-[calc(100vw-32px)] p-1.5 text-xs">
+					{#if data}
+						<!-- Wraps between its parts, never inside one: large counts move Ask AI to its own line. -->
+						<div
+							class="flex flex-wrap items-center gap-x-2 gap-y-1 px-2.5 pt-2 pb-1.5 text-secondary whitespace-nowrap"
+						>
+							<b class="font-semibold text-emphasis text-[12.5px]">
+								{windowLabel(data.window_hours)}
+							</b>
+							<span class="min-w-0 truncate">
+								{totalLabel(data)} ·
+								<span class={data.failed_runs > 0 ? 'text-red-600 dark:text-red-400' : ''}>
+									{data.failed_runs} failed
+								</span>
+							</span>
+							{#if canAskAI() && failing.length > 0}
+								<button
+									class="ml-auto h-[26px] max-w-full truncate px-2.5 rounded text-xs font-medium text-ai bg-ai/10 hover:bg-ai/15"
+									onclick={() =>
+										askAI(
+											{ kind: 'failing', items: failing },
+											'Investigate why these items are failing'
+										)}
+								>
+									Ask AI about these {failing.length}
+								</button>
+							{/if}
+						</div>
+
+						<!-- Every item the counts above are made of, in the panel's order: a list of only the
+					     failing ones under a total of all runs reads as missing rows. -->
+						{#each data.items.slice(0, MAX_ITEMS) as item (itemKey(item))}
+							<RecentRunRow
+								{item}
+								now={runs.now}
+								prefix={prefixes.get(itemKey(item))}
+								onResolve={runs.resolveFailures}
+								strip={false}
+								onSelect={onFocusItem &&
+									((item) => {
+										isOpen = false
+										onFocusItem(item)
+									})}
+							/>
+						{:else}
+							<p class="px-2.5 py-3 text-secondary text-[12.5px]">
+								Runs show up here once something runs.
+							</p>
+						{/each}
+						{#if data.items.length > MAX_ITEMS}
+							<a
+								href={allRunsHref(folder)}
+								class="block px-2.5 py-1 ml-7 text-[11.5px] text-accent"
+							>
+								{data.items.length - MAX_ITEMS} more
+							</a>
+						{/if}
+					{:else if runs.loading}
+						<Skeleton class="px-2.5 pt-2" layout={[[2.5], 0.25, [2.5], 0.25, [2.5]]} />
+					{:else if runs.failed}
+						<p class="flex items-center gap-1 px-2.5 pt-2 text-secondary text-[12.5px]">
+							Could not load recent runs.
+							<Button variant="subtle" unifiedSize="xs" onClick={() => runs.retry()}>Retry</Button>
+						</p>
+					{/if}
+
+					<div
+						class="flex flex-wrap items-center gap-1 px-1.5 pb-1 whitespace-nowrap {data
+							? 'mt-1.5 pt-2 border-t border-border-light'
+							: 'pt-1'}"
+					>
+						<a
+							href={allRunsHref(folder)}
+							class="flex items-center gap-1.5 h-[26px] px-2 rounded-md text-secondary hover:bg-surface-secondary hover:text-primary"
+						>
+							All runs
+							<ExternalLink size={12} />
+						</a>
+						{#if data && data.failed_runs > 0}
+							<Button
+								variant="subtle"
+								unifiedSize="sm"
+								endIcon={{ icon: ExternalLink }}
+								href={failedRunsHref(folder, data.window_hours)}
+							>
+								Failed runs
+							</Button>
+						{/if}
+						{#if onShowPanel}
+							<div class="ml-auto">
+								<Button
+									variant="subtle"
+									unifiedSize="sm"
+									startIcon={{ icon: PanelRightOpen }}
+									onclick={() => {
+										isOpen = false
+										onShowPanel()
+									}}
+								>
+									Show runs on home
+								</Button>
+							</div>
+						{/if}
+					</div>
+				</div>
+			{/snippet}
+		</Popover>
+	</div>
+{/if}

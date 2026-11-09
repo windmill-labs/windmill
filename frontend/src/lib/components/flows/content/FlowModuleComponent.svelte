@@ -15,6 +15,7 @@
 
 	import type { FlowModule, FlowModuleValue, RawScript, ScriptLang } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
+	import { nextMock } from '../flowMock'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
@@ -71,7 +72,8 @@
 		signDebugRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
-	import { Bug, Terminal } from 'lucide-svelte'
+	import { Bug, Hand, Terminal } from 'lucide-svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -133,6 +135,8 @@
 		/** Lets the agent's Tools section add a tool through the graph's own insert path. */
 		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 		toolDescription?: string | undefined
+		/** The tool's `requires_approval` setting; only an agent tool has one. */
+		toolRequiresApproval?: boolean
 		siblingToolNames?: string[]
 	}
 
@@ -153,6 +157,7 @@
 		staticOnly = false,
 		flowModuleSchemaMap = undefined,
 		toolDescription = $bindable(undefined),
+		toolRequiresApproval = $bindable(),
 		siblingToolNames = undefined
 	}: Props = $props()
 
@@ -1149,6 +1154,20 @@
 												label="Chat"
 											/>
 										{/if}
+										{#if isAgentTool}
+											<Tab value="tool_settings" label="Tool settings">
+												{#snippet extra()}
+													{#if toolRequiresApproval}
+														<div class="flex flex-row items-center gap-1 text-secondary">
+															<Popover notClickable>
+																<Hand size={12} />
+																{#snippet text()}Require approval · On{/snippet}
+															</Popover>
+														</div>
+													{/if}
+												{/snippet}
+											</Tab>
+										{/if}
 										{#if !preprocessorModule && !isAgentTool}
 											<Tab value="advanced" label="Run settings">
 												{#snippet extra()}
@@ -1395,6 +1414,24 @@
 												/>
 											</Section>
 										</div>
+									{:else if visibleSelected === 'tool_settings' && isAgentTool}
+										<div class="flex-1 overflow-auto p-4">
+											<Section label="Approval">
+												<Toggle
+													size="xs"
+													textClass="text-xs font-normal text-primary"
+													disabled={noEditor}
+													bind:checked={
+														() => toolRequiresApproval ?? false, (v) => (toolRequiresApproval = v)
+													}
+													options={{
+														right: 'Require approval',
+														rightTooltip:
+															'Each call waits for someone to approve or reject it from the run page or the chat, without holding a worker. Other calls in the same turn run right away. A rejected call is reported to the agent as not run. An agent used as a tool of another agent cannot wait, so it leaves such tools out.'
+													}}
+												/>
+											</Section>
+										</div>
 									{:else if visibleSelected === 'advanced'}
 										<FlowRunSettings
 											bind:this={runSettings}
@@ -1494,7 +1531,7 @@
 												? { type: 'inside', flow: parentLoop.type }
 												: undefined}
 											onUpdateMock={(detail) => {
-												flowModule.mock = detail
+												flowModule.mock = nextMock(flowModule.mock, detail)
 												flowModule = flowModule
 												refreshStateStore(flowStore)
 											}}

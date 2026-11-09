@@ -26,9 +26,17 @@
 		 * take — the archived link stays, since reading archived items is not a write.
 		 */
 		canCreate?: boolean
+		/** See CreateActionsMenu's `onCreateFolder`. */
+		onCreateFolder?: () => void
 	}
 
-	let { onPick, archivedOnly = false, onShowArchived, canCreate = true }: Props = $props()
+	let {
+		onPick,
+		archivedOnly = false,
+		onShowArchived,
+		canCreate = true,
+		onCreateFolder
+	}: Props = $props()
 
 	// Row opacities: the list fading out of existence. Static on purpose — motion is what
 	// makes a skeleton mean "loading", and this state means "empty".
@@ -136,7 +144,7 @@
 				</Popover>
 				or
 			{/if}
-			<CreateActionsMenu source="empty_state" triggerElement={newLinkEl}>
+			<CreateActionsMenu source="empty_state" triggerElement={newLinkEl} {onCreateFolder}>
 				{#snippet trigger()}
 					<!-- The full stop rides inside the snippet: across a component boundary Svelte
 				     keeps the markup whitespace, which would leave a gap before it. -->

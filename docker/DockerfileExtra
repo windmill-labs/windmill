@@ -13,8 +13,8 @@
 # Build:
 #   docker build -f docker/DockerfileExtra -t windmill-extra .
 #
-# Run:
-#   docker run -p 3001:3001 -p 3002:3002 -p 3003:3003 windmill-extra
+# Run (the gateway on 3000 fronts all three; the LSP port is bound to localhost):
+#   docker run -p 3000:3000 -e WINDMILL_BASE_URL=http://windmill_server:8000 windmill-extra
 
 # ============================================================================
 # Build final extra services image from windmill-ee-slim (includes nsjail)
@@ -44,9 +44,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
     case "$arch" in \
-    'amd64') targz='go1.27.1.linux-amd64.tar.gz' ;; \
-    'arm64') targz='go1.27.1.linux-arm64.tar.gz' ;; \
-    'armhf') targz='go1.27.1.linux-armv6l.tar.gz' ;; \
+    'amd64') targz='go1.27.3.linux-amd64.tar.gz' ;; \
+    'arm64') targz='go1.27.3.linux-arm64.tar.gz' ;; \
+    'armhf') targz='go1.27.3.linux-armv6l.tar.gz' ;; \
     *) echo >&2 "error: unsupported architecture '$arch'"; exit 1 ;; \
     esac; \
     wget "https://golang.org/dl/$targz" -nv && tar -C /usr/local -xzf "$targz" && rm "$targz"
@@ -113,6 +113,7 @@ COPY multiplayer/package.json .
 COPY multiplayer/package-lock.json .
 COPY multiplayer/server.mjs .
 COPY multiplayer/gateway.mjs .
+COPY multiplayer/jwt.mjs .
 
 # Install dependencies
 RUN npm ci --omit=dev

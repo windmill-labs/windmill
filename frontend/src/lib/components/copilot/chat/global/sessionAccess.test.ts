@@ -1,12 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { whoami, deployRules } = vi.hoisted(() => ({
+const { whoami, deployRules, protectionRules } = vi.hoisted(() => ({
 	whoami: vi.fn(),
-	deployRules: vi.fn()
+	deployRules: vi.fn(),
+	protectionRules: vi.fn()
 }))
 
 vi.mock('$lib/gen', () => ({ UserService: { whoami } }))
 vi.mock('$lib/utils_workspace_deploy', () => ({ checkDeployRules: deployRules }))
+vi.mock('$lib/workspaceProtectionRules.svelte', () => ({
+	readProtectionRulesForWorkspace: protectionRules,
+	isRuleActiveInRulesets: (rulesets: { rules: string[] }[], kind: string) =>
+		rulesets.some((r) => r.rules.includes(kind))
+}))
 
 import { capabilitiesForRole, resolveSessionAccess } from './sessionAccess'
 import { clearWorkspaceRoleCache } from '$lib/user'
@@ -41,6 +47,7 @@ describe('resolveSessionAccess', () => {
 	beforeEach(() => {
 		vi.clearAllMocks()
 		deployRules.mockResolvedValue({ ok: true })
+		protectionRules.mockResolvedValue([])
 		// The role memo is app-wide, so without this each case answers from the previous one.
 		clearWorkspaceRoleCache()
 	})
@@ -54,6 +61,7 @@ describe('resolveSessionAccess', () => {
 			'manage_flows',
 			'manage_schedules',
 			'manage_triggers',
+			'modify_workspace',
 			'run_flow_preview',
 			'run_preview',
 			'write_app_draft',
@@ -76,6 +84,7 @@ describe('resolveSessionAccess', () => {
 			'deploy',
 			'manage_schedules',
 			'manage_triggers',
+			'modify_workspace',
 			'write_resource_draft',
 			'write_schedule_draft',
 			'write_trigger_draft',
@@ -89,6 +98,7 @@ describe('resolveSessionAccess', () => {
 		expect([...caps].sort()).toEqual([
 			'manage_schedules',
 			'manage_triggers',
+			'modify_workspace',
 			'write_resource_draft',
 			'write_schedule_draft',
 			'write_trigger_draft',
@@ -110,6 +120,7 @@ describe('resolveSessionAccess', () => {
 				'manage_flows',
 				'manage_schedules',
 				'manage_triggers',
+				'modify_workspace',
 				'run_flow_preview',
 				'run_preview',
 				'write_app_draft',
@@ -124,6 +135,26 @@ describe('resolveSessionAccess', () => {
 			])
 		}
 	)
+
+	// A production workspace: the session reads and runs, and holds nothing that writes, even
+	// for an admin the rule would let through.
+	it('makes the session read-only in a workspace protected by DisableDirectDeployment', async () => {
+		protectionRules.mockResolvedValue([{ rules: ['DisableDirectDeployment'] }])
+		const caps = await capabilitiesFor({ is_admin: true })
+		expect([...caps]).toEqual([])
+	})
+
+	// The server holds deploys to the rule but not drafts, so neither failure may hand a
+	// production session its writes.
+	it('stays read-only when the rules cannot be read, or the role of a protected workspace', async () => {
+		protectionRules.mockResolvedValue(undefined)
+		expect([...(await capabilitiesFor({ is_admin: true }))]).toEqual([])
+
+		// Another workspace: the role memo answers for the first one.
+		protectionRules.mockResolvedValue([{ rules: ['DisableDirectDeployment'] }])
+		whoami.mockRejectedValueOnce(new Error('network'))
+		expect([...(await resolveSessionAccess('prod'))]).toEqual([])
+	})
 
 	it('keeps drafting when a rule refuses deploy', async () => {
 		deployRules.mockResolvedValue({
@@ -149,6 +180,7 @@ describe('resolveSessionAccess', () => {
 			'manage_flows',
 			'manage_schedules',
 			'manage_triggers',
+			'modify_workspace',
 			'run_flow_preview',
 			'write_flow_draft',
 			'write_resource_draft',
@@ -170,6 +202,7 @@ describe('resolveSessionAccess', () => {
 			'manage_apps',
 			'manage_schedules',
 			'manage_triggers',
+			'modify_workspace',
 			'write_app_draft',
 			'write_resource_draft',
 			'write_schedule_draft',

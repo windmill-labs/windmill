@@ -18,41 +18,91 @@
 		toggleLabel?: string
 		/** The line under the name, usually its item count. */
 		detail: Snippet
+		/** Controls rendered next to the name. Clicks on them do not toggle the row. */
+		actions?: Snippet
+		/** Always-visible control before the icon (e.g. a checkbox). Clicks on it do not
+		 * toggle the row. */
+		lead?: Snippet
+		/** Always-visible controls before the chevron. They stop their own clicks. */
+		trailing?: Snippet
+		/** False for a row known to group nothing: it renders without a chevron and does not toggle. */
+		expandable?: boolean
 	}
 
-	let { icon: Icon, name, opened, onToggle, indent = 0, toggleLabel, detail }: Props = $props()
+	let {
+		icon: Icon,
+		name,
+		opened,
+		onToggle,
+		indent = 0,
+		toggleLabel,
+		detail,
+		actions,
+		lead,
+		trailing,
+		expandable = true
+	}: Props = $props()
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	onclick={onToggle}
+	onclick={expandable ? onToggle : undefined}
 	class="px-4 py-2 {rowRule(
 		unruled
-	)} w-full flex flex-row items-center justify-between cursor-pointer hover:bg-surface-hover"
+	)} group/row w-full flex flex-row items-center justify-between {expandable
+		? 'cursor-pointer hover:bg-surface-hover'
+		: ''}"
 >
 	<div
 		class="flex flex-row items-center gap-4"
 		style={indent > 0 ? `padding-left: ${indent}px;` : ''}
 	>
+		{#if lead}
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="flex" onclick={(e) => e.stopPropagation()}>{@render lead()}</div>
+		{/if}
 		<Icon size={16} class="text-secondary shrink-0" />
 		<div>
-			<span class="whitespace-nowrap text-xs text-emphasis font-semibold">{name}</span>
+			<div class="flex flex-row items-center gap-1">
+				<span class="whitespace-nowrap text-xs text-emphasis font-semibold">{name}</span>
+				{#if actions}
+					<!-- Shown for the hovered row, a tabbed-into one, or one whose menu is open.
+					     `-my-0.5` keeps the 20px trigger from making this line taller than the
+					     name alone, so rows with and without actions line up. -->
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class="-my-0.5 opacity-0 transition-opacity duration-100 group-hover/row:opacity-100 group-has-[:focus-visible]/row:opacity-100 has-[[aria-expanded=true]]:opacity-100"
+						onclick={(e) => e.stopPropagation()}
+					>
+						{@render actions()}
+					</div>
+				{/if}
+			</div>
 			<div class="text-2xs font-normal text-secondary whitespace-nowrap">
 				{@render detail()}
 			</div>
 		</div>
 	</div>
-	<!-- Keyboard access only: its click bubbles to the row, which does the toggling. -->
-	<button
-		class="w-full flex flex-row-reverse"
-		aria-expanded={opened}
-		aria-label={toggleLabel ?? name}
-	>
-		{#if opened}
-			<ChevronUp size={16} />
-		{:else}
-			<ChevronDown size={16} />
-		{/if}
-	</button>
+	{#if trailing}
+		<div class="shrink-0 ml-auto pr-3">
+			{@render trailing()}
+		</div>
+	{/if}
+	{#if expandable}
+		<!-- Keyboard access only: its click bubbles to the row, which does the toggling. -->
+		<button
+			class="{trailing ? 'shrink-0' : 'w-full'} flex flex-row-reverse"
+			aria-expanded={opened}
+			aria-label={toggleLabel ?? name}
+		>
+			{#if opened}
+				<ChevronUp size={16} />
+			{:else}
+				<ChevronDown size={16} />
+			{/if}
+		</button>
+	{/if}
 </div>

@@ -12,7 +12,9 @@ pub use windmill_api_users::users::*;
 use std::sync::Arc;
 
 use crate::db::{ApiAuthed, OptJobAuthed};
-use crate::secret_backend_ext::rename_vault_secrets_with_prefix;
+use crate::secret_backend_ext::{
+    reject_http_store_refs_under_prefix, rename_vault_secrets_with_prefix,
+};
 use argon2::Argon2;
 use axum::{
     extract::{Extension, Path, Query},
@@ -27,7 +29,9 @@ use windmill_api_auth::{
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
-use windmill_common::usernames::VALID_USERNAME;
+use windmill_common::usernames::{
+    validate_username, RESERVED_JOB_USERNAMES, SUPERADMIN_SECRET_USERNAME,
+};
 use windmill_common::{
     error::{self, Error, Result},
     DB,
@@ -312,11 +316,7 @@ async fn rename_user(
         )));
     }
 
-    if !VALID_USERNAME.is_match(&ru.new_username) {
-        return Err(windmill_common::error::Error::BadRequest(format!(
-            "Usermame can only contain alphanumeric characters and underscores and must start with a letter"
-        )));
-    }
+    validate_username(&ru.new_username)?;
 
     let old_instance_username =
         sqlx::query_scalar!("SELECT username FROM password WHERE email = $1", user_email)
@@ -443,9 +443,10 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
-        "UPDATE usr_to_group SET usr = $1 WHERE usr = $2",
+        "UPDATE usr_to_group SET usr = $1 WHERE usr = $2 AND workspace_id = $3",
         new_username,
-        old_username
+        old_username,
+        w_id
     )
     .execute(&mut **tx)
     .await?;
@@ -469,43 +470,51 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
-    sqlx::query!(
-        "UPDATE v2_job SET permissioned_as = ('u/' || $1) WHERE permissioned_as = ('u/' || $2) AND workspace_id = $3",
-        new_username,
-        old_username,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
+    // An account still holding a reserved job name shares it with jobs Windmill ran under that
+    // name (logged-out visitors, `SUPERADMIN_SECRET`, handlers), which must stay Windmill's:
+    // moving them would hand those runs to the account. Of those, only `SUPERADMIN_SECRET` jobs
+    // also run as `u/<name>`, so for the others `permissioned_as` is the account's own.
+    if old_username != SUPERADMIN_SECRET_USERNAME {
+        sqlx::query!(
+            "UPDATE v2_job SET permissioned_as = ('u/' || $1) WHERE permissioned_as = ('u/' || $2) AND workspace_id = $3",
+            new_username,
+            old_username,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
 
-    sqlx::query!(
-        "UPDATE v2_job SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
-        new_username,
-        old_username,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
+    if !RESERVED_JOB_USERNAMES.contains(&old_username) {
+        sqlx::query!(
+            "UPDATE v2_job SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
+            new_username,
+            old_username,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
 
-    // ---- v2_job_queue ----
-    sqlx::query!(
-        "UPDATE v2_job_queue SET canceled_by = $1 WHERE canceled_by = $2 AND workspace_id = $3",
-        new_username,
-        old_username,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
+        // ---- v2_job_queue ----
+        sqlx::query!(
+            "UPDATE v2_job_queue SET canceled_by = $1 WHERE canceled_by = $2 AND workspace_id = $3",
+            new_username,
+            old_username,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
 
-    // ---- v2_job_completed ----
-    sqlx::query!(
-        "UPDATE v2_job_completed SET canceled_by = $1 WHERE canceled_by = $2 AND workspace_id = $3",
-        new_username,
-        old_username,
-        w_id
-    )
-    .execute(&mut **tx)
-    .await?;
+        // ---- v2_job_completed ----
+        sqlx::query!(
+            "UPDATE v2_job_completed SET canceled_by = $1 WHERE canceled_by = $2 AND workspace_id = $3",
+            new_username,
+            old_username,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
 
     // ---- resources----
     sqlx::query!(
@@ -629,10 +638,11 @@ async fn update_username_in_workpsace<'c>(
     // Handle Vault secret renames before updating paths in DB
     let old_prefix = format!("u/{}/", old_username);
     let new_prefix = format!("u/{}/", new_username);
+    reject_http_store_refs_under_prefix(&mut **tx, w_id, &old_prefix).await?;
 
     // Fetch all externally-stored secret variables under this user's path
     let vault_secrets: Vec<(String, String)> = sqlx::query!(
-        r#"SELECT path, value FROM variable
+        r#"SELECT path, value::text AS "value!" FROM variable
            WHERE path LIKE ('u/' || $1 || '/%')
            AND workspace_id = $2
            AND is_secret = true

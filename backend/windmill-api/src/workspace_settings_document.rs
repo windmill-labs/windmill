@@ -25,6 +25,7 @@ use windmill_common::{
         read_role_catalog, DatatableRoleCluster, ADMIN_DATATABLE_ROLE, NO_DEFAULT_DATATABLE_ROLE,
     },
     error::{Error, JsonResult, Result},
+    roles::{self, load_role_overrides, RoleDefinition, RoleOverride, RoleOverrides},
     utils::require_admin,
     variables::build_crypt,
     workspaces::{
@@ -58,8 +59,10 @@ pub enum SecretMode {
 struct SettingsRow {
     auto_invite: Option<Value>,
     webhook: Option<String>,
+    webhook_events: Option<Vec<String>>,
     error_handler: Option<Value>,
     success_handler: Option<Value>,
+    variable_expiration_handler: Option<Value>,
     ai_config: Option<Value>,
     large_file_storage: Option<Value>,
     git_sync: Option<Value>,
@@ -80,7 +83,6 @@ struct SettingsRow {
     deploy_ui: Option<Value>,
     teams_command_script: Option<String>,
     public_app_execution_limit_per_minute: Option<i32>,
-    guest_access_enabled: Option<bool>,
     guest_jwt_public_key: Option<String>,
     guest_jwt_jwks_url: Option<String>,
     error_handler_fallback_to_instance_alerts: Option<bool>,
@@ -258,11 +260,51 @@ fn datatable_permissions_document(datatable: Option<&Value>, roles: &DatatableNa
     Value::Object(doc)
 }
 
+/// The workspace's role overrides keyed by role name, sorted so a pulled file is stable. The stored
+/// map does not tell an override of instance role X from adding role X, so the entry of a role
+/// the instance does not define carries [`WORKSPACE_ONLY`]: without it, the target instance
+/// lacking X would silently turn the override into a new role.
+fn role_overrides_document(overrides: &RoleOverrides, instance: &[RoleDefinition]) -> Value {
+    let sorted: BTreeMap<&String, &RoleOverride> = overrides.iter().collect();
+    let mut doc = serde_json::to_value(sorted).unwrap_or_else(|_| json!({}));
+    if let Some(doc) = doc.as_object_mut() {
+        for (name, entry) in doc.iter_mut() {
+            if !instance.iter().any(|d| &d.name == name) {
+                entry[WORKSPACE_ONLY] = Value::Bool(true);
+            }
+        }
+    }
+    doc
+}
+
+const WORKSPACE_ONLY: &str = "workspace_only";
+
+/// A `role_overrides` entry as the document states it.
+#[derive(Deserialize)]
+struct DocumentRoleOverride {
+    #[serde(flatten)]
+    role: RoleOverride,
+    #[serde(default)]
+    workspace_only: bool,
+}
+
+/// What `operator_settings` holds for the effective `operator` role: the column is rewritten only
+/// by the legacy endpoint, so after a role edit it holds stale flags.
+fn implied_operator_settings(
+    instance: &[RoleDefinition],
+    overrides: &RoleOverrides,
+) -> Result<Option<Value>> {
+    Ok(roles::effective_roles(instance, overrides)?
+        .iter()
+        .find(|r| r.name == roles::OPERATOR_ROLE)
+        .map(|r| roles::legacy_operator_settings(&r.capabilities)))
+}
+
 /// Protection rules by name, their rules in a fixed order so a reordered file is no change. The
 /// dev workspace lock is left out: the dev workspace setting creates and removes it.
 async fn protection_rules_document(conn: &mut PgConnection, w_id: &str) -> Result<Value> {
-    let rows = sqlx::query_as::<_, (String, i32, Vec<String>, Vec<String>)>(
-        "SELECT name, rules, bypass_groups, bypass_users FROM workspace_protection_rule
+    let rows = sqlx::query_as::<_, (String, i32, Vec<String>, Vec<String>, Value)>(
+        "SELECT name, rules, bypass_groups, bypass_users, fork_role_mapping FROM workspace_protection_rule
          WHERE workspace_id = $1 AND name <> $2 ORDER BY name",
     )
     .bind(w_id)
@@ -271,17 +313,27 @@ async fn protection_rules_document(conn: &mut PgConnection, w_id: &str) -> Resul
     .await?;
     Ok(Value::Object(
         rows.into_iter()
-            .map(|(name, bits, bypass_groups, bypass_users)| {
-                let rules = ProtectionRules::from_bits_truncate(bits);
-                let rule = json!({
-                    "rules": rule_kinds(rules),
-                    "bypass_groups": bypass_groups,
-                    "bypass_users": bypass_users,
-                });
-                (name, rule)
-            })
+            .map(
+                |(name, bits, bypass_groups, bypass_users, fork_role_mapping)| {
+                    let rules = ProtectionRules::from_bits_truncate(bits);
+                    let mut rule = json!({
+                        "rules": rule_kinds(rules),
+                        "bypass_groups": bypass_groups,
+                        "bypass_users": bypass_users,
+                    });
+                    with_fork_role_mapping(&mut rule, fork_role_mapping);
+                    (name, rule)
+                },
+            )
             .collect(),
     ))
+}
+
+/// Written only when set, so documents of rulesets that map no role read as they always did.
+fn with_fork_role_mapping(rule: &mut Value, mapping: Value) {
+    if mapping.as_object().is_some_and(|m| !m.is_empty()) {
+        rule["fork_role_mapping"] = mapping;
+    }
 }
 
 fn rule_kinds(rules: ProtectionRules) -> Value {
@@ -298,11 +350,12 @@ pub async fn load_settings_document(
 ) -> Result<Map<String, Value>> {
     let row = sqlx::query_as::<_, SettingsRow>(
         r#"SELECT
-             auto_invite, webhook, error_handler, success_handler, ai_config, large_file_storage,
+             auto_invite, webhook, webhook_events, error_handler, success_handler, variable_expiration_handler,
+             ai_config, large_file_storage,
              git_sync, default_app, default_scripts, workspace.name AS name, mute_critical_alerts,
              color, operator_settings, datatable, slack_team_id, slack_name, slack_command_script,
              slack_oauth_client_id, slack_oauth_client_secret, ducklake, dbt_warehouses, deploy_ui,
-             teams_command_script, public_app_execution_limit_per_minute, guest_access_enabled,
+             teams_command_script, public_app_execution_limit_per_minute,
              guest_jwt_public_key, guest_jwt_jwks_url, error_handler_fallback_to_instance_alerts,
              add_admins_and_developers_to_forks
          FROM workspace_settings
@@ -341,18 +394,37 @@ pub async fn load_settings_document(
     };
     let datatable_permissions = datatable_permissions_document(row.datatable.as_ref(), &role_names);
     let protection_rules = protection_rules_document(&mut *conn, w_id).await?;
+    let instance = roles::instance_roles_on(&mut *conn).await?;
+    let overrides = load_role_overrides(&mut *conn, w_id).await?;
+    let role_overrides = role_overrides_document(&overrides, &instance);
+    // Present exactly when the column is, as it always was.
+    let operator_settings = match row.operator_settings {
+        Some(stored) => Some(implied_operator_settings(&instance, &overrides)?.unwrap_or(stored)),
+        None => None,
+    };
+    let git_sync = redact_git_sync(row.git_sync);
+    let git_sync = match fork_parent(&mut *conn, w_id).await? {
+        Some(parent) => fork_git_sync_document(git_sync, parent.git_sync),
+        None => git_sync,
+    };
 
     // In the order `wmill sync pull` has always written settings.yaml. A key that predates the
     // document and is not marked `always` is written only when set, as it always was; a key
     // added since is always written, so a pulled file states it and from then on manages it.
-    let entries: [(&str, Option<Value>, bool); 31] = [
+    let entries: [(&str, Option<Value>, bool); 33] = [
         ("auto_invite", row.auto_invite, false),
         ("webhook", row.webhook.map(Value::String), false),
+        ("webhook_events", row.webhook_events.map(|e| json!(e)), true),
         ("error_handler", row.error_handler, true),
         ("success_handler", row.success_handler, true),
+        (
+            "variable_expiration_handler",
+            row.variable_expiration_handler,
+            true,
+        ),
         ("ai_config", row.ai_config, false),
         ("large_file_storage", row.large_file_storage, false),
-        ("git_sync", redact_git_sync(row.git_sync), false),
+        ("git_sync", git_sync, false),
         ("default_app", row.default_app.map(Value::String), false),
         ("default_scripts", row.default_scripts, false),
         ("name", Some(json!(row.name.unwrap_or_default())), true),
@@ -362,7 +434,8 @@ pub async fn load_settings_document(
             false,
         ),
         ("color", row.color.map(Value::String), false),
-        ("operator_settings", row.operator_settings, false),
+        ("operator_settings", operator_settings, false),
+        ("role_overrides", Some(role_overrides), true),
         (
             "datatable",
             windmill_common::workspaces::strip_datatable_permissions(row.datatable),
@@ -396,11 +469,6 @@ pub async fn load_settings_document(
         (
             "public_app_execution_limit_per_minute",
             row.public_app_execution_limit_per_minute.map(|n| json!(n)),
-            true,
-        ),
-        (
-            "guest_access_enabled",
-            Some(json!(row.guest_access_enabled.unwrap_or(false))),
             true,
         ),
         (
@@ -545,7 +613,6 @@ fn same(a: Option<&Value>, b: Option<&Value>) -> bool {
 /// Switches the endpoint stores as `false` when cleared, compared as `false` when unset.
 const FALSE_WHEN_UNSET: &[&str] = &[
     "mute_critical_alerts",
-    "guest_access_enabled",
     "add_admins_and_developers_to_forks",
     "error_handler_fallback_to_instance_alerts",
 ];
@@ -670,11 +737,17 @@ fn resolve_secret(
     }
 }
 
+/// Keys earlier versions wrote that no longer configure anything. A synced `settings.yaml`
+/// keeps them until its next pull, so they are dropped without the unknown-key warning.
+const RETIRED_KEYS: &[&str] = &["guest_access_enabled"];
+
 const KNOWN_KEYS: &[&str] = &[
     "auto_invite",
     "webhook",
+    "webhook_events",
     "error_handler",
     "success_handler",
+    "variable_expiration_handler",
     "ai_config",
     "large_file_storage",
     "git_sync",
@@ -684,6 +757,7 @@ const KNOWN_KEYS: &[&str] = &[
     "mute_critical_alerts",
     "color",
     "operator_settings",
+    "role_overrides",
     "datatable",
     "slack_team_id",
     "slack_name",
@@ -695,7 +769,6 @@ const KNOWN_KEYS: &[&str] = &[
     "deploy_ui",
     "teams_command_script",
     "public_app_execution_limit_per_minute",
-    "guest_access_enabled",
     "guest_jwt_public_key",
     "guest_jwt_jwks_url",
     "error_handler_fallback_to_instance_alerts",
@@ -847,29 +920,214 @@ fn normalize_protection_rules(v: &Value, warnings: &mut Vec<String>) -> Result<V
         let kinds: Vec<ProtectionRuleKind> =
             serde_json::from_value(rule.get("rules").cloned().unwrap_or(json!([])))
                 .map_err(|e| Error::BadRequest(format!("Invalid {what}.rules: {e}")))?;
-        out.insert(
-            name.clone(),
-            json!({
-                "rules": rule_kinds(ProtectionRules::from(&kinds)),
-                "bypass_groups": string_list(rule.get("bypass_groups"), &format!("{what}.bypass_groups"))?,
-                "bypass_users": string_list(rule.get("bypass_users"), &format!("{what}.bypass_users"))?,
-            }),
-        );
+        let fork_role_mapping: std::collections::BTreeMap<String, String> =
+            serde_json::from_value(rule.get("fork_role_mapping").cloned().unwrap_or(json!({})))
+                .map_err(|e| Error::BadRequest(format!("Invalid {what}.fork_role_mapping: {e}")))?;
+        let mut normalized = json!({
+            "rules": rule_kinds(ProtectionRules::from(&kinds)),
+            "bypass_groups": string_list(rule.get("bypass_groups"), &format!("{what}.bypass_groups"))?,
+            "bypass_users": string_list(rule.get("bypass_users"), &format!("{what}.bypass_users"))?,
+        });
+        with_fork_role_mapping(&mut normalized, json!(fork_role_mapping));
+        out.insert(name.clone(), normalized);
     }
     Ok(Value::Object(out))
 }
 
-async fn plan(db: &DB, w_id: &str, desired: Map<String, Value>, replace: bool) -> Result<Plan> {
-    let current = {
+async fn plan(db: &DB, w_id: &str, mut desired: Map<String, Value>, replace: bool) -> Result<Plan> {
+    let (mut current, fork) = {
         let mut conn = db.acquire().await?;
-        load_settings_document(&mut conn, db, w_id, SecretMode::Plain).await?
+        let current = load_settings_document(&mut conn, db, w_id, SecretMode::Plain).await?;
+        (current, fork_parent(&mut conn, w_id).await?)
     };
+    if let Some(fork) = fork {
+        // Diff against what the fork stores, not the parent's view the document shows it.
+        let own: Option<Value> =
+            sqlx::query_scalar("SELECT git_sync FROM workspace_settings WHERE workspace_id = $1")
+                .bind(w_id)
+                .fetch_optional(db)
+                .await?
+                .flatten();
+        let own = redact_git_sync(own);
+        // A malformed value is left for the endpoint to refuse.
+        let stated = match desired.get("git_sync") {
+            Some(v) if v.is_object() || v.is_null() => Some(v),
+            Some(_) => None,
+            None => replace.then_some(&Value::Null),
+        };
+        if let Some(stated) = stated {
+            let applied = fork_git_sync_to_apply(stated, own.as_ref(), fork.is_dev)?;
+            desired.insert("git_sync".to_string(), applied);
+        }
+        match own {
+            Some(own) => current.insert("git_sync".to_string(), own),
+            None => current.remove("git_sync"),
+        };
+    }
+    if !desired.contains_key("role_overrides") {
+        // A file without the roles applies `operator_settings` as it always did: diffed against
+        // the column, since against the value the document derives, an unchanged file with a
+        // stale column would undo a role edit made since.
+        let column: Option<Value> = sqlx::query_scalar(
+            "SELECT operator_settings FROM workspace_settings WHERE workspace_id = $1",
+        )
+        .bind(w_id)
+        .fetch_optional(db)
+        .await?
+        .flatten();
+        match column {
+            Some(column) => current.insert("operator_settings".to_string(), column),
+            None => current.remove("operator_settings"),
+        };
+    }
     let mc = build_crypt(db, w_id).await?;
     let names = match desired.get("datatable_permissions") {
         Some(v) if !v.is_null() => DatatableNames::load(db, w_id, v).await?,
         _ => DatatableNames::default(),
     };
-    plan_document(current, desired, replace, &mc, &names)
+    let instance = roles::instance_roles(db).await?;
+    plan_document(current, desired, replace, &mc, &names, &instance)
+}
+
+/// A fork's parent, read for its `git_sync`.
+struct ForkParent {
+    /// As the parent's own document states it: a fork of a fork shares the root's file too.
+    git_sync: Option<Value>,
+    /// Of the fork itself.
+    is_dev: bool,
+}
+
+/// `Some` when `w_id` is a fork, by the same test as
+/// `reject_parent_only_git_sync_settings_on_fork`.
+async fn fork_parent(conn: &mut PgConnection, w_id: &str) -> Result<Option<ForkParent>> {
+    // The workspace itself, then its ancestors nearest first; the depth bound only guards
+    // against a cycle.
+    let mut chain: Vec<(bool, Option<Value>)> = sqlx::query_as(
+        "WITH RECURSIVE chain AS (
+             SELECT id, parent_workspace_id, is_dev_workspace, 0 AS depth
+             FROM workspace WHERE id = $1
+             UNION ALL
+             SELECT w.id, w.parent_workspace_id, w.is_dev_workspace, c.depth + 1 FROM workspace w
+             JOIN chain c ON w.id = c.parent_workspace_id WHERE c.depth < 32
+         )
+         SELECT c.is_dev_workspace, s.git_sync FROM chain c
+         LEFT JOIN workspace_settings s ON s.workspace_id = c.id
+         ORDER BY c.depth",
+    )
+    .bind(w_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let is_dev = !chain.is_empty() && chain.remove(0).0;
+    if chain.is_empty() && !w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) {
+        return Ok(None);
+    }
+    let git_sync = chain.into_iter().rev().fold(None, |above, (_, own)| {
+        fork_git_sync_document(redact_git_sync(own), above)
+    });
+    Ok(Some(ForkParent { git_sync, is_dev }))
+}
+
+// A fork shares its parent's settings.yaml (the CLI maps `wm-fork/<branch>/<id>` to the parent's
+// entry), so its `git_sync` there is the parent's. Of it, a fork applies only what selects the
+// items synced, on the repos it carries: the keys listed here, and a repo's `settings` when
+// neither side uses workspace-level filters. Auto-pull, fork PRs and promotion mode are not a
+// fork's to take (`reject_parent_only_git_sync_settings_on_fork`), and any other field stays the
+// fork's own. The fork's document is the parent's block with the fork's values for the same keys,
+// the inverse of the apply, so a merge of the fork's branch changes only them in the parent.
+const FORK_SYNCED_REPO_KEYS: [&str; 2] = ["exclude_types_override", "group_by_folder"];
+
+fn repos(git_sync: Option<&Value>) -> &[Value] {
+    git_sync
+        .and_then(|g| g.get("repositories"))
+        .and_then(Value::as_array)
+        .map_or(&[], Vec::as_slice)
+}
+
+fn same_repo<'a>(repos: &'a [Value], repo: &Value) -> Option<&'a Value> {
+    let path = repo.get("git_repo_resource_path")?;
+    repos
+        .iter()
+        .find(|r| r.get("git_repo_resource_path") == Some(path))
+}
+
+/// Whether repos fall back to the workspace-level filters, where an empty or missing `settings`
+/// list means "use the workspace's". A repo's filters cross only when neither side does, as
+/// that layout cannot state some of what the other can. Only these two are fallen back to on
+/// their own (`exclude_path`/`extra_include_path` only beside `include_path`), and the save
+/// leaves the other two behind once every repo has migrated.
+fn uses_workspace_filters(git_sync: &Value) -> bool {
+    ["include_path", "include_type"]
+        .iter()
+        .any(|k| !is_null(git_sync.get(*k)))
+}
+
+/// An unset key and a null one are left as they are: stored blobs differ in which they write, and
+/// swapping one for the other would show in settings.yaml as a change.
+fn copy_keys(onto: &mut Map<String, Value>, from: &Value, keys: &[&str]) {
+    for key in keys {
+        if is_null(from.get(*key)) && is_null(onto.get(*key)) {
+            continue;
+        }
+        match from.get(*key) {
+            Some(v) => onto.insert(key.to_string(), v.clone()),
+            None => onto.remove(*key),
+        };
+    }
+}
+
+/// Sets `onto` to `from`'s values for the synced keys, on each repo `from` also lists.
+fn copy_synced_keys(onto: &mut Value, from: &Value) {
+    let filters = !uses_workspace_filters(onto) && !uses_workspace_filters(from);
+    let from_repos = repos(Some(from));
+    let Some(repos) = onto.get_mut("repositories").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for repo in repos {
+        let Some(src) = same_repo(from_repos, repo) else {
+            continue;
+        };
+        if let Some(repo) = repo.as_object_mut() {
+            copy_keys(repo, src, &FORK_SYNCED_REPO_KEYS);
+            if filters {
+                copy_keys(repo, src, &["settings"]);
+            }
+        }
+    }
+}
+
+/// The fork's `git_sync` as its settings.yaml states it.
+fn fork_git_sync_document(own: Option<Value>, parent: Option<Value>) -> Option<Value> {
+    let Some(mut doc) = parent else {
+        return own;
+    };
+    if let Some(own) = &own {
+        copy_synced_keys(&mut doc, own);
+    }
+    Some(doc)
+}
+
+/// What a fork applies of the `git_sync` its settings.yaml states. Only a dev workspace may hold
+/// a promotion repo, and one detached from dev still stores its own: it is dropped so the write
+/// passes the save's check.
+fn fork_git_sync_to_apply(stated: &Value, own: Option<&Value>, is_dev: bool) -> Result<Value> {
+    if stated.get("repositories").is_some_and(|r| !r.is_array()) {
+        return Err(Error::BadRequest(
+            "git_sync.repositories must be a list".to_string(),
+        ));
+    }
+    let Some(mut applied) = own.cloned() else {
+        return Ok(Value::Null);
+    };
+    copy_synced_keys(&mut applied, stated);
+    if !is_dev {
+        if let Some(repos) = applied
+            .get_mut("repositories")
+            .and_then(Value::as_array_mut)
+        {
+            repos.retain(|r| r.get("use_individual_branch") != Some(&Value::Bool(true)));
+        }
+    }
+    Ok(applied)
 }
 
 fn plan_document(
@@ -878,17 +1136,23 @@ fn plan_document(
     replace: bool,
     mc: &windmill_common::variables::WorkspaceCrypt,
     names: &DatatableNames,
+    instance: &[RoleDefinition],
 ) -> Result<Plan> {
     let mut warnings = vec![];
     let unknown: Vec<&str> = desired
         .keys()
         .map(String::as_str)
-        .filter(|k| !KNOWN_KEYS.contains(k))
+        .filter(|k| !KNOWN_KEYS.contains(k) && !RETIRED_KEYS.contains(k))
         .collect();
     if !unknown.is_empty() {
         warnings.push(format!("Ignored unknown settings: {}", unknown.join(", ")));
     }
-    for key in ["auto_invite", "error_handler", "success_handler"] {
+    for key in [
+        "auto_invite",
+        "error_handler",
+        "success_handler",
+        "variable_expiration_handler",
+    ] {
         if desired
             .get(key)
             .is_some_and(|v| !v.is_null() && !v.is_object())
@@ -924,6 +1188,20 @@ fn plan_document(
     ] {
         typed(key, desired.get(key), Value::is_string, "a string")?;
     }
+    if let Some(events) = desired.get("webhook_events").filter(|v| !v.is_null()) {
+        let known = windmill_common::webhook::webhook_event_types();
+        let valid = events.as_array().is_some_and(|a| {
+            !a.is_empty()
+                && a.iter()
+                    .all(|e| e.as_str().is_some_and(|e| known.contains(&e)))
+        });
+        if !valid {
+            return Err(Error::BadRequest(format!(
+                "webhook_events must be null (every event) or a non-empty list of event types among: {}",
+                known.join(", ")
+            )));
+        }
+    }
     typed(
         "public_app_execution_limit_per_minute",
         desired.get("public_app_execution_limit_per_minute"),
@@ -951,6 +1229,24 @@ fn plan_document(
             Value::is_boolean,
             "a boolean",
         ),
+        (
+            "variable_expiration_handler",
+            "muted_on_user_path",
+            Value::is_boolean,
+            "a boolean",
+        ),
+        (
+            "variable_expiration_handler",
+            "notify_before_secs",
+            |v: &Value| v.as_u64().is_some_and(|n| n <= u32::MAX as u64),
+            "a non-negative number of seconds",
+        ),
+        (
+            "variable_expiration_handler",
+            "remind_every_secs",
+            |v: &Value| v.as_u64().is_some_and(|n| n <= u32::MAX as u64),
+            "a non-negative number of seconds",
+        ),
     ] {
         let v = desired.get(parent).and_then(|p| p.get(key));
         typed(&format!("{parent}.{key}"), v, ok, ty)?;
@@ -964,14 +1260,19 @@ fn plan_document(
         let v = normalize_protection_rules(v, &mut warnings)?;
         desired.insert("protection_rules".to_string(), v);
     }
-    // The endpoint stores an omitted mute flag as `false`.
-    if let Some(handler) = desired
-        .get_mut("error_handler")
-        .and_then(Value::as_object_mut)
-    {
-        for key in ["muted_on_cancel", "muted_on_user_path"] {
-            if is_null(handler.get(key)) {
-                handler.insert(key.to_string(), Value::Bool(false));
+    // The endpoints store an omitted mute flag as `false`.
+    for (handler, keys) in [
+        (
+            "error_handler",
+            &["muted_on_cancel", "muted_on_user_path"][..],
+        ),
+        ("variable_expiration_handler", &["muted_on_user_path"][..]),
+    ] {
+        if let Some(handler) = desired.get_mut(handler).and_then(Value::as_object_mut) {
+            for key in keys {
+                if is_null(handler.get(*key)) {
+                    handler.insert(key.to_string(), Value::Bool(false));
+                }
             }
         }
     }
@@ -988,12 +1289,29 @@ fn plan_document(
     let stated: Vec<String> = desired.keys().cloned().collect();
     let mut p = Plan { current, desired, replace, changes: vec![], writes: vec![], warnings };
 
+    // Before every other setting, so an instance group mapping or invite can name a role the
+    // file adds; a workspace-only role it removes is dropped last, after whatever named it.
+    let deferred_roles = plan_role_overrides(&mut p, instance)?;
+
     let webhook = p.legacy("webhook");
+    // The endpoint clears the URL when the body omits it, so the events write sends it along.
+    let url = webhook
+        .clone()
+        .or_else(|| p.current.get("webhook").cloned())
+        .unwrap_or(Value::Null);
     p.simple(
         "webhook",
         webhook,
         Target::Edit(SettingsEdit::Webhook),
         |v| json!({ "webhook": v }),
+    );
+
+    let events = p.managed("webhook_events");
+    p.simple(
+        "webhook_events",
+        events,
+        Target::Edit(SettingsEdit::Webhook),
+        |v| json!({ "webhook": url, "events": v }),
     );
 
     if let Some(auto_invite) = p.legacy("auto_invite") {
@@ -1118,6 +1436,23 @@ fn plan_document(
         |v| json!({ "path": v.get("path"), "extra_args": v.get("extra_args") }),
     );
 
+    // Managed only when stated, like every key added after the document.
+    let variable_expiration_handler = p.managed("variable_expiration_handler");
+    p.simple(
+        "variable_expiration_handler",
+        variable_expiration_handler,
+        Target::Edit(SettingsEdit::VariableExpirationHandler),
+        |v| {
+            json!({
+                "path": v.get("path"),
+                "extra_args": v.get("extra_args"),
+                "muted_on_user_path": v.get("muted_on_user_path").and_then(Value::as_bool).unwrap_or(false),
+                "notify_before_secs": v.get("notify_before_secs"),
+                "remind_every_secs": v.get("remind_every_secs"),
+            })
+        },
+    );
+
     let lfs = p.legacy("large_file_storage");
     p.simple(
         "large_file_storage",
@@ -1171,7 +1506,13 @@ fn plan_document(
         |v| json!({ "color": v }),
     );
 
-    if let Some(desired) = p.managed("operator_settings").filter(|o| !o.is_null()) {
+    // A file that states the roles applies the operator role through them alone: the legacy key
+    // beside them would otherwise re-grant or withdraw flags the file's roles do not hold.
+    let roles_stated = p.managed("role_overrides").is_some();
+    if let Some(desired) = p
+        .managed("operator_settings")
+        .filter(|o| !o.is_null() && !roles_stated)
+    {
         // The endpoint keeps the stored value of a write right the document omits, so an
         // older document must not count as differing on those keys.
         let mut compared = desired.clone();
@@ -1306,14 +1647,6 @@ fn plan_document(
         |v| json!({ "public_app_execution_limit_per_minute": v }),
     );
 
-    let guest_access = null_as_false(p.managed("guest_access_enabled"));
-    p.simple(
-        "guest_access_enabled",
-        guest_access,
-        Target::Edit(SettingsEdit::GuestAccess),
-        |v| json!({ "guest_access_enabled": v.as_bool().unwrap_or(false) }),
-    );
-
     let (public_key, jwks_url) = (
         p.managed("guest_jwt_public_key"),
         p.managed("guest_jwt_jwks_url"),
@@ -1367,9 +1700,23 @@ fn plan_document(
             .iter()
             .any(|k| c.key == *k || c.key.starts_with(&format!("{k}.")))
     });
-    if replace && !changes_stated {
+    if replace && !changes_stated && deferred_roles.is_none() {
         p.changes.clear();
         p.writes.clear();
+    }
+
+    match deferred_roles {
+        Some((Some(after), body)) => {
+            p.record("role_overrides", after);
+            p.write(Target::Edit(SettingsEdit::RoleOverrides), body);
+        }
+        // Recorded with the staged write.
+        Some((None, body)) => p.writes.push(Write {
+            target: Target::Edit(SettingsEdit::RoleOverrides),
+            body,
+            keys: vec![],
+        }),
+        None => {}
     }
 
     // Refused here rather than by the endpoint, so a dry run already says so.
@@ -1387,6 +1734,117 @@ fn plan_document(
     }
 
     Ok(p)
+}
+
+/// Plans `role_overrides`, stated as a whole: a role the map omits loses its override. Refuses,
+/// before any setting is written, an override of a role the instance does not define. When the
+/// file removes a workspace-only role, the role is kept until the final write it returns (with
+/// the change still to record, unless a staged write recorded it), so the in-use check passes
+/// once the settings naming the role have been rewritten.
+fn plan_role_overrides(
+    p: &mut Plan,
+    instance: &[RoleDefinition],
+) -> Result<Option<(Option<Value>, Value)>> {
+    let Some(desired) = p.managed("role_overrides") else {
+        return Ok(None);
+    };
+    let stated: BTreeMap<String, DocumentRoleOverride> = if desired.is_null() {
+        BTreeMap::new()
+    } else {
+        serde_json::from_value(desired)
+            .map_err(|e| Error::BadRequest(format!("Invalid role_overrides: {e}")))?
+    };
+    let previous: RoleOverrides = object_of(p.current.get("role_overrides"))
+        .into_iter()
+        .filter_map(|(name, v)| {
+            Some((
+                name,
+                serde_json::from_value::<DocumentRoleOverride>(v).ok()?.role,
+            ))
+        })
+        .collect();
+    let defined = |name: &str| instance.iter().any(|d| d.name == name);
+    let mut errors = vec![];
+    for (name, o) in &stated {
+        match (defined(name), o.workspace_only) {
+            (true, true) => errors.push(format!(
+                "role_overrides marks `{name}` as workspace_only, but this instance defines it: \
+                 remove `workspace_only` to override the instance role"
+            )),
+            // An unmarked entry from a file pulled before the marker existed still round-trips
+            // a role the workspace already has.
+            (false, false) if !previous.contains_key(name) => errors.push(format!(
+                "role_overrides overrides role `{name}`, which this instance does not define: \
+                 define it in the instance settings (Workspace roles) first, or set \
+                 `workspace_only: true` on the entry to add it as a role of this workspace only"
+            )),
+            _ => {}
+        }
+    }
+    if !errors.is_empty() {
+        return Err(Error::BadRequest(errors.join("; ")));
+    }
+    let next: RoleOverrides = stated.into_iter().map(|(n, o)| (n, o.role)).collect();
+
+    // Silent only for a legacy key left as pulled, or agreeing with the role it is not applied to.
+    if let (Some(legacy), Some(implied)) = (
+        p.managed("operator_settings").filter(Value::is_object),
+        implied_operator_settings(instance, &next)?,
+    ) {
+        let pulled = implied_operator_settings(instance, &previous)?;
+        if legacy_operator_settings_differ(&legacy, &implied)
+            && pulled.is_none_or(|b| legacy_operator_settings_differ(&legacy, &b))
+        {
+            p.warnings.push(
+                "operator_settings was not applied: role_overrides.operator is what applies. \
+                 Edit the operator role there, or pull again to refresh operator_settings."
+                    .to_string(),
+            );
+        }
+    }
+
+    let after = role_overrides_document(&next, instance);
+    if !p.differs("role_overrides", &after) {
+        return Ok(None);
+    }
+    roles::validate_overrides(instance, &next)?;
+    roles::check_frozen_overrides(instance, &previous, &next)?;
+    let body = |o: &RoleOverrides| {
+        serde_json::to_value(o)
+            .map_err(|e| Error::internal_err(format!("serializing role overrides: {e:#}")))
+    };
+    let mut staged = next.clone();
+    for (name, o) in &previous {
+        if !next.contains_key(name) && !defined(name) {
+            staged.insert(name.clone(), o.clone());
+        }
+    }
+    if staged == next {
+        p.record("role_overrides", after);
+        p.write(Target::Edit(SettingsEdit::RoleOverrides), body(&next)?);
+        return Ok(None);
+    }
+    if staged == previous {
+        return Ok(Some((Some(after), body(&next)?)));
+    }
+    p.record("role_overrides", after);
+    p.write(Target::Edit(SettingsEdit::RoleOverrides), body(&staged)?);
+    Ok(Some((None, body(&next)?)))
+}
+
+/// Whether the endpoint would apply `stated` as something other than `reference`: it keeps the
+/// stored value of an omitted write right, and reads an omitted visibility flag as `false`.
+fn legacy_operator_settings_differ(stated: &Value, reference: &Value) -> bool {
+    object_of(Some(reference)).iter().any(|(key, value)| {
+        let kept = matches!(
+            key.as_str(),
+            "builder_flows" | "builder_apps" | "manage_schedules" | "manage_triggers"
+        );
+        match stated.get(key) {
+            Some(v) => v != value,
+            None => !kept && value != &Value::Bool(false),
+        }
+    })
 }
 
 fn object_of(v: Option<&Value>) -> Map<String, Value> {
@@ -1537,6 +1995,7 @@ fn plan_protection_rules(p: &mut Plan, desired: Value) {
                 "rules": r.get("rules"),
                 "bypass_groups": r.get("bypass_groups"),
                 "bypass_users": r.get("bypass_users"),
+                "fork_role_mapping": r.get("fork_role_mapping").cloned().unwrap_or(json!({})),
             })
         };
         match (before, after) {
@@ -1707,6 +2166,23 @@ mod tests {
         v.as_object().unwrap().clone()
     }
 
+    fn plan_document(
+        current: Map<String, Value>,
+        desired: Map<String, Value>,
+        replace: bool,
+        mc: &WorkspaceCrypt,
+        names: &DatatableNames,
+    ) -> Result<Plan> {
+        super::plan_document(
+            current,
+            desired,
+            replace,
+            mc,
+            names,
+            &roles::default_instance_roles(),
+        )
+    }
+
     fn keys(p: &Plan) -> Vec<&str> {
         p.changes.iter().map(|c| c.key.as_str()).collect()
     }
@@ -1722,6 +2198,34 @@ mod tests {
             "guest_jwt_jwks_url": null,
             "public_app_execution_limit_per_minute": 5,
         }))
+    }
+
+    #[test]
+    fn webhook_events_write_keeps_the_url() {
+        let mc = WorkspaceCrypt::new("k");
+        let names = DatatableNames::default();
+        let d = doc(json!({ "webhook_events": ["CreateScript"] }));
+        let p = plan_document(current(), d, false, &mc, &names).unwrap();
+        assert_eq!(keys(&p), ["webhook_events"]);
+        assert_eq!(
+            p.writes[0].body,
+            json!({ "webhook": "https://a", "events": ["CreateScript"] })
+        );
+
+        let d = doc(json!({ "webhook": "https://b", "webhook_events": null }));
+        let mut cur = current();
+        cur.insert("webhook_events".into(), json!(["CreateScript"]));
+        let p = plan_document(cur, d, false, &mc, &names).unwrap();
+        assert_eq!(keys(&p), ["webhook", "webhook_events"]);
+        assert_eq!(
+            p.writes[1].body,
+            json!({ "webhook": "https://b", "events": null })
+        );
+
+        for bad in [json!(["NotAnEvent"]), json!([])] {
+            let d = doc(json!({ "webhook_events": bad }));
+            assert!(plan_document(current(), d, false, &mc, &names).is_err());
+        }
     }
 
     #[test]
@@ -1773,13 +2277,24 @@ mod tests {
     #[test]
     fn unset_switches_compare_as_false() {
         let mc = WorkspaceCrypt::new("k");
-        let d = doc(json!({ "mute_critical_alerts": false, "guest_access_enabled": null }));
+        let d = doc(json!({
+            "mute_critical_alerts": false,
+            "add_admins_and_developers_to_forks": null
+        }));
         assert!(
             plan_document(current(), d, false, &mc, &DatatableNames::default())
                 .unwrap()
                 .changes
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn retired_keys_are_dropped_without_a_warning() {
+        let mc = WorkspaceCrypt::new("k");
+        let d = doc(json!({ "guest_access_enabled": true }));
+        let p = plan_document(current(), d, false, &mc, &DatatableNames::default()).unwrap();
+        assert!(p.changes.is_empty() && p.writes.is_empty() && p.warnings.is_empty());
     }
 
     #[test]
@@ -1798,7 +2313,6 @@ mod tests {
     fn mistyped_values_are_refused_rather_than_coerced() {
         let mc = WorkspaceCrypt::new("k");
         for d in [
-            json!({ "guest_access_enabled": "true" }),
             json!({ "add_admins_and_developers_to_forks": 1 }),
             json!({ "slack_oauth_client_id": 123 }),
             json!({ "error_handler": { "path": "f/x", "muted_on_cancel": "yes" } }),
@@ -1837,6 +2351,29 @@ mod tests {
         let d = doc(json!({ "error_handler": { "path": "f/x", "extra_args": {} } }));
         let p = plan_document(cur, d, false, &mc, &DatatableNames::default()).unwrap();
         assert!(p.changes.is_empty(), "{:?}", keys(&p));
+    }
+
+    #[test]
+    fn variable_expiration_handler_is_managed_only_when_stated() {
+        let mc = WorkspaceCrypt::new("k");
+        let names = DatatableNames::default();
+        let mut cur = current();
+        cur.insert(
+            "variable_expiration_handler".into(),
+            json!({ "path": "script/f/x", "muted_on_user_path": false }),
+        );
+        let omitted = doc(json!({ "webhook": "https://b" }));
+        let p = plan_document(cur.clone(), omitted, true, &mc, &names).unwrap();
+        assert!(!keys(&p).contains(&"variable_expiration_handler"));
+
+        let same = doc(json!({ "variable_expiration_handler": { "path": "script/f/x" } }));
+        let p = plan_document(cur.clone(), same, false, &mc, &names).unwrap();
+        assert!(p.changes.is_empty(), "{:?}", keys(&p));
+
+        let cleared = doc(json!({ "variable_expiration_handler": null }));
+        let p = plan_document(cur, cleared, false, &mc, &names).unwrap();
+        assert_eq!(keys(&p), ["variable_expiration_handler"]);
+        assert_eq!(p.writes[0].body["path"], Value::Null);
     }
 
     #[cfg(all(feature = "private", feature = "enterprise"))]
@@ -1923,6 +2460,107 @@ mod tests {
     }
 
     #[test]
+    fn role_overrides_name_only_roles_the_instance_defines_or_marks() {
+        let mc = WorkspaceCrypt::new("k");
+        let names = DatatableNames::default();
+        let mut cur = current();
+        cur.insert(
+            "role_overrides".into(),
+            json!({ "auditor": { "workspace_only": true, "capabilities": { "code": false } } }),
+        );
+        let plan = |roles: Value| {
+            plan_document(
+                cur.clone(),
+                doc(json!({ "webhook": "https://b", "role_overrides": roles })),
+                false,
+                &mc,
+                &names,
+            )
+        };
+
+        // An override of a role the instance lacks refuses the whole document.
+        let err = plan(json!({ "reviewer": { "capabilities": { "code": false } } }))
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("`reviewer`"), "{err}");
+        assert!(plan(json!({ "operator": { "workspace_only": true } })).is_err());
+
+        // A file pulled before the marker still states the workspace's own role.
+        let p = plan(json!({ "auditor": { "capabilities": { "code": false } } })).unwrap();
+        assert_eq!(keys(&p), ["webhook"]);
+    }
+
+    #[test]
+    fn operator_settings_is_not_applied_beside_the_roles() {
+        let mc = WorkspaceCrypt::new("k");
+        let names = DatatableNames::default();
+        let mut cur = current();
+        cur.insert("role_overrides".into(), json!({}));
+        let pulled = roles::legacy_operator_settings(&roles::RoleCapabilities::OPERATOR);
+        let mut edited = pulled.clone();
+        edited["builder_flows"] = json!(true);
+        let plan = |legacy: &Value, roles: Value| {
+            let d = doc(json!({ "operator_settings": legacy, "role_overrides": roles }));
+            plan_document(cur.clone(), d, false, &mc, &names).unwrap()
+        };
+
+        let p = plan(&pulled, json!({}));
+        assert!(p.writes.is_empty() && p.warnings.is_empty());
+
+        let p = plan(
+            &pulled,
+            json!({ "operator": { "capabilities": { "flows": "compose" } } }),
+        );
+        assert_eq!(keys(&p), ["role_overrides"]);
+        assert!(p.warnings.is_empty());
+
+        let p = plan(&edited, json!({}));
+        assert!(p.writes.is_empty());
+        assert_eq!(p.warnings.len(), 1);
+    }
+
+    #[cfg(feature = "enterprise")]
+    #[test]
+    fn workspace_only_roles_are_added_first_and_removed_last() {
+        let mc = WorkspaceCrypt::new("k");
+        let mut cur = current();
+        cur.insert(
+            "role_overrides".into(),
+            json!({ "auditor": { "workspace_only": true, "capabilities": {} } }),
+        );
+        cur.insert(
+            "auto_invite".into(),
+            json!({ "instance_groups": ["g"], "instance_groups_roles": { "g": "auditor" } }),
+        );
+        let d = doc(json!({
+            "role_overrides": { "reviewer": { "workspace_only": true, "capabilities": {} } },
+            "auto_invite": { "instance_groups": ["g"], "instance_groups_roles": { "g": "reviewer" } },
+        }));
+        let p = plan_document(cur.clone(), d, false, &mc, &DatatableNames::default()).unwrap();
+        assert_eq!(keys(&p), ["role_overrides", "auto_invite.instance_groups"]);
+        let bodies: Vec<_> = p.writes.iter().map(|w| (&w.target, &w.body)).collect();
+        assert!(matches!(
+            bodies.as_slice(),
+            [
+                (Target::Edit(SettingsEdit::RoleOverrides), staged),
+                (Target::Edit(SettingsEdit::InstanceGroups), _),
+                (Target::Edit(SettingsEdit::RoleOverrides), last),
+            ] if staged.get("auditor").is_some() && staged.get("reviewer").is_some()
+                && last.get("auditor").is_none()
+        ));
+
+        // A push removing only the role still clears what the file omits.
+        let d = doc(json!({ "role_overrides": {} }));
+        let p = plan_document(cur, d, true, &mc, &DatatableNames::default()).unwrap();
+        assert!(keys(&p).contains(&"webhook"));
+        assert!(matches!(
+            p.writes.last().unwrap().target,
+            Target::Edit(SettingsEdit::RoleOverrides)
+        ));
+    }
+
+    #[test]
     fn protection_rules_are_diffed_by_name() {
         let mc = WorkspaceCrypt::new("k");
         let mut cur = current();
@@ -1931,7 +2569,8 @@ mod tests {
             json!({ "old": { "rules": ["DisableWorkspaceForking"], "bypass_groups": [], "bypass_users": [] } }),
         );
         let d = doc(json!({ "protection_rules": {
-            "new": { "rules": ["RestrictPublicRunSharing", "DisableDirectDeployment"] },
+            "new": { "rules": ["RestrictPublicRunSharing", "DisableDirectDeployment"],
+                     "fork_role_mapping": { "operator": "developer" } },
             "dev_workspace_lock": { "rules": [] },
         } }));
         let p = plan_document(cur, d, false, &mc, &DatatableNames::default()).unwrap();
@@ -1939,12 +2578,108 @@ mod tests {
         assert_eq!(
             p.writes[0].body,
             json!({ "name": "new", "rules": ["DisableDirectDeployment", "RestrictPublicRunSharing"],
-                    "bypass_groups": [], "bypass_users": [] })
+                    "bypass_groups": [], "bypass_users": [],
+                    "fork_role_mapping": { "operator": "developer" } })
         );
         assert!(matches!(
             p.writes[1].target,
             Target::Edit(SettingsEdit::DeleteProtectionRule)
         ));
         assert_eq!(p.warnings.len(), 1);
+    }
+
+    #[test]
+    fn a_fork_applies_only_the_synced_keys_of_the_repos_it_carries() {
+        let parent = json!({ "repositories": [
+            { "git_repo_resource_path": "f/r", "settings": { "include_path": ["f/**"] },
+              "auto_pull": { "enabled": true, "sync_forks": true }, "fork_open_prs": true },
+            { "git_repo_resource_path": "f/promo", "use_individual_branch": true },
+        ] });
+        // A dev workspace's promotion repo is the repo the parent syncs normally.
+        let fork = json!({ "repositories": [
+            { "git_repo_resource_path": "f/own" },
+            { "git_repo_resource_path": "f/r", "settings": { "include_path": ["u/**"] },
+              "use_individual_branch": true, "auto_pull": { "enabled": false } },
+        ] });
+        assert_eq!(
+            fork_git_sync_to_apply(&parent, Some(&fork), true).unwrap(),
+            json!({ "repositories": [
+                { "git_repo_resource_path": "f/own" },
+                { "git_repo_resource_path": "f/r", "settings": { "include_path": ["f/**"] },
+                  "use_individual_branch": true, "auto_pull": { "enabled": false } },
+            ] })
+        );
+
+        // The fork's document is the parent's block with the fork's synced keys, and applying it
+        // back to the fork is a no-op.
+        let shown = fork_git_sync_document(Some(fork.clone()), Some(parent.clone())).unwrap();
+        assert_eq!(
+            shown,
+            json!({ "repositories": [
+                { "git_repo_resource_path": "f/r", "settings": { "include_path": ["u/**"] },
+                  "auto_pull": { "enabled": true, "sync_forks": true }, "fork_open_prs": true },
+                { "git_repo_resource_path": "f/promo", "use_individual_branch": true },
+            ] })
+        );
+        assert_eq!(
+            fork_git_sync_to_apply(&shown, Some(&fork), true).unwrap(),
+            fork
+        );
+
+        // Detached from dev, the fork may no longer hold its promotion repo.
+        assert_eq!(
+            fork_git_sync_to_apply(&parent, Some(&fork), false).unwrap(),
+            json!({ "repositories": [{ "git_repo_resource_path": "f/own" }] })
+        );
+
+        // Filters cross only between two sides on per-repo settings: with workspace-level ones on
+        // either side, the fork keeps its own and the document keeps the parent's.
+        let legacy_parent = json!({ "include_path": ["f/**"], "include_type": ["script"],
+                                    "repositories": [{ "git_repo_resource_path": "f/r" }] });
+        let migrated = json!({ "repositories": [{ "git_repo_resource_path": "f/r",
+            "settings": { "include_path": ["u/**"], "include_type": [] } }] });
+        assert_eq!(
+            fork_git_sync_to_apply(&legacy_parent, Some(&migrated), false).unwrap(),
+            migrated
+        );
+        let shown =
+            fork_git_sync_document(Some(migrated.clone()), Some(legacy_parent.clone())).unwrap();
+        assert_eq!(shown, legacy_parent);
+        assert_eq!(
+            fork_git_sync_to_apply(&shown, Some(&migrated), false).unwrap(),
+            migrated
+        );
+        let legacy_fork = json!({ "include_path": ["u/**"], "include_type": ["flow"],
+                                  "repositories": [{ "git_repo_resource_path": "f/r" }] });
+        let migrated_parent = json!({ "repositories": [{ "git_repo_resource_path": "f/r",
+            "settings": { "include_path": ["f/**"], "include_type": ["script"] } }] });
+        assert_eq!(
+            fork_git_sync_document(Some(legacy_fork.clone()), Some(migrated_parent.clone())),
+            Some(migrated_parent.clone())
+        );
+        assert_eq!(
+            fork_git_sync_to_apply(&migrated_parent, Some(&legacy_fork), false).unwrap(),
+            legacy_fork
+        );
+        assert_eq!(
+            fork_git_sync_to_apply(&Value::Null, Some(&legacy_fork), false).unwrap(),
+            legacy_fork
+        );
+        // An `exclude_path` the save leaves behind after migrating is no fallback.
+        let mut leftover = migrated.clone();
+        leftover["exclude_path"] = json!(["x/**"]);
+        assert_eq!(
+            fork_git_sync_to_apply(&migrated_parent, Some(&leftover), false).unwrap()
+                ["repositories"][0]["settings"],
+            migrated_parent["repositories"][0]["settings"]
+        );
+
+        assert!(
+            fork_git_sync_to_apply(&json!({ "repositories": null }), Some(&fork), true).is_err()
+        );
+        assert_eq!(
+            fork_git_sync_to_apply(&parent, None, true).unwrap(),
+            Value::Null
+        );
     }
 }

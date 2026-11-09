@@ -19,6 +19,7 @@ use windmill_api_auth::ApiAuthed;
 use windmill_common::{
     error::{Error, Result},
     jobs::JobTriggerKind,
+    runnable_ref::RunnableRef,
     triggers::{TriggerKind, TriggerMetadata},
     utils::report_critical_error,
     worker::to_raw_value,
@@ -35,6 +36,10 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
     const JOB_TRIGGER_KIND: JobTriggerKind;
     const EXTRA_TRIGGER_AND_WHERE_CLAUSE: &[&'static str] = &[];
     const EXTRA_CAPTURE_AND_WHERE_CLAUSE: &[&'static str] = &[];
+    /// In trigger mode, open a new consumer as soon as `consume` returns while this
+    /// server still holds the lease, instead of releasing the trigger and waiting for
+    /// the lease to expire and the next claim poll.
+    const RECONNECT_ON_CONSUMER_EXIT: bool = false;
 
     async fn get_consumer(
         &self,
@@ -529,9 +534,10 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             "trigger_path".to_string(),
             to_raw_value(&listening_trigger.path),
         );
+        let runnable =
+            RunnableRef::from_path(&listening_trigger.script_path, listening_trigger.is_flow)?;
         let args = Self::build_job_args(
-            &listening_trigger.script_path,
-            listening_trigger.is_flow,
+            &runnable,
             &listening_trigger.workspace_id,
             db,
             payload,
@@ -565,8 +571,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             None,
             authed,
             &listening_trigger.workspace_id,
-            &listening_trigger.script_path,
-            listening_trigger.is_flow,
+            &runnable,
             args,
             retry,
             error_handler_path.as_deref(),
@@ -636,6 +641,22 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
     }
 }
 
+/// Upper bound on [`reconnect_delay`].
+const MAX_RECONNECT_DELAY: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Exponential backoff for the `attempt`th consecutive failure (1-based): `2^attempt`
+/// units of `base`, capped at [`MAX_RECONNECT_DELAY`].
+pub fn reconnect_delay(base: std::time::Duration, attempt: u32) -> std::time::Duration {
+    base.saturating_mul(1u32 << attempt.min(20))
+        .min(MAX_RECONNECT_DELAY)
+}
+
+/// A consumer that ran at least this long before exiting is reconnected at once; a
+/// shorter one counts as a failed attempt, so a server that accepts and immediately
+/// closes (e.g. at its per-client connection limit) is retried with backoff rather than
+/// in a hot loop.
+const MIN_STABLE_CONSUMER_RUN: std::time::Duration = std::time::Duration::from_secs(30);
+
 #[allow(unused)]
 pub async fn listening<T: Listener>(
     db: DB,
@@ -644,58 +665,66 @@ pub async fn listening<T: Listener>(
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     let killpill_rx_consumer = killpill_rx.resubscribe();
-    let killpill_rx_get_consumer = killpill_rx.resubscribe();
 
     let loop_ping_status = Arc::new(RwLock::new(None));
     let extra_state = listener.get_extra_state().await;
     let path = listening_trigger.path.clone();
+    let reconnect = T::RECONNECT_ON_CONSUMER_EXIT && listening_trigger.trigger_mode;
     tokio::select! {
         biased;
         _ = killpill_rx.recv() => {
-            let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
+            tracing::info!("[{}] Killing pill received, stopping consumer for trigger {}", T::TRIGGER_KIND, path);
         }
         _ = listener.loop_ping(&db, &listening_trigger, loop_ping_status.clone(), Some("Connecting...".to_string())) => {
-            let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
+            tracing::info!("[{}] Loop ping exited, stopping consumer for trigger {}", T::TRIGGER_KIND, path);
         }
-        consumer = {
-            tracing::info!("[{}] Getting consumer for trigger {}", T::TRIGGER_KIND, path);
-            listener.get_consumer(&db, &listening_trigger, loop_ping_status.clone(), killpill_rx_get_consumer)
-        } => {
-            tokio::select! {
-                biased;
-                _ = killpill_rx.recv() => {
-                    tracing::info!("[{}] Killing pill received, stopping consumer for trigger {}", T::TRIGGER_KIND, path);
-                    let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
-                    return;
-                }
-                _ = listener.loop_ping(&db, &listening_trigger, loop_ping_status.clone(), None) => {
-                    tracing::info!("[{}] Loop ping exited, stopping consumer for trigger {}", T::TRIGGER_KIND, path);
-                    let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
-                    return;
-                }
-                _ = async {
-                    match consumer {
-                        Ok(Some(consumer)) => {
-                            listener.update_ping_and_loop_ping_status(&db, &listening_trigger, loop_ping_status.clone(), None).await;
-                            tracing::info!("[{}] Starting consumer for trigger {}", T::TRIGGER_KIND, path);
-                            listener.consume(&db, consumer, &listening_trigger, loop_ping_status.clone(), killpill_rx_consumer, extra_state.as_ref()).await;
-                            tracing::info!("[{}] Consumer stopped for trigger {}", T::TRIGGER_KIND, path);
+        _ = async {
+            let mut short_runs = 0;
+            loop {
+                tracing::info!("[{}] Getting consumer for trigger {}", T::TRIGGER_KIND, path);
+                match listener.get_consumer(&db, &listening_trigger, loop_ping_status.clone(), killpill_rx_consumer.resubscribe()).await {
+                    Ok(Some(consumer)) => {
+                        listener.update_ping_and_loop_ping_status(&db, &listening_trigger, loop_ping_status.clone(), None).await;
+                        tracing::info!("[{}] Starting consumer for trigger {}", T::TRIGGER_KIND, path);
+                        let started = std::time::Instant::now();
+                        listener.consume(&db, consumer, &listening_trigger, loop_ping_status.clone(), killpill_rx_consumer.resubscribe(), extra_state.as_ref()).await;
+                        tracing::info!("[{}] Consumer stopped for trigger {}", T::TRIGGER_KIND, path);
+                        if !reconnect {
+                            return;
                         }
-                        Err(error) => {
-                            tracing::error!("[{}] Disabling trigger {} due to consumer error: {}", T::TRIGGER_KIND, path, error);
-                            listener.disable_with_error(&db, &listening_trigger, error.to_string()).await;
+                        if started.elapsed() >= MIN_STABLE_CONSUMER_RUN {
+                            short_runs = 0;
+                        } else {
+                            short_runs += 1;
+                            let delay = reconnect_delay(std::time::Duration::from_secs(1), short_runs);
+                            let status = loop_ping_status.read().await.clone().unwrap_or_else(|| "Consumer stopped".to_string());
+                            update_rw_lock(loop_ping_status.clone(), Some(format!("{status}. Reconnecting in {}s...", delay.as_secs()))).await;
+                            tokio::time::sleep(delay).await;
                         }
-                        Ok(None) => {
-                            tracing::error!("[{}] Consumer is None for trigger {}", T::TRIGGER_KIND, path);
+                        // `consume` may have stopped because the trigger was disabled or
+                        // edited (it can disable it itself): only reconnect while the
+                        // lease is still ours.
+                        if listener.update_ping_and_loop_ping_status(&db, &listening_trigger, loop_ping_status.clone(), Some("Reconnecting...".to_string())).await.is_none() {
+                            return;
                         }
+                        tracing::info!("[{}] Reconnecting consumer for trigger {}", T::TRIGGER_KIND, path);
                     }
-                } => {
-                    let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
-                    return;
+                    Err(error) => {
+                        tracing::error!("[{}] Disabling trigger {} due to consumer error: {}", T::TRIGGER_KIND, path, error);
+                        listener.disable_with_error(&db, &listening_trigger, error.to_string()).await;
+                        return;
+                    }
+                    Ok(None) => {
+                        tracing::error!("[{}] Consumer is None for trigger {}", T::TRIGGER_KIND, path);
+                        return;
+                    }
                 }
             }
-        }
+        } => {}
     }
+    let _ = listener
+        .cleanup(&db, &listening_trigger, extra_state.as_ref())
+        .await;
 }
 
 #[allow(unused)]

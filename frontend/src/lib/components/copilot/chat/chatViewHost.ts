@@ -1,5 +1,6 @@
 import { getContext, setContext } from 'svelte'
 import type { AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import type { AIWorkMode } from './workMode'
 import { getAiChatManager } from './aiChatManagerContext'
 import type { DisplayMessage, Tool } from './shared'
 import type { ContextElement } from './context'
@@ -7,6 +8,7 @@ import type { AttachedBlob } from './blobUtils'
 import type { AttachedImage } from './imageUtils'
 import type { AttachedTextFile } from './textFileUtils'
 import type { PasteAttachment } from './pasteTokens'
+import type { ScopeDecision } from './workingScope'
 import type { AttachedFilesStore } from './files/attachedFiles.svelte'
 import type { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
 import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
@@ -109,6 +111,7 @@ export interface ChatViewHost {
 	) => void | Promise<void>
 	handleUserQuestionAnswer: (toolId: string, choices: string[]) => boolean
 	handleToolConfirmation: (toolId: string, confirmed: boolean) => void
+	handleScopeDecision: (toolId: string, decision: ScopeDecision) => void
 	/** A tool is waiting on a run form the user is filling in. Escape belongs to that form
 	 * then, not to the turn — see AIChatDisplay's window handler. */
 	readonly hasPendingRunForm: boolean
@@ -160,6 +163,10 @@ export interface ChatViewHost {
 	readonly tools: readonly Tool<any>[]
 	autonomyMode: AIAutonomyMode
 	setAutonomyMode: (mode: AIAutonomyMode) => void
+	/** Use, Plan or Build: offered by a session chat only. */
+	readonly workModesAvailable: boolean
+	workMode: AIWorkMode
+	setWorkMode: (mode: AIWorkMode) => void
 	readonly autoAcceptEditsActive: boolean
 	readonly autoAcceptEditsAvailable: boolean
 	readonly autoAcceptToolConfirmationsAvailable: boolean

@@ -1,3 +1,10 @@
+<script lang="ts" module>
+	import { lazyModule } from '$lib/lazyModule.svelte'
+
+	// yjs and its websocket client; the menu shows nothing of it until its socket connects.
+	const multiplayerMenuModule = lazyModule(() => import('./MultiplayerMenu.svelte'))
+</script>
+
 <script lang="ts">
 	import { tick, untrack } from 'svelte'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
@@ -28,12 +35,10 @@
 	import { EXECUTIONS_HINT } from './executionsHint'
 	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
 	import { fixupUrlAfterWorkspaceSwitch } from './workspaceSwitchUrl'
-	import { goto } from '$lib/navigation'
 	import { page } from '$app/state'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import { workspaceAIClients } from '../copilot/lib'
+	import { setAiClientWorkspace } from '../copilot/aiClientWorkspace'
 	import { twMerge } from 'tailwind-merge'
 	import {
 		ambiguousWorkspaceNames,
@@ -44,6 +49,11 @@
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { workspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
 	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
+	import {
+		LONG_WORKSPACE_LIST,
+		recentWorkspaceRoots,
+		visitedWorkspaces
+	} from '$lib/utils/recentWorkspaces'
 
 	interface Props {
 		// The melt item builder of the menu (or submenu) hosting this list. Melt
@@ -79,7 +89,7 @@
 		}
 		// Read before switchWorkspace: it swaps the stores this reads out from under us.
 		const landOnHome = landsOnHome(id)
-		workspaceAIClients.init(id)
+		setAiClientWorkspace(id)
 		switchWorkspace(id)
 		// The sessions page needs no navigation here: the item's link navigation
 		// (workspaceHref) keeps the route, and the page's family reconcile swaps
@@ -161,7 +171,9 @@
 	// modal carries its own base-workspace picker). Hidden on non-premium cloud,
 	// in the admins workspace, or when forking is disabled.
 	const canForkHere = $derived(
-		(!isCloudHosted() || $maybePremium) && $workspaceStore !== 'admins' && canCreateFork($userStore, $roleCapabilities)
+		(!isCloudHosted() || $maybePremium) &&
+			$workspaceStore !== 'admins' &&
+			canCreateFork($userStore, $roleCapabilities)
 	)
 	// The row mechanics below — which family to expand, which collapsed row carries the tick — key on
 	// a depth-0 row of the list, which `buildWorkspaceHierarchy` puts at the highest workspace the
@@ -174,8 +186,7 @@
 		return ancestors.at(-1) ?? $userWorkspaces?.find((w) => w.id === id)
 	})
 
-	const SEARCH_THRESHOLD = 8
-	const showSearch = $derived(($userWorkspaces?.length ?? 0) > SEARCH_THRESHOLD)
+	const showSearch = $derived(($userWorkspaces?.length ?? 0) > LONG_WORKSPACE_LIST)
 	let searchFilter = $state('')
 	let searchMatches: (UserWorkspace & { marked?: string })[] | undefined = $state()
 	const searching = $derived(showSearch && searchFilter.trim() !== '')
@@ -224,18 +235,30 @@
 					return !!rootId && isExpanded(rootId)
 				})
 		// The family the user is standing in leads the list, its forks travelling with it: the
-		// workspace they are in is the one they look for first, and the one the tick is on.
+		// workspace they are in is the one they look for first, and the one the tick is on. The
+		// other recently entered families follow, still alphabetical, then everything else.
 		const activeRoot = lineageRoot?.id
-		if (!activeRoot) return visible
+		if (!activeRoot && recentRoots.size === 0) return visible
 		const families: { root: string | undefined; rows: typeof visible }[] = []
 		for (const h of visible) {
 			if (h.depth === 0 || families.length === 0) families.push({ root: h.workspace.id, rows: [h] })
 			else families[families.length - 1].rows.push(h)
 		}
-		const at = families.findIndex((f) => f.root === activeRoot)
-		if (at <= 0) return visible
-		const [active] = families.splice(at, 1)
-		return [active, ...families].flatMap((f) => f.rows)
+		const rank = (root: string | undefined) =>
+			root === activeRoot ? 0 : root && recentRoots.has(root) ? 1 : 2
+		return families.sort((a, b) => rank(a.root) - rank(b.root)).flatMap((f) => f.rows)
+	})
+
+	// A search ranks by match, so the recent group only orders the unfiltered list.
+	const recentRoots = $derived(
+		searching ? new Set<string>() : recentWorkspaceRoots($visitedWorkspaces, $userWorkspaces ?? [])
+	)
+	// First row below the recent group, which a divider separates from it.
+	const firstOlderWorkspaceId = $derived.by(() => {
+		if (recentRoots.size === 0) return undefined
+		const isRecent = (id: string) => id === lineageRoot?.id || recentRoots.has(id)
+		if (!isRecent(familyWorkspaces[0]?.workspace.id ?? '')) return undefined
+		return familyWorkspaces.find((h) => h.depth === 0 && !isRecent(h.workspace.id))?.workspace.id
 	})
 
 	// With the search field shown, focus stays in it: the arrows move this highlight rather than
@@ -386,6 +409,7 @@
 
 <div
 	bind:this={rootEl}
+	data-works-with-composer
 	role="none"
 	onpointermovecapture={keepSearchFocus}
 	onpointerleavecapture={keepSearchFocus}
@@ -435,9 +459,15 @@
 			{#if searching && familyWorkspaces.length === 0}
 				<div class="px-3 py-2 text-xs text-secondary">No workspaces match your search</div>
 			{/if}
+			{#if firstOlderWorkspaceId}
+				<div class="px-3 pt-1 pb-0.5 text-2xs text-secondary">Recent</div>
+			{/if}
 			{#each familyWorkspaces as { workspace, depth, isForked, parentName, separatorBefore } (workspace.id)}
 				{@const isActive = $workspaceStore === workspace.id}
 				{@const forkAccent = isForked ? forkAccentStyle(workspace.color) : undefined}
+				{#if firstOlderWorkspaceId === workspace.id}
+					<div class="my-1 border-t border-border-light" role="separator"></div>
+				{/if}
 				<!-- A search filters out sibling forks, so the divider between the user's own forks
 				     and the others would mark the wrong boundary. -->
 				{#if separatorBefore && !searching}
@@ -649,9 +679,7 @@
 							'data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900',
 							highlightedId === ACTION_PREFIX + 'upgrade' && 'bg-gray-100 text-gray-900'
 						)}
-						onClick={() => {
-							goto('/workspace_settings?tab=premium')
-						}}
+						href="/workspace_settings?tab=premium"
 						{item}
 					>
 						Upgrade
@@ -662,5 +690,7 @@
 	{/if}
 </div>
 {#if $enterpriseLicense && !strictWorkspaceSelect}
-	<MultiplayerMenu />
+	{#await multiplayerMenuModule.load() then { default: MultiplayerMenu }}
+		<MultiplayerMenu />
+	{/await}
 {/if}

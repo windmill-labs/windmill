@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import { isNewTabClick } from '$lib/navigation'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import {
 		Alert,
@@ -39,6 +40,7 @@
 	import { enterpriseLicense } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { isOwner, truncate } from '$lib/utils'
+	import { latestRequest } from '$lib/utils/latestRequest'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 	import {
@@ -47,9 +49,10 @@
 		Link,
 		Pen,
 		RefreshCw,
-		Shield,
+		UserPlus,
 		Trash,
 		Building,
+		CalendarClock,
 		DollarSign,
 		EyeOff,
 		Circle,
@@ -57,14 +60,17 @@
 	} from 'lucide-svelte'
 	import { untrack } from 'svelte'
 	import { page } from '$app/stores'
+	import { describeExternalRef, isExternalRef } from '$lib/externalSecretRef'
 	import { useHostedPage } from '$lib/components/hostedPage'
 	import {
 		useOperatingWorkspace,
-		useOperatingUser
+		useOperatingUser,
+		useReadOnlyWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
+	const readOnly = useReadOnlyWorkspace()
 	const editRights = useEditRights()
 	const hosted = useHostedPage()
 
@@ -73,9 +79,7 @@
 		else variableEditor?.editVariable(path)
 	}
 
-	type ListableVariableW = ListableVariable & { canWrite: boolean }
-
-	let variables = $state(undefined) as ListableVariableW[] | undefined
+	let variables = $state(undefined) as ListableVariable[] | undefined
 	let showCreateButtons = $state(false)
 
 	// Collect unique values for filter autocomplete
@@ -105,8 +109,8 @@
 	)
 	let filters = useUrlSyncedFilterInstance(untrack(() => variablesFilterSchema))
 	// A link can carry the user folders filter to someone it is not offered to, where it would sit
-	// set with no chip to clear it. Dropped only once a user is actually known: `resolved` holds for
-	// the navigation workspace even while its user is still loading.
+	// set with no chip to clear it. Dropped only once a user is actually known: `resolved` also
+	// holds for a lookup that came back with nobody.
 	$effect(() => {
 		if (!operatingUser.resolved($operatingWorkspace) || !operatingUser.current) return
 		if (userFoldersFilterType !== undefined) return
@@ -168,8 +172,12 @@
 		return items
 	})
 
+	const variableLoads = latestRequest()
+	const contextualLoads = latestRequest()
+
 	// If relative, the dropdown is positioned relative to its button
 	async function loadVariables(): Promise<void> {
+		const isLatest = variableLoads.start()
 		const currentFilters = filters.val
 
 		// Build API parameters from filters.
@@ -204,14 +212,8 @@
 			apiParams.label = currentFilters.label
 		}
 
-		const result = (await VariableService.listVariable(apiParams)).map((x) => {
-			return {
-				canWrite:
-					editRights.canEditItem('variable', x.path, x.extra_perms) &&
-					x.workspace_id == $operatingWorkspace,
-				...x
-			}
-		})
+		const result = await VariableService.listVariable(apiParams)
+		if (!isLatest()) return
 
 		// Extract unique values for autocomplete
 		allPaths = Array.from(new Set(result.map((x) => x.path))).sort()
@@ -246,9 +248,12 @@
 	getDeployUiSettings()
 
 	async function loadContextualVariables(): Promise<void> {
-		contextualVariables = await VariableService.listContextualVariables({
+		const isLatest = contextualLoads.start()
+		const result = await VariableService.listContextualVariables({
 			workspace: $operatingWorkspace!
 		})
+		if (!isLatest()) return
+		contextualVariables = result
 		loading.contextual = false
 	}
 
@@ -262,11 +267,8 @@
 	}
 
 	$effect(() => {
-		if ($operatingWorkspace && operatingUser.current) {
-			untrack(() => {
-				loadVariables()
-				loadContextualVariables()
-			})
+		if ($operatingWorkspace) {
+			untrack(() => loadContextualVariables())
 		}
 	})
 	let tab: 'workspace' | 'contextual' = $state('workspace')
@@ -439,9 +441,12 @@
 								</tr>
 							</Head>
 							<tbody class="divide-y">
-								{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+								{#each filteredItems as { path, value, is_secret, description, extra_perms, workspace_id, account, is_refreshed, is_expired, refresh_error, is_linked, labels, inherited_labels, ws_specific, draft_only, is_draft, value_valid_until }}
 									{@const hasDraft =
 										getLocalDraftHint($operatingWorkspace, 'variable', path) ?? is_draft}
+									{@const canWrite =
+										editRights.canEditItem('variable', path, extra_perms) &&
+										workspace_id == $operatingWorkspace}
 									<Row>
 										<Cell class="!px-0 text-center w-12" first>
 											<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -451,7 +456,8 @@
 												<a
 													class="break-all"
 													id="edit-{path}"
-													onclick={() => {
+													onclick={(e) => {
+														if (!hosted && isNewTabClick(e)) return
 														handledHash = `#${path}`
 														editVariable(path)
 													}}
@@ -487,7 +493,9 @@
 										<Cell>
 											<span class="inline-flex flex-row items-center gap-2">
 												<div class="text-xs break-words">
-													{#if value}
+													{#if is_secret && isExternalRef(value)}
+														{describeExternalRef(value ?? '')}
+													{:else if value}
 														{truncate(value, 20)}
 													{:else}
 														&lowast;&lowast;&lowast;&lowast;
@@ -516,6 +524,21 @@
 															<div>
 																This variable is linked with a resource of the same path. They are
 																deleted and renamed together.
+															</div>
+														{/snippet}
+													</Popover>
+												{/if}
+												{#if value_valid_until}
+													{@const expired = new Date(value_valid_until).getTime() <= Date.now()}
+													<Popover notClickable>
+														<CalendarClock
+															size={16}
+															class={expired ? 'text-red-600' : 'text-secondary'}
+														/>
+														{#snippet text()}
+															<div>
+																The value {expired ? 'expired' : 'expires'} on
+																{new Date(value_valid_until).toLocaleString()}.
 															</div>
 														{/snippet}
 													</Popover>
@@ -629,11 +652,11 @@
 																]
 															: []),
 														{
-															displayName: 'Permissions',
+															displayName: 'Share',
 															action: () => {
 																shareModal?.openDrawer(path, 'variable')
 															},
-															icon: Shield
+															icon: UserPlus
 														},
 														...(account != undefined
 															? [
@@ -694,8 +717,8 @@
 								headers={['Name', 'Value']}
 								data={contextualVariables.filter((x) => x.is_custom)}
 								keys={['name', 'value']}
-								getRowActions={operatingUser.current?.is_admin ||
-								operatingUser.current?.is_super_admin
+								getRowActions={!readOnly($operatingWorkspace) &&
+								(operatingUser.current?.is_admin || operatingUser.current?.is_super_admin)
 									? (row) => {
 											return [
 												{

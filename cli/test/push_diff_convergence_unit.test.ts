@@ -495,3 +495,28 @@ test("push: an unchanged custom_path is not sent", () => {
   expect(changedCustomPath("", { custom_path: "my-dashboard" })).toBe("");
   expect(changedCustomPath("new", undefined)).toBe("new");
 });
+
+const SCRIPT_META = (extra: string) =>
+  `summary: s\ndescription: ''\nlock: ''\nkind: script\n${extra}`;
+const EXPANDED_EMPTY_SCHEMA =
+  "schema:\n  $schema: https://json-schema.org/draft/2020-12/schema\n  type: object\n  properties: {}\n  required: []\n";
+
+test("push: a multi-output bundle's `.tar` digest matches the local codebase digest", async () => {
+  const remote = local({
+    "f/c/multi.script.yaml": SCRIPT_META(`codebase: abc123.tar\n${EXPANDED_EMPTY_SCHEMA}`),
+  });
+  expect(
+    await diff(
+      local({ "f/c/multi.script.yaml": SCRIPT_META(`codebase: abc123\n${EXPANDED_EMPTY_SCHEMA}`) }),
+      remote,
+      {},
+    ),
+  ).toEqual([]);
+  expect(
+    await diff(
+      local({ "f/c/multi.script.yaml": SCRIPT_META(`codebase: def456\n${EXPANDED_EMPTY_SCHEMA}`) }),
+      remote,
+      {},
+    ),
+  ).toEqual(["edited f/c/multi.script.yaml"]);
+});

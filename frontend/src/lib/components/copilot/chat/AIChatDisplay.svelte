@@ -18,24 +18,29 @@
 		MousePointer2,
 		Plug,
 		Plus,
+		SlidersHorizontal,
 		TextSelect,
 		X,
 		XIcon
 	} from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { pendingUserAction, pendingUserActionDetail, type DisplayMessage } from './shared'
 	import AutonomyModePicker from './AutonomyModePicker.svelte'
 	import { availableAutonomyModeOptions, resolveAutonomyMode } from './autonomyModes'
-	import { PLAN_MODE_MESSAGES } from './planModeMessages'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
 	import ScrollFade from '$lib/components/ScrollFade.svelte'
-	import AssistantSettingsModal from './AssistantSettingsModal.svelte'
+	import AssistantSettingsModal, {
+		type AssistantSettingsSection
+	} from './AssistantSettingsModal.svelte'
+	import WorkingInPicker from './WorkingInPicker.svelte'
+	import { scopeLabel } from './workingScope'
 	import { SkillsMenu } from './skills/skillsMenu.svelte'
 	import { McpMenu } from '$lib/components/mcp/mcpMenu.svelte'
 	import ChatMode from './ChatMode.svelte'
@@ -44,13 +49,18 @@
 	import Markdown from 'svelte-exmarkdown'
 	import { twMerge } from 'tailwind-merge'
 	import { AIAutonomyMode, AIMode } from './AIChatManager.svelte'
+	import { AIWorkMode, type WorkModeLock } from './workMode'
 	import { getChatViewHost } from './chatViewHost'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
 	import ToolGroupDisplay from './ToolGroupDisplay.svelte'
 	import { chatItemKey, createChatItemGrouper } from './toolGroups'
 	import AIChatInput from './AIChatInput.svelte'
-	import { STARTER_PLACEHOLDER, type ComposerSelection } from './composerBox'
+	import {
+		STARTER_PLACEHOLDER,
+		USE_STARTER_PLACEHOLDER,
+		type ComposerSelection
+	} from './composerBox'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import QueuedMessageChip from './QueuedMessageChip.svelte'
 	import JobsSegment from './JobsSegment.svelte'
@@ -69,11 +79,10 @@
 	import { sendUserToast } from '$lib/toast'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { copilotInfo } from '$lib/aiStore'
-	import SessionGreeting from './starter/SessionGreeting.svelte'
 	import ComposerSuggestions from './starter/ComposerSuggestions.svelte'
 	import type { DraftAttachments } from './messageDraft.svelte'
 	import type { ChatStarter } from './starter/starterPrompts.svelte'
-	import { isComposerOverlay } from './starter/composerCollapse'
+	import { asksForComposer, isComposerOverlay } from './starter/composerCollapse'
 	import { smoothHeight } from './starter/smoothHeight'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
@@ -114,10 +123,9 @@
 		wideLayout = false,
 		emptyHint,
 		starter = undefined,
-		viewTransitionNames = false,
 		onSent = undefined,
 		inputPreface,
-		actingOn,
+		workModeLock = undefined,
 		footerSettings,
 		initialInstructions = undefined,
 		onDraftChange = undefined,
@@ -151,20 +159,14 @@
 		// off there.
 		wideLayout?: boolean
 		emptyHint?: Snippet
-		/** Open an empty chat as the block that starts a session: Home and an empty session
-		 * both mount it, so the two are one entry point rather than look-alikes. Replaces
-		 * `emptyHint`. */
+		/** Open an empty chat as the block that starts a session: Home's composer, collapsed
+		 * to one line at rest. Replaces `emptyHint`. */
 		starter?: ChatStarter
-		/** Names the composer for the view transition between Home and AI Sessions, so it
-		 * glides between its two places, a send from Home included: that lands it under the
-		 * session's first message. Only one chat on the page may carry the name: a duplicate
-		 * makes the browser skip the transition. */
-		viewTransitionNames?: boolean
 		/** After the composer hands a new turn to the host. */
 		onSent?: () => void
 		inputPreface?: Snippet
-		/** Where the session acts: first among the controls after the attach button. */
-		actingOn?: Snippet
+		/** Holds a session chat in Use, and says why in the picker. */
+		workModeLock?: WorkModeLock
 		/** The settings control at the footer's right edge, where the copilot puts its
 		 * model picker. A host that configures its turn elsewhere replaces it here. */
 		footerSettings?: Snippet
@@ -313,11 +315,22 @@
 		aiChatInput?.focusInput(selection)
 	}
 
+	/** With `root`, focused on that folder. */
+	export function openAssistantSettings(section: AssistantSettingsSection, root?: string) {
+		if (root) void assistantSettings?.openFolder(section, root)
+		else assistantSettings?.open(section)
+	}
+
 	/** Mention a workspace item in the draft, as "+" → Mention file does, and hand the user
 	 * the caret after it. Focusing is what opens Home's one-line composer. */
 	export async function attachContext(element: ContextElement) {
 		await mentionWorkspaceItem(element)
 		aiChatInput?.focusInput()
+	}
+
+	/** `text` before what the draft already holds, the caret after it. */
+	export function prefill(text: string) {
+		aiChatInput?.prefill(text)
 	}
 
 	$effect(() => {
@@ -569,14 +582,14 @@
 	}
 	const autonomyAvailability = $derived({
 		autoAcceptEditsAvailable: chatHost.autoAcceptEditsAvailable,
-		autoAcceptToolConfirmationsAvailable: chatHost.autoAcceptToolConfirmationsAvailable,
-		planModeAvailable: chatHost.planModeAvailable
+		autoAcceptToolConfirmationsAvailable: chatHost.autoAcceptToolConfirmationsAvailable
 	})
 	const effectiveAutonomyMode = $derived(
 		resolveAutonomyMode(chatHost.autonomyMode, autonomyAvailability)
 	)
 	const showAutonomyModeSelector = $derived(
-		!disabled && availableAutonomyModeOptions(autonomyAvailability).length > 1
+		!disabled &&
+			(chatHost.workModesAvailable || availableAutonomyModeOptions(autonomyAvailability).length > 1)
 	)
 
 	// The typing-dots indicator implies the AI is busy, which is misleading while
@@ -588,8 +601,9 @@
 	// The block's layout holds while the chat is empty, usable or not; only the taller box
 	// and the suggestions need a composer that can send.
 	const starterLayout = $derived(!!starter && messages.length === 0)
-	// Home is a page, not a pane: nothing there to centre in.
-	const centreComposer = $derived(starterLayout && starter?.where === 'session')
+	const heldInUse = $derived(
+		chatHost.workModesAvailable && (!!workModeLock || chatHost.workMode === AIWorkMode.USE)
+	)
 
 	// Home's composer at rest is one line. Focusing the field opens it; a press outside it or
 	// Escape puts it back, but only with nothing in the draft: leaving it open then means
@@ -598,10 +612,8 @@
 	// menu it is opening.
 	let composerEl: HTMLDivElement | undefined = $state()
 	let composerOpened = $state(false)
-	const homeComposer = $derived(starterLayout && starter?.where === 'home')
 	// Anything the user has started (text, an attachment) or is in the middle of (they opened it
-	// and have not left) keeps it open, and so does a workspace small enough that the composer is
-	// the page's main way in.
+	// and have not left) keeps it open, and so does a host that has it rest open.
 	// Until the input is bound, the draft it starts with is the one it is seeded with: reading
 	// it as empty collapses a remounted composer that holds text for a frame, and the box then
 	// animates open as if the user had opened it.
@@ -613,9 +625,9 @@
 			!initialAttachments?.blobs.length
 	)
 	const composerCollapsed = $derived(
-		homeComposer &&
+		starterLayout &&
 			!disabled &&
-			!(starter?.where === 'home' && starter.fewItems) &&
+			!starter?.restsOpen &&
 			!composerOpened &&
 			(aiChatInput ? aiChatInput.isDraftEmpty() : seededDraftEmpty)
 	)
@@ -623,13 +635,51 @@
 		if (aiChatInput?.isDraftEmpty() ?? true) composerOpened = false
 	}
 	function onComposerPointerDown(e: PointerEvent) {
-		if (!homeComposer || !composerOpened || composerEl?.contains(e.target as Node)) return
-		if (!isComposerOverlay(e.target)) closeComposer()
+		if (!starterLayout || !composerOpened || composerEl?.contains(e.target as Node)) return
+		if (!isComposerOverlay(e.target) && !asksForComposer(e.target)) closeComposer()
+	}
+
+	// The composer clears on a second Escape: the first only shows the hint, so a single
+	// stray press cannot throw a draft away. Any other key, a click in the composer or
+	// leaving it disarms it.
+	const CLEAR_ARM_MS = 2000
+	let clearArmed = $state(false)
+	let clearArmTimer: ReturnType<typeof setTimeout> | undefined
+	function disarmClear() {
+		clearTimeout(clearArmTimer)
+		clearArmed = false
+	}
+	function onComposerEscape(repeat: boolean) {
+		if (!aiChatInput?.hasClearableContent()) return false
+		// A held key is one press: its repeats must not count as the second.
+		if (repeat) return true
+		if (clearArmed) {
+			// Still armed if refused (an attachment still being read): the next press retries.
+			if (aiChatInput.clearDraft()) disarmClear()
+		} else {
+			clearArmed = true
+			clearArmTimer = setTimeout(disarmClear, CLEAR_ARM_MS)
+		}
+		return true
+	}
+	$effect(() => () => clearTimeout(clearArmTimer))
+	// Off once the draft is gone some other way, such as a send.
+	const clearHintShown = $derived(clearArmed && !!aiChatInput?.hasClearableContent())
+
+	// While the box plays its accent outline (app.css, `data-composer-flash`).
+	let flashing = $state(false)
+
+	/** Points the eye at a composer the user was sent to without it moving: its box's outline
+	 * lights up in the accent color and fades. */
+	export function flashComposer() {
+		// Off for a frame first, so a flash asked for while one plays starts over.
+		flashing = false
+		requestAnimationFrame(() => (flashing = true))
 	}
 
 	// Home's composer is one block of the page and takes the page's column as it is.
 	const columnClass = $derived(
-		starter?.where === 'home'
+		starter
 			? 'w-full'
 			: wideLayout
 				? `w-full max-w-3xl mx-auto ${agentGutter ? 'px-8' : 'px-7'}`
@@ -637,6 +687,32 @@
 	)
 
 	const waitingForUserAction = $derived(chatHost.loading && !!pendingUserAction(messages))
+
+	// The out-of-scope card appears in the transcript without taking focus, so a screen reader
+	// hears about it from a live region that stays mounted and changes its text.
+	const outOfScopeAnnouncement = $derived.by(() => {
+		const held = [...messages]
+			.reverse()
+			.find((m) => m.role === 'tool' && m.isLoading && m.outOfScope && !m.outOfScope.decision)
+		if (held?.role !== 'tool' || !held.outOfScope) return ''
+		const { path, scope, verb } = held.outOfScope
+		return `This would ${verb} ${path}, outside ${scope}. Allow once, or allow writes in ${held.outOfScope.root}.`
+	})
+
+	// The turns sent in another scope than the turn before, with the scope they took.
+	const scopeChanges = $derived.by(() => {
+		// The whole workspace (`null`) and no folders (`[]`) both have an empty scopeLabel.
+		const changes = new Map<number, string[] | null>()
+		let previous: string | undefined
+		messages.forEach((m, i) => {
+			// Read back from saved chats, so only a list or `null` counts.
+			if (m.role !== 'user' || (m.workingIn !== null && !Array.isArray(m.workingIn))) return
+			const key = m.workingIn ? JSON.stringify(m.workingIn) : 'null'
+			if (previous !== undefined && key !== previous) changes.set(i, m.workingIn)
+			previous = key
+		})
+		return changes
+	})
 
 	// Gated on `loading` because a card restored from history still looks parked:
 	// its resolver left with the old page, so the composer must not advertise an
@@ -689,7 +765,6 @@
 	const showFooterLeftControls = $derived(
 		!footerMessageShown &&
 			(canAttachFiles ||
-				!!actingOn ||
 				attachmentsOffReason !== undefined ||
 				showContextPicker ||
 				showAutonomyModeSelector ||
@@ -709,8 +784,10 @@
 					variant="accent"
 					startIcon={{ icon: KeyRound }}
 					href="/workspace_settings?tab=ai"
+					wrapperClasses="min-w-0 max-w-full"
+					btnClasses="min-w-0"
 				>
-					Add your own API key
+					<span class="truncate">Add your own API key</span>
 				</Button>
 			</div>
 		</Alert>
@@ -719,7 +796,7 @@
 
 {#snippet freeTierUsageBanner()}
 	<div
-		class="my-1 flex items-center justify-between gap-2 rounded-md border bg-surface-secondary px-2 py-1"
+		class="my-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 rounded-md border bg-surface-secondary px-2 py-1"
 	>
 		<span class="text-xs text-secondary tabular-nums">
 			{freeTierUsedPct}% of your free Windmill AI used
@@ -729,8 +806,10 @@
 			variant="default"
 			startIcon={{ icon: KeyRound }}
 			href="/workspace_settings?tab=ai"
+			wrapperClasses="min-w-0 shrink"
+			btnClasses="min-w-0"
 		>
-			Configure your API key
+			<span class="truncate">Configure your API key</span>
 		</Button>
 	</div>
 {/snippet}
@@ -740,7 +819,7 @@
 <!-- tabindex="-1": clicks on non-focusable chat content must move focus into
 the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 <div
-	class="flex flex-col h-full relative outline-none {starterLayout ? 'justify-center' : ''}"
+	class="flex flex-col h-full relative outline-none"
 	tabindex="-1"
 	bind:this={panelEl}
 	ondragenter={onPanelDragEnter}
@@ -850,19 +929,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 	{/if}
 	{#if messages.length === 0}
 		{#if starter}
-			<!-- The greeting rides on top of the centred composer instead of being centred with
-			     it: it takes the space above, the spacer after the composer the same below. Home
-			     has none: there the composer is one control among the page's. -->
-			{#if centreComposer}
-				<div class="flex-1 min-h-0 flex flex-col justify-end">
-					<div
-						class={columnClass}
-						style:view-transition-name={viewTransitionNames ? 'greeting' : undefined}
-					>
-						<SessionGreeting />
-					</div>
-				</div>
-			{/if}
+			<!-- Home's composer is one control among the page's: nothing above it. -->
 		{:else if emptyHint}
 			{@render emptyHint()}
 		{:else}
@@ -892,6 +959,18 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						isLast: boolean,
 						inGroup: boolean
 					)}
+						{#if scopeChanges.has(messageIndex)}
+							{@const roots = scopeChanges.get(messageIndex)}
+							<p class="mt-4 text-center text-2xs text-tertiary">
+								{#if !roots}
+									Now working in the whole workspace
+								{:else if roots.length === 0}
+									Now working in no folders: every change asks first
+								{:else}
+									Now working in <span class="font-mono">{scopeLabel(roots)}</span>
+								{/if}
+							</p>
+						{/if}
 						<AIChatMessage
 							{message}
 							{messageIndex}
@@ -953,6 +1032,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							/>
 						</div>
 					{/if}
+					<div class="sr-only" role="status">{outOfScopeAnnouncement}</div>
 				</div>
 			</div>
 			<!-- Sits below the scroll-to-latest button, which carries z-10. -->
@@ -987,20 +1067,46 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 	<!-- The focus and key handlers take events bubbling from the field inside, which is the
 	     interactive element; the group itself is never focused. -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+	<!-- `data-composer-open`: while the reader is in Home's composer, Home keeps it at the top
+	     and quiets its cards. -->
 	<div
 		data-session-composer
+		data-composer-open={starterLayout && composerOpened ? '' : undefined}
+		data-composer-flash={flashing ? '' : undefined}
 		role="group"
 		aria-label="Message composer"
 		bind:this={composerEl}
 		class="relative {columnClass} pb-2"
-		style:view-transition-name={viewTransitionNames ? 'composer' : undefined}
+		onanimationend={(e) => {
+			if (e.animationName === 'wm-composer-flash') flashing = false
+		}}
 		onfocusin={(e) => {
-			if (homeComposer && e.target instanceof HTMLTextAreaElement) composerOpened = true
+			if (starterLayout && e.target instanceof HTMLTextAreaElement) composerOpened = true
+		}}
+		oninput={() => disarmClear()}
+		onpointerdown={() => disarmClear()}
+		onfocusout={(e) => {
+			if (!composerEl?.contains(e.relatedTarget as Node | null)) disarmClear()
 		}}
 		onkeydown={(e) => {
-			// A prevented Escape closed something inside first, such as the @-mention picker.
-			if (e.key !== 'Escape' || e.defaultPrevented) return
-			if (!homeComposer || !composerOpened) return
+			// A prevented Escape was handled inside, such as a running turn's stop. An IME
+			// cancel is the input method's.
+			if (e.key !== 'Escape') {
+				disarmClear()
+				return
+			}
+			if (e.defaultPrevented || e.isComposing) return
+			// The `@` and `/` pickers close on this press reaching `document` unprevented.
+			if (aiChatInput?.hasOpenPicker()) return
+			// The field's own presses only: a toolbar button keeps focus while the dialog it
+			// opened (assistant settings) closes on the same Escape.
+			if (e.target instanceof HTMLTextAreaElement && onComposerEscape(e.repeat)) {
+				// Kept from the panel or drawer around the chat, which would close on it.
+				e.preventDefault()
+				e.stopPropagation()
+				return
+			}
+			if (!starterLayout || !composerOpened) return
 			closeComposer()
 			if (aiChatInput?.isDraftEmpty() ?? true) (document.activeElement as HTMLElement)?.blur()
 		}}
@@ -1057,7 +1163,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				bind:this={aiChatInput}
 				bind:selectedContext
 				{availableContext}
-				placeholder={starterLayout ? STARTER_PLACEHOLDER : placeholder}
+				placeholder={starterLayout
+					? heldInUse
+						? USE_STARTER_PLACEHOLDER
+						: STARTER_PLACEHOLDER
+					: placeholder}
 				{initialInstructions}
 				{onDraftChange}
 				{initialAttachments}
@@ -1068,22 +1178,28 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				isFirstMessage={messages.length === 0}
 				hero={starterLayout}
 				collapsed={composerCollapsed}
-				chatIcon={homeComposer}
+				chatIcon={starterLayout}
 				{onSent}
+				clearHint={!starterLayout && clearHintShown}
 			>
 				{#snippet collapsedControls()}
+					{#if chatHost.mode === AIMode.GLOBAL}
+						<WorkingInPicker ws={aiChatManager.operatingWorkspace ?? ''} onlyWhenScoped />
+					{/if}
 					{#if chatHost.supportsModelSettings}
 						<AIChatModelSettings promptSettings={false} />
 					{/if}
 				{/snippet}
 				{#snippet toolbar()}
+					<!-- Its rows fade in (`wm-page-in`): they land with the copilot config, after the
+					     box Home's skeleton already drew. -->
 					<div
 						class="flex flex-row flex-wrap items-center gap-x-1.5 gap-y-1"
 						class:justify-between={showFooterLeftControls}
 						class:justify-end={!showFooterLeftControls}
 					>
 						{#if showFooterLeftControls}
-							<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
+							<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap wm-page-in">
 								{#if showContextPicker && !disabled}
 									<Popover placement="bottom-start">
 										{#snippet trigger()}
@@ -1268,16 +1384,20 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 										onchange={onFolderInputChange}
 									/>
 								{/if}
-								{@render actingOn?.()}
 								{#if showAutonomyModeSelector}
 									<AutonomyModePicker
 										mode={chatHost.autonomyMode}
 										availability={autonomyAvailability}
 										onChange={chatHost.setAutonomyMode}
+										work={chatHost.workModesAvailable
+											? {
+													mode: chatHost.workMode,
+													planAvailable: chatHost.planModeAvailable,
+													lock: workModeLock,
+													onChange: chatHost.setWorkMode
+												}
+											: undefined}
 									/>
-								{/if}
-								{#if effectiveAutonomyMode === AIAutonomyMode.PLAN}
-									<span class="text-2xs text-secondary">{PLAN_MODE_MESSAGES.modeNote}</span>
 								{/if}
 								{#if effectiveAutonomyMode === AIAutonomyMode.YOLO && chatHost.autoAcceptToolConfirmationsAvailable}
 									<Tooltip small placement="top">
@@ -1311,22 +1431,20 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 										{/snippet}
 									</Tooltip>
 								{/if}
+								{#if chatHost.mode === AIMode.GLOBAL}
+									<WorkingInPicker ws={aiChatManager.operatingWorkspace ?? ''} />
+								{/if}
 								{#if chatHost.mode === AIMode.SCRIPT && hasDiff && !disabled}
 									<ChatQuickActions {askAi} {diffMode} />
 								{/if}
 							</div>
 						{/if}
 						{#if footerMessageShown}
-							<!-- The workspace picker stays: picking another workspace is how a chat that
-							     cannot run here becomes usable again. -->
-							<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
-								{@render actingOn?.()}
-								<div class="text-primary text-xs my-2 px-2">
-									<Markdown md={disabledMessage} />
-								</div>
+							<div class="text-primary text-xs my-2 px-2 wm-page-in">
+								<Markdown md={disabledMessage} />
 							</div>
 						{:else}
-							<div class="flex flex-row gap-x-1.5 min-w-0 flex-wrap items-center">
+							<div class="flex flex-row gap-x-1.5 min-w-0 flex-wrap items-center wm-page-in">
 								{#if chatHost.mode === AIMode.GLOBAL}
 									<AttachedFilesBar />
 								{/if}
@@ -1344,7 +1462,24 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								{/if}
 								{@render footerSettings?.()}
 								{#if chatHost.mode === AIMode.GLOBAL}
-									<AssistantSettingsModal bind:this={assistantSettings} />
+									<Tooltip small placement="top">
+										<Button
+											unifiedSize="2xs"
+											variant="subtle"
+											iconOnly
+											startIcon={{ icon: SlidersHorizontal }}
+											aria-label="Assistant settings"
+											onClick={() => assistantSettings?.open()}
+										/>
+										{#snippet text()}
+											<div class="max-w-64 text-xs">
+												<p class="font-semibold">Assistant settings</p>
+												<p class="mt-1"
+													>The tools, skills, instructions and MCP servers this chat can use.</p
+												>
+											</div>
+										{/snippet}
+									</Tooltip>
 								{/if}
 
 								{#if chatHost.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
@@ -1399,11 +1534,15 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		<!-- Opens and closes with the box, so the page under it slides rather than jumps. -->
 		<div use:smoothHeight={{ enabled: starterLayout, key: composerCollapsed }}>
 			<div>
-				{#if starterLayout && starter && !disabled && !composerCollapsed && starter.suggestions.length > 0}
+				<!-- On Home the hint stands in for the suggestions, at their height. -->
+				{#if starterLayout && clearHintShown}
+					<div class="pt-2 h-9 flex items-center gap-1 text-xs text-hint" role="status">
+						Press <Kbd small>Esc</Kbd> again to clear
+					</div>
+				{:else if starterLayout && starter && !disabled && !composerCollapsed && starter.suggestions.length > 0}
 					<div class="pt-2">
 						<ComposerSuggestions
 							suggestions={starter.suggestions}
-							wrap={starter.where === 'session'}
 							onPick={(prompt) => aiChatInput?.setText(prompt)}
 						/>
 					</div>
@@ -1427,12 +1566,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			</div>
 		{/if}
 	</div>
-	<!-- Equal to the space above while the session is empty, so the composer sits centred.
-	     Always mounted and shrunk on the first message rather than removed: flex-grow
-	     transitions, so the composer slides down to the bottom instead of jumping. -->
-	<div
-		class="min-h-0 basis-0 transition-[flex-grow] duration-[var(--composer-glide-duration)] ease-[var(--composer-glide-easing)] motion-reduce:transition-none {centreComposer
-			? 'grow'
-			: 'grow-0'}"
-	></div>
 </div>
+<!-- Outside the composer: Home's folded composer drops its toolbar, and the folder badges open
+     this without unfolding it. -->
+{#if chatHost.mode === AIMode.GLOBAL}
+	<AssistantSettingsModal bind:this={assistantSettings} />
+{/if}

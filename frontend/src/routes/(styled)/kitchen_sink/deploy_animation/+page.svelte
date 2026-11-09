@@ -113,6 +113,7 @@
 				? { ok: true as const }
 				: { ok: false as const, reason: 'Deploy disabled by the playground toggle' }
 		},
+		readOnly: false,
 		async deployRow(item: DeployItem) {
 			setStatus(item.key, { status: 'loading' })
 			deploying = true

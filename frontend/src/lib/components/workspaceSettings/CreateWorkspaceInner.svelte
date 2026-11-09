@@ -34,12 +34,14 @@
 		devWorkspacesInChainAbove
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
-	import { capabilitiesIn, isRestricted } from '$lib/roleCapabilities'
+	import { canFork, capabilitiesIn } from '$lib/roleCapabilities'
 	import {
 		canUserBypassRuleKindInRulesets,
 		fetchProtectionRulesForWorkspace,
+		getActiveRulesetsForKindInRulesets,
 		isRuleActiveInRulesets,
-		isRuleUnconditionallyActiveInRulesets
+		isRuleUnconditionallyActiveInRulesets,
+		readProtectionRulesForWorkspace
 	} from '$lib/workspaceProtectionRules.svelte'
 	import { resource } from 'runed'
 	import { getUserExt } from '$lib/user'
@@ -66,7 +68,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { AI_PROVIDERS } from '$lib/components/copilot/lib'
+	import { AI_PROVIDERS } from '$lib/components/copilot/aiProviders'
 	import { LoaderCircle, Trash2 } from 'lucide-svelte'
 	import PrefixedInput from '../PrefixedInput.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
@@ -137,15 +139,14 @@
 	})
 	let forkableWorkspaces = $derived(forkable.current)
 
-	// Base candidates are the current workspace's family: its root first, then every fork/dev under it.
-	// Never one the user holds a restricted role in: a fork does not carry the role, so forking such a base
-	// would hand them a full-rights copy of it.
+	// Base candidates are the current workspace's family: its root first, then every fork/dev under it,
+	// except those the user's role there may not fork.
 	let familyRoot = $derived(findWorkspaceRoot($workspaceStore, forkableWorkspaces))
 	let baseCandidates = $derived(
 		(familyRoot
 			? [familyRoot, ...findWorkspaceDescendants(familyRoot.id, forkableWorkspaces)]
 			: []
-		).filter((w) => !isRestricted(capabilitiesIn(undefined, w)))
+		).filter((w) => canFork(capabilitiesIn(undefined, w)))
 	)
 	let baseItems = $derived(
 		baseCandidates.map((w) => ({
@@ -293,23 +294,57 @@
 	// ParentWorkspaceProtectionAlert.
 	const baseRuleContext = resource(
 		() => (isFork ? baseWorkspaceId : undefined),
-		async (ws) => {
+		async (ws, _prev, { signal }) => {
 			if (!ws) return undefined
-			const [rules, user] = await Promise.all([
-				fetchProtectionRulesForWorkspace(ws),
-				getUserExt(ws)
-			])
-			return { rules, user }
+			const [rules, user] = await Promise.all([readProtectionRulesForWorkspace(ws), getUserExt(ws)])
+			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
+			return { ws, rules, user }
 		}
 	)
 	let requireIsolation = $derived.by(() => {
 		const ctx = baseRuleContext.current
+		const rules = ctx?.rules ?? []
 		return (
 			!!ctx &&
-			isRuleActiveInRulesets(ctx.rules, 'RequireIsolatedForks') &&
-			!canUserBypassRuleKindInRulesets(ctx.rules, 'RequireIsolatedForks', ctx.user)
+			isRuleActiveInRulesets(rules, 'RequireIsolatedForks') &&
+			!canUserBypassRuleKindInRulesets(rules, 'RequireIsolatedForks', ctx.user)
 		)
 	})
+
+	// The server lets admins and the rulesets' bypass list fork past `DisableWorkspaceForking`
+	// silently, so the form makes that an explicit choice, as direct deployment does. It fails
+	// closed: until the selected base's rules are read, nobody can tell whether a bypass applies.
+	let baseRulesForSelection = $derived.by(() => {
+		const ctx = baseRuleContext.current
+		return ctx && ctx.ws === baseWorkspaceId ? ctx : undefined
+	})
+	let baseRulesUnreadable = $derived(
+		!!baseRulesForSelection && baseRulesForSelection.rules === undefined
+	)
+	let forkingRulesets = $derived(
+		getActiveRulesetsForKindInRulesets(
+			baseRulesForSelection?.rules ?? [],
+			'DisableWorkspaceForking'
+		)
+	)
+	let canBypassForkingRule = $derived(
+		canUserBypassRuleKindInRulesets(
+			forkingRulesets,
+			'DisableWorkspaceForking',
+			baseRulesForSelection?.user
+		)
+	)
+	let forkingBypassConfirmed = $state(false)
+	$effect(() => {
+		baseWorkspaceId
+		forkingBypassConfirmed = false
+	})
+	let forkingBlocked = $derived(
+		isFork &&
+			!!baseWorkspaceId &&
+			(baseRulesForSelection?.rules === undefined ||
+				(forkingRulesets.length > 0 && !(canBypassForkingRule && forkingBypassConfirmed)))
+	)
 
 	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
@@ -789,6 +824,40 @@
 					{/if}
 				</Alert>
 			{/if}
+			{#if isFork && baseRulesUnreadable}
+				<Alert type="error" title="Could not read {currentWorkspaceName}'s protection rules">
+					Forking stays disabled until they can be checked. Reload the page to try again.
+				</Alert>
+			{:else if isFork && forkingRulesets.length > 0}
+				<Alert
+					type={canBypassForkingRule ? 'warning' : 'error'}
+					title="Forking {currentWorkspaceName} is restricted"
+				>
+					<div class="flex flex-col gap-2">
+						<p>
+							The protection rule{forkingRulesets.length > 1 ? 's' : ''}
+							<b>{forkingRulesets.map((r) => r.name).join(', ')}</b>
+							disable{forkingRulesets.length > 1 ? '' : 's'} forking this workspace.
+							{#if canBypassForkingRule}
+								You can bypass {forkingRulesets.length > 1 ? 'them' : 'it'} as
+								{baseRulesForSelection?.user?.is_admin ||
+								baseRulesForSelection?.user?.is_super_admin
+									? 'an admin'
+									: 'one of its bypass users or groups'}.
+							{:else}
+								Only workspace admins and the rule's bypass users and groups can fork it.
+							{/if}
+						</p>
+						{#if canBypassForkingRule}
+							<Toggle
+								size="xs"
+								bind:checked={forkingBypassConfirmed}
+								options={{ right: 'Bypass the restriction and fork anyway' }}
+							/>
+						{/if}
+					</div>
+				</Alert>
+			{/if}
 			{#if !isFork}
 				<label class="flex flex-col gap-1">
 					<span class="text-xs font-semibold text-emphasis">Workspace name</span>
@@ -1216,6 +1285,7 @@
 			<Button
 				variant="accent"
 				disabled={checking ||
+					forkingBlocked ||
 					errorId != '' ||
 					!name ||
 					(!automateUsernameCreation && (errorUser != '' || !username)) ||

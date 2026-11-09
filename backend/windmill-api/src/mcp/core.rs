@@ -6,7 +6,8 @@
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
-use windmill_common::{db::UserDB, utils::StripPath, DB};
+use windmill_common::workspaces::{get_protection_rules, ProtectionRules, ProtectionRuleset};
+use windmill_common::{db::UserDB, runnable_ref::RunnableRef, DB};
 use windmill_mcp::common::schema::enrich_resource_schemas;
 use windmill_mcp::common::transform::transform_property_keys;
 use windmill_mcp::common::types::{
@@ -35,6 +36,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
+use windmill_mcp::common::SESSION_SCOPE;
 use windmill_mcp::server::{
     LocalSessionManager, McpToken, MultiWorkspaceMcp, NoEndpointTools, Runner, SessionRunner,
     StreamableHttpServerConfig, StreamableHttpService,
@@ -65,31 +67,37 @@ pub struct WindmillBackend {
     pub auth_cache: Arc<AuthCache>,
 }
 
-impl WindmillBackend {
-    /// The instructions only read, so they are built at the token's own read-only flag.
-    fn session_ctx<'a>(&'a self, auth: &'a ApiAuthed, w_id: &'a str) -> session::Ctx<'a> {
-        let access = if auth.read_only {
-            SessionAccess::ReadOnly
-        } else {
-            SessionAccess::Full
-        };
-        self.session_ctx_with(auth, w_id, access)
+/// `DisableDirectDeployment` holds a session to reading and running deployed items for
+/// everyone, admins and bypassers included: that workspace takes changes from its dev workspace
+/// or a fork, where drafts can go somewhere. Unreadable rules (`None`) hold it too. The in-app
+/// chat applies the same rule (`protects` in `chat/global/sessionAccess.ts`): change both.
+fn workspace_access(access: SessionAccess, rules: Option<&[ProtectionRuleset]>) -> SessionAccess {
+    let locked = rules.map_or(true, |rules| {
+        rules
+            .iter()
+            .any(|r| r.rules.contains(ProtectionRules::DISABLE_DIRECT_DEPLOYMENT))
+    });
+    match access {
+        SessionAccess::Full if locked => SessionAccess::ReadAndRun,
+        other => other,
     }
+}
 
-    fn session_ctx_with<'a>(
+impl WindmillBackend {
+    async fn session_ctx_with<'a>(
         &'a self,
         auth: &'a ApiAuthed,
         w_id: &'a str,
         access: SessionAccess,
     ) -> session::Ctx<'a> {
-        session::Ctx {
-            auth,
-            w_id,
-            base_internal_url: &self.base_internal_url,
-            access,
-            origin: None,
-            jwt: Default::default(),
-        }
+        let access = match access {
+            SessionAccess::Full => {
+                let rules = get_protection_rules(w_id, &self.db).await.ok();
+                workspace_access(access, rules.as_deref().map(Vec::as_slice))
+            }
+            other => other,
+        };
+        session::Ctx::new(auth, w_id, &self.base_internal_url, session::access(access))
     }
 
     pub fn new(
@@ -105,6 +113,16 @@ impl WindmillBackend {
 #[async_trait]
 impl McpBackend for WindmillBackend {
     type Auth = ApiAuthed;
+
+    async fn after_tool_call(
+        &self,
+        auth: &ApiAuthed,
+        workspace_id: &str,
+        tool: &str,
+        refusal: Option<&str>,
+    ) {
+        super::external_idp::audit_tool_call(&self.db, auth, workspace_id, tool, refusal).await;
+    }
 
     async fn list_scripts(
         &self,
@@ -271,14 +289,20 @@ impl McpBackend for WindmillBackend {
         request: &McpRequest<'_>,
     ) -> BackendResult<Value> {
         windmill_common::feature_usage::log_feature_usage("mcp", "runnable_tool_call", "script");
-        let push_args = prepare_push_args(&self.db, workspace_id, path, false, args, request)
+        // Called directly rather than through the jobs router, so its run gate does not apply.
+        windmill_common::workspaces::check_role_can_run(&self.db, workspace_id, auth)
+            .await
+            .map_err(|e| ErrorData::invalid_request(e.to_string(), None))?;
+        let script = RunnableRef::from_path(path, false)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let push_args = prepare_push_args(&self.db, workspace_id, &script, args, request)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         let result = run_wait_result_script_by_path_internal(
             self.db.clone(),
             RunJobQuery::default(),
-            StripPath(path.to_string()),
+            &script,
             auth.clone(),
             self.user_db.clone(),
             workspace_id.to_string(),
@@ -299,14 +323,20 @@ impl McpBackend for WindmillBackend {
         request: &McpRequest<'_>,
     ) -> BackendResult<Value> {
         windmill_common::feature_usage::log_feature_usage("mcp", "runnable_tool_call", "flow");
-        let push_args = prepare_push_args(&self.db, workspace_id, path, true, args, request)
+        // Called directly rather than through the jobs router, so its run gate does not apply.
+        windmill_common::workspaces::check_role_can_run(&self.db, workspace_id, auth)
+            .await
+            .map_err(|e| ErrorData::invalid_request(e.to_string(), None))?;
+        let flow = RunnableRef::from_path(path, true)
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let push_args = prepare_push_args(&self.db, workspace_id, &flow, args, request)
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         let result = run_wait_result_flow_by_path_internal(
             self.db.clone(),
             RunJobQuery::default(),
-            StripPath(path.to_string()),
+            &flow,
             auth.clone(),
             self.user_db.clone(),
             push_args,
@@ -462,20 +492,34 @@ impl McpBackend for WindmillBackend {
         &self,
         auth: &ApiAuthed,
         workspace_id: &str,
+        access: SessionAccess,
     ) -> BackendResult<String> {
-        Ok(session::session_instructions(&self.session_ctx(auth, workspace_id)).await)
+        let ctx = self.session_ctx_with(auth, workspace_id, access).await;
+        let profile = session::prompt_profile(&self.db, auth, workspace_id, ctx.access).await;
+        Ok(session::session_instructions(&ctx, &profile).await)
     }
 
-    fn generic_session_instructions(&self) -> String {
-        session::generic_session_instructions()
+    fn generic_session_instructions(&self, access: SessionAccess) -> String {
+        session::generic_session_instructions(session::access(access))
     }
 
-    async fn workspace_context(&self, auth: &ApiAuthed, workspace_id: &str) -> String {
-        session::workspace_context(&self.session_ctx(auth, workspace_id)).await
+    async fn workspace_context(
+        &self,
+        auth: &ApiAuthed,
+        workspace_id: &str,
+        access: SessionAccess,
+    ) -> String {
+        let ctx = self.session_ctx_with(auth, workspace_id, access).await;
+        let profile = session::prompt_profile(&self.db, auth, workspace_id, ctx.access).await;
+        session::workspace_context(&ctx, &profile, session::access(access)).await
     }
 
     fn session_tools(&self, access: SessionAccess) -> Vec<Tool> {
         session::session_tools(access)
+    }
+
+    fn session_views(&self) -> &'static [(&'static str, &'static str)] {
+        session::session_views()
     }
 
     async fn call_session_tool(
@@ -487,7 +531,8 @@ impl McpBackend for WindmillBackend {
         access: SessionAccess,
         origin: Option<&str>,
     ) -> BackendResult<CallToolResult> {
-        let ctx = session::Ctx { origin, ..self.session_ctx_with(auth, workspace_id, access) };
+        let mut ctx = self.session_ctx_with(auth, workspace_id, access).await;
+        ctx.origin = origin;
         session::call_session_tool(&ctx, name, args).await
     }
 }
@@ -501,6 +546,17 @@ pub struct McpSelection;
 fn scoped_to_selection(scopes: &[String]) -> bool {
     let mut mcp = scopes.iter().filter(|scope| scope.starts_with("mcp:"));
     mcp.clone().next().is_some() && !mcp.any(|scope| scope == "mcp:all")
+}
+
+/// Whether the tools server's URLs (`/api/mcp/gateway`, `/api/mcp/w/{workspace}/mcp`) serve
+/// a token the session's toolset: an `mcp:all` grant marked `mcp:session`, or narrowed by
+/// `mcp:read_only` / `mcp:read_run`, which the consent page describes as session access.
+/// Every other token there keeps the tools server it was issued for.
+fn serves_session_toolset(scopes: &[String]) -> bool {
+    scopes.iter().any(|scope| scope == "mcp:all")
+        && scopes
+            .iter()
+            .any(|scope| [SESSION_SCOPE, "mcp:read_only", "mcp:read_run"].contains(&scope.as_str()))
 }
 
 /// The path of a workspace-less MCP URL, when it is not the tools server's
@@ -517,6 +573,21 @@ pub async fn extract_and_store_workspace_id(
     let workspace_id = params;
     request.extensions_mut().insert(WorkspaceId(workspace_id));
     next.run(request).await
+}
+
+/// RFC 9728 challenge pointing at the endpoint's protected resource metadata. `scope` is what
+/// a client requests: without it, Claude requests every scope the metadata lists, read-only
+/// included, and the consent page would then default to read-only access.
+fn www_authenticate_value(base_url: &str, endpoint: &str) -> String {
+    let scope = if super::external_idp::configured().is_some() {
+        super::external_idp::REQUESTED_SCOPES
+    } else {
+        "mcp:all"
+    };
+    format!(
+        "Bearer resource_metadata=\"{base_url}/.well-known/oauth-protected-resource{endpoint}\", \
+         scope=\"{scope}\""
+    )
 }
 
 /// Middleware that adds WWW-Authenticate header to 401 responses
@@ -545,11 +616,8 @@ pub async fn add_www_authenticate_header(
     if response.status() == StatusCode::UNAUTHORIZED {
         let base_url = BASE_URL.load();
 
-        // RFC 9728: The resource parameter contains the protected resource URL.
-        // Clients derive the metadata URL by inserting /.well-known/oauth-protected-resource
-        // after the host, e.g., http://host/.well-known/oauth-protected-resource/api/mcp/w/test/mcp
-        let resource_url = format!("{}/api/mcp/w/{}/mcp", base_url, workspace_id);
-        let www_authenticate = format!("Bearer resource=\"{}\"", resource_url);
+        let www_authenticate =
+            www_authenticate_value(&base_url, &format!("/api/mcp/w/{}/mcp", workspace_id));
 
         // Reconstruct response with the new header
         let (mut parts, body) = response.into_parts();
@@ -667,7 +735,6 @@ pub async fn add_www_authenticate_header_gateway(
     next: Next,
 ) -> Response {
     use axum::http::StatusCode;
-    use windmill_common::BASE_URL;
 
     let endpoint = request
         .extensions()
@@ -677,9 +744,8 @@ pub async fn add_www_authenticate_header_gateway(
     let response = next.run(request).await;
 
     if response.status() == StatusCode::UNAUTHORIZED {
-        let base_url = BASE_URL.load();
-        let resource_url = format!("{}{}", base_url, endpoint);
-        let www_authenticate = format!("Bearer resource=\"{}\"", resource_url);
+        let www_authenticate =
+            www_authenticate_value(&windmill_common::global_settings::mcp_base_url(), endpoint);
 
         let (mut parts, body) = response.into_parts();
         parts.headers.insert(
@@ -735,7 +801,30 @@ pub async fn setup_mcp_server(
     let service =
         StreamableHttpService::new(move || Ok(runner.clone()), session_manager, service_config);
 
-    let router = Router::new().route_service("/", service.clone());
+    let router = Router::new().route(
+        "/",
+        axum::routing::any({
+            let (service, session_service) = (service.clone(), session_service.clone());
+            move |request: Request<axum::body::Body>| {
+                let (service, session_service) = (service.clone(), session_service.clone());
+                async move {
+                    use tower::ServiceExt;
+                    let session = request.extensions().get::<ApiAuthed>().is_some_and(|a| {
+                        serves_session_toolset(a.scopes.as_deref().unwrap_or_default())
+                    });
+                    let response = if session {
+                        session_service.oneshot(request).await
+                    } else {
+                        service.oneshot(request).await
+                    };
+                    match response {
+                        Ok(response) => response.into_response(),
+                        Err(never) => match never {},
+                    }
+                }
+            }
+        }),
+    );
     // `/api/mcp` serves both servers: a token scoped to a selection of scripts, flows and
     // endpoints gets the tools server, any other the session's toolset. At `/mcp` itself,
     // beside the `/mcp/...` routes, so it is merged rather than nested.
@@ -810,7 +899,30 @@ pub fn toolset_service() -> Router {
 
 #[cfg(test)]
 mod tests {
-    use super::scoped_to_selection;
+    use super::{
+        scoped_to_selection, serves_session_toolset, workspace_access, ProtectionRules,
+        ProtectionRuleset, SessionAccess,
+    };
+
+    #[test]
+    fn direct_deployment_lock_holds_full_sessions_to_read_and_run() {
+        let ruleset = |rules| ProtectionRuleset {
+            workspace_id: "w".to_string(),
+            name: "r".to_string(),
+            rules,
+            bypass_groups: vec![],
+            bypass_users: vec!["admin".to_string()],
+            fork_role_mapping: Default::default(),
+        };
+        let locked = [ruleset(ProtectionRules::DISABLE_DIRECT_DEPLOYMENT)];
+        let open = [ruleset(ProtectionRules::RESTRICT_DEPLOY_TO_DEPLOYERS)];
+        use SessionAccess::*;
+        assert_eq!(workspace_access(Full, Some(&locked)), ReadAndRun);
+        assert_eq!(workspace_access(Full, None), ReadAndRun);
+        assert_eq!(workspace_access(Full, Some(&open)), Full);
+        assert_eq!(workspace_access(Full, Some(&[])), Full);
+        assert_eq!(workspace_access(ReadOnly, Some(&locked)), ReadOnly);
+    }
 
     #[test]
     fn only_a_token_without_mcp_all_is_a_selection() {
@@ -828,5 +940,18 @@ mod tests {
         ]));
         assert!(!selection(&[]));
         assert!(!selection(&["variables:read"]));
+    }
+
+    #[test]
+    fn tools_server_urls_keep_unmarked_tokens() {
+        let session = |scopes: &[&str]| {
+            serves_session_toolset(&scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+        };
+        assert!(session(&["mcp:all", "mcp:session"]));
+        assert!(session(&["mcp:all", "mcp:read_only"]));
+        assert!(session(&["mcp:all", "mcp:read_run", "mcp:workspaces:a,b"]));
+        assert!(!session(&["mcp:all"]));
+        assert!(!session(&["mcp:favorites", "mcp:session"]));
+        assert!(!session(&["mcp:all:f/x/*", "mcp:read_only"]));
     }
 }

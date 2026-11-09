@@ -1294,3 +1294,33 @@ async fn test_admin_and_operator_are_exclusive(db: Pool<Postgres>) -> anyhow::Re
 
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_create_workspace_validates_chosen_username(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    sqlx::query(
+        "INSERT INTO global_settings (name, value) VALUES ('automate_username_creation', 'false') \
+         ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
+    )
+    .execute(&db)
+    .await?;
+    let server = ApiServer::start(db.clone()).await?;
+    let create = format!(
+        "http://localhost:{}/api/workspaces/create",
+        server.addr.port()
+    );
+
+    let resp = authed(client().post(&create))
+        .json(&json!({"id": "ws-hyphen", "name": "ws-hyphen", "username": "jean-luc"}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
+
+    let resp = authed(client().post(&create))
+        .json(&json!({"id": "ws-ok", "name": "ws-ok", "username": "jean_luc"}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    Ok(())
+}

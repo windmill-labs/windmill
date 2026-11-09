@@ -6,6 +6,7 @@
 	import {
 		contextElementKey,
 		createAttachedFileContextElement,
+		isMentionContext,
 		isSameContextElement,
 		type AppDomSelectorElement,
 		type ContextElement
@@ -31,7 +32,7 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import { ArrowUp, Loader2, Square, X } from 'lucide-svelte'
-	import { Button } from '$lib/components/common'
+	import { Button, Kbd } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { type PasteAttachment } from './pasteTokens'
 	import { chatDraft, expanded } from './chatDraft'
@@ -88,6 +89,8 @@
 		onSendRequest?: (instructions: string) => void
 		showContext?: boolean
 		bottomRightSnippet?: Snippet
+		/** Shows "Press Esc again to clear" next to the send button. */
+		clearHint?: boolean
 		onKeyDown?: (e: KeyboardEvent) => void
 		// When provided, overrides `chatHost.loading` for the send/stop
 		// button — useful for callers driving their own request lifecycle
@@ -143,6 +146,7 @@
 		onSendRequest = undefined,
 		showContext = true,
 		bottomRightSnippet,
+		clearHint = false,
 		onKeyDown = undefined,
 		loading,
 		onCancel,
@@ -162,7 +166,10 @@
 	const toolbarInBox = $derived(!!toolbar && hero)
 
 	// Picked at mount-time so each new session lands on a different prompt.
-	const permissions = useSessionPermissions(() => chatHost.operatingWorkspace)
+	const permissions = useSessionPermissions(
+		() => chatHost.operatingWorkspace,
+		() => chatHost
+	)
 	const suggestionPick = Math.random()
 	const globalSuggestion = $derived(
 		globalComposerSuggestion(suggestionPick, permissions.canOpenEditor)
@@ -679,6 +686,42 @@
 		return draft.isEmpty
 	}
 
+	// Only GLOBAL's context is chips the user added; the editors' modes seed theirs with the
+	// code being edited, which an Escape must neither count nor drop.
+	const userContext = $derived(chatHost.mode === AIMode.GLOBAL ? selectedContext : [])
+
+	const attachmentsInFlight = $derived(
+		pendingImages > 0 || pendingFiles > 0 || pendingBlobs > 0 || ingestionHolds > 0
+	)
+
+	/** Whether there is anything for `clearDraft` to drop: the draft, a context chip, or an
+	 * attachment still being read. */
+	export function hasClearableContent(): boolean {
+		return !draft.isEmpty || userContext.length > 0 || attachmentsInFlight
+	}
+
+	/** Whether an `@` or `/` picker is open: an Escape then belongs to it. */
+	export function hasOpenPicker(): boolean {
+		return showAppContextTooltip || (contextTextareaComponent?.hasOpenPicker() ?? false)
+	}
+
+	/** Drops everything the user put in the composer: text, attachments and context chips.
+	 * Refused while an attachment is still being read, as a send is: it would land after the
+	 * clear. Returns whether it cleared. */
+	export function clearDraft(): boolean {
+		if (attachmentsInFlight) return false
+		if (chatHost.mode === AIMode.GLOBAL) {
+			// GLOBAL drops every chip below, so the per-`@`-mention removals are skipped. The
+			// editor modes keep them: they are what drops a mention's chip with its text.
+			contextTextareaComponent?.clearForSend()
+			draft.clear()
+			selectedContext = []
+		} else {
+			draft.clear()
+		}
+		return true
+	}
+
 	export function focusInput(selection?: ComposerSelection) {
 		if (isContextEnabledMode) {
 			contextTextareaComponent?.focus(selection)
@@ -762,6 +805,13 @@
 		}
 		focusInput()
 		return mergedIntoDraft
+	}
+
+	/** `text` on the draft's first line, ahead of the mentions an entry point just put there. A
+	 * second click does not repeat a question the draft already opens with. */
+	export function prefill(text: string) {
+		if (!draft.text.startsWith(text)) draft.text = `${text}${draft.text}`
+		focusInput()
 	}
 
 	/** Insert a plain @filename mention for an attached file (used by the @ menu Files category). */
@@ -860,10 +910,7 @@
 
 		// Workspace items are fetched on-demand and not in availableContext,
 		// so skip the availableContext check for them
-		const isWorkspaceItem =
-			contextElement.type === 'workspace_script' ||
-			contextElement.type === 'workspace_flow' ||
-			contextElement.type === 'workspace_app'
+		const isWorkspaceItem = isMentionContext(contextElement)
 		if (
 			!isWorkspaceItem &&
 			!availableContext.find(
@@ -1297,25 +1344,37 @@
 				selectedContext.length === 0))}
 	<!-- Accent only once there is something to send, so the button lights up as the draft
 	     becomes sendable; idle and Stop stay quiet. -->
-	<Button
-		variant={!isLoading && !sendDisabled ? 'accent' : 'subtle'}
-		unifiedSize={size}
-		iconOnly
-		title={isLoading
-			? 'Stop'
-			: needsTextForAttachment
-				? 'Write a message to send with the attachment'
-				: 'Send'}
-		startIcon={{ icon: isLoading ? Square : ArrowUp }}
-		disabled={!isLoading && sendDisabled}
-		on:click={() => {
-			if (isLoading) {
-				onCancel ? onCancel() : chatHost.cancel()
-			} else if (!sendDisabled) {
-				submitRequest()
-			}
-		}}
-	/>
+	<div class="relative flex shrink-0">
+		<!-- Floats over the field so the box keeps its size; the field's colour hides the text
+		     under it. -->
+		{#if clearHint}
+			<div
+				class="absolute right-full top-1/2 -translate-y-1/2 mr-1.5 flex items-center gap-1 whitespace-nowrap rounded bg-surface-input pl-2 text-xs text-hint pointer-events-none"
+				role="status"
+			>
+				Press <Kbd small>Esc</Kbd> again to clear
+			</div>
+		{/if}
+		<Button
+			variant={!isLoading && !sendDisabled ? 'accent' : 'subtle'}
+			unifiedSize={size}
+			iconOnly
+			title={isLoading
+				? 'Stop'
+				: needsTextForAttachment
+					? 'Write a message to send with the attachment'
+					: 'Send'}
+			startIcon={{ icon: isLoading ? Square : ArrowUp }}
+			disabled={!isLoading && sendDisabled}
+			on:click={() => {
+				if (isLoading) {
+					onCancel ? onCancel() : chatHost.cancel()
+				} else if (!sendDisabled) {
+					submitRequest()
+				}
+			}}
+		/>
+	</div>
 {/snippet}
 
 <!-- One wrapping row for every badge-shaped chip: selected context (or, when the

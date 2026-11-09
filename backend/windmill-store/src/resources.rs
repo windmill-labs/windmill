@@ -25,6 +25,7 @@ use windmill_common::workspaces::{check_deploy_rules, operator_can_draft, RuleCh
 
 use crate::secret_backend_ext::rename_vault_secret;
 use crate::var_resource_cache::{auth_identity, cache_resource, get_cached_resource};
+use crate::variables::{describe_authed, describe_extra_perms};
 use windmill_common::utils::{
     check_proper_path, check_proper_type_name, escape_ilike_pattern, sanitize_db_error,
     BulkDeleteRequest,
@@ -443,9 +444,10 @@ async fn list_resources(
 
     if let Some(broad_filter) = &lq.broad_filter {
         let pat = format!("%{}%", escape_ilike_pattern(broad_filter));
+        // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
         sqlb.and_where(
             "(resource.path ILIKE ? OR resource.description ILIKE ? OR resource_type ILIKE ? OR resource.value::text ILIKE ?)"
-                .bind(&pat).bind(&pat).bind(&pat).bind(&pat)
+                .binds(&[&pat]),
         );
     }
 
@@ -459,10 +461,10 @@ async fn list_resources(
 
     if let Some(label) = &lq.label {
         for l in label.split(',') {
+            // `binds` fills every `?` in one pass; chained `bind`s would re-scan a `?` in the bound value
             sqlb.and_where(
                 "(resource.labels @> ARRAY[?] OR folder_labels(resource.workspace_id, resource.path) @> ARRAY[?])"
-                    .bind(&l.trim())
-                    .bind(&l.trim()),
+                    .binds(&[&l.trim()]),
             );
         }
     }
@@ -699,6 +701,9 @@ async fn get_resource_value(
     Ok(Json(value))
 }
 
+/// Including the resource's and its folder's `extra_perms` in the error is intended, not a
+/// leak: who holds access to an item is not secret within a workspace, and it tells the
+/// denied caller whom to ask. Keep the maps in the message.
 pub async fn explain_resource_perm_error(
     path: &str,
     w_id: &str,
@@ -728,13 +733,16 @@ pub async fn explain_resource_perm_error(
         .fetch_optional(db)
         .await?;
         return Err(Error::NotAuthorized(format!(
-            "Resource exists but you don't have access to it:\nresource perms: {}\nfolder perms: {}\nauthed as: {authed:?}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default(), serde_json::to_string_pretty(&folder_extra_perms).unwrap_or_default()
+            "Resource exists but you don't have access to it:\nresource perms: {}\nfolder perms: {}\nauthed as: {}",
+            describe_extra_perms(Some(&extra_perms)),
+            describe_extra_perms(folder_extra_perms.as_ref()),
+            describe_authed(Some(authed))
         )));
     } else {
         return Err(Error::NotAuthorized(format!(
-            "Resource exists but you don't have access to it:\nresource perms: {}\nauthed as: {authed:?}",
-            serde_json::to_string_pretty(&extra_perms).unwrap_or_default()
+            "Resource exists but you don't have access to it:\nresource perms: {}\nauthed as: {}",
+            describe_extra_perms(Some(&extra_perms)),
+            describe_authed(Some(authed))
         )));
     }
 }
@@ -2194,7 +2202,7 @@ async fn update_resource(
 
             // Handle Vault secret rename if the linked variable is a Vault-stored secret
             let linked_var = sqlx::query!(
-                "SELECT value, is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
+                "SELECT value::text AS \"value!\", is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
                 path,
                 w_id
             )
@@ -2494,6 +2502,9 @@ async fn update_resource_value(
 /// `run_on_behalf_of` is set: then the writer's own, unless one allowed to keep the one the value
 /// names asks to, and a folder's default for a new agent. The value is written by anyone who can
 /// write the agent, so the key it arrives with is only a request.
+///
+/// Every write of an agent passes here, so this is also where an operator's is held to the
+/// composed-flow rules: a flow step linking the agent runs its tools unchecked.
 async fn resolve_agent_on_behalf_of(
     tx: &mut Transaction<'_, Postgres>,
     authed: &ApiAuthed,
@@ -2504,6 +2515,9 @@ async fn resolve_agent_on_behalf_of(
     preserve: bool,
     created: bool,
 ) -> Result<()> {
+    if authed.is_operator {
+        windmill_api_auth::composed::validate_operator_agent(value, authed, db, tx, w_id).await?;
+    }
     let Some(obj) = value.as_object_mut() else {
         return Ok(());
     };

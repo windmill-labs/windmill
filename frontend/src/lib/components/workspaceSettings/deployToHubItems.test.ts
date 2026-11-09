@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
 	canRecordSession,
+	commonFolderPath,
+	folderSubPaths,
 	inputResourceTypes,
 	mergeAppTableOrigin,
 	type DeployItem
@@ -60,5 +62,28 @@ describe('inputResourceTypes', () => {
 		const all = ['postgresql', 'postgres']
 		expect(inputResourceTypes(schema, undefined)).toEqual(all)
 		expect(inputResourceTypes(schema, new Set())).toEqual(all)
+	})
+})
+
+describe('folderSubPaths', () => {
+	it('lists every sub-path that holds an item, at every depth', () => {
+		expect(
+			folderSubPaths(
+				['f/hub/top', 'f/hub/billing/utils/x', 'f/hub/notifications/send', 'f/other/a/b'],
+				'hub'
+			)
+		).toEqual(['hub/billing', 'hub/billing/utils', 'hub/notifications'])
+	})
+})
+
+describe('commonFolderPath', () => {
+	it('is the deepest sub-path holding every selected item', () => {
+		expect(commonFolderPath(['f/hub/billing/charge', 'f/hub/billing/utils/format'])).toBe(
+			'hub/billing'
+		)
+		expect(commonFolderPath(['f/hub/billing/utils/format'])).toBe('hub/billing/utils')
+		expect(commonFolderPath(['f/hub/billing/charge', 'f/hub/notifications/send'])).toBe('hub')
+		expect(commonFolderPath(['f/hub/billing/charge', 'f/hub/readme_bot'])).toBe('hub')
+		expect(commonFolderPath([])).toBeUndefined()
 	})
 })

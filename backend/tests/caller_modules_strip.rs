@@ -20,10 +20,16 @@ fn modules(v: &str) -> serde_json::Value {
 
 /// Pushes `payload` with a caller `_MODULES` both in `args` and in `extra` (where webhook
 /// query and headers land), and returns the stored `_MODULES`.
+///
+/// Every spelling `push` stores as `_MODULES` is sent, not just the exact name: it writes
+/// the args with their `\u0000` escapes removed, keys included, so `_MODULES\0` lands in
+/// the job as `_MODULES` unless the removal compares the name that will be stored.
 async fn stored_modules(db: &Pool<Postgres>, payload: JobPayload) -> Option<serde_json::Value> {
     let caller: Box<RawValue> = serde_json::value::to_raw_value(&modules("caller")).unwrap();
-    let args = HashMap::from([("_MODULES".to_string(), caller.clone())]);
-    let extra = HashMap::from([("_MODULES".to_string(), caller)]);
+    let spellings =
+        || ["_MODULES", "_MODULES\0", "_MOD\0ULES"].map(|k| (k.to_string(), caller.clone()));
+    let args = HashMap::from(spellings());
+    let extra = HashMap::from(spellings());
     let (id, tx) = windmill_queue::push(
         db,
         PushIsolationLevel::IsolatedRoot(db.clone()),
