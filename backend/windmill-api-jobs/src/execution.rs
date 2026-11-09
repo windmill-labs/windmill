@@ -880,7 +880,7 @@ pub async fn check_queue_too_long(db: &DB, queue_limit: Option<i64>) -> error::R
 
 /// Record the run's memory id, and make the run the one turn that holds it: a run started with a
 /// memory id a still-queued run holds is refused with a 409, so two turns never write the same
-/// memory over each other. For a chat flow, call it after `handle_chat_conversation_messages`,
+/// memory over each other. A holder whose agent parked hands the turn over instead. For a chat flow, call it after `handle_chat_conversation_messages`,
 /// whose refusal names the running turn the way the chat follows it.
 pub async fn set_flow_memory_id(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -915,7 +915,8 @@ pub async fn set_flow_memory_id(
     Ok(())
 }
 
-/// Make `job_id` the holder of the memory id, or return the queued job that holds it.
+/// Make `job_id` the holder of the memory id, or return the queued job that holds it and is not
+/// parked.
 ///
 /// Lock, then look, in separate statements: under read committed, a statement that waited on a
 /// row lock still evaluates its subqueries with the snapshot it started with, so a single upsert
@@ -956,15 +957,22 @@ async fn claim_memory_turn(
                 .bind(holder)
                 .fetch_one(&mut **tx)
                 .await?;
-        if queued {
-            return Ok(Some(holder));
-        }
+        let handed_jobs = if queued {
+            match hand_over_parked_turn(tx, holder).await? {
+                Some(jobs) => Some(jobs),
+                None => return Ok(Some(holder)),
+            }
+        } else {
+            None
+        };
         sqlx::query(
-            "UPDATE ai_memory_turn SET job_id = $3 WHERE workspace_id = $1 AND memory_id = $2",
+            "UPDATE ai_memory_turn SET job_id = $3, handed_jobs = $4
+             WHERE workspace_id = $1 AND memory_id = $2",
         )
         .bind(w_id)
         .bind(memory_id)
         .bind(job_id)
+        .bind(handed_jobs)
         .execute(&mut **tx)
         .await?;
         return Ok(None);
@@ -972,6 +980,46 @@ async fn claim_memory_turn(
     Err(Error::internal_err(format!(
         "Could not claim memory id {memory_id}: its claim kept being released"
     )))
+}
+
+/// A run whose agent parked has given its answer or waits on a person, so a new turn continues
+/// the conversation rather than being refused. Its parked agents are woken to end with what they
+/// have, any open approval or question dropped, and their background jobs are returned by flow
+/// step id for the new run's agents to adopt. `None` when the holder has no parked agent.
+///
+/// Zeroing `suspend` under the row lock is what keeps the monitor's wake and an answer from
+/// resuming the old turn as well: both only act on a row still parked.
+async fn hand_over_parked_turn(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    holder: Uuid,
+) -> error::Result<Option<serde_json::Value>> {
+    let parked: Vec<(Uuid, Option<String>, Option<serde_json::Value>)> = sqlx::query_as(
+        "UPDATE v2_job_queue q SET suspend = 0
+         FROM ai_agent_checkpoint c, v2_job j
+         WHERE c.job_id = q.id AND j.id = q.id AND (j.parent_job = $1 OR j.root_job = $1)
+           AND q.suspend > 0 AND q.suspend_until IS NOT NULL
+         RETURNING q.id, j.flow_step_id, c.checkpoint->'background'",
+    )
+    .bind(holder)
+    .fetch_all(&mut **tx)
+    .await?;
+    if parked.is_empty() {
+        return Ok(None);
+    }
+    let ids: Vec<Uuid> = parked.iter().map(|(id, ..)| *id).collect();
+    sqlx::query(
+        "UPDATE ai_agent_checkpoint
+         SET checkpoint = jsonb_set(checkpoint, '{handed_over}', 'true'), waiting_on = '{}'
+         WHERE job_id = ANY($1)",
+    )
+    .bind(&ids)
+    .execute(&mut **tx)
+    .await?;
+    let jobs = parked
+        .into_iter()
+        .filter_map(|(_, step, jobs)| Some((step?, jobs?)))
+        .collect::<serde_json::Map<_, _>>();
+    Ok(Some(serde_json::Value::Object(jobs)))
 }
 
 /// How long `take_over_memory_turn` waits for the stopped run to leave the queue: an agent step's

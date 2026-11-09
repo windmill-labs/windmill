@@ -379,6 +379,10 @@ pub(crate) struct BackgroundJob {
     pub action_index: usize,
     /// A nested agent's result is an envelope; the model gets its `output`.
     pub is_agent: bool,
+    /// Started by an earlier turn this run took over: `action_index` is that turn's, so this run
+    /// records no outcome for it.
+    #[serde(default)]
+    pub adopted: bool,
 }
 
 /// A background job that finished: whether it succeeded, and what the model is told it returned.
@@ -538,6 +542,7 @@ async fn answer_in_background(
                 Ok(FlowModuleValue::AIAgent { .. } | FlowModuleValue::AIDecision { .. })
             )
         }),
+        adopted: false,
     })
 }
 

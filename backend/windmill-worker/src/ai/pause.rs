@@ -206,6 +206,50 @@ pub(crate) struct AgentCheckpoint {
     /// ones earlier parks already read.
     #[serde(default)]
     pub consumed_resume_rows: Vec<Uuid>,
+    /// Set by a new run of the same memory id while this one was parked: the agent ends with what
+    /// it has, its open request dropped, its background jobs and its memory now the new run's.
+    #[serde(default)]
+    pub handed_over: bool,
+}
+
+const DROPPED_APPROVAL: &str =
+    "Not run: the user sent a new message instead of answering this approval request.";
+const DROPPED_QUESTION: &str = "The user sent a new message instead of answering.";
+
+/// The answer to a request dropped because a new turn took the conversation over.
+pub(crate) fn dropped_answer(pending: &PendingPause, actions: &[AgentAction]) -> Answer {
+    match &pending.request {
+        PendingRequest::Approval { .. } => Answer::Refuse(DROPPED_APPROVAL.to_string()),
+        PendingRequest::Question { .. } => Answer::Question(dropped_question(pending, actions)),
+    }
+}
+
+fn dropped_question(pending: &PendingPause, actions: &[AgentAction]) -> OpenAIMessage {
+    question_message(
+        pending,
+        actions,
+        serde_json::json!({ "skipped": true, "message": DROPPED_QUESTION }),
+    )
+}
+
+/// The tool messages `dropped_answer` ends up giving the request's calls, so that the memory saved
+/// at park already reads the way a new turn that takes over will find it.
+pub(crate) fn dropped_messages(
+    pending: &PendingPause,
+    actions: &[AgentAction],
+) -> Vec<OpenAIMessage> {
+    match &pending.request {
+        PendingRequest::Approval { calls } => calls
+            .iter()
+            .map(|call| OpenAIMessage {
+                role: "tool".to_string(),
+                content: Some(OpenAIContent::Text(DROPPED_APPROVAL.to_string())),
+                tool_call_id: Some(call.id.clone()),
+                ..Default::default()
+            })
+            .collect(),
+        PendingRequest::Question { .. } => vec![dropped_question(pending, actions)],
+    }
 }
 
 pub(crate) async fn load_checkpoint(
