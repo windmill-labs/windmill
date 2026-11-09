@@ -211,6 +211,19 @@
 		return formatElapsed(now - job.createdAt)
 	}
 
+	// Seconds matter: a turn often starts several runs within the same minute, and the start
+	// time is what tells them apart and shows the order they ran in.
+	function startedLabel(job: ChatJob): string {
+		const started = new Date(job.createdAt)
+		const sameDay = started.toDateString() === new Date(now).toDateString()
+		return new Intl.DateTimeFormat(undefined, {
+			...(sameDay ? {} : { month: 'short', day: 'numeric' }),
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit'
+		}).format(started)
+	}
+
 	function runHref(job: ChatJob): string {
 		return `/run/${job.jobId}?workspace=${job.workspace}`
 	}
@@ -362,6 +375,10 @@
 				<JobStatusIcon job={job.job} />
 			{/if}
 			<span class="min-w-0 grow truncate text-primary">{job.label}</span>
+			<span
+				class="shrink-0 tabular-nums text-tertiary"
+				title={`Started ${new Date(job.createdAt).toLocaleString()}`}>{startedLabel(job)}</span
+			>
 			<span class="shrink-0 tabular-nums text-tertiary">{elapsedLabel(job)}</span>
 		{/snippet}
 		{#snippet actions(job)}
