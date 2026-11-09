@@ -31,9 +31,35 @@ export type NativeOAuthMessage =
 	| { type: typeof CONNECT_MESSAGE; ok: true; path: string }
 	| { type: typeof CONNECT_MESSAGE; ok: false; error: string }
 
-/** The page the provider redirects to, as registered on the workspace's OAuth apps. */
-export function nativeOAuthRedirectUri(service: NativeServiceName): string {
-	return `${window.location.origin}/workspace_settings?tab=native_triggers&service=${service}`
+/** The workspace and service a native trigger connect state was signed for. A login state has no
+ * `:`, so this is undefined for one. */
+export function decodeNativeOAuthState(
+	state: string
+): { workspace: string; service: NativeServiceName } | undefined {
+	const [payload, signature] = state.split(':')
+	if (!signature) return undefined
+	try {
+		const [workspace, service] = atob(payload.replace(/-/g, '+').replace(/_/g, '/')).split(':')
+		return workspace && service ? { workspace, service: service as NativeServiceName } : undefined
+	} catch {
+		return undefined
+	}
+}
+
+/** The redirect URI to register on a workspace OAuth app: the one it was saved with, the
+ * workspace settings page for an app saved before it was kept, else the resource connect
+ * callback, which every connection lands on. */
+export function workspaceAppRedirectUri(
+	service: NativeServiceName,
+	existing: { redirect_uri?: string } | null | undefined
+): string {
+	const origin = window.location.origin
+	if (existing) {
+		return (
+			existing.redirect_uri || `${origin}/workspace_settings?tab=native_triggers&service=${service}`
+		)
+	}
+	return `${origin}/oauth/callback/${NATIVE_TRIGGER_SERVICES[service].resourceType}`
 }
 
 /** Hands the outcome of a connect popup back to the page that opened it. */
@@ -56,7 +82,7 @@ export async function connectNativeAccount(
 	const authUrl = await WorkspaceIntegrationService.generateNativeTriggerServiceConnectUrl({
 		workspace,
 		serviceName: service,
-		requestBody: { redirect_uri: nativeOAuthRedirectUri(service), resource_path: resourcePath }
+		requestBody: { resource_path: resourcePath }
 	})
 	const popup = window.open(authUrl, '_blank', 'popup,width=600,height=750')
 	if (!popup) {

@@ -38,6 +38,10 @@
 		// Open on hover without pinning, so the menu closes again once the pointer leaves.
 		// A click then pins it open until a click outside or on the trigger.
 		openOnHover?: boolean
+		// A click inside the hover-opened content pins it too, for content that changes size
+		// under the pointer: a menu that grows near the window's edge moves, and the pointer
+		// it leaves behind would close it.
+		pinOnClick?: boolean
 		// Grace period before a hover-opened menu closes, so the pointer can travel from
 		// the trigger to the content.
 		debounceDelay?: number
@@ -68,6 +72,7 @@
 		renderContent = false,
 		submenuSafe = false,
 		openOnHover = false,
+		pinOnClick = false,
 		debounceDelay = 150,
 		class: classNames = '',
 		closeFocus = undefined,
@@ -233,6 +238,12 @@
 			data-menu
 			onmouseenter={cancelPendingClose}
 			onmouseleave={scheduleClose}
+			onclickcapture={() => {
+				if (openOnHover && pinOnClick && open) {
+					cancelPendingClose()
+					pinned = true
+				}
+			}}
 			transition:placementFly={{ duration: 100, placement }}
 			style={contentStyle}
 			class={twMerge(

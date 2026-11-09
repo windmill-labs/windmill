@@ -459,6 +459,8 @@ async fn test_operator_builder_apps_boundary(db: Pool<Postgres>) -> anyhow::Resu
     for (preview, expected) in [
         (json!({"path": "script/u/operator/some_script"}), 200),
         (json!({"path": "script/hub/1/x/y"}), 403),
+        (json!({"path": "script//hub/1/x/y"}), 403),
+        (json!({"path": "flow//hub/flows/1/x"}), 403),
         (
             json!({"raw_code": {"content": "x", "language": "bun"}}),
             403,

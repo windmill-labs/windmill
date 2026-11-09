@@ -20,6 +20,7 @@
 	import Row from '$lib/components/table/Row.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { untrack } from 'svelte'
+	import { page } from '$app/stores'
 	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
 
 	let restricted = $derived(
@@ -52,6 +53,20 @@
 				loadFolders()
 			})
 		}
+	})
+
+	// Deep link: #f/<name> opens that folder's drawer. The `f/` prefix keeps it apart from
+	// global drawer hashes like #superadmin-settings, which a bare folder name could collide with.
+	let handledHash = ''
+	$effect(() => {
+		const hash = $page.url.hash
+		if (!hash.startsWith('#f/')) {
+			handledHash = ''
+			return
+		}
+		if (hash === handledHash || !folderEditorDrawer) return
+		handledHash = hash
+		folderEditorDrawer.initEdit(decodeURIComponent(hash.slice(3)))
 	})
 
 	function computeMembers(owners: string[], extra_perms: Record<string, any>) {

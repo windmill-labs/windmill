@@ -18,6 +18,8 @@
 		colorClass?: string
 		/** Tooltip label shown on hover instead of the default job link. */
 		tooltip?: string
+		/** A thin bar with no duration inside it: the caller shows the duration elsewhere. */
+		compact?: boolean
 	}
 
 	let {
@@ -32,17 +34,21 @@
 		gray = false,
 		spacerClass = '',
 		colorClass = undefined,
-		tooltip = undefined
+		tooltip = undefined,
+		compact = false
 	}: Props = $props()
 </script>
 
 {#if min && started_at != undefined}
 	{#if !concat}
-		<div style="width: {((started_at - min) / total) * 100}%" class="h-5 {spacerClass}"></div>
+		<div
+			style="width: {((started_at - min) / total) * 100}%"
+			class="{compact ? 'h-1.5' : 'h-5'} {spacerClass}"
+		></div>
 	{/if}
 	<Popover
 		style="width: {(len / total) * 100}%"
-		class="h-5 relative {colorClass
+		class="{compact ? 'h-1.5 min-w-1.5' : 'h-5'} relative {colorClass
 			? colorClass
 			: gray
 				? 'bg-gray-300 dark:bg-gray-600'
@@ -63,7 +69,7 @@
 				>
 			{/if}
 		{/snippet}
-		{#if len > 0}
+		{#if len > 0 && !compact}
 			{@const narrow = len / total < 0.09}
 			{@const endPos =
 				started_at != undefined && min != undefined ? (started_at - min + len) / total : 1}

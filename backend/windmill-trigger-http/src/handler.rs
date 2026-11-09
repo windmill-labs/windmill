@@ -247,7 +247,7 @@ pub async fn create_many_http_triggers(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Json(new_http_triggers): Json<Vec<TriggerData<HttpConfigRequest>>>,
+    Json(mut new_http_triggers): Json<Vec<TriggerData<HttpConfigRequest>>>,
 ) -> Result<(StatusCode, String)> {
     // Admin check for instance-wide routes is done per-trigger in insert_new_trigger_into_db
 
@@ -264,7 +264,7 @@ pub async fn create_many_http_triggers(
 
     let mut route_path_keys = Vec::with_capacity(new_http_triggers.len());
 
-    for new_http_trigger in new_http_triggers.iter() {
+    for new_http_trigger in new_http_triggers.iter_mut() {
         // Per-item write scope, matching the single-create handler. The bulk
         // endpoint must not let a path-scoped token create triggers outside it.
         check_scopes(&authed, || {
@@ -280,6 +280,15 @@ pub async fn create_many_http_triggers(
                 new_http_trigger.config.route_path, err
             ))
         })?;
+        new_http_trigger
+            .base
+            .normalize_script_path()
+            .map_err(|err| {
+                Error::BadRequest(format!(
+                    "Error occurred for HTTP route at route path: {}, error: {}",
+                    new_http_trigger.config.route_path, err
+                ))
+            })?;
 
         handler
             .validate_new(&db, &w_id, &new_http_trigger.config)

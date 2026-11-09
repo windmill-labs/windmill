@@ -49,7 +49,7 @@
 	const effective = $derived(resolveCapabilities(base, patch, baseSetsFork))
 	const error = $derived(capabilitiesError(effective))
 
-	type BoolKey = 'code' | 'manage_schedules' | 'manage_triggers' | 'fork'
+	type BoolKey = 'code' | 'manage_schedules' | 'manage_triggers' | 'run' | 'fork'
 	type LevelKey = 'flows' | 'apps'
 
 	function boolValue(path: string): boolean {
@@ -92,7 +92,7 @@
 			key: 'code',
 			label: 'Write code',
 			description:
-				'Author scripts and run code of their own: previews, dependency jobs, dynamic selects. Required for full flow or app authoring.'
+				'Author scripts and run code of their own: previews, dependency jobs, dynamic selects. Required for full flow or app authoring. Previews also need Can run.'
 		},
 		{
 			key: 'flows',
@@ -109,6 +109,12 @@
 	]
 
 	const management: { key: BoolKey; label: string; description: string }[] = [
+		{
+			key: 'run',
+			label: 'Can run',
+			description:
+				'Start runs of the scripts, flows and AI agents folder permissions let them see. Without it they view runs, logs and results only. Approving a suspended step stays open.'
+		},
 		{
 			key: 'manage_schedules',
 			label: 'Manage schedules',

@@ -2,27 +2,11 @@
 	import { onMount } from 'svelte'
 	import { page } from '$app/state'
 	import { WorkspaceIntegrationService } from '$lib/gen'
-	import type { NativeServiceName } from '$lib/gen/types.gen'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { postNativeOAuthResult } from './utils'
-
-	interface Props {
-		/** The exact redirect URI the authorization request was made with. */
-		redirectUri: string
-	}
-
-	let { redirectUri }: Props = $props()
+	import { decodeNativeOAuthState, postNativeOAuthResult } from './utils'
 
 	let outcome = $state<{ ok: true; path: string } | { ok: false; error: string } | undefined>()
-
-	// The signed state carries the workspace and service it was issued for, so this page works
-	// whatever workspace is selected and wherever the provider sends the user back.
-	function decodeState(state: string): { workspace: string; service: NativeServiceName } {
-		const payload = atob(state.split(':')[0].replace(/-/g, '+').replace(/_/g, '/'))
-		const [workspace, service] = payload.split(':')
-		return { workspace, service: service as NativeServiceName }
-	}
 
 	async function finish(): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
 		const error = page.url.searchParams.get('error')
@@ -32,11 +16,17 @@
 			return { ok: false, error: error ?? 'The provider returned no authorization code' }
 		}
 		try {
-			const { workspace, service } = decodeState(state)
+			// The signed state carries the workspace and service it was issued for, so this page works
+			// whatever workspace is selected and wherever the provider sends the user back.
+			const decoded = decodeNativeOAuthState(state)
+			if (!decoded) {
+				return { ok: false, error: 'The provider returned an unrecognized state' }
+			}
+			const { workspace, service } = decoded
 			const path = await WorkspaceIntegrationService.nativeTriggerServiceCallback({
 				workspace,
 				serviceName: service,
-				requestBody: { code, state, redirect_uri: redirectUri }
+				requestBody: { code, state }
 			})
 			return { ok: true, path }
 		} catch (err: any) {

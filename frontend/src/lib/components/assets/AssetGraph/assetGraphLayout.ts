@@ -368,3 +368,41 @@ export function layoutAssetGraph(
 		return byId
 	}
 }
+
+/**
+ * Wrap every layer wider than `maxPerRow` onto extra rows centered on the layer,
+ * pushing the layers below down to make room. The tree layout only grows sideways,
+ * so a script writing many assets otherwise forces a narrow canvas to zoom far out.
+ */
+export function wrapWideLayers(
+	positions: Map<string, Positioned>,
+	maxPerRow: number | undefined,
+	extraRowHeight = 0
+): Map<string, Positioned> {
+	if (!maxPerRow || maxPerRow < 1) return positions
+	const layers = new Map<number, [string, Positioned][]>()
+	for (const entry of positions) {
+		const layer = layers.get(entry[1].y)
+		if (layer) layer.push(entry)
+		else layers.set(entry[1].y, [entry])
+	}
+	const rowStep = NODE_HEIGHT + extraRowHeight + LAYER_GAP / 2
+	const wrapped = new Map<string, Positioned>()
+	let pushedDown = 0
+	for (const y of [...layers.keys()].sort((a, b) => a - b)) {
+		const layer = layers.get(y)!.sort((a, b) => a[1].x - b[1].x)
+		const centerX = layer.reduce((sum, [, p]) => sum + p.x, 0) / layer.length
+		const fits = layer.length <= maxPerRow
+		layer.forEach(([id, p], i) => {
+			const row = fits ? 0 : Math.floor(i / maxPerRow)
+			const inRow = Math.min(maxPerRow, layer.length - row * maxPerRow)
+			const offset = (i % maxPerRow) - (inRow - 1) / 2
+			wrapped.set(id, {
+				x: fits ? p.x : centerX + offset * (NODE_WIDTH + SIBLING_GAP),
+				y: y + pushedDown + row * rowStep
+			})
+		})
+		if (!fits) pushedDown += (Math.ceil(layer.length / maxPerRow) - 1) * rowStep
+	}
+	return wrapped
+}

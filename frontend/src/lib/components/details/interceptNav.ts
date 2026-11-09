@@ -1,3 +1,5 @@
+import { isNewTabClick } from '$lib/navigation'
+
 /**
  * Route a link's plain left-click through the detail page's `onNavigate` instead of
  * letting the browser follow it. The detail pages keep real `href`s so a reader can
@@ -10,8 +12,7 @@ export function interceptNav(
 	url: string
 ): (e?: Event) => void {
 	return (e?: Event) => {
-		const m = e as MouseEvent | undefined
-		if (m && (m.metaKey || m.ctrlKey || m.shiftKey || m.altKey || (m.button ?? 0) !== 0)) return
+		if (e instanceof MouseEvent && isNewTabClick(e)) return
 		e?.preventDefault()
 		void onNavigate(url)
 	}

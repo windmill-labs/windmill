@@ -635,6 +635,7 @@ pub(crate) async fn offboard_global_user(
     }
 
     if req.delete_user {
+        windmill_api_users::users::revoke_mcp_oauth_grants(&mut *tx, &email, None).await?;
         sqlx::query!("DELETE FROM token WHERE email = $1", &email)
             .execute(&mut *tx)
             .await?;

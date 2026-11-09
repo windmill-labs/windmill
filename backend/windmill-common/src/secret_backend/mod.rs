@@ -161,11 +161,14 @@ pub struct VaultSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jwt_mount_path: Option<String>,
     /// AppRole role_id. When set (and no static token), Windmill logs in with
-    /// AppRole; the secret_id is read from the `VAULT_APPROLE_SECRET_ID`
-    /// environment variable of servers and workers, never from settings, and
-    /// is omitted when unset (a role with `bind_secret_id=false`).
+    /// AppRole.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approle_role_id: Option<String>,
+    /// AppRole secret_id. When empty, the `VAULT_APPROLE_SECRET_ID` environment
+    /// variable of servers and workers is used, and when that is unset too the
+    /// login sends none (a role with `bind_secret_id=false`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approle_secret_id: Option<String>,
     /// Mount path of the AppRole auth method (defaults to "approle").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approle_mount_path: Option<String>,

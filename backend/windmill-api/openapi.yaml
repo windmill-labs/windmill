@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.858.0
+  version: 1.865.0
   title: Windmill API
 
   contact:
@@ -282,6 +282,15 @@ paths:
           description: get audit logs for all workspaces
           schema:
             type: boolean
+        - name: job_id
+          in: query
+          description: >
+            only the entries about this run and the jobs under it (steps, loop iterations
+            and subflows at any depth): who started, viewed, cancelled, approved, resumed
+            or deleted each
+          schema:
+            type: string
+            format: uuid
 
       responses:
         "200":
@@ -4410,6 +4419,11 @@ paths:
                     type: string
                   webhook:
                     type: string
+                  webhook_events:
+                    type: array
+                    description: event types the webhook is sent; absent sends every event
+                    items:
+                      $ref: "#/components/schemas/WorkspaceWebhookEventType"
                   ai_config:
                     $ref: "#/components/schemas/AIConfig"
                   error_handler:
@@ -5268,6 +5282,15 @@ paths:
               properties:
                 webhook:
                   type: string
+                  description: the URL to POST events to. Omitted or empty removes the webhook.
+                events:
+                  type: array
+                  nullable: true
+                  description: >
+                    event types to send, at least one. Omitted keeps the stored filter, null
+                    sends every event.
+                  items:
+                    $ref: "#/components/schemas/WorkspaceWebhookEventType"
 
       responses:
         "200":
@@ -14090,6 +14113,104 @@ paths:
                   - text
                   - model
 
+  /w/{workspace}/ai/web_search:
+    post:
+      summary: search the web through the workspace's web search API
+      description: >
+        Runs a query against the search API (Exa, Tavily, Linkup or DeepSeek) set in the workspace's AI
+        settings, with the key of its resource. The AI chat uses it when the model's provider
+        has no built-in web search.
+      operationId: aiWebSearch
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                max_results:
+                  type: integer
+                  minimum: 1
+                  maximum: 10
+              required:
+                - query
+      responses:
+        "200":
+          description: the results, each with an excerpt of its page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        title:
+                          type: string
+                        url:
+                          type: string
+                        published_date:
+                          type: string
+                        content:
+                          type: string
+                      required:
+                        - title
+                        - url
+                        - content
+                required:
+                  - results
+
+  /w/{workspace}/ai/web_fetch:
+    post:
+      summary: read a web page through the workspace's web search API
+      description: >
+        Has the search API set in the workspace's AI settings fetch a page and returns its
+        text as markdown. The page is fetched from the search API's servers, not Windmill's.
+      operationId: aiWebFetch
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+              required:
+                - url
+      responses:
+        "200":
+          description: the page's text
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                  title:
+                    type: string
+                  content:
+                    type: string
+                  truncated:
+                    type: boolean
+                required:
+                  - url
+                  - content
+                  - truncated
+
   /w/{workspace}/ai_evals/datasets/list:
     get:
       summary: list eval datasets
@@ -15115,6 +15236,27 @@ paths:
                     type: integer
                   share:
                     $ref: "#/components/schemas/SharedAiArtifactInfo"
+
+  /w/{workspace}/ai/shared_artifacts/list:
+    get:
+      summary: list the workspace's live shared AI session artifacts
+      description: >
+        Every share still inside its retention window, newest first, without its content.
+        Capped at 500.
+      operationId: listSharedAiArtifacts
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: the live shares
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SharedAiArtifactInfo"
 
   /w/{workspace}/ai/shared_artifacts/get/{id}:
     get:
@@ -19488,7 +19630,9 @@ paths:
               type: object
               properties:
                 payload:
-                  description: payload to send to the resumed job
+                  description: >
+                    payload to send to the resumed job. On a denial, a string `reason` in it
+                    is shown in the step's error and the audit log.
                 approval_token:
                   type: string
                   description: approval token for unauthenticated access
@@ -21404,21 +21548,17 @@ paths:
             $ref: "#/components/schemas/NativeServiceName"
       requestBody:
         description: >-
-          redirect_uri, and where to save the connection (defaults to
-          u/{caller}/native_{resource_type}). Uses the workspace OAuth client, or the instance
-          one when the instance shares it.
+          Where to save the connection (defaults to u/{caller}/native_{resource_type}). Uses
+          the workspace OAuth client, or the instance one when the instance shares it, and the
+          redirect URI registered on that client.
         required: true
         content:
           application/json:
             schema:
               type: object
               properties:
-                redirect_uri:
-                  type: string
                 resource_path:
                   type: string
-              required:
-                - redirect_uri
       responses:
         "200":
           description: native trigger service connect url
@@ -21575,12 +21715,9 @@ paths:
                   type: string
                 state:
                   type: string
-                redirect_uri:
-                  type: string
               required:
                 - code
                 - state
-                - redirect_uri
       responses:
         "200":
           description: path of the saved connection
@@ -23821,6 +23958,9 @@ paths:
                   type: string
                 summary:
                   type: string
+                external_id:
+                  type: string
+                  description: "IdP group the SSO groups claim links this group to: a group id or a full path such as /operators/network-team. Blank or omitted leaves it unlinked."
               required:
                 - name
       responses:
@@ -23853,6 +23993,9 @@ paths:
                   type: string
                   nullable: true
                   description: "Instance-level role for group members. 'superadmin', 'devops', 'user' or empty to clear."
+                external_id:
+                  type: string
+                  description: "IdP group the SSO groups claim links this group to: a group id or a full path such as /operators/network-team. Omitted keeps the current link, blank clears it. Refused on a group SCIM provisioned."
               required:
                 - new_summary
       responses:
@@ -25226,6 +25369,31 @@ paths:
               schema:
                 type: string
                 description: Minimum semantic version across all workers (e.g. "1.583.0")
+
+  /w/{workspace}/access/get:
+    get:
+      summary: list what a workspace member or group can reach, and why
+      description: |
+        Workspace admins can query any principal; other members only themselves and the groups
+        they belong to. An admin principal reaches everything, so `items` is empty.
+      operationId: getPrincipalAccess
+      tags:
+        - granular_acl
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: principal
+          description: "`u/<username>` or `g/<group>`"
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the principal's access
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrincipalAccess"
 
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
@@ -30212,7 +30380,10 @@ components:
           description: Mount path for the JWT auth method in Vault (optional, defaults to "jwt"). Set this when the JWT auth method is mounted at a non-default path, e.g. via `vault auth enable -path=<mount> jwt`.
         approle_role_id:
           type: string
-          description: AppRole role_id (optional). When set and no static token is given, Windmill logs in with AppRole; the secret_id is read from the `VAULT_APPROLE_SECRET_ID` environment variable of servers and workers.
+          description: AppRole role_id (optional). When set and no static token is given, Windmill logs in with AppRole.
+        approle_secret_id:
+          type: string
+          description: AppRole secret_id (optional). When empty, the `VAULT_APPROLE_SECRET_ID` environment variable of servers and workers is used; when that is unset too, no secret_id is sent (a role with `bind_secret_id=false`).
         approle_mount_path:
           type: string
           description: Mount path of the AppRole auth method (optional, defaults to "approle").
@@ -31060,6 +31231,24 @@ components:
             The server deletes the backup of a session no push has reached for this many
             days. Unset keeps backups until the user deletes the session. Read from the
             workspace's own settings like `copilot_disabled`.
+        web_search:
+          $ref: "#/components/schemas/AIWebSearchConfig"
+
+    AIWebSearchConfig:
+      type: object
+      description: >-
+        The search API the AI chat searches the web and reads pages through when the model's
+        provider has no built-in web search. Read from the workspace's own settings like
+        `copilot_disabled`.
+      properties:
+        provider:
+          type: string
+          enum: [exa, tavily, linkup, deepseek]
+        resource_path:
+          type: string
+      required:
+        - provider
+        - resource_path
 
     AISessionBackupListing:
       type: object
@@ -31619,6 +31808,10 @@ components:
           type: integer
         concurrency_time_window_s:
           type: integer
+        on_concurrency_limit:
+          type: string
+          enum: [queue, fail]
+          description: What a run does when its concurrency limit is reached when a worker picks it up. `queue` (default) re-queues it to a later slot, `fail` ends it immediately as failed.
         concurrency_key:
           type: string
         debounce_key:
@@ -31760,6 +31953,10 @@ components:
           type: integer
         concurrency_time_window_s:
           type: integer
+        on_concurrency_limit:
+          type: string
+          enum: [queue, fail]
+          description: What a run does when its concurrency limit is reached when a worker picks it up. `queue` (default) re-queues it to a later slot, `fail` ends it immediately as failed.
         cache_ttl:
           type: number
         cache_ignore_s3_path:
@@ -32982,6 +33179,12 @@ components:
             If true, the token is restricted to read-only HTTP methods
             (GET/HEAD/OPTIONS). Mutating endpoints and job-run actions are
             rejected with 403, regardless of the scopes attached.
+        super_admin:
+          type: boolean
+          description: |
+            For an MCP token (an `mcp:` scope) owned by a superadmin: carry the owner's
+            superadmin rights, reaching every workspace rather than only their
+            memberships. Ignored for other tokens, which always carry them.
 
     NewTokenImpersonate:
       type: object
@@ -33760,6 +33963,11 @@ components:
           type: boolean
         account:
           type: number
+        scopes:
+          type: array
+          items:
+            type: string
+          description: OAuth scopes the linked account was connected with
         created_by:
           type: string
         edited_at:
@@ -34954,6 +35162,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         initial_messages:
           type: array
           nullable: true
@@ -35021,6 +35233,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         initial_messages:
           type: array
           nullable: true
@@ -35099,6 +35315,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         initial_messages:
           type: array
           nullable: true
@@ -36780,6 +37000,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         auto_offset_reset:
           type: string
           enum:
@@ -36854,6 +37078,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         auto_offset_reset:
           type: string
           enum:
@@ -36924,6 +37152,10 @@ components:
             - or
           default: and
           description: "Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic."
+        run_on_filter_error:
+          type: boolean
+          default: false
+          description: "Whether a message the filters cannot read (not UTF-8, or not JSON) still runs the target, as if the trigger had no filters. A preprocessor then finds the reason in `event.filter_error`. When false, such a message is skipped."
         auto_offset_reset:
           type: string
           enum:
@@ -37240,6 +37472,66 @@ components:
         - script_path
         - is_flow
 
+    PrincipalAccess:
+      type: object
+      properties:
+        principal:
+          type: string
+        is_admin:
+          type: boolean
+        groups:
+          type: array
+          items:
+            type: string
+        folders:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              write:
+                type: boolean
+              owner:
+                type: boolean
+              via:
+                description: the `u/<user>` or `g/<group>` grants on the folder that reach the principal
+                type: array
+                items:
+                  type: string
+            required: [name, write, owner, via]
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              kind:
+                type: string
+              path:
+                type: string
+              write:
+                type: boolean
+              reasons:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AccessReason"
+            required: [kind, path, write, reasons]
+      required: [principal, is_admin, groups, folders, items]
+
+    AccessReason:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [own, group_path, user, group, folder]
+        group:
+          type: string
+        folder:
+          type: string
+        write:
+          type: boolean
+      required: [type]
+
     Group:
       type: object
       properties:
@@ -37277,6 +37569,13 @@ components:
           enum:
             - superadmin
             - devops
+        external_id:
+          type: string
+          nullable: true
+          description: IdP group this group is linked to; its membership then follows the SSO groups claim
+        scim_managed:
+          type: boolean
+          description: Provisioned by SCIM, which then owns external_id
 
     InstanceGroupWithWorkspaces:
       type: object
@@ -37297,6 +37596,13 @@ components:
           enum:
             - superadmin
             - devops
+        external_id:
+          type: string
+          nullable: true
+          description: IdP group this group is linked to; its membership then follows the SSO groups claim
+        scim_managed:
+          type: boolean
+          description: Provisioned by SCIM, which then owns external_id
         workspaces:
           type: array
           items:
@@ -37465,6 +37771,24 @@ components:
         draining:
           type: boolean
           description: the worker received its shutdown signal and exits once its current job is done
+        job_stats:
+          type: object
+          description: >-
+            script and flow-step jobs this worker ran and how many of them failed, over its whole
+            life, the last 24 hours and its last 100 jobs. A flow's own outcome is not counted, since
+            its failure is that of a step already counted on the worker that ran it. Canceled jobs
+            count as executed, not failed.
+          properties:
+            total:
+              $ref: "#/components/schemas/WorkerJobCounts"
+            last_24h:
+              $ref: "#/components/schemas/WorkerJobCounts"
+            last_100:
+              $ref: "#/components/schemas/WorkerJobCounts"
+          required:
+            - total
+            - last_24h
+            - last_100
       required:
         - worker
         - worker_instance
@@ -37474,6 +37798,16 @@ components:
         - jobs_executed
         - worker_group
         - wm_version
+    WorkerJobCounts:
+      type: object
+      properties:
+        executed:
+          type: integer
+        failed:
+          type: integer
+      required:
+        - executed
+        - failed
     UserWorkspaceList:
       type: object
       properties:
@@ -37528,6 +37862,36 @@ components:
       required:
         - email
         - workspaces
+
+    WorkspaceWebhookEventType:
+      type: string
+      description: the `type` of a workspace webhook message
+      enum:
+        - CreateApp
+        - DeleteApp
+        - UpdateApp
+        - CreateFlow
+        - UpdateFlow
+        - ArchiveFlow
+        - DeleteFlow
+        - CreateFolder
+        - UpdateFolder
+        - DeleteFolder
+        - DeleteResource
+        - CreateResource
+        - UpdateResource
+        - CreateResourceType
+        - DeleteResourceType
+        - UpdateResourceType
+        - CreateScript
+        - UpdateScript
+        - DeleteScript
+        - DeleteScriptPath
+        - CreateVariable
+        - UpdateVariable
+        - DeleteVariable
+        - TokenExpiringSoon
+        - TokenExpired
 
     CreateWorkspace:
       type: object
@@ -39506,7 +39870,7 @@ components:
       properties:
         code:
           type: boolean
-          description: Author scripts and run code of one's own (previews, dependency jobs, dynamic selects, resolving jobs, data table migrations). Required by `full` flows or apps.
+          description: Author scripts and run code of one's own (previews, dependency jobs, dynamic selects, resolving jobs, data table migrations). Required by `full` flows or apps. Previews also need `run`.
         flows:
           $ref: "#/components/schemas/AuthorLevel"
         apps:
@@ -39515,12 +39879,15 @@ components:
           type: boolean
         manage_triggers:
           type: boolean
+        run:
+          type: boolean
+          description: Start runs of scripts, flows and AI agents (by path, hash or version, restarts, previews, MCP run tools). Without it a role is view-only. Schedules and triggers keep their own rights; resuming a suspended step is not a run.
         fork:
           type: boolean
           description: Fork the workspace.
         visibility:
           $ref: "#/components/schemas/RoleVisibility"
-      required: [code, flows, apps, manage_schedules, manage_triggers, fork, visibility]
+      required: [code, flows, apps, manage_schedules, manage_triggers, run, fork, visibility]
 
     RoleCapabilitiesPatch:
       type: object
@@ -39533,6 +39900,7 @@ components:
           $ref: "#/components/schemas/AuthorLevel"
         manage_schedules: { type: boolean }
         manage_triggers: { type: boolean }
+        run: { type: boolean }
         fork: { type: boolean }
         visibility:
           type: object
@@ -40488,12 +40856,13 @@ components:
         redirect_uri:
           type: string
           format: uri
-          description: The OAuth redirect URI
+          description: >-
+            The redirect URI registered on the OAuth app. Absent for an app saved before it was
+            stored, which uses the workspace settings page.
       required:
         - client_id
         - client_secret
         - base_url
-        - redirect_uri
 
     WebhookEvent:
       type: object
@@ -40564,9 +40933,28 @@ components:
         workspace:
           type: boolean
           description: Whether this is the workspace connection, which every member may use
+        managed:
+          type: boolean
+          description: >-
+            Whether the integration trigger connect flow made it. Any other connection is a
+            resource connected from Resources, which triggers can use but only Resources can
+            replace or delete.
+        scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: Scopes the account was connected with; absent when unknown
+        missing_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: Scopes the service's triggers need that the account lacks; absent when unknown
       required:
         - path
         - workspace
+        - managed
 
     CreateTriggerResponse:
       type: object

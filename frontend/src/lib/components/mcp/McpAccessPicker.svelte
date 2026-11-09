@@ -4,14 +4,15 @@
 	/** Marks a selection, so the per-workspace URLs add no API endpoint tools to it. */
 	export const RUNNABLES_AS_TOOLS = 'mcp:runnables_as_tools'
 
-	/** Added by the server to an `mcp:all` sign-in so the tools server's URLs serve it the AI
-	 *  session's tools. Grants nothing, so it is never shown. */
+	/** Carried by every build-and-run `mcp:all` token Windmill makes, so the tools server's URLs
+	 *  serve it the AI session's tools; a plain `mcp:all` is an older token and keeps the endpoint
+	 *  tools. Grants nothing, so it is never shown. */
 	export const MCP_SESSION = 'mcp:session'
 
 	const ACCESS_SCOPES: Record<Exclude<McpAccess, 'selected'>, string[]> = {
 		read: ['mcp:all', 'mcp:read_only'],
 		read_run: ['mcp:all', 'mcp:read_run'],
-		full: ['mcp:all']
+		full: ['mcp:all', MCP_SESSION]
 	}
 
 	/** The access a token's MCP scopes give: `mcp:all` and how it is narrowed, or else a
@@ -33,6 +34,7 @@
 	import { Badge } from '$lib/components/common'
 	import Section from '$lib/components/Section.svelte'
 	import { SvelteMap } from 'svelte/reactivity'
+	import type { Snippet } from 'svelte'
 
 	interface Props {
 		/** The workspace the selection picker browses. */
@@ -41,13 +43,16 @@
 		scopes?: string[]
 		access?: McpAccess
 		initialScopes?: string[]
+		/** Rendered between the access choice and the tool list. */
+		afterAccess?: Snippet
 	}
 
 	let {
 		workspaceId,
 		scopes = $bindable(),
 		access = $bindable(),
-		initialScopes = []
+		initialScopes = [],
+		afterAccess
 	}: Props = $props()
 
 	const initialAccess = mcpAccessOf(initialScopes)
@@ -116,6 +121,7 @@
 			{/snippet}
 		</ToggleButtonGroup>
 	</div>
+	{@render afterAccess?.()}
 	{#if toolsetAccess}
 		<Section label="Tools the client gets" small collapsable bind:collapsed={toolsCollapsed}>
 			<div class="flex flex-col gap-1 -mt-2">

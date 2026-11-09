@@ -38,7 +38,7 @@
 		TriangleAlert,
 		UserPlus
 	} from 'lucide-svelte'
-	import { goto } from '$lib/navigation'
+	import { isNewTabClick } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import FilterSearchbar, {
 		hasActiveFilters,
@@ -425,7 +425,8 @@
 
 			<a
 				href="#{path}"
-				onclick={() => {
+				onclick={(e) => {
+					if (!hosted && isNewTabClick(e)) return
 					handledHash = `#${path}`
 					editSchedule(path, is_flow)
 				}}
@@ -584,10 +585,7 @@
 						{
 							displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
 							icon: Eye,
-							action: () => {
-								if (hosted) hosted.openLink(href)
-								else goto(href)
-							}
+							...(hosted ? { action: () => hosted.openLink(href) } : { href })
 						},
 						{
 							displayName: `Duplicate schedule`,

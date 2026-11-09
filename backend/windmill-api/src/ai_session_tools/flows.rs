@@ -372,6 +372,10 @@ fn validate_settings(flow: &Map<String, Value>) -> Result<(), String> {
             "concurrency_key" | "debounce_key" | "skip_expr" | "early_return" => {
                 ("string", value.is_string())
             }
+            "on_concurrency_limit" => (
+                "\"queue\" | \"fail\"",
+                matches!(value.as_str(), Some("queue" | "fail")),
+            ),
             "debounce_args_to_accumulate" => ("array", value.is_array()),
             "flow_env" => ("record", value.is_object()),
             _ => ("number", value.is_number()),

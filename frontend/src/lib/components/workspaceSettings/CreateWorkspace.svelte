@@ -16,7 +16,7 @@
 
 <CenteredModal title="{isFork ? 'Forking' : 'New'} Workspace" centerVertically={false}>
 	{#if isFork}
-		<div class="flex flex-block gap-2">
+		<div class="flex flex-block gap-2 mb-6">
 			<GitForkIcon size={16} />
 			<span class="text-xs text-normal">Forking </span>
 			<span class="text-xs text-emphasis font-semibold">

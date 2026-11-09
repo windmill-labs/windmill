@@ -12,6 +12,7 @@
 	import { msToReadableTime } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { getAiChatManager } from './aiChatManagerContext'
+	import { formatElapsed } from './liveElapsed'
 	import { deriveChatJobStatus, type ChatJob, type ChatJobStatus } from './shared'
 	import { TOKEN_TRIGGER_CLASS } from '$lib/components/sessions/SessionStatusToken.svelte'
 
@@ -149,11 +150,13 @@
 		}
 	)
 
-	// Elapsed label for the running-single chip; a 1s clock, live only.
+	// Elapsed labels for live jobs, live only. Jobs started at different moments cannot share a
+	// tick aligned to each one's second, so the clock samples at 4 Hz: the whole-second labels
+	// then change at most 250ms late, never skipping or repeating a second as a 1s interval does.
 	let now = $state(Date.now())
 	$effect(() => {
 		if (!hasLive) return
-		const t = setInterval(() => (now = Date.now()), 1000)
+		const t = setInterval(() => (now = Date.now()), 250)
 		return () => clearInterval(t)
 	})
 
@@ -188,7 +191,7 @@
 	const runningJob = $derived(
 		runningCount === 1 && liveCount === 1 ? jobs.find((j) => j.status === 'running') : undefined
 	)
-	const chipElapsed = $derived(runningJob ? msToReadableTime(now - runningJob.createdAt, 2) : '')
+	const chipElapsed = $derived(runningJob ? formatElapsed(now - runningJob.createdAt) : '')
 
 	// Popover rows: live jobs pinned to the top, then newest first.
 	const sortedJobs = $derived(
@@ -205,24 +208,23 @@
 		if (isTerminal(job.status)) {
 			return job.durationMs !== undefined ? msToReadableTime(job.durationMs, 2) : ''
 		}
-		return msToReadableTime(now - job.createdAt, 2)
+		return formatElapsed(now - job.createdAt)
 	}
 
 	function runHref(job: ChatJob): string {
 		return `/run/${job.jobId}?workspace=${job.workspace}`
 	}
 
-	function openRun(job: ChatJob) {
+	function openRun(job: ChatJob, e: MouseEvent) {
 		// In /sessions the run opens in the preview pane; the global side-panel chat
-		// has no runtime, so fall back to a new browser tab.
+		// has no runtime, so the row's link opens it in a new browser tab.
 		if (aiChatManager.openRunInPreview) {
+			e.preventDefault()
 			aiChatManager.openRunInPreview({
 				jobId: job.jobId,
 				workspace: job.workspace,
 				label: job.label
 			})
-		} else {
-			window.open(runHref(job), '_blank', 'noreferrer')
 		}
 	}
 
@@ -309,6 +311,7 @@
 		itemKey={(job) => job.jobId}
 		rowTitle={(job) => job.label}
 		onPick={openRun}
+		itemHref={runHref}
 		placement={standalone ? 'top-end' : 'top-start'}
 		usePointerDownOutside
 		closeOnOtherPopoverOpen={!standalone}

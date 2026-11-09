@@ -49,6 +49,7 @@
 			bind:limit={script.concurrent_limit}
 			bind:timeWindowS={script.concurrency_time_window_s}
 			bind:concurrencyKey={script.concurrency_key}
+			bind:onLimit={script.on_concurrency_limit}
 			keyPlaceholder={`$workspace/script/${script.path ?? ''}-$args[foo]`}
 		/>
 		<DebounceLimit

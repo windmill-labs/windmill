@@ -1,13 +1,7 @@
 <script lang="ts">
-	import { VariableService } from '$lib/gen'
-	import { watch } from 'runed'
-	import { Plus } from 'lucide-svelte'
-	import { Button } from './common'
-	import ItemPicker from './ItemPicker.svelte'
-	import VariableEditor from './VariableEditor.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-
-	const operatingWorkspace = useOperatingWorkspace()
+	import type ItemPicker from './ItemPicker.svelte'
+	import type VariableEditor from './VariableEditor.svelte'
+	import VariablePicker from './VariablePicker.svelte'
 
 	interface Props {
 		/** The transforms being edited. A picked variable is written into `pickForField`'s. */
@@ -27,44 +21,15 @@
 		itemPicker = $bindable(),
 		variableEditor = $bindable()
 	}: Props = $props()
-
-	let ws = $derived(workspace ?? $operatingWorkspace)
-
-	watch(
-		() => ws,
-		() => itemPicker?.reloadItems()
-	)
 </script>
 
-<ItemPicker
-	bind:this={itemPicker}
-	pickCallback={(path, _) => {
+<VariablePicker
+	bind:itemPicker
+	bind:variableEditor
+	{workspace}
+	onPick={(path) => {
 		if (pickForField) {
 			args[pickForField].value = '$var:' + path
 		}
 	}}
-	itemName="Variable"
-	extraField="path"
-	loadItems={async () =>
-		(await VariableService.listVariable({ workspace: ws ?? '' })).map((x) => ({
-			name: x.path,
-			...x
-		}))}
->
-	{#snippet submission()}
-		<div class="flex flex-row-reverse w-full border-t border-gray-200 rounded-bl-lg rounded-br-lg">
-			<Button
-				variant="accent"
-				unifiedSize="sm"
-				startIcon={{ icon: Plus }}
-				on:click={() => {
-					variableEditor?.initNew?.()
-				}}
-			>
-				New variable
-			</Button>
-		</div>
-	{/snippet}
-</ItemPicker>
-
-<VariableEditor bind:this={variableEditor} workspace={ws} />
+/>

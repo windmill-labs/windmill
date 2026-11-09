@@ -12,13 +12,21 @@ import { describe, expect, it } from 'vitest'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import {
 	ALL_INSTRUCTION_SUBJECTS,
+	buildFolderGuidance,
+	EXTERNAL_PROMPT,
+	externalPromptProfile,
 	getInstructions,
 	globalToolsFor,
 	prepareGlobalSystemMessage
 } from './core'
-import type { ScriptLang } from '$lib/gen'
+import { renderPromptTemplate } from './promptTemplate'
+import type { AuthorLevel, ScriptLang } from '$lib/gen'
+import { FULL_CAPABILITIES } from '$lib/roleCapabilities'
+import { capabilitiesForRole } from './sessionAccess'
+import { USE_MODE_ACCESS } from '../sessionCapabilities'
 import {
 	BUILDER_FRAMEWORK_TEMPLATES,
 	FRAMEWORK_TEMPLATES,
@@ -161,9 +169,11 @@ function toolDefs() {
 const WRITABLE = '{{writable_folders}}'
 const READONLY = '{{readonly_folders}}'
 
+type PromptOpts = Parameters<typeof prepareGlobalSystemMessage>[1]
+
 function prompt(
 	user: { is_admin: boolean; folders?: string[]; folders_read?: string[] },
-	extra: Parameters<typeof prepareGlobalSystemMessage>[1] = {},
+	extra: PromptOpts = {},
 	instructions?: { workspace?: string }
 ): string {
 	const content = prepareGlobalSystemMessage(instructions, {
@@ -182,6 +192,71 @@ function suffixOf(longer: string, base: string, what: string): string {
 	return longer.slice(base.length)
 }
 
+/** The `{{folder_guidance}}` the server puts in the template, once per folder situation, as
+ * `buildGlobalSystemPrompt` inserts it: with its leading newline. */
+function folderGuidance(canCreateFolder: boolean) {
+	const variant = (isAdmin: boolean, folders: string[], foldersRead = folders) => {
+		const text = buildFolderGuidance(
+			'{{username}}',
+			{ isAdmin, folders, foldersRead },
+			canCreateFolder,
+			true
+		)
+		return (text ? `\n${text}` : '')
+			.replaceAll('`f/' + WRITABLE + '`', WRITABLE)
+			.replaceAll('`f/' + READONLY + '`', READONLY)
+	}
+	return {
+		admin: variant(true, [WRITABLE]),
+		admin_no_folders: variant(true, []),
+		member: variant(false, [WRITABLE]),
+		member_no_folders: variant(false, []),
+		member_readonly: variant(false, [WRITABLE], [WRITABLE, READONLY]),
+		member_no_folders_readonly: variant(false, [], [READONLY])
+	}
+}
+
+const LEVELS: AuthorLevel[] = ['none', 'compose', 'full']
+const bit = (b: boolean) => (b ? '1' : '0')
+
+/** Every access profile the server can resolve a caller to, keyed as `prompt_profile` in
+ * `ai_session_tools/instructions.rs` builds the key: the token's scope, then for a full token
+ * the caller's role as `caller_capabilities` and `check_deploy_rules` give it. */
+function profiles(): [key: string, extra: PromptOpts][] {
+	const out: [string, PromptOpts][] = [
+		['read_only', { access: USE_MODE_ACCESS, runsDeployed: false }],
+		['read_run', { access: USE_MODE_ACCESS, runsDeployed: true }]
+	]
+	for (const isAdmin of [true, false])
+		for (const deploy of [true, false])
+			for (const code of [true, false])
+				for (const flows of LEVELS)
+					for (const apps of LEVELS)
+						for (const manage_schedules of [true, false])
+							for (const manage_triggers of [true, false]) {
+								const caps = {
+									...FULL_CAPABILITIES,
+									code,
+									flows,
+									apps,
+									manage_schedules,
+									manage_triggers
+								}
+								// Full flows or apps without code is refused at write.
+								if (!code && (flows === 'full' || apps === 'full')) continue
+								// An admin holds every capability, so only the full role is reachable.
+								if (isAdmin && JSON.stringify(caps) !== JSON.stringify(FULL_CAPABILITIES)) continue
+								const key = `full:${bit(isAdmin)}${bit(deploy)}:${bit(code)}:${flows}:${apps}:${bit(manage_schedules)}${bit(manage_triggers)}`
+								const access = capabilitiesForRole({
+									isAdmin,
+									deployRulesPass: deploy,
+									capabilities: caps
+								})
+								out.push([key, { access }])
+							}
+	return out
+}
+
 function promptParts() {
 	const member = prompt({ is_admin: false, folders: [WRITABLE] })
 	const skills = suffixOf(
@@ -193,37 +268,25 @@ function promptParts() {
 		'the skills section'
 	)
 	const skillLine = skills.split('\n').pop()!
-	// The folder guidance differs per workspace, so it is cut out of the prompt: the server
-	// puts it back for a single workspace, and serves it from `get_workspace_context` otherwise.
-	const withoutFolders = prompt({ is_admin: false })
-	const variants = {
-		admin: prompt({ is_admin: true, folders: [WRITABLE] }),
-		admin_no_folders: prompt({ is_admin: true, folders: [] }),
-		member,
-		member_no_folders: prompt({ is_admin: false, folders: [] }),
-		member_readonly: prompt({
-			is_admin: false,
-			folders: [WRITABLE],
-			folders_read: [WRITABLE, READONLY]
-		}),
-		member_no_folders_readonly: prompt({ is_admin: false, folders: [], folders_read: [READONLY] })
+	const index: Record<string, { flags: string; vars: Record<string, string> }> = {}
+	// What each profile renders to before the server fills the runtime variables, so a Rust
+	// test can check its renderer against this one.
+	const renderedSha256: Record<string, string> = {}
+	for (const [key, extra] of profiles()) {
+		const { flags, vars } = externalPromptProfile(extra?.access, extra?.runsDeployed ?? true)
+		index[key] = { flags: [...flags].sort().join(' '), vars }
+		renderedSha256[key] = createHash('sha256')
+			.update(renderPromptTemplate(EXTERNAL_PROMPT, flags, vars))
+			.digest('hex')
 	}
-	let at: number | undefined
-	const folder_guidance = Object.fromEntries(
-		Object.entries(variants).map(([name, full]) => {
-			let i = 0
-			while (full[i] === withoutFolders[i]) i++
-			const rest = withoutFolders.slice(i)
-			if ((at !== undefined && at !== i) || !full.endsWith(rest)) {
-				throw new Error(`the folder guidance (${name}) is no longer one inserted block`)
-			}
-			at = i
-			return [name, full.slice(i, full.length - rest.length)]
-		})
-	)
 	return {
-		base: withoutFolders.slice(0, at) + '{{folder_guidance}}' + withoutFolders.slice(at),
-		folder_guidance,
+		template: EXTERNAL_PROMPT,
+		profiles: index,
+		folder_guidance: {
+			create_folder: folderGuidance(true),
+			no_create_folder: folderGuidance(false)
+		},
+		rendered_sha256: renderedSha256,
 		skills_header: skills.slice(0, skills.length - skillLine.length),
 		skill_line: skillLine,
 		workspace_instructions: suffixOf(
@@ -332,5 +395,41 @@ describe('MCP session server generated definitions', () => {
 		for (const [name, content] of Object.entries(files)) {
 			expect(readFileSync(join(OUT_DIR, name), 'utf8'), name).toBe(content)
 		}
+	})
+
+	// A capability that changes the prompt but is missing from the profile key would serve every
+	// role the prompt of whatever value `profiles()` fixed it at.
+	it('key every role capability that changes the prompt', () => {
+		const keyed = ['code', 'flows', 'apps', 'manage_schedules', 'manage_triggers']
+		const render = (capabilities: typeof FULL_CAPABILITIES) => {
+			const access = capabilitiesForRole({ isAdmin: false, deployRulesPass: true, capabilities })
+			const { flags, vars } = externalPromptProfile(access, true)
+			return renderPromptTemplate(EXTERNAL_PROMPT, flags, vars)
+		}
+		const roles = [
+			FULL_CAPABILITIES,
+			{
+				...FULL_CAPABILITIES,
+				code: false,
+				flows: 'compose' as AuthorLevel,
+				apps: 'none' as AuthorLevel
+			}
+		]
+		for (const role of roles)
+			for (const [field, value] of Object.entries(role)) {
+				if (keyed.includes(field)) continue
+				const others =
+					typeof value === 'boolean'
+						? [!value]
+						: typeof value === 'string'
+							? LEVELS.filter((l) => l !== value)
+							: [Object.fromEntries(Object.keys(value).map((k) => [k, false]))]
+				for (const other of others) {
+					expect(
+						render({ ...role, [field]: other }),
+						`role capability "${field}" changes the MCP prompt: add it to the profile key in profiles() and prompt_profile (instructions.rs)`
+					).toBe(render(role))
+				}
+			}
 	})
 })
