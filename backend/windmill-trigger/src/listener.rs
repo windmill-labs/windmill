@@ -21,7 +21,7 @@ use windmill_common::{
     jobs::JobTriggerKind,
     runnable_ref::RunnableRef,
     triggers::{TriggerKind, TriggerMetadata},
-    utils::report_critical_error,
+    utils::{report_critical_error, report_recovered_critical_error},
     worker::to_raw_value,
     DB, INSTANCE_NAME,
 };
@@ -36,10 +36,6 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
     const JOB_TRIGGER_KIND: JobTriggerKind;
     const EXTRA_TRIGGER_AND_WHERE_CLAUSE: &[&'static str] = &[];
     const EXTRA_CAPTURE_AND_WHERE_CLAUSE: &[&'static str] = &[];
-    /// In trigger mode, open a new consumer as soon as `consume` returns while this
-    /// server still holds the lease, instead of releasing the trigger and waiting for
-    /// the lease to expire and the next claim poll.
-    const RECONNECT_ON_CONSUMER_EXIT: bool = false;
 
     async fn get_consumer(
         &self,
@@ -641,12 +637,15 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
     }
 }
 
+/// Unit of [`reconnect_delay`] between a trigger's connection attempts.
+const RECONNECT_BASE_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// Upper bound on [`reconnect_delay`].
 const MAX_RECONNECT_DELAY: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// Exponential backoff for the `attempt`th consecutive failure (1-based): `2^attempt`
 /// units of `base`, capped at [`MAX_RECONNECT_DELAY`].
-pub fn reconnect_delay(base: std::time::Duration, attempt: u32) -> std::time::Duration {
+fn reconnect_delay(base: std::time::Duration, attempt: u32) -> std::time::Duration {
     base.saturating_mul(1u32 << attempt.min(20))
         .min(MAX_RECONNECT_DELAY)
 }
@@ -656,6 +655,87 @@ pub fn reconnect_delay(base: std::time::Duration, attempt: u32) -> std::time::Du
 /// closes (e.g. at its per-client connection limit) is retried with backoff rather than
 /// in a hot loop.
 const MIN_STABLE_CONSUMER_RUN: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// A blip, or a server rotating its connections, recovers within the first retries:
+/// only a failure streak this long raises a critical alert, repeated every
+/// [`ALERT_EVERY_N_FAILURES`] failures after that.
+const FIRST_ALERT_AFTER_FAILURES: u32 = 3;
+const ALERT_EVERY_N_FAILURES: u32 = 10;
+
+/// Whether a failure to open or keep a connection can succeed on a later attempt, so
+/// that a trigger retries it instead of being disabled. An allowlist: config,
+/// permission and lookup failures (`BadConfig`, `NotFound`, `PermissionDenied`, ...)
+/// fail the same way every time and must disable rather than retry forever. A listener
+/// reports a transient failure that has no such kind with [`transient_error`].
+pub fn is_transient_error(err: &Error) -> bool {
+    match err {
+        Error::Generic(status, _) => status.is_server_error(),
+        Error::InternalErr(_)
+        | Error::InternalErrLoc { .. }
+        | Error::InternalErrAt(..)
+        | Error::Anyhow { .. }
+        | Error::SqlErr { .. }
+        | Error::IoErr { .. }
+        | Error::ConnectingToDatabase(_)
+        | Error::BadGateway(_) => true,
+        _ => false,
+    }
+}
+
+pub fn transient_error(message: impl Into<String>) -> Error {
+    Error::Generic(http::StatusCode::SERVICE_UNAVAILABLE, message.into())
+}
+
+/// Counts a failed connection or a consumer that stopped too soon, and reports it as a
+/// critical alert once the streak is long enough to matter.
+async fn record_connection_failure<T: Listener>(
+    db: &DB,
+    listening_trigger: &ListeningTrigger<T::TriggerConfig>,
+    failures: &mut u32,
+    delay: std::time::Duration,
+    error: &str,
+) {
+    *failures += 1;
+    tracing::warn!(
+        "[{}] Trigger {} failed to connect (attempt {}), retrying in {:?}: {}",
+        T::TRIGGER_KIND,
+        listening_trigger.path,
+        failures,
+        delay,
+        error
+    );
+    if *failures >= FIRST_ALERT_AFTER_FAILURES
+        && (*failures - FIRST_ALERT_AFTER_FAILURES) % ALERT_EVERY_N_FAILURES == 0
+    {
+        report_critical_error(
+            format!(
+                "{} trigger {} failed to connect {} times in a row, retrying in {}s. This alert repeats every {} failed attempts. Last error: {}",
+                T::TRIGGER_KIND,
+                listening_trigger.path,
+                failures,
+                delay.as_secs(),
+                ALERT_EVERY_N_FAILURES,
+                error
+            ),
+            db.clone(),
+            Some(&listening_trigger.workspace_id),
+            Some(&connection_alert_id::<T>(listening_trigger)),
+        )
+        .await;
+    }
+}
+
+fn connection_alert_id<T: Listener>(
+    listening_trigger: &ListeningTrigger<T::TriggerConfig>,
+) -> String {
+    // A recovery acknowledges every alert with this id, whatever its workspace.
+    format!(
+        "{}_trigger:{}:{}",
+        T::TRIGGER_KIND.to_key(),
+        listening_trigger.workspace_id,
+        listening_trigger.path
+    )
+}
 
 #[allow(unused)]
 pub async fn listening<T: Listener>(
@@ -669,7 +749,9 @@ pub async fn listening<T: Listener>(
     let loop_ping_status = Arc::new(RwLock::new(None));
     let extra_state = listener.get_extra_state().await;
     let path = listening_trigger.path.clone();
-    let reconnect = T::RECONNECT_ON_CONSUMER_EXIT && listening_trigger.trigger_mode;
+    // Capture is an interactive test: a failure surfaces at once rather than being
+    // retried, and the next claim poll starts over while the client still pings.
+    let reconnect = listening_trigger.trigger_mode;
     tokio::select! {
         biased;
         _ = killpill_rx.recv() => {
@@ -679,25 +761,47 @@ pub async fn listening<T: Listener>(
             tracing::info!("[{}] Loop ping exited, stopping consumer for trigger {}", T::TRIGGER_KIND, path);
         }
         _ = async {
-            let mut short_runs = 0;
+            // Consecutive failed connections and consumers that stopped too soon.
+            let mut failures = 0;
             loop {
                 tracing::info!("[{}] Getting consumer for trigger {}", T::TRIGGER_KIND, path);
                 match listener.get_consumer(&db, &listening_trigger, loop_ping_status.clone(), killpill_rx_consumer.resubscribe()).await {
                     Ok(Some(consumer)) => {
                         listener.update_ping_and_loop_ping_status(&db, &listening_trigger, loop_ping_status.clone(), None).await;
                         tracing::info!("[{}] Starting consumer for trigger {}", T::TRIGGER_KIND, path);
-                        let started = std::time::Instant::now();
-                        listener.consume(&db, consumer, &listening_trigger, loop_ping_status.clone(), killpill_rx_consumer.resubscribe(), extra_state.as_ref()).await;
+                        let consume = listener.consume(&db, consumer, &listening_trigger, loop_ping_status.clone(), killpill_rx_consumer.resubscribe(), extra_state.as_ref());
+                        tokio::pin!(consume);
+                        let stable = tokio::select! {
+                            _ = &mut consume => false,
+                            _ = tokio::time::sleep(MIN_STABLE_CONSUMER_RUN) => true,
+                        };
+                        if stable {
+                            if failures >= FIRST_ALERT_AFTER_FAILURES {
+                                report_recovered_critical_error(
+                                    format!("{} trigger {} reconnected", T::TRIGGER_KIND, path),
+                                    db.clone(),
+                                    Some(&listening_trigger.workspace_id),
+                                    Some(&connection_alert_id::<T>(&listening_trigger)),
+                                )
+                                .await;
+                            }
+                            failures = 0;
+                            consume.await;
+                        }
                         tracing::info!("[{}] Consumer stopped for trigger {}", T::TRIGGER_KIND, path);
                         if !reconnect {
                             return;
                         }
-                        if started.elapsed() >= MIN_STABLE_CONSUMER_RUN {
-                            short_runs = 0;
-                        } else {
-                            short_runs += 1;
-                            let delay = reconnect_delay(std::time::Duration::from_secs(1), short_runs);
-                            let status = loop_ping_status.read().await.clone().unwrap_or_else(|| "Consumer stopped".to_string());
+                        if !stable {
+                            let status = loop_ping_status.read().await.clone();
+                            // A consumer that disabled its own trigger also stops early: that
+                            // is not a failed connection to count or alert on.
+                            if listener.update_ping_and_loop_ping_status(&db, &listening_trigger, loop_ping_status.clone(), status.clone()).await.is_none() {
+                                return;
+                            }
+                            let status = status.unwrap_or_else(|| "Consumer stopped".to_string());
+                            let delay = reconnect_delay(RECONNECT_BASE_DELAY, failures + 1);
+                            record_connection_failure::<T>(&db, &listening_trigger, &mut failures, delay, &status).await;
                             update_rw_lock(loop_ping_status.clone(), Some(format!("{status}. Reconnecting in {}s...", delay.as_secs()))).await;
                             tokio::time::sleep(delay).await;
                         }
@@ -709,9 +813,31 @@ pub async fn listening<T: Listener>(
                         }
                         tracing::info!("[{}] Reconnecting consumer for trigger {}", T::TRIGGER_KIND, path);
                     }
+                    Err(error) if reconnect && is_transient_error(&error) => {
+                        let delay = reconnect_delay(RECONNECT_BASE_DELAY, failures + 1);
+                        record_connection_failure::<T>(&db, &listening_trigger, &mut failures, delay, &error.to_string()).await;
+                        let next_attempt_at = chrono::Utc::now() + chrono::Duration::from_std(delay).unwrap_or_default();
+                        update_rw_lock(
+                            loop_ping_status.clone(),
+                            Some(format!(
+                                "Connection attempt {} failed, retrying in {}s (at {}): {}",
+                                failures,
+                                delay.as_secs(),
+                                next_attempt_at.format("%Y-%m-%d %H:%M:%S UTC"),
+                                error
+                            )),
+                        )
+                        .await;
+                        tokio::time::sleep(delay).await;
+                    }
                     Err(error) => {
+                        let error = if failures > 0 {
+                            format!("{} (connection attempt {})", error, failures + 1)
+                        } else {
+                            error.to_string()
+                        };
                         tracing::error!("[{}] Disabling trigger {} due to consumer error: {}", T::TRIGGER_KIND, path, error);
-                        listener.disable_with_error(&db, &listening_trigger, error.to_string()).await;
+                        listener.disable_with_error(&db, &listening_trigger, error).await;
                         return;
                     }
                     Ok(None) => {

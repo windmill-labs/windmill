@@ -81,10 +81,8 @@
 		}
 	}
 
-	// Native triggers are EE-only; on CE the `/exists` checks just 404. Gate the
-	// load by license (reactive, since the license loads asynchronously).
 	$effect(() => {
-		if ($enterpriseLicense && $workspaceStore) {
+		if ($workspaceStore) {
 			loadAvailableNativeTriggers()
 		}
 	})

@@ -161,8 +161,9 @@ fn pattern_covers(caller: &str, requested: &str) -> bool {
 /// URL, which an older selection, carrying none of the newer scopes, still does.
 pub const RUNNABLES_AS_TOOLS_SCOPE: &str = "mcp:runnables_as_tools";
 
-/// Added server-side to an `mcp:all` OAuth grant so the tools server's URLs serve it the AI
-/// session's toolset. Grants nothing: an un-narrowed `mcp:all` token without it predates the
+/// Carried by every build-and-run `mcp:all` token Windmill makes (the token forms write it, the
+/// OAuth approve adds it) so the tools server's URLs serve it the AI session's toolset.
+/// Grants nothing: an un-narrowed `mcp:all` token without it predates the
 /// session toolset there, and must keep the tools server's endpoint tools.
 pub const SESSION_SCOPE: &str = "mcp:session";
 
