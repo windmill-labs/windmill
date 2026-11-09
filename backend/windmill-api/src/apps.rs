@@ -66,7 +66,7 @@ use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{to_anyhow, Error, JsonResult, Result},
     jobs::{
-        get_payload_tag_from_prefixed_path, normalize_nul_in_args, resolve_delete_after_secs,
+        normalize_nul_in_args, resolve_delete_after_secs, runnable_ref_to_payload,
         sanitize_untrusted_args, schedule_job_deletion, JobPayload, JobTriggerKind, RawCode,
     },
     runnable_ref::RunnableRef,
@@ -4634,7 +4634,7 @@ async fn execute_component(
         // (`path`), confined below to what it may read. Inline `raw_code`, which an `id` also
         // requires, is authoring code, so it stays closed to every operator. So is a hub
         // path, which `require_path_read_access_for_preview` admits for everyone and
-        // `get_payload_tag_from_prefixed_path` then downloads and enqueues: it is exactly the
+        // `runnable_ref_to_payload` then downloads and enqueues: it is exactly the
         // unreviewed code the composition check refuses in a flow.
         let previews_hub = preview_path.is_some_and(|p| p.starts_with("hub/"));
         let caps = caller_capabilities(&db, &w_id, authed).await?;
@@ -5114,9 +5114,7 @@ async fn execute_component(
                 )
             }
             // flow or script:
-            (Some(runnable), None, None) => {
-                get_payload_tag_from_prefixed_path(&runnable.prefixed(), &db, &w_id).await?
-            }
+            (Some(runnable), None, None) => runnable_ref_to_payload(&runnable, &db, &w_id).await?,
             // inline script: "preview" mode, or run mode without an entry in the
             // `app_script` table (legacy `rawscript/<sha>`-keyed triggerables).
             (None, Some(raw_code), None) => {

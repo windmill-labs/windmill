@@ -1,0 +1,1 @@
+ALTER TABLE worker_ping ADD COLUMN IF NOT EXISTS job_stats JSONB;

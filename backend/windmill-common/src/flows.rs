@@ -19,7 +19,7 @@ use crate::{
     error::{to_anyhow, Error},
     runnable_ref::RunnableRef,
     scripts::ScriptHash,
-    utils::{http_get_from_hub, parse_hub_id, StripPath},
+    utils::http_get_from_hub,
     worker::{to_raw_value, Connection},
     DEFAULT_HUB_BASE_URL, HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION,
 };
@@ -34,13 +34,13 @@ struct HubFlowResponse {
     flow: HubFlow,
 }
 
-pub async fn get_full_hub_flow_by_path(
-    path: StripPath,
+/// Performs no authorization and uses the instance's Hub credentials: the caller must already have
+/// decided this user may run or read this flow.
+pub async fn get_full_hub_flow_by_id(
+    flow_id: i32,
     http_client: &reqwest::Client,
     db: Option<&DB>,
 ) -> crate::error::Result<HubFlow> {
-    let path = path.to_path();
-    let flow_id = parse_hub_id(&path, "hub/flows/")?;
     let hub_base_url = (**HUB_BASE_URL.load()).clone();
     let hub_url = format!("{hub_base_url}/flows/{flow_id}/json");
 
@@ -51,7 +51,9 @@ pub async fn get_full_hub_flow_by_path(
     {
         Ok(response) => response,
         Err(_) if hub_base_url != DEFAULT_HUB_BASE_URL && flow_id < PRIVATE_HUB_MIN_VERSION => {
-            tracing::info!("Not found on private hub, fallback to default hub for hub flow {path}");
+            tracing::info!(
+                "Not found on private hub, fallback to default hub for hub flow {flow_id}"
+            );
             let fallback_url = format!("{DEFAULT_HUB_BASE_URL}/flows/{flow_id}/json");
             http_get_from_hub(http_client, &fallback_url, false, None, db)
                 .await?
@@ -64,7 +66,7 @@ pub async fn get_full_hub_flow_by_path(
     Ok(response
         .json::<HubFlowResponse>()
         .await
-        .context(format!("Decoding hub response for flow at path {path}"))?
+        .context(format!("Decoding hub response for flow {flow_id}"))?
         .flow)
 }
 
@@ -442,6 +444,7 @@ fn check_composable_path(path: &str, is_flow: bool, id: &str) -> Result<(), Erro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::parse_hub_id;
 
     #[test]
     fn extract_hub_flow_id_accepts_id_only_paths() {

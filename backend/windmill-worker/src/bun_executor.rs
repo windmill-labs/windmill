@@ -3796,7 +3796,7 @@ pub async fn handle_wac_v2_output(
                         let script = RunnableRef::from_path(&step.script, false)?;
                         // Resolve script path to job payload (handles hash, lang, etc.)
                         let (payload, _, _, _, _, on_behalf_of) = script_path_to_payload(
-                            script.path(),
+                            &script,
                             None, // no authed db for background workers
                             db.clone(),
                             &job.workspace_id,

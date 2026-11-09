@@ -804,18 +804,17 @@ pub async fn prepare_push_args(
         }
     }
 
-    let runnable_id = if runnable.is_flow() {
-        RunnableId::from_flow_path(runnable.path())
-    } else {
-        // Resolves a `hub/<version_id>` path to the hub script on its own.
-        RunnableId::from_script_path(runnable.path())
-    };
-
     // MCP is not one of the `TRIGGER_KIND` enum values and does not need to be:
     // the per-kind arms of the no-preprocessor heuristic are payload-shape
     // special cases for message triggers, and `Webhook` reaches the same generic
     // arm MCP wants while sharing that kind's format cache.
-    let runnable_format = get_runnable_format(runnable_id, w_id, db, &TriggerKind::Webhook).await?;
+    let runnable_format = get_runnable_format(
+        RunnableId::from_ref(runnable),
+        w_id,
+        db,
+        &TriggerKind::Webhook,
+    )
+    .await?;
 
     Ok(match runnable_format {
         // Without a preprocessor there is nowhere for a header to go that the
