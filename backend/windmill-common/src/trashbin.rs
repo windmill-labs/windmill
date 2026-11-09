@@ -113,19 +113,56 @@ pub async fn get_trash_item<'e, E: sqlx::PgExecutor<'e>>(
     Ok(item)
 }
 
+/// Deletes the trash rows matching `cond`, returning how many there were. A deleted flow's
+/// versions and nodes outlive its row for its runs in flight and go here, unless a run of it
+/// is still queued: they are then kept for good. A flow recreated at the path keeps
+/// its own versions (ids from its first on) and every node, which versions share by content.
+fn remove_trash_sql(cond: &str) -> String {
+    format!(
+        "WITH removed AS (
+            DELETE FROM trashbin WHERE {cond} RETURNING id, workspace_id, item_kind, item_path
+        ), gone AS (
+            SELECT DISTINCT r.workspace_id, r.item_path AS path FROM removed r
+            WHERE r.item_kind = 'flow'
+            AND NOT EXISTS (
+                SELECT 1 FROM trashbin t
+                WHERE t.workspace_id = r.workspace_id AND t.item_kind = 'flow'
+                AND t.item_path = r.item_path AND t.id NOT IN (SELECT id FROM removed)
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM v2_job_queue q JOIN v2_job j ON j.id = q.id
+                WHERE q.workspace_id = r.workspace_id AND j.runnable_path = r.item_path
+                AND j.kind IN ('flow', 'flowdependencies')
+            )
+        ), _versions AS (
+            DELETE FROM flow_version v USING gone g
+            WHERE v.workspace_id = g.workspace_id AND v.path = g.path
+            AND NOT EXISTS (
+                SELECT 1 FROM flow f
+                WHERE f.workspace_id = v.workspace_id AND f.path = v.path
+                AND v.id >= COALESCE(f.versions[1], 0)
+            )
+        ), _nodes AS (
+            DELETE FROM flow_node n USING gone g
+            WHERE n.workspace_id = g.workspace_id AND n.path = g.path
+            AND NOT EXISTS (
+                SELECT 1 FROM flow f WHERE f.workspace_id = n.workspace_id AND f.path = n.path
+            )
+        )
+        SELECT count(*) FROM removed"
+    )
+}
+
 pub async fn permanently_delete_item<'e, E: sqlx::PgExecutor<'e>>(
     db: E,
     workspace_id: &str,
     id: i64,
 ) -> Result<()> {
-    let rows = sqlx::query!(
-        "DELETE FROM trashbin WHERE workspace_id = $1 AND id = $2",
-        workspace_id,
-        id,
-    )
-    .execute(db)
-    .await?
-    .rows_affected();
+    let rows: i64 = sqlx::query_scalar(&remove_trash_sql("workspace_id = $1 AND id = $2"))
+        .bind(workspace_id)
+        .bind(id)
+        .fetch_one(db)
+        .await?;
 
     if rows == 0 {
         return Err(crate::error::Error::NotFound(
@@ -137,19 +174,18 @@ pub async fn permanently_delete_item<'e, E: sqlx::PgExecutor<'e>>(
 }
 
 pub async fn empty_trash<'e, E: sqlx::PgExecutor<'e>>(db: E, workspace_id: &str) -> Result<i64> {
-    let rows = sqlx::query!("DELETE FROM trashbin WHERE workspace_id = $1", workspace_id,)
-        .execute(db)
-        .await?
-        .rows_affected();
+    let rows = sqlx::query_scalar(&remove_trash_sql("workspace_id = $1"))
+        .bind(workspace_id)
+        .fetch_one(db)
+        .await?;
 
-    Ok(rows as i64)
+    Ok(rows)
 }
 
 pub async fn delete_expired_trash<'e, E: sqlx::PgExecutor<'e>>(db: E) -> Result<i64> {
-    let rows = sqlx::query!("DELETE FROM trashbin WHERE expires_at <= now()")
-        .execute(db)
-        .await?
-        .rows_affected();
+    let rows = sqlx::query_scalar(&remove_trash_sql("expires_at <= now()"))
+        .fetch_one(db)
+        .await?;
 
-    Ok(rows as i64)
+    Ok(rows)
 }

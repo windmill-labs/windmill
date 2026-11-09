@@ -1045,6 +1045,7 @@ async fn get_flow_history(
         "SELECT flow_version.id, flow_version.created_at, flow_version.created_by, deployment_metadata.deployment_msg FROM flow_version
         LEFT JOIN deployment_metadata ON flow_version.id = deployment_metadata.flow_version
         WHERE flow_version.path = $1 AND flow_version.workspace_id = $2
+        AND flow_version.id >= (SELECT COALESCE(versions[1], 0) FROM flow WHERE path = $1 AND workspace_id = $2)
         ORDER BY flow_version.created_at DESC
         LIMIT $3 OFFSET $4",
         path,
@@ -2152,7 +2153,7 @@ async fn delete_flow_by_path(
     }
     let mut tx = user_db.begin(&authed).await?;
 
-    // Capture all related data for trashbin before deleting (CASCADE will remove flow_version, flow_node)
+    // Versions and nodes stay for runs in flight; the trash removal purges them.
     let trash_flow: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT to_jsonb(t) FROM flow t WHERE path = $1 AND workspace_id = $2")
             .bind(path)
