@@ -43,6 +43,7 @@ export const NAV_PAGES: NavPage[] = [
 	{ label: 'Schedules', path: '/schedules', icon: Calendar, visibilityKey: 'schedules' },
 	// "Triggers" is the group the sidebar files this under, not the page: the row there reads HTTP.
 	{ label: 'HTTP routes', path: '/routes', icon: Unplug, visibilityKey: 'triggers' },
+	{ label: 'Integration triggers', path: '/native_triggers', icon: undefined, visibilityKey: 'triggers' },
 	{ label: 'Workers', path: '/workers', icon: HardHat, visibilityKey: 'workers' },
 	{ label: 'Audit logs', path: '/audit_logs', icon: Eye, visibilityKey: 'audit_logs' }
 ]

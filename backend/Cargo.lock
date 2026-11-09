@@ -16720,6 +16720,7 @@ dependencies = [
  "windmill-common",
  "windmill-oauth",
  "windmill-queue",
+ "windmill-store",
 ]
 
 [[package]]
