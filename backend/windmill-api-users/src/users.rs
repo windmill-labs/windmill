@@ -46,7 +46,9 @@ use tracing::Instrument;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
-use windmill_common::auth::{hash_token, safe_token_prefix, TOKEN_PREFIX_LEN};
+use windmill_common::auth::{
+    hash_token, lock_mcp_oauth_grants, safe_token_prefix, TOKEN_PREFIX_LEN,
+};
 use windmill_common::global_settings::{
     load_value_from_global_settings, parse_max_token_expiration_days,
     AUTOMATE_USERNAME_CREATION_SETTING, MAX_TOKEN_EXPIRATION_DAYS_SETTING,
@@ -1548,6 +1550,7 @@ async fn update_user(
     require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
+    lock_mcp_oauth_grants(&mut *tx, &email_to_update, true).await?;
 
     let mut new_super_admin: Option<bool> = None;
     if let Some(sa) = eu.is_super_admin {
@@ -3995,25 +3998,9 @@ async fn list_tokens(
     Ok(Json(rows))
 }
 
-/// Shared while issuing an MCP OAuth grant, exclusive while revoking: no grant outlives a revoke.
-pub async fn lock_mcp_oauth_grants(
-    conn: &mut sqlx::PgConnection,
-    email: &str,
-    exclusive: bool,
-) -> std::result::Result<(), sqlx::Error> {
-    let q = if exclusive {
-        "SELECT pg_advisory_xact_lock(hashtext('mcp_oauth_grant:' || $1))"
-    } else {
-        "SELECT pg_advisory_xact_lock_shared(hashtext('mcp_oauth_grant:' || $1))"
-    };
-    sqlx::query(q).bind(email).execute(conn).await?;
-    Ok(())
-}
-
 /// Ends a user's MCP OAuth connections (only those bound to `workspace_id` when given),
 /// including idle ones whose access token is already gone and codes not yet exchanged.
-/// Call it before deleting any of the user's tokens: a refresh takes the grant lock and then
-/// the token row, so taking them the other way round deadlocks.
+/// Call it before writing any of the user's tokens (see `lock_mcp_oauth_grants`).
 pub async fn revoke_mcp_oauth_grants(
     conn: &mut sqlx::PgConnection,
     email: &str,
