@@ -142,6 +142,10 @@ class ChatImpl implements Chat {
     if (running && options.attachments?.length) {
       throw new Error('windmill-chat: attachments cannot be sent over a running turn')
     }
+    // One at a time: `stop()` and leaving the conversation cancel the send still waiting.
+    if (running && this.#sentOver) {
+      throw new Error('windmill-chat: a message sent over the running turn is still waiting for the server')
+    }
     const attachments = options.attachments ?? []
     const attachmentsInput = options.attachmentsInput
     if (attachments.length > 0 && !attachmentsInput) {

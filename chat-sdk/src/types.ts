@@ -207,7 +207,8 @@ export interface SendMessageOptions {
    * turn's AI agent is parked (it answered while background jobs run, or waits on an approval or
    * a question): it ends that turn, dropping its open request, and carries its background jobs
    * over to this one, which the chat then follows. While the turn works it is refused with a
-   * `TurnRunningError` and the chat keeps following it. Not with `attachments`.
+   * `TurnRunningError` and the chat keeps following it. Not with `attachments`, and one at a time:
+   * a second one is refused while the first waits for the server.
    */
   overRunningTurn?: boolean
 }
