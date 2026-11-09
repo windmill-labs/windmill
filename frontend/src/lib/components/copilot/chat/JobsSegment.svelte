@@ -211,17 +211,19 @@
 		return formatElapsed(now - job.createdAt)
 	}
 
-	// Seconds matter: a turn often starts several runs within the same minute, and the start
+	// Seconds matter: a turn often launches several runs within the same minute, and the launch
 	// time is what tells them apart and shows the order they ran in.
-	function startedLabel(job: ChatJob): string {
-		const started = new Date(job.createdAt)
-		const sameDay = started.toDateString() === new Date(now).toDateString()
-		return new Intl.DateTimeFormat(undefined, {
-			...(sameDay ? {} : { month: 'short', day: 'numeric' }),
-			hour: '2-digit',
-			minute: '2-digit',
-			second: '2-digit'
-		}).format(started)
+	const timeOptions = { hour: 'numeric', minute: '2-digit', second: '2-digit' } as const
+	const timeFormat = new Intl.DateTimeFormat(undefined, timeOptions)
+	const dayTimeFormat = new Intl.DateTimeFormat(undefined, {
+		...timeOptions,
+		month: 'short',
+		day: 'numeric'
+	})
+	function launchedLabel(job: ChatJob): string {
+		const launched = new Date(job.createdAt)
+		const today = launched.toDateString() === new Date().toDateString()
+		return (today ? timeFormat : dayTimeFormat).format(launched)
 	}
 
 	function runHref(job: ChatJob): string {
@@ -375,10 +377,14 @@
 				<JobStatusIcon job={job.job} />
 			{/if}
 			<span class="min-w-0 grow truncate text-primary">{job.label}</span>
-			<span
-				class="shrink-0 tabular-nums text-tertiary"
-				title={`Started ${new Date(job.createdAt).toLocaleString()}`}>{startedLabel(job)}</span
-			>
+			<!-- Live rows are pinned on top with a ticking elapsed time and their Cancel/Approve
+			     buttons; a launch time there would leave the label no room in the popover. -->
+			{#if isTerminal(job.status)}
+				<span
+					class="shrink-0 tabular-nums text-tertiary"
+					title={`Launched ${new Date(job.createdAt).toLocaleString()}`}>{launchedLabel(job)}</span
+				>
+			{/if}
 			<span class="shrink-0 tabular-nums text-tertiary">{elapsedLabel(job)}</span>
 		{/snippet}
 		{#snippet actions(job)}
