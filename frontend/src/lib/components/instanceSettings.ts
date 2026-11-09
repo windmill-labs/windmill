@@ -1799,13 +1799,13 @@ export const sensitiveKeys: Set<string> = new Set([
 // Each entry maps a top-level key to its sensitive sub-field names.
 export const nestedSensitiveFields: Record<string, string[]> = {
 	smtp_settings: ['smtp_password'],
-	secret_backend: ['token', 'client_secret', 'secret_access_key'],
+	secret_backend: ['token', 'approle_secret_id', 'client_secret', 'secret_access_key'],
 	object_store_cache_config: ['secret_key', 'serviceAccountKey', 'accessKey'],
 	custom_instance_pg_databases: ['user_pwd'],
 	external_instance_pg: ['password'],
 	rsa_keys: ['private_key'],
 	github_enterprise_app: ['private_key'],
-	external_secrets: ['vault.token']
+	external_secrets: ['vault.token', 'vault.approle_secret_id']
 }
 
 // A field may name one nested level, `parent.child`.
