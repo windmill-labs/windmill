@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE worker_ping SET dedicated_restart_at = NULL\n            WHERE worker_group = $1 AND worker_instance = $2 AND dedicated_restart_at IS NOT NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "64adedd981885755b0a41dc0e8f70b10abee800171fd871b7d7ee318ee7a5a62"
+}
