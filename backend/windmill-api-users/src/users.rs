@@ -2743,6 +2743,19 @@ async fn delete_workspace_user(
 ) -> Result<String> {
     let mut tx = db.begin().await?;
 
+    // The account row before the membership row, the order `delete_user` takes them in, since
+    // the revoke in `delete_workspace_user_internal` locks it (`lock_mcp_oauth_grants`).
+    if let Some(email) = sqlx::query_scalar!(
+        "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
+        username_to_delete,
+        &w_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    {
+        lock_mcp_oauth_grants(&mut *tx, &email, true).await?;
+    }
+
     // Locked so that the authorization below and the delete it guards see the same row.
     let target = sqlx::query!(
         "SELECT email, is_admin FROM usr where username = $1 AND workspace_id = $2 FOR UPDATE",
@@ -4006,15 +4019,26 @@ pub async fn revoke_mcp_oauth_grants(
     workspace_id: Option<&str>,
 ) -> Result<()> {
     lock_mcp_oauth_grants(&mut *conn, email, true).await?;
+    // Separate statements, tokens first: a token delete's trigger locks its token row, then its
+    // grant, and the sibling CTEs of a single statement run in no fixed order.
     sqlx::query!(
-        "WITH revoked AS (
-             DELETE FROM token WHERE email = $1 AND label LIKE 'mcp-oauth-%'
-                 AND ($2::varchar IS NULL OR workspace_id = $2)
-         ), refresh AS (
-             DELETE FROM mcp_oauth_refresh_token WHERE user_email = $1
-                 AND ($2::varchar IS NULL OR workspace_id = $2)
-         )
-         DELETE FROM mcp_oauth_server_code WHERE user_email = $1
+        "DELETE FROM token WHERE email = $1 AND label LIKE 'mcp-oauth-%'
+             AND ($2::varchar IS NULL OR workspace_id = $2)",
+        email,
+        workspace_id,
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM mcp_oauth_refresh_token WHERE user_email = $1
+             AND ($2::varchar IS NULL OR workspace_id = $2)",
+        email,
+        workspace_id,
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM mcp_oauth_server_code WHERE user_email = $1
              AND ($2::varchar IS NULL OR workspace_id = $2)",
         email,
         workspace_id,
