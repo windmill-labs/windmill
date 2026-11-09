@@ -91,6 +91,7 @@
 		"@json2csv/plainjs": "^7.0.6",
 		"@leeoniya/ufuzzy": "^1.0.8",
 		"@melt-ui/svelte": "^0.86.2",
+		"@pierre/diffs": "1.6.4",
 		"@popperjs/core": "^2.11.8",
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"@scalar/openapi-parser": "^0.15.0",
