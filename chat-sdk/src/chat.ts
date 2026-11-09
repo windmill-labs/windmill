@@ -779,7 +779,17 @@ class ChatImpl implements Chat {
           break
       }
     }
+    const startsWaiting = waitingOnBackground && !this.#state.waitingOnBackground
     this.#set({ messages, status: 'streaming', waitingOnBackground })
+    // Rows are otherwise read when the turn ends, which a wait on background jobs postpones; the
+    // rows of the calls it waits on are written by then, and say how each went to the background.
+    if (startsWaiting && this.#state.history === 'server') {
+      this.#rowsAfterLastSeq(turn.conversationId, turn.controller.signal)
+        .then((rows) => {
+          if (this.#turnActive(turn)) this.#mergeRows(rows)
+        })
+        .catch(() => {})
+    }
   }
 
   async #finishTurn(turn: Turn, result: unknown, isNew: boolean): Promise<RunningTurn | undefined> {
@@ -1189,7 +1199,13 @@ function latestSeq(messages: readonly ChatMessage[]): number {
 function fromRow(row: FlowConversationMessage): ChatMessage {
   const toolName =
     row.message_type === 'tool'
-      ? /^Used (.+) tool$/.exec(row.content)?.[1] ?? /^Error executing (.+)$/.exec(row.content)?.[1]
+      ? /^Used (.+) tool$/.exec(row.content)?.[1] ??
+        /^Error executing (.+)$/.exec(row.content)?.[1] ??
+        // A call that went to the background: its result comes as a later row of the same job.
+        /^(?:Started (.+) in the background|Moved (.+) to the background(?: after \d+s)?)$/
+          .exec(row.content)
+          ?.slice(1)
+          .find((name) => name !== undefined)
       : undefined
   const success = row.success ?? true
   return {

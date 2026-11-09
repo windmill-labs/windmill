@@ -1315,7 +1315,10 @@ async fn execute_windmill_tools(
                      {job_id}. Its result arrives in a later message: keep working meanwhile, or \
                      finish your answer and you will continue once it is in."
                 );
-                let row = format!("Moved {} to the background", call.function.name);
+                let row = format!(
+                    "Moved {} to the background after {secs}s",
+                    call.function.name
+                );
                 let action_index = action_indexes[next_result];
                 started.push(
                     answer_in_background(

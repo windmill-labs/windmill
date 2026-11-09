@@ -153,7 +153,13 @@ export type DisplayLookups = {
 
 /** The row the worker writes when a call goes to the background. Its result is a later row of
  *  the same job, which this call's card shows in its place. */
-const BACKGROUND_START = /^(?:Started .+ in|Moved .+ to) the background$/
+const BACKGROUND_START = /^(?:Started .+ in the background|Moved .+ to the background( after (\d+)s)?)$/
+
+/** How long a call ran before it moved to the background, for its card. */
+function movedAfter(content: string): string {
+	const secs = BACKGROUND_START.exec(content)?.[2]
+	return secs ? ` (took over ${secs}s)` : ''
+}
 
 const QUESTION_CALL = /^ask_question(_\d+)?$/
 
@@ -278,16 +284,42 @@ export function toDisplayMessages(
 	})
 	const shownElsewhere = new Set(backgroundResults.values())
 	const shown = messages.flatMap((row, i): DisplayMessage[] => {
-		if (shownElsewhere.has(i)) return []
+		// Where results came back, a bubble says why the agent goes on, as the session chat's
+		// auto-resume does; the results themselves are on their calls' cards.
+		if (shownElsewhere.has(i)) {
+			if (shownElsewhere.has(i - 1)) return []
+			let count = 1
+			while (shownElsewhere.has(i + count)) count++
+			return [
+				{
+					role: 'user',
+					index: -1,
+					synthetic: true,
+					content:
+						count === 1
+							? 'A background job just finished.'
+							: `${count} background jobs just finished.`
+				}
+			]
+		}
 		const resultRow = backgroundResults.get(i)
+		// The result in the call's place, with the thinking that led to the call, stored on the
+		// row that started it.
 		const message =
-			resultRow === undefined ? row : { ...messages[resultRow], id: row.id }
-		// Started in the background, its result not in yet.
+			resultRow === undefined
+				? row
+				: { ...messages[resultRow], id: row.id, reasoning: row.reasoning }
+		// Started in the background, its result not in yet. With no turn running any more, it never
+		// will be: its agent was stopped and its job with it.
+		const backgroundStart =
+			message.role === 'tool' && resultRow === undefined && BACKGROUND_START.test(message.content)
+		const backgroundUnfinished = backgroundStart && !busy
 		const inBackground =
-			message.role === 'tool' &&
-			resultRow === undefined &&
-			(BACKGROUND_START.test(message.content) ||
-				(!!lookups.backgroundWait && !!message.pending && message.tool?.status === 'running'))
+			(backgroundStart && busy) ||
+			(message.role === 'tool' &&
+				!!lookups.backgroundWait &&
+				!!message.pending &&
+				message.tool?.status === 'running')
 		switch (message.role) {
 			case 'user': {
 				const index = userIndex++
@@ -340,7 +372,7 @@ export function toDisplayMessages(
 				const unfinished =
 					message.tool &&
 					!message.pending &&
-					!message.content &&
+					(!message.content || backgroundUnfinished) &&
 					!STRUCTURED_OUTPUT_CALL.test(message.tool.name)
 						? `${message.tool.name} did not finish`
 						: undefined
@@ -350,8 +382,11 @@ export function toDisplayMessages(
 					// The card's header is the row's text, which the server only words once the
 					// tool has returned; until then the row says what is running.
 					content: inBackground
-						? `Running ${toolName ?? 'tool'} in the background`
-						: message.content || unfinished || (toolName ? `Running ${toolName}` : ''),
+						? `Running ${toolName ?? 'tool'} in the background${movedAfter(message.content)}`
+						: (backgroundUnfinished && unfinished) ||
+							message.content ||
+							unfinished ||
+							(toolName ? `Running ${toolName}` : ''),
 					// Withheld for the copilot's two plan-mode names: `toolName` is what makes
 					// ToolExecutionDisplay render a plan card, and an agent tool that happened to
 					// share one would silently become one.

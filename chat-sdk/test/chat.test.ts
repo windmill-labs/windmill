@@ -1050,6 +1050,21 @@ describe('createChat with server history', () => {
       chat.destroy()
     })
 
+    test('refuses a second message over the running turn while the first waits for the server', async () => {
+      const { fetch } = fetchMock(
+        ...running(() => new Promise<Response>(() => {}) as unknown as Response)
+      )
+      const chat = createChat(options({}, fetch))
+      void chat.sendMessage('first')
+      await until(() => chat.getState().messages.some((m) => m.content === 'parked answer'), 'the first answer')
+      void chat.sendMessage('one', { overRunningTurn: true }).catch(() => {})
+      await until(() => chat.getState().messages.some((m) => m.content === 'one'), 'the first send')
+      const second = await chat.sendMessage('two', { overRunningTurn: true }).catch((e) => e)
+      expect(second).toBeInstanceOf(Error)
+      expect(chat.getState().messages.map((m) => m.content)).toEqual(['first', 'parked answer', 'one'])
+      chat.destroy()
+    })
+
     test('follows the new turn when the server takes the message', async () => {
       const { fetch } = fetchMock(...running(() => text('job-2')), (c) =>
         c.url.pathname === '/api/w/ws/jobs_u/getupdate_sse/job-2'
@@ -1070,6 +1085,21 @@ describe('createChat with server history', () => {
       expect(state.status).toBe('idle')
       chat.destroy()
     })
+  })
+
+  test('reads a row of a call that went to the background as a call of that tool', async () => {
+    const { fetch } = fetchMock((c) =>
+      c.url.pathname.endsWith('/messages')
+        ? json([
+            messageRow(1, 'user', 'go'),
+            messageRow(2, 'tool', 'Started report in the background', { job_id: 'bg-1' }),
+            messageRow(3, 'tool', 'Moved export to the background after 5s', { job_id: 'bg-2' })
+          ])
+        : undefined
+    )
+    const chat = createChat(options({}, fetch))
+    await chat.selectConversation('conv')
+    expect(chat.getState().messages.map((m) => m.tool?.name)).toEqual([undefined, 'report', 'export'])
   })
 
   test('a message refused because a turn is running leaves nothing behind and names that turn', async () => {
