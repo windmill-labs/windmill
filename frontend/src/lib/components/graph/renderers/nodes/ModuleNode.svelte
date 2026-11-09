@@ -177,6 +177,11 @@
 			mod={data.module}
 			insertable={data.insertable}
 			editMode={data.editMode}
+			mockApplied={data.editMode
+				? undefined
+				: flowRunStatus?.showsRun
+					? state?.job_kind === 'identity' && !state.skipped
+					: !data.module?.mock?.preview_only}
 			moduleAction={data.moduleAction}
 			{menuItems}
 			sideAnnotation={agentToolSummary?.short}

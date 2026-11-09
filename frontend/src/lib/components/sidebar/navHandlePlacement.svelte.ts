@@ -1,4 +1,5 @@
 import { BAR_HEIGHT_PX } from '../pageHeaderRegistry.svelte'
+import type { Item } from '$lib/utils'
 
 // Opening the detached sidebar's card, from the band's own handle or from the corner control that
 // stands in for it on a page which hides the band.
@@ -22,6 +23,15 @@ let card: CardState | undefined
 const FALLBACK_CARD_TOP = BAR_HEIGHT_PX
 const GAP_UNDER_HANDLE = 6
 let cardTop = $state(FALLBACK_CARD_TOP)
+// The sidebar mode menu, which the layout builds from its own state. Where the card slides in on
+// hover, the handle's click opens it, as the card then carries no footer to hold it.
+let modeItems: (() => Item[]) | undefined = $state()
+// A mode change can move the mode button between the sidebar's footer and the page header, so the
+// button flashes where it lands. Nonzero only while the flash plays: the header remounts on every
+// page, and a lasting value would replay it there.
+const MODE_FLASH_MS = 1500
+let modeFlash = $state(0)
+let modeFlashTimer: ReturnType<typeof setTimeout> | undefined
 
 export const navHandleSlot = {
 	/** Distance from the top of the viewport to the card's top edge, in px. */
@@ -31,6 +41,22 @@ export const navHandleSlot = {
 	/** The card is open and pinned, so the handle shows as selected. Reactive. */
 	get pinned(): boolean {
 		return !!card?.isOpen() && card.isPinned()
+	},
+	/** The sidebar mode menu's items, once the layout has registered them. Reactive. */
+	get modeItems(): Item[] | undefined {
+		return modeItems?.()
+	},
+	setModeItems(items: () => Item[]) {
+		modeItems = items
+	},
+	/** Nonzero while the mode button flashes after a mode change; each change gets a new value. */
+	get modeFlash(): number {
+		return modeFlash
+	},
+	flashModeButton() {
+		clearTimeout(modeFlashTimer)
+		modeFlash += 1
+		modeFlashTimer = setTimeout(() => (modeFlash = 0), MODE_FLASH_MS)
 	},
 	/** The root layout owns the card, so it registers how to open, pin, close and hover-close it. */
 	setOpener(

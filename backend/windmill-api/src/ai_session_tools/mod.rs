@@ -75,7 +75,7 @@ mod workspace;
 
 #[cfg(feature = "mcp")]
 pub(crate) use instructions::{
-    generic_session_instructions, session_instructions, workspace_context,
+    generic_session_instructions, prompt_profile, session_instructions, workspace_context,
 };
 
 #[derive(Deserialize)]
@@ -750,7 +750,7 @@ async fn call_generated_tool(
             _ => "is read-only",
         };
         return Err(CallRefused::NotAllowed(format!(
-            "Tool '{name}' changes or runs something, and this token {token}"
+            "Tool '{name}' changes or runs something, and this session {token}"
         )));
     }
     dispatch(ctx, name, args).await.ok_or_else(|| {

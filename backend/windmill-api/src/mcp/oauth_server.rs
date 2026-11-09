@@ -160,6 +160,9 @@ pub struct ApprovalForm {
     pub state: String,
     pub code_challenge: String,
     pub code_challenge_method: String,
+    /// The token carries the approver's superadmin rights: every workspace, members or not.
+    #[serde(default)]
+    pub super_admin: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -207,6 +210,7 @@ struct AuthorizationCode {
     redirect_uri: String,
     code_challenge: Option<String>,
     code_challenge_method: Option<String>,
+    super_admin: bool,
 }
 
 #[allow(dead_code)]
@@ -224,6 +228,7 @@ struct RefreshTokenRow {
     expires_at: chrono::DateTime<chrono::Utc>,
     used_at: Option<chrono::DateTime<chrono::Utc>>,
     revoked: bool,
+    super_admin: bool,
 }
 
 /// The scopes that grant access. A protected resource advertises only these: MCP clients
@@ -456,7 +461,7 @@ async fn handle_authorization_code_grant(
         "DELETE FROM mcp_oauth_server_code
          WHERE code = $1 AND expires_at > now()
          RETURNING code, client_id, user_email, workspace_id, scopes, redirect_uri,
-                   code_challenge, code_challenge_method",
+                   code_challenge, code_challenge_method, super_admin",
         req.code
     )
     .fetch_optional(&mut *tx)
@@ -518,8 +523,9 @@ async fn handle_authorization_code_grant(
 
     // Create access token (rejects archived workspaces inline)
     let rows = sqlx::query!(
-        "INSERT INTO token (token_hash, token_prefix, token, email, label, expiration, scopes, workspace_id)
-         SELECT $1::varchar, $2::varchar, $3::varchar, $4::varchar, $5::varchar, now() + ($6 || ' seconds')::interval, $7::text[], $8::varchar
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, expiration, scopes, workspace_id, super_admin)
+         SELECT $1::varchar, $2::varchar, $3::varchar, $4::varchar, $5::varchar, now() + ($6 || ' seconds')::interval, $7::text[], $8::varchar,
+             $9::bool AND COALESCE((SELECT super_admin FROM password WHERE email = $4), false)
          WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $8 AND deleted = true)",
         access_token_hash,
         access_token_prefix,
@@ -529,6 +535,7 @@ async fn handle_authorization_code_grant(
         MCP_OAUTH_TOKEN_EXPIRATION_SECS.to_string(),
         &scopes,
         auth_code.workspace_id,
+        auth_code.super_admin,
     )
     .execute(&mut *tx)
     .await
@@ -545,8 +552,8 @@ async fn handle_authorization_code_grant(
     // Create refresh token — store the hash of the access token so we can delete it later
     sqlx::query!(
         "INSERT INTO mcp_oauth_refresh_token
-         (refresh_token, access_token_hash, client_id, user_email, workspace_id, scopes, token_family, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' seconds')::interval)",
+         (refresh_token, access_token_hash, client_id, user_email, workspace_id, scopes, token_family, expires_at, super_admin)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' seconds')::interval, $9)",
         refresh_token,
         access_token_hash,
         auth_code.client_id,
@@ -555,6 +562,7 @@ async fn handle_authorization_code_grant(
         &scopes,
         token_family,
         MCP_OAUTH_REFRESH_TOKEN_EXPIRATION_SECS.to_string(),
+        auth_code.super_admin,
     )
     .execute(&mut *tx)
     .await
@@ -597,7 +605,7 @@ async fn handle_refresh_token_grant(
            AND NOT revoked
            AND expires_at > now()
          RETURNING id, refresh_token, access_token_hash, client_id, user_email, workspace_id,
-                   scopes, token_family, created_at, expires_at, used_at, revoked",
+                   scopes, token_family, created_at, expires_at, used_at, revoked, super_admin",
         refresh_token_value,
         req.client_id
     )
@@ -661,8 +669,9 @@ async fn handle_refresh_token_grant(
 
     // Create new access token (rejects archived workspaces inline)
     let rows = sqlx::query!(
-        "INSERT INTO token (token_hash, token_prefix, token, email, label, expiration, scopes, workspace_id)
-         SELECT $1::varchar, $2::varchar, $3::varchar, $4::varchar, $5::varchar, now() + ($6 || ' seconds')::interval, $7::text[], $8::varchar
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, expiration, scopes, workspace_id, super_admin)
+         SELECT $1::varchar, $2::varchar, $3::varchar, $4::varchar, $5::varchar, now() + ($6 || ' seconds')::interval, $7::text[], $8::varchar,
+             $9::bool AND COALESCE((SELECT super_admin FROM password WHERE email = $4), false)
          WHERE NOT EXISTS(SELECT 1 FROM workspace WHERE id = $8 AND deleted = true)",
         new_access_token_hash,
         new_access_token_prefix,
@@ -672,6 +681,7 @@ async fn handle_refresh_token_grant(
         MCP_OAUTH_TOKEN_EXPIRATION_SECS.to_string(),
         &scopes,
         token_row.workspace_id,
+        token_row.super_admin,
     )
     .execute(&mut *tx)
     .await
@@ -688,8 +698,8 @@ async fn handle_refresh_token_grant(
     // Create new refresh token (same token family for tracking) — store hash of access token
     sqlx::query!(
         "INSERT INTO mcp_oauth_refresh_token
-         (refresh_token, access_token_hash, client_id, user_email, workspace_id, scopes, token_family, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' seconds')::interval)",
+         (refresh_token, access_token_hash, client_id, user_email, workspace_id, scopes, token_family, expires_at, super_admin)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' seconds')::interval, $9)",
         new_refresh_token,
         new_access_token_hash,
         token_row.client_id,
@@ -698,6 +708,7 @@ async fn handle_refresh_token_grant(
         &scopes,
         token_row.token_family,
         MCP_OAUTH_REFRESH_TOKEN_EXPIRATION_SECS.to_string(),
+        token_row.super_admin,
     )
     .execute(&mut *tx)
     .await
@@ -860,7 +871,20 @@ async fn oauth_approve_inner(
     // the gateway approve route reach the exchange through here.
     forbid_elevated_job_token(db, &authed.email, authed.job_id).await?;
 
-    if let Some(workspace_id) = workspace_id {
+    let caller_restricted = authed
+        .scopes
+        .as_deref()
+        .is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")));
+    if form.super_admin {
+        windmill_api_auth::require_super_admin(db, authed).await?;
+        // The owner's role is not the credential's: an MCP token minted without superadmin
+        // access may approve a narrower token, never one carrying that access.
+        if caller_restricted {
+            return Err(Error::NotAuthorized(
+                "Only an interactive session can grant superadmin access".to_string(),
+            ));
+        }
+    } else if let Some(workspace_id) = workspace_id {
         ensure_member(db, workspace_id, &authed.email).await?;
     }
 
@@ -916,10 +940,6 @@ async fn oauth_approve_inner(
     // which is the normal consent flow. This is the legitimate MCP-narrowing
     // path, so it uses MCP-pattern containment rather than the byte-identical
     // rule ensure_scopes_within_caller applies on the generic token endpoints.
-    let caller_restricted = authed
-        .scopes
-        .as_deref()
-        .is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")));
     if caller_restricted {
         // An empty grant would mint a token the auth layer treats as unscoped
         // (full privileges), so a restricted approver must not produce one.
@@ -946,8 +966,8 @@ async fn oauth_approve_inner(
 
     sqlx::query!(
         "INSERT INTO mcp_oauth_server_code
-         (code, client_id, user_email, workspace_id, scopes, redirect_uri, code_challenge, code_challenge_method)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+         (code, client_id, user_email, workspace_id, scopes, redirect_uri, code_challenge, code_challenge_method, super_admin)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         code,
         form.client_id,
         authed.email,
@@ -956,6 +976,7 @@ async fn oauth_approve_inner(
         form.redirect_uri,
         &form.code_challenge,
         &form.code_challenge_method,
+        form.super_admin,
     )
     .execute(db)
     .await
@@ -1116,8 +1137,10 @@ pub async fn gateway_oauth_approve(
             }
             [only] => Some(only.as_str()),
             several => {
-                for workspace_id in several {
-                    ensure_member(&db, workspace_id, &authed.email).await?;
+                if !form.super_admin {
+                    for workspace_id in several {
+                        ensure_member(&db, workspace_id, &authed.email).await?;
+                    }
                 }
                 scope.push_str(&format!(" mcp:workspaces:{}", several.join(",")));
                 None
@@ -1135,6 +1158,7 @@ pub async fn gateway_oauth_approve(
             state: form.state,
             code_challenge: form.code_challenge,
             code_challenge_method: form.code_challenge_method,
+            super_admin: form.super_admin,
         },
     )
     .await
@@ -1158,6 +1182,8 @@ pub struct GatewayApprovalForm {
     /// Every workspace the user is a member of, including ones they join later.
     #[serde(default)]
     pub all_workspaces: bool,
+    #[serde(default)]
+    pub super_admin: bool,
 }
 
 // ── Router constructors ──

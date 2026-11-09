@@ -20,6 +20,12 @@
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
 	import { parsePostgresConnectionString } from '$lib/utils/postgresConnectionString'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import DropdownV2 from './DropdownV2.svelte'
+	import ResourceValueReference, {
+		canReferenceWholeValue,
+		resourceValueMenuItems,
+		resourceValueReference
+	} from './ResourceValueReference.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -72,6 +78,7 @@
 		if (!resourceTypeInfo) return
 		rawCode = '{}'
 		viewJsonSchema = false
+		referencePinned = false
 		try {
 			schema = resourceTypeInfo.schema as any
 			// A resource type may declare no properties at all — `dbt_profile` is a
@@ -109,6 +116,23 @@
 				textFileContent = args.content
 			}
 		}
+	}
+
+	let reference = $derived(resourceValueReference(args))
+	// Pinned only by the picker: text typed into the JSON editor that parses to a reference keeps
+	// that editor, while any other form would replace the string with its own fields.
+	let referencePinned = $state(false)
+	let showReference = $derived(
+		!!reference && (referencePinned || !(notFound || viewJsonSchema || !schema?.properties))
+	)
+	let valueReference: ResourceValueReference | undefined = $state(undefined)
+
+	function setWholeValue(v: Record<string, any> | string) {
+		referencePinned = typeof v === 'string'
+		// The "As JSON" toggle holds its own state and remounts unchecked with the form.
+		viewJsonSchema = false
+		rawCode = JSON.stringify(v, null, 2)
+		args = v
 	}
 
 	let connectionString = $state('')
@@ -171,101 +195,113 @@
 
 {#if !notFound}
 	<div class="w-full flex gap-2 flex-row-reverse items-center">
-		<Toggle
-			on:change={(e) => switchTab(e.detail)}
-			options={{
-				right: 'As JSON'
-			}}
-			class="as-json-toggle"
-		/>
-		<ResourceGen
-			bind:args
-			{resourceType}
-			resourceSchema={notFound ? undefined : schema}
-			isFileset={resourceTypeInfo?.is_fileset ?? false}
-		/>
-		<TestConnection {resourceType} {args} />
-		{#if aiProvider}
-			<TestAiKey
-				{aiProvider}
-				workspace={workspace ?? $operatingWorkspace}
-				resourceValue={args}
-				model={$copilotInfo.aiModels.find((m) => m.provider === aiProvider)?.model}
+		{#if showReference || canReferenceWholeValue(resourceTypeInfo)}
+			<DropdownV2
+				placement="bottom-end"
+				items={() =>
+					resourceValueMenuItems(showReference ? reference : undefined, {
+						pickVariable: () => valueReference?.pickVariable(),
+						editFields: () => setWholeValue({})
+					})}
 			/>
 		{/if}
-		{#if resourceType == 'postgresql'}
-			<Popover
-				floatingConfig={{
-					placement: 'bottom'
+		{#if !showReference}
+			<Toggle
+				on:change={(e) => switchTab(e.detail)}
+				options={{
+					right: 'As JSON'
 				}}
-			>
-				{#snippet trigger()}
-					<Button spacingSize="sm" size="xs" unifiedSize="md" variant="default" nonCaptureEvent>
-						From connection string
-					</Button>
-				{/snippet}
-				{#snippet content({ close })}
-					<div class="block text-primary p-4">
-						<div class="w-[550px] flex flex-col items-start gap-1">
-							<div class="flex flex-row gap-1 w-full">
-								<input
-									type="text"
-									bind:value={connectionString}
-									placeholder="postgres://user:password@host:5432/dbname?sslmode=disable"
-								/>
-								<Button
-									size="xs"
-									color="blue"
-									buttonType="button"
-									on:click={() => {
-										parseConnectionString(close)
-									}}
-									disabled={connectionString.length <= 0}
-								>
-									Apply
-								</Button>
+				class="as-json-toggle"
+			/>
+			<ResourceGen
+				bind:args
+				{resourceType}
+				resourceSchema={notFound ? undefined : schema}
+				isFileset={resourceTypeInfo?.is_fileset ?? false}
+			/>
+			<TestConnection {resourceType} {args} />
+			{#if aiProvider}
+				<TestAiKey
+					{aiProvider}
+					workspace={workspace ?? $operatingWorkspace}
+					resourceValue={args}
+					model={$copilotInfo.aiModels.find((m) => m.provider === aiProvider)?.model}
+				/>
+			{/if}
+			{#if resourceType == 'postgresql'}
+				<Popover
+					floatingConfig={{
+						placement: 'bottom'
+					}}
+				>
+					{#snippet trigger()}
+						<Button spacingSize="sm" size="xs" unifiedSize="md" variant="default" nonCaptureEvent>
+							From connection string
+						</Button>
+					{/snippet}
+					{#snippet content({ close })}
+						<div class="block text-primary p-4">
+							<div class="w-[550px] flex flex-col items-start gap-1">
+								<div class="flex flex-row gap-1 w-full">
+									<input
+										type="text"
+										bind:value={connectionString}
+										placeholder="postgres://user:password@host:5432/dbname?sslmode=disable"
+									/>
+									<Button
+										size="xs"
+										color="blue"
+										buttonType="button"
+										on:click={() => {
+											parseConnectionString(close)
+										}}
+										disabled={connectionString.length <= 0}
+									>
+										Apply
+									</Button>
+								</div>
+								{#if !validConnectionString}
+									<p class="text-red-500 text-xs">Could not parse connection string</p>
+								{/if}
 							</div>
-							{#if !validConnectionString}
-								<p class="text-red-500 text-xs">Could not parse connection string</p>
-							{/if}
 						</div>
-					</div>
-				{/snippet}
-			</Popover>
-		{/if}
-		{#if resourceType == 'postgresql' && supabaseWizard}
-			<!-- Imported here rather than at the top so the wizard's Supabase graph stays out of
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if resourceType == 'postgresql' && supabaseWizard}
+				<!-- Imported here rather than at the top so the wizard's Supabase graph stays out of
 			this form's chunk, which loads on the resources page and in every resource drawer. -->
-			{#await import('./workspaceSettings/SupabaseResourceConnect.svelte')}
-				<Loader2 class="animate-spin" />
-			{:then Module}
-				<Module.default onPicked={applySupabasePick} />
-			{/await}
-		{/if}
-		<GitHubAppIntegration
-			{resourceType}
-			{args}
-			{description}
-			onArgsUpdate={(newArgs) => {
-				args = newArgs
-				rawCode = JSON.stringify(args, null, 2)
-				rawCodeEditor?.setCode(rawCode)
-			}}
-			onDescriptionUpdate={(newDescription) => (description = newDescription)}
-		/>
-		<!-- Last in a `flex-row-reverse` row, so it lands beside the GitHub App
+				{#await import('./workspaceSettings/SupabaseResourceConnect.svelte')}
+					<Loader2 class="animate-spin" />
+				{:then Module}
+					<Module.default onPicked={applySupabasePick} />
+				{/await}
+			{/if}
+			<GitHubAppIntegration
+				{resourceType}
+				{args}
+				{description}
+				onArgsUpdate={(newArgs) => {
+					args = newArgs
+					rawCode = JSON.stringify(args, null, 2)
+					rawCodeEditor?.setCode(rawCode)
+				}}
+				onDescriptionUpdate={(newDescription) => (description = newDescription)}
+			/>
+			<!-- Last in a `flex-row-reverse` row, so it lands beside the GitHub App
 		button without splitting it from its own refresh control. -->
-		<GitLabIntegration
-			{resourceType}
-			{args}
-			{workspace}
-			{onCredentialStored}
-			onArgsUpdate={(newArgs) => {
-				args = newArgs
-				rawCode = JSON.stringify(args, null, 2)
-				rawCodeEditor?.setCode(rawCode)
-			}}
-		/>
+			<GitLabIntegration
+				{resourceType}
+				{args}
+				{workspace}
+				{onCredentialStored}
+				onArgsUpdate={(newArgs) => {
+					args = newArgs
+					rawCode = JSON.stringify(args, null, 2)
+					rawCodeEditor?.setCode(rawCode)
+				}}
+			/>
+		{/if}
 	</div>
 	{#if resourceType?.includes('bedrock') && !isCloudHosted()}
 		<BedrockCredentialsCheck />
@@ -277,7 +313,13 @@
 	>
 	<SyncResourceTypes {resourceType} {onSynced} />
 {/if}
-{#if notFound || viewJsonSchema || !schema?.properties}
+<ResourceValueReference
+	bind:this={valueReference}
+	reference={showReference ? reference : undefined}
+	workspace={workspace ?? $operatingWorkspace}
+	onPick={setWholeValue}
+/>
+{#if showReference}{:else if notFound || viewJsonSchema || !schema?.properties}
 	{#if !emptyString(error)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
 			>{error}</span
 		>{:else}<div class="py-2"></div>{/if}

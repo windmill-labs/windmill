@@ -17,10 +17,14 @@ export function shareWorkspaceId(
 	}
 }
 
+export function sharedArtifactPath(workspaceId: string, shareId: string): string {
+	return `/shared_artifacts/${encodeURIComponent(shareId)}?workspace=${encodeURIComponent(
+		workspaceId
+	)}`
+}
+
 export function sharedArtifactUrl(workspaceId: string, shareId: string): string {
-	return `${window.location.origin}/shared_artifacts/${encodeURIComponent(
-		shareId
-	)}?workspace=${encodeURIComponent(workspaceId)}`
+	return `${window.location.origin}${sharedArtifactPath(workspaceId, shareId)}`
 }
 
 /** "30 days", "12 hours": the retention window in the largest whole unit it fills. */

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO mcp_oauth_refresh_token\n         (refresh_token, access_token_hash, client_id, user_email, workspace_id, scopes, token_family, expires_at, super_admin)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' seconds')::interval, $9)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "TextArray",
+        "Uuid",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4c49df940de08769d751c5dc161fb50d961e71cc4bb1680788fccca8d30d5464"
+}

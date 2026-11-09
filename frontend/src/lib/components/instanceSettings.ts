@@ -105,7 +105,9 @@ export interface Setting {
 	codeAreaLang?: string
 	actionButton?: {
 		label: string
-		onclick: (values: Record<string, any>) => Promise<void>
+		onclick?: (values: Record<string, any>) => Promise<void>
+		/** Opens in a new tab, so unsaved settings survive. */
+		href?: string
 		variant?: ButtonType.Variant
 	}
 }
@@ -139,6 +141,11 @@ function validateIndexerSettings(v: any): Record<string, string> {
 	return errors
 }
 
+const manageInstanceGroupsButton: Setting['actionButton'] = {
+	label: 'Manage instance groups',
+	href: '/instance_groups'
+}
+
 export const scimSamlSetting: Setting[] = [
 	{
 		label: 'SCIM token',
@@ -147,7 +154,8 @@ export const scimSamlSetting: Setting[] = [
 		fieldType: 'password',
 		placeholder: 'mytoken',
 		storage: 'setting',
-		ee_only: ''
+		ee_only: '',
+		actionButton: manageInstanceGroupsButton
 	},
 	{
 		label: 'SAML metadata',
@@ -607,6 +615,17 @@ export const settings: Record<string, Setting[]> = {
 			hideInQuickSetup: true
 		},
 		{
+			label: 'Run concurrency-limited jobs in order',
+			description:
+				"Jobs waiting on a concurrency limit keep the order workers pull jobs in: for each tag, by priority, then by when they became due. On by default. Turned off, a job deferred by its concurrency limit loses its place and can be overtaken by one queued after it, which drains a busy key of short jobs faster. In order, a slot is only given to the job first in its tag's line, so a job that cannot start yet (for example one its own concurrency time window still holds back) holds back the jobs behind it on the same key and tag; jobs of other tags are not held back. Jobs that become due at the same moment, before any of them has waited, start in the order workers pick them up. Admitting jobs of a key one at a time in order lowers its throughput at high limits.",
+			key: 'concurrency_limit_in_order',
+			fieldType: 'boolean',
+			defaultValue: () => true,
+			storage: 'setting',
+			ee_only: 'Concurrency limits are an Enterprise feature.',
+			hideInQuickSetup: true
+		},
+		{
 			label: 'Max jobs queued per concurrency key',
 			description:
 				'Rejects new jobs once this many are already queued behind one concurrency key. Jobs sharing a key run at most <em>concurrent limit</em> at a time regardless of spare worker capacity, so a caller pushing faster than the key drains grows a backlog no capacity can absorb. Scoped per key, so a runaway producer cannot block the rest of the workspace. Set 0 to disable. Default 10000.',
@@ -844,12 +863,37 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'SSO groups claim',
 			description:
-				"The claim or SAML attribute listing a user's IdP groups. Each SSO login then updates their membership in the groups SCIM created.",
+				"The claim or SAML attribute listing a user's IdP groups. Each SSO login then updates their membership in the instance groups linked to an IdP group.",
 			tooltip:
-				'Usually groups on OIDC, or http://schemas.microsoft.com/ws/2008/06/identity/claims/groups on Entra SAML. Values must match the external id SCIM stored for each group (Entra uses object ids). Groups without an external id are never changed, and a login without the claim changes nothing. MCP requests signed in through the external identity provider use the groups in their token the same way.',
+				'Usually groups on OIDC (read from the userinfo response), or http://schemas.microsoft.com/ws/2008/06/identity/claims/groups on Entra SAML. Values must match the IdP group of each instance group: the id SCIM stored, or the id or full path set on the group (Entra uses object ids). Groups without an IdP group are never changed. Without SCIM, a login with an empty or missing claim removes the user from every linked group; with SCIM, it changes nothing. An Entra groups overage changes nothing either. MCP requests signed in through the external identity provider use the groups in their token the same way.',
 			key: 'sso_groups_claim',
 			fieldType: 'text',
 			placeholder: 'groups',
+			storage: 'setting',
+			ee_only: '',
+			actionButton: manageInstanceGroupsButton
+		},
+		{
+			label: 'SSO email claim',
+			description:
+				"The claim or SAML attribute holding a user's email. Windmill accounts are keyed by email.",
+			tooltip:
+				'Leave empty to use the email claim on OIDC and the NameID on SAML. A login whose claim is missing falls back to that default, so one setting can serve providers that name it differently. The claim decides which account a login opens, so map it only to an attribute users cannot edit at the identity provider. GitHub and Nextcloud logins always use their own email source. A changed email signs in as a different user.',
+			key: 'sso_email_claim',
+			fieldType: 'text',
+			placeholder: 'email',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'SSO username claim',
+			description:
+				'The claim or SAML attribute holding the username given to an account created at its first SSO login. NameID means the SAML NameID.',
+			tooltip:
+				'Leave empty to use preferred_username on OIDC and the usual username attributes on SAML (uid, username, preferred_username, UPN). A login whose claim is missing falls back to that default. Existing accounts keep their username. Has no effect when automatic username creation is off.',
+			key: 'sso_username_claim',
+			fieldType: 'text',
+			placeholder: 'preferred_username',
 			storage: 'setting',
 			ee_only: ''
 		},
@@ -1269,8 +1313,7 @@ export const settings: Record<string, Setting[]> = {
 			key: 'secret_backend',
 			fieldType: 'secret_backend',
 			storage: 'setting',
-			ee_only:
-				'External secret store integrations are Enterprise Edition features'
+			ee_only: 'External secret store integrations are Enterprise Edition features'
 		},
 		{
 			label: 'External secret references',

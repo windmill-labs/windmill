@@ -88,7 +88,13 @@
 	}
 </script>
 
-<DropdownV2 {items} placement="bottom-start" fixedHeight={false} customWidth={work ? 260 : 240}>
+<DropdownV2
+	{items}
+	placement="bottom-start"
+	fixedHeight={false}
+	customWidth={work ? 260 : 240}
+	class="min-w-0 max-w-full"
+>
 	{#snippet buttonReplacement()}
 		<Button
 			nonCaptureEvent
@@ -97,14 +103,17 @@
 			title={workOption
 				? (work?.lock?.reason ?? `${workOption.description} ${option.tooltip(availability)}`)
 				: option.tooltip(availability)}
-			btnClasses={workOption?.triggerClass ?? ''}
+			wrapperClasses="min-w-0 shrink"
+			btnClasses="min-w-0 {workOption?.triggerClass ?? ''}"
 			startIcon={{
 				icon: (workOption ?? option).icon,
 				classes: (workOption ?? option).iconColor
 			}}
 			endIcon={{ icon: ChevronDown }}
 		>
-			{workOption ? `${workOption.label} · ${postureLabel}` : postureLabel}
+			<span class="truncate"
+				>{workOption ? `${workOption.label} · ${postureLabel}` : postureLabel}</span
+			>
 		</Button>
 	{/snippet}
 </DropdownV2>

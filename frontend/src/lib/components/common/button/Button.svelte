@@ -19,9 +19,12 @@
 		description?: string
 		onClick?: (e?: Event) => void
 		href?: string
+		hrefTarget?: Item['hrefTarget']
 		icon?: any
 		disabled?: boolean
 		tooltip?: string
+		/** Marks the current choice, for a menu that picks one of several values. */
+		selected?: boolean
 	}
 	interface Props {
 		id?: string
@@ -165,7 +168,9 @@
 			icon: item.icon,
 			disabled: item.disabled ?? false,
 			href: item.href,
-			tooltip: item.tooltip
+			hrefTarget: item.hrefTarget,
+			tooltip: item.tooltip,
+			selected: item.selected
 		}))
 	}
 
@@ -252,7 +257,10 @@
 	function getDividerClass(color, variant) {
 		// Check if using new design system variants
 		if (variant === 'default') {
-			return 'border border-border-light divide-x divide-border-light'
+			// An inset outline, not a border: a border would add 2px around the `unifiedSize`
+			// height the buttons inside already have, so a split button would stand taller than a
+			// plain one of the same size.
+			return 'outline outline-1 -outline-offset-1 outline-border-light divide-x divide-border-light'
 		} else if (variant === 'accent') {
 			return 'divide-x divide-blue-100 dark:divide-blue-200'
 		} else if (variant === 'accent-secondary') {

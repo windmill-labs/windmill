@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goto } from '$lib/navigation'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { UserService } from '$lib/gen'
@@ -63,7 +62,7 @@
 						Please check your email and follow the instructions to reset your password.
 					</p>
 					<div class="pt-4">
-						<Button variant="accent" on:click={() => goto('/user/login')}>Back to login</Button>
+						<Button variant="accent" href="/user/login">Back to login</Button>
 					</div>
 				</div>
 			{:else}
@@ -85,7 +84,7 @@
 						<Button on:click={requestPasswordReset} variant="accent" disabled={!email || loading}>
 							{loading ? 'Sending...' : 'Send reset link'}
 						</Button>
-						<Button variant="subtle" on:click={() => goto('/user/login')}>Back to login</Button>
+						<Button variant="subtle" href="/user/login">Back to login</Button>
 					</div>
 				</div>
 			{/if}

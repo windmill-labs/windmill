@@ -32,6 +32,7 @@ export function legacyOperatorCapabilities(
 		apps: settings?.builder_apps === true ? 'compose' : 'none',
 		manage_schedules: settings?.manage_schedules !== false,
 		manage_triggers: settings?.manage_triggers !== false,
+		run: true,
 		fork: false,
 		visibility
 	}

@@ -1,13 +1,26 @@
+<script lang="ts" module>
+	import type { Item } from '$lib/utils'
+
+	export type DeployDropdownItem =
+		| {
+				label: string
+				/** Gets the message typed in the hover popover, for items that deploy. */
+				onClick: (deploymentMsg: string) => void
+		  }
+		| {
+				label: string
+				/** Renders a link, for an item that only navigates. */
+				href: string
+				hrefTarget?: Item['hrefTarget']
+		  }
+</script>
+
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { Save, CornerDownLeft } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
-	type DropdownItem = {
-		label: string
-		/** Gets the message typed in the hover popover, for items that deploy. */
-		onClick: (deploymentMsg: string) => void
-	}
+	type DropdownItem = DeployDropdownItem
 
 	const {
 		loading = false,
@@ -36,7 +49,9 @@
 	}
 
 	function withMessage(items: DropdownItem[]) {
-		return items.map((item) => ({ ...item, onClick: () => item.onClick(deploymentMsg) }))
+		return items.map((item) =>
+			'href' in item ? item : { ...item, onClick: () => item.onClick(deploymentMsg) }
+		)
 	}
 	let items = $derived(
 		typeof dropdownItems === 'function'

@@ -9,7 +9,7 @@ use windmill_mcp::server::{
 use crate::ai_session_tools::{self as tools, CallRefused};
 
 pub(super) use tools::{
-    generic_session_instructions, session_instructions, workspace_context, Ctx,
+    generic_session_instructions, prompt_profile, session_instructions, workspace_context, Ctx,
 };
 
 pub(super) fn access(access: SessionAccess) -> tools::SessionAccess {

@@ -17,6 +17,7 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Pin, History, Pen, Check, X, Loader2, Pencil, ScrollText } from 'lucide-svelte'
+	import { Alert } from '$lib/components/common'
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import StepHistory from './StepHistory.svelte'
 	import { Popover } from '$lib/components/meltComponents'
@@ -41,6 +42,7 @@
 			| {
 					enabled?: boolean
 					return_value?: unknown
+					preview_only?: boolean
 			  }
 			| undefined
 		moduleId?: string
@@ -62,7 +64,11 @@
 		clazz?: string
 		copilot_fix?: import('svelte').Snippet
 		onSelect?: (key: string) => void
-		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		onUpdateMock?: (mock: {
+			enabled: boolean
+			return_value?: unknown
+			preview_only?: boolean
+		}) => void
 		onEditInput?: (moduleId: string, key: string) => void
 		selectionId?: string
 		initial?: boolean
@@ -106,7 +112,8 @@
 
 	let jsonView = $state(false)
 	let clientHeight: number = $state(0)
-	let tmpMock: { enabled: boolean; return_value?: unknown } | undefined = $state(undefined)
+	let tmpMock: { enabled: boolean; return_value?: unknown; preview_only?: boolean } | undefined =
+		$state(undefined)
 	let error = $state('')
 	let stepHistoryPopover: Popover | undefined = $state(undefined)
 	let historyOpen = $state(false)
@@ -115,6 +122,41 @@
 	let preview: 'mock' | 'job' | undefined = $state(undefined)
 	let selectedJob: OutputViewerJob = $state(undefined)
 	let showLogs = $state(false)
+
+	const PIN_SCOPE_TIP_KEY = 'hidePinScopeTip'
+	let showPinScopeTip = $state(readPinScopeTip())
+	function readPinScopeTip() {
+		try {
+			return localStorage.getItem(PIN_SCOPE_TIP_KEY) !== 'true'
+		} catch {
+			return false
+		}
+	}
+	function dismissPinScopeTip() {
+		showPinScopeTip = false
+		try {
+			localStorage.setItem(PIN_SCOPE_TIP_KEY, 'true')
+		} catch {}
+	}
+
+	function setPinScope(preview_only: boolean) {
+		if (!mock?.enabled) return
+		onUpdateMock?.({ ...mock, enabled: true, preview_only })
+	}
+	let scopeItems = $derived([
+		{
+			label: 'Test runs',
+			description: 'Runs started from the editor, and the subflows they call',
+			selected: !!mock?.preview_only,
+			onClick: () => setPinScope(true)
+		},
+		{
+			label: 'Every run',
+			description: 'Deployed runs too: run form, schedules, triggers, webhooks, API',
+			selected: !mock?.preview_only,
+			onClick: () => setPinScope(false)
+		}
+	])
 
 	function checkOverflow() {
 		if (contentEl) {
@@ -448,6 +490,7 @@
 
 				<!-- Pin button -->
 				{#if !disableMock}
+					{@const scoped = mock?.enabled && !preview && !jsonView}
 					<Tooltip disablePopup={mock?.enabled}>
 						<Button
 							color="light"
@@ -463,6 +506,13 @@
 							startIcon={{ icon: Pin }}
 							iconOnly={mockUpdateStatus !== 'override'}
 							on:click={() => togglePin()}
+							dropdownItems={scoped ? scopeItems : undefined}
+							dropdownBtnClasses="!w-5"
+							title={scoped
+								? mock?.preview_only
+									? 'Pinned in test runs'
+									: 'Pinned in every run'
+								: undefined}
 						>
 							{#if mockUpdateStatus === 'override'}
 								Override pin
@@ -586,6 +636,18 @@
 			</div>
 		</div>
 	</div>
+
+	{#if showPinScopeTip && mock?.enabled && !preview && !disableMock}
+		<Alert
+			type="info"
+			size="xs"
+			class="mx-2 mb-1"
+			title="Pins apply to test runs by default"
+			actions={[{ label: 'Got it', onClick: dismissPinScopeTip }]}
+		>
+			Deployed runs execute the step. Change it from the arrow next to the pin.
+		</Alert>
+	{/if}
 
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<!-- svelte-ignore a11y_mouse_events_have_key_events -->

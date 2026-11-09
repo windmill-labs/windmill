@@ -1590,7 +1590,8 @@ async fn update_user(
         .await?;
         // Update super_admin flag on non-session tokens (webhooks, API tokens, etc.)
         sqlx::query!(
-            "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'",
+            "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'
+                 AND (NOT $1 OR NOT EXISTS (SELECT 1 FROM unnest(scopes) s WHERE s LIKE 'mcp:%'))",
             sa,
             &email_to_update
         )
@@ -1655,7 +1656,8 @@ async fn update_user(
                     .execute(&mut *tx)
                     .await?;
                     sqlx::query!(
-                        "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'",
+                        "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'
+                 AND (NOT $1 OR NOT EXISTS (SELECT 1 FROM unnest(scopes) s WHERE s LIKE 'mcp:%'))",
                         sa,
                         &email_to_update
                     )
@@ -3295,6 +3297,17 @@ async fn create_token(
     }
 
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
+    // Mirrors the MCP OAuth approve: a scoped token cannot mint superadmin access it may lack.
+    if token_config.super_admin == Some(true)
+        && authed
+            .scopes
+            .as_deref()
+            .is_some_and(|s| s.iter().any(|x| !x.starts_with("if_jobs:filter_tags:")))
+    {
+        return Err(Error::NotAuthorized(
+            "Only an unscoped token can grant superadmin access".to_string(),
+        ));
+    }
 
     token_config.expiration = cap_token_expiration(
         &db,

@@ -39,7 +39,7 @@ import {
 import { generateFlowLockInternal } from "./flow_metadata.ts";
 import { exts } from "../script/script.ts";
 import type { SyncCodebase } from "../../utils/codebase.ts";
-import { listSyncCodebases } from "../../utils/codebase.ts";
+import { listSyncCodebases, sameCodebaseDigest } from "../../utils/codebase.ts";
 import {
   createPreviewLocalScriptReader,
   resolvePreviewLocalScriptState,
@@ -106,7 +106,7 @@ async function findDivergedLocalPathScripts(
         normalizeComparableContent(localScript.lock) !==
           normalizeComparableContent(remoteLock)) ||
       localScript.tag !== normalizeOptionalString(remoteScript.tag) ||
-      localScript.codebaseDigest !== normalizeOptionalString(remoteScript.codebase);
+      !sameCodebaseDigest(localScript.codebaseDigest, remoteScript.codebase);
 
     if (diverged) {
       changed.push(scriptPath);

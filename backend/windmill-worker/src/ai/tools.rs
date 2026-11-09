@@ -981,7 +981,9 @@ async fn enqueue_windmill_tool(
             .await?
             .map(|x| x.into());
 
-    let job_priority = tool_module.priority.or(ctx.job.priority);
+    let job_priority = tool_module
+        .priority
+        .or(windmill_common::queue::passed_on_priority(ctx.job.priority));
 
     let tx = PushIsolationLevel::Transaction(tx);
     let (uuid, tx) = push(
@@ -1383,7 +1385,7 @@ async fn claim_local_tool(
     )
     .await?;
     if let Err(err) = pulled.maybe_apply_debouncing(ctx.db).await {
-        pulled.error_while_preprocessing = Some(err.to_string());
+        pulled.error_while_preprocessing = Some(err.to_string().into());
     }
     match pulled.to_pulled_job() {
         Ok(job) => Ok(job.map(|job| spawn_local_tool(ctx, job.job, false))),

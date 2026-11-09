@@ -6,6 +6,7 @@
 	import Password from './Password.svelte'
 	import Toggle from './Toggle.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
+	import PkceToggle from './PkceToggle.svelte'
 
 	interface Props {
 		value: any
@@ -46,7 +47,7 @@
 			checked={enabled}
 			on:change={(e) => {
 				if (e.detail) {
-					value = { id: '', secret: '' }
+					value = { id: '', secret: '', pkce: true }
 				} else {
 					value = undefined
 				}
@@ -84,6 +85,7 @@
 					bind:password={value['secret']}
 				/>
 			</label>
+			<PkceToggle bind:pkce={value['pkce']} />
 		</SettingCard>
 	{/if}
 </div>
