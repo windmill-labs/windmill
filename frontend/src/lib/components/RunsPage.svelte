@@ -124,9 +124,7 @@
 	)
 	let runsColumns = $derived(normalizeRunsColumns(columnsStorage.val))
 	function setColumnShown(id: RunsColumnId, shown: boolean) {
-		columnsStorage.val = shown
-			? [...runsColumns, id]
-			: runsColumns.filter((c) => c !== id)
+		columnsStorage.val = shown ? [...runsColumns, id] : runsColumns.filter((c) => c !== id)
 	}
 
 	let exporting = $state(false)
@@ -346,6 +344,8 @@
 			delete filters.val.tag
 			delete filters.val.worker
 			delete filters.val.schedule_path
+			// `!schedule` is the persisted "hide schedules" preference, not a row filter.
+			if (filters.val.job_trigger_kind !== '!schedule') delete filters.val.job_trigger_kind
 			setter(e.detail)
 		}
 	}
