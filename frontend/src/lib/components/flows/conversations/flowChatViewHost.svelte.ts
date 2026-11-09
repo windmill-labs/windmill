@@ -66,9 +66,6 @@ export type FlowChatViewHostOptions = {
 	inputsShownInComposer?: () => string[]
 	/** The approval or question the running turn's agent step waits on. */
 	agentRequest?: () => PendingAgentRequest | undefined
-	/** The running turn's agent step is parked, on its background jobs or on a person: a
-	 * message sent now takes the conversation over instead of waiting for the turn. */
-	turnParked?: () => boolean
 	/** Injectables for tests: the clock and scheduler behind the typewriter pacing. */
 	revealOptions?: Pick<TypewriterRevealOptions, 'instant' | 'now' | 'schedule' | 'cancel'>
 }
@@ -576,12 +573,8 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	get operatingWorkspace(): string | undefined {
 		return this.#options.workspace?.()
 	}
-	/** Off while the turn is parked, so the composer sends rather than queues. */
 	get loading(): boolean {
-		return isBusy(this.#state.status) && !this.turnParked()
-	}
-	turnParked(): boolean {
-		return !!this.#options.turnParked?.()
+		return isBusy(this.#state.status)
 	}
 	// No transcript restore to wait for: a flow chat renders from its rows.
 	sendPending = false
@@ -735,7 +728,10 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 		files: AttachedTextFile[] = [],
 		blobs: AttachedBlob[] = []
 	) => {
-		this.#turns.queue(composerDraft(text, images, blobs, files))
+		const draft = composerDraft(text, images, blobs, files)
+		// Offered to the server first, which takes it over a parked turn; one it refuses is queued.
+		if (draft.attachments.length > 0) this.#turns.queue(draft)
+		else void this.#turns.send(draft)
 	}
 	/** Put the queued draft back in the composer, attachments included. */
 	dequeueMessage = () => {

@@ -24,7 +24,6 @@
 	import FlowChatModelSettings from './FlowChatModelSettings.svelte'
 	import {
 		pendingAgentApproval,
-		runningAgentJobId,
 		type PendingAgentRequest
 	} from '$lib/components/agentRequest'
 	import {
@@ -208,8 +207,7 @@
 		// The model controls only: a retry changes model when the reader did, but replays
 		// the run's own attachments rather than whatever the composer holds now.
 		inputsShownInComposer: () => composerOwnedInputs(modelWiring, undefined),
-		agentRequest: () => agentRequest,
-		turnParked: () => turnParked
+		agentRequest: () => agentRequest
 	})
 	setChatViewHost(chatHost)
 
@@ -255,51 +253,37 @@
 		})
 	})
 
-	// Only a flow whose agent can park reads its running turn's status: one that can ask a person
-	// something, or that runs tools in the background. Read off the flow, not the stream: an agent
-	// that does not stream sends no tool call. A linked agent's tools are not loaded here, so it
-	// counts; only a top-level step's request is answered from the chat.
-	const mayPark = $derived(
+	// Only a flow that can ask a person something reads its running turn's status. Read off the
+	// flow, not the stream: an agent that does not stream sends no tool call. A linked agent's
+	// tools are not loaded here, so it counts; only a top-level step's request is answered from
+	// the chat.
+	const mayRequestApproval = $derived(
 		(flowModules ?? []).some((module) => {
 			const value = module.value as any
 			return (
 				value?.type === 'aiagent' &&
 				(!!value.agent ||
 					value.tools?.some(
-						(tool: any) =>
-							tool?.requires_approval ||
-							tool?.background ||
-							tool?.background_after_secs ||
-							tool?.value?.tool_type === 'question'
+						(tool: any) => tool?.requires_approval || tool?.value?.tool_type === 'question'
 					))
 			)
 		})
 	)
-	const runningJobId = $derived(mayPark ? chatHost.state.runningJobId : undefined)
+	const approvalJobId = $derived(mayRequestApproval ? chatHost.state.runningJobId : undefined)
 
-	// The stream only says a call is running; the request to answer, the job that answers it,
-	// and whether the agent parked are on the flow's status and the agent step's job.
+	// The stream only says a call is running; the request to answer, and the job that answers
+	// it, are on the flow's status.
 	let agentRequest = $state<PendingAgentRequest | undefined>(undefined)
-	let turnParked = $state(false)
 	$effect(() => {
-		const id = runningJobId
+		const id = approvalJobId
 		agentRequest = undefined
-		turnParked = false
 		if (!id || !workspace) return
+		const args = { workspace, id, noLogs: true }
 		let stopped = false
 		const load = async () => {
 			try {
-				const job = await JobService.getJob({ workspace, id, noLogs: true })
-				const request = pendingAgentApproval(job)
-				const agentJobId = request ? undefined : runningAgentJobId(job)
-				const agentJob = agentJobId
-					? await JobService.getJob({ workspace, id: agentJobId, noLogs: true })
-					: undefined
-				const parked = !!request || (!!agentJob && 'suspend' in agentJob && !!agentJob.suspend)
-				if (!stopped) {
-					agentRequest = request
-					turnParked = parked
-				}
+				const job = await JobService.getJob(args)
+				if (!stopped) agentRequest = pendingAgentApproval(job)
 			} catch {
 				// transient; the next poll reads it again
 			}

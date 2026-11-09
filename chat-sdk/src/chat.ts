@@ -130,13 +130,13 @@ class ChatImpl implements Chat {
       if (options.attachments?.length) throw new Error('windmill-chat: attachments need a message to go with them')
       return
     }
-    if (this.#turn) {
-      if (!options.overParkedTurn) {
-        throw new Error('windmill-chat: a message is already being answered; call stop() first')
-      }
-      // Its run goes on until the server hands the conversation to this message.
-      this.#detachTurn()
-      this.#set({ messages: finalized(this.#state.messages) })
+    // Followed until the server takes this message, which it refuses while that turn works.
+    const running = this.#turn
+    if (running && !options.overRunningTurn) {
+      throw new Error('windmill-chat: a message is already being answered; call stop() first')
+    }
+    if (running && options.attachments?.length) {
+      throw new Error('windmill-chat: attachments cannot be sent over a running turn')
     }
     const attachments = options.attachments ?? []
     const attachmentsInput = options.attachmentsInput
@@ -161,8 +161,10 @@ class ChatImpl implements Chat {
       withdrawn: false,
       streamedText: false
     }
-    this.#turn = turn
-    this.#epoch++
+    if (!running) {
+      this.#turn = turn
+      this.#epoch++
+    }
 
     const timestamp = now()
     const conversation: Conversation = this.#state.conversations.find(
@@ -175,8 +177,7 @@ class ChatImpl implements Chat {
         ...this.#state.messages,
         { id: turn.userMessageId, role: 'user', content, success: true, createdAt: timestamp, pending: true }
       ],
-      status: 'submitted',
-      error: undefined
+      ...(running ? {} : { status: 'submitted' as const, error: undefined })
     })
 
     try {
@@ -213,7 +214,9 @@ class ChatImpl implements Chat {
         // Nothing of this message reached the server, whether the conversation was already
         // answering one sent elsewhere or an attachment never uploaded: the message is taken
         // back rather than shown as a failed turn, and the caller gets the reason.
-        if (e instanceof TurnRunningError || !turn.started) {
+        // Sent over a running turn, a message the server did not take goes back too: the turn
+        // on screen is that one, not this.
+        if (e instanceof TurnRunningError || !turn.started || running) {
           this.#withdrawTurn(turn)
           throw e
         }
@@ -224,6 +227,19 @@ class ChatImpl implements Chat {
       } finally {
         if (this.#turn === turn) this.#turn = undefined
       }
+    }
+    if (running) {
+      // A conversation left meanwhile has the run go on unfollowed, like a turn it was showing.
+      if (this.#state.conversationId !== conversationId) return
+      // The server handed this message the conversation: what the old turn showed stays as it is.
+      if (this.#turn) this.#detachTurn()
+      this.#turn = turn
+      this.#epoch++
+      this.#set({
+        messages: this.#state.messages.map((m) => (m.pending && m.id !== turn.userMessageId ? { ...m, pending: false } : m)),
+        status: 'submitted',
+        error: undefined
+      })
     }
     await this.#followTurn(turn, isNew)
   }

@@ -70,9 +70,6 @@ export interface DraftSender<A> {
 	/** The chat refused a send outright (an upload that failed, Stop during it); the draft
 	 * is handed back after this. */
 	sendFailed(error: unknown, draft: Draft<A>): void
-	/** The running turn is parked, so a message goes out now and takes the conversation over
-	 * rather than waiting for it. */
-	turnParked?(): boolean
 }
 
 /**
@@ -98,6 +95,9 @@ export class ConversationTurns<A> {
 	readonly #listeners = new Set<() => void>()
 	readonly #unsubscribe: () => void
 	#disposed = false
+	/** The job of the turn a message was sent over, until the server takes or refuses it. What
+	 * is sent meanwhile is queued behind it: a refused message goes back ahead of the queue. */
+	#sentOver: string | undefined
 
 	constructor(chat: Chat, sender: () => DraftSender<A>) {
 		this.chat = chat
@@ -131,18 +131,27 @@ export class ConversationTurns<A> {
 	}
 
 	/**
-	 * Sends `draft`, or queues it while a turn runs. False when nothing was sent: no text,
-	 * or the sender refused it and it was handed back. A conversation still answering a
-	 * message sent elsewhere has that turn followed here, with this one queued behind it.
+	 * Sends `draft`, over a running turn too: the server takes it when that turn is parked. One
+	 * the server refuses (the turn works), or that carries attachments, is queued behind the
+	 * turn. False when nothing was sent: no text, or the sender refused it and it was handed
+	 * back. A conversation still answering a message sent elsewhere has that turn followed
+	 * here, with this one queued behind it.
 	 */
 	send = async (draft: Draft<A>, replayInputs?: Record<string, unknown>): Promise<boolean> => {
 		const text = draft.text.trim()
 		// An AI agent step refuses a run with no `user_message`.
 		if (!text) return false
 		const message = { text, attachments: draft.attachments }
-		const busy = isBusy(this.chat.getState().status)
-		const overParkedTurn = busy && !!this.#sender().turnParked?.()
-		if (busy && !overParkedTurn) {
+		const state = this.chat.getState()
+		const busy = isBusy(state.status)
+		// Sent at once over a running turn: the server takes it over when it is parked, and
+		// otherwise refuses it, which queues it behind that turn below.
+		const overRunningTurn =
+			busy &&
+			message.attachments.length === 0 &&
+			state.history === 'server' &&
+			this.#sentOver === undefined
+		if (busy && !overRunningTurn) {
 			this.queue(message, replayInputs)
 			return true
 		}
@@ -153,11 +162,13 @@ export class ConversationTurns<A> {
 		}
 		const stops = this.#stops
 		this.#sending++
+		if (overRunningTurn) this.#sentOver = state.runningJobId ?? ''
 		// A run that fails is reported through the chat's `onError` and as a failed message;
 		// the promise only rejects when the chat refuses the turn outright.
 		const turn = this.chat
-			.sendMessage(text, overParkedTurn ? { ...options, overParkedTurn } : options)
+			.sendMessage(text, overRunningTurn ? { ...options, overRunningTurn } : options)
 			.catch((e) => {
+				if (overRunningTurn) this.#sentOver = undefined
 				if (this.#disposed) return
 				// Stop pressed while the run was asked for: the message goes back, whatever the
 				// refusal says, rather than out after the turn it names.
@@ -171,7 +182,8 @@ export class ConversationTurns<A> {
 					this.#queued = mergeDrafts(message, this.#queued)
 					this.#queuedReplay = alone ? replayInputs : undefined
 					this.#notify()
-					this.resume(e.turn)
+					// Sent over a turn this chat follows already, whose release the queue waits on.
+					if (!overRunningTurn) this.resume(e.turn)
 					return
 				}
 				if (!stopped) this.#sender().sendFailed(e, message)
@@ -183,7 +195,9 @@ export class ConversationTurns<A> {
 			.finally(() => {
 				this.#sending--
 			})
-		this.#turnDone = turn
+		// Over a running turn, the queue waits for that turn too: it is released when this one is
+		// taken, and goes on when this one is refused.
+		this.#turnDone = overRunningTurn ? Promise.all([this.#turnDone, turn]) : turn
 		await turn
 		return true
 	}
@@ -251,6 +265,10 @@ export class ConversationTurns<A> {
 	#onState(state: ChatState): void {
 		const was = this.#status
 		this.#status = state.status
+		// Taken: the chat follows the new turn, or the old one ended while the server answered.
+		if (this.#sentOver !== undefined && state.runningJobId !== this.#sentOver) {
+			this.#sentOver = undefined
+		}
 		if (!isBusy(was) || isBusy(state.status)) return
 		// The turn settled. The queued message goes out once the turn is released, not now:
 		// the chat publishes `idle` from inside its own `sendMessage`, which still counts the
