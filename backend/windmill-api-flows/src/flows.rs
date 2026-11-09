@@ -2223,8 +2223,7 @@ async fn delete_flow_by_path(
             &authed.username,
         )
         .await?;
-        windmill_common::trashbin::set_aside_flow_versions(&mut *tx, &w_id, path, trash_id)
-            .await?;
+        windmill_common::trashbin::set_aside_flow_versions(&mut *tx, &w_id, path, trash_id).await?;
     }
 
     if !query.keep_captures.unwrap_or(false) {
