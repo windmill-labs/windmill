@@ -25,6 +25,7 @@ use windmill_common::{
     utils::WarnAfterExt,
     worker::{error_to_value, to_raw_value, Connection, WORKER_GROUP},
     worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap},
+    worker_job_stats::record_job_outcome,
     KillpillSender, DB,
 };
 
@@ -409,6 +410,7 @@ pub fn start_background_processor(
                         JobKind::Dependencies | JobKind::FlowDependencies
                     ) && !jc.job.build_binary_only;
                     let jc_id = jc.job.id;
+                    let canceled = jc.canceled_by.is_some();
                     #[cfg(feature = "benchmark")]
                     let bench_job_id = jc.job.id;
                     #[cfg(feature = "benchmark")]
@@ -434,6 +436,12 @@ pub fn start_background_processor(
                     )
                     .warn_after_seconds(10)
                     .await;
+
+                    // An agent server processes the jobs of remote agent workers, which count
+                    // their own outcomes. A canceled job is not held against the worker.
+                    if !is_agent_server {
+                        record_job_outcome(&worker_name, !final_success && !canceled);
+                    }
 
                     // Resolved here rather than from the main loop's outcome because `wm_failure`
                     // can flip an exit-zero init script to a failure, and dedicated workers must

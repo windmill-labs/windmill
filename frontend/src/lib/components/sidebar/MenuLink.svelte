@@ -17,6 +17,10 @@
 		href: string
 		icon?: any | undefined
 		iconProps?: Record<string, unknown>
+		// Shown in place of the icon and label while the row is hovered or focused, for a row
+		// whose resting look (a brand mark) does not say what it does.
+		hoverIcon?: any | undefined
+		hoverLabel?: string | undefined
 		isCollapsed: boolean
 		disabled?: boolean
 		lightMode?: boolean
@@ -33,6 +37,8 @@
 		href,
 		icon = undefined,
 		iconProps = {},
+		hoverIcon = undefined,
+		hoverLabel = undefined,
 		isCollapsed,
 		disabled = false,
 		lightMode = false,
@@ -50,6 +56,15 @@
 			isSelected = $page.url.pathname.startsWith(href)
 		}
 	})
+
+	let iconClass = $derived(
+		twMerge(
+			'flex-shrink-0 transition-all',
+			isSelected ? sidebarClasses.selectedText : sidebarClasses.iconText
+		)
+	)
+	const restingClass = 'group-hover:hidden group-focus-visible:hidden'
+	const hoverClass = 'hidden group-hover:block group-focus-visible:block'
 </script>
 
 {#if !disabled}
@@ -96,20 +111,29 @@
 				<SvelteComponent
 					{...iconProps}
 					size={16}
-					class={twMerge(
-						'flex-shrink-0 transition-all',
-						isSelected ? sidebarClasses.selectedText : sidebarClasses.iconText
-					)}
+					class={twMerge(iconClass, hoverIcon ? restingClass : '')}
 				/>
+			{/if}
+			{#if hoverIcon}
+				{@const HoverComponent = hoverIcon}
+				<HoverComponent size={16} class={twMerge(iconClass, hoverClass)} />
 			{/if}
 
 			{#if !isCollapsed}
 				<span
 					data-light-mode={lightMode}
-					class={twMerge('whitespace-pre truncate transition-all duration-75')}
+					class={twMerge(
+						'whitespace-pre truncate transition-all duration-75',
+						hoverLabel ? restingClass : ''
+					)}
 				>
 					{label}
 				</span>
+				{#if hoverLabel}
+					<span data-light-mode={lightMode} class={twMerge('whitespace-pre truncate', hoverClass)}>
+						{hoverLabel}
+					</span>
+				{/if}
 			{/if}
 		</a>
 		{#snippet text()}

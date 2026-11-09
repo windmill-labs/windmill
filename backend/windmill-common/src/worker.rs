@@ -2068,6 +2068,8 @@ pub struct Ping {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draining: Option<bool>,
     pub ping_type: PingType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_stats: Option<crate::worker_job_stats::WorkerJobStats>,
 }
 pub async fn update_ping_http(
     insert_ping: Ping,
@@ -2095,6 +2097,7 @@ pub async fn update_ping_http(
                 insert_ping
                     .last_job_executed
                     .zip(insert_ping.last_job_workspace_id.as_deref()),
+                insert_ping.job_stats.as_ref(),
                 db,
             )
             .await?
@@ -2146,7 +2149,10 @@ pub async fn update_ping_http(
                 insert_ping.last_job_executed.unwrap_or_default(),
                 db,
             )
-            .await?
+            .await?;
+            if let Some(job_stats) = insert_ping.job_stats.as_ref() {
+                set_worker_job_stats_query(worker_name, job_stats, db).await?;
+            }
         }
         PingType::Draining => set_worker_draining_query(worker_name, db).await?,
     }
@@ -2287,15 +2293,15 @@ pub async fn insert_ping_query(
     native_mode: bool,
     draining: Option<bool>,
     db: &DB,
-) -> anyhow::Result<i32> {
+) -> anyhow::Result<ReclaimedPing> {
     // A NULL `ip` means the external IP lookup is still in flight; a later ping fills it in, and
     // meanwhile the value a previous process wrote to a reclaimed row is the best guess we have. A
     // lookup that has failed reports `external_ip::UNRETRIEVABLE_IP`, which does overwrite it. The
     // literal below must stay equal to `external_ip::UNKNOWN_IP`.
-    let previous_jobs_executed = sqlx::query_scalar!(
+    let reclaimed = sqlx::query!(
         "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode, draining) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, false)) ON CONFLICT (worker)
         DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL, draining = COALESCE($13, worker_ping.draining)
-        RETURNING jobs_executed",
+        RETURNING jobs_executed, job_stats",
         worker_instance,
         worker_name,
         ip,
@@ -2312,7 +2318,19 @@ pub async fn insert_ping_query(
         )
         .fetch_one(db)
         .await?;
-    Ok(previous_jobs_executed)
+    Ok(ReclaimedPing {
+        jobs_executed: reclaimed.jobs_executed,
+        job_stats: reclaimed
+            .job_stats
+            .and_then(|v| serde_json::from_value(v).ok()),
+    })
+}
+
+/// What a worker starting under the name of an earlier process carries over from its row.
+#[derive(Default)]
+pub struct ReclaimedPing {
+    pub jobs_executed: i32,
+    pub job_stats: Option<crate::worker_job_stats::WorkerJobStats>,
 }
 
 pub async fn update_worker_ping_from_job_query(
@@ -2387,6 +2405,21 @@ pub async fn update_job_ping_query(
     }
 }
 
+pub async fn set_worker_job_stats_query(
+    worker_name: &str,
+    job_stats: &crate::worker_job_stats::WorkerJobStats,
+    db: &DB,
+) -> anyhow::Result<()> {
+    sqlx::query!(
+        "UPDATE worker_ping SET job_stats = $1 WHERE worker = $2",
+        serde_json::to_value(job_stats)?,
+        worker_name,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 pub async fn update_worker_ping_main_loop_query(
     worker_name: &str,
     tags: &[String],
@@ -2402,14 +2435,17 @@ pub async fn update_worker_ping_main_loop_query(
     native_mode: bool,
     ip: Option<&str>,
     last_job: Option<(Uuid, &str)>,
+    job_stats: Option<&crate::worker_job_stats::WorkerJobStats>,
     db: &DB,
 ) -> anyhow::Result<()> {
     let (last_job_id, last_job_workspace_id) = last_job.unzip();
+    let job_stats = job_stats.and_then(|s| serde_json::to_value(s).ok());
     timeout(Duration::from_secs(10), sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
          occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
          memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip),
-         current_job_id = COALESCE($14, current_job_id), current_job_workspace_id = COALESCE($15, current_job_workspace_id) WHERE worker = $6",
+         current_job_id = COALESCE($14, current_job_id), current_job_workspace_id = COALESCE($15, current_job_workspace_id),
+         job_stats = COALESCE($16, job_stats) WHERE worker = $6",
         jobs_executed,
         tags,
         occupancy_rate,
@@ -2425,6 +2461,7 @@ pub async fn update_worker_ping_main_loop_query(
         ip,
         last_job_id,
         last_job_workspace_id,
+        job_stats,
     )
         .execute(db))
     .await??;

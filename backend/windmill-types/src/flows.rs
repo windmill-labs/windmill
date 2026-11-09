@@ -316,7 +316,8 @@ pub struct FlowValue {
     // When the flow runs on a custom worker tag, by default that tag is propagated to
     // (and overrides) every step, script and nested sub-flow. Set this to true to instead
     // let steps that declare their own non-empty tag run on it; steps without their own tag
-    // still inherit the flow's tag. Defaults to false to preserve the historical behavior.
+    // still inherit the flow's tag. A subflow without a tag of its own runs on the flow's tag and
+    // follows this setting too. Defaults to false to preserve the historical behavior.
     #[serde(default)]
     #[serde(skip_serializing_if = "is_default")]
     pub preserve_step_tags: bool,

@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::value::RawValue;
 use sqlx::types::Json;
-use windmill_common::jobs::get_payload_tag_from_prefixed_path;
+use windmill_common::jobs::runnable_ref_to_payload;
 use windmill_common::runnable_ref::RunnableRef;
 use windmill_common::utils::{report_critical_error, report_recovered_critical_error};
 use windmill_common::DB;
@@ -123,17 +123,15 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
         ) {
             (Some(error), _) => Err(error.clone()),
             (None, Err(e)) => Err(format!("{e:#}")),
-            (None, Ok(handler)) => {
-                get_payload_tag_from_prefixed_path(&handler.prefixed(), db, &row.workspace_id)
-                    .await
-                    .map_err(|e| {
-                        let error = format!("{e:#}");
-                        if handler.path().starts_with("hub/") {
-                            failed_hub_handlers.insert(row.handler_path.clone(), error.clone());
-                        }
-                        error
-                    })
-            }
+            (None, Ok(handler)) => runnable_ref_to_payload(&handler, db, &row.workspace_id)
+                .await
+                .map_err(|e| {
+                    let error = format!("{e:#}");
+                    if handler.path().starts_with("hub/") {
+                        failed_hub_handlers.insert(row.handler_path.clone(), error.clone());
+                    }
+                    error
+                }),
         };
         let handler = match handler {
             Ok(handler) => handler,
