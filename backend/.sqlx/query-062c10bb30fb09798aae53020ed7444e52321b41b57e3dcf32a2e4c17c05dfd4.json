@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM flow_version WHERE path = $1 AND workspace_id = $2\n                AND EXISTS (SELECT 1 FROM flow WHERE path = $1 AND workspace_id = $2)\n                ORDER BY created_at DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "062c10bb30fb09798aae53020ed7444e52321b41b57e3dcf32a2e4c17c05dfd4"
+}

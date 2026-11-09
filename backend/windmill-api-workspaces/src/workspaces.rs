@@ -8827,6 +8827,7 @@ async fn clone_flows(
         "SELECT id, workspace_id, path, value, schema, created_by, created_at
          FROM flow_version
          WHERE workspace_id = $1
+         AND id IN (SELECT unnest(f.versions) FROM flow f WHERE f.workspace_id = $1 AND f.path = flow_version.path)
          ORDER BY path, created_at",
         source_workspace_id
     )

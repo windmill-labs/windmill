@@ -113,10 +113,10 @@ pub async fn get_trash_item<'e, E: sqlx::PgExecutor<'e>>(
     Ok(item)
 }
 
-/// Deletes the trash rows matching `cond`, returning how many there were. A deleted flow's
-/// versions and nodes outlive its row for its runs in flight and go here, unless a run of it
-/// is still queued: they are then kept for good. A flow recreated at the path keeps
-/// its own versions (ids from its first on) and every node, which versions share by content.
+/// SQL deleting the trash rows matching `cond` and selecting how many there were. A deleted
+/// flow's versions outlive its row for its runs in flight and go here, unless a run of one of
+/// them is still queued: they are then kept for good. Its nodes are kept: they are shared by content and
+/// referenced by id, so no path-based rule can tell that no remaining version uses one.
 fn remove_trash_sql(cond: &str) -> String {
     format!(
         "WITH removed AS (
@@ -133,20 +133,18 @@ fn remove_trash_sql(cond: &str) -> String {
                 SELECT 1 FROM v2_job_queue q JOIN v2_job j ON j.id = q.id
                 WHERE q.workspace_id = r.workspace_id AND j.runnable_path = r.item_path
                 AND j.kind IN ('flow', 'flowdependencies')
+                AND NOT EXISTS (
+                    SELECT 1 FROM flow f
+                    WHERE f.workspace_id = r.workspace_id AND f.path = r.item_path
+                    AND j.runnable_id = ANY(f.versions)
+                )
             )
         ), _versions AS (
             DELETE FROM flow_version v USING gone g
             WHERE v.workspace_id = g.workspace_id AND v.path = g.path
             AND NOT EXISTS (
                 SELECT 1 FROM flow f
-                WHERE f.workspace_id = v.workspace_id AND f.path = v.path
-                AND v.id >= COALESCE(f.versions[1], 0)
-            )
-        ), _nodes AS (
-            DELETE FROM flow_node n USING gone g
-            WHERE n.workspace_id = g.workspace_id AND n.path = g.path
-            AND NOT EXISTS (
-                SELECT 1 FROM flow f WHERE f.workspace_id = n.workspace_id AND f.path = n.path
+                WHERE f.workspace_id = v.workspace_id AND f.path = v.path AND v.id = ANY(f.versions)
             )
         )
         SELECT count(*) FROM removed"

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT flow_version.id, flow_version.created_at, flow_version.created_by, deployment_metadata.deployment_msg FROM flow_version\n        LEFT JOIN deployment_metadata ON flow_version.id = deployment_metadata.flow_version\n        WHERE flow_version.path = $1 AND flow_version.workspace_id = $2\n        AND flow_version.id >= (SELECT COALESCE(versions[1], 0) FROM flow WHERE path = $1 AND workspace_id = $2)\n        ORDER BY flow_version.created_at DESC\n        LIMIT $3 OFFSET $4",
+  "query": "SELECT flow_version.id, flow_version.created_at, flow_version.created_by, deployment_metadata.deployment_msg FROM flow_version\n        LEFT JOIN deployment_metadata ON flow_version.id = deployment_metadata.flow_version\n        WHERE flow_version.path = $1 AND flow_version.workspace_id = $2\n        AND flow_version.id IN (SELECT unnest(versions) FROM flow WHERE path = $1 AND workspace_id = $2)\n        ORDER BY flow_version.created_at DESC\n        LIMIT $3 OFFSET $4",
   "describe": {
     "columns": [
       {
@@ -39,5 +39,5 @@
       true
     ]
   },
-  "hash": "3a080548e2138a028b6747c13e4df1ec11ffee28de72b3d288e1ad382918b58d"
+  "hash": "8d2d1628f865a50fb5ec1d2bdb3b05836d6f7ac6b3ea7ed8d9ef5b0e6bad4008"
 }

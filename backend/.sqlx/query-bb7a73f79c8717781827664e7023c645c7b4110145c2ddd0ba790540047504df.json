@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE flow_version SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3 AND id IN (SELECT unnest(f.versions) FROM flow f WHERE f.workspace_id = $3 AND f.path = flow_version.path)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bb7a73f79c8717781827664e7023c645c7b4110145c2ddd0ba790540047504df"
+}
