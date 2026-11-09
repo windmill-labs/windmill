@@ -39,7 +39,10 @@
 	type MenuItemButton = {
 		label: string
 		Icon: any
-		onclick: (e: MouseEvent) => void
+		onclick?: (e: MouseEvent) => void
+		/** Renders a link, so the item opens in a new tab on middle/ctrl-click. */
+		href?: string
+		hrefTarget?: Item['hrefTarget']
 		color?: 'red'
 		disabled?: boolean
 	}
@@ -229,6 +232,8 @@
 			displayName: item.label,
 			icon: item.Icon,
 			action: item.onclick,
+			href: item.href,
+			hrefTarget: item.hrefTarget,
 			disabled: item.disabled,
 			type: item.color === 'red' ? ('delete' as const) : ('action' as const),
 			separatorTop: i === 0 && (menuButtons.length > 0 || (!wideRow && !!errorHandlerKind))

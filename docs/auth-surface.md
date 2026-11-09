@@ -49,6 +49,12 @@ Symbols, not line numbers, are cited: they drift less.
   `ephemeral-` prefix needs no other change (keep it clear of `is_server_minted_label` if minted
   through `tokens/create`); a new prefix also goes into the SQL and Svelte mirrors that function's
   doc lists.
+- **A token's `super_admin` column is what lets it into a workspace its owner is not a member
+  of**, and makes a workspace-less MCP token list every workspace. `create_token_internal` copies
+  it from `password` for every token except an MCP one (an `mcp:` scope), which carries it only
+  when the request sets `super_admin`; the MCP OAuth approve stores the same request on its code
+  and refresh rows, and each exchange re-checks `password`. A new path minting an MCP token must
+  ask the same question, or it reaches a different set of workspaces than the other two.
 - **Every superadmin route refuses a job token**: `require_super_admin`
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user
@@ -160,6 +166,16 @@ Symbols, not line numbers, are cited: they drift less.
   "true"/"false" strings) and is only consulted for the claim above; only GitHub is filtered to
   `primary && verified`; a missing email is fabricated from `name` as `<name>@windmill.dev` and
   reaches `login_externally` with `email_asserted = false`.
+- **SSO claim names** (`sso_email_claim`, `sso_username_claim`, instance-wide, OIDC and SAML
+  alike): a configured claim absent from a login falls back to the protocol default (OIDC
+  `email` and the chain above, SAML NameID; `preferred_username` / the SAML username list),
+  so one setting serves providers that name it differently. A configured email claim counts
+  as asserted and can claim a `pending_oauth` account, so it must name an attribute users
+  cannot edit at the IdP; `email_verified` is only read when the claim is `email` (the MCP
+  external IdP instead refuses any token marked unverified, whatever its email claim: it never
+  creates or claims an account, so the stricter rule costs nothing there). GitHub and Nextcloud
+  keep their own email source. Accounts stay keyed by email: the username claim only names an
+  account at creation, and an email change at the IdP signs in as a different account.
 - **MCP access tokens from an external issuer** (`mcp_external_idp`, EE, `mcp/external_idp.rs`):
   taken only for a JWT whose unverified `iss` is the configured issuer, then verified against its
   discovery JWKS. With no audience configured, only a token typed as an access token (`at+jwt`

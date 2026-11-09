@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'\n                 AND (NOT $1 OR NOT EXISTS (SELECT 1 FROM unnest(scopes) s WHERE s LIKE 'mcp:%'))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2aaac7db9463db32f8fb24418aad9aa1e775741631cef8da46d922a0ac63d9b3"
+}

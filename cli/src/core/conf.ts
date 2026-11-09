@@ -120,6 +120,7 @@ export interface SyncOptions {
 export interface Codebase {
   relative_path: string;
   extra_digest_paths?: string[];
+  per_script_digest?: boolean;
   includes?: string[];
   excludes?: string[];
   assets?: {

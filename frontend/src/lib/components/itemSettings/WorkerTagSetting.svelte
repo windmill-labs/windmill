@@ -49,7 +49,7 @@
 			options={{
 				right: 'Preserve step worker tags',
 				rightTooltip:
-					'Steps that declare their own worker tag run on it instead of the flow tag. Steps without one still inherit the flow tag.',
+					'Steps that declare their own worker tag run on it instead of the flow tag, including the steps of subflows without a tag of their own. Steps without one still inherit the flow tag.',
 				rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/worker_groups'
 			}}
 		/>

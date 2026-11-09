@@ -30,8 +30,8 @@ pub type DB = sqlx::Pool<sqlx::Postgres>;
 
 // Re-export oauth2 types that consumers need (also used internally)
 pub use oauth2::{
-    helpers, AccessToken, AuthType, Client as OClient, ErrorField, ExecuteError, RefreshToken,
-    Scope, State, Url,
+    helpers, AccessToken, AuthType, Client as OClient, ErrorField, ExecuteError,
+    PkceCodeVerifierS256, RefreshToken, Scope, State, Url,
 };
 
 // Re-export reqwest Client (version 0.12 compatible with async-oauth2)
@@ -77,6 +77,8 @@ pub struct ClientWithScopes {
     /// secret). Providers without them are bring-your-own only — the connect
     /// dialog lists them under "Others", not "Instance-configured".
     pub has_shared_credentials: bool,
+    /// [`OAuthClient::pkce`] resolved; only the login flow reads it.
+    pub pkce: bool,
 }
 
 /// Map of OAuth client names to their configurations
@@ -271,6 +273,11 @@ pub struct OAuthClient {
         deserialize_with = "windmill_common::utils::empty_as_none"
     )]
     pub signing_secret: Option<String>,
+    /// Send PKCE (S256) on this provider's SSO login. Unset means off, so an entry
+    /// saved before the field existed keeps its behaviour; the settings forms write
+    /// `true` when a provider is first set up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pkce: Option<bool>,
 }
 
 impl std::fmt::Debug for OAuthClient {
@@ -555,6 +562,7 @@ pub async fn build_client_credentials_oauth_client(
             .unwrap_or_else(default_grant_types),
         tenant: instance_entry.as_ref().and_then(|e| e.tenant.clone()),
         signing_secret: None,
+        pkce: None,
     };
 
     let base_url = (**BASE_URL.load()).clone();

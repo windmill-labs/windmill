@@ -92,7 +92,8 @@
 		isDatatableTableAllowed,
 		type RawAppData,
 		DEFAULT_DATA,
-		appDatatableRole
+		appDatatableRole,
+		extractDataConfig
 	} from './dataTableRefUtils'
 	import { datatableReference } from '../dbTypes'
 	import { randomSecret, randomUUID } from '$lib/utils/uuid'
@@ -177,6 +178,8 @@
 		/** `Exit & see details`: see RawAppEditorHeader. */
 		onDetails?: (e: { path: string }) => void
 		/** See RawAppEditorHeader. */
+		detailsHref?: (path: string) => string
+		/** See RawAppEditorHeader. */
 		onOpenFork?: (path: string) => void
 		onResetToDeployed?: () => void | Promise<void>
 		/** The app_version the draft forked from, for the deploy-time "new version
@@ -250,6 +253,7 @@
 		pendingDraftPath = $bindable(undefined),
 		pendingDraftSettings = $bindable(),
 		onDetails,
+		detailsHref,
 		onOpenFork,
 		onResetToDeployed,
 		loadedFromDraft = false,
@@ -913,7 +917,8 @@ addEventListener('message', function (e) {
 
 	/** Replaces `data` from outside the editor (history, YAML). The policy sync writes the policy
 	 * into `data`, so the policy takes the new values first or it puts the old ones straight back. */
-	function replaceData(next: RawAppData) {
+	function replaceData(replacement: RawAppData) {
+		const next = extractDataConfig({ data: replacement }) ?? { ...DEFAULT_DATA }
 		data = next
 		aiChatManager.datatableCreationPolicy = {
 			...aiChatManager.datatableCreationPolicy,
@@ -2740,6 +2745,7 @@ addEventListener('message', function (e) {
 		{onNavigate}
 		{onDeploy}
 		{onDetails}
+		{detailsHref}
 		{onOpenFork}
 		{onResetToDeployed}
 		{loadedFromDraft}

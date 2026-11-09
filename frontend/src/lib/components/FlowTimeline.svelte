@@ -30,6 +30,8 @@
 		>
 		flowDone?: boolean
 		buildSubflowKey: (key: string) => string
+		/** For a narrow panel: thin bars, with each step's duration beside its name. */
+		compact?: boolean
 	}
 
 	let {
@@ -39,7 +41,8 @@
 		durationStatuses,
 		flowDone = false,
 		localModuleStates,
-		onSelectedIteration
+		onSelectedIteration,
+		compact = false
 	}: Props = $props()
 
 	let timelineCompute = $state<TimelineCompute | undefined>(undefined)
@@ -71,7 +74,7 @@
 		timelineCompute?.reset()
 	}
 
-	const barHeight = 32
+	const barHeight = $derived(compact ? 10 : 32)
 
 	// Whole approval-wait machinery below is inert unless a step actually has a suspend config,
 	// so large suspend-free flows pay nothing for the flatten/sort and the per-tick recompute.
@@ -141,12 +144,14 @@
 	}}
 />
 {#if items}
-	<div class="divide-y">
+	<div class={compact ? 'flex flex-col gap-3 py-2' : 'divide-y'}>
 		<div class="px-3 py-1.5 flex items-center justify-between text-2xs text-secondary">
-			<div class="flex gap-1 items-center font-mono">
-				{min ? displayDate(new Date(min), true) : ''}
-			</div>
-			<div class="flex gap-3 items-center">
+			{#if !compact}
+				<div class="flex gap-1 items-center font-mono">
+					{min ? displayDate(new Date(min), true) : ''}
+				</div>
+			{/if}
+			<div class="flex gap-3 items-center {compact ? 'w-full [&>span:last-child]:ml-auto' : ''}">
 				<div class="flex gap-1.5 items-center">
 					<div class="h-2.5 w-2.5 rounded-sm bg-gray-400 dark:bg-gray-500"></div>
 					<span>Wait</span>
@@ -206,6 +211,10 @@
 						<span class="text-2xs text-secondary bg-surface-hover px-1.5 py-0.5 rounded-full">
 							{subItems?.length} jobs
 						</span>
+					{:else if compact && subItems?.[0]?.duration_ms != undefined}
+						<span class="text-2xs text-secondary font-mono">
+							{msToSec(subItems[0].duration_ms, 1)}s
+						</span>
 					{/if}
 				</div>
 				<div class="w-full">
@@ -234,6 +243,7 @@
 											id={b?.id}
 											{total}
 											{min}
+											{compact}
 											gray
 											spacerClass="bg-gray-100 dark:bg-gray-800/50 rounded-l-md"
 											started_at={b.created_at}
@@ -246,6 +256,7 @@
 												id={b?.id}
 												{total}
 												{min}
+												{compact}
 												concat
 												started_at={b.started_at}
 												len={b.started_at ? (b?.duration_ms ?? now - b?.started_at) : 0}
@@ -258,6 +269,7 @@
 												id={b?.id}
 												{total}
 												{min}
+												{compact}
 												concat
 												colorClass="bg-purple-400/80"
 												tooltip={`Waiting for approval — ${msToSec(aw.len, 1)}s`}
