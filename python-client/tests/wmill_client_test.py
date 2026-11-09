@@ -145,12 +145,15 @@ class TestParseS3Object(unittest.TestCase):
             S3Object(s3="dir/f", storage="bucket"),
         )
 
-    def test_uri_rejects_newlines_in_key(self):
-        for storage in ("", "archive"):
-            for key in ("report.json\n", "reports/first\nsecond.json", "\n"):
-                with self.subTest(storage=storage, key=key):
-                    with self.assertRaises(ValueError):
-                        wmill.parse_s3_object(f"s3://{storage}/{key}")
+    def test_uri_rejects_newlines(self):
+        for uri in (
+            "s3:///report.json\n", "s3://archive/report.json\n",
+            "s3://archive/first\nsecond", "s3:///\n",
+            "s3://archive\n/report.json", "s3://arc\nhive/report.json",
+        ):
+            with self.subTest(uri=uri):
+                with self.assertRaises(ValueError):
+                    wmill.parse_s3_object(uri)
 
     def test_malformed_uri_raises(self):
         # `s3://x` has no key part — fail loudly instead of silently
