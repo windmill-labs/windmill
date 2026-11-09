@@ -13,6 +13,7 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import EEOnly from '../EEOnly.svelte'
 	import HttpStoreSecretBackendConfig from './HttpStoreSecretBackendConfig.svelte'
+	import Tooltip from '../meltComponents/Tooltip.svelte'
 
 	interface Props {
 		values: Writable<Record<string, any>>
@@ -517,7 +518,7 @@
 		<div class="flex items-center gap-2 p-4 bg-surface-secondary rounded-lg">
 			<Database class="text-primary" size={20} />
 			<div>
-				<p class="text-sm font-medium text-emphasis">Database Storage (Default)</p>
+				<p class="text-sm font-medium text-emphasis">Database storage (default)</p>
 				<p class="text-xs text-secondary"
 					>Secrets are encrypted using workspace-specific keys and stored in the PostgreSQL
 					database.</p
@@ -529,7 +530,7 @@
 			<div class="flex items-center gap-2 mb-4">
 				<Lock class="text-primary" size={20} />
 				<div>
-					<p class="text-sm font-medium text-emphasis">HashiCorp Vault Configuration</p>
+					<p class="text-sm font-medium text-emphasis">HashiCorp Vault configuration</p>
 					<p class="text-xs text-secondary"
 						>Store secrets in an external HashiCorp Vault instance.</p
 					>
@@ -538,7 +539,7 @@
 			<div class="grid grid-cols-1 gap-4">
 				<div class="flex flex-col gap-1">
 					<label for="vault_address" class="block text-xs font-semibold text-emphasis"
-						>Vault Address</label
+						>Vault address</label
 					>
 					<TextInput
 						inputProps={{
@@ -552,9 +553,9 @@
 				</div>
 				<div class="flex flex-col gap-1">
 					<label for="vault_mount_path" class="block text-xs font-semibold text-emphasis"
-						>KV Mount Path</label
+						>KV mount path</label
 					>
-					<span class="text-2xs text-secondary">The KV v2 secrets engine mount path in Vault</span>
+					<span class="text-xs text-secondary">The KV v2 secrets engine mount path in Vault</span>
 					<TextInput
 						inputProps={{ type: 'text', id: 'vault_mount_path', placeholder: 'windmill', disabled }}
 						bind:value={$values['secret_backend'].mount_path}
@@ -562,14 +563,14 @@
 				</div>
 				<div class="flex flex-col gap-1">
 					<label for="vault_kv_secret_path_prefix" class="block text-xs font-semibold text-emphasis"
-						>KV Secret Path Prefix (optional)</label
-					>
-					<span class="text-2xs text-secondary"
-						>Optional prefix inserted before the workspace id. When set, secrets are stored at
-						<code>&lt;mount&gt;/data/&lt;prefix&gt;/&lt;workspace&gt;/&lt;secret&gt;</code>, so you
-						can keep an existing layout and scope a Vault policy to exactly
-						<code>{$values['secret_backend']?.mount_path ?? 'windmill'}/data/{kvPolicyPath}</code
-						>.</span
+						>KV secret path prefix (optional) <Tooltip
+							>{#snippet text()}Inserted before the workspace id: secrets are stored at
+								<code>&lt;mount&gt;/data/&lt;prefix&gt;/&lt;workspace&gt;/&lt;secret&gt;</code>, so
+								you can keep an existing layout and scope a Vault policy to exactly
+								<code
+									>{$values['secret_backend']?.mount_path ?? 'windmill'}/data/{kvPolicyPath}</code
+								>.{/snippet}</Tooltip
+						></label
 					>
 					<TextInput
 						inputProps={{
@@ -581,13 +582,13 @@
 						bind:value={$values['secret_backend'].kv_secret_path_prefix}
 					/>
 				</div>
-				<div class="flex flex-col gap-2">
-					<span class="block text-xs font-semibold text-emphasis">Authentication Method</span>
+				<div class="flex flex-col gap-1">
+					<span class="block text-xs font-semibold text-emphasis">Authentication method</span>
 					<ToggleButtonGroup selected={authMethod} onSelected={(v) => setAuthMethod(v)}>
 						{#snippet children({ item: toggleButton })}
 							<ToggleButton
 								value="jwt"
-								label="JWT Auth"
+								label="JWT auth"
 								tooltip="Authenticate using Windmill-signed JWTs"
 								item={toggleButton}
 								{disabled}
@@ -601,7 +602,7 @@
 							/>
 							<ToggleButton
 								value="token"
-								label="Static Token"
+								label="Static token"
 								tooltip="Use a static Vault token"
 								item={toggleButton}
 								{disabled}
@@ -610,89 +611,103 @@
 					</ToggleButtonGroup>
 				</div>
 				{#if authMethod === 'approle'}
-					<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-lg">
-						<label for="vault_approle_role_id" class="block text-xs font-semibold text-emphasis"
-							>Role ID</label
-						>
-						<TextInput
-							inputProps={{ type: 'text', id: 'vault_approle_role_id', disabled }}
-							bind:value={$values['secret_backend'].approle_role_id}
-						/>
-						<label for="vault_approle_secret_id" class="block text-xs font-semibold text-emphasis"
-							>Secret ID <span class="text-2xs font-normal text-secondary">(optional)</span></label
-						>
-						<span class="text-2xs text-secondary"
-							>Leave blank to read it from the <code>VAULT_APPROLE_SECRET_ID</code> environment
-							variable of every server and worker. With neither set, no secret_id is sent, for a
-							role with <code>bind_secret_id=false</code>.</span
-						>
-						<Password
-							id="vault_approle_secret_id"
-							bind:password={$values['secret_backend'].approle_secret_id}
-							small
-							{disabled}
-						/>
-						<label for="vault_approle_mount_path" class="block text-xs font-semibold text-emphasis"
-							>AppRole Mount Path (optional)</label
-						>
-						<TextInput
-							inputProps={{
-								type: 'text',
-								id: 'vault_approle_mount_path',
-								placeholder: 'approle',
-								disabled
-							}}
-							bind:value={$values['secret_backend'].approle_mount_path}
-						/>
+					<div class="flex flex-col gap-3 p-3 bg-surface-secondary rounded-lg">
+						<div class="flex flex-col gap-1">
+							<label for="vault_approle_role_id" class="block text-xs font-semibold text-emphasis"
+								>Role ID</label
+							>
+							<TextInput
+								inputProps={{ type: 'text', id: 'vault_approle_role_id', disabled }}
+								bind:value={$values['secret_backend'].approle_role_id}
+							/>
+						</div>
+						<div class="flex flex-col gap-1">
+							<label for="vault_approle_secret_id" class="block text-xs font-semibold text-emphasis"
+								>Secret ID (optional)</label
+							>
+							<span class="text-xs text-secondary"
+								>Leave blank to use <code>VAULT_APPROLE_SECRET_ID</code>. With neither set, no
+								secret_id is sent (<code>bind_secret_id=false</code> roles).</span
+							>
+							<Password
+								id="vault_approle_secret_id"
+								bind:password={$values['secret_backend'].approle_secret_id}
+								small
+								{disabled}
+							/>
+						</div>
+						<div class="flex flex-col gap-1">
+							<label
+								for="vault_approle_mount_path"
+								class="block text-xs font-semibold text-emphasis"
+								>AppRole mount path (optional) <Tooltip
+									>{#snippet text()}Path where the AppRole auth method is enabled in Vault. Set it
+										only for a non-default path (<code
+											>vault auth enable -path=&lt;mount&gt; approle</code
+										>).{/snippet}</Tooltip
+								></label
+							>
+							<TextInput
+								inputProps={{
+									type: 'text',
+									id: 'vault_approle_mount_path',
+									placeholder: 'approle',
+									disabled
+								}}
+								bind:value={$values['secret_backend'].approle_mount_path}
+							/>
+						</div>
 					</div>
 				{:else if authMethod === 'token'}
 					<div class="flex flex-col gap-1 p-3 bg-surface-secondary rounded-lg">
 						<label for="vault_token" class="block text-xs font-semibold text-emphasis"
-							>Vault Token</label
+							>Vault token</label
 						>
-						<span class="text-2xs text-secondary"
+						<span class="text-xs text-secondary"
 							>Static token. Recommended only for testing/development.</span
 						>
 						<Password bind:password={$values['secret_backend'].token} small {disabled} />
 					</div>
 				{:else}
-					<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-lg">
-						<label for="vault_jwt_role" class="block text-xs font-semibold text-emphasis"
-							>JWT Auth Role</label
-						>
-						<span class="text-2xs text-secondary"
-							>The JWT authentication role configured in Vault.</span
-						>
-						<TextInput
-							inputProps={{
-								type: 'text',
-								id: 'vault_jwt_role',
-								placeholder: 'windmill-secrets',
-								disabled
-							}}
-							bind:value={$values['secret_backend'].jwt_role}
-						/>
-						<label for="vault_jwt_mount_path" class="block text-xs font-semibold text-emphasis"
-							>JWT Auth Mount Path (optional)</label
-						>
-						<span class="text-2xs text-secondary"
-							>Mount path of the JWT auth method in Vault. Defaults to <code>jwt</code>. Set this
-							only if you mounted the JWT auth method at a non-default path (<code
-								>vault auth enable -path=&lt;mount&gt; jwt</code
-							>).</span
-						>
-						<TextInput
-							inputProps={{
-								type: 'text',
-								id: 'vault_jwt_mount_path',
-								placeholder: 'jwt',
-								disabled
-							}}
-							bind:value={$values['secret_backend'].jwt_mount_path}
-						/>
+					<div class="flex flex-col gap-3 p-3 bg-surface-secondary rounded-lg">
+						<div class="flex flex-col gap-1">
+							<label for="vault_jwt_role" class="block text-xs font-semibold text-emphasis"
+								>JWT auth role</label
+							>
+							<span class="text-xs text-secondary"
+								>The JWT authentication role configured in Vault.</span
+							>
+							<TextInput
+								inputProps={{
+									type: 'text',
+									id: 'vault_jwt_role',
+									placeholder: 'windmill-secrets',
+									disabled
+								}}
+								bind:value={$values['secret_backend'].jwt_role}
+							/>
+						</div>
+						<div class="flex flex-col gap-1">
+							<label for="vault_jwt_mount_path" class="block text-xs font-semibold text-emphasis"
+								>JWT auth mount path (optional) <Tooltip
+									>{#snippet text()}Path where the JWT auth method is enabled in Vault. Set it only
+										for a non-default path (<code>vault auth enable -path=&lt;mount&gt; jwt</code
+										>).{/snippet}</Tooltip
+								></label
+							>
+							<TextInput
+								inputProps={{
+									type: 'text',
+									id: 'vault_jwt_mount_path',
+									placeholder: 'jwt',
+									disabled
+								}}
+								bind:value={$values['secret_backend'].jwt_mount_path}
+							/>
+						</div>
 						<details class="mt-2">
 							<summary class="text-xs font-medium text-secondary cursor-pointer hover:text-primary"
-								>Vault JWT Setup Instructions</summary
+								>Vault JWT setup instructions</summary
 							>
 							<div class="mt-2 p-2 bg-surface rounded text-2xs text-secondary space-y-2">
 								<p>Configure Vault to accept JWTs from Windmill:</p>
@@ -738,7 +753,7 @@ vault write auth/{jwtMount}/role/{$values['secret_backend']?.jwt_role || 'windmi
 					<label for="vault_namespace" class="block text-xs font-semibold text-emphasis"
 						>Namespace (optional)</label
 					>
-					<span class="text-2xs text-secondary">Vault Enterprise namespace</span>
+					<span class="text-xs text-secondary">Vault Enterprise namespace</span>
 					<TextInput
 						inputProps={{
 							type: 'text',
@@ -757,7 +772,7 @@ vault write auth/{jwtMount}/role/{$values['secret_backend']?.jwt_role || 'windmi
 						size="xs"
 						options={{ right: 'Skip TLS certificate verification' }}
 					/>
-					<span class="text-2xs text-secondary"
+					<span class="text-xs text-secondary"
 						>Disables TLS verification when connecting to Vault. Only enable for self-signed
 						certificates in development.</span
 					>
@@ -770,11 +785,11 @@ vault write auth/{jwtMount}/role/{$values['secret_backend']?.jwt_role || 'windmi
 					onclick={testVaultConnection}
 					disabled={disabled || !isVaultConfigValid() || testingConnection}
 					loading={testingConnection}
-					startIcon={{ icon: Server }}>Test Connection</Button
+					startIcon={{ icon: Server }}>Test connection</Button
 				>
 				<div class="flex flex-col gap-4 pt-4 border-t">
-					<span class="block text-xs font-semibold text-emphasis">Secret Migration</span>
-					<span class="text-2xs text-secondary"
+					<span class="block text-xs font-semibold text-emphasis">Secret migration</span>
+					<span class="text-xs text-secondary"
 						>Original values are NOT deleted to allow for rollback.</span
 					>
 					<div class="flex gap-4">
@@ -813,7 +828,7 @@ vault write auth/{jwtMount}/role/{$values['secret_backend']?.jwt_role || 'windmi
 			<div class="flex items-center gap-2 mb-4">
 				<Cloud class="text-primary" size={20} />
 				<div>
-					<p class="text-sm font-medium text-emphasis">Azure Key Vault Configuration</p>
+					<p class="text-sm font-medium text-emphasis">Azure Key Vault configuration</p>
 					<p class="text-xs text-secondary">Store secrets in an Azure Key Vault instance.</p>
 				</div>
 			</div>
@@ -862,10 +877,9 @@ vault write auth/{jwtMount}/role/{$values['secret_backend']?.jwt_role || 'windmi
 				</div>
 				<div class="flex flex-col gap-1 p-3 bg-surface-secondary rounded-lg">
 					<label for="azure_client_secret" class="block text-xs font-semibold text-emphasis"
-						>Client Secret <span class="text-2xs font-normal text-secondary">(optional)</span
-						></label
+						>Client secret (optional)</label
 					>
-					<span class="text-2xs text-secondary"
+					<span class="text-xs text-secondary"
 						>Leave blank to use Azure Workload Identity. Requires
 						<code>AZURE_FEDERATED_TOKEN_FILE</code> on the Windmill process (auto-injected on AKS by
 						the workload-identity webhook; set manually on other Kubernetes clusters).</span
@@ -876,8 +890,8 @@ vault write auth/{jwtMount}/role/{$values['secret_backend']?.jwt_role || 'windmi
 					<label for="azure_token" class="block text-xs font-semibold text-emphasis"
 						>Token (optional)</label
 					>
-					<span class="text-2xs text-secondary"
-						>Static Bearer token for testing. If provided, OAuth2 is skipped.</span
+					<span class="text-xs text-secondary"
+						>Static bearer token for testing. If provided, OAuth2 is skipped.</span
 					>
 					<Password bind:password={$values['secret_backend'].token} small {disabled} />
 				</div>
@@ -889,11 +903,11 @@ vault write auth/{jwtMount}/role/{$values['secret_backend']?.jwt_role || 'windmi
 					onclick={testAzureKvConnection}
 					disabled={disabled || !isAzureKvConfigValid() || testingAzureKvConnection}
 					loading={testingAzureKvConnection}
-					startIcon={{ icon: Server }}>Test Connection</Button
+					startIcon={{ icon: Server }}>Test connection</Button
 				>
 				<div class="flex flex-col gap-4 pt-4 border-t">
-					<span class="block text-xs font-semibold text-emphasis">Secret Migration</span>
-					<span class="text-2xs text-secondary"
+					<span class="block text-xs font-semibold text-emphasis">Secret migration</span>
+					<span class="text-xs text-secondary"
 						>Original values are NOT deleted to allow for rollback.</span
 					>
 					<div class="flex gap-4">
@@ -932,7 +946,7 @@ vault write auth/{jwtMount}/role/{$values['secret_backend']?.jwt_role || 'windmi
 			<div class="flex items-center gap-2 mb-4">
 				<Cloud class="text-primary" size={20} />
 				<div>
-					<p class="text-sm font-medium text-emphasis">AWS Secrets Manager Configuration</p>
+					<p class="text-sm font-medium text-emphasis">AWS Secrets Manager configuration</p>
 					<p class="text-xs text-secondary">Store secrets in AWS Secrets Manager.</p>
 				</div>
 			</div>
@@ -947,9 +961,9 @@ vault write auth/{jwtMount}/role/{$values['secret_backend']?.jwt_role || 'windmi
 				</div>
 				<div class="flex flex-col gap-1">
 					<label for="aws_sm_access_key_id" class="block text-xs font-semibold text-emphasis"
-						>Access Key ID (optional)</label
+						>Access key ID (optional)</label
 					>
-					<span class="text-2xs text-secondary"
+					<span class="text-xs text-secondary"
 						>If not provided, the default AWS credential chain is used (env vars, instance profile,
 						EKS pod identity)</span
 					>
@@ -965,15 +979,15 @@ vault write auth/{jwtMount}/role/{$values['secret_backend']?.jwt_role || 'windmi
 				</div>
 				<div class="flex flex-col gap-1 p-3 bg-surface-secondary rounded-lg">
 					<label for="aws_sm_secret_access_key" class="block text-xs font-semibold text-emphasis"
-						>Secret Access Key (optional)</label
+						>Secret access key (optional)</label
 					>
 					<Password bind:password={$values['secret_backend'].secret_access_key} small {disabled} />
 				</div>
 				<div class="flex flex-col gap-1">
 					<label for="aws_sm_prefix" class="block text-xs font-semibold text-emphasis"
-						>Secret Name Prefix (optional)</label
+						>Secret name prefix (optional)</label
 					>
-					<span class="text-2xs text-secondary"
+					<span class="text-xs text-secondary"
 						>Prefix for secret names in AWS Secrets Manager (default: windmill/)</span
 					>
 					<TextInput
@@ -985,7 +999,7 @@ vault write auth/{jwtMount}/role/{$values['secret_backend']?.jwt_role || 'windmi
 					<label for="aws_sm_endpoint_url" class="block text-xs font-semibold text-emphasis"
 						>Endpoint URL (optional)</label
 					>
-					<span class="text-2xs text-secondary"
+					<span class="text-xs text-secondary"
 						>Custom endpoint for LocalStack or other compatible services</span
 					>
 					<TextInput
@@ -1006,11 +1020,11 @@ vault write auth/{jwtMount}/role/{$values['secret_backend']?.jwt_role || 'windmi
 					onclick={testAwsSmConnection}
 					disabled={disabled || !isAwsSmConfigValid() || testingAwsSmConnection}
 					loading={testingAwsSmConnection}
-					startIcon={{ icon: Server }}>Test Connection</Button
+					startIcon={{ icon: Server }}>Test connection</Button
 				>
 				<div class="flex flex-col gap-4 pt-4 border-t">
-					<span class="block text-xs font-semibold text-emphasis">Secret Migration</span>
-					<span class="text-2xs text-secondary"
+					<span class="block text-xs font-semibold text-emphasis">Secret migration</span>
+					<span class="text-xs text-secondary"
 						>Original values are NOT deleted to allow for rollback.</span
 					>
 					<div class="flex gap-4">

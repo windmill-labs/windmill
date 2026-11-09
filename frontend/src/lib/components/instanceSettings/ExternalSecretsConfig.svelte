@@ -13,6 +13,7 @@
 	import EEOnly from '../EEOnly.svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import { resource } from 'runed'
+	import Tooltip from '../meltComponents/Tooltip.svelte'
 
 	interface Props {
 		values: Writable<Record<string, any>>
@@ -111,7 +112,7 @@
 	{#if !$enterpriseLicense}
 		<EEOnly>External secret references require Enterprise Edition</EEOnly>
 	{/if}
-	<span class="text-2xs text-secondary">
+	<span class="text-xs text-secondary">
 		A secret variable can reference an existing secret, as
 		<code>$external:vault://&lt;path&gt;#&lt;key&gt;</code>, or the whole secret as JSON without
 		<code>#&lt;key&gt;</code>, instead of holding its value. The value is read from Vault each time
@@ -123,7 +124,7 @@
 	</Alert>
 
 	{#if backendVault}
-		<div class="flex flex-col gap-2">
+		<div class="flex flex-col gap-1">
 			<span class="text-xs font-semibold text-emphasis">Vault connection</span>
 			<ToggleButtonGroup selected={vault ? 'separate' : 'same'} onSelected={setConnection}>
 				{#snippet children({ item })}
@@ -144,7 +145,7 @@
 				{/snippet}
 			</ToggleButtonGroup>
 			{#if !vault}
-				<span class="text-2xs text-secondary">
+				<span class="text-xs text-secondary">
 					References are read from {backendVault.address || 'the Vault address above'} with the secret
 					backend's authentication.
 				</span>
@@ -176,21 +177,21 @@
 					bind:value={() => vault?.address ?? '', (v) => setVaultField('address', v)}
 				/>
 			</div>
-			<div class="flex flex-col gap-2">
+			<div class="flex flex-col gap-1">
 				<span class="text-xs font-semibold text-emphasis">Authentication method</span>
 				<ToggleButtonGroup selected={authMethod} onSelected={(v) => setAuthMethod(v)}>
 					{#snippet children({ item })}
 						<ToggleButton
-							value="approle"
-							label="AppRole"
-							tooltip="Log in with an AppRole role_id and secret_id"
+							value="jwt"
+							label="JWT auth"
+							tooltip="Authenticate using Windmill-signed JWTs"
 							{item}
 							{disabled}
 						/>
 						<ToggleButton
-							value="jwt"
-							label="JWT auth"
-							tooltip="Authenticate using Windmill-signed JWTs"
+							value="approle"
+							label="AppRole"
+							tooltip="Log in with an AppRole role_id and secret_id"
 							{item}
 							{disabled}
 						/>
@@ -205,65 +206,88 @@
 				</ToggleButtonGroup>
 			</div>
 			{#if authMethod === 'approle'}
-				<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-lg">
-					<label for="ext_vault_role_id" class="text-xs font-semibold text-emphasis">Role ID</label>
-					<TextInput
-						inputProps={{ id: 'ext_vault_role_id', disabled }}
-						bind:value={
-							() => vault?.approle_role_id ?? '',
-							(v) => update({ vault: { ...vault, approle_role_id: v ?? '' } })
-						}
-					/>
-					<span class="text-xs font-semibold text-emphasis">
-						Secret ID <span class="text-2xs font-normal text-secondary">(optional)</span>
-					</span>
-					<span class="text-2xs text-secondary">
-						Leave blank to read it from the <code>VAULT_APPROLE_SECRET_ID</code> environment
-						variable of every server and worker. With neither set, no secret_id is sent, for a role
-						with <code>bind_secret_id=false</code>.
-					</span>
-					<Password
-						bind:password={
-							() => vault?.approle_secret_id ?? '', (v) => setVaultField('approle_secret_id', v)
-						}
-						small
-						{disabled}
-					/>
-					<label for="ext_vault_approle_mount" class="text-xs font-semibold text-emphasis">
-						AppRole mount path (optional)
-					</label>
-					<TextInput
-						inputProps={{ id: 'ext_vault_approle_mount', placeholder: 'approle', disabled }}
-						bind:value={
-							() => vault?.approle_mount_path ?? '', (v) => setVaultField('approle_mount_path', v)
-						}
-					/>
+				<div class="flex flex-col gap-3 p-3 bg-surface-secondary rounded-lg">
+					<div class="flex flex-col gap-1">
+						<label for="ext_vault_role_id" class="text-xs font-semibold text-emphasis"
+							>Role ID</label
+						>
+						<TextInput
+							inputProps={{ id: 'ext_vault_role_id', disabled }}
+							bind:value={
+								() => vault?.approle_role_id ?? '',
+								(v) => update({ vault: { ...vault, approle_role_id: v ?? '' } })
+							}
+						/>
+					</div>
+					<div class="flex flex-col gap-1">
+						<label for="ext_vault_secret_id" class="text-xs font-semibold text-emphasis">
+							Secret ID (optional)
+						</label>
+						<span class="text-xs text-secondary">
+							Leave blank to use <code>VAULT_APPROLE_SECRET_ID</code>. With neither set, no
+							secret_id is sent (<code>bind_secret_id=false</code> roles).
+						</span>
+						<Password
+							id="ext_vault_secret_id"
+							bind:password={
+								() => vault?.approle_secret_id ?? '', (v) => setVaultField('approle_secret_id', v)
+							}
+							small
+							{disabled}
+						/>
+					</div>
+					<div class="flex flex-col gap-1">
+						<label for="ext_vault_approle_mount" class="text-xs font-semibold text-emphasis">
+							AppRole mount path (optional) <Tooltip
+								>{#snippet text()}
+									Path where the AppRole auth method is enabled in Vault. Set it only for a
+									non-default path (<code>vault auth enable -path=&lt;mount&gt; approle</code>).
+								{/snippet}</Tooltip
+							>
+						</label>
+						<TextInput
+							inputProps={{ id: 'ext_vault_approle_mount', placeholder: 'approle', disabled }}
+							bind:value={
+								() => vault?.approle_mount_path ?? '', (v) => setVaultField('approle_mount_path', v)
+							}
+						/>
+					</div>
 				</div>
 			{:else if authMethod === 'jwt'}
-				<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-lg">
-					<label for="ext_vault_jwt_role" class="text-xs font-semibold text-emphasis">
-						JWT auth role
-					</label>
-					<TextInput
-						inputProps={{ id: 'ext_vault_jwt_role', placeholder: 'windmill-secrets', disabled }}
-						bind:value={
-							() => vault?.jwt_role ?? '', (v) => update({ vault: { ...vault, jwt_role: v ?? '' } })
-						}
-					/>
-					<label for="ext_vault_jwt_mount" class="text-xs font-semibold text-emphasis">
-						JWT auth mount path (optional)
-					</label>
-					<TextInput
-						inputProps={{ id: 'ext_vault_jwt_mount', placeholder: 'jwt', disabled }}
-						bind:value={
-							() => vault?.jwt_mount_path ?? '', (v) => setVaultField('jwt_mount_path', v)
-						}
-					/>
+				<div class="flex flex-col gap-3 p-3 bg-surface-secondary rounded-lg">
+					<div class="flex flex-col gap-1">
+						<label for="ext_vault_jwt_role" class="text-xs font-semibold text-emphasis">
+							JWT auth role
+						</label>
+						<TextInput
+							inputProps={{ id: 'ext_vault_jwt_role', placeholder: 'windmill-secrets', disabled }}
+							bind:value={
+								() => vault?.jwt_role ?? '',
+								(v) => update({ vault: { ...vault, jwt_role: v ?? '' } })
+							}
+						/>
+					</div>
+					<div class="flex flex-col gap-1">
+						<label for="ext_vault_jwt_mount" class="text-xs font-semibold text-emphasis">
+							JWT auth mount path (optional) <Tooltip
+								>{#snippet text()}
+									Path where the JWT auth method is enabled in Vault. Set it only for a non-default
+									path (<code>vault auth enable -path=&lt;mount&gt; jwt</code>).
+								{/snippet}</Tooltip
+							>
+						</label>
+						<TextInput
+							inputProps={{ id: 'ext_vault_jwt_mount', placeholder: 'jwt', disabled }}
+							bind:value={
+								() => vault?.jwt_mount_path ?? '', (v) => setVaultField('jwt_mount_path', v)
+							}
+						/>
+					</div>
 				</div>
 			{:else}
 				<div class="flex flex-col gap-1 p-3 bg-surface-secondary rounded-lg">
 					<span class="text-xs font-semibold text-emphasis">Vault token</span>
-					<span class="text-2xs text-secondary">Recommended only for testing.</span>
+					<span class="text-xs text-secondary">Recommended only for testing.</span>
 					<Password
 						bind:password={
 							() => vault?.token ?? '', (v) => update({ vault: { ...vault, token: v ?? '' } })
@@ -302,7 +326,7 @@
 
 	<div class="flex flex-col gap-2">
 		<span class="text-xs font-semibold text-emphasis">Allowed prefixes</span>
-		<span class="text-2xs text-secondary">
+		<span class="text-xs text-secondary">
 			A reference resolves only under one of these prefixes, matched on whole path segments, for the
 			listed workspaces (all workspaces when empty). Any admin of a listed workspace can read every
 			secret under its prefixes, within what Windmill's Vault identity can read.
