@@ -46,7 +46,9 @@ use tracing::Instrument;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
-use windmill_common::auth::{hash_token, safe_token_prefix, TOKEN_PREFIX_LEN};
+use windmill_common::auth::{
+    hash_token, lock_mcp_oauth_grants, safe_token_prefix, TOKEN_PREFIX_LEN,
+};
 use windmill_common::global_settings::{
     load_value_from_global_settings, parse_max_token_expiration_days,
     AUTOMATE_USERNAME_CREATION_SETTING, MAX_TOKEN_EXPIRATION_DAYS_SETTING,
@@ -1696,6 +1698,7 @@ async fn update_user(
         .execute(&mut *tx)
         .await?;
         if d {
+            revoke_mcp_oauth_grants(&mut *tx, &email_to_update, None).await?;
             // Delete all tokens for immediate session revocation
             sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_update)
                 .execute(&mut *tx)
@@ -1727,6 +1730,7 @@ async fn delete_user(
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
 
+    revoke_mcp_oauth_grants(&mut *tx, &email_to_delete, None).await?;
     sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_delete)
         .execute(&mut *tx)
         .await?;
@@ -2564,6 +2568,7 @@ pub async fn delete_workspace_user_internal(
     tx: &mut Transaction<'_, Postgres>,
     authed: Option<&ApiAuthed>, // None for system operations
 ) -> Result<()> {
+    revoke_mcp_oauth_grants(&mut **tx, email_to_delete, Some(w_id)).await?;
     // Same reasoning as the `extra_perms` sweep below: a freed username must not stay named
     // anywhere that grants access, tenant lists included.
     windmill_common::workspaces::remove_datatable_tenant_in_workspace(
@@ -2737,6 +2742,19 @@ async fn delete_workspace_user(
     Path((w_id, username_to_delete)): Path<(String, String)>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
+
+    // The account row before the membership row, the order `delete_user` takes them in, since
+    // the revoke in `delete_workspace_user_internal` locks it (`lock_mcp_oauth_grants`).
+    if let Some(email) = sqlx::query_scalar!(
+        "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
+        username_to_delete,
+        &w_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    {
+        lock_mcp_oauth_grants(&mut *tx, &email, true).await?;
+    }
 
     // Locked so that the authorization below and the delete it guards see the same row.
     let target = sqlx::query!(
@@ -3992,6 +4010,44 @@ async fn list_tokens(
     Ok(Json(rows))
 }
 
+/// Ends a user's MCP OAuth connections (only those bound to `workspace_id` when given),
+/// including idle ones whose access token is already gone and codes not yet exchanged.
+/// Lock the user's `password` row before writing their tokens (see `lock_mcp_oauth_grants`).
+pub async fn revoke_mcp_oauth_grants(
+    conn: &mut sqlx::PgConnection,
+    email: &str,
+    workspace_id: Option<&str>,
+) -> Result<()> {
+    lock_mcp_oauth_grants(&mut *conn, email, true).await?;
+    // Separate statements, tokens first: a token delete's trigger locks its token row, then its
+    // grant, and the sibling CTEs of a single statement run in no fixed order.
+    sqlx::query!(
+        "DELETE FROM token WHERE email = $1 AND label LIKE 'mcp-oauth-%'
+             AND ($2::varchar IS NULL OR workspace_id = $2)",
+        email,
+        workspace_id,
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM mcp_oauth_refresh_token WHERE user_email = $1
+             AND ($2::varchar IS NULL OR workspace_id = $2)",
+        email,
+        workspace_id,
+    )
+    .execute(&mut *conn)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM mcp_oauth_server_code WHERE user_email = $1
+             AND ($2::varchar IS NULL OR workspace_id = $2)",
+        email,
+        workspace_id,
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
 async fn delete_token(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -4022,6 +4078,9 @@ async fn delete_token(
     )
     .await?;
     tx.commit().await?;
+    if !tokens_deleted.is_empty() {
+        windmill_api_auth::invalidate_token_from_cache(&token_prefix);
+    }
 
     Ok(format!(
         "deleted {} tokens {:?} with prefix {}",

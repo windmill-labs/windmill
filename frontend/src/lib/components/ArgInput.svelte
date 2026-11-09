@@ -12,7 +12,7 @@
 		getSchemaFromProperties,
 		type DynamicInput as DynamicInputTypes
 	} from '$lib/utils'
-	import { DollarSign, Plus, X, Check, Loader2, ExternalLink } from 'lucide-svelte'
+	import { DollarSign, Plus, X, Check, Loader2, ExternalLink, AlertTriangle } from 'lucide-svelte'
 	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { Alert, Button, SecondsInput } from './common'
@@ -93,6 +93,8 @@
 		disablePortal?: boolean
 		showSchemaExplorer?: boolean
 		simpleTooltip?: string | undefined
+		/** Show `simpleTooltip` behind a warning icon rather than an info icon. */
+		simpleTooltipWarning?: boolean
 		customErrorMessage?: string | undefined
 		onlyMaskPassword?: boolean
 		nullable?: boolean
@@ -165,6 +167,7 @@
 		disablePortal = false,
 		showSchemaExplorer = false,
 		simpleTooltip = undefined,
+		simpleTooltipWarning = false,
 		customErrorMessage = undefined,
 		onlyMaskPassword = false,
 		nullable = false,
@@ -671,6 +674,8 @@
 				{contentEncoding}
 				{format}
 				{simpleTooltip}
+				SimpleTooltipIcon={simpleTooltipWarning ? AlertTriangle : undefined}
+				simpleTooltipIconClass={simpleTooltipWarning ? 'text-yellow-500' : undefined}
 				{lightHeader}
 				{displayType}
 				labelClass={twMerge(lightHeaderFont ? '!font-normal text-primary' : '', css?.label?.class)}

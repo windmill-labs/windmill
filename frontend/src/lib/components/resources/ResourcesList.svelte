@@ -150,6 +150,10 @@
 		formatExtension: undefined as string | undefined,
 		isFileset: false
 	})
+	let editResourceTypeOriginalKeys: string[] = $state([])
+	let editResourceTypeRemovesKeys = $derived(
+		editResourceTypeOriginalKeys.some((k) => !(k in (editResourceType.schema?.properties ?? {})))
+	)
 	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
 
 	/** An `ai_agent` gets the agent editor rather than the generic resource form, which would
@@ -510,6 +514,7 @@
 			formatExtension: rt.format_extension,
 			isFileset: rt.is_fileset ?? false
 		}
+		editResourceTypeOriginalKeys = Object.keys((rt.schema as any)?.properties ?? {})
 		editResourceTypeDrawer?.openDrawer?.()
 	}
 
@@ -965,6 +970,14 @@
 					</Alert>
 				{:else}
 					<div class="mb-1 font-semibold text-emphasis text-xs">Schema</div>
+					{#if editResourceTypeRemovesKeys}
+						<Alert
+							type="warning"
+							size="xs"
+							class="mb-2"
+							title="Existing resources keep removed properties and still pass them to scripts"
+						/>
+					{/if}
 					<div class="flex flex-col gap-2">
 						<!-- Dynamic, like the one below: the schema editor reaches monaco. -->
 						{#await import('$lib/components/schema/EditableSchemaWrapper.svelte') then EditableSchemaWrapper}

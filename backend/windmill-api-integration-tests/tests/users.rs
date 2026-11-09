@@ -1077,7 +1077,7 @@ async fn test_set_password_revokes_mcp_oauth_grants(db: Pool<Postgres>) -> anyho
     // A refresh in flight: it holds the grant lock and writes its rotated tokens while the
     // password change is waiting on that lock.
     let mut grant = db.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock_shared(hashtext('mcp_oauth_grant:' || $1))")
+    sqlx::query("SELECT 1 FROM password WHERE email = $1 FOR SHARE")
         .bind("test2@windmill.dev")
         .execute(&mut *grant)
         .await?;
@@ -1092,8 +1092,8 @@ async fn test_set_password_revokes_mcp_oauth_grants(db: Pool<Postgres>) -> anyho
     let mut waiting = false;
     for _ in 0..100 {
         waiting = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
-             AND database = (SELECT oid FROM pg_database WHERE datname = current_database()))",
+            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+             WHERE wait_event_type = 'Lock' AND datname = current_database())",
         )
         .fetch_one(&db)
         .await?;

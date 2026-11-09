@@ -83,6 +83,24 @@ pub const CLI_LOGIN_TOKEN_LABEL_PREFIX: &str = "cli-login:";
 /// through `/users/tokens/create`.
 pub const REMOTE_DEPLOY_TOKEN_LABEL_PREFIX: &str = "remote-deploy:";
 
+/// Shared while issuing an MCP OAuth grant, exclusive while revoking: no grant outlives a revoke.
+/// The lock is the user's `password` row because every path that changes a user locks that row
+/// before their tokens, the order a refresh takes them in (this row, then its access-token row,
+/// then its grant). A separate lock taken anywhere in that sequence would deadlock with some path.
+pub async fn lock_mcp_oauth_grants(
+    conn: &mut sqlx::PgConnection,
+    email: &str,
+    exclusive: bool,
+) -> std::result::Result<(), sqlx::Error> {
+    let q = if exclusive {
+        "SELECT 1 FROM password WHERE email = $1 FOR UPDATE"
+    } else {
+        "SELECT 1 FROM password WHERE email = $1 FOR SHARE"
+    };
+    sqlx::query(q).bind(email).execute(conn).await?;
+    Ok(())
+}
+
 /// Whether `label` belongs to a namespace only the server mints, and which therefore must be
 /// rejected by `create_token`. Narrower than [`is_user_token`], which also drives label
 /// editability and expiry notifications and can afford to reserve more: `Ephemeral lsp token`,

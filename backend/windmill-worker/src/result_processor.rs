@@ -367,7 +367,10 @@ pub fn start_background_processor(
             if has_been_killed {
                 tracing::info!("bg processor is killed, draining. same_worker_queue_size: {}, unbounded_rx: {}, bounded_rx: {}", same_worker_queue_size.load(Ordering::SeqCst), unbounded_rx.len(), bounded_rx.len())
             }
-            if has_been_killed && same_worker_queue_size.load(Ordering::SeqCst) == 0 {
+            if has_been_killed
+                && same_worker_queue_size.load(Ordering::SeqCst) == 0
+                && crate::worker::LIVE_DEDICATED_TASKS.load(Ordering::SeqCst) == 0
+            {
                 unbounded_rx
                     .try_recv()
                     .ok()
@@ -468,15 +471,16 @@ pub fn start_background_processor(
                         }
                     }
                     if is_dependency_job && is_dedicated_worker {
-                        tracing::error!("Dedicated worker executed a dependency job, a new script has been deployed. Exiting expecting to be restarted.");
+                        // Re-saving the config unchanged notifies every worker of the group,
+                        // this one included, to reload its dedicated subprocesses.
+                        tracing::info!("Dedicated worker executed a dependency job, a new version has been deployed. Notifying the worker group to reload.");
                         sqlx::query!(
                                 "UPDATE config SET config = config WHERE name = $1",
                                 format!("worker__{}", *WORKER_GROUP)
                             )
                             .execute(&db)
                             .await
-                            .expect("update config to trigger restart of all dedicated workers at that config");
-                        killpill_tx.send();
+                            .expect("update config to trigger a reload of all dedicated workers at that config");
                     }
                     add_time!(bench, "job completed processed");
 
