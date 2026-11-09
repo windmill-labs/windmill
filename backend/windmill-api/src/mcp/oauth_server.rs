@@ -428,7 +428,7 @@ pub async fn oauth_token(
     };
     let mut tx = db.begin().await.map_err(db_error)?;
     if let Some(email) = &owner {
-        crate::users::lock_mcp_oauth_grants(&mut tx, email, false)
+        windmill_common::auth::lock_mcp_oauth_grants(&mut tx, email, false)
             .await
             .map_err(db_error)?;
     }
@@ -593,6 +593,21 @@ async fn handle_refresh_token_grant(
     if req.client_id.is_empty() {
         return Err(OAuthTokenError::invalid_request("client_id is required"));
     }
+
+    // Deleting the access token revokes this grant from a trigger, locking the token row and
+    // then this one; take them in that same order, or a concurrent delete deadlocks.
+    sqlx::query!(
+        "SELECT 1 AS locked FROM token WHERE token_hash =
+             (SELECT access_token_hash FROM mcp_oauth_refresh_token WHERE refresh_token = $1)
+         FOR UPDATE",
+        refresh_token_value
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| {
+        tracing::error!("Database error locking MCP access token: {}", e);
+        OAuthTokenError::server_error("Database error")
+    })?;
 
     // Atomically claim the refresh token by setting used_at in a single UPDATE.
     let token_row = match sqlx::query_as!(
