@@ -6,6 +6,7 @@
 	import SessionStatusPopover from '$lib/components/sessions/SessionStatusPopover.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import JobStatusIcon from '$lib/components/runs/JobStatusIcon.svelte'
+	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { ChevronUp, Hourglass, ThumbsUp, TimerOff } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
 	import { JobService, type Job } from '$lib/gen'
@@ -211,20 +212,15 @@
 		return formatElapsed(now - job.createdAt)
 	}
 
-	// Seconds matter: a turn often launches several runs within the same minute, and the launch
-	// time is what tells them apart and shows the order they ran in.
-	const timeOptions = { hour: 'numeric', minute: '2-digit', second: '2-digit' } as const
-	const timeFormat = new Intl.DateTimeFormat(undefined, timeOptions)
-	const dayTimeFormat = new Intl.DateTimeFormat(undefined, {
-		...timeOptions,
+	// The tooltip keeps seconds: past the first minute the compact relative label reads
+	// runs launched seconds apart as the same "3m".
+	const launchedFormat = new Intl.DateTimeFormat(undefined, {
 		month: 'short',
-		day: 'numeric'
+		day: 'numeric',
+		hour: 'numeric',
+		minute: '2-digit',
+		second: '2-digit'
 	})
-	function launchedLabel(job: ChatJob): string {
-		const launched = new Date(job.createdAt)
-		const today = launched.toDateString() === new Date().toDateString()
-		return (today ? timeFormat : dayTimeFormat).format(launched)
-	}
 
 	function runHref(job: ChatJob): string {
 		return `/run/${job.jobId}?workspace=${job.workspace}`
@@ -382,8 +378,10 @@
 			{#if isTerminal(job.status)}
 				<span
 					class="shrink-0 tabular-nums text-tertiary"
-					title={`Launched ${new Date(job.createdAt).toLocaleString()}`}>{launchedLabel(job)}</span
+					title={`Launched ${launchedFormat.format(job.createdAt)}`}
 				>
+					<TimeAgo date={new Date(job.createdAt).toISOString()} compact /> ago
+				</span>
 			{/if}
 			<span class="shrink-0 tabular-nums text-tertiary">{elapsedLabel(job)}</span>
 		{/snippet}
