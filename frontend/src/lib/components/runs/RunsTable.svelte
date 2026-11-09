@@ -13,7 +13,12 @@
 		Wrench
 	} from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
-	import './runs-grid.css'
+	import {
+		RUNS_COLUMNS,
+		runsGridTemplateColumns,
+		runsTableMinWidth,
+		type RunsColumnId
+	} from './runsColumns'
 	import { useKeyPressed } from '$lib/svelte5Utils.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import RightClickPopover from '../RightClickPopover.svelte'
@@ -42,6 +47,7 @@
 		onCancelJobs: (jobIds: string[]) => void
 		onSetJobsResolution: (jobIds: string[], resolved: boolean) => void
 		loadingExtra?: boolean
+		columns: RunsColumnId[]
 	}
 
 	let {
@@ -58,7 +64,8 @@
 		onCancelJobs,
 		onSetJobsResolution,
 		batchRerunOptionsIsOpen = $bindable(),
-		loadingExtra = false
+		loadingExtra = false,
+		columns
 	}: Props = $props()
 
 	let hasClickFocus = $state(false)
@@ -257,6 +264,11 @@
 	})
 
 	let showTag = $derived(containerWidth > 700)
+	let shownColumns = $derived(
+		columns.filter((c) => (c !== 'labels' || containsLabel) && (c !== 'tag' || showTag))
+	)
+	let gridTemplateColumns = $derived(runsGridTemplateColumns(shownColumns, !!manualSelectionMode))
+	let minWidth = $derived(runsTableMinWidth(shownColumns, !!manualSelectionMode))
 	let selectedIdsPossibleActions = $derived.by(() => {
 		const cancellableJobIds: string[] = []
 		const rerunnableJobIds: string[] = []
@@ -382,7 +394,8 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class="divide-y h-full flex flex-col min-w-[650px]"
+	class="divide-y h-full flex flex-col"
+	style="min-width: {minWidth}px"
 	id="runs-table-wrapper"
 	onclick={() => (hasClickFocus = true)}
 	use:clickOutside={{ onClickOutside: () => (hasClickFocus = false) }}
@@ -391,16 +404,7 @@
 	<div>
 		<div
 			class="grid sticky top-0 w-full min-h-6 my-2 pr-4 items-end"
-			class:grid-runs-table={!containsLabel && !manualSelectionMode && showTag}
-			class:grid-runs-table-with-labels={containsLabel && !manualSelectionMode && showTag}
-			class:grid-runs-table-selection={!containsLabel && manualSelectionMode && showTag}
-			class:grid-runs-table-with-labels-selection={containsLabel && manualSelectionMode && showTag}
-			class:grid-runs-table-no-tag={!containsLabel && !manualSelectionMode && !showTag}
-			class:grid-runs-table-with-labels-no-tag={containsLabel && !manualSelectionMode && !showTag}
-			class:grid-runs-table-selection-no-tag={!containsLabel && manualSelectionMode && !showTag}
-			class:grid-runs-table-with-labels-selection-no-tag={containsLabel &&
-				manualSelectionMode &&
-				!showTag}
+			style="grid-template-columns: {gridTemplateColumns}"
 		>
 			{#if manualSelectionMode}
 				{@const allSelected = selectedIds.length === selectableJobs?.length}
@@ -440,16 +444,11 @@
 					{jobCount}
 				{/if}
 			</div>
-			<div></div>
-			<div class="text-xs font-semibold leading-3">Duration</div>
-			<div class="text-xs font-semibold leading-3">Path</div>
-			{#if containsLabel}
-				<div class="text-xs font-semibold leading-3">Label</div>
-			{/if}
-			<div class="text-xs font-semibold leading-3">Triggered by</div>
-			{#if showTag}
-				<div class="text-xs font-semibold leading-3">Tag</div>
-			{/if}
+			{#each RUNS_COLUMNS.filter((c) => shownColumns.includes(c.id)) as column (column.id)}
+				<div class="text-xs font-semibold leading-3 truncate">
+					{column.id === 'started' ? '' : column.label}
+				</div>
+			{/each}
 			<div> </div>
 		</div>
 	</div>
@@ -509,8 +508,8 @@
 										>
 											<RunRow
 												{manualSelectionMode}
-												{containsLabel}
-												{showTag}
+												columns={shownColumns}
+												{gridTemplateColumns}
 												job={jobOrDate.job}
 												{selected}
 												on:select={() => {
@@ -570,6 +569,7 @@
 												on:filterByConcurrencyKey
 												on:filterBySchedule
 												on:filterByWorker
+												on:filterByTriggerKind
 												{containerWidth}
 											/>
 										</div>

@@ -58,8 +58,17 @@
 		TriangleAlertIcon,
 		ArrowLeft,
 		Loader2,
-		SlidersHorizontal
+		SlidersHorizontal,
+		Columns3,
+		Download
 	} from 'lucide-svelte'
+	import {
+		RUNS_COLUMNS,
+		DEFAULT_RUNS_COLUMNS,
+		normalizeRunsColumns,
+		type RunsColumnId
+	} from '$lib/components/runs/runsColumns'
+	import { exportRuns, type RunsExportFormat } from '$lib/components/runs/runsExport'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import TimeframeSelect, {
@@ -109,6 +118,27 @@
 		})
 	)
 	let perPage = useLocalStorageValue('runs_per_page', 1000, 'number')
+	let columnsStorage = useLocalStorageValue<RunsColumnId[]>(
+		'runs_table_columns',
+		DEFAULT_RUNS_COLUMNS
+	)
+	let runsColumns = $derived(normalizeRunsColumns(columnsStorage.val))
+	function setColumnShown(id: RunsColumnId, shown: boolean) {
+		columnsStorage.val = shown ? [...runsColumns, id] : runsColumns.filter((c) => c !== id)
+	}
+
+	let exporting = $state(false)
+	async function onExport(format: RunsExportFormat) {
+		exporting = true
+		try {
+			// Obscured runs of other workspaces carry placeholder fields, not their real outcome.
+			await exportRuns(jobs ?? [], format)
+		} catch (e) {
+			sendUserToast(`Could not export runs: ${e}`, true)
+		} finally {
+			exporting = false
+		}
+	}
 	let showSchedulesStorage = useLocalStorageValue('runs_show_schedules', true, 'boolean')
 	let showFutureJobsStorage = useLocalStorageValue('runs_show_future_jobs', true, 'boolean')
 
@@ -314,6 +344,8 @@
 			delete filters.val.tag
 			delete filters.val.worker
 			delete filters.val.schedule_path
+			// `!schedule` is the persisted "hide schedules" preference, not a row filter.
+			if (filters.val.job_trigger_kind !== '!schedule') delete filters.val.job_trigger_kind
 			setter(e.detail)
 		}
 	}
@@ -326,6 +358,7 @@
 	const filterByTag = resetAndFilterBy((s) => (filters.val.tag = s))
 	const filterBySchedule = resetAndFilterBy((s) => (filters.val.schedule_path = s))
 	const filterByWorker = resetAndFilterBy((s) => (filters.val.worker = s))
+	const filterByTriggerKind = resetAndFilterBy((s) => (filters.val.job_trigger_kind = s))
 
 	function typeOfChart(s: string | null): 'RunChart' | 'ConcurrencyChart' {
 		switch (s) {
@@ -1276,6 +1309,8 @@
 						on:filterByTag={filterByTag}
 						on:filterBySchedule={filterBySchedule}
 						on:filterByWorker={filterByWorker}
+						on:filterByTriggerKind={filterByTriggerKind}
+						columns={runsColumns}
 						bind:this={runsTable}
 						perPage={perPage.val}
 						bind:batchRerunOptionsIsOpen
@@ -1355,6 +1390,59 @@
 						Exit selection mode
 					</Button>
 				{/if}
+				<Popover placement="top-start" contentClasses="p-3 flex flex-col gap-2 w-64">
+					{#snippet trigger()}
+						<Button
+							variant="subtle"
+							unifiedSize="sm"
+							nonCaptureEvent
+							startIcon={{ icon: Columns3 }}
+						>
+							Columns
+						</Button>
+					{/snippet}
+					{#snippet content()}
+						<span class="text-xs font-semibold text-emphasis">Visible columns</span>
+						{#each RUNS_COLUMNS as column (column.id)}
+							<Toggle
+								size="xs"
+								checked={runsColumns.includes(column.id)}
+								disabled={column.required}
+								on:change={(e) => setColumnShown(column.id, e.detail)}
+								options={{ right: column.label, rightTooltip: column.description }}
+							/>
+						{/each}
+						<Button
+							variant="subtle"
+							unifiedSize="xs"
+							onClick={() => (columnsStorage.val = DEFAULT_RUNS_COLUMNS)}
+						>
+							Reset to default
+						</Button>
+					{/snippet}
+				</Popover>
+				<DropdownV2
+					disabled={exporting || !jobs?.length}
+					items={[
+						{ displayName: 'Export as CSV', action: () => onExport('csv') },
+						{ displayName: 'Export as JSON', action: () => onExport('json') },
+						{ displayName: 'Export as XLSX', action: () => onExport('xlsx') }
+					]}
+				>
+					{#snippet buttonReplacement()}
+						<Button
+							variant="subtle"
+							unifiedSize="sm"
+							nonCaptureEvent
+							disabled={exporting || !jobs?.length}
+							loading={exporting}
+							startIcon={{ icon: Download }}
+							title="Export the loaded runs"
+						>
+							Export
+						</Button>
+					{/snippet}
+				</DropdownV2>
 				<div class="flex-1"></div>
 				<Toggle
 					size="xs"
