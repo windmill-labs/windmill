@@ -113,38 +113,58 @@ pub async fn get_trash_item<'e, E: sqlx::PgExecutor<'e>>(
     Ok(item)
 }
 
-/// SQL deleting the trash rows matching `cond` and selecting how many there were. A deleted
-/// flow's versions outlive its row for its runs in flight and go here, unless a run of one of
-/// them is still queued: they are then kept for good. Its nodes are kept: they are shared by content and
-/// referenced by id, so no path-based rule can tell that no remaining version uses one.
+/// Where a deleted flow's versions wait while it is in the trash. Jobs load versions by id,
+/// so runs in flight keep working, while every lookup by path (history, relocks, versioned
+/// runs, renames) stops seeing them. Nodes stay at the flow's path: they are shared by
+/// content and referenced by id.
+fn set_aside_path(trash_id: i64) -> String {
+    format!("__deleted/{trash_id}")
+}
+
+pub async fn set_aside_flow_versions(
+    tx: &mut PgConnection,
+    workspace_id: &str,
+    path: &str,
+    trash_id: i64,
+) -> Result<()> {
+    sqlx::query("UPDATE flow_version SET path = $1 WHERE path = $2 AND workspace_id = $3")
+        .bind(set_aside_path(trash_id))
+        .bind(path)
+        .bind(workspace_id)
+        .execute(&mut *tx)
+        .await?;
+    Ok(())
+}
+
+pub async fn restore_flow_versions(
+    tx: &mut PgConnection,
+    workspace_id: &str,
+    path: &str,
+    trash_id: i64,
+) -> Result<()> {
+    sqlx::query("UPDATE flow_version SET path = $1 WHERE path = $2 AND workspace_id = $3")
+        .bind(path)
+        .bind(set_aside_path(trash_id))
+        .bind(workspace_id)
+        .execute(&mut *tx)
+        .await?;
+    Ok(())
+}
+
+/// SQL deleting the trash rows matching `cond` and selecting how many there were, along with
+/// the versions their flows set aside, except those a queued job still references: those
+/// are kept for good.
 fn remove_trash_sql(cond: &str) -> String {
     format!(
         "WITH removed AS (
-            DELETE FROM trashbin WHERE {cond} RETURNING id, workspace_id, item_kind, item_path
-        ), gone AS (
-            SELECT DISTINCT r.workspace_id, r.item_path AS path FROM removed r
-            WHERE r.item_kind = 'flow'
-            AND NOT EXISTS (
-                SELECT 1 FROM trashbin t
-                WHERE t.workspace_id = r.workspace_id AND t.item_kind = 'flow'
-                AND t.item_path = r.item_path AND t.id NOT IN (SELECT id FROM removed)
-            )
+            DELETE FROM trashbin WHERE {cond} RETURNING id, workspace_id, item_kind
+        ), _versions AS (
+            DELETE FROM flow_version v USING removed r
+            WHERE r.item_kind = 'flow' AND v.workspace_id = r.workspace_id
+            AND v.path = '__deleted/' || r.id
             AND NOT EXISTS (
                 SELECT 1 FROM v2_job_queue q JOIN v2_job j ON j.id = q.id
-                WHERE q.workspace_id = r.workspace_id AND j.runnable_path = r.item_path
-                AND j.kind IN ('flow', 'flowdependencies')
-                AND NOT EXISTS (
-                    SELECT 1 FROM flow f
-                    WHERE f.workspace_id = r.workspace_id AND f.path = r.item_path
-                    AND j.runnable_id = ANY(f.versions)
-                )
-            )
-        ), _versions AS (
-            DELETE FROM flow_version v USING gone g
-            WHERE v.workspace_id = g.workspace_id AND v.path = g.path
-            AND NOT EXISTS (
-                SELECT 1 FROM flow f
-                WHERE f.workspace_id = v.workspace_id AND f.path = v.path AND v.id = ANY(f.versions)
+                WHERE q.workspace_id = v.workspace_id AND j.runnable_id = v.id
             )
         )
         SELECT count(*) FROM removed"

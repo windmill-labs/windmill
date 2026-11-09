@@ -731,7 +731,7 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
-        r#"UPDATE flow_version SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3 AND id IN (SELECT unnest(f.versions) FROM flow f WHERE f.workspace_id = $3 AND f.path = flow_version.path)"#,
+        r#"UPDATE flow_version SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
         w_id

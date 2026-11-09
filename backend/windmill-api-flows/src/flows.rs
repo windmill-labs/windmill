@@ -1045,7 +1045,6 @@ async fn get_flow_history(
         "SELECT flow_version.id, flow_version.created_at, flow_version.created_by, deployment_metadata.deployment_msg FROM flow_version
         LEFT JOIN deployment_metadata ON flow_version.id = deployment_metadata.flow_version
         WHERE flow_version.path = $1 AND flow_version.workspace_id = $2
-        AND flow_version.id IN (SELECT unnest(versions) FROM flow WHERE path = $1 AND workspace_id = $2)
         ORDER BY flow_version.created_at DESC
         LIMIT $3 OFFSET $4",
         path,
@@ -1117,8 +1116,7 @@ async fn get_flow_version(
         "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow.job_token_scopes, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
         FROM flow
         LEFT JOIN flow_version ON flow_version.path = flow.path AND flow_version.workspace_id = flow.workspace_id
-        WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3
-        AND flow_version.id = ANY(flow.versions)",
+        WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3",
     )
     .bind(path)
     .bind(&w_id)
@@ -1184,7 +1182,7 @@ async fn get_flow_version_by_id(
         INNER JOIN flow_version
             ON flow_version.path = flow.path
             AND flow_version.workspace_id = flow.workspace_id
-        WHERE flow_version.id = $1 AND flow.workspace_id = $2 AND flow_version.id = ANY(flow.versions)",
+        WHERE flow_version.id = $1 AND flow.workspace_id = $2",
     )
     .bind(version)
     .bind(&w_id)
@@ -1437,10 +1435,8 @@ async fn update_flow(
             error::Error::internal_err(format!("Error updating flow due to create new flow: {e:#}"))
         })?;
 
-        // Only this flow's versions: a deleted flow's stay at the path for its own runs.
         sqlx::query!(
-            "UPDATE flow_version SET path = $1 WHERE path = $2 AND workspace_id = $3
-            AND id IN (SELECT unnest(versions) FROM flow WHERE path = $2 AND workspace_id = $3)",
+            "UPDATE flow_version SET path = $1 WHERE path = $2 AND workspace_id = $3",
             nf.path,
             flow_path,
             w_id
@@ -2160,7 +2156,6 @@ async fn delete_flow_by_path(
     }
     let mut tx = user_db.begin(&authed).await?;
 
-    // Versions and nodes stay for runs in flight; versions go when the flow leaves the trash.
     let trash_flow: Option<serde_json::Value> =
         sqlx::query_scalar("SELECT to_jsonb(t) FROM flow t WHERE path = $1 AND workspace_id = $2")
             .bind(path)
@@ -2219,7 +2214,7 @@ async fn delete_flow_by_path(
         if !trash_drafts.is_empty() {
             trash_data["drafts"] = serde_json::Value::Array(trash_drafts);
         }
-        windmill_common::trashbin::move_to_trash(
+        let trash_id = windmill_common::trashbin::move_to_trash(
             &mut *tx,
             &w_id,
             "flow",
@@ -2228,6 +2223,8 @@ async fn delete_flow_by_path(
             &authed.username,
         )
         .await?;
+        windmill_common::trashbin::set_aside_flow_versions(&mut *tx, &w_id, path, trash_id)
+            .await?;
     }
 
     if !query.keep_captures.unwrap_or(false) {

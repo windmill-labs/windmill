@@ -916,7 +916,7 @@ async fn offboard_user_from_workspace<'c>(
     ).fetch_one(&mut **tx).await?.unwrap_or(0);
 
     sqlx::query!(
-        r#"UPDATE flow_version SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3 AND id IN (SELECT unnest(f.versions) FROM flow f WHERE f.workspace_id = $3 AND f.path = flow_version.path)"#,
+        r#"UPDATE flow_version SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         &new_prefix, username, w_id
     ).execute(&mut **tx).await?;
 
