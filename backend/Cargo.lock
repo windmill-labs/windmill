@@ -1906,7 +1906,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
 dependencies = [
  "hybrid-array",
- "zeroize",
 ]
 
 [[package]]
@@ -2975,7 +2974,6 @@ dependencies = [
  "hybrid-array",
  "num-traits",
  "rand_core 0.10.1",
- "serdect 0.4.3",
  "subtle",
  "zeroize",
 ]
@@ -2999,16 +2997,6 @@ checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
 dependencies = [
  "getrandom 0.4.3",
  "hybrid-array",
- "rand_core 0.10.1",
-]
-
-[[package]]
-name = "crypto-primes"
-version = "0.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3633a51a39c69ebbaa4feaa694bd83d241e4093901c84a0963b19d9bb3f0cf8f"
-dependencies = [
- "crypto-bigint 0.7.11",
  "rand_core 0.10.1",
 ]
 
@@ -4066,7 +4054,7 @@ dependencies = [
  "p384 0.13.1",
  "p521",
  "rand 0.8.5",
- "rsa 0.9.10",
+ "rsa",
  "serde",
  "serde_bytes",
  "sha1",
@@ -4759,7 +4747,6 @@ dependencies = [
  "const-oid 0.10.2",
  "crypto-common 0.2.2",
  "ctutils",
- "zeroize",
 ]
 
 [[package]]
@@ -9043,7 +9030,7 @@ dependencies = [
  "p256 0.14.0",
  "p384 0.14.0",
  "rand 0.8.5",
- "rsa 0.9.10",
+ "rsa",
  "serde",
  "serde-value",
  "serde_json",
@@ -9905,16 +9892,6 @@ dependencies = [
  "der 0.7.10",
  "pkcs8 0.10.2",
  "spki 0.7.3",
-]
-
-[[package]]
-name = "pkcs1"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6250dd7321adbe93d12b750aee0ced159fd13e77f625edcdf1cb6f83cd99f650"
-dependencies = [
- "der 0.8.3",
- "spki 0.8.1",
 ]
 
 [[package]]
@@ -11302,33 +11279,12 @@ dependencies = [
  "num-bigint-dig",
  "num-integer",
  "num-traits",
- "pkcs1 0.7.5",
+ "pkcs1",
  "pkcs8 0.10.2",
  "rand_core 0.6.4",
  "signature 2.2.0",
  "spki 0.7.3",
  "subtle",
- "zeroize",
-]
-
-[[package]]
-name = "rsa"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23e77fd77e0dea28b3011fd62d15445b7de7959333b0276d930e03be0f755699"
-dependencies = [
- "const-oid 0.10.2",
- "crypto-bigint 0.7.11",
- "crypto-common 0.2.2",
- "crypto-primes",
- "digest 0.11.3",
- "hmac 0.13.0",
- "pkcs1 0.8.0",
- "pkcs8 0.11.0",
- "rand_core 0.10.1",
- "sha2 0.11.1",
- "signature 3.0.0",
- "spki 0.8.1",
  "zeroize",
 ]
 
@@ -12876,7 +12832,7 @@ dependencies = [
  "once_cell",
  "percent-encoding",
  "rand 0.8.5",
- "rsa 0.9.10",
+ "rsa",
  "serde",
  "sha1",
  "sha2 0.10.9",
@@ -15835,7 +15791,7 @@ dependencies = [
  "rcgen",
  "regex",
  "reqwest 0.13.5",
- "rsa 0.10.0",
+ "rsa",
  "rust-embed",
  "rustls 0.23.40",
  "samael",
@@ -16322,7 +16278,7 @@ dependencies = [
  "futures",
  "lazy_static",
  "regex",
- "rsa 0.10.0",
+ "rsa",
  "serde",
  "serde_json",
  "serde_yml",
@@ -16526,7 +16482,7 @@ dependencies = [
  "pep440_rs",
  "phf 0.11.3",
  "pin-project-lite",
- "pkcs1 0.7.5",
+ "pkcs1",
  "postgres-native-tls 0.5.3",
  "postgres-protocol",
  "prometheus",
@@ -16537,7 +16493,7 @@ dependencies = [
  "reqwest 0.13.5",
  "reqwest-middleware",
  "reqwest-retry",
- "rsa 0.10.0",
+ "rsa",
  "rustls 0.23.40",
  "rustls-native-certs 0.8.5",
  "ryu-js",
@@ -17652,7 +17608,7 @@ dependencies = [
  "regex",
  "reqwest 0.13.5",
  "reqwest-middleware",
- "rsa 0.10.0",
+ "rsa",
  "rust_decimal",
  "rustls 0.23.40",
  "rustls-native-certs 0.8.5",
