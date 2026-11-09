@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (SELECT 1 FROM worker_ping WHERE worker_group = $1 AND worker_instance <> $2\n            AND dedicated_restart_at > now() - make_interval(secs => $3)) AS \"busy!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "busy!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9eba92f97a359fd5a1c83a98acf3c0831d47a3d8db41cbcb26500e593a2b108d"
+}
