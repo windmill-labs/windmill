@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ai_memory_turn (workspace_id, memory_id, job_id) VALUES ($1, $2, $3)\n             ON CONFLICT (workspace_id, memory_id) DO NOTHING RETURNING job_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b0e6fb018738a20844572f18cf6fa269100e1bab92ca31b5db3e67a4d7260405"
+}

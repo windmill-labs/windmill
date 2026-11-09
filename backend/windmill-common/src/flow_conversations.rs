@@ -140,13 +140,13 @@ async fn refuse_running_turn(
         return Ok(());
     };
     // A turn whose agent parked hands over to this one when the run claims the memory id.
-    let parked: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM ai_agent_checkpoint c
+    let parked = sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM ai_agent_checkpoint c
              JOIN v2_job_queue q ON q.id = c.job_id JOIN v2_job j ON j.id = c.job_id
              WHERE (j.parent_job = $1 OR j.root_job = $1)
-               AND q.suspend > 0 AND q.suspend_until IS NOT NULL)",
+               AND q.suspend > 0 AND q.suspend_until IS NOT NULL) AS "parked!""#,
+        turn.job_id
     )
-    .bind(turn.job_id)
     .fetch_one(&mut **tx)
     .await?;
     if parked {

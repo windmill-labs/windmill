@@ -1,8 +1,5 @@
 //! A memory id is held by one queued run at a time: a second run that claims it is refused, even
 //! when both claim at once, and the id is free again once its run leaves the queue.
-//!
-//! Uses runtime `sqlx::query` (not the compile-time macros) so no offline query cache is
-//! needed, matching flow_conversation_running_turn.rs.
 
 use sqlx::{Pool, Postgres, Transaction};
 use uuid::Uuid;
@@ -16,16 +13,18 @@ const MEMORY: Uuid = Uuid::from_u128(0x3e3);
 /// Queue a run in `tx` and claim the memory id for it, as a push does.
 async fn push_with_memory(tx: &mut Transaction<'_, Postgres>) -> anyhow::Result<(Uuid, bool)> {
     let job_id = Uuid::new_v4();
-    sqlx::query("INSERT INTO v2_job (id, workspace_id, kind) VALUES ($1, $2, 'flow')")
-        .bind(job_id)
-        .bind(WS)
-        .execute(&mut **tx)
-        .await?;
-    sqlx::query(
-        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for) VALUES ($1, $2, now())",
+    sqlx::query!(
+        "INSERT INTO v2_job (id, workspace_id, kind) VALUES ($1, $2, 'flow')",
+        job_id,
+        WS
     )
-    .bind(job_id)
-    .bind(WS)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for) VALUES ($1, $2, now())",
+        job_id,
+        WS
+    )
     .execute(&mut **tx)
     .await?;
     match set_flow_memory_id(tx, WS, job_id, MEMORY).await {
@@ -61,19 +60,18 @@ async fn test_one_queued_run_holds_a_memory_id(db: Pool<Postgres>) -> anyhow::Re
     );
 
     // Once the holder leaves the queue, the next run takes the id over.
-    sqlx::query("DELETE FROM v2_job_queue WHERE id = $1")
-        .bind(first_job)
+    sqlx::query!("DELETE FROM v2_job_queue WHERE id = $1", first_job)
         .execute(&db)
         .await?;
     let mut tx = db.begin().await?;
     let (third_job, claimed) = push_with_memory(&mut tx).await?;
     tx.commit().await?;
     assert!(claimed);
-    let holder: Uuid = sqlx::query_scalar(
+    let holder = sqlx::query_scalar!(
         "SELECT job_id FROM ai_memory_turn WHERE workspace_id = $1 AND memory_id = $2",
+        WS,
+        MEMORY
     )
-    .bind(WS)
-    .bind(MEMORY)
     .fetch_one(&db)
     .await?;
     assert_eq!(holder, third_job);

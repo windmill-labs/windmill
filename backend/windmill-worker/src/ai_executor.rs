@@ -1541,20 +1541,21 @@ async fn adopt_handed_jobs(
     memory_id: Uuid,
     step_id: &str,
 ) -> error::Result<Vec<BackgroundJob>> {
-    let jobs: Option<sqlx::types::Json<Vec<BackgroundJob>>> = sqlx::query_scalar(
-        "UPDATE ai_memory_turn t SET handed_jobs = t.handed_jobs - $4
-         FROM (SELECT handed_jobs -> $4 AS jobs FROM ai_memory_turn
+    let jobs = sqlx::query_scalar!(
+        r#"UPDATE ai_memory_turn t SET handed_jobs = t.handed_jobs - $4::text
+         FROM (SELECT handed_jobs -> $4::text AS jobs FROM ai_memory_turn
                WHERE workspace_id = $1 AND memory_id = $2 AND job_id = $3) old
          WHERE t.workspace_id = $1 AND t.memory_id = $2 AND t.job_id = $3
-           AND t.handed_jobs ? $4
-         RETURNING old.jobs",
+           AND t.handed_jobs ? $4::text
+         RETURNING old.jobs AS "jobs: sqlx::types::Json<Vec<BackgroundJob>>""#,
+        &job.workspace_id,
+        memory_id,
+        get_root_job_id(job),
+        step_id
     )
-    .bind(&job.workspace_id)
-    .bind(memory_id)
-    .bind(get_root_job_id(job))
-    .bind(step_id)
     .fetch_optional(db)
-    .await?;
+    .await?
+    .flatten();
     let mut jobs = jobs.map(|j| j.0).unwrap_or_default();
     for adopted in &mut jobs {
         adopted.adopted = true;

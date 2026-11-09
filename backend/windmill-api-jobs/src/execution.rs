@@ -929,34 +929,35 @@ async fn claim_memory_turn(
 ) -> error::Result<Option<Uuid>> {
     // A claim the monitor deletes while this waits on it is gone, not held: insert again.
     for _ in 0..3 {
-        let inserted: Option<Uuid> = sqlx::query_scalar(
+        let inserted = sqlx::query_scalar!(
             "INSERT INTO ai_memory_turn (workspace_id, memory_id, job_id) VALUES ($1, $2, $3)
              ON CONFLICT (workspace_id, memory_id) DO NOTHING RETURNING job_id",
+            w_id,
+            memory_id,
+            job_id
         )
-        .bind(w_id)
-        .bind(memory_id)
-        .bind(job_id)
         .fetch_optional(&mut **tx)
         .await?;
         if inserted.is_some() {
             return Ok(None);
         }
-        let holder: Option<Uuid> = sqlx::query_scalar(
+        let holder = sqlx::query_scalar!(
             "SELECT job_id FROM ai_memory_turn WHERE workspace_id = $1 AND memory_id = $2
              FOR UPDATE",
+            w_id,
+            memory_id
         )
-        .bind(w_id)
-        .bind(memory_id)
         .fetch_optional(&mut **tx)
         .await?;
         let Some(holder) = holder else {
             continue;
         };
-        let queued: bool =
-            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM v2_job_queue WHERE id = $1)")
-                .bind(holder)
-                .fetch_one(&mut **tx)
-                .await?;
+        let queued = sqlx::query_scalar!(
+            r#"SELECT EXISTS (SELECT 1 FROM v2_job_queue WHERE id = $1) AS "queued!""#,
+            holder
+        )
+        .fetch_one(&mut **tx)
+        .await?;
         let handed_jobs = if queued {
             match hand_over_parked_turn(tx, holder).await? {
                 Some(jobs) => Some(jobs),
@@ -965,14 +966,14 @@ async fn claim_memory_turn(
         } else {
             None
         };
-        sqlx::query(
+        sqlx::query!(
             "UPDATE ai_memory_turn SET job_id = $3, handed_jobs = $4
              WHERE workspace_id = $1 AND memory_id = $2",
+            w_id,
+            memory_id,
+            job_id,
+            handed_jobs
         )
-        .bind(w_id)
-        .bind(memory_id)
-        .bind(job_id)
-        .bind(handed_jobs)
         .execute(&mut **tx)
         .await?;
         return Ok(None);
@@ -993,31 +994,31 @@ async fn hand_over_parked_turn(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     holder: Uuid,
 ) -> error::Result<Option<serde_json::Value>> {
-    let parked: Vec<(Uuid, Option<String>, Option<serde_json::Value>)> = sqlx::query_as(
-        "UPDATE v2_job_queue q SET suspend = 0
+    let parked = sqlx::query!(
+        r#"UPDATE v2_job_queue q SET suspend = 0
          FROM ai_agent_checkpoint c, v2_job j
          WHERE c.job_id = q.id AND j.id = q.id AND (j.parent_job = $1 OR j.root_job = $1)
            AND q.suspend > 0 AND q.suspend_until IS NOT NULL
-         RETURNING q.id, j.flow_step_id, c.checkpoint->'background'",
+         RETURNING q.id, j.flow_step_id, c.checkpoint->'background' AS "background""#,
+        holder
     )
-    .bind(holder)
     .fetch_all(&mut **tx)
     .await?;
     if parked.is_empty() {
         return Ok(None);
     }
-    let ids: Vec<Uuid> = parked.iter().map(|(id, ..)| *id).collect();
-    sqlx::query(
+    let ids: Vec<Uuid> = parked.iter().map(|p| p.id).collect();
+    sqlx::query!(
         "UPDATE ai_agent_checkpoint
          SET checkpoint = jsonb_set(checkpoint, '{handed_over}', 'true'), waiting_on = '{}'
          WHERE job_id = ANY($1)",
+        &ids
     )
-    .bind(&ids)
     .execute(&mut **tx)
     .await?;
     let jobs = parked
         .into_iter()
-        .filter_map(|(_, step, jobs)| Some((step?, jobs?)))
+        .filter_map(|p| Some((p.flow_step_id?, p.background?)))
         .collect::<serde_json::Map<_, _>>();
     Ok(Some(serde_json::Value::Object(jobs)))
 }
@@ -1052,17 +1053,17 @@ pub async fn take_over_memory_turn(
             "take_over needs a token that can cancel any job (`jobs:cancel`)".to_string(),
         ));
     }
-    let holder: Option<(Uuid, String, String)> = sqlx::query_as(
+    let holder = sqlx::query!(
         "SELECT t.job_id, j.created_by, j.tag FROM ai_memory_turn t
          JOIN v2_job_queue q ON q.id = t.job_id
          JOIN v2_job j ON j.id = t.job_id
          WHERE t.workspace_id = $1 AND t.memory_id = $2",
+        w_id,
+        memory_id
     )
-    .bind(w_id)
-    .bind(memory_id)
     .fetch_optional(db)
     .await?;
-    let Some((job_id, created_by, tag)) = holder else {
+    let Some((job_id, created_by, tag)) = holder.map(|h| (h.job_id, h.created_by, h.tag)) else {
         return Ok(());
     };
     // A token confined to tags reads, and so cancels, only jobs on them.
@@ -1101,11 +1102,12 @@ pub async fn take_over_memory_turn(
 
     let deadline = std::time::Instant::now() + TAKE_OVER_WAIT;
     loop {
-        let queued: bool =
-            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM v2_job_queue WHERE id = $1)")
-                .bind(job_id)
-                .fetch_one(db)
-                .await?;
+        let queued = sqlx::query_scalar!(
+            r#"SELECT EXISTS (SELECT 1 FROM v2_job_queue WHERE id = $1) AS "queued!""#,
+            job_id
+        )
+        .fetch_one(db)
+        .await?;
         if !queued {
             return Ok(());
         }

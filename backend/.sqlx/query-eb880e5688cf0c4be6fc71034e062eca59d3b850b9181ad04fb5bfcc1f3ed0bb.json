@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ai_agent_checkpoint\n         SET checkpoint = jsonb_set(checkpoint, '{handed_over}', 'true'), waiting_on = '{}'\n         WHERE job_id = ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eb880e5688cf0c4be6fc71034e062eca59d3b850b9181ad04fb5bfcc1f3ed0bb"
+}
