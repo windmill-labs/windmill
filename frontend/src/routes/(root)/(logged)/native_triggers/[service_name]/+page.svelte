@@ -262,7 +262,7 @@
 					{serviceConfig?.serviceDisplayName || serviceName} isn't configured in this workspace yet.
 					<div class="flex gap-2">
 						<Button variant="accent" href="/workspace_settings?tab=native_triggers">
-							Manage native triggers
+							Manage integration triggers
 						</Button>
 						<Button variant="subtle" onclick={() => checkServiceAvailability()}>Retry check</Button>
 					</div>
