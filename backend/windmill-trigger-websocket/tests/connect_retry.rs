@@ -1,5 +1,5 @@
 //! End-to-end tests for the websocket trigger connection lifecycle against mock
-//! TCP servers: which upgrade failures `get_consumer` retries, and when `consume`
+//! TCP servers: which upgrade failures `get_consumer` reports as retryable, and when `consume`
 //! gives up on an open connection and how it closes it.
 //!
 //! This lives in an integration-test binary (own process) because it sets
@@ -19,9 +19,12 @@ use tokio::{
     sync::{broadcast, oneshot, RwLock},
 };
 use tokio_tungstenite::tungstenite::Message;
-use windmill_trigger::{listener::ListeningTrigger, Listener};
+use windmill_trigger::{
+    listener::{is_transient_error, ListeningTrigger},
+    Listener,
+};
 use windmill_trigger_websocket::{
-    listener::{CONNECT_RETRY_BASE_DELAY_MS, PING_INTERVAL_MS},
+    listener::PING_INTERVAL_MS,
     WebsocketConfig, WebsocketTrigger, ALLOW_PRIVATE_WEBSOCKET_URLS_ENV,
 };
 
@@ -106,61 +109,39 @@ fn unreachable_db() -> windmill_common::DB {
 
 async fn get_consumer_result(
     lt: &ListeningTrigger<WebsocketConfig>,
-    err_message: Arc<RwLock<Option<String>>>,
 ) -> windmill_common::error::Result<Option<<WebsocketTrigger as Listener>::Consumer>> {
     let db = unreachable_db();
     let (_killpill_tx, killpill_rx) = broadcast::channel::<()>(1);
     WebsocketTrigger
-        .get_consumer(&db, lt, err_message, killpill_rx)
+        .get_consumer(&db, lt, Arc::new(RwLock::new(None)), killpill_rx)
         .await
 }
 
 #[tokio::test]
-async fn transient_errors_are_retried_past_the_fast_attempts_until_the_upgrade_succeeds() {
+async fn gateway_and_timeout_upgrade_failures_are_retryable() {
     std::env::set_var(ALLOW_PRIVATE_WEBSOCKET_URLS_ENV, "true");
-    CONNECT_RETRY_BASE_DELAY_MS.store(1, Ordering::Relaxed);
-    let (addr, attempts) = mock_ws_server(6, "408 Request Timeout").await;
-    let lt = trigger(format!("ws://{addr}"), true);
-    let err_message = Arc::new(RwLock::new(None));
+    for status_line in ["408 Request Timeout", "502 Bad Gateway"] {
+        let (addr, attempts) = mock_ws_server(u32::MAX, status_line).await;
+        let err = get_consumer_result(&trigger(format!("ws://{addr}"), true))
+            .await
+            .expect_err("the upgrade is rejected");
 
-    let consumer = get_consumer_result(&lt, err_message.clone())
-        .await
-        .expect("connect should succeed after retries");
-
-    assert!(consumer.is_some(), "expected an established connection");
-    assert_eq!(attempts.load(Ordering::SeqCst), 7);
-    // Retry progress was reported through the shared status lock.
-    let status = err_message.read().await.clone().unwrap();
-    assert!(status.contains("attempt 6 failed"), "got status: {status}");
-    assert!(status.contains("408"), "got status: {status}");
+        assert!(is_transient_error(&err), "{status_line}: got {err:?}");
+        assert!(err.to_string().contains(&status_line[..3]), "got error: {err}");
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
 }
 
 #[tokio::test]
-async fn non_transient_http_errors_fail_on_the_first_attempt() {
+async fn other_client_errors_disable() {
     std::env::set_var(ALLOW_PRIVATE_WEBSOCKET_URLS_ENV, "true");
-    let (addr, attempts) = mock_ws_server(u32::MAX, "404 Not Found").await;
-    let lt = trigger(format!("ws://{addr}"), true);
-
-    let err = get_consumer_result(&lt, Arc::new(RwLock::new(None)))
+    let (addr, _) = mock_ws_server(u32::MAX, "404 Not Found").await;
+    let err = get_consumer_result(&trigger(format!("ws://{addr}"), true))
         .await
         .expect_err("a 404 upgrade response should not be retried");
 
+    assert!(!is_transient_error(&err), "got {err:?}");
     assert!(err.to_string().contains("404"), "got error: {err}");
-    assert_eq!(attempts.load(Ordering::SeqCst), 1);
-}
-
-#[tokio::test]
-async fn capture_mode_fails_fast_even_on_transient_errors() {
-    std::env::set_var(ALLOW_PRIVATE_WEBSOCKET_URLS_ENV, "true");
-    let (addr, attempts) = mock_ws_server(u32::MAX, "502 Bad Gateway").await;
-    let lt = trigger(format!("ws://{addr}"), false);
-
-    let err = get_consumer_result(&lt, Arc::new(RwLock::new(None)))
-        .await
-        .expect_err("capture mode should surface the first failure immediately");
-
-    assert!(err.to_string().contains("502"), "got error: {err}");
-    assert_eq!(attempts.load(Ordering::SeqCst), 1);
 }
 
 /// Accepts one websocket connection. A `responsive` server keeps reading, which is
@@ -193,7 +174,7 @@ async fn spawn_consume(
     addr: std::net::SocketAddr,
 ) -> (tokio::task::JoinHandle<()>, oneshot::Receiver<()>) {
     let lt = trigger(format!("ws://{addr}"), true);
-    let consumer = get_consumer_result(&lt, Arc::new(RwLock::new(None)))
+    let consumer = get_consumer_result(&lt)
         .await
         .unwrap()
         .unwrap();

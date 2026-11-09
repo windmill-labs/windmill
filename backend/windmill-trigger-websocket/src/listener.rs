@@ -28,18 +28,14 @@ use windmill_common::{
 };
 use windmill_queue::PushArgsOwned;
 use windmill_trigger::filter::CompiledFilters;
-use windmill_trigger::listener::{reconnect_delay, update_rw_lock, ListeningTrigger};
+use windmill_trigger::listener::{
+    is_transient_error, transient_error, update_rw_lock, ListeningTrigger,
+};
 use windmill_trigger::trigger_helpers::{
     trigger_runnable, trigger_runnable_and_wait_for_raw_result,
     trigger_runnable_and_wait_for_raw_result_with_error_ctx, TriggerJobArgs,
 };
 use windmill_trigger::Listener;
-
-/// Unit of the connect backoff (see [`reconnect_delay`]). Tests shrink it to avoid
-/// waiting out real seconds; nothing else writes it.
-#[doc(hidden)]
-pub static CONNECT_RETRY_BASE_DELAY_MS: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(1000);
 
 /// How often an open connection is pinged. A connection that delivers no frame at all
 /// (message, ping or pong) for [`MISSED_PINGS_BEFORE_RECONNECT`] intervals is presumed
@@ -79,24 +75,6 @@ fn is_transient_connect_error(err: &tungstenite::Error) -> bool {
     }
 }
 
-/// A URL runnable that ran and failed, or whose result could not be awaited (the
-/// result wait times out, the DB blips), may succeed on the next run: worker group
-/// saturated, upstream API down. Anything else (missing runnable, no permission,
-/// non-string result, workers too old) fails the same way every time. An allowlist, so
-/// that a new error kind disables rather than re-running a job every few minutes forever.
-fn is_transient_runnable_error(err: &Error) -> bool {
-    matches!(
-        err,
-        Error::InternalErr(_)
-            | Error::InternalErrLoc { .. }
-            | Error::InternalErrAt(..)
-            | Error::Anyhow { .. }
-            | Error::SqlErr { .. }
-            | Error::ConnectingToDatabase(_)
-            | Error::BadGateway(_)
-    )
-}
-
 async fn connect_once(
     db: &DB,
     listening_trigger: &ListeningTrigger<WebsocketConfig>,
@@ -131,8 +109,11 @@ async fn connect_once(
             .await
         }
         .await
+        // A URL runnable that ran and failed, or whose result could not be awaited, may
+        // succeed on the next run (worker group saturated, upstream API down); a missing
+        // runnable or a non-string result fails the same way every time.
         .map_err(|err| ConnectFailure {
-            transient: is_transient_runnable_error(&err),
+            transient: is_transient_error(&err),
             error: format!("Error getting WebSocket URL from runnable: {}", err),
         })?;
         Cow::Owned(url)
@@ -311,7 +292,6 @@ impl Listener for WebsocketTrigger {
     type Extra = ReturnMessageChannels;
     type ExtraState = ();
     const JOB_TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Websocket;
-    const RECONNECT_ON_CONSUMER_EXIT: bool = true;
     async fn get_consumer(
         &self,
         db: &DB,
@@ -319,59 +299,11 @@ impl Listener for WebsocketTrigger {
         err_message: Arc<RwLock<Option<String>>>,
         _killpill_rx: tokio::sync::broadcast::Receiver<()>,
     ) -> Result<Option<Self::Consumer>> {
-        // The caller runs `loop_ping` alongside, so the lease and the status line stay
-        // alive across the sleeps, and cancels this future on killpill or a lost lease.
-        let mut attempt = 0;
-        loop {
-            attempt += 1;
-            match connect_once(db, listening_trigger, err_message.clone()).await {
-                Ok(conn) => return Ok(Some(conn)),
-                // Only retry in trigger mode, where a failure disables the trigger until
-                // a human re-enables it: capture mode is an interactive test where
-                // instant feedback beats resilience (an `Io` error can also be a
-                // permanent misconfiguration, e.g. a typo'd host).
-                Err(ConnectFailure { error, transient: true })
-                    if listening_trigger.trigger_mode =>
-                {
-                    let delay = reconnect_delay(
-                        Duration::from_millis(
-                            CONNECT_RETRY_BASE_DELAY_MS.load(std::sync::atomic::Ordering::Relaxed),
-                        ),
-                        attempt,
-                    );
-                    let next_attempt_at =
-                        chrono::Utc::now() + chrono::Duration::from_std(delay).unwrap_or_default();
-                    tracing::warn!(
-                        "Transient error connecting to WebSocket for trigger {} (attempt {}), retrying in {:?}: {}",
-                        listening_trigger.path,
-                        attempt,
-                        delay,
-                        error
-                    );
-                    update_rw_lock(
-                        err_message.clone(),
-                        Some(format!(
-                            "Connection attempt {} failed, retrying in {:?} (at {}): {}",
-                            attempt,
-                            delay,
-                            next_attempt_at.format("%Y-%m-%d %H:%M:%S UTC"),
-                            error
-                        )),
-                    )
-                    .await;
-                    tokio::time::sleep(delay).await;
-                }
-                Err(ConnectFailure { error, .. }) => {
-                    let error = if attempt > 1 {
-                        format!("{} (connection attempt {})", error, attempt)
-                    } else {
-                        error
-                    };
-                    return Err(Error::Generic(
-                        http::StatusCode::INTERNAL_SERVER_ERROR,
-                        error,
-                    ));
-                }
+        match connect_once(db, listening_trigger, err_message).await {
+            Ok(conn) => Ok(Some(conn)),
+            Err(ConnectFailure { error, transient: true }) => Err(transient_error(error)),
+            Err(ConnectFailure { error, transient: false }) => {
+                Err(Error::Generic(http::StatusCode::BAD_REQUEST, error))
             }
         }
     }

@@ -17,9 +17,17 @@ export async function dedicatedWorkerTag(workspaceId: string, path: string): Pro
 	return `${fullTag.substring(0, prefixLen)}#${hexHash.substring(0, HASH_SUFFIX_LEN)}`
 }
 
+// Same rule as `dedicated_worker_pattern_prefix()` in backend/windmill-common/src/worker.rs:
+// `f/dw/*` stands for every dedicated script under `f/dw/`. Flows are listed one by one.
+export function isDedicatedPattern(path: string): boolean {
+	return (
+		path.endsWith('/*') && path.length > 2 && !path.startsWith('flow/') && !path.includes(':')
+	)
+}
+
 export function parseTag(
 	tag: string
-): { workspace: string; type: 'script' | 'flow'; path: string } | null {
+): { workspace: string; type: 'script' | 'flow' | 'pattern'; path: string } | null {
 	const colonIndex = tag.indexOf(':')
 	if (colonIndex === -1) return null
 
@@ -28,6 +36,8 @@ export function parseTag(
 
 	if (rest.startsWith('flow/')) {
 		return { workspace, type: 'flow', path: rest.substring(5) }
+	} else if (isDedicatedPattern(rest)) {
+		return { workspace, type: 'pattern', path: rest }
 	} else {
 		return { workspace, type: 'script', path: rest }
 	}
@@ -35,7 +45,7 @@ export function parseTag(
 
 export async function computeHashedTag(rawTag: string): Promise<string> {
 	const parsed = parseTag(rawTag)
-	if (!parsed) return rawTag
+	if (!parsed || parsed.type === 'pattern') return rawTag
 	const fullPath = parsed.type === 'flow' ? `flow/${parsed.path}` : parsed.path
 	return dedicatedWorkerTag(parsed.workspace, fullPath)
 }

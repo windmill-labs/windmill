@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE worker_ping SET dedicated_restart_at = now() WHERE worker_group = $1 AND worker_instance = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d5cba1e3933ea2c88928f0c98f056f4817a83aa4e483f03f15b5575bbb3f0613"
+}

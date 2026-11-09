@@ -211,6 +211,20 @@ impl BaseTriggerData {
         self.mode = Some(mode);
     }
 
+    /// Stored as parsed: a rename retargets triggers, and a runnable lists its own, by exact
+    /// `script_path`, so one saved with a leading `/` would run but be missed by both. Empty is
+    /// left alone: a static HTTP route has no runnable.
+    pub fn normalize_script_path(&mut self) -> windmill_common::error::Result<()> {
+        if self.script_path.is_empty() {
+            return Ok(());
+        }
+        self.script_path =
+            windmill_common::runnable_ref::RunnableRef::from_path(&self.script_path, self.is_flow)?
+                .path()
+                .to_string();
+        Ok(())
+    }
+
     pub fn resolve_permissioned_as(&self, authed: &impl Authable) -> String {
         if let Some(ref permissioned_as) = self.permissioned_as {
             if self.preserve_permissioned_as.unwrap_or(false)

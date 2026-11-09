@@ -280,6 +280,16 @@ const VACUUM_PERIOD: u32 = 10000;
 
 pub const MAX_BUFFERED_DEDICATED_JOBS: usize = 3;
 
+/// Dedicated subprocess tasks still running. A killed worker's result processor keeps receiving
+/// until this reaches zero: the main loop waits for the processor before it waits for those
+/// tasks, which send the results of the jobs they drain.
+pub static LIVE_DEDICATED_TASKS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// Dedicated subprocesses that have reported they are up, counted over the life of the process.
+pub static STARTED_DEDICATED_PROCESSES: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 /// Per-language OTEL tracing proxy configuration.
 /// Default languages are configured in frontend instanceSettings.ts
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
