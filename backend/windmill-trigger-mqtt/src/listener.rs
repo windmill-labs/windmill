@@ -144,6 +144,16 @@ fn connection_refused(code: impl std::fmt::Debug, server_side: bool) -> Error {
     }
 }
 
+/// rumqttc builds the TLS connector (parsing the client certificate archive) only when
+/// the event loop first connects, so a bad certificate or password surfaces here, not
+/// when the client is built. Only I/O during the handshake can clear up on a retry.
+fn tls_error(err: rumqttc::TlsError) -> Error {
+    match err {
+        rumqttc::TlsError::Io(e) => to_anyhow(e).into(),
+        err => Error::BadConfig(format!("TLS error: {}", err)),
+    }
+}
+
 #[async_trait]
 pub trait EventLoop {
     type Event;
@@ -183,6 +193,7 @@ impl EventLoop for V5EventLoop {
                     );
                     connection_refused(code, server_side)
                 }
+                rumqttc::v5::ConnectionError::Tls(err) => tls_error(err),
                 err => to_anyhow(err).into(),
             })? {
                 Self::Event::Incoming(V5Incoming::ConnAck(_)) => return Ok(()),
@@ -221,6 +232,7 @@ impl EventLoop for V3EventLoop {
                         matches!(code, rumqttc::ConnectReturnCode::ServiceUnavailable);
                     connection_refused(code, server_side)
                 }
+                rumqttc::ConnectionError::Tls(err) => tls_error(err),
                 err => to_anyhow(err).into(),
             })? {
                 Self::Event::Incoming(rumqttc::Packet::ConnAck(_)) => return Ok(()),
