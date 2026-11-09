@@ -1151,12 +1151,11 @@
 					unifiedSize="sm"
 					columnDefs={dbTableOps.colDefs ?? []}
 					dbType={dbTableOps.dbType}
-					onInsert={(values) => {
+					onInsert={async (values) => {
 						if (!$operatingWorkspace) return
-						dbTableOps.onInsert?.({ values }).then(() => {
-							refresh()
-							sendUserToast('Row inserted')
-						})
+						await dbTableOps.onInsert?.({ values })
+						refresh()
+						sendUserToast('Row inserted')
 					}}
 				/>
 			{/if}

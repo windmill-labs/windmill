@@ -26,6 +26,7 @@
 	import InitialFitView from './InitialFitView.svelte'
 	import {
 		layoutAssetGraph,
+		wrapWideLayers,
 		PIPELINE_NODE_EXTRA_ROW,
 		PIPELINE_NODE_HEADER,
 		PIPELINE_NODE_HEADER_CARD_PAD
@@ -73,10 +74,7 @@
 		selection?: AssetGraphSelection | undefined
 		/** `open` marks a selection asked to be shown (a script's open button), as
 		 * opposed to a click on a node, which only selects it. */
-		onselect?: (
-			selection: AssetGraphSelection | undefined,
-			opts?: { open?: boolean }
-		) => void
+		onselect?: (selection: AssetGraphSelection | undefined, opts?: { open?: boolean }) => void
 		// Called when the user clicks the per-asset + button (consumer-script
 		// entry). Kept optional so the canvas stays usable outside the
 		// pipeline editor.
@@ -233,6 +231,8 @@
 		/** The pipeline's `<workspace>/<folder>`, when the toggle's state should be
 		 * remembered for it. */
 		assetsOnlyFolder?: string
+		/** Wrap a layer wider than this many nodes onto extra rows, for a narrow canvas. */
+		maxNodesPerRow?: number
 		/** Deletes what produces an asset in the assets-only view: its script, and its
 		 * trigger when set. The canvas only offers what no other asset shares. */
 		onDeleteAssetUpstream?: (target: AssetUpstreamDelete) => void
@@ -288,6 +288,7 @@
 		scrollZoom = true,
 		assetsOnlyToggle = false,
 		assetsOnlyFolder,
+		maxNodesPerRow,
 		onDeleteAssetUpstream,
 		nodeFixes,
 		assetDeleteVerb = 'Delete',
@@ -329,7 +330,9 @@
 			flowEl.querySelectorAll('.svelte-flow__panel, .svelte-flow__controls, .svelte-flow__minimap')
 		).some((el) => within(el, x, y))
 	const readsAsset = (assetId: string, scriptId: string) =>
-		model.edges.some((x) => x.kind === 'lineage-read' && x.source === assetId && x.target === scriptId)
+		model.edges.some(
+			(x) => x.kind === 'lineage-read' && x.source === assetId && x.target === scriptId
+		)
 	const assetOf = (assetId: string) => {
 		const a = model.nodes.find((n) => n.id === assetId)?.data
 		return a ? { kind: a.asset_kind as AssetKind, path: a.path as string } : undefined
@@ -477,7 +480,11 @@
 	// assets-only view, the scripts building the asset.
 	function dragScripts(n: { id: string; type: string; data: any }): string[] {
 		const ids =
-			n.type === 'runnable' ? [n.id] : n.type === 'asset' ? ((n.data.foldedIds ?? []) as string[]) : []
+			n.type === 'runnable'
+				? [n.id]
+				: n.type === 'asset'
+					? ((n.data.foldedIds ?? []) as string[])
+					: []
 		return ids.filter((id) => {
 			const d = model.nodes.find((x) => x.id === id)?.data
 			return d?.runnable_kind === 'script' && d.in_pipeline
@@ -1559,10 +1566,7 @@
 		for (const id of v.noAssetNodeIds) {
 			const u = v.upstream.get(id)
 			const scriptId = u && !u.multiple ? u.runnableId : u?.runnableIds[0]
-			const data = fold(
-				{ noAsset: true, noAssetName: scriptId?.split('/').pop() ?? 'script' },
-				u
-			)
+			const data = fold({ noAsset: true, noAssetName: scriptId?.split('/').pop() ?? 'script' }, u)
 			// Run only by writes to what it reads, the edges into it already say how
 			// it starts: the script's banner alone. Another trigger, or an error to
 			// fix, needs the card's chip row.
@@ -1744,13 +1748,14 @@
 						: 1
 			)
 	})
+	let extraRowHeight = $derived(
+		assetsOnly ? PIPELINE_NODE_EXTRA_ROW + PIPELINE_NODE_HEADER + PIPELINE_NODE_HEADER_CARD_PAD : 0
+	)
 	let layoutPositions = $derived(
-		layoutAssetGraph(
-			layoutInput,
-			ADD_NODE_ID,
-			assetsOnly
-				? PIPELINE_NODE_EXTRA_ROW + PIPELINE_NODE_HEADER + PIPELINE_NODE_HEADER_CARD_PAD
-				: 0
+		wrapWideLayers(
+			layoutAssetGraph(layoutInput, ADD_NODE_ID, extraRowHeight),
+			maxNodesPerRow,
+			extraRowHeight
 		)
 	)
 

@@ -2623,11 +2623,11 @@
 		// Keep the current mode across folder switches (view is the
 		// param-less default).
 		const modeQuery = mode !== 'view' ? `?mode=${mode}` : ''
-		const items = otherPipelineFolders.map((p) => ({
+		const items: Item[] = otherPipelineFolders.map((p) => ({
 			displayName: `f/${p.folder}`,
 			icon: Folder,
 			disabled: false,
-			action: () => goto(`/pipeline/${encodeURIComponent(p.folder)}${modeQuery}`)
+			href: `/pipeline/${encodeURIComponent(p.folder)}${modeQuery}`
 		}))
 		items.push({
 			displayName: 'Choose another folder…',

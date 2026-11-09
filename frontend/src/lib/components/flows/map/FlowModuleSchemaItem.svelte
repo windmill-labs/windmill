@@ -49,6 +49,7 @@
 			| {
 					enabled?: boolean
 					return_value?: unknown
+					preview_only?: boolean
 			  }
 			| undefined
 		bold?: boolean
@@ -64,7 +65,7 @@
 		icon?: import('svelte').Snippet
 		onTestUpTo?: ((id: string) => void) | undefined
 		inputTransform?: Record<string, any> | undefined
-		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown; preview_only?: boolean }) => void
 		onEditInput?: (moduleId: string, key: string) => void
 		flowJob?: Job | undefined
 		isOwner?: boolean
@@ -312,7 +313,7 @@
 						<Pin size={12} />
 					</button>
 					{#snippet text()}
-						Pinned
+						{mock.preview_only ? 'Pinned in test runs' : 'Pinned in every run'}
 					{/snippet}
 				</Popover>
 			{/if}

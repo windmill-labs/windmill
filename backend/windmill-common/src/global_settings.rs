@@ -159,6 +159,12 @@ pub const AUTO_LOGIN_PROVIDER_SETTING: &str = "auto_login_provider";
 /// Name of the SAML attribute or OIDC userinfo claim carrying the user's IdP groups. Unset or
 /// empty leaves instance-group membership entirely to SCIM.
 pub const SSO_GROUPS_CLAIM_SETTING: &str = "sso_groups_claim";
+/// OIDC userinfo claim or SAML attribute holding the user's email. Unset, or absent from a
+/// login, keeps the protocol's default (OIDC `email`, SAML NameID).
+pub const SSO_EMAIL_CLAIM_SETTING: &str = "sso_email_claim";
+/// OIDC userinfo claim or SAML attribute (`NameID` for the subject's NameID) holding the
+/// username given to an account created at login. Unset, or absent, keeps the default.
+pub const SSO_USERNAME_CLAIM_SETTING: &str = "sso_username_claim";
 pub const HUB_BASE_URL_SETTING: &str = "hub_base_url";
 pub const HUB_ACCESSIBLE_URL_SETTING: &str = "hub_accessible_url";
 pub const DISABLE_HUB_SETTING: &str = "disable_hub";
@@ -478,6 +484,10 @@ pub const WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING: &str = "workspace_fairness_min_t
 // concurrency key. `0` disables the cap. See `windmill-queue/src/jobs.rs`,
 // `check_concurrency_key_queue_cap`.
 pub const CONCURRENCY_KEY_MAX_QUEUED_SETTING: &str = "concurrency_key_max_queued_jobs";
+
+// Admit the jobs waiting behind a concurrency key in the order they became due.
+// See `windmill-queue/src/jobs.rs`, `oldest_waiting_concurrency_job`.
+pub const CONCURRENCY_LIMIT_IN_ORDER_SETTING: &str = "concurrency_limit_in_order";
 
 // Cloud-only ceiling on how many jobs a single workspace may have queued in
 // total, across every key and script. Applies even to premium workspaces. `0`

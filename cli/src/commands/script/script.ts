@@ -63,13 +63,14 @@ import {
 } from "../../core/conf.ts";
 import {
   SyncCodebase,
+  isPerScriptDigest,
   listSyncCodebases,
   uncoveredBundleInputs,
 } from "../../utils/codebase.ts";
 import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
 import fs from "node:fs";
 import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
-import { getEsbuild } from "../../utils/esbuild_loader.ts";
+import { withEsbuild } from "../../utils/esbuild_loader.ts";
 
 import { execSync } from "node:child_process";
 import { NewScript, Script, ScriptModule } from "../../../gen/types.gen.ts";
@@ -430,12 +431,10 @@ export async function handleFile(
         }).toString();
         log.info("Custom bundler executed for " + path);
       } else {
-        const esbuild = await getEsbuild();
-
         log.info(`Started bundling ${path} ...`);
         const startTime = performance.now();
         const format = codebase.format ?? "cjs";
-        const out = await esbuild.build({
+        const out = await withEsbuild((esbuild) => esbuild.build({
           entryPoints: [path],
           format: format,
           bundle: true,
@@ -451,13 +450,15 @@ export async function handleFile(
           banner: codebase.banner,
           // ...(codebase.banner != null && { banner: codebase.banner }),
           metafile: true,
-        });
+        }));
         const endTime = performance.now();
-        const uncovered = uncoveredBundleInputs(
-          codebase,
-          path,
-          Object.keys(out.metafile?.inputs ?? {})
-        );
+        const uncovered = isPerScriptDigest(codebase)
+          ? []
+          : uncoveredBundleInputs(
+              codebase,
+              path,
+              Object.keys(out.metafile?.inputs ?? {})
+            );
         if (uncovered.length > 0) {
           log.warnAlways(
             `${path} bundles files outside codebase ${codebase.relative_path}; edits to them won't be detected as changes unless listed in extra_digest_paths: ${uncovered.join(", ")}`
@@ -571,7 +572,7 @@ export async function handleFile(
     }
 
     if (typed && codebase) {
-      typed.codebase = await codebase.getDigest(forceTar);
+      typed.codebase = await codebase.getDigest(path, forceTar);
     }
 
     // Scan for modules: folder layout (entry point inside __mod/) or flat layout
@@ -622,12 +623,13 @@ export async function handleFile(
       has_preprocessor: typed?.has_preprocessor,
       priority: typed?.priority,
       concurrency_key: typed?.concurrency_key,
+      on_concurrency_limit: typed?.on_concurrency_limit,
       debounce_key: typed?.debounce_key,
       debounce_delay_s: typed?.debounce_delay_s,
       debounce_args_to_accumulate: typed?.debounce_args_to_accumulate,
       max_total_debouncing_time: typed?.max_total_debouncing_time,
       max_total_debounces_amount: typed?.max_total_debounces_amount,
-      codebase: await codebase?.getDigest(forceTar),
+      codebase: await codebase?.getDigest(path, forceTar),
       timeout: nonePositiveInt(typed?.timeout),
       // 0 means "delete immediately after completion", so it must survive as 0
       // rather than being folded into "unset" the way the positive-only settings are.
@@ -703,6 +705,8 @@ export async function handleFile(
             typed.delete_after_secs == remote.delete_after_secs &&
             //@ts-ignore
             typed.concurrency_key == remote["concurrency_key"] &&
+            (typed.on_concurrency_limit ?? "queue") ==
+              (remote.on_concurrency_limit ?? "queue") &&
             typed.debounce_key == remote["debounce_key"] &&
             typed.debounce_delay_s == remote["debounce_delay_s"] &&
             deepEqual(
@@ -2001,14 +2005,12 @@ async function preview(
         maxBuffer: 1024 * 1024 * 50,
       }).toString();
     } else {
-      const esbuild = await getEsbuild();
-
       if (!opts.silent) {
         log.info(`Bundling ${filePath} for preview...`);
       }
       const startTime = performance.now();
       const format = codebase.format ?? "cjs";
-      const out = await esbuild.build({
+      const out = await withEsbuild((esbuild) => esbuild.build({
         entryPoints: [filePath],
         format: format,
         bundle: true,
@@ -2022,7 +2024,7 @@ async function preview(
         packages: "bundle",
         target: format == "cjs" ? "node20.15.1" : "esnext",
         banner: codebase.banner,
-      });
+      }));
       const endTime = performance.now();
       bundledContent = out.outputFiles[0].text;
 

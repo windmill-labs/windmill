@@ -9,7 +9,7 @@
 
 <script lang="ts">
 	import { resource } from 'runed'
-	import { goto } from '$lib/navigation'
+	import { isNewTabClick } from '$lib/navigation'
 	import { isCloudHosted } from '$lib/cloud'
 	import { AlertTriangle, Sparkles } from 'lucide-svelte'
 	import { UserService, WorkspaceService } from '$lib/gen'
@@ -306,9 +306,9 @@
 			{/snippet}
 			<button
 				type="button"
-				class="w-full rounded p-1.5 hover:bg-surface-hover flex {isCollapsed
-					? 'justify-center'
-					: 'flex-col gap-1'}"
+				class="w-full h-9 rounded hover:bg-surface-hover flex {isCollapsed
+					? 'items-center px-2'
+					: 'flex-col justify-center gap-1 p-1.5'}"
 				onclick={() => {
 					open = true
 					const key: UsageMeterKey = $isPremiumStore ? 'paid:workspace' : `free:${tightest.key}`
@@ -372,9 +372,10 @@
 			{#if $userStore?.is_admin}
 				<Button
 					unifiedSize="md"
-					onclick={() => {
+					href="/workspace_settings?tab=premium"
+					onClick={(e) => {
+						if (e instanceof MouseEvent && isNewTabClick(e)) return
 						open = false
-						goto('/workspace_settings?tab=premium')
 					}}
 				>
 					{$isPremiumStore ? 'See billing' : 'See plans'}

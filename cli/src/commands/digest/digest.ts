@@ -143,7 +143,7 @@ export async function scriptDigest(
   // from the metadata file. Only bundling tells whether push adds `.tar`, so a pulled
   // value that is this digest plus `.tar` is taken as is.
   const codebase = language == "bun" ? findCodebase(contentFile, codebases) : undefined;
-  let codebaseDigest = codebase ? await codebase.getDigest() : undefined;
+  let codebaseDigest = codebase ? await codebase.getDigest(contentFile) : undefined;
   if (codebaseDigest && meta?.codebase === codebaseDigest + ".tar") {
     codebaseDigest = meta.codebase;
   }

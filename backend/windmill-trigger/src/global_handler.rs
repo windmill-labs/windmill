@@ -221,8 +221,10 @@ pub async fn resume_suspended_trigger_jobs(
                     Some(user_db.clone()),
                     authed.clone(),
                     &w_id,
-                    &trigger.script_path,
-                    trigger.is_flow,
+                    &windmill_common::runnable_ref::RunnableRef::from_path(
+                        &trigger.script_path,
+                        trigger.is_flow,
+                    )?,
                     windmill_queue::PushArgsOwned {
                         extra: None,
                         args: job.args.map(|a| a.0).unwrap_or_default(),

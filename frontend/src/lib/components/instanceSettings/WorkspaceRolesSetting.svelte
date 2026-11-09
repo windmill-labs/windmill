@@ -101,7 +101,8 @@
 		return [
 			caps.code ? 'Code' : 'No code',
 			`Flows: ${authorLevelLabel(caps.flows).toLowerCase()}`,
-			`Apps: ${authorLevelLabel(caps.apps).toLowerCase()}`
+			`Apps: ${authorLevelLabel(caps.apps).toLowerCase()}`,
+			...(caps.run ? [] : ['View only'])
 		].join(' · ')
 	}
 </script>

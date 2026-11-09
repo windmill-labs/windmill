@@ -20,7 +20,7 @@
 			</li>
 
 			<li>
-				<span class="font-medium">Setup the wmill cli for this workspace & remote:</span>
+				<span class="font-medium">Set up the wmill cli for this workspace & remote:</span>
 				<div class="mt-1">
 					<ClipboardPanel
 						content={`wmill workspace add ${$operatingWorkspace} ${$operatingWorkspace} ${url}`}

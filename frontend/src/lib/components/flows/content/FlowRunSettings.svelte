@@ -13,6 +13,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ConcurrencyOnLimitSelect from '$lib/components/itemSettings/ConcurrencyOnLimitSelect.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import s3Scripts from './s3Scripts/lib'
 
@@ -237,6 +238,10 @@
 													clearable
 												/>
 											</Label>
+											<ConcurrencyOnLimitSelect
+												bind:onLimit={flowModule.value.on_concurrency_limit}
+												disabled={concurrencyOff}
+											/>
 											<Label label="Custom concurrency key (optional)">
 												{#snippet header()}
 													<Tooltip>

@@ -244,6 +244,7 @@ mod native_retry {
             concurrency_key: Some("f/system/test_script".to_string()),
             concurrent_limit: Some(1),
             concurrency_time_window_s: Some(60),
+            ..Default::default()
         };
         let handle = insert_rs(
             RunnableSettings {

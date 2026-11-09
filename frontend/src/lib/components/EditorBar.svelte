@@ -24,7 +24,7 @@
 
 	import type Editor from './Editor.svelte'
 	import ItemPicker from './ItemPicker.svelte'
-	import VariableEditor from './VariableEditor.svelte'
+	import VariablePicker from './VariablePicker.svelte'
 	import Button from './common/button/Button.svelte'
 	import HighlightCode from './HighlightCode.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -157,10 +157,9 @@
 	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let contextualVariablePicker: ItemPicker | undefined = $state()
-	let variablePicker: ItemPicker | undefined = $state()
+	let variablePicker: VariablePicker | undefined = $state()
 	let resourcePicker: ItemPicker | undefined = $state()
 	let resourceTypePicker: ItemPicker | undefined = $state()
-	let variableEditor: VariableEditor | undefined = $state()
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let ducklakePicker: ItemPicker | undefined = $state()
@@ -371,10 +370,6 @@
 	$effect(() => {
 		editor && untrack(() => addEditorActions())
 	})
-
-	async function loadVariables() {
-		return await VariableService.listVariable({ workspace: ws ?? '' })
-	}
 
 	async function loadContextualVariables() {
 		return await VariableService.listContextualVariables({
@@ -664,9 +659,11 @@
 	loadItems={loadContextualVariables}
 />
 
-<ItemPicker
+<VariablePicker
+	editable
 	bind:this={variablePicker}
-	pickCallback={(path, name) => {
+	workspace={ws}
+	onPick={(path, name) => {
 		if (!editor) return
 		if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
 			if (!editor.getCode().includes('import * as wmill from')) {
@@ -730,27 +727,7 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
-	tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
-	documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
-	itemName="Variable"
-	extraField="path"
-	loadItems={loadVariables}
-	buttons={{ 'Edit/View': (x) => variableEditor?.editVariable(x) }}
->
-	{#snippet submission()}
-		<div class="flex flex-row">
-			<Button
-				variant="accent"
-				startIcon={{ icon: Plus }}
-				on:click={() => {
-					variableEditor?.initNew()
-				}}
-			>
-				New variable
-			</Button>
-		</div>
-	{/snippet}
-</ItemPicker>
+/>
 
 <ItemPicker
 	bind:this={resourcePicker}
@@ -870,7 +847,6 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	workspace={ws}
 	on:refresh={resourcePicker.openDrawer}
 />
-<VariableEditor bind:this={variableEditor} workspace={ws} on:create={variablePicker.openDrawer} />
 
 {#if showDucklakePicker}
 	<ItemPicker
@@ -1081,7 +1057,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						aiDescription="Add variable"
 						title="Add variable"
 						variant="subtle"
-						on:click={variablePicker.openDrawer}
+						on:click={() => variablePicker?.openDrawer()}
 						unifiedSize="sm"
 						startIcon={{ icon: DollarSign }}
 						{iconOnly}

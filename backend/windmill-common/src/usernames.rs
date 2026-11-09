@@ -24,10 +24,54 @@ pub const USERNAME_MAX_LEN: usize = 50;
 /// exactly, so only this exact spelling is reserved.
 pub const ANONYMOUS_USERNAME: &str = "anonymous";
 
-/// The rule for every username a caller chooses. It is exactly what the generators produce
-/// (`INVALID_USERNAME_CHARS` stripped), so automatic creation always satisfies it. No hyphen:
-/// Windmill's own job creators and identities are hyphenated (`group-<g>` becomes `g/<g>`,
-/// `schedule-<path>`, `email-…`), and a username must never equal or prefix-match one.
+/// The name Windmill uses for requests made with the `SUPERADMIN_SECRET` token.
+pub const SUPERADMIN_SECRET_USERNAME: &str = "superadmin_secret";
+
+pub const ERROR_HANDLER_USERNAME: &str = "error_handler";
+pub const SCHEDULE_ERROR_HANDLER_USERNAME: &str = "schedule_error_handler";
+pub const GLOBAL_ERROR_HANDLER_USERNAME: &str = "global";
+pub const SUCCESS_HANDLER_USERNAME: &str = "success_handler";
+pub const VARIABLE_EXPIRATION_HANDLER_USERNAME: &str = "variable_expiration_handler";
+pub const SCHEDULE_RECOVERY_HANDLER_USERNAME: &str = "schedule_recovery_handler";
+pub const AUTOSCALING_USERNAME: &str = "autoscaling";
+
+/// Bare names Windmill writes as a job's `created_by`. Job visibility matches that column by
+/// username alone, so an account with one of these names would see (and could cancel) the jobs
+/// Windmill ran under it. A new producer of such a name must be added here.
+pub const RESERVED_JOB_USERNAMES: &[&str] = &[
+    ANONYMOUS_USERNAME,
+    SUPERADMIN_SECRET_USERNAME,
+    ERROR_HANDLER_USERNAME,
+    SCHEDULE_ERROR_HANDLER_USERNAME,
+    GLOBAL_ERROR_HANDLER_USERNAME,
+    SUCCESS_HANDLER_USERNAME,
+    VARIABLE_EXPIRATION_HANDLER_USERNAME,
+    SCHEDULE_RECOVERY_HANDLER_USERNAME,
+    AUTOSCALING_USERNAME,
+];
+
+/// Bare names Windmill writes only as audit authors. Audit visibility matches the author's
+/// username alone, so an account with one of these names would read those entries. A new
+/// producer of such a name must be added here.
+const RESERVED_AUDIT_USERNAMES: &[&str] = &[
+    "scim",
+    "sso",
+    "system",
+    "storage_usage",
+    "instance_config_sync",
+    "git_sync_auto_pull",
+    "presigned",
+];
+
+/// Exact match: the visibility checks compare exactly.
+pub fn is_reserved_username(username: &str) -> bool {
+    RESERVED_JOB_USERNAMES.contains(&username) || RESERVED_AUDIT_USERNAMES.contains(&username)
+}
+
+/// The rule for every username a caller chooses; the generators produce only names it accepts.
+/// It keeps usernames off Windmill's own identities: the hyphenated ones (`group-<g>` becomes
+/// `g/<g>`, `schedule-<path>`, `email-…`), neither equal nor prefix-matched, by the no-hyphen
+/// rule, and the bare ones by the reserved lists above.
 pub fn validate_username(username: &str) -> error::Result<()> {
     if username.is_empty()
         || username.len() > USERNAME_MAX_LEN
@@ -38,10 +82,10 @@ pub fn validate_username(username: &str) -> error::Result<()> {
              at most {USERNAME_MAX_LEN} characters"
         )));
     }
-    if username == ANONYMOUS_USERNAME {
-        return Err(Error::BadRequest(
-            "The username anonymous is reserved".to_string(),
-        ));
+    if is_reserved_username(username) {
+        return Err(Error::BadRequest(format!(
+            "The username {username} is reserved"
+        )));
     }
     Ok(())
 }
@@ -85,7 +129,7 @@ pub async fn generate_instance_wide_unique_username<'c>(
             )));
         }
         username = fit_username(&base_username, i);
-        username_conflict = username == ANONYMOUS_USERNAME || sqlx::query_scalar!(
+        username_conflict = is_reserved_username(&username) || sqlx::query_scalar!(
                 "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 and email != $2 UNION SELECT 1 FROM password WHERE username = $1 UNION SELECT 1 FROM pending_user WHERE username = $1)",
                 &username,
                 &email
@@ -221,16 +265,29 @@ mod tests {
         ] {
             assert!(validate_username(ok).is_ok(), "{ok}");
         }
-        for bad in [
-            "",
-            "jean-luc",
-            "group-ops",
-            "josé",
-            "a b",
-            "anonymous",
-            &"a".repeat(51),
-        ] {
+        for bad in ["", "jean-luc", "group-ops", "josé", "a b", &"a".repeat(51)] {
             assert!(validate_username(bad).is_err(), "{bad}");
+        }
+        // Spelled out rather than read from the lists, so dropping a name from them fails here.
+        for reserved in [
+            "anonymous",
+            "superadmin_secret",
+            "error_handler",
+            "schedule_error_handler",
+            "global",
+            "success_handler",
+            "variable_expiration_handler",
+            "schedule_recovery_handler",
+            "autoscaling",
+            "scim",
+            "sso",
+            "system",
+            "storage_usage",
+            "instance_config_sync",
+            "git_sync_auto_pull",
+            "presigned",
+        ] {
+            assert!(validate_username(reserved).is_err(), "{reserved}");
         }
     }
 

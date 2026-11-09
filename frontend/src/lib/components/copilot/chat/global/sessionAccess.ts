@@ -111,7 +111,8 @@ export function capabilitiesForRole(role: {
 /** Whether `rulesets` make a session read-only. `DisableDirectDeployment` holds everyone, admins
  * and bypassers included, since production changes go through its dev workspace or a fork;
  * `RestrictDeployToDeployers` alone leaves its users their drafts. Unreadable rules protect too:
- * the server holds deploys to the rule but not drafts. */
+ * the server holds deploys to the rule but not drafts. The MCP server applies the same rule
+ * (`workspace_access` in `backend/windmill-api/src/mcp/core.rs`): change both. */
 function protects(rulesets: ProtectionRuleset[] | undefined): boolean {
 	return !rulesets || isRuleActiveInRulesets(rulesets, 'DisableDirectDeployment')
 }

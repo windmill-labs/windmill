@@ -63,7 +63,7 @@
 	type Variant = {
 		label: string
 		icon: typeof PythonIcon
-		onSelect: () => void
+		href: string
 		badge?: { label: string; class: string }
 		/** opened in a new tab from a link beside the variant */
 		docHref?: string
@@ -100,7 +100,8 @@
 		tagline: string
 		description: string
 		bullets: string[]
-		onSelect: () => void
+		/** the editor this option opens; unused when `variants` is set */
+		href: string
 		/** optional sub-choices shown in place of the single create button */
 		variants?: Variant[]
 		/** optional pill shown next to the label; class is the full static tailwind tone */
@@ -136,7 +137,7 @@
 				'Auto-generated UI from parameters',
 				'Instant deploy & versioning'
 			],
-			onSelect: () => goto('/scripts/add')
+			href: '/scripts/add'
 		},
 		...(HOME_SHOW_CREATE_FLOW
 			? ([
@@ -153,7 +154,7 @@
 							'Branches, loops & error handling',
 							'Suspend / approval steps'
 						],
-						onSelect: () => goto('/flows/add'),
+						href: '/flows/add',
 						extras: [{ label: 'Import flow', onSelect: () => openImport('flow') }]
 					}
 				] as Option[])
@@ -169,7 +170,7 @@
 						description:
 							'Full control over the UI with React or Svelte and a powerful AI agent. Best for complex apps that need full flexibility.',
 						bullets: ['React or Svelte', 'Full flexibility & control', 'AI-assisted authoring'],
-						onSelect: () => goto('/apps_raw/add'),
+						href: '/apps_raw/add',
 						extras: [{ label: 'Import full-code app', onSelect: () => openImport('app-fullcode') }]
 					}
 				] as Option[])
@@ -187,7 +188,7 @@
 				'Reusable as a step in any flow',
 				'Tools from scripts, flows and MCP'
 			],
-			onSelect: () => goto('/agents/add')
+			href: '/agents/add'
 		},
 		...(HOME_SHOW_CREATE_FLOW
 			? ([
@@ -204,18 +205,18 @@
 							'Full control via the SDK',
 							'Versioned as a regular script'
 						],
-						onSelect: () => goto('/scripts/add?wac=typescript'),
+						href: '/scripts/add?wac=typescript',
 						badge: { label: 'Advanced', class: badgeAdvanced },
 						variants: [
 							{
 								label: 'TypeScript',
 								icon: TypeScriptIcon,
-								onSelect: () => goto('/scripts/add?wac=typescript')
+								href: '/scripts/add?wac=typescript'
 							},
 							{
 								label: 'Python',
 								icon: PythonIcon,
-								onSelect: () => goto('/scripts/add?wac=python')
+								href: '/scripts/add?wac=python'
 							}
 						],
 						extras: [{ label: 'Import Workflow-as-Code', onSelect: () => openImport('wac') }]
@@ -233,20 +234,20 @@
 							'Partitioned & incremental',
 							'Asset-aware lineage'
 						],
-						onSelect: () => goto('/pipeline'),
+						href: '/pipeline',
 						badge: { label: 'Alpha', class: badgeAlpha },
 						variants: [
 							{
 								label: 'Windmill pipelines',
 								icon: Workflow,
 								badge: { label: 'Recommended', class: badgeRecommended },
-								onSelect: () => goto('/pipeline')
+								href: '/pipeline'
 							},
 							{
 								label: 'dbt',
 								icon: DbtIcon,
 								docHref: DBT_DOCS,
-								onSelect: () => goto('/scripts/add?lang=dbt'),
+								href: '/scripts/add?lang=dbt',
 								doc: {
 									label: 'dbt',
 									icon: DbtIcon,
@@ -276,7 +277,7 @@
 						description:
 							'Assemble an internal UI from 60+ components wired to your scripts and flows. Best for simple apps or apps that need minimal customization.',
 						bullets: ['60+ ready-made components', 'No code required', 'Backed by scripts & flows'],
-						onSelect: () => goto('/apps/add'),
+						href: '/apps/add',
 						badge: { label: 'Legacy', class: badgeLegacy },
 						extras: [{ label: 'Import low-code app', onSelect: () => openImport('app-lowcode') }]
 					}
@@ -671,10 +672,10 @@
 							{#each option.variants ?? [] as variant (variant.label)}
 								{@const VariantIcon = variant.icon}
 								<div class="flex flex-row items-center gap-1">
-									<button
+									<a
 										use:melt={$item}
+										href={variant.href}
 										class="flex flex-row flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
-										onclick={() => variant.onSelect()}
 										onfocusin={() => (activeVariantDoc = variant.doc)}
 										onpointerenter={() => (activeVariantDoc = variant.doc)}
 									>
@@ -690,7 +691,7 @@
 												{variant.badge.label}
 											</span>
 										{/if}
-									</button>
+									</a>
 									{#if variant.docHref}
 										<a
 											href={variant.docHref}
@@ -723,15 +724,15 @@
 					{:else if option.variants}
 						{@render variantRow(option, ac, rowClass, $wacSubTrigger, $wacSubMenu, $wacSubOpen)}
 					{:else}
-						<button
+						<a
 							use:melt={$item}
-							class={rowClass}
+							href={option.href}
+							class="{rowClass} text-[color:inherit]"
 							onfocusin={() => highlightOption(option.key)}
 							onpointerenter={() => highlightOption(option.key)}
-							onclick={() => option.onSelect()}
 						>
 							{@render rowBody(option, ac)}
-						</button>
+						</a>
 					{/if}
 				{/each}
 

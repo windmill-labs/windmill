@@ -1,13 +1,4 @@
-import {
-	Copy,
-	Eye,
-	FileUp,
-	History,
-	LayoutDashboard,
-	List,
-	Trash,
-	UserPlus
-} from 'lucide-svelte'
+import { Copy, Eye, FileUp, History, LayoutDashboard, List, Trash, UserPlus } from 'lucide-svelte'
 import { DraftService, ResourceService, type AiAgent, type OpenFlow } from '$lib/gen'
 import { mintDraftPath } from '$lib/mintDraftPath'
 import { keepsManagedMemory } from './agentFormFields'
@@ -122,7 +113,7 @@ export function agentMenuItems(agent: {
 						// are filed under `<path>.chat` (agent_runs.rs) and listed by the agent's own chat.
 						displayName: 'View runs',
 						icon: List,
-						action: () => goto(`/runs/${agent.path}?job_kinds=previews`)
+						href: `/runs/${agent.path}?job_kinds=previews`
 					},
 					...(agent.noCode
 						? []
@@ -130,7 +121,7 @@ export function agentMenuItems(agent: {
 								{
 									displayName: 'Audit logs',
 									icon: Eye,
-									action: () => goto(`/audit_logs?resource=${agent.path}`)
+									href: `/audit_logs?resource=${agent.path}`
 								}
 							]),
 					{ displayName: 'Copy path', icon: Copy, action: () => copyToClipboard(agent.path) }

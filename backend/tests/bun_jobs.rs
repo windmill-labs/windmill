@@ -330,7 +330,10 @@ async fn test_bun_job_runtime_error(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let content = r#"
 export function main() {
-    throw new Error("intentional error");
+    const e = new Error("intentional error");
+    e.Code = "X";
+    e.self = e;
+    throw e;
 }
 "#
     .to_owned();
@@ -361,6 +364,8 @@ export function main() {
         .as_str()
         .unwrap()
         .contains("intentional error"));
+    assert_eq!(error["extra"]["Code"], "X");
+    assert_eq!(error["extra"]["self"], "[unserializable]");
     Ok(())
 }
 

@@ -21,7 +21,7 @@ export function normalizeRawAppData(value: Record<string, any>): AppDraftValue['
 		}
 	}
 	if (value.data) {
-		return value.data
+		return { ...value.data, tables: Array.isArray(value.data.tables) ? value.data.tables : [] }
 	}
 	if (value.datatables) {
 		return { ...DEFAULT_RAW_APP_DATA, tables: value.datatables }

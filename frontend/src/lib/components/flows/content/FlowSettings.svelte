@@ -4,7 +4,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import JobTokenScopesSetting from '$lib/components/JobTokenScopesSetting.svelte'
-	import { Tab, TabContent, Tabs } from '$lib/components/common'
+	import { SecondsInput, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { getContext, tick } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -326,12 +326,22 @@
 								{/if}
 
 								<SettingGroup label="Execution policy" class="flex flex-col gap-6">
+									<SettingToggle
+										setting="timeout"
+										label="Timeout"
+										tooltip="Wall-clock limit for the whole run, sleeps and approvals included. When it is reached, the running steps are cancelled, the error handler runs, and the run ends with a timeout error."
+										checked={!!flowStore.val.value.timeout}
+										onchange={(on) => (flowStore.val.value.timeout = on ? 3600 : undefined)}
+									>
+										<SecondsInput bind:seconds={flowStore.val.value.timeout} />
+									</SettingToggle>
 									{#if customUi?.settingsTabs?.concurrency != false}
 										<ConcurrencyLimitSetting
 											kind="flow"
 											bind:limit={flowStore.val.value.concurrent_limit}
 											bind:timeWindowS={flowStore.val.value.concurrency_time_window_s}
 											bind:concurrencyKey={flowStore.val.value.concurrency_key}
+											bind:onLimit={flowStore.val.value.on_concurrency_limit}
 											keyPlaceholder={`$workspace/flow/${$pathStore}-$args[foo]`}
 										/>
 									{/if}

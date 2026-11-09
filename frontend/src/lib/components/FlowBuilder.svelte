@@ -109,7 +109,7 @@
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
-	import DeployButton from './DeployButton.svelte'
+	import DeployButton, { type DeployDropdownItem } from './DeployButton.svelte'
 	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import type { Trigger } from './triggers/utils'
@@ -191,6 +191,7 @@
 		onDeploy,
 		onDeployError,
 		onDetails,
+		detailsHref,
 		onHistoryRestore,
 		onNavigate,
 		onResetToDeployed,
@@ -1293,42 +1294,44 @@
 		]
 	}
 
-	const dropdownItems: Array<{
-		label: string
-		onClick: () => void
-	}> = []
+	const showDetailsItem = !newFlow && savedFlow?.no_deployed !== true && !inSessionPane
+	const showExtraDeployOptions = untrack(() => customUi).topBar?.extraDeployOptions != false
+	const showForkItems = !untrack(() => newFlow) && !inSessionPane
+	const showEditInFork =
+		showForkItems && !isCloudHosted() && editInForkAllowed(opWorkspace, $userWorkspaces)
 
-	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
+	// A function, so the hrefs follow `initialPath`, which the edit page sets once the draft loads.
+	function dropdownItems(): DeployDropdownItem[] {
+		const items: DeployDropdownItem[] = []
+		if (!showExtraDeployOptions) return items
 		// None of these belong to a session pane: each leaves the editor for a details page or
 		// a new tab, which the session's own tabs already reach. The deploy button is then plain.
-		if (!newFlow && savedFlow?.no_deployed !== true && !inSessionPane) {
-			dropdownItems.push({
-				label: 'Exit & see details',
-				// Use the deployed path, not the live `$pathStore` — the latter
-				// reflects local rename edits that haven't been deployed yet,
-				// which would land the user on a 404 details page.
-				onClick: () => onDetails?.({ path: initialPath })
-			})
+		if (showDetailsItem) {
+			// Use the deployed path, not the live `$pathStore` — the latter
+			// reflects local rename edits that haven't been deployed yet,
+			// which would land the user on a 404 details page.
+			items.push(
+				detailsHref
+					? { label: 'Exit & see details', href: detailsHref(initialPath) }
+					: { label: 'Exit & see details', onClick: () => onDetails?.({ path: initialPath }) }
+			)
 		}
 
-		if (!untrack(() => newFlow) && !inSessionPane) {
-			dropdownItems.push({
+		if (showForkItems) {
+			items.push({
 				label: 'Fork',
-				onClick: () => window.open(`/flows/add?template=${initialPath}`)
+				href: `/flows/add?template=${initialPath}`,
+				hrefTarget: '_blank'
 			})
 		}
 
-		if (
-			!untrack(() => newFlow) &&
-			!inSessionPane &&
-			!isCloudHosted() &&
-			editInForkAllowed(opWorkspace, $userWorkspaces)
-		) {
-			dropdownItems.push({
+		if (showEditInFork) {
+			items.push({
 				label: editInForkLabel(opWorkspace, $userWorkspaces),
 				onClick: () => openEditInFork('flow', initialPath, opWorkspace)
 			})
 		}
+		return items
 	}
 
 	/** Deployed versions for the diff picker, newest first. Best-effort: losing the

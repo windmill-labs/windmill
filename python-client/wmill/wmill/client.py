@@ -2485,7 +2485,7 @@ def parse_s3_object(s3_object: S3Object | str) -> S3Object:
     the upload on any typo.
     """
     if isinstance(s3_object, str):
-        match = re.match(r'^s3://([^/]*)/(.+)$', s3_object)
+        match = re.fullmatch(r's3://([^/\n]*)/(.+)', s3_object)
         if match:
             return S3Object(s3=match.group(2), storage=match.group(1) or None)
         if s3_object.startswith("s3://"):

@@ -66,9 +66,10 @@ use windmill_common::{
     db::{DbWithOptAuthed, UserDB},
     error::{to_anyhow, Error, JsonResult, Result},
     jobs::{
-        get_payload_tag_from_prefixed_path, normalize_nul_in_args, resolve_delete_after_secs,
+        normalize_nul_in_args, resolve_delete_after_secs, runnable_ref_to_payload,
         sanitize_untrusted_args, schedule_job_deletion, JobPayload, JobTriggerKind, RawCode,
     },
+    runnable_ref::RunnableRef,
     scripts::ScriptLang,
     triggers::TriggerMetadata,
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
@@ -2441,8 +2442,16 @@ fn checked_policy_runnable_paths(policy: &Policy) -> Result<Vec<(AppRunnableKind
 }
 
 fn refuse_hub_runnables(referenced: &[(AppRunnableKind, String)]) -> Result<()> {
-    for (_, path) in referenced {
-        if path.starts_with("hub/") {
+    for (kind, path) in referenced {
+        let hub = match kind {
+            AppRunnableKind::Agent => path.starts_with("hub/"),
+            AppRunnableKind::Script | AppRunnableKind::Flow => {
+                RunnableRef::from_path(path, *kind == AppRunnableKind::Flow)?
+                    .path()
+                    .starts_with("hub/")
+            }
+        };
+        if hub {
             return Err(Error::PermissionDenied(format!(
                 "Operators with builder rights cannot reference the hub runnable {path}. Deploy it to the workspace first."
             )));
@@ -4580,6 +4589,21 @@ async fn execute_component(
         _ => {}
     };
 
+    // An agent path names an `ai_agent` resource, which is not a runnable.
+    let agent_path = payload
+        .path
+        .as_deref()
+        .and_then(|p| p.strip_prefix("agent/"))
+        .map(str::to_string);
+    let runnable = match payload.path.as_deref() {
+        Some(p) if agent_path.is_none() => Some(RunnableRef::from_prefixed(p)?),
+        _ => None,
+    };
+    let preview_path = runnable
+        .as_ref()
+        .map(|r| r.path())
+        .or(agent_path.as_deref());
+
     let arc_policy: Arc<DeployedPolicy>;
     let policy_triggerables_default = Default::default();
     // Preview mode means the request was issued from the editor; the editing
@@ -4610,15 +4634,9 @@ async fn execute_component(
         // (`path`), confined below to what it may read. Inline `raw_code`, which an `id` also
         // requires, is authoring code, so it stays closed to every operator. So is a hub
         // path, which `require_path_read_access_for_preview` admits for everyone and
-        // `get_payload_tag_from_prefixed_path` then downloads and enqueues: it is exactly the
+        // `runnable_ref_to_payload` then downloads and enqueues: it is exactly the
         // unreviewed code the composition check refuses in a flow.
-        let previews_hub = payload.path.as_deref().is_some_and(|p| {
-            p.strip_prefix("script/")
-                .or_else(|| p.strip_prefix("flow/"))
-                .or_else(|| p.strip_prefix("agent/"))
-                .unwrap_or(p)
-                .starts_with("hub/")
-        });
+        let previews_hub = preview_path.is_some_and(|p| p.starts_with("hub/"));
         let caps = caller_capabilities(&db, &w_id, authed).await?;
         if !caps.code
             && (caps.apps == AuthorLevel::None || payload.raw_code.is_some() || previews_hub)
@@ -4628,14 +4646,7 @@ async fn execute_component(
             ));
         }
         check_scopes(authed, || format!("jobs:run"))?;
-        if let Some(p) = payload.path.as_deref() {
-            let runnable_path = p
-                .strip_prefix("script/")
-                .or_else(|| p.strip_prefix("flow/"))
-                .or_else(|| p.strip_prefix("agent/"))
-                .unwrap_or(p);
-            require_path_read_access_for_preview(authed, &Some(runnable_path.to_string()))?;
-        }
+        require_path_read_access_for_preview(authed, &preview_path.map(str::to_string))?;
         if let Some(id) = payload.id {
             let owner_path = sqlx::query_scalar!(
                 "SELECT a.path FROM app_script s JOIN app a ON a.id = s.app
@@ -4850,16 +4861,25 @@ async fn execute_component(
             let policy_triggerables = triggerables_v2
                 .get(path) // start with `path` in case we can avoid the next` format!`.
                 .or_else(|| triggerables_v2.get(&format!("{}:{}", payload.component, &path)))
-                .or(match policy.execution_mode() {
+                .or_else(|| match policy.execution_mode() {
                     // A Viewer app may invoke any deployed `script`/`flow` it
                     // references (resolved as the caller), but caller-supplied
                     // inline `raw_code` must match a publisher-pinned
                     // `rawscript/<sha>` entry — otherwise an unauthorized caller
                     // (e.g. an operator, barred from `/jobs/run/preview`) could
                     // run code the publisher never pinned for this app.
-                    ExecutionMode::Viewer if !is_inline_raw_code => {
-                        Some(&policy_triggerables_default)
-                    }
+                    //
+                    // The run reads the parsed path, so a spelling that parses to a key
+                    // stored in parsed form must get that pin rather than run without one.
+                    ExecutionMode::Viewer if !is_inline_raw_code => runnable
+                        .as_ref()
+                        .map(|r| r.prefixed())
+                        .and_then(|p| {
+                            triggerables_v2.get(&p).or_else(|| {
+                                triggerables_v2.get(&format!("{}:{p}", payload.component))
+                            })
+                        })
+                        .or(Some(&policy_triggerables_default)),
                     _ => None,
                 })
                 .ok_or_else(|| Error::BadRequest(format!("Path {path} forbidden by policy")))?;
@@ -4981,11 +5001,6 @@ async fn execute_component(
         .filter(|m| !m.trim().is_empty());
 
     // An agent runnable takes the message and its files.
-    let agent_path = payload
-        .path
-        .as_deref()
-        .and_then(|p| p.strip_prefix("agent/"))
-        .map(str::to_string);
     if agent_path.is_some() {
         payload.args.retain(|k, _| {
             matches!(
@@ -5015,13 +5030,9 @@ async fn execute_component(
         }
     }
 
-    let flow_path = payload
-        .path
-        .as_deref()
-        .and_then(|path| path.strip_prefix("flow/"))
-        .map(str::to_string);
+    let flow_path = runnable.as_ref().filter(|r| r.is_flow()).map(|r| r.path());
     // A chat-mode flow keeps its conversations as an agent does, and is scoped like one below.
-    let chat_flow_path = match (flow_path.as_deref(), &memory_id) {
+    let chat_flow_path = match (flow_path, &memory_id) {
         (Some(p), Some(_)) if !p.starts_with("hub/") => {
             windmill_common::get_latest_flow_version_info_for_path(None, &db, &w_id, p, true)
                 .await?
@@ -5070,8 +5081,8 @@ async fn execute_component(
 
     let component = payload.component.clone();
     let (job_payload, tag, _runnable_on_behalf_of) =
-        match (payload.path, payload.raw_code, payload.id) {
-            (Some(_), None, None) if agent_path.is_some() => {
+        match (runnable.as_ref(), payload.raw_code, payload.id) {
+            (None, None, None) if agent_path.is_some() => {
                 let agent = agent_path.as_deref().unwrap_or_default();
                 // Read as the identity the app runs as: reading the agent is what allows running
                 // it. The app's identity is also the run's, never the agent's own on-behalf-of.
@@ -5103,9 +5114,7 @@ async fn execute_component(
                 )
             }
             // flow or script:
-            (Some(path), None, None) => {
-                get_payload_tag_from_prefixed_path(&path, &db, &w_id).await?
-            }
+            (Some(runnable), None, None) => runnable_ref_to_payload(&runnable, &db, &w_id).await?,
             // inline script: "preview" mode, or run mode without an entry in the
             // `app_script` table (legacy `rawscript/<sha>`-keyed triggerables).
             (None, Some(raw_code), None) => {
@@ -5285,7 +5294,7 @@ async fn execute_component(
             &args.args,
         )
         .await?;
-    } else if let (Some(flow_path), Some(memory_id)) = (flow_path.as_deref(), memory_id) {
+    } else if let (Some(flow_path), Some(memory_id)) = (flow_path, memory_id) {
         // A flow keeping no conversation has no row to own its memory, so the key itself is
         // derived per app and viewer: no viewer can name another's memory.
         let viewer = conversation_viewer
@@ -7164,7 +7173,7 @@ mod embed_token_tests {
 #[cfg(test)]
 mod operator_app_tests {
     use super::{check_operator_composed_app, AppRunnableKind, BuilderAppWrite, Policy};
-    use windmill_common::error::Result;
+    use windmill_common::error::{Error, Result};
     use windmill_common::worker::to_raw_value;
 
     fn builder_policy(triggerables_v2: serde_json::Value) -> Policy {
@@ -7208,10 +7217,24 @@ mod operator_app_tests {
         );
 
         // A hub reference is unreviewed code, refused like it is in a flow.
-        let mut policy = builder_policy(
-            serde_json::json!({"a:script/hub/1/x": {"static_inputs": {}, "one_of_inputs": {}}}),
-        );
-        assert!(composed_app(clean.clone(), &mut policy).is_err());
+        for key in [
+            "a:script/hub/1/x",
+            "a:script//hub/1/x",
+            "a:flow//hub/flows/1/x",
+            // Parses as a workspace flow path, so only the Hub check refuses it.
+            "a:flow/hub/1/x",
+        ] {
+            let mut policy = builder_policy(
+                serde_json::json!({ key: {"static_inputs": {}, "one_of_inputs": {}} }),
+            );
+            assert!(
+                matches!(
+                    composed_app(clean.clone(), &mut policy),
+                    Err(Error::PermissionDenied(_))
+                ),
+                "{key}"
+            );
+        }
 
         let mut policy = builder_policy(serde_json::json!({}));
         policy.sandbox = Some(false);
