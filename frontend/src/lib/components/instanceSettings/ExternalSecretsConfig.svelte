@@ -163,7 +163,7 @@
 	{/if}
 
 	{#if vault}
-		<div class="flex flex-col gap-4 p-4 border rounded-lg">
+		<div class="flex flex-col gap-4 p-4 border rounded-md bg-surface-tertiary">
 			<div class="flex flex-col gap-1">
 				<label for="ext_vault_address" class="text-xs font-semibold text-emphasis">
 					Vault address
@@ -206,7 +206,7 @@
 				</ToggleButtonGroup>
 			</div>
 			{#if authMethod === 'approle'}
-				<div class="flex flex-col gap-3 p-3 bg-surface-secondary rounded-lg">
+				<div class="flex flex-col gap-3 p-3 bg-surface-secondary rounded-md">
 					<div class="flex flex-col gap-1">
 						<label for="ext_vault_role_id" class="text-xs font-semibold text-emphasis"
 							>Role ID</label
@@ -254,7 +254,7 @@
 					</div>
 				</div>
 			{:else if authMethod === 'jwt'}
-				<div class="flex flex-col gap-3 p-3 bg-surface-secondary rounded-lg">
+				<div class="flex flex-col gap-3 p-3 bg-surface-secondary rounded-md">
 					<div class="flex flex-col gap-1">
 						<label for="ext_vault_jwt_role" class="text-xs font-semibold text-emphasis">
 							JWT auth role
@@ -285,7 +285,7 @@
 					</div>
 				</div>
 			{:else}
-				<div class="flex flex-col gap-1 p-3 bg-surface-secondary rounded-lg">
+				<div class="flex flex-col gap-1 p-3 bg-surface-secondary rounded-md">
 					<span class="text-xs font-semibold text-emphasis">Vault token</span>
 					<span class="text-xs text-secondary">Recommended only for testing.</span>
 					<Password

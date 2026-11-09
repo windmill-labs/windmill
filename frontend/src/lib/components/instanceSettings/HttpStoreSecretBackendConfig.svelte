@@ -117,11 +117,11 @@
 	}
 </script>
 
-<div class="space-y-4 p-4 border rounded-lg">
+<div class="space-y-4 p-4 border rounded-md bg-surface-tertiary">
 	<div class="flex items-center gap-2 mb-4">
 		<Globe class="text-primary" size={20} />
 		<div>
-			<p class="text-sm font-medium text-emphasis">Generic HTTP store configuration</p>
+			<p class="text-sm font-semibold text-emphasis">Generic HTTP store configuration</p>
 			<p class="text-xs text-secondary"
 				>Read secrets from any secret store with an HTTP API. Windmill only reads: values are
 				managed in the store. To reference a secret, save a secret variable with an empty value, and
@@ -289,7 +289,7 @@
 			{/snippet}
 		</ToggleButtonGroup>
 		{#if cfg().auth?.type === 'StaticHeader'}
-			<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-lg">
+			<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-md">
 				<label for="http_store_header_name" class="block text-xs font-semibold text-emphasis"
 					>Header name</label
 				>
@@ -301,7 +301,7 @@
 				<Password bind:password={$values['secret_backend'].auth.header_value} small {disabled} />
 			</div>
 		{:else if cfg().auth?.type === 'BearerTokenFile'}
-			<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-lg">
+			<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-md">
 				<label for="http_store_token_path" class="block text-xs font-semibold text-emphasis"
 					>Token file path</label
 				>
@@ -356,7 +356,7 @@
 				/>
 			</div>
 		{:else if cfg().auth?.type === 'ClientCertificate'}
-			<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-lg">
+			<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-md">
 				<label for="http_store_cert_path" class="block text-xs font-semibold text-emphasis"
 					>Certificate path</label
 				>
@@ -436,7 +436,7 @@
 		<div>
 			<Button
 				unifiedSize="md"
-				variant="accent"
+				variant="default"
 				onclick={testConnection}
 				disabled={disabled ||
 					!isConfigValid() ||
@@ -449,7 +449,7 @@
 		</div>
 		<div class="flex flex-col gap-2 pt-4 border-t">
 			<span class="block text-xs font-semibold text-emphasis">Secret migration</span>
-			<div class="p-3 border rounded-lg">
+			<div class="p-3 border rounded-md">
 				<div class="flex items-center gap-2 mb-2"
 					><Globe size={16} /><ArrowLeft size={16} /><Database size={16} /></div
 				>
