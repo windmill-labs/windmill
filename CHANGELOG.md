@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.865.0](https://github.com/windmill-labs/windmill/compare/v1.864.1...v1.865.0) (2026-11-09)
+
+
+### Features
+
+* explain row filter update rewrites in the postgres trigger editor ([#12033](https://github.com/windmill-labs/windmill/issues/12033)) ([570ead4](https://github.com/windmill-labs/windmill/commit/570ead45b300caedeacf318a915f25b2299f60b0))
+* let dedicated_workers take folder patterns like ws:f/dw/* ([#12268](https://github.com/windmill-labs/windmill/issues/12268)) ([1f92c4f](https://github.com/windmill-labs/windmill/commit/1f92c4fa44edabdaa4b7885d07e788c3e92f05fa))
+* let integration triggers use any connection of their type ([#11968](https://github.com/windmill-labs/windmill/issues/11968)) ([6f04292](https://github.com/windmill-labs/windmill/commit/6f04292ea71dd53693c7c7c3193233244c71ba60))
+* optional Vault AppRole secret_id setting, env var as fallback ([#12276](https://github.com/windmill-labs/windmill/issues/12276)) ([e4671f7](https://github.com/windmill-labs/windmill/commit/e4671f7d3f4cb0896d855f74c2c51d60a4ec2a67))
+* reload dedicated workers in place and restart them one at a time ([#12208](https://github.com/windmill-labs/windmill/issues/12208)) ([04230c2](https://github.com/windmill-labs/windmill/commit/04230c286d73c6420e98758271b0b5162332a772))
+
+
+### Bug Fixes
+
+* give build-and-run MCP tokens made in the UI the session toolset ([#12295](https://github.com/windmill-labs/windmill/issues/12295)) ([d925b22](https://github.com/windmill-labs/windmill/commit/d925b22f5b89e0e28000e347255ce36061c56d67))
+* mask secrets in the instance settings review changes diff ([#12287](https://github.com/windmill-labs/windmill/issues/12287)) ([5419d36](https://github.com/windmill-labs/windmill/commit/5419d36f5a92e57eb2d467bd3dbc1f32f3e6c764))
+* mint an RDS IAM token for DuckDB postgres attaches ([#12260](https://github.com/windmill-labs/windmill/issues/12260)) ([e6183f5](https://github.com/windmill-labs/windmill/commit/e6183f5e0fb782093b519363a31c087263f6b8d9))
+* move azure triggers when a script or flow is renamed ([#12297](https://github.com/windmill-labs/windmill/issues/12297)) ([8364402](https://github.com/windmill-labs/windmill/commit/836440280eeb7dafbedd3f4c3d3bce0100cbf9ac))
+* **python:** reject incomplete S3 URI matches ([#12290](https://github.com/windmill-labs/windmill/issues/12290)) ([098da3b](https://github.com/windmill-labs/windmill/commit/098da3b94e11881d7c04ad5a97f1373f80739c5a))
+* retry every trigger's connection in the shared listener loop ([#12180](https://github.com/windmill-labs/windmill/issues/12180)) ([7127cb7](https://github.com/windmill-labs/windmill/commit/7127cb726852e41e0e1657072d5dd53a2129b759))
+* revoke MCP OAuth grants when their token or user goes away ([#12282](https://github.com/windmill-labs/windmill/issues/12282)) ([0c87c65](https://github.com/windmill-labs/windmill/commit/0c87c651f436af8d467a14a2db2adfcc137b1d07))
+* show native trigger pages in the sidebar on CE ([#12294](https://github.com/windmill-labs/windmill/issues/12294)) ([d97df58](https://github.com/windmill-labs/windmill/commit/d97df587793b2061c2f303c9d5cc43240b2e80de))
+* show resource properties missing from the resource type schema ([#12265](https://github.com/windmill-labs/windmill/issues/12265)) ([2a4724d](https://github.com/windmill-labs/windmill/commit/2a4724d482eeba641307cd292606a46fb3297f06))
+* store trigger targets parsed so rename, list and count see them ([#12296](https://github.com/windmill-labs/windmill/issues/12296)) ([ca24409](https://github.com/windmill-labs/windmill/commit/ca2440997e6a9150347ba2856010f11d995dcefb))
+* warn instead of error on isolation probe failure when not requested ([#12288](https://github.com/windmill-labs/windmill/issues/12288)) ([e8034a1](https://github.com/windmill-labs/windmill/commit/e8034a1cf5db483554c297b37f90152796f6035c))
+
 ## [1.864.1](https://github.com/windmill-labs/windmill/compare/v1.864.0...v1.864.1) (2026-11-06)
 
 
