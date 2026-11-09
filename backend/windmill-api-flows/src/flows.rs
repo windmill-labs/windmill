@@ -2195,15 +2195,18 @@ async fn delete_flow_by_path(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query!(
+    let deleted = sqlx::query!(
         "DELETE FROM flow WHERE path = $1 AND workspace_id = $2",
         path,
         &w_id
     )
     .execute(&mut *tx)
-    .await?;
+    .await?
+    .rows_affected();
 
-    if let Some(flow_data) = trash_flow {
+    // Row-level security can let a caller read a flow it may not delete; its versions must
+    // then stay where they are.
+    if let Some(flow_data) = trash_flow.filter(|_| deleted > 0) {
         let mut trash_data = serde_json::json!({"row": flow_data});
         if !trash_flow_versions.is_empty() {
             trash_data["flow_versions"] = serde_json::Value::Array(trash_flow_versions);
