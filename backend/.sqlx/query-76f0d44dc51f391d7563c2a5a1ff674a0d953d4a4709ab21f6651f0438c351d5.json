@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_status SET\n                flow_status = jsonb_set(\n                    flow_status,\n                    array['modules', $2::int::TEXT, 'agent_actions_success'],\n                    (\n                        SELECT jsonb_agg(CASE WHEN i = $3 THEN to_jsonb($4::bool) ELSE arr->i END ORDER BY i)\n                        FROM (SELECT COALESCE(\n                            flow_status->'modules'->$2::int->'agent_actions_success', '[]'::jsonb\n                        ) AS arr) a,\n                        generate_series(0, GREATEST(jsonb_array_length(arr) - 1, $3)) AS i\n                    )\n                )\n            WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Int4",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "76f0d44dc51f391d7563c2a5a1ff674a0d953d4a4709ab21f6651f0438c351d5"
+}

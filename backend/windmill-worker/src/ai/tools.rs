@@ -437,16 +437,16 @@ pub(crate) async fn take_finished_background_jobs(
     running: &mut Vec<BackgroundJob>,
 ) -> Result<Vec<FinishedBackgroundJob>, Error> {
     let ids: Vec<Uuid> = running.iter().map(|b| b.job_id).collect();
-    let completed: Vec<(Uuid, bool, Option<Json<Box<RawValue>>>)> = sqlx::query_as(
-        "SELECT id, status = 'success', result FROM v2_job_completed
-         WHERE workspace_id = $1 AND id = ANY($2)",
+    let completed = sqlx::query!(
+        "SELECT id, status = 'success' AS \"success!\", result AS \"result: Json<Box<RawValue>>\"
+                FROM v2_job_completed WHERE workspace_id = $1 AND id = ANY($2)",
+        workspace_id,
+        &ids,
     )
-    .bind(workspace_id)
-    .bind(&ids)
     .fetch_all(db)
     .await?;
     let mut finished = Vec::with_capacity(completed.len());
-    for (id, success, result) in completed {
+    for (id, success, result) in completed.into_iter().map(|c| (c.id, c.success, c.result)) {
         let Some(index) = running.iter().position(|b| b.job_id == id) else {
             continue;
         };

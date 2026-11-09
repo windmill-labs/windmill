@@ -317,25 +317,25 @@ pub async fn set_flow_status_module_action_success_at(
 ) -> Result<(), Error> {
     if let Step::Step { idx: step, .. } = get_step_of_flow_status(db, parent_job.to_owned()).await?
     {
-        sqlx::query(
+        sqlx::query!(
             "UPDATE v2_job_status SET
                 flow_status = jsonb_set(
                     flow_status,
-                    array['modules', $2::TEXT, 'agent_actions_success'],
+                    array['modules', $2::int::TEXT, 'agent_actions_success'],
                     (
                         SELECT jsonb_agg(CASE WHEN i = $3 THEN to_jsonb($4::bool) ELSE arr->i END ORDER BY i)
                         FROM (SELECT COALESCE(
-                            flow_status->'modules'->$2->'agent_actions_success', '[]'::jsonb
+                            flow_status->'modules'->$2::int->'agent_actions_success', '[]'::jsonb
                         ) AS arr) a,
                         generate_series(0, GREATEST(jsonb_array_length(arr) - 1, $3)) AS i
                     )
                 )
             WHERE id = $1",
+            parent_job,
+            step as i32,
+            index as i32,
+            action_success
         )
-        .bind(parent_job)
-        .bind(step as i32)
-        .bind(index as i32)
-        .bind(action_success)
         .execute(db)
         .await?;
     }
@@ -347,24 +347,24 @@ pub async fn set_flow_status_module_action_success_at(
 pub async fn fail_unfinished_action_successes(db: &DB, parent_job: &Uuid) -> Result<(), Error> {
     if let Step::Step { idx: step, .. } = get_step_of_flow_status(db, parent_job.to_owned()).await?
     {
-        sqlx::query(
+        sqlx::query!(
             "UPDATE v2_job_status SET
                 flow_status = jsonb_set(
                     flow_status,
-                    array['modules', $2::TEXT, 'agent_actions_success'],
+                    array['modules', $2::int::TEXT, 'agent_actions_success'],
                     (
                         SELECT jsonb_agg(CASE WHEN e = 'null'::jsonb THEN 'false'::jsonb ELSE e END
                             ORDER BY i)
                         FROM jsonb_array_elements(
-                            flow_status->'modules'->$2->'agent_actions_success'
+                            flow_status->'modules'->$2::int->'agent_actions_success'
                         ) WITH ORDINALITY AS t(e, i)
                     )
                 )
             WHERE id = $1
-                AND flow_status->'modules'->$2->'agent_actions_success' @> '[null]'::jsonb",
+                AND flow_status->'modules'->$2::int->'agent_actions_success' @> '[null]'::jsonb",
+            parent_job,
+            step as i32
         )
-        .bind(parent_job)
-        .bind(step as i32)
         .execute(db)
         .await?;
     }
@@ -381,26 +381,26 @@ pub async fn reset_flow_status_module_action_successes(
 ) -> Result<(), Error> {
     if let Step::Step { idx: step, .. } = get_step_of_flow_status(db, parent_job.to_owned()).await?
     {
-        sqlx::query(
+        sqlx::query!(
             "UPDATE v2_job_status SET
                 flow_status = jsonb_set(
                     flow_status,
-                    array['modules', $2::TEXT, 'agent_actions_success'],
+                    array['modules', $2::int::TEXT, 'agent_actions_success'],
                     COALESCE((
                         SELECT jsonb_agg(e ORDER BY i)
                         FROM jsonb_array_elements(
-                            flow_status->'modules'->$2->'agent_actions_success'
+                            flow_status->'modules'->$2::int->'agent_actions_success'
                         ) WITH ORDINALITY AS t(e, i)
                         WHERE i <= $3
                     ), '[]'::jsonb) || CASE WHEN $4::bool IS NULL THEN '[]'::jsonb
                         ELSE to_jsonb(ARRAY[$4::bool]) END
                 )
             WHERE id = $1",
+            parent_job,
+            step as i32,
+            keep as i64,
+            append
         )
-        .bind(parent_job)
-        .bind(step as i32)
-        .bind(keep as i64)
-        .bind(append)
         .execute(db)
         .await?;
     }
