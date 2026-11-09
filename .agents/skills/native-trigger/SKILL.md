@@ -134,7 +134,10 @@ including one connected for runnables through the resource connect drawer. Its a
 `http_client_request` refreshes it through the variable store (`windmill_store`'s
 `_refresh_token`), never with the workspace app. A connection whose account lacks some of
 `ServiceName::oauth_scopes` reports them as `missing_scopes`; reconnecting asks for those plus the
-account's own scopes.
+account's own scopes. Only connections the connect flow made can be reconnected or disconnected
+(`check_can_replace`, `delete_connection`): a connected resource's token may hold scopes its
+runnables need that a trigger connect would not request (a GitHub resource has no account to
+read them from), so its lifecycle stays in Resources.
 
 A user may use a connection when they can read its variable (checked with a user transaction,
 so the variable's row-level security decides): `resolve_usable_connection` /

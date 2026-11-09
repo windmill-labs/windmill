@@ -235,6 +235,10 @@ fn check_connection_scopes(authed: &ApiAuthed, path: &str) -> Result<()> {
 /// Reconnecting at a path swaps the account every trigger using it acts as, including the shared
 /// account's, so only whoever connected it or an admin may replace what is there. Writing the
 /// path is not enough: a folder writer would otherwise turn other members' triggers into their own.
+///
+/// Admins included, only a connection the trigger connect flow made can be replaced. A resource connected
+/// from Resources keeps its scopes and lifecycle there: its token may carry scopes the runnables
+/// using it need and that a trigger connect would not ask for.
 #[cfg(feature = "native_trigger")]
 async fn check_can_replace(
     db: &DB,
@@ -242,19 +246,28 @@ async fn check_can_replace(
     workspace_id: &str,
     path: &str,
 ) -> Result<()> {
-    if authed.is_admin {
-        return Ok(());
-    }
     let existing = sqlx::query!(
         r#"SELECT
              (SELECT created_by FROM resource WHERE workspace_id = $1 AND path = $2) AS "owner?",
              EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2)
-               OR EXISTS(SELECT 1 FROM variable WHERE workspace_id = $1 AND path = $2) AS "taken!""#,
+               OR EXISTS(SELECT 1 FROM variable WHERE workspace_id = $1 AND path = $2) AS "taken!",
+             COALESCE((SELECT a.is_workspace_integration FROM variable v
+                       JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account
+                       WHERE v.workspace_id = $1 AND v.path = $2), false) AS "managed!""#,
         workspace_id,
         path,
     )
     .fetch_one(db)
     .await?;
+    if existing.taken && !existing.managed {
+        return Err(Error::BadRequest(format!(
+            "{path} was not connected by integration triggers. Triggers can use it, but it can only \
+             be replaced from Resources. Connect at another path to use a new account."
+        )));
+    }
+    if authed.is_admin {
+        return Ok(());
+    }
     if existing.taken && existing.owner.as_deref() != Some(authed.username.as_str()) {
         return Err(Error::NotAuthorized(format!(
             "{path} holds a connection someone else created. Connect at another path, or ask an \
@@ -798,8 +811,7 @@ async fn oauth_callback(
     let mut tx = user_db.begin(&authed).await?;
 
     // Reconnecting at a path swaps the token and account in place: the resource and variable keep
-    // their sharing and description, which a connected resource's runnables rely on, and the
-    // triggers using the path keep working.
+    // their sharing and description, and the triggers using the path keep working.
     let replaced_account = sqlx::query_scalar!(
         "SELECT account FROM variable WHERE workspace_id = $1 AND path = $2",
         workspace_id,
@@ -1198,7 +1210,7 @@ async fn get_instance_oauth_config(
     if !is_instance_sharing_enabled(db, service_name).await? {
         return Err(Error::BadRequest(format!(
             "No {service_name} OAuth app is configured for this workspace. A workspace admin can \
-             configure one in the workspace settings, under native triggers."
+             configure one in the workspace settings, under integration triggers."
         )));
     }
 
@@ -1306,10 +1318,27 @@ async fn set_workspace_connection(
     .execute(&mut *tx)
     .await?
     .rows_affected();
+    // A workspace whose connections all come from Resources has no row yet; with the instance
+    // client shared, it gets the same row a trigger connect would have written.
     if updated == 0 {
-        return Err(Error::NotFound(format!(
-            "{service_name} is not set up in this workspace"
-        )));
+        if !is_instance_sharing_enabled(&db, service_name).await? {
+            return Err(Error::NotFound(format!(
+                "{service_name} is not set up in this workspace"
+            )));
+        }
+        let config = get_instance_oauth_config(&db, service_name).await?;
+        sqlx::query!(
+            "INSERT INTO workspace_integrations
+               (workspace_id, service_name, oauth_data, resource_path, created_by)
+             VALUES ($1, $2, $3, $4, $5)",
+            workspace_id,
+            service_name as ServiceName,
+            json!({ "instance_shared": true, "base_url": config.base_url }),
+            path,
+            authed.username,
+        )
+        .execute(&mut *tx)
+        .await?;
     }
 
     audit_log(

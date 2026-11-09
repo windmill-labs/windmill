@@ -40934,8 +40934,8 @@ components:
           type: boolean
           description: >-
             Whether the integration trigger connect flow made it. Any other connection is a
-            resource connected elsewhere, which can be reconnected here but only deleted from
-            Resources.
+            resource connected from Resources, which triggers can use but only Resources can
+            replace or delete.
         scopes:
           type: array
           nullable: true

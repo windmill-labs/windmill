@@ -139,8 +139,10 @@
 		return !c.workspace && !!c.owner && c.owner === operatingUser.current?.username
 	}
 
-	// The server lets only the connection's owner or an admin replace it.
+	// The server lets only the connection's owner or an admin replace it, and never replaces a
+	// resource connected from Resources.
 	function canReconnect(c: NativeTriggerConnection): boolean {
+		if (!c.managed) return false
 		return (
 			!!operatingUser.current?.is_admin ||
 			(!!c.owner && c.owner === operatingUser.current?.username)
@@ -238,10 +240,29 @@
 		{@const missing = selected}
 		<Alert type="warning" title="This account is missing permissions" size="xs">
 			<div class="flex flex-col gap-2">
-				<span>
-					Triggers need {missing.missing_scopes?.join(', ')}. Reconnecting asks for them and keeps
-					what the account already has.
-				</span>
+				{#if missing.managed}
+					<span>
+						Triggers need {missing.missing_scopes?.join(', ')}. Reconnecting asks for them and keeps
+						what the account already has.
+					</span>
+				{:else}
+					<span>
+						Triggers need {missing.missing_scopes?.join(', ')}. This resource was connected from
+						Resources, so connect a new account that grants them.
+					</span>
+					<div>
+						<Button
+							unifiedSize="xs"
+							variant="default"
+							wrapperClasses="w-fit"
+							startIcon={{ icon: Plus }}
+							disabled={disabled || connecting}
+							onclick={() => connectDrawer?.open(getServiceConfig(service)?.resourceType)}
+						>
+							Connect a new account
+						</Button>
+					</div>
+				{/if}
 				{#if canReconnect(missing)}
 					<div>
 						<Button
